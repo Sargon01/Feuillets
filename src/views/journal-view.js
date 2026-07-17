@@ -4,7 +4,7 @@ import { VIEW_JOURNAL } from "../constants.js";
 import { dateKey, statsForDay } from "../utils/journal-stats.js";
 import { journalEntryKeys, getLastEntry, getDayEntry } from "../services/journal.js";
 import { countWords } from "../utils/core.js";
-import { isEditing, iconBtn } from "../utils/dom.js";
+import { isEditing, iconBtn, openFileActivating } from "../utils/dom.js";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -169,7 +169,7 @@ export class JournalView extends ItemView {
       dateEl.setAttr("aria-label", "Ouvrir et éditer dans un nouvel onglet");
       dateEl.setAttr("title", "Ouvrir et éditer dans un nouvel onglet");
       dateEl.addEventListener("click", () => {
-        this.app.workspace.getLeaf("tab").openFile(entry.file);
+        openFileActivating(this.app, this.app.workspace.getLeaf("tab"), entry.file);
       });
 
       // Affichage en lecture seule : rendu Markdown
@@ -190,7 +190,7 @@ export class JournalView extends ItemView {
         createBtn.addEventListener("click", async () => {
           const file = await this.plugin.ensureJournalEntry(this.viewedDate);
           if (file) {
-            this.app.workspace.getLeaf("tab").openFile(file);
+            openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
             this.render();
           }
         });

@@ -1,6 +1,6 @@
 import { VIEW_SIDEBAR, STATUSES } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
-import { highlightActive, isEditing, getActiveFileSafe } from "../utils/dom.js";
+import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 
@@ -390,8 +390,7 @@ export class FeuilletsView extends BaseFeuilletsView {
            on connaît déjà le fichier ciblé, pas besoin de le redéduire. */
         highlightActive(this.contentEl, file.path);
         const leaf = this.plugin.getLeafForOpeningFile();
-        leaf.openFile(file, { active: true });
-        this.app.workspace.setActiveLeaf(leaf, { focus: true });
+        openFileActivating(this.app, leaf, file);
         this.app.workspace.revealLeaf(leaf);
       });
 

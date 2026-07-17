@@ -2,7 +2,7 @@ const { ItemView, MarkdownRenderer, TFolder, TFile, MarkdownView, setIcon } = re
 
 import { VIEW_NOTES } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
-import { iconBtn } from "../utils/dom.js";
+import { iconBtn, openFileActivating } from "../utils/dom.js";
 
 function getNotesSectionIcon(title) {
   return {
@@ -132,7 +132,7 @@ export class NotesView extends ItemView {
           bHead.setText(`◆ ${this.plugin.titleFor(jalon)} — ${sceneDate.display}`);
           bHead.setAttr("title", "Jalon historique (_Chronologie) — cliquer pour ouvrir");
           bHead.addEventListener("click", () => {
-            this.app.workspace.getLeaf(false).openFile(jalon);
+            openFileActivating(this.app, this.app.workspace.getLeaf(false), jalon);
           });
           const bBody = box.createDiv({ cls: "feuillets-notes-milestone-body" });
           const raw = await this.app.vault.cachedRead(jalon);
@@ -355,7 +355,7 @@ export class NotesView extends ItemView {
       const nameEl = head.createSpan({ cls: "feuillets-entity-name" });
       nameEl.setText(`• ${this.plugin.titleFor(ent)}`);
       nameEl.addEventListener("click", () => {
-        this.app.workspace.getLeaf(false).openFile(ent);
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), ent);
       });
 
       if (kind === "personnage" && sceneDate) {

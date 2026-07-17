@@ -135,9 +135,13 @@ export const DEFAULT_SETTINGS = {
   hiddenPanels: [],
 
   /* suivi automatique des fils narratifs (fil:) — { [valeur]: chemin du
-     feuillet qui porte le marqueur en attente } et liste des valeurs déjà
-     résolues, à ne plus jamais retoucher automatiquement */
+     feuillet qui porte le marqueur en attente }, { [valeur]: chemin du
+     feuillet où le fil a été planté la première fois — pour ne jamais
+     confondre une réédition de ce feuillet d'origine avec une vraie
+     nouvelle apparition ailleurs } et liste des valeurs déjà résolues, à
+     ne plus jamais retoucher automatiquement */
   filPlaceholders: {},
+  filOrigins: {},
   filResolved: [],
 };
 

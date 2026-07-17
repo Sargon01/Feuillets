@@ -1552,12 +1552,28 @@ body.feuillets-concentration .markdown-preview-view {
   color: var(--interactive-accent);
 }
 
+.feuillets-settings-subsection {
+  border-top: 1px solid var(--background-modifier-border);
+  margin: 4px 0 0;
+  padding: 2px 0 6px;
+}
+
+.feuillets-settings-subsection:first-of-type {
+  border-top: none;
+}
+
 .feuillets-settings-subhead {
+  cursor: pointer;
   font-size: var(--font-ui-small);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-  margin: 16px 0 4px;
+  margin: 8px 0 4px;
+  list-style-position: inside;
+}
+
+.feuillets-settings-subhead:hover {
+  color: var(--interactive-accent);
 }
 
 /* ===== typographie à la frappe : affichage des lignes vides ===== */

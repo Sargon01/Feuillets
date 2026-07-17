@@ -3,7 +3,7 @@ const { ItemView, TFolder, TFile } = require("obsidian");
 import { VIEW_TAGS } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { buildTagTree, collectFiles, sortTagNodes } from "../utils/tag-tree.js";
-import { iconBtn } from "../utils/dom.js";
+import { iconBtn, openFileActivating } from "../utils/dom.js";
 
 const STRUCTURAL_TAGS = new Set([
   "personnage", "lieu", "evenement", "codex", "source", "bibliographie", "glossaire",
@@ -149,7 +149,7 @@ export class TagsView extends ItemView {
       frow.setText(this.plugin.shortTitleFor(file));
       frow.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.app.workspace.getLeaf(false).openFile(file);
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
     }
   }
