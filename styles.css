@@ -1,0 +1,3201 @@
+/* Feuillets 2.0 — styles, alignés sur les variables natives d'Obsidian */
+
+/* ===== binder (vue latérale) ===== */
+
+/* fond forcé à --background-secondary sur les trois panneaux du plugin :
+   sans ça, un panneau ouvert comme onglet dans la zone centrale (plutôt
+   que dans une barre latérale) hérite du fond de page (--background-
+   primary) et se distingue mal du texte du manuscrit. */
+/* Fond : on n'IMPOSE plus de couleur. Forcer --background-secondary
+   partait du principe que c'est la couleur des barres latérales — c'est
+   faux pour beaucoup de thèmes, qui peignent la barre latérale avec leur
+   propre teinte. D'où un panneau de droite qui ne correspondait ni au
+   centre ni à la barre de gauche. En restant transparent, chaque panneau
+   hérite EXACTEMENT du fond de la zone où il est ancré : identique à la
+   barre de gauche quand il est en barre latérale, identique au centre
+   quand il est ouvert en onglet central. */
+.feuillets-container,
+.feuillets-notes-container,
+.feuillets-research-container {
+  background: transparent;
+}
+
+/* Obsidian applique son PROPRE padding sur .view-content (le conteneur
+   de vue qu'il nous fournit). Un en-tête `position: sticky` se colle au
+   bord de la zone de défilement, donc à l'intérieur de ce padding : il
+   restait une bande de quelques pixels entre le bord de la fenêtre et
+   l'en-tête, dans laquelle on voyait le contenu défiler. On remet ce
+   padding à zéro et on laisse chaque élément interne gérer le sien —
+   l'en-tête touche alors vraiment le bord et masque tout ce qui passe
+   dessous. Idem pour le padding horizontal, sinon la bande réapparaît
+   sur les côtés. */
+.workspace-leaf-content[data-type="feuillets-view"] .view-content,
+.workspace-leaf-content[data-type="feuillets-board"] .view-content,
+.workspace-leaf-content[data-type="feuillets-notes"] .view-content,
+.workspace-leaf-content[data-type="feuillets-research"] .view-content,
+.workspace-leaf-content[data-type="feuillets-progression"] .view-content,
+.workspace-leaf-content[data-type="feuillets-journal"] .view-content {
+  padding: 0;
+  /* le défilement est géré PLUS BAS, par les zones internes (liste du
+     binder, volets de la double vue, corps du tableau) : si .view-content
+     défilait aussi, il ferait défiler l'en-tête avec lui. */
+  overflow: hidden;
+}
+
+.feuillets-container {
+  /* colonne pleine hauteur : l'en-tête ne défile pas, le corps oui.
+     flex + min-height:0 obligatoires (voir .feuillets-board-container) :
+     .view-content est une colonne flex, height:100% seul y est ignoré. */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* uniquement la liste RACINE du binder (vue arbre) est la zone défilante.
+   En vue double volet, la liste vit dans .feuillets-list-pane qui défile
+   déjà : la faire défiler elle aussi créerait deux barres imbriquées. */
+.feuillets-container > .feuillets-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
+.feuillets-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 10px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  /* hors de la zone défilante (le conteneur est une colonne flex) : figé
+     par construction, plus besoin de `sticky` ni de fond opaque */
+  flex-shrink: 0;
+}
+
+.feuillets-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.feuillets-actions button {
+  padding: 2px 8px;
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.feuillets-list {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 6px;
+}
+
+.feuillets-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  user-select: none;
+}
+
+.feuillets-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-item.feuillets-dragging,
+.feuillets-folder-row.feuillets-dragging,
+.feuillets-card.feuillets-dragging,
+.feuillets-row.feuillets-dragging {
+  opacity: 0.4;
+}
+
+.feuillets-item.feuillets-dragover,
+.feuillets-folder-row.feuillets-dragover,
+.feuillets-row.feuillets-dragover {
+  box-shadow: inset 0 2px 0 var(--interactive-accent);
+}
+
+.feuillets-card.feuillets-dragover {
+  outline: 2px solid var(--interactive-accent);
+}
+
+.feuillets-item-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.feuillets-item-name {
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-item-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.feuillets-scene .feuillets-item-name {
+  color: var(--text-muted);
+}
+
+.feuillets-scene .feuillets-ring {
+  width: 11px;
+  height: 11px;
+  min-width: 11px;
+}
+
+.feuillets-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  margin-top: 4px;
+  font-weight: var(--font-semibold, 600);
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  cursor: grab;
+  border-radius: var(--radius-s);
+}
+
+.feuillets-folder-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-chapter-folder .feuillets-item-name {
+  font-weight: var(--font-semibold, 600);
+}
+
+.feuillets-chevron {
+  display: inline-block;
+  cursor: pointer;
+  width: 10px;
+  text-align: center;
+  font-size: 0.85em;
+  color: var(--text-faint);
+  opacity: 0.7;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+
+.feuillets-chevron:hover {
+  color: var(--text-normal);
+  opacity: 1;
+}
+
+.feuillets-folder-add {
+  cursor: pointer;
+  color: var(--text-faint);
+  padding: 0 4px;
+}
+
+.feuillets-folder-add:hover {
+  color: var(--interactive-accent);
+}
+
+
+.feuillets-empty {
+  padding: 16px 12px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+/* ===== anneau de progression ===== */
+
+.feuillets-ring {
+  --pct: 0%;
+  width: 20px;
+  height: 4px;
+  min-width: 20px;
+  border-radius: 2px;
+  background: var(--background-modifier-border);
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.feuillets-ring::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--pct);
+  background: var(--interactive-accent);
+  border-radius: 2px;
+}
+
+.feuillets-ring.feuillets-ring-hit::after {
+  background: var(--color-green) !important;
+}
+
+.feuillets-ring.feuillets-ring-over::after {
+  background: var(--color-red) !important;
+}
+
+/* ===== barre du tableau ===== */
+
+.feuillets-board-container {
+  /* colonne : barre d'outils figée en haut + zone défilante en dessous.
+     `height: 100%` NE SUFFIT PAS : .view-content est elle-même une colonne
+     flex chez Obsidian, et un enfant flex ignore height:100% tant qu'on
+     ne lui donne pas flex + min-height:0. Sans ça le conteneur gardait la
+     hauteur de son contenu, rien ne défilait à l'intérieur, et la barre
+     restait superposée au contenu — elle continuait donc de couper la
+     première ligne. */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.feuillets-board-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* marge de respiration : le panneau central ne doit pas coller aux
+     panneaux latéraux */
+  padding: 0 24px 16px;
+}
+
+.feuillets-board-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  /* plus de `sticky` ni de marge négative : la barre est hors de la zone
+     défilante (voir .feuillets-board-scroll), donc figée par construction */
+  flex-shrink: 0;
+  margin: 0;
+  padding: 10px 24px;
+}
+
+/* la barre n'est plus superposée au contenu (elle est hors de la zone
+   défilante) : elle n'a donc plus besoin d'un fond opaque pour le masquer,
+   et hérite naturellement de celui du panneau */
+.feuillets-board-bar {
+  background: transparent;
+}
+
+
+
+
+.feuillets-board-bar-right {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.feuillets-board-bar-right button {
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  padding: 3px 10px;
+  box-shadow: none;
+}
+
+.feuillets-mode-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.feuillets-filter,
+.feuillets-tag-filter {
+  font-size: var(--font-ui-smaller);
+  height: 28px;
+}
+
+.feuillets-tag-filter {
+  width: 90px;
+}
+
+
+.feuillets-filter-note {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-warning, var(--text-muted));
+  margin-bottom: 10px;
+}
+
+/* ===== titres de sections ===== */
+
+.feuillets-part-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: var(--font-semibold, 600);
+  font-size: 1.05em;
+  color: var(--text-normal);
+  margin: 26px 0 12px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--background-modifier-border);
+}
+
+.feuillets-chapter-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 18px 0 10px;
+  color: var(--text-normal);
+}
+
+.feuillets-chapter-num {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.feuillets-chapter-name {
+  font-weight: var(--font-semibold, 600);
+}
+
+.feuillets-chapter-meta {
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+.feuillets-chapter-title .feuillets-ring,
+.feuillets-part-title .feuillets-ring {
+  align-self: center;
+}
+
+.feuillets-chapter-title .feuillets-goal-input,
+.feuillets-part-title .feuillets-goal-input {
+  width: 56px;
+}
+
+/* ===== cartes ===== */
+
+.feuillets-grid {
+  display: grid;
+  gap: 22px;
+  margin-bottom: 24px;
+  padding: 4px 2px;
+}
+
+.feuillets-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s, 0 1px 3px rgba(0, 0, 0, 0.25));
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.1s ease, box-shadow 0.1s ease;
+}
+
+.feuillets-card:hover {
+  border-color: var(--interactive-accent);
+  box-shadow: var(--shadow-l, 0 3px 10px rgba(0, 0, 0, 0.35));
+}
+
+/* thèmes où secondary ≈ primary : on force un écart perceptible */
+.theme-dark .feuillets-card {
+  background: color-mix(in srgb, var(--background-secondary) 82%, white 6%);
+}
+.theme-light .feuillets-board-container {
+  background: var(--background-secondary);
+}
+.theme-light .feuillets-card {
+  background: var(--background-primary);
+  border-color: color-mix(in srgb, var(--background-modifier-border) 60%, black 12%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.theme-light .feuillets-card:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+}
+
+.feuillets-card-scene {
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.feuillets-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: grab;
+}
+
+.feuillets-card-icon {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.feuillets-card-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.feuillets-card-num {
+  font-weight: var(--font-semibold, 600);
+  font-variant-numeric: tabular-nums;
+  flex: 1;
+}
+
+.feuillets-card-wc {
+  font-size: 0.8em;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.feuillets-card-excerpt {
+  font-size: 0.92em;
+  line-height: 1.45;
+  color: var(--text-normal);
+  white-space: pre-line;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+  cursor: pointer;
+}
+
+.feuillets-synopsis {
+  width: 100%;
+  resize: vertical;
+  font-size: 0.95em;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  padding: 4px 6px;
+  font-family: inherit;
+  color: var(--text-normal);
+}
+
+.feuillets-synopsis:hover,
+.feuillets-synopsis:focus {
+  background: var(--background-modifier-hover);
+  outline: none;
+  box-shadow: none;
+}
+
+.feuillets-goal-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.8em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.feuillets-goal-input {
+  width: 56px;
+  font-size: 0.8em;
+  padding: 1px 4px;
+  height: 24px;
+}
+
+.feuillets-status {
+  font-size: 0.8em;
+  max-width: 105px;
+  height: 20px;
+  padding: 0 4px;
+}
+
+.feuillets-wc {
+  font-variant-numeric: tabular-nums;
+}
+
+/* tags */
+
+.feuillets-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.feuillets-tag-chip {
+  font-size: var(--font-ui-smaller);
+  background: var(--tag-background, var(--background-secondary-alt));
+  color: var(--tag-color, var(--text-accent));
+  border-radius: var(--tag-radius, 999px);
+  padding: 0px 6px;
+  line-height: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.feuillets-tag-chip:hover {
+  text-decoration: line-through;
+}
+
+.feuillets-tags-input {
+  flex: 1;
+  min-width: 48px;
+  font-size: var(--font-ui-smaller);
+  background: transparent;
+  border: none;
+  height: 20px;
+  padding: 0 2px;
+  color: var(--text-muted);
+}
+
+.feuillets-tags-input:focus {
+  outline: none;
+  box-shadow: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* ===== binder : vue double volet (dossiers | feuillets) ===== */
+
+/* les deux volets défilent INDÉPENDAMMENT. La hauteur ne peut pas être
+   devinée (calc sur 100vh était faux dès que le panneau n'occupait pas
+   toute la fenêtre) : on la prend du parent, qui est une colonne flex de
+   hauteur connue (.feuillets-container). min-height: 0 est indispensable
+   — sans lui, un enfant flex refuse de rétrécir sous la taille de son
+   contenu et le débordement remonte au conteneur, ce qui faisait défiler
+   les deux volets ensemble. */
+.feuillets-split {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+
+.feuillets-tree-pane {
+  width: var(--feuillets-tree-w, 170px);
+  flex-shrink: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-split-resizer {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+}
+
+.feuillets-split-resizer:hover {
+  background: var(--interactive-accent);
+  opacity: 0.4;
+}
+
+.feuillets-list-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+/* ===== panneau unique (façon Notebook Navigator) ===== */
+
+.feuillets-split.is-single .feuillets-tree-pane {
+  /* un seul volet : il occupe toute la largeur au lieu de sa colonne fixe */
+  width: auto;
+  flex: 1;
+  border-right: none;
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+.feuillets-single-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.feuillets-single-back:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* ===== volet fichier : cartes façon Notebook Navigator ===== */
+
+/* lignes aérées, séparées par un filet, titre au-dessus de l'aperçu —
+   plutôt que la ligne compacte de la vue arbre, qui sert à scanner vite */
+.feuillets-list-pane .feuillets-item {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+}
+
+.feuillets-list-pane .feuillets-item:last-child {
+  border-bottom: none;
+}
+
+.feuillets-list-pane .feuillets-item .feuillets-item-name {
+  white-space: normal;
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-normal);
+}
+
+.feuillets-list-pane .feuillets-item.is-active .feuillets-item-name {
+  color: var(--text-on-accent);
+}
+
+.feuillets-list-subheading {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-muted);
+  padding: 6px 8px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.feuillets-tree-scope {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 2px;
+}
+
+.feuillets-tree-root {
+  margin-top: 0;
+  margin-bottom: 4px;
+}
+
+.feuillets-item-preview {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  margin-top: 2px;
+  cursor: default;
+  user-select: text;
+}
+
+.feuillets-tree-pane .feuillets-folder-row.is-selected {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.feuillets-tree-pane .feuillets-folder-row.is-selected .feuillets-cell-icon,
+.feuillets-tree-pane .feuillets-folder-row.is-selected .feuillets-folder-name {
+  color: var(--text-on-accent);
+}
+
+/* volet gauche : hiérarchie lisible. Tout était en gras (hérité de
+   .feuillets-folder-row), donc racine, parties et chapitres se
+   ressemblaient. On ne garde le gras que pour les dossiers de premier
+   niveau ; les niveaux imbriqués passent en poids normal et en gris,
+   ce qui rend la profondeur visible d'un coup d'œil. */
+.feuillets-tree-pane .feuillets-folder-row {
+  font-weight: var(--font-normal, 400);
+  color: var(--text-muted);
+}
+
+.feuillets-tree-pane .feuillets-folder-row.is-depth-0 {
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-normal);
+}
+
+.feuillets-tree-pane .feuillets-cell-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+}
+
+.feuillets-tree-pane .feuillets-cell-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ===== plan (outliner façon Scrivener) ===== */
+
+.feuillets-outline {
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+}
+
+.feuillets-row {
+  display: grid;
+  grid-template-columns: var(--feuillets-cols);
+  align-items: center;
+  padding: 1px 6px;
+  min-height: 22px;
+}
+
+.feuillets-row:hover:not(.feuillets-row-head) {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-row.is-active {
+  border-left: 3px solid var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-row-head {
+  /* PLUS de position:sticky : deux tentatives de le faire flotter ont
+     chacune fini par recouvrir une ligne du contenu, parce que la hauteur
+     de ce qui est au-dessus (barre d'outils, qui passe à la ligne selon la
+     largeur du panneau) n'est jamais garantie — ici il était calé sur
+     48px supposés. Un en-tête qui défile avec sa table ne peut recouvrir
+     personne : fiabilité avant confort. */
+  background: var(--background-primary);
+  font-size: 0.8em;
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--background-modifier-border);
+  user-select: none;
+}
+
+.feuillets-col-head-cell {
+  position: relative;
+  padding-right: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  border-right: 2px solid transparent;
+}
+
+.feuillets-col-resizer:hover {
+  border-right-color: var(--interactive-accent);
+}
+
+.feuillets-row-part {
+  font-weight: var(--font-semibold, 600);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-row-folder {
+  font-weight: var(--font-semibold, 600);
+}
+
+.feuillets-row-part .feuillets-cell-icon,
+.feuillets-row-part .feuillets-folder-name,
+.feuillets-row-folder .feuillets-cell-icon,
+.feuillets-row-folder .feuillets-folder-name {
+  color: var(--interactive-accent);
+}
+
+.feuillets-col-handle {
+  color: var(--text-faint);
+  cursor: grab;
+  text-align: center;
+  user-select: none;
+  font-size: 0.8em;
+}
+
+.feuillets-cell {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding-right: 8px;
+  font-size: 0.9em;
+}
+
+.feuillets-cell-icon {
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+}
+
+.feuillets-cell-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.feuillets-row-num {
+  color: var(--text-faint);
+  font-size: 0.8em;
+  min-width: 28px;
+  font-variant-numeric: tabular-nums;
+}
+
+.feuillets-cell-title {
+  overflow: hidden;
+}
+
+.feuillets-open-btn {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.8em;
+  padding: 0 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+.feuillets-open-btn svg,
+.feuillets-card-more svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
+.feuillets-open-btn:hover {
+  color: var(--interactive-accent);
+}
+
+.feuillets-cell-synopsis .feuillets-synopsis {
+  resize: none;
+  text-align: left;
+  font-size: 0.8em;
+}
+
+.feuillets-cell-words {
+  font-size: 0.8em;
+}
+
+/* modale */
+.feuillets-modal-buttons {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+
+/* ===== alinéas de paragraphe ===== */
+
+body.feuillets-indent .markdown-preview-view p,
+body.feuillets-indent .markdown-rendered p {
+  text-indent: 1.5em;
+}
+
+body.feuillets-indent .markdown-preview-view,
+body.feuillets-indent .markdown-rendered {
+  --p-spacing: 0px !important;
+}
+
+/* PERFORMANCE : la version précédente chaînait six :not() sur chaque
+   .cm-line, réévalués à chaque frappe. Règle générale + remises à zéro
+   par classe simple : même résultat, évaluation bien plus légère. */
+body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line {
+  text-indent: 1.5em;
+}
+body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-header,
+body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-list-line,
+body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote,
+body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock,
+body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.cm-hmd-frontmatter,
+body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
+  text-indent: 0;
+}
+
+/* barre d'état : mots / objectif */
+.feuillets-status-bar {
+  font-variant-numeric: tabular-nums;
+}
+
+.feuillets-status-bar.feuillets-status-hit {
+  color: var(--color-green);
+}
+
+.feuillets-status-bar.feuillets-status-over {
+  color: var(--color-red);
+}
+
+/* ===== historique de progression ===== */
+
+.feuillets-history-modal {
+  min-width: 480px;
+}
+
+.feuillets-history-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.feuillets-history-tabs button {
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  padding: 3px 10px;
+}
+
+/* ===== journal d'écriture (calendrier) ===== */
+
+.feuillets-journal-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.feuillets-journal-nav-btn {
+  cursor: pointer;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-s);
+}
+
+.feuillets-journal-nav-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.feuillets-journal-nav-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.feuillets-journal-compile-btn {
+  margin-left: auto;
+}
+
+.feuillets-journal-month {
+  font-size: var(--font-ui-small);
+  font-weight: normal;
+  color: var(--text-muted);
+  text-transform: capitalize;
+  min-width: 9em;
+  text-align: center;
+}
+
+.feuillets-journal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.feuillets-journal-weekdays {
+  margin-bottom: 4px;
+}
+
+.feuillets-journal-weekday {
+  font-size: 9px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.feuillets-journal-cell {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.feuillets-journal-cell-empty {
+  cursor: default;
+}
+
+.feuillets-journal-cell:hover .feuillets-journal-daynum {
+  color: var(--text-normal);
+}
+
+.feuillets-journal-cell-today .feuillets-journal-daynum {
+  font-weight: var(--font-semibold, 600);
+  color: var(--interactive-accent);
+}
+
+.feuillets-journal-daynum {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.feuillets-journal-dot {
+  position: absolute;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-normal);
+}
+
+.feuillets-journal-last-entry-date {
+  margin-top: 2px;
+}
+
+.feuillets-journal-open-date {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+}
+
+.feuillets-journal-open-date:hover {
+  color: var(--text-normal);
+  text-decoration-color: currentColor;
+}
+
+.feuillets-journal-last-entry-body {
+  margin-top: 8px;
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-journal-last-entry-body :first-child {
+  margin-top: 0;
+}
+
+/* ===== labels de couleur ===== */
+
+.feuillets-label-dot {
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  border-radius: 50%;
+  background: var(--background-modifier-border);
+  border: 1px solid var(--background-modifier-border-hover, var(--text-faint));
+  cursor: pointer;
+}
+
+.feuillets-label-dot:hover {
+  transform: scale(1.2);
+}
+
+/* ===== notes latérales + menu carte ===== */
+
+.feuillets-notes-container {
+  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 100%;
+  /* .view-content ne défile plus (voir plus haut) : c'est donc ce
+     conteneur qui prend le défilement, sinon le contenu déborderait sans
+     ascenseur. Le titre `sticky` reste collé en haut de cette zone. */
+  overflow-y: auto;
+}
+
+/* plus de `sticky` ici : sans fond opaque (on hérite désormais du thème),
+   un titre collant laisserait le texte défiler visiblement derrière lui.
+   Le panneau Notes est court, le titre peut défiler avec. */
+.feuillets-notes-head {
+  font-weight: var(--font-semibold, 600);
+  font-size: var(--font-ui-medium);
+  padding: 8px 0 4px;
+}
+
+.feuillets-notes-sub {
+  font-size: var(--font-ui-smaller);
+  font-family: var(--font-monospace);
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+
+.feuillets-notes-folder-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.feuillets-notes-folder-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.feuillets-notes-folder-link:hover {
+  color: var(--interactive-accent);
+}
+
+.feuillets-notes-folder-link-icon {
+  display: flex;
+  align-items: center;
+}
+
+.feuillets-notes-folder-link-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.feuillets-notes-back-bar {
+  margin-bottom: 10px;
+}
+
+.feuillets-notes-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.feuillets-notes-back-btn:hover {
+  color: var(--interactive-accent);
+}
+
+.feuillets-notes-area {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  font-family: inherit;
+  font-size: var(--font-ui-small);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 8px;
+}
+
+.feuillets-card-more {
+  cursor: pointer;
+  color: var(--text-faint);
+  padding: 0 4px;
+  font-weight: 700;
+}
+
+.feuillets-card-more:hover {
+  color: var(--text-normal);
+}
+
+/* ===== chronologie ===== */
+
+.feuillets-timeline {
+  position: relative;
+  padding: 8px 0 8px 0;
+}
+
+.feuillets-timeline-item {
+  display: grid;
+  grid-template-columns: 110px 24px 1fr;
+  gap: 8px;
+  align-items: start;
+  position: relative;
+  padding: 6px 0;
+  --tl-color: var(--interactive-accent);
+}
+
+.feuillets-timeline-item::before {
+  content: "";
+  position: absolute;
+  left: calc(110px + 8px + 11px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--background-modifier-border);
+}
+
+.feuillets-timeline-date {
+  text-align: right;
+  font-size: 0.8em;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+
+.feuillets-timeline-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--tl-color);
+  border: 2px solid var(--background-primary);
+  z-index: 1;
+  justify-self: center;
+  margin-top: 4px;
+}
+
+.feuillets-timeline-body {
+  min-width: 0;
+}
+
+.feuillets-timeline-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.feuillets-timeline-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--font-semibold, 600);
+  cursor: pointer;
+}
+
+.feuillets-timeline-title:hover {
+  color: var(--interactive-accent);
+}
+
+.feuillets-timeline-flag {
+  font-size: 0.8em;
+  color: var(--color-orange, #e08f4f);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 6px;
+}
+
+.feuillets-timeline-syn {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  margin-top: 2px;
+  max-width: 60ch;
+}
+
+.feuillets-timeline-undated {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.feuillets-timeline-undated .feuillets-tag-chip {
+  cursor: pointer;
+}
+
+/* poignée de drag du plan : zone de saisie élargie */
+.feuillets-col-handle {
+  padding: 6px 2px;
+}
+
+.feuillets-title-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+  padding: 2px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-title-text:hover {
+  text-decoration: underline;
+}
+
+/* ===== binder : dossiers masqués + panneau enrichi ===== */
+
+.feuillets-hidden {
+  opacity: 0.55;
+  font-style: italic;
+}
+
+.feuillets-notes-wc {
+  font-size: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.feuillets-notes-wc.feuillets-status-hit {
+  color: var(--color-green);
+}
+
+.feuillets-notes-wc.feuillets-status-over {
+  color: var(--color-red);
+}
+
+.feuillets-notes-label {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 10px 0 4px;
+}
+
+.feuillets-notes-field {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  font-size: var(--font-ui-small);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 4px 6px;
+}
+
+.feuillets-notes-area-flex {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.feuillets-notes-container .feuillets-tags {
+  margin-bottom: 4px;
+}
+
+/* ===== lecture continue + chronologie v2 ===== */
+
+.feuillets-reading {
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 12px 0 60px;
+}
+
+.feuillets-reading-title {
+  font-weight: var(--font-semibold, 600);
+  font-size: 1.15em;
+  text-align: center;
+  margin: 34px 0 18px;
+  cursor: pointer;
+}
+
+.feuillets-reading-title:hover {
+  color: var(--interactive-accent);
+}
+
+.feuillets-reading-body p {
+  line-height: 1.7;
+}
+
+.feuillets-timeline-year {
+  font-weight: 700;
+  font-size: 1.05em;
+  color: var(--text-normal);
+  border-bottom: 2px solid var(--background-modifier-border);
+  margin: 16px 0 4px;
+  padding-bottom: 2px;
+}
+
+.feuillets-timeline-date-input {
+  width: 100%;
+  text-align: right;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  padding: 1px 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.feuillets-timeline-date-input:hover,
+.feuillets-timeline-date-input:focus {
+  background: var(--background-primary);
+  border-color: var(--background-modifier-border);
+  box-shadow: none;
+}
+
+/* jalons historiques dans la chronologie */
+.feuillets-timeline-milestone .feuillets-timeline-dot {
+  background: transparent;
+  border: 2px solid var(--text-muted);
+  border-radius: 2px;
+  transform: rotate(45deg);
+  width: 10px;
+  height: 10px;
+}
+
+.feuillets-timeline-milestone .feuillets-timeline-title {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* ===== mode concentration ===== */
+
+body.feuillets-concentration .workspace-ribbon.mod-left,
+body.feuillets-concentration .workspace-tab-header-container,
+body.feuillets-concentration .status-bar {
+  display: none !important;
+}
+
+/* estompage : par défaut tout est atténué, seule la zone de focus reste nette */
+body.feuillets-concentration .markdown-source-view.mod-cm6 .cm-line,
+body.feuillets-concentration .markdown-preview-view p {
+  opacity: var(--feuillets-dim-opacity, 0.35);
+  transition: opacity 0.15s ease;
+}
+
+/* niveau Ligne : la ligne active reste nette (natif, fiable) */
+body.feuillets-concentration.feuillets-focus-line
+  .markdown-source-view.mod-cm6
+  .cm-line.cm-active {
+  opacity: 1;
+}
+
+/* niveaux Paragraphe et Phrase (approximation actuelle = paragraphe) :
+   toutes les lignes du paragraphe contenant le curseur restent nettes */
+body.feuillets-concentration.feuillets-focus-paragraph
+  .markdown-source-view.mod-cm6
+  .cm-line.feuillets-para-active,
+body.feuillets-concentration.feuillets-focus-sentence
+  .markdown-source-view.mod-cm6
+  .cm-line.feuillets-para-active {
+  opacity: 1;
+}
+
+body.feuillets-concentration .markdown-source-view,
+body.feuillets-concentration .markdown-preview-view {
+  max-width: var(--feuillets-concentration-width, 720px);
+  margin: 0 auto;
+}
+
+/* ===== gestion des projets ===== */
+
+.feuillets-project-modal {
+  min-width: 520px;
+}
+
+.feuillets-project-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.feuillets-project-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.feuillets-project-name {
+  font-weight: var(--font-semibold, 600);
+  flex: 1;
+}
+
+.feuillets-project-head button {
+  cursor: pointer;
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-project-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  align-items: start;
+}
+
+.feuillets-project-grid input,
+.feuillets-project-grid textarea {
+  width: 100%;
+  font-size: var(--font-ui-small);
+}
+
+/* boutons/sélecteurs de la barre : voir le bloc "contrôles natifs" plus bas */
+
+/* champ de tag aligné */
+.feuillets-board-bar .feuillets-tag-filter {
+  height: 28px;
+  font-size: var(--font-ui-small);
+}
+
+/* respiration entre groupes de la barre */
+.feuillets-board-bar-right {
+  gap: 8px;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* cartes : survol plus net, séparation visuelle */
+.feuillets-card:hover {
+  border-color: var(--interactive-accent);
+  box-shadow: var(--shadow-m, 0 3px 10px rgba(0, 0, 0, 0.3));
+  transform: translateY(-1px);
+  transition: box-shadow 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
+}
+
+/* ===== réglages en sections pliables ===== */
+
+.feuillets-settings-section {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 10px 0;
+  padding: 0 14px 6px;
+}
+
+.feuillets-settings-section > summary {
+  cursor: pointer;
+  font-weight: var(--font-semibold, 600);
+  font-size: var(--font-ui-medium);
+  padding: 10px 0;
+  list-style-position: inside;
+}
+
+.feuillets-settings-section > summary:hover {
+  color: var(--interactive-accent);
+}
+
+.feuillets-settings-subhead {
+  font-size: var(--font-ui-small);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 16px 0 4px;
+}
+
+/* ===== typographie à la frappe : affichage des lignes vides ===== */
+
+/* invisible : les lignes vides disparaissent visuellement (fichier intact),
+   sauf la ligne active pour pouvoir y travailler */
+body.feuillets-lignesvides-invisible
+  .markdown-source-view.mod-cm6.is-live-preview
+  .cm-line:has(> br) {
+  display: none;
+}
+
+body.feuillets-lignesvides-invisible
+  .markdown-source-view.mod-cm6.is-live-preview
+  .cm-active:has(> br) {
+  display: block !important;
+}
+
+/* réduit : les lignes vides deviennent fines */
+body.feuillets-lignesvides-reduit
+  .markdown-source-view.mod-cm6.is-live-preview
+  .cm-line:has(> br) {
+  height: 0.6rem;
+}
+
+/* césure française et texte justifié : LECTURE UNIQUEMENT.
+   Deux tentatives d'étendre ceci au Live Preview ont chacune cassé
+   quelque chose de plus important que l'esthétique : d'abord un
+   ralentissement au défilement (hyphens: auto recalculé à chaque ligne
+   recréée par CodeMirror), puis le placement du curseur au clic (la
+   justification modifie l'espacement mot à mot, ce qui perturbe le
+   calcul position-écran → position-texte de CodeMirror). Le Live Preview
+   est la surface d'édition : la fiabilité du curseur n'est pas
+   négociable contre l'esthétique. On s'arrête donc à la lecture, qui ne
+   touche jamais à la frappe. !important : au cas où un thème définirait
+   déjà text-align sur les paragraphes de lecture avec la même spécificité. */
+body.feuillets-cesure .markdown-preview-view p,
+body.feuillets-cesure .markdown-rendered p {
+  text-align: justify !important;
+  hyphens: auto !important;
+  word-wrap: break-word;
+  hyphenate-limit-chars: 6 3 3;
+}
+
+/* Justification en LIVE PREVIEW, réglage séparé et optionnel.
+   SANS `hyphens: auto` : la césure oblige le navigateur à recalculer les
+   points de coupe sur chaque ligne, or CodeMirror recrée les lignes à
+   chaque défilement — c'est ce qui faisait ramer le scroll. La
+   justification seule ne consulte aucun dictionnaire.
+   Mêmes exclusions structurelles que les alinéas : justifier un titre,
+   une ligne de tableau ou du code n'aurait aucun sens. */
+body.feuillets-justify-live
+  .markdown-source-view.mod-cm6.is-live-preview
+  .cm-line {
+  text-align: justify;
+  word-wrap: break-word;
+}
+
+body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-header,
+body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-list-line,
+body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-quote,
+body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-codeblock,
+body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.cm-hmd-frontmatter,
+body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-table-row {
+  text-align: left;
+}
+
+/* Mode lecture calé sur le Live Preview : même interligne, et
+   espacement de paragraphe égal à UNE ligne vide — c'est exactement ce
+   qu'on voit en Live Preview, où la ligne vide du markdown occupe une
+   ligne réelle. Le mode lecture, lui, applique par défaut des marges de
+   paragraphe qui ne correspondent à rien de ce que l'auteur a tapé. */
+/* On passe par la VARIABLE d'Obsidian (--p-spacing), pas par une marge
+   posée sur `p` : c'est elle qui pilote réellement l'espacement des
+   paragraphes en mode lecture, et une marge concurrente se faisait
+   simplement écraser — c'est pourquoi le réglage semblait sans effet.
+   Valeur = une ligne pleine, exactement ce qu'occupe la ligne vide du
+   markdown en Live Preview. */
+body.feuillets-lecture-comme-live .markdown-preview-view,
+body.feuillets-lecture-comme-live .markdown-rendered {
+  --p-spacing: calc(var(--line-height-normal, 1.5) * 1em);
+  line-height: var(--line-height-normal, 1.5);
+}
+
+/* Lignes vides en MODE LECTURE : mêmes règles qu'en Live Preview.
+   Le réglage « lignes vides » du plugin ne s'appliquait qu'à l'éditeur ;
+   en lecture, Obsidian matérialise chaque ligne vide (paragraphes ne
+   contenant qu'un <br>), d'où les grands trous entre paragraphes que la
+   vue d'édition, elle, masquait. On applique le même traitement. */
+body.feuillets-lignesvides-invisible .markdown-preview-view p:has(> br:only-child),
+body.feuillets-lignesvides-invisible .markdown-rendered p:has(> br:only-child) {
+  display: none !important;
+}
+
+body.feuillets-lignesvides-reduit .markdown-preview-view p:has(> br:only-child),
+body.feuillets-lignesvides-reduit .markdown-rendered p:has(> br:only-child) {
+  line-height: 0.6rem !important;
+  margin: 0 !important;
+  height: 0.6rem !important;
+}
+
+/* et les <br> de fin de paragraphe issus des lignes vides adjacentes */
+body.feuillets-lignesvides-invisible .markdown-preview-view p > br:last-child,
+body.feuillets-lignesvides-invisible .markdown-rendered p > br:last-child {
+  display: none;
+}
+
+/* La variable --p-spacing ne suffit pas : beaucoup de thèmes écrivent
+   directement les marges des paragraphes et ignorent la variable. On
+   impose donc aussi les marges elles-mêmes. margin-block-* ET
+   margin-top/bottom, parce que les thèmes utilisent l'un ou l'autre. */
+body.feuillets-lecture-comme-live .markdown-preview-view p,
+body.feuillets-lecture-comme-live .markdown-rendered p {
+  line-height: var(--line-height-normal, 1.5) !important;
+}
+
+/* taille de texte du mode lecture, indépendante du Live Preview — la
+   variable est posée sur body par applyLiveTypoClasses(), ce qui la fait
+   descendre à travers .markdown-preview-view sans toucher .cm-content */
+body.feuillets-reading-fs .markdown-preview-view,
+body.feuillets-reading-fs .feuillets-reading {
+  font-size: var(--feuillets-reading-fs) !important;
+}
+
+/* ===== contrôles natifs ===== */
+
+/* Les boutons-icônes portent la classe clickable-icon d'Obsidian : le thème
+   leur applique lui-même taille, couleur, survol et arrondi. On ne redéfinit
+   RIEN de tout ça — seul l'alignement dans nos barres nous regarde. */
+.feuillets-board-bar .clickable-icon,
+.feuillets-header .clickable-icon,
+.feuillets-binder-filters .clickable-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* séparateur entre groupes de boutons */
+.feuillets-bar-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--background-modifier-border);
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+
+
+
+.feuillets-board-bar select,
+.feuillets-header select,
+.feuillets-board-bar input[type="text"],
+.feuillets-board-bar input[type="number"] {
+  height: 28px;
+  box-sizing: border-box;
+  font-size: var(--font-ui-small);
+}
+
+/* boutons de mode (Cartes / Plan / Chronologie / Lecture) : seul écart
+   volontaire au natif, pour marquer l'état actif — via la couleur d'accent
+   d'Obsidian elle-même, pas une couleur inventée */
+/* groupe segmenté des quatre modes : un seul bloc, l'actif en accent */
+.feuillets-mode-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-m);
+  background: var(--background-modifier-hover);
+  flex-shrink: 0;
+}
+
+.feuillets-scene-select {
+  margin-right: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.feuillets-mode-group .clickable-icon.feuillets-mode-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.feuillets-mode-group .clickable-icon.feuillets-mode-active:hover {
+  background: var(--interactive-accent-hover);
+  color: var(--text-on-accent);
+}
+
+/* ===== mode concentration (rétabli) ===== */
+
+body.feuillets-concentration .workspace-ribbon.mod-left,
+body.feuillets-concentration .workspace-tab-header-container,
+body.feuillets-concentration .status-bar {
+  display: none !important;
+}
+
+body.feuillets-concentration .markdown-source-view.mod-cm6 .cm-line {
+  opacity: var(--feuillets-dim-opacity, 0.35);
+  transition: opacity 0.15s ease;
+}
+
+body.feuillets-concentration.feuillets-focus-line
+  .markdown-source-view.mod-cm6
+  .cm-line.cm-active {
+  opacity: 1;
+}
+
+body.feuillets-concentration.feuillets-focus-paragraph
+  .markdown-source-view.mod-cm6
+  .cm-line.feuillets-para-active {
+  opacity: 1;
+}
+
+body.feuillets-concentration .markdown-source-view,
+body.feuillets-concentration .markdown-preview-view {
+  max-width: var(--feuillets-concentration-width, 720px);
+  margin: 0 auto;
+}
+
+/* ===== lecture : édition en place + sélection ===== */
+
+.feuillets-reading-edit {
+  width: 100%;
+  min-height: 8em;
+  font-family: inherit;
+  font-size: 1em;
+  line-height: 1.7;
+  background: var(--background-primary);
+  border: 1px solid var(--interactive-accent);
+  border-radius: var(--radius-s);
+  padding: 10px;
+  resize: vertical;
+  overflow-y: hidden;
+}
+
+.feuillets-reading-body {
+  cursor: text;
+}
+
+.feuillets-read-selection {
+  max-height: 50vh;
+  overflow-y: auto;
+  margin: 8px 0;
+}
+
+.feuillets-read-selection-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+.feuillets-read-selection-row span {
+  cursor: pointer;
+}
+
+/* ===== compteur flottant du mode concentration ===== */
+
+.feuillets-conc-counter {
+  position: fixed;
+  bottom: 18px;
+  right: 22px;
+  z-index: 60;
+  font-size: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  box-shadow: var(--shadow-s, 0 1px 3px rgba(0, 0, 0, 0.25));
+  pointer-events: none;
+}
+
+.feuillets-conc-counter.feuillets-status-hit {
+  color: var(--color-green);
+  border-color: var(--color-green);
+}
+
+.feuillets-conc-counter.feuillets-status-over {
+  color: var(--color-red);
+  border-color: var(--color-red);
+}
+
+/* ===== recherche + filtre de statut dans le binder ===== */
+
+.feuillets-research-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--background-secondary);
+  padding: 8px 12px;
+}
+
+.feuillets-binder-filters {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.feuillets-binder-search {
+  flex: 1;
+  height: 26px;
+  font-size: var(--font-ui-small);
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  padding: 0 8px;
+}
+
+.feuillets-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.feuillets-search-wrap:has(.feuillets-binder-search) {
+  flex: 1;
+}
+
+.feuillets-binder-status-filter {
+  height: 26px;
+  font-size: var(--font-ui-small);
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-binder-filters button {
+  height: 26px;
+  width: 26px;
+  padding: 0;
+}
+
+/* ===== icônes de statut : disque progressif ===== */
+
+.feuillets-item-name-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.feuillets-item-wc {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.feuillets-status-dot {
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* index STATUSES : 0="" 1=Idée 2=Brouillon 3=En cours 4=Révisé 5=Terminé */
+.feuillets-status-dot-1 { background: var(--text-faint); }
+.feuillets-status-dot-2 { background: var(--color-orange, #e08f4f); }
+.feuillets-status-dot-3 { background: var(--color-yellow, #d9c04a); }
+.feuillets-status-dot-4 { background: var(--color-blue, #5a8fd9); }
+.feuillets-status-dot-5 { background: var(--color-green, #5aa564); }
+
+/* ===== jalon historique dans le panneau Notes ===== */
+
+.feuillets-notes-milestone {
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--text-muted);
+  border-radius: var(--radius-s);
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  background: var(--background-secondary);
+}
+
+.feuillets-notes-milestone-head {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-muted);
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.feuillets-notes-milestone-head:hover {
+  color: var(--interactive-accent);
+}
+
+.feuillets-notes-milestone-body {
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-notes-milestone-body p {
+  margin: 0.3em 0;
+}
+
+/* ===== badge d'écart temporel dans la chronologie ===== */
+
+.feuillets-timeline-gap {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  padding: 0 0 0 calc(110px + 8px + 24px + 8px);
+  font-style: italic;
+}
+
+/* ===== frise : durée + pistes colorées ===== */
+
+.feuillets-timeline-duration {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+.feuillets-timeline-milestone-colored .feuillets-timeline-dot {
+  border-color: var(--tl-color);
+}
+
+.feuillets-timeline-milestone-colored .feuillets-timeline-title {
+  color: var(--tl-color);
+}
+
+/* ===== nouvelles colonnes du plan ===== */
+
+.feuillets-date-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.feuillets-date-input {
+  width: 100%;
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  padding: 1px 4px;
+}
+
+.feuillets-date-input:hover,
+.feuillets-date-input:focus {
+  background: var(--background-primary);
+  border-color: var(--background-modifier-border);
+  box-shadow: none;
+}
+
+.feuillets-filename-cell {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.feuillets-filename-cell:hover {
+  color: var(--interactive-accent);
+}
+
+/* ===== recherche plein texte : pastille de correspondance ===== */
+
+.feuillets-search-badge {
+  display: inline-flex;
+  align-items: center;
+  color: var(--interactive-accent);
+  flex-shrink: 0;
+}
+
+.feuillets-search-badge .svg-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.feuillets-binder-filters .clickable-icon.feuillets-mode-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* ===== lisibilité du binder ===== */
+
+/* fichier actif : accent net, pas un simple soulignement */
+/* MÊME couleur que .feuillets-row.is-active : les deux familles de lignes
+   utilisaient deux variables différentes, d'où deux surbrillances de
+   couleurs distinctes visibles en même temps. */
+.feuillets-item.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.feuillets-item.is-active .feuillets-item-name {
+  font-weight: var(--font-semibold, 600);
+}
+
+/* poignée de déplacement : visible au survol de la ligne entière, pas
+   seulement au clic — le curseur "grab" seul ne se voit pas */
+.feuillets-item:hover,
+.feuillets-folder-row:hover {
+  box-shadow: inset 2px 0 0 var(--interactive-accent);
+}
+
+.feuillets-item.is-active:hover {
+  box-shadow: inset 2px 0 0 var(--text-on-accent);
+}
+
+/* ===== entités citées (panneau Notes) ===== */
+
+.feuillets-notes-entities {
+  margin: 2px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-entity-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 2px 8px;
+}
+
+.feuillets-entity-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.feuillets-entity-group {
+  margin-top: 6px;
+  margin-bottom: 2px;
+  font-size: 0.72em;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 1px;
+}
+
+.feuillets-entity-info {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.feuillets-entity-since {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.feuillets-entity-name {
+  cursor: pointer;
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+}
+
+.feuillets-entity-name:hover {
+  color: var(--interactive-accent);
+  text-decoration: underline;
+}
+
+.feuillets-entity-age {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+/* ===== panneau Recherche ===== */
+
+.feuillets-research-container {
+  /* colonne pleine hauteur : la barre d'outils reste en haut, seules les
+     sections défilent (même principe que le binder et le tableau). */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.feuillets-research-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 0 10px;
+}
+
+.feuillets-research-section {
+  padding: 0 12px;
+  margin-bottom: 18px;
+}
+
+.feuillets-research-item {
+  padding: 4px 6px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-research-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+.feuillets-research-item-path {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.feuillets-research-empty {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-style: italic;
+  padding: 2px 6px;
+}
+
+/* ===== poignée de glisser-déposer dédiée (binder) ===== */
+
+.feuillets-drag-grip {
+  display: inline-flex;
+  align-items: center;
+  cursor: grab;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease;
+  flex-shrink: 0;
+}
+
+.feuillets-item:hover .feuillets-drag-grip {
+  opacity: 0.6;
+}
+
+.feuillets-drag-grip:hover {
+  opacity: 1 !important;
+  color: var(--interactive-accent);
+}
+
+.feuillets-drag-grip .svg-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.feuillets-item.is-active .feuillets-drag-grip {
+  color: var(--text-on-accent);
+}
+
+/* ===== aperçu en ligne dans le panneau Recherche ===== */
+
+.feuillets-research-item {
+  border-radius: var(--radius-s);
+}
+
+.feuillets-research-item-name {
+  padding: 4px 6px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-research-item:hover .feuillets-research-item-name {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+.feuillets-research-item-expanded {
+  background: var(--background-secondary);
+  margin: 2px 0;
+}
+
+.feuillets-research-item-expanded .feuillets-research-item-name {
+  font-weight: var(--font-semibold, 600);
+  color: var(--interactive-accent);
+}
+
+.feuillets-research-preview {
+  padding: 4px 10px 10px;
+  font-size: var(--font-ui-small);
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-research-preview p {
+  margin: 0.3em 0;
+}
+
+.feuillets-research-preview button {
+  margin-top: 6px;
+  font-size: var(--font-ui-smaller);
+}
+
+/* ===== bouton "Voir ses apparitions" (en-tête de fiche recherche) ===== */
+
+.feuillets-research-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.feuillets-research-item-header .feuillets-research-item-name {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ===== modale des apparitions ===== */
+
+.feuillets-appearances-modal {
+  min-width: 480px;
+  max-height: 70vh;
+}
+
+.feuillets-appearances-list {
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.feuillets-appearances-row {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+
+.feuillets-appearances-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-appearances-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.feuillets-appearances-title {
+  font-weight: var(--font-semibold, 600);
+}
+
+.feuillets-appearances-excerpt {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+.feuillets-appearances-via {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-left: auto;
+}
+
+/* ===== carte de présence (chapitres) ===== */
+
+.feuillets-density-strip {
+  display: flex;
+  gap: 2px;
+  margin: 6px 0 14px;
+  height: 16px;
+}
+
+.feuillets-density-tick {
+  flex: 1;
+  min-width: 2px;
+  background: var(--background-modifier-border);
+  border-radius: 1px;
+}
+
+.feuillets-density-tick.feuillets-density-hit {
+  background: var(--interactive-accent);
+}
+
+/* ===== vue fichier du panneau Recherche ===== */
+
+.feuillets-fileview-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-fileview-title {
+  width: 100%;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold, 600);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  padding: 4px 0;
+  margin-bottom: 2px;
+  margin-top: 4px;
+}
+
+.feuillets-fileview-title:hover,
+.feuillets-fileview-title:focus {
+  background: var(--background-modifier-form-field);
+  border-color: var(--background-modifier-border);
+  padding: 4px 6px;
+  box-shadow: none;
+}
+
+.feuillets-fileview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.feuillets-fileview-row select {
+  flex: 1;
+}
+
+.feuillets-fileview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0 12px 12px;
+  overflow: hidden;
+}
+
+.feuillets-fileview-body {
+  font-size: var(--font-ui-small);
+  line-height: 1.6;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.feuillets-fileview-body p {
+  margin: 0.4em 0;
+}
+
+/* ===== scission & fusion de scènes ===== */
+.feuillets-merge-modal { --modal-width: 680px; --modal-max-width: 92vw; }
+.feuillets-yaml-modal { --modal-width: 520px; --modal-max-width: 90vw; }
+.feuillets-merge-modal .modal-content, .feuillets-yaml-modal .modal-content { padding-top: 0.35rem; }
+.feuillets-merge-hero { margin: 0 0 0.55rem; padding: 0.7rem 0.8rem; background: var(--background-modifier-hover); border: 1px solid var(--background-modifier-border); border-radius: 10px; }
+.feuillets-merge-title { font-weight: 700; line-height: 1.25; margin-bottom: 0.1rem; font-size: 0.98rem; }
+.feuillets-merge-subtitle, .feuillets-yaml-subtitle, .feuillets-yaml-note { color: var(--text-muted); font-size: 0.82em; }
+.feuillets-merge-compact-note { margin: 0 0 0.45rem; color: var(--text-muted); font-size: 0.78rem; padding: 0.45rem 0.55rem; border: 1px dashed var(--background-modifier-border); border-radius: 8px; cursor: pointer; }
+.feuillets-merge-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.4rem; margin: 0.55rem 0; }
+.feuillets-merge-stat { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 9px; padding: 0.5rem 0.6rem; min-width: 0; }
+.feuillets-merge-stat-value { font-weight: 700; font-size: 0.96em; line-height: 1.1; }
+.feuillets-merge-stat-label { color: var(--text-muted); font-size: 0.75em; margin-top: 0.08rem; }
+.feuillets-merge-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; margin: 0.55rem 0; }
+.feuillets-merge-card { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 10px; padding: 0.65rem 0.75rem; min-width: 0; overflow: hidden; }
+.feuillets-merge-card-full { margin-top: 0.55rem; }
+.feuillets-merge-card-title { font-weight: 600; margin-bottom: 0.35rem; font-size: 0.88rem; }
+.feuillets-merge-path { font-weight: 600; margin-bottom: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feuillets-merge-path-secondary { color: var(--text-muted); font-size: 0.75rem; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-word; margin-bottom: 0.45rem; }
+.feuillets-merge-list { margin: 0; padding-left: 0.9rem; font-size: 0.84rem; }
+.feuillets-merge-list li { margin: 0.1rem 0; overflow-wrap: anywhere; }
+.feuillets-merge-order { display: grid; gap: 0.35rem; }
+.feuillets-merge-order-row { display: grid; grid-template-columns: 1fr auto; gap: 0.4rem; align-items: center; padding: 0.35rem 0.4rem; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; }
+.feuillets-merge-order-label { display: grid; grid-template-columns: auto 1fr; gap: 0.45rem; align-items: center; min-width: 0; }
+.feuillets-merge-order-index { font-size: 0.76rem; color: var(--text-muted); width: 1.2rem; text-align: center; }
+.feuillets-merge-order-name { font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feuillets-merge-order-actions { display: flex; gap: 0.2rem; }
+.feuillets-merge-order-actions button { min-width: 1.8rem; height: 1.8rem; border: 1px solid var(--background-modifier-border); border-radius: 6px; background: var(--background-secondary-alt); }
+.feuillets-merge-order-actions button:disabled { opacity: 0.35; }
+.feuillets-merge-excerpts { display: grid; gap: 0.4rem; }
+.feuillets-merge-excerpt { padding: 0.48rem 0.58rem; background: var(--background-primary); border-radius: 9px; border: 1px solid var(--background-modifier-border); min-width: 0; }
+.feuillets-merge-excerpt-title { font-weight: 600; margin-bottom: 0.12rem; font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feuillets-merge-excerpt-text { color: var(--text-muted); font-size: 0.82rem; line-height: 1.28; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.feuillets-yaml-note { margin-top: 0.35rem; }
+@media (max-width: 700px) {
+  .feuillets-merge-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .feuillets-merge-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== notes metadata & outline sections ===== */
+
+.feuillets-notes-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 12px;
+}
+
+/* Rien à séparer visuellement quand c'est la toute première section d'un
+   panneau : sans ce correctif, l'aération générale laisse un vide au
+   sommet du panneau, avant même le premier titre. */
+.feuillets-notes-container > .feuillets-notes-section:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
+}
+
+.feuillets-notes-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 6px 0;
+  color: var(--text-muted);
+}
+
+.feuillets-notes-section-head:hover {
+  color: var(--text-normal);
+}
+
+.feuillets-notes-section-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.feuillets-notes-metadata-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 2px 4px;
+}
+
+.feuillets-notes-metadata-list-divider {
+  margin-top: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 10px;
+}
+
+.feuillets-notes-label-tight {
+  margin-bottom: 8px;
+}
+
+.feuillets-notes-add-row {
+  margin-top: 8px;
+  text-align: right;
+}
+
+.feuillets-notes-metadata-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-ui-small);
+  padding: 2px 0;
+}
+
+.feuillets-notes-metadata-label {
+  color: var(--text-muted);
+}
+
+.feuillets-notes-metadata-value {
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+/* rubrique Propriétés : rapproche le rendu du panneau Propriétés natif
+   d'Obsidian (icône + libellé à gauche, valeur alignée à droite, surbrillance
+   au survol, champs discrets tant qu'on n'interagit pas avec eux). */
+.feuillets-property-row {
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 3px 4px;
+  border-radius: var(--radius-s);
+}
+
+.feuillets-property-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-property-row .feuillets-notes-metadata-label {
+  flex-shrink: 0;
+}
+
+.feuillets-property-row .feuillets-notes-metadata-value {
+  margin-left: auto;
+  flex: 1;
+  max-width: 60%;
+  font-weight: 400;
+}
+
+.feuillets-property-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.feuillets-property-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.feuillets-notes-outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 4px 6px;
+}
+
+.feuillets-notes-outline-row {
+  padding: 4px 6px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.feuillets-notes-outline-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-notes-outline-inner {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feuillets-notes-outline-row:hover .feuillets-notes-outline-inner {
+  color: var(--text-normal);
+}
+
+.feuillets-notes-empty-outline {
+  font-size: var(--font-ui-small);
+  color: var(--text-faint);
+  font-style: italic;
+  padding: 4px 6px;
+}
+
+/* ===== barre de progression du compte de mots ===== */
+
+.feuillets-wc-card {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.feuillets-wc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-ui-small);
+  margin-bottom: 8px;
+}
+
+/* Panneau Progression seul : 4 sections (chapitre + projet) doivent tenir
+   sans défilement sur un petit écran — resserré ici uniquement, les autres
+   panneaux (Notes, Cartes, Journal) gardent l'aération générale. */
+.feuillets-progression-compact {
+  padding-top: 4px !important;
+}
+
+.feuillets-progression-compact .feuillets-notes-section {
+  margin-top: 6px;
+  padding-top: 6px;
+}
+
+.feuillets-progression-divider {
+  height: 1px;
+  background: var(--background-modifier-border);
+  margin: 28px 0;
+}
+
+.feuillets-progression-compact .feuillets-notes-section-head {
+  padding: 2px 0;
+}
+
+.feuillets-progression-compact .feuillets-notes-metadata-list {
+  gap: 2px;
+  margin-top: 2px;
+  padding: 0 4px;
+}
+
+.feuillets-progression-compact .feuillets-notes-metadata-row {
+  padding: 2px 0;
+}
+
+.feuillets-progression-compact .feuillets-wc-card {
+  margin-top: 4px;
+}
+
+.feuillets-progression-compact .feuillets-wc-header {
+  margin-bottom: 2px;
+}
+
+.feuillets-wc-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.feuillets-wc-value {
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-normal);
+}
+
+.feuillets-wc-bar {
+  background: var(--background-secondary-alt);
+  border-radius: var(--radius-s, 4px);
+  height: 6px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.feuillets-wc-fill {
+  background: var(--interactive-accent);
+  height: 100%;
+  border-radius: var(--radius-s, 4px);
+  transition: width 0.2s ease-in-out;
+}
+
+.feuillets-wc-fill.feuillets-status-hit {
+  background: var(--text-success, #4caf50);
+}
+
+.feuillets-wc-fill.feuillets-status-over {
+  background: var(--text-accent, var(--interactive-accent));
+}
+
+.feuillets-notes-field-container {
+  margin-top: 4px;
+  width: 100%;
+}
+
+/* ===== notes panel settings and icons ===== */
+
+.feuillets-notes-section-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.feuillets-notes-section-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.feuillets-notes-order-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.feuillets-notes-order-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--background-secondary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 6px);
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-notes-order-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.feuillets-notes-order-buttons button {
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+.feuillets-notes-order-buttons button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.feuillets-yaml-input, .feuillets-yaml-select {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: var(--font-ui-small);
+  padding: 2px 6px;
+  border-radius: var(--radius-s, 4px);
+  box-sizing: border-box;
+}
+
+.feuillets-yaml-input:hover, .feuillets-yaml-select:hover {
+  background: var(--background-modifier-form-field);
+  border-color: var(--background-modifier-border);
+}
+
+.feuillets-yaml-input:focus, .feuillets-yaml-select:focus {
+  background: var(--background-modifier-form-field);
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+.feuillets-notes-back-bar {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.feuillets-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: var(--font-ui-smaller);
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+}
+
+.feuillets-back-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover-hover);
+}
+
+.feuillets-back-icon {
+  display: flex;
+  align-items: center;
+}
+
+.feuillets-board-breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: var(--font-ui-smaller);
+  margin-bottom: 12px;
+  border-radius: var(--radius-s);
+}
+
+.feuillets-breadcrumb-link {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.feuillets-breadcrumb-link:hover {
+  color: var(--text-normal);
+  text-decoration: underline;
+}
+
+.feuillets-breadcrumb-link.is-active {
+  color: var(--text-normal);
+  font-weight: 600;
+  cursor: default;
+  text-decoration: none;
+}
+
+.feuillets-breadcrumb-sep {
+  color: var(--text-faint);
+}
+
+/* Cartes de dossier */
+.feuillets-card-folder {
+  background: var(--background-secondary-alt);
+  border: 1px dashed var(--background-modifier-border);
+  aspect-ratio: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.feuillets-card-folder:hover {
+  border-style: solid;
+  border-color: var(--interactive-accent);
+}
+
+/* Outliner épuré (style Scrivener) */
+.feuillets-outline select,
+.feuillets-outline input[type="text"],
+.feuillets-outline input[type="number"] {
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.feuillets-outline select:hover,
+.feuillets-outline select:focus,
+.feuillets-outline input[type="text"]:hover,
+.feuillets-outline input[type="text"]:focus,
+.feuillets-outline input[type="number"]:hover,
+.feuillets-outline input[type="number"]:focus {
+  background: var(--background-modifier-form-field);
+  border-color: var(--background-modifier-border);
+  outline: none;
+}
+
+.feuillets-flat-text-cell {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+  padding: 2px 4px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  color: var(--text-normal);
+}
+
+.feuillets-flat-text-cell.feuillets-clamp-text {
+  display: -webkit-box;
+  -webkit-line-clamp: var(--max-lines, 6);
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feuillets-flat-text-cell.is-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.feuillets-flat-text-cell:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-flat-textarea {
+  width: 100%;
+  font-size: var(--font-ui-small);
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 4px 6px;
+  resize: vertical;
+  min-height: 38px;
+  outline: none;
+  box-shadow: none;
+  font-family: inherit;
+}
+
+/* Raccourcir tous les inputs et selects du volet de cartes/plan/chrono */
+.feuillets-board-container select,
+.feuillets-board-container input[type="text"],
+.feuillets-board-container input[type="number"] {
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.feuillets-board-container select:hover,
+.feuillets-board-container select:focus,
+.feuillets-board-container input[type="text"]:hover,
+.feuillets-board-container input[type="text"]:focus,
+.feuillets-board-container input[type="number"]:hover,
+.feuillets-board-container input[type="number"]:focus {
+  background: var(--background-modifier-form-field);
+  border-color: var(--background-modifier-border);
+  outline: none;
+}
+
+/* ===== Arcs Narratifs (Fil de fer) ===== */
+
+.feuillets-arcs-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.feuillets-arcs-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  background: var(--background-secondary-alt);
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 16px;
+}
+
+.feuillets-arcs-filter-label {
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.feuillets-arcs-filter-select {
+  min-width: 220px;
+}
+
+.feuillets-arcs-filter-count {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.feuillets-arcs-density-wrap {
+  padding: 0 24px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.feuillets-arcs-timeline {
+  display: flex;
+  flex-direction: column;
+  padding: 0 24px 32px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.feuillets-arcs-row-folder {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  font-size: var(--font-ui-large, 16px);
+  font-weight: 600;
+  color: var(--text-normal);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-arcs-folder-title {
+  flex-grow: 1;
+  padding-left: 8px;
+  color: var(--text-accent);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.feuillets-arcs-folder-num {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.feuillets-arcs-row-file {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 60px;
+  border-bottom: 1px dashed var(--background-modifier-border);
+}
+
+.feuillets-arcs-row-file:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-arcs-row-rails {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.feuillets-arcs-row-rails-spacer {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.feuillets-arcs-col {
+  position: relative;
+  width: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.feuillets-arcs-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  left: 10.5px;
+  border-radius: 2px;
+  z-index: 1;
+}
+
+.feuillets-arcs-dot {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  box-shadow: 0 0 0 2px var(--background-secondary);
+}
+
+/* rail des fils narratifs, à droite du titre : triangle plutôt que cercle,
+   pour ne jamais le confondre avec un label au premier coup d'œil. */
+.feuillets-arcs-dot-fil {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  clip-path: polygon(0% 0%, 100% 0%, 50% 100%);
+}
+
+.feuillets-arcs-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex-grow: 1;
+  padding: 10px 14px;
+  overflow: hidden;
+  gap: 4px;
+}
+
+.feuillets-arcs-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.feuillets-arcs-title-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.feuillets-arcs-file-title {
+  font-size: var(--font-ui-medium);
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.feuillets-arcs-phase {
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-muted);
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+.feuillets-arcs-file-synopsis {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.feuillets-arcs-row-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.feuillets-arcs-personnages {
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feuillets-arcs-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 8px;
+  font-weight: 700;
+  padding: 0px 4px;
+  border-radius: var(--radius-s);
+  background-color: var(--arc-color-bg);
+  color: var(--arc-color-text);
+  border: 1px solid var(--arc-color-text);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ===== vue Tags (arborescence scopée au projet) ===== */
+
+.feuillets-tags-search-bar {
+  margin-bottom: 10px;
+}
+
+.feuillets-tags-search {
+  width: 100%;
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-tags-tree {
+  display: flex;
+  flex-direction: column;
+}
+
+.feuillets-tags-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+
+.feuillets-tags-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-tags-name {
+  flex: 1;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-tags-count {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.feuillets-tags-file-row {
+  padding: 3px 0 3px 22px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--radius-s);
+}
+
+.feuillets-tags-file-row:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}

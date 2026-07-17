@@ -1,0 +1,320 @@
+const { Notice, TFolder, normalizePath } = require("obsidian");
+import { NewSheetModal, NewFolderModal } from "../ui/basic-modals.js";
+import { getProjectFolder, getOrderedChildren } from "./folder-structure.js";
+import { getResearchRoot } from "./research.js";
+import { ensureJournalFolder } from "./journal.js";
+import { getProjectMode } from "./project-mode.js";
+
+export async function ensureFolder(app, path) {
+  const p = normalizePath(path);
+  let f = app.vault.getAbstractFileByPath(p);
+  if (!f) {
+    f = await app.vault.createFolder(p);
+  }
+  return f;
+}
+
+/** Copie datée du feuillet dans _Snapshots/<nom>/<horodatage>.md. Comme
+ * _Recherche, ce dossier peut être un enfant du dossier projet (ancienne
+ * convention) ou son voisin (quand "Dossier projet" pointe directement
+ * sur le sous-dossier des parties/chapitres) — les deux emplacements
+ * existants sont respectés ; à défaut, créé en voisin. */
+export async function snapshotFile(app, file, root) {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(
+    d.getDate()
+  )} ${p(d.getHours())}h${p(d.getMinutes())}${p(d.getSeconds())}`;
+  const candidates = [root.path, root.parent ? root.parent.path : null].filter(
+    Boolean
+  );
+  /* "Snapshots" sans underscore : reconnu UNIQUEMENT voisin du dossier
+     projet, jamais dedans — même restriction que "Recherche", pour ne
+     jamais apparaître comme une fausse Partie dans le binder. */
+  let base = root.parent && app.vault.getAbstractFileByPath(
+    normalizePath(`${root.parent.path}/Snapshots`)
+  ) instanceof TFolder
+    ? root.parent.path
+    : null;
+  let folderName = "Snapshots";
+  if (!base) {
+    /* legacy : anciens projets créés avant l'abandon du préfixe _,
+       où _Snapshots pouvait être voisin ou enfant du dossier projet */
+    const legacyBase = candidates.find((b) =>
+      app.vault.getAbstractFileByPath(normalizePath(`${b}/_Snapshots`))
+    );
+    if (legacyBase) {
+      base = legacyBase;
+      folderName = "_Snapshots";
+    }
+  }
+  if (!base) base = root.parent ? root.parent.path : root.path;
+  const dir = normalizePath(`${base}/${folderName}/${file.basename}`);
+  await ensureFolder(app, normalizePath(`${base}/${folderName}`));
+  await ensureFolder(app, dir);
+  const dest = normalizePath(`${dir}/${stamp}.md`);
+  const content = await app.vault.read(file);
+  await app.vault.create(dest, content);
+  return stamp;
+}
+
+/** Crée les dossiers _ et les fichiers Bases (personnages, lieux). */
+export async function initProjectStructure(app, settings) {
+  const root = getProjectFolder(app, settings);
+  if (!root) {
+    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    return;
+  }
+  /* base de la recherche : reprend l'emplacement existant s'il y en a
+     déjà un (voisin ou enfant du dossier projet), sinon la crée à côté
+     du dossier projet plutôt qu'à l'intérieur — c'est la convention
+     correcte quand "Dossier projet" pointe directement sur le
+     sous-dossier des parties/chapitres (Manuscrit), avec _Recherche et
+     _Snapshots comme voisins, pas comme enfants. */
+  const existingResearch = getResearchRoot(app, settings);
+  const base = existingResearch
+    ? existingResearch.parent
+      ? existingResearch.parent.path
+      : root.path
+    : root.parent
+    ? root.parent.path
+    : root.path;
+  const rf = getProjectMode(app, settings).researchFolders;
+  const foldersToCreate = ["Recherche"];
+  for (const key of ["sources", "bibliographie", "personnages", "lieux", "codex", "glossaire"]) {
+    if (rf[key]) {
+      foldersToCreate.push(`Recherche/${rf[key].label}`);
+    }
+  }
+  foldersToCreate.push("Recherche/Chronologie");
+  foldersToCreate.push("Snapshots");
+
+  for (const d of foldersToCreate) {
+    await ensureFolder(app, `${base}/${d}`);
+  }
+
+  // Initialisation du dossier Ressources au niveau frère (sibling) de root (Manuscrit)
+  const resPath = root.parent ? `${root.parent.path}/Ressources` : `${root.path}/Ressources`;
+  await ensureFolder(app, resPath);
+  await ensureFolder(app, `${resPath}/Templates`);
+  await ensureFolder(app, `${resPath}/Export`);
+
+  const writeTemplate = async (path, content) => {
+    const norm = normalizePath(path);
+    if (!app.vault.getAbstractFileByPath(norm)) {
+      await app.vault.create(norm, content).catch(() => {});
+    }
+  };
+
+  const isFiction = getProjectMode(app, settings).yamlPreset === "roman" || getProjectMode(app, settings).yamlPreset === "nouvelle";
+
+  if (isFiction) {
+    // Templates de fiction
+    await writeTemplate(`${resPath}/Templates/Personnages.md`, [
+      "---",
+      "nom: ",
+      "prénom: ",
+      "naissance: ",
+      "mort: ",
+      "synopsis: ",
+      "tags:",
+      "  - personnage",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Lieux.md`, [
+      "---",
+      'titre: "Nouveau lieu"',
+      "description: ",
+      "tags:",
+      "  - lieu",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Lore.md`, [
+      "---",
+      'titre: "Nouvelle entrée"',
+      "description: ",
+      "tags:",
+      "  - codex",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Bibliographie.md`, [
+      "---",
+      'titre: "Nouvelle référence"',
+      "auteur: ",
+      "annee: ",
+      "edition: ",
+      "synopsis: ",
+      "tags:",
+      "  - bibliographie",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Glossaire.md`, [
+      "---",
+      'titre: "Nouveau terme"',
+      "definition: ",
+      "synopsis: ",
+      "tags:",
+      "  - glossaire",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Evenements.md`, [
+      "---",
+      'titre: "Nouvel événement"',
+      "date: ",
+      "date_fin: ",
+      "synopsis: ",
+      "tags:",
+      "  - evenement",
+      "---",
+      ""
+    ].join("\n"));
+  } else {
+    // Templates de non-fiction
+    await writeTemplate(`${resPath}/Templates/Sources.md`, [
+      "---",
+      'titre: "Nouvelle source"',
+      "auteur: ",
+      "date: ",
+      "synopsis: ",
+      "tags:",
+      "  - source",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Acteurs.md`, [
+      "---",
+      "nom: ",
+      "prénom: ",
+      "fonction: ",
+      "synopsis: ",
+      "tags:",
+      "  - personnage",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Geographie.md`, [
+      "---",
+      'titre: "Nouvelle entrée"',
+      "description: ",
+      "tags:",
+      "  - lieu",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Concepts.md`, [
+      "---",
+      'titre: "Nouveau concept"',
+      "description: ",
+      "tags:",
+      "  - codex",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Bibliographie.md`, [
+      "---",
+      'titre: "Nouvelle référence"',
+      "auteur: ",
+      "annee: ",
+      "edition: ",
+      "synopsis: ",
+      "tags:",
+      "  - bibliographie",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Glossaire.md`, [
+      "---",
+      'titre: "Nouveau terme"',
+      "definition: ",
+      "synopsis: ",
+      "tags:",
+      "  - glossaire",
+      "---",
+      ""
+    ].join("\n"));
+
+    await writeTemplate(`${resPath}/Templates/Evenements.md`, [
+      "---",
+      'titre: "Nouvel événement"',
+      "date: ",
+      "date_fin: ",
+      "synopsis: ",
+      "tags:",
+      "  - evenement",
+      "---",
+      ""
+    ].join("\n"));
+  }
+
+  await ensureJournalFolder(app, settings);
+  /* Front, lui, est un enfant direct du dossier projet — pas un voisin
+     comme Recherche/Snapshots — puisqu'il doit apparaître dans le
+     binder au même niveau que les Parties, juste avant elles. */
+  await ensureFolder(app, `${root.path}/Front`);
+
+  const listParts = [`Front`, `Recherche`, `Snapshots`, `Ressources`, `Journal`].join(", ");
+  new Notice(
+    `Structure initialisée : ${listParts}.`
+  );
+}
+
+/** `onDone` : appelé après création réussie (le plugin y branche son
+ * propre rafraîchissement des vues, ce module ne connaît pas les vues). */
+export function newFolder(app, parent, onDone) {
+  new NewFolderModal(app, parent.name, async (name) => {
+    const path = normalizePath(`${parent.path}/${name}`);
+    if (app.vault.getAbstractFileByPath(path)) {
+      new Notice("Un dossier portant ce nom existe déjà.");
+      return;
+    }
+    await app.vault.createFolder(path);
+    if (onDone) onDone();
+  }).open();
+}
+
+export function newSheet(app, settings, folder) {
+  new NewSheetModal(app, folder.name, async (fileName, chapTitle) => {
+    const path = normalizePath(`${folder.path}/${fileName}.md`);
+    if (app.vault.getAbstractFileByPath(path)) {
+      new Notice("Un feuillet portant ce nom existe déjà.");
+      return;
+    }
+    const position = getOrderedChildren(app, settings, folder).length + 1;
+    const isFiction = getProjectMode(app, settings).yamlPreset === "roman" || getProjectMode(app, settings).yamlPreset === "nouvelle";
+    const lines = [
+      "---",
+      `titre: ${chapTitle || ""}`,
+      "titre_court: ",
+      `ordre: ${position}`,
+      ...(isFiction ? ["synopsis: "] : ["resume: "]),
+      "statut: ",
+      "label: ",
+      `objectif: ${settings.wordGoal}`,
+      "tags: ",
+      "date: ",
+      "notes: ",
+      ...(!isFiction ? ["sources: "] : []),
+      "compiler: true",
+      "---",
+      "",
+      "",
+    ];
+    const file = await app.vault.create(path, lines.join("\n"));
+    app.workspace.getLeaf(false).openFile(file);
+  }).open();
+}

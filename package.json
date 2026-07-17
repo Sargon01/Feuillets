@@ -1,0 +1,22 @@
+{
+  "name": "feuillets-dev",
+  "version": "1.0.0",
+  "description": "Feuillets plugin development",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [],
+  "author": "Halim",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "builtin-modules": "^5.0.0",
+    "esbuild": "^0.28.1",
+    "obsidian": "latest",
+    "typescript": "^5.0.0"
+  }
+}

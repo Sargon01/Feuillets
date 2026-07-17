@@ -1,0 +1,145 @@
+const { TFolder, TFile, normalizePath } = require("obsidian");
+import { fmOf } from "./frontmatter.js";
+
+export function getProjectFolder(app, settings) {
+  const path = normalizePath(settings.projectFolder || "");
+  if (!path) return null;
+  const af = app.vault.getAbstractFileByPath(path);
+  return af instanceof TFolder ? af : null;
+}
+
+/** Nom affiché d'un projet : le dossier de volume (parent), pas
+ * "Manuscrit" — sinon tous les projets s'appellent pareil dès qu'on
+ * suit la convention Manuscrit/Recherche/Snapshots en frères. Repli sur
+ * le dernier segment si le chemin ne suit pas cette convention. */
+export function projectDisplayName(path) {
+  const parts = normalizePath(path || "").split("/").filter(Boolean);
+  if (parts.length === 0) return path;
+  const last = parts[parts.length - 1];
+  if (last.toLowerCase() === "manuscrit" && parts.length > 1) {
+    return parts[parts.length - 2];
+  }
+  return last;
+}
+
+export function depthOf(app, settings, node) {
+  const root = getProjectFolder(app, settings);
+  if (!root) return 0;
+  if (node.path === root.path) return 0;
+  return node.path.slice(root.path.length + 1).split("/").length;
+}
+
+/** "Front" (page de titre, dédicace, préfaces, incipit…) : un dossier
+ * enfant direct du projet, jamais numéroté ni compté comme chapitre —
+ * ce n'est pas du texte du roman, juste ce qui vient avant. Reste visible
+ * et manipulable normalement dans le binder (rôle "partie" pour
+ * l'affichage), seule la numérotation l'ignore. */
+export function isFrontMatter(app, settings, node) {
+  const root = getProjectFolder(app, settings);
+  if (!root) return false;
+  const p = normalizePath(`${root.path}/Front`);
+  return node.path === p || node.path.startsWith(`${p}/`);
+}
+
+export function roleOfFolder(app, settings, folder) {
+  const d = depthOf(app, settings, folder);
+  if (d >= 2) return "chapitre";
+  return settings.level1Role === "chapitres" ? "chapitre" : "partie";
+}
+
+export function roleOfFile(app, settings, file) {
+  const parent = file.parent;
+  const root = getProjectFolder(app, settings);
+  if (!root || !parent || parent.path === root.path) return "chapitre";
+  return roleOfFolder(app, settings, parent) === "chapitre" ? "scene" : "chapitre";
+}
+
+/** Un dossier préfixé « _ » (recherche, fiches, chronologie…) est exclu
+ * du manuscrit : ni numéroté, ni compilé, ni affiché dans aucune vue.
+ * `includeHidden` reste disponible pour les cas internes qui doivent
+ * malgré tout parcourir ces dossiers (ex. tout-plier). */
+export function getOrderedChildren(app, settings, folder, includeHidden = false) {
+  const children = folder.children.filter(
+    (c) =>
+      (c instanceof TFolder &&
+        !c.name.startsWith(".") &&
+        (includeHidden || !c.name.startsWith("_"))) ||
+      (c instanceof TFile &&
+        c.extension === "md" &&
+        c.name !== settings.compileFileName &&
+        c.basename !== folder.name) // note de dossier (Partie I/Partie I.md) : jamais une scène
+  );
+  const saved = settings.orders[folder.path] || [];
+  const savedIndex = new Map(saved.map((n, i) => [n, i]));
+
+  const posOf = (c) => {
+    if (c instanceof TFile) {
+      const o = parseInt(fmOf(app, c).ordre, 10);
+      return isNaN(o) ? null : o;
+    }
+    const o = settings.folderPositions[c.path];
+    return typeof o === "number" ? o : null;
+  };
+
+  return children.sort((a, b) => {
+    const ia = savedIndex.has(a.name) ? savedIndex.get(a.name) : null;
+    const ib = savedIndex.has(b.name) ? savedIndex.get(b.name) : null;
+    if (ia !== null && ib !== null && ia !== ib) return ia - ib;
+    if (ia !== null && ib === null) return -1;
+    if (ia === null && ib !== null) return 1;
+    const pa = posOf(a);
+    const pb = posOf(b);
+    if (pa !== null && pb !== null && pa !== pb) return pa - pb;
+    if (pa !== null && pb === null) return -1;
+    if (pa === null && pb !== null) return 1;
+    return a.name.localeCompare(b.name, "fr");
+  });
+}
+
+export function flattenFiles(app, settings, folder) {
+  const out = [];
+  const walk = (f) => {
+    for (const child of getOrderedChildren(app, settings, f)) {
+      if (child instanceof TFolder) walk(child);
+      else out.push(child);
+    }
+  };
+  walk(folder);
+  return out;
+}
+
+export function chapterCount(app, settings, root) {
+  let n = 0;
+  const walk = (f) => {
+    for (const child of getOrderedChildren(app, settings, f)) {
+      if (isFrontMatter(app, settings, child)) continue; // jamais compté
+      if (child instanceof TFolder) {
+        if (roleOfFolder(app, settings, child) === "chapitre") n++;
+        walk(child);
+      } else if (roleOfFile(app, settings, child) === "chapitre") n++;
+    }
+  };
+  walk(root);
+  return n;
+}
+
+export function getChapters(app, settings, root) {
+  const chapters = [];
+  const walk = (f) => {
+    for (const child of getOrderedChildren(app, settings, f)) {
+      if (isFrontMatter(app, settings, child)) continue;
+      if (child instanceof TFolder) {
+        if (roleOfFolder(app, settings, child) === "chapitre") {
+          chapters.push(child);
+        }
+        walk(child);
+      } else {
+        if (roleOfFile(app, settings, child) === "chapitre") {
+          chapters.push(child);
+        }
+      }
+    }
+  };
+  walk(root);
+  return chapters;
+}

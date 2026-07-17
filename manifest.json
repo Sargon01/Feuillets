@@ -1,0 +1,9 @@
+{
+  "id": "feuillets",
+  "name": "Feuillets",
+  "version": "5.36.0",
+  "minAppVersion": "1.4.0",
+  "description": "Feuillets transforme Obsidian en véritable atelier de romancier.",
+  "author": "Halim",
+  "isDesktopOnly": false
+}
