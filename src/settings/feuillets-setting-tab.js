@@ -1146,11 +1146,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     this.organizeSections(containerEl);
   }
 
-  /** Regroupe les réglages en cinq sections pliables, une par vue/fonction
-   * du plugin (Projet & Écriture, Tableau, Panneaux latéraux, Export,
-   * Avancé) par post-traitement du DOM : les réglages sont créés
-   * normalement, puis déplacés — aucun risque sur leur logique. En mode
-   * simple, la section Avancé est masquée entièrement. */
+  /** Regroupe les réglages en cinq catégories pliables (Projet & Écriture,
+   * Tableau, Panneaux latéraux, Export, Avancé), et à l'intérieur de
+   * chacune, replie chaque sous-section (Dossier du projet, Objectifs...)
+   * dans son propre repli — deux niveaux de pli au lieu d'une longue liste
+   * de réglages à la suite. Tout ça par post-traitement du DOM : les
+   * réglages sont créés normalement, puis déplacés — aucun risque sur
+   * leur logique. En mode simple, la catégorie Avancé est masquée
+   * entièrement. */
   organizeSections(containerEl) {
     const MAP = {
       "Dossier du projet": "Projet & Écriture",
@@ -1173,19 +1176,15 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       "Projets": "Avancé",
     };
     const ORDER = ["Projet & Écriture", "Tableau", "Panneaux latéraux", "Export", "Avancé"];
-    const sections = {};
-    for (const name of ORDER) {
-      const det = document.createElement("details");
-      det.addClass("feuillets-settings-section");
-      if (name === "Projet & Écriture") det.setAttr("open", "");
-      const sum = document.createElement("summary");
-      sum.setText(name);
-      det.appendChild(sum);
-      sections[name] = det;
-    }
 
+    // Passe 1 : regrouper les nœuds par catégorie puis par sous-section,
+    // sans encore toucher au DOM (facile à corriger si une catégorie ne
+    // correspond à aucun texte de h3 connu).
+    const byCategory = {};
+    for (const name of ORDER) byCategory[name] = [];
+    let currentCategory = "Projet & Écriture"; // tout ce qui précède le premier h3
+    let currentSub = null;
     const nodes = Array.from(containerEl.children);
-    let current = "Projet & Écriture"; // tout ce qui précède le premier h3
     for (const node of nodes) {
       if (node.tagName === "H2") continue; // titre principal reste en tête
       if (
@@ -1195,21 +1194,43 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       )
         continue; // le toggle reste en tête
       if (node.tagName === "H3") {
-        current = MAP[node.textContent] || "Avancé";
-        if (ORDER.includes(node.textContent)) {
-          node.remove(); // sinon le titre reste orphelin en haut du panneau
-          continue;
-        }
-        node.addClass("feuillets-settings-subhead");
-        sections[current].appendChild(node);
+        currentCategory = MAP[node.textContent] || "Avancé";
+        currentSub = { title: node.textContent, nodes: [] };
+        byCategory[currentCategory].push(currentSub);
+        node.remove(); // son texte devient le résumé du repli imbriqué
         continue;
       }
-      sections[current].appendChild(node);
+      if (currentSub) currentSub.nodes.push(node);
+      else byCategory[currentCategory].push({ title: null, nodes: [node] });
     }
 
+    // Passe 2 : construire les replis (catégorie, puis sous-section) et
+    // les réinsérer dans l'ordre.
     for (const name of ORDER) {
       if (name === "Avancé" && !this.plugin.settings.settingsAdvanced) continue;
-      containerEl.appendChild(sections[name]);
+      const det = document.createElement("details");
+      det.addClass("feuillets-settings-section");
+      if (name === "Projet & Écriture") det.setAttr("open", "");
+      const sum = document.createElement("summary");
+      sum.setText(name);
+      det.appendChild(sum);
+
+      for (const sub of byCategory[name]) {
+        if (!sub.title) {
+          for (const n of sub.nodes) det.appendChild(n);
+          continue;
+        }
+        const subDet = document.createElement("details");
+        subDet.addClass("feuillets-settings-subsection");
+        if (sub.title === "Dossier du projet") subDet.setAttr("open", "");
+        const subSum = document.createElement("summary");
+        subSum.setText(sub.title);
+        subSum.addClass("feuillets-settings-subhead");
+        subDet.appendChild(subSum);
+        for (const n of sub.nodes) subDet.appendChild(n);
+        det.appendChild(subDet);
+      }
+      containerEl.appendChild(det);
     }
   }
 

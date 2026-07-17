@@ -1,5 +1,6 @@
 const { ItemView, TFolder, TFile } = require("obsidian");
 import { VIEW_ARCS } from "../constants.js";
+import { openFileActivating } from "../utils/dom.js";
 
 export class ArcsView extends ItemView {
   constructor(leaf, plugin) {
@@ -280,7 +281,7 @@ export class ArcsView extends ItemView {
         }
 
         row.addEventListener("click", () => {
-          this.app.workspace.getLeaf(false).openFile(file);
+          openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
         });
       }
     }

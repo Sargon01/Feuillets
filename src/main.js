@@ -17,7 +17,7 @@ import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_RESEARCH, VIEW_PROGRESSION, 
 import { countWords, foldAccents, escapeRegExp, embedHardBreaks, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs } from "./utils/text-metrics.js";
 import { nextFootnoteNumber, renumberFootnotes } from "./utils/footnotes.js";
-import { highlightActive, isEditing } from "./utils/dom.js";
+import { highlightActive, isEditing, openFileActivating } from "./utils/dom.js";
 import { ResearchView } from "./views/research-view.js";
 import { NotesView } from "./views/notes-view.js";
 import { ProgressionView } from "./views/progression-view.js";
@@ -1426,8 +1426,7 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
     const leaf = this.getLeafForOpeningFile();
-    leaf.openFile(next, { active: true });
-    this.app.workspace.setActiveLeaf(leaf, { focus: true });
+    openFileActivating(this.app, leaf, next);
     this.app.workspace.revealLeaf(leaf);
   }
 
@@ -2117,8 +2116,7 @@ class FeuilletsPlugin extends Plugin {
       await this.applySiblingOrder(folder, others, false);
       this.renderAllViews(true);
       const leaf = this.getLeafForOpeningFile();
-      leaf.openFile(file, { active: true });
-      this.app.workspace.setActiveLeaf(leaf, { focus: true });
+      openFileActivating(this.app, leaf, file);
       this.app.workspace.revealLeaf(leaf);
     }).open();
   }

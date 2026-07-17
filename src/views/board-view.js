@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS } from "../default-settings.js";
 import { VIEW_BOARD, STATUSES, BOARD_MODES } from "../constants.js";
-import { highlightActive, isEditing, getActiveFileSafe } from "../utils/dom.js";
+import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { filsOf } from "../utils/arc-fields.js";
 
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
@@ -1273,7 +1273,7 @@ export class BoardView extends BaseFeuilletsView {
       );
       menu.addItem((item) =>
         item.setTitle("Ouvrir le fichier").onClick(() => {
-          this.app.workspace.getLeaf(false).openFile(file);
+          openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
         })
       );
       menu.showAtMouseEvent(e);
@@ -1292,7 +1292,7 @@ export class BoardView extends BaseFeuilletsView {
       const excerpt = card.createDiv({ cls: "feuillets-card-excerpt" });
       excerpt.setText("…");
       excerpt.addEventListener("click", () => {
-        this.app.workspace.getLeaf(false).openFile(file);
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
       this.app.vault.cachedRead(file).then((content) => {
         const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
@@ -1355,7 +1355,7 @@ export class BoardView extends BaseFeuilletsView {
       );
       head.setAttr("title", "Ouvrir dans l'éditeur");
       head.addEventListener("click", () => {
-        this.app.workspace.getLeaf(false).openFile(file);
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
 
       const raw0 = await this.app.vault.cachedRead(file);
@@ -1782,8 +1782,7 @@ export class BoardView extends BaseFeuilletsView {
 
       row.addEventListener("click", () => {
         const leaf = this.plugin.getLeafForOpeningFile();
-        leaf.openFile(file, { active: true });
-        this.app.workspace.setActiveLeaf(leaf, { focus: true });
+        openFileActivating(this.app, leaf, file);
         this.app.workspace.revealLeaf(leaf);
       });
     }
@@ -2008,7 +2007,7 @@ export class BoardView extends BaseFeuilletsView {
         }
       }
       title.addEventListener("click", () => {
-        this.app.workspace.getLeaf(false).openFile(item.file);
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), item.file);
       });
       const syn = this.fm(item.file).synopsis;
       if (syn) {
@@ -2274,8 +2273,7 @@ export class BoardView extends BaseFeuilletsView {
       titleSpan.setAttr("title", `Fichier : ${file.basename}`);
       titleSpan.addEventListener("click", () => {
         const leaf = this.plugin.getLeafForOpeningFile();
-        leaf.openFile(file, { active: true });
-        this.app.workspace.setActiveLeaf(leaf, { focus: true });
+        openFileActivating(this.app, leaf, file);
         this.app.workspace.revealLeaf(leaf);
       });
 
@@ -2328,7 +2326,7 @@ export class BoardView extends BaseFeuilletsView {
           el.setText(file.basename);
           el.setAttr("title", `${file.path} — cliquer pour ouvrir`);
           el.addEventListener("click", () => {
-            this.app.workspace.getLeaf(false).openFile(file);
+            openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
           });
         },
         words: (cell) => {

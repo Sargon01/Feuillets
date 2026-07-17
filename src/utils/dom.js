@@ -73,6 +73,16 @@ export function isEditing(rootEl) {
   return a && rootEl.contains(a) && ["TEXTAREA", "INPUT"].includes(a.tagName);
 }
 
+/** Ouvre un fichier dans `leaf` en la rendant explicitement active pour
+ * Obsidian. `leaf.openFile()` seul ne suffit pas : sans activation
+ * explicite, l'événement "file-open" — dont dépendent les panneaux Notes
+ * et Progression ainsi que le panneau Propriétés natif d'Obsidian — ne se
+ * déclenche pas pour une feuille simplement révélée mais pas "active". */
+export function openFileActivating(app, leaf, file) {
+  leaf.openFile(file, { active: true });
+  app.workspace.setActiveLeaf(leaf, { focus: true });
+}
+
 export function getActiveFileSafe(app) {
   // 1. Tenter via le fichier actif du workspace (très fiable si un onglet d'écriture est actif)
   const active = app.workspace.getActiveFile();

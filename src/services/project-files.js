@@ -4,6 +4,7 @@ import { getProjectFolder, getOrderedChildren } from "./folder-structure.js";
 import { getResearchRoot } from "./research.js";
 import { ensureJournalFolder } from "./journal.js";
 import { getProjectMode } from "./project-mode.js";
+import { openFileActivating } from "../utils/dom.js";
 
 export async function ensureFolder(app, path) {
   const p = normalizePath(path);
@@ -315,6 +316,6 @@ export function newSheet(app, settings, folder) {
       "",
     ];
     const file = await app.vault.create(path, lines.join("\n"));
-    app.workspace.getLeaf(false).openFile(file);
+    openFileActivating(app, app.workspace.getLeaf(false), file);
   }).open();
 }

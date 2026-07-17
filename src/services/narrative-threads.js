@@ -67,7 +67,25 @@ export async function handleFilChanged(app, settings, plugin, file) {
   const fils = filsOf(fmOf(app, file));
   if (fils.length === 0) return;
 
+  /* handleFilChanged est déclenché par metadataCache "changed", jamais
+     awaité par Obsidian — deux feuillets modifiés à quelques centaines de
+     ms d'écart peuvent donc s'exécuter en parallèle et se marcher dessus
+     en lisant/écrivant filPlaceholders/filOrigins/filResolved en mémoire.
+     Cette file d'attente sérialise les passages pour ce projet, feuillet
+     par feuillet, sans bloquer les autres événements du plugin. */
+  const queueKey = root.path;
+  if (!plugin._filQueues) plugin._filQueues = new Map();
+  const previous = plugin._filQueues.get(queueKey) || Promise.resolve();
+  const run = previous
+    .catch(() => {})
+    .then(() => handleFilChangedLocked(app, settings, plugin, file, root, fils));
+  plugin._filQueues.set(queueKey, run);
+  return run;
+}
+
+async function handleFilChangedLocked(app, settings, plugin, file, root, fils) {
   if (!settings.filPlaceholders) settings.filPlaceholders = {};
+  if (!settings.filOrigins) settings.filOrigins = {};
   if (!settings.filResolved) settings.filResolved = [];
   const resolvedSet = new Set(settings.filResolved);
 
@@ -87,6 +105,7 @@ export async function handleFilChanged(app, settings, plugin, file) {
 
     if (placeholderPath) {
       if (placeholderPath === file.path) continue; // c'est le marqueur lui-même
+      if (settings.filOrigins[value] === file.path) continue; // réédition du feuillet d'origine : pas une nouvelle apparition
       const placeholderFile = app.vault.getAbstractFileByPath(placeholderPath);
       if (placeholderFile instanceof TFile) {
         const next = filsOf(fmOf(app, placeholderFile)).filter((v) => v !== value);
@@ -94,6 +113,7 @@ export async function handleFilChanged(app, settings, plugin, file) {
         await setFilList(app, placeholderFile, next);
       }
       delete settings.filPlaceholders[value];
+      delete settings.filOrigins[value];
       settings.filResolved.push(value);
       await plugin.saveSettings();
       continue;
@@ -110,6 +130,7 @@ export async function handleFilChanged(app, settings, plugin, file) {
     suppress(lastFile.path);
     await setFilList(app, lastFile, [...lastFils, value]);
     settings.filPlaceholders[value] = lastFile.path;
+    settings.filOrigins[value] = file.path;
     await plugin.saveSettings();
   }
 }

@@ -1,4 +1,5 @@
 const { Modal, TFolder } = require("obsidian");
+import { openFileActivating } from "../utils/dom.js";
 
 export class AppearancesModal extends Modal {
   constructor(app, plugin, entityFile) {
@@ -73,7 +74,7 @@ export class AppearancesModal extends Modal {
         row.createDiv({ cls: "feuillets-appearances-excerpt" }).setText(r.excerpt);
       }
       row.addEventListener("click", () => {
-        this.app.workspace.getLeaf(false).openFile(r.file);
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), r.file);
         this.close();
       });
     }

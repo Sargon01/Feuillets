@@ -133,6 +133,11 @@ export class ProgressionView extends ItemView {
   async renderMetadataSection(container, file, fm, S) {
     const section = container.createDiv({ cls: "feuillets-notes-section" });
 
+    /* une seule lecture du fichier actif, réutilisée pour les deux
+       métriques (mots bruts pour l'objectif, texte "propre" pour le
+       détail) — ce rendu se redéclenche à chaque sauvegarde automatique
+       pendant la frappe, une seconde lecture disque ici était du travail
+       en double sur le chemin le plus chaud du plugin. */
     const rawText = await this.app.vault.cachedRead(file);
     const wc = countWords(rawText);
     const g = parseInt(fm.objectif, 10);
@@ -140,11 +145,7 @@ export class ProgressionView extends ItemView {
     this.renderGoalCard(section, "Mots", wc, goal, S);
 
     const list = section.createDiv({ cls: "feuillets-notes-metadata-list", style: "margin-top: 8px;" });
-    let bodyText = "";
-    try {
-      bodyText = await this.app.vault.read(file);
-    } catch (e) {}
-    const cleanText = stripWritingNoise(bodyText);
+    const cleanText = stripWritingNoise(rawText);
 
     const chars = cleanText.length;
     const charsNoSpaces = cleanText.replace(/\s/g, "").length;

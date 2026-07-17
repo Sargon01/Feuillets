@@ -2,7 +2,7 @@ import { STATUSES } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { AppearancesModal, FolderGoalModal, TagsModal } from "../ui/entity-modals.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
-import { renderCollapsibleHead } from "../utils/dom.js";
+import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
 
 function getResearchSectionIcon(key) {
@@ -87,7 +87,7 @@ export class BaseFeuilletsView extends ItemView {
     }
     const path = normalizePath(`${folder.path}/${name}.md`);
     const file = await this.app.vault.create(path, template);
-    this.app.workspace.getLeaf(false).openFile(file);
+    openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
   }
 
   makeSynopsisArea(parent, file, rows) {
@@ -475,7 +475,7 @@ export class BaseFeuilletsView extends ItemView {
       this.render();
     });
     this.iconBtn(bar, "external-link", "Ouvrir dans un nouvel onglet", () => {
-      this.app.workspace.getLeaf(true).openFile(file);
+      openFileActivating(this.app, this.app.workspace.getLeaf(true), file);
     });
 
     this.barSep(bar);
@@ -600,7 +600,7 @@ export class BaseFeuilletsView extends ItemView {
         );
         openFileBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          this.app.workspace.getLeaf("tab").openFile(f);
+          openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
         });
       } else {
         const appearBtn = this.iconBtn(
@@ -617,7 +617,7 @@ export class BaseFeuilletsView extends ItemView {
       row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
       row.addEventListener("click", (e) => {
         if (Keymap.isModEvent(e)) {
-          this.app.workspace.getLeaf(true).openFile(f);
+          openFileActivating(this.app, this.app.workspace.getLeaf(true), f);
           return;
         }
         this.viewingFile = f;
@@ -702,7 +702,7 @@ export class BaseFeuilletsView extends ItemView {
         .setTitle("Ouvrir dans un nouvel onglet")
         .setIcon("file-plus")
         .onClick(() => {
-          this.app.workspace.getLeaf("tab").openFile(file);
+          openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
         })
     );
     menu.addSeparator();
@@ -823,7 +823,7 @@ export class BaseFeuilletsView extends ItemView {
         .setIcon("notebook-text")
         .onClick(async () => {
           const note = await plugin.getOrCreateFolderNote(folder);
-          this.app.workspace.getLeaf(false).openFile(note);
+          openFileActivating(this.app, this.app.workspace.getLeaf(false), note);
         })
     );
     menu.addSeparator();
