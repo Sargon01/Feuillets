@@ -45,6 +45,15 @@ export class SidebarFeuilletsView extends ItemView {
 
   async onOpen() {
     await this.render();
+    /* Les sous-vues ne reçoivent pas leur propre onOpen (elles ne sont pas
+       ouvertes comme feuilles) : leurs écouteurs ne se déclenchent donc pas.
+       Le panneau, lui, est une vraie feuille — on y rafraîchit l'onglet actif
+       qui dépend du feuillet courant (Analyse) à chaque ouverture de fichier. */
+    this.registerEvent(
+      this.app.workspace.on("file-open", () => {
+        if (this.activeTab === "analyse") this.subViews.analyse.render(true);
+      })
+    );
   }
 
   async render() {
