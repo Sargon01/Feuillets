@@ -5,7 +5,7 @@ import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getChapters, flattenFiles, isFrontMatter } from "../services/folder-structure.js";
 import { findRepetitions } from "../utils/repetitions.js";
 
-const { TFile, TFolder, Platform } = require("obsidian");
+const { TFile, TFolder, Platform, Notice } = require("obsidian");
 
 /** Extrait le lemme d'une chaîne morphologique Grammalecte (`>lemme …`). */
 function lemmaOfMorph(morph) {
@@ -283,6 +283,75 @@ export class AnalysisView extends BaseFeuilletsView {
     return data;
   }
 
+  /** Vocabulaire du roman entier (Phase « vocab roman ») : concatène toutes
+   * les scènes et réutilise computeVocab. Lourd (Grammalecte sur tout le
+   * manuscrit), bureau uniquement — mis en cache, invalidé sur modification. */
+  async getRomanVocab() {
+    if (this._romanVocabCache) return this._romanVocabCache;
+    let data;
+    try {
+      const scenes = this.sceneFiles();
+      let text = "";
+      for (const f of scenes) text += "\n\n" + (await this.app.vault.cachedRead(f));
+      data = this.computeVocab(text);
+    } catch (e) {
+      console.error("Feuillets : vocabulaire du roman indisponible", e);
+      data = { error: true };
+    }
+    this._romanVocabCache = data;
+    return data;
+  }
+
+  /** Affiche un résultat de computeVocab dans une section (réutilisé pour le
+   * feuillet et pour le roman). */
+  renderVocabInto(section, vocab) {
+    if (Platform.isMobile) {
+      section.createDiv({ cls: "feuillets-empty" }).setText("Analyse morphologique : bureau uniquement.");
+      return;
+    }
+    if (!vocab || vocab.error) {
+      section.createDiv({ cls: "feuillets-empty" }).setText("Analyse indisponible (moteur Grammalecte non chargé).");
+      return;
+    }
+    section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+      `Richesse lexicale ${Math.round(vocab.richness * 100)} % · ` +
+        `${formatNumber(vocab.uniqueLemmas)} lemmes / ${formatNumber(vocab.contentTotal)} mots pleins · ` +
+        `${formatNumber(vocab.hapaxCount)} hapax`
+    );
+    const group = (label, entries) => {
+      section.createDiv({ cls: "feuillets-analysis-summary feuillets-vocab-group" }).setText(label);
+      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      if (!entries.length) {
+        list.createDiv({ cls: "feuillets-empty" }).setText("—");
+        return;
+      }
+      for (const [lemma, n] of entries) {
+        const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
+        row.createDiv({ cls: "feuillets-notes-metadata-label", text: lemma });
+        row.createDiv({ cls: "feuillets-notes-metadata-value", text: `×${n}` });
+      }
+    };
+    group("Verbes favoris", vocab.verbs);
+    group(
+      `Verbes passe-partout : ${formatNumber(vocab.weakTotal)} (${vocab.weakPct} % des verbes)` +
+        (vocab.weakPct >= 40 ? " · à varier" : ""),
+      vocab.weakTop
+    );
+    group("Adjectifs favoris", vocab.adjs);
+    group("Adverbes favoris", vocab.advs);
+    group(
+      `Adverbes en -ment : ${formatNumber(vocab.mentTotal)} (${vocab.mentPct} %)` +
+        (vocab.mentPct >= 3 ? " · à surveiller" : ""),
+      vocab.mentTop
+    );
+    section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+      `Voix passive : ${formatNumber(vocab.passiveCount)} tournure(s) (estimation)`
+    );
+    section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+      "Morphologie française (Grammalecte) — formes ambiguës comptées au plus large, indicatif."
+    );
+  }
+
   /** Tableau de bord roman (Phase 6) : agrégats sur tout le manuscrit —
    * indicateurs BRUTS et actionnables (pas de score composite opaque). Lourd
    * (lit tout le manuscrit) : mis en cache, invalidé sur modification. */
@@ -328,6 +397,25 @@ export class AnalysisView extends BaseFeuilletsView {
   async getDashboard() {
     if (!this._dashboardCache) this._dashboardCache = await this.computeDashboard();
     return this._dashboardCache;
+  }
+
+  /** Synthèse du tableau de bord en Markdown (export presse-papier). */
+  dashboardMarkdown(dash) {
+    const root = this.plugin.getProjectFolder();
+    const name = this.plugin.settings.manuscriptTitle || (root ? root.name : "Manuscrit");
+    return [
+      `## Tableau de bord — ${name}`,
+      "",
+      `- Mots : ${formatNumber(dash.words)}`,
+      `- Chapitres : ${formatNumber(dash.chapters)}`,
+      `- Scènes : ${formatNumber(dash.scenes)}`,
+      `- Ratio dialogue : ${dash.dialoguePct} %`,
+      `- Mots différents : ${formatNumber(dash.uniqueSurface)}`,
+      `- Zones de répétition : ${formatNumber(dash.repZones)}`,
+      `- Chapitres déséquilibrés : ${formatNumber(dash.outliers)}`,
+      `- Scènes taguées (rythme) : ${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`,
+      "",
+    ].join("\n");
   }
 
   /** Scènes du manuscrit dans l'ordre (fichiers md, hors Front). Lecture du
@@ -402,6 +490,17 @@ export class AnalysisView extends BaseFeuilletsView {
       row("Zones de répétition", formatNumber(dash.repZones));
       row("Chapitres déséquilibrés", formatNumber(dash.outliers));
       row("Scènes taguées (rythme)", `${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`);
+
+      const bar = section.createDiv({ cls: "feuillets-analysis-export-bar" });
+      const btn = bar.createEl("button", { text: "Copier la synthèse" });
+      btn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(this.dashboardMarkdown(dash));
+          new Notice("Synthèse copiée dans le presse-papier.");
+        } catch (e) {
+          new Notice("Copie impossible.");
+        }
+      });
     });
 
     this.tool(container, "metrics", "bar-chart-3", "Métriques du feuillet", (section) => {
@@ -470,54 +569,7 @@ export class AnalysisView extends BaseFeuilletsView {
     const vocab = vocabCollapsed || Platform.isMobile ? null : this.getVocab(file, raw);
 
     this.tool(container, "vocab", "book-a", "Vocabulaire (Grammalecte)", (section) => {
-      if (Platform.isMobile) {
-        section.createDiv({ cls: "feuillets-empty" }).setText("Analyse morphologique : bureau uniquement.");
-        return;
-      }
-      if (!vocab || vocab.error) {
-        section.createDiv({ cls: "feuillets-empty" }).setText(
-          "Analyse indisponible (moteur Grammalecte non chargé)."
-        );
-        return;
-      }
-      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        `Richesse lexicale ${Math.round(vocab.richness * 100)} % · ` +
-          `${formatNumber(vocab.uniqueLemmas)} lemmes / ${formatNumber(vocab.contentTotal)} mots pleins · ` +
-          `${formatNumber(vocab.hapaxCount)} hapax`
-      );
-      const group = (label, entries) => {
-        const g = section.createDiv({ cls: "feuillets-analysis-summary feuillets-vocab-group" });
-        g.setText(label);
-        const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
-        if (!entries.length) {
-          list.createDiv({ cls: "feuillets-empty" }).setText("—");
-          return;
-        }
-        for (const [lemma, n] of entries) {
-          const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
-          row.createDiv({ cls: "feuillets-notes-metadata-label", text: lemma });
-          row.createDiv({ cls: "feuillets-notes-metadata-value", text: `×${n}` });
-        }
-      };
-      group("Verbes favoris", vocab.verbs);
-      group(
-        `Verbes passe-partout : ${formatNumber(vocab.weakTotal)} (${vocab.weakPct} % des verbes)` +
-          (vocab.weakPct >= 40 ? " · à varier" : ""),
-        vocab.weakTop
-      );
-      group("Adjectifs favoris", vocab.adjs);
-      group("Adverbes favoris", vocab.advs);
-      group(
-        `Adverbes en -ment : ${formatNumber(vocab.mentTotal)} (${vocab.mentPct} %)` +
-          (vocab.mentPct >= 3 ? " · à surveiller" : ""),
-        vocab.mentTop
-      );
-      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        `Voix passive : ${formatNumber(vocab.passiveCount)} tournure(s) (estimation)`
-      );
-      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        "Morphologie française (Grammalecte) — formes ambiguës comptées au plus large, indicatif."
-      );
+      this.renderVocabInto(section, vocab);
     });
 
     // ---- Équilibre des chapitres (niveau roman) ----
@@ -558,6 +610,14 @@ export class AnalysisView extends BaseFeuilletsView {
         bar.createDiv({ cls: "feuillets-analysis-bar-fill" }).style.width =
           `${Math.round((c.words / max) * 100)}%`;
       }
+    });
+
+    // ---- Vocabulaire du roman (Grammalecte, desktop, calcul lourd) ----
+    const romanVocabCollapsed = !!(S.collapsed && S.collapsed["analyse:vocab-roman"]);
+    const romanVocab = romanVocabCollapsed || Platform.isMobile ? null : await this.getRomanVocab();
+
+    this.tool(container, "vocab-roman", "book-marked", "Vocabulaire du roman (Grammalecte)", (section) => {
+      this.renderVocabInto(section, romanVocab);
     });
 
     // ---- Rythme du feuillet (tags manuels de la scène active) ----

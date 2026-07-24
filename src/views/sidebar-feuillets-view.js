@@ -68,6 +68,7 @@ export class SidebarFeuilletsView extends ItemView {
         this.subViews.analyse._chaptersCache = null;
         this.subViews.analyse._vocabCache = null;
         this.subViews.analyse._dashboardCache = null;
+        this.subViews.analyse._romanVocabCache = null;
       })
     );
   }
