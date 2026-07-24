@@ -5584,21 +5584,36 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-analysis-export-bar { margin-top: var(--size-4-3); }
 
 /* En-têtes de groupe repliables de l'onglet Analyse (Ce feuillet / Le roman) */
-.feuillets-analysis-grouphead { margin-top: var(--size-4-4); }
+.feuillets-analysis-grouphead { margin-top: var(--size-4-8); } /* espace net avant un groupe */
 .feuillets-notes-container > .feuillets-analysis-grouphead:first-child { margin-top: var(--size-4-1); }
 .feuillets-analysis-grouphead-inner {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
   cursor: pointer;
-  padding: var(--size-4-1) 0 var(--size-4-2);
+  padding: var(--size-4-2) 0;
   border-bottom: 2px solid var(--background-modifier-border);
 }
 .feuillets-analysis-grouphead-inner:hover .feuillets-analysis-grouphead-title { color: var(--text-accent); }
 .feuillets-analysis-grouphead-icon { display: flex; color: var(--text-accent); }
 .feuillets-analysis-grouphead-title {
-  font-size: var(--font-ui-medium);
+  font-size: var(--font-ui-large);
   font-weight: var(--font-bold, 700);
   color: var(--text-normal);
   letter-spacing: 0.02em;
+}
+
+/* Corps d'un groupe : outils indentés + filet vertical, pour montrer qu'ils
+   appartiennent au groupe. */
+.feuillets-analysis-groupbody {
+  margin-left: 3px;
+  padding-left: var(--size-4-3);
+  border-left: 2px solid var(--background-modifier-border);
+}
+/* Premier outil collé au titre de groupe : pas de second filet ni de grand
+   blanc juste sous l'en-tête. */
+.feuillets-analysis-groupbody > .feuillets-notes-section:first-child {
+  margin-top: var(--size-4-2);
+  border-top: none;
+  padding-top: var(--size-4-2);
 }
