@@ -4,8 +4,9 @@ import { formatNumber, stripWritingNoise } from "../utils/text-metrics.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getChapters, flattenFiles, isFrontMatter } from "../services/folder-structure.js";
 import { findRepetitions } from "../utils/repetitions.js";
+import { ensureFolder } from "../services/project-files.js";
 
-const { TFile, TFolder, Platform, Notice } = require("obsidian");
+const { TFile, TFolder, Platform, Notice, normalizePath } = require("obsidian");
 
 /** Extrait le lemme d'une chaîne morphologique Grammalecte (`>lemme …`). */
 function lemmaOfMorph(morph) {
@@ -418,6 +419,27 @@ export class AnalysisView extends BaseFeuilletsView {
     ].join("\n");
   }
 
+  /** Enregistre la synthèse dans un fichier du coffre (Ressources/Tableau de
+   * bord.md), le crée ou le remplace, puis l'ouvre. */
+  async exportDashboardFile(dash) {
+    const root = this.plugin.getProjectFolder();
+    if (!root) {
+      new Notice("Aucun projet actif.");
+      return;
+    }
+    const base = root.parent ? root.parent.path : root.path;
+    const dir = normalizePath(`${base}/Ressources`);
+    await ensureFolder(this.app, dir);
+    const path = normalizePath(`${dir}/Tableau de bord.md`);
+    const md = this.dashboardMarkdown(dash);
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing instanceof TFile) await this.app.vault.modify(existing, md);
+    else await this.app.vault.create(path, md);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    new Notice("Tableau de bord enregistré dans Ressources.");
+  }
+
   /** Scènes du manuscrit dans l'ordre (fichiers md, hors Front). Lecture du
    * seul frontmatter (metadataCache) pour la courbe → pas de lecture de corps,
    * donc pas de cache nécessaire ici. */
@@ -492,8 +514,8 @@ export class AnalysisView extends BaseFeuilletsView {
       row("Scènes taguées (rythme)", `${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`);
 
       const bar = section.createDiv({ cls: "feuillets-analysis-export-bar" });
-      const btn = bar.createEl("button", { text: "Copier la synthèse" });
-      btn.addEventListener("click", async () => {
+      const copyBtn = bar.createEl("button", { text: "Copier la synthèse" });
+      copyBtn.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(this.dashboardMarkdown(dash));
           new Notice("Synthèse copiée dans le presse-papier.");
@@ -501,6 +523,8 @@ export class AnalysisView extends BaseFeuilletsView {
           new Notice("Copie impossible.");
         }
       });
+      const saveBtn = bar.createEl("button", { text: "Enregistrer (.md)" });
+      saveBtn.addEventListener("click", () => this.exportDashboardFile(dash));
     });
 
     this.tool(container, "metrics", "bar-chart-3", "Métriques du feuillet", (section) => {
@@ -531,9 +555,28 @@ export class AnalysisView extends BaseFeuilletsView {
     // ---- Répétitions rapprochées (feuillet actif) ----
     const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
     const bodyStart = fmMatch ? fmMatch[0].length : 0;
-    const reps = findRepetitions(raw.slice(bodyStart));
+    const repWindow = S.analysisRepWindow ?? 50;
+    const repMinLen = S.analysisRepMinLen ?? 4;
+    const reps = findRepetitions(raw.slice(bodyStart), { window: repWindow, minLen: repMinLen });
 
     this.tool(container, "repetitions", "copy", "Répétitions rapprochées", (section) => {
+      // Réglages : fenêtre (distance max en mots) et longueur mini d'un mot.
+      const ctrl = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      const numCtrl = (label, value, set, min) => {
+        const r = ctrl.createDiv({ cls: "feuillets-notes-metadata-row" });
+        r.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
+        const inp = r.createEl("input", { cls: "feuillets-rythme-input", type: "number" });
+        inp.min = String(min);
+        inp.value = String(value);
+        inp.addEventListener("change", async () => {
+          set(Math.max(min, Math.round(Number(inp.value) || min)));
+          await this.plugin.saveSettings();
+          this.render();
+        });
+      };
+      numCtrl("Fenêtre (mots)", repWindow, (v) => (S.analysisRepWindow = v), 5);
+      numCtrl("Longueur mini", repMinLen, (v) => (S.analysisRepMinLen = v), 2);
+
       if (!reps.length) {
         section.createDiv({ cls: "feuillets-empty" }).setText("Aucune répétition rapprochée détectée.");
         return;
