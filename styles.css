@@ -5554,3 +5554,7 @@ body.feuillets-concentration .markdown-preview-view {
 }
 .feuillets-curve-legend-item { display: inline-flex; align-items: center; gap: 4px; }
 .feuillets-curve-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* Lignes de répétition cliquables (onglet Analyse, Phase 4) */
+.feuillets-rep-row { cursor: pointer; border-radius: 4px; padding-left: 4px; padding-right: 4px; }
+.feuillets-rep-row:hover { background: var(--background-modifier-hover); }
