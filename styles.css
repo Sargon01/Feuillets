@@ -5440,18 +5440,26 @@ body.feuillets-concentration .markdown-preview-view {
   opacity: 0.6;
 }
 
-/* Barre Preset + Modèle en haut de l'éditeur de mise en page */
+/* En-tête resserré de l'éditeur de mise en page */
+.feuillets-tp-title { margin: 0 0 2px; font-size: var(--font-ui-medium); }
+.feuillets-tp-desc { margin: 0 0 8px; }
+
+/* Barre de config (Feuillets/Preset/Modèle/Format) compacte : grille 2 colonnes
+   pour ne pas manger toute la hauteur au-dessus de la maquette. */
 .feuillets-tp-configbar {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 16px;
+  margin-bottom: 10px;
 }
 .feuillets-tp-configbar .setting-item {
   border: none;
-  padding: 4px 0;
-  flex: 1 1 200px;
+  padding: 3px 0;
 }
+.feuillets-tp-configbar .setting-item-info { margin-right: 8px; }
+.feuillets-tp-configbar .setting-item-name { font-size: var(--font-ui-small); }
+.feuillets-tp-configbar .setting-item-control { flex-wrap: nowrap; min-width: 0; }
+.feuillets-tp-configbar select { max-width: 100%; }
 
 /* Pied de l'éditeur de mise en page : bouton Exporter aligné à droite */
 .feuillets-tp-footer {
