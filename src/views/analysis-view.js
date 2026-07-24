@@ -3,6 +3,7 @@ import { analyzeProse } from "../utils/literary-analysis.js";
 import { formatNumber } from "../utils/text-metrics.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getChapters, flattenFiles, isFrontMatter } from "../services/folder-structure.js";
+import { findRepetitions } from "../utils/repetitions.js";
 
 const { TFile, TFolder } = require("obsidian");
 
@@ -130,6 +131,17 @@ export class AnalysisView extends BaseFeuilletsView {
     );
   }
 
+  /** Sélectionne et fait défiler jusqu'à un décalage caractère dans l'éditeur
+   * du feuillet actif (navigation depuis une répétition). */
+  gotoOffset(offset, len) {
+    const editor = this.plugin.activeEditorAnywhere();
+    if (!editor) return;
+    const from = editor.offsetToPos(offset);
+    const to = editor.offsetToPos(offset + len);
+    editor.setSelection(from, to);
+    editor.scrollIntoView({ from, to }, true);
+  }
+
   /** Intensités `rythme` d'une scène, normalisées 0–RYTHME_MAX (0 si absent). */
   rythmeOf(file) {
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
@@ -179,6 +191,42 @@ export class AnalysisView extends BaseFeuilletsView {
         `${Math.round(a.dialogueRatio * 100)} %`,
         "Part des mots dans des paragraphes de dialogue (estimation)"
       );
+    });
+
+    // ---- Répétitions rapprochées (feuillet actif) ----
+    const fmMatch = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+    const bodyStart = fmMatch ? fmMatch[0].length : 0;
+    const reps = findRepetitions(raw.slice(bodyStart));
+
+    this.tool(container, "repetitions", "copy", "Répétitions rapprochées", (section) => {
+      if (!reps.length) {
+        section.createDiv({ cls: "feuillets-empty" }).setText("Aucune répétition rapprochée détectée.");
+        return;
+      }
+      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+        `${reps.length} mot(s) répété(s) à faible distance · clic pour parcourir les occurrences.`
+      );
+      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      const MAXROWS = 40;
+      for (const rep of reps.slice(0, MAXROWS)) {
+        const row = list.createDiv({ cls: "feuillets-notes-metadata-row feuillets-rep-row" });
+        row.createDiv({ cls: "feuillets-notes-metadata-label", text: rep.word });
+        row.createDiv({
+          cls: "feuillets-notes-metadata-value",
+          text: `×${rep.count} · à ${rep.minGap} mots`,
+        });
+        row.setAttr("title", "Cliquer pour aller à l'occurrence suivante");
+        let idx = 0;
+        row.addEventListener("click", () => {
+          this.gotoOffset(bodyStart + rep.offsets[idx % rep.offsets.length], rep.word.length);
+          idx++;
+        });
+      }
+      if (reps.length > MAXROWS) {
+        section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+          `… et ${reps.length - MAXROWS} autres.`
+        );
+      }
     });
 
     // ---- Équilibre des chapitres (niveau roman) ----
