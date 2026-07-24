@@ -182,7 +182,7 @@ export class ProjectView extends BaseFeuilletsView {
           new Notice("Aucun modèle sélectionné.");
           return;
         }
-        new LayoutModal(this.app, this.plugin, currentTpl.key, currentTpl.label).open();
+        new LayoutModal(this.app, this.plugin, currentTpl.key, currentTpl.label, () => this.render()).open();
       });
     }
 

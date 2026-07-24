@@ -5439,3 +5439,16 @@ body.feuillets-concentration .markdown-preview-view {
   font-style: italic;
   opacity: 0.6;
 }
+
+/* Barre Preset + Modèle en haut de l'éditeur de mise en page */
+.feuillets-tp-configbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.feuillets-tp-configbar .setting-item {
+  border: none;
+  padding: 4px 0;
+  flex: 1 1 200px;
+}

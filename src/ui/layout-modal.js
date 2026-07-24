@@ -1,4 +1,8 @@
-import { resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
+import {
+  listExportTemplates,
+  resolveExportTemplate,
+  updateTemplateTitlePage,
+} from "../services/export-templates-custom.js";
 
 const { Modal, Setting } = require("obsidian");
 
@@ -19,11 +23,12 @@ const SCALE = (MOCKUP_H_PX - HEADER_PX - FOOTER_PX) / PAGE_USABLE_PT;
  * option A). La page de titre masque normalement en-tête/pied (réglage
  * « Masquer p.1 ») : les bandes sont alors grisées avec la mention. */
 export class LayoutModal extends Modal {
-  constructor(app, plugin, templateKey, templateLabel) {
+  constructor(app, plugin, templateKey, templateLabel, onChange) {
     super(app);
     this.plugin = plugin;
     this.templateKey = templateKey;
     this.templateLabel = templateLabel;
+    this.onChange = onChange; // rafraîchit le panneau après un changement
     this.styles = {};
     this.roles = [];
     this.selected = null; // "header" | "footer" | <role>
@@ -34,18 +39,63 @@ export class LayoutModal extends Modal {
     const { contentEl, modalEl } = this;
     modalEl.addClass("feuillets-titlepage-modal");
     contentEl.empty();
-    contentEl.createEl("h3", { text: `Mise en page — ${this.templateLabel || this.templateKey}` });
+    this.titleEl = contentEl.createEl("h3");
     contentEl.createEl("p", {
       cls: "setting-item-description",
       text: "Clique une zone pour l'éditer : en-tête (haut), blocs de titre (milieu, glissables verticalement), pied de page (bas). En-tête/pied sont globaux ; les blocs sont propres au modèle.",
     });
+
+    const S = this.plugin.settings;
+    this.templates = await listExportTemplates(this.app, S);
+    if (!this.templates.some((t) => t.key === this.templateKey) && this.templates[0]) {
+      this.templateKey = this.templates[0].key;
+    }
+
+    // Barre de config : Preset + Modèle, réglables sans quitter le modal.
+    const bar = contentEl.createDiv({ cls: "feuillets-tp-configbar" });
+    const presets = S.compilePresets || [];
+    new Setting(bar).setName("Preset").addDropdown((d) => {
+      d.addOption("-1", "Réglages par défaut");
+      presets.forEach((p, i) => d.addOption(String(i), p.name || `Preset ${i + 1}`));
+      d.setValue(String(S.activePreset >= 0 ? S.activePreset : -1));
+      d.onChange(async (v) => {
+        S.activePreset = parseInt(v, 10);
+        await this.plugin.saveSettings();
+        this.notifyChange();
+      });
+    });
+    new Setting(bar).setName("Modèle").addDropdown((d) => {
+      this.templates.forEach((t) => d.addOption(t.key, t.label));
+      d.setValue(this.templateKey);
+      d.onChange(async (v) => {
+        this.templateKey = v;
+        const t = this.templates.find((x) => x.key === v);
+        this.templateLabel = t ? t.label : v;
+        S.exportTemplate = v;
+        await this.plugin.saveSettings();
+        this.notifyChange();
+        await this.renderLayout();
+      });
+    });
+
+    this.layoutContainer = contentEl.createDiv();
+    await this.renderLayout();
+  }
+
+  /** (Re)charge les blocs du modèle courant et (re)construit la maquette
+   * (bandes + blocs + inspecteur) — rejoué quand on change de modèle. */
+  async renderLayout() {
+    this.titleEl.setText(`Mise en page — ${this.templateLabel || this.templateKey}`);
+    const c = this.layoutContainer;
+    c.empty();
+    this.selected = null;
 
     const tpl = await resolveExportTemplate(this.app, this.plugin.settings, this.templateKey);
     this.styles =
       tpl.titlePage && tpl.titlePage.styles ? JSON.parse(JSON.stringify(tpl.titlePage.styles)) : {};
     this.roles = Object.keys(this.styles);
 
-    const wrap = contentEl.createDiv({ cls: "feuillets-tp-editor" });
+    const wrap = c.createDiv({ cls: "feuillets-tp-editor" });
     this.pageEl = wrap.createDiv({ cls: "feuillets-tp-page" });
     this.pageEl.style.height = `${MOCKUP_H_PX}px`;
 
@@ -64,6 +114,10 @@ export class LayoutModal extends Modal {
     this.layout();
     this.renderBands();
     this.renderInspector();
+  }
+
+  notifyChange() {
+    if (this.onChange) this.onChange();
   }
 
   buildBlocks() {
