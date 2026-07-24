@@ -55,23 +55,19 @@ export function findRepetitions(text, opts = {}) {
   const result = [];
   for (const [norm, occ] of groups) {
     if (occ.length < 2) continue;
-    const close = new Set();
+    // Signalé seulement si au moins deux occurrences sont proches (< window),
+    // mais on renvoie TOUTES les occurrences du mot pour pouvoir les surligner
+    // ensemble dans le texte.
     let minGap = Infinity;
     for (let i = 1; i < occ.length; i++) {
-      const gap = occ[i].wi - occ[i - 1].wi;
-      if (gap <= window) {
-        close.add(occ[i - 1]);
-        close.add(occ[i]);
-        minGap = Math.min(minGap, gap);
-      }
+      minGap = Math.min(minGap, occ[i].wi - occ[i - 1].wi);
     }
-    if (!close.size) continue;
-    const list = [...close].sort((a, b) => a.offset - b.offset);
+    if (minGap > window) continue;
     result.push({
-      word: list[0].raw,
+      word: occ[0].raw,
       norm,
-      count: list.length,
-      offsets: list.map((t) => t.offset),
+      count: occ.length,
+      offsets: occ.map((t) => t.offset),
       minGap,
     });
   }
