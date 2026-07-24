@@ -255,6 +255,7 @@ export class AnalysisView extends BaseFeuilletsView {
 
     const raw = await this.app.vault.cachedRead(file);
     const a = analyzeProse(raw);
+    const S = this.plugin.settings;
 
     this.tool(container, "metrics", "bar-chart-3", "Métriques du feuillet", (section) => {
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
@@ -361,7 +362,6 @@ export class AnalysisView extends BaseFeuilletsView {
     // ---- Équilibre des chapitres (niveau roman) ----
     // Calcul lourd (lit tout le manuscrit) : seulement si la section est
     // dépliée, pour ne rien coûter quand elle est repliée.
-    const S = this.plugin.settings;
     const chaptersCollapsed = !!(S.collapsed && S.collapsed["analyse:chapters"]);
     const chapters = chaptersCollapsed ? null : await this.getChaptersData();
 
