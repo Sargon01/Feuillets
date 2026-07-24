@@ -5460,3 +5460,23 @@ body.feuillets-concentration .markdown-preview-view {
   justify-content: flex-end;
 }
 .feuillets-tp-footer .setting-item { border: none; padding: 0; }
+
+/* ===== Onglet Analyse (Phase 1) ===== */
+.feuillets-analysis-container { padding: 8px 12px; }
+.feuillets-analysis-title { margin: 4px 0 10px; }
+.feuillets-analysis-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.feuillets-analysis-label { color: var(--text-muted); }
+.feuillets-analysis-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+.feuillets-analysis-note {
+  margin-top: 12px;
+  font-size: 0.8em;
+  font-style: italic;
+  color: var(--text-muted);
+}
