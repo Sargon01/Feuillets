@@ -5460,3 +5460,47 @@ body.feuillets-concentration .markdown-preview-view {
   justify-content: flex-end;
 }
 .feuillets-tp-footer .setting-item { border: none; padding: 0; }
+
+/* Équilibre des chapitres (onglet Analyse) — barres horizontales sobres,
+   couleurs de thème pour se fondre au reste. */
+.feuillets-analysis-summary {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-bottom: var(--size-4-2);
+}
+.feuillets-analysis-chapter { padding: 3px 0; }
+.feuillets-analysis-chapter-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  font-size: var(--font-ui-small);
+}
+.feuillets-analysis-chapter-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feuillets-analysis-chapter-value {
+  flex: none;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.feuillets-analysis-bar {
+  height: 5px;
+  margin-top: 3px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+.feuillets-analysis-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--text-muted);
+}
+.feuillets-analysis-chapter.is-outlier .feuillets-analysis-bar-fill {
+  background: var(--interactive-accent);
+}
+.feuillets-analysis-chapter.is-outlier .feuillets-analysis-chapter-value {
+  color: var(--interactive-accent);
+  font-weight: 600;
+}

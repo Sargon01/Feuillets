@@ -60,6 +60,14 @@ export class SidebarFeuilletsView extends ItemView {
         if (sub && typeof sub.render === "function") sub.render(true);
       })
     );
+    /* L'agrégation « équilibre des chapitres » (onglet Analyse) lit tout le
+       manuscrit : on invalide son cache quand le coffre change, pour la
+       recalculer au prochain rendu plutôt qu'à chaque navigation. */
+    this.registerEvent(
+      this.app.vault.on("modify", () => {
+        this.subViews.analyse._chaptersCache = null;
+      })
+    );
   }
 
   async render() {
