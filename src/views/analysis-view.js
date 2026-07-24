@@ -13,6 +13,14 @@ function lemmaOfMorph(morph) {
   return m ? m[1] : "";
 }
 
+/** Verbes « passe-partout » (ternes, à forte fréquence) dont l'abus appauvrit
+ * le style : on les repère pour inviter à varier. Verbes de contenu banals,
+ * pas les auxiliaires modaux (pouvoir/vouloir/devoir, grammaticaux). */
+const VERBES_PASSE_PARTOUT = new Set([
+  "être", "avoir", "faire", "dire", "aller", "voir", "mettre", "prendre",
+  "donner", "trouver", "passer", "rendre", "tenir", "venir",
+]);
+
 /** Verbes intransitifs formant leur passé composé avec « être » : « il est
  * arrivé » n'est PAS une voix passive — à exclure de la détection. */
 const ETRE_INTRANSITIFS = new Set([
@@ -233,8 +241,20 @@ export class AnalysisView extends BaseFeuilletsView {
     const top = (map, k) => [...map.entries()].sort((x, y) => y[1] - x[1]).slice(0, k);
     const hapaxCount = [...allLemmas.values()].filter((v) => v === 1).length;
     const mentTotal = [...ment.values()].reduce((s, v) => s + v, 0);
+
+    // Verbes passe-partout : part des occurrences verbales portée par les
+    // verbes ternes (voir VERBES_PASSE_PARTOUT).
+    const verbTotal = [...verbs.values()].reduce((s, v) => s + v, 0);
+    const weak = [...verbs.entries()]
+      .filter(([l]) => VERBES_PASSE_PARTOUT.has(l))
+      .sort((x, y) => y[1] - x[1]);
+    const weakTotal = weak.reduce((s, [, v]) => s + v, 0);
+
     return {
       passiveCount,
+      weakTop: weak.slice(0, 6),
+      weakTotal,
+      weakPct: verbTotal ? Math.round((weakTotal / verbTotal) * 100) : 0,
       richness: contentTotal ? allLemmas.size / contentTotal : 0,
       uniqueLemmas: allLemmas.size,
       hapaxCount,
@@ -480,6 +500,11 @@ export class AnalysisView extends BaseFeuilletsView {
         }
       };
       group("Verbes favoris", vocab.verbs);
+      group(
+        `Verbes passe-partout : ${formatNumber(vocab.weakTotal)} (${vocab.weakPct} % des verbes)` +
+          (vocab.weakPct >= 40 ? " · à varier" : ""),
+        vocab.weakTop
+      );
       group("Adjectifs favoris", vocab.adjs);
       group("Adverbes favoris", vocab.advs);
       group(
