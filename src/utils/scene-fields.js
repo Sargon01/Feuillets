@@ -1,0 +1,158 @@
+// @ts-check
+/** Manipulation des champs et du corps d'un feuillet pendant le découpage et
+ * la fusion de scènes (voir scenes-editor.js). Ces fonctions décident du nom
+ * des fichiers créés et du contenu écrit dedans — d'où leur sortie du module
+ * d'interface, qui dépend d'Obsidian et n'est donc pas testable.
+ *
+ * Pur : aucune dépendance à Obsidian. */
+
+/* Caractères interdits dans un nom de fichier. Réunion de deux contraintes :
+     - Windows : \ / : * ? " < > |   (un coffre synchronisé doit rester
+       ouvrable depuis Windows, même si le fichier est créé sous macOS) ;
+     - Obsidian : # ^ [ ] en plus, qui casseraient les wikiliens vers ce
+       feuillet.
+   Le « : » compte double ici : la typographie française l'emploie couramment
+   dans un titre (« Chapitre 3 : la fuite »), et il était absent de la version
+   précédente — le fichier créé était donc invalide sous Windows. */
+const FORBIDDEN_IN_FILENAME = /[\\/:*?"<>|#^\[\]]/g;
+
+/** Découpe une saisie « a, b, c » en liste, sans entrées vides.
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+export function splitCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+/** Tags normalisés et dédoublonnés, que la source soit une liste YAML ou une
+ * saisie « a, b, c ». L'ordre de première apparition est conservé.
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+export function normalizeTags(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((v) => String(v).trim()).filter(Boolean))];
+  }
+  if (typeof value === "string") return [...new Set(splitCsv(value))];
+  return [];
+}
+
+/** Aperçu sur une ligne, tronqué. `"—"` si le texte est vide — c'est un
+ * affichage, jamais une valeur écrite dans un fichier.
+ * @param {unknown} value
+ * @param {number} [max]
+ * @returns {string}
+ */
+export function shortText(value, max = 180) {
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "—";
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** Sépare le frontmatter du corps. `frontmatter` est `null` s'il n'y en a pas
+ * — à distinguer d'un frontmatter vide, qui donne `""`.
+ * @param {string} content
+ * @returns {{ frontmatter: string|null, body: string }}
+ */
+export function splitFrontmatter(content) {
+  const match = String(content ?? "").match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!match) return { frontmatter: null, body: String(content ?? "") };
+  return { frontmatter: match[1], body: String(content).slice(match[0].length) };
+}
+
+/** Corps seul, sans frontmatter ni blancs de bord.
+ * @param {string} raw
+ * @returns {string}
+ */
+export function splitBody(raw) {
+  return splitFrontmatter(raw).body.trim();
+}
+
+/** @param {unknown} value @param {number} [fallback] @returns {number} */
+export function ensureNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** Nom sans son extension `.md`.
+ *
+ * Le `trim()` vient AVANT le retrait de l'extension : l'ancre `$` de la regex
+ * ne matchait pas en présence d'espaces finaux, si bien qu'une saisie
+ * « Scene 1.md » suivie d'une espace gardait son extension — et le fichier
+ * créé s'appelait « Scene 1.md.md ».
+ * @param {unknown} name
+ * @returns {string}
+ */
+export function stripMdExtension(name) {
+  return String(name || "")
+    .trim()
+    .replace(/\.md$/i, "")
+    .trim();
+}
+
+/** Nom de fichier sûr dérivé d'un titre saisi par l'autrice. Ne renvoie
+ * jamais une chaîne vide : un titre entièrement composé de caractères
+ * interdits retomberait sinon sur un nom vide, et `vault.create` échouerait.
+ * @param {unknown} name
+ * @param {string} [fallback]
+ * @returns {string}
+ */
+export function sanitizeFileBasename(name, fallback = "Nouvelle scène") {
+  const base = stripMdExtension(name)
+    .replace(FORBIDDEN_IN_FILENAME, "-")
+    /* Un point final est ignoré par Windows (« a. » devient « a »), ce qui
+       ferait diverger le nom réel du nom attendu par le plugin. */
+    .replace(/\.+$/, "")
+    .trim();
+  /* Un titre entièrement composé de caractères interdits (« /// ») donnerait
+     « --- » : non vide, donc le repli ne se déclenchait pas, et le fichier
+     s'appelait littéralement « ---.md ». Un nom réduit à des tirets n'en est
+     pas un. */
+  if (!base || /^-+$/.test(base)) return fallback;
+  return base;
+}
+
+/** Déplace un élément dans une copie du tableau.
+ * @template T
+ * @param {T[]} array
+ * @param {number} fromIndex
+ * @param {number} toIndex
+ * @returns {T[]}
+ */
+export function moveItem(array, fromIndex, toIndex) {
+  const next = [...array];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
+}
+
+/** Valeur d'un champ pour un formulaire : une liste devient « a, b ».
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function toValue(value) {
+  return Array.isArray(value) ? value.join(", ") : String(value ?? "");
+}
+
+/** Corps d'une scène fusionnée dans une autre, selon le mode choisi :
+ * `continuous` colle le texte tel quel, `comment` le fait précéder d'une
+ * citation, tout autre mode d'un titre de niveau 2.
+ * @param {{ basename: string }} source
+ * @param {unknown} body
+ * @param {string} mode
+ * @returns {string} `""` si le corps est vide — l'appelant n'insère alors
+ *   ni titre ni citation orpheline.
+ */
+export function buildMergedSection(source, body, mode) {
+  const clean = String(body || "").trim();
+  if (!clean) return "";
+  if (mode === "continuous") return clean;
+  if (mode === "comment") return `> Fusion depuis ${source.basename}\n\n${clean}`;
+  return `## Fusion depuis ${source.basename}\n\n${clean}`;
+}
