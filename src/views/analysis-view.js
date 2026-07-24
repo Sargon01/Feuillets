@@ -478,6 +478,13 @@ export class AnalysisView extends BaseFeuilletsView {
     return out;
   }
 
+  /** Intitulé de groupe (Ce feuillet / Le roman) — même langage visuel que les
+   * groupes du panneau Recherche (feuillets-entity-group : petites majuscules
+   * espacées, muet). Sépare l'analyse du feuillet actif de celle du roman. */
+  groupLabel(container, text) {
+    container.createDiv({ cls: "feuillets-entity-group" }).setText(text);
+  }
+
   async render() {
     const container = this.targetContainer || this.contentEl;
     container.empty();
@@ -493,39 +500,8 @@ export class AnalysisView extends BaseFeuilletsView {
     const a = analyzeProse(raw);
     const S = this.plugin.settings;
 
-    // ---- Tableau de bord (roman) : synthèse en tête ----
-    const dashCollapsed = !!(S.collapsed && S.collapsed["analyse:dashboard"]);
-    const dash = dashCollapsed ? null : await this.getDashboard();
-    this.tool(container, "dashboard", "layout-dashboard", "Tableau de bord (roman)", (section) => {
-      if (!dash) return;
-      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
-      const row = (label, value) => {
-        const r = list.createDiv({ cls: "feuillets-notes-metadata-row" });
-        r.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
-        r.createDiv({ cls: "feuillets-notes-metadata-value", text: value });
-      };
-      row("Mots", formatNumber(dash.words));
-      row("Chapitres", formatNumber(dash.chapters));
-      row("Scènes", formatNumber(dash.scenes));
-      row("Ratio dialogue", `${dash.dialoguePct} %`);
-      row("Mots différents", formatNumber(dash.uniqueSurface));
-      row("Zones de répétition", formatNumber(dash.repZones));
-      row("Chapitres déséquilibrés", formatNumber(dash.outliers));
-      row("Scènes taguées (rythme)", `${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`);
-
-      const bar = section.createDiv({ cls: "feuillets-analysis-export-bar" });
-      const copyBtn = bar.createEl("button", { text: "Copier la synthèse" });
-      copyBtn.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(this.dashboardMarkdown(dash));
-          new Notice("Synthèse copiée dans le presse-papier.");
-        } catch (e) {
-          new Notice("Copie impossible.");
-        }
-      });
-      const saveBtn = bar.createEl("button", { text: "Enregistrer (.md)" });
-      saveBtn.addEventListener("click", () => this.exportDashboardFile(dash));
-    });
+    // ========================= CE FEUILLET =========================
+    this.groupLabel(container, "Ce feuillet");
 
     this.tool(container, "metrics", "bar-chart-3", "Métriques du feuillet", (section) => {
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
@@ -615,6 +591,69 @@ export class AnalysisView extends BaseFeuilletsView {
       this.renderVocabInto(section, vocab);
     });
 
+    // Rythme du feuillet (tags manuels de la scène active)
+    this.tool(container, "rythme", "sliders-horizontal", "Rythme du feuillet", (section) => {
+      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+        `Note l'intensité (0–${RYTHME_MAX}) de chaque dimension pour cette scène.`
+      );
+      const r = this.rythmeOf(file);
+      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      for (const d of RYTHME_DIMS) {
+        const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
+        row.createDiv({ cls: "feuillets-notes-metadata-label", text: d.label });
+        const input = row.createEl("input", { cls: "feuillets-rythme-input", type: "number" });
+        input.min = "0";
+        input.max = String(RYTHME_MAX);
+        input.value = String(r[d.key]);
+        input.addEventListener("change", async () => {
+          const v = Math.max(0, Math.min(RYTHME_MAX, Math.round(Number(input.value) || 0)));
+          input.value = String(v);
+          await this.app.fileManager.processFrontMatter(file, (fm) => {
+            fm.rythme = fm.rythme || {};
+            fm.rythme[d.key] = v;
+          });
+          this.render();
+        });
+      }
+    });
+
+    // ========================= LE ROMAN =========================
+    this.groupLabel(container, "Le roman");
+
+    // Tableau de bord (synthèse du manuscrit)
+    const dashCollapsed = !!(S.collapsed && S.collapsed["analyse:dashboard"]);
+    const dash = dashCollapsed ? null : await this.getDashboard();
+    this.tool(container, "dashboard", "layout-dashboard", "Tableau de bord", (section) => {
+      if (!dash) return;
+      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      const row = (label, value) => {
+        const r = list.createDiv({ cls: "feuillets-notes-metadata-row" });
+        r.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
+        r.createDiv({ cls: "feuillets-notes-metadata-value", text: value });
+      };
+      row("Mots", formatNumber(dash.words));
+      row("Chapitres", formatNumber(dash.chapters));
+      row("Scènes", formatNumber(dash.scenes));
+      row("Ratio dialogue", `${dash.dialoguePct} %`);
+      row("Mots différents", formatNumber(dash.uniqueSurface));
+      row("Zones de répétition", formatNumber(dash.repZones));
+      row("Chapitres déséquilibrés", formatNumber(dash.outliers));
+      row("Scènes taguées (rythme)", `${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`);
+
+      const bar = section.createDiv({ cls: "feuillets-analysis-export-bar" });
+      const copyBtn = bar.createEl("button", { text: "Copier la synthèse" });
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(this.dashboardMarkdown(dash));
+          new Notice("Synthèse copiée dans le presse-papier.");
+        } catch (e) {
+          new Notice("Copie impossible.");
+        }
+      });
+      const saveBtn = bar.createEl("button", { text: "Enregistrer (.md)" });
+      saveBtn.addEventListener("click", () => this.exportDashboardFile(dash));
+    });
+
     // ---- Équilibre des chapitres (niveau roman) ----
     // Calcul lourd (lit tout le manuscrit) : seulement si la section est
     // dépliée, pour ne rien coûter quand elle est repliée.
@@ -663,32 +702,6 @@ export class AnalysisView extends BaseFeuilletsView {
       this.renderVocabInto(section, romanVocab);
     });
 
-    // ---- Rythme du feuillet (tags manuels de la scène active) ----
-    this.tool(container, "rythme", "sliders-horizontal", "Rythme du feuillet", (section) => {
-      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        `Note l'intensité (0–${RYTHME_MAX}) de chaque dimension pour cette scène.`
-      );
-      const r = this.rythmeOf(file);
-      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
-      for (const d of RYTHME_DIMS) {
-        const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
-        row.createDiv({ cls: "feuillets-notes-metadata-label", text: d.label });
-        const input = row.createEl("input", { cls: "feuillets-rythme-input", type: "number" });
-        input.min = "0";
-        input.max = String(RYTHME_MAX);
-        input.value = String(r[d.key]);
-        input.addEventListener("change", async () => {
-          const v = Math.max(0, Math.min(RYTHME_MAX, Math.round(Number(input.value) || 0)));
-          input.value = String(v);
-          await this.app.fileManager.processFrontMatter(file, (fm) => {
-            fm.rythme = fm.rythme || {};
-            fm.rythme[d.key] = v;
-          });
-          this.render();
-        });
-      }
-    });
-
     // ---- Courbe narrative (déduite des tags de rythme) ----
     this.tool(container, "curve", "activity", "Courbe narrative", (section) => {
       const scenes = this.sceneFiles();
@@ -698,7 +711,7 @@ export class AnalysisView extends BaseFeuilletsView {
       });
       if (!tagged.length) {
         section.createDiv({ cls: "feuillets-empty" }).setText(
-          "Aucune scène taguée. Renseigne le rythme des feuillets (section ci-dessus) pour tracer la courbe."
+          "Aucune scène taguée. Renseigne « Rythme du feuillet » (groupe Ce feuillet) sur tes scènes pour tracer la courbe."
         );
         return;
       }
