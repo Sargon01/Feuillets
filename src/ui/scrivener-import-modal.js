@@ -1,0 +1,694 @@
+const { Modal, Notice, Platform, normalizePath } = require("obsidian");
+
+import { PROJECT_MODES, applyModeDefaults } from "../utils/project-modes.js";
+import {
+  checkScrivenerFormat,
+  parseScrivx,
+  countImportPreview,
+  rtfToMarkdown,
+  rtfPathCandidates,
+  findAttachedDataImages,
+  mapScrivenerStatus,
+  classifyResearchFolder,
+  buildSceneFrontmatter,
+  buildEntityFrontmatter,
+  extractHeadingTitle,
+  parseScrivenerComments,
+  buildUuidTitleMap,
+} from "../services/scrivener-import.js";
+
+function sanitizeName(title) {
+  const cleaned = (title || "").replace(/[\\/:*?"<>|]/g, "").trim();
+  return cleaned || "Sans-titre";
+}
+
+function unusedPath(app, basePath) {
+  if (!app.vault.getAbstractFileByPath(basePath)) return basePath;
+  const dot = basePath.lastIndexOf(".");
+  const stem = dot > 0 ? basePath.slice(0, dot) : basePath;
+  const ext = dot > 0 ? basePath.slice(dot) : "";
+  let i = 2;
+  let candidate;
+  do {
+    candidate = `${stem}-${i}${ext}`;
+    i++;
+  } while (app.vault.getAbstractFileByPath(candidate));
+  return candidate;
+}
+
+/** Recherche récursive d'un fichier image ou pièce jointe par son nom dans le dossier .scriv */
+function findScrivenerFile(dirPath, targetName, fs, pathMod) {
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = pathMod.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        const found = findScrivenerFile(fullPath, targetName, fs, pathMod);
+        if (found) return found;
+      } else if (entry.isFile() && entry.name.toLowerCase() === targetName.toLowerCase()) {
+        return fullPath;
+      }
+    }
+  } catch (e) {}
+
+  const uuidMatch =
+    /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/i.exec(targetName) ||
+    /[0-9A-Fa-f]{8}/i.exec(targetName);
+  if (uuidMatch) {
+    const uuid = uuidMatch[0];
+    const dataDir = pathMod.join(dirPath, "Files/Data", uuid);
+    try {
+      if (fs.existsSync(dataDir)) {
+        const files = fs.readdirSync(dataDir);
+        const imgExts = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".pdf"];
+        for (const f of files) {
+          if (imgExts.includes(pathMod.extname(f).toLowerCase())) {
+            return pathMod.join(dataDir, f);
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+export class ScrivenerImportModal extends Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    if (Platform.isMobile) {
+      const { contentEl } = this;
+      contentEl.createEl("h3", { text: "Importer un projet Scrivener" });
+      contentEl
+        .createEl("p", { cls: "setting-item-description" })
+        .setText(
+          "L'import Scrivener lit directement le dossier .scriv sur le disque — disponible uniquement sur ordinateur."
+        );
+      return;
+    }
+    this.showForm();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+
+  showForm() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("feuillets-project-modal");
+    contentEl.createEl("h3", { text: "Importer un projet Scrivener" });
+    contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+      "Crée un nouveau projet Feuillets à partir d'un dossier .scriv — images, liens et métadonnées conservés, dossiers avec texte importés en dossiers avec note."
+    );
+
+    contentEl.createEl("label", { text: "Dossier .scriv" });
+    const scrivInput = contentEl.createEl("input", {
+      type: "text",
+      attr: { placeholder: "/Users/toi/Documents/Mon Roman.scriv" },
+    });
+    scrivInput.style.width = "100%";
+    scrivInput.style.marginBottom = "10px";
+
+    contentEl.createEl("label", { text: "Dossier parent (facultatif)" });
+    const parentInput = contentEl.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Romans (laisser vide pour la racine du coffre)" },
+    });
+    parentInput.style.width = "100%";
+    parentInput.style.marginBottom = "10px";
+
+    contentEl.createEl("label", { text: "Nom du projet" });
+    const nameInput = contentEl.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Mon Roman" },
+    });
+    nameInput.style.width = "100%";
+    nameInput.style.marginBottom = "10px";
+
+    contentEl.createEl("label", { text: "Type de document" });
+    const typeSelect = contentEl.createEl("select");
+    typeSelect.style.width = "100%";
+    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
+      typeSelect.createEl("option", { text: mode.label, value: key });
+    }
+
+    const analyze = async () => {
+      const scrivPath = scrivInput.value.trim().replace(/[/\\]+$/, "");
+      if (!scrivPath) {
+        new Notice("Indique le chemin du dossier .scriv.");
+        return;
+      }
+      const name = nameInput.value.trim();
+      if (!name) {
+        new Notice("Donne un nom au projet.");
+        return;
+      }
+
+      let fs, pathMod;
+      try {
+        fs = require("fs");
+        pathMod = require("path");
+      } catch (e) {
+        new Notice("Import indisponible sur cette plateforme.");
+        return;
+      }
+
+      let entries;
+      try {
+        entries = fs.readdirSync(scrivPath);
+      } catch (e) {
+        new Notice(`Dossier introuvable : ${scrivPath}`);
+        return;
+      }
+      const check = checkScrivenerFormat(entries);
+      if (!check.ok) {
+        new Notice(check.error);
+        return;
+      }
+
+      let xmlContent;
+      try {
+        xmlContent = fs.readFileSync(pathMod.join(scrivPath, check.scrivxName), "utf-8");
+      } catch (e) {
+        new Notice("Impossible de lire le fichier .scrivx.");
+        return;
+      }
+
+      const parsed = parseScrivx(xmlContent);
+      if (!parsed.draft) {
+        new Notice("Aucun dossier Draft/Manuscrit trouvé dans ce projet Scrivener.");
+        return;
+      }
+
+      this.showPreview({
+        scrivPath,
+        parsed,
+        parentPath: parentInput.value.trim().replace(/\/+$/, ""),
+        name,
+        mode: typeSelect.value,
+        fs,
+        pathMod,
+      });
+    };
+
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow
+      .createEl("button", { text: "Analyser le projet", cls: "mod-cta" })
+      .addEventListener("click", analyze);
+    btnRow.createEl("button", { text: "Annuler" }).addEventListener("click", () => this.close());
+  }
+
+  showPreview(ctx) {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("feuillets-project-modal");
+    contentEl.createEl("h3", { text: `Importer « ${ctx.parsed.projectTitle} »` });
+
+    const counts = countImportPreview(ctx.parsed);
+    const list = contentEl.createEl("ul");
+    list.createEl("li", { text: `${counts.folders} dossier(s) (parties/chapitres)` });
+    list.createEl("li", { text: `${counts.scenes} scène(s)` });
+    list.createEl("li", { text: `${counts.researchEntries} fiche(s) de recherche` });
+    if (counts.unclassifiedRoots > 0) {
+      list.createEl("li", {
+        text: `${counts.unclassifiedRoots} élément(s) racine non reconnu(s) — importé(s) tel quel.`,
+      });
+    }
+
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    const confirmBtn = btnRow.createEl("button", { text: "Confirmer l'import", cls: "mod-cta" });
+    confirmBtn.addEventListener("click", async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.setText("Import en cours…");
+      try {
+        await this.runImport(ctx);
+        this.close();
+      } catch (e) {
+        new Notice(`Échec de l'import : ${e.message || e}`);
+        confirmBtn.disabled = false;
+        confirmBtn.setText("Confirmer l'import");
+      }
+    });
+    btnRow.createEl("button", { text: "Retour" }).addEventListener("click", () => this.showForm());
+  }
+
+  async runImport({ scrivPath, parsed, parentPath, name, mode, fs, pathMod }) {
+    const app = this.app;
+    const plugin = this.plugin;
+    const S = plugin.settings;
+    const isFiction = mode === "fiction";
+
+    const volumePath = normalizePath(parentPath ? `${parentPath}/${name}` : name);
+    if (app.vault.getAbstractFileByPath(volumePath)) {
+      throw new Error(`« ${volumePath} » existe déjà.`);
+    }
+
+    await plugin.ensureFolder(volumePath);
+    const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
+    await plugin.ensureFolder(manuscritPath);
+
+    // Dossier d'images du projet (Ressources/Visuels)
+    const visuelsFolderPath = normalizePath(`${volumePath}/Ressources/Visuels`);
+    await plugin.ensureFolder(visuelsFolderPath);
+
+    if (S.projectFolder && !S.projects.includes(S.projectFolder)) {
+      S.projects.push(S.projectFolder);
+    }
+    S.projectFolder = manuscritPath;
+    if (!S.projectMeta[manuscritPath]) S.projectMeta[manuscritPath] = {};
+    S.projectMeta[manuscritPath].type = mode;
+    applyModeDefaults(S, mode);
+    await plugin.saveSettings();
+
+    await plugin.initProjectStructure();
+
+    const binderItemMap = buildUuidTitleMap(parsed);
+    let unreadableCount = 0;
+
+    const readRtf = (uuid) => {
+      for (const candidate of rtfPathCandidates(uuid)) {
+        try {
+          return fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
+        } catch (e) {}
+      }
+      unreadableCount++;
+      return "";
+    };
+
+    const readComments = (uuid) => {
+      try {
+        const xml = fs.readFileSync(
+          pathMod.join(scrivPath, `Files/Data/${uuid}/content.comments`),
+          "utf-8"
+        );
+        return parseScrivenerComments(xml);
+      } catch (e) {
+        return {};
+      }
+    };
+
+    const readNotes = (uuid) => {
+      for (const candidate of [
+        `Files/Data/${uuid}/notes.rtf`,
+        `Files/Docs/${uuid}_notes.rtf`,
+      ]) {
+        try {
+          const rtf = fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
+          const { text } = rtfToMarkdown(rtf, {}, binderItemMap);
+          if (text) return text.trim();
+        } catch (e) {}
+      }
+      return "";
+    };
+
+    const readSynopsis = (uuid) => {
+      for (const candidate of [
+        `Files/Data/${uuid}/synopsis.txt`,
+        `Files/Docs/${uuid}_synopsis.txt`,
+      ]) {
+        try {
+          const txt = fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
+          if (txt) return txt.trim();
+        } catch (e) {}
+      }
+      return "";
+    };
+
+    const toArrayBuffer = (buf) => {
+      if (!buf) return new ArrayBuffer(0);
+      if (buf.buffer instanceof ArrayBuffer) {
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      }
+      return buf;
+    };
+
+    // Sauvegarde les images intégrées RTF (\pict) dans Ressources/Visuels/
+    const saveExtractedImages = async (extractedImages) => {
+      for (const img of extractedImages) {
+        const imgPath = normalizePath(`${visuelsFolderPath}/${img.name}`);
+        if (!app.vault.getAbstractFileByPath(imgPath)) {
+          try {
+            await app.vault.createBinary(imgPath, toArrayBuffer(img.bytes));
+          } catch (e) {}
+        }
+      }
+    };
+
+    // Recherche et copie les images Scrivener 3 ($PROJECT://...) trouvées dans le dossier .scriv
+    const processImageLinks = async (imageLinks) => {
+      if (!imageLinks || imageLinks.length === 0) return;
+      for (const link of imageLinks) {
+        const targetPath = normalizePath(`${visuelsFolderPath}/${link.fileName}`);
+        if (!app.vault.getAbstractFileByPath(targetPath)) {
+          const diskPath = findScrivenerFile(scrivPath, link.fileName, fs, pathMod);
+          if (diskPath) {
+            try {
+              const bytes = fs.readFileSync(diskPath);
+              await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
+            } catch (e) {}
+          }
+        }
+      }
+    };
+
+    // Inspecte le dossier Files/Data/<UUID>/ pour copier toute image d'arrière-plan/jointe
+    const processDataDirImages = async (itemTitle, uuid, currentBody, hasExtractedRtf = false) => {
+      const dataImages = findAttachedDataImages(scrivPath, uuid, fs, pathMod);
+      let updatedBody = currentBody || "";
+      if (!dataImages || dataImages.length === 0) return updatedBody;
+
+      for (const img of dataImages) {
+        const ext = pathMod.extname(img.fileName);
+        const base = pathMod.basename(img.fileName, ext);
+        const uniqueFileName = (base.toLowerCase() === "content" || base.toLowerCase() === "notes")
+          ? `${uuid}${ext}`
+          : img.fileName;
+        const targetPath = normalizePath(`${visuelsFolderPath}/${uniqueFileName}`);
+
+        if (!app.vault.getAbstractFileByPath(targetPath)) {
+          try {
+            const bytes = fs.readFileSync(img.fullPath);
+            await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
+          } catch (e) {}
+        }
+
+        const hasImageEmbed = /!\[\[[^\]]+\]\]/.test(updatedBody);
+        if (
+          !hasImageEmbed &&
+          !hasExtractedRtf &&
+          !updatedBody.includes(uniqueFileName) &&
+          !updatedBody.toLowerCase().includes(uniqueFileName.toLowerCase()) &&
+          !updatedBody.toLowerCase().includes(uuid.toLowerCase())
+        ) {
+          updatedBody += `\n\n![[${uniqueFileName}]]\n\n`;
+        }
+      }
+      return updatedBody;
+    };
+
+    const encounteredLabels = new Set();
+
+    // ============================== Manuscrit ==============================
+
+    const writeSceneFile = async (item, destFolder, baseName) => {
+      const path = unusedPath(app, normalizePath(`${destFolder.path}/${baseName}.md`));
+      
+      let text = "";
+      let footnotes = [];
+      let chapterTitle = "";
+      let sousTitre = "";
+      let hasExtractedRtf = false;
+
+      let rtfRes = null;
+      if (item.isImage) {
+        const dataImages = findAttachedDataImages(scrivPath, item.uuid, fs, pathMod);
+        if (dataImages.length > 0) {
+          const img = dataImages[0];
+          const ext = pathMod.extname(img.fileName);
+          const base = pathMod.basename(img.fileName, ext);
+          const uniqueFileName = (base.toLowerCase() === "content" || base.toLowerCase() === "notes")
+            ? `${item.uuid}${ext}`
+            : img.fileName;
+          const targetPath = normalizePath(`${visuelsFolderPath}/${uniqueFileName}`);
+          if (!app.vault.getAbstractFileByPath(targetPath)) {
+            try {
+              const bytes = fs.readFileSync(img.fullPath);
+              await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
+            } catch (e) {}
+          }
+          text = `![[${uniqueFileName}]]`;
+        }
+      } else {
+        const rtfContent = readRtf(item.uuid);
+        rtfRes = rtfToMarkdown(rtfContent, readComments(item.uuid), binderItemMap, { uuid: item.uuid });
+        text = rtfRes.text;
+        footnotes = rtfRes.footnotes || [];
+        chapterTitle = rtfRes.chapterTitle;
+        sousTitre = rtfRes.sousTitre;
+
+        if (rtfRes.extractedImages && rtfRes.extractedImages.length > 0) {
+          hasExtractedRtf = true;
+          await saveExtractedImages(rtfRes.extractedImages);
+        }
+        if (rtfRes.imageLinks && rtfRes.imageLinks.length > 0) {
+          await processImageLinks(rtfRes.imageLinks);
+        }
+      }
+
+      text = await processDataDirImages(item.title, item.uuid, text, hasExtractedRtf);
+
+      let body = text;
+      if (footnotes.length > 0) {
+        body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
+      }
+      if (item.labelTitle) encounteredLabels.add(item.labelTitle);
+
+      let docNotes = readNotes(item.uuid);
+      if (rtfRes && rtfRes.extractedComments && rtfRes.extractedComments.length > 0) {
+        const commentLines = rtfRes.extractedComments.map((c) =>
+          c.word ? `[Commentaire sur "${c.word}"]: ${c.text}` : c.text
+        );
+        docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
+      }
+      const docSynopsis = item.synopsis || readSynopsis(item.uuid);
+
+      const actualFileName = path.slice(path.lastIndexOf("/") + 1, -".md".length);
+      const fm = buildSceneFrontmatter({
+        titre: chapterTitle || extractHeadingTitle(text) || item.title,
+        titreCourt: sousTitre || actualFileName,
+        sousTitre,
+        order: 0,
+        isFiction,
+        synopsis: docSynopsis,
+        statut: mapScrivenerStatus(item.statusTitle),
+        label: item.labelTitle,
+        tags: item.keywords,
+        notes: docNotes,
+        includeInCompile: item.includeInCompile,
+        wordGoal: item.wordGoal || S.wordGoal,
+      });
+      return app.vault.create(path, fm + body);
+    };
+
+    const writeManuscriptNode = async (item, destFolder) => {
+      const safeTitle = sanitizeName(item.title);
+      if (item.isFolder) {
+        const folder = await plugin.ensureFolder(
+          unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}`))
+        );
+
+        const folderRtf = readRtf(item.uuid);
+        let docNotes = readNotes(item.uuid);
+        const docSynopsis = item.synopsis || readSynopsis(item.uuid);
+
+        const { text, footnotes, extractedImages, imageLinks, extractedComments, chapterTitle, sousTitre } = rtfToMarkdown(
+          folderRtf,
+          readComments(item.uuid),
+          binderItemMap,
+          { uuid: item.uuid }
+        );
+
+        if (extractedComments && extractedComments.length > 0) {
+          const commentLines = extractedComments.map((c) =>
+            c.word ? `[Commentaire sur "${c.word}"]: ${c.text}` : c.text
+          );
+          docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
+        }
+
+        let folderBody = text;
+        const hasExtractedRtf = extractedImages && extractedImages.length > 0;
+        folderBody = await processDataDirImages(item.title, item.uuid, folderBody, hasExtractedRtf);
+
+        if (folderBody || docSynopsis || item.labelTitle || item.statusTitle || docNotes || (item.keywords && item.keywords.length > 0)) {
+          if (extractedImages && extractedImages.length > 0) {
+            await saveExtractedImages(extractedImages);
+          }
+          if (imageLinks && imageLinks.length > 0) {
+            await processImageLinks(imageLinks);
+          }
+          const folderNotePath = normalizePath(`${folder.path}/${folder.name}.md`);
+          if (!app.vault.getAbstractFileByPath(folderNotePath)) {
+            let body = folderBody;
+            if (footnotes.length > 0) {
+              body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
+            }
+            if (item.labelTitle) encounteredLabels.add(item.labelTitle);
+            const fm = buildSceneFrontmatter({
+              titre: chapterTitle || item.title,
+              titreCourt: folder.name,
+              sousTitre,
+              order: 0,
+              isFiction,
+              synopsis: docSynopsis,
+              statut: mapScrivenerStatus(item.statusTitle),
+              label: item.labelTitle,
+              tags: item.keywords,
+              notes: docNotes,
+              includeInCompile: item.includeInCompile,
+              wordGoal: item.wordGoal || S.wordGoal,
+            });
+            await app.vault.create(folderNotePath, fm + body);
+          }
+        }
+
+        await writeManuscriptChildren(item.children, folder);
+        return folder;
+      }
+
+      if (item.children.length > 0) {
+        const folder = await plugin.ensureFolder(
+          unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}`))
+        );
+        await writeSceneFile(item, folder, "00-" + safeTitle);
+        await writeManuscriptChildren(item.children, folder);
+        return folder;
+      }
+      return writeSceneFile(item, destFolder, safeTitle);
+    };
+
+    const writeManuscriptChildren = async (children, destFolder) => {
+      const created = [];
+      for (const child of children) {
+        const node = await writeManuscriptNode(child, destFolder);
+        if (node) created.push(node);
+      }
+      if (created.length > 0) await plugin.writeOrder(destFolder, created);
+    };
+
+    const manuscritFolder = app.vault.getAbstractFileByPath(manuscritPath);
+    await writeManuscriptChildren(parsed.draft.children, manuscritFolder);
+
+    // ============================== Recherche ===============================
+
+    const writeResearchNode = async (item, destFolder, structuralTag) => {
+      const safeTitle = sanitizeName(item.title);
+      if (item.isFolder) {
+        const folder = await plugin.ensureFolder(
+          unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}`))
+        );
+        for (const child of item.children) {
+          await writeResearchNode(child, folder, structuralTag);
+        }
+        return;
+      }
+      const path = unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}.md`));
+      
+      let text = "";
+      let hasExtractedRtf = false;
+      let rtfRes = null;
+      if (item.isImage) {
+        const dataImages = findAttachedDataImages(scrivPath, item.uuid, fs, pathMod);
+        if (dataImages.length > 0) {
+          const img = dataImages[0];
+          const ext = pathMod.extname(img.fileName);
+          const base = pathMod.basename(img.fileName, ext);
+          const uniqueFileName = (base.toLowerCase() === "content" || base.toLowerCase() === "notes")
+            ? `${item.uuid}${ext}`
+            : img.fileName;
+          const targetPath = normalizePath(`${visuelsFolderPath}/${uniqueFileName}`);
+          if (!app.vault.getAbstractFileByPath(targetPath)) {
+            try {
+              const bytes = fs.readFileSync(img.fullPath);
+              await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
+            } catch (e) {}
+          }
+          text = `![[${uniqueFileName}]]`;
+        }
+      } else {
+        rtfRes = rtfToMarkdown(readRtf(item.uuid), readComments(item.uuid), binderItemMap, { uuid: item.uuid });
+        text = rtfRes.text;
+        if (rtfRes.extractedImages && rtfRes.extractedImages.length > 0) {
+          hasExtractedRtf = true;
+          await saveExtractedImages(rtfRes.extractedImages);
+        }
+        if (rtfRes.imageLinks && rtfRes.imageLinks.length > 0) {
+          await processImageLinks(rtfRes.imageLinks);
+        }
+      }
+
+      text = await processDataDirImages(item.title, item.uuid, text, hasExtractedRtf);
+
+      let docNotes = readNotes(item.uuid);
+      if (rtfRes && rtfRes.extractedComments && rtfRes.extractedComments.length > 0) {
+        const commentLines = rtfRes.extractedComments.map((c) =>
+          c.word ? `[Commentaire sur "${c.word}"]: ${c.text}` : c.text
+        );
+        docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
+      }
+
+      const tags = [...item.keywords];
+      if (structuralTag) tags.push(structuralTag);
+      const fm = buildEntityFrontmatter({
+        title: item.title,
+        synopsis: item.synopsis || readSynopsis(item.uuid),
+        tags,
+        notes: docNotes,
+      });
+      await app.vault.create(path, fm + text);
+    };
+
+    if (parsed.research) {
+      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Recherche`));
+      if (researchRoot) {
+        for (const child of parsed.research.children) {
+          const key = child.isFolder ? classifyResearchFolder(child.title) : null;
+          const folderDef = key ? PROJECT_MODES[mode].researchFolders[key] : null;
+          if (folderDef) {
+            const targetFolder = await plugin.ensureFolder(
+              normalizePath(`${researchRoot.path}/${folderDef.label}`)
+            );
+            for (const grandchild of child.children) {
+              await writeResearchNode(grandchild, targetFolder, folderDef.tag);
+            }
+          } else {
+            const fallback = await plugin.ensureFolder(
+              normalizePath(`${researchRoot.path}/Scrivener (non classé)`)
+            );
+            await writeResearchNode(child, fallback, null);
+          }
+        }
+      }
+    }
+
+    // ============================== Autres éléments racines ==================
+    if (parsed.others && parsed.others.length > 0) {
+      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Recherche`));
+      if (researchRoot) {
+        const fallback = await plugin.ensureFolder(
+          normalizePath(`${researchRoot.path}/Scrivener (non classé)`)
+        );
+        for (const otherItem of parsed.others) {
+          await writeResearchNode(otherItem, fallback, null);
+        }
+      }
+    }
+
+    // ============================== Labels ==================================
+
+    if (encounteredLabels.size > 0) {
+      if (!S.projectMeta) S.projectMeta = {};
+      if (!S.projectMeta[manuscritPath]) S.projectMeta[manuscritPath] = {};
+      const currentMeta = S.projectMeta[manuscritPath];
+      const palette = ["#e0524f", "#e08f4f", "#d9c04a", "#5aa564", "#5a8fd9", "#9a6dd7"];
+      const existing = (currentMeta.labels || S.labels || []).map((l) => (typeof l === "string" ? l : l.name));
+      const toAdd = [...encounteredLabels].filter((n) => !existing.includes(n));
+      if (toAdd.length > 0) {
+        const merged = [...(currentMeta.labels || S.labels || [])];
+        toAdd.forEach((n, idx) => merged.push({ name: n, color: palette[(existing.length + idx) % palette.length] }));
+        currentMeta.labels = merged;
+      }
+    }
+
+    await plugin.saveSettings();
+    plugin.renderAllViews(true);
+    plugin.updateStatusBar();
+    const warning = unreadableCount > 0
+      ? ` Attention : ${unreadableCount} fichier(s) sans contenu retrouvé.`
+      : "";
+    new Notice(`Import Scrivener réussi : ${volumePath}.${warning}`, warning ? 10000 : 4000);
+  }
+}
