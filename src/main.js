@@ -13,20 +13,23 @@
  */
 
 import { DEFAULT_SETTINGS } from "./default-settings.js";
-import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_RESEARCH, VIEW_PROGRESSION, VIEW_JOURNAL, VIEW_TAGS, STATUSES, HIDEABLE_PANELS } from "./constants.js";
+import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, STATUSES, HIDEABLE_PANELS } from "./constants.js";
 import { countWords, foldAccents, escapeRegExp, embedHardBreaks, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
-import { stripWritingNoise, countSentences, countParagraphs } from "./utils/text-metrics.js";
+import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import { nextFootnoteNumber, renumberFootnotes } from "./utils/footnotes.js";
 import { highlightActive, isEditing, openFileActivating } from "./utils/dom.js";
-import { ResearchView } from "./views/research-view.js";
 import { NotesView } from "./views/notes-view.js";
-import { ProgressionView } from "./views/progression-view.js";
+import { PropertiesView } from "./views/properties-view.js";
+import { ResearchView } from "./views/research-view.js";
 import { JournalView } from "./views/journal-view.js";
-import { TagsView } from "./views/tags-view.js";
+import { ProjectView } from "./views/project-view.js";
+import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
+import { formatCitation } from "./services/citations.js";
 import { getResearchTemplate } from "./services/research-templates.js";
 import { BaseFeuilletsView } from "./views/base-feuillets-view.js";
 import { FeuilletsView } from "./views/feuillets-view.js";
 import { BoardView } from "./views/board-view.js";
+import { SidebarFeuilletsView } from "./views/sidebar-feuillets-view.js";
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
@@ -36,12 +39,23 @@ import { getProjectMode } from "./services/project-mode.js";
 import { getChronoFolder, getResearchRoot, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
 import { handleFilChanged } from "./services/narrative-threads.js";
 import { createDemoProject } from "./services/demo-project.js";
-import { ensureFolder, snapshotFile, initProjectStructure, newFolder, newSheet } from "./services/project-files.js";
-import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor } from "./services/compile-export.js";
+import { generateCanvasBoard } from "./services/canvas-board.js";
+import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet } from "./services/project-files.js";
+import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
+import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
-import { NewProjectModal, ProjectManagerModal } from "./ui/project-modals.js";
+import { NewProjectModal } from "./ui/project-modals.js";
+import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
+import { ScrivenerImportModal } from "./ui/scrivener-import-modal.js";
+import { DocxReviewView } from "./views/docx-review-view.js";
 import { NewSheetModal, NewFolderModal } from "./ui/basic-modals.js";
+import { FileStatsModal } from "./ui/stats-modal.js";
+import { PdfStyleModal } from "./ui/pdf-style-modal.js";
+import { SearchReplaceBar } from "./views/search-replace-bar.js";
+import { searchHighlightField } from "./utils/cm-search-highlighter.js";
+import { grammarIssuesField, grammarClickHandler } from "./utils/cm-grammar-highlighter.js";
+import { GrammalecteChecker } from "./services/grammalecte-checker.js";
 
 const {
   Plugin,
@@ -59,18 +73,10 @@ const {
   MarkdownView,
   Platform,
   Keymap,
+  setTooltip,
 } = require("obsidian");
 
-
-/* ---------- utilitaires ---------- */
-
-/** Convertit les sauts de ligne simples d'un texte en retours forcés
- * (syntaxe standard « \\ » + retour à la ligne, reconnue par toute version
- * de Pandoc, avec ou sans extension). Les paragraphes (lignes vides) et les
- * lignes de structure (titres, listes, citations, code, tableaux, ***) sont
- * laissés intacts pour ne pas casser leur syntaxe Markdown. */
-
-/* ---------- base commune des vues ---------- */
+const RIGHT_SIDEBAR_WIDTH = 280;
 
 class FeuilletsPlugin extends Plugin {
   async onload() {
@@ -79,6 +85,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerViews();
     this.registerRibbonIcons();
     this.registerCoreCommands();
+    this.registerLastEditorTracking();
 
     this.addSettingTab(new FeuilletsSettingTab(this.app, this));
 
@@ -92,8 +99,15 @@ class FeuilletsPlugin extends Plugin {
     this.registerTextEditingCommands();
     this.registerVaultEvents();
     this.patchTabTitles();
+    this.registerSwipeGestures();
+    this.registerEditorExtension(searchHighlightField);
+    this.registerEditorExtension(grammarIssuesField);
+    this.registerEditorExtension(grammarClickHandler(this));
 
-
+    // worker_threads = Node : indisponible sur mobile (voir GrammarView).
+    if (!Platform.isMobile) {
+      this.grammalecteChecker = new GrammalecteChecker(this.app, this.manifest);
+    }
 
     initScenesEditor(this);
   }
@@ -102,28 +116,26 @@ class FeuilletsPlugin extends Plugin {
     this.registerView(VIEW_SIDEBAR, (leaf) => new FeuilletsView(leaf, this));
     this.registerView(VIEW_BOARD, (leaf) => new BoardView(leaf, this));
     this.registerView(VIEW_NOTES, (leaf) => new NotesView(leaf, this));
+    this.registerView(VIEW_PROPERTIES, (leaf) => new PropertiesView(leaf, this));
     this.registerView(VIEW_RESEARCH, (leaf) => new ResearchView(leaf, this));
-    this.registerView(VIEW_PROGRESSION, (leaf) => new ProgressionView(leaf, this));
     this.registerView(VIEW_JOURNAL, (leaf) => new JournalView(leaf, this));
-    this.registerView(VIEW_TAGS, (leaf) => new TagsView(leaf, this));
+    this.registerView(VIEW_PROJECT, (leaf) => new ProjectView(leaf, this));
+    this.registerView(VIEW_DOCX_REVIEW, (leaf) => new DocxReviewView(leaf, this));
+    this.registerView(VIEW_SIDEBAR_FEUILLETS, (leaf) => new SidebarFeuilletsView(leaf, this));
   }
 
   registerRibbonIcons() {
     this._ribbonDefs = [
       { key: "sidebar", icon: "files", label: "Feuillets : binder", action: () => this.activateSidebar() },
       { key: "board", icon: "layout-grid", label: "Feuillets : cartes / plan", action: () => this.activateBoard() },
-      { key: "progression", icon: "trending-up", label: "Feuillets : statistiques", action: () => this.activateProgression(), hideable: true },
-      { key: "journal", icon: "calendar", label: "Feuillets : journal d'écriture", action: () => this.activateJournal(), hideable: true },
-      { key: "tags", icon: "tags", label: "Feuillets : tags du projet", action: () => this.activateTags(), hideable: true },
+      { key: "journal", icon: "calendar", label: "Feuillets : journal & statistiques", action: () => this.activateJournal(), hideable: true },
+      { key: "project", icon: "folder-cog", label: "Feuillets : projet & export", action: () => this.activateProject(), hideable: true },
       { key: "concentration", icon: "focus", label: "Mode concentration", action: () => this.toggleConcentration() },
     ];
     this._ribbonEls = {};
     this.refreshRibbonIcons();
   }
 
-  /** Ajoute/retire les icônes du ruban des panneaux masquables — appelé au
-   * démarrage et à chaque changement du réglage, sans attendre un
-   * rechargement d'Obsidian. Les icônes non masquables ne bougent jamais. */
   refreshRibbonIcons() {
     const hidden = new Set(this.settings.hiddenPanels || []);
     for (const def of this._ribbonDefs) {
@@ -142,9 +154,6 @@ class FeuilletsPlugin extends Plugin {
     return (this.settings.hiddenPanels || []).includes(key);
   }
 
-  /** Masque un panneau latéral depuis n'importe où (bouton du panneau
-   * lui-même, ou case des réglages) : même effet garanti aux deux endroits
-   * — ruban retiré, feuilles ouvertes fermées, réglage persisté. */
   async hidePanel(key) {
     const set = new Set(this.settings.hiddenPanels || []);
     set.add(key);
@@ -172,11 +181,11 @@ class FeuilletsPlugin extends Plugin {
       id: "open-progression",
       name: "Ouvrir le panneau Statistiques",
       callback: () => {
-        if (this.isPanelHidden("progression")) {
-          new Notice("Panneau Statistiques masqué — réactive-le dans les réglages.");
+        if (this.isPanelHidden("journal")) {
+          new Notice("Panneau Journal & statistiques masqué — réactive-le dans les réglages.");
           return;
         }
-        this.activateProgression();
+        this.activateJournal();
       },
     });
     this.addCommand({
@@ -184,21 +193,85 @@ class FeuilletsPlugin extends Plugin {
       name: "Ouvrir le journal d'écriture",
       callback: () => {
         if (this.isPanelHidden("journal")) {
-          new Notice("Journal d'écriture masqué — réactive-le dans les réglages.");
+          new Notice("Panneau Journal & statistiques masqué — réactive-le dans les réglages.");
           return;
         }
         this.activateJournal();
       },
     });
     this.addCommand({
-      id: "open-tags",
-      name: "Ouvrir les tags du projet",
+      id: "open-project",
+      name: "Ouvrir le panneau Projet",
       callback: () => {
-        if (this.isPanelHidden("tags")) {
-          new Notice("Panneau Tags masqué — réactive-le dans les réglages.");
+        if (this.isPanelHidden("project")) {
+          new Notice("Panneau Projet & export masqué — réactive-le dans les réglages.");
           return;
         }
-        this.activateTags();
+        this.activateProject();
+      },
+    });
+    this.addCommand({
+      id: "open-export",
+      name: "Ouvrir le panneau Compilation & export",
+      callback: () => {
+        if (this.isPanelHidden("project")) {
+          new Notice("Panneau Projet & export masqué — réactive-le dans les réglages.");
+          return;
+        }
+        this.activateProject();
+      },
+    });
+    this.addCommand({
+      id: "open-properties",
+      name: "Propriétés du projet…",
+      // Panneau retiré (fusionné dans l'onglet Notes) — ouvre directement
+      // la fenêtre flottante, comme les icônes de la section "Propriétés
+      // du fichier" (voir notes-view.js).
+      callback: () => new ProjectPropertiesModal(this.app, this).open(),
+    });
+    this.addCommand({
+      id: "open-project-tags",
+      name: "Tags du projet…",
+      callback: () => new ProjectTagsModal(this.app, this).open(),
+    });
+    this.addCommand({
+      id: "grammalecte-check-active-file",
+      name: "Correction grammaticale : vérifier le feuillet actif",
+      callback: () => {
+        if (!this._grammarView) {
+          new Notice("Ouvre d'abord le panneau latéral Feuillets (n'importe quel onglet).");
+          return;
+        }
+        const file = this.app.workspace.getActiveFile();
+        if (!file || file.extension !== "md") {
+          new Notice("Ouvre un feuillet à vérifier.");
+          return;
+        }
+        // Ne nécessite pas d'avoir l'onglet ouvert/actif : lance la
+        // vérification et le soulignement dans l'éditeur directement.
+        this._grammarView.runCheck(file);
+      },
+    });
+    this.addCommand({
+      id: "grammalecte-next-issue",
+      name: "Correction grammaticale : aller à la faute suivante",
+      callback: () => {
+        if (!this._grammarView) {
+          new Notice("Ouvre d'abord l'onglet Correction grammaticale.");
+          return;
+        }
+        this._grammarView.jumpToAdjacentIssue(1);
+      },
+    });
+    this.addCommand({
+      id: "grammalecte-prev-issue",
+      name: "Correction grammaticale : aller à la faute précédente",
+      callback: () => {
+        if (!this._grammarView) {
+          new Notice("Ouvre d'abord l'onglet Correction grammaticale.");
+          return;
+        }
+        this._grammarView.jumpToAdjacentIssue(-1);
       },
     });
     this.addCommand({
@@ -213,13 +286,18 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "export-docx",
-      name: "Exporter en .docx (Pandoc)",
+      name: "Exporter en .docx",
       callback: () => this.exportFile("docx"),
     });
     this.addCommand({
       id: "export-epub",
-      name: "Exporter en .epub (Pandoc)",
+      name: "Exporter en .epub",
       callback: () => this.exportFile("epub"),
+    });
+    this.addCommand({
+      id: "export-pdf",
+      name: "Exporter en .pdf (via impression, bureau uniquement)",
+      callback: () => this.exportFile("pdf"),
     });
     this.addCommand({
       id: "import-outline",
@@ -237,21 +315,10 @@ class FeuilletsPlugin extends Plugin {
         const snap = this.moveStack.pop();
 
         if (snap.type === "move") {
-          /* replacer le nœud dans son dossier d'origine */
-          const srcParent = this.app.vault.getAbstractFileByPath(
-            snap.srcParentPath
-          );
-          const destFolder = this.app.vault.getAbstractFileByPath(
-            snap.destFolderPath
-          );
-          const node = this.app.vault.getAbstractFileByPath(
-            normalizePath(`${snap.destFolderPath}/${snap.nodeName}`)
-          );
-          if (
-            !(srcParent instanceof TFolder) ||
-            !(destFolder instanceof TFolder) ||
-            !node
-          ) {
+          const srcParent = this.app.vault.getAbstractFileByPath(snap.srcParentPath);
+          const destFolder = this.app.vault.getAbstractFileByPath(snap.destFolderPath);
+          const node = this.app.vault.getAbstractFileByPath(normalizePath(`${snap.destFolderPath}/${snap.nodeName}`));
+          if (!(srcParent instanceof TFolder) || !(destFolder instanceof TFolder) || !node) {
             new Notice("Impossible d'annuler : un élément a changé entre-temps.");
             return;
           }
@@ -262,9 +329,7 @@ class FeuilletsPlugin extends Plugin {
           }
           await this.app.fileManager.renameFile(node, backPath);
           const restoreOrder = async (folder, names) => {
-            const byName = new Map(
-              this.getOrderedChildren(folder).map((c) => [c.name, c])
-            );
+            const byName = new Map(this.getOrderedChildren(folder).map((c) => [c.name, c]));
             const restored = names.map((n) => byName.get(n)).filter(Boolean);
             for (const c of byName.values()) {
               if (!restored.includes(c)) restored.push(c);
@@ -287,12 +352,8 @@ class FeuilletsPlugin extends Plugin {
           new Notice("Le dossier du déplacement n'existe plus.");
           return;
         }
-        const byName = new Map(
-          this.getOrderedChildren(parent).map((c) => [c.name, c])
-        );
-        const restored = snap.order
-          .map((n) => byName.get(n))
-          .filter(Boolean);
+        const byName = new Map(this.getOrderedChildren(parent).map((c) => [c.name, c]));
+        const restored = snap.order.map((n) => byName.get(n)).filter(Boolean);
         for (const c of byName.values()) {
           if (!restored.includes(c)) restored.push(c);
         }
@@ -317,9 +378,42 @@ class FeuilletsPlugin extends Plugin {
       callback: () => this.createDemoProject(),
     });
     this.addCommand({
+      id: "import-scrivener",
+      name: "Importer un projet Scrivener…",
+      callback: () => {
+        if (Platform.isMobile) {
+          new Notice("L'import Scrivener nécessite un accès au système de fichiers, disponible uniquement sur ordinateur.");
+          return;
+        }
+        new ScrivenerImportModal(this.app, this).open();
+      },
+    });
+    this.addCommand({
+      id: "open-docx-review",
+      name: "Ouvrir le panneau Révision (retours .docx d'un directeur/éditeur)",
+      callback: () => {
+        if (this.isPanelHidden("docxReview")) {
+          new Notice("Panneau Révision masqué — réactive-le dans les réglages.");
+          return;
+        }
+        this.activateDocxReview();
+      },
+    });
+    this.addCommand({
+      id: "generate-canvas-board",
+      name: "Générer/mettre à jour le tableau canvas (brainstorming)",
+      callback: () => this.generateCanvasBoard(),
+    });
+    this.addCommand({
       id: "manage-projects",
       name: "Gestion des projets…",
-      callback: () => new ProjectManagerModal(this.app, this).open(),
+      callback: () => {
+        if (this.isPanelHidden("project")) {
+          new Notice("Panneau Projet & export masqué — réactive-le dans les réglages.");
+          return;
+        }
+        this.activateProject();
+      },
     });
     this.addCommand({
       id: "switch-project",
@@ -330,9 +424,7 @@ class FeuilletsPlugin extends Plugin {
           ...this.settings.projects,
         ].filter((p, i, a) => p && a.indexOf(p) === i);
         if (all.length < 2) {
-          new Notice(
-            "Ajoute d'autres projets dans les réglages (un chemin par ligne)."
-          );
+          new Notice("Ajoute d'autres projets dans les réglages (un chemin par ligne).");
           return;
         }
         const menu = new Menu();
@@ -342,6 +434,12 @@ class FeuilletsPlugin extends Plugin {
               .setTitle(p)
               .setChecked(p === this.settings.projectFolder)
               .onClick(async () => {
+                if (
+                  this.settings.projectFolder &&
+                  !this.settings.projects.includes(this.settings.projectFolder)
+                ) {
+                  this.settings.projects.push(this.settings.projectFolder);
+                }
                 this.settings.projectFolder = p;
                 await this.saveSettings();
                 this.renderAllViews(true);
@@ -391,6 +489,11 @@ class FeuilletsPlugin extends Plugin {
       },
     });
     this.addCommand({
+      id: "pdf-style-modal",
+      name: "Ouvrir le panneau Projet & Export",
+      callback: () => this.activateProject(),
+    });
+    this.addCommand({
       id: "restore-snapshot",
       name: "Restaurer un snapshot du feuillet actif",
       callback: async () => {
@@ -400,38 +503,15 @@ class FeuilletsPlugin extends Plugin {
           new Notice("Aucun feuillet du projet actif.");
           return;
         }
-        const dirBases = [root.path, root.parent ? root.parent.path : null].filter(
-          Boolean
-        );
-        let folder = null;
-        for (const b of dirBases) {
-          const f = this.app.vault.getAbstractFileByPath(
-            normalizePath(`${b}/_Snapshots/${file.basename}`)
-          );
-          if (f instanceof TFolder) {
-            folder = f;
-            break;
-          }
-        }
-        /* "Snapshots" sans underscore : uniquement voisin, jamais dedans */
-        if (!folder && root.parent) {
-          const f = this.app.vault.getAbstractFileByPath(
-            normalizePath(`${root.parent.path}/Snapshots/${file.basename}`)
-          );
-          if (f instanceof TFolder) folder = f;
-        }
-        if (!(folder instanceof TFolder) || folder.children.length === 0) {
+        const snaps = listSnapshotFiles(this.app, file, root);
+        if (snaps.length === 0) {
           new Notice("Aucun snapshot pour ce feuillet.");
           return;
         }
-        const snaps = folder.children
-          .filter((c) => c instanceof TFile)
-          .sort((a, b) => b.name.localeCompare(a.name));
         const menu = new Menu();
         for (const snap of snaps.slice(0, 15)) {
           menu.addItem((item) =>
             item.setTitle(snap.basename).onClick(async () => {
-              /* snapshot de l'état actuel avant restauration : rien ne se perd */
               await this.snapshotFile(file, root);
               const content = await this.app.vault.read(snap);
               await this.app.vault.modify(file, content);
@@ -451,9 +531,7 @@ class FeuilletsPlugin extends Plugin {
         const d = new Date();
         const p = (n) => String(n).padStart(2, "0");
         const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-        const path = normalizePath(
-          `${dir ? dir + "/" : ""}feuillets-reglages-${stamp}.json`
-        );
+        const path = normalizePath(`${dir ? dir + "/" : ""}feuillets-reglages-${stamp}.json`);
         const payload = JSON.stringify(this.settings, null, 2);
         const existing = this.app.vault.getAbstractFileByPath(path);
         if (existing instanceof TFile) {
@@ -472,9 +550,7 @@ class FeuilletsPlugin extends Plugin {
           .getFiles()
           .filter((f) => f.extension === "json" && f.name.startsWith("feuillets-reglages"));
         if (files.length === 0) {
-          new Notice(
-            "Aucune sauvegarde trouvée (fichier feuillets-reglages-*.json)."
-          );
+          new Notice("Aucune sauvegarde trouvée (fichier feuillets-reglages-*.json).");
           return;
         }
         const menu = new Menu();
@@ -485,8 +561,6 @@ class FeuilletsPlugin extends Plugin {
                 const raw = await this.app.vault.read(f);
                 const data = JSON.parse(raw);
                 if (!data || typeof data !== "object") throw new Error("format");
-                /* fusion sur les valeurs par défaut : un réglage ajouté depuis
-                   la sauvegarde garde sa valeur par défaut au lieu de disparaître */
                 this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
                 await this.saveSettings();
                 this.applyIndentClass();
@@ -512,15 +586,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice("Dossier projet introuvable.");
           return;
         }
-        /* les anciens dossiers _Personnages/_Lieux/_Chronologie, comme
-           _Recherche lui-même, peuvent être enfants du dossier projet
-           (ancienne convention) ou voisins (quand "Dossier projet" pointe
-           directement sur le sous-dossier des parties/chapitres) — les
-           deux emplacements sont cherchés pour la source ET la destination. */
-        const searchBases = [
-          root.path,
-          root.parent ? root.parent.path : null,
-        ].filter(Boolean);
+        const searchBases = [root.path, root.parent ? root.parent.path : null].filter(Boolean);
         const existingResearch = this.getResearchRoot();
         const destBase = existingResearch
           ? existingResearch.parent
@@ -541,9 +607,7 @@ class FeuilletsPlugin extends Plugin {
         for (const [from, to] of moves) {
           let src = null;
           for (const b of searchBases) {
-            const cand = this.app.vault.getAbstractFileByPath(
-              normalizePath(`${b}/${from}`)
-            );
+            const cand = this.app.vault.getAbstractFileByPath(normalizePath(`${b}/${from}`));
             if (cand) {
               src = cand;
               break;
@@ -572,6 +636,18 @@ class FeuilletsPlugin extends Plugin {
       callback: () => this.initProjectStructure(),
     });
     this.addCommand({
+      id: "export-builtin-templates",
+      name: "Exporter les modèles d'export intégrés vers Ressources/Modèles",
+      callback: async () => {
+        const n = await exportBuiltInTemplates(this.app, this.settings);
+        new Notice(
+          n > 0
+            ? `${n} modèle(s) exporté(s) dans Ressources/Modèles.`
+            : "Tous les modèles intégrés sont déjà présents dans Ressources/Modèles."
+        );
+      },
+    });
+    this.addCommand({
       id: "renumber-chapters",
       name: "Renuméroter les titres des chapitres",
       callback: async () => {
@@ -584,75 +660,42 @@ class FeuilletsPlugin extends Plugin {
         new Notice(`${n} titre(s) mis à jour.`);
       },
     });
+    this.addCommand({
+      id: "open-search-replace-bar",
+      name: "Chercher et remplacer dans le manuscrit…",
+      callback: () => this.toggleSearchReplaceBar(),
+    });
   }
 
   registerAutoOpenPanels() {
     this.app.workspace.onLayoutReady(async () => {
-      /* dossiers dupliqués récupérés de sessions antérieures (avant que
-         la vérification ci-dessous n'existe, ou après un crash) : on ne
-         garde que le premier panneau de chaque type, les autres sont
-         fermés. Sans ce nettoyage un doublon une fois créé restait figé
-         dans workspace.json et réapparaissait à chaque ouverture. */
-      for (const type of [VIEW_NOTES, VIEW_SIDEBAR, VIEW_BOARD, VIEW_RESEARCH, VIEW_PROGRESSION, VIEW_JOURNAL, VIEW_TAGS]) {
+      for (const type of [VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW]) {
+        const leaves = this.app.workspace.getLeavesOfType(type);
+        for (const leaf of leaves) leaf.detach();
+      }
+      for (const type of [VIEW_SIDEBAR, VIEW_BOARD, VIEW_SIDEBAR_FEUILLETS]) {
         const leaves = this.app.workspace.getLeavesOfType(type);
         for (let i = 1; i < leaves.length; i++) leaves[i].detach();
       }
+
       if (!this.getProjectFolder()) return;
-      if (
-        this.settings.autoOpenNotes &&
-        !this.isPanelHidden("notes") &&
-        this.app.workspace.getLeavesOfType(VIEW_NOTES).length === 0
-      ) {
-        const leaf = this.app.workspace.getRightLeaf(false);
-        if (leaf) await leaf.setViewState({ type: VIEW_NOTES, active: false });
-      }
+
       if (
         this.settings.autoOpenBinder &&
         this.app.workspace.getLeavesOfType(VIEW_SIDEBAR).length === 0
       ) {
         const leaf = this.app.workspace.getLeftLeaf(false);
-        if (leaf)
-          await leaf.setViewState({ type: VIEW_SIDEBAR, active: false });
-      }
-      if (
-        this.settings.autoOpenResearch &&
-        !this.isPanelHidden("research") &&
-        this.app.workspace.getLeavesOfType(VIEW_RESEARCH).length === 0
-      ) {
-        const leaf = this.app.workspace.getRightLeaf(false);
-        if (leaf)
-          await leaf.setViewState({ type: VIEW_RESEARCH, active: false });
-      }
-      if (
-        this.settings.autoOpenStructure &&
-        !this.isPanelHidden("progression") &&
-        this.app.workspace.getLeavesOfType(VIEW_PROGRESSION).length === 0
-      ) {
-        const leaf = this.app.workspace.getRightLeaf(false);
-        if (leaf)
-          await leaf.setViewState({ type: VIEW_PROGRESSION, active: false });
-      }
-      if (
-        this.settings.autoOpenJournal &&
-        !this.isPanelHidden("journal") &&
-        this.app.workspace.getLeavesOfType(VIEW_JOURNAL).length === 0
-      ) {
-        const leaf = this.app.workspace.getRightLeaf(false);
-        if (leaf)
-          await leaf.setViewState({ type: VIEW_JOURNAL, active: false });
+        if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR, active: false });
       }
 
+      if (this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS).length === 0) {
+        const leaf = this.app.workspace.getRightLeaf(false);
+        if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR_FEUILLETS, active: false });
+      }
+
+      this.adjustSidebarWidth();
       await this.loadDeferredViews();
     });
-    /* un panneau ouvert avec `active: false` (auto-ouverture ci-dessus) ou
-       restauré en arrière-plan par la disposition sauvegardée d'Obsidian
-       reste "différé" (isDeferred) tant qu'on ne clique pas dessus — son
-       onOpen() ne s'exécute jamais tant qu'il n'est pas chargé pour de bon,
-       donc les écouteurs qu'il y enregistre ("file-open" notamment)
-       n'existent tout simplement pas encore. Contrairement à la tentative
-       précédente, on se contente ICI de forcer le chargement — on ne
-       redéclenche PAS nous-mêmes le rendu, pour laisser chaque vue gérer
-       ça avec son propre mécanisme, sans doublon ni course. */
     this.registerEvent(
       this.app.workspace.on("file-open", () => this.loadDeferredViews())
     );
@@ -674,14 +717,12 @@ class FeuilletsPlugin extends Plugin {
   registerConcentrationTracking() {
     this.registerEvent(
       this.app.workspace.on("editor-change", (editor) => {
-        if (!this.concentrationActive) return; /* hors du mode : rien */
+        if (!this.concentrationActive) return;
         this.updateParagraphFocus(editor);
         if (this.settings.concentrationTypewriter && editor) {
           const cur = editor.getCursor();
           editor.scrollIntoView({ from: cur, to: cur }, true);
         }
-        /* le compteur relit tout le document : débouncé, pas à chaque
-           caractère */
         clearTimeout(this._concTimer);
         this._concTimer = setTimeout(
           () => this.updateConcentrationCounter(editor),
@@ -697,14 +738,6 @@ class FeuilletsPlugin extends Plugin {
   }
 
   registerDragSafetyNet() {
-    /* FILET DE SÉCURITÉ du glisser-déposer, au niveau du DOCUMENT : si la
-       ligne d'origine est détruite en plein glissement (re-rendu déclenché
-       par une sauvegarde automatique, par exemple), son événement dragend
-       ne part JAMAIS — _dragInProgress restait alors bloqué à true (tous
-       les rafraîchissements différés tournaient en boucle sans jamais
-       s'exécuter) et les classes de survol restaient posées : c'est la
-       ligne « bloquée en surbrillance » qui revenait sans cesse. Le
-       document, lui, reçoit toujours la fin du geste. */
     const clearDragLeftovers = () => {
       this._dragInProgress = false;
       document
@@ -716,156 +749,136 @@ class FeuilletsPlugin extends Plugin {
     };
     this.registerDomEvent(document, "dragend", clearDragLeftovers);
     this.registerDomEvent(document, "drop", clearDragLeftovers);
-
   }
 
   registerLiveTypography() {
-    /* typographie française à la frappe (adapté de French Typos, T. Crouzet) */
-    /* Phase de capture : indispensable pour passer AVANT CodeMirror, sinon
-       Entrée est traitée deux fois (bug des deux lignes vides).
-       Contrepartie : l'écoute est globale, donc on se restreint strictement
-       aux frappes VENANT de l'éditeur, et on se retire si le mode Vim est
-       actif — sinon on court-circuiterait ses raccourcis. */
     this.registerDomEvent(
       document,
       "keydown",
       (event) => {
-      /* CHEMIN CHAUD : ce gestionnaire capture TOUTES les frappes du
-         coffre. On sort au plus vite pour les touches non concernées
-         (lettres, flèches…) AVANT tout accès DOM ou workspace — sinon
-         chaque caractère tapé paie closest() + getActiveViewOfType(). */
-      const k = event.key;
-      if (k !== "'" && k !== '"' && k !== "Enter" && k !== " ") return;
-      const S = this.settings;
-      if (
-        !S.liveApostrophe &&
-        !S.liveGuillemets &&
-        !S.liveDashes &&
-        !S.liveTwoEnters &&
-        !S.liveDoubleEnter
-      )
-        return;
-      if (event.ctrlKey || event.metaKey || event.altKey) return;
-      /* la frappe doit venir de l'éditeur lui-même, pas d'un champ de
-         recherche, d'une modale ou d'un autre plugin */
-      const target = event.target;
-      if (!target || !target.closest || !target.closest(".cm-editor")) return;
-      /* mode Vim : on ne touche à rien, ses raccourcis priment */
-      if (this.app.vault.getConfig?.("vimMode")) return;
-      const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (!mdView || mdView.getMode() !== "source") return;
-      const file = mdView.file;
-      const root = this.getProjectFolder();
-      if (!file || !root) return;
-      if (root.path !== "" && !file.path.startsWith(root.path + "/")) return;
+        const k = event.key;
+        if (k !== "'" && k !== '"' && k !== "Enter" && k !== " ") return;
+        const S = this.settings;
+        if (
+          !S.liveApostrophe &&
+          !S.liveGuillemets &&
+          !S.liveDashes &&
+          !S.liveTwoEnters &&
+          !S.liveDoubleEnter
+        )
+          return;
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        const target = event.target;
+        if (!target || !target.closest || !target.closest(".cm-editor")) return;
+        if (this.app.vault.getConfig?.("vimMode")) return;
+        const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!mdView || mdView.getMode() !== "source") return;
+        const file = mdView.file;
+        const root = this.getProjectFolder();
+        if (!file || !root) return;
+        if (root.path !== "" && !file.path.startsWith(root.path + "/")) return;
 
-      const editor = mdView.editor;
-      const cursor = editor.getCursor();
+        const editor = mdView.editor;
+        const cursor = editor.getCursor();
 
-      if (event.key === "'" && S.liveApostrophe) {
-        event.preventDefault();
-        if (editor.somethingSelected()) editor.replaceSelection("\u2019");
-        else {
-          editor.replaceRange("\u2019", cursor);
-          editor.setCursor({ line: cursor.line, ch: cursor.ch + 1 });
-        }
-      } else if (event.key === '"' && S.liveGuillemets) {
-        event.preventDefault();
-        /* contextuel plutôt qu'alterné : ouvrant en début de ligne ou après
-           espace/parenthèse/tiret, fermant sinon — plus robuste qu'un état
-           global qui se désynchronise */
-        const before = cursor.ch > 0
-          ? editor.getRange({ line: cursor.line, ch: cursor.ch - 1 }, cursor)
-          : "";
-        const opening = before === "" || /[\s(\[«—–-]/.test(before);
-        if (opening) {
-          editor.replaceRange("\u00AB\u00A0", cursor);
-        } else {
-          editor.replaceRange("\u00A0\u00BB", cursor);
-        }
-        editor.setCursor({ line: cursor.line, ch: cursor.ch + 2 });
-      } else if (
-        event.key === "Enter" &&
-        (S.liveTwoEnters || S.liveDoubleEnter) &&
-        !editor.somethingSelected()
-      ) {
-        if (event.shiftKey) {
+        if (event.key === "'" && S.liveApostrophe) {
           event.preventDefault();
-          event.stopPropagation();
-          editor.replaceRange("  \n", cursor);
-          editor.setCursor({ line: cursor.line + 1, ch: 0 });
-        } else {
-          const lineText = editor.getLine(cursor.line);
-          /* seulement en prose : pas dans une liste, un titre, une citation,
-             un bloc de code ou le frontmatter */
-          if (/^(\s*([-*+]|\d+\.)\s|#{1,6}\s|>|```|---)/.test(lineText)) {
-            /* structure : Entrée normale */
-          } else if (
-            S.liveDoubleEnter &&
-            lineText.trim() === "" &&
-            cursor.line > 0
-          ) {
-            /* 2e Entrée consécutive : la ligne vide courante devient une
-               ligne à espace insécable — un blanc VISIBLE, qui survit même
-               aux affichages "réduit/invisible" des lignes vides — puis
-               nouveau paragraphe en dessous. */
+          if (editor.somethingSelected()) editor.replaceSelection("\u2019");
+          else {
+            editor.replaceRange("\u2019", cursor);
+            editor.setCursor({ line: cursor.line, ch: cursor.ch + 1 });
+          }
+        } else if (event.key === '"' && S.liveGuillemets) {
+          event.preventDefault();
+          const before = cursor.ch > 0
+            ? editor.getRange({ line: cursor.line, ch: cursor.ch - 1 }, cursor)
+            : "";
+          const opening = before === "" || /[\s(\[«—–-]/.test(before);
+          if (opening) {
+            editor.replaceRange("\u00AB\u00A0", cursor);
+          } else {
+            editor.replaceRange("\u00A0\u00BB", cursor);
+          }
+          editor.setCursor({ line: cursor.line, ch: cursor.ch + 2 });
+        } else if (
+          event.key === "Enter" &&
+          (S.liveTwoEnters || S.liveDoubleEnter) &&
+          !editor.somethingSelected()
+        ) {
+          if (event.shiftKey) {
             event.preventDefault();
             event.stopPropagation();
-            editor.setLine(cursor.line, "\u00A0");
-            editor.replaceRange("\n\n", { line: cursor.line, ch: 1 });
-            editor.setCursor({ line: cursor.line + 2, ch: 0 });
-          } else if (S.liveTwoEnters) {
+            editor.replaceRange("  \n", cursor);
+            editor.setCursor({ line: cursor.line + 1, ch: 0 });
+          } else {
+            const lineText = editor.getLine(cursor.line);
+            if (/^(\s*([-*+]|\d+\.)\s|#{1,6}\s|>|```|---)/.test(lineText)) {
+              /* structure : Entrée normale */
+            } else if (
+              S.liveDoubleEnter &&
+              lineText.trim() === "" &&
+              cursor.line > 0
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              editor.setLine(cursor.line, "\u00A0");
+              editor.replaceRange("\n\n", { line: cursor.line, ch: 1 });
+              editor.setCursor({ line: cursor.line + 2, ch: 0 });
+            } else if (S.liveTwoEnters) {
+              event.preventDefault();
+              event.stopPropagation();
+              editor.replaceRange("\n\n", cursor);
+              editor.setCursor({ line: cursor.line + 2, ch: 0 });
+            }
+          }
+        } else if (event.key === " " && S.liveDashes) {
+          const back3 = cursor.ch >= 3
+            ? editor.getRange({ line: cursor.line, ch: cursor.ch - 3 }, cursor)
+            : "";
+          const back2 = cursor.ch >= 2
+            ? editor.getRange({ line: cursor.line, ch: cursor.ch - 2 }, cursor)
+            : "";
+          if (back3 === "---") {
             event.preventDefault();
-            event.stopPropagation();
-            editor.replaceRange("\n\n", cursor);
-            editor.setCursor({ line: cursor.line + 2, ch: 0 });
+            editor.replaceRange("\u2014\u00A0", { line: cursor.line, ch: cursor.ch - 3 }, cursor);
+          } else if (back2 === "--") {
+            event.preventDefault();
+            editor.replaceRange("\u2013\u00A0", { line: cursor.line, ch: cursor.ch - 2 }, cursor);
           }
         }
-      } else if (event.key === " " && S.liveDashes) {
-        const back3 = cursor.ch >= 3
-          ? editor.getRange({ line: cursor.line, ch: cursor.ch - 3 }, cursor)
-          : "";
-        const back2 = cursor.ch >= 2
-          ? editor.getRange({ line: cursor.line, ch: cursor.ch - 2 }, cursor)
-          : "";
-        if (back3 === "---") {
-          event.preventDefault();
-          editor.replaceRange(
-            "\u2014\u00A0",
-            { line: cursor.line, ch: cursor.ch - 3 },
-            cursor
-          );
-        } else if (back2 === "--") {
-          event.preventDefault();
-          editor.replaceRange(
-            "\u2013\u00A0",
-            { line: cursor.line, ch: cursor.ch - 2 },
-            cursor
-          );
-        }
-      }
       },
-      true /* capture : avant CodeMirror */
+      true
     );
     this.applyLiveTypoClasses();
+
+    const reapply = () => {
+      this.applyLiveTypoClasses();
+      this.applyIndentClass();
+    };
+    this.registerEvent(this.app.workspace.on("file-open", reapply));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", reapply));
   }
 
   registerStatusBar() {
-    /* barre d'état : mots du feuillet actif / objectif + mots du jour */
     this.statusEl = this.addStatusBarItem();
     this.statusEl.addClass("feuillets-status-bar");
+    this.statusEl.addClass("feuillets-status-bar-clickable");
+    setTooltip(this.statusEl, "Statistiques complètes (feuillet actif + projet entier)");
+    this.statusEl.addEventListener("click", () => {
+      const file = this.app.workspace.getActiveFile();
+      const root = this.getProjectFolder();
+      if (!file || !root || !file.path.startsWith(root.path + "/")) return;
+      new FileStatsModal(this.app, this, file).open();
+    });
     const updateStatus = () => {
       clearTimeout(this._statusTimer);
       this._statusTimer = setTimeout(() => this.updateStatusBar(), 300);
     };
     this.registerEvent(this.app.workspace.on("file-open", updateStatus));
     this.registerEvent(this.app.workspace.on("editor-change", updateStatus));
-    this.registerEvent(
-      this.app.workspace.on("active-leaf-change", updateStatus)
-    );
+    this.registerEvent(this.app.workspace.on("active-leaf-change", updateStatus));
     updateStatus();
   }
-
 
   registerTextEditingCommands() {
     this.addCommand({
@@ -879,8 +892,6 @@ class FeuilletsPlugin extends Plugin {
         }
         const raw = await this.app.vault.read(file);
         const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
-
-        /* un titre de niveau 2 ou 3 commençant par une date reconnaissable */
         const headRe = /^(#{2,3})\s+(\d{1,4}(?:-\d{1,2}(?:-\d{1,2})?)?)\s*[-–—:]?\s*(.*)$/gm;
         const blocks = [];
         let m;
@@ -896,12 +907,9 @@ class FeuilletsPlugin extends Plugin {
           blocks.push(last);
         }
         if (blocks.length === 0) {
-          new Notice(
-            "Aucun titre daté trouvé (## ou ### suivi d'une date, ex. « ## 1826-06-15 - Titre »)."
-          );
+          new Notice("Aucun titre daté trouvé (## ou ### suivi d'une date).");
           return;
         }
-
         const chronoFolder =
           this.getChronoFolder() ||
           (await this.ensureFolder(
@@ -950,14 +958,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice("Panneau Recherche masqué — réactive-le dans les réglages.");
           return;
         }
-        const existing = this.app.workspace.getLeavesOfType(VIEW_RESEARCH);
-        if (existing.length > 0) {
-          this.app.workspace.revealLeaf(existing[0]);
-          return;
-        }
-        const leaf = this.app.workspace.getRightLeaf(false);
-        await leaf.setViewState({ type: VIEW_RESEARCH, active: true });
-        this.app.workspace.revealLeaf(leaf);
+        this.activateResearch();
       },
     });
     this.addCommand({
@@ -968,14 +969,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice("Panneau Notes masqué — réactive-le dans les réglages.");
           return;
         }
-        const existing = this.app.workspace.getLeavesOfType(VIEW_NOTES);
-        if (existing.length > 0) {
-          this.app.workspace.revealLeaf(existing[0]);
-          return;
-        }
-        const leaf = this.app.workspace.getRightLeaf(false);
-        await leaf.setViewState({ type: VIEW_NOTES, active: true });
-        this.app.workspace.revealLeaf(leaf);
+        this.activateNotes();
       },
     });
     this.addCommand({
@@ -1007,11 +1001,7 @@ class FeuilletsPlugin extends Plugin {
         }
         if (hasSel) editor.replaceSelection(out);
         else editor.setValue(out);
-        new Notice(
-          hasSel
-            ? "Sélection compactée."
-            : "Document compacté — vérifie qu'aucun vrai paragraphe n'a été resserré par erreur."
-        );
+        new Notice(hasSel ? "Sélection compactée." : "Document compacté.");
       },
     });
     this.addCommand({
@@ -1062,12 +1052,17 @@ class FeuilletsPlugin extends Plugin {
         const newLastLine = editor.lastLine();
         editor.setCursor({ line: newLastLine, ch: editor.getLine(newLastLine).length });
         editor.focus();
-        new Notice(`Note ${n} insérée — définition ajoutée en fin de fichier.`);
+        new Notice(`Note ${n} insérée.`);
       },
     });
     this.addCommand({
+      id: "insert-citation",
+      name: "Insérer une citation",
+      editorCallback: (editor) => this.openInsertCitation(editor),
+    });
+    this.addCommand({
       id: "renumber-footnotes",
-      name: "Renuméroter les notes de bas de page (1, 2, 3… dans l'ordre d'apparition)",
+      name: "Renuméroter les notes de bas de page",
       editorCallback: (editor) => {
         const src = editor.getValue();
         const out = renumberFootnotes(src);
@@ -1084,11 +1079,6 @@ class FeuilletsPlugin extends Plugin {
   }
 
   registerVaultEvents() {
-    /* create/delete/rename changent la STRUCTURE : rafraîchissement
-       rapide. modify (déclenché par CHAQUE sauvegarde automatique, soit
-       toutes les ~2 s pendant la frappe) ne change que des compteurs :
-       on attend une vraie pause d'écriture avant de reconstruire, sinon
-       le rendu tombe systématiquement au milieu d'une phrase. */
     const refresh = () => this.refreshView();
     this.registerEvent(this.app.vault.on("create", (file) => {
       refresh();
@@ -1100,43 +1090,34 @@ class FeuilletsPlugin extends Plugin {
       this.maybeAutoInitializeResearchFile(file);
     }));
     this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
-    this.registerEvent(
-      this.app.metadataCache.on("changed", (file) =>
-        this.maybeRenameResearchFile(file)
-      )
-    );
-    this.registerEvent(
-      this.app.metadataCache.on("changed", (file) => this.handleFilChanged(file))
-    );
-    /* panneaux marqués périmés (invisibles au moment d'un rendu) :
-       rattrapage dès qu'ils redeviennent visibles */
-    this.registerEvent(
-      this.app.workspace.on("layout-change", () => this.renderStaleViews())
-    );
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.handleFilChanged(file)));
+    this.registerEvent(this.app.workspace.on("layout-change", () => {
+      this.renderStaleViews();
+      this.syncProjectPanelsVisibility();
+    }));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+      this.syncProjectPanelsVisibility();
+    }));
   }
 
   async maybeAutoInitializeResearchFile(file) {
     if (!(file instanceof TFile) || file.extension !== "md" || file.stat.size > 0) return;
-
     const researchRoot = this.getResearchRoot();
     if (!researchRoot) return;
     if (!file.path.startsWith(researchRoot.path + "/")) return;
-
     const mode = this.projectMode();
     const rf = mode.researchFolders;
     const parentName = file.parent ? file.parent.name : "";
-
     let sectionKey = "";
-    if (parentName === rf.sources.label) sectionKey = "sources";
+    if (rf.sources && parentName === rf.sources.label) sectionKey = "sources";
     else if (parentName === rf.bibliographie.label) sectionKey = "bibliographie";
-    else if (parentName === rf.personnages.label) sectionKey = "personnages";
-    else if (parentName === rf.lieux.label) sectionKey = "lieux";
-    else if (parentName === rf.codex.label) sectionKey = "codex";
-    else if (parentName === rf.glossaire.label) sectionKey = "glossaire";
+    else if (rf.personnages && parentName === rf.personnages.label) sectionKey = "personnages";
+    else if (rf.lieux && parentName === rf.lieux.label) sectionKey = "lieux";
+    else if (rf.codex && parentName === rf.codex.label) sectionKey = "codex";
+    else if (rf.glossaire && parentName === rf.glossaire.label) sectionKey = "glossaire";
     else if (parentName === "Chronologie") sectionKey = "evenements";
-
     if (!sectionKey) return;
-
     const template = await getResearchTemplate(this.app, this.settings, mode, sectionKey, file.basename);
     if (template) {
       try {
@@ -1148,14 +1129,14 @@ class FeuilletsPlugin extends Plugin {
   }
 
   onunload() {
+    if (this.grammalecteChecker) this.grammalecteChecker.destroy();
     clearTimeout(this._refreshTimer);
     clearTimeout(this._statusTimer);
     clearTimeout(this._concTimer);
     document.body.removeClass("feuillets-indent");
     document.body.removeClass("feuillets-concentration");
     this.removeConcentrationCounter();
-    if (this._escHandler)
-      document.removeEventListener("keydown", this._escHandler);
+    if (this._escHandler) document.removeEventListener("keydown", this._escHandler);
     document.body.removeClass("feuillets-lignesvides-invisible");
     document.body.removeClass("feuillets-lignesvides-reduit");
     document.body.removeClass("feuillets-cesure");
@@ -1165,55 +1146,28 @@ class FeuilletsPlugin extends Plugin {
     this.refreshAllTabHeaders();
   }
 
-  /** Titre d'onglet = `titre_court` du frontmatter s'il est renseigné,
-   * sinon le nom du fichier comme d'habitude — pour tout fichier Markdown
-   * ouvert, pas seulement ceux du projet actif (le champ n'existe de toute
-   * façon que sur les fiches qui le renseignent). Reprise à `onunload()`
-   * pour ne jamais laisser une classe de vue Obsidian modifiée derrière
-   * nous si le plugin est désactivé. */
   patchTabTitles() {
     const plugin = this;
     this._originalGetDisplayText = MarkdownView.prototype.getDisplayText;
     MarkdownView.prototype.getDisplayText = function () {
-      /* try/catch indispensable : cette fonction est appelée par Obsidian
-         lui-même à chaque rafraîchissement d'onglet (donc très souvent, et
-         dans des contextes internes qu'on ne maîtrise pas) — si elle
-         lançait la moindre exception, ça pourrait interrompre en plein
-         milieu le cycle de mise à jour interne d'Obsidian et laisser
-         d'autres éléments de l'interface (comme le panneau Propriétés natif)
-         bloqués sur un état obsolète. Repli garanti sur le comportement
-         d'origine dans tous les cas douteux. */
       try {
         if (this.file) {
           const fm = plugin.app.metadataCache.getFileCache(this.file)?.frontmatter;
-          const short = fm && fm.titre_court ? String(fm.titre_court).trim() : "";
+          const raw = fm && (fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court);
+          const short = raw ? String(raw).trim() : "";
           if (short) return short;
         }
-      } catch (e) {
-        /* silencieux : on retombe simplement sur le titre par défaut */
-      }
+      } catch (e) {}
       return plugin._originalGetDisplayText.call(this);
     };
-    this.registerEvent(
-      this.app.metadataCache.on("changed", (file) => this.refreshTabHeaderFor(file))
-    );
-    /* onglets déjà ouverts avant le (re)chargement du plugin : leur titre
-       ne se recalcule pas tout seul juste parce que getDisplayText a
-       changé, il faut le déclencher une première fois explicitement. */
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.refreshTabHeaderFor(file)));
     this.app.workspace.onLayoutReady(() => this.refreshAllTabHeaders());
   }
 
-  /** Force Obsidian à relire getDisplayText() pour les onglets d'un fichier
-   * donné — sans ça, le titre affiché ne change qu'au prochain changement
-   * de feuille active, pas dès que titre_court est modifié. updateHeader()
-   * n'est pas dans l'API publique mais existe bien à l'exécution ; appel
-   * protégé pour ne jamais casser si une version future d'Obsidian le retire. */
   refreshTabHeaderFor(file) {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       if (leaf.view?.file?.path === file.path && typeof leaf.updateHeader === "function") {
-        try {
-          leaf.updateHeader();
-        } catch (e) {}
+        try { leaf.updateHeader(); } catch (e) {}
       }
     }
   }
@@ -1221,19 +1175,13 @@ class FeuilletsPlugin extends Plugin {
   refreshAllTabHeaders() {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       if (typeof leaf.updateHeader === "function") {
-        try {
-          leaf.updateHeader();
-        } catch (e) {}
+        try { leaf.updateHeader(); } catch (e) {}
       }
     }
   }
 
-  /** Marque les lignes du paragraphe contenant le curseur, par
-   * positionnement précis (domAtPos) — fiable même quand le document
-   * défile. Actif seulement en mode concentration niveau Paragraphe. */
   updateParagraphFocus(editor) {
-    if (!this.concentrationActive || this.settings.concentrationUnit === "line")
-      return;
+    if (!this.concentrationActive || this.settings.concentrationUnit === "line") return;
     const cm = editor && editor.cm;
     if (!cm || !cm.dom || typeof cm.domAtPos !== "function") return;
     const cur = editor.getCursor().line;
@@ -1242,11 +1190,8 @@ class FeuilletsPlugin extends Plugin {
     while (start > 0 && editor.getLine(start - 1).trim() !== "") start--;
     const last = editor.lastLine();
     while (end < last && editor.getLine(end + 1).trim() !== "") end++;
-    /* nettoyage CIBLÉ (liste mémorisée) plutôt que querySelectorAll sur
-       tout le document à chaque frappe */
     if (this._paraEls) {
-      for (const el of this._paraEls)
-        el.classList.remove("feuillets-para-active");
+      for (const el of this._paraEls) el.classList.remove("feuillets-para-active");
     }
     this._paraEls = [];
     for (let ln = start; ln <= end; ln++) {
@@ -1261,22 +1206,16 @@ class FeuilletsPlugin extends Plugin {
           lineEl.classList.add("feuillets-para-active");
           this._paraEls.push(lineEl);
         }
-      } catch (e) {
-        /* ligne hors écran : ignorée */
-      }
+      } catch (e) {}
     }
   }
 
-  /** Compteur flottant en mode concentration : mots du feuillet actif /
-   * objectif, coloré selon la tolérance — la barre d'état étant masquée. */
   async updateConcentrationCounter(editor) {
     if (!this.concentrationActive || !this.settings.concentrationCounter) return;
     const file = this.app.workspace.getActiveFile();
     if (!file) return;
     if (!this._concCounterEl) {
-      this._concCounterEl = document.body.createDiv({
-        cls: "feuillets-conc-counter",
-      });
+      this._concCounterEl = document.body.createDiv({ cls: "feuillets-conc-counter" });
     }
     const text = editor ? editor.getValue() : await this.app.vault.cachedRead(file);
     const body = text.replace(/^---\n[\s\S]*?\n---\n?/, "");
@@ -1289,10 +1228,8 @@ class FeuilletsPlugin extends Plugin {
     this._concCounterEl.removeClass("feuillets-status-hit");
     this._concCounterEl.removeClass("feuillets-status-over");
     if (goal > 0) {
-      if (wc >= goal - tol && wc <= goal + tol)
-        this._concCounterEl.addClass("feuillets-status-hit");
-      else if (wc > goal + tol)
-        this._concCounterEl.addClass("feuillets-status-over");
+      if (wc >= goal - tol && wc <= goal + tol) this._concCounterEl.addClass("feuillets-status-hit");
+      else if (wc > goal + tol) this._concCounterEl.addClass("feuillets-status-over");
     }
   }
 
@@ -1313,29 +1250,16 @@ class FeuilletsPlugin extends Plugin {
           this.app.workspace.leftSplit.collapse();
           this.app.workspace.rightSplit.collapse();
         } catch (e) {}
-        document.body.style.setProperty(
-          "--feuillets-dim-opacity",
-          `${(this.settings.dimOpacity || 35) / 100}`
-        );
-        document.body.style.setProperty(
-          "--feuillets-concentration-width",
-          `${this.settings.concentrationWidth || 720}px`
-        );
-        document.body.toggleClass(
-          "feuillets-focus-paragraph",
-          this.settings.concentrationUnit === "paragraph"
-        );
-        document.body.toggleClass(
-          "feuillets-focus-line",
-          this.settings.concentrationUnit !== "paragraph"
-        );
+        document.body.style.setProperty("--feuillets-dim-opacity", `${(this.settings.dimOpacity || 35) / 100}`);
+        document.body.style.setProperty("--feuillets-concentration-width", `${this.settings.concentrationWidth || 720}px`);
+        document.body.toggleClass("feuillets-focus-paragraph", this.settings.concentrationUnit === "paragraph");
+        document.body.toggleClass("feuillets-focus-line", this.settings.concentrationUnit !== "paragraph");
         document.body.addClass("feuillets-concentration");
         const editor = this.app.workspace.activeEditor?.editor;
         if (editor) this.updateParagraphFocus(editor);
         if (!this._escHandler) {
           this._escHandler = (e) => {
-            if (e.key === "Escape" && this.concentrationActive)
-              this.toggleConcentration();
+            if (e.key === "Escape" && this.concentrationActive) this.toggleConcentration();
           };
           document.addEventListener("keydown", this._escHandler);
         }
@@ -1347,8 +1271,7 @@ class FeuilletsPlugin extends Plugin {
         this.removeConcentrationCounter();
         clearTimeout(this._concTimer);
         if (this._paraEls) {
-          for (const el of this._paraEls)
-            el.classList.remove("feuillets-para-active");
+          for (const el of this._paraEls) el.classList.remove("feuillets-para-active");
           this._paraEls = null;
         }
         try {
@@ -1358,29 +1281,39 @@ class FeuilletsPlugin extends Plugin {
       }
     } catch (e) {
       console.error("Feuillets : mode concentration", e);
-      new Notice("Erreur du mode concentration (console : Ctrl/Cmd+Maj+I).");
+      new Notice("Erreur du mode concentration.");
     }
+  }
+
+  isActiveFileInProject() {
+    const root = this.getProjectFolder();
+    if (!root) return false;
+
+    // Les vues Feuillets (dont la vue Scrivenings) n'affichent jamais que du
+    // contenu projet, mais ne deviennent pas le "fichier actif" au sens
+    // d'Obsidian : sans ce cas particulier, applyLiveTypoClasses() se base sur
+    // le dernier vrai fichier actif (potentiellement hors projet ou nul) et
+    // désactive à tort les réglages de lecture (lignes vides, justification...).
+    if (this.app.workspace.getActiveViewOfType(BoardView)) return true;
+
+    const file = this.app.workspace.getActiveFile();
+    if (!file) return false;
+    if (root.path === "") return true;
+    return file.path.startsWith(root.path + "/");
   }
 
   applyLiveTypoClasses() {
     const S = this.settings;
-    document.body.toggleClass(
-      "feuillets-lignesvides-invisible",
-      S.liveEmptyLines === "invisible"
-    );
-    document.body.toggleClass(
-      "feuillets-lignesvides-reduit",
-      S.liveEmptyLines === "reduit"
-    );
-    document.body.toggleClass("feuillets-cesure", S.liveHyphenation);
-    document.body.toggleClass("feuillets-justify-live", !!S.liveJustify);
-    document.body.toggleClass("feuillets-lecture-comme-live", S.readingMatchLive !== false);
-    if (S.liveHyphenation && !document.body.getAttr("lang")) {
+    const inProject = this.isActiveFileInProject();
+    document.body.toggleClass("feuillets-lignesvides-invisible", inProject && S.liveEmptyLines === "invisible");
+    document.body.toggleClass("feuillets-lignesvides-reduit", inProject && S.liveEmptyLines === "reduit");
+    document.body.toggleClass("feuillets-cesure", inProject && S.liveHyphenation);
+    document.body.toggleClass("feuillets-justify-live", inProject && !!S.liveJustify);
+    document.body.toggleClass("feuillets-lecture-comme-live", inProject && S.readingMatchLive !== false);
+    if (inProject && S.liveHyphenation && !document.body.getAttr("lang")) {
       document.body.setAttr("lang", "fr");
     }
-    /* taille de texte du mode lecture, indépendante de celle du Live
-       Preview (Obsidian les lie sinon toutes les deux au même réglage) */
-    const rfs = S.readingFontSize;
+    const rfs = inProject ? S.readingFontSize : 0;
     document.body.toggleClass("feuillets-reading-fs", rfs > 0);
     if (rfs > 0) {
       document.body.style.setProperty("--feuillets-reading-fs", `${rfs}px`);
@@ -1390,10 +1323,9 @@ class FeuilletsPlugin extends Plugin {
   }
 
   applyIndentClass() {
-    document.body.toggleClass("feuillets-indent", this.settings.indentParagraphs);
+    document.body.toggleClass("feuillets-indent", this.isActiveFileInProject() && this.settings.indentParagraphs);
   }
 
-  /** Série de jours consécutifs avec au moins un mot écrit, jusqu'à aujourd'hui inclus. */
   currentStreak() {
     const stats = this.settings.stats || {};
     let streak = 0;
@@ -1438,17 +1370,17 @@ class FeuilletsPlugin extends Plugin {
       this.statusEl.setText("");
       return;
     }
-    /* tampon de l'éditeur si disponible : plus à jour que le disque et
-       sans lecture asynchrone à chaque pause de frappe */
     const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
     const content =
       mdView && mdView.file === file && mdView.editor
         ? mdView.editor.getValue()
         : await this.app.vault.cachedRead(file);
     const wc = countWords(content);
+    const chars = stripWritingNoise(content).length;
     const g = parseInt(this.fmOf(file).objectif, 10);
     const goal = isNaN(g) ? this.settings.wordGoal : g;
     let txt = goal > 0 ? `${wc} / ${goal} mots` : `${wc} mots`;
+    txt += ` · ${formatNumber(chars)} caractères`;
     const key = todayKey();
     const st = (this.settings.stats || {})[key];
     if (st) {
@@ -1461,37 +1393,37 @@ class FeuilletsPlugin extends Plugin {
     this.statusEl.removeClass("feuillets-status-over");
     const tol = this.settings.tolerance;
     if (goal > 0) {
-      if (wc >= goal - tol && wc <= goal + tol)
-        this.statusEl.addClass("feuillets-status-hit");
-      else if (wc > goal + tol)
-        this.statusEl.addClass("feuillets-status-over");
+      if (wc >= goal - tol && wc <= goal + tol) this.statusEl.addClass("feuillets-status-hit");
+      else if (wc > goal + tol) this.statusEl.addClass("feuillets-status-over");
     }
   }
 
-  /** Convertit les lignes vides entre deux lignes de texte en simples
-   * sauts de ligne (utile après un collage Scrivener, qui transforme
-   * chaque retour à la ligne en saut de paragraphe complet). Les blocs
-   * structurels (titres, listes, citations, code, tableaux, ***) et les
-   * lignes déjà entourées de 2+ lignes vides (paragraphes probablement
-   * volontaires) sont laissés intacts. */
-  compactLineBreaks(text) {
-    return compactLineBreaks(text);
-  }
-
-  /** Corrections typographiques françaises. skipFrontmatter : préserve l'en-tête. */
-  frenchTypography(text, skipFrontmatter) {
-    return frenchTypography(text, skipFrontmatter);
-  }
+  compactLineBreaks(text) { return compactLineBreaks(text); }
+  frenchTypography(text, skipFrontmatter) { return frenchTypography(text, skipFrontmatter); }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const data = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+    if (data && data.autoOpenHub !== undefined && data.autoOpenNotes === undefined) {
+      const wasOn = !!data.autoOpenHub;
+      const tab = data.hubActiveTab || "properties";
+      this.settings.autoOpenNotes = wasOn && tab === "notes";
+      this.settings.autoOpenProperties = wasOn && tab === "properties";
+      this.settings.autoOpenResearch = wasOn && tab === "research";
+      this.settings.autoOpenJournal = wasOn && (tab === "progression" || tab === "journal");
+      this.settings.autoOpenProject = wasOn && (tab === "project" || tab === "export");
+    }
+    if (data && (data.autoOpenProgression !== undefined || data.autoOpenExport !== undefined)) {
+      if (data.autoOpenProgression) this.settings.autoOpenJournal = true;
+      if (data.autoOpenExport) this.settings.autoOpenProject = true;
+    }
   }
+
   async saveSettings() {
     this.trimStats();
     await this.saveData(this.settings);
   }
 
-  /** Conserve N jours d'historique glissant (réglage), purge le reste. 0 = illimité. */
   trimStats() {
     const stats = this.settings.stats;
     const keep = this.settings.statsRetention;
@@ -1505,25 +1437,19 @@ class FeuilletsPlugin extends Plugin {
   refreshView(delay = 800) {
     clearTimeout(this._refreshTimer);
     this._refreshTimer = setTimeout(() => {
-      /* ne jamais reconstruire le DOM pendant un glisser-déposer en cours :
-         ça remplacerait les éléments cible avant le dépôt */
       if (this._dragInProgress) {
         this._dragRetryCount = (this._dragRetryCount || 0) + 1;
         if (this._dragRetryCount < 10) {
           this.refreshView(delay);
           return;
         }
-        this._dragInProgress = false; // déblocage automatique après ~8 secondes
+        this._dragInProgress = false;
       }
       this._dragRetryCount = 0;
       this.renderAllViews();
     }, delay);
   }
 
-  /** Un panneau caché (onglet en arrière-plan, barre latérale repliée)
-   * n'est jamais reconstruit : il est marqué périmé et rendu au moment
-   * où il redevient visible. Un tableau ouvert en arrière-plan pendant
-   * l'écriture ne coûte donc plus rien. */
   leafVisible(leaf) {
     const el = leaf && leaf.view && leaf.view.containerEl;
     if (!el) return false;
@@ -1532,7 +1458,7 @@ class FeuilletsPlugin extends Plugin {
   }
 
   renderStaleViews() {
-    for (const type of [VIEW_SIDEBAR, VIEW_BOARD, VIEW_RESEARCH]) {
+    for (const type of [VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         const v = leaf.view;
         if (v && v._stale && typeof v.render === "function" && this.leafVisible(leaf)) {
@@ -1544,210 +1470,305 @@ class FeuilletsPlugin extends Plugin {
   }
 
   renderAllViews(force = false) {
-    for (const type of [VIEW_SIDEBAR, VIEW_BOARD, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_TAGS]) {
+    for (const type of [VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
-        if (leaf.view && typeof leaf.view.render === "function") {
+        if (leaf.view) {
           if (!force && !this.leafVisible(leaf)) {
             leaf.view._stale = true;
             continue;
           }
           leaf.view._stale = false;
-          leaf.view.render(force);
+          if (typeof leaf.view.renderAllSubViews === "function") {
+            leaf.view.renderAllSubViews(force);
+          } else if (typeof leaf.view.render === "function") {
+            leaf.view.render(force);
+          }
         }
       }
     }
+    this.adjustSidebarWidth();
   }
 
-  getProjectFolder() {
-    return getProjectFolder(this.app, this.settings);
+  safeSetSize(split, width) {
+    if (!split || typeof split.setSize !== "function") return;
+    try { split.setSize(width); } catch (e) {}
   }
 
-  projectMode() {
-    return getProjectMode(this.app, this.settings);
-  }
-  unitLabel() {
-    return this.projectMode().unit;
-  }
-  unitLabelPlural() {
-    return this.projectMode().unitPlural;
-  }
-
-  hasSources() {
-    return this.projectMode().hasSources;
-  }
-
-  /** Nom affiché d'un projet : le dossier de volume (parent), pas
-   * "Manuscrit" — sinon tous les projets s'appellent pareil dès qu'on
-   * suit la convention Manuscrit/Recherche/Snapshots en frères. Repli sur
-   * le dernier segment si le chemin ne suit pas cette convention. */
-  projectDisplayName(path) {
-    return projectDisplayName(path);
-  }
-
-  fmOf(file) {
-    return fmOf(this.app, file);
-  }
-
-  titleFor(file) {
-    return titleFor(this.app, file);
-  }
-
-  /** Titre court pour les vues denses (plan, binder) : clé `titre_court`
-   * si renseignée, sinon le titre normal. Jamais utilisé à la compilation. */
-  shortTitleFor(file) {
-    return shortTitleFor(this.app, file);
-  }
-
-  /** Titre pour la COMPILATION : clé `titre` uniquement, jamais le nom du fichier. */
-  compiledTitleFor(file) {
-    return compiledTitleFor(this.app, file);
-  }
-
-  /** Note de dossier (Partie ou Chapitre) : convention « même nom que le
-   * dossier, à l'intérieur » (ex. « Partie I/Partie I.md »), reconnaissable
-   * sans dépendre du frontmatter — et donc jamais confondue avec une scène
-   * (voir l'exclusion dans getOrderedChildren). */
-  folderNoteFor(folder) {
-    return folderNoteFor(this.app, folder);
-  }
-
-  async getOrCreateFolderNote(folder) {
-    return getOrCreateFolderNote(this.app, folder);
-  }
-
-  tagsOf(file) {
-    return tagsOf(this.app, file);
-  }
-
-  labelOf(file) {
-    return labelOf(this.app, file);
-  }
-
-  labelsOf(file) {
-    return labelsOf(this.app, file);
-  }
-
-  labelColor(name) {
-    return labelColor(this.settings, name);
-  }
-
-  folderGoal(folder) {
-    return folderGoal(this.settings, folder);
-  }
-
-  depthOf(node) {
-    return depthOf(this.app, this.settings, node);
-  }
-
-  /** "Front" (page de titre, dédicace, préfaces, incipit…) : un dossier
-   * enfant direct du projet, jamais numéroté ni compté comme chapitre —
-   * ce n'est pas du texte du roman, juste ce qui vient avant. Reste visible
-   * et manipulable normalement dans le binder (rôle "partie" pour
-   * l'affichage), seule la numérotation l'ignore. */
-  isFrontMatter(node) {
-    return isFrontMatter(this.app, this.settings, node);
-  }
-
-  roleOfFolder(folder) {
-    return roleOfFolder(this.app, this.settings, folder);
-  }
-
-  roleOfFile(file) {
-    return roleOfFile(this.app, this.settings, file);
-  }
-
-  /** Un dossier préfixé « _ » (recherche, fiches, chronologie…) est exclu
-   * du manuscrit : ni numéroté, ni compilé, ni affiché dans aucune vue.
-   * `includeHidden` reste disponible pour les cas internes qui doivent
-   * malgré tout parcourir ces dossiers (ex. tout-plier). */
-  getOrderedChildren(folder, includeHidden = false) {
-    return getOrderedChildren(this.app, this.settings, folder, includeHidden);
-  }
-
-  flattenFiles(folder) {
-    return flattenFiles(this.app, this.settings, folder);
-  }
-
-  chapterCount(root) {
-    return chapterCount(this.app, this.settings, root);
-  }
-
-  getChapters(root) {
-    return getChapters(this.app, this.settings, root);
-  }
-
-  /** Chapitres : numérotation continue 1..n sur tout le manuscrit, les
-   * parties ne comptent jamais. Scènes selon le réglage : « chapitre.scène »
-   * (1.1), « continue » (compteur global propre aux scènes) ou « aucune ». */
-  /** Dossier des jalons historiques : le chemin configuré d'abord, puis
-   * les emplacements historiques, pour ne casser aucun coffre existant. */
-  /** Dossier racine de la recherche (parent du dossier de chronologie) —
-   * sert à reconnaître qu'un lien pointe vers une fiche personnage/lieu. */
-  /** Renomme un fichier de recherche encore sous son nom provisoire dès
-   * que `nom`/`prénom` (personnage) ou `titre` (lieu, événement) est
-   * rempli. Ne touche jamais un fichier déjà renommé manuellement — la
-   * condition sur le nom provisoire garantit que ça ne joue qu'une fois. */
-  async maybeRenameResearchFile(file) {
-    return maybeRenameResearchFile(this.app, this.settings, file);
-  }
-
-  /** Automatisation du suivi de fils narratifs (voir services/narrative-
-   * threads.js) — jamais laissée planter le gestionnaire d'événements
-   * d'Obsidian, qui l'appelle à chaque sauvegarde de n'importe quel feuillet. */
-  async handleFilChanged(file) {
-    try {
-      await handleFilChanged(this.app, this.settings, this, file);
-    } catch (e) {
-      console.error("Feuillets: erreur automatisation fil narratif :", e);
+  adjustSidebarWidth() {
+    if (Platform.isMobile) return;
+    const leftSplit = this.app.workspace.leftSplit;
+    if (leftSplit && !leftSplit.collapsed) {
+      const activeSidebarLeaf = this.app.workspace.getLeavesOfType(VIEW_SIDEBAR)[0];
+      if (activeSidebarLeaf) {
+        const isSinglePane = this.settings.binderTreeCollapsed || this.settings.binderListCollapsed;
+        const width = this.settings.binderLayout === "split" && !isSinglePane ? 400 : 250;
+        this.safeSetSize(leftSplit, width);
+      }
+    }
+    const rightSplit = this.app.workspace.rightSplit;
+    if (rightSplit && !rightSplit.collapsed) {
+      this.safeSetSize(rightSplit, RIGHT_SIDEBAR_WIDTH);
     }
   }
 
-  /** Tags qui identifient une fiche (personnage, lieu…) dans le manuscrit :
-   * ses propres tags, moins les tags structurels de catégorie
-   * (personnage/lieu/evenement/codex), repliés sans accent/casse. À défaut
-   * d'un tag propre, le nom normalisé de la fiche sert d'identifiant —
-   * aucune configuration n'est donc obligatoire pour que ça fonctionne. */
-  entityMatchTags(entityFile) {
-    return entityMatchTags(this.app, entityFile);
+  getProjectFolder() { return getProjectFolder(this.app, this.settings); }
+  projectMode() { return getProjectMode(this.app, this.settings); }
+
+  citationStyleFor() {
+    const root = this.getProjectFolder();
+    const meta = root ? this.settings.projectMeta[root.path] : null;
+    return (meta && meta.citationStyle) || "footnote";
   }
 
-  entityMatchNames(entityFile) {
-    return entityMatchNames(this.app, entityFile);
+  registerLastEditorTracking() {
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (leaf && leaf.view instanceof MarkdownView) {
+          this._lastMarkdownLeaf = leaf;
+        }
+      })
+    );
   }
 
-  async findAppearances(entityFile) {
-    return findAppearances(this.app, this.settings, entityFile);
+  activeEditorAnywhere() {
+    const activeEditor = this.app.workspace.activeEditor;
+    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const recentLeaf = this.app.workspace.getMostRecentLeaf();
+    const recentView = recentLeaf && recentLeaf.view instanceof MarkdownView ? recentLeaf.view : null;
+    return (
+      (activeEditor && activeEditor.editor) ||
+      (activeView && activeView.editor) ||
+      (recentView && recentView.editor) ||
+      (this._lastMarkdownLeaf && this._lastMarkdownLeaf.view instanceof MarkdownView
+        ? this._lastMarkdownLeaf.view.editor
+        : null)
+    );
   }
 
-  getResearchRoot() {
-    return getResearchRoot(this.app, this.settings);
+  getCitationFolders() {
+    const mode = this.projectMode();
+    const rf = mode.researchFolders;
+    if (!rf.sources) return [];
+    const researchRoot = this.getResearchRoot();
+    const root = this.getProjectFolder();
+    const baseResearch = researchRoot ? researchRoot.path : root ? `${root.path}/_Recherche` : null;
+    if (!baseResearch) return [];
+    return [rf.sources.label, rf.bibliographie.label]
+      .map((label) => this.app.vault.getAbstractFileByPath(normalizePath(`${baseResearch}/${label}`)))
+      .filter((f) => f instanceof TFolder);
   }
 
-  getChronoFolder() {
-    return getChronoFolder(this.app, this.settings);
+  async migrateBibliographieIntoSources(bibliographieFolder, sourcesFolder) {
+    const files = bibliographieFolder.children.filter((c) => c instanceof TFile && c.extension === "md");
+    if (files.length === 0) return;
+    let migrated = 0;
+    for (const f of files) {
+      try {
+        await this.app.fileManager.processFrontMatter(f, (fm) => {
+          if (fm.annee !== undefined && fm.date === undefined) {
+            fm.date = fm.annee;
+            delete fm.annee;
+          }
+          if (fm.edition !== undefined && fm.editeur === undefined) {
+            fm.editeur = fm.edition;
+            delete fm.edition;
+          }
+        });
+        let name = f.name;
+        let destPath = normalizePath(`${sourcesFolder.path}/${name}`);
+        let n = 2;
+        while (this.app.vault.getAbstractFileByPath(destPath)) {
+          name = `${f.basename} ${n++}.${f.extension}`;
+          destPath = normalizePath(`${sourcesFolder.path}/${name}`);
+        }
+        await this.app.fileManager.renameFile(f, destPath);
+        migrated++;
+      } catch (e) {}
+    }
   }
 
-  /** Interprète une clé date : "1826", "1826-05", "1826-05-29",
-   * éventuellement suivie d'une précision libre. Partagé entre la
-   * chronologie et le panneau Notes. */
-  /** `file` est un repli, pas une priorité : si `raw` est vide, on tente
-   * d'extraire une date en tête du NOM du fichier ("1826-06-15 - ..."). */
-  parseStoryDate(raw, file = null) {
-    return parseStoryDate(raw, file);
+  openInsertCitation(editor) {
+    editor = editor || this.activeEditorAnywhere();
+    if (!editor) {
+      new Notice("Ouvre une scène et place le curseur dedans avant d'insérer une citation.");
+      return;
+    }
+    const folders = this.getCitationFolders();
+    if (folders.length === 0) {
+      new Notice("Disponible uniquement pour un projet non-fiction.");
+      return;
+    }
+    const files = folders.flatMap((f) => f.children.filter((c) => c instanceof TFile && c.extension === "md"));
+    if (files.length === 0) {
+      new Notice("Aucune fiche Source ou Bibliographie pour l'instant.");
+      return;
+    }
+    new CitationSourceModal(this.app, this, files, (file, page) =>
+      this.insertCitationFor(file, page, editor)
+    ).open();
   }
+
+  quickCiteSource(sourceFile) {
+    const editor = this.activeEditorAnywhere();
+    if (!editor) {
+      new Notice("Ouvre une scène et place le curseur dedans avant d'insérer une citation.");
+      return;
+    }
+    promptForPage(this.app, this, sourceFile, (file, page) =>
+      this.insertCitationFor(file, page, editor)
+    );
+  }
+
+  renumberActiveFootnotes() {
+    const editor = this.activeEditorAnywhere();
+    if (!editor) {
+      new Notice("Ouvre un feuillet avant de renuméroter ses notes.");
+      return;
+    }
+    const src = editor.getValue();
+    const out = renumberFootnotes(src);
+    if (out === src) {
+      new Notice("Rien à renuméroter.");
+      return;
+    }
+    const cursor = editor.getCursor();
+    editor.setValue(out);
+    editor.setCursor(cursor);
+    new Notice("Notes de bas de page renumérotées.");
+  }
+
+  insertCitationFor(sourceFile, page, editor) {
+    const rawFm = this.fmOf(sourceFile);
+    const fm = {
+      auteur: rawFm.auteur,
+      titre: rawFm.titre,
+      date: rawFm.date || rawFm.annee,
+      editeur: rawFm.editeur || rawFm.edition,
+    };
+    const style = this.citationStyleFor();
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!this._lastCitedSourceByFile) this._lastCitedSourceByFile = new Map();
+    const isRepeat = !!activeFile && this._lastCitedSourceByFile.get(activeFile.path) === sourceFile.path;
+    const text = formatCitation(fm, page, style, isRepeat);
+    if (!text) {
+      new Notice("Fiche source vide — rien à insérer.");
+      return;
+    }
+    if (activeFile) this._lastCitedSourceByFile.set(activeFile.path, sourceFile.path);
+    this.markSourceCited(sourceFile);
+    if (style === "parenthetical") {
+      const at = editor.getCursor("to");
+      editor.replaceRange(text, at, at);
+      editor.setCursor({ line: at.line, ch: at.ch + text.length });
+      editor.focus();
+      new Notice(isRepeat ? "Ibid. inséré." : "Citation insérée.");
+      return;
+    }
+    const n = nextFootnoteNumber(editor.getValue());
+    const refMarker = `[^${n}]`;
+    const at = editor.getCursor("to");
+    editor.replaceRange(refMarker, at, at);
+    const lastLine = editor.lastLine();
+    const end = { line: lastLine, ch: editor.getLine(lastLine).length };
+    editor.replaceRange(`\n\n[^${n}]: ${text}`, end, end);
+    editor.setCursor({ line: at.line, ch: at.ch + refMarker.length });
+    editor.focus();
+    new Notice(isRepeat ? `Ibid. inséré — note ${n}.` : `Citation insérée — note ${n}.`);
+  }
+
+  markSourceCited(sourceFile) {
+    this.app.fileManager.processFrontMatter(sourceFile, (fm) => {
+      fm.cite_count = (fm.cite_count || 0) + 1;
+    }).catch((e) => {});
+  }
+
+  async generateBibliographyFile() {
+    const root = this.getProjectFolder();
+    if (!root) return;
+    const folders = this.getCitationFolders();
+    if (folders.length === 0) return;
+    const files = folders.flatMap((f) => f.children.filter((c) => c instanceof TFile && c.extension === "md"));
+    const cited = files.filter((f) => (this.fmOf(f).cite_count || 0) > 0);
+    if (cited.length === 0) {
+      new Notice("Aucune source citée pour l'instant.");
+      return;
+    }
+    const entries = cited
+      .map((f) => {
+        const raw = this.fmOf(f);
+        const fields = { auteur: raw.auteur, titre: raw.titre, date: raw.date || raw.annee, editeur: raw.editeur || raw.edition };
+        return { auteur: raw.auteur || "", text: formatCitation(fields, "", "footnote", false) };
+      })
+      .filter((e) => e.text);
+    entries.sort((a, b) => a.auteur.localeCompare(b.auteur, "fr"));
+    const lines = ["# Bibliographie", "", ...entries.map((e) => e.text)];
+    try {
+      const outputFolder = await getOutputFolder(this.app, this.settings);
+      const outBase = outputFolder ? outputFolder.path : root.path;
+      const path = normalizePath(`${outBase}/Bibliographie.md`);
+      const content = lines.join("\n\n") + "\n";
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFile) await this.app.vault.modify(existing, content);
+      else await this.app.vault.create(path, content);
+      new Notice(`Bibliographie générée : ${path}`);
+    } catch (e) {}
+  }
+
+  unitLabel() { return this.projectMode().unit; }
+  unitLabelPlural() { return this.projectMode().unitPlural; }
+  hasSources() { return this.projectMode().hasSources; }
+  // Nom personnalisé (S.projectMeta[path].name, réglable dans
+  // ManageProjectsModal) en priorité, sinon déduit du dossier (voir
+  // folder-structure.js — gère la convention <Projet>/Manuscrit/).
+  projectDisplayName(path) {
+    const custom = (this.settings.projectMeta[path] || {}).name;
+    return custom && custom.trim() ? custom.trim() : projectDisplayName(path);
+  }
+  fmOf(file) { return fmOf(this.app, file); }
+  titleFor(file) { return titleFor(this.app, file); }
+  shortTitleFor(file) { return shortTitleFor(this.app, file); }
+  compiledTitleFor(file) { return compiledTitleFor(this.app, file); }
+  folderNoteFor(folder) { return folderNoteFor(this.app, folder); }
+  async getOrCreateFolderNote(folder) { return getOrCreateFolderNote(this.app, folder); }
+  tagsOf(file) { return tagsOf(this.app, file); }
+  labelOf(file) { return labelOf(this.app, file); }
+  labelsOf(file) { return labelsOf(this.app, file); }
+  labelColor(name) { return labelColor(this.settings, name); }
+  folderGoal(folder) { return folderGoal(this.settings, folder); }
+  depthOf(node) { return depthOf(this.app, this.settings, node); }
+  isFrontMatter(node) { return isFrontMatter(this.app, this.settings, node); }
+  roleOfFolder(folder) { return roleOfFolder(this.app, this.settings, folder); }
+  roleOfFile(file) { return roleOfFile(this.app, this.settings, file); }
+  getOrderedChildren(folder, includeHidden = false) { return getOrderedChildren(this.app, this.settings, folder, includeHidden); }
+  flattenFiles(folder) { return flattenFiles(this.app, this.settings, folder); }
+  getManuscriptFiles() {
+    const root = this.getProjectFolder();
+    if (!root) return [];
+    return this.flattenFiles(root);
+  }
+  chapterCount(root) { return chapterCount(this.app, this.settings, root); }
+  getChapters(root) { return getChapters(this.app, this.settings, root); }
+
+  async maybeRenameResearchFile(file) { return maybeRenameResearchFile(this.app, this.settings, file); }
+  async handleFilChanged(file) {
+    try { await handleFilChanged(this.app, this.settings, this, file); } catch (e) {}
+  }
+
+  entityMatchTags(entityFile) { return entityMatchTags(this.app, entityFile); }
+  entityMatchNames(entityFile) { return entityMatchNames(this.app, entityFile); }
+  async findAppearances(entityFile) { return findAppearances(this.app, this.settings, entityFile); }
+  getResearchRoot() { return getResearchRoot(this.app, this.settings); }
+  getChronoFolder() { return getChronoFolder(this.app, this.settings); }
+  listCompiledFilePaths() { return listCompiledFilePaths(this.app, this.settings); }
+  parseStoryDate(raw, file = null) { return parseStoryDate(raw, file); }
 
   buildNumbering(root) {
     const map = new Map();
     const mode = this.settings.sceneNumbering;
     const chapMode = this.settings.chapterNumbering || "continu";
-    let n = 0; // chapitres
-    let sGlobal = 0; // scènes en mode continu
+    let n = 0;
+    let sGlobal = 0;
     const chapLabel = () => (chapMode === "aucune" ? "" : `${n}.`);
-    /* Front (page de titre, dédicace, préfaces, incipit…) : jamais compté,
-       mais on assigne quand même une entrée vide à chaque fichier qu'il
-       contient — sinon les endroits qui font `numbering.get(path)` sans
-       filet (String(undefined) ou concaténation directe) afficheraient
-       littéralement "undefined" devant le titre. */
     const markFrontMatter = (f) => {
       for (const c of this.getOrderedChildren(f)) {
         map.set(c.path, "");
@@ -1755,9 +1776,7 @@ class FeuilletsPlugin extends Plugin {
       }
     };
     const walk = (f) => {
-      if (chapMode === "parPartie" && this.roleOfFolder(f) === "partie") {
-        n = 0; // la numérotation recommence à chaque partie
-      }
+      if (chapMode === "parPartie" && this.roleOfFolder(f) === "partie") n = 0;
       for (const child of this.getOrderedChildren(f)) {
         if (this.isFrontMatter(child)) {
           map.set(child.path, "");
@@ -1777,11 +1796,7 @@ class FeuilletsPlugin extends Plugin {
                   sGlobal++;
                   if (mode === "continue") map.set(sc.path, String(sGlobal));
                   else if (mode === "aucune") map.set(sc.path, "");
-                  else
-                    map.set(
-                      sc.path,
-                      chapMode === "aucune" ? String(m) : `${n}.${m}`
-                    );
+                  else map.set(sc.path, chapMode === "aucune" ? String(m) : `${n}.${m}`);
                 }
               }
             };
@@ -1799,19 +1814,9 @@ class FeuilletsPlugin extends Plugin {
     return map;
   }
 
-  /** Cache du compte de mots par fichier, invalidé par date de modification
-   * — jamais par vue, par le plugin lui-même, pour que le tableau et le
-   * binder partagent le même travail au lieu de relire chacun de son
-   * côté. Sans lui, chaque rendu relisait tous les fichiers du manuscrit
-   * à chaque sauvegarde (Obsidian sauvegarde en continu pendant l'écriture),
-   * d'où un ralentissement perceptible sur un manuscrit de 99 chapitres. */
   async getWordCounts(files) {
     if (!this._wcCache) this._wcCache = new Map();
     const cache = this._wcCache;
-    /* chemin rapide : on ne crée AUCUNE promesse pour les fichiers déjà
-       en cache (comparaison mtime). Appelé à chaque pause de frappe via
-       la barre d'état, ce point allouait N promesses pour N fichiers
-       alors que seul le feuillet actif avait changé. */
     let misses = null;
     for (const f of files) {
       const hit = cache.get(f.path);
@@ -1848,7 +1853,6 @@ class FeuilletsPlugin extends Plugin {
     return total;
   }
 
-  /** Mots écrits aujourd'hui = total actuel − total au premier relevé du jour. */
   async updateDailyStats(currentTotal) {
     const key = todayKey();
     const stats = this.settings.stats || {};
@@ -1872,8 +1876,6 @@ class FeuilletsPlugin extends Plugin {
     if (this.moveStack.length > 30) this.moveStack.shift();
   }
 
-  /** Écrit un ordre de voisins (frontmatter pour les fichiers, réglages
-   * pour les dossiers), sans historique ni renumérotation. */
   async writeOrder(parent, orderedChildren) {
     this.settings.orders[parent.path] = orderedChildren.map((c) => c.name);
     for (let i = 0; i < orderedChildren.length; i++) {
@@ -1881,9 +1883,7 @@ class FeuilletsPlugin extends Plugin {
       if (child instanceof TFile) {
         const current = parseInt(this.fmOf(child).ordre, 10);
         if (current !== i + 1) {
-          await this.app.fileManager.processFrontMatter(child, (fm) => {
-            fm.ordre = i + 1;
-          });
+          await this.app.fileManager.processFrontMatter(child, (fm) => { fm.ordre = i + 1; });
         }
       } else {
         this.settings.folderPositions[child.path] = i + 1;
@@ -1907,28 +1907,17 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  /** Déplace un fichier ou un dossier vers un autre dossier du projet,
-   * à la position demandée, avec garde-fous et historique d'annulation. */
   async moveNode(node, srcParent, destFolder, insertIndex) {
     if (node.path === destFolder.path) return;
-    /* pas de dossier dans lui-même ou dans un de ses descendants */
-    if (
-      node instanceof TFolder &&
-      (destFolder.path === node.path ||
-        destFolder.path.startsWith(node.path + "/"))
-    ) {
+    if (node instanceof TFolder && (destFolder.path === node.path || destFolder.path.startsWith(node.path + "/"))) {
       new Notice("Impossible de déplacer un dossier dans lui-même.");
       return;
     }
     const destPath = normalizePath(`${destFolder.path}/${node.name}`);
     if (this.app.vault.getAbstractFileByPath(destPath)) {
-      new Notice(
-        `« ${node.name} » existe déjà dans « ${destFolder.name} » : déplacement annulé.`
-      );
+      new Notice(`« ${node.name} » existe déjà dans « ${destFolder.name} ».`);
       return;
     }
-
-    /* historique : de quoi tout remettre en place */
     this.pushHistory({
       type: "move",
       nodeName: node.name,
@@ -1937,29 +1926,19 @@ class FeuilletsPlugin extends Plugin {
       srcOrder: this.getOrderedChildren(srcParent).map((c) => c.name),
       destOrder: this.getOrderedChildren(destFolder).map((c) => c.name),
     });
-
-    const srcRemaining = this.getOrderedChildren(srcParent).filter(
-      (c) => c.path !== node.path
-    );
+    const srcRemaining = this.getOrderedChildren(srcParent).filter((c) => c.path !== node.path);
     await this.app.fileManager.renameFile(node, destPath);
-
-    /* insérer à la position voulue dans la destination */
     const movedNow = this.app.vault.getAbstractFileByPath(destPath);
-    const destChildren = this.getOrderedChildren(destFolder).filter(
-      (c) => c.path !== destPath
-    );
+    const destChildren = this.getOrderedChildren(destFolder).filter((c) => c.path !== destPath);
     const at = Math.min(insertIndex, destChildren.length);
     destChildren.splice(at, 0, movedNow);
-
     await this.writeOrder(destFolder, destChildren);
     await this.writeOrder(srcParent, srcRemaining);
     if (this.settings.autoRename) {
       const root = this.getProjectFolder();
       if (root) await this.renumberTitles(root);
     }
-    new Notice(
-      `« ${this.titleFor(movedNow) || node.name} » déplacé vers « ${destFolder.name} ».`
-    );
+    new Notice(`« ${this.titleFor(movedNow) || node.name} » déplacé.`);
   }
 
   chapterPattern() {
@@ -1969,37 +1948,23 @@ class FeuilletsPlugin extends Plugin {
 
   async renumberTitles(root) {
     const chapMode = this.settings.chapterNumbering || "continu";
-    if (chapMode === "aucune") return 0; // pas de renommage sans numérotation
+    if (chapMode === "aucune") return 0;
     const pattern = this.chapterPattern();
     const prefix = this.settings.renamePrefix || "chapitre";
     let n = 0;
     let changed = 0;
-
     const concernsFile = (f) => {
       const fm = this.fmOf(f);
-      const t =
-        typeof fm.titre === "string"
-          ? fm.titre.trim()
-          : typeof fm.title === "string"
-          ? fm.title.trim()
-          : "";
+      const t = typeof fm.titre === "string" ? fm.titre.trim() : typeof fm.title === "string" ? fm.title.trim() : "";
       if (t) return pattern.test(t);
       return pattern.test(f.basename);
     };
-
     const walk = async (f) => {
-      if (chapMode === "parPartie" && this.roleOfFolder(f) === "partie") {
-        n = 0;
-      }
+      if (chapMode === "parPartie" && this.roleOfFolder(f) === "partie") n = 0;
       for (const child of this.getOrderedChildren(f)) {
         if (child instanceof TFolder) {
           if (this.roleOfFolder(child) === "chapitre") {
             n++;
-            /* les dossiers-chapitres n'ont pas de frontmatter : la
-               correspondance se fait directement sur le nom du dossier,
-               et seul un nom qui suit déjà le motif est renommé — un
-               titre personnalisé n'est jamais touché, comme pour les
-               fichiers. */
             if (pattern.test(child.name)) {
               const target = `${prefix} ${n}`;
               if (child.name !== target) {
@@ -2008,12 +1973,8 @@ class FeuilletsPlugin extends Plugin {
                   const oldPath = child.path;
                   const oldName = child.name;
                   await this.app.fileManager.renameFile(child, destPath);
-                  /* migre les caches de position pour éviter de retomber
-                     sur un tri alphabétique (faux dès qu'on dépasse 9 :
-                     "chapitre 10" avant "chapitre 2") */
                   if (this.settings.folderPositions[oldPath] !== undefined) {
-                    this.settings.folderPositions[destPath] =
-                      this.settings.folderPositions[oldPath];
+                    this.settings.folderPositions[destPath] = this.settings.folderPositions[oldPath];
                     delete this.settings.folderPositions[oldPath];
                   }
                   const savedOrder = this.settings.orders[f.path];
@@ -2033,9 +1994,7 @@ class FeuilletsPlugin extends Plugin {
           if (concernsFile(child)) {
             const target = `${prefix} ${n}`;
             if (this.titleFor(child) !== target) {
-              await this.app.fileManager.processFrontMatter(child, (fm) => {
-                fm.titre = target;
-              });
+              await this.app.fileManager.processFrontMatter(child, (fm) => { fm.titre = target; });
               changed++;
             }
           }
@@ -2047,40 +2006,38 @@ class FeuilletsPlugin extends Plugin {
     return changed;
   }
 
-  async ensureFolder(path) {
-    return ensureFolder(this.app, path);
+  async ensureFolder(path) { return ensureFolder(this.app, path); }
+  async snapshotFile(file, root) { return snapshotFile(this.app, file, root); }
+  async initProjectStructure() { return initProjectStructure(this.app, this.settings); }
+  async createDemoProject() { return createDemoProject(this.app, this.settings, this); }
+
+  async generateCanvasBoard() {
+    const result = await generateCanvasBoard(this.app, this.settings);
+    if (!result) return;
+    const parts = [];
+    parts.push(result.added > 0 ? `${result.added} carte(s) ajoutée(s)` : `${result.total} carte(s), à jour`);
+    parts.push(result.edgesAdded > 0 ? `${result.edgesAdded} lien(s) tracé(s)` : "aucun lien");
+    const notice = new Notice(`${parts.join(" — ")}. Cliquer pour ouvrir.`, 8000);
+    notice.noticeEl.style.cursor = "pointer";
+    notice.noticeEl.addEventListener("click", () => {
+      openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
+    });
   }
 
-  /** Copie datée du feuillet dans _Snapshots/<nom>/<horodatage>.md. Comme
-   * _Recherche, ce dossier peut être un enfant du dossier projet (ancienne
-   * convention) ou son voisin (quand "Dossier projet" pointe directement
-   * sur le sous-dossier des parties/chapitres) — les deux emplacements
-   * existants sont respectés ; à défaut, créé en voisin. */
-  async snapshotFile(file, root) {
-    return snapshotFile(this.app, file, root);
+  openPdfStyleModal() {
+    this.activateProject();
   }
 
-  /** Crée les dossiers _ et les fichiers Bases (personnages, lieux). */
-  async initProjectStructure() {
-    return initProjectStructure(this.app, this.settings);
+  toggleSearchReplaceBar() {
+    if (!this._searchReplaceBar) {
+      this._searchReplaceBar = new SearchReplaceBar(this.app, this);
+    }
+    this._searchReplaceBar.toggle();
   }
 
-  /** Génère un projet Feuillets complet et déjà rempli (voir
-   * services/demo-project.js) — sert de documentation vivante du plugin. */
-  async createDemoProject() {
-    return createDemoProject(this.app, this.settings, this);
-  }
+  newFolder(parent) { return newFolder(this.app, parent, () => this.renderAllViews(true)); }
+  newSheet(folder) { return newSheet(this.app, this.settings, folder); }
 
-  newFolder(parent) {
-    return newFolder(this.app, parent, () => this.renderAllViews(true));
-  }
-
-  newSheet(folder) {
-    return newSheet(this.app, this.settings, folder);
-  }
-
-  /** Crée un feuillet inséré à une position précise parmi les voisins
-   * (menu contextuel « avant / après »), puis réordonne et renumérote. */
   newSheetAt(folder, insertIndex) {
     new NewSheetModal(this.app, folder.name, async (fileName, chapTitle) => {
       const path = normalizePath(`${folder.path}/${fileName}.md`);
@@ -2088,11 +2045,11 @@ class FeuilletsPlugin extends Plugin {
         new Notice("Un feuillet portant ce nom existe déjà.");
         return;
       }
-      const isFiction = getProjectMode(this.app, this.settings).yamlPreset === "roman" || getProjectMode(this.app, this.settings).yamlPreset === "nouvelle";
+      const isFiction = getProjectMode(this.app, this.settings).yamlPreset === "roman";
       const lines = [
         "---",
         `titre: ${chapTitle || ""}`,
-        "titre_court: ",
+        "titre_binder: ",
         "ordre: 0",
         ...(isFiction ? ["synopsis: "] : ["resume: "]),
         "statut: ",
@@ -2108,9 +2065,7 @@ class FeuilletsPlugin extends Plugin {
         "",
       ];
       const file = await this.app.vault.create(path, lines.join("\n"));
-      const others = this.getOrderedChildren(folder).filter(
-        (c) => c.path !== file.path
-      );
+      const others = this.getOrderedChildren(folder).filter((c) => c.path !== file.path);
       const at = Math.max(0, Math.min(insertIndex, others.length));
       others.splice(at, 0, file);
       await this.applySiblingOrder(folder, others, false);
@@ -2122,18 +2077,20 @@ class FeuilletsPlugin extends Plugin {
   }
 
   async activateSidebar() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_SIDEBAR);
+    const workspace = this.app.workspace;
+    const existing = workspace.getLeavesOfType(VIEW_SIDEBAR);
+    
     if (existing.length > 0) {
-      this.app.workspace.revealLeaf(existing[0]);
+      workspace.revealLeaf(existing[0]);
     } else {
-      const leaf = this.app.workspace.getLeftLeaf(false);
-      await leaf.setViewState({ type: VIEW_SIDEBAR, active: true });
-      this.app.workspace.revealLeaf(leaf);
+      const leftLeaf = workspace.getLeftLeaf(false);
+      if (leftLeaf) {
+        await leftLeaf.setViewState({ type: VIEW_SIDEBAR, active: true });
+        workspace.revealLeaf(leftLeaf);
+      }
     }
-    /* le binder et le panneau Statistiques vont ensemble — ouvrir l'un
-       ouvre l'autre, pas seulement au démarrage d'Obsidian — sauf si ce
-       panneau a été explicitement masqué dans les réglages. */
-    if (!this.isPanelHidden("progression")) await this.activateProgression();
+    await this.activateProjectPanels();
+    if (!this.isPanelHidden("journal")) await this.activateJournal();
   }
 
   async activateBoard() {
@@ -2148,134 +2105,70 @@ class FeuilletsPlugin extends Plugin {
   }
 
   getLeafForOpeningFile() {
-    // 1. Chercher un onglet Markdown non épinglé dans l'espace principal de travail
     const markdownLeaves = this.app.workspace.getLeavesOfType("markdown");
     const unpinned = markdownLeaves.filter(l => {
       const inSidebar = l.getRoot() === this.app.workspace.leftSplit || l.getRoot() === this.app.workspace.rightSplit;
       const pinned = l.pinned || (l.getViewState && l.getViewState().pinned);
       return !inSidebar && !pinned;
     });
-
     if (unpinned.length > 0) {
-      /* préférer l'onglet actuellement actif s'il est éligible : sinon,
-         cliquer un feuillet du binder détournait toujours le PREMIER
-         onglet ouvert dans l'espace principal (peu importe l'onglet
-         réellement affiché/actif), et le binder n'affichait alors plus
-         jamais le bon feuillet en surbrillance. */
       const recent = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
       if (recent && unpinned.includes(recent)) return recent;
       return unpinned[0];
     }
-
-    // 2. Chercher un onglet vide non épinglé dans l'espace principal
     const emptyLeaves = this.app.workspace.getLeavesOfType("empty");
     const unpinnedEmpty = emptyLeaves.filter(l => {
       const inSidebar = l.getRoot() === this.app.workspace.leftSplit || l.getRoot() === this.app.workspace.rightSplit;
       const pinned = l.pinned || (l.getViewState && l.getViewState().pinned);
       return !inSidebar && !pinned;
     });
-
-    if (unpinnedEmpty.length > 0) {
-      return unpinnedEmpty[0];
-    }
-
-    // 3. Repli standard
+    if (unpinnedEmpty.length > 0) return unpinnedEmpty[0];
     return this.app.workspace.getLeaf(false);
   }
 
-  async activateProgression() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_PROGRESSION);
-    if (existing.length > 0) {
-      this.app.workspace.revealLeaf(existing[0]);
-      return;
+  async activateSidebarView(tabId = "project") {
+    const workspace = this.app.workspace;
+    let leaves = workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS);
+    let leaf = leaves.length > 0 ? leaves[0] : null;
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false);
+      if (leaf) {
+        await leaf.setViewState({ type: VIEW_SIDEBAR_FEUILLETS, active: true });
+      }
     }
-    const leaf = this.app.workspace.getRightLeaf(false);
     if (leaf) {
-      await leaf.setViewState({ type: VIEW_PROGRESSION, active: true });
-      this.app.workspace.revealLeaf(leaf);
+      workspace.revealLeaf(leaf);
+      if (leaf.view && tabId) {
+        leaf.view.activeTab = tabId;
+        if (typeof leaf.view.render === "function") {
+          await leaf.view.render();
+        }
+      }
     }
   }
 
-  async activateJournal() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_JOURNAL);
-    if (existing.length > 0) {
-      this.app.workspace.revealLeaf(existing[0]);
-      return;
-    }
-    const leaf = this.app.workspace.getRightLeaf(false);
-    if (leaf) {
-      await leaf.setViewState({ type: VIEW_JOURNAL, active: true });
-      this.app.workspace.revealLeaf(leaf);
-    }
-  }
+  async activateNotes() { return this.activateSidebarView("notes"); }
+  async activateResearch() { return this.activateSidebarView("research"); }
+  // "docx" a fusionné avec "project" (voir sidebar-feuillets-view.js) : les
+  // deux mènent au même onglet, qui affiche maintenant les deux sections.
+  async activateDocxReview() { return this.activateSidebarView("project"); }
+  async activateJournal() { return this.activateSidebarView("journal"); }
+  async activateProject() { return this.activateSidebarView("project"); }
 
-  async activateTags() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TAGS);
-    if (existing.length > 0) {
-      this.app.workspace.revealLeaf(existing[0]);
-      return;
-    }
-    const leaf = this.app.workspace.getRightLeaf(false);
-    if (leaf) {
-      await leaf.setViewState({ type: VIEW_TAGS, active: true });
-      this.app.workspace.revealLeaf(leaf);
-    }
-  }
-
-  async ensureJournalEntry(date) {
-    return ensureDayEntry(this.app, this.settings, date);
-  }
-
-  async compileJournal() {
-    return compileJournal(this.app, this.settings);
-  }
-
-  /** Compilation : parties → chapitres → textes des scènes.
-   * Aucun nom technique de fichier n'apparaît : seuls les noms de dossiers
-   * et la clé `titre` du frontmatter sont utilisés. */
-  activePresetConfig() {
-    return activePresetConfig(this.settings);
-  }
-
-  /** Dossier de sortie de la compilation et des exports — à côté du dossier
-   * projet (comme _Recherche et _Snapshots), jamais dedans : le manuscrit
-   * compilé ne doit jamais apparaître comme un feuillet de plus dans tes
-   * propres vues. Créé automatiquement s'il n'existe pas. */
-  async getOutputFolder() {
-    return getOutputFolder(this.app, this.settings);
-  }
-
-  async compile() {
-    return compile(this.app, this.settings);
-  }
-
-  /** Compile puis convertit via Pandoc vers .docx ou .epub, avec page de
-   * titre. Le .docx utilise le document de référence (Times 12, interligne
-   * double, marges 2,5 cm, numéros de page, saut de page par chapitre).
-   * Pour un PDF : exporter en .docx puis imprimer/exporter depuis Word. */
-  async exportFile(format = "docx") {
-    return exportFile(this.app, this.settings, format);
-  }
-
-  projectMetaFor(folder) {
-    return projectMetaFor(this.settings, folder);
-  }
+  async ensureJournalEntry(date) { return ensureDayEntry(this.app, this.settings, date); }
+  async compileJournal() { return compileJournal(this.app, this.settings); }
+  activePresetConfig() { return activePresetConfig(this.settings); }
+  async getOutputFolder() { return getOutputFolder(this.app, this.settings); }
+  async compile() { return compile(this.app, this.settings); }
+  async exportFile(format = "docx") { return exportFile(this.app, this.settings, format); }
+  projectMetaFor(folder) { return projectMetaFor(this.settings, folder); }
 
   insertIntoActiveEditor(text) {
-    const activeEditor = this.app.workspace.activeEditor;
-    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-    const recentLeaf = this.app.workspace.getMostRecentLeaf();
-    const recentView = recentLeaf && recentLeaf.view instanceof MarkdownView ? recentLeaf.view : null;
-    const editor =
-      (activeEditor && activeEditor.editor) ||
-      (activeView && activeView.editor) ||
-      (recentView && recentView.editor);
-
+    const editor = this.activeEditorAnywhere();
     if (!editor) {
-      new Notice("Aucun éditeur Markdown détecté. Clique d’abord dans ton brouillon, puis reviens au panneau.");
+      new Notice("Aucun éditeur Markdown détecté.");
       return;
     }
-
     const hasSelection = typeof editor.getSelection === "function" && !!editor.getSelection();
     if (hasSelection) {
       editor.replaceSelection(text);
@@ -2284,7 +2177,150 @@ class FeuilletsPlugin extends Plugin {
       editor.replaceRange(text, cursor);
       editor.setCursor({ line: cursor.line, ch: cursor.ch + text.length });
     }
-    new Notice("Contenu inséré dans le brouillon.");
+    new Notice("Contenu inséré.");
+  }
+
+  registerSwipeGestures() {
+    const leftSplit = this.app.workspace.leftSplit;
+    const rightSplit = this.app.workspace.rightSplit;
+    const isFichesView = () => !!this.settings.binderTreeCollapsed;
+
+    const toggleFichesViewLight = (collapsed) => {
+      const leaf = this.app.workspace.getLeavesOfType(VIEW_SIDEBAR)[0];
+      const view = leaf && leaf.view;
+      if (view && typeof view.toggleTreeCollapsedClasses === "function") {
+        view.toggleTreeCollapsedClasses(collapsed);
+        return true;
+      }
+      return false;
+    };
+
+    const showFichesView = () => {
+      this.settings.binderTreeCollapsed = true;
+      this.saveSettings();
+      if (!toggleFichesViewLight(true)) this.renderAllViews(true);
+    };
+
+    const showDossiersView = () => {
+      this.settings.binderTreeCollapsed = false;
+      this.saveSettings();
+      if (!toggleFichesViewLight(false)) this.renderAllViews(true);
+    };
+
+    const executeSwipeRight = () => {
+      if (!this.settings.swipeGesturesEnabled) return;
+      if (!leftSplit || !rightSplit) return;
+      try {
+        if (leftSplit.collapsed) {
+          leftSplit.expand();
+          if (this.settings.binderLayout === "split") showFichesView();
+        } else if (this.settings.binderLayout === "split" && isFichesView()) {
+          showDossiersView();
+        }
+      } catch (e) {}
+    };
+
+    const executeSwipeLeft = () => {
+      if (!this.settings.swipeGesturesEnabled) return;
+      if (!leftSplit || !rightSplit) return;
+      try {
+        if (!leftSplit.collapsed) {
+          if (this.settings.binderLayout === "split" && !isFichesView()) showFichesView();
+          else leftSplit.collapse();
+        }
+      } catch (e) {}
+    };
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    const onTouchStart = (e) => {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const target = e.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.closest(".cm-editor")) return;
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+      touchStartTime = Date.now();
+    };
+
+    const onTouchEnd = (e) => {
+      if (!this.settings.swipeGesturesEnabled || touchStartTime === 0 || e.changedTouches.length !== 1) return;
+      const touch = e.changedTouches[0];
+      const deltaX = touch.clientX - touchStartX;
+      const deltaY = touch.clientY - touchStartY;
+      const duration = Date.now() - touchStartTime;
+      touchStartTime = 0;
+      if (Math.abs(deltaX) > 80 && Math.abs(deltaY) < 50 && duration < 300) {
+        if (!leftSplit || !rightSplit) return;
+        if (touchStartX < window.innerWidth * 0.37) {
+          if (deltaX > 0) executeSwipeRight();
+          else if (deltaX < 0) executeSwipeLeft();
+        }
+      }
+    };
+
+    this.registerDomEvent(window, "touchstart", onTouchStart, { passive: true });
+    this.registerDomEvent(window, "touchend", onTouchEnd, { passive: true });
+  }
+
+  // --- GESTION DYNAMIQUE DES PANNEAUX SECONDAIRES ---
+
+  isFeuilletsSidebarActive() {
+    const workspace = this.app.workspace;
+    if (workspace.leftSplit.collapsed) return false;
+    
+    const leaves = workspace.getLeavesOfType(VIEW_SIDEBAR);
+    if (leaves.length === 0) return false;
+
+    return leaves.some(leaf => {
+      return leaf.getRoot() === workspace.leftSplit && this.leafVisible(leaf);
+    });
+  }
+
+  async syncProjectPanelsVisibility() {
+    if (this._isSyncingPanels) return;
+    
+    const isActive = this.isFeuilletsSidebarActive();
+
+    if (this._lastFeuilletsActive === isActive) return;
+    this._isSyncingPanels = true;
+    this._lastFeuilletsActive = isActive;
+
+    try {
+      if (isActive) {
+        await this.activateProjectPanels();
+      } else {
+        this.deactivateProjectPanels();
+      }
+    } finally {
+      this._isSyncingPanels = false;
+    }
+  }
+
+  async activateProjectPanels() {
+    const workspace = this.app.workspace;
+    const oldRightViews = [VIEW_RESEARCH, VIEW_NOTES, VIEW_PROPERTIES, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW];
+    for (const viewType of oldRightViews) {
+      workspace.getLeavesOfType(viewType).forEach((leaf) => leaf.detach());
+    }
+
+    if (workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS).length === 0) {
+      const rightLeaf = workspace.getRightLeaf(false);
+      if (rightLeaf) {
+        await rightLeaf.setViewState({ type: VIEW_SIDEBAR_FEUILLETS, active: false });
+      }
+    }
+  }
+
+  deactivateProjectPanels() {
+    const workspace = this.app.workspace;
+    workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS).forEach((leaf) => leaf.detach());
+    const oldRightViews = [VIEW_RESEARCH, VIEW_NOTES, VIEW_PROPERTIES, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW];
+    for (const viewType of oldRightViews) {
+      workspace.getLeavesOfType(viewType).forEach((leaf) => leaf.detach());
+    }
   }
 }
 

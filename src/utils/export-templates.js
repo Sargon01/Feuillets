@@ -16,10 +16,30 @@
  * "saut de page systématique, police héritée" — voir normalizeHeadings).
  * `chapterTitle` (ancien champ, H1 uniquement) reste accepté pour les
  * modèles existants — normalizeHeadings le traduit en headings.h1. */
+
+/** Page de titre par défaut d'un modèle (voir titleRoleCss/export-docx.js) :
+ * les rôles habituels d'un manuscrit (titre/sous-titre/mots/auteur/adresse/
+ * coordonnées), centrés, avec le même rythme d'espacement vertical que le
+ * modèle Word de référence (marges en points, indépendantes de la police).
+ * Le titre est mis à l'échelle du corps (×1,5) pour rester proportionné d'un
+ * modèle à l'autre ; le reste suit la taille du corps. Rôles libres : chacun
+ * peut être surchargé/complété en éditant le .md du modèle. */
+const titlePageFor = (bodyPt) => ({
+  styles: {
+    titre: { fontSizePt: Math.round(bodyPt * 1.5), align: "center", marginTopPt: 126, marginBottomPt: 24 },
+    "sous-titre": { fontSizePt: bodyPt, align: "center", marginBottomPt: 120 },
+    mots: { fontSizePt: bodyPt, align: "center", marginBottomPt: 132 },
+    auteur: { fontSizePt: bodyPt, align: "center" },
+    adresse: { fontSizePt: bodyPt, align: "center", marginBottomPt: 36 },
+    "coordonnées": { fontSizePt: bodyPt, align: "center" },
+  },
+});
+
 export const EXPORT_TEMPLATES = {
   classique: {
     key: "classique",
     label: "Classique (manuscrit)",
+    titlePage: titlePageFor(12),
     fontFamily: "'Times New Roman', Times, serif",
     fontSizePt: 12,
     lineHeight: 2,
@@ -63,6 +83,7 @@ export const EXPORT_TEMPLATES = {
   moderne: {
     key: "moderne",
     label: "Moderne",
+    titlePage: titlePageFor(11),
     fontFamily: "Inter, Helvetica, Arial, sans-serif",
     fontSizePt: 11,
     lineHeight: 1.4,
@@ -76,6 +97,7 @@ export const EXPORT_TEMPLATES = {
   tapuscrit: {
     key: "tapuscrit",
     label: "Machine à écrire",
+    titlePage: titlePageFor(12),
     fontFamily: "'Courier New', Courier, monospace",
     fontSizePt: 12,
     lineHeight: 1.5,
@@ -94,6 +116,7 @@ export const EXPORT_TEMPLATES = {
   romanSimple: {
     key: "romanSimple",
     label: "Roman simple",
+    titlePage: titlePageFor(14),
     fontFamily: "Baskerville, Georgia, serif",
     fontSizePt: 14,
     lineHeight: 24 / 14,
@@ -119,6 +142,7 @@ export const EXPORT_TEMPLATES = {
   romanFrancais: {
     key: "romanFrancais",
     label: "Roman français (paysage 2 colonnes)",
+    titlePage: titlePageFor(11),
     fontFamily: "Garamond, Georgia, serif",
     headingFontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
     fontSizePt: 11,
@@ -146,6 +170,7 @@ export const EXPORT_TEMPLATES = {
   apa: {
     key: "apa",
     label: "APA (7e édition)",
+    titlePage: titlePageFor(12),
     fontFamily: "'Times New Roman', Times, serif",
     fontSizePt: 12,
     lineHeight: 2,
@@ -172,6 +197,7 @@ export const EXPORT_TEMPLATES = {
   these: {
     key: "these",
     label: "Thèse",
+    titlePage: titlePageFor(12),
     fontFamily: "'Times New Roman', Times, serif",
     fontSizePt: 12,
     lineHeight: 1.5,
