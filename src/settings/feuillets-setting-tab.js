@@ -1,6 +1,11 @@
 import { YAML_PRESETS } from "../scenes-editor.js";
 import { BOARD_MODES, HIDEABLE_PANELS } from "../constants.js";
 import { resolveType } from "../utils/project-modes.js";
+import {
+  listExportTemplates,
+  resolveExportTemplate,
+  updateTemplateTitlePage,
+} from "../services/export-templates-custom.js";
 const { PluginSettingTab, Setting } = require("obsidian");
 
 export class FeuilletsSettingTab extends PluginSettingTab {
@@ -34,22 +39,17 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h3", { text: "Dossier du projet" });
 
+    /* Ni champ texte ni chemin à taper à la main ici : créer, changer ou
+       retirer un projet se fait entièrement dans le panneau "Projet &
+       export" (liste cliquable, validée, avec confirmation avant de
+       retirer) — un second champ texte non validé ici ne ferait que
+       dupliquer ce contrôle et risquer une faute de frappe silencieuse. */
     new Setting(containerEl)
       .setName("Dossier projet")
       .setDesc(
-        `Structure : parties (dossiers) → chapitres (sous-dossiers) → ${unitPlural} (fichiers). Niveaux 1 et 3 facultatifs. Ce dossier doit contenir directement tes parties/chapitres — pas un dossier parent qui contiendrait aussi Recherche ou Snapshots à côté.`
-      )
-      .addText((t) =>
-        t
-          .setPlaceholder("Projets/MonProjet")
-          .setValue(S.projectFolder)
-          .onChange(async (v) => {
-            S.projectFolder = v.trim();
-            await this.plugin.saveSettings();
-            this.plugin.renderAllViews(true);
-            this.plugin.updateStatusBar();
-            refresh();
-          })
+        S.projectFolder
+          ? `Projet actif : ${S.projectFolder}. Structure : parties (dossiers) → chapitres (sous-dossiers) → ${unitPlural} (fichiers). Pour créer, changer ou retirer un projet, utilise le panneau "Projet & export".`
+          : `Aucun projet actif. Ouvre le panneau "Projet & export" pour en créer un, en importer un depuis Scrivener, ou en ajouter un existant.`
       );
 
     /* garde-fou : un dossier projet mal pointé (ex. un cran trop haut,
@@ -89,6 +89,24 @@ export class FeuilletsSettingTab extends PluginSettingTab {
              refresh();
            });
         });
+
+      if (resolveType(meta.type) === "nonfiction") {
+        new Setting(containerEl)
+          .setName("Style de citation")
+          .setDesc(
+            "Utilisé par la commande « Insérer une citation ». Note de bas de page : style notes-bibliographie (histoire, sciences humaines). Auteur-date : entre parenthèses dans le texte (sciences sociales)."
+          )
+          .addDropdown((d) =>
+            d
+              .addOption("footnote", "Note de bas de page")
+              .addOption("parenthetical", "Auteur-date, entre parenthèses")
+              .setValue(meta.citationStyle || "footnote")
+              .onChange(async (v) => {
+                meta.citationStyle = v;
+                await this.plugin.saveSettings();
+              })
+          );
+      }
     }
 
     new Setting(containerEl)
@@ -153,7 +171,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Objectif de mots du projet")
-      .setDesc("0 pour ne pas afficher de barre de progression sur le total du projet, dans le panneau Statistiques.")
+      .setDesc("0 pour ne pas afficher de barre de progression sur le total du projet, dans le panneau Journal & statistiques.")
       .addText((t) =>
         t.setValue(String(S.projectWordGoal)).onChange(async (v) => {
           const n = parseInt(v, 10);
@@ -286,17 +304,17 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Ouvrir automatiquement le panneau Progression")
+      .setName("Ouvrir automatiquement le panneau Notes")
       .setDesc("Au démarrage d'Obsidian, dans la barre latérale droite.")
       .addToggle((t) =>
-        t.setValue(S.autoOpenStructure).onChange(async (v) => {
-          S.autoOpenStructure = v;
+        t.setValue(S.autoOpenNotes).onChange(async (v) => {
+          S.autoOpenNotes = v;
           await this.plugin.saveSettings();
         })
       );
 
     new Setting(containerEl)
-      .setName("Ouvrir automatiquement le panneau Journal")
+      .setName("Ouvrir automatiquement le panneau Journal & statistiques")
       .setDesc("Au démarrage d'Obsidian, dans la barre latérale droite.")
       .addToggle((t) =>
         t.setValue(S.autoOpenJournal).onChange(async (v) => {
@@ -306,14 +324,35 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Ouvrir automatiquement le panneau Notes")
+      .setName("Ouvrir automatiquement le panneau Projet & export")
       .setDesc("Au démarrage d'Obsidian, dans la barre latérale droite.")
       .addToggle((t) =>
-        t.setValue(S.autoOpenNotes).onChange(async (v) => {
-          S.autoOpenNotes = v;
+        t.setValue(S.autoOpenProject).onChange(async (v) => {
+          S.autoOpenProject = v;
           await this.plugin.saveSettings();
         })
       );
+
+    new Setting(containerEl)
+      .setName("Ouvrir automatiquement le panneau Propriétés")
+      .setDesc("Au démarrage d'Obsidian, dans la barre latérale droite.")
+      .addToggle((t) =>
+        t.setValue(S.autoOpenProperties).onChange(async (v) => {
+          S.autoOpenProperties = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Ouvrir automatiquement le panneau Révision")
+      .setDesc("Au démarrage d'Obsidian, dans la barre latérale droite — retours .docx d'un directeur/éditeur.")
+      .addToggle((t) =>
+        t.setValue(S.autoOpenDocxReview).onChange(async (v) => {
+          S.autoOpenDocxReview = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
 
     containerEl.createEl("h3", { text: "Vues actives" });
 
@@ -448,6 +487,29 @@ export class FeuilletsSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             this.plugin.renderAllViews(true);
           })
+      );
+
+     new Setting(containerEl)
+      .setName("Sous-dossiers inclus dans le double volet")
+      .setDesc("Affiche récursivement dans le volet de droite les fichiers des sous-dossiers du dossier sélectionné.")
+      .addToggle((t) =>
+        t
+          .setValue(S.binderSplitRecursive !== false)
+          .onChange(async (v) => {
+            S.binderSplitRecursive = v;
+            await this.plugin.saveSettings();
+            this.plugin.renderAllViews(true);
+          })
+      );
+
+     new Setting(containerEl)
+      .setName("Gestes de balayage (trackpad / tactile)")
+      .setDesc("Ouvrir/fermer les volets latéraux par balayage horizontal près des bords. À désactiver si un autre plugin (ex. un navigateur de fichiers alternatif) intercepte aussi ces gestes.")
+      .addToggle((t) =>
+        t.setValue(S.swipeGesturesEnabled !== false).onChange(async (v) => {
+          S.swipeGesturesEnabled = v;
+          await this.plugin.saveSettings();
+        })
       );
 
     containerEl.createEl("h3", { text: "Apparence" });
@@ -992,28 +1054,154 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
+    containerEl.createEl("h3", { text: "Export" });
+
+    containerEl.createDiv({ cls: "setting-item-description" }).setText(
+      "Moteur natif (par défaut) : aucune dépendance externe, fonctionne sur mobile aussi bien que sur bureau. Pandoc reste disponible en option pour qui l'a déjà installé et configuré — meilleure qualité typographique, mais bureau uniquement."
+    );
+
     new Setting(containerEl)
-      .setName("Autres projets")
-      .setDesc(
-        "Un chemin de dossier par ligne. Commande « Changer de projet… » pour basculer."
-      )
-      .addTextArea((t) =>
-        t
-          .setValue((S.projects || []).join("\n"))
+      .setName("Moteur d'export")
+      .setDesc("Natif : intégré, marche partout. Pandoc : programme externe à installer, bureau uniquement.")
+      .addDropdown((drop) => {
+        drop.addOption("natif", "Natif (par défaut)");
+        drop.addOption("pandoc", "Pandoc (avancé)");
+        drop.setValue(S.exportEngine || "natif");
+        drop.onChange(async (value) => {
+          S.exportEngine = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    containerEl.createDiv({ cls: "setting-item-description" }).setText(
+      "Le choix du modèle de mise en page (Classique, Roman, APA…) se fait directement dans le menu « Compiler et exporter », pas ici — tu peux aussi ajouter tes propres modèles en déposant un fichier .md dans Ressources/Modèles."
+    );
+
+    new Setting(containerEl)
+      .setName("Typographie française à l'export")
+      .setDesc("Guillemets droits → « », apostrophe → ’, ... → …, espaces insécables avant ; : ! ? — appliqué au texte compilé (jamais au fichier source), même si la typographie à la frappe est désactivée. Le code (``` ou `inline`) n'est jamais modifié. À désactiver si l'apostrophe/le guillemet droit a un sens technique dans ton projet.")
+      .addToggle((t) =>
+        t.setValue(S.exportFrenchTypography !== false).onChange(async (v) => {
+          S.exportFrenchTypography = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    containerEl.createEl("h4", { text: "Mise en page — En-tête" });
+
+    new Setting(containerEl)
+      .setName("En-tête gauche")
+      .setDesc("Texte affiché en haut à gauche des pages (variables {title}, {author}).")
+      .addText((t) =>
+        t.setValue(S.pdfHeaderLeft || "{title}").onChange(async (v) => {
+          S.pdfHeaderLeft = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("En-tête droit")
+      .setDesc("Texte affiché en haut à droite des pages.")
+      .addText((t) =>
+        t.setValue(S.pdfHeaderRight || "{author}").onChange(async (v) => {
+          S.pdfHeaderRight = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("En-têtes alternés (Pages paires / impaires)")
+      .setDesc("Alterne l'en-tête gauche et l'en-tête droit selon la page.")
+      .addToggle((t) =>
+        t.setValue(!!S.pdfDiffHeaders).onChange(async (v) => {
+          S.pdfDiffHeaders = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Masquer les en-têtes sur la première page")
+      .addToggle((t) =>
+        t.setValue(S.pdfHideFirstPageHeader ?? true).onChange(async (v) => {
+          S.pdfHideFirstPageHeader = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    containerEl.createEl("h4", { text: "Mise en page — Pied de page" });
+
+    new Setting(containerEl)
+      .setName("Position du numéro de page")
+      .addDropdown((d) =>
+        d
+          .addOption("right", "Droite")
+          .addOption("center", "Centré")
+          .addOption("left", "Gauche")
+          .setValue(S.pdfPageNumberPosition || "right")
           .onChange(async (v) => {
-            S.projects = v
-              .split("\n")
-              .map((x) => x.trim())
-              .filter(Boolean);
+            S.pdfPageNumberPosition = v;
             await this.plugin.saveSettings();
           })
       );
 
-    containerEl.createEl("h3", { text: "Export" });
+    new Setting(containerEl)
+      .setName("Format du numéro de page")
+      .setDesc("Modèle de numérotation ({page} et {pages}).")
+      .addText((t) =>
+        t.setValue(S.pdfFooterRight || "Page {page} sur {pages}").onChange(async (v) => {
+          S.pdfFooterRight = v;
+          await this.plugin.saveSettings();
+        })
+      );
 
+    containerEl.createEl("h4", { text: "Mise en page — Page de titre" });
     containerEl.createDiv({ cls: "setting-item-description" }).setText(
-      "L'export .docx/.epub appelle Pandoc, un programme installé localement sur ta machine (jamais un service en ligne). Aucune donnée n'est envoyée sur Internet. Bureau uniquement — indisponible sur mobile."
+      "Règle les blocs de la page de titre (:::titre:, :::sous-titre:…) du modèle choisi. Les réglages sont écrits dans le modèle lui-même (Ressources/Modèles), sans avoir à ouvrir le fichier."
     );
+    this.renderTitlePageEditor(containerEl.createDiv());
+
+    new Setting(containerEl)
+      .setName("Format du papier")
+      .addDropdown((d) =>
+        d
+          .addOption("A4", "A4 (210x297 mm)")
+          .addOption("letter", "US Letter")
+          .addOption("A5", "A5 (148x210 mm)")
+          .addOption("poche", "Poche (110x180 mm)")
+          .setValue(S.pdfPageSize || "A4")
+          .onChange(async (v) => {
+            S.pdfPageSize = v;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Marge Haut / Bas (cm)")
+      .addText((t) =>
+        t.setValue(String(S.pdfMarginTop ?? 2.5)).onChange(async (v) => {
+          S.pdfMarginTop = parseFloat(v) || 2.5;
+          S.pdfMarginBottom = parseFloat(v) || 2.5;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Marge Reliure (cm)")
+      .addText((t) =>
+        t.setValue(String(S.pdfMarginLeft ?? 2.5)).onChange(async (v) => {
+          S.pdfMarginLeft = parseFloat(v) || 2.5;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Marges miroir (pages paires/impaires)")
+      .addToggle((t) =>
+        t.setValue(!!S.pdfMirrorMargins).onChange(async (v) => {
+          S.pdfMirrorMargins = v;
+          await this.plugin.saveSettings();
+        })
+      );
 
     new Setting(containerEl)
       .setName("Langue de l'EPUB")
@@ -1027,7 +1215,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Chemin de Pandoc")
-      .setDesc("Pour l'export .docx. Laisser « pandoc » si dans le PATH.")
+      .setDesc("Pour le moteur Pandoc (avancé) uniquement. Laisser « pandoc » si dans le PATH.")
       .addText((t) =>
         t.setValue(S.pandocPath).onChange(async (v) => {
           S.pandocPath = v.trim() || "pandoc";
@@ -1093,11 +1281,34 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Afficher les entités citées")
       .setDesc(
-        `Affiche les fiches de recherche citées (${mode.researchFolders.personnages.label.toLowerCase()}, ${mode.researchFolders.lieux.label.toLowerCase()}...) dans le corps de la ${unit}.`
+        (() => {
+          /* Les rubriques disponibles varient selon le mode (voir
+             utils/project-modes.js — personnages/lieux/codex/glossaire
+             n'existent pas en non-fiction) : construit l'exemple à partir
+             de ce qui existe réellement plutôt que de suppposer une
+             liste fixe. */
+          const rf = mode.researchFolders;
+          const examples = [rf.personnages, rf.lieux, rf.sources, rf.codex]
+            .filter(Boolean)
+            .map((r) => r.label.toLowerCase());
+          const list = examples.length ? `${examples.join(", ")}…` : "fiches de recherche";
+          return `Affiche les fiches de recherche citées (${list}) dans le corps de la ${unit}.`;
+        })()
       )
       .addToggle((t) =>
         t.setValue(S.notesShowEntities).onChange(async (v) => {
           S.notesShowEntities = v;
+          await this.plugin.saveSettings();
+          refresh();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Afficher les notes de bas de page")
+      .setDesc(`Liste les notes de bas de page ("[^1]: …") définies dans le corps de la ${unit}.`)
+      .addToggle((t) =>
+        t.setValue(S.notesShowFootnotes).onChange(async (v) => {
+          S.notesShowFootnotes = v;
           await this.plugin.saveSettings();
           refresh();
         })
@@ -1140,20 +1351,134 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const orderWrapNotes = containerEl.createDiv({ cls: "feuillets-notes-order-wrap" });
     this.renderSectionOrderList(orderWrapNotes, S, "notesSectionOrder", ["Synopsis", "Résumé", "Notes"], refresh);
 
+    containerEl.createEl("h3", { text: "Correction grammaticale" });
+    new Setting(containerEl)
+      .setName("Détecter les répétitions de mots proches")
+      .setDesc("Signale les mots répétés dans un même paragraphe ou une même phrase (désactivé par défaut dans Grammalecte lui-même — plus bruyant que les autres règles).")
+      .addToggle((t) =>
+        t.setValue(!!S.grammalecteDetectRepetitions).onChange(async (v) => {
+          S.grammalecteDetectRepetitions = v;
+          await this.plugin.saveSettings();
+        })
+      );
 
+    new Setting(containerEl)
+      .setName("Mots appris")
+      .setDesc("Mots que tu as marqués « ne plus signaler » depuis l'onglet Correction grammaticale (vocabulaire absent du dictionnaire : noms propres, mots étrangers...).");
+    const knownWordsWrap = containerEl.createDiv({ cls: "feuillets-tags" });
+    this.renderKnownWordsList(knownWordsWrap, S);
 
+    new Setting(containerEl)
+      .setName("Fautes de grammaire ignorées")
+      .setDesc("Signalements marqués « Ignorer » depuis l'onglet Correction grammaticale — une règle précise sur un mot précis, pas tout un type de faute.");
+    const ignoredRulesWrap = containerEl.createDiv({ cls: "feuillets-tags" });
+    this.renderIgnoredRulesList(ignoredRulesWrap, S);
 
     this.organizeSections(containerEl);
   }
 
-  /** Regroupe les réglages en cinq catégories pliables (Projet & Écriture,
-   * Tableau, Panneaux latéraux, Export, Avancé), et à l'intérieur de
-   * chacune, replie chaque sous-section (Dossier du projet, Objectifs...)
-   * dans son propre repli — deux niveaux de pli au lieu d'une longue liste
-   * de réglages à la suite. Tout ça par post-traitement du DOM : les
-   * réglages sont créés normalement, puis déplacés — aucun risque sur
-   * leur logique. En mode simple, la catégorie Avancé est masquée
-   * entièrement. */
+  /** Éditeur de page de titre (option A) : un sélecteur de modèle, puis les
+   * contrôles de chaque rôle. Toute modification est écrite dans le .md du
+   * modèle sélectionné (updateTemplateTitlePage) — le modèle reste l'unique
+   * source de vérité, l'utilisateur n'ouvre jamais le fichier. Asynchrone
+   * (chargement des modèles) : peuple son conteneur après coup. */
+  async renderTitlePageEditor(container) {
+    const S = this.plugin.settings;
+    const templates = await listExportTemplates(this.app, S);
+    if (!templates.length) {
+      container.createDiv({ cls: "setting-item-description" }).setText("Aucun modèle disponible.");
+      return;
+    }
+    let key = S.titlePageEditTemplate;
+    if (!templates.some((t) => t.key === key)) key = S.exportTemplate || templates[0].key;
+
+    new Setting(container)
+      .setName("Modèle à régler")
+      .addDropdown((d) => {
+        templates.forEach((t) => d.addOption(t.key, t.label));
+        d.setValue(key);
+        d.onChange(async (v) => {
+          S.titlePageEditTemplate = v;
+          await this.plugin.saveSettings();
+          body.empty();
+          await this.renderRoleControls(body, v);
+        });
+      });
+
+    const body = container.createDiv();
+    await this.renderRoleControls(body, key);
+  }
+
+  /** Contrôles d'un modèle : une sous-section par rôle (taille, alignement,
+   * gras, italique, marges haut/bas). Édite une copie en mémoire des styles
+   * et réécrit l'objet complet dans le .md à chaque changement, pour ne
+   * jamais perdre les autres rôles. */
+  async renderRoleControls(body, key) {
+    const S = this.plugin.settings;
+    const tpl = await resolveExportTemplate(this.app, S, key);
+    const styles =
+      tpl.titlePage && tpl.titlePage.styles
+        ? JSON.parse(JSON.stringify(tpl.titlePage.styles))
+        : {};
+    const roles = Object.keys(styles);
+    if (!roles.length) {
+      body.createDiv({ cls: "setting-item-description" }).setText(
+        "Ce modèle n'a pas de page de titre à rôles."
+      );
+      return;
+    }
+    const save = () => updateTemplateTitlePage(this.app, S, key, styles);
+    const numField = (parent, name, get, set) =>
+      new Setting(parent).setName(name).addText((t) =>
+        t.setValue(get() != null ? String(get()) : "").onChange(async (v) => {
+          const n = parseFloat(v);
+          set(v.trim() === "" || !Number.isFinite(n) ? undefined : n);
+          await save();
+        })
+      );
+
+    for (const role of roles) {
+      const st = styles[role];
+      body.createEl("h5", { text: role });
+      numField(body, "Taille (pt)", () => st.fontSizePt, (n) => (n == null ? delete st.fontSizePt : (st.fontSizePt = n)));
+      new Setting(body).setName("Alignement").addDropdown((d) =>
+        d
+          .addOption("left", "Gauche")
+          .addOption("center", "Centré")
+          .addOption("right", "Droite")
+          .setValue(st.align || "center")
+          .onChange(async (v) => {
+            st.align = v;
+            await save();
+          })
+      );
+      new Setting(body).setName("Gras").addToggle((t) =>
+        t.setValue(!!st.bold).onChange(async (v) => {
+          if (v) st.bold = true;
+          else delete st.bold;
+          await save();
+        })
+      );
+      new Setting(body).setName("Italique").addToggle((t) =>
+        t.setValue(!!st.italic).onChange(async (v) => {
+          if (v) st.italic = true;
+          else delete st.italic;
+          await save();
+        })
+      );
+      numField(body, "Marge au-dessus (pt)", () => st.marginTopPt, (n) => (n == null ? delete st.marginTopPt : (st.marginTopPt = n)));
+      numField(body, "Marge en dessous (pt)", () => st.marginBottomPt, (n) => (n == null ? delete st.marginBottomPt : (st.marginBottomPt = n)));
+    }
+  }
+
+  /** Regroupe les réglages en cinq catégories, affichées en onglets
+   * (Projet & Écriture, Tableau, Panneaux latéraux, Export, Avancé) — un
+   * seul onglet visible à la fois, plutôt qu'une longue page à défiler.
+   * À l'intérieur de chaque onglet, chaque sous-section (Dossier du
+   * projet, Objectifs...) garde son propre repli. Tout ça par
+   * post-traitement du DOM : les réglages sont créés normalement, puis
+   * déplacés — aucun risque sur leur logique. En mode simple, l'onglet
+   * Avancé est masqué entièrement. */
   organizeSections(containerEl) {
     const MAP = {
       "Dossier du projet": "Projet & Écriture",
@@ -1168,6 +1493,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       "Binder": "Panneaux latéraux",
       "Apparence": "Avancé",
       "Panneau Notes": "Panneaux latéraux",
+      "Correction grammaticale": "Panneaux latéraux",
       "Compilation": "Export",
       "Export": "Export",
       "Labels de couleur": "Avancé",
@@ -1204,20 +1530,37 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       else byCategory[currentCategory].push({ title: null, nodes: [node] });
     }
 
-    // Passe 2 : construire les replis (catégorie, puis sous-section) et
-    // les réinsérer dans l'ordre.
-    for (const name of ORDER) {
-      if (name === "Avancé" && !this.plugin.settings.settingsAdvanced) continue;
-      const det = document.createElement("details");
-      det.addClass("feuillets-settings-section");
-      if (name === "Projet & Écriture") det.setAttr("open", "");
-      const sum = document.createElement("summary");
-      sum.setText(name);
-      det.appendChild(sum);
+    const visibleOrder = ORDER.filter(
+      (name) => name !== "Avancé" || this.plugin.settings.settingsAdvanced
+    );
+    if (!visibleOrder.includes(this._activeSettingsTab)) {
+      this._activeSettingsTab = visibleOrder[0];
+    }
+
+    // Passe 2 : barre d'onglets.
+    const tabBar = containerEl.createDiv({ cls: "feuillets-settings-tabs" });
+    for (const name of visibleOrder) {
+      const btn = tabBar.createEl("button", {
+        cls: "feuillets-settings-tab-btn",
+        text: name,
+      });
+      if (name === this._activeSettingsTab) btn.addClass("is-active");
+      btn.addEventListener("click", () => {
+        if (this._activeSettingsTab === name) return;
+        this._activeSettingsTab = name;
+        this.display();
+      });
+    }
+
+    // Passe 3 : un panneau par catégorie (tous construits, un seul visible
+    // à la fois) — les sous-sections gardent leur propre repli à l'intérieur.
+    for (const name of visibleOrder) {
+      const panel = containerEl.createDiv({ cls: "feuillets-settings-panel" });
+      if (name !== this._activeSettingsTab) panel.style.display = "none";
 
       for (const sub of byCategory[name]) {
         if (!sub.title) {
-          for (const n of sub.nodes) det.appendChild(n);
+          for (const n of sub.nodes) panel.appendChild(n);
           continue;
         }
         const subDet = document.createElement("details");
@@ -1228,9 +1571,47 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         subSum.addClass("feuillets-settings-subhead");
         subDet.appendChild(subSum);
         for (const n of sub.nodes) subDet.appendChild(n);
-        det.appendChild(subDet);
+        panel.appendChild(subDet);
       }
-      containerEl.appendChild(det);
+    }
+  }
+
+  renderKnownWordsList(container, S) {
+    container.empty();
+    const words = S.grammalecteKnownWords || [];
+    if (words.length === 0) {
+      container.createSpan({ cls: "feuillets-notes-sub" }).setText("Aucun mot appris pour l'instant.");
+      return;
+    }
+    for (const word of [...words].sort((a, b) => a.localeCompare(b, "fr"))) {
+      const chip = container.createSpan({ cls: "feuillets-tag-chip" });
+      chip.setText(word);
+      chip.title = "Cliquer pour retirer (le mot sera de nouveau signalé s'il n'est pas dans le dictionnaire)";
+      chip.addEventListener("click", async () => {
+        S.grammalecteKnownWords = words.filter((w) => w !== word);
+        await this.plugin.saveSettings();
+        this.renderKnownWordsList(container, S);
+      });
+    }
+  }
+
+  renderIgnoredRulesList(container, S) {
+    container.empty();
+    const sigs = S.grammalecteIgnoredRules || [];
+    if (sigs.length === 0) {
+      container.createSpan({ cls: "feuillets-notes-sub" }).setText("Aucune faute ignorée pour l'instant.");
+      return;
+    }
+    for (const sig of [...sigs].sort()) {
+      const [ruleId, word] = sig.split("::");
+      const chip = container.createSpan({ cls: "feuillets-tag-chip" });
+      chip.setText(word ? `${word} (${ruleId})` : ruleId);
+      chip.title = "Cliquer pour retirer (cette règle sera de nouveau signalée sur ce mot)";
+      chip.addEventListener("click", async () => {
+        S.grammalecteIgnoredRules = sigs.filter((s) => s !== sig);
+        await this.plugin.saveSettings();
+        this.renderIgnoredRulesList(container, S);
+      });
     }
   }
 
