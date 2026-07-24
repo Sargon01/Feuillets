@@ -522,8 +522,9 @@ export class AnalysisView extends BaseFeuilletsView {
 
     // ========================= CE FEUILLET =========================
     if (!this.group(container, "file-text", "Ce feuillet", "feuillet")) {
+    const gb = container.createDiv({ cls: "feuillets-analysis-groupbody" });
 
-    this.tool(container, "metrics", "bar-chart-3", "Métriques du feuillet", (section) => {
+    this.tool(gb, "metrics", "bar-chart-3", "Métriques du feuillet", (section) => {
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const addRow = (label, value, hint) => {
         const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
@@ -555,7 +556,7 @@ export class AnalysisView extends BaseFeuilletsView {
     const repMinLen = S.analysisRepMinLen ?? 4;
     const reps = findRepetitions(raw.slice(bodyStart), { window: repWindow, minLen: repMinLen });
 
-    this.tool(container, "repetitions", "copy", "Répétitions rapprochées", (section) => {
+    this.tool(gb, "repetitions", "copy", "Répétitions rapprochées", (section) => {
       // Réglages : fenêtre (distance max en mots) et longueur mini d'un mot.
       const ctrl = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const numCtrl = (label, value, set, min) => {
@@ -607,12 +608,12 @@ export class AnalysisView extends BaseFeuilletsView {
     const vocabCollapsed = !!(S.collapsed && S.collapsed["analyse:vocab"]);
     const vocab = vocabCollapsed || Platform.isMobile ? null : this.getVocab(file, raw);
 
-    this.tool(container, "vocab", "book-a", "Vocabulaire (Grammalecte)", (section) => {
+    this.tool(gb, "vocab", "book-a", "Vocabulaire (Grammalecte)", (section) => {
       this.renderVocabInto(section, vocab);
     });
 
     // Rythme du feuillet (tags manuels de la scène active)
-    this.tool(container, "rythme", "sliders-horizontal", "Rythme du feuillet", (section) => {
+    this.tool(gb, "rythme", "sliders-horizontal", "Rythme du feuillet", (section) => {
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
         `Note l'intensité (0–${RYTHME_MAX}) de chaque dimension pour cette scène.`
       );
@@ -641,11 +642,12 @@ export class AnalysisView extends BaseFeuilletsView {
 
     // ========================= LE ROMAN =========================
     if (!this.group(container, "book-open", "Le roman", "roman")) {
+    const gb = container.createDiv({ cls: "feuillets-analysis-groupbody" });
 
     // Tableau de bord (synthèse du manuscrit)
     const dashCollapsed = !!(S.collapsed && S.collapsed["analyse:dashboard"]);
     const dash = dashCollapsed ? null : await this.getDashboard();
-    this.tool(container, "dashboard", "layout-dashboard", "Tableau de bord", (section) => {
+    this.tool(gb, "dashboard", "layout-dashboard", "Tableau de bord", (section) => {
       if (!dash) return;
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const row = (label, value) => {
@@ -682,7 +684,7 @@ export class AnalysisView extends BaseFeuilletsView {
     const chaptersCollapsed = !!(S.collapsed && S.collapsed["analyse:chapters"]);
     const chapters = chaptersCollapsed ? null : await this.getChaptersData();
 
-    this.tool(container, "chapters", "bar-chart-horizontal", "Équilibre des chapitres", (section) => {
+    this.tool(gb, "chapters", "bar-chart-horizontal", "Équilibre des chapitres", (section) => {
       if (!chapters || !chapters.length) {
         section.createDiv({ cls: "feuillets-empty" }).setText("Aucun chapitre détecté.");
         return;
@@ -720,12 +722,12 @@ export class AnalysisView extends BaseFeuilletsView {
     const romanVocabCollapsed = !!(S.collapsed && S.collapsed["analyse:vocab-roman"]);
     const romanVocab = romanVocabCollapsed || Platform.isMobile ? null : await this.getRomanVocab();
 
-    this.tool(container, "vocab-roman", "book-marked", "Vocabulaire du roman (Grammalecte)", (section) => {
+    this.tool(gb, "vocab-roman", "book-marked", "Vocabulaire du roman (Grammalecte)", (section) => {
       this.renderVocabInto(section, romanVocab);
     });
 
     // ---- Courbe narrative (déduite des tags de rythme) ----
-    this.tool(container, "curve", "activity", "Courbe narrative", (section) => {
+    this.tool(gb, "curve", "activity", "Courbe narrative", (section) => {
       const scenes = this.sceneFiles();
       const tagged = scenes.filter((f) => {
         const r = this.rythmeOf(f);
