@@ -5504,3 +5504,53 @@ body.feuillets-concentration .markdown-preview-view {
   color: var(--interactive-accent);
   font-weight: 600;
 }
+
+/* Rythme du feuillet + courbe narrative (onglet Analyse, Phase 3) */
+.feuillets-rythme-input { width: 3.5em; text-align: right; }
+
+.feuillets-curve {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: var(--size-4-2);
+}
+.feuillets-curve-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  cursor: pointer;
+}
+.feuillets-curve-row:hover .feuillets-curve-label { color: var(--text-normal); }
+.feuillets-curve-label {
+  flex: 0 0 42%;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+.feuillets-curve-bar {
+  flex: 1;
+  display: flex;
+  height: 8px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--background-modifier-border);
+}
+.feuillets-curve-bar.is-empty { opacity: 0.4; }
+.feuillets-curve-seg { min-width: 1px; }
+.feuillets-curve-seg-action { background: var(--color-orange); }
+.feuillets-curve-seg-dialogue { background: var(--color-blue); }
+.feuillets-curve-seg-description { background: var(--color-green); }
+.feuillets-curve-seg-introspection { background: var(--color-purple); }
+.feuillets-curve-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-3);
+  margin-top: var(--size-4-3);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+.feuillets-curve-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.feuillets-curve-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
