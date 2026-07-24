@@ -478,11 +478,31 @@ export class AnalysisView extends BaseFeuilletsView {
     return out;
   }
 
-  /** Intitulé de groupe (Ce feuillet / Le roman) — même langage visuel que les
-   * groupes du panneau Recherche (feuillets-entity-group : petites majuscules
-   * espacées, muet). Sépare l'analyse du feuillet actif de celle du roman. */
-  groupLabel(container, text) {
-    container.createDiv({ cls: "feuillets-entity-group" }).setText(text);
+  /** En-tête de groupe (Ce feuillet / Le roman) : grand, avec icône et
+   * repliable (masque tous les outils du groupe). État de repli persistant.
+   * Retourne true si le groupe est replié. */
+  group(container, icon, title, key) {
+    const S = this.plugin.settings;
+    const collapseKey = `analyse-group:${key}`;
+    const collapsed = !!(S.collapsed && S.collapsed[collapseKey]);
+    renderCollapsibleHead(container, {
+      classes: {
+        section: "feuillets-analysis-grouphead",
+        head: "feuillets-analysis-grouphead-inner",
+        icon: "feuillets-analysis-grouphead-icon",
+        title: "feuillets-analysis-grouphead-title",
+      },
+      title,
+      icon,
+      collapsed,
+      collapseKey,
+      settings: S,
+      onToggle: async () => {
+        await this.plugin.saveSettings();
+        this.render();
+      },
+    });
+    return collapsed;
   }
 
   async render() {
@@ -501,7 +521,7 @@ export class AnalysisView extends BaseFeuilletsView {
     const S = this.plugin.settings;
 
     // ========================= CE FEUILLET =========================
-    this.groupLabel(container, "Ce feuillet");
+    if (!this.group(container, "file-text", "Ce feuillet", "feuillet")) {
 
     this.tool(container, "metrics", "bar-chart-3", "Métriques du feuillet", (section) => {
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
@@ -617,8 +637,10 @@ export class AnalysisView extends BaseFeuilletsView {
       }
     });
 
+    } // fin du groupe « Ce feuillet »
+
     // ========================= LE ROMAN =========================
-    this.groupLabel(container, "Le roman");
+    if (!this.group(container, "book-open", "Le roman", "roman")) {
 
     // Tableau de bord (synthèse du manuscrit)
     const dashCollapsed = !!(S.collapsed && S.collapsed["analyse:dashboard"]);
@@ -741,5 +763,7 @@ export class AnalysisView extends BaseFeuilletsView {
         item.createSpan({ text: d.label });
       }
     });
+
+    } // fin du groupe « Le roman »
   }
 }
