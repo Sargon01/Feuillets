@@ -5571,3 +5571,6 @@ body.feuillets-concentration .markdown-preview-view {
   background: var(--background-modifier-hover);
   font-weight: var(--font-semibold, 600);
 }
+
+/* Bouton d'export de la synthèse (tableau de bord, onglet Analyse) */
+.feuillets-analysis-export-bar { margin-top: var(--size-4-3); }
