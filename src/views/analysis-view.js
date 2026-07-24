@@ -2,13 +2,14 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { analyzeProse } from "../utils/literary-analysis.js";
 import { formatNumber } from "../utils/text-metrics.js";
 
-const { TFile } = require("obsidian");
+const { TFile, setIcon } = require("obsidian");
 
 /** Onglet « Analyse » — Phase 1 : métriques narratives du feuillet actif
  * (voir la feuille de route Analyse). Socle FR-safe, sans NLP ; distinct du
  * correcteur grammatical (celui-ci corrige, l'analyse fait comprendre la
- * prose). Utilisé comme sous-vue de SidebarFeuilletsView : se rafraîchit au
- * changement de feuillet via renderAllSubViews. */
+ * prose). Reprend exactement le langage visuel des autres panneaux (section
+ * + liste métadonnées label/valeur, comme StatsModal / le panneau Notes).
+ * Sous-vue de SidebarFeuilletsView, rafraîchie au changement de feuillet. */
 export class AnalysisView extends BaseFeuilletsView {
   getViewType() {
     return "feuillets-analysis";
@@ -29,7 +30,7 @@ export class AnalysisView extends BaseFeuilletsView {
   async render() {
     const container = this.targetContainer || this.contentEl;
     container.empty();
-    container.addClass("feuillets-analysis-container");
+    container.addClass("feuillets-notes-container");
 
     const file = this.app.workspace.getActiveFile();
     if (!(file instanceof TFile) || file.extension !== "md") {
@@ -40,37 +41,33 @@ export class AnalysisView extends BaseFeuilletsView {
     const raw = await this.app.vault.cachedRead(file);
     const a = analyzeProse(raw);
 
-    container.createEl("h4", {
-      cls: "feuillets-analysis-title",
-      text: `Analyse — ${this.plugin.titleFor(file)}`,
-    });
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+    setIcon(head.createSpan({ cls: "feuillets-notes-section-icon" }), "bar-chart-3");
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText("Analyse du feuillet");
 
-    const list = container.createDiv({ cls: "feuillets-analysis-list" });
-    const row = (label, value, hint) => {
-      const r = list.createDiv({ cls: "feuillets-analysis-row" });
-      r.createSpan({ cls: "feuillets-analysis-label" }).setText(label);
-      r.createSpan({ cls: "feuillets-analysis-value" }).setText(value);
-      if (hint) r.setAttr("title", hint);
+    const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+    const addRow = (label, value, hint) => {
+      const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
+      row.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
+      row.createDiv({ cls: "feuillets-notes-metadata-value", text: value });
+      if (hint) row.setAttr("title", hint);
     };
 
-    row("Mots", formatNumber(a.words));
-    row("Phrases", formatNumber(a.sentences));
-    row("Paragraphes", formatNumber(a.paragraphs));
-    row("Longueur moy. des phrases", `${a.avgSentenceLength.toFixed(1)} mots`);
-    row("Longueur moy. des mots", `${a.avgWordLength.toFixed(1)} lettres`);
-    row(
+    addRow("Mots", formatNumber(a.words));
+    addRow("Phrases", formatNumber(a.sentences));
+    addRow("Paragraphes", formatNumber(a.paragraphs));
+    addRow("Longueur moy. des phrases", `${a.avgSentenceLength.toFixed(1)} mots`);
+    addRow("Longueur moy. des mots", `${a.avgWordLength.toFixed(1)} lettres`);
+    addRow(
       "Phrases longues (>40 mots)",
       formatNumber(a.longSentenceCount),
       "Phrases à envisager d'alléger"
     );
-    row(
+    addRow(
       "Ratio dialogue",
       `${Math.round(a.dialogueRatio * 100)} %`,
       "Part des mots dans des paragraphes de dialogue (estimation)"
-    );
-
-    container.createDiv({ cls: "feuillets-analysis-note" }).setText(
-      "Métriques du feuillet actif. Répétitions, équilibre des chapitres et courbe narrative arrivent dans les prochaines phases."
     );
   }
 }
