@@ -149,7 +149,8 @@ export class AnalysisView extends BaseFeuilletsView {
     const verbs = new Map();
     const adjs = new Map();
     const advs = new Map();
-    const lemmaSet = new Set();
+    const allLemmas = new Map();
+    const ment = new Map();
     let contentTotal = 0;
     const bump = (map, lemma, n) => {
       if (lemma) map.set(lemma, (map.get(lemma) || 0) + n);
@@ -177,18 +178,29 @@ export class AnalysisView extends BaseFeuilletsView {
       bump(advs, lw, n);
       if (content) {
         contentTotal += n;
-        if (lany) lemmaSet.add(lany);
+        if (lany) allLemmas.set(lany, (allLemmas.get(lany) || 0) + n);
+      }
+      // Adverbes en -ment (surface tagguée adverbe, > 5 lettres) : surveiller
+      // leur profusion, tic de style fréquent.
+      if (lw && word.length > 5 && word.endsWith("ment")) {
+        ment.set(word, (ment.get(word) || 0) + n);
       }
     }
 
     const top = (map, k) => [...map.entries()].sort((x, y) => y[1] - x[1]).slice(0, k);
+    const hapaxCount = [...allLemmas.values()].filter((v) => v === 1).length;
+    const mentTotal = [...ment.values()].reduce((s, v) => s + v, 0);
     return {
-      richness: contentTotal ? lemmaSet.size / contentTotal : 0,
-      uniqueLemmas: lemmaSet.size,
+      richness: contentTotal ? allLemmas.size / contentTotal : 0,
+      uniqueLemmas: allLemmas.size,
+      hapaxCount,
       contentTotal,
       verbs: top(verbs, 8),
       adjs: top(adjs, 8),
       advs: top(advs, 8),
+      mentTotal,
+      mentPct: contentTotal ? Math.round((mentTotal / contentTotal) * 1000) / 10 : 0,
+      mentTop: top(ment, 6),
     };
   }
 
@@ -219,15 +231,18 @@ export class AnalysisView extends BaseFeuilletsView {
     );
   }
 
-  /** Sélectionne et fait défiler jusqu'à un décalage caractère dans l'éditeur
-   * du feuillet actif (navigation depuis une répétition). */
-  gotoOffset(offset, len) {
+  /** Sélectionne TOUTES les occurrences d'une répétition dans l'éditeur du
+   * feuillet actif (sélections multiples CodeMirror → les mots répétés sont
+   * surlignés dans le texte) et fait défiler jusqu'à la première. */
+  highlightAll(bodyStart, offsets, len) {
     const editor = this.plugin.activeEditorAnywhere();
-    if (!editor) return;
-    const from = editor.offsetToPos(offset);
-    const to = editor.offsetToPos(offset + len);
-    editor.setSelection(from, to);
-    editor.scrollIntoView({ from, to }, true);
+    if (!editor || !offsets.length) return;
+    const ranges = offsets.map((o) => ({
+      anchor: editor.offsetToPos(bodyStart + o),
+      head: editor.offsetToPos(bodyStart + o + len),
+    }));
+    editor.setSelections(ranges);
+    editor.scrollIntoView({ from: ranges[0].anchor, to: ranges[0].head }, true);
   }
 
   /** Intensités `rythme` d'une scène, normalisées 0–RYTHME_MAX (0 si absent). */
@@ -304,11 +319,11 @@ export class AnalysisView extends BaseFeuilletsView {
           cls: "feuillets-notes-metadata-value",
           text: `×${rep.count} · à ${rep.minGap} mots`,
         });
-        row.setAttr("title", "Cliquer pour aller à l'occurrence suivante");
-        let idx = 0;
+        row.setAttr("title", "Cliquer pour surligner toutes les occurrences dans le texte");
         row.addEventListener("click", () => {
-          this.gotoOffset(bodyStart + rep.offsets[idx % rep.offsets.length], rep.word.length);
-          idx++;
+          list.querySelectorAll(".is-active").forEach((el) => el.removeClass("is-active"));
+          row.addClass("is-active");
+          this.highlightAll(bodyStart, rep.offsets, rep.word.length);
         });
       }
       if (reps.length > MAXROWS) {
@@ -335,7 +350,8 @@ export class AnalysisView extends BaseFeuilletsView {
       }
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
         `Richesse lexicale ${Math.round(vocab.richness * 100)} % · ` +
-          `${formatNumber(vocab.uniqueLemmas)} lemmes / ${formatNumber(vocab.contentTotal)} mots pleins`
+          `${formatNumber(vocab.uniqueLemmas)} lemmes / ${formatNumber(vocab.contentTotal)} mots pleins · ` +
+          `${formatNumber(vocab.hapaxCount)} hapax`
       );
       const group = (label, entries) => {
         const g = section.createDiv({ cls: "feuillets-analysis-summary feuillets-vocab-group" });
@@ -354,6 +370,11 @@ export class AnalysisView extends BaseFeuilletsView {
       group("Verbes favoris", vocab.verbs);
       group("Adjectifs favoris", vocab.adjs);
       group("Adverbes favoris", vocab.advs);
+      group(
+        `Adverbes en -ment : ${formatNumber(vocab.mentTotal)} (${vocab.mentPct} %)` +
+          (vocab.mentPct >= 3 ? " · à surveiller" : ""),
+        vocab.mentTop
+      );
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
         "Morphologie française (Grammalecte) — formes ambiguës comptées au plus large, indicatif."
       );
