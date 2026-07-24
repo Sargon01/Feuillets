@@ -16,3 +16,6 @@ data.json
 # Editor/OS cruft
 *.log
 .vscode/
+
+# Sorties de repomix (export du dépôt pour analyse) — régénérables
+repomix-output.*
