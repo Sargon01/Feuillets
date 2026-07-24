@@ -1,4 +1,4 @@
-const { Notice, TFolder, normalizePath } = require("obsidian");
+const { Notice, TFolder, TFile, normalizePath } = require("obsidian");
 import { NewSheetModal, NewFolderModal } from "../ui/basic-modals.js";
 import { getProjectFolder, getOrderedChildren } from "./folder-structure.js";
 import { getResearchRoot } from "./research.js";
@@ -59,6 +59,45 @@ export async function snapshotFile(app, file, root) {
   return stamp;
 }
 
+/** Récupère la liste des fichiers snapshots (.md) pour un feuillet, triés du plus récent au plus ancien. */
+export function listSnapshotFiles(app, file, root) {
+  if (!file || !root) return [];
+  const candidates = [root.path, root.parent ? root.parent.path : null].filter(Boolean);
+  const snapshotFolderNames = ["Snapshots", "_Snapshots"];
+  const found = [];
+
+  for (const base of candidates) {
+    for (const folderName of snapshotFolderNames) {
+      // 1. Recherche dans le sous-dossier Snapshots/<file.basename>/
+      const subFolderPath = normalizePath(`${base}/${folderName}/${file.basename}`);
+      const subFolder = app.vault.getAbstractFileByPath(subFolderPath);
+      if (subFolder instanceof TFolder && Array.isArray(subFolder.children)) {
+        for (const child of subFolder.children) {
+          if (child instanceof TFile && !found.some((f) => f.path === child.path)) {
+            found.push(child);
+          }
+        }
+      }
+
+      // 2. Recherche directe dans Snapshots/ (pour compatibilité)
+      const mainFolderPath = normalizePath(`${base}/${folderName}`);
+      const mainFolder = app.vault.getAbstractFileByPath(mainFolderPath);
+      if (mainFolder instanceof TFolder && Array.isArray(mainFolder.children)) {
+        const targetName = file.basename.toLowerCase();
+        for (const child of mainFolder.children) {
+          if (child instanceof TFile && child.name && child.name.toLowerCase().includes(targetName)) {
+            if (!found.some((f) => f.path === child.path)) {
+              found.push(child);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return found.sort((a, b) => b.stat.mtime - a.stat.mtime);
+}
+
 /** Crée les dossiers _ et les fichiers Bases (personnages, lieux). */
 export async function initProjectStructure(app, settings) {
   const root = getProjectFolder(app, settings);
@@ -99,6 +138,8 @@ export async function initProjectStructure(app, settings) {
   await ensureFolder(app, resPath);
   await ensureFolder(app, `${resPath}/Templates`);
   await ensureFolder(app, `${resPath}/Export`);
+  await ensureFolder(app, `${resPath}/Visuels`);
+  await ensureFolder(app, `${resPath}/Modèles`);
 
   const writeTemplate = async (path, content) => {
     const norm = normalizePath(path);
@@ -106,6 +147,36 @@ export async function initProjectStructure(app, settings) {
       await app.vault.create(norm, content).catch(() => {});
     }
   };
+
+  /* Exemple de modèle d'export personnalisé — un point de départ concret
+     à dupliquer plutôt qu'une page blanche. Même format que les modèles
+     intégrés (src/utils/export-templates.js), lu via le frontmatter
+     (voir services/export-templates-custom.js), pas de format à part. */
+  await writeTemplate(`${resPath}/Modèles/Exemple.md`, [
+    "---",
+    "label: Mon modèle",
+    "fontFamily: Georgia, serif",
+    "fontSizePt: 12",
+    "lineHeight: 1.5",
+    "align: justify",
+    "indent: true",
+    "marginCm: 2.5",
+    "paragraphSpacing: false",
+    "pageNumbers: true",
+    "hyphenation: true",
+    'sceneDivider: "* * *"',
+    "---",
+    "",
+    "Ce fichier est un modèle d'export personnalisé — il apparaît dans le",
+    "menu « Compiler et exporter » sous le nom « Mon modèle ». Modifie les",
+    "champs ci-dessus (dans le panneau Propriétés ou en texte) pour créer",
+    "ton propre style, et duplique ce fichier pour en créer d'autres.",
+    "",
+    "Champs avancés possibles (voir src/utils/export-templates.js pour la",
+    "liste complète) : headings (styles par niveau de titre), marginsCm",
+    "(marges asymétriques), pageOrientation, columns, blockquote...",
+    ""
+  ].join("\n"));
 
   const isFiction = getProjectMode(app, settings).yamlPreset === "roman" || getProjectMode(app, settings).yamlPreset === "nouvelle";
 
@@ -186,6 +257,9 @@ export async function initProjectStructure(app, settings) {
       'titre: "Nouvelle source"',
       "auteur: ",
       "date: ",
+      "editeur: ",
+      "pages: ",
+      "url: ",
       "synopsis: ",
       "tags:",
       "  - source",
@@ -268,6 +342,36 @@ export async function initProjectStructure(app, settings) {
      binder au même niveau que les Parties, juste avant elles. */
   await ensureFolder(app, `${root.path}/Front`);
 
+  /* Page de titre pré-remplie : structure à rôles (:::titre:, :::sous-titre:…
+     — voir utils/title-roles.js) prête à compléter, seul le titre étant
+     rempli d'emblée avec le nom du projet (même source que le titre du
+     manuscrit, settings.manuscriptTitle sinon le nom du dossier). Écrite via
+     writeTemplate : idempotent, ne réécrit jamais une page de titre déjà
+     composée. */
+  const projectTitle = settings.manuscriptTitle || root.name;
+  await writeTemplate(`${root.path}/Front/Page de titre.md`, [
+    "---",
+    `titre: ${projectTitle}`,
+    "titre_binder: ",
+    "ordre: 1",
+    "synopsis: ",
+    "statut: ",
+    "label: ",
+    "tags: ",
+    "date: ",
+    "notes: ",
+    "compiler: true",
+    "type: titre",
+    "---",
+    `:::titre: ${projectTitle}`,
+    ":::sous-titre: ",
+    ":::mots: ",
+    ":::auteur: ",
+    ":::adresse: ",
+    ":::coordonnées: ",
+    "",
+  ].join("\n"));
+
   const listParts = [`Front`, `Recherche`, `Snapshots`, `Ressources`, `Journal`].join(", ");
   new Notice(
     `Structure initialisée : ${listParts}.`
@@ -300,7 +404,7 @@ export function newSheet(app, settings, folder) {
     const lines = [
       "---",
       `titre: ${chapTitle || ""}`,
-      "titre_court: ",
+      "titre_binder: ",
       `ordre: ${position}`,
       ...(isFiction ? ["synopsis: "] : ["resume: "]),
       "statut: ",
