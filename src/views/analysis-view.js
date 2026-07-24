@@ -13,6 +13,15 @@ function lemmaOfMorph(morph) {
   return m ? m[1] : "";
 }
 
+/** Verbes intransitifs formant leur passé composé avec « être » : « il est
+ * arrivé » n'est PAS une voix passive — à exclure de la détection. */
+const ETRE_INTRANSITIFS = new Set([
+  "aller", "arriver", "décéder", "demeurer", "descendre", "devenir", "entrer",
+  "intervenir", "monter", "mourir", "naître", "partir", "parvenir", "passer",
+  "provenir", "rentrer", "repartir", "rester", "retomber", "retourner",
+  "revenir", "sortir", "survenir", "tomber", "venir",
+]);
+
 /* Courbe narrative (Phase 3) : chaque scène reçoit, DANS SON FRONTMATTER, une
    intensité 0–5 par dimension, sous la clé `rythme`. Tags MANUELS (posés par
    l'autrice) — pas de classification automatique, peu fiable. La courbe du
@@ -138,11 +147,23 @@ export class AnalysisView extends BaseFeuilletsView {
     const sc = checker.spellChecker;
 
     const clean = stripWritingNoise(rawText || "");
+    const morphCache = new Map();
+    const morphsOf = (w) => {
+      let mm = morphCache.get(w);
+      if (mm === undefined) {
+        mm = sc.getMorph(w) || [];
+        morphCache.set(w, mm);
+      }
+      return mm;
+    };
+
     const re = /[\p{L}][\p{L}\p{N}'’-]*/gu;
+    const ordered = [];
     const freq = new Map();
     let m;
     while ((m = re.exec(clean)) !== null) {
       const key = m[0].toLowerCase();
+      ordered.push(key);
       freq.set(key, (freq.get(key) || 0) + 1);
     }
 
@@ -157,7 +178,7 @@ export class AnalysisView extends BaseFeuilletsView {
     };
 
     for (const [word, n] of freq) {
-      const morphs = sc.getMorph(word) || [];
+      const morphs = morphsOf(word);
       if (!morphs.length) continue;
       let lv = "";
       let la = "";
@@ -187,10 +208,33 @@ export class AnalysisView extends BaseFeuilletsView {
       }
     }
 
+    // Voix passive : forme d'« être » suivie (1–2 mots) d'un participe passé
+    // (tag :Q), hors verbes intransitifs à auxiliaire être. Estimation.
+    const isEtre = (w) => morphsOf(w).some((mo) => /:V/.test(mo) && lemmaOfMorph(mo) === "être");
+    const ppLemma = (w) => {
+      for (const mo of morphsOf(w)) {
+        if (/:V/.test(mo) && mo.includes(":Q")) return lemmaOfMorph(mo);
+      }
+      return "";
+    };
+    let passiveCount = 0;
+    for (let i = 0; i < ordered.length; i++) {
+      if (!isEtre(ordered[i])) continue;
+      const end = Math.min(i + 2, ordered.length - 1);
+      for (let j = i + 1; j <= end; j++) {
+        const pl = ppLemma(ordered[j]);
+        if (pl && pl !== "être" && !ETRE_INTRANSITIFS.has(pl)) {
+          passiveCount++;
+          break;
+        }
+      }
+    }
+
     const top = (map, k) => [...map.entries()].sort((x, y) => y[1] - x[1]).slice(0, k);
     const hapaxCount = [...allLemmas.values()].filter((v) => v === 1).length;
     const mentTotal = [...ment.values()].reduce((s, v) => s + v, 0);
     return {
+      passiveCount,
       richness: contentTotal ? allLemmas.size / contentTotal : 0,
       uniqueLemmas: allLemmas.size,
       hapaxCount,
@@ -217,6 +261,53 @@ export class AnalysisView extends BaseFeuilletsView {
     }
     this._vocabCache = { path: file.path, data };
     return data;
+  }
+
+  /** Tableau de bord roman (Phase 6) : agrégats sur tout le manuscrit —
+   * indicateurs BRUTS et actionnables (pas de score composite opaque). Lourd
+   * (lit tout le manuscrit) : mis en cache, invalidé sur modification. */
+  async computeDashboard() {
+    const scenes = this.sceneFiles();
+    let words = 0;
+    let dialogueWeighted = 0;
+    let repZones = 0;
+    const uniqueSurface = new Set();
+    for (const f of scenes) {
+      const raw = await this.app.vault.cachedRead(f);
+      const a = analyzeProse(raw);
+      words += a.words;
+      dialogueWeighted += a.dialogueRatio * a.words;
+      const fm = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+      const body = raw.slice(fm ? fm[0].length : 0);
+      repZones += findRepetitions(body).length;
+      for (const w of (stripWritingNoise(body).toLowerCase().match(/[\p{L}][\p{L}'-]{2,}/gu) || [])) {
+        uniqueSurface.add(w);
+      }
+    }
+    const chapters = await this.getChaptersData();
+    const counts = chapters.map((c) => c.words);
+    const med = median(counts);
+    const outliers = counts.filter((w) => med > 0 && (w > med * 1.75 || w < med * 0.4)).length;
+    const tagged = scenes.filter((f) => {
+      const r = this.rythmeOf(f);
+      return RYTHME_DIMS.some((d) => r[d.key] > 0);
+    }).length;
+    return {
+      words,
+      scenes: scenes.length,
+      chapters: chapters.length,
+      dialoguePct: words ? Math.round((dialogueWeighted / words) * 100) : 0,
+      repZones,
+      outliers,
+      uniqueSurface: uniqueSurface.size,
+      tagged,
+      taggedPct: scenes.length ? Math.round((tagged / scenes.length) * 100) : 0,
+    };
+  }
+
+  async getDashboard() {
+    if (!this._dashboardCache) this._dashboardCache = await this.computeDashboard();
+    return this._dashboardCache;
   }
 
   /** Scènes du manuscrit dans l'ordre (fichiers md, hors Front). Lecture du
@@ -271,6 +362,27 @@ export class AnalysisView extends BaseFeuilletsView {
     const raw = await this.app.vault.cachedRead(file);
     const a = analyzeProse(raw);
     const S = this.plugin.settings;
+
+    // ---- Tableau de bord (roman) : synthèse en tête ----
+    const dashCollapsed = !!(S.collapsed && S.collapsed["analyse:dashboard"]);
+    const dash = dashCollapsed ? null : await this.getDashboard();
+    this.tool(container, "dashboard", "layout-dashboard", "Tableau de bord (roman)", (section) => {
+      if (!dash) return;
+      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      const row = (label, value) => {
+        const r = list.createDiv({ cls: "feuillets-notes-metadata-row" });
+        r.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
+        r.createDiv({ cls: "feuillets-notes-metadata-value", text: value });
+      };
+      row("Mots", formatNumber(dash.words));
+      row("Chapitres", formatNumber(dash.chapters));
+      row("Scènes", formatNumber(dash.scenes));
+      row("Ratio dialogue", `${dash.dialoguePct} %`);
+      row("Mots différents", formatNumber(dash.uniqueSurface));
+      row("Zones de répétition", formatNumber(dash.repZones));
+      row("Chapitres déséquilibrés", formatNumber(dash.outliers));
+      row("Scènes taguées (rythme)", `${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`);
+    });
 
     this.tool(container, "metrics", "bar-chart-3", "Métriques du feuillet", (section) => {
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
@@ -374,6 +486,9 @@ export class AnalysisView extends BaseFeuilletsView {
         `Adverbes en -ment : ${formatNumber(vocab.mentTotal)} (${vocab.mentPct} %)` +
           (vocab.mentPct >= 3 ? " · à surveiller" : ""),
         vocab.mentTop
+      );
+      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+        `Voix passive : ${formatNumber(vocab.passiveCount)} tournure(s) (estimation)`
       );
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
         "Morphologie française (Grammalecte) — formes ambiguës comptées au plus large, indicatif."
