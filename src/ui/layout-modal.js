@@ -2,9 +2,11 @@ import {
   listExportTemplates,
   resolveExportTemplate,
   updateTemplateTitlePage,
+  exportBuiltInTemplates,
 } from "../services/export-templates-custom.js";
+import { CompileSelectionModal } from "./selection-modals.js";
 
-const { Modal, Setting } = require("obsidian");
+const { Modal, Setting, Notice, Platform } = require("obsidian");
 
 /* Échelle de la maquette : la zone de contenu (entre bande en-tête et bande
    pied de page) représente la hauteur utile d'une A4 (≈700pt). Aperçu, pas
@@ -51,8 +53,14 @@ export class LayoutModal extends Modal {
       this.templateKey = this.templates[0].key;
     }
 
-    // Barre de config : Preset + Modèle, réglables sans quitter le modal.
+    // Barre de config : feuillets, preset, modèle, format — tout le réglage
+    // de compilation réuni ici, réglable sans quitter le modal.
     const bar = contentEl.createDiv({ cls: "feuillets-tp-configbar" });
+
+    new Setting(bar).setName("Feuillets").addButton((b) =>
+      b.setButtonText("Choisir…").onClick(() => new CompileSelectionModal(this.app, this.plugin).open())
+    );
+
     const presets = S.compilePresets || [];
     new Setting(bar).setName("Preset").addDropdown((d) => {
       d.addOption("-1", "Réglages par défaut");
@@ -64,22 +72,64 @@ export class LayoutModal extends Modal {
         this.notifyChange();
       });
     });
-    new Setting(bar).setName("Modèle").addDropdown((d) => {
-      this.templates.forEach((t) => d.addOption(t.key, t.label));
-      d.setValue(this.templateKey);
+
+    new Setting(bar)
+      .setName("Modèle")
+      .addDropdown((d) => {
+        this.templates.forEach((t) => d.addOption(t.key, t.label));
+        d.setValue(this.templateKey);
+        d.onChange(async (v) => {
+          this.templateKey = v;
+          const t = this.templates.find((x) => x.key === v);
+          this.templateLabel = t ? t.label : v;
+          S.exportTemplate = v;
+          await this.plugin.saveSettings();
+          this.notifyChange();
+          await this.renderLayout();
+        });
+      })
+      .addExtraButton((b) =>
+        b
+          .setIcon("copy-plus")
+          .setTooltip("Exporter les modèles intégrés vers Ressources/Modèles…")
+          .onClick(async () => {
+            const n = await exportBuiltInTemplates(this.app, S);
+            new Notice(
+              n > 0
+                ? `${n} modèle(s) exporté(s) dans Ressources/Modèles.`
+                : "Tous les modèles sont déjà présents dans Ressources/Modèles."
+            );
+          })
+      );
+
+    new Setting(bar).setName("Format").addDropdown((d) => {
+      d.addOption("docx", ".docx (Word)");
+      d.addOption("odt", ".odt (LibreOffice)");
+      d.addOption("epub", ".epub (Ebook)");
+      d.addOption("md", ".md (Markdown)");
+      if (!Platform.isMobile) d.addOption("pdf", ".pdf (PDF)");
+      d.setValue(S.exportFormat || "docx");
       d.onChange(async (v) => {
-        this.templateKey = v;
-        const t = this.templates.find((x) => x.key === v);
-        this.templateLabel = t ? t.label : v;
-        S.exportTemplate = v;
+        S.exportFormat = v;
         await this.plugin.saveSettings();
         this.notifyChange();
-        await this.renderLayout();
       });
     });
 
     this.layoutContainer = contentEl.createDiv();
     await this.renderLayout();
+
+    const footer = contentEl.createDiv({ cls: "feuillets-tp-footer" });
+    new Setting(footer).addButton((b) =>
+      b.setButtonText("Exporter").setCta().onClick(() => this.doExport())
+    );
+  }
+
+  doExport() {
+    const fmt = this.plugin.settings.exportFormat || "docx";
+    this.close();
+    if (fmt === "md") this.plugin.compile();
+    else this.plugin.exportFile(fmt);
   }
 
   /** (Re)charge les blocs du modèle courant et (re)construit la maquette

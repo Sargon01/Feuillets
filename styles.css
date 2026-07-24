@@ -5452,3 +5452,11 @@ body.feuillets-concentration .markdown-preview-view {
   padding: 4px 0;
   flex: 1 1 200px;
 }
+
+/* Pied de l'éditeur de mise en page : bouton Exporter aligné à droite */
+.feuillets-tp-footer {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+.feuillets-tp-footer .setting-item { border: none; padding: 0; }

@@ -1,9 +1,9 @@
-const { Notice, Menu, Platform, setIcon } = require("obsidian");
+const { Notice, Platform, setIcon } = require("obsidian");
 
 import { VIEW_PROJECT } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { CompileSelectionModal } from "../ui/selection-modals.js";
-import { listExportTemplates, exportBuiltInTemplates } from "../services/export-templates-custom.js";
+import { listExportTemplates } from "../services/export-templates-custom.js";
 import { LayoutModal } from "../ui/layout-modal.js";
 
 /** Panneau Compilation / export (Bouton de sélection des feuillets dans
@@ -90,103 +90,21 @@ export class ProjectView extends BaseFeuilletsView {
     );
     if (collapsed) return;
 
-    // 1. Sélection du Preset (Au-dessus du Modèle)
-    const presets = S.compilePresets || [];
-    const presetName =
-      S.activePreset >= 0 && presets[S.activePreset]
-        ? presets[S.activePreset].name || `Preset ${S.activePreset + 1}`
-        : "Réglages par défaut";
-    this.makeRow(section, "sliders-horizontal", `Preset : ${presetName}`, (e) => {
-      const menu = new Menu();
-      menu.addItem((item) =>
-        item
-          .setTitle("Réglages par défaut")
-          .setChecked(S.activePreset < 0)
-          .onClick(async () => {
-            S.activePreset = -1;
-            await this.plugin.saveSettings();
-            this.render();
-          })
-      );
-      presets.forEach((p, i) => {
-        menu.addItem((item) =>
-          item
-            .setTitle(p.name || `Preset ${i + 1}`)
-            .setChecked(S.activePreset === i)
-            .onClick(async () => {
-              S.activePreset = i;
-              await this.plugin.saveSettings();
-              this.render();
-            })
-        );
-      });
-      menu.showAtMouseEvent(e);
-    });
-
-    // 2. Choix du modèle éditorial
+    /* Tout le réglage de compilation (feuillets à compiler, preset, modèle,
+       en-tête/pied de page, blocs de la page de titre) est réuni dans le hub
+       — l'éditeur de mise en page (LayoutModal). Le panneau ne garde que
+       l'accès au hub, le format et le bouton Exporter (chemin rapide). */
     const templates = await listExportTemplates(this.app, S);
     const currentTpl = templates.find((t) => t.key === S.exportTemplate) || templates[0];
-    this.makeRow(
-      section,
-      "layout-template",
-      `Modèle : ${currentTpl ? currentTpl.label : "Classique"}`,
-      (e) => {
-        const menu = new Menu();
-        templates.forEach((t) => {
-          menu.addItem((item) =>
-            item
-              .setTitle(t.label)
-              .setChecked(S.exportTemplate === t.key)
-              .onClick(async () => {
-                S.exportTemplate = t.key;
-                await this.plugin.saveSettings();
-                this.render();
-              })
-          );
-        });
-        menu.addSeparator();
-        menu.addItem((item) =>
-          item
-            .setTitle("Exporter les modèles intégrés vers Ressources/Modèles…")
-            .setIcon("copy-plus")
-            .onClick(async () => {
-              const n = await exportBuiltInTemplates(this.app, S);
-              new Notice(
-                n > 0
-                  ? `${n} modèle(s) exporté(s) dans Ressources/Modèles.`
-                  : "Tous les modèles sont déjà présents dans Ressources/Modèles."
-              );
-            })
-        );
-        menu.showAtMouseEvent(e);
+    this.makeRow(section, "sliders", "Compilation & mise en page…", () => {
+      if (!currentTpl) {
+        new Notice("Aucun modèle disponible.");
+        return;
       }
-    );
+      new LayoutModal(this.app, this.plugin, currentTpl.key, currentTpl.label, () => this.render()).open();
+    });
 
-    // 3. Sous-rubrique "Mise en page" identique au panneau propriétés (sans aucun cadre de couleur)
-    const optionsSection = section.createDiv({ cls: "feuillets-sub-section" });
-    const optionsCollapsed = this.renderSectionHead(
-      optionsSection,
-      "layout-grid",
-      "Mise en page",
-      "compilation",
-      "options",
-      null
-    );
-
-    if (!optionsCollapsed) {
-      /* Mise en page unifiée : en-tête, blocs de titre et pied de page se
-         règlent ensemble dans un éditeur visuel (une maquette A4), plutôt
-         qu'en réglages séparés — voir LayoutModal. */
-      this.makeRow(optionsSection, "layout-template", "Éditer la mise en page…", () => {
-        if (!currentTpl) {
-          new Notice("Aucun modèle sélectionné.");
-          return;
-        }
-        new LayoutModal(this.app, this.plugin, currentTpl.key, currentTpl.label, () => this.render()).open();
-      });
-    }
-
-    // 4. Ligne "Format" avec sélection du format
+    // Ligne "Format" avec sélection du format (accès rapide)
     const formatSelect = this.createEl("select", { cls: "feuillets-properties-value" });
     formatSelect.createEl("option", { text: ".docx (Word)", value: "docx" });
     formatSelect.createEl("option", { text: ".odt (LibreOffice)", value: "odt" });
