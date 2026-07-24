@@ -12,9 +12,9 @@ const { Modal, Setting, Notice, Platform } = require("obsidian");
    pied de page) représente la hauteur utile d'une A4 (≈700pt). Aperçu, pas
    rendu exact — les valeurs restent en points. */
 const PAGE_USABLE_PT = 700;
-const MOCKUP_H_PX = 470;
-const HEADER_PX = 30;
-const FOOTER_PX = 30;
+const MOCKUP_H_PX = 400;
+const HEADER_PX = 26;
+const FOOTER_PX = 26;
 const SCALE = (MOCKUP_H_PX - HEADER_PX - FOOTER_PX) / PAGE_USABLE_PT;
 
 /** Éditeur visuel de MISE EN PAGE (option A) : une seule maquette A4 réunit
@@ -41,10 +41,10 @@ export class LayoutModal extends Modal {
     const { contentEl, modalEl } = this;
     modalEl.addClass("feuillets-titlepage-modal");
     contentEl.empty();
-    this.titleEl = contentEl.createEl("h3");
+    this.titleEl = contentEl.createEl("h3", { cls: "feuillets-tp-title" });
     contentEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Clique une zone pour l'éditer : en-tête (haut), blocs de titre (milieu, glissables verticalement), pied de page (bas). En-tête/pied sont globaux ; les blocs sont propres au modèle.",
+      cls: "setting-item-description feuillets-tp-desc",
+      text: "Clique une zone (en-tête, blocs de titre, pied de page) pour l'éditer.",
     });
 
     const S = this.plugin.settings;
