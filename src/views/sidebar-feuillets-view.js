@@ -48,10 +48,16 @@ export class SidebarFeuilletsView extends ItemView {
     /* Les sous-vues ne reçoivent pas leur propre onOpen (elles ne sont pas
        ouvertes comme feuilles) : leurs écouteurs ne se déclenchent donc pas.
        Le panneau, lui, est une vraie feuille — on y rafraîchit l'onglet actif
-       qui dépend du feuillet courant (Analyse) à chaque ouverture de fichier. */
+       à chaque ouverture de fichier, pour tous les onglets dont le contenu
+       dépend du feuillet courant (Notes, Correcteur, Analyse — tous lisent
+       getActiveFile). Recherche/Projet/Journal ne dépendent pas du feuillet
+       et ne sont donc pas re-rendus inutilement. */
+    const FEUILLET_TABS = new Set(["notes", "grammar", "analyse"]);
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
-        if (this.activeTab === "analyse") this.subViews.analyse.render(true);
+        if (!FEUILLET_TABS.has(this.activeTab)) return;
+        const sub = this.subViews[this.activeTab];
+        if (sub && typeof sub.render === "function") sub.render(true);
       })
     );
   }
