@@ -4,6 +4,9 @@ import { AppearancesModal, FolderGoalModal, TagsModal } from "../ui/entity-modal
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
+import { promptForPage } from "../ui/citation-modal.js";
+import { DiffModal } from "../ui/diff-modal.js";
+import { listSnapshotFiles } from "../services/project-files.js";
 
 function getResearchSectionIcon(key) {
   return {
@@ -25,6 +28,7 @@ const {
   Notice,
   normalizePath,
   setIcon,
+  setTooltip,
   Menu,
   MarkdownRenderer,
   Keymap,
@@ -272,11 +276,40 @@ export class BaseFeuilletsView extends ItemView {
     const baseResearch = researchRoot
       ? researchRoot.path
       : `${root.path}/_Recherche`;
-    await this.plugin.ensureFolder(baseResearch);
+    const baseResearchFolder = await this.plugin.ensureFolder(baseResearch);
     if (this._renderGen !== gen) return;
 
     const mode = this.plugin.projectMode();
     const rf = mode.researchFolders;
+
+    if (rf.sources) {
+      /* à côté de la barre de recherche : cherche dans Sources ET
+         Bibliographie à la fois (l'icône "+" de chaque fiche, plus bas,
+         cite directement CETTE entrée sans recherche). */
+      const citeSearchBtn = this.iconBtn(
+        toolbar,
+        "quote",
+        "Insérer une citation (recherche dans Sources et Bibliographie)"
+      );
+      citeSearchBtn.addEventListener("click", () => this.plugin.openInsertCitation());
+
+      const renumberBtn = this.iconBtn(
+        toolbar,
+        "list-ordered",
+        "Renuméroter les notes de bas de page du feuillet actif"
+      );
+      renumberBtn.addEventListener("click", () => this.plugin.renumberActiveFootnotes());
+    }
+
+    /* Rubriques personnalisées (voir plus bas, "customFolders") : au lieu
+       d'imposer un jeu figé de dossiers, l'utilisateur crée exactement
+       les catégories dont SON sujet a besoin — un sous-dossier de
+       Recherche/ créé ici apparaît automatiquement comme sa propre
+       section. Disponible en fiction comme en non-fiction. */
+    const newFolderBtn = this.iconBtn(toolbar, "folder-plus", "Nouvelle rubrique de recherche…");
+    newFolderBtn.addEventListener("click", () => {
+      if (baseResearchFolder) this.plugin.newFolder(baseResearchFolder);
+    });
 
     const sourcesFolder = rf.sources
       ? await this.plugin.ensureFolder(`${baseResearch}/${rf.sources.label}`)
@@ -284,30 +317,47 @@ export class BaseFeuilletsView extends ItemView {
     const bibliographieFolder = await this.plugin.ensureFolder(
       `${baseResearch}/${rf.bibliographie.label}`
     );
-    const personnagesFolder = await this.plugin.ensureFolder(
-      `${baseResearch}/${rf.personnages.label}`
-    );
-    const lieuxFolder = await this.plugin.ensureFolder(
-      `${baseResearch}/${rf.lieux.label}`
-    );
-    const codexFolder = await this.plugin.ensureFolder(
-      `${baseResearch}/${rf.codex.label}`
-    );
-    const glossaireFolder = await this.plugin.ensureFolder(
-      `${baseResearch}/${rf.glossaire.label}`
-    );
-    const chronoFolder =
-      this.plugin.getChronoFolder() ||
-      (await this.plugin.ensureFolder(`${baseResearch}/Chronologie`));
+    /* Rationalisation : en non-fiction, Sources reste la SEULE
+       bibliothèque de travail — Bibliographie devient la vue agrégée des
+       sources citées (voir plus bas), plus un dossier de fiches
+       manuelles. Migration automatique, idempotente (ne fait rien une
+       fois les fiches déjà déplacées) : ne s'exécute jamais en fiction,
+       où Bibliographie garde son sens d'origine. */
+    if (rf.sources && sourcesFolder) {
+      await this.plugin.migrateBibliographieIntoSources(bibliographieFolder, sourcesFolder);
+    }
+    /* rf.personnages/lieux/codex/glossaire/evenements n'existent plus en
+       non-fiction (voir utils/project-modes.js) — plus de dossier imposé
+       ni auto-créé pour ces catégories : à l'utilisateur de créer les
+       rubriques utiles à SON sujet via le bouton "Nouvelle rubrique". Un
+       dossier déjà existant sur le disque (ancien projet, avant ce
+       changement) continue de fonctionner : non reconnu ici, il tombe
+       simplement dans "customFolders" plus bas et reste visible avec son
+       contenu — rien n'est supprimé automatiquement. */
+    const personnagesFolder = rf.personnages
+      ? await this.plugin.ensureFolder(`${baseResearch}/${rf.personnages.label}`)
+      : null;
+    const lieuxFolder = rf.lieux
+      ? await this.plugin.ensureFolder(`${baseResearch}/${rf.lieux.label}`)
+      : null;
+    const codexFolder = rf.codex
+      ? await this.plugin.ensureFolder(`${baseResearch}/${rf.codex.label}`)
+      : null;
+    const glossaireFolder = rf.glossaire
+      ? await this.plugin.ensureFolder(`${baseResearch}/${rf.glossaire.label}`)
+      : null;
+    const chronoFolder = rf.evenements
+      ? this.plugin.getChronoFolder() || (await this.plugin.ensureFolder(`${baseResearch}/Chronologie`))
+      : this.plugin.getChronoFolder();
 
     const standardPaths = new Set([
       sourcesFolder ? sourcesFolder.path : "",
       bibliographieFolder.path,
-      personnagesFolder.path,
-      lieuxFolder.path,
-      codexFolder.path,
-      glossaireFolder.path,
-      chronoFolder.path,
+      personnagesFolder ? personnagesFolder.path : "",
+      lieuxFolder ? lieuxFolder.path : "",
+      codexFolder ? codexFolder.path : "",
+      glossaireFolder ? glossaireFolder.path : "",
+      chronoFolder ? chronoFolder.path : "",
     ]);
 
     const customFolders = [];
@@ -347,21 +397,38 @@ export class BaseFeuilletsView extends ItemView {
       .filter((t) => !STRUCTURAL_TAGS.has(foldAccents(t)))
       .sort((a, b) => a.localeCompare(b, "fr"));
 
-    const tagFilterSel = toolbar.createEl("select", {
-      cls: "feuillets-binder-status-filter",
-    });
-    tagFilterSel.setAttr("title", "Filtrer les fiches par tag");
-    const optAllTags = tagFilterSel.createEl("option", { text: "Tous les tags" });
-    optAllTags.value = "";
-    for (const t of tagOptions) {
-      const opt = tagFilterSel.createEl("option", { text: `#${t}` });
-      opt.value = t;
-    }
-    tagFilterSel.value = S.researchTagFilter || "";
-    tagFilterSel.addEventListener("change", async () => {
-      S.researchTagFilter = tagFilterSel.value;
-      await this.plugin.saveSettings();
-      await this.render(true);
+    const tagFilterActive = !!S.researchTagFilter;
+    const tagFilterBtn = this.iconBtn(
+      toolbar,
+      tagFilterActive ? "tag" : "tags",
+      tagFilterActive ? `Filtre de tag : #${S.researchTagFilter}` : "Filtrer les fiches par tag"
+    );
+    if (tagFilterActive) tagFilterBtn.addClass("feuillets-mode-active");
+    tagFilterBtn.addEventListener("click", (e) => {
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item
+          .setTitle("Tous les tags")
+          .setChecked(!S.researchTagFilter)
+          .onClick(async () => {
+            S.researchTagFilter = "";
+            await this.plugin.saveSettings();
+            await this.render(true);
+          })
+      );
+      for (const t of tagOptions) {
+        menu.addItem((item) =>
+          item
+            .setTitle(`#${t}`)
+            .setChecked(S.researchTagFilter === t)
+            .onClick(async () => {
+              S.researchTagFilter = t;
+              await this.plugin.saveSettings();
+              await this.render(true);
+            })
+        );
+      }
+      menu.showAtMouseEvent(e);
     });
 
 
@@ -372,62 +439,93 @@ export class BaseFeuilletsView extends ItemView {
       !!(S.researchSearch || "").trim() || !!S.researchTagFilter;
 
     if (rf.sources && sourcesFolder) {
+      /* Non-fiction : Sources est la SEULE bibliothèque de travail —
+         icône "+" par fiche pour la citer directement (voir aussi le
+         bouton "citation" de la barre d'outils, qui cherche dedans). */
+      const citeRowAction = (header, file) => {
+        const citeBtn = this.iconBtn(header, "quote", "Citer cette source…");
+        citeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.plugin.quickCiteSource(file);
+        });
+      };
       this.renderSection(body, rf.sources.label, sourcesFolder, async () =>
         this.createEntity(
           sourcesFolder,
           rf.sources.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "sources", rf.sources.newName)
-        ), "sources"
+        ), "sources", citeRowAction
+      );
+
+      await this.renderFootnotesOverviewSection(body, root);
+      /* "Bibliographie" ici N'EST PLUS un dossier de fiches manuelles —
+         c'est la vue agrégée des sources citées + le bouton pour générer
+         le fichier final (voir renderBibliographySection). Créer une
+         nouvelle référence se fait dans Sources, jamais ici. */
+      await this.renderBibliographySection(body, root, [sourcesFolder, bibliographieFolder]);
+    } else {
+      /* Fiction (pas de Sources, pas de système de citation) :
+         Bibliographie garde son sens d'origine — un dossier de fiches
+         manuelles pour des lectures complémentaires, sans lien avec le
+         texte. */
+      this.renderSection(body, rf.bibliographie.label, bibliographieFolder, async () =>
+        this.createEntity(
+          bibliographieFolder,
+          rf.bibliographie.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "bibliographie", rf.bibliographie.newName)
+        ), "bibliographie"
       );
     }
 
-    this.renderSection(body, rf.bibliographie.label, bibliographieFolder, async () =>
-      this.createEntity(
-        bibliographieFolder,
-        rf.bibliographie.newName,
-        await getResearchTemplate(this.app, this.plugin.settings, mode, "bibliographie", rf.bibliographie.newName)
-      ), "bibliographie"
-    );
+    if (rf.personnages && personnagesFolder) {
+      this.renderSection(body, rf.personnages.label, personnagesFolder, async () =>
+        this.createEntity(
+          personnagesFolder,
+          rf.personnages.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "personnages", rf.personnages.newName)
+        ), "personnages"
+      );
+    }
 
-    this.renderSection(body, rf.personnages.label, personnagesFolder, async () =>
-      this.createEntity(
-        personnagesFolder,
-        rf.personnages.newName,
-        await getResearchTemplate(this.app, this.plugin.settings, mode, "personnages", rf.personnages.newName)
-      ), "personnages"
-    );
+    if (rf.lieux && lieuxFolder) {
+      this.renderSection(body, rf.lieux.label, lieuxFolder, async () =>
+        this.createEntity(
+          lieuxFolder,
+          rf.lieux.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "lieux", rf.lieux.newName)
+        ), "lieux"
+      );
+    }
 
-    this.renderSection(body, rf.lieux.label, lieuxFolder, async () =>
-      this.createEntity(
-        lieuxFolder,
-        rf.lieux.newName,
-        await getResearchTemplate(this.app, this.plugin.settings, mode, "lieux", rf.lieux.newName)
-      ), "lieux"
-    );
+    if (rf.codex && codexFolder) {
+      this.renderSection(body, rf.codex.label, codexFolder, async () =>
+        this.createEntity(
+          codexFolder,
+          rf.codex.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "codex", rf.codex.newName)
+        ), "codex"
+      );
+    }
 
-    this.renderSection(body, rf.codex.label, codexFolder, async () =>
-      this.createEntity(
-        codexFolder,
-        rf.codex.newName,
-        await getResearchTemplate(this.app, this.plugin.settings, mode, "codex", rf.codex.newName)
-      ), "codex"
-    );
+    if (rf.glossaire && glossaireFolder) {
+      this.renderSection(body, rf.glossaire.label, glossaireFolder, async () =>
+        this.createEntity(
+          glossaireFolder,
+          rf.glossaire.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "glossaire", rf.glossaire.newName)
+        ), "glossaire"
+      );
+    }
 
-    this.renderSection(body, rf.glossaire.label, glossaireFolder, async () =>
-      this.createEntity(
-        glossaireFolder,
-        rf.glossaire.newName,
-        await getResearchTemplate(this.app, this.plugin.settings, mode, "glossaire", rf.glossaire.newName)
-      ), "glossaire"
-    );
-
-    this.renderSection(body, rf.evenements.label, chronoFolder, async () =>
-      this.createEntity(
-        chronoFolder,
-        rf.evenements.newName,
-        await getResearchTemplate(this.app, this.plugin.settings, mode, "evenements", rf.evenements.newName)
-      ), "evenements"
-    );
+    if (rf.evenements && chronoFolder) {
+      this.renderSection(body, rf.evenements.label, chronoFolder, async () =>
+        this.createEntity(
+          chronoFolder,
+          rf.evenements.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "evenements", rf.evenements.newName)
+        ), "evenements"
+      );
+    }
 
     // Rendu des dossiers de recherche personnalisés
     for (const folder of customFolders) {
@@ -466,7 +564,22 @@ export class BaseFeuilletsView extends ItemView {
   }
 
   async renderFileView(container, file, root) {
-    this.selectedText = ""; // Réinitialiser la sélection
+    /* Ne réinitialiser la sélection que si la fiche affichée change
+       vraiment — PAS à chaque appel de renderFileView. Ce panneau est
+       reconstruit très souvent sans que l'utilisateur ait rien demandé :
+       toute modification n'importe où dans le coffre déclenche
+       refreshView()/renderAllViews() (voir main.js, vault.on("modify"))
+       après 2,5 s, et ce panneau n'est pas protégé par isEditing() tant
+       qu'aucun champ n'y a le focus. Avant ce correctif, sélectionner un
+       extrait puis attendre quelques secondes avant de cliquer sur le
+       bouton de citation perdait systématiquement la sélection — d'où
+       "le bouton ne fonctionne pas, avec ou sans source ça ne change
+       pas" : le rejet se produisait avant même d'atteindre la logique
+       liée aux tags. */
+    if (this._selectedTextFile !== file.path) {
+      this.selectedText = "";
+      this._selectedTextFile = file.path;
+    }
     const wrapper = container.createDiv({ cls: "feuillets-fileview" });
     const bar = wrapper.createDiv({ cls: "feuillets-fileview-bar" });
     
@@ -491,13 +604,38 @@ export class BaseFeuilletsView extends ItemView {
       }
       this.plugin.insertIntoActiveEditor(formatExcerpt(this.selectedText));
     });
-    this.iconBtn(bar, "book-copy", "Insérer l'extrait avec source", () => {
+    this.iconBtn(bar, "book-copy", "Insérer l'extrait avec citation de la source", () => {
       if (!this.selectedText || !this.selectedText.trim()) {
         new Notice("Sélectionnez d'abord un extrait de texte dans la fiche.");
         return;
       }
-      const text = formatSourcedExcerpt(this.selectedText, file.path);
-      this.plugin.insertIntoActiveEditor(text);
+      /* fiche Source/Bibliographie : citation formatée (footnote ou
+         auteur-date selon le réglage du projet), avec sa vraie page —
+         avant, ce bouton se contentait d'accrocher "Source : [[lien]]",
+         jamais une référence bibliographique réelle. Toute AUTRE fiche
+         (Personnage, Lieu, Codex…) n'a pas de champs de citation : garde
+         le renvoi par lien, seul repère qui ait du sens pour elles. */
+      const tags = this.plugin.tagsOf(file).map((t) => foldAccents(t));
+      const isCitable = tags.includes("source") || tags.includes("bibliographie");
+      if (!isCitable) {
+        this.plugin.insertIntoActiveEditor(formatSourcedExcerpt(this.selectedText, file.path));
+        return;
+      }
+      const editor = this.plugin.activeEditorAnywhere();
+      if (!editor) {
+        new Notice("Ouvre une scène et place le curseur dedans avant d'insérer un extrait.");
+        return;
+      }
+      const excerpt = formatExcerpt(this.selectedText);
+      promptForPage(this.app, this.plugin, file, (chosenFile, page) => {
+        const at = editor.getCursor("to");
+        editor.replaceRange(excerpt, at, at);
+        const lines = excerpt.split("\n");
+        const endLine = at.line + lines.length - 1;
+        const endCh = lines.length === 1 ? at.ch + lines[0].length : lines[lines.length - 1].length;
+        editor.setCursor({ line: endLine, ch: endCh });
+        this.plugin.insertCitationFor(chosenFile, page, editor);
+      });
     });
 
     this.barSep(bar);
@@ -533,13 +671,22 @@ export class BaseFeuilletsView extends ItemView {
     const body = wrapper.createDiv({ cls: "feuillets-fileview-body" });
     await this.makeBodyEditor(body, file);
 
-    body.addEventListener("mouseup", () => {
+    body.addEventListener("mouseup", (e) => {
+      /* window.getSelection() ne voit jamais l'intérieur d'un <textarea>
+         (sélection native du champ, hors de l'API Selection du navigateur)
+         — sans ce cas séparé, sélectionner un extrait pendant l'édition
+         de la fiche (plutôt qu'en lecture) ne capturait jamais rien. */
+      if (e.target && e.target.tagName === "TEXTAREA") {
+        const ta = e.target;
+        this.selectedText = ta.value.substring(ta.selectionStart, ta.selectionEnd);
+        return;
+      }
       const selected = window.getSelection() ? window.getSelection().toString() : "";
       this.selectedText = selected;
     });
   }
 
-  renderSection(container, title, folderOrFiles, onCreate, iconKey) {
+  renderSection(container, title, folderOrFiles, onCreate, iconKey, rowAction) {
     const collapseKey =
       folderOrFiles instanceof TFolder
         ? folderOrFiles.path
@@ -570,6 +717,12 @@ export class BaseFeuilletsView extends ItemView {
 
     const list = section.createDiv({ cls: "feuillets-research-list" });
 
+    /* Glisser-déposer : une rubrique adossée à un vrai dossier (pas la vue
+       agrégée "Coffre") devient une cible de dépôt — on y déplace le fichier
+       glissé depuis une autre rubrique. */
+    const destFolder = folderOrFiles instanceof TFolder ? folderOrFiles : null;
+    if (destFolder) this.attachResearchDropTarget(section, destFolder);
+
     let files = [];
     if (folderOrFiles instanceof TFolder) {
       files = folderOrFiles.children
@@ -588,6 +741,7 @@ export class BaseFeuilletsView extends ItemView {
 
     for (const f of files) {
       const row = list.createDiv({ cls: "feuillets-research-item" });
+      this.attachResearchDragSource(row, f);
       const header = row.createDiv({ cls: "feuillets-research-item-header" });
       const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
       nameEl.setText(this.plugin.titleFor(f));
@@ -612,6 +766,7 @@ export class BaseFeuilletsView extends ItemView {
           e.stopPropagation();
           new AppearancesModal(this.app, this.plugin, f).open();
         });
+        if (rowAction) rowAction(header, f);
       }
       row.setAttr("data-search", foldAccents(this.plugin.titleFor(f)));
       row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
@@ -620,6 +775,228 @@ export class BaseFeuilletsView extends ItemView {
           openFileActivating(this.app, this.app.workspace.getLeaf(true), f);
           return;
         }
+        this.viewingFile = f;
+        this.render();
+      });
+    }
+  }
+
+  /** Rend une fiche de recherche déplaçable : au dragstart, on mémorise son
+   * chemin sur le plugin (état partagé entre les rubriques, comme dragState
+   * pour le binder). Le vrai déplacement est fait par la cible de dépôt. */
+  attachResearchDragSource(row, file) {
+    row.draggable = true;
+    row.addEventListener("dragstart", (e) => {
+      this.plugin._researchDragPath = file.path;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", file.path);
+      row.addClass("feuillets-dragging");
+      e.stopPropagation();
+    });
+    row.addEventListener("dragend", () => {
+      this.plugin._researchDragPath = null;
+      this.contentEl
+        .querySelectorAll(".feuillets-dragover, .feuillets-dragging")
+        .forEach((el) => {
+          el.removeClass("feuillets-dragover");
+          el.removeClass("feuillets-dragging");
+        });
+    });
+  }
+
+  /** Fait d'une rubrique (section adossée à un dossier) une cible de dépôt :
+   * lâcher une fiche l'y déplace via fileManager.renameFile (met à jour les
+   * liens du coffre). Ignore le dépôt dans la rubrique d'origine, et refuse
+   * une collision de nom plutôt que d'écraser. */
+  attachResearchDropTarget(section, destFolder) {
+    section.addEventListener("dragover", (e) => {
+      if (!this.plugin._researchDragPath) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      section.addClass("feuillets-dragover");
+    });
+    section.addEventListener("dragleave", (e) => {
+      if (!section.contains(e.relatedTarget)) section.removeClass("feuillets-dragover");
+    });
+    section.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      section.removeClass("feuillets-dragover");
+      const srcPath = this.plugin._researchDragPath;
+      this.plugin._researchDragPath = null;
+      if (!srcPath) return;
+      const file = this.app.vault.getAbstractFileByPath(srcPath);
+      if (!(file instanceof TFile)) return;
+      if (file.parent && file.parent.path === destFolder.path) return;
+      const dest = normalizePath(`${destFolder.path}/${file.name}`);
+      if (this.app.vault.getAbstractFileByPath(dest)) {
+        new Notice("Une fiche du même nom existe déjà dans cette rubrique.");
+        return;
+      }
+      await this.app.fileManager.renameFile(file, dest);
+      this.plugin.renderAllViews(true);
+    });
+  }
+
+  /** Toutes les notes de bas de page ("[^N]: texte") du manuscrit, scène
+   * par scène mais regroupées en un seul endroit — pas fichier par
+   * fichier comme dans le panneau Notes. Signale aussi les références
+   * orphelines : un "[^N]" cité dans le texte sans définition
+   * correspondante, ou l'inverse (définie mais jamais citée) — souvent le
+   * signe d'un texte coupé/collé entre scènes qui a cassé une note. */
+  async renderFootnotesOverviewSection(container, root) {
+    const S = this.plugin.settings;
+    const collapseKey = "research:footnotes-overview";
+    const collapsed = !!S.collapsed[collapseKey];
+
+    const { section } = renderCollapsibleHead(container, {
+      classes: {
+        section: "feuillets-notes-section feuillets-research-section",
+        head: "feuillets-notes-section-head",
+        title: "feuillets-notes-section-title",
+        icon: "feuillets-notes-section-icon",
+      },
+      title: "Notes de bas de page (relecture)",
+      icon: "list",
+      collapsed,
+      collapseKey,
+      settings: S,
+      onToggle: async () => {
+        await this.plugin.saveSettings();
+        this.render();
+      },
+    });
+    if (collapsed) return;
+
+    const list = section.createDiv({ cls: "feuillets-research-list" });
+    const numbering = this.plugin.buildNumbering(root);
+    const files = this.plugin
+      .flattenFiles(root)
+      .sort((a, b) => (numbering.get(a.path) || 0) - (numbering.get(b.path) || 0));
+
+    const defRe = /^\[\^([^\]]+)\]:[ \t]*(.+)$/gm;
+    const refRe = /\[\^([^\]]+)\](?!:)/g;
+    let anyContent = false;
+
+    for (const file of files) {
+      const raw = await this.app.vault.cachedRead(file);
+      const text = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+
+      const defs = new Map();
+      defRe.lastIndex = 0;
+      let m;
+      while ((m = defRe.exec(text))) defs.set(m[1], m[2].trim());
+
+      const refs = new Set();
+      refRe.lastIndex = 0;
+      while ((m = refRe.exec(text))) refs.add(m[1]);
+
+      if (defs.size === 0 && refs.size === 0) continue;
+      anyContent = true;
+
+      const group = list.createDiv({ cls: "feuillets-footnotes-overview-group" });
+      const head = group.createDiv({ cls: "feuillets-footnotes-overview-head" });
+      head.setText(`${numbering.get(file.path) || ""} ${this.plugin.shortTitleFor(file)}`.trim());
+      head.setAttr("title", "Ouvrir cette scène");
+      head.addEventListener("click", () => {
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+      });
+
+      for (const [label, footnoteText] of defs) {
+        const row = group.createDiv({ cls: "feuillets-footnotes-overview-row" });
+        row.createSpan({ cls: "feuillets-footnotes-overview-label" }).setText(`[^${label}]`);
+        row.createSpan({ cls: "feuillets-footnotes-overview-text" }).setText(footnoteText);
+        if (!refs.has(label)) {
+          row.addClass("feuillets-footnotes-overview-orphan");
+          row.setAttr("title", "Définie mais jamais citée dans le texte de cette scène — à vérifier.");
+        }
+      }
+      for (const label of refs) {
+        if (defs.has(label)) continue;
+        const row = group.createDiv({
+          cls: "feuillets-footnotes-overview-row feuillets-footnotes-overview-orphan",
+        });
+        row.createSpan({ cls: "feuillets-footnotes-overview-label" }).setText(`[^${label}]`);
+        row
+          .createSpan({ cls: "feuillets-footnotes-overview-text" })
+          .setText("citée dans le texte, mais aucune définition correspondante");
+        row.setAttr("title", "Citée dans le texte, mais aucune ligne \"[^…]: texte\" ne la définit — à vérifier.");
+      }
+    }
+
+    if (!anyContent) {
+      list
+        .createDiv({ cls: "feuillets-research-empty" })
+        .setText("Aucune note de bas de page dans le manuscrit pour l'instant.");
+    }
+  }
+
+  /** "Bibliographie" comme AGRÉGATEUR, pas comme dossier de fiches
+   * manuelles : la liste des Sources/Bibliographie effectivement citées
+   * au moins une fois (cite_count > 0, incrémenté par
+   * plugin.insertCitationFor), triées par auteur — distinct de "toutes
+   * les fiches" (une source peut exister dans la bibliothèque de travail
+   * sans jamais être mobilisée dans le texte). Le bouton "Générer"
+   * écrit le fichier bibliographie final (plugin.generateBibliographyFile),
+   * prêt à être collé dans le manuscrit compilé ou fourni à part. */
+  async renderBibliographySection(container, root, candidateFolders) {
+    const S = this.plugin.settings;
+    const collapseKey = "research:cited-sources";
+    const collapsed = !!S.collapsed[collapseKey];
+
+    const { section } = renderCollapsibleHead(container, {
+      classes: {
+        section: "feuillets-notes-section feuillets-research-section",
+        head: "feuillets-notes-section-head",
+        title: "feuillets-notes-section-title",
+        icon: "feuillets-notes-section-icon",
+      },
+      title: "Bibliographie",
+      icon: "library",
+      collapsed,
+      collapseKey,
+      settings: S,
+      onToggle: async () => {
+        await this.plugin.saveSettings();
+        this.render();
+      },
+    });
+    if (collapsed) return;
+
+    const files = candidateFolders.flatMap((f) =>
+      f.children.filter((c) => c instanceof TFile && c.extension === "md")
+    );
+    const cited = files.filter((f) => (this.plugin.fmOf(f).cite_count || 0) > 0);
+
+    const exportRow = section.createDiv({ cls: "feuillets-bibliography-export-row" });
+    exportRow.setAttr(
+      "title",
+      "Écrit le fichier bibliographie dans le dossier Sortie, prêt à être collé dans le manuscrit compilé."
+    );
+    const exportIcon = exportRow.createSpan({ cls: "feuillets-cell-icon" });
+    setIcon(exportIcon, "file-output");
+    exportRow.createSpan().setText("Générer la bibliographie…");
+    exportRow.addEventListener("click", () => this.plugin.generateBibliographyFile());
+
+    const list = section.createDiv({ cls: "feuillets-research-list" });
+    if (cited.length === 0) {
+      list
+        .createDiv({ cls: "feuillets-research-empty" })
+        .setText("Aucune source citée pour l'instant — l'icône guillemet d'une fiche l'ajoutera ici.");
+      return;
+    }
+
+    const sorted = [...cited].sort((a, b) =>
+      (this.plugin.fmOf(a).auteur || "").localeCompare(this.plugin.fmOf(b).auteur || "", "fr")
+    );
+    for (const f of sorted) {
+      const fm = this.plugin.fmOf(f);
+      const row = list.createDiv({ cls: "feuillets-research-item" });
+      const header = row.createDiv({ cls: "feuillets-research-item-header" });
+      const n = fm.cite_count || 0;
+      header
+        .createDiv({ cls: "feuillets-research-item-name" })
+        .setText(`${this.plugin.titleFor(f)} — ${n} citation${n > 1 ? "s" : ""}`);
+      row.addEventListener("click", () => {
         this.viewingFile = f;
         this.render();
       });
@@ -683,14 +1060,46 @@ export class BaseFeuilletsView extends ItemView {
   iconBtn(parent, icon, tooltip, onClick) {
     const btn = parent.createEl("button", { cls: "clickable-icon" });
     setIcon(btn, icon);
-    btn.setAttr("aria-label", tooltip);
-    btn.setAttr("title", tooltip);
+    setTooltip(btn, tooltip);
     if (onClick) btn.addEventListener("click", onClick);
     return btn;
   }
 
   barSep(parent) {
     return parent.createDiv({ cls: "feuillets-bar-sep" });
+  }
+
+  /** En-tête de section repliable (icône + titre, cliquable pour
+   * replier/déplier) — même patron visuel et mécanique que les sections
+   * du panneau Notes (renderCollapsibleTextarea, notes-view.js) : icône +
+   * titre en petites majuscules, pas de chevron, état persisté dans
+   * S.collapsed (comme partout ailleurs dans le plugin) sous la clé
+   * `namespace:key`. `renderActions`, si fourni, reçoit un conteneur
+   * d'icônes de barre d'outils placé à part, hors de la zone cliquable
+   * qui replie la section (pas besoin de stopPropagation). Retourne true
+   * si la section est actuellement repliée — l'appelant ne construit
+   * alors pas son corps. */
+  renderSectionHead(section, icon, title, namespace, key, renderActions) {
+    const S = this.plugin.settings;
+    const collapseKey = `${namespace}:${key}`;
+    const isCollapsed = !!S.collapsed[collapseKey];
+
+    const head = section.createDiv({ cls: "feuillets-section-head" });
+    const titleEl = head.createDiv({ cls: "feuillets-section-title" });
+    const iconEl = titleEl.createSpan({ cls: "feuillets-section-icon" });
+    setIcon(iconEl, icon);
+    titleEl.createSpan({ cls: "feuillets-section-title-text" }).setText(title);
+    titleEl.addEventListener("click", async () => {
+      if (isCollapsed) delete S.collapsed[collapseKey];
+      else S.collapsed[collapseKey] = true;
+      await this.plugin.saveSettings();
+      this.render();
+    });
+    if (renderActions) {
+      const actions = head.createDiv({ cls: "feuillets-project-actions" });
+      renderActions(actions);
+    }
+    return isCollapsed;
   }
 
   showFileContextMenu(e, file, parent, index, siblings) {
@@ -760,6 +1169,21 @@ export class BaseFeuilletsView extends ItemView {
           if (!root) return;
           const n = await plugin.snapshotFile(file, root);
           new Notice(`Snapshot créé : ${n}`);
+        })
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle("Comparer avec le snapshot")
+        .setIcon("history")
+        .onClick(async () => {
+          const root = plugin.getProjectFolder();
+          if (!root) return;
+          const snapshots = listSnapshotFiles(this.app, file, root);
+          if (snapshots.length === 0) {
+            new Notice(`Aucun snapshot trouvé pour : ${file.basename}`);
+            return;
+          }
+          new DiffModal(this.app, plugin, file, snapshots[0]).open();
         })
     );
     menu.addItem((item) =>
