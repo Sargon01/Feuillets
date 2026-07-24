@@ -4,7 +4,7 @@ import { VIEW_PROJECT } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { CompileSelectionModal } from "../ui/selection-modals.js";
 import { listExportTemplates, exportBuiltInTemplates } from "../services/export-templates-custom.js";
-import { TitlePageModal } from "../ui/title-page-modal.js";
+import { LayoutModal } from "../ui/layout-modal.js";
 
 /** Panneau Compilation / export (Bouton de sélection des feuillets dans
  * l'en-tête, Preset, Modèle, Sous-rubrique "Mise en page" identique au
@@ -174,93 +174,16 @@ export class ProjectView extends BaseFeuilletsView {
     );
 
     if (!optionsCollapsed) {
-      /* Trois sous-rubriques repliables (En-tête / Pied de page / Page de
-         titre), chacune avec son propre état de repli persistant. */
-
-      // ---- En-tête ----
-      const hWrap = optionsSection.createDiv({ cls: "feuillets-sub-section" });
-      if (!this.renderSectionHead(hWrap, "heading", "En-tête", "compilation", "mep-entete", null)) {
-        const enableSelect = this.createEl("select", { cls: "feuillets-properties-value" });
-        enableSelect.createEl("option", { text: "Activés", value: "true" });
-        enableSelect.createEl("option", { text: "Désactivés", value: "false" });
-        enableSelect.value = S.pdfEnableHeaders !== false ? "true" : "false";
-        enableSelect.addEventListener("change", async () => {
-          S.pdfEnableHeaders = enableSelect.value === "true";
-          await this.plugin.saveSettings();
-        });
-        this.makePropertyRowWithIcon(hWrap, "heading", "En-têtes", enableSelect);
-
-        const diffSelect = this.createEl("select", { cls: "feuillets-properties-value" });
-        diffSelect.createEl("option", { text: "Alternés (Paires/Impaires)", value: "true" });
-        diffSelect.createEl("option", { text: "Identiques", value: "false" });
-        diffSelect.value = !!S.pdfDiffHeaders ? "true" : "false";
-        diffSelect.addEventListener("change", async () => {
-          S.pdfDiffHeaders = diffSelect.value === "true";
-          await this.plugin.saveSettings();
-        });
-        this.makePropertyRowWithIcon(hWrap, "columns", "Style en-têtes", diffSelect);
-
-        const hideFirstSelect = this.createEl("select", { cls: "feuillets-properties-value" });
-        hideFirstSelect.createEl("option", { text: "Masquer en-tête/N°", value: "true" });
-        hideFirstSelect.createEl("option", { text: "Afficher dès p.1", value: "false" });
-        hideFirstSelect.value = S.pdfHideFirstPageHeader !== false ? "true" : "false";
-        hideFirstSelect.addEventListener("change", async () => {
-          S.pdfHideFirstPageHeader = hideFirstSelect.value === "true";
-          await this.plugin.saveSettings();
-        });
-        this.makePropertyRowWithIcon(hWrap, "file-minus", "Page 1", hideFirstSelect);
-
-        const hlInput = this.createEl("input", { type: "text", cls: "feuillets-properties-value" });
-        hlInput.value = S.pdfHeaderLeft || "{title}";
-        hlInput.addEventListener("blur", async () => {
-          S.pdfHeaderLeft = hlInput.value;
-          await this.plugin.saveSettings();
-        });
-        this.makePropertyRowWithIcon(hWrap, "align-left", "En-tête G.", hlInput);
-
-        const hrInput = this.createEl("input", { type: "text", cls: "feuillets-properties-value" });
-        hrInput.value = S.pdfHeaderRight || "{author}";
-        hrInput.addEventListener("blur", async () => {
-          S.pdfHeaderRight = hrInput.value;
-          await this.plugin.saveSettings();
-        });
-        this.makePropertyRowWithIcon(hWrap, "align-right", "En-tête D.", hrInput);
-      }
-
-      // ---- Pied de page ----
-      const fWrap = optionsSection.createDiv({ cls: "feuillets-sub-section" });
-      if (!this.renderSectionHead(fWrap, "hash", "Pied de page", "compilation", "mep-pied", null)) {
-        const posSelect = this.createEl("select", { cls: "feuillets-properties-value" });
-        posSelect.createEl("option", { text: "Droite", value: "right" });
-        posSelect.createEl("option", { text: "Centré", value: "center" });
-        posSelect.createEl("option", { text: "Gauche", value: "left" });
-        posSelect.value = S.pdfPageNumberPosition || "right";
-        posSelect.addEventListener("change", async () => {
-          S.pdfPageNumberPosition = posSelect.value;
-          await this.plugin.saveSettings();
-        });
-        this.makePropertyRowWithIcon(fWrap, "binary", "Position N°", posSelect);
-
-        const numInput = this.createEl("input", { type: "text", cls: "feuillets-properties-value" });
-        numInput.value = S.pdfFooterRight || "Page {page} sur {pages}";
-        numInput.addEventListener("blur", async () => {
-          S.pdfFooterRight = numInput.value;
-          await this.plugin.saveSettings();
-        });
-        this.makePropertyRowWithIcon(fWrap, "hash", "Format N°", numInput);
-      }
-
-      // ---- Page de titre ----
-      const tWrap = optionsSection.createDiv({ cls: "feuillets-sub-section" });
-      if (!this.renderSectionHead(tWrap, "heading-1", "Page de titre", "compilation", "mep-titre", null)) {
-        this.makeRow(tWrap, "layout-template", "Régler les blocs…", () => {
-          if (!currentTpl) {
-            new Notice("Aucun modèle sélectionné.");
-            return;
-          }
-          new TitlePageModal(this.app, this.plugin, currentTpl.key, currentTpl.label).open();
-        });
-      }
+      /* Mise en page unifiée : en-tête, blocs de titre et pied de page se
+         règlent ensemble dans un éditeur visuel (une maquette A4), plutôt
+         qu'en réglages séparés — voir LayoutModal. */
+      this.makeRow(optionsSection, "layout-template", "Éditer la mise en page…", () => {
+        if (!currentTpl) {
+          new Notice("Aucun modèle sélectionné.");
+          return;
+        }
+        new LayoutModal(this.app, this.plugin, currentTpl.key, currentTpl.label).open();
+      });
     }
 
     // 4. Ligne "Format" avec sélection du format

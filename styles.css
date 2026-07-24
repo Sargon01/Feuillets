@@ -5401,3 +5401,41 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-tp-inspector .clickable-icon.is-active {
   color: var(--interactive-accent);
 }
+
+/* Bandes en-tête / pied de page dans la maquette de mise en page */
+.feuillets-tp-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  font-size: 8px;
+  color: #555555;
+  background: rgba(0, 0, 0, 0.025);
+  cursor: pointer;
+}
+.feuillets-tp-band-top { top: 0; border-bottom: 1px dashed var(--background-modifier-border); }
+.feuillets-tp-band-bottom { bottom: 0; border-top: 1px dashed var(--background-modifier-border); }
+.feuillets-tp-band:hover { background: rgba(var(--interactive-accent-rgb), 0.06); }
+.feuillets-tp-band.is-selected {
+  background: rgba(var(--interactive-accent-rgb), 0.12);
+  box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+.feuillets-tp-band.is-muted { opacity: 0.45; }
+.feuillets-tp-band > span {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0 6px;
+  white-space: nowrap;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.feuillets-tp-band-l { left: 0; }
+.feuillets-tp-band-r { right: 0; text-align: right; }
+.feuillets-tp-band-c { left: 50%; transform: translate(-50%, -50%); }
+.feuillets-tp-band-note {
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-style: italic;
+  opacity: 0.6;
+}
