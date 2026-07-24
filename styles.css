@@ -5359,14 +5359,3 @@ body.feuillets-concentration .markdown-preview-view {
   height: 16px !important;
 }
 
-/* Intitulé de sous-rubrique dans "Mise en page" du panneau Compilation/export
-   (En-tête / Pied de page / Page de titre) */
-.feuillets-mep-subhead {
-  font-size: 0.72em;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  font-weight: 600;
-  margin: 10px 0 2px;
-  padding-left: 2px;
-}
