@@ -34,12 +34,14 @@
 .workspace-leaf-content[data-type="feuillets-notes"] .view-content,
 .workspace-leaf-content[data-type="feuillets-research"] .view-content,
 .workspace-leaf-content[data-type="feuillets-progression"] .view-content,
-.workspace-leaf-content[data-type="feuillets-journal"] .view-content {
+.workspace-leaf-content[data-type="feuillets-journal"] .view-content,
+.workspace-leaf-content[data-type="feuillets-sidebar-view"] .view-content {
   padding: 0;
-  /* le défilement est géré PLUS BAS, par les zones internes (liste du
-     binder, volets de la double vue, corps du tableau) : si .view-content
-     défilait aussi, il ferait défiler l'en-tête avec lui. */
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 .feuillets-container {
@@ -62,29 +64,69 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 4px;
+  padding-bottom: var(--size-4-1);
 }
 
 .feuillets-header {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px 10px 8px;
+  /* Jamais sur deux lignes, même barre latérale étroite ou beaucoup
+     d'icônes (Vue, Options, Projet/export, Filtres...) : au lieu
+     d'empiler actions/filtres l'un sous l'autre quand ils ne tiennent
+     plus côte à côte, la barre défile horizontalement. */
+  flex-wrap: nowrap;
+  gap: var(--size-4-1);
+  padding: var(--size-4-1) 10px var(--size-4-2);
   border-bottom: 1px solid var(--background-modifier-border);
   /* hors de la zone défilante (le conteneur est une colonne flex) : figé
      par construction, plus besoin de `sticky` ni de fond opaque */
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.feuillets-binder-replace-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  padding: var(--size-4-1) var(--size-4-2);
+  background-color: var(--background-secondary-alt);
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.feuillets-binder-replace-input {
+  flex: 1 1 0px;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+  height: 24px;
+  padding: 2px 6px;
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+}
+
+.feuillets-binder-replace-bar button {
+  height: 24px;
+  width: 24px;
+  padding: 0;
   flex-shrink: 0;
 }
 
 .feuillets-actions {
   display: flex;
-  gap: 4px;
+  flex-shrink: 0;
+  gap: var(--size-4-1);
 }
 
 .feuillets-actions button {
-  padding: 2px 8px;
+  padding: 2px var(--size-4-2);
   font-size: var(--font-ui-small);
   cursor: pointer;
   box-shadow: none;
@@ -99,8 +141,8 @@
 .feuillets-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-2);
   border-radius: var(--radius-s);
   cursor: pointer;
   user-select: none;
@@ -158,8 +200,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 8px;
-  margin-top: 4px;
+  padding: 5px var(--size-4-2);
+  margin-top: var(--size-4-1);
   font-weight: var(--font-semibold, 600);
   font-size: var(--font-ui-small);
   color: var(--text-normal);
@@ -202,7 +244,7 @@
 .feuillets-folder-add {
   cursor: pointer;
   color: var(--text-faint);
-  padding: 0 4px;
+  padding: 0 var(--size-4-1);
 }
 
 .feuillets-folder-add:hover {
@@ -211,9 +253,10 @@
 
 
 .feuillets-empty {
-  padding: 16px 12px;
+  padding: var(--size-4-4) var(--size-4-3);
   color: var(--text-muted);
   font-size: var(--font-ui-small);
+  line-height: 1.5;
 }
 
 /* ===== anneau de progression ===== */
@@ -267,29 +310,43 @@
   min-height: 0;
   overflow: hidden;
   padding: 0;
+  /* Canevas neutre pour les fiches (voir .feuillets-card, section "cartes"
+     plus bas) : même fond dans les deux thèmes, --background-primary,
+     pour que la carte (--background-secondary, la teinte du binder) s'y
+     détache par une vraie différence de teinte plutôt qu'un bidouillage
+     par thème. */
+  background: var(--background-primary);
 }
 
 .feuillets-board-scroll {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  /* filet de sécurité : si un contenu déborde malgré tout en largeur
+     (texte trop long quelque part), il reste contenu/défilable dans ce
+     panneau au lieu de s'étaler visuellement derrière les volets
+     latéraux — le vrai correctif vit sur .feuillets-card/-card-head. */
+  overflow-x: auto;
   /* marge de respiration : le panneau central ne doit pas coller aux
-     panneaux latéraux */
-  padding: 0 24px 16px;
+     panneaux latéraux — ni, en haut, à la barre d'icônes (la bordure
+     inférieure de la barre ayant été retirée, sans cet espace le contenu
+     — cartes comme plan — semblait collé sous les icônes). */
+  padding: var(--size-4-4) var(--size-4-6) var(--size-4-4);
 }
 
 .feuillets-board-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--size-4-2);
   border-bottom: 1px solid var(--background-modifier-border);
   /* plus de `sticky` ni de marge négative : la barre est hors de la zone
      défilante (voir .feuillets-board-scroll), donc figée par construction */
   flex-shrink: 0;
   margin: 0;
-  padding: 10px 24px;
+  padding: 10px var(--size-4-6);
 }
 
 /* la barre n'est plus superposée au contenu (elle est hors de la zone
@@ -321,7 +378,6 @@
   color: var(--text-on-accent);
 }
 
-.feuillets-filter,
 .feuillets-tag-filter {
   font-size: var(--font-ui-smaller);
   height: 28px;
@@ -343,19 +399,19 @@
 .feuillets-part-title {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--size-4-2);
   font-weight: var(--font-semibold, 600);
   font-size: 1.05em;
   color: var(--text-normal);
-  margin: 26px 0 12px;
-  padding-bottom: 4px;
+  margin: 26px 0 var(--size-4-3);
+  padding-bottom: var(--size-4-1);
   border-bottom: 2px solid var(--background-modifier-border);
 }
 
 .feuillets-chapter-title {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--size-4-2);
   margin: 18px 0 10px;
   color: var(--text-normal);
 }
@@ -389,51 +445,61 @@
 .feuillets-grid {
   display: grid;
   gap: 22px;
-  margin-bottom: 24px;
-  padding: 4px 2px;
+  margin-bottom: var(--size-4-6);
+  padding: var(--size-4-1) 2px;
+  /* Centre les tuiles quand elles ne remplissent pas toute la largeur du
+     panneau (nombre de colonnes fixé dans Options de la vue, ou peu de
+     feuillets) — sans effet quand auto-fill remplit déjà toute la ligne. */
+  justify-content: center;
 }
 
+/* Fiche plutôt que carte kanban : c'est la différence la plus visible
+   avec l'esthétique iA Writer/Ulysses. Avant, chaque tuile flottait en
+   permanence (ombre visible même au repos, bordure pleine, coins très
+   arrondis) — la grille ressemblait à un tableau Trello, pas à un
+   classeur de manuscrit. Au repos, plus aucune ombre ; la carte se
+   distingue du fond UNIQUEMENT par une légère différence de teinte, la
+   bordure est réduite à un trait à peine perceptible. L'ombre ne
+   réapparaît, très douce, qu'au survol — le seul moment où une carte a
+   besoin de "se soulever". */
 .feuillets-card {
+  /* bug réel : une carte est un enfant de grille (.feuillets-grid), et un
+     enfant de grille/flex a par défaut min-width:auto — un titre_binder
+     long (white-space:nowrap dans .feuillets-card-title) forçait alors
+     TOUTE la piste de grille à s'élargir pour lui faire de la place au
+     lieu de le tronquer, débordant le panneau entier derrière les
+     volets latéraux. */
+  min-width: 0;
   background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow-s, 0 1px 3px rgba(0, 0, 0, 0.25));
-  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  box-shadow: none;
+  padding: var(--size-4-3);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  transition: border-color 0.1s ease, box-shadow 0.1s ease;
+  gap: var(--size-4-1);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
 .feuillets-card:hover {
-  border-color: var(--interactive-accent);
-  box-shadow: var(--shadow-l, 0 3px 10px rgba(0, 0, 0, 0.35));
+  border-color: var(--background-modifier-border);
+  box-shadow: var(--shadow-s);
 }
 
-/* thèmes où secondary ≈ primary : on force un écart perceptible */
-.theme-dark .feuillets-card {
-  background: color-mix(in srgb, var(--background-secondary) 82%, white 6%);
-}
-.theme-light .feuillets-board-container {
-  background: var(--background-secondary);
-}
-.theme-light .feuillets-card {
-  background: var(--background-primary);
-  border-color: color-mix(in srgb, var(--background-modifier-border) 60%, black 12%);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-}
-.theme-light .feuillets-card:hover {
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
-}
-
+/* La couleur de label reste (elle porte une vraie information — piste,
+   personnage, statut de révision — ce n'est pas de la décoration), mais
+   en liseré fin façon signet plutôt qu'en épaisse barre supérieure :
+   visible sans dominer la fiche. Posée en JS (board-view.js, renderCard)
+   via borderLeft plutôt que borderTop. */
 .feuillets-card-scene {
-  border-left: 3px solid var(--interactive-accent);
+  border-left: 2px solid var(--interactive-accent);
 }
 
 .feuillets-card-head {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--size-4-1);
   cursor: grab;
 }
 
@@ -451,18 +517,35 @@
 .feuillets-card-num {
   font-weight: var(--font-semibold, 600);
   font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+/* titre_binder à côté du numéro (renderCard, board-view.js) — prend
+   l'espace flexible restant, tronqué plutôt que de pousser wc/anneau/menu
+   hors de la carte sur un titre long. */
+.feuillets-card-title {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
 }
 
 .feuillets-card-wc {
-  font-size: 0.8em;
+  font-size: var(--font-ui-smaller);
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 
+/* C'est la prose du feuillet, pas un libellé d'interface : même
+   traitement de lisibilité que le reste du plugin (line-height généreux),
+   et un poil plus grand — sur une grille de fiches, c'est ce texte-là
+   qu'on vient lire, tout le reste n'est que repère. */
 .feuillets-card-excerpt {
-  font-size: 0.92em;
-  line-height: 1.45;
+  font-size: 0.95em;
+  line-height: 1.55;
   color: var(--text-normal);
   white-space: pre-line;
   overflow: hidden;
@@ -480,7 +563,7 @@
   background: transparent;
   border: none;
   border-radius: var(--radius-s);
-  padding: 4px 6px;
+  padding: var(--size-4-1) 6px;
   font-family: inherit;
   color: var(--text-normal);
 }
@@ -504,7 +587,7 @@
 .feuillets-goal-input {
   width: 56px;
   font-size: 0.8em;
-  padding: 1px 4px;
+  padding: 1px var(--size-4-1);
   height: 24px;
 }
 
@@ -512,7 +595,7 @@
   font-size: 0.8em;
   max-width: 105px;
   height: 20px;
-  padding: 0 4px;
+  padding: 0 var(--size-4-1);
 }
 
 .feuillets-wc {
@@ -524,7 +607,7 @@
 .feuillets-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--size-4-1);
   align-items: center;
 }
 
@@ -581,14 +664,16 @@
   flex-shrink: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px;
+  padding: var(--size-4-1);
   border-right: 1px solid var(--background-modifier-border);
+  transition: width 0.18s ease, padding 0.18s ease, border-color 0.18s ease;
 }
 
 .feuillets-split-resizer {
   width: 4px;
   flex-shrink: 0;
   cursor: col-resize;
+  transition: width 0.18s ease;
 }
 
 .feuillets-split-resizer:hover {
@@ -602,35 +687,50 @@
   overflow-y: auto;
 }
 
-/* ===== panneau unique (façon Notebook Navigator) ===== */
+/* ===== volet unique (dossiers masqués — bouton dédié ou geste de
+   balayage, voir registerSwipeGestures dans main.js) ===== */
 
-.feuillets-split.is-single .feuillets-tree-pane {
-  /* un seul volet : il occupe toute la largeur au lieu de sa colonne fixe */
+/* width:0 (plutôt que display:none) : permet une transition fluide au
+   lieu d'une disparition instantanée, aussi bien au clic sur le bouton
+   qu'au balayage tactile/trackpad. */
+.feuillets-tree-pane.is-tree-collapsed {
+  width: 0 !important;
+  padding: 0;
+  border-right-color: transparent;
+  overflow: hidden;
+}
+
+.feuillets-split-resizer.is-tree-collapsed,
+.feuillets-split-resizer.is-list-collapsed {
+  width: 0;
+  overflow: hidden;
+}
+
+/* Dossiers masqués : le volet fichiers ne doit pas pour autant s'étirer
+   sur toute la largeur de la barre latérale (surtout si elle a été
+   élargie pour la vue double volet) — les cartes conçues pour une colonne
+   étroite paraîtraient démesurées. On garde une largeur de lecture
+   confortable, quitte à laisser un espace vide à droite plutôt que de
+   tout étirer. */
+.feuillets-split.is-tree-collapsed .feuillets-list-pane {
+  max-width: 640px;
+}
+
+/* ===== volet unique symétrique (feuillets masqués, dossiers seuls) ===== */
+
+.feuillets-list-pane.is-list-collapsed {
+  flex: 0 1 0 !important;
+  width: 0 !important;
+  min-width: 0;
+  overflow: hidden;
+  transition: width 0.18s ease;
+}
+
+.feuillets-split.is-list-collapsed .feuillets-tree-pane {
   width: auto;
   flex: 1;
+  max-width: 640px;
   border-right: none;
-}
-
-.is-hidden {
-  display: none !important;
-}
-
-.feuillets-single-back {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 10px;
-  font-size: var(--font-ui-small);
-  font-weight: var(--font-semibold, 600);
-  color: var(--text-muted);
-  cursor: pointer;
-  border-bottom: 1px solid var(--background-modifier-border);
-  flex-shrink: 0;
-}
-
-.feuillets-single-back:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
 }
 
 /* ===== volet fichier : cartes façon Notebook Navigator ===== */
@@ -640,7 +740,7 @@
 .feuillets-list-pane .feuillets-item {
   align-items: flex-start;
   flex-wrap: wrap;
-  padding: 8px 10px;
+  padding: var(--size-4-2) 10px;
   border-bottom: 1px solid var(--background-modifier-border);
   border-radius: 0;
 }
@@ -663,7 +763,7 @@
   font-size: var(--font-ui-smaller);
   font-weight: var(--font-semibold, 600);
   color: var(--text-muted);
-  padding: 6px 8px 2px;
+  padding: 6px var(--size-4-2) 2px;
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
@@ -676,7 +776,7 @@
 
 .feuillets-tree-root {
   margin-top: 0;
-  margin-bottom: 4px;
+  margin-bottom: var(--size-4-1);
 }
 
 .feuillets-item-preview {
@@ -787,7 +887,8 @@
   border-right: 2px solid transparent;
 }
 
-.feuillets-col-resizer:hover {
+.feuillets-col-resizer:hover,
+.feuillets-col-resizer.is-resizing {
   border-right-color: var(--interactive-accent);
 }
 
@@ -820,7 +921,7 @@
   align-items: center;
   gap: 5px;
   min-width: 0;
-  padding-right: 8px;
+  padding-right: var(--size-4-2);
   font-size: 0.9em;
 }
 
@@ -855,7 +956,7 @@
   align-items: center;
   justify-content: center;
   vertical-align: middle;
-  margin-left: 4px;
+  margin-left: var(--size-4-1);
 }
 
 .feuillets-open-btn svg,
@@ -881,9 +982,15 @@
 
 /* modale */
 .feuillets-modal-buttons {
-  margin-top: 12px;
+  margin-top: var(--size-4-3);
   display: flex;
   justify-content: flex-end;
+}
+
+.feuillets-stats-modal-section {
+  margin-top: var(--size-4-5);
+  padding-top: var(--size-4-4);
+  border-top: 1px solid var(--background-modifier-border);
 }
 
 
@@ -919,6 +1026,14 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   font-variant-numeric: tabular-nums;
 }
 
+.feuillets-status-bar-clickable {
+  cursor: pointer;
+}
+
+.feuillets-status-bar-clickable:hover {
+  color: var(--text-normal);
+}
+
 .feuillets-status-bar.feuillets-status-hit {
   color: var(--color-green);
 }
@@ -933,18 +1048,6 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   min-width: 480px;
 }
 
-.feuillets-history-tabs {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.feuillets-history-tabs button {
-  cursor: pointer;
-  font-size: var(--font-ui-small);
-  padding: 3px 10px;
-}
-
 /* ===== journal d'écriture (calendrier) ===== */
 
 .feuillets-journal-header {
@@ -957,7 +1060,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 
 .feuillets-journal-nav-btn {
   cursor: pointer;
-  padding: 4px;
+  padding: var(--size-4-1);
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -994,11 +1097,11 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 .feuillets-journal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: var(--size-4-1);
 }
 
 .feuillets-journal-weekdays {
-  margin-bottom: 4px;
+  margin-bottom: var(--size-4-1);
 }
 
 .feuillets-journal-weekday {
@@ -1064,7 +1167,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 }
 
 .feuillets-journal-last-entry-body {
-  margin-top: 8px;
+  margin-top: var(--size-4-2);
   font-size: var(--font-ui-small);
 }
 
@@ -1091,24 +1194,20 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 /* ===== notes latérales + menu carte ===== */
 
 .feuillets-notes-container {
-  padding: 0 16px 16px;
+  /* Marge généreuse tout autour, y compris en haut : façon iA Writer/
+     Ulysses, le contenu ne touche jamais le bord du panneau. Le "0" en
+     haut ici datait d'un en-tête sticky depuis retiré (.feuillets-notes-head,
+     mort — aucune vue ne le crée plus) ; sans lui, rien ne justifiait plus
+     ce panneau collé au bord pendant que tous les autres respirent. */
+  padding: var(--size-4-4);
   display: flex;
   flex-direction: column;
   gap: 2px;
   height: 100%;
   /* .view-content ne défile plus (voir plus haut) : c'est donc ce
      conteneur qui prend le défilement, sinon le contenu déborderait sans
-     ascenseur. Le titre `sticky` reste collé en haut de cette zone. */
+     ascenseur. */
   overflow-y: auto;
-}
-
-/* plus de `sticky` ici : sans fond opaque (on hérite désormais du thème),
-   un titre collant laisserait le texte défiler visiblement derrière lui.
-   Le panneau Notes est court, le titre peut défiler avec. */
-.feuillets-notes-head {
-  font-weight: var(--font-semibold, 600);
-  font-size: var(--font-ui-medium);
-  padding: 8px 0 4px;
 }
 
 .feuillets-notes-sub {
@@ -1121,20 +1220,23 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 .feuillets-notes-folder-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: var(--size-4-3);
+  margin-top: var(--size-4-3);
+  margin-bottom: var(--size-4-2);
 }
 
 .feuillets-notes-folder-link {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: var(--radius-s);
-  background: var(--background-modifier-hover);
+  gap: var(--size-4-1);
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   cursor: pointer;
+  /* Sans ceci, un nom de dossier long revenait à la ligne À L'INTÉRIEUR
+     du lien (l'icône restant collée en haut), au lieu de tronquer
+     proprement — le lien lui-même reste libre de passer à la ligne
+     suivante (voir .feuillets-notes-folder-links, flex-wrap). */
+  max-width: 100%;
 }
 
 .feuillets-notes-folder-link:hover {
@@ -1144,6 +1246,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 .feuillets-notes-folder-link-icon {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .feuillets-notes-folder-link-icon svg {
@@ -1151,21 +1254,11 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   height: 12px;
 }
 
-.feuillets-notes-back-bar {
-  margin-bottom: 10px;
-}
-
-.feuillets-notes-back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 0.85em;
-}
-
-.feuillets-notes-back-btn:hover {
-  color: var(--interactive-accent);
+.feuillets-notes-folder-link-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .feuillets-notes-area {
@@ -1177,13 +1270,13 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
-  padding: 8px;
+  padding: var(--size-4-2);
 }
 
 .feuillets-card-more {
   cursor: pointer;
   color: var(--text-faint);
-  padding: 0 4px;
+  padding: 0 var(--size-4-1);
   font-weight: 700;
 }
 
@@ -1195,13 +1288,13 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 
 .feuillets-timeline {
   position: relative;
-  padding: 8px 0 8px 0;
+  padding: var(--size-4-2) 0 var(--size-4-2) 0;
 }
 
 .feuillets-timeline-item {
   display: grid;
   grid-template-columns: 110px 24px 1fr;
-  gap: 8px;
+  gap: var(--size-4-2);
   align-items: start;
   position: relative;
   padding: 6px 0;
@@ -1234,7 +1327,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   border: 2px solid var(--background-primary);
   z-index: 1;
   justify-self: center;
-  margin-top: 4px;
+  margin-top: var(--size-4-1);
 }
 
 .feuillets-timeline-body {
@@ -1297,7 +1390,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   flex: 1;
   min-width: 0;
   font-size: var(--font-ui-small);
-  padding: 2px 4px;
+  padding: 2px var(--size-4-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1312,6 +1405,26 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 .feuillets-hidden {
   opacity: 0.55;
   font-style: italic;
+}
+
+/* Section "Recherche" du binder (accès aux fichiers hors-manuscrit, façon
+   "Extras" d'Ulysses) : distincte visuellement de l'arborescence du
+   manuscrit, sans les codes du manuscrit (pas d'anneau, pas de numéro). */
+.feuillets-binder-research-row {
+  opacity: 0.7;
+  border-top: none !important;
+}
+
+.feuillets-binder-research-row .feuillets-folder-name,
+.feuillets-binder-research-row .feuillets-item-name {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.feuillets-binder-research-root {
+  margin-top: var(--size-4-3) !important;
+  border-top: 1px solid var(--background-modifier-border) !important;
+  padding-top: var(--size-4-2) !important;
 }
 
 .feuillets-notes-wc {
@@ -1335,7 +1448,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin: 10px 0 4px;
+  margin: 10px 0 var(--size-4-1);
 }
 
 .feuillets-notes-field {
@@ -1346,7 +1459,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
-  padding: 4px 6px;
+  padding: var(--size-4-1) 6px;
 }
 
 .feuillets-notes-area-flex {
@@ -1355,7 +1468,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 }
 
 .feuillets-notes-container .feuillets-tags {
-  margin-bottom: 4px;
+  margin-bottom: var(--size-4-1);
 }
 
 /* ===== lecture continue + chronologie v2 ===== */
@@ -1363,7 +1476,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 .feuillets-reading {
   max-width: 72ch;
   margin: 0 auto;
-  padding: 12px 0 60px;
+  padding: var(--size-4-3) 0 60px;
 }
 
 .feuillets-reading-title {
@@ -1387,7 +1500,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   font-size: 1.05em;
   color: var(--text-normal);
   border-bottom: 2px solid var(--background-modifier-border);
-  margin: 16px 0 4px;
+  margin: var(--size-4-4) 0 var(--size-4-1);
   padding-bottom: 2px;
 }
 
@@ -1399,7 +1512,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-s);
-  padding: 1px 4px;
+  padding: 1px var(--size-4-1);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1471,34 +1584,10 @@ body.feuillets-concentration .markdown-preview-view {
   min-width: 520px;
 }
 
-.feuillets-project-card {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  padding: 10px 12px;
-  margin-bottom: 12px;
-}
-
-.feuillets-project-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.feuillets-project-name {
-  font-weight: var(--font-semibold, 600);
-  flex: 1;
-}
-
-.feuillets-project-head button {
-  cursor: pointer;
-  font-size: var(--font-ui-smaller);
-}
-
 .feuillets-project-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px 12px;
+  gap: var(--size-4-1) var(--size-4-3);
   align-items: start;
 }
 
@@ -1506,6 +1595,26 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-project-grid textarea {
   width: 100%;
   font-size: var(--font-ui-small);
+}
+
+.feuillets-project-icon-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.feuillets-project-icon-row input {
+  flex: 1;
+}
+
+.feuillets-project-detail {
+  padding: 6px var(--size-4-2) 10px 28px;
+  margin-bottom: var(--size-4-1);
+}
+
+.feuillets-project-detail button {
+  cursor: pointer;
+  margin-top: var(--size-4-1);
 }
 
 /* boutons/sélecteurs de la barre : voir le bloc "contrôles natifs" plus bas */
@@ -1518,7 +1627,7 @@ body.feuillets-concentration .markdown-preview-view {
 
 /* respiration entre groupes de la barre */
 .feuillets-board-bar-right {
-  gap: 8px;
+  gap: var(--size-4-2);
   flex-wrap: wrap;
   row-gap: 6px;
 }
@@ -1531,30 +1640,46 @@ body.feuillets-concentration .markdown-preview-view {
   transition: box-shadow 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
 }
 
-/* ===== réglages en sections pliables ===== */
+/* ===== réglages du plugin : onglets de catégorie ===== */
 
-.feuillets-settings-section {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  margin: 10px 0;
-  padding: 0 14px 6px;
+.feuillets-settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin: 14px 0 var(--size-4-1);
+  padding-bottom: var(--size-4-2);
 }
 
-.feuillets-settings-section > summary {
+.feuillets-settings-tab-btn {
+  background: transparent;
+  border: none;
+  box-shadow: none;
   cursor: pointer;
-  font-weight: var(--font-semibold, 600);
-  font-size: var(--font-ui-medium);
-  padding: 10px 0;
-  list-style-position: inside;
+  padding: 6px var(--size-4-3);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
 }
 
-.feuillets-settings-section > summary:hover {
-  color: var(--interactive-accent);
+.feuillets-settings-tab-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-settings-tab-btn.is-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+  font-weight: var(--font-semibold, 600);
+}
+
+.feuillets-settings-panel {
+  padding-top: var(--size-4-1);
 }
 
 .feuillets-settings-subsection {
   border-top: 1px solid var(--background-modifier-border);
-  margin: 4px 0 0;
+  margin: var(--size-4-1) 0 0;
   padding: 2px 0 6px;
 }
 
@@ -1568,7 +1693,7 @@ body.feuillets-concentration .markdown-preview-view {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-  margin: 8px 0 4px;
+  margin: var(--size-4-2) 0 var(--size-4-1);
   list-style-position: inside;
 }
 
@@ -1710,6 +1835,16 @@ body.feuillets-reading-fs .feuillets-reading {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.feuillets-board-bar .clickable-icon:hover,
+.feuillets-header .clickable-icon:hover,
+.feuillets-binder-filters .clickable-icon:hover,
+.feuillets-board-bar .clickable-icon.feuillets-mode-active,
+.feuillets-header .clickable-icon.feuillets-mode-active,
+.feuillets-binder-filters .clickable-icon.feuillets-mode-active {
+  opacity: 1;
 }
 
 /* séparateur entre groupes de boutons */
@@ -1732,17 +1867,13 @@ body.feuillets-reading-fs .feuillets-reading {
   font-size: var(--font-ui-small);
 }
 
-/* boutons de mode (Cartes / Plan / Chronologie / Lecture) : seul écart
-   volontaire au natif, pour marquer l'état actif — via la couleur d'accent
-   d'Obsidian elle-même, pas une couleur inventée */
-/* groupe segmenté des quatre modes : un seul bloc, l'actif en accent */
+/* groupe segmenté (modes du Tableau, onglets du panneau Feuillets) : juste
+   des icônes côte à côte, sans bandeau ni surbrillance d'accent sur l'état
+   actif — le contenu affiché suffit à indiquer ce qui est sélectionné. */
 .feuillets-mode-group {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-m);
-  background: var(--background-modifier-hover);
   flex-shrink: 0;
 }
 
@@ -1752,14 +1883,23 @@ body.feuillets-reading-fs .feuillets-reading {
   flex-shrink: 0;
 }
 
-.feuillets-mode-group .clickable-icon.feuillets-mode-active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+.feuillets-mode-group .clickable-icon.feuillets-mode-active,
+.feuillets-mode-group .clickable-icon.feuillets-mode-active:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 
-.feuillets-mode-group .clickable-icon.feuillets-mode-active:hover {
-  background: var(--interactive-accent-hover);
-  color: var(--text-on-accent);
+/* Choix dossiers/fichiers du binder : même disposition que .feuillets-mode-group,
+   mais SANS son override d'état actif en gris — pour rester visuellement
+   cohérent avec les autres icônes du binder (Double volet, Vue arbre,
+   Recherche, Filtres), qui utilisent toutes l'accent (.feuillets-mode-active
+   générique, ligne ~376) pour l'état actif et le survol natif d'Obsidian
+   (clickable-icon) pour le survol. */
+.feuillets-binder-pane-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
 }
 
 /* ===== mode concentration (rétabli) ===== */
@@ -1816,13 +1956,13 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-read-selection {
   max-height: 50vh;
   overflow-y: auto;
-  margin: 8px 0;
+  margin: var(--size-4-2) 0;
 }
 
 .feuillets-read-selection-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--size-4-2);
   padding: 3px 0;
   cursor: pointer;
 }
@@ -1844,7 +1984,7 @@ body.feuillets-concentration .markdown-preview-view {
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 999px;
-  padding: 4px 12px;
+  padding: var(--size-4-1) var(--size-4-3);
   box-shadow: var(--shadow-s, 0 1px 3px rgba(0, 0, 0, 0.25));
   pointer-events: none;
 }
@@ -1870,43 +2010,47 @@ body.feuillets-concentration .markdown-preview-view {
   top: 0;
   z-index: 5;
   background: var(--background-secondary);
-  padding: 8px 12px;
+  padding: var(--size-4-2) var(--size-4-3);
 }
 
 .feuillets-binder-filters {
   display: flex;
   gap: 6px;
   align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
+  /* Ne rétrécit plus (voir .feuillets-header : c'est la barre entière qui
+     défile horizontalement au besoin, pas ses icônes qui s'écrasent). */
+  flex: 0 0 auto;
+}
+
+.feuillets-binder-search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  padding: 0 10px var(--size-4-2);
+  flex-shrink: 0;
 }
 
 .feuillets-binder-search {
-  flex: 1;
+  /* Sur sa propre ligne pleine largeur (feuillets-binder-search-row),
+     contrairement à l'ancien champ inséré entre les icônes : plus besoin
+     d'une largeur fixe pour éviter l'écrasement. */
+  width: 100%;
   height: 26px;
   font-size: var(--font-ui-small);
   border-radius: var(--radius-s);
   border: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
-  padding: 0 8px;
+  padding: 0 var(--size-4-2);
+  box-sizing: border-box;
 }
 
 .feuillets-search-wrap {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--size-4-1);
+  flex-shrink: 0;
 }
 
-.feuillets-search-wrap:has(.feuillets-binder-search) {
-  flex: 1;
-}
-
-.feuillets-binder-status-filter {
-  height: 26px;
-  font-size: var(--font-ui-small);
-  border-radius: var(--radius-s);
-  border: 1px solid var(--background-modifier-border);
-}
 
 .feuillets-binder-filters button {
   height: 26px;
@@ -1943,44 +2087,13 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-status-dot-4 { background: var(--color-blue, #5a8fd9); }
 .feuillets-status-dot-5 { background: var(--color-green, #5aa564); }
 
-/* ===== jalon historique dans le panneau Notes ===== */
-
-.feuillets-notes-milestone {
-  border: 1px solid var(--background-modifier-border);
-  border-left: 3px solid var(--text-muted);
-  border-radius: var(--radius-s);
-  padding: 8px 10px;
-  margin-bottom: 12px;
-  background: var(--background-secondary);
-}
-
-.feuillets-notes-milestone-head {
-  font-size: var(--font-ui-small);
-  font-weight: var(--font-semibold, 600);
-  color: var(--text-muted);
-  cursor: pointer;
-  margin-bottom: 4px;
-}
-
-.feuillets-notes-milestone-head:hover {
-  color: var(--interactive-accent);
-}
-
-.feuillets-notes-milestone-body {
-  font-size: var(--font-ui-small);
-}
-
-.feuillets-notes-milestone-body p {
-  margin: 0.3em 0;
-}
-
 /* ===== badge d'écart temporel dans la chronologie ===== */
 
 .feuillets-timeline-gap {
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
-  padding: 0 0 0 calc(110px + 8px + 24px + 8px);
+  padding: 0 0 0 calc(110px + var(--size-4-2) + var(--size-4-6) + var(--size-4-2));
   font-style: italic;
 }
 
@@ -2018,7 +2131,7 @@ body.feuillets-concentration .markdown-preview-view {
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-s);
-  padding: 1px 4px;
+  padding: 1px var(--size-4-1);
 }
 
 .feuillets-date-input:hover,
@@ -2026,6 +2139,17 @@ body.feuillets-concentration .markdown-preview-view {
   background: var(--background-primary);
   border-color: var(--background-modifier-border);
   box-shadow: none;
+}
+
+/* Édition du titre en place (vue Plan, double-clic sur le titre — voir
+   renderOutlineLevel, board-view.js). */
+.feuillets-title-input {
+  width: 100%;
+  font-size: inherit;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 1px var(--size-4-1);
 }
 
 .feuillets-filename-cell {
@@ -2057,11 +2181,6 @@ body.feuillets-concentration .markdown-preview-view {
   height: 13px;
 }
 
-.feuillets-binder-filters .clickable-icon.feuillets-mode-active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
 /* ===== lisibilité du binder ===== */
 
 /* fichier actif : accent net, pas un simple soulignement */
@@ -2091,40 +2210,47 @@ body.feuillets-concentration .markdown-preview-view {
 /* ===== entités citées (panneau Notes) ===== */
 
 .feuillets-notes-entities {
-  margin: 2px 0 8px;
-  padding-bottom: 6px;
+  margin: var(--size-4-1) 0 var(--size-4-2);
+  padding-bottom: var(--size-4-1);
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .feuillets-entity-row {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 2px 0 2px 8px;
+  gap: 2px;
+  padding: var(--size-4-1) 0 var(--size-4-1) var(--size-4-2);
 }
 
 .feuillets-entity-head {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--size-4-1);
 }
 
+/* Même langage typographique que .feuillets-notes-section-title (petites
+   majuscules espacées, muet) : un même type d'information — ici "quel
+   groupe d'entité" — se reconnaît au même traitement partout dans le
+   panneau plutôt qu'à sa propre taille ad hoc. */
 .feuillets-entity-group {
-  margin-top: 6px;
-  margin-bottom: 2px;
-  font-size: 0.72em;
-  font-weight: 700;
+  margin-top: var(--size-4-2);
+  margin-bottom: var(--size-4-1);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold, 600);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid var(--background-modifier-border);
-  padding-bottom: 1px;
+  padding-bottom: 2px;
 }
 
+/* line-height 1.5 plutôt que 1.3 : lisibilité façon iA Writer/Ulysses sur
+   ces quelques lignes de contexte narratif, qui sont du texte à LIRE, pas
+   juste un libellé d'interface. */
 .feuillets-entity-info {
-  font-size: 0.8em;
+  font-size: var(--font-ui-small);
   color: var(--text-muted);
-  line-height: 1.3;
+  line-height: 1.5;
 }
 
 .feuillets-entity-since {
@@ -2167,16 +2293,16 @@ body.feuillets-concentration .markdown-preview-view {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 0 10px;
+  padding: var(--size-4-2) 0 10px;
 }
 
 .feuillets-research-section {
-  padding: 0 12px;
-  margin-bottom: 18px;
+  padding: 0 var(--size-4-3);
+  margin-bottom: var(--size-4-5);
 }
 
 .feuillets-research-item {
-  padding: 4px 6px;
+  padding: var(--size-4-1) 6px;
   border-radius: var(--radius-s);
   cursor: pointer;
   font-size: var(--font-ui-small);
@@ -2198,6 +2324,76 @@ body.feuillets-concentration .markdown-preview-view {
   color: var(--text-faint);
   font-style: italic;
   padding: 2px 6px;
+}
+
+/* Vue d'ensemble des notes de bas de page (panneau Recherche, mode
+   non-fiction — renderFootnotesOverviewSection, base-feuillets-view.js) */
+.feuillets-footnotes-overview-group {
+  margin-bottom: 10px;
+}
+
+.feuillets-footnotes-overview-group:last-child {
+  margin-bottom: 0;
+}
+
+.feuillets-footnotes-overview-head {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.feuillets-footnotes-overview-head:hover {
+  color: var(--interactive-accent);
+}
+
+.feuillets-footnotes-overview-row {
+  display: flex;
+  gap: 6px;
+  padding: 2px 6px 2px var(--size-4-4);
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-footnotes-overview-label {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.feuillets-footnotes-overview-text {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* référence orpheline — citée sans définition, ou définie sans jamais
+   être citée : un vrai symptôme d'erreur d'édition, pas cosmétique */
+.feuillets-footnotes-overview-orphan .feuillets-footnotes-overview-label,
+.feuillets-footnotes-overview-orphan .feuillets-footnotes-overview-text {
+  color: var(--text-error);
+}
+
+/* Ligne "Générer la bibliographie…" (panneau Recherche, section "Sources
+   citées" — renderCitedSourcesSection, base-feuillets-view.js) — même
+   patron que .feuillets-project-row (icône + texte, surbrillance au
+   survol uniquement). */
+.feuillets-bibliography-export-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  margin-bottom: var(--size-4-1);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.feuillets-bibliography-export-row:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
 }
 
 /* ===== poignée de glisser-déposer dédiée (binder) ===== */
@@ -2237,7 +2433,7 @@ body.feuillets-concentration .markdown-preview-view {
 }
 
 .feuillets-research-item-name {
-  padding: 4px 6px;
+  padding: var(--size-4-1) 6px;
   cursor: pointer;
   font-size: var(--font-ui-small);
 }
@@ -2258,7 +2454,7 @@ body.feuillets-concentration .markdown-preview-view {
 }
 
 .feuillets-research-preview {
-  padding: 4px 10px 10px;
+  padding: var(--size-4-1) 10px 10px;
   font-size: var(--font-ui-small);
   border-top: 1px solid var(--background-modifier-border);
 }
@@ -2278,7 +2474,7 @@ body.feuillets-concentration .markdown-preview-view {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: var(--size-4-1);
 }
 
 .feuillets-research-item-header .feuillets-research-item-name {
@@ -2300,7 +2496,7 @@ body.feuillets-concentration .markdown-preview-view {
 }
 
 .feuillets-appearances-row {
-  padding: 8px 6px;
+  padding: var(--size-4-2) 6px;
   border-bottom: 1px solid var(--background-modifier-border);
   cursor: pointer;
   border-radius: var(--radius-s);
@@ -2313,7 +2509,7 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-appearances-head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--size-4-2);
 }
 
 .feuillets-appearances-title {
@@ -2360,8 +2556,8 @@ body.feuillets-concentration .markdown-preview-view {
 
 .feuillets-fileview-bar {
   display: flex;
-  gap: 4px;
-  margin-bottom: 8px;
+  gap: var(--size-4-1);
+  margin-bottom: var(--size-4-2);
   padding-bottom: 6px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
@@ -2373,24 +2569,24 @@ body.feuillets-concentration .markdown-preview-view {
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-s);
-  padding: 4px 0;
+  padding: var(--size-4-1) 0;
   margin-bottom: 2px;
-  margin-top: 4px;
+  margin-top: var(--size-4-1);
 }
 
 .feuillets-fileview-title:hover,
 .feuillets-fileview-title:focus {
   background: var(--background-modifier-form-field);
   border-color: var(--background-modifier-border);
-  padding: 4px 6px;
+  padding: var(--size-4-1) 6px;
   box-shadow: none;
 }
 
 .feuillets-fileview-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-2);
 }
 
 .feuillets-fileview-row select {
@@ -2402,14 +2598,14 @@ body.feuillets-concentration .markdown-preview-view {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  padding: 0 12px 12px;
+  padding: 0 var(--size-4-3) var(--size-4-3);
   overflow: hidden;
 }
 
 .feuillets-fileview-body {
   font-size: var(--font-ui-small);
   line-height: 1.6;
-  padding-top: 8px;
+  padding-top: var(--size-4-2);
   border-top: 1px solid var(--background-modifier-border);
   flex: 1;
   overflow-y: auto;
@@ -2429,7 +2625,7 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-merge-hero { margin: 0 0 0.55rem; padding: 0.7rem 0.8rem; background: var(--background-modifier-hover); border: 1px solid var(--background-modifier-border); border-radius: 10px; }
 .feuillets-merge-title { font-weight: 700; line-height: 1.25; margin-bottom: 0.1rem; font-size: 0.98rem; }
 .feuillets-merge-subtitle, .feuillets-yaml-subtitle, .feuillets-yaml-note { color: var(--text-muted); font-size: 0.82em; }
-.feuillets-merge-compact-note { margin: 0 0 0.45rem; color: var(--text-muted); font-size: 0.78rem; padding: 0.45rem 0.55rem; border: 1px dashed var(--background-modifier-border); border-radius: 8px; cursor: pointer; }
+.feuillets-merge-compact-note { margin: 0 0 0.45rem; color: var(--text-muted); font-size: 0.78rem; padding: 0.45rem 0.55rem; border: 1px dashed var(--background-modifier-border); border-radius: var(--radius-m); cursor: pointer; }
 .feuillets-merge-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.4rem; margin: 0.55rem 0; }
 .feuillets-merge-stat { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 9px; padding: 0.5rem 0.6rem; min-width: 0; }
 .feuillets-merge-stat-value { font-weight: 700; font-size: 0.96em; line-height: 1.1; }
@@ -2443,7 +2639,7 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-merge-list { margin: 0; padding-left: 0.9rem; font-size: 0.84rem; }
 .feuillets-merge-list li { margin: 0.1rem 0; overflow-wrap: anywhere; }
 .feuillets-merge-order { display: grid; gap: 0.35rem; }
-.feuillets-merge-order-row { display: grid; grid-template-columns: 1fr auto; gap: 0.4rem; align-items: center; padding: 0.35rem 0.4rem; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; }
+.feuillets-merge-order-row { display: grid; grid-template-columns: 1fr auto; gap: 0.4rem; align-items: center; padding: 0.35rem 0.4rem; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); }
 .feuillets-merge-order-label { display: grid; grid-template-columns: auto 1fr; gap: 0.45rem; align-items: center; min-width: 0; }
 .feuillets-merge-order-index { font-size: 0.76rem; color: var(--text-muted); width: 1.2rem; text-align: center; }
 .feuillets-merge-order-name { font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2463,9 +2659,9 @@ body.feuillets-concentration .markdown-preview-view {
 /* ===== notes metadata & outline sections ===== */
 
 .feuillets-notes-section {
-  margin-top: 16px;
+  margin-top: var(--size-4-5);
   border-top: 1px solid var(--background-modifier-border);
-  padding-top: 12px;
+  padding-top: var(--size-4-4);
 }
 
 /* Rien à séparer visuellement quand c'est la toute première section d'un
@@ -2480,9 +2676,9 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-notes-section-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--size-4-2);
   cursor: pointer;
-  padding: 6px 0;
+  padding: var(--size-4-1) 0;
   color: var(--text-muted);
 }
 
@@ -2500,23 +2696,23 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-notes-metadata-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-  padding: 2px 4px;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-1);
 }
 
 .feuillets-notes-metadata-list-divider {
-  margin-top: 10px;
+  margin-top: var(--size-4-3);
   border-top: 1px solid var(--background-modifier-border);
-  padding-top: 10px;
+  padding-top: var(--size-4-3);
 }
 
 .feuillets-notes-label-tight {
-  margin-bottom: 8px;
+  margin-bottom: var(--size-4-2);
 }
 
 .feuillets-notes-add-row {
-  margin-top: 8px;
+  margin-top: var(--size-4-2);
   text-align: right;
 }
 
@@ -2542,8 +2738,8 @@ body.feuillets-concentration .markdown-preview-view {
    au survol, champs discrets tant qu'on n'interagit pas avec eux). */
 .feuillets-property-row {
   justify-content: flex-start;
-  gap: 8px;
-  padding: 3px 4px;
+  gap: var(--size-4-2);
+  padding: 3px var(--size-4-1);
   border-radius: var(--radius-s);
 }
 
@@ -2574,43 +2770,6 @@ body.feuillets-concentration .markdown-preview-view {
   height: 14px;
 }
 
-.feuillets-notes-outline-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-  padding: 4px 6px;
-}
-
-.feuillets-notes-outline-row {
-  padding: 4px 6px;
-  border-radius: var(--radius-s);
-  cursor: pointer;
-}
-
-.feuillets-notes-outline-row:hover {
-  background: var(--background-modifier-hover);
-}
-
-.feuillets-notes-outline-inner {
-  font-size: var(--font-ui-small);
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.feuillets-notes-outline-row:hover .feuillets-notes-outline-inner {
-  color: var(--text-normal);
-}
-
-.feuillets-notes-empty-outline {
-  font-size: var(--font-ui-small);
-  color: var(--text-faint);
-  font-style: italic;
-  padding: 4px 6px;
-}
-
 /* ===== barre de progression du compte de mots ===== */
 
 .feuillets-wc-card {
@@ -2623,14 +2782,17 @@ body.feuillets-concentration .markdown-preview-view {
   justify-content: space-between;
   align-items: center;
   font-size: var(--font-ui-small);
-  margin-bottom: 8px;
+  margin-bottom: var(--size-4-2);
 }
 
 /* Panneau Progression seul : 4 sections (chapitre + projet) doivent tenir
    sans défilement sur un petit écran — resserré ici uniquement, les autres
    panneaux (Notes, Cartes, Journal) gardent l'aération générale. */
 .feuillets-progression-compact {
-  padding-top: 4px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: var(--size-4-1) !important;
 }
 
 .feuillets-progression-compact .feuillets-notes-section {
@@ -2641,7 +2803,524 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-progression-divider {
   height: 1px;
   background: var(--background-modifier-border);
-  margin: 28px 0;
+  margin: var(--size-4-3) 0;
+}
+
+.feuillets-progression-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 60px;
+}
+
+.feuillets-progression-bar {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.feuillets-progression-bar-fill {
+  width: 100%;
+  background: var(--interactive-accent);
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+}
+
+.feuillets-progression-bar-fill.is-empty {
+  background: var(--background-modifier-border);
+}
+
+/* =========================================================
+   FEUILLETS — REFONTE MINIMALISTE TYPE ULYSSES / iA WRITER
+   ========================================================= */
+
+/* 1. STRUCTURE & SUPPRESSION DES BORDURES (NO BORDERS) */
+.feuillets-container,
+.feuillets-binder-header,
+.feuillets-sidebar-content,
+.feuillets-sidebar-container,
+.feuillets-list-pane,
+.feuillets-tree-pane,
+.feuillets-header {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Onglet fusionné Export & révision : deux sous-vues empilées (voir
+   sidebar-feuillets-view.js, renderProjectTab) — séparateur visuel entre
+   les deux, pas de bordure sur la première. */
+.feuillets-merged-section + .feuillets-merged-section {
+  border-top: 1px solid var(--background-modifier-border) !important;
+  margin-top: var(--size-4-3);
+  padding-top: var(--size-4-3);
+}
+
+.feuillets-container {
+  background: var(--background-primary) !important;
+}
+
+.feuillets-list-pane,
+.feuillets-tree-pane {
+  background: var(--background-secondary) !important;
+}
+
+.feuillets-sidebar-content,
+.feuillets-sidebar-container {
+  background: var(--background-secondary-alt) !important;
+}
+
+/* 2. SÉLECTION DISCRÈTE (STYLE ULYSSES 10% OPACITÉ & 6PX RADIUS) */
+.feuillets-list-pane .feuillets-item.is-active,
+.feuillets-list-pane .feuillets-item.is-selected,
+.feuillets-tree-pane .feuillets-folder-row.is-selected,
+.feuillets-tree-pane .feuillets-file-row.is-selected,
+.feuillets-tree-pane .is-active,
+.feuillets-project-item.is-active,
+.feuillets-project-item.is-selected,
+.feuillets-doc-item.is-active,
+.feuillets-doc-item.is-selected,
+.feuillets-character-item.is-active,
+.feuillets-character-item.is-selected,
+.feuillets-research-item.is-active,
+.feuillets-research-item.is-selected {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent) !important;
+  color: var(--text-normal) !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.feuillets-list-pane .feuillets-item:hover,
+.feuillets-tree-pane .feuillets-folder-row:hover,
+.feuillets-tree-pane .feuillets-file-row:hover,
+.feuillets-project-item:hover,
+.feuillets-doc-item:hover,
+.feuillets-character-item:hover,
+.feuillets-research-item:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 5%, transparent) !important;
+}
+
+/* 3. EFFACEMENT DES COMMANDES (ICÔNES VISIBLES AU SURVOL SEULEMENT) */
+.feuillets-binder-action-bar button,
+.feuillets-header .feuillets-actions button,
+.feuillets-sidebar-content .clickable-icon,
+.feuillets-sidebar-container .clickable-icon,
+.feuillets-section-header button {
+  opacity: 0.25 !important;
+  transition: opacity 0.2s ease !important;
+}
+
+.feuillets-binder-header:hover .feuillets-binder-action-bar button,
+.feuillets-header:hover .feuillets-actions button,
+.feuillets-sidebar-content:hover .clickable-icon,
+.feuillets-sidebar-container:hover .clickable-icon,
+.feuillets-section-header:hover button,
+.feuillets-binder-action-bar button:hover,
+.feuillets-header .feuillets-actions button:hover,
+.feuillets-sidebar-content .clickable-icon:hover {
+  opacity: 1 !important;
+}
+
+/* 4. CHAMPS DE SAISIE & BOUTONS D'ACTION (iA WRITER STYLE) */
+.feuillets-sidebar-content input[type="text"],
+.feuillets-sidebar-container input[type="text"],
+.feuillets-binder-search,
+.feuillets-binder-search-input,
+.feuillets-doc-search-input,
+.feuillets-research-search-input,
+.feuillets-project-add-input,
+.feuillets-import-input {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--background-modifier-border) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: var(--size-4-1) 0 !important;
+  font-size: 12px !important;
+  color: var(--text-normal) !important;
+}
+
+.feuillets-sidebar-content input[type="text"]::placeholder,
+.feuillets-sidebar-container input[type="text"]::placeholder {
+  color: var(--text-muted) !important;
+  opacity: 0.6 !important;
+}
+
+.feuillets-sidebar-content input[type="text"]:focus,
+.feuillets-sidebar-container input[type="text"]:focus,
+.feuillets-binder-search:focus,
+.feuillets-binder-search-input:focus {
+  border-bottom-color: var(--interactive-accent) !important;
+  outline: none !important;
+}
+
+/* Bouton Exporter minimaliste pilule contour */
+.feuillets-sidebar-content button.feuillets-export-cta,
+.feuillets-sidebar-content .feuillets-compile-export-btn,
+.feuillets-sidebar-content button[class*="export"],
+.feuillets-sidebar-container button.feuillets-export-cta,
+.feuillets-sidebar-container .feuillets-compile-export-btn,
+.feuillets-sidebar-container button[class*="export"] {
+  background: transparent !important;
+  border: 1px solid var(--interactive-accent) !important;
+  color: var(--interactive-accent) !important;
+  border-radius: 20px !important;
+  padding: var(--size-4-2) var(--size-4-4) !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+  box-shadow: none !important;
+  display: block !important;
+  width: 100% !important;
+  margin-top: var(--size-4-4) !important;
+  text-align: center !important;
+  cursor: pointer !important;
+}
+
+.feuillets-sidebar-content button.feuillets-export-cta:hover,
+.feuillets-sidebar-content .feuillets-compile-export-btn:hover,
+.feuillets-sidebar-content button[class*="export"]:hover,
+.feuillets-sidebar-container button.feuillets-export-cta:hover,
+.feuillets-sidebar-container .feuillets-compile-export-btn:hover,
+.feuillets-sidebar-container button[class*="export"]:hover {
+  background: var(--interactive-accent) !important;
+  color: var(--text-on-accent, #ffffff) !important;
+}
+
+/* 5. TYPOGRAPHIE ET RESPIRATION GÉNÉRALE */
+/* var(--font-interface) plutôt qu'une pile système figée (Apple/Windows) :
+   le binder est le panneau le plus regardé du plugin — un utilisateur qui
+   a choisi une police d'interface personnalisée dans Obsidian (courant
+   chez les auteurs) le voyait jurer visuellement avec le reste de l'app. */
+.feuillets-container,
+.feuillets-list-pane,
+.feuillets-tree-pane,
+.feuillets-sidebar-content {
+  font-family: var(--font-interface) !important;
+}
+
+.feuillets-project-item {
+  font-family: inherit !important;
+  font-size: 13px !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  color: var(--text-normal) !important;
+  padding: 6px var(--size-4-2) !important;
+}
+
+/* =========================================================
+   FEUILLETS — PROMPT GLOBAL : HARMONISATION VISUELLE ET ERGONOMIQUE
+   ========================================================= */
+
+/* 1. RÈGLE UNIFIÉE DE TRANSPARENCE À 20 % (LIGHT ET DARK MODE) */
+.feuillets-list-pane .feuillets-item.is-active,
+.feuillets-list-pane .feuillets-item.is-selected,
+.feuillets-container > .feuillets-list .feuillets-item.is-active,
+.feuillets-tree-pane .feuillets-folder-row.is-selected,
+.feuillets-tree-pane .feuillets-file-row.is-selected,
+.feuillets-tree-pane .is-active,
+.feuillets-sidebar-content .feuillets-compile-export-btn,
+.feuillets-sidebar-content button.feuillets-export-cta,
+.feuillets-sidebar-content button[class*="export"],
+.feuillets-sidebar-container .feuillets-compile-export-btn,
+.feuillets-sidebar-container button.feuillets-export-cta,
+.feuillets-sidebar-container button[class*="export"],
+.feuillets-search-bar button.feuillets-btn-replace-all,
+.feuillets-search-bar button.feuillets-replace-all-btn,
+.feuillets-search-bar button[class*="replace"],
+.modal .feuillets-btn-primary,
+.modal button.mod-cta,
+.modal .feuillets-modal-submit,
+.modal .feuillets-modal-option.is-selected {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
+  color: var(--text-normal) !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  border-radius: var(--radius-l) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Effet survol (Hover) unifié à 30 % */
+.feuillets-list-pane .feuillets-item.is-active:hover,
+.feuillets-tree-pane .is-selected:hover,
+.feuillets-sidebar-content button[class*="export"]:hover,
+.feuillets-sidebar-container button[class*="export"]:hover,
+.feuillets-search-bar button[class*="replace"]:hover,
+.modal .feuillets-btn-primary:hover,
+.modal button.mod-cta:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 30%, transparent) !important;
+}
+
+/* Formatage structurel du bouton Exporter (Pleine largeur) */
+.feuillets-sidebar-content .feuillets-compile-export-btn,
+.feuillets-sidebar-content button.feuillets-export-cta,
+.feuillets-sidebar-content button[class*="export"],
+.feuillets-sidebar-container .feuillets-compile-export-btn,
+.feuillets-sidebar-container button.feuillets-export-cta,
+.feuillets-sidebar-container button[class*="export"] {
+  display: block !important;
+  width: 100% !important;
+  margin-top: var(--size-4-4) !important;
+  padding: 10px var(--size-4-4) !important;
+  text-align: center !important;
+  cursor: pointer !important;
+}
+
+/* Formatage structurel du bouton Tout remplacer */
+.feuillets-search-bar button.feuillets-btn-replace-all,
+.feuillets-search-bar button.feuillets-replace-all-btn,
+.feuillets-search-bar button[class*="replace"] {
+  padding: 6px var(--size-4-3) !important;
+  cursor: pointer !important;
+}
+
+/* 2. NEUTRALISATION ET TRANSPARENCE TOTALE DES ICÔNES SECONDAIRES (Y COMPRIS AU SURVOL) */
+.feuillets-sidebar-tab-bar .feuillets-tab-btn,
+.feuillets-sidebar-tab-bar button,
+.feuillets-sidebar-content button:not([class*="export"]),
+.feuillets-sidebar-container button:not([class*="export"]),
+.feuillets-sidebar-content .clickable-icon,
+.feuillets-search-bar .feuillets-search-settings-btn,
+.feuillets-search-bar .feuillets-search-icon-btn,
+.feuillets-search-bar button:not([class*="replace"]),
+.feuillets-search-bar .clickable-icon,
+.feuillets-research-container button:not(.feuillets-btn-primary),
+.feuillets-research-container .clickable-icon,
+.modal button:not(.mod-cta):not(.feuillets-btn-primary):not([type="submit"]):not(.feuillets-modal-submit) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--text-muted) !important;
+}
+
+.feuillets-sidebar-tab-bar .feuillets-tab-btn:hover,
+.feuillets-sidebar-content button:not([class*="export"]):hover,
+.feuillets-sidebar-content .clickable-icon:hover,
+.feuillets-search-bar .feuillets-search-settings-btn:hover,
+.feuillets-search-bar .feuillets-search-icon-btn:hover,
+.feuillets-search-bar button:not([class*="replace"]):hover,
+.feuillets-search-bar .clickable-icon:hover,
+.feuillets-research-container button:not(.feuillets-btn-primary):hover,
+.feuillets-research-container .clickable-icon:hover,
+.modal button:not(.mod-cta):not(.feuillets-btn-primary):hover {
+  background: transparent !important;
+  color: var(--text-normal) !important;
+  box-shadow: none !important;
+}
+
+/* 3. BINDER SEARCH INLINE & CONTENUS */
+.feuillets-binder-search {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  border-radius: var(--radius-m) !important;
+  padding: var(--size-4-1) var(--size-4-2) !important;
+  font-size: 12px !important;
+  color: var(--text-normal) !important;
+}
+
+/* 4. BARRE DE RECHERCHE FLOTTANTE (CHERCHER/REMPLACER) ET HAUTE VISIBILITÉ SOMBRE */
+.feuillets-search-bar {
+  position: absolute !important;
+  top: 14px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 100 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  padding: var(--size-4-1) 10px var(--size-4-1) 6px !important;
+  border-radius: 20px !important;
+  background: var(--background-primary-alt) !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  box-shadow: var(--shadow-s) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+/* Couleurs Obsidian plutôt que des teintes sombres codées en dur : ces
+   dernières supposaient UN thème sombre précis (quasi-noir, #1e1e23) —
+   sur un thème sombre différent (souvent plus clair ou teinté), la barre
+   flottante jurait au lieu de s'harmoniser. --background-primary/
+   --text-normal s'adaptent, eux, à n'importe quel thème actif. */
+.theme-dark .feuillets-search-bar {
+  background: var(--background-primary) !important;
+  border: 1px solid var(--background-modifier-border-hover) !important;
+  box-shadow: var(--shadow-l) !important;
+}
+
+.theme-dark .feuillets-search-bar input,
+.theme-dark .feuillets-search-input-wrapper {
+  background: var(--background-primary-alt) !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  color: var(--text-normal) !important;
+  border-radius: var(--radius-l) !important;
+}
+
+.theme-dark .feuillets-search-bar input::placeholder {
+  color: var(--text-faint) !important;
+}
+
+/* =========================================================
+   FEUILLETS — POPOVER COMPACTE & COMPACT-GRID (Style macOS)
+   ========================================================= */
+
+.feuillets-search-popover {
+  position: absolute !important;
+  top: 100% !important;
+  left: 10px !important;
+  margin-top: 6px !important;
+  padding: var(--size-4-1) !important;
+  border-radius: 10px !important;
+  background: var(--background-primary) !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  box-shadow: var(--shadow-l) !important;
+  min-width: 170px !important;
+  max-width: 200px !important;
+  z-index: 101 !important;
+}
+
+.feuillets-search-popover-item {
+  display: grid !important;
+  grid-template-columns: 16px 1fr !important; /* Grille fixe : Symbole / Texte */
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 3px 6px !important;
+  border-radius: 5px !important;
+  font-size: 11px !important; /* Taille compacte */
+  line-height: 1.3 !important;
+  white-space: nowrap !important; /* Interdit le retour à la ligne */
+  color: var(--text-normal) !important;
+  cursor: pointer !important;
+}
+
+.feuillets-search-popover-item:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
+}
+
+/* Colonne icône/coche */
+.feuillets-search-popover-item .popover-icon {
+  text-align: center !important;
+  font-size: 11px !important;
+  color: var(--interactive-accent) !important;
+  font-weight: bold !important;
+}
+
+.feuillets-search-popover-divider {
+  height: 1px !important;
+  background: var(--background-modifier-border) !important;
+  margin: 3px var(--size-4-1) !important;
+}
+
+/* 3. MENU DÉROULANT (POPOVER RÉGLAGES) EN MODE SOMBRE */
+.theme-dark .feuillets-search-popover {
+  background: var(--background-secondary) !important;
+  border: 1px solid var(--background-modifier-border-hover) !important;
+  box-shadow: var(--shadow-l) !important;
+}
+
+.theme-dark .feuillets-search-popover-item {
+  color: var(--text-normal) !important;
+}
+
+.theme-dark .feuillets-search-popover-item:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
+}
+
+.theme-dark .feuillets-list-pane .feuillets-item.is-active {
+  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent) !important;
+  border-radius: var(--radius-l) !important;
+}
+
+.theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-item-name,
+.theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-item-preview,
+.theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-item-meta,
+.theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-item-wc,
+.theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-cell-icon {
+  color: var(--text-normal) !important;
+}
+
+/* Zone d'édition respirante */
+.markdown-reading-view,
+.markdown-source-view {
+  max-width: 700px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  font-size: 19px;
+  line-height: 1.75 !important;
+}
+
+.feuillets-search-main-row,
+.feuillets-search-replace-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.feuillets-search-input,
+.feuillets-replace-input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small, 13px);
+  background: transparent;
+  border: none;
+  color: var(--text-normal);
+  padding: var(--size-4-1) 6px;
+  outline: none;
+  box-shadow: none;
+}
+
+.feuillets-search-input:focus,
+.feuillets-replace-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.feuillets-search-counter {
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 0 var(--size-4-1);
+}
+
+.feuillets-search-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.feuillets-search-icon-btn:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.feuillets-search-icon-btn.is-active {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.feuillets-replace-all-btn {
+  font-size: var(--font-ui-smaller, 11px);
+  padding: 3px 10px;
+  border-radius: var(--radius-l);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+
+.feuillets-progression-history-total {
+  margin-top: 6px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  text-align: center;
 }
 
 .feuillets-progression-compact .feuillets-notes-section-head {
@@ -2651,7 +3330,7 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-progression-compact .feuillets-notes-metadata-list {
   gap: 2px;
   margin-top: 2px;
-  padding: 0 4px;
+  padding: 0 var(--size-4-1);
 }
 
 .feuillets-progression-compact .feuillets-notes-metadata-row {
@@ -2659,7 +3338,7 @@ body.feuillets-concentration .markdown-preview-view {
 }
 
 .feuillets-progression-compact .feuillets-wc-card {
-  margin-top: 4px;
+  margin-top: var(--size-4-1);
 }
 
 .feuillets-progression-compact .feuillets-wc-header {
@@ -2700,7 +3379,7 @@ body.feuillets-concentration .markdown-preview-view {
 }
 
 .feuillets-notes-field-container {
-  margin-top: 4px;
+  margin-top: var(--size-4-1);
   width: 100%;
 }
 
@@ -2720,28 +3399,28 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-notes-order-wrap {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-3);
 }
 
 .feuillets-notes-order-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 12px;
-  background: var(--background-secondary-alt);
+  padding: var(--size-4-2) var(--size-4-3);
+  background: var(--background-modifier-form-field);
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m, 6px);
+  border-radius: var(--radius-s);
   font-size: var(--font-ui-small);
 }
 
 .feuillets-notes-order-buttons {
   display: flex;
-  gap: 4px;
+  gap: var(--size-4-1);
 }
 
 .feuillets-notes-order-buttons button {
-  padding: 2px 6px;
+  padding: 2px var(--size-4-2);
   line-height: 1;
 }
 
@@ -2775,25 +3454,31 @@ body.feuillets-concentration .markdown-preview-view {
 
 .feuillets-notes-back-bar {
   display: flex;
-  margin-bottom: 8px;
+  margin-bottom: var(--size-4-2);
 }
 
+/* Lien texte plat plutôt que bouton encadré : dans l'esprit iA Writer/
+   Ulysses, un aller-retour de navigation reste discret — pas un bloc
+   visuel qui rivalise avec le contenu. --background-modifier-hover-hover
+   n'existe pas dans Obsidian (coquille) : le survol ne changeait jamais
+   réellement de teinte, seule la couleur du texte bougeait. */
 .feuillets-back-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
+  gap: var(--size-4-1);
+  padding: var(--size-4-1) var(--size-4-2);
+  margin-left: calc(var(--size-4-2) * -1);
   font-size: var(--font-ui-smaller);
   border-radius: var(--radius-s);
-  background: var(--background-modifier-hover);
+  background: transparent;
   color: var(--text-muted);
-  border: 1px solid var(--background-modifier-border);
+  border: none;
   cursor: pointer;
 }
 
 .feuillets-back-btn:hover {
   color: var(--text-normal);
-  background: var(--background-modifier-hover-hover);
+  background: var(--background-modifier-hover);
 }
 
 .feuillets-back-icon {
@@ -2805,13 +3490,24 @@ body.feuillets-concentration .markdown-preview-view {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--size-4-1);
   padding: 6px 10px;
   background: var(--background-secondary);
   border-bottom: 1px solid var(--background-modifier-border);
   font-size: var(--font-ui-smaller);
-  margin-bottom: 12px;
+  margin-bottom: var(--size-4-3);
   border-radius: var(--radius-s);
+}
+
+/* En-têtes de dossier (partie/chapitre) dans la vue Cartes "Tout le
+   manuscrit" (renderBoardWholeManuscript, board-view.js) — un peu d'air
+   au-dessus pour séparer visuellement d'un groupe de cartes au précédent,
+   sans dupliquer la marge basse déjà posée par .feuillets-grid. */
+.feuillets-board-whole-section {
+  margin-top: 14px;
+}
+.feuillets-board-whole-section:first-child {
+  margin-top: 0;
 }
 
 .feuillets-breadcrumb-link {
@@ -2836,13 +3532,13 @@ body.feuillets-concentration .markdown-preview-view {
   color: var(--text-faint);
 }
 
-/* Cartes de dossier */
+/* Cartes de dossier — même taille que les autres cartes (hauteur dictée
+   par le contenu, comme .feuillets-card) : pas de format carré forcé,
+   qui les faisait paraître énormes dès que la note de dossier avait un
+   résumé un peu long. */
 .feuillets-card-folder {
   background: var(--background-secondary-alt);
   border: 1px dashed var(--background-modifier-border);
-  aspect-ratio: 1;
-  min-height: 0;
-  overflow: hidden;
 }
 .feuillets-card-folder:hover {
   border-style: solid;
@@ -2858,7 +3554,7 @@ body.feuillets-concentration .markdown-preview-view {
   box-shadow: none;
   border-radius: var(--radius-s);
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 2px var(--size-4-1);
 }
 
 .feuillets-outline select:hover,
@@ -2872,11 +3568,17 @@ body.feuillets-concentration .markdown-preview-view {
   outline: none;
 }
 
+/* Le champ « cliquer pour écrire » (Synopsis, Notes, Résumé, Sources…) :
+   c'est ici que l'utilisateur LIT et ÉCRIT sa prose de travail, pas un
+   simple libellé d'interface — line-height généreux façon iA Writer/
+   Ulysses plutôt que la valeur par défaut, trop dense sur plusieurs
+   lignes. */
 .feuillets-flat-text-cell {
   flex: 1;
   min-width: 0;
   font-size: var(--font-ui-small);
-  padding: 2px 4px;
+  line-height: 1.55;
+  padding: var(--size-4-1) var(--size-4-2);
   border-radius: var(--radius-s);
   cursor: pointer;
   color: var(--text-normal);
@@ -2902,15 +3604,20 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-flat-textarea {
   width: 100%;
   font-size: var(--font-ui-small);
+  line-height: 1.55;
   background: var(--background-modifier-form-field);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
-  padding: 4px 6px;
+  padding: var(--size-4-1) var(--size-4-2);
   resize: vertical;
   min-height: 38px;
   outline: none;
   box-shadow: none;
   font-family: inherit;
+}
+
+.feuillets-flat-textarea:focus {
+  border-color: var(--interactive-accent);
 }
 
 /* Raccourcir tous les inputs et selects du volet de cartes/plan/chrono */
@@ -2922,7 +3629,7 @@ body.feuillets-concentration .markdown-preview-view {
   box-shadow: none;
   border-radius: var(--radius-s);
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 2px var(--size-4-1);
 }
 
 .feuillets-board-container select:hover,
@@ -2949,10 +3656,10 @@ body.feuillets-concentration .markdown-preview-view {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 24px;
+  padding: 14px var(--size-4-6);
   background: var(--background-secondary-alt);
   border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 16px;
+  margin-bottom: var(--size-4-4);
 }
 
 .feuillets-arcs-filter-label {
@@ -2973,7 +3680,7 @@ body.feuillets-concentration .markdown-preview-view {
 }
 
 .feuillets-arcs-density-wrap {
-  padding: 0 24px;
+  padding: 0 var(--size-4-6);
   max-width: 1000px;
   margin: 0 auto;
 }
@@ -2981,7 +3688,7 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-arcs-timeline {
   display: flex;
   flex-direction: column;
-  padding: 0 24px 32px;
+  padding: 0 var(--size-4-6) var(--size-4-8);
   max-width: 1000px;
   margin: 0 auto;
 }
@@ -2989,7 +3696,7 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-arcs-row-folder {
   display: flex;
   align-items: center;
-  padding: 8px 0;
+  padding: var(--size-4-2) 0;
   font-size: var(--font-ui-large, 16px);
   font-weight: 600;
   color: var(--text-normal);
@@ -2998,7 +3705,7 @@ body.feuillets-concentration .markdown-preview-view {
 
 .feuillets-arcs-folder-title {
   flex-grow: 1;
-  padding-left: 8px;
+  padding-left: var(--size-4-2);
   color: var(--text-accent);
   display: flex;
   align-items: baseline;
@@ -3082,14 +3789,14 @@ body.feuillets-concentration .markdown-preview-view {
   flex-grow: 1;
   padding: 10px 14px;
   overflow: hidden;
-  gap: 4px;
+  gap: var(--size-4-1);
 }
 
 .feuillets-arcs-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--size-4-2);
 }
 
 .feuillets-arcs-title-left {
@@ -3130,7 +3837,7 @@ body.feuillets-concentration .markdown-preview-view {
 
 .feuillets-arcs-row-badges {
   display: flex;
-  gap: 4px;
+  gap: var(--size-4-1);
   flex-wrap: wrap;
 }
 
@@ -3147,7 +3854,7 @@ body.feuillets-concentration .markdown-preview-view {
   align-items: center;
   font-size: 8px;
   font-weight: 700;
-  padding: 0px 4px;
+  padding: 0px var(--size-4-1);
   border-radius: var(--radius-s);
   background-color: var(--arc-color-bg);
   color: var(--arc-color-text);
@@ -3156,10 +3863,10 @@ body.feuillets-concentration .markdown-preview-view {
   letter-spacing: 0.3px;
 }
 
-/* ===== vue Tags (arborescence scopée au projet) ===== */
+/* ===== arborescence de tags/propriétés (panneau Propriétés) ===== */
 
 .feuillets-tags-search-bar {
-  margin-bottom: 10px;
+  margin-bottom: var(--size-4-2);
 }
 
 .feuillets-tags-search {
@@ -3176,7 +3883,7 @@ body.feuillets-concentration .markdown-preview-view {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 0;
+  padding: var(--size-4-1) 0;
   cursor: pointer;
   border-radius: var(--radius-s);
 }
@@ -3200,6 +3907,34 @@ body.feuillets-concentration .markdown-preview-view {
   flex-shrink: 0;
 }
 
+/* "+" pour ajouter cette propriété/ce tag au fichier ouvert — toujours
+   visible (systématiquement présent dans chaque ligne, même quand il ne
+   fait rien : voir .is-disabled) plutôt qu'apparaissant seulement au
+   survol, pour que le compteur à sa droite ne saute jamais d'une ligne à
+   l'autre. */
+.feuillets-tags-add {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: var(--text-faint);
+}
+
+.feuillets-tags-add:hover {
+  color: var(--interactive-accent);
+}
+
+.feuillets-tags-add.is-disabled {
+  opacity: 0.25;
+  cursor: default;
+  pointer-events: none;
+}
+
+.feuillets-tags-add svg {
+  width: 13px;
+  height: 13px;
+}
+
 .feuillets-tags-file-row {
   padding: 3px 0 3px 22px;
   font-size: var(--font-ui-small);
@@ -3214,4 +3949,1424 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-tags-file-row:hover {
   color: var(--text-normal);
   background: var(--background-modifier-hover);
+}
+
+/* ===== panneau Propriétés : fichier ouvert (éditable) =====
+   Réutilise .feuillets-tags-row/-name/-count/-file-row/-chevron pour les
+   sections "Propriétés du projet" et "Tags du projet" (même arbre
+   dépliable que le panneau Tags) — seule la section "Fichier ouvert" a
+   son propre style, du fait de ses champs éditables. */
+
+.feuillets-properties-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.feuillets-properties-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+
+.feuillets-properties-row > .feuillets-cell-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.feuillets-properties-row > .feuillets-cell-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.feuillets-properties-key {
+  flex: 0 0 34%;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-properties-list-editor {
+  flex: 1;
+  min-width: 0;
+}
+
+.feuillets-properties-list-editor .feuillets-tags-input {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Pas de case/bordure visible : juste le texte, comme .feuillets-synopsis
+   (panneau Notes) — une légère teinte de fond au survol/focus indique que
+   c'est éditable, jamais de boîte. Spécificité (deux classes) et
+   !important nécessaires : Obsidian applique par défaut une bordure aux
+   <input> (contrairement aux <textarea>, jamais concernés par cette
+   règle-là — c'est pourquoi .feuillets-synopsis n'en avait pas besoin). */
+.feuillets-project-container input,
+.feuillets-project-container input[type="text"],
+.feuillets-project-section input,
+.feuillets-project-section input[type="text"],
+.feuillets-properties-row input,
+.feuillets-properties-row input[type="text"],
+.feuillets-properties-row .feuillets-properties-value,
+.feuillets-properties-row select {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal) !important;
+  height: 24px !important;
+  border: 0 !important;
+  border-width: 0 !important;
+  border-style: none !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  padding: 2px var(--size-4-1) !important;
+  border-radius: var(--radius-s);
+  outline: none !important;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+
+.feuillets-project-container input:hover,
+.feuillets-project-container input:focus,
+.feuillets-project-container select:hover,
+.feuillets-project-container select:focus,
+.feuillets-properties-row input:hover,
+.feuillets-properties-row input:focus,
+.feuillets-properties-row select:hover,
+.feuillets-properties-row select:focus,
+.feuillets-properties-row .feuillets-properties-value:hover,
+.feuillets-properties-row .feuillets-properties-value:focus {
+  background: var(--background-modifier-hover) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Le champ date natif a besoin d'un peu de place à droite pour son icône
+   de calendrier (::-webkit-calendar-picker-indicator) — sans elle,
+   l'icône se dessinait par-dessus le chiffre de l'année. */
+.feuillets-properties-row input[type="date"].feuillets-properties-value,
+.feuillets-properties-row input[type="datetime-local"].feuillets-properties-value {
+  padding-right: 22px !important;
+  min-width: 130px;
+}
+
+.feuillets-properties-row input[type="date"].feuillets-properties-value::-webkit-calendar-picker-indicator,
+.feuillets-properties-row input[type="datetime-local"].feuillets-properties-value::-webkit-calendar-picker-indicator {
+  margin-left: 6px;
+  opacity: 0.6;
+}
+
+.feuillets-properties-row input[type="checkbox"] {
+  flex-shrink: 0;
+}
+
+.feuillets-properties-delete {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: var(--text-faint);
+  opacity: 0;
+}
+
+.feuillets-properties-row:hover .feuillets-properties-delete {
+  opacity: 1;
+}
+
+.feuillets-properties-delete:hover {
+  color: var(--text-error, var(--text-normal));
+}
+
+.feuillets-properties-delete svg {
+  width: 13px;
+  height: 13px;
+}
+
+.feuillets-properties-add-row {
+  margin-top: 6px;
+}
+
+.feuillets-properties-add-row input {
+  width: 100%;
+  font-size: var(--font-ui-smaller);
+  height: 24px;
+  border: 1px dashed var(--background-modifier-border);
+  background: transparent;
+  padding: 0 6px;
+  border-radius: var(--radius-s);
+}
+
+/* ===== panneau Projet & export =====
+   Même vocabulaire visuel que les autres panneaux : lignes façon volet
+   arbre/tags (texte + icône, surbrillance seulement au survol) et
+   boutons-icônes de barre d'outils (.clickable-icon, via this.iconBtn)
+   pour les actions — pas de bouton texte ni de fond plein permanent. */
+
+.feuillets-project-container {
+  /* Pas de height:100%/overflow-y ici : ce conteneur partage maintenant
+     l'onglet avec la section Révision (.docx) juste en dessous (voir
+     renderProjectTab, sidebar-feuillets-view.js) — .feuillets-sidebar-content,
+     le vrai conteneur défilant de l'onglet, gère déjà ça pour les deux. Avant
+     ce correctif, height:100% faisait occuper toute la hauteur de l'onglet
+     à cette seule section, rendant la Révision invisible en dessous. */
+  padding: var(--size-4-2) 10px var(--size-4-4);
+  display: flex;
+  flex-direction: column;
+}
+
+.feuillets-project-section {
+  margin-top: var(--size-4-5);
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: var(--size-4-4);
+}
+
+.feuillets-project-container > .feuillets-project-section:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
+}
+
+/* En-tête de section repliable (this.renderSectionHead, base-feuillets-
+   view.js) — même taille/graisse/espacement que les sections du panneau
+   Notes (.feuillets-notes-section-head/-title/-icon) : icône + titre en
+   petites majuscules, pas de chevron. Les icônes d'action, si présentes,
+   sont séparées du titre cliquable pour que les cliquer ne replie pas la
+   section (pas de stopPropagation nécessaire). */
+.feuillets-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) 0;
+}
+
+.feuillets-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.feuillets-section-title:hover {
+  color: var(--text-normal);
+}
+
+.feuillets-section-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.feuillets-section-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.feuillets-section-title-text {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.feuillets-project-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.feuillets-project-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.feuillets-project-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.feuillets-project-row:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.feuillets-project-row .feuillets-cell-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.feuillets-project-row .feuillets-cell-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.feuillets-project-row-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Icônes d'action (déplier/retirer) à droite de la ligne — jamais le
+   déclencheur de "cliquer pour activer" (chaque icône stoppe elle-même
+   la propagation, voir renderProjectRow). */
+.feuillets-project-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Même traitement que .feuillets-item.is-active (volet fichier du binder)
+   — un seul langage visuel pour "l'élément actif/sélectionné" dans tout
+   le plugin, au lieu du gras + icône coloré à part qu'avait ce panneau
+   seul jusqu'ici. */
+.feuillets-project-row.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: var(--font-semibold, 600);
+}
+
+.feuillets-project-row.is-active:hover {
+  background: var(--interactive-accent);
+}
+
+.feuillets-project-row.is-active .feuillets-cell-icon {
+  color: var(--text-on-accent);
+}
+
+/* Panneau Révision — mêmes patrons visuels que Recherche/Projet plutôt
+   qu'un style ad hoc : .feuillets-research-item pour chaque ligne
+   (icône + contenu + boutons icône au survol, comme .feuillets-project-row),
+   .feuillets-research-section/-list pour le regroupement par feuillet,
+   renderCollapsibleHead pour les en-têtes (voir docx-review-view.js). */
+.feuillets-docx-review-container {
+  /* Même padding horizontal que .feuillets-project-container : les deux
+     partagent maintenant l'onglet "Export & révision" l'un sous l'autre
+     (voir renderProjectTab, sidebar-feuillets-view.js) — un padding
+     différent les décalait visuellement l'un par rapport à l'autre. */
+  padding: var(--size-4-2) 10px 10px;
+}
+
+.feuillets-docx-review-intro {
+  padding: 0 var(--size-4-3) 10px;
+}
+
+.feuillets-docx-review-group-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  padding: 2px 6px var(--size-4-1);
+}
+
+.feuillets-docx-review-section-badge {
+  font-weight: 500;
+  text-transform: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-left: var(--size-4-2);
+  padding: 1px 6px;
+  background: var(--background-secondary-alt);
+  border-radius: 10px;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-docx-review-section-badge.mod-resolved {
+  color: var(--text-success);
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.25);
+  font-style: italic;
+}
+
+.feuillets-docx-review-row {
+  display: block;
+  padding: 10px var(--size-4-3);
+  margin-bottom: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.feuillets-docx-review-row:not(.feuillets-docx-review-applied) {
+  background-color: var(--background-secondary);
+}
+
+.feuillets-docx-review-row:not(.feuillets-docx-review-applied):hover {
+  background-color: var(--background-secondary-alt);
+  border-color: var(--interactive-accent);
+}
+
+.feuillets-docx-review-row.feuillets-docx-review-applied {
+  opacity: 0.5;
+  background-color: var(--background-primary-alt);
+  border-style: dashed;
+}
+
+.feuillets-docx-review-row .feuillets-research-item-header {
+  align-items: flex-start;
+}
+
+.feuillets-docx-review-row .feuillets-cell-icon {
+  margin-top: 2px;
+}
+
+.feuillets-docx-review-done-box {
+  padding: var(--size-4-5) var(--size-4-4);
+  background: var(--background-secondary-alt);
+  border-radius: var(--radius-m);
+  text-align: center;
+  margin: var(--size-4-4) 0;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-docx-review-done-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.feuillets-diff-focused-removed {
+  background-color: rgba(239, 68, 68, 0.25);
+  color: var(--text-error);
+  text-decoration: line-through;
+  padding: 2px var(--size-4-1);
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.feuillets-diff-focused-added {
+  background-color: rgba(34, 197, 94, 0.25);
+  color: var(--text-success);
+  text-decoration: underline;
+  padding: 2px var(--size-4-1);
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.feuillets-diff-focused-comment {
+  background-color: rgba(234, 179, 8, 0.35);
+  color: var(--text-normal);
+  padding: 2px var(--size-4-1);
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.feuillets-diff-comment-bubble {
+  margin-top: 10px;
+  padding: var(--size-4-2) var(--size-4-3);
+  background: var(--background-secondary-alt);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+  line-height: 1.4;
+}
+
+.feuillets-docx-review-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-bottom: var(--size-4-1);
+}
+
+.feuillets-docx-review-preview,
+.feuillets-docx-review-comment-text {
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.feuillets-docx-review-added {
+  color: var(--text-success);
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+.feuillets-docx-review-removed {
+  color: var(--text-error);
+  text-decoration: line-through;
+  font-weight: 500;
+}
+
+.feuillets-docx-review-move-label {
+  font-weight: 600;
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-docx-review-move-label.mod-cut {
+  color: var(--text-error);
+}
+
+.feuillets-docx-review-move-label.mod-paste {
+  color: var(--text-success);
+}
+
+/* mise en forme suivie (w:rPrChange) affichée telle quelle sur le passage
+   d'ancrage, plutôt qu'une étiquette qui se contente de la décrire */
+.feuillets-docx-review-format-strike {
+  text-decoration: line-through;
+}
+
+.feuillets-docx-review-format-underline {
+  text-decoration: underline;
+}
+
+.feuillets-docx-review-format-highlight {
+  background: var(--text-highlight-bg);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.feuillets-docx-review-format-bold {
+  font-weight: 700;
+}
+
+.feuillets-docx-review-format-italic {
+  font-style: italic;
+}
+
+.feuillets-docx-review-anchor {
+  font-style: italic;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  margin-bottom: 3px;
+}
+
+.feuillets-docx-review-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.feuillets-docx-review-file-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.feuillets-docx-review-file-date {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.feuillets-docx-review-path-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+
+.feuillets-docx-review-path-row input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-docx-review-warning {
+  background: color-mix(in srgb, var(--text-error) 12%, var(--background-primary));
+  border: 1px solid var(--text-error);
+  border-radius: var(--radius-s);
+  padding: var(--size-4-2) 10px;
+  margin: var(--size-4-1) 0 var(--size-4-1);
+  font-size: var(--font-ui-small);
+}
+
+/* ===== Onglet Correction grammaticale (Grammalecte) ===== */
+
+.feuillets-grammar-container {
+  padding: var(--size-4-2) 0 10px;
+}
+
+.feuillets-grammar-message {
+  font-size: var(--font-ui-small);
+  margin: var(--size-4-1) 0;
+}
+
+/* Distinction par la FORME du trait, pas seulement la couleur — rouge et
+   orange (les deux teintes utilisées ici) sont la confusion la plus fréquente
+   chez les daltoniens (deutéranomalie/protanomalie) : la couleur seule ne
+   suffit pas à distinguer les deux types de signalement. */
+.feuillets-grammar-underline {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+
+.feuillets-grammar-underline-grammar {
+  text-decoration-style: dashed;
+  text-decoration-color: var(--color-orange, orange);
+}
+
+.feuillets-grammar-underline-spelling {
+  text-decoration-style: wavy;
+  text-decoration-color: var(--text-error, red);
+}
+
+.feuillets-grammar-row-flash {
+  animation: feuillets-grammar-flash 1.2s ease-out;
+}
+
+@keyframes feuillets-grammar-flash {
+  0% { background: var(--text-accent); }
+  100% { background: transparent; }
+}
+
+/* ===== Mode Scrivenings (Rendu Roman / Lecture Native) ===== */
+
+.feuillets-scrivenings-wrapper {
+  max-width: var(--feuillets-concentration-width, 720px);
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--size-4-5) 0 100px 0;
+  box-sizing: border-box;
+}
+
+.feuillets-scrivenings-scene {
+  width: 100%;
+  margin-bottom: var(--size-4-8);
+  box-sizing: border-box;
+}
+
+/* Séparateur discret entre scènes */
+.feuillets-scrivenings-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px var(--size-4-4);
+  margin: 28px 0 var(--size-4-5) 0;
+  background: var(--background-primary-alt);
+  border-top: 1px dashed var(--background-modifier-border);
+  border-bottom: 1px dashed var(--background-modifier-border);
+  user-select: none;
+}
+
+.feuillets-scrivenings-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.feuillets-scrivenings-title:hover {
+  color: var(--interactive-accent);
+  text-decoration: underline;
+}
+
+/* Laisse le thème du coffre styliser les <p>, <em>, <strong> */
+.feuillets-scrivenings-content {
+  width: 100% !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+.feuillets-rendered-body {
+  width: 100% !important;
+  cursor: pointer;
+}
+
+/* Zone d'édition temporaire au double-clic */
+.feuillets-inline-editor {
+  width: 100% !important;
+  border: 1px solid var(--interactive-accent) !important;
+  background: var(--background-primary) !important;
+  border-radius: var(--radius-s);
+  padding: var(--size-4-3);
+  font-family: var(--font-text);
+  font-size: var(--font-text-size, 1em);
+  line-height: var(--line-height-normal, 1.6);
+  color: var(--text-normal);
+  resize: vertical;
+  outline: none !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+}
+
+/* ===== Modale de Diff Visuel Côte à Côte ===== */
+
+.feuillets-diff-modal {
+  width: 90vw;
+  max-width: 1050px;
+}
+
+.feuillets-diff-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--size-4-3);
+  margin-top: 10px;
+  margin-bottom: var(--size-4-3);
+  flex-wrap: wrap;
+}
+
+.feuillets-diff-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.feuillets-diff-mode-btn {
+  padding: var(--size-4-1) var(--size-4-3);
+  font-size: 0.85em;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  background: var(--interactive-normal);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-diff-mode-btn.mod-cta {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.feuillets-diff-split-container {
+  display: flex;
+  gap: var(--size-4-4);
+  margin-top: var(--size-4-3);
+  height: 60vh;
+}
+
+.feuillets-diff-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+}
+
+.feuillets-diff-pane-header {
+  padding: var(--size-4-2) var(--size-4-3);
+  background: var(--background-secondary);
+  font-weight: 600;
+  font-size: 0.85em;
+  border-bottom: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.feuillets-diff-pane-content {
+  flex: 1;
+  padding: 14px;
+  overflow-y: auto;
+  font-family: var(--font-text);
+  font-size: var(--font-text-size, 1em);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.feuillets-diff-inline-container {
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: var(--size-4-4);
+  margin-top: var(--size-4-3);
+  height: 60vh;
+  overflow-y: auto;
+  font-family: var(--font-text);
+  font-size: var(--font-text-size, 1em);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.feuillets-diff-added {
+  background-color: rgba(46, 204, 113, 0.25);
+  color: var(--text-normal);
+  text-decoration: underline;
+  text-decoration-color: var(--color-green, #2ecc71);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.feuillets-diff-removed {
+  background-color: rgba(231, 76, 60, 0.25);
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--color-red, #e74c3c);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.feuillets-diff-unchanged {
+  color: var(--text-normal);
+}
+
+.feuillets-diff-footer-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: var(--size-4-4);
+}
+
+/* ===== Style d'Origine de la Section Projet & Barre des 5 Icônes de Compilation ===== */
+
+.feuillets-project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--size-4-1);
+}
+
+.feuillets-project-item {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: 6px 10px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.feuillets-project-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.feuillets-project-item.is-active {
+  background: var(--background-modifier-selected);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.feuillets-project-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.88em;
+}
+
+.feuillets-project-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.feuillets-sub-section {
+  margin-top: 6px;
+  margin-bottom: 6px;
+  padding-left: 2px;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.feuillets-export-cta-btn {
+  width: 100%;
+  margin-top: 10px;
+  margin-bottom: var(--size-4-1);
+  padding: 6px var(--size-4-3);
+  font-size: var(--font-ui-small);
+  font-weight: 500;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.feuillets-export-selector-row {
+  margin-top: var(--size-4-2);
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.feuillets-export-controls-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.feuillets-export-controls-wrapper select {
+  flex: 1;
+  min-width: 0;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal) !important;
+  height: 24px;
+  padding: 2px var(--size-4-1) !important;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.feuillets-export-controls-wrapper select:hover,
+.feuillets-export-controls-wrapper select:focus {
+  background: var(--background-modifier-hover) !important;
+}
+
+.feuillets-ribbon-export-btn {
+  flex-shrink: 0 !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: var(--size-4-1) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: var(--radius-s);
+  color: var(--interactive-accent);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.feuillets-ribbon-export-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent-hover);
+}
+
+.feuillets-ribbon-export-btn svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.feuillets-sidebar-export-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.feuillets-quick-export-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.feuillets-quick-btn {
+  flex: 1;
+  font-size: 0.8em;
+  font-weight: 500;
+  padding: 5px var(--size-4-2);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+.feuillets-quick-btn:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.feuillets-toggle-preview-btn {
+  width: 100%;
+  margin-top: var(--size-4-2);
+  font-size: 0.78em;
+  font-weight: 500;
+  background: transparent;
+  border: 1px dashed var(--background-modifier-border);
+  color: var(--text-muted);
+  border-radius: var(--radius-s);
+  padding: 5px;
+  cursor: pointer;
+}
+.feuillets-toggle-preview-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-sidebar-preview-box {
+  margin-top: 10px;
+  background: var(--background-secondary-alt, #181818);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  max-height: 380px;
+}
+
+.feuillets-sidebar-preview-box.is-hidden {
+  display: none !important;
+}
+
+.feuillets-sidebar-preview-title {
+  font-size: 0.78em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: var(--size-4-2);
+  width: 100%;
+  text-align: center;
+}
+
+.feuillets-sidebar-spread-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.modal.feuillets-export-studio-modal {
+  margin: auto !important;
+  position: relative !important;
+  width: 820px !important;
+  max-width: 92vw !important;
+  height: 560px !important;
+  max-height: 82vh !important;
+  padding: 0 !important;
+  border-radius: var(--radius-m) !important;
+  background: var(--background-primary) !important;
+  font-family: var(--font-interface) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-shadow: var(--shadow-l) !important;
+  overflow: hidden !important;
+}
+
+.feuillets-studio-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--size-4-3) 18px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.feuillets-studio-header-bar h3 {
+  margin: 0;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--text-normal);
+  font-family: inherit;
+}
+
+.feuillets-studio-format-tabs {
+  display: flex;
+  gap: var(--size-4-1);
+  background: var(--background-primary);
+  padding: 3px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-studio-tab {
+  padding: var(--size-4-1) var(--size-4-3);
+  font-size: 0.8em;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: var(--radius-s);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.feuillets-studio-tab.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.feuillets-studio-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.feuillets-studio-export-btn {
+  font-size: 0.82em;
+  font-weight: 600;
+  padding: var(--size-4-1) 14px;
+  font-family: inherit;
+}
+
+.feuillets-studio-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.1em;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-s);
+}
+.feuillets-studio-close-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-studio-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  height: calc(100% - 50px);
+}
+
+.feuillets-studio-settings {
+  width: 350px;
+  height: 100%;
+  border-right: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  padding: var(--size-4-4) 18px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.feuillets-studio-settings h4 {
+  margin-top: 14px;
+  margin-bottom: 6px;
+  font-size: 0.82em;
+  color: var(--text-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: var(--size-4-1);
+  font-family: inherit;
+}
+
+.feuillets-studio-preview {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--background-secondary-alt, #1a1a1a);
+  overflow: hidden;
+}
+
+.feuillets-studio-preview-header {
+  padding: var(--size-4-2) 14px;
+  background: var(--background-secondary);
+  font-weight: 600;
+  font-size: 0.78em;
+  border-bottom: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+.feuillets-studio-sheet-container {
+  flex: 1;
+  height: calc(100% - 32px);
+  padding: var(--size-4-5);
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.feuillets-pdf-modal {
+  width: 840px !important;
+  max-width: 92vw !important;
+  max-height: 82vh !important;
+  padding: var(--size-4-4) var(--size-4-5) !important;
+}
+
+.feuillets-studio-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 10px;
+  margin-bottom: var(--size-4-3);
+}
+
+.feuillets-studio-header h2 {
+  margin: 0;
+  font-size: 1.1em;
+  font-weight: 600;
+  cursor: grab;
+}
+
+.feuillets-format-tabs {
+  display: flex;
+  gap: var(--size-4-1);
+  background: var(--background-secondary);
+  padding: 3px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-format-btn {
+  padding: var(--size-4-1) var(--size-4-3);
+  font-size: 0.8em;
+  font-weight: 500;
+  border-radius: var(--radius-s);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.feuillets-format-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-s);
+}
+
+.feuillets-pdf-layout {
+  display: flex;
+  gap: var(--size-4-4);
+  height: 52vh;
+  max-height: 480px;
+}
+
+.feuillets-pdf-settings-pane {
+  flex: 1.15;
+  overflow-y: auto;
+  padding-right: var(--size-4-4);
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-pdf-settings-pane h4 {
+  margin-top: var(--size-4-4);
+  margin-bottom: var(--size-4-2);
+  font-size: 0.85em;
+  color: var(--text-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: var(--size-4-1);
+}
+
+.feuillets-pdf-preview-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+
+.feuillets-pdf-preview-header {
+  padding: var(--size-4-2) 14px;
+  background: var(--background-secondary);
+  font-weight: 600;
+  font-size: 0.8em;
+  border-bottom: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.feuillets-pdf-sheet-container {
+  flex: 1;
+  padding: var(--size-4-5);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--background-secondary-alt, #181818);
+}
+
+.feuillets-pdf-sheet {
+  background: #ffffff;
+  color: #111111;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+  border-radius: 2px;
+  width: 100%;
+  max-width: 440px;
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+}
+
+.feuillets-pdf-sheet-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72em;
+  color: #888888;
+  border-bottom: 0.5px solid #eeeeee;
+  padding-bottom: var(--size-4-1);
+  margin-bottom: var(--size-4-3);
+}
+
+.feuillets-pdf-sheet-body {
+  flex: 1;
+  font-family: Georgia, serif;
+  font-size: 0.82em;
+  line-height: 1.6;
+}
+
+.feuillets-pdf-sheet-body h1 {
+  font-size: 1.15em;
+  margin-bottom: 10px;
+  color: #111;
+}
+
+.feuillets-pdf-sheet-body p {
+  margin-bottom: var(--size-4-2);
+  text-indent: 1.2em;
+}
+
+.feuillets-pdf-sheet-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72em;
+  color: #888888;
+  border-top: 0.5px solid #eeeeee;
+  padding-top: var(--size-4-1);
+  margin-top: var(--size-4-3);
+}
+
+.feuillets-pdf-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-3);
+  margin-top: 14px;
+}
+
+/* --- PANNEAU LATÉRAL À ONGLETS UNIQUES (`SidebarFeuilletsView`) --- */
+
+.feuillets-sidebar-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.feuillets-sidebar-tab-bar {
+  display: flex;
+  gap: 2px;
+  padding: var(--size-4-1) 6px;
+  background: transparent;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.feuillets-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 6px 0;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.feuillets-tab-btn:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.feuillets-tab-btn.is-active {
+  background-color: transparent;
+  color: var(--interactive-accent);
+  border-bottom: 2px solid var(--interactive-accent);
+  border-radius: 0;
+}
+
+.feuillets-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--size-4-2);
+  height: 100%;
+  background: transparent;
+}
+/* ===== Uniformisation des barres d'en-tête (binder / tableau / onglets) =====
+   Objectif : mêmes bordures (aucune), même hauteur et même calage vertical
+   des icônes sur les trois panneaux, pour qu'ils se lisent comme une seule
+   application. `.feuillets-header` (binder) avait déjà ses bordures
+   annulées ; on aligne les deux autres barres dessus. `.feuillets-binder-
+   header` volontairement absent : aucune vue ne le crée (classe morte). */
+.feuillets-header,
+.feuillets-board-bar,
+.feuillets-sidebar-tab-bar,
+.feuillets-research-toolbar {
+  border: none !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+}
+
+/* Hauteur et calage vertical identiques sur les trois barres d'outils. */
+.feuillets-header,
+.feuillets-board-bar,
+.feuillets-sidebar-tab-bar {
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  padding: 0 10px !important;
+  margin: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  box-sizing: border-box !important;
+}
+
+/* Boutons-icônes centrés et de taille fixe dans chaque barre. Le filtre
+   `#tag…` du tableau est un <input> (pas un <button>) : jamais réduit. */
+.feuillets-header .clickable-icon,
+.feuillets-board-bar .clickable-icon,
+.feuillets-board-bar button,
+.feuillets-sidebar-tab-bar .feuillets-tab-btn,
+.feuillets-sidebar-tab-bar button {
+  height: 28px !important;
+  width: 28px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Icônes SVG normalisées à 16px partout dans ces barres. */
+.feuillets-header svg,
+.feuillets-board-bar svg,
+.feuillets-sidebar-tab-bar svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+/* Intitulé de sous-rubrique dans "Mise en page" du panneau Compilation/export
+   (En-tête / Pied de page / Page de titre) */
+.feuillets-mep-subhead {
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin: 10px 0 2px;
+  padding-left: 2px;
 }
