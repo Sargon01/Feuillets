@@ -1,10 +1,22 @@
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { analyzeProse } from "../utils/literary-analysis.js";
 import { formatNumber } from "../utils/text-metrics.js";
-import { renderCollapsibleHead } from "../utils/dom.js";
+import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getChapters, flattenFiles, isFrontMatter } from "../services/folder-structure.js";
 
 const { TFile, TFolder } = require("obsidian");
+
+/* Courbe narrative (Phase 3) : chaque scène reçoit, DANS SON FRONTMATTER, une
+   intensité 0–5 par dimension, sous la clé `rythme`. Tags MANUELS (posés par
+   l'autrice) — pas de classification automatique, peu fiable. La courbe du
+   roman en est déduite. */
+const RYTHME_DIMS = [
+  { key: "action", label: "Action" },
+  { key: "dialogue", label: "Dialogue" },
+  { key: "description", label: "Description" },
+  { key: "introspection", label: "Introspection" },
+];
+const RYTHME_MAX = 5;
 
 function median(nums) {
   if (!nums.length) return 0;
@@ -69,9 +81,9 @@ export class AnalysisView extends BaseFeuilletsView {
   chapterTitle(ch) {
     if (ch instanceof TFolder) {
       const note = this.plugin.folderNoteFor(ch);
-      return (note && this.plugin.titleFor(note)) || ch.name;
+      return (note && this.plugin.shortTitleFor(note)) || ch.name;
     }
-    return this.plugin.titleFor(ch) || ch.basename;
+    return this.plugin.shortTitleFor(ch) || ch.basename;
   }
 
   /** Données chapitres avec cache : l'agrégation lit tout le manuscrit, donc
@@ -102,6 +114,30 @@ export class AnalysisView extends BaseFeuilletsView {
       }
       const a = analyzeProse(text);
       out.push({ title: this.chapterTitle(ch), words: a.words, dialogueRatio: a.dialogueRatio });
+    }
+    return out;
+  }
+
+  /** Scènes du manuscrit dans l'ordre (fichiers md, hors Front). Lecture du
+   * seul frontmatter (metadataCache) pour la courbe → pas de lecture de corps,
+   * donc pas de cache nécessaire ici. */
+  sceneFiles() {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return [];
+    const S = this.plugin.settings;
+    return flattenFiles(this.app, S, root).filter(
+      (f) => f instanceof TFile && f.extension === "md" && !isFrontMatter(this.app, S, f)
+    );
+  }
+
+  /** Intensités `rythme` d'une scène, normalisées 0–RYTHME_MAX (0 si absent). */
+  rythmeOf(file) {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const r = (fm && fm.rythme) || {};
+    const out = {};
+    for (const d of RYTHME_DIMS) {
+      const v = Number(r[d.key]);
+      out[d.key] = Number.isFinite(v) ? Math.max(0, Math.min(RYTHME_MAX, Math.round(v))) : 0;
     }
     return out;
   }
@@ -183,6 +219,72 @@ export class AnalysisView extends BaseFeuilletsView {
         const bar = block.createDiv({ cls: "feuillets-analysis-bar" });
         bar.createDiv({ cls: "feuillets-analysis-bar-fill" }).style.width =
           `${Math.round((c.words / max) * 100)}%`;
+      }
+    });
+
+    // ---- Rythme du feuillet (tags manuels de la scène active) ----
+    this.tool(container, "rythme", "sliders-horizontal", "Rythme du feuillet", (section) => {
+      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+        `Note l'intensité (0–${RYTHME_MAX}) de chaque dimension pour cette scène.`
+      );
+      const r = this.rythmeOf(file);
+      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      for (const d of RYTHME_DIMS) {
+        const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
+        row.createDiv({ cls: "feuillets-notes-metadata-label", text: d.label });
+        const input = row.createEl("input", { cls: "feuillets-rythme-input", type: "number" });
+        input.min = "0";
+        input.max = String(RYTHME_MAX);
+        input.value = String(r[d.key]);
+        input.addEventListener("change", async () => {
+          const v = Math.max(0, Math.min(RYTHME_MAX, Math.round(Number(input.value) || 0)));
+          input.value = String(v);
+          await this.app.fileManager.processFrontMatter(file, (fm) => {
+            fm.rythme = fm.rythme || {};
+            fm.rythme[d.key] = v;
+          });
+          this.render();
+        });
+      }
+    });
+
+    // ---- Courbe narrative (déduite des tags de rythme) ----
+    this.tool(container, "curve", "activity", "Courbe narrative", (section) => {
+      const scenes = this.sceneFiles();
+      const tagged = scenes.filter((f) => {
+        const r = this.rythmeOf(f);
+        return RYTHME_DIMS.some((d) => r[d.key] > 0);
+      });
+      if (!tagged.length) {
+        section.createDiv({ cls: "feuillets-empty" }).setText(
+          "Aucune scène taguée. Renseigne le rythme des feuillets (section ci-dessus) pour tracer la courbe."
+        );
+        return;
+      }
+
+      const curve = section.createDiv({ cls: "feuillets-curve" });
+      for (const f of scenes) {
+        const r = this.rythmeOf(f);
+        const total = RYTHME_DIMS.reduce((n, d) => n + r[d.key], 0);
+        const rowEl = curve.createDiv({ cls: "feuillets-curve-row" });
+        rowEl.createSpan({ cls: "feuillets-curve-label", text: this.plugin.shortTitleFor(f) });
+        const bar = rowEl.createDiv({ cls: "feuillets-curve-bar" + (total ? "" : " is-empty") });
+        for (const d of RYTHME_DIMS) {
+          if (r[d.key] <= 0) continue;
+          const seg = bar.createDiv({ cls: `feuillets-curve-seg feuillets-curve-seg-${d.key}` });
+          seg.style.flexGrow = String(r[d.key]);
+          seg.setAttr("title", `${d.label} ${r[d.key]}/${RYTHME_MAX}`);
+        }
+        rowEl.addEventListener("click", () =>
+          openFileActivating(this.app, this.app.workspace.getLeaf(false), f)
+        );
+      }
+
+      const legend = section.createDiv({ cls: "feuillets-curve-legend" });
+      for (const d of RYTHME_DIMS) {
+        const item = legend.createSpan({ cls: "feuillets-curve-legend-item" });
+        item.createSpan({ cls: `feuillets-curve-swatch feuillets-curve-seg-${d.key}` });
+        item.createSpan({ text: d.label });
       }
     });
   }
