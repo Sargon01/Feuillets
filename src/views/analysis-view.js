@@ -1,11 +1,17 @@
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { analyzeProse } from "../utils/literary-analysis.js";
-import { formatNumber } from "../utils/text-metrics.js";
+import { formatNumber, stripWritingNoise } from "../utils/text-metrics.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getChapters, flattenFiles, isFrontMatter } from "../services/folder-structure.js";
 import { findRepetitions } from "../utils/repetitions.js";
 
-const { TFile, TFolder } = require("obsidian");
+const { TFile, TFolder, Platform } = require("obsidian");
+
+/** Extrait le lemme d'une chaîne morphologique Grammalecte (`>lemme …`). */
+function lemmaOfMorph(morph) {
+  const m = morph.match(/>([0-9a-zà-öø-ÿ-]+)/i);
+  return m ? m[1] : "";
+}
 
 /* Courbe narrative (Phase 3) : chaque scène reçoit, DANS SON FRONTMATTER, une
    intensité 0–5 par dimension, sous la clé `rythme`. Tags MANUELS (posés par
@@ -119,6 +125,88 @@ export class AnalysisView extends BaseFeuilletsView {
     return out;
   }
 
+  /** Analyse morphologique du feuillet (Phase 5, via Grammalecte) : verbes/
+   * adjectifs/adverbes favoris par lemme + richesse lexicale (lemmes uniques /
+   * mots pleins). getMorph renvoie plusieurs analyses par mot (ambiguïté
+   * verbe/nom…) : on compte au plus large, d'où un résultat indicatif. Desktop
+   * uniquement (le moteur nécessite fs/vm). Synchrone — d'où le cache et le
+   * calcul seulement quand la section est dépliée. */
+  computeVocab(rawText) {
+    const checker = this.plugin.grammalecteChecker;
+    if (!checker) return null;
+    checker.ensureLoaded();
+    const sc = checker.spellChecker;
+
+    const clean = stripWritingNoise(rawText || "");
+    const re = /[\p{L}][\p{L}\p{N}'’-]*/gu;
+    const freq = new Map();
+    let m;
+    while ((m = re.exec(clean)) !== null) {
+      const key = m[0].toLowerCase();
+      freq.set(key, (freq.get(key) || 0) + 1);
+    }
+
+    const verbs = new Map();
+    const adjs = new Map();
+    const advs = new Map();
+    const lemmaSet = new Set();
+    let contentTotal = 0;
+    const bump = (map, lemma, n) => {
+      if (lemma) map.set(lemma, (map.get(lemma) || 0) + n);
+    };
+
+    for (const [word, n] of freq) {
+      const morphs = sc.getMorph(word) || [];
+      if (!morphs.length) continue;
+      let lv = "";
+      let la = "";
+      let lw = "";
+      let lany = "";
+      let content = false;
+      for (const mo of morphs) {
+        if (/:V/.test(mo)) lv = lv || lemmaOfMorph(mo);
+        if (mo.includes(":A")) la = la || lemmaOfMorph(mo);
+        if (mo.includes(":W")) lw = lw || lemmaOfMorph(mo);
+        if (/:[NAVW]/.test(mo)) {
+          content = true;
+          lany = lany || lemmaOfMorph(mo);
+        }
+      }
+      bump(verbs, lv, n);
+      bump(adjs, la, n);
+      bump(advs, lw, n);
+      if (content) {
+        contentTotal += n;
+        if (lany) lemmaSet.add(lany);
+      }
+    }
+
+    const top = (map, k) => [...map.entries()].sort((x, y) => y[1] - x[1]).slice(0, k);
+    return {
+      richness: contentTotal ? lemmaSet.size / contentTotal : 0,
+      uniqueLemmas: lemmaSet.size,
+      contentTotal,
+      verbs: top(verbs, 8),
+      adjs: top(adjs, 8),
+      advs: top(advs, 8),
+    };
+  }
+
+  /** Vocabulaire avec cache par fichier (le calcul morphologique bloque
+   * brièvement) ; invalidé sur modification du coffre par la barre latérale. */
+  getVocab(file, rawText) {
+    if (this._vocabCache && this._vocabCache.path === file.path) return this._vocabCache.data;
+    let data;
+    try {
+      data = this.computeVocab(rawText);
+    } catch (e) {
+      console.error("Feuillets : analyse lexicale indisponible", e);
+      data = { error: true };
+    }
+    this._vocabCache = { path: file.path, data };
+    return data;
+  }
+
   /** Scènes du manuscrit dans l'ordre (fichiers md, hors Front). Lecture du
    * seul frontmatter (metadataCache) pour la courbe → pas de lecture de corps,
    * donc pas de cache nécessaire ici. */
@@ -227,6 +315,47 @@ export class AnalysisView extends BaseFeuilletsView {
           `… et ${reps.length - MAXROWS} autres.`
         );
       }
+    });
+
+    // ---- Vocabulaire (via Grammalecte, desktop uniquement) ----
+    const vocabCollapsed = !!(S.collapsed && S.collapsed["analyse:vocab"]);
+    const vocab = vocabCollapsed || Platform.isMobile ? null : this.getVocab(file, raw);
+
+    this.tool(container, "vocab", "book-a", "Vocabulaire (Grammalecte)", (section) => {
+      if (Platform.isMobile) {
+        section.createDiv({ cls: "feuillets-empty" }).setText("Analyse morphologique : bureau uniquement.");
+        return;
+      }
+      if (!vocab || vocab.error) {
+        section.createDiv({ cls: "feuillets-empty" }).setText(
+          "Analyse indisponible (moteur Grammalecte non chargé)."
+        );
+        return;
+      }
+      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+        `Richesse lexicale ${Math.round(vocab.richness * 100)} % · ` +
+          `${formatNumber(vocab.uniqueLemmas)} lemmes / ${formatNumber(vocab.contentTotal)} mots pleins`
+      );
+      const group = (label, entries) => {
+        const g = section.createDiv({ cls: "feuillets-analysis-summary feuillets-vocab-group" });
+        g.setText(label);
+        const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+        if (!entries.length) {
+          list.createDiv({ cls: "feuillets-empty" }).setText("—");
+          return;
+        }
+        for (const [lemma, n] of entries) {
+          const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
+          row.createDiv({ cls: "feuillets-notes-metadata-label", text: lemma });
+          row.createDiv({ cls: "feuillets-notes-metadata-value", text: `×${n}` });
+        }
+      };
+      group("Verbes favoris", vocab.verbs);
+      group("Adjectifs favoris", vocab.adjs);
+      group("Adverbes favoris", vocab.advs);
+      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+        "Morphologie française (Grammalecte) — formes ambiguës comptées au plus large, indicatif."
+      );
     });
 
     // ---- Équilibre des chapitres (niveau roman) ----

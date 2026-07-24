@@ -66,6 +66,7 @@ export class SidebarFeuilletsView extends ItemView {
     this.registerEvent(
       this.app.vault.on("modify", () => {
         this.subViews.analyse._chaptersCache = null;
+        this.subViews.analyse._vocabCache = null;
       })
     );
   }

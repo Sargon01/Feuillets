@@ -5558,3 +5558,10 @@ body.feuillets-concentration .markdown-preview-view {
 /* Lignes de répétition cliquables (onglet Analyse, Phase 4) */
 .feuillets-rep-row { cursor: pointer; border-radius: 4px; padding-left: 4px; padding-right: 4px; }
 .feuillets-rep-row:hover { background: var(--background-modifier-hover); }
+
+/* Groupes de vocabulaire (onglet Analyse, Phase 5) */
+.feuillets-vocab-group {
+  margin-top: var(--size-4-3);
+  color: var(--text-normal);
+  font-weight: var(--font-semibold, 600);
+}
