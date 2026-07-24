@@ -5359,3 +5359,45 @@ body.feuillets-concentration .markdown-preview-view {
   height: 16px !important;
 }
 
+
+/* ===== Éditeur visuel de page de titre (TitlePageModal) ===== */
+.feuillets-titlepage-modal { width: min(680px, 92vw); }
+.feuillets-tp-editor {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.feuillets-tp-page {
+  position: relative;
+  width: 320px;
+  flex: 0 0 320px;
+  background: #ffffff;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+.feuillets-tp-block {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  color: #111111;
+  line-height: 1.1;
+  cursor: grab;
+  border: 1px dashed transparent;
+  border-radius: 2px;
+  user-select: none;
+  touch-action: none;
+}
+.feuillets-tp-block:hover { border-color: var(--interactive-accent); }
+.feuillets-tp-block.is-selected {
+  border-style: solid;
+  border-color: var(--interactive-accent);
+  background: rgba(var(--interactive-accent-rgb), 0.08);
+}
+.feuillets-tp-block:active { cursor: grabbing; }
+.feuillets-tp-block-label { pointer-events: none; }
+.feuillets-tp-inspector { flex: 1 1 auto; min-width: 0; }
+.feuillets-tp-inspector .clickable-icon.is-active {
+  color: var(--interactive-accent);
+}
