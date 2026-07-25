@@ -2,7 +2,7 @@ node_modules/
 _cleanup-backups/
 .DS_Store
 
-# Local tool config — not part of the plugin
+# Configuration d'outils locaux — hors périmètre du plugin
 .claude/
 
 # Vault-specific plugin data — never publish real user data
