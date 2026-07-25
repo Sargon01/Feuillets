@@ -1,8 +1,30 @@
+// @ts-check
+/** Lecture du frontmatter des feuillets. Vérifié par `tsc` (voir types.d.ts) :
+ * ce module est la porte d'entrée de toutes les données YAML du plugin, donc
+ * l'endroit où une faute de frappe sur un nom de clé coûte le plus cher.
+ *
+ * @typedef {import("obsidian").App} App
+ * @typedef {import("obsidian").TFile} TFile
+ * @typedef {import("obsidian").TFolder} TFolder
+ */
+
+/** Frontmatter d'un feuillet, ou `{}` s'il n'en a pas (jamais null : tous
+ * les appelants déréfèrent le résultat directement).
+ * @param {App} app
+ * @param {TFile} file
+ * @returns {SceneFrontmatter}
+ */
 export function fmOf(app, file) {
   const cache = app.metadataCache.getFileCache(file);
   return (cache && cache.frontmatter) || {};
 }
 
+/** Titre d'affichage : `titre` (ou `title`), sinon `prénom`/`nom` pour les
+ * fiches personnage, sinon le nom du fichier — jamais vide.
+ * @param {App} app
+ * @param {TFile} file
+ * @returns {string}
+ */
 export function titleFor(app, file) {
   const fm = fmOf(app, file);
   const t = fm.titre !== undefined ? fm.titre : fm.title;
@@ -19,14 +41,22 @@ export function titleFor(app, file) {
 /** Titre court pour les vues denses (plan, binder) : clé `titre_binder`
  * si renseignée, sinon le titre normal. Jamais utilisé à la compilation.
  * Repli sur `titre_court` (ancienne clé, renommée) pour les fiches déjà
- * écrites avant le renommage — ne pas leur faire perdre leur titre court. */
+ * écrites avant le renommage — ne pas leur faire perdre leur titre court.
+ * @param {App} app
+ * @param {TFile} file
+ * @returns {string}
+ */
 export function shortTitleFor(app, file) {
   const fm = fmOf(app, file);
   const t = fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court;
   return typeof t === "string" && t.trim() ? t.trim() : titleFor(app, file);
 }
 
-/** Titre pour la COMPILATION : clé `titre` uniquement, jamais le nom du fichier. */
+/** Titre pour la COMPILATION : clé `titre` uniquement, jamais le nom du fichier.
+ * @param {App} app
+ * @param {TFile} file
+ * @returns {string|null} `null` = pas de titre à insérer dans le manuscrit.
+ */
 export function compiledTitleFor(app, file) {
   const fm = fmOf(app, file);
   const t = fm.titre !== undefined ? fm.titre : fm.title;
@@ -36,13 +66,23 @@ export function compiledTitleFor(app, file) {
 /** Sous-titre pour la COMPILATION : clé `sous_titre`, compilé un niveau de
  * titre en dessous de `titre` (ex. titre en H2, sous-titre en H3) — voir
  * compile(), services/compile-export.js. Cas typique : un chapitre
- * Scrivener dont le titre tient sur deux lignes (titre + sous-titre). */
+ * Scrivener dont le titre tient sur deux lignes (titre + sous-titre).
+ * @param {App} app
+ * @param {TFile} file
+ * @returns {string|null}
+ */
 export function compiledSubtitleFor(app, file) {
   const fm = fmOf(app, file);
   const t = fm.sous_titre;
   return typeof t === "string" && t.trim() ? t.trim() : null;
 }
 
+/** Tags normalisés (sans `#`, sans vides). Accepte une liste YAML comme une
+ * chaîne séparée par virgules/espaces.
+ * @param {App} app
+ * @param {TFile} file
+ * @returns {string[]}
+ */
 export function tagsOf(app, file) {
   const fm = fmOf(app, file);
   let tags = fm.tags;
@@ -53,11 +93,21 @@ export function tagsOf(app, file) {
     .filter(Boolean);
 }
 
+/** Premier label sous forme de chaîne simple, `""` si aucun.
+ * @param {App} app
+ * @param {TFile} file
+ * @returns {string}
+ */
 export function labelOf(app, file) {
   const l = fmOf(app, file).label;
   return typeof l === "string" && l.trim() ? l.trim() : "";
 }
 
+/** Tous les labels d'un feuillet (un feuillet peut en porter plusieurs).
+ * @param {App} app
+ * @param {TFile} file
+ * @returns {string[]}
+ */
 export function labelsOf(app, file) {
   const fm = fmOf(app, file);
   let l = fm.label;
@@ -68,6 +118,13 @@ export function labelsOf(app, file) {
   return l ? [String(l).trim()] : [];
 }
 
+/** Couleur d'un label : celle définie dans la palette du projet (ou globale),
+ * sinon une couleur stable dérivée du nom, piochée dans cette même palette —
+ * pour qu'un arc jamais déclaré ait quand même toujours la même couleur.
+ * @param {FeuilletsSettings} settings
+ * @param {string} name
+ * @returns {string|null} `null` uniquement si `name` est vide.
+ */
 export function labelColor(settings, name) {
   const rootPath = settings.projectFolder;
   const meta = rootPath && settings.projectMeta ? settings.projectMeta[rootPath] : null;
@@ -89,6 +146,11 @@ export function labelColor(settings, name) {
   return null;
 }
 
+/** Objectif de mots d'un dossier, `0` si non défini ou invalide.
+ * @param {FeuilletsSettings} settings
+ * @param {TFolder} folder
+ * @returns {number}
+ */
 export function folderGoal(settings, folder) {
   const g = settings.folderGoals[folder.path];
   return typeof g === "number" && g > 0 ? g : 0;

@@ -1,3 +1,5 @@
+// @ts-check
+// @ts-check
 /** Modèles de mise en page pour l'export natif (EPUB/DOCX/PDF), façon
  * Ulysses/iA Writer — une seule source de vérité pour "à quoi ressemble
  * chaque modèle", consommée par les trois formats. Pur (pas de dépendance
@@ -23,7 +25,10 @@
  * modèle Word de référence (marges en points, indépendantes de la police).
  * Le titre est mis à l'échelle du corps (×1,5) pour rester proportionné d'un
  * modèle à l'autre ; le reste suit la taille du corps. Rôles libres : chacun
- * peut être surchargé/complété en éditant le .md du modèle. */
+ * peut être surchargé/complété en éditant le .md du modèle.
+ * @param {number} bodyPt taille du corps de texte du modèle, en points.
+ * @returns {{ styles: Record<string, TitlePageStyle> }}
+ */
 const titlePageFor = (bodyPt) => ({
   styles: {
     titre: { fontSizePt: Math.round(bodyPt * 1.5), align: "center", marginTopPt: 126, marginBottomPt: 24 },
@@ -35,6 +40,10 @@ const titlePageFor = (bodyPt) => ({
   },
 });
 
+/** Modèles intégrés, indexés par clé. L'annotation fait vérifier chaque
+ * littéral ci-dessous contre ExportTemplate (src/types.d.ts) : un champ mal
+ * typé dans un modèle est signalé ici, pas à l'export.
+ * @type {Record<string, ExportTemplate>} */
 export const EXPORT_TEMPLATES = {
   classique: {
     key: "classique",
@@ -220,7 +229,10 @@ export const EXPORT_TEMPLATES = {
  * l'ancien `chapterTitle` (H1 seul, saut de page implicite) pour ne rien
  * casser sur les modèles existants ; à défaut des deux, carte vide — la
  * consommatrice applique alors son repli historique (saut de page
- * systématique, police héritée, pas de taille/graisse imposée). */
+ * systématique, police héritée, pas de taille/graisse imposée).
+ * @param {ExportTemplate} tpl
+ * @returns {{ h1?: HeadingStyle, h2?: HeadingStyle, h3?: HeadingStyle }}
+ */
 export function normalizeHeadings(tpl) {
   if (tpl.headings) return tpl.headings;
   if (tpl.chapterTitle) {
@@ -229,18 +241,31 @@ export function normalizeHeadings(tpl) {
   return {};
 }
 
+/** Modèle intégré par clé, repli sur « classique ». Pure et synchrone :
+ * réservée aux tests — le code d'export passe par resolveExportTemplate()
+ * (services/export-templates-custom.js), qui tient compte des modèles
+ * personnalisés du coffre.
+ * @param {string} key
+ * @returns {ExportTemplate}
+ */
 export function templateFor(key) {
   return EXPORT_TEMPLATES[key] || EXPORT_TEMPLATES.classique;
 }
 
-/** 1 cm ≈ 28.3465 points (unité utilisée par CSS/print et par docx). */
+/** 1 cm ≈ 28.3465 points (unité utilisée par CSS/print et par docx).
+ * @param {number} cm
+ * @returns {number} points, arrondis à l'entier.
+ */
 export function cmToPt(cm) {
   return Math.round(cm * 28.3465);
 }
 
 /** Marges effectives d'un modèle, toujours sous forme {top,bottom,left,right}
  * — priorité à marginsCm (asymétrique) si présent, repli sur marginCm
- * (uniforme) sinon. */
+ * (uniforme) sinon.
+ * @param {ExportTemplate} tpl
+ * @returns {Margins} en centimètres.
+ */
 export function marginsFor(tpl) {
   if (tpl.marginsCm) return tpl.marginsCm;
   const m = tpl.marginCm || 2.5;
@@ -249,7 +274,10 @@ export function marginsFor(tpl) {
 
 /** Feuille de style CSS dérivée d'un modèle — utilisée telle quelle par
  * l'export EPUB (balise <style> dans le XHTML) et par l'export PDF
- * (fenêtre d'impression). */
+ * (fenêtre d'impression).
+ * @param {ExportTemplate} tpl
+ * @returns {string}
+ */
 export function templateToCss(tpl) {
   const m = marginsFor(tpl);
   const headingFont = tpl.headingFontFamily || tpl.fontFamily;
@@ -312,7 +340,10 @@ export function templateToCss(tpl) {
  * (haut/bas) sont traduits tels quels ; un champ absent n'émet rien (le rôle
  * garde alors la mise en forme de base de la page Front). Retourne "" si le
  * modèle ne définit aucun style de page de titre. Fonction pure — testée sans
- * navigateur. */
+ * navigateur.
+ * @param {ExportTemplate} tpl
+ * @returns {string} "" si le modèle ne style aucun rôle.
+ */
 export function titleRoleCss(tpl) {
   const styles = tpl && tpl.titlePage && tpl.titlePage.styles;
   if (!styles) return "";
@@ -338,7 +369,10 @@ export function titleRoleCss(tpl) {
  * posée directement dans la règle @page par l'appelant, pour ne jamais
  * dupliquer/entrer en conflit avec la marge qui y vit aussi). L'EPUB,
  * reflowable par nature, ignore volontairement pageOrientation/columns et
- * reste en continu une colonne (comportement normal d'un ebook). */
+ * reste en continu une colonne (comportement normal d'un ebook).
+ * @param {ExportTemplate} tpl
+ * @returns {string} "" si le modèle n'est pas en colonnes.
+ */
 export function templatePrintCss(tpl) {
   if (!tpl.columns) return "";
   return `body { column-count: ${tpl.columns.count}; column-gap: ${tpl.columns.gutterPt}pt; }`;
