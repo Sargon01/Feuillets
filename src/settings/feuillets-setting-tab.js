@@ -34,7 +34,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Dossier & Gestion des projets" });
+    containerEl.createEl("h3", { text: "Dossier & Gestion des projets", attr: { "data-cat": "Projet & Écriture" } });
 
     const allProjects = (S.projects || []).concat(S.projectFolder ? [S.projectFolder] : [])
       .filter((p, i, a) => p && a.indexOf(p) === i)
@@ -217,7 +217,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Objectifs" });
+    containerEl.createEl("h3", { text: "Objectifs", attr: { "data-cat": "Projet & Écriture" } });
 
     new Setting(containerEl)
       .setName(`Objectif de mots par défaut (${unit}/chapitre-fichier)`)
@@ -294,7 +294,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "Sauvegarde" });
+    containerEl.createEl("h3", { text: "Sauvegarde", attr: { "data-cat": "Projet & Écriture" } });
 
     new Setting(containerEl)
       .setName("Sauvegarde automatique")
@@ -336,7 +336,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         );
     }
 
-    containerEl.createEl("h3", { text: "Panneau Cartes" });
+    containerEl.createEl("h3", { text: "Panneau Cartes", attr: { "data-cat": "Tableau" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       `Couvre les 5 modes du panneau (Cartes, Plan, Chemin de fer, Chronologie, Lecture). Les réglages ci-dessous concernent surtout les cartes du mode Cartes.`
@@ -424,7 +424,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Panneaux au démarrage" });
+    containerEl.createEl("h3", { text: "Panneaux au démarrage", attr: { "data-cat": "Panneaux latéraux" } });
 
     new Setting(containerEl)
       .setName("Ouvrir automatiquement le binder")
@@ -497,7 +497,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
 
-    containerEl.createEl("h3", { text: "Vues actives" });
+    containerEl.createEl("h3", { text: "Vues actives", attr: { "data-cat": "Panneaux latéraux" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       "Masque les vues que tu n'utilises pas, pour alléger l'interface — sans rien supprimer, tu peux les réactiver à tout moment."
@@ -547,7 +547,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
     }
 
-    containerEl.createEl("h3", { text: "Binder" });
+    containerEl.createEl("h3", { text: "Binder", attr: { "data-cat": "Panneaux latéraux" } });
 
      new Setting(containerEl)
       .setName("Liserés de couleur des labels")
@@ -655,7 +655,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Apparence" });
+    containerEl.createEl("h3", { text: "Apparence", attr: { "data-cat": "Avancé" } });
 
     new Setting(containerEl)
       .setName("Taille de police (px)")
@@ -706,7 +706,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "Typographie à la frappe" });
+    containerEl.createEl("h3", { text: "Typographie à la frappe", attr: { "data-cat": "Projet & Écriture" } });
 
     new Setting(containerEl)
       .setName("Alinéas de paragraphe dans l'éditeur")
@@ -848,7 +848,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const currentMeta = root ? S.projectMeta[root.path] : null;
     const projectLabels = currentMeta && currentMeta.labels ? currentMeta.labels : S.labels;
 
-    containerEl.createEl("h3", { text: "Labels de couleur" });
+    containerEl.createEl("h3", { text: "Labels de couleur", attr: { "data-cat": "Avancé" } });
     if (root) {
       containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(`Projet : ${root.name}`);
     }
@@ -891,7 +891,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       })
     );
 
-    containerEl.createEl("h3", { text: "Presets de compilation" });
+    containerEl.createEl("h3", { text: "Presets de compilation", attr: { "data-cat": "Avancé" } });
 
     (S.compilePresets || []).forEach((p, i) => {
       const set = new Setting(containerEl)
@@ -971,7 +971,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       })
     );
 
-    containerEl.createEl("h3", { text: "Historique" });
+    containerEl.createEl("h3", { text: "Historique", attr: { "data-cat": "Avancé" } });
 
     new Setting(containerEl)
       .setName("Rétention de l'historique (jours)")
@@ -984,7 +984,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Mode concentration" });
+    containerEl.createEl("h3", { text: "Mode concentration", attr: { "data-cat": "Projet & Écriture" } });
 
      new Setting(containerEl)
       .setName("Niveau de focus")
@@ -1055,7 +1055,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "Numérotation" });
+    containerEl.createEl("h3", { text: "Numérotation", attr: { "data-cat": "Projet & Écriture" } });
 
     new Setting(containerEl)
       .setName("Numérotation des chapitres")
@@ -1112,7 +1112,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       })
     );
 
-    containerEl.createEl("h3", { text: "Compilation" });
+    containerEl.createEl("h3", { text: "Compilation", attr: { "data-cat": "Export" } });
 
     new Setting(containerEl)
       .setName("Nom du fichier compilé")
@@ -1186,7 +1186,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Projets" });
+    containerEl.createEl("h3", { text: "Projets", attr: { "data-cat": "Avancé" } });
 
     new Setting(containerEl)
       .setName("Créer un projet d'exemple")
@@ -1214,7 +1214,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Export" });
+    containerEl.createEl("h3", { text: "Export", attr: { "data-cat": "Export" } });
 
     containerEl.createDiv({ cls: "setting-item-description" }).setText(
       "Moteur natif (par défaut) : aucune dépendance externe, fonctionne sur mobile aussi bien que sur bureau. Pandoc reste disponible en option pour qui l'a déjà installé et configuré — meilleure qualité typographique, mais bureau uniquement."
@@ -1373,7 +1373,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Édition des fiches" });
+    containerEl.createEl("h3", { text: "Édition des fiches", attr: { "data-cat": "Projet & Écriture" } });
 
     new Setting(containerEl)
       .setName("Preset YAML par défaut")
@@ -1426,7 +1426,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl("h3", { text: "Panneau Notes" });
+    containerEl.createEl("h3", { text: "Panneau Notes", attr: { "data-cat": "Panneaux latéraux" } });
 
     new Setting(containerEl)
       .setName("Afficher les entités citées")
@@ -1501,7 +1501,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const orderWrapNotes = containerEl.createDiv({ cls: "feuillets-notes-order-wrap" });
     this.renderSectionOrderList(orderWrapNotes, S, "notesSectionOrder", ["Synopsis", "Résumé", "Notes"], refresh);
 
-    containerEl.createEl("h3", { text: "Correction grammaticale" });
+    containerEl.createEl("h3", { text: "Correction grammaticale", attr: { "data-cat": "Panneaux latéraux" } });
     new Setting(containerEl)
       .setName("Détecter les répétitions de mots proches")
       .setDesc("Signale les mots répétés dans un même paragraphe ou une même phrase (désactivé par défaut dans Grammalecte lui-même — plus bruyant que les autres règles).")
@@ -1536,28 +1536,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
    * déplacés — aucun risque sur leur logique. En mode simple, l'onglet
    * Avancé est masqué entièrement. */
   organizeSections(containerEl) {
-    const MAP = {
-      "Dossier & Gestion des projets": "Projet & Écriture",
-      "Objectifs": "Projet & Écriture",
-      "Sauvegarde": "Projet & Écriture",
-      "Numérotation": "Projet & Écriture",
-      "Typographie à la frappe": "Projet & Écriture",
-      "Mode concentration": "Projet & Écriture",
-      "Édition des fiches": "Projet & Écriture",
-      "Panneau Cartes": "Tableau",
-      "Panneaux au démarrage": "Panneaux latéraux",
-      "Vues actives": "Panneaux latéraux",
-      "Binder": "Panneaux latéraux",
-      "Apparence": "Avancé",
-      "Panneau Notes": "Panneaux latéraux",
-      "Correction grammaticale": "Panneaux latéraux",
-      "Compilation": "Export",
-      "Export": "Export",
-      "Labels de couleur": "Avancé",
-      "Presets de compilation": "Avancé",
-      "Historique": "Avancé",
-      "Projets": "Avancé",
-    };
     const ORDER = ["Projet & Écriture", "Tableau", "Panneaux latéraux", "Export", "Avancé"];
 
     // Passe 1 : regrouper les nœuds par catégorie puis par sous-section,
@@ -1577,15 +1555,17 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       )
         continue; // le toggle reste en tête
       if (node.tagName === "H3") {
-        if (!MAP[node.textContent]) {
-          /* Filet de sécurité : une section h3 oubliée dans MAP tombait
-             jusqu'ici dans "Avancé", masqué par défaut ("Réglages
-             avancés" désactivé) — invisible sans que rien ne l'indique
-             (vécu avec la section Sauvegarde). Repli sur un onglet
-             toujours visible : au pire mal rangée, jamais invisible. */
-          console.warn(`Feuillets : section de réglages "${node.textContent}" absente de MAP — ajoutée à "Projet & Écriture" par défaut.`);
+        /* La catégorie vit sur le h3 lui-même (attr data-cat, posé à la
+           création — voir les containerEl.createEl("h3", ...) plus haut) :
+           plus de dictionnaire séparé à tenir synchronisé avec les titres.
+           Un h3 sans data-cat (oubli) tombe dans un onglet toujours
+           visible plutôt que dans "Avancé" (masqué par défaut) — au pire
+           mal rangé, jamais invisible (vécu avec la section Sauvegarde). */
+        const cat = node.getAttr("data-cat");
+        if (!cat || !ORDER.includes(cat)) {
+          console.warn(`Feuillets : section de réglages "${node.textContent}" sans data-cat valide — ajoutée à "Projet & Écriture" par défaut.`);
         }
-        currentCategory = MAP[node.textContent] || "Projet & Écriture";
+        currentCategory = (cat && ORDER.includes(cat)) ? cat : "Projet & Écriture";
         currentSub = { title: node.textContent, nodes: [] };
         byCategory[currentCategory].push(currentSub);
         node.remove(); // son texte devient le résumé du repli imbriqué

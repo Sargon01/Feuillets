@@ -1308,12 +1308,8 @@ export class BaseFeuilletsView extends ItemView {
           .setTitle(`Statut : ${st}`)
           .setChecked(!isGroup && st === currentStatus)
           .onClick(async () => {
-            if (isGroup) {
-              for (const f of groupFiles) await this.setFm(f, "statut", st);
-              new Notice(`Statut « ${st} » appliqué à ${groupFiles.length} feuillets.`);
-            } else {
-              await this.setFm(file, "statut", st === currentStatus ? "" : st);
-            }
+            if (isGroup) await this.applyBulkStatus(groupFiles, st);
+            else await this.setFm(file, "statut", st === currentStatus ? "" : st);
           })
       );
     }
@@ -1326,12 +1322,8 @@ export class BaseFeuilletsView extends ItemView {
           .setTitle(`Label : ${l.name}`)
           .setChecked(!isGroup && l.name === currentLabel)
           .onClick(async () => {
-            if (isGroup) {
-              for (const f of groupFiles) await this.setFm(f, "label", l.name);
-              new Notice(`Label « ${l.name} » appliqué à ${groupFiles.length} feuillets.`);
-            } else {
-              await this.setFm(file, "label", l.name === currentLabel ? "" : l.name);
-            }
+            if (isGroup) await this.applyBulkLabel(groupFiles, l.name);
+            else await this.setFm(file, "label", l.name === currentLabel ? "" : l.name);
           })
       );
     }
@@ -1342,25 +1334,7 @@ export class BaseFeuilletsView extends ItemView {
         item
           .setTitle("Ajouter un tag au groupe…")
           .setIcon("tag")
-          .onClick(() => {
-            new TextInputModal(
-              this.app,
-              `Ajouter un tag à ${groupFiles.length} feuillets`,
-              [{ name: "tag", label: "Tag", value: "" }],
-              async (values) => {
-                const clean = String(values.tag || "").trim().replace(/^#/, "");
-                if (!clean) return;
-                for (const f of groupFiles) {
-                  const existing = this.plugin.tagsOf(f);
-                  if (!existing.includes(clean)) {
-                    await this.setFm(f, "tags", [...existing, clean]);
-                  }
-                }
-                new Notice(`Tag « ${clean} » ajouté à ${groupFiles.length} feuillets.`);
-                this.render();
-              }
-            ).open();
-          })
+          .onClick(() => this.promptBulkTag(groupFiles, () => this.render()))
       );
       menu.addSeparator();
     }
@@ -1659,6 +1633,39 @@ export class BaseFeuilletsView extends ItemView {
       if (sel && sel.has(path)) el.addClass("feuillets-multiselected");
       else el.removeClass("feuillets-multiselected");
     });
+  }
+
+  /** Actions groupées — mêmes trois gestes partagés entre le clic droit du
+   * Binder/Plan (showFileContextMenu) et le mode sélection du panneau
+   * Cartes : appliquer un statut, un label, ou ajouter un tag à toute une
+   * liste de feuillets d'un coup. Centralisé ici pour ne pas avoir deux
+   * copies de la même boucle setFm+Notice à maintenir. */
+  async applyBulkStatus(files, status) {
+    for (const f of files) await this.setFm(f, "statut", status);
+    new Notice(`Statut « ${status} » appliqué à ${files.length} feuillet${files.length > 1 ? "s" : ""}.`);
+  }
+
+  async applyBulkLabel(files, labelName) {
+    for (const f of files) await this.setFm(f, "label", labelName);
+    new Notice(`Label « ${labelName} » appliqué à ${files.length} feuillet${files.length > 1 ? "s" : ""}.`);
+  }
+
+  promptBulkTag(files, onDone) {
+    new TextInputModal(
+      this.app,
+      `Ajouter un tag à ${files.length} feuillet${files.length > 1 ? "s" : ""}`,
+      [{ name: "tag", label: "Tag", value: "" }],
+      async (values) => {
+        const clean = String(values.tag || "").trim().replace(/^#/, "");
+        if (!clean) return;
+        for (const f of files) {
+          const existing = this.plugin.tagsOf(f);
+          if (!existing.includes(clean)) await this.setFm(f, "tags", [...existing, clean]);
+        }
+        new Notice(`Tag « ${clean} » ajouté à ${files.length} feuillet${files.length > 1 ? "s" : ""}.`);
+        if (onDone) onDone();
+      }
+    ).open();
   }
 
   attachDragHandlers(handleEl, dropEl, parent, index, siblings, scopeEl) {

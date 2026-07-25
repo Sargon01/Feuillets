@@ -11,7 +11,6 @@ import { ReadSelectionModal } from "../ui/selection-modals.js";
 import { DiffModal } from "../ui/diff-modal.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
-import { TextInputModal } from "../scenes-editor.js";
 
 function isInputFocused(el) {
   const active = document.activeElement;
@@ -182,7 +181,12 @@ export class BoardView extends BaseFeuilletsView {
       this.scriveningsManager = null;
     }
 
-    if (!this.sceneSelection) this.sceneSelection = new Set();
+    /* Même Set que le Binder/Plan (this.plugin._binderMultiSelect) — un
+       seul mécanisme de sélection multiple dans tout le plugin, pas deux
+       en parallèle. Le mode sélection du panneau Cartes (cases à cocher,
+       selectionModeActive) reste sa propre affordance UI ; seul le
+       stockage est désormais partagé. */
+    if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
     if (this.selectionModeActive === undefined) this.selectionModeActive = false;
 
     const bar = container.createDiv({ cls: "feuillets-board-bar" }).createDiv({ cls: "feuillets-board-bar-right" });
@@ -335,11 +339,11 @@ export class BoardView extends BaseFeuilletsView {
     this.barSep(bar);
 
     if (activeMode !== "read" && activeMode !== "arcs") {
-      const selSize = this.sceneSelection.size;
+      const selSize = this.plugin._binderMultiSelect.size;
       const getSelectedFiles = () =>
-        [...this.sceneSelection].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f) => f instanceof TFile);
+        [...this.plugin._binderMultiSelect].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f) => f instanceof TFile);
       const clearSel = () => {
-        this.sceneSelection.clear();
+        this.plugin._binderMultiSelect.clear();
         this.selectionModeActive = false;
         this.render(true);
       };
@@ -393,8 +397,7 @@ export class BoardView extends BaseFeuilletsView {
               item.setTitle(`Statut : ${st} (${selSize})`).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
                 clearSel();
-                for (const f of files) await this.setFm(f, "statut", st);
-                new Notice(`Statut « ${st} » appliqué à ${files.length} ${unitPlural}.`);
+                await this.applyBulkStatus(files, st);
               })
             );
           }
@@ -405,8 +408,7 @@ export class BoardView extends BaseFeuilletsView {
               item.setTitle(`Label : ${l.name} (${selSize})`).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
                 clearSel();
-                for (const f of files) await this.setFm(f, "label", l.name);
-                new Notice(`Label « ${l.name} » appliqué à ${files.length} ${unitPlural}.`);
+                await this.applyBulkLabel(files, l.name);
               })
             );
           }
@@ -416,21 +418,7 @@ export class BoardView extends BaseFeuilletsView {
             item.setTitle(`Ajouter un tag (${selSize})…`).setIcon("tag").setDisabled(selSize < 1).onClick(() => {
               const files = getSelectedFiles();
               clearSel();
-              new TextInputModal(
-                this.app,
-                `Ajouter un tag à ${files.length} ${unitPlural}`,
-                [{ name: "tag", label: "Tag", value: "" }],
-                async (values) => {
-                  const clean = String(values.tag || "").trim().replace(/^#/, "");
-                  if (!clean) return;
-                  for (const f of files) {
-                    const existing = this.plugin.tagsOf(f);
-                    if (!existing.includes(clean)) await this.setFm(f, "tags", [...existing, clean]);
-                  }
-                  new Notice(`Tag « ${clean} » ajouté à ${files.length} ${unitPlural}.`);
-                  this.render(true);
-                }
-              ).open();
+              this.promptBulkTag(files, () => this.render(true));
             })
           );
           menu.addSeparator();
@@ -883,12 +871,12 @@ export class BoardView extends BaseFeuilletsView {
     const head = card.createDiv({ cls: "feuillets-card-head" });
     if (this.selectionModeActive && this.plugin.isSceneFile(file)) {
       const cb = head.createEl("input", { type: "checkbox", cls: "feuillets-scene-select" });
-      cb.checked = this.sceneSelection.has(file.path);
+      cb.checked = this.plugin._binderMultiSelect.has(file.path);
       cb.setAttr("title", `Sélectionner cette ${this.plugin.unitLabel()}`);
       cb.addEventListener("click", (e) => e.stopPropagation());
       cb.addEventListener("change", () => {
-        if (cb.checked) this.sceneSelection.add(file.path);
-        else this.sceneSelection.delete(file.path);
+        if (cb.checked) this.plugin._binderMultiSelect.add(file.path);
+        else this.plugin._binderMultiSelect.delete(file.path);
         this.render(true);
       });
     }
