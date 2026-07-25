@@ -7,19 +7,34 @@ const {
   MarkdownView,
   Menu,
   normalizePath,
+  stringifyYaml,
 } = require("obsidian");
+
+import {
+  splitCsv,
+  normalizeTags,
+  shortText,
+  splitFrontmatter,
+  splitBody,
+  ensureNumber,
+  stripMdExtension,
+  sanitizeFileBasename,
+  moveItem,
+  toValue,
+  buildMergedSection,
+} from "./utils/scene-fields.js";
 
 export const YAML_PRESETS = {
   roman: {
     label: "Roman",
-    targetFields: ["titre", "titre_court", "ordre", "date"],
+    targetFields: ["titre", "titre_binder", "ordre", "date"],
     aggregateFields: ["tags", "notes"],
     firstFields: ["statut", "label", "objectif", "compiler"],
     ignoreFields: ["synopsis", "resume"],
   },
   nouvelle: {
     label: "Nouvelle",
-    targetFields: ["titre", "titre_court", "ordre", "date", "statut"],
+    targetFields: ["titre", "titre_binder", "ordre", "date", "statut"],
     aggregateFields: ["tags", "notes"],
     firstFields: ["label", "objectif", "compiler"],
     ignoreFields: ["synopsis", "resume"],
@@ -49,106 +64,14 @@ export const YAML_PRESETS = {
   },
 };
 
-function splitCsv(value) {
-  return String(value || "")
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-}
-
-function normalizeTags(value) {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return [...new Set(value.map((v) => String(v).trim()).filter(Boolean))];
-  }
-  if (typeof value === "string") {
-    return [
-      ...new Set(
-        value
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean)
-      ),
-    ];
-  }
-  return [];
-}
-
-function shortText(value, max = 180) {
-  const text = String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return !text
-    ? "—"
-    : text.length > max
-    ? `${text.slice(0, max)}…`
-    : text;
-}
-
-function splitFrontmatter(content) {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!match) return { frontmatter: null, body: content };
-  return { frontmatter: match[1], body: content.slice(match[0].length) };
-}
-
-function ensureNumber(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function stripMdExtension(name) {
-  return String(name || "")
-    .replace(/\.md$/i, "")
-    .trim();
-}
-
-function sanitizeFileBasename(name, fallback = "Nouvelle scène") {
-  const base = stripMdExtension(name)
-    .replace(/[\\/#^\[\]]/g, "-")
-    .trim();
-  return base || fallback;
-}
-
-function moveItem(array, fromIndex, toIndex) {
-  const next = [...array];
-  const [item] = next.splice(fromIndex, 1);
-  next.splice(toIndex, 0, item);
-  return next;
-}
-
-function toValue(value) {
-  return Array.isArray(value) ? value.join(", ") : String(value ?? "");
-}
-
-function splitBody(raw) {
-  return splitFrontmatter(raw).body.trim();
-}
-
-function buildMergedSection(source, body, mode) {
-  const clean = String(body || "").trim();
-  if (!clean) return "";
-  if (mode === "continuous") return clean;
-  if (mode === "comment") return `> Fusion depuis ${source.basename}\n\n${clean}`;
-  return `## Fusion depuis ${source.basename}\n\n${clean}`;
-}
-
-function yamlLine(key, value) {
-  if (Array.isArray(value)) {
-    if (!value.length) return `${key}: []`;
-    return `${key}:\n${value.map((v) => `  - ${escapeYamlScalar(v)}`).join("\n")}`;
-  }
-  if (typeof value === "boolean") return `${key}: ${value ? "true" : "false"}`;
-  if (typeof value === "number") return `${key}: ${value}`;
-  if (value == null) return `${key}:`;
-  return `${key}: ${escapeYamlScalar(String(value))}`;
-}
-
-function escapeYamlScalar(value) {
-  if (value == null) return "";
-  const str = String(value);
-  if (str === "") return "";
-  return str.replace(/\n/g, " ");
-}
+/* Le frontmatter est sérialisé par `stringifyYaml` (Obsidian), comme dans
+   services/export-templates-custom.js. Il y avait ici un sérialiseur fait
+   main dont l'« échappement » se limitait à remplacer les retours à la ligne
+   par des espaces : un titre ou un synopsis contenant « : », commençant par
+   « # », « [ », « * » ou « & », ou valant « oui »/« true », produisait un
+   frontmatter illisible ou lu de travers — sur un fichier que le plugin
+   venait de créer à partir du texte de l'autrice. Ces règles de citation YAML
+   ne se réimplémentent pas à la main. */
 
 export class TextInputModal extends Modal {
   constructor(app, title, fields, onSubmit) {
