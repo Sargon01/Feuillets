@@ -3769,17 +3769,22 @@ body.feuillets-concentration .markdown-preview-view {
   box-shadow: 0 0 0 2px var(--background-secondary);
 }
 
-/* rail des fils narratifs, à droite du titre : triangle plutôt que cercle,
-   pour ne jamais le confondre avec un label au premier coup d'œil. */
+/* rail des fils narratifs, à droite du titre : carré plutôt que cercle,
+   pour ne jamais le confondre avec un label (lieu) au premier coup d'œil. */
 .feuillets-arcs-dot-fil {
   position: absolute;
-  width: 12px;
-  height: 12px;
-  left: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  left: 4px;
   top: 50%;
   transform: translateY(-50%);
   z-index: 2;
-  clip-path: polygon(0% 0%, 100% 0%, 50% 100%);
+  box-shadow: 0 0 0 2px var(--background-secondary);
+}
+
+.feuillets-arcs-col-header-dot.is-fil {
+  border-radius: 3px;
 }
 
 .feuillets-arcs-info {

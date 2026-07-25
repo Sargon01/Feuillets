@@ -265,7 +265,16 @@ export class ArcsView extends ItemView {
     // -------------------------------------------------------------
     // OPTION B : MODE FRISE NARRATIVE / RAILS
     // -------------------------------------------------------------
+    // Les lieux (label:) restent à gauche en ronds ; les fils (fil:) passent
+    // à droite en carrés, pour ne jamais confondre les deux d'un coup d'œil.
+    const labelNameSet = new Set();
+    for (const arr of sceneLabelsMap.values()) for (const n of arr) labelNameSet.add(n);
+    const isLabelArc = (name) => labelNameSet.has(name);
+
     const activeArcs = this.selectedArc ? [this.selectedArc] : allArcs;
+    const activeLabels = activeArcs.filter(isLabelArc);
+    const activeFils = activeArcs.filter(a => !isLabelArc(a));
+
     const filteredScenes = scenes.filter(sc => {
       if (!this.selectedArc) return true;
       const list = sceneArcs.get(sc.file.path) || [];
@@ -301,31 +310,38 @@ export class ArcsView extends ItemView {
 
     const timeline = wrapper.createDiv({ cls: "feuillets-arcs-timeline" });
 
-    // En-tête des colonnes au-dessus des rails
+    const buildRailsHeaderGroup = (parent, arcs, isFil) => {
+      const group = parent.createDiv({ cls: "feuillets-arcs-rails-header" });
+      group.style.width = `${arcs.length * 28}px`;
+      arcs.forEach((arc) => {
+        const colColor = stringToColor(arc);
+        const symbol = getArcSymbol(arc);
+        const colHeader = group.createDiv({
+          cls: "feuillets-arcs-col-header",
+          title: `${arc} (cliquer pour filtrer)`
+        });
+        const dot = colHeader.createDiv({
+          cls: "feuillets-arcs-col-header-dot" + (isFil ? " is-fil" : "")
+        });
+        dot.style.setProperty("--arc-color", colColor);
+        dot.setText(symbol);
+
+        colHeader.addEventListener("click", () => {
+          this.selectedArc = this.selectedArc === arc ? "" : arc;
+          this.render();
+        });
+      });
+      return group;
+    };
+
+    // En-tête des colonnes au-dessus des rails : lieux (ronds) à gauche, fils (carrés) à droite
     const headerRow = timeline.createDiv({ cls: "feuillets-arcs-header-row" });
-
-    const railsHeader = headerRow.createDiv({ cls: "feuillets-arcs-rails-header" });
-    railsHeader.style.width = `${activeArcs.length * 28}px`;
-
-    activeArcs.forEach((arc) => {
-      const colColor = stringToColor(arc);
-      const symbol = getArcSymbol(arc);
-      const colHeader = railsHeader.createDiv({
-        cls: "feuillets-arcs-col-header",
-        title: `${arc} (cliquer pour filtrer)`
-      });
-      const dot = colHeader.createDiv({ cls: "feuillets-arcs-col-header-dot" });
-      dot.style.setProperty("--arc-color", colColor);
-      dot.setText(symbol);
-
-      colHeader.addEventListener("click", () => {
-        this.selectedArc = this.selectedArc === arc ? "" : arc;
-        this.render();
-      });
-    });
+    buildRailsHeaderGroup(headerRow, activeLabels, false);
 
     const headerLabel = headerRow.createDiv({ cls: "feuillets-arcs-header-label" });
-    headerLabel.setText(`Arcs narratifs & Lieux du manuscrit (${activeArcs.length} colonne${activeArcs.length > 1 ? "s" : ""})`);
+    headerLabel.setText(`📍 Lieux (${activeLabels.length}) — 🧵 Fils (${activeFils.length})`);
+
+    buildRailsHeaderGroup(headerRow, activeFils, true);
 
     let sceneCount = 0;
     for (const item of items) {
@@ -335,9 +351,11 @@ export class ArcsView extends ItemView {
         const row = timeline.createDiv({
           cls: `feuillets-arcs-row-folder feuillets-arcs-${item.role}`
         });
-        const railsSpacer = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
-        railsSpacer.style.width = `${activeArcs.length * 28}px`;
+        const spacerLeft = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
+        spacerLeft.style.width = `${activeLabels.length * 28}px`;
         row.createDiv({ cls: "feuillets-arcs-folder-title", text: item.folder.name });
+        const spacerRight = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
+        spacerRight.style.width = `${activeFils.length * 28}px`;
       } else {
         const file = item.file;
         const list = sceneArcs.get(file.path) || [];
@@ -349,33 +367,37 @@ export class ArcsView extends ItemView {
         const row = timeline.createDiv({ cls: "feuillets-arcs-row-file" });
         row.style.cursor = "pointer";
 
-        const rails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
-        rails.style.width = `${activeArcs.length * 28}px`;
+        const buildRailsCols = (parent, arcs, isFil) => {
+          const rails = parent.createDiv({ cls: "feuillets-arcs-row-rails" });
+          rails.style.width = `${arcs.length * 28}px`;
 
-        activeArcs.forEach((arc) => {
-          const col = rails.createDiv({ cls: "feuillets-arcs-col" });
-          const arcColor = stringToColor(arc);
-          col.style.setProperty("--arc-color", arcColor);
+          arcs.forEach((arc) => {
+            const col = rails.createDiv({ cls: "feuillets-arcs-col" });
+            const arcColor = stringToColor(arc);
+            col.style.setProperty("--arc-color", arcColor);
 
-          const first = firstIndices[arc];
-          const last = lastIndices[arc];
-          const hasArc = list.includes(arc);
+            const first = firstIndices[arc];
+            const last = lastIndices[arc];
+            const hasArc = list.includes(arc);
 
-          if (currentIdx >= first && currentIdx <= last) {
-            const line = col.createDiv({ cls: "feuillets-arcs-line" });
-            line.style.backgroundColor = arcColor;
-            if (!hasArc) line.style.opacity = "0.2";
-          }
+            if (currentIdx >= first && currentIdx <= last) {
+              const line = col.createDiv({ cls: "feuillets-arcs-line" });
+              line.style.backgroundColor = arcColor;
+              if (!hasArc) line.style.opacity = "0.2";
+            }
 
-          if (hasArc) {
-            const symbol = getArcSymbol(arc);
-            const dot = col.createDiv({ cls: "feuillets-arcs-dot" });
-            dot.style.backgroundColor = arcColor;
-            dot.setText(symbol);
-            dot.setAttr("title", `${arc} — ${file.basename}`);
-            dot.setAttr("aria-label", arc);
-          }
-        });
+            if (hasArc) {
+              const symbol = getArcSymbol(arc);
+              const dot = col.createDiv({ cls: "feuillets-arcs-dot" + (isFil ? " feuillets-arcs-dot-fil" : "") });
+              dot.style.backgroundColor = arcColor;
+              dot.setText(symbol);
+              dot.setAttr("title", `${arc} — ${file.basename}`);
+              dot.setAttr("aria-label", arc);
+            }
+          });
+        };
+
+        buildRailsCols(row, activeLabels, false);
 
         const titleArea = row.createDiv({ cls: "feuillets-arcs-info" });
         const titleRow = titleArea.createDiv({ cls: "feuillets-arcs-title-row" });
@@ -399,6 +421,8 @@ export class ArcsView extends ItemView {
         if (syn) {
           titleArea.createDiv({ cls: "feuillets-arcs-file-synopsis", text: syn });
         }
+
+        buildRailsCols(row, activeFils, true);
 
         row.addEventListener("click", () => {
           openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
