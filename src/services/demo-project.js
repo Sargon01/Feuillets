@@ -243,7 +243,7 @@ async function generate(app, S, plugin, manuscritPath) {
     personnages: ["Elira Voskan", "Tomas Grey"],
     rythme: { action: 2, dialogue: 4, description: 1, introspection: 1 },
     date: "1421-03-12",
-    body: "Cette scène porte deux labels à la fois (`label: Rouge, Bleu`) — une scène peut appartenir à plusieurs fils en même temps, chacun avec sa propre couleur et sa propre ligne dans le Chemin de fer. Elle porte aussi une `date: 1421-03-12`, qui correspond à un jalon de la Chronologie (« Fondation de la Citadelle », dans Recherche/Chronologie) : garde ce feuillet actif et regarde le panneau Notes, tu verras le rapprochement automatique avec ce jalon historique. Elle cite aussi Elira et Tomas par leur nom — ouvre le panneau Notes et regarde la section « Contexte » : leurs fiches Recherche y apparaissent automatiquement, avec leur âge à la date de la scène.",
+    body: "Cette scène porte deux labels à la fois (`label: Rouge, Bleu`) — une scène peut appartenir à plusieurs fils en même temps, chacun avec sa propre couleur et sa propre ligne dans le Chemin de fer. Elle porte aussi une `date: 1421-03-12`, qui correspond à un jalon de la Chronologie (« Fondation de la Citadelle », dans Recherche/Chronologie) : garde ce feuillet actif et regarde le panneau Notes, tu verras le rapprochement automatique avec ce jalon historique. Elle cite aussi Elira et Tomas par leur nom — ouvre le panneau Notes et regarde la section « Contexte » : leurs fiches Recherche y apparaissent automatiquement, avec leur âge à la date de la scène, ET l'état le plus récent de leur section `## Évolution` (fiche « Elira Voskan », Recherche/Personnages) antérieur ou égal au 12 mars 1421 — pas leur synopsis générique. Ouvre cette fiche pour voir la section, et son bouton « Voir ses apparitions » (compteur de scènes qui la citent, avec extrait, dans l'ordre du manuscrit).",
   }));
 
   const chap2 = await ensureFolder(app, `${partie1.path}/Chapitre 2 - Le voyage`);
@@ -318,7 +318,15 @@ async function generate(app, S, plugin, manuscritPath) {
     "  - personnage",
     "---",
     "",
-    'Fiche de personnage : les champs `nom`/`prénom`/`naissance`/`mort` sont libres, à adapter à tes besoins. Ouvre le bouton "Voir ses apparitions" en haut de cette fiche (dans le panneau Recherche) pour lister toutes les scènes qui la citent par tag ou par nom. Le tag `personnage` est un tag "structurel" — il reste invisible dans le filtre de tags du panneau Recherche et dans le panneau Tags, il sert seulement à ranger cette fiche dans le bon dossier.',
+    'Fiche de personnage : les champs `nom`/`prénom`/`naissance`/`mort` sont libres, à adapter à tes besoins. Ouvre le bouton "Voir ses apparitions" en haut de cette fiche (dans le panneau Recherche) : il ouvre une fenêtre listant **chaque scène qui la cite** (par tag, par lien `[[...]]`, ou simplement par son nom dans le texte), avec un compteur (« N scène(s), dans l\'ordre du manuscrit ») et un court extrait autour de la citation dans chaque scène — pratique pour vérifier qu\'un personnage n\'est pas oublié pendant 10 chapitres d\'affilée. Le tag `personnage` est un tag "structurel" — il reste invisible dans le filtre de tags du panneau Recherche et dans le panneau Tags, il sert seulement à ranger cette fiche dans le bon dossier.',
+    "",
+    "## Évolution",
+    "",
+    "- 1398 : naissance à Bakhtar, dans une famille de tisserands.",
+    "- 1415 : quitte le village natal après la Grande Rupture.",
+    "- 1421 : scribe pour l'Ordre du Silence, sans en connaître encore les secrets.",
+    "",
+    "Ces lignes datées (`année : état`, avec ou sans puce, l\'année en gras ou non — le tiret, le deux-points pleine chasse et le tiret cadratin sont aussi acceptés comme séparateur) sont ce que le panneau Notes lit pour remplir sa section **Contexte** : ouvre « 2. La rencontre » (datée du 12 mars 1421) et regarde cette section — au lieu du synopsis générique de cette fiche, c'est la ligne « scribe pour l'Ordre du Silence... » qui s'affiche, parce que c'est le dernier état connu à cette date ou avant. Le titre `## Évolution` est une convention de lisibilité, pas une syntaxe obligatoire : seules les lignes `année : texte` elles-mêmes sont reconnues, où qu'elles soient dans la fiche.",
     "",
   ]);
   await writeSheet(app, personnages, "Tomas Grey", [
@@ -343,7 +351,12 @@ async function generate(app, S, plugin, manuscritPath) {
     "  - lieu",
     "---",
     "",
-    "Fiche de lieu : même principe que les fiches personnage, avec `titre` à la place de `nom`/`prénom`.",
+    "Fiche de lieu : même principe que les fiches personnage, avec `titre` à la place de `nom`/`prénom`. Un lieu peut porter la même section `## Évolution` qu'un personnage — pas seulement un âge, un ÉTAT.",
+    "",
+    "## Évolution",
+    "",
+    "- 1390 : simple fort de garnison, quasiment abandonné.",
+    "- 1421 : place forte assiégée par l'Ordre du Silence.",
     "",
   ]);
 
@@ -356,7 +369,7 @@ async function generate(app, S, plugin, manuscritPath) {
     "  - codex",
     "---",
     "",
-    `Ce dossier n'existe qu'en mode Fiction — en Non-fiction, les rubriques comme celle-ci se créent à la demande via le bouton "Nouvelle rubrique" du panneau Recherche, plutôt que d'être imposées d'avance.`,
+    'Ce dossier (Lore) fait partie des 6 catégories créées automatiquement en mode Fiction : Personnages, Lieux, Lore, Glossaire, Événements, Bibliographie. Elles sont nées pour la fiction et ne généralisent à rien d\'autre — une thèse de droit n\'a pas besoin d\'"Acteurs", un essai de diplomatie a besoin de "Traités" plutôt que de "Géographie". Aussi, en Non-fiction, SEULES Sources et Bibliographie sont créées d\'office ; tout le reste se crée à la demande, adapté au VRAI sujet du projet, via le bouton "Nouvelle rubrique" (icône dédiée) du panneau Recherche — pas de gabarit générique imposé d\'avance.',
     "",
   ]);
 
@@ -527,7 +540,11 @@ async function generate(app, S, plugin, manuscritPath) {
     "",
     "## Fiction vs Non-fiction",
     "",
-    "Ce projet est en mode **Fiction**. En mode **Non-fiction** (réglable par projet dans les réglages du plugin, section « Dossier du projet »), le fonctionnement est rigoureusement identique — seuls les noms des dossiers Recherche changent : Personnages → Acteurs, Lieux → Géographie, Lore → Concepts. Bibliographie, Glossaire et Chronologie/Événements gardent le même nom dans les deux modes.",
+    "Ce projet est en mode **Fiction** — la structure du manuscrit (parties/chapitres/scènes) et les champs frontmatter lus sont rigoureusement identiques dans les deux modes, réglable par projet dans les réglages du plugin (section « Dossier du projet »). Ce qui change vraiment :",
+    "",
+    "- **Vocabulaire** : « scène » devient « section », le mode Cartes par défaut devient le mode Plan (`hasSources: true` active aussi un champ Sources dans le panneau Notes).",
+    "- **Recherche créée automatiquement** — en Fiction, 6 catégories d'un coup : Personnages, Lieux, Lore, Glossaire, Événements, Bibliographie (voir la fiche « L'Ordre du Silence » dans Recherche/Lore pour le détail). En **Non-fiction, seules Sources et Bibliographie** sont créées d'office — pas d'« Acteurs » ni de « Géographie » automatiques, parce que ces catégories nées pour la fiction ne généralisent à aucun autre sujet (une thèse de droit n'en a pas besoin). Tout le reste se crée à la demande via « Nouvelle rubrique », adapté au vrai sujet du projet.",
+    "- **Sources vs Bibliographie** : les deux existent dans les deux modes et servent la même fonction — noter une référence (auteur/année/édition) puis l'insérer comme **citation formatée** dans une scène (sélectionne un passage dans la fiche, clique « Insérer comme citation », avec ou sans la source rattachée). Aucun champ n'est réservé à un mode : la seule vraie différence Non-fiction est que Sources se crée automatiquement dès le départ, alors qu'en Fiction ce même besoin passe par Bibliographie ou une rubrique personnalisée.",
     "",
   ]);
 
