@@ -1015,6 +1015,30 @@ export class BoardView extends BaseFeuilletsView {
       ? new Set(fileItems.filter((i) => (filsMap.get(i.file.path) || []).includes(filterFil)).map((i) => i.file.path))
       : null;
 
+    // Étendue (première → dernière apparition) de chaque lieu/fil parmi les scènes
+    // effectivement affichées, pour tracer une ligne de continuité entre les points.
+    const renderedPaths = items
+      .filter((i) => i.type === "file" && (!matchedSet || matchedSet.has(i.file.path)))
+      .map((i) => i.file.path);
+
+    const labelFirst = {}, labelLast = {};
+    activeLabels.forEach((lb) => { labelFirst[lb] = -1; labelLast[lb] = -1; });
+    const filFirst = {}, filLast = {};
+    activeFils.forEach((f) => { filFirst[f] = -1; filLast[f] = -1; });
+
+    renderedPaths.forEach((path, idx) => {
+      for (const lb of labelMap.get(path) || []) {
+        if (!(lb in labelFirst)) continue;
+        if (labelFirst[lb] === -1) labelFirst[lb] = idx;
+        labelLast[lb] = idx;
+      }
+      for (const f of filsMap.get(path) || []) {
+        if (!(f in filFirst)) continue;
+        if (filFirst[f] === -1) filFirst[f] = idx;
+        filLast[f] = idx;
+      }
+    });
+
     const timeline = wrap.createDiv({ cls: "feuillets-arcs-timeline" });
     let fileIndex = 0;
 
@@ -1049,7 +1073,13 @@ export class BoardView extends BaseFeuilletsView {
         const col = rails.createDiv({ cls: "feuillets-arcs-col" });
         const color = this.plugin.labelColor(lb);
         col.style.setProperty("--arc-color", color);
-        if (currentLabels.includes(lb)) {
+        const hasLabel = currentLabels.includes(lb);
+        if (labelFirst[lb] !== -1 && idx >= labelFirst[lb] && idx <= labelLast[lb]) {
+          const line = col.createDiv({ cls: "feuillets-arcs-line" });
+          line.style.backgroundColor = color;
+          if (!hasLabel) line.style.opacity = "0.2";
+        }
+        if (hasLabel) {
           const dot = col.createDiv({ cls: "feuillets-arcs-dot" });
           dot.style.backgroundColor = color;
         }
@@ -1074,7 +1104,13 @@ export class BoardView extends BaseFeuilletsView {
         const col = filRails.createDiv({ cls: "feuillets-arcs-col" });
         const color = filColor(f);
         col.style.setProperty("--arc-color", color);
-        if (currentFils.includes(f)) {
+        const hasFil = currentFils.includes(f);
+        if (filFirst[f] !== -1 && idx >= filFirst[f] && idx <= filLast[f]) {
+          const line = col.createDiv({ cls: "feuillets-arcs-line" });
+          line.style.backgroundColor = color;
+          if (!hasFil) line.style.opacity = "0.2";
+        }
+        if (hasFil) {
           const dot = col.createDiv({ cls: "feuillets-arcs-dot feuillets-arcs-dot-fil" });
           dot.style.backgroundColor = color;
         }

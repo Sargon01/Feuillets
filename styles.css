@@ -3659,7 +3659,9 @@ body.feuillets-concentration .markdown-preview-view {
   padding: 14px var(--size-4-6);
   background: var(--background-secondary-alt);
   border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: var(--size-4-4);
+  margin: 0 auto var(--size-4-4);
+  max-width: 1000px;
+  border-radius: var(--radius-m);
 }
 
 .feuillets-arcs-filter-label {
