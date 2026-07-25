@@ -848,7 +848,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const currentMeta = root ? S.projectMeta[root.path] : null;
     const projectLabels = currentMeta && currentMeta.labels ? currentMeta.labels : S.labels;
 
-    containerEl.createEl("h3", { text: root ? `Labels de couleur (Projet : ${root.name})` : "Labels de couleur" });
+    containerEl.createEl("h3", { text: "Labels de couleur" });
+    if (root) {
+      containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(`Projet : ${root.name}`);
+    }
 
     (projectLabels || []).forEach((l, i) => {
       new Setting(containerEl)
@@ -1534,7 +1537,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
    * Avancé est masqué entièrement. */
   organizeSections(containerEl) {
     const MAP = {
-      "Dossier du projet": "Projet & Écriture",
+      "Dossier & Gestion des projets": "Projet & Écriture",
       "Objectifs": "Projet & Écriture",
       "Sauvegarde": "Projet & Écriture",
       "Numérotation": "Projet & Écriture",
@@ -1627,7 +1630,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         }
         const subDet = document.createElement("details");
         subDet.addClass("feuillets-settings-subsection");
-        if (sub.title === "Dossier du projet" || sub.title === "Sauvegarde") subDet.setAttr("open", "");
+        if (sub.title === "Dossier & Gestion des projets" || sub.title === "Sauvegarde") subDet.setAttr("open", "");
         const subSum = document.createElement("summary");
         subSum.setText(sub.title);
         subSum.addClass("feuillets-settings-subhead");

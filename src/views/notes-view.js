@@ -376,6 +376,19 @@ export class NotesView extends BaseFeuilletsView {
     });
   }
 
+  /** Fil d'Ariane vers les notes de dossier (Partie/Chapitre) au-dessus du
+   * feuillet actif — pastilles façon tag (fond + couleur d'accent) plutôt
+   * que texte atténué : trop discret pour être remarqué dans certains
+   * thèmes (confondu avec "n'apparaît pas" alors que le contenu était bien
+   * là, juste illisible). */
+  /** Fil d'Ariane vers les notes de dossier (Partie/Chapitre) au-dessus du
+   * feuillet actif. Style forcé en ligne (pas via styles.css) et SANS
+   * `overflow: hidden` sur le conteneur : c'est cette propriété qui
+   * rendait tout le bloc invisible (coupé à zéro par un ancêtre flex plus
+   * haut dans la mise en page) — un `overflow: hidden` semblait raisonnable
+   * ici (éviter le retour à la ligne) mais coupait bien plus que prévu.
+   * Confirmé par diagnostic direct (Notice + document.body.contains) avant
+   * de conclure, pas par supposition. */
   renderFolderNoteLinks(container, file) {
     const root = this.plugin.getProjectFolder();
     if (!root) return;
@@ -394,11 +407,11 @@ export class NotesView extends BaseFeuilletsView {
     chain.reverse(); // partie d'abord, puis chapitre
 
     const box = container.createDiv({ cls: "feuillets-notes-folder-links" });
+    box.style.cssText = "display: flex !important; flex-wrap: nowrap !important; align-items: center !important; gap: 4px !important; margin: 8px 0 4px 0 !important; overflow: visible !important; position: relative !important; z-index: 1 !important;";
     for (const folder of chain) {
       const link = box.createDiv({ cls: "feuillets-notes-folder-link" });
-      const icon = link.createSpan({ cls: "feuillets-notes-folder-link-icon" });
-      setIcon(icon, "notebook-text");
-      link.createSpan({ cls: "feuillets-notes-folder-link-name" }).setText(folder.name);
+      link.style.cssText = "font-size: 12px !important; background: #888888 !important; color: #ffffff !important; border-radius: 999px !important; padding: 0 6px !important; line-height: 16px !important; display: inline-block !important; cursor: pointer !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; min-width: 0 !important; flex-shrink: 1 !important;";
+      link.setText(folder.name);
       link.setAttr("title", `Note de « ${folder.name} »`);
       link.addEventListener("click", async (e) => {
         e.preventDefault();

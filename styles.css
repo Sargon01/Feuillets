@@ -1230,24 +1230,31 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   margin-bottom: 10px;
 }
 
+/* Rendu réel en style inline forcé depuis notes-view.js (voir
+   renderFolderNoteLinks) — overflow: visible, pas hidden : un overflow
+   hidden ici (compréhensible pour empêcher le retour à la ligne, mais
+   fautif) coupait tout le bloc à zéro selon la mise en page ambiante,
+   le rendant invisible. Ces règles restent surtout pour :last-child et
+   :hover, qu'un style inline ne peut pas exprimer. */
 .feuillets-notes-folder-links {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: var(--size-4-2);
+  gap: var(--size-4-1);
   margin-top: var(--size-4-2);
   margin-bottom: var(--size-4-1);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .feuillets-notes-folder-link {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-1);
-  color: var(--text-muted);
   font-size: var(--font-ui-smaller);
+  border-radius: var(--tag-radius, 999px);
+  padding: 0px 6px;
+  line-height: 16px;
   cursor: pointer;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   min-width: 0;
   flex-shrink: 1;
 }
@@ -1260,25 +1267,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 }
 
 .feuillets-notes-folder-link:hover {
-  color: var(--interactive-accent);
-}
-
-.feuillets-notes-folder-link-icon {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.feuillets-notes-folder-link-icon svg {
-  width: 12px;
-  height: 12px;
-}
-
-.feuillets-notes-folder-link-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+  filter: brightness(1.15);
 }
 
 .feuillets-notes-area {
