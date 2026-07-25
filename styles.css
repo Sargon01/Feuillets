@@ -3655,6 +3655,7 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-arcs-filter-bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   padding: 14px var(--size-4-6);
   background: var(--background-secondary-alt);
@@ -3662,6 +3663,17 @@ body.feuillets-concentration .markdown-preview-view {
   margin: 0 auto var(--size-4-4);
   max-width: 1000px;
   border-radius: var(--radius-m);
+  flex-wrap: wrap;
+}
+
+.feuillets-arcs-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feuillets-arcs-filter-group.is-fil {
+  flex-direction: row-reverse;
 }
 
 .feuillets-arcs-filter-label {
@@ -3673,7 +3685,7 @@ body.feuillets-concentration .markdown-preview-view {
 }
 
 .feuillets-arcs-filter-select {
-  min-width: 220px;
+  min-width: 180px;
 }
 
 .feuillets-arcs-filter-count {
@@ -3743,7 +3755,7 @@ body.feuillets-concentration .markdown-preview-view {
 
 .feuillets-arcs-col {
   position: relative;
-  width: 24px;
+  width: 16px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -3753,18 +3765,18 @@ body.feuillets-concentration .markdown-preview-view {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 3px;
-  left: 10.5px;
-  border-radius: 2px;
+  width: 2px;
+  left: 7px;
+  border-radius: 1px;
   z-index: 1;
 }
 
 .feuillets-arcs-dot {
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  left: 3px;
+  left: 2px;
   top: 50%;
   transform: translateY(-50%);
   z-index: 2;
@@ -3775,10 +3787,10 @@ body.feuillets-concentration .markdown-preview-view {
    pour ne jamais le confondre avec un label (lieu) au premier coup d'œil. */
 .feuillets-arcs-dot-fil {
   position: absolute;
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  left: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  left: 3px;
   top: 50%;
   transform: translateY(-50%);
   z-index: 2;

@@ -997,42 +997,45 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     const filterBar = wrap.createDiv({ cls: "feuillets-arcs-filter-bar" });
-    filterBar.createDiv({ cls: "feuillets-arcs-filter-label", text: "Filtrer par" });
-    const select = filterBar.createEl("select", { cls: "dropdown feuillets-arcs-filter-select" });
-    select.createEl("option", { value: "", text: "Tous" });
+
+    const buildFilterGroup = (icon, labelText, options, currentValue, onChange, extraCls) => {
+      const group = filterBar.createDiv({ cls: "feuillets-arcs-filter-group" + (extraCls ? ` ${extraCls}` : "") });
+      group.createSpan({ cls: "feuillets-arcs-filter-label", text: `${icon} ${labelText}` });
+      const sel = group.createEl("select", { cls: "dropdown feuillets-arcs-filter-select" });
+      sel.createEl("option", { value: "", text: "Tous" });
+      for (const opt of options) sel.createEl("option", { value: opt, text: opt });
+      sel.value = currentValue || "";
+      sel.addEventListener("change", () => {
+        onChange(sel.value);
+        this.render(true);
+      });
+      return group;
+    };
 
     if (sortedLabels.length > 0) {
-      const grp = select.createEl("optgroup", { attr: { label: "Labels" } });
-      for (const l of sortedLabels) grp.createEl("option", { value: `label:${l}`, text: l });
-    }
-    if (sortedFils.length > 0) {
-      const grp = select.createEl("optgroup", { attr: { label: "Fils" } });
-      for (const f of sortedFils) grp.createEl("option", { value: `fil:${f}`, text: f });
+      buildFilterGroup("📍", "Lieu", sortedLabels, this.selectedLabel, (v) => { this.selectedLabel = v; }, "is-label");
     }
     if (sortedPersonnages.length > 0) {
-      const grp = select.createEl("optgroup", { attr: { label: "Personnages" } });
-      for (const p of sortedPersonnages) grp.createEl("option", { value: `perso:${p}`, text: p });
+      buildFilterGroup("👤", "Personnage", sortedPersonnages, this.selectedPerso, (v) => { this.selectedPerso = v; }, "is-perso");
+    }
+    if (sortedFils.length > 0) {
+      buildFilterGroup("🧵", "Fil", sortedFils, this.selectedFil, (v) => { this.selectedFil = v; }, "is-fil");
     }
 
-    select.value = this.selectedArc || "";
-    select.addEventListener("change", () => {
-      this.selectedArc = select.value;
-      this.render(true);
-    });
-
-    const activeFilter = select.value;
-    const filterLabel = activeFilter.startsWith("label:") ? activeFilter.slice(6) : "";
-    const filterFil = activeFilter.startsWith("fil:") ? activeFilter.slice(4) : "";
-    const filterPerso = activeFilter.startsWith("perso:") ? activeFilter.slice(6) : "";
+    const filterLabel = this.selectedLabel || "";
+    const filterFil = this.selectedFil || "";
+    const filterPerso = this.selectedPerso || "";
 
     const activeLabels = filterLabel ? [filterLabel] : sortedLabels;
     const activeFils = filterFil ? [filterFil] : sortedFils;
-    const matchedSet = filterLabel
-      ? new Set(fileItems.filter((i) => (labelMap.get(i.file.path) || []).includes(filterLabel)).map((i) => i.file.path))
-      : filterFil
-      ? new Set(fileItems.filter((i) => (filsMap.get(i.file.path) || []).includes(filterFil)).map((i) => i.file.path))
-      : filterPerso
-      ? new Set(fileItems.filter((i) => (personnagesMap.get(i.file.path) || []).includes(filterPerso)).map((i) => i.file.path))
+    const matchedSet = (filterLabel || filterFil || filterPerso)
+      ? new Set(fileItems.filter((i) => {
+          const path = i.file.path;
+          if (filterLabel && !(labelMap.get(path) || []).includes(filterLabel)) return false;
+          if (filterFil && !(filsMap.get(path) || []).includes(filterFil)) return false;
+          if (filterPerso && !(personnagesMap.get(path) || []).includes(filterPerso)) return false;
+          return true;
+        }).map((i) => i.file.path))
       : null;
 
     // Étendue (première → dernière apparition) de chaque lieu/fil parmi les scènes
@@ -1066,13 +1069,13 @@ export class BoardView extends BaseFeuilletsView {
       if (item.type === "folder") {
         const row = timeline.createDiv({ cls: `feuillets-arcs-row-folder feuillets-arcs-${item.role}` });
         const spacerLeft = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
-        spacerLeft.style.width = `${activeLabels.length * 24}px`;
+        spacerLeft.style.width = `${activeLabels.length * 16}px`;
         const title = row.createDiv({ cls: "feuillets-arcs-folder-title" });
         const num = numbering ? numbering.get(item.folder.path) : "";
         if (num) title.createSpan({ cls: "feuillets-arcs-folder-num", text: num });
         title.createSpan({ text: item.folder.name });
         const spacerRight = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
-        spacerRight.style.width = `${activeFils.length * 24}px`;
+        spacerRight.style.width = `${activeFils.length * 16}px`;
         continue;
       }
 
@@ -1086,7 +1089,7 @@ export class BoardView extends BaseFeuilletsView {
 
       // Lieux (label:) à gauche en ronds
       const rails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
-      rails.style.width = `${activeLabels.length * 24}px`;
+      rails.style.width = `${activeLabels.length * 16}px`;
       const currentLabels = labelMap.get(file.path) || [];
 
       activeLabels.forEach((lb) => {
@@ -1122,7 +1125,7 @@ export class BoardView extends BaseFeuilletsView {
 
       // Fils (fil:) à droite en carrés
       const filRails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
-      filRails.style.width = `${activeFils.length * 24}px`;
+      filRails.style.width = `${activeFils.length * 16}px`;
       const currentFils = filsMap.get(file.path) || [];
 
       activeFils.forEach((f) => {
