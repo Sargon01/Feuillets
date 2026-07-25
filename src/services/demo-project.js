@@ -18,24 +18,34 @@ async function writeSheet(app, folder, name, lines) {
   return app.vault.create(path, lines.join("\n"));
 }
 
-const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, tags, date, notes, compiler, body }) => [
-  "---",
-  `titre: ${titre}`,
-  `titre_binder: ${titreCourt || ""}`,
-  `ordre: ${ordre}`,
-  `synopsis: ${synopsis || ""}`,
-  `statut: ${statut || ""}`,
-  `label: ${label || ""}`,
-  "objectif: 800",
-  `tags: ${tags || ""}`,
-  `date: ${date || ""}`,
-  `notes: ${notes || ""}`,
-  `compiler: ${compiler === false ? "false" : "true"}`,
-  "---",
-  "",
-  body,
-  "",
-];
+const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, fil, personnages, tags, date, notes, compiler, body }) => {
+  const lines = [
+    "---",
+    `titre: ${titre}`,
+    `titre_binder: ${titreCourt || ""}`,
+    `ordre: ${ordre}`,
+    `synopsis: ${synopsis || ""}`,
+    `statut: ${statut || ""}`,
+    `label: ${label || ""}`,
+  ];
+  if (fil) lines.push(`fil: ${fil}`);
+  if (personnages && personnages.length > 0) {
+    lines.push("personnages:");
+    for (const p of personnages) lines.push(`  - ${p}`);
+  }
+  lines.push(
+    "objectif: 800",
+    `tags: ${tags || ""}`,
+    `date: ${date || ""}`,
+    `notes: ${notes || ""}`,
+    `compiler: ${compiler === false ? "false" : "true"}`,
+    "---",
+    "",
+    body,
+    ""
+  );
+  return lines;
+};
 
 /** Fait tout le travail de génération — isolée dans sa propre fonction pour
  * que `createDemoProject` puisse l'entourer d'un try/catch/finally propre
@@ -91,9 +101,11 @@ async function generate(app, S, plugin, manuscritPath) {
     synopsis: "Elira découvre la lettre qui bouleversera son existence.",
     statut: "Terminé",
     label: "Rouge",
+    fil: "Éveil",
+    personnages: ["Elira Voskan"],
     tags: "exemple, demo/premier-niveau",
     notes: "Ce champ « Notes » n'est jamais compilé ni compté dans le nombre de mots — utilise-le pour tes pense-bêtes.",
-    body: 'Ceci est un exemple de scène. Le champ `titre_binder` ("Ouverture") est ce qui s\'affiche dans le binder et l\'onglet Obsidian, à la place du nom de fichier. Le `label: Rouge` te permet de suivre ce fil dans le panneau Cartes → mode Chemin de fer : choisis « Rouge » dans le sélecteur « Label / Fil » pour voir la ligne continue courir à travers les scènes qui le portent, même à travers des chapitres différents. Le tag `demo/premier-niveau` est un tag imbriqué — regarde le panneau Tags pour voir comment il apparaît dans l\'arborescence.',
+    body: 'Ceci est un exemple de scène. Le champ `titre_binder` ("Ouverture") est ce qui s\'affiche dans le binder et l\'onglet Obsidian, à la place du nom de fichier. Ouvre le panneau Cartes → mode Chemin de fer : trois boutons en haut — **Label** (`label: Rouge`, à gauche, en rond), **Personnage** (`personnages: Elira Voskan`, au centre) et **Fil** (`fil: Éveil`, à droite, en carré) — choisis-en un pour voir la ligne continue courir à travers les scènes qui le portent, même à travers des chapitres différents. Survole un point pour voir son nom. Le tag `demo/premier-niveau` est un tag imbriqué — regarde le panneau Tags pour voir comment il apparaît dans l\'arborescence.\n\nCette phrase porte une note de bas de page[^1] et une citation insérée depuis la fiche « Sources d\'inspiration » du panneau Recherche (sélectionne un passage dans une fiche Bibliographie, puis clique « Insérer comme citation »).\n\n> « Rien ne se perd, rien ne se crée, tout se transforme. » (Sources d\'inspiration)\n\n[^1]: Exemple de note de bas de page — commande « Insérer une note de bas de page », ou « Renuméroter les notes de bas de page » si l\'ordre change.',
   }));
   await writeSheet(app, chap1, "2. La rencontre", sceneLines({
     titre: "La rencontre",
@@ -101,8 +113,10 @@ async function generate(app, S, plugin, manuscritPath) {
     synopsis: "Elira croise la route de Tomas Grey pour la première fois.",
     statut: "En cours",
     label: "Rouge, Bleu",
+    fil: "Éveil",
+    personnages: ["Elira Voskan", "Tomas Grey"],
     date: "1421-03-12",
-    body: "Cette scène porte deux labels à la fois (`label: Rouge, Bleu`) — une scène peut appartenir à plusieurs fils en même temps, chacun avec sa propre couleur et sa propre ligne dans le Chemin de fer. Elle porte aussi une `date: 1421-03-12`, qui correspond à un jalon de la Chronologie (« Fondation de la Citadelle », dans Recherche/Chronologie) : garde ce feuillet actif et regarde le panneau Notes, tu verras le rapprochement automatique avec ce jalon historique.",
+    body: "Cette scène porte deux labels à la fois (`label: Rouge, Bleu`) — une scène peut appartenir à plusieurs fils en même temps, chacun avec sa propre couleur et sa propre ligne dans le Chemin de fer. Elle porte aussi une `date: 1421-03-12`, qui correspond à un jalon de la Chronologie (« Fondation de la Citadelle », dans Recherche/Chronologie) : garde ce feuillet actif et regarde le panneau Notes, tu verras le rapprochement automatique avec ce jalon historique. Elle cite aussi Elira et Tomas par leur nom — ouvre le panneau Notes et regarde la section « Contexte » : leurs fiches Recherche y apparaissent automatiquement, avec leur âge à la date de la scène.",
   }));
 
   const chap2 = await ensureFolder(app, `${partie1.path}/Chapitre 2 - Le voyage`);
@@ -111,7 +125,7 @@ async function generate(app, S, plugin, manuscritPath) {
     ordre: 1,
     synopsis: "Le voyage vers la Citadelle Grise commence.",
     statut: "Brouillon",
-    body: "Une scène tout à fait ordinaire, sans label ni fil particulier — pour montrer qu'aucun champ n'est obligatoire en dehors de la structure elle-même (dossier projet → parties → chapitres → scènes).",
+    body: "Une scène tout à fait ordinaire, sans label ni fil particulier — pour montrer qu'aucun champ n'est obligatoire en dehors de la structure elle-même (dossier projet → parties → chapitres → scènes).\n\nEssaie ici le mode concentration (icône focus dans le binder ou le ruban) : plein écran d'écriture, texte hors focus estompé, compteur de mots flottant, Échap pour sortir. Ou ouvre la barre « Chercher et remplacer dans le manuscrit… » (commande dédiée, distincte de la recherche native d'Obsidian) pour chercher un mot dans tout le projet.",
   }));
 
   const partie2 = await ensureFolder(app, `${root.path}/Partie 2 - Les complications`);
@@ -121,14 +135,15 @@ async function generate(app, S, plugin, manuscritPath) {
     ordre: 1,
     synopsis: "Tomas comprend enfin le secret de l'Ordre du Silence.",
     label: "Rouge",
-    body: "Cette scène plante un fil narratif : juste après la génération de ce projet, `fil: secret-de-l-ordre` est ajouté ici, puis recopié automatiquement sur le tout dernier feuillet du manuscrit (la scène « Le silence », plus bas) comme marqueur « en attente de résolution ». Ouvre le mode Chemin de fer et choisis « secret-de-l-ordre » dans le sélecteur pour voir la ligne courir jusqu'au bout du manuscrit. Le jour où tu écris `fil: secret-de-l-ordre` ailleurs, ce marqueur disparaît tout seul du dernier feuillet — c'est la résolution.",
+    personnages: ["Tomas Grey"],
+    body: "Cette scène plante un fil narratif : juste après la génération de ce projet, `fil: secret-de-l-ordre` est ajouté ici, puis recopié automatiquement sur le tout dernier feuillet du manuscrit (la scène « Le silence », plus bas) comme marqueur « en attente de résolution ». Ouvre le mode Chemin de fer, bouton **Fil**, et choisis « secret-de-l-ordre » pour voir la ligne courir jusqu'au bout du manuscrit. Le jour où tu écris `fil: secret-de-l-ordre` ailleurs, ce marqueur disparaît tout seul du dernier feuillet — c'est la résolution.",
   }));
   await writeSheet(app, chap3, "2. Le silence", sceneLines({
     titre: "Le silence",
     ordre: 2,
     synopsis: "Le silence retombe — dernier feuillet du manuscrit.",
     compiler: false,
-    body: "Ceci est le DERNIER feuillet du manuscrit dans l'ordre du projet — c'est lui qui reçoit automatiquement le marqueur du fil « secret-de-l-ordre » planté dans « La révélation ». Regarde son frontmatter après avoir ouvert ce projet : un champ `fil: secret-de-l-ordre` devrait y être apparu tout seul. Ce feuillet a aussi `compiler: false` : il n'apparaîtra jamais dans le manuscrit compilé (commande « Compiler le manuscrit »), contrairement aux autres scènes.",
+    body: "Ceci est le DERNIER feuillet du manuscrit dans l'ordre du projet — c'est lui qui reçoit automatiquement le marqueur du fil « secret-de-l-ordre » planté dans « La révélation ». Regarde son frontmatter après avoir ouvert ce projet : un champ `fil: secret-de-l-ordre` devrait y être apparu tout seul. Ce feuillet a aussi `compiler: false` : il n'apparaîtra jamais dans le manuscrit compilé (commande « Compiler le manuscrit »), contrairement aux autres scènes.\n\nEssaie aussi de fusionner « La révélation » et « Le silence » en les sélectionnant toutes les deux (mode sélection multiple du Tableau) puis « Fusionner » : un preset (Roman/Nouvelle/Scénario/Minimal) décide champ par champ s'il garde, additionne ou ignore chaque propriété. « Scinder » une scène (depuis le curseur ou une sélection de texte) fait l'inverse.",
   }));
 
   /* ---------- Recherche ---------- */
@@ -193,13 +208,17 @@ async function generate(app, S, plugin, manuscritPath) {
   await writeSheet(app, biblio, "Sources d'inspiration", [
     "---",
     'titre: "Sources d\'inspiration"',
-    "auteur: ",
-    "annee: ",
-    "edition: ",
+    "auteur: Lavoisier",
+    "annee: 1789",
+    "edition: Traité élémentaire de chimie",
     "synopsis: Disponible même en mode Fiction, pour noter tes sources d'inspiration ou de recherche documentaire.",
     "tags:",
     "  - bibliographie",
     "---",
+    "",
+    "Sélectionne la citation ci-dessous, puis utilise le bouton d'insertion du panneau Recherche (extrait cité avec sa source) pour la faire apparaître formatée dans une scène — c'est exactement ce que fait la citation qu'on trouve dans « 1. Ouverture ».",
+    "",
+    "> Rien ne se perd, rien ne se crée, tout se transforme.",
     "",
   ]);
 
@@ -263,20 +282,41 @@ async function generate(app, S, plugin, manuscritPath) {
     "",
     `# ${VOLUME_NAME}`,
     "",
-    "Projet généré automatiquement pour explorer toutes les fonctionnalités de Feuillets — chaque feuillet explique, dans son propre texte, ce qu'il illustre. Active ce projet depuis « Gestion des projets » (commande ou bouton) pour l'explorer.",
+    "Projet généré automatiquement pour explorer les fonctionnalités de Feuillets — chaque feuillet explique, dans son propre texte, ce qu'il illustre. Suit à peu près l'ordre de `PARCOURS-AUTEUR.md` : le chemin d'un auteur, du premier mot à l'export. Active ce projet depuis « Gestion des projets » (commande ou bouton) pour l'explorer ; un second exemple, « Candide, ou l'Optimisme », existe en parallèle (texte intégral de Voltaire, domaine public) — bascule de l'un à l'autre avec la commande « Changer de projet… » pour voir le multi-projets en action.",
     "",
-    "## Où regarder",
+    "## Le manuscrit",
     "",
-    "- **Manuscrit/** — structure Partie → Chapitre → Scène. Ouvre « 1. Ouverture » pour le tour des champs de base (titre_binder, label, tags imbriqués). « 2. La rencontre » montre le rapprochement automatique avec un jalon de la Chronologie via le champ `date`.",
-    "- **Panneau Cartes → mode Chemin de fer** — sélecteur « Label / Fil » : choisis « Rouge » pour voir un même label courir sur plusieurs chapitres ; choisis « secret-de-l-ordre » pour voir l'automatisation des fils narratifs (plantation dans « La révélation », marqueur automatique sur le dernier feuillet « Le silence »).",
-    "- **Front/** — ne s'affiche jamais dans les vues narratives (Chemin de fer, Chronologie, Lecture).",
-    "- **Recherche/** — une fiche par type de dossier (Personnages, Lieux, Lore, Bibliographie, Glossaire, Chronologie/Événements).",
+    "- **Front/** — dédicace, page de titre… n'apparaît jamais dans le Chemin de fer, la Chronologie ou le mode Lecture.",
+    "- **« 1. Ouverture »** — tour des champs de base : `titre_binder` (affiché dans le binder/l'onglet à la place du nom de fichier), `label`/`fil`/`personnages` (voir plus bas), tag imbriqué `demo/premier-niveau`, une note de bas de page et une citation insérée depuis une fiche Bibliographie.",
+    "- **« 2. La rencontre »** — deux labels à la fois (`label: Rouge, Bleu`), une `date` alignée sur un jalon de la Chronologie (regarde le panneau Notes), et deux personnages cités par leur nom (section « Contexte » du panneau Notes, avec âge calculé à la date de la scène).",
+    "- **« La route »** — scène sans aucun champ optionnel, pour rappeler que rien n'est obligatoire en dehors de la structure Partie/Chapitre/Scène. Bon endroit pour essayer le **mode concentration** (icône focus) ou la barre **Chercher et remplacer**.",
+    "- **« La révélation » / « Le silence »** — un **fil narratif** planté puis résolu automatiquement (`fil: secret-de-l-ordre`), et une suggestion de **fusion** de ces deux scènes (sélection multiple du Tableau → Fusionner) pour voir les presets de fusion à l'œuvre.",
+    "",
+    "## Panneau Cartes → mode Chemin de fer",
+    "",
+    "Trois boutons en haut du panneau : **Label** (lieux/couleurs, à gauche, en rond), **Personnage** (au centre) et **Fil** (intrigues, à droite, en carré) — chacun filtre indépendamment et affiche une ligne de continuité entre les scènes qui le portent. Survole un point pour voir son nom. Choisis « Rouge » en Label, « Elira Voskan » en Personnage, ou « secret-de-l-ordre » en Fil pour voir chacun à l'œuvre.",
+    "",
+    "Le Tableau a 4 autres modes : **Plan** (colonnes configurables façon tableur), **Chronologie** (scènes datées + jalons historiques), **Lecture** (flux continu), et bien sûr **Cartes** (tuiles). Tous partagent les mêmes filtres statut/label/progression et le mode sélection multiple.",
+    "",
+    "## Recherche, Notes, Propriétés",
+    "",
+    "- **Recherche/** — une fiche par catégorie (Personnages, Lieux, Lore, Bibliographie, Glossaire, Chronologie/Événements). Sélectionne un passage dans une fiche puis insère-le dans une scène (lien simple, citation, ou citation sourcée).",
+    "- **Panneau Notes** (feuillet ouvert) — section Contexte (personnages/lieux détectés automatiquement), notes de dossier, Synopsis/Résumé/Notes de travail/Sources repliables et réordonnables, Plan du feuillet.",
+    "- **Panneau Propriétés** — édite le frontmatter du feuillet ouvert (case à cocher, sélecteur de date, éditeur à jetons pour les listes), ou parcourt toutes les propriétés/tags utilisés dans **ce projet** (pas tout le coffre), avec ajout/suppression en masse.",
+    "",
+    "## Suivi et relecture",
+    "",
     "- **Journal/** — deux entrées de jours ; bouton « Compiler le carnet » en haut du panneau.",
-    "- **Panneau Tags** — regarde le tag imbriqué `demo/premier-niveau` sur « 1. Ouverture ».",
-    "- **Panneau Statistiques** — se remplit tout seul à partir du nombre de mots de chaque feuillet, rien à configurer.",
-    "- **Snapshots/** — vide au départ : clique-droit sur un feuillet → « Snapshot » pour voir une copie datée apparaître ici.",
-    "- **Ressources/Templates/** — gabarits YAML utilisés à la création d'une nouvelle fiche Recherche ; modifiables librement pour personnaliser les nouvelles fiches.",
-    "- **Export / Compilation** — commande « Compiler le manuscrit » (fichier `.md` unique dans Sortie/), ou « Exporter en .docx/.epub » (nécessite Pandoc installé, bureau uniquement).",
+    "- **Panneau Statistiques** — objectifs de mots, compteurs détaillés, historique 14 jours ; se remplit tout seul.",
+    "- **Correction grammaticale (Grammalecte)** — commande « vérifier le feuillet actif » (bureau uniquement).",
+    "- **Panneau Révision** — pour intégrer les retours d'un directeur/correcteur reçus en `.docx` annoté (aucun fichier d'exemple généré ici, panneau vide au départ).",
+    "",
+    "## Import, sauvegarde, export",
+    "",
+    "- **Importer un plan…** ou **Importer un projet Scrivener…** — pour démarrer une structure sans tout créer à la main (essaie sur un nouveau projet vide, pas celui-ci).",
+    "- **Snapshots/** — vide au départ : clic-droit sur un feuillet → « Snapshot » pour voir une copie datée apparaître ici. « Sauvegarder les réglages du plugin » exporte toute la config en `.json`.",
+    "- **Ressources/Templates/** — gabarits YAML utilisés à la création d'une nouvelle fiche Recherche.",
+    "- **Export natif (par défaut, zéro dépendance, fonctionne sur mobile)** — commande « Compiler le manuscrit », puis « Exporter en .docx/.epub » (`.pdf` via l'impression, bureau uniquement) ; 7 modèles intégrés (Classique, Moderne, Machine à écrire, Roman simple, Roman français, APA, Thèse) ou un modèle personnalisé dans `Ressources/Modèles`. Pandoc reste disponible en option avancée pour qui l'a déjà installé (bureau uniquement) — c'est un choix, pas un prérequis.",
     "",
     "## Fiction vs Non-fiction",
     "",
