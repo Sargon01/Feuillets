@@ -94,7 +94,11 @@ export class ArcsView extends ItemView {
       const fm = this.plugin.fmOf(sc.file) || {};
       const list = [
         ...parseArcs(fm.arcs),
-        ...parseArcs(fm.arc)
+        ...parseArcs(fm.arc),
+        ...parseArcs(fm.fil),
+        ...parseArcs(fm.fils),
+        ...parseArcs(fm.label),
+        ...parseArcs(fm.labels)
       ].filter((v, i, self) => self.indexOf(v) === i); // dédoublonner
 
       sceneArcs.set(sc.file.path, list);
@@ -274,10 +278,11 @@ export class ArcsView extends ItemView {
           }
         }
 
-        // Synopsis
+        // Synopsis / sous-titre
         const fm = this.plugin.fmOf(file) || {};
-        if (fm.synopsis) {
-          titleArea.createDiv({ cls: "feuillets-arcs-file-synopsis", text: fm.synopsis });
+        const syn = fm.synopsis || fm.sous_titre || "";
+        if (syn) {
+          titleArea.createDiv({ cls: "feuillets-arcs-file-synopsis", text: syn });
         }
 
         row.addEventListener("click", () => {
