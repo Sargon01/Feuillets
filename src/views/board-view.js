@@ -1103,7 +1103,7 @@ export class BoardView extends BaseFeuilletsView {
           if (!hasLabel) line.style.opacity = "0.2";
         }
         if (hasLabel) {
-          const dot = col.createDiv({ cls: "feuillets-arcs-dot" });
+          const dot = col.createDiv({ cls: "feuillets-arcs-dot", attr: { title: lb } });
           dot.style.backgroundColor = color;
         }
       });
@@ -1139,7 +1139,7 @@ export class BoardView extends BaseFeuilletsView {
           if (!hasFil) line.style.opacity = "0.2";
         }
         if (hasFil) {
-          const dot = col.createDiv({ cls: "feuillets-arcs-dot feuillets-arcs-dot-fil" });
+          const dot = col.createDiv({ cls: "feuillets-arcs-dot feuillets-arcs-dot-fil", attr: { title: f } });
           dot.style.backgroundColor = color;
         }
       });
