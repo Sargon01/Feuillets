@@ -12,7 +12,7 @@ les menus/panneaux par **[Panneau]** ou **[Menu]**.
 Corrections automatiques pendant la saisie dans l'éditeur, inspirées de French
 Typos (réimplémentées, non copiées).
 
-- **Apostrophe typographique** `'` → `'` — **[Réglages]** `liveApostrophe`
+- **Apostrophe typographique** `'` → `’` — **[Réglages]** `liveApostrophe`
 - **Guillemets français** `"` → `« »` contextuels, avec espaces insécables —
   **[Réglages]** `liveGuillemets`
 - **Tirets** `--` → `–` (incise) / `---` → `—` (dialogue), avec espace
@@ -30,7 +30,63 @@ Typos (réimplémentées, non copiées).
   guillemets/apostrophe/points de suspension/espaces insécables a posteriori
   sur du texte déjà tapé (hors code, jamais touché)
 
-## 2. Mode concentration
+## 2. Correction grammaticale (Grammalecte)
+
+Vérification grammaticale et orthographique du feuillet actif, intégrée à
+l'éditeur — bureau uniquement.
+
+- **Vérification à la demande** — commande "Correction grammaticale :
+  vérifier le feuillet actif", nécessite le panneau latéral Feuillets ouvert
+  (n'importe quel onglet) pour initialiser le vérificateur
+- **Navigation entre fautes** — commandes "aller à la faute suivante" /
+  "aller à la faute précédente" (`grammalecte-next-issue`,
+  `grammalecte-prev-issue`), déplacement direct dans l'éditeur
+- **Soulignement dans l'éditeur** — extension CodeMirror dédiée
+  (`grammarIssuesField`), avec gestionnaire de clic sur les fautes signalées
+  (`grammarClickHandler`)
+- **Indisponible sur mobile** — `GrammalecteChecker` dépend de
+  `worker_threads` (Node), non chargé si `Platform.isMobile`
+
+## 3. Chercher et remplacer
+
+Barre de recherche/remplacement dédiée au manuscrit, distincte de la
+recherche native d'Obsidian.
+
+- Commande **"Chercher et remplacer dans le manuscrit…"** — ouvre/ferme la
+  barre (`toggleSearchReplaceBar`)
+- **Surlignage des correspondances** dans l'éditeur — extension CodeMirror
+  dédiée (`searchHighlightField`)
+
+## 4. Citations et notes de bas de page
+
+Outils d'insertion et de gestion des références, pensés pour l'écriture
+académique ou documentée (essais, non-fiction).
+
+- **Insérer une note de bas de page** — commande dédiée, ajoute un marqueur
+  `[^n]` au curseur et sa définition en fin de document, numérotation
+  automatique (`nextFootnoteNumber`)
+- **Renuméroter les notes de bas de page** — commande qui réordonne tous les
+  marqueurs et leurs définitions dans l'ordre du document
+  (`renumberFootnotes`)
+- **Insérer une citation** — modale dédiée (`CitationSourceModal`),
+  formatage automatique de la référence (`formatCitation`) à partir d'une
+  fiche Source du panneau Recherche
+
+## 5. Outils d'édition de texte
+
+Commandes ponctuelles de nettoyage et de restructuration du texte, sur
+sélection ou document entier.
+
+- **Réparer les séparateurs de scène échappés** — corrige les `\*\*\*`
+  produits par certains éditeurs externes en véritables `***`
+- **Compacter les lignes vides** — remplace les lignes vides multiples par
+  des sauts de ligne simples (sélection ou document)
+- **Insérer un séparateur de scène** — insère `***` au curseur
+- **Extraire et éclater la chronologie active** — découpe un document de
+  chronologie (titres `##`/`###` datés) en fiches individuelles dans le
+  dossier Chronologie, avec synopsis auto-généré et tag `evenement`
+
+## 6. Mode concentration
 
 Plein écran d'écriture, activable par icône (ruban, binder) ou commande.
 
@@ -44,7 +100,7 @@ Plein écran d'écriture, activable par icône (ruban, binder) ou commande.
 - Sort avec Échap ; replie automatiquement les deux barres latérales à
   l'activation (et les restaure à la sortie)
 
-## 3. Gestes de balayage (swipe)
+## 7. Gestes de balayage (swipe)
 
 Ouverture/fermeture des barres latérales par geste, sans clic.
 
@@ -57,7 +113,7 @@ Ouverture/fermeture des barres latérales par geste, sans clic.
   volet complet)
 - Zone de détection : 37 % gauche / 37 % droit de la largeur de fenêtre
 
-## 4. Labels de couleur
+## 8. Labels de couleur
 
 Étiquettes visuelles appliquées à un feuillet ou une note de dossier, visibles
 dans le binder (liseré), le Tableau (filtre, liseré des tuiles) et le panneau
@@ -68,7 +124,7 @@ Propriétés.
 - Peuvent être redéfinis **par projet** (`projectMeta[chemin].labels`)
 - Filtre par label dans le binder et le Tableau/plan
 
-## 5. Fils narratifs et arcs
+## 9. Fils narratifs et arcs
 
 Suivi de fils d'intrigue à travers les feuillets, via frontmatter.
 
@@ -81,18 +137,26 @@ Suivi de fils d'intrigue à travers les feuillets, via frontmatter.
   projet) — colonnes colorées dans le mode Chemin de fer (Canvas)
 - Couleur des fils dans le mode Chemin de fer : cohérente avec les labels
 
-## 6. Multi-projets
+## 10. Multi-projets
 
 - Liste de dossiers-projets alternatifs, en plus du dossier actif —
   **[Réglages]** `projects`
-- Changement de projet actif depuis le panneau **Projet & export** (liste
-  cliquable) ou le menu — bascule tous les panneaux d'un coup
-  (`renderAllViews(true)`)
+- **Changer de projet…** — commande/menu listant tous les projets connus,
+  bascule tous les panneaux d'un coup (`renderAllViews(true)`)
+- **Gestion des projets…** — ouvre le panneau Projet & export
 - **Métadonnées par projet** (`projectMeta`) : auteur, type (fiction/non-
   fiction), description, labels, modes de Tableau masqués — indépendantes
   d'un projet à l'autre
 
-## 7. Panneau Journal d'écriture
+## 11. Import de projets externes
+
+- **Importer un plan en arborescence** — Markdown multi-niveaux → dossiers
+  Parties/Chapitres + fichiers Scènes (`ImportOutlineModal`)
+- **Importer un projet Scrivener…** — conversion d'un projet `.scriv` vers
+  la structure Feuillets, bureau uniquement (accès système de fichiers
+  requis, `ScrivenerImportModal`)
+
+## 12. Panneau Journal d'écriture
 
 Calendrier mensuel de suivi d'écriture, indépendant de la structure du
 manuscrit.
@@ -110,7 +174,7 @@ manuscrit.
 - Rétention de l'historique de statistiques (jours conservés) — **[Réglages]**
   `statsRetention`
 
-## 8. Panneau Statistiques (Progression)
+## 13. Panneau Statistiques (Progression)
 
 Compteurs et objectifs, à deux niveaux : projet entier et feuillet actif.
 
@@ -126,10 +190,10 @@ Compteurs et objectifs, à deux niveaux : projet entier et feuillet actif.
 - Sections repliables et persistantes (icône + titre, même patron que les
   autres panneaux)
 
-## 9. Panneau Recherche
+## 14. Panneau Recherche
 
 Fiches de "bible" narrative, organisées par catégorie — vocabulaire différent
-selon le mode de projet (voir §16).
+selon le mode de projet (voir §19).
 
 - **Catégories fiction** : Personnages, Lieux, Lore (Codex), Bibliographie,
   Glossaire, Événements
@@ -140,9 +204,12 @@ selon le mode de projet (voir §16).
 - **Recherche texte** dans les fiches — **[Réglages]** `researchSearch`
 - **Filtre par tag** (icône, menu au lieu d'un menu déroulant) —
   **[Réglages]** `researchTagFilter`
+- **Migration de la recherche** — commande "Regrouper la recherche dans
+  _Recherche" : déplace les anciens dossiers `_Personnages`, `_Lieux`,
+  `_Chronologie` et bases associées vers `_Recherche/…`, liens mis à jour
 - Clic sur une fiche → vue détaillée dans le panneau (retour à la liste)
 
-## 10. Panneau Notes
+## 15. Panneau Notes
 
 Contexte et métadonnées du feuillet ouvert, tout ce qui n'est jamais compilé
 ni compté dans le manuscrit.
@@ -165,7 +232,7 @@ ni compté dans le manuscrit.
   section (remplace le panneau natif "Plan" d'Obsidian, scopé pareil au
   fichier ouvert)
 
-## 11. Panneau Propriétés
+## 16. Panneau Propriétés
 
 Alternative scopée-projet au panneau natif "Toutes les propriétés"
 d'Obsidian (qui liste tout le coffre), et remplaçant de l'ancien panneau Tags.
@@ -185,7 +252,17 @@ d'Obsidian (qui liste tout le coffre), et remplaçant de l'ancien panneau Tags.
   tag de tous les feuillets concernés (avec confirmation)
 - Sections repliables et persistantes
 
-## 12. Panneau Projet & export
+## 17. Panneau Révision (retours .docx)
+
+Panneau dédié à l'intégration des retours d'un directeur ou d'un éditeur
+reçus sous forme de fichier `.docx` annoté.
+
+- Commande **"Ouvrir le panneau Révision (retours .docx d'un directeur/
+  éditeur)"**
+- Panneau masquable indépendamment des autres — **[Réglages]** `hiddenPanels`
+  (clé `docxReview`)
+
+## 18. Panneau Projet & export
 
 Panneau dédié, qui reste ouvert (contrairement à un menu), pour les actions
 de gestion de projet et d'export.
@@ -200,7 +277,7 @@ de gestion de projet et d'export.
 - Sections repliables et persistantes, icônes de section (pas de bouton
   texte encadré — même vocabulaire visuel que les autres panneaux)
 
-## 13. Binder (navigation principale)
+## 19. Binder (navigation principale)
 
 Barre latérale gauche, toujours visible — arborescence du manuscrit.
 
@@ -224,7 +301,7 @@ Barre latérale gauche, toujours visible — arborescence du manuscrit.
   son nombre de lignes — **[Réglages]** `binderShowLabels`,
   `binderShowTags`, `binderShowStatus`, `binderShowProgress`,
   `binderShowWords`, `listPanePreviewField`, `listPanePreviewLines`
-- **Gestion du projet et export** → panneau dédié (§12), plus de bouton ici
+- **Gestion du projet et export** → panneau dédié (§18), plus de bouton ici
 - **Mode concentration** — icône directe dans la barre
 - **Glisser-déposer** pour réorganiser/déplacer feuillets et dossiers,
   commande "Annuler le dernier déplacement"
@@ -233,7 +310,7 @@ Barre latérale gauche, toujours visible — arborescence du manuscrit.
 - Renumérotation automatique des chapitres — **[Réglages]** `autoRename`,
   `renamePrefix`, `chapterNumbering`, `sceneNumbering`
 
-## 14. Tableau / Plan (vue centrale)
+## 20. Tableau / Plan (vue centrale)
 
 Panneau central, 5 modes d'affichage, toujours visible.
 
@@ -247,7 +324,8 @@ Panneau central, 5 modes d'affichage, toujours visible.
   `outlineWidths`
 - **Chemin de fer** (Canvas) — corkboard généré en tableau natif Obsidian
   (Canvas), cartes colorées par label, colonnes par fil narratif ; pensé
-  pour rester fluide même à 100 scènes
+  pour rester fluide même à 100 scènes — commande "Générer/mettre à jour le
+  tableau canvas"
 - **Chronologie** — jalons + scènes datées, ordre chronologique ou narratif,
   échelle (siècle/année/mois/jour/sans en-têtes), filtre par tag —
   **[Réglages]** `timelineOrder`, `timelineScale`, `timelineTagFilter`
@@ -264,7 +342,7 @@ Panneau central, 5 modes d'affichage, toujours visible.
   ordre/tags/échelle ; lecture : périmètre)
 - Icônes et grille de cartes centrées horizontalement dans le panneau
 
-## 15. Export natif (moteur sans dépendance)
+## 21. Export natif (moteur sans dépendance)
 
 Cœur de la fonctionnalité d'export — fonctionne sur mobile comme sur bureau,
 sans rien installer.
@@ -302,7 +380,32 @@ sans rien installer.
 - **Titre et auteur** du manuscrit — **[Réglages]** `manuscriptTitle`,
   `manuscriptAuthor`
 
-## 16. Structure de projet et fondations
+## 22. Sauvegarde et restauration des réglages
+
+Portabilité de la configuration du plugin, indépendante de la synchronisation
+du coffre.
+
+- **Sauvegarder les réglages du plugin** — exporte l'intégralité de
+  `this.settings` en fichier `.json` horodaté (`feuillets-reglages-AAAA-MM-JJ
+  .json`), dans le dossier du projet actif
+- **Restaurer les réglages du plugin** — liste tous les fichiers
+  `feuillets-reglages-*.json` du coffre (menu, plus récent en premier),
+  fusion avec les réglages par défaut à la restauration
+  (`Object.assign(DEFAULT_SETTINGS, data)`), échec géré proprement (fichier
+  illisible ou corrompu)
+
+## 23. Snapshots
+
+Copies datées de sauvegarde, indépendantes de l'historique Git/versions
+d'Obsidian.
+
+- **Snapshot du feuillet actif** — copie horodatée du fichier ouvert
+- **Snapshot du projet complet** — copie horodatée de tous les feuillets du
+  projet en une seule commande
+- **Restaurer un snapshot** — menu des 15 snapshots les plus récents du
+  feuillet actif, snapshot de sécurité pris avant toute restauration
+
+## 24. Structure de projet et fondations
 
 - **Modes de projet** : Fiction (scènes, parties/chapitres, vocabulaire
   "personnages/lieux/lore") ou Non-fiction (sections, "acteurs/géographie/
@@ -310,8 +413,7 @@ sans rien installer.
   automatiquement ensuite
 - **Dossier du projet**, dossier de Recherche, dossier Snapshots, dossier
   Ressources (Templates, Export, Visuels, Modèles), dossier Journal —
-  détectés ou créés via "Initialiser la structure"
-- **Snapshots** — copie datée d'un feuillet avant modification importante
+  détectés ou créés via "Initialiser la structure du projet"
 - **Statuts** — Idée / Brouillon / En cours / Révisé / Terminé
 - **Fusion et scission de scènes** — réglages de comportement par défaut
   (statut à la scission, copie des réglages de compilation, remise à zéro
@@ -320,12 +422,15 @@ sans rien installer.
   `resetSynopsisOnSplit`, `resetResumeOnSplit`, `resetNotesOnSplit`,
   `mergeNotesSeparator`, `mergeModeDefault`, `mergeKeepSeparatorDefault`,
   `mergeYamlPreset`
+- **Projet de démonstration** — commande "Créer un projet d'exemple" pour
+  découvrir le plugin sans partir de zéro
 - **Panneaux au démarrage** — ouverture automatique du binder, Recherche,
   Notes, Statistiques, Journal, Projet & export, Propriétés (chacun
   indépendamment réglable) — **[Réglages]** `autoOpen*`
 - **Vues actives** — masquer les modes du Tableau et les panneaux latéraux
-  non utilisés (icône de ruban et commande retirées, réactivable à tout
-  moment) — **[Réglages]** `hiddenBoardModes`, `hiddenPanels`
+  non utilisés, y compris le panneau Révision (icône de ruban et commande
+  retirées, réactivable à tout moment) — **[Réglages]** `hiddenBoardModes`,
+  `hiddenPanels`
 - **Réglages avancés** — bascule globale qui révèle une catégorie de
   réglages supplémentaire (Apparence, Labels de couleur, Presets de
   compilation, Historique, Projets) — **[Réglages]** `settingsAdvanced`
@@ -334,7 +439,7 @@ sans rien installer.
 
 ---
 
-*Généré à partir de l'état du plugin au 2026-07-18 — les noms entre
-crochets `[Réglages]` correspondent aux clés internes dans
-`src/default-settings.js`, utiles pour retrouver un réglage précis dans le
-code.*
+*Mis à jour à partir d'un audit exhaustif de `src/main.js` (commandes,
+vues enregistrées) — les noms entre crochets `[Réglages]` correspondent aux
+clés internes dans `src/default-settings.js`, utiles pour retrouver un
+réglage précis dans le code.*

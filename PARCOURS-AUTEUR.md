@@ -26,7 +26,7 @@ le mode), `Snapshots`, `Ressources` (Templates, Export, Visuels, Modèles),
 `Journal`, et des gabarits de fiches prêts à dupliquer dans
 `Ressources/Templates`.
 
-### Importer un plan déjà écrit ailleurs
+### Importer un plan ou un projet déjà commencé ailleurs
 
 Si l'auteur a déjà un plan en tête (dans un carnet, un fichier texte, une
 autre appli), il n'a pas besoin de créer chaque dossier/scène à la main :
@@ -45,6 +45,11 @@ le transforme directement en arborescence :
 ```
 
 Chaque `#`/`##` devient un dossier (au niveau de titre correspondant), chaque tiret devient un fichier `.md` de scène. Toute une structure de roman peut être posée en un seul copier-coller, avant même d'avoir écrit un mot de texte.
+
+Si l'auteur vient de **Scrivener**, la commande "Importer un projet
+Scrivener…" convertit directement un fichier `.scriv` en arborescence
+Feuillets (bureau uniquement — l'import nécessite un accès au système de
+fichiers, indisponible sur mobile).
 
 ---
 
@@ -75,13 +80,24 @@ L'auteur ouvre un feuillet, l'éditeur Obsidian classique s'affiche —
 Feuillets n'invente pas un nouvel éditeur, il l'enrichit :
 
 - **Typographie française à la frappe** : guillemets droits → « », tirets
-  `--`/`---` → – / — avec espaces insécables, apostrophe → ', tout
+  `--`/`---` → – / — avec espaces insécables, apostrophe → ’, tout
   automatique et désactivable au besoin.
 - **Alinéas automatiques** en début de paragraphe.
 - **Mode concentration** (icône focus, binder ou ruban) : plein écran
   d'écriture, colonne de largeur réglable, estompage du texte hors focus
   (ligne ou paragraphe), compteur de mots flottant, ligne du curseur
   maintenue centrée. Échap pour sortir.
+- **Chercher/remplacer** dans tout le manuscrit — une barre dédiée,
+  distincte de la recherche native d'Obsidian, avec surlignage des
+  correspondances directement dans l'éditeur.
+- **Notes de bas de page et citations** — insertion en un raccourci
+  (numérotation automatique, renumérotation d'un coup si l'ordre change),
+  et insertion d'une citation formatée à partir d'une fiche Bibliographie
+  du panneau Recherche.
+- **Outils de nettoyage ponctuels** — réparer des séparateurs de scène
+  échappés (copiés depuis un autre éditeur), compacter des lignes vides en
+  sauts simples, ou éclater un document de chronologie en fiches
+  individuelles datées.
 
 Chaque feuillet porte un frontmatter avec titre, titre court, statut,
 label, objectif de mots, synopsis/résumé, tags — posé automatiquement à la création via "Nouveau feuillet".
@@ -123,6 +139,11 @@ copier-coller manuel : en lien `[[...]]` simple, en extrait cité (guillemets
 + mise en forme), ou en extrait cité avec sa source rattachée (pratique
 pour ne jamais perdre la référence d'une citation de recherche prise dans
 une fiche Bibliographie).
+
+Si le projet regroupe de la recherche accumulée avant l'arrivée de Feuillets
+(anciens dossiers `_Personnages`, `_Lieux`, `_Chronologie`), la commande
+"Regrouper la recherche dans _Recherche" migre tout ça en un coup, liens mis
+à jour automatiquement.
 
 ---
 
@@ -190,7 +211,25 @@ Deux panneaux complémentaires, pour deux échelles de temps différentes :
 
 ---
 
-## 8. Plusieurs manuscrits en parallèle : le panneau Projet & export
+## 8. Relire et corriger avant l'export
+
+Avant de figer un manuscrit, deux outils aident à la relecture :
+
+- **Correction grammaticale (Grammalecte)** — l'auteur lance la vérification
+  sur le feuillet actif (le panneau latéral Feuillets doit être ouvert, sur
+  n'importe quel onglet), les fautes détectées sont soulignées directement
+  dans l'éditeur, et deux commandes permettent de sauter d'une faute à la
+  suivante ou à la précédente sans quitter le clavier. Fonctionne
+  entièrement en local, aucune donnée n'est envoyée où que ce soit — mais
+  uniquement sur ordinateur, la vérification n'est pas disponible sur
+  mobile.
+- **Panneau Révision** — si un directeur littéraire ou un correcteur externe
+  a renvoyé ses remarques dans un fichier `.docx` annoté, ce panneau dédié
+  permet de les parcourir et de les intégrer sans quitter Obsidian.
+
+---
+
+## 9. Plusieurs manuscrits en parallèle : le panneau Projet & export
 
 Un auteur qui mène plusieurs projets (plusieurs romans, un roman + ses
 notes de recherche séparées…) les enregistre tous, et bascule de l'un à
@@ -200,7 +239,7 @@ ce qui suit :
 
 ---
 
-## 9. Compiler et exporter
+## 10. Compiler et exporter
 
 Le moment où le manuscrit doit sortir d'Obsidian.
 
@@ -217,12 +256,28 @@ Le moment où le manuscrit doit sortir d'Obsidian.
 
 ---
 
-## 10. Régler l'interface à son goût
+## 11. Se protéger contre les accidents
+
+Avant une modification importante, ou simplement par prudence régulière :
+
+- **Snapshot du feuillet actif** ou **snapshot du projet complet** (copie
+  datée de tous les feuillets en une seule commande) — l'auteur restaure
+  ensuite n'importe quel snapshot depuis un menu listant les 15 versions
+  les plus récentes d'un feuillet.
+- **Sauvegarder les réglages du plugin** — exporte toute la configuration
+  Feuillets dans un fichier `.json` horodaté, restaurable plus tard (utile
+  en changeant d'ordinateur, ou avant d'expérimenter avec les réglages
+  avancés).
+
+---
+
+## 12. Régler l'interface à son goût
 
 Une fois le workflow pris en main, l'auteur peut :
 
 - masquer les modes du Tableau ou les panneaux latéraux qu'il n'utilise
-  jamais (icône de ruban et commande retirées, réactivable à tout moment) ;
+  jamais, y compris le panneau Révision (icône de ruban et commande
+  retirées, réactivable à tout moment) ;
 - choisir quels panneaux s'ouvrent automatiquement au démarrage d'Obsidian ;
 - ajuster taille de police, échelle de l'interface, largeurs de colonnes ;
 - personnaliser les labels de couleur (6 par défaut, renommables,

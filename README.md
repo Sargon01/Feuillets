@@ -1,8 +1,8 @@
 # Feuillets
 
-Feuillets turns Obsidian into a lightweight novel-writing workshop: parts →
-chapters → scenes as folders/files, a Kanban-style board, an outline table, a
-timeline, a distraction-free writing mode, and manuscript compilation/export.
+Feuillets brings a long-form writer's workflow to Obsidian: your manuscript
+as a living structure — from first outline to final export — rather than a
+folder of disconnected Markdown files.
 
 > **Note on language**: the plugin's interface is entirely in French. This
 > README is in English to follow the Obsidian Community Plugins convention;
@@ -14,7 +14,8 @@ timeline, a distraction-free writing mode, and manuscript compilation/export.
   for the whole manuscript, filterable by status, label, tag, and progress.
 - **Sidebar binder** (Ulysses-style split-pane, files-only, or classic tree),
   drag-and-drop reordering, and one-paste **outline import** (pasted Markdown
-  headings/bullets become the Parts/Chapters/Scenes folder structure).
+  headings/bullets become the Parts/Chapters/Scenes folder structure), plus
+  **Scrivener project import** (desktop only).
 - **Notes panel**: synopsis/summary/working notes/sources per scene, an
   auto-populated "context" section for every character/place cited in the
   text (including their age and their latest dated state, if their sheet
@@ -31,6 +32,16 @@ timeline, a distraction-free writing mode, and manuscript compilation/export.
   compilation presets, and export.
 - **Progression and Journal panels**: word-count goals and detailed text
   stats, plus a monthly writing calendar with one journal entry per day.
+- **French grammar checking (Grammalecte)**: on-demand grammar and spelling
+  check of the active scene, in-editor underlining, and next/previous-issue
+  navigation commands (desktop only — relies on Node's `worker_threads`,
+  unavailable on mobile).
+- **Docx review panel**: a dedicated panel to work through an editor's or
+  proofreader's feedback received as an annotated `.docx` file.
+- **Find and replace bar**: a manuscript-wide search/replace tool, separate
+  from Obsidian's native search, with in-editor match highlighting.
+- **Citations and footnotes**: insert/renumber footnotes, and insert a
+  formatted citation sourced from a Recherche sheet.
 - **Scene tools**: split, duplicate, move, and merge multiple scenes with
   configurable YAML-merge presets (per-field: keep target / aggregate / keep
   first / ignore).
@@ -38,7 +49,14 @@ timeline, a distraction-free writing mode, and manuscript compilation/export.
   floating word counter.
 - **French typing aids**: curly quotes, French guillemets with non-breaking
   spaces, typographic dashes — reimplemented in the spirit of the *French
-  Typos* plugin by Thierry Crouzet, not copied from it.
+  Typos* plugin by Thierry Crouzet, not copied from it. Also includes
+  standalone cleanup commands (fixing escaped scene breaks, compacting blank
+  lines, splitting a chronology document into individual dated sheets).
+- **Snapshots**: dated backup copies of the active scene or the entire
+  project, with a quick-restore menu.
+- **Settings backup/restore**: export the plugin's full settings to a
+  timestamped `.json` file, and restore from any previous backup found in
+  the vault.
 - **Compilation and export — native engine, zero dependency**: `.docx` (real
   OOXML with footnotes and captioned images), `.epub` (valid EPUB3), and
   `.pdf` (desktop, via print), all built in pure JavaScript — no Pandoc
@@ -86,6 +104,9 @@ touches outside of normal Obsidian note editing.
   network fetch). No external process, no filesystem access outside the
   vault, no platform difference beyond `.pdf` requiring desktop (uses
   Obsidian's built-in print-to-PDF; unavailable in mobile WebViews).
+- **Grammar checking (Grammalecte, desktop only):** runs entirely locally via
+  Node's `worker_threads`; no text ever leaves the machine. Disabled outright
+  on mobile, where `worker_threads` isn't available.
 - **Pandoc export (desktop only, opt-in, off by default):** switching the
   export engine setting to Pandoc shells out to a locally installed
   **Pandoc** binary via Node's `child_process.execFile` (no shell
