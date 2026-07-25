@@ -1737,6 +1737,7 @@ class FeuilletsPlugin extends Plugin {
       titre: rawFm.titre,
       date: rawFm.date || rawFm.annee,
       editeur: rawFm.editeur || rawFm.edition,
+      url: rawFm.url,
     };
     const style = this.citationStyleFor();
     const activeFile = this.app.workspace.getActiveFile();
@@ -1797,7 +1798,7 @@ class FeuilletsPlugin extends Plugin {
     const entries = cited
       .map((f) => {
         const raw = this.fmOf(f);
-        const fields = { auteur: raw.auteur, titre: raw.titre, date: raw.date || raw.annee, editeur: raw.editeur || raw.edition };
+        const fields = { auteur: raw.auteur, titre: raw.titre, date: raw.date || raw.annee, editeur: raw.editeur || raw.edition, url: raw.url };
         return { auteur: raw.auteur || "", text: formatCitation(fields, "", "footnote", false) };
       })
       .filter((e) => e.text);

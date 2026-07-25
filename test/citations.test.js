@@ -43,6 +43,19 @@ test("formatCitation", async (t) => {
     assert.equal(formatCitation(undefined, "", "footnote"), "");
   });
 
+  await t.test("url présente : ajoutée en note (footnote), ignorée en parenthétique", () => {
+    const web = { auteur: "Jean Dupont", titre: "Page web", url: "https://example.com/page" };
+    assert.equal(
+      formatCitation(web, "", "footnote"),
+      "Jean Dupont, *Page web*. https://example.com/page"
+    );
+    assert.equal(formatCitation(web, "", "parenthetical"), "(Jean Dupont)");
+  });
+
+  await t.test("url seule (fiche par ailleurs vide)", () => {
+    assert.equal(formatCitation({ url: "https://example.com" }, "", "footnote"), "https://example.com");
+  });
+
   await t.test("isRepeat : \"Ibid.\" plutôt que de répéter toute la référence", () => {
     assert.equal(formatCitation(source, "46", "footnote", true), "Ibid., p. 46.");
     assert.equal(formatCitation(source, "", "footnote", true), "Ibid.");

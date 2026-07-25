@@ -1,5 +1,5 @@
 /** Construit le texte d'une citation à partir des champs d'une fiche
- * Source (auteur, titre, date, editeur — voir services/research-
+ * Source (auteur, titre, date, editeur, url — voir services/research-
  * templates.js) et d'une page ponctuelle propre à CETTE citation (jamais
  * stockée sur la fiche : la même source est citée à des pages
  * différentes selon l'endroit). Deux formats, réglés par projet
@@ -20,7 +20,7 @@
  * suivre TOUTES les citations précédentes du fichier, pas seulement la
  * dernière, et une forme courte par source (nom + titre abrégé) — hors
  * périmètre pour l'instant. */
-export function formatCitation({ auteur, titre, date, editeur } = {}, page, style, isRepeat) {
+export function formatCitation({ auteur, titre, date, editeur, url } = {}, page, style, isRepeat) {
   const p = (page || "").trim();
 
   if (isRepeat) {
@@ -42,6 +42,11 @@ export function formatCitation({ auteur, titre, date, editeur } = {}, page, styl
   if (editeur) parts.push(editeur);
   if (date) parts.push(String(date));
   if (p) parts.push(`p. ${p}`);
+  /* URL en dernier, hors de la liste virgule — une adresse ne se lit pas
+     comme un élément bibliographique de plus, et une source web n'a
+     souvent ni éditeur ni page. */
+  const u = (url || "").trim();
   const text = parts.join(", ");
+  if (u) return text ? `${text}. ${u}` : u;
   return text ? `${text}.` : "";
 }
