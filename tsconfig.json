@@ -4,7 +4,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowJs": true,
+    /* Vérification opt-in : seuls les fichiers portant `// @ts-check` en tête
+       sont contrôlés (voir src/types.d.ts). strictNullChecks est activé pour
+       que ces fichiers-là attrapent les oublis de cas null — la classe de bug
+       la plus fréquente ici, plusieurs helpers renvoyant `null` ou `""`. */
     "checkJs": false,
+    "strictNullChecks": true,
     "noEmit": true,
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
