@@ -8,13 +8,8 @@
  * @typedef {import("obsidian").TFolder} TFolder
  */
 
-/** Frontmatter d'un feuillet, ou `{}` s'il n'en a pas (jamais null : tous
- * les appelants déréfèrent le résultat directement).
- * @param {App} app
- * @param {TFile} file
- * @returns {SceneFrontmatter}
- */
 export function fmOf(app, file) {
+  if (!file || !file.path) return {};
   const cache = app.metadataCache.getFileCache(file);
   return (cache && cache.frontmatter) || {};
 }
@@ -26,6 +21,7 @@ export function fmOf(app, file) {
  * @returns {string}
  */
 export function titleFor(app, file) {
+  if (!file) return "";
   const fm = fmOf(app, file);
   const t = fm.titre !== undefined ? fm.titre : fm.title;
   if (typeof t === "string" && t.trim()) return t.trim();
@@ -35,7 +31,7 @@ export function titleFor(app, file) {
   const prenom = typeof fm["prénom"] === "string" ? fm["prénom"].trim() : "";
   if (prenom && nom) return `${prenom} ${nom}`;
   if (nom) return nom;
-  return file.basename;
+  return file.basename || "";
 }
 
 /** Titre court pour les vues denses (plan, binder) : clé `titre_binder`
@@ -47,6 +43,7 @@ export function titleFor(app, file) {
  * @returns {string}
  */
 export function shortTitleFor(app, file) {
+  if (!file) return "";
   const fm = fmOf(app, file);
   const t = fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court;
   return typeof t === "string" && t.trim() ? t.trim() : titleFor(app, file);

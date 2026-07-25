@@ -2,10 +2,13 @@ const { TFolder, TFile, normalizePath } = require("obsidian");
 import { fmOf } from "./frontmatter.js";
 
 export function getProjectFolder(app, settings) {
-  const path = normalizePath(settings.projectFolder || "");
-  if (!path) return null;
+  if (!settings || !settings.projectFolder) return null;
+  const raw = String(settings.projectFolder).trim();
+  if (!raw || raw === "/" || raw === ".") return null;
+  const path = normalizePath(raw);
+  if (!path || path === "/" || path === ".") return null;
   const af = app.vault.getAbstractFileByPath(path);
-  return af instanceof TFolder ? af : null;
+  return (af instanceof TFolder && af.path !== "" && af.path !== "/") ? af : null;
 }
 
 /** Nom affiché d'un projet : le dossier de volume (parent), pas
@@ -66,6 +69,7 @@ export function roleOfFile(app, settings, file) {
  * `includeHidden` reste disponible pour les cas internes qui doivent
  * malgré tout parcourir ces dossiers (ex. tout-plier). */
 export function getOrderedChildren(app, settings, folder, includeHidden = false) {
+  if (!folder || !(folder instanceof TFolder) || !Array.isArray(folder.children)) return [];
   const children = folder.children.filter(
     (c) =>
       (c instanceof TFolder &&
@@ -104,6 +108,7 @@ export function getOrderedChildren(app, settings, folder, includeHidden = false)
 }
 
 export function flattenFiles(app, settings, folder) {
+  if (!folder || !(folder instanceof TFolder)) return [];
   const out = [];
   const walk = (f) => {
     for (const child of getOrderedChildren(app, settings, f)) {
@@ -116,6 +121,7 @@ export function flattenFiles(app, settings, folder) {
 }
 
 export function chapterCount(app, settings, root) {
+  if (!root || !(root instanceof TFolder)) return 0;
   let n = 0;
   const walk = (f) => {
     for (const child of getOrderedChildren(app, settings, f)) {
@@ -131,6 +137,7 @@ export function chapterCount(app, settings, root) {
 }
 
 export function getChapters(app, settings, root) {
+  if (!root || !(root instanceof TFolder)) return [];
   const chapters = [];
   const walk = (f) => {
     for (const child of getOrderedChildren(app, settings, f)) {

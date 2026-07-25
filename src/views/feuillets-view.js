@@ -2,7 +2,8 @@ import { VIEW_SIDEBAR, STATUSES } from "../constants.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
-import { ManageProjectsModal } from "../ui/project-modals.js";
+import { ManageProjectsModal, NewProjectModal } from "../ui/project-modals.js";
+import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 const { Menu, TFile, TFolder, setIcon, Notice, normalizePath } = require("obsidian");
 
@@ -260,9 +261,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        renderLevel plus bas). "Importer un plan…" reste accessible via la
        palette de commandes et via le "+" racine du volet dossiers. */
     if (!folder) {
-      container
-        .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucun dossier projet défini (réglages du plugin).");
+      this.renderProjectManagerSplitView(container, S);
       return;
     }
 
@@ -794,6 +793,224 @@ export class FeuilletsView extends BaseFeuilletsView {
        page (largeur de barre latérale ajustée, images…), auquel cas le
        premier scrollTop serait plafonné trop bas. */
     requestAnimationFrame(apply);
+  }
+
+  renderProjectManagerSplitView(container, S) {
+    const split = container.createDiv({ cls: "feuillets-split" });
+    split.style.setProperty("--feuillets-tree-w", `${S.binderTreeWidth || 240}px`);
+
+    const treePane = split.createDiv({ cls: "feuillets-tree-pane" });
+    const resizer = split.createDiv({ cls: "feuillets-split-resizer" });
+    const listPane = split.createDiv({ cls: "feuillets-list-pane" });
+
+    resizer.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = S.binderTreeWidth || 240;
+      const onMove = (ev) => {
+        S.binderTreeWidth = Math.min(400, Math.max(140, startW + ev.clientX - startX));
+        split.style.setProperty("--feuillets-tree-w", `${S.binderTreeWidth}px`);
+      };
+      const onUp = async () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        await this.plugin.saveSettings();
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    // Left Pane Header: Projets
+    const treeHeader = treePane.createDiv({ cls: "feuillets-folder-row feuillets-tree-root" });
+    const rootIcon = treeHeader.createDiv({ cls: "feuillets-cell-icon" });
+    setIcon(rootIcon, "folder-cog");
+    treeHeader.createSpan({ cls: "feuillets-folder-name" }).setText("Gérer les projets");
+
+    const treeActions = treeHeader.createDiv({ cls: "feuillets-project-actions" });
+
+    const newBtn = treeActions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+    setIcon(newBtn, "folder-plus");
+    newBtn.setAttr("aria-label", "Créer un nouveau projet…");
+    newBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      new NewProjectModal(this.app, this.plugin).open();
+    });
+
+    const importBtn = treeActions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+    setIcon(importBtn, "import");
+    importBtn.setAttr("aria-label", "Importer un projet Scrivener…");
+    importBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      new ScrivenerImportModal(this.app, this.plugin).open();
+    });
+
+    // Project List
+    const projectListEl = treePane.createDiv({ cls: "feuillets-project-list" });
+    projectListEl.style.padding = "4px 0";
+
+    const allProjects = (S.projects || []).concat(S.projectFolder ? [S.projectFolder] : [])
+      .filter((p, i, a) => p && a.indexOf(p) === i)
+      .sort((a, b) =>
+        this.plugin.projectDisplayName(a).localeCompare(
+          this.plugin.projectDisplayName(b), "fr", { sensitivity: "base" }
+        )
+      );
+
+    if (allProjects.length === 0) {
+      projectListEl
+        .createDiv({ cls: "feuillets-empty" })
+        .setText("Aucun projet enregistré.");
+    } else {
+      for (const path of allProjects) {
+        const folderObj = this.app.vault.getAbstractFileByPath(path);
+        const folderExists = folderObj instanceof TFolder;
+        const isActive = folderExists && path === S.projectFolder;
+        const meta = S.projectMeta[path] || {};
+        const row = projectListEl.createDiv({ cls: `feuillets-folder-row ${isActive ? "is-selected" : ""}` });
+        row.style.paddingLeft = "12px";
+
+        const icon = row.createDiv({ cls: "feuillets-cell-icon" });
+        setIcon(icon, !folderExists ? "alert-triangle" : meta.icon || (isActive ? "folder-open" : "folder"));
+
+        const nameSpan = row.createSpan({ cls: "feuillets-folder-name" });
+        nameSpan.setText(
+          folderExists
+            ? this.plugin.projectDisplayName(path)
+            : `${this.plugin.projectDisplayName(path)} (introuvable)`
+        );
+        if (!folderExists) {
+          nameSpan.style.opacity = "0.6";
+          nameSpan.style.fontStyle = "italic";
+        }
+
+        const actionsEl = row.createDiv({ cls: "feuillets-project-actions" });
+        const removeBtn = actionsEl.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+        setIcon(removeBtn, "trash-2");
+        removeBtn.setAttr("aria-label", "Retirer de la liste");
+        removeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          S.projects = (S.projects || []).filter((p) => p !== path);
+          if (S.projectFolder === path) S.projectFolder = "";
+          delete S.projectMeta[path];
+          this.plugin.saveSettings().then(() => {
+            this.plugin.renderAllViews(true);
+          });
+        });
+
+        row.addEventListener("click", async () => {
+          if (!folderExists) {
+            new Notice(`Le dossier « ${path} » n'existe plus dans le coffre (supprimé ou déplacé).`);
+            return;
+          }
+          S.projectFolder = path;
+          await this.plugin.saveSettings();
+          this.plugin.updateStatusBar();
+          this.plugin.renderAllViews(true);
+        });
+      }
+    }
+
+    // Add existing folder input
+    const addRow = treePane.createDiv({ cls: "feuillets-properties-add-row" });
+    addRow.style.padding = "8px 10px";
+    const addInput = addRow.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Ajouter un dossier existant…" },
+    });
+    addInput.style.width = "100%";
+    addInput.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      const p = normalizePath(addInput.value.trim());
+      if (!p) return;
+      const folder = this.app.vault.getAbstractFileByPath(p);
+      if (!(folder instanceof TFolder)) {
+        new Notice("Dossier introuvable dans le coffre.");
+        return;
+      }
+      S.projectFolder = p;
+      if (!S.projects.includes(p)) S.projects.push(p);
+      await this.plugin.saveSettings();
+      addInput.value = "";
+      this.plugin.updateStatusBar();
+      this.plugin.renderAllViews(true);
+    });
+
+    // --- Right Pane: Hub & Cards ---
+    const listBody = listPane.createDiv({ cls: "feuillets-list" });
+    const hub = listBody.createDiv({ cls: "feuillets-project-hub" });
+    hub.style.padding = "16px 14px";
+    hub.style.display = "flex";
+    hub.style.flexDirection = "column";
+    hub.style.gap = "14px";
+
+    const titleEl = hub.createEl("h3", { text: "Gestionnaire de projets Feuillets" });
+    titleEl.style.marginTop = "0";
+    titleEl.style.marginBottom = "4px";
+
+    const subEl = hub.createDiv({ cls: "feuillets-notes-sub" });
+    subEl.setText("Aucun projet n'est actuellement actif. Vous pouvez créer un nouveau projet, importer un projet Scrivener ou ajouter un dossier existant de votre coffre.");
+
+    const cardsContainer = hub.createDiv({ cls: "feuillets-hub-cards" });
+    cardsContainer.style.display = "flex";
+    cardsContainer.style.flexDirection = "column";
+    cardsContainer.style.gap = "10px";
+
+    const makeHubCard = (icon, title, desc, btnText, onClick) => {
+      const card = cardsContainer.createDiv({ cls: "feuillets-hub-card" });
+      card.style.display = "flex";
+      card.style.alignItems = "center";
+      card.style.gap = "10px";
+      card.style.padding = "12px 14px";
+      card.style.border = "1px solid var(--background-modifier-border)";
+      card.style.borderRadius = "var(--radius-m)";
+      card.style.background = "var(--background-secondary-alt)";
+      card.style.cursor = "pointer";
+
+      const iconEl = card.createDiv({ cls: "feuillets-cell-icon" });
+      iconEl.style.fontSize = "1.4em";
+      setIcon(iconEl, icon);
+
+      const textWrap = card.createDiv();
+      textWrap.style.flex = "1";
+      const cardTitle = textWrap.createDiv();
+      cardTitle.style.fontWeight = "bold";
+      cardTitle.setText(title);
+
+      const cardDesc = textWrap.createDiv({ cls: "feuillets-notes-sub" });
+      cardDesc.setText(desc);
+
+      const btn = card.createEl("button", { text: btnText });
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onClick();
+      });
+
+      card.addEventListener("click", onClick);
+    };
+
+    makeHubCard(
+      "folder-plus",
+      "Créer un nouveau projet",
+      "Génère automatiquement la structure complète (Manuscrit, Recherche, Snapshots, Journal).",
+      "Créer",
+      () => new NewProjectModal(this.app, this.plugin).open()
+    );
+
+    makeHubCard(
+      "import",
+      "Importer un projet Scrivener",
+      "Importe l'arborescence et les fiches depuis un projet Scrivener (.scriv).",
+      "Importer",
+      () => new ScrivenerImportModal(this.app, this.plugin).open()
+    );
+
+    makeHubCard(
+      "folder-open",
+      "Ajouter un dossier du coffre",
+      "Spécifiez un dossier de votre coffre Obsidian pour l'utiliser comme manuscrit.",
+      "Ajouter",
+      () => addInput.focus()
+    );
   }
 
   /** Section "Recherche" repliable, ajoutée sous l'arborescence du

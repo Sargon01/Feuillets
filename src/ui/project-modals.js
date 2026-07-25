@@ -176,10 +176,16 @@ export class ManageProjectsModal extends Modal {
   }
 
   renderProjectRow(list, path, S) {
-    const isActive = path === S.projectFolder;
+    const folderObj = this.app.vault.getAbstractFileByPath(path);
+    const folderExists = folderObj instanceof TFolder;
+    const isActive = folderExists && path === S.projectFolder;
     const isExpanded = this.expandedProjects.has(path);
 
     const activate = async () => {
+      if (!folderExists) {
+        new Notice(`Le dossier « ${path} » n'existe plus dans le coffre (supprimé ou déplacé).`);
+        return;
+      }
       if (isActive) return;
       if (S.projectFolder && !S.projects.includes(S.projectFolder)) {
         S.projects.push(S.projectFolder);
@@ -194,9 +200,17 @@ export class ManageProjectsModal extends Modal {
     const row = list.createDiv({ cls: `feuillets-project-item ${isActive ? "is-active" : ""}` });
     const icon = row.createSpan({ cls: "feuillets-cell-icon" });
     const meta = S.projectMeta[path] || {};
-    setIcon(icon, meta.icon || (isActive ? "folder-open" : "folder"));
+    setIcon(icon, !folderExists ? "alert-triangle" : meta.icon || (isActive ? "folder-open" : "folder"));
     const name = row.createSpan({ cls: "feuillets-project-name" });
-    name.setText(this.plugin.projectDisplayName(path));
+    name.setText(
+      folderExists
+        ? this.plugin.projectDisplayName(path)
+        : `${this.plugin.projectDisplayName(path)} (introuvable)`
+    );
+    if (!folderExists) {
+      name.style.opacity = "0.6";
+      name.style.fontStyle = "italic";
+    }
     row.addEventListener("click", activate);
 
     const actions = row.createDiv({ cls: "feuillets-project-actions" });
