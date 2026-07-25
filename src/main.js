@@ -42,12 +42,12 @@ import { orderFromSnapshot } from "./utils/sibling-order.js";
 import { handleFilChanged } from "./services/narrative-threads.js";
 import { createDemoProject } from "./services/demo-project.js";
 import { generateCanvasBoard } from "./services/canvas-board.js";
-import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet } from "./services/project-files.js";
+import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, duplicateProjectFolder, getVersionsRoot } from "./services/project-files.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
-import { NewProjectModal } from "./ui/project-modals.js";
+import { NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
 import { ScrivenerImportModal } from "./ui/scrivener-import-modal.js";
 import { DocxReviewView } from "./views/docx-review-view.js";
@@ -85,6 +85,7 @@ class FeuilletsPlugin extends Plugin {
     await this.loadSettings();
 
     this.registerViews();
+    this.registerHoverLinkSource("feuillets", { display: "Feuillets", defaultMod: false });
     this.registerRibbonIcons();
     this.registerCoreCommands();
     this.registerLastEditorTracking();
@@ -448,6 +449,20 @@ class FeuilletsPlugin extends Plugin {
           );
         }
         menu.showAtPosition({ x: window.innerWidth / 2, y: 80 });
+      },
+    });
+    this.addCommand({
+      id: "duplicate-project",
+      name: "Dupliquer le manuscrit actif (nouvelle version)…",
+      callback: () => {
+        const root = this.getProjectFolder();
+        if (!root) {
+          new Notice("Aucun projet actif.");
+          return;
+        }
+        new DuplicateVersionModal(this.app, this.projectDisplayName(root.path), async (label) => {
+          await this.duplicateProject(root.path, label);
+        }).open();
       },
     });
     this.addCommand({
@@ -1217,7 +1232,10 @@ class FeuilletsPlugin extends Plugin {
           const fm = plugin.app.metadataCache.getFileCache(this.file)?.frontmatter;
           const raw = fm && (fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court);
           const short = raw ? String(raw).trim() : "";
-          if (short) return short;
+          if (short) {
+            const versionLabel = plugin.versionLabelForFile(this.file);
+            return versionLabel ? `${versionLabel}-${short}` : short;
+          }
         }
       } catch (e) {
         /* Silence délibéré, contrairement aux catches métier : on est sur le
@@ -2055,6 +2073,46 @@ class FeuilletsPlugin extends Plugin {
   async ensureFolder(path) { return ensureFolder(this.app, path); }
   async snapshotFile(file, root) { return snapshotFile(this.app, file, root); }
   async initProjectStructure() { return initProjectStructure(this.app, this.settings); }
+
+  /** Duplique le dossier manuscrit d'un projet existant (identifié par son
+   * chemin) en dossier de référence figé — volontairement PAS ajouté à
+   * settings.projects : ce n'est pas un projet basculable, juste une copie
+   * qu'on consulte au besoin depuis l'explorateur de fichiers d'Obsidian.
+   * Le projet actif ne change pas. */
+  async duplicateProject(path, label) {
+    const folder = this.app.vault.getAbstractFileByPath(path);
+    if (!(folder instanceof TFolder)) {
+      new Notice("Dossier introuvable.");
+      return null;
+    }
+    let destPath;
+    try {
+      destPath = await duplicateProjectFolder(this.app, folder, label, this.settings);
+    } catch (e) {
+      new Notice(e.message || "Duplication impossible.");
+      return null;
+    }
+    await this.saveSettings();
+    new Notice(`Version dupliquée dans « ${destPath} ».`, 8000);
+    this.renderAllViews(true);
+    return destPath;
+  }
+
+  getVersionsRoot() { return getVersionsRoot(this.app, this.getProjectFolder()); }
+
+  /** Étiquette de version ("v1", "Premier jet"…) si le fichier vit dans
+   * _Versions/<manuscrit> (<étiquette>)/… — sert à préfixer le titre
+   * d'onglet, sans quoi une scène ouverte depuis une version archivée
+   * affiche exactement le même titre que la scène active du manuscrit
+   * (même `titre_binder`, copié tel quel à la duplication). */
+  versionLabelForFile(file) {
+    const marker = "/_Versions/";
+    const idx = file.path.indexOf(marker);
+    if (idx === -1) return null;
+    const versionFolderName = file.path.slice(idx + marker.length).split("/")[0];
+    const m = versionFolderName.match(/\(([^)]*)\)\s*$/);
+    return (m ? m[1] : versionFolderName).trim() || null;
+  }
   async createDemoProject(kind = "elira") { return createDemoProject(this.app, this.settings, this, kind); }
 
   async generateCanvasBoard() {

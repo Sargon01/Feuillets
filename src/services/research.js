@@ -217,3 +217,25 @@ export async function findAppearances(app, settings, entityFile) {
   }
   return results;
 }
+
+const RESEARCH_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "avif"]);
+
+/** Indique si un fichier est pris en compte dans le panneau Recherche (markdown, image ou PDF). */
+export function isResearchFile(file) {
+  if (!(file instanceof TFile)) return false;
+  const ext = file.extension.toLowerCase();
+  return ext === "md" || ext === "pdf" || RESEARCH_IMAGE_EXTS.has(ext);
+}
+
+/** Indique si un fichier est un média image supporté. */
+export function isImageFile(file) {
+  if (!(file instanceof TFile)) return false;
+  return RESEARCH_IMAGE_EXTS.has(file.extension.toLowerCase());
+}
+
+/** Indique si un fichier est un document PDF. */
+export function isPdfFile(file) {
+  if (!(file instanceof TFile)) return false;
+  return file.extension.toLowerCase() === "pdf";
+}
+

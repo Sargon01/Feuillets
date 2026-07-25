@@ -98,6 +98,72 @@ export function listSnapshotFiles(app, file, root) {
   return found.sort((a, b) => b.stat.mtime - a.stat.mtime);
 }
 
+/** Copie récursive du contenu d'un dossier (fichiers + sous-dossiers) vers
+ * destPath, qui est créé s'il n'existe pas encore. */
+async function copyFolderContents(app, folder, destPath) {
+  await ensureFolder(app, destPath);
+  for (const child of folder.children) {
+    const target = normalizePath(`${destPath}/${child.name}`);
+    if (child instanceof TFolder) {
+      await copyFolderContents(app, child, target);
+    } else if (child instanceof TFile && !app.vault.getAbstractFileByPath(target)) {
+      await app.vault.copy(child, target);
+    }
+  }
+}
+
+/** Reporte l'ordre du binder (settings.orders, settings.folderPositions)
+ * de l'arbre original vers sa copie, sans quoi une version dupliquée
+ * retombe sur l'ordre alphabétique — orders est déjà une liste de NOMS
+ * (identiques des deux côtés, copiable telle quelle), seul folderPositions
+ * est indexé par chemin complet et doit être remappé. */
+function copyOrderSettings(settings, origFolder, destPath) {
+  if (settings.orders[origFolder.path]) {
+    settings.orders[destPath] = [...settings.orders[origFolder.path]];
+  }
+  for (const child of origFolder.children) {
+    if (!(child instanceof TFolder)) continue;
+    const childDest = normalizePath(`${destPath}/${child.name}`);
+    if (typeof settings.folderPositions[child.path] === "number") {
+      settings.folderPositions[childDest] = settings.folderPositions[child.path];
+    }
+    copyOrderSettings(settings, child, childDest);
+  }
+}
+
+/** Dossier des versions archivées d'un projet — même convention que
+ * _Recherche/_Snapshots (voisin du dossier manuscrit s'il y en a un, sinon
+ * enfant du dossier projet), caché de l'arborescence normale (préfixe "_")
+ * mais accessible via sa propre section dans le volet dossiers du binder. */
+export function getVersionsRoot(app, root) {
+  if (!root) return null;
+  const base = root.parent ? root.parent.path : root.path;
+  const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/_Versions`));
+  return f instanceof TFolder ? f : null;
+}
+
+/** Duplique le dossier manuscrit d'un projet (chapitres/parties/scènes,
+ * PAS la Recherche — les fiches personnages/lieux restent partagées entre
+ * versions, comme le "Duplicate Manuscript" de Scrivener) dans
+ * _Versions/<nom> (<étiquette>) — visible et consultable depuis le volet
+ * dossiers du binder (section "Versions"), mais jamais mêlé au manuscrit
+ * actif (compilation, numérotation, statistiques, Tableau). Sert à figer
+ * une version (premier jet, etc.) avant de continuer à écrire sur
+ * l'original. Retourne le chemin du dossier créé, ou lève une erreur si le
+ * nom est déjà pris. */
+export async function duplicateProjectFolder(app, root, label, settings) {
+  const base = root.parent ? root.parent.path : root.path;
+  const safeLabel = String(label || "").trim().replace(/[\\/:*?"<>|]/g, "-");
+  const destName = `${root.name} (${safeLabel || "copie"})`;
+  const destPath = normalizePath(`${base}/_Versions/${destName}`);
+  if (app.vault.getAbstractFileByPath(destPath)) {
+    throw new Error(`« ${destName} » existe déjà.`);
+  }
+  await copyFolderContents(app, root, destPath);
+  if (settings) copyOrderSettings(settings, root, destPath);
+  return destPath;
+}
+
 /** Crée les dossiers _ et les fichiers Bases (personnages, lieux). */
 export async function initProjectStructure(app, settings) {
   const root = getProjectFolder(app, settings);

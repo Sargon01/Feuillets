@@ -1,9 +1,10 @@
-import { VIEW_SIDEBAR, STATUSES } from "../constants.js";
+import { VIEW_SIDEBAR, STATUSES, getProjectStatuses } from "../constants.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
 import { ManageProjectsModal, NewProjectModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
+import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 const { Menu, TFile, TFolder, setIcon, Notice, normalizePath } = require("obsidian");
 
@@ -304,7 +305,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       const menu = new Menu();
 
       menu.addItem((item) => item.setTitle("— Statut —").setDisabled(true));
-      for (const s of ["Tous", ...STATUSES.filter(Boolean), "Sans statut"]) {
+      for (const s of ["Tous", ...getProjectStatuses(S).filter(Boolean), "Sans statut"]) {
         menu.addItem((item) =>
           item
             .setTitle(s)
@@ -573,8 +574,9 @@ export class FeuilletsView extends BaseFeuilletsView {
       if (!hidden && S.binderShowStatus) {
         const st = this.fm(file).statut || "";
         if (st) {
+          const stIdx = getProjectStatuses(S).indexOf(st);
           const dot = nameRow.createSpan({
-            cls: `feuillets-status-dot feuillets-status-dot-${STATUSES.indexOf(st)}`,
+            cls: `feuillets-status-dot feuillets-status-dot-${stIdx >= 0 ? stIdx : 0}`,
           });
           dot.setAttr("title", `Statut : ${st}`);
         }
@@ -1021,7 +1023,8 @@ export class FeuilletsView extends BaseFeuilletsView {
    * exclu de la compilation/numérotation/statistiques/Tableau par
    * convention de nommage (voir getOrderedChildren, folder-structure.js) —
    * cette section ne fait qu'y donner accès, jamais le mélanger au reste. */
-  renderResearchSection(container, researchRoot) {
+  renderResearchSection(container, researchRoot, rootIcon = "search", labelForFile) {
+    const fileLabel = labelForFile || ((f) => this.plugin.titleFor(f));
     const S = this.plugin.settings;
 
     const renderRow = (label, depth, isFolder) => {
@@ -1030,7 +1033,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       });
       row.style.paddingLeft = `${6 + depth * 14}px`;
       const icon = row.createDiv({ cls: "feuillets-cell-icon" });
-      setIcon(icon, depth === 0 ? "search" : isFolder ? "folder" : "file-text");
+      setIcon(icon, depth === 0 ? rootIcon : isFolder ? "folder" : "file-text");
       row.createSpan({ cls: isFolder ? "feuillets-folder-name" : "feuillets-item-name" }).setText(label);
       return row;
     };
@@ -1076,6 +1079,22 @@ export class FeuilletsView extends BaseFeuilletsView {
           .setTitle("Ouvrir dans un nouvel onglet")
           .setIcon("file-plus")
           .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file))
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle("Ouvrir en vue côte à côte")
+          .setIcon("columns-2")
+          .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file))
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle("Comparer avec un autre feuillet…")
+          .setIcon("diff")
+          .onClick(() => {
+            new PickFileModal(this.app, this.plugin, file, (other) => {
+              new CompareFilesModal(this.app, this.plugin, file, other).open();
+            }).open();
+          })
       );
       menu.addSeparator();
       menu.addItem((item) =>
@@ -1139,7 +1158,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           row.addEventListener("contextmenu", (e) => showResearchFolderMenu(e, child));
           if (!isCollapsed) renderChildren(child, depth + 1);
         } else if (child instanceof TFile) {
-          const row = renderRow(this.plugin.titleFor(child), depth, false);
+          const row = renderRow(fileLabel(child), depth, false);
           // Toujours dans un nouvel onglet : consulter une fiche de
           // recherche ne doit jamais remplacer la scène en cours d'écriture.
           row.addEventListener("click", () => {
@@ -1398,6 +1417,11 @@ export class FeuilletsView extends BaseFeuilletsView {
       const researchRoot = this.plugin.getResearchRoot();
       if (!treeTruncated && researchRoot instanceof TFolder) {
         this.renderResearchSection(treePane, researchRoot);
+      }
+
+      const versionsRoot = this.plugin.getVersionsRoot();
+      if (!treeTruncated && versionsRoot instanceof TFolder) {
+        this.renderResearchSection(treePane, versionsRoot, "history", (f) => this.plugin.shortTitleFor(f));
       }
     }
 

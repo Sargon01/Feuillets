@@ -4627,6 +4627,17 @@ body.feuillets-concentration .markdown-preview-view {
   max-width: 1050px;
 }
 
+.feuillets-pickfile-modal {
+  width: 60vw;
+  max-width: 620px;
+}
+
+.feuillets-pickfile-tree {
+  margin-top: var(--size-4-2);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
 .feuillets-diff-header-bar {
   display: flex;
   justify-content: space-between;

@@ -11,6 +11,17 @@ export const VIEW_GRAMMAR = "feuillets-grammar";
 
 export const STATUSES = ["", "Idée", "Brouillon", "En cours", "Révisé", "Terminé"];
 
+export function getProjectStatuses(settings) {
+  const custom = (settings && Array.isArray(settings.customStatuses)) ? settings.customStatuses : [];
+  const list = [...STATUSES];
+  for (const s of custom) {
+    if (typeof s === "string" && s.trim() && !list.includes(s.trim())) {
+      list.push(s.trim());
+    }
+  }
+  return list;
+}
+
 /** Modes du panneau Cartes, dans l'ordre d'affichage — clé + libellé par
  * défaut (le mode "arcs" a un libellé recalculé dynamiquement ailleurs
  * selon le mode du projet, celui-ci n'est qu'un repli). */

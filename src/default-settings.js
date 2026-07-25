@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = {
   boardMode: "board",
   boardWholeManuscript: false, // Cartes : tout le manuscrit d'un coup (groupé par dossier) au lieu de naviguer dossier par dossier
   statusFilter: "Tous",
+  customStatuses: [], // statuts personnalisés supplémentaires
   tagFilter: "",
   autoRename: true,
   renamePrefix: "chapitre",
@@ -37,6 +38,7 @@ export const DEFAULT_SETTINGS = {
   /* session */
   sessionGoal: 0,
   projectWordGoal: 0, // objectif de mots du projet entier — panneau Statistiques
+  deadlineDate: "", // date limite du projet ("AAAA-MM-JJ") pour le calcul du quota quotidien
   stats: {}, // { "AAAA-MM-JJ": { start, latest } }
   pandocPath: "pandoc",
   cardContent: "extrait", // "extrait" (premières lignes) ou "synopsis"

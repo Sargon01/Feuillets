@@ -3,6 +3,41 @@ import { PROJECT_MODES, applyModeDefaults, resolveType } from "../utils/project-
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
 
+/** Étiquette de version pour dupliquer un manuscrit (ex. "v1", "premier
+ * jet") — le dossier dupliqué est nommé "<manuscrit> (<étiquette>)". */
+export class DuplicateVersionModal extends Modal {
+  constructor(app, projectName, onSubmit) {
+    super(app);
+    this.projectName = projectName;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: `Dupliquer « ${this.projectName} » en nouvelle version` });
+    contentEl.createEl("p", {
+      text: "Fige une copie du manuscrit (chapitres/parties/scènes) sous un nouveau nom — la Recherche (personnages, lieux…) reste partagée entre les deux versions.",
+      cls: "setting-item-description",
+    });
+    const input = contentEl.createEl("input", { type: "text", placeholder: "ex. v1, premier jet" });
+    input.style.width = "100%";
+    input.focus();
+    const submit = () => {
+      const label = input.value.trim();
+      if (!label) return;
+      this.close();
+      this.onSubmit(label);
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+    });
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow.createEl("button", { text: "Dupliquer" }).addEventListener("click", submit);
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
 export class NewProjectModal extends Modal {
   constructor(app, plugin) {
     super(app);
@@ -240,6 +275,19 @@ export class ManageProjectsModal extends Modal {
       else this.expandedProjects.add(path);
       this.render();
     });
+
+    if (folderExists) {
+      const dupBtn = actions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+      setIcon(dupBtn, "copy-plus");
+      dupBtn.setAttr("aria-label", "Dupliquer en nouvelle version…");
+      dupBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        new DuplicateVersionModal(this.app, this.plugin.projectDisplayName(path), async (label) => {
+          await this.plugin.duplicateProject(path, label);
+          this.render();
+        }).open();
+      });
+    }
 
     if (!isActive) {
       const removeBtn = actions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });

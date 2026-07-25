@@ -18,7 +18,7 @@ export class ResearchView extends BaseFeuilletsView {
   }
 
   getIcon() {
-    return "library-big";
+    return "book-marked";
   }
 
   async onOpen() {

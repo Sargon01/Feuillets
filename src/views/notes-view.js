@@ -7,6 +7,8 @@ import { latestStateBefore } from "../utils/entity-states.js";
 import { isEditing, openFileActivating } from "../utils/dom.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "../ui/project-properties-modals.js";
 import { FRONT_PAGE_TYPES } from "../services/folder-structure.js";
+import { DiffModal } from "../ui/diff-modal.js";
+
 
 function getNotesSectionIcon(title) {
   return {
@@ -207,6 +209,9 @@ export class NotesView extends BaseFeuilletsView {
         );
         this.iconBtn(actions, "tags", "Tags du projet…", () =>
           new ProjectTagsModal(this.app, this.plugin).open()
+        );
+        this.iconBtn(actions, "history", "Comparer avec un snapshot (Diff)…", () =>
+          new DiffModal(this.app, this.plugin, file).open()
         );
       }
     );

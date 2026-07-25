@@ -52,6 +52,7 @@ export class FileStatsModal extends Modal {
     addRow("Paragraphes", formatNumber(paragraphs));
     addRow("Pages", formatNumber(estPages));
     addRow("Temps de lecture", `${readTime} min`);
+    return { list, addRow };
   }
 
   async onOpen() {
@@ -92,10 +93,32 @@ export class FileStatsModal extends Modal {
         pParagraphs += c.paragraphs || 0;
       }
 
-      this.renderStatsBlock(
+      const { addRow } = this.renderStatsBlock(
         contentEl, "Mots", pWords, plugin.settings.projectWordGoal || 0,
         pChars, pCharsNoSpaces, pSentences, pParagraphs
       );
+
+      if (plugin.settings.deadlineDate) {
+        const targetDate = new Date(plugin.settings.deadlineDate);
+        if (!isNaN(targetDate.getTime())) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const diffMs = targetDate.getTime() - today.getTime();
+          const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+          const targetGoal = plugin.settings.projectWordGoal || 0;
+          const wordsLeft = Math.max(0, targetGoal - pWords);
+
+          addRow("Date limite", plugin.settings.deadlineDate);
+          if (daysLeft > 0) {
+            addRow("Jours restants", daysLeft);
+            addRow("Quota quotidien", `${formatNumber(Math.ceil(wordsLeft / daysLeft))} mots/jour`);
+          } else if (daysLeft === 0) {
+            addRow("Jours restants", "Aujourd'hui");
+          } else {
+            addRow("Jours restants", "Dépassée");
+          }
+        }
+      }
     }
   }
 

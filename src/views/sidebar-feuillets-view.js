@@ -83,7 +83,7 @@ export class SidebarFeuilletsView extends ItemView {
 
     const tabs = [
       { id: "notes", icon: "file-text", title: "Notes du feuillet" },
-      { id: "research", icon: "search", title: "Recherche & extraits" },
+      { id: "research", icon: "book-marked", title: "Recherche & extraits" },
       { id: "journal", icon: "calendar", title: "Journal & statistiques" },
       { id: "project", icon: "folder-cog", title: "Export & révision (.docx)" },
       { id: "grammar", icon: "spell-check", title: "Correction grammaticale" },

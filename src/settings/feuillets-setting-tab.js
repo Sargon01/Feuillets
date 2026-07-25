@@ -252,6 +252,20 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Date limite du projet")
+      .setDesc("Date de fin d'écriture souhaitée (AAAA-MM-JJ) pour calculer automatiquement le quota quotidien de mots requis.")
+      .addText((t) =>
+        t
+          .setPlaceholder("AAAA-MM-JJ")
+          .setValue(S.deadlineDate || "")
+          .onChange(async (v) => {
+            S.deadlineDate = v.trim();
+            await this.plugin.saveSettings();
+            refresh();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Objectif de session (mots/jour)")
       .setDesc("0 pour désactiver l'affichage de progression quotidienne.")
       .addText((t) =>
@@ -261,6 +275,23 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           refresh();
         })
+      );
+
+    new Setting(containerEl)
+      .setName("Statuts personnalisés")
+      .setDesc("Statuts de feuillets supplémentaires séparés par des virgules (ex: Relecture, BAT, À corriger).")
+      .addText((t) =>
+        t
+          .setPlaceholder("Relecture, BAT, À corriger")
+          .setValue(Array.isArray(S.customStatuses) ? S.customStatuses.join(", ") : "")
+          .onChange(async (v) => {
+            S.customStatuses = v
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+            await this.plugin.saveSettings();
+            refresh();
+          })
       );
 
     containerEl.createEl("h3", { text: "Panneau Cartes" });

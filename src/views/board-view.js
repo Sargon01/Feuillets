@@ -1,5 +1,5 @@
 const { Menu, TFile, TFolder, setIcon, setTooltip, MarkdownRenderer, Notice } = require("obsidian");
-import { VIEW_BOARD, STATUSES, BOARD_MODES } from "../constants.js";
+import { VIEW_BOARD, STATUSES, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating } from "../utils/dom.js";
 import { parseStoryDate, foldAccents, stripMarkdown } from "../utils/core.js";
@@ -181,7 +181,7 @@ export class BoardView extends BaseFeuilletsView {
     this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", "Filtres (statut, label, progression)", (e) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle("— Statut —").setDisabled(true));
-      for (const st of ["Tous", ...STATUSES.filter(Boolean), "Sans statut"]) {
+      for (const st of ["Tous", ...getProjectStatuses(S).filter(Boolean), "Sans statut"]) {
         menu.addItem((item) =>
           item.setTitle(st).setChecked((S.statusFilter || "Tous") === st).onClick(async () => {
             S.statusFilter = st;
@@ -825,7 +825,8 @@ export class BoardView extends BaseFeuilletsView {
       e.stopPropagation();
       const menu = new Menu();
       const currentSt = this.fm(file).statut || "";
-      for (const st of STATUSES.filter(Boolean)) {
+      const S = this.plugin.settings;
+      for (const st of getProjectStatuses(S).filter(Boolean)) {
         menu.addItem((item) =>
           item.setTitle(`Statut : ${st}`).setChecked(st === currentSt).onClick(async () => {
             await this.setFm(file, "statut", st === currentSt ? "" : st);
@@ -1126,7 +1127,8 @@ export class BoardView extends BaseFeuilletsView {
       const titleRow = info.createDiv({ cls: "feuillets-arcs-title-row" }).createDiv({ cls: "feuillets-arcs-title-left" });
       if (numbering) titleRow.createSpan({ cls: "feuillets-row-num", text: numbering.get(file.path) || "" });
       if (fm.statut) {
-        titleRow.createSpan({ cls: `feuillets-status-dot feuillets-status-dot-${STATUSES.indexOf(fm.statut)}` });
+        const stIdx = getProjectStatuses(this.plugin.settings).indexOf(fm.statut);
+        titleRow.createSpan({ cls: `feuillets-status-dot feuillets-status-dot-${stIdx >= 0 ? stIdx : 0}` });
       }
       titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
 

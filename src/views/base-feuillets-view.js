@@ -1,4 +1,4 @@
-import { STATUSES } from "../constants.js";
+import { STATUSES, getProjectStatuses } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal } from "../ui/entity-modals.js";
@@ -6,8 +6,10 @@ import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
 import { promptForPage } from "../ui/citation-modal.js";
-import { DiffModal } from "../ui/diff-modal.js";
+import { DiffModal, CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
+import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js";
+
 
 function getResearchSectionIcon(key) {
   return {
@@ -199,12 +201,13 @@ export class BaseFeuilletsView extends ItemView {
 
   makeStatusSelect(parent, file) {
     const fm = this.fm(file);
+    const statuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
     const sel = parent.createEl("select", { cls: "feuillets-status" });
-    for (const s of STATUSES) {
+    for (const s of statuses) {
       const opt = sel.createEl("option", { text: s || "—" });
       opt.value = s;
     }
-    sel.value = STATUSES.includes(fm.statut) ? fm.statut : "";
+    sel.value = statuses.includes(fm.statut) ? fm.statut : "";
     sel.setAttr("title", sel.value || "Statut : aucun");
     sel.addEventListener("change", async () => {
       await this.setFm(file, "statut", sel.value);
@@ -371,6 +374,16 @@ export class BaseFeuilletsView extends ItemView {
         }
       }
     }
+
+    const projBase = root.parent ? root.parent.path : root.path;
+    const visuelsPath = normalizePath(`${projBase}/Ressources/Visuels`);
+    const fVisuels = this.app.vault.getAbstractFileByPath(visuelsPath);
+    if (fVisuels instanceof TFolder && fVisuels.children.some((c) => isResearchFile(c))) {
+      if (!customFolders.some((f) => f.path === fVisuels.path)) {
+        customFolders.push(fVisuels);
+      }
+    }
+
     customFolders.sort((a, b) => a.name.localeCompare(b.name, "fr"));
 
     const tagSet = new Set();
@@ -386,7 +399,7 @@ export class BaseFeuilletsView extends ItemView {
     ]
       .filter((f) => f instanceof TFolder)
       .flatMap((f) =>
-        f.children.filter((c) => c instanceof TFile && c.extension === "md")
+        f.children.filter((c) => isResearchFile(c))
       );
     for (const f of allEntityFiles) {
       for (const t of this.plugin.tagsOf(f)) tagSet.add(t);
@@ -727,7 +740,7 @@ export class BaseFeuilletsView extends ItemView {
     let files = [];
     if (folderOrFiles instanceof TFolder) {
       files = folderOrFiles.children
-        .filter((c) => c instanceof TFile && c.extension === "md")
+        .filter((c) => isResearchFile(c))
         .sort((a, b) =>
           this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), "fr")
         );
@@ -741,13 +754,47 @@ export class BaseFeuilletsView extends ItemView {
     }
 
     for (const f of files) {
+      const isMedia = isImageFile(f) || isPdfFile(f);
       const row = list.createDiv({ cls: "feuillets-research-item" });
       this.attachResearchDragSource(row, f);
       const header = row.createDiv({ cls: "feuillets-research-item-header" });
+
+      if (isImageFile(f)) {
+        const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
+        setIcon(iconSpan, "image");
+      } else if (isPdfFile(f)) {
+        const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
+        setIcon(iconSpan, "file-text");
+      }
+
       const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
       nameEl.setText(this.plugin.titleFor(f));
 
-      if (Array.isArray(folderOrFiles)) {
+      if (isMedia) {
+        const insertLinkBtn = this.iconBtn(
+          header,
+          "link",
+          isImageFile(f)
+            ? "Insérer l'image dans la scène active (![[...]])"
+            : "Insérer le lien PDF dans la scène active ([[...]])"
+        );
+        insertLinkBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const link = isImageFile(f) ? `![[${f.name}]]` : `[[${f.name}]]`;
+          this.plugin.insertIntoActiveEditor(link);
+          new Notice(`Lien inséré : ${f.name}`);
+        });
+
+        const openFileBtn = this.iconBtn(
+          header,
+          "external-link",
+          "Ouvrir le fichier"
+        );
+        openFileBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
+        });
+      } else if (Array.isArray(folderOrFiles)) {
         const openFileBtn = this.iconBtn(
           header,
           "external-link",
@@ -769,11 +816,27 @@ export class BaseFeuilletsView extends ItemView {
         });
         if (rowAction) rowAction(header, f);
       }
+
+      row.addClass("internal-link");
+      row.setAttr("data-href", f.path);
+      row.setAttr("data-path", f.path);
       row.setAttr("data-search", foldAccents(this.plugin.titleFor(f)));
       row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
+
+      row.addEventListener("mouseenter", (event) => {
+        this.app.workspace.trigger("hover-link", {
+          event,
+          source: "feuillets",
+          hoverParent: this,
+          targetEl: row,
+          linktext: f.path,
+          sourcePath: f.path,
+        });
+      });
+
       row.addEventListener("click", (e) => {
-        if (Keymap.isModEvent(e)) {
-          openFileActivating(this.app, this.app.workspace.getLeaf(true), f);
+        if (isMedia || Keymap.isModEvent(e)) {
+          openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
           return;
         }
         this.viewingFile = f;
@@ -1095,6 +1158,24 @@ export class BaseFeuilletsView extends ItemView {
           openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
         })
     );
+    menu.addItem((item) =>
+      item
+        .setTitle("Ouvrir en vue côte à côte")
+        .setIcon("columns-2")
+        .onClick(() => {
+          openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file);
+        })
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle("Comparer avec un autre feuillet…")
+        .setIcon("diff")
+        .onClick(() => {
+          new PickFileModal(this.app, plugin, file, (other) => {
+            new CompareFilesModal(this.app, plugin, file, other).open();
+          }).open();
+        })
+    );
     menu.addSeparator();
 
     menu.addItem((item) =>
@@ -1116,7 +1197,8 @@ export class BaseFeuilletsView extends ItemView {
     menu.addSeparator();
 
     const currentStatus = this.fm(file).statut || "";
-    for (const st of STATUSES.filter(Boolean)) {
+    const allStatuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
+    for (const st of allStatuses.filter(Boolean)) {
       menu.addItem((item) =>
         item
           .setTitle(`Statut : ${st}`)
@@ -1250,7 +1332,8 @@ export class BaseFeuilletsView extends ItemView {
     }
     menu.addSeparator();
     const currentStatus = note ? this.fm(note).statut || "" : "";
-    for (const st of STATUSES.filter(Boolean)) {
+    const allStatuses = getProjectStatuses(plugin ? plugin.settings : null);
+    for (const st of allStatuses.filter(Boolean)) {
       menu.addItem((item) =>
         item
           .setTitle(`Statut : ${st}`)

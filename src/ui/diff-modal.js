@@ -1,6 +1,267 @@
-const { Modal, Notice, ButtonComponent, DropdownComponent } = require("obsidian");
+const { Modal, Notice, ButtonComponent, DropdownComponent, TFile, TFolder, setIcon } = require("obsidian");
 const Diff = require("diff");
 import { listSnapshotFiles } from "../services/project-files.js";
+import { foldAccents } from "../utils/core.js";
+
+/** Rendu partagé du corps de diff (côte à côte / vue unifiée) — utilisé par
+ * DiffModal (comparaison avec un snapshot) et CompareFilesModal (comparaison
+ * entre deux feuillets quelconques, ex. une scène dans deux versions). */
+function renderDiffPanes(container, mode, textA, textB, labelA, labelB) {
+  container.empty();
+  const diffs = Diff.diffWords(textA, textB);
+
+  if (mode === "split") {
+    const splitWrap = container.createDiv({ cls: "feuillets-diff-split-container" });
+
+    const leftPane = splitWrap.createDiv({ cls: "feuillets-diff-pane" });
+    leftPane.createDiv({ cls: "feuillets-diff-pane-header", text: labelA });
+    const leftContent = leftPane.createDiv({ cls: "feuillets-diff-pane-content" });
+
+    const rightPane = splitWrap.createDiv({ cls: "feuillets-diff-pane" });
+    rightPane.createDiv({ cls: "feuillets-diff-pane-header", text: labelB });
+    const rightContent = rightPane.createDiv({ cls: "feuillets-diff-pane-content" });
+
+    let isSyncingLeft = false;
+    let isSyncingRight = false;
+    leftContent.addEventListener("scroll", () => {
+      if (!isSyncingRight) {
+        isSyncingLeft = true;
+        rightContent.scrollTop = leftContent.scrollTop;
+      }
+      isSyncingRight = false;
+    });
+    rightContent.addEventListener("scroll", () => {
+      if (!isSyncingLeft) {
+        isSyncingRight = true;
+        leftContent.scrollTop = rightContent.scrollTop;
+      }
+      isSyncingLeft = false;
+    });
+
+    diffs.forEach((part) => {
+      if (!part.added) {
+        const span = leftContent.createSpan();
+        span.setText(part.value);
+        span.addClass(part.removed ? "feuillets-diff-removed" : "feuillets-diff-unchanged");
+      }
+      if (!part.removed) {
+        const span = rightContent.createSpan();
+        span.setText(part.value);
+        span.addClass(part.added ? "feuillets-diff-added" : "feuillets-diff-unchanged");
+      }
+    });
+  } else {
+    const inlineContent = container.createDiv({ cls: "feuillets-diff-inline-container" });
+    diffs.forEach((part) => {
+      const span = inlineContent.createSpan();
+      span.setText(part.value);
+      if (part.added) span.addClass("feuillets-diff-added");
+      else if (part.removed) span.addClass("feuillets-diff-removed");
+      else span.addClass("feuillets-diff-unchanged");
+    });
+  }
+}
+
+const stripFrontmatter = (raw) => raw.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+
+/** Comparaison entre deux feuillets quelconques (pas forcément un fichier et
+ * son snapshot) — sert notamment à comparer une même scène entre deux
+ * versions dupliquées du manuscrit, ou une version archivée et le
+ * manuscrit actif. Pas de bouton "Restaurer" : contrairement à un
+ * snapshot, rien ne dit lequel des deux devrait écraser l'autre. */
+export class CompareFilesModal extends Modal {
+  constructor(app, plugin, fileA, fileB) {
+    super(app);
+    this.plugin = plugin;
+    this.fileA = fileA;
+    this.fileB = fileB;
+    this.mode = "split";
+  }
+
+  labelFor(file) {
+    return `${this.plugin ? this.plugin.shortTitleFor(file) : file.basename} — ${file.parent ? file.parent.name : ""}`;
+  }
+
+  async onOpen() {
+    const { contentEl, modalEl } = this;
+    modalEl.addClass("feuillets-diff-modal");
+    await this.render();
+  }
+
+  async render() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Comparer deux feuillets" });
+
+    const headerBar = contentEl.createDiv({ cls: "feuillets-diff-header-bar" });
+    const modeControl = headerBar.createDiv({ cls: "feuillets-diff-controls" });
+    const splitBtn = modeControl.createEl("button", {
+      text: "Côte à côte",
+      cls: `feuillets-diff-mode-btn ${this.mode === "split" ? "mod-cta" : ""}`,
+    });
+    const inlineBtn = modeControl.createEl("button", {
+      text: "Vue unifiée",
+      cls: `feuillets-diff-mode-btn ${this.mode === "inline" ? "mod-cta" : ""}`,
+    });
+    splitBtn.addEventListener("click", async () => {
+      if (this.mode !== "split") { this.mode = "split"; await this.render(); }
+    });
+    inlineBtn.addEventListener("click", async () => {
+      if (this.mode !== "inline") { this.mode = "inline"; await this.render(); }
+    });
+
+    const bodyContainer = contentEl.createDiv();
+    const rawA = await this.app.vault.read(this.fileA);
+    const rawB = await this.app.vault.read(this.fileB);
+    renderDiffPanes(
+      bodyContainer, this.mode,
+      stripFrontmatter(rawA), stripFrontmatter(rawB),
+      this.labelFor(this.fileA), this.labelFor(this.fileB)
+    );
+
+    const footerBar = contentEl.createDiv({ cls: "feuillets-diff-footer-bar" });
+    new ButtonComponent(footerBar).setButtonText("Fermer").onClick(() => this.close());
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+/** Sélecteur de feuillet pour "Comparer avec…" — restreint au manuscrit
+ * actif et à ses versions archivées (_Versions) : c'est là qu'a du sens de
+ * comparer une même scène, pas dans tout le coffre. Arborescence repliable
+ * (une section par origine : manuscrit actif, puis chaque version), pas une
+ * liste plate à recherche floue — une liste seule ne disait pas si un
+ * résultat venait du manuscrit ou d'une version, ni de quel dossier. */
+export class PickFileModal extends Modal {
+  constructor(app, plugin, excludeFile, onChoose) {
+    super(app);
+    this.plugin = plugin;
+    this.excludeFile = excludeFile;
+    this.onChoose = onChoose;
+    this.collapsed = new Set();
+    this.filter = "";
+  }
+
+  onOpen() {
+    const { modalEl } = this;
+    modalEl.addClass("feuillets-pickfile-modal");
+    this.render();
+  }
+
+  getOrigins() {
+    const root = this.plugin.getProjectFolder();
+    if (!(root instanceof TFolder)) return [];
+    const origins = [{ root, label: "Manuscrit actif", icon: "book-marked" }];
+    const versionsRoot = this.plugin.getVersionsRoot();
+    if (versionsRoot instanceof TFolder) {
+      for (const child of this.plugin.getOrderedChildren(versionsRoot)) {
+        if (child instanceof TFolder) origins.push({ root: child, label: child.name, icon: "history" });
+      }
+    }
+    return origins;
+  }
+
+  render() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Comparer avec quel feuillet ?" });
+
+    const search = contentEl.createEl("input", {
+      type: "text",
+      cls: "feuillets-binder-search",
+      attr: { placeholder: "Filtrer…" },
+    });
+    search.value = this.filter;
+    search.addEventListener("input", () => {
+      this.filter = search.value;
+      this.renderTree(tree);
+    });
+    search.focus();
+
+    const tree = contentEl.createDiv({ cls: "feuillets-pickfile-tree" });
+    this.renderTree(tree);
+  }
+
+  renderTree(tree) {
+    tree.empty();
+    const q = foldAccents(this.filter.trim());
+    const origins = this.getOrigins();
+    if (origins.length === 0) {
+      tree.createDiv({ cls: "feuillets-empty" }).setText("Aucun projet actif.");
+      return;
+    }
+
+    for (const origin of origins) {
+      const rootRow = tree.createDiv({ cls: "feuillets-folder-row feuillets-binder-research-row feuillets-binder-research-root" });
+      const icon = rootRow.createDiv({ cls: "feuillets-cell-icon" });
+      setIcon(icon, origin.icon);
+      rootRow.createSpan({ cls: "feuillets-folder-name" }).setText(origin.label);
+      const isCollapsed = this.collapsed.has(origin.root.path) && !q;
+      rootRow.addEventListener("click", () => {
+        if (this.collapsed.has(origin.root.path)) this.collapsed.delete(origin.root.path);
+        else this.collapsed.add(origin.root.path);
+        this.renderTree(tree);
+      });
+      if (isCollapsed) continue;
+
+      const anyShown = { value: false };
+      const renderChildren = (folder, depth) => {
+        for (const child of this.plugin.getOrderedChildren(folder)) {
+          if (child instanceof TFolder) {
+            const matchInside = !q || this.folderHasMatch(child, q);
+            if (!matchInside) continue;
+            const row = tree.createDiv({ cls: "feuillets-folder-row feuillets-binder-research-row" });
+            row.style.paddingLeft = `${6 + depth * 14}px`;
+            const fIcon = row.createDiv({ cls: "feuillets-cell-icon" });
+            setIcon(fIcon, "folder");
+            row.createSpan({ cls: "feuillets-folder-name" }).setText(child.name);
+            const childCollapsed = this.collapsed.has(child.path) && !q;
+            row.addEventListener("click", () => {
+              if (this.collapsed.has(child.path)) this.collapsed.delete(child.path);
+              else this.collapsed.add(child.path);
+              this.renderTree(tree);
+            });
+            if (!childCollapsed) renderChildren(child, depth + 1);
+          } else if (child instanceof TFile && child.extension === "md" && child.path !== this.excludeFile.path) {
+            const title = this.plugin.shortTitleFor(child);
+            if (q && !foldAccents(title).includes(q)) continue;
+            anyShown.value = true;
+            const row = tree.createDiv({ cls: "feuillets-item feuillets-binder-research-row" });
+            row.style.paddingLeft = `${6 + depth * 14}px`;
+            const fIcon = row.createDiv({ cls: "feuillets-cell-icon" });
+            setIcon(fIcon, "file-text");
+            row.createSpan({ cls: "feuillets-item-name" }).setText(title);
+            row.addEventListener("click", () => {
+              this.close();
+              this.onChoose(child);
+            });
+          }
+        }
+      };
+      renderChildren(origin.root, 1);
+      if (q && !anyShown.value) {
+        rootRow.remove();
+      }
+    }
+  }
+
+  folderHasMatch(folder, q) {
+    for (const child of folder.children) {
+      if (child instanceof TFolder) {
+        if (this.folderHasMatch(child, q)) return true;
+      } else if (child instanceof TFile && child.extension === "md") {
+        if (foldAccents(this.plugin.shortTitleFor(child)).includes(q)) return true;
+      }
+    }
+    return false;
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
 
 export class DiffModal extends Modal {
   constructor(app, pluginOrFile, currentFileOrSnap, initialSnapshot) {
