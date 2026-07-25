@@ -7,6 +7,8 @@ export class ArcsView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.selectedArc = ""; // Filtre d'arc actif ("" = tous)
+    this.categoryFilter = "all"; // "all" | "fils" | "labels"
+    this.displayMode = "table"; // "table" (Tableau lisible) | "rails" (Frise rails)
   }
 
   getViewType() {
@@ -14,7 +16,7 @@ export class ArcsView extends ItemView {
   }
 
   getDisplayText() {
-    return "Arcs narratifs";
+    return "Arcs narratifs & Lieux";
   }
 
   getIcon() {
@@ -82,12 +84,17 @@ export class ArcsView extends ItemView {
     const scenes = items.filter(x => x.type === "file");
     const arcSet = new Set();
     const sceneArcs = new Map();
+    const sceneFilsMap = new Map();
+    const sceneLabelsMap = new Map();
 
     for (const sc of scenes) {
       const fm = this.plugin.fmOf(sc.file) || {};
       const fils = [...parseArcs(fm.fil), ...parseArcs(fm.fils)];
       const labels = [...parseArcs(fm.label), ...parseArcs(fm.labels)];
       const arcs = [...parseArcs(fm.arcs), ...parseArcs(fm.arc)];
+
+      sceneFilsMap.set(sc.file.path, fils);
+      sceneLabelsMap.set(sc.file.path, labels);
 
       let list = [];
       if (this.categoryFilter === "fils") list = fils;
@@ -105,18 +112,39 @@ export class ArcsView extends ItemView {
       let hash = 0;
       for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
       const h = Math.abs(hash) % 360;
-      return `hsl(${h}, 70%, 48%)`;
+      return `hsl(${h}, 70%, 45%)`;
     };
 
     // 3. Carte d'aide explicative
     const helpCard = wrapper.createDiv({
       cls: "feuillets-arcs-help-card",
-      style: "display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); margin-bottom: 12px; font-size: var(--font-ui-small);"
+      style: "display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); margin-bottom: 12px; font-size: var(--font-ui-small);"
     });
-    const helpIcon = helpCard.createDiv({ style: "font-size: 1.4em; flex-shrink: 0;" });
-    helpIcon.setText("🛤️");
-    const helpText = helpCard.createDiv({ style: "color: var(--text-muted); line-height: 1.4;" });
-    helpText.innerHTML = `<strong>Mode Chemin de fer :</strong> Chaque colonne verticale représente un <em>fil conducteur</em> (intrigue) ou un <em>lieu</em> du roman. Les pastilles colorées indiquent dans quels chapitres ils apparaissent, et la ligne verticale relie leur présence du début à la fin.`;
+    const helpLeft = helpCard.createDiv({ style: "display: flex; align-items: center; gap: 10px;" });
+    helpLeft.createDiv({ style: "font-size: 1.3em;" }).setText("🛤️");
+    helpLeft.createDiv({ style: "color: var(--text-muted); line-height: 1.4;" }).innerHTML =
+      `<strong>Gestion des Fils & Lieux :</strong> Visualisez la répartition des intrigues (<code>fil:</code>) et des décors (<code>label:</code>) dans chaque chapitre de votre manuscrit.`;
+
+    // Mode d'affichage Toggle (Tableau vs Frise)
+    const modeToggleGroup = helpCard.createDiv({ style: "display: flex; gap: 2px; background: var(--background-modifier-form-field); padding: 2px; border-radius: var(--radius-s); border: 1px solid var(--background-modifier-border); flex-shrink: 0;" });
+    
+    const btnTable = modeToggleGroup.createEl("button", {
+      text: "📊 Tableau",
+      style: `padding: 4px 10px; font-size: var(--font-ui-smaller); border: none; border-radius: var(--radius-xs); cursor: pointer; background: ${this.displayMode === "table" ? "var(--interactive-accent)" : "transparent"}; color: ${this.displayMode === "table" ? "var(--text-on-accent)" : "var(--text-muted)"};`
+    });
+    btnTable.addEventListener("click", () => {
+      this.displayMode = "table";
+      this.render();
+    });
+
+    const btnRails = modeToggleGroup.createEl("button", {
+      text: "🛤️ Frise rails",
+      style: `padding: 4px 10px; font-size: var(--font-ui-smaller); border: none; border-radius: var(--radius-xs); cursor: pointer; background: ${this.displayMode === "rails" ? "var(--interactive-accent)" : "transparent"}; color: ${this.displayMode === "rails" ? "var(--text-on-accent)" : "var(--text-muted)"};`
+    });
+    btnRails.addEventListener("click", () => {
+      this.displayMode = "rails";
+      this.render();
+    });
 
     // 4. Barre d'outils avec filtres
     const toolbar = wrapper.createDiv({
@@ -149,12 +177,12 @@ export class ArcsView extends ItemView {
       style: "padding: 5px 8px; border-radius: var(--radius-s); font-size: var(--font-ui-small); background: var(--background-modifier-form-field); border: 1px solid var(--background-modifier-border); cursor: pointer;"
     });
 
-    const allOpt = select.createEl("option", { text: "— Filtrer une intrigue précise —" });
+    const allOpt = select.createEl("option", { text: "— Filtrer une élement précis —" });
     allOpt.value = "";
 
     for (const arc of allArcs) {
       const count = scenes.filter(sc => (sceneArcs.get(sc.file.path) || []).includes(arc)).length;
-      const opt = select.createEl("option", { text: `${arc} (${count} scène${count > 1 ? "s" : ""})` });
+      const opt = select.createEl("option", { text: `${arc} (${count} chapitre${count > 1 ? "s" : ""})` });
       opt.value = arc;
     }
 
@@ -167,11 +195,98 @@ export class ArcsView extends ItemView {
     if (allArcs.length === 0) {
       wrapper
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucun arc narratif ni lieu détecté. Renseignez 'fil:' ou 'label:' dans le YAML de vos chapitres.");
+        .setText("Aucun fil conducteur ni lieu détecté dans le YAML. Renseignez 'fil:' ou 'label:' dans vos chapitres.");
       return;
     }
 
-    // 5. Calcul des bornes d'arcs
+    // -------------------------------------------------------------
+    // OPTION A : MODE TABLEAU CLAIR ET LISIBLE (PAR DÉFAUT)
+    // -------------------------------------------------------------
+    if (this.displayMode === "table") {
+      const tableContainer = wrapper.createDiv({ cls: "feuillets-arcs-table-container", style: "overflow-x: auto;" });
+      const table = tableContainer.createEl("table", {
+        style: "width: 100%; border-collapse: collapse; font-size: var(--font-ui-small);"
+      });
+
+      // En-tête du tableau
+      const thead = table.createEl("thead");
+      const trHead = thead.createEl("tr", { style: "border-bottom: 2px solid var(--background-modifier-border); background: var(--background-secondary-alt);" });
+      trHead.createEl("th", { text: "Chapitre", style: "padding: 8px 12px; text-align: left; width: 220px;" });
+      trHead.createEl("th", { text: "📍 Lieu (label)", style: "padding: 8px 12px; text-align: left; width: 140px;" });
+      trHead.createEl("th", { text: "🧵 Fil conducteur", style: "padding: 8px 12px; text-align: left; width: 180px;" });
+      trHead.createEl("th", { text: "Résumé / Sous-titre", style: "padding: 8px 12px; text-align: left;" });
+
+      const tbody = table.createEl("tbody");
+
+      for (const item of items) {
+        if (item.type === "folder") {
+          const trFolder = tbody.createEl("tr", { style: "background: var(--background-secondary); border-top: 1px solid var(--background-modifier-border);" });
+          const tdFolder = trFolder.createEl("td", { colSpan: 4, style: "padding: 8px 12px; font-weight: bold; color: var(--text-accent);" });
+          tdFolder.setText(`📁 ${item.folder.name}`);
+        } else {
+          const file = item.file;
+          const list = sceneArcs.get(file.path) || [];
+          if (this.selectedArc && !list.includes(this.selectedArc)) continue;
+
+          const fm = this.plugin.fmOf(file) || {};
+          const fils = sceneFilsMap.get(file.path) || [];
+          const labels = sceneLabelsMap.get(file.path) || [];
+
+          const trRow = tbody.createEl("tr", {
+            style: "border-bottom: 1px solid var(--background-modifier-border); cursor: pointer; transition: background 0.1s ease;"
+          });
+          trRow.addEventListener("mouseenter", () => trRow.style.background = "var(--background-modifier-hover)");
+          trRow.style.background = "transparent";
+          trRow.addEventListener("mouseleave", () => trRow.style.background = "transparent");
+
+          trRow.addEventListener("click", () => {
+            openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+          });
+
+          // Col 1: Titre du chapitre
+          const tdTitle = trRow.createEl("td", { style: "padding: 8px 12px; font-weight: 500;" });
+          tdTitle.setText(this.plugin.shortTitleFor(file));
+
+          // Col 2: Lieu (label)
+          const tdLabel = trRow.createEl("td", { style: "padding: 8px 12px;" });
+          if (labels.length > 0) {
+            for (const l of labels) {
+              const col = stringToColor(l);
+              const badge = tdLabel.createEl("span", {
+                text: l,
+                style: `display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 500; background: ${col}20; color: ${col}; border: 1px solid ${col}40; margin-right: 4px;`
+              });
+            }
+          } else {
+            tdLabel.createEl("span", { text: "—", style: "color: var(--text-faint);" });
+          }
+
+          // Col 3: Fil conducteur
+          const tdFil = trRow.createEl("td", { style: "padding: 8px 12px;" });
+          if (fils.length > 0) {
+            for (const f of fils) {
+              const col = stringToColor(f);
+              const badge = tdFil.createEl("span", {
+                text: f,
+                style: `display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 500; background: ${col}20; color: ${col}; border: 1px solid ${col}40; margin-right: 4px;`
+              });
+            }
+          } else {
+            tdFil.createEl("span", { text: "—", style: "color: var(--text-faint);" });
+          }
+
+          // Col 4: Synopsis / sous-titre
+          const tdSyn = trRow.createEl("td", { style: "padding: 8px 12px; color: var(--text-muted); font-size: 0.9em; line-height: 1.3;" });
+          const synText = fm.synopsis || fm.sous_titre || "";
+          tdSyn.setText(synText || "—");
+        }
+      }
+      return;
+    }
+
+    // -------------------------------------------------------------
+    // OPTION B : MODE FRISE NARRATIVE / RAILS
+    // -------------------------------------------------------------
     const activeArcs = this.selectedArc ? [this.selectedArc] : allArcs;
     const filteredScenes = scenes.filter(sc => {
       if (!this.selectedArc) return true;
@@ -206,7 +321,6 @@ export class ArcsView extends ItemView {
       return false;
     };
 
-    // 6. Rendu de la frise chronologique avec EN-TÊTE DE COLONNES D'ARCS
     const timeline = wrapper.createDiv({ cls: "feuillets-arcs-timeline" });
 
     // En-tête des colonnes au-dessus des rails
@@ -244,7 +358,6 @@ export class ArcsView extends ItemView {
     });
     headerLabel.setText(`Arcs narratifs & Lieux du manuscrit (${activeArcs.length} colonne${activeArcs.length > 1 ? "s" : ""})`);
 
-    // Contenu des scènes
     let sceneCount = 0;
     for (const item of items) {
       if (item.type === "folder") {
@@ -267,7 +380,6 @@ export class ArcsView extends ItemView {
         const row = timeline.createDiv({ cls: "feuillets-arcs-row-file" });
         row.style.cursor = "pointer";
 
-        // rails
         const rails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
         rails.style.width = `${activeArcs.length * 28}px`;
 
@@ -296,7 +408,6 @@ export class ArcsView extends ItemView {
           }
         });
 
-        // Infos textuelles (Titre & badges)
         const titleArea = row.createDiv({ cls: "feuillets-arcs-info" });
         const titleRow = titleArea.createDiv({ style: "display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" });
         titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
@@ -314,7 +425,6 @@ export class ArcsView extends ItemView {
           }
         }
 
-        // Synopsis / sous-titre
         const fm = this.plugin.fmOf(file) || {};
         const syn = fm.synopsis || fm.sous_titre || "";
         if (syn) {
