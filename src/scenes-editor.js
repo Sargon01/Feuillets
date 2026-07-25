@@ -981,6 +981,7 @@ export function initScenesEditor(plugin) {
   plugin.addCommand({
     id: "feuillets-split",
     name: "Scinder la scène",
+    hotkeys: [{ modifiers: ["Mod", "Shift"], key: "k" }],
     callback: async () => plugin.splitActiveScene(),
   });
   plugin.addCommand({

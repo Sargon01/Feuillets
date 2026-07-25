@@ -1131,6 +1131,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "insert-footnote",
       name: "Insérer une note de bas de page",
+      hotkeys: [{ modifiers: ["Mod", "Shift"], key: "f" }],
       editorCallback: (editor) => {
         const n = nextFootnoteNumber(editor.getValue());
         const marker = `[^${n}]`;

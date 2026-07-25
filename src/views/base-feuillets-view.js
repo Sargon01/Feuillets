@@ -1550,11 +1550,24 @@ export class BaseFeuilletsView extends ItemView {
   attachDragHandlers(handleEl, dropEl, parent, index, siblings, scopeEl) {
     handleEl.draggable = true;
     handleEl.addEventListener("dragstart", (e) => {
-      this.plugin.dragState = {
-        parentPath: parent.path,
-        index,
-        path: siblings[index] ? siblings[index].path : null,
-      };
+      /* Poignée d'une scène faisant partie d'une sélection multiple
+         (Cmd/Ctrl+clic ou Maj+clic, voir renderFileRow) : on entraîne tout
+         le groupe, pas juste celle qu'on a saisie — sinon la sélection ne
+         servirait à rien pour un vrai déplacement groupé. */
+      const sel = this.plugin._binderMultiSelect;
+      const draggedPath = siblings[index] ? siblings[index].path : null;
+      if (sel && sel.size > 1 && draggedPath && sel.has(draggedPath)) {
+        const items = siblings
+          .map((s, i) => ({ path: s.path, index: i }))
+          .filter((it) => sel.has(it.path));
+        this.plugin.dragState = { parentPath: parent.path, multi: true, items };
+      } else {
+        this.plugin.dragState = {
+          parentPath: parent.path,
+          index,
+          path: draggedPath,
+        };
+      }
       this.plugin._dragInProgress = true;
       this.plugin._dragRetryCount = 0;
       dropEl.addClass("feuillets-dragging");
@@ -1587,6 +1600,43 @@ export class BaseFeuilletsView extends ItemView {
       if (!this.plugin.dragState) return;
       const drag = this.plugin.dragState;
       this.plugin.dragState = null;
+
+      if (drag.multi) {
+        if (this.plugin._binderMultiSelect) this.plugin._binderMultiSelect.clear();
+        if (drag.parentPath === parent.path) {
+          const draggedIndices = new Set(drag.items.map((it) => it.index));
+          if (draggedIndices.has(index)) return;
+          const movedNodes = drag.items.map((it) => siblings[it.index]).filter(Boolean);
+          const remaining = siblings.filter((_, i) => !draggedIndices.has(i));
+          /* Les éléments déplacés situés avant la cible sont déjà retirés
+             de `remaining` — décaler l'index cible d'autant pour tomber au
+             bon endroit une fois le groupe réinséré. */
+          const removedBefore = drag.items.filter((it) => it.index < index).length;
+          const targetIndex = Math.max(0, index - removedBefore);
+          const reordered = [...remaining];
+          reordered.splice(targetIndex, 0, ...movedNodes);
+          await this.plugin.applySiblingOrder(parent, reordered);
+        } else {
+          const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
+          if (srcParent instanceof TFolder) {
+            const target = siblings[index];
+            let destFolder = parent;
+            let insertIndex = index;
+            if (target instanceof TFolder) {
+              destFolder = target;
+              insertIndex = Number.MAX_SAFE_INTEGER;
+            }
+            for (const it of drag.items) {
+              const node = this.app.vault.getAbstractFileByPath(it.path);
+              if (!node) continue;
+              await this.plugin.moveNode(node, srcParent, destFolder, insertIndex);
+              if (insertIndex !== Number.MAX_SAFE_INTEGER) insertIndex++;
+            }
+          }
+        }
+        this.plugin.renderAllViews(true);
+        return;
+      }
 
       if (drag.parentPath === parent.path) {
         const from = drag.index;

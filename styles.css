@@ -2216,6 +2216,14 @@ body.feuillets-concentration .markdown-preview-view {
   box-shadow: inset 2px 0 0 var(--text-on-accent);
 }
 
+/* Sélection multiple (Cmd/Ctrl+clic, Maj+clic) pour un déplacement groupé —
+   teinte translucide distincte de is-active (fichier actif), pour ne pas
+   les confondre si les deux se superposent. */
+.feuillets-item.feuillets-multiselected {
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--interactive-accent);
+}
+
 /* ===== entités citées (panneau Notes) ===== */
 
 .feuillets-notes-entities {
@@ -2677,6 +2685,16 @@ body.feuillets-concentration .markdown-preview-view {
    panneau : sans ce correctif, l'aération générale laisse un vide au
    sommet du panneau, avant même le premier titre. */
 .feuillets-notes-container > .feuillets-notes-section:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
+}
+
+/* Même correctif quand le fil d'Ariane des notes de dossier précède la
+   section : elle n'est alors plus :first-child au sens strict, mais reste
+   la première chose utile du panneau — le même espace généreux (pensé
+   pour séparer deux sections consécutives) n'a pas plus lieu d'être ici. */
+.feuillets-notes-folder-links + .feuillets-notes-section {
   margin-top: 0;
   border-top: none;
   padding-top: 0;

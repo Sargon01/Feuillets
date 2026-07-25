@@ -407,10 +407,10 @@ export class NotesView extends BaseFeuilletsView {
     chain.reverse(); // partie d'abord, puis chapitre
 
     const box = container.createDiv({ cls: "feuillets-notes-folder-links" });
-    box.style.cssText = "display: flex !important; flex-wrap: nowrap !important; align-items: center !important; gap: 4px !important; margin: 8px 0 4px 0 !important; overflow: visible !important; position: relative !important; z-index: 1 !important;";
+    box.style.cssText = "display: flex !important; flex-wrap: nowrap !important; align-items: center !important; gap: 3px !important; margin: 0 0 4px 0 !important; overflow: visible !important; position: relative !important; z-index: 1 !important;";
     for (const folder of chain) {
       const link = box.createDiv({ cls: "feuillets-notes-folder-link" });
-      link.style.cssText = "font-size: 12px !important; background: #888888 !important; color: #ffffff !important; border-radius: 999px !important; padding: 0 6px !important; line-height: 16px !important; display: inline-block !important; cursor: pointer !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; min-width: 0 !important; flex-shrink: 1 !important;";
+      link.style.cssText = "font-size: 11px !important; background: #888888 !important; color: #ffffff !important; border-radius: 999px !important; padding: 0 5px !important; line-height: 14px !important; display: inline-block !important; cursor: pointer !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; min-width: 0 !important; flex-shrink: 1 !important;";
       link.setText(folder.name);
       link.setAttr("title", `Note de « ${folder.name} »`);
       link.addEventListener("click", async (e) => {
@@ -537,6 +537,11 @@ export class NotesView extends BaseFeuilletsView {
       nameEl.addEventListener("click", () => {
         openFileActivating(this.app, this.app.workspace.getLeaf(false), ent);
       });
+      /* Bouton aperçu (popover natif au clic) juste à côté : consulter la
+         fiche (âge, couleur des yeux…) sans remplacer la scène en cours
+         dans l'éditeur — cliquer le nom, lui, navigue toujours (utile pour
+         éditer la fiche elle-même), les deux usages coexistent. */
+      this.addPreviewBtn(head, ent);
 
       if (kind === "personnage" && sceneDate) {
         const birth = this.plugin.parseStoryDate(efm.naissance ?? efm.birth);
