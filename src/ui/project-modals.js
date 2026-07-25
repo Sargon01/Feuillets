@@ -1,5 +1,7 @@
-const { Modal, Notice, normalizePath, TFolder } = require("obsidian");
+const { Modal, Notice, normalizePath, setIcon, TFolder } = require("obsidian");
 import { PROJECT_MODES, applyModeDefaults, resolveType } from "../utils/project-modes.js";
+import { ConfirmModal } from "./basic-modals.js";
+import { ScrivenerImportModal } from "./scrivener-import-modal.js";
 
 export class NewProjectModal extends Modal {
   constructor(app, plugin) {
@@ -89,132 +91,212 @@ export class NewProjectModal extends Modal {
   }
 }
 
-export class ProjectManagerModal extends Modal {
+/** Gestion des projets (créer/importer/basculer/retirer/métadonnées) — vivait
+ * auparavant dans une section dédiée du panneau Projet & export ; ouverte
+ * maintenant en fenêtre flottante depuis le binder ("Gérer les projets…",
+ * menu de la racine en double volet) puisqu'on peut déjà basculer de projet
+ * directement là. Reprend telle quelle l'ancienne logique de project-view.js. */
+export class ManageProjectsModal extends Modal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
+    this.expandedProjects = new Set();
   }
+
   onOpen() {
     this.render();
   }
+
   onClose() {
     this.contentEl.empty();
+  }
+
+  iconBtn(parent, icon, tooltip, onClick) {
+    const btn = parent.createEl("button", { cls: "clickable-icon" });
+    setIcon(btn, icon);
+    btn.setAttr("aria-label", tooltip);
+    if (onClick) btn.addEventListener("click", onClick);
+    return btn;
   }
 
   render() {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
-    contentEl.createEl("h3", { text: "Gestion des projets" });
-
     const S = this.plugin.settings;
-    const all = [S.projectFolder, ...(S.projects || [])].filter(
-      (p, i, a) => p && a.indexOf(p) === i
+
+    const header = contentEl.createDiv({ cls: "feuillets-modal-header-row" });
+    header.createEl("h3", { text: "Gérer les projets" });
+    const actions = header.createDiv({ cls: "feuillets-project-actions" });
+    this.iconBtn(actions, "folder-plus", "Créer un nouveau projet…", () =>
+      new NewProjectModal(this.app, this.plugin).open()
+    );
+    this.iconBtn(actions, "import", "Importer un projet Scrivener…", () =>
+      new ScrivenerImportModal(this.app, this.plugin).open()
     );
 
-    for (const path of all) {
-      const meta = S.projectMeta[path] || {};
-      const card = contentEl.createDiv({ cls: "feuillets-project-card" });
-      const head = card.createDiv({ cls: "feuillets-project-head" });
-      const name = head.createSpan({ cls: "feuillets-project-name" });
-      name.setText(this.plugin.projectDisplayName(path));
-      if (path === S.projectFolder) {
-        head.createSpan({ cls: "feuillets-tag-chip" }).setText("actif");
-      } else {
-        const activate = head.createEl("button", { text: "Activer" });
-        activate.addEventListener("click", async () => {
-          S.projectFolder = path;
-          await this.plugin.saveSettings();
-          this.plugin.renderAllViews(true);
-          this.plugin.updateStatusBar();
-          this.render();
-        });
-      }
-      const removeBtn = head.createEl("button", { text: "Retirer" });
-      removeBtn.setAttr(
-        "title",
-        "Retire ce projet de la liste (ne supprime aucun fichier)"
+    const root = this.plugin.getProjectFolder();
+    if (root) {
+      const allProjects = [S.projectFolder, ...(S.projects || [])].filter(
+        (p, i, a) => p && a.indexOf(p) === i
       );
-      removeBtn.addEventListener("click", async () => {
-        if (path === S.projectFolder) {
-          new Notice("Impossible de retirer le projet actif.");
-          return;
-        }
-        S.projects = (S.projects || []).filter((p) => p !== path);
-        delete S.projectMeta[path];
-        await this.plugin.saveSettings();
-        this.render();
-      });
+      const list = contentEl.createDiv({ cls: "feuillets-project-list" });
+      for (const p of allProjects) this.renderProjectRow(list, p, S);
+    } else {
+      contentEl
+        .createDiv({ cls: "feuillets-empty" })
+        .setText("Aucun projet actif — crée-en un, importe un projet Scrivener, ou ajoute un dossier existant ci-dessous.");
+    }
 
-      const grid = card.createDiv({ cls: "feuillets-project-grid" });
-
-      const mkField = (label, key, placeholder) => {
-        grid.createDiv({ cls: "feuillets-notes-label" }).setText(label);
-        const input = grid.createEl("input", {
-          type: "text",
-          attr: { placeholder },
-        });
-        input.value = meta[key] || "";
-        input.addEventListener("blur", async () => {
-          if (!S.projectMeta[path]) S.projectMeta[path] = {};
-          S.projectMeta[path][key] = input.value.trim();
-          await this.plugin.saveSettings();
-        });
-      };
-      mkField("Auteur", "author", "Nom de l'auteur");
-
-      grid.createDiv({ cls: "feuillets-notes-label" }).setText("Type");
-      const typeSelect = grid.createEl("select");
-      for (const [key, mode] of Object.entries(PROJECT_MODES)) {
-        typeSelect.createEl("option", { text: mode.label, value: key });
+    const addRow = contentEl.createDiv({ cls: "feuillets-properties-add-row" });
+    const input = addRow.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Ajouter un projet existant (chemin du dossier)…" },
+    });
+    input.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      const p = normalizePath(input.value.trim());
+      if (!p) return;
+      const folder = this.app.vault.getAbstractFileByPath(p);
+      if (!(folder instanceof TFolder)) {
+        new Notice("Dossier introuvable dans le coffre.");
+        return;
       }
-      typeSelect.value = resolveType(meta.type);
-      typeSelect.addEventListener("change", async () => {
-        if (!S.projectMeta[path]) S.projectMeta[path] = {};
-        S.projectMeta[path].type = typeSelect.value;
-        await this.plugin.saveSettings();
-      });
+      if (!S.projectFolder) {
+        S.projectFolder = p;
+      } else if (!S.projects.includes(p) && p !== S.projectFolder) {
+        S.projects.push(p);
+      }
+      await this.plugin.saveSettings();
+      input.value = "";
+      this.plugin.renderAllViews(true);
+      this.plugin.updateStatusBar();
+      this.render();
+    });
+  }
 
-      grid.createDiv({ cls: "feuillets-notes-label" }).setText("Description");
-      const desc = grid.createEl("textarea", { attr: { rows: "2" } });
-      desc.style.gridColumn = "1 / -1";
-      desc.value = meta.description || "";
-      desc.addEventListener("blur", async () => {
-        if (!S.projectMeta[path]) S.projectMeta[path] = {};
-        S.projectMeta[path].description = desc.value.trim();
-        await this.plugin.saveSettings();
+  renderProjectRow(list, path, S) {
+    const isActive = path === S.projectFolder;
+    const isExpanded = this.expandedProjects.has(path);
+
+    const activate = async () => {
+      if (isActive) return;
+      if (S.projectFolder && !S.projects.includes(S.projectFolder)) {
+        S.projects.push(S.projectFolder);
+      }
+      S.projectFolder = path;
+      await this.plugin.saveSettings();
+      this.plugin.renderAllViews(true);
+      this.plugin.updateStatusBar();
+      this.render();
+    };
+
+    const row = list.createDiv({ cls: `feuillets-project-item ${isActive ? "is-active" : ""}` });
+    const icon = row.createSpan({ cls: "feuillets-cell-icon" });
+    const meta = S.projectMeta[path] || {};
+    setIcon(icon, meta.icon || (isActive ? "folder-open" : "folder"));
+    const name = row.createSpan({ cls: "feuillets-project-name" });
+    name.setText(this.plugin.projectDisplayName(path));
+    row.addEventListener("click", activate);
+
+    const actions = row.createDiv({ cls: "feuillets-project-actions" });
+    const toggleBtn = actions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+    setIcon(toggleBtn, isExpanded ? "chevron-down" : "chevron-right");
+    toggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (isExpanded) this.expandedProjects.delete(path);
+      else this.expandedProjects.add(path);
+      this.render();
+    });
+
+    if (!isActive) {
+      const removeBtn = actions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+      setIcon(removeBtn, "trash-2");
+      removeBtn.setAttr("aria-label", "Retirer ce projet…");
+      removeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        new ConfirmModal(
+          this.app,
+          `Retirer « ${this.plugin.projectDisplayName(path)} » ?`,
+          "Le projet disparaît de cette liste — le dossier reste intact sur le disque.",
+          "Retirer",
+          async () => {
+            S.projects = (S.projects || []).filter((p) => p !== path);
+            delete S.projectMeta[path];
+            await this.plugin.saveSettings();
+            this.expandedProjects.delete(path);
+            this.render();
+          }
+        ).open();
       });
     }
 
-    const addRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
-    addRow
-      .createEl("button", { text: "Créer un nouveau projet…" })
-      .addEventListener("click", () => {
-        this.close();
-        new NewProjectModal(this.app, this.plugin).open();
+    if (!isExpanded) return;
+
+    const detail = list.createDiv({ cls: "feuillets-project-detail feuillets-project-grid" });
+    const mkField = (label, key, placeholder) => {
+      detail.createDiv({ cls: "feuillets-notes-label" }).setText(label);
+      const fieldInput = detail.createEl("input", { type: "text", attr: { placeholder } });
+      fieldInput.value = meta[key] || "";
+      fieldInput.addEventListener("blur", async () => {
+        if (!S.projectMeta[path]) S.projectMeta[path] = {};
+        S.projectMeta[path][key] = fieldInput.value.trim();
+        await this.plugin.saveSettings();
       });
-    const addInput = contentEl.createEl("input", {
+    };
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText("Nom");
+    const nameInput = detail.createEl("input", {
       type: "text",
-      attr: { placeholder: "Chemin du dossier (ex. Romans/AKSAK/Manuscrit)" },
+      attr: { placeholder: this.plugin.projectDisplayName(path) },
     });
-    addInput.style.width = "100%";
-    addRow.createEl("button", { text: "Ajouter un projet" }).addEventListener(
-      "click",
-      async () => {
-        const p = normalizePath(addInput.value.trim());
-        if (!p) return;
-        const folder = this.app.vault.getAbstractFileByPath(p);
-        if (!(folder instanceof TFolder)) {
-          new Notice("Dossier introuvable dans le coffre.");
-          return;
-        }
-        if (!S.projects.includes(p) && p !== S.projectFolder) {
-          S.projects.push(p);
-          await this.plugin.saveSettings();
-        }
-        addInput.value = "";
-        this.render();
-      }
-    );
+    nameInput.value = meta.name || "";
+    nameInput.addEventListener("blur", async () => {
+      if (!S.projectMeta[path]) S.projectMeta[path] = {};
+      S.projectMeta[path].name = nameInput.value.trim();
+      await this.plugin.saveSettings();
+      this.plugin.renderAllViews(true);
+      this.render();
+    });
+
+    mkField("Auteur", "author", "Nom de l'auteur");
+
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText("Icône");
+    const iconWrap = detail.createDiv({ cls: "feuillets-project-icon-row" });
+    const iconPreview = iconWrap.createSpan({ cls: "feuillets-cell-icon" });
+    setIcon(iconPreview, meta.icon || "folder");
+    const iconInput = iconWrap.createEl("input", {
+      type: "text",
+      attr: { placeholder: "ex. book, feather, compass…" },
+    });
+    iconInput.value = meta.icon || "";
+    iconInput.addEventListener("blur", async () => {
+      if (!S.projectMeta[path]) S.projectMeta[path] = {};
+      S.projectMeta[path].icon = iconInput.value.trim();
+      await this.plugin.saveSettings();
+      setIcon(iconPreview, iconInput.value.trim() || "folder");
+      this.plugin.renderAllViews(true);
+    });
+
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText("Type");
+    const typeSelect = detail.createEl("select");
+    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
+      typeSelect.createEl("option", { text: mode.label, value: key });
+    }
+    typeSelect.value = resolveType(meta.type);
+    typeSelect.addEventListener("change", async () => {
+      if (!S.projectMeta[path]) S.projectMeta[path] = {};
+      S.projectMeta[path].type = typeSelect.value;
+      await this.plugin.saveSettings();
+    });
+
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText("Description");
+    const desc = detail.createEl("textarea", { attr: { rows: "2" } });
+    desc.style.gridColumn = "1 / -1";
+    desc.value = meta.description || "";
+    desc.addEventListener("blur", async () => {
+      if (!S.projectMeta[path]) S.projectMeta[path] = {};
+      S.projectMeta[path].description = desc.value.trim();
+      await this.plugin.saveSettings();
+    });
   }
 }

@@ -1,8 +1,12 @@
-const { ItemView, MarkdownRenderer, TFolder, TFile, MarkdownView, setIcon } = require("obsidian");
+const { TFile, TFolder, setIcon } = require("obsidian");
 
 import { VIEW_NOTES } from "../constants.js";
+import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { foldAccents } from "../utils/core.js";
-import { iconBtn, openFileActivating } from "../utils/dom.js";
+import { latestStateBefore } from "../utils/entity-states.js";
+import { isEditing, openFileActivating } from "../utils/dom.js";
+import { ProjectPropertiesModal, ProjectTagsModal } from "../ui/project-properties-modals.js";
+import { FRONT_PAGE_TYPES } from "../services/folder-structure.js";
 
 function getNotesSectionIcon(title) {
   return {
@@ -12,13 +16,36 @@ function getNotesSectionIcon(title) {
   }[title] || "info";
 }
 
-export class NotesView extends ItemView {
-  constructor(leaf, plugin) {
-    super(leaf);
-    this.plugin = plugin;
-    this.currentPath = null;
-    this.viewedFile = null;
+/** Icônes par type de propriété, même esprit que le panneau natif
+ * Propriétés d'Obsidian — repris de l'ancien onglet Propriétés
+ * (properties-view.js), fusionné ici (voir renderFilePropertiesSection). */
+const TYPE_ICONS = {
+  text: "text",
+  list: "list",
+  number: "hash",
+  checkbox: "check-square",
+  date: "calendar",
+  datetime: "calendar-clock",
+};
+
+function inferPropertyType(value) {
+  if (typeof value === "boolean") return "checkbox";
+  if (Array.isArray(value)) return "list";
+  if (typeof value === "number") return "number";
+  if (typeof value === "string") {
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return "datetime";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return "date";
   }
+  return "text";
+}
+
+export class NotesView extends BaseFeuilletsView {
+  constructor(leaf, plugin) {
+    super(leaf, plugin);
+    this.viewedFile = null; // note de dossier consultée
+    this.currentPath = null;
+  }
+
   getViewType() {
     return VIEW_NOTES;
   }
@@ -28,13 +55,10 @@ export class NotesView extends ItemView {
   getIcon() {
     return "sticky-note";
   }
+
   async onOpen() {
     this.registerEvent(
       this.app.workspace.on("file-open", (newFile) => {
-        // Réinitialise le fichier visualisé si on ouvre un autre fichier différent dans l'éditeur
-        if (newFile && (!this.viewedFile || newFile.path !== this.viewedFile.path)) {
-          this.viewedFile = null;
-        }
         /* forcé : le fichier actif a changé, il faut refléter le nouveau
            quel que soit l'état du focus — sans ça, si le curseur était
            resté dans un champ de CE panneau (Synopsis, Notes…) au moment
@@ -43,6 +67,9 @@ export class NotesView extends ItemView {
            rendre le focus. Le garde-fou plus bas reste utile pour les
            rafraîchissements du MÊME fichier (vault "modify"/metadataCache
            "changed"), où il évite de couper une frappe en cours. */
+        if (newFile && (!this.viewedFile || newFile.path !== this.viewedFile.path)) {
+          this.viewedFile = null;
+        }
         this.render(true);
       })
     );
@@ -58,19 +85,16 @@ export class NotesView extends ItemView {
         if (file.path === targetPath) this.render();
       })
     );
-    await this.render();
+    await this.render(true);
   }
+
   async render(force = false) {
     const S = this.plugin.settings;
-    const container = this.contentEl;
-    const a = document.activeElement;
-    if (!force && a && container.contains(a) && ["TEXTAREA", "INPUT"].includes(a.tagName))
-      return;
+    const container = this.targetContainer || this.contentEl;
+    if (!force && isEditing(container)) return;
     container.empty();
 
     const wrapper = container.createDiv({ cls: "feuillets-notes-container" });
-
-
 
     const activeFile = this.app.workspace.getActiveFile();
     let file = this.viewedFile || activeFile;
@@ -91,7 +115,7 @@ export class NotesView extends ItemView {
       return;
     }
     this.currentPath = file.path;
-    const fm = this.plugin.fmOf(file);
+    const fm = this.fm(file);
 
     // Barre de retour si on consulte une note de dossier
     if (this.viewedFile && activeFile && this.viewedFile.path !== activeFile.path) {
@@ -110,62 +134,35 @@ export class NotesView extends ItemView {
     }
 
     this.renderFolderNoteLinks(wrapper, file);
+    this.renderFilePropertiesSection(wrapper, file);
 
     const sceneDate = this.plugin.parseStoryDate(fm.date, file);
+    const jalons = [];
     if (sceneDate) {
       const chronoFolder = this.plugin.getChronoFolder();
       if (chronoFolder instanceof TFolder) {
-        const matches = [];
         const walk = (cf) => {
           for (const c of cf.children) {
             if (c instanceof TFolder) walk(c);
             else if (c instanceof TFile && c.extension === "md") {
-              const d = this.plugin.parseStoryDate(this.plugin.fmOf(c).date, c);
-              if (d && d.sort === sceneDate.sort) matches.push(c);
+              const d = this.plugin.parseStoryDate(this.fm(c).date, c);
+              if (d && d.sort === sceneDate.sort) jalons.push(c);
             }
           }
         };
         walk(chronoFolder);
-        for (const jalon of matches) {
-          const box = wrapper.createDiv({ cls: "feuillets-notes-milestone" });
-          const bHead = box.createDiv({ cls: "feuillets-notes-milestone-head" });
-          bHead.setText(`◆ ${this.plugin.titleFor(jalon)} — ${sceneDate.display}`);
-          bHead.setAttr("title", "Jalon historique (_Chronologie) — cliquer pour ouvrir");
-          bHead.addEventListener("click", () => {
-            openFileActivating(this.app, this.app.workspace.getLeaf(false), jalon);
-          });
-          const bBody = box.createDiv({ cls: "feuillets-notes-milestone-body" });
-          const raw = await this.app.vault.cachedRead(jalon);
-          const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
-          if (body) {
-            await MarkdownRenderer.render(this.app, body, bBody, jalon.path, this);
-          } else {
-            bBody.setText("(jalon sans contenu)");
-          }
-        }
-      }
-    }
-
-    const tags = this.plugin.tagsOf(file);
-    if (tags.length > 0) {
-      const tagRow = wrapper.createDiv({ cls: "feuillets-tags" });
-      for (const t of tags) {
-        tagRow.createSpan({ cls: "feuillets-tag-chip" }).setText(`#${t}`);
       }
     }
 
     if (S.notesShowEntities) {
-      await this.renderCitedEntities(wrapper, file, sceneDate);
+      await this.renderCitedEntities(wrapper, file, sceneDate, jalons);
     }
-
-    const mode = this.plugin.projectMode();
-    const isFiction = mode ? (mode.yamlPreset === "roman" || mode.yamlPreset === "nouvelle") : true;
 
     const order = S.notesSectionOrder || ["Synopsis", "Résumé", "Notes"];
     for (const sectionName of order) {
-      if (sectionName === "Synopsis" && S.notesShowSynopsis && isFiction) {
+      if (sectionName === "Synopsis" && S.notesShowSynopsis) {
         this.renderCollapsibleTextarea(wrapper, "Synopsis", "synopsis", file, fm, "Accroche courte…", 3);
-      } else if (sectionName === "Résumé" && S.notesShowResume && !isFiction) {
+      } else if (sectionName === "Résumé" && S.notesShowResume) {
         this.renderCollapsibleTextarea(wrapper, "Résumé", "resume", file, fm, "Déroulé long…", 5);
       } else if (sectionName === "Notes" && S.notesShowNotes) {
         this.renderCollapsibleTextarea(wrapper, "Notes", "notes", file, fm, "Notes de travail — jamais compilées ni comptées.", 8);
@@ -199,6 +196,190 @@ export class NotesView extends ItemView {
     return null;
   }
 
+  /** Propriétés du fichier ouvert — reprise de l'ancien onglet Propriétés
+   * (properties-view.js), placée en première section pour ne plus avoir à
+   * basculer entre l'onglet Notes et l'onglet Propriétés en permanence.
+   * Les deux icônes ("Propriétés du projet"/"Tags du projet") ouvrent en
+   * fenêtre flottante ce qui restait de cet onglet (vue project-wide,
+   * navigable jusqu'aux fichiers). */
+  renderFilePropertiesSection(wrapper, file) {
+    const section = wrapper.createDiv({ cls: "feuillets-notes-section" });
+    const collapsed = this.renderSectionHead(
+      section,
+      "file-text",
+      "Propriétés",
+      "notes",
+      "proprietes-fichier",
+      (actions) => {
+        this.iconBtn(actions, "list-tree", "Propriétés du projet…", () =>
+          new ProjectPropertiesModal(this.app, this.plugin).open()
+        );
+        this.iconBtn(actions, "tags", "Tags du projet…", () =>
+          new ProjectTagsModal(this.app, this.plugin).open()
+        );
+      }
+    );
+    if (collapsed) return;
+
+    const fm = this.fm(file);
+    const isFront = this.plugin.isFrontMatter(file);
+    if (isFront) this.renderFrontPageTypeRow(section, file, fm);
+
+    const list = section.createDiv({ cls: "feuillets-properties-list" });
+    for (const key of Object.keys(fm)) {
+      if (isFront && key === "type") continue; // remplacé par le sélecteur dédié ci-dessus
+      this.renderPropertyRow(list, file, key, fm[key]);
+    }
+
+    const addRow = section.createDiv({ cls: "feuillets-properties-add-row" });
+    const input = addRow.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Nouvelle propriété…" },
+    });
+    input.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      const key = input.value.trim();
+      if (!key) return;
+      await this.app.fileManager.processFrontMatter(file, (data) => {
+        if (!(key in data)) data[key] = "";
+      });
+      await this.render(true);
+      const added = section.querySelector(
+        `.feuillets-properties-row[data-key="${CSS.escape(key)}"] .feuillets-properties-value`
+      );
+      if (added) added.focus();
+    });
+  }
+
+  /** Sélecteur dédié pour le champ `type` d'une page du dossier Front
+   * (titre/dédicace/épigraphe) — évite de faire dépendre la mise en page
+   * spéciale à l'export d'une valeur tapée à la main dans l'éditeur de
+   * propriétés générique (typo, majuscule, "titlepage" au lieu de "titre"…
+   * silencieusement retombé en page normale). Voir FRONT_PAGE_TYPES et
+   * isFrontMatter dans folder-structure.js, et la détection dans
+   * compile-export.js. */
+  renderFrontPageTypeRow(section, file, fm) {
+    const row = section.createDiv({ cls: "feuillets-properties-row" });
+    const iconEl = row.createSpan({ cls: "feuillets-cell-icon" });
+    setIcon(iconEl, "book-open-text");
+    row.createSpan({ cls: "feuillets-properties-key" }).setText("Type de page Front");
+
+    const select = row.createEl("select", { cls: "feuillets-properties-value" });
+    select.createEl("option", { text: "— page normale (pas de mise en forme spéciale) —", value: "" });
+    const LABELS = { titre: "Page de titre", dedicace: "Dédicace", epigraphe: "Épigraphe" };
+    for (const t of FRONT_PAGE_TYPES) {
+      select.createEl("option", { text: LABELS[t] || t, value: t });
+    }
+    const current = typeof fm.type === "string" ? fm.type.trim().toLowerCase() : "";
+    select.value = FRONT_PAGE_TYPES.includes(current) ? current : "";
+    select.addEventListener("change", async () => {
+      await this.app.fileManager.processFrontMatter(file, (data) => {
+        if (select.value) data.type = select.value;
+        else delete data.type;
+      });
+      await this.render(true);
+    });
+  }
+
+  renderPropertyRow(list, file, key, value) {
+    const type = inferPropertyType(value);
+    const row = list.createDiv({ cls: "feuillets-properties-row" });
+    row.setAttr("data-key", key);
+    const iconEl = row.createSpan({ cls: "feuillets-cell-icon" });
+    setIcon(iconEl, TYPE_ICONS[type] || "text");
+    row.createSpan({ cls: "feuillets-properties-key" }).setText(key);
+
+    if (type === "checkbox") {
+      const cb = row.createEl("input", { type: "checkbox" });
+      cb.checked = value;
+      cb.addEventListener("change", async () => {
+        await this.app.fileManager.processFrontMatter(file, (data) => {
+          data[key] = cb.checked;
+        });
+      });
+    } else if (type === "list") {
+      this.renderListEditor(row, file, key, value);
+    } else if (type === "date" || type === "datetime") {
+      const input = row.createEl("input", {
+        type: type === "date" ? "date" : "datetime-local",
+        cls: "feuillets-properties-value",
+      });
+      input.value = value;
+      input.addEventListener("change", async () => {
+        await this.app.fileManager.processFrontMatter(file, (data) => {
+          if (!input.value) delete data[key];
+          else data[key] = input.value;
+        });
+      });
+    } else {
+      const input = row.createEl("input", { type: "text", cls: "feuillets-properties-value" });
+      input.value = value === undefined || value === null ? "" : String(value);
+      const save = async () => {
+        const raw = input.value;
+        await this.app.fileManager.processFrontMatter(file, (data) => {
+          if (raw.trim() === "") {
+            delete data[key];
+            return;
+          }
+          if (type === "number") {
+            const num = Number(raw);
+            data[key] = Number.isNaN(num) ? raw : num;
+          } else {
+            data[key] = raw;
+          }
+        });
+      };
+      input.addEventListener("blur", save);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") input.blur();
+      });
+    }
+
+    const delBtn = row.createSpan({ cls: "feuillets-properties-delete" });
+    setIcon(delBtn, "x");
+    delBtn.setAttr("aria-label", `Supprimer « ${key} »`);
+    delBtn.addEventListener("click", async () => {
+      await this.app.fileManager.processFrontMatter(file, (data) => {
+        delete data[key];
+      });
+      await this.render(true);
+    });
+  }
+
+  /** Éditeur à jetons (façon liste de tags) pour une propriété liste —
+   * même vocabulaire visuel que l'éditeur de tags natif du plugin. */
+  renderListEditor(row, file, key, values) {
+    const wrap = row.createDiv({ cls: "feuillets-tags feuillets-properties-list-editor" });
+    values.forEach((v, idx) => {
+      const chip = wrap.createSpan({ cls: "feuillets-tag-chip" });
+      chip.setText(String(v));
+      chip.setAttr("title", "Cliquer pour retirer");
+      chip.addEventListener("click", async () => {
+        const next = values.filter((_, i) => i !== idx);
+        await this.app.fileManager.processFrontMatter(file, (data) => {
+          if (next.length === 0) delete data[key];
+          else data[key] = next;
+        });
+      });
+    });
+    const input = wrap.createEl("input", {
+      cls: "feuillets-tags-input",
+      type: "text",
+      attr: { placeholder: values.length ? "+" : "+ valeur" },
+    });
+    input.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      const raw = input.value.trim();
+      if (!raw) return;
+      const added = raw.split(",").map((s) => s.trim()).filter(Boolean);
+      await this.app.fileManager.processFrontMatter(file, (data) => {
+        data[key] = [...values, ...added];
+      });
+      input.value = "";
+      input.blur();
+    });
+  }
+
   renderFolderNoteLinks(container, file) {
     const root = this.plugin.getProjectFolder();
     if (!root) return;
@@ -221,7 +402,7 @@ export class NotesView extends ItemView {
       const link = box.createDiv({ cls: "feuillets-notes-folder-link" });
       const icon = link.createSpan({ cls: "feuillets-notes-folder-link-icon" });
       setIcon(icon, "notebook-text");
-      link.createSpan().setText(folder.name);
+      link.createSpan({ cls: "feuillets-notes-folder-link-name" }).setText(folder.name);
       link.setAttr("title", `Note de « ${folder.name} »`);
       link.addEventListener("click", async (e) => {
         e.preventDefault();
@@ -234,13 +415,13 @@ export class NotesView extends ItemView {
     }
   }
 
-  async renderCitedEntities(container, file, sceneDate) {
+  async renderCitedEntities(container, file, sceneDate, jalons = []) {
     const S = this.plugin.settings;
     const collapseKey = "notes:field:contexte";
     const collapsed = !!S.collapsed[collapseKey];
 
     const researchRoot = this.plugin.getResearchRoot();
-    if (!researchRoot) return;
+    if (!researchRoot && jalons.length === 0) return;
 
     const projectEntities = [];
     const walk = (folder) => {
@@ -252,12 +433,13 @@ export class NotesView extends ItemView {
         }
       }
     };
-    walk(researchRoot);
+    if (researchRoot) walk(researchRoot);
 
     const raw = await this.app.vault.cachedRead(file);
     const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
 
     const citedSet = new Set();
+    for (const jalon of jalons) citedSet.add(jalon);
 
     const linkRe = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
     let m;
@@ -284,7 +466,7 @@ export class NotesView extends ItemView {
 
       const title = this.plugin.titleFor(ent);
       const basename = ent.basename;
-      const aliases = this.plugin.fmOf(ent)?.aliases || [];
+      const aliases = this.fm(ent)?.aliases || [];
       const aliasList = (Array.isArray(aliases) ? aliases : [aliases]).map(String).filter(Boolean);
 
       const candidates = [title, basename, ...aliasList]
@@ -305,14 +487,11 @@ export class NotesView extends ItemView {
     const entities = [...citedSet];
     if (entities.length === 0) return;
 
+    /* Regroupées par nature (personnage/lieu/événement/codex) sans le
+       préciser visuellement : inutile de l'expliciter, la nature de
+       chaque fiche est déjà évidente au premier coup d'œil (nom, âge
+       éventuel...). */
     const ORDER = ["personnage", "lieu", "evenement", "codex", null];
-    const LABEL = {
-      personnage: "Personnages",
-      lieu: "Lieux",
-      evenement: "Événements",
-      codex: "Codex",
-      null: "Autres fiches",
-    };
     entities.sort(
       (a, b) => ORDER.indexOf(this.entityKind(a)) - ORDER.indexOf(this.entityKind(b))
     );
@@ -338,17 +517,9 @@ export class NotesView extends ItemView {
 
     const box = section.createDiv({ cls: "feuillets-notes-entities-body", style: "margin-top: 6px;" });
 
-    let lastKind = undefined;
     for (const ent of entities) {
-      const efm = this.plugin.fmOf(ent);
+      const efm = this.fm(ent);
       const kind = this.entityKind(ent);
-
-      if (kind !== lastKind) {
-        box
-          .createDiv({ cls: "feuillets-entity-group" })
-          .setText(LABEL[String(kind)]);
-        lastKind = kind;
-      }
 
       const row = box.createDiv({ cls: "feuillets-entity-row" });
       const head = row.createDiv({ cls: "feuillets-entity-head" });
@@ -401,6 +572,56 @@ export class NotesView extends ItemView {
       } else if (!shown && !efm.synopsis) {
         info.remove();
       }
+    }
+  }
+
+  /** Notes de bas de page (`[^label]: texte`) définies dans le corps du
+   * feuillet — lecture seule (le contenu vit dans le corps du texte, pas
+   * dans le frontmatter, contrairement aux autres rubriques de ce
+   * panneau) : cliquer une entrée ouvre le feuillet à l'endroit de sa
+   * définition plutôt que de proposer une édition qui serait trompeuse. */
+  async renderFootnotesSection(container, file) {
+    const S = this.plugin.settings;
+    const collapseKey = "notes:field:footnotes";
+    const collapsed = !!S.collapsed[collapseKey];
+
+    const raw = await this.app.vault.cachedRead(file);
+    const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+
+    const footnotes = [];
+    const re = /^\[\^([^\]]+)\]:[ \t]*(.+)$/gm;
+    let m;
+    while ((m = re.exec(body)) !== null) {
+      footnotes.push({ label: m[1], text: m[2].trim() });
+    }
+    if (footnotes.length === 0) return;
+
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+
+    const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(iconSpan, "list");
+
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText("Notes de bas de page");
+
+    head.addEventListener("click", async () => {
+      if (collapsed) delete S.collapsed[collapseKey];
+      else S.collapsed[collapseKey] = true;
+      await this.plugin.saveSettings();
+      this.render();
+    });
+
+    if (collapsed) return;
+
+    const list = section.createDiv({ cls: "feuillets-notes-field-container" });
+    for (const fn of footnotes) {
+      const row = list.createDiv({ cls: "feuillets-flat-text-cell" });
+      row.createSpan({ cls: "feuillets-entity-name" }).setText(`[^${fn.label}] `);
+      row.createSpan().setText(fn.text);
+      row.style.cursor = "pointer";
+      row.addEventListener("click", () => {
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+      });
     }
   }
 

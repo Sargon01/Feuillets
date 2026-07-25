@@ -6,8 +6,7 @@ const { TFile } = require("obsidian");
 
 export class ResearchView extends BaseFeuilletsView {
   constructor(leaf, plugin) {
-    super(leaf);
-    this.plugin = plugin;
+    super(leaf, plugin);
   }
 
   getViewType() {
@@ -27,7 +26,7 @@ export class ResearchView extends BaseFeuilletsView {
   }
 
   async render(force = false) {
-    const container = this.contentEl;
+    const container = this.targetContainer || this.contentEl;
     if (!force && isEditing(container)) return;
 
     const myGen = (this._renderGen = (this._renderGen || 0) + 1);

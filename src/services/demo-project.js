@@ -19,7 +19,7 @@ async function writeSheet(app, folder, name, lines) {
 const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, tags, date, notes, compiler, body }) => [
   "---",
   `titre: ${titre}`,
-  `titre_court: ${titreCourt || ""}`,
+  `titre_binder: ${titreCourt || ""}`,
   `ordre: ${ordre}`,
   `synopsis: ${synopsis || ""}`,
   `statut: ${statut || ""}`,
@@ -91,7 +91,7 @@ async function generate(app, S, plugin, manuscritPath) {
     label: "Rouge",
     tags: "exemple, demo/premier-niveau",
     notes: "Ce champ « Notes » n'est jamais compilé ni compté dans le nombre de mots — utilise-le pour tes pense-bêtes.",
-    body: 'Ceci est un exemple de scène. Le champ `titre_court` ("Ouverture") est ce qui s\'affiche dans le binder et l\'onglet Obsidian, à la place du nom de fichier. Le `label: Rouge` te permet de suivre ce fil dans le panneau Cartes → mode Chemin de fer : choisis « Rouge » dans le sélecteur « Label / Fil » pour voir la ligne continue courir à travers les scènes qui le portent, même à travers des chapitres différents. Le tag `demo/premier-niveau` est un tag imbriqué — regarde le panneau Tags pour voir comment il apparaît dans l\'arborescence.',
+    body: 'Ceci est un exemple de scène. Le champ `titre_binder` ("Ouverture") est ce qui s\'affiche dans le binder et l\'onglet Obsidian, à la place du nom de fichier. Le `label: Rouge` te permet de suivre ce fil dans le panneau Cartes → mode Chemin de fer : choisis « Rouge » dans le sélecteur « Label / Fil » pour voir la ligne continue courir à travers les scènes qui le portent, même à travers des chapitres différents. Le tag `demo/premier-niveau` est un tag imbriqué — regarde le panneau Tags pour voir comment il apparaît dans l\'arborescence.',
   }));
   await writeSheet(app, chap1, "2. La rencontre", sceneLines({
     titre: "La rencontre",
@@ -183,7 +183,7 @@ async function generate(app, S, plugin, manuscritPath) {
     "  - codex",
     "---",
     "",
-    `En mode Fiction, ce dossier s'appelle « ${rf.codex.label} » — en mode Non-fiction, le même mécanisme (mêmes champs, même tag \`codex\`) s'appelle « Concepts ». Seul le nom affiché change selon le type de projet choisi à la création.`,
+    `Ce dossier n'existe qu'en mode Fiction — en Non-fiction, les rubriques comme celle-ci se créent à la demande via le bouton "Nouvelle rubrique" du panneau Recherche, plutôt que d'être imposées d'avance.`,
     "",
   ]);
 
@@ -265,7 +265,7 @@ async function generate(app, S, plugin, manuscritPath) {
     "",
     "## Où regarder",
     "",
-    "- **Manuscrit/** — structure Partie → Chapitre → Scène. Ouvre « 1. Ouverture » pour le tour des champs de base (titre_court, label, tags imbriqués). « 2. La rencontre » montre le rapprochement automatique avec un jalon de la Chronologie via le champ `date`.",
+    "- **Manuscrit/** — structure Partie → Chapitre → Scène. Ouvre « 1. Ouverture » pour le tour des champs de base (titre_binder, label, tags imbriqués). « 2. La rencontre » montre le rapprochement automatique avec un jalon de la Chronologie via le champ `date`.",
     "- **Panneau Cartes → mode Chemin de fer** — sélecteur « Label / Fil » : choisis « Rouge » pour voir un même label courir sur plusieurs chapitres ; choisis « secret-de-l-ordre » pour voir l'automatisation des fils narratifs (plantation dans « La révélation », marqueur automatique sur le dernier feuillet « Le silence »).",
     "- **Front/** — ne s'affiche jamais dans les vues narratives (Chemin de fer, Chronologie, Lecture).",
     "- **Recherche/** — une fiche par type de dossier (Personnages, Lieux, Lore, Bibliographie, Glossaire, Chronologie/Événements).",

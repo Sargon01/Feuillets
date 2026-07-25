@@ -128,7 +128,7 @@ export class ImportOutlineModal extends Modal {
           const fileLines = [
             "---",
             `titre: ${title}`,
-            "titre_court: ",
+            "titre_binder: ",
             `ordre: ${fileIdx}`,
             "synopsis: ",
             "resume: ",
