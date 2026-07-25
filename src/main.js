@@ -43,6 +43,7 @@ import { handleFilChanged } from "./services/narrative-threads.js";
 import { createDemoProject } from "./services/demo-project.js";
 import { generateCanvasBoard } from "./services/canvas-board.js";
 import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, duplicateProjectFolder, getVersionsRoot } from "./services/project-files.js";
+import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
@@ -103,6 +104,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerVaultEvents();
     this.patchTabTitles();
     this.registerSwipeGestures();
+    this.registerAutoBackup();
     this.registerEditorExtension(searchHighlightField);
     this.registerEditorExtension(grammarIssuesField);
     this.registerEditorExtension(grammarClickHandler(this));
@@ -464,6 +466,11 @@ class FeuilletsPlugin extends Plugin {
           await this.duplicateProject(root.path, label);
         }).open();
       },
+    });
+    this.addCommand({
+      id: "backup-project-now",
+      name: "Sauvegarder le projet maintenant (.zip)",
+      callback: () => this.backupProjectNow(),
     });
     this.addCommand({
       id: "next-sheet",
@@ -2282,6 +2289,47 @@ class FeuilletsPlugin extends Plugin {
       editor.setCursor({ line: cursor.line, ch: cursor.ch + text.length });
     }
     new Notice("Contenu inséré.");
+  }
+
+  /** Sauvegarde automatique périodique (.zip de tout le projet actif dans
+   * _Backups) — filet de sécurité en plus des _Versions manuelles, sans
+   * dépendre d'un événement de fermeture d'Obsidian (pas fiable pour de
+   * l'I/O asynchrone) : un simple minuteur pendant que le coffre est
+   * ouvert, comme la sauvegarde périodique de Scrivener. */
+  registerAutoBackup() {
+    this._lastBackupAt = 0;
+    const tick = async () => {
+      if (!this.settings.backupEnabled) return;
+      const root = this.getProjectFolder();
+      if (!root) return;
+      const intervalMs = Math.max(1, this.settings.backupIntervalMinutes || 30) * 60 * 1000;
+      if (Date.now() - this._lastBackupAt < intervalMs) return;
+      this._lastBackupAt = Date.now();
+      try {
+        await createProjectBackup(this.app, root, this.settings);
+      } catch (e) {
+        console.error("Feuillets : sauvegarde automatique", e);
+      }
+    };
+    // Vérifié toutes les minutes ; la vraie cadence des sauvegardes est
+    // imposée par backupIntervalMinutes (comparaison de date dans tick()).
+    this.registerInterval(window.setInterval(() => tick(), 60 * 1000));
+  }
+
+  async backupProjectNow() {
+    const root = this.getProjectFolder();
+    if (!root) {
+      new Notice("Aucun projet actif.");
+      return;
+    }
+    new Notice("Sauvegarde en cours…");
+    try {
+      const path = await createProjectBackup(this.app, root, this.settings);
+      this._lastBackupAt = Date.now();
+      new Notice(`Sauvegarde créée : ${path}`, 8000);
+    } catch (e) {
+      new Notice(`Échec de la sauvegarde : ${(e.message || String(e)).slice(0, 200)}`);
+    }
   }
 
   registerSwipeGestures() {

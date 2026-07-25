@@ -188,5 +188,12 @@ export const DEFAULT_SETTINGS = {
   /* désactivé par défaut : redon1/redon2 (répétitions de mots proches) sont
      bruyantes — Grammalecte lui-même les désactive par défaut. */
   grammalecteDetectRepetitions: false,
+  /* sauvegarde automatique : copie .zip périodique de tout le projet actif
+     (manuscrit + recherche + versions + snapshots) dans _Backups, en
+     complément des _Versions manuelles — filet de sécurité si l'auteur
+     oublie de dupliquer avant une grosse réécriture. */
+  backupEnabled: true,
+  backupIntervalMinutes: 30,
+  backupKeepCount: 5,
 };
 

@@ -294,6 +294,48 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
+    containerEl.createEl("h3", { text: "Sauvegarde" });
+
+    new Setting(containerEl)
+      .setName("Sauvegarde automatique")
+      .setDesc("Copie .zip périodique de tout le projet actif dans _Backups (voisin du dossier manuscrit) — filet de sécurité en plus des versions manuelles.")
+      .addToggle((t) =>
+        t.setValue(S.backupEnabled).onChange(async (v) => {
+          S.backupEnabled = v;
+          await this.plugin.saveSettings();
+          this.display();
+        })
+      );
+
+    if (S.backupEnabled) {
+      new Setting(containerEl)
+        .setName("Intervalle de sauvegarde (minutes)")
+        .addText((t) =>
+          t.setValue(String(S.backupIntervalMinutes)).onChange(async (v) => {
+            const n = parseInt(v, 10);
+            S.backupIntervalMinutes = isNaN(n) ? 30 : Math.max(1, n);
+            await this.plugin.saveSettings();
+          })
+        );
+
+      new Setting(containerEl)
+        .setName("Nombre de sauvegardes conservées")
+        .setDesc("Les plus anciennes sont supprimées automatiquement au-delà.")
+        .addText((t) =>
+          t.setValue(String(S.backupKeepCount)).onChange(async (v) => {
+            const n = parseInt(v, 10);
+            S.backupKeepCount = isNaN(n) ? 5 : Math.max(1, n);
+            await this.plugin.saveSettings();
+          })
+        );
+
+      new Setting(containerEl)
+        .setName("Sauvegarder maintenant")
+        .addButton((b) =>
+          b.setButtonText("Sauvegarder").onClick(() => this.plugin.backupProjectNow())
+        );
+    }
+
     containerEl.createEl("h3", { text: "Panneau Cartes" });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
@@ -1494,6 +1536,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const MAP = {
       "Dossier du projet": "Projet & Écriture",
       "Objectifs": "Projet & Écriture",
+      "Sauvegarde": "Projet & Écriture",
       "Numérotation": "Projet & Écriture",
       "Typographie à la frappe": "Projet & Écriture",
       "Mode concentration": "Projet & Écriture",
@@ -1576,7 +1619,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         }
         const subDet = document.createElement("details");
         subDet.addClass("feuillets-settings-subsection");
-        if (sub.title === "Dossier du projet") subDet.setAttr("open", "");
+        if (sub.title === "Dossier du projet" || sub.title === "Sauvegarde") subDet.setAttr("open", "");
         const subSum = document.createElement("summary");
         subSum.setText(sub.title);
         subSum.addClass("feuillets-settings-subhead");
