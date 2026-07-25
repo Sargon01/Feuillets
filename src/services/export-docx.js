@@ -46,7 +46,8 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
   footnotes.forEach((f, i) => {
     const id = i + 1;
     footnoteIdByHref.set(f.id, id);
-    footnoteMap[id] = { children: [new Paragraph({ children: [new TextRun(` ${f.text}`)] })] };
+    const text = (f.text || "").replace(/[\s\/\\]+$/, "").trim();
+    footnoteMap[id] = { children: [new Paragraph({ children: [new TextRun(` ${text}`)] })] };
   });
 
   const headings = normalizeHeadings(tpl);

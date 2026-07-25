@@ -183,7 +183,24 @@ function extractFootnotes(container) {
       const id = li.getAttribute("id") || "";
       const clone = li.cloneNode(true);
       clone.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
-      footnotes.push({ id, html: clone.innerHTML.trim(), text: clone.textContent.trim() });
+
+      let html = clone.innerHTML.trim();
+      let text = clone.textContent.trim();
+
+      // Clean trailing slashes, backslashes, spaces, and backref markers
+      text = text
+        .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
+        .replace(/[\s\/\\]+$/, "")
+        .trim();
+
+      html = html
+        .replace(/<a[^>]*class=["'](?:footnote-backref|internal-link)["'][^>]*>.*?<\/a>/gi, "")
+        .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
+        .replace(/(?:&nbsp;|\s)*[\/\\]+\s*(?:<\/p>)?$/gi, "$1")
+        .replace(/[\s\/\\]+(?=<\/p>|$)/gi, "")
+        .trim();
+
+      footnotes.push({ id, html, text });
     });
     section.remove();
   } catch (e) {
