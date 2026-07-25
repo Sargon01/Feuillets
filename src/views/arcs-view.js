@@ -7,7 +7,7 @@ export class ArcsView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.selectedArc = ""; // Filtre d'élément actif ("" = tous)
-    this.categoryFilter = "all"; // "all" | "personnages" | "fils" | "labels" | "pov" | "tags"
+    this.categoryFilter = "all"; // "all" | "fils" | "labels"
     this.displayMode = "table"; // "table" (Tableau lisible) | "rails" (Frise rails)
   }
 
@@ -16,7 +16,7 @@ export class ArcsView extends ItemView {
   }
 
   getDisplayText() {
-    return "Suivi Narratif & Arcs";
+    return "Arcs & Lieux";
   }
 
   getIcon() {
@@ -48,7 +48,7 @@ export class ArcsView extends ItemView {
 
     const wrapper = container.createDiv({ cls: "feuillets-notes-container" });
 
-    // 1. Collecte récursive des chapitres/parties et scènes dans l'ordre chronologique
+    // 1. Collecte des chapitres et scènes
     const items = [];
     const collect = (folder) => {
       const children = this.plugin.getOrderedChildren(folder);
@@ -72,7 +72,7 @@ export class ArcsView extends ItemView {
     };
     collect(root);
 
-    // 2. Extraction des métadonnées narratologiques
+    // 2. Extraction simple des lieux et fils
     const parseList = (val) => {
       if (!val) return [];
       if (Array.isArray(val)) return val.flatMap(x => parseList(x));
@@ -84,33 +84,21 @@ export class ArcsView extends ItemView {
     const scenes = items.filter(x => x.type === "file");
     const arcSet = new Set();
     const sceneArcsMap = new Map();
-    const scenePersosMap = new Map();
     const sceneFilsMap = new Map();
     const sceneLabelsMap = new Map();
-    const scenePovMap = new Map();
-    const sceneTagsMap = new Map();
 
     for (const sc of scenes) {
       const fm = this.plugin.fmOf(sc.file) || {};
-      const persos = [...parseList(fm.personnages), ...parseList(fm.persos)];
-      const fils = [...parseList(fm.fil), ...parseList(fm.fils), ...parseList(fm.arcs), ...parseList(fm.arc)];
-      const labels = [...parseList(fm.label), ...parseList(fm.labels), ...parseList(fm.lieu), ...parseList(fm.lieux)];
-      const pov = [...parseList(fm.pov), ...parseList(fm.focalisation)];
-      const tags = parseList(fm.tags);
+      const fils = [...parseList(fm.fil), ...parseList(fm.fils)];
+      const labels = [...parseList(fm.label), ...parseList(fm.labels)];
 
-      scenePersosMap.set(sc.file.path, persos);
       sceneFilsMap.set(sc.file.path, fils);
       sceneLabelsMap.set(sc.file.path, labels);
-      scenePovMap.set(sc.file.path, pov);
-      sceneTagsMap.set(sc.file.path, tags);
 
       let list = [];
-      if (this.categoryFilter === "personnages") list = persos;
-      else if (this.categoryFilter === "fils") list = fils;
+      if (this.categoryFilter === "fils") list = fils;
       else if (this.categoryFilter === "labels") list = labels;
-      else if (this.categoryFilter === "pov") list = pov;
-      else if (this.categoryFilter === "tags") list = tags;
-      else list = [...persos, ...fils, ...labels, ...pov, ...tags];
+      else list = [...fils, ...labels];
 
       list = list.filter((v, i, self) => self.indexOf(v) === i);
       sceneArcsMap.set(sc.file.path, list);
@@ -123,54 +111,23 @@ export class ArcsView extends ItemView {
       let hash = 0;
       for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
       const h = Math.abs(hash) % 360;
-      return `hsl(${h}, 70%, 45%)`;
+      return `hsl(${h}, 65%, 45%)`;
     };
 
-    // 3. Carte d'aide explicative avec bascule de mode
-    const helpCard = wrapper.createDiv({
-      cls: "feuillets-arcs-help-card",
-      style: "display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); margin-bottom: 12px; font-size: var(--font-ui-small);"
-    });
-    const helpLeft = helpCard.createDiv({ style: "display: flex; align-items: center; gap: 10px;" });
-    helpLeft.createDiv({ style: "font-size: 1.3em;" }).setText("🗺️");
-    helpLeft.createDiv({ style: "color: var(--text-muted); line-height: 1.4;" }).innerHTML =
-      `<strong>Suivi Narratif :</strong> Suivez les apparitions de vos <strong>personnages</strong>, la progression des <strong>arcs narratifs</strong>, les changements de <strong>décors</strong> et les <strong>points de vue (POV)</strong> à travers le manuscrit.`;
-
-    const modeToggleGroup = helpCard.createDiv({ style: "display: flex; gap: 2px; background: var(--background-modifier-form-field); padding: 2px; border-radius: var(--radius-s); border: 1px solid var(--background-modifier-border); flex-shrink: 0;" });
-    
-    const btnTable = modeToggleGroup.createEl("button", {
-      text: "📊 Tableau",
-      style: `padding: 4px 10px; font-size: var(--font-ui-smaller); border: none; border-radius: var(--radius-xs); cursor: pointer; background: ${this.displayMode === "table" ? "var(--interactive-accent)" : "transparent"}; color: ${this.displayMode === "table" ? "var(--text-on-accent)" : "var(--text-muted)"};`
-    });
-    btnTable.addEventListener("click", () => {
-      this.displayMode = "table";
-      this.render();
-    });
-
-    const btnRails = modeToggleGroup.createEl("button", {
-      text: "🛤️ Frise rails",
-      style: `padding: 4px 10px; font-size: var(--font-ui-smaller); border: none; border-radius: var(--radius-xs); cursor: pointer; background: ${this.displayMode === "rails" ? "var(--interactive-accent)" : "transparent"}; color: ${this.displayMode === "rails" ? "var(--text-on-accent)" : "var(--text-muted)"};`
-    });
-    btnRails.addEventListener("click", () => {
-      this.displayMode = "rails";
-      this.render();
-    });
-
-    // 4. Barre d'outils avec filtres par catégorie narrologique
+    // 3. Barre d'outils sobre et épurée
     const toolbar = wrapper.createDiv({
       cls: "feuillets-arcs-toolbar",
-      style: "display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--background-secondary-alt); border-bottom: 1px solid var(--background-modifier-border); margin-bottom: 14px; border-radius: var(--radius-m); flex-wrap: wrap;"
+      style: "display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; background: var(--background-secondary-alt); border-bottom: 1px solid var(--background-modifier-border); margin-bottom: 14px; border-radius: var(--radius-m); flex-wrap: wrap;"
     });
 
-    // Filtres de catégorie
-    const catGroup = toolbar.createDiv({ style: "display: flex; gap: 4px; background: var(--background-modifier-form-field); padding: 2px; border-radius: var(--radius-s); border: 1px solid var(--background-modifier-border); flex-wrap: wrap;" });
+    // Filtres de vue
+    const leftGroup = toolbar.createDiv({ style: "display: flex; align-items: center; gap: 8px;" });
+
+    const catGroup = leftGroup.createDiv({ style: "display: flex; gap: 2px; background: var(--background-modifier-form-field); padding: 2px; border-radius: var(--radius-s); border: 1px solid var(--background-modifier-border);" });
     const catOptions = [
-      { id: "all", label: "🌟 Tous" },
-      { id: "personnages", label: "👥 Personnages" },
-      { id: "fils", label: "🧵 Arcs & Fils" },
+      { id: "all", label: "Tous" },
       { id: "labels", label: "📍 Lieux" },
-      { id: "pov", label: "👁️ POV" },
-      { id: "tags", label: "🏷️ Tags" }
+      { id: "fils", label: "🧵 Fils" }
     ];
 
     for (const opt of catOptions) {
@@ -186,17 +143,17 @@ export class ArcsView extends ItemView {
     }
 
     // Sélecteur d'élément spécifique
-    const select = toolbar.createEl("select", {
+    const select = leftGroup.createEl("select", {
       cls: "feuillets-arcs-filter",
       style: "padding: 5px 8px; border-radius: var(--radius-s); font-size: var(--font-ui-small); background: var(--background-modifier-form-field); border: 1px solid var(--background-modifier-border); cursor: pointer;"
     });
 
-    const allOpt = select.createEl("option", { text: "— Filtrer un élément spécifique —" });
+    const allOpt = select.createEl("option", { text: "— Filtrer un élément —" });
     allOpt.value = "";
 
     for (const arc of allArcs) {
       const count = scenes.filter(sc => (sceneArcsMap.get(sc.file.path) || []).includes(arc)).length;
-      const opt = select.createEl("option", { text: `${arc} (${count} chapitre${count > 1 ? "s" : ""})` });
+      const opt = select.createEl("option", { text: `${arc} (${count})` });
       opt.value = arc;
     }
 
@@ -206,15 +163,36 @@ export class ArcsView extends ItemView {
       this.render();
     });
 
+    // Bascule de mode Tableau / Frise
+    const rightGroup = toolbar.createDiv({ style: "display: flex; gap: 2px; background: var(--background-modifier-form-field); padding: 2px; border-radius: var(--radius-s); border: 1px solid var(--background-modifier-border);" });
+    
+    const btnTable = rightGroup.createEl("button", {
+      text: "📊 Tableau",
+      style: `padding: 4px 10px; font-size: var(--font-ui-smaller); border: none; border-radius: var(--radius-xs); cursor: pointer; background: ${this.displayMode === "table" ? "var(--interactive-accent)" : "transparent"}; color: ${this.displayMode === "table" ? "var(--text-on-accent)" : "var(--text-muted)"};`
+    });
+    btnTable.addEventListener("click", () => {
+      this.displayMode = "table";
+      this.render();
+    });
+
+    const btnRails = rightGroup.createEl("button", {
+      text: "🛤️ Frise",
+      style: `padding: 4px 10px; font-size: var(--font-ui-smaller); border: none; border-radius: var(--radius-xs); cursor: pointer; background: ${this.displayMode === "rails" ? "var(--interactive-accent)" : "transparent"}; color: ${this.displayMode === "rails" ? "var(--text-on-accent)" : "var(--text-muted)"};`
+    });
+    btnRails.addEventListener("click", () => {
+      this.displayMode = "rails";
+      this.render();
+    });
+
     if (allArcs.length === 0) {
       wrapper
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucun élément narratif détecté. Renseignez 'personnages:', 'fil:', 'label:', ou 'pov:' dans vos chapitres.");
+        .setText("Aucun lieu ni fil détecté dans le YAML. Renseignez 'label:' ou 'fil:' dans vos chapitres.");
       return;
     }
 
     // -------------------------------------------------------------
-    // OPTION A : MODE TABLEAU CLAIR ET LISIBLE (PAR DÉFAUT)
+    // OPTION A : TABLEAU MINIMAL ET ÉPURÉ (DEFAULT)
     // -------------------------------------------------------------
     if (this.displayMode === "table") {
       const tableContainer = wrapper.createDiv({ cls: "feuillets-arcs-table-container", style: "overflow-x: auto;" });
@@ -224,19 +202,17 @@ export class ArcsView extends ItemView {
 
       const thead = table.createEl("thead");
       const trHead = thead.createEl("tr", { style: "border-bottom: 2px solid var(--background-modifier-border); background: var(--background-secondary-alt);" });
-      trHead.createEl("th", { text: "Chapitre", style: "padding: 8px 10px; text-align: left; width: 180px;" });
-      trHead.createEl("th", { text: "👥 Personnages", style: "padding: 8px 10px; text-align: left; width: 200px;" });
-      trHead.createEl("th", { text: "🧵 Arc / Fil", style: "padding: 8px 10px; text-align: left; width: 180px;" });
-      trHead.createEl("th", { text: "📍 Lieu", style: "padding: 8px 10px; text-align: left; width: 140px;" });
-      trHead.createEl("th", { text: "👁️ POV", style: "padding: 8px 10px; text-align: left; width: 90px;" });
-      trHead.createEl("th", { text: "Sous-titre / Résumé", style: "padding: 8px 10px; text-align: left;" });
+      trHead.createEl("th", { text: "Chapitre", style: "padding: 8px 12px; text-align: left; width: 200px;" });
+      trHead.createEl("th", { text: "📍 Lieu", style: "padding: 8px 12px; text-align: left; width: 150px;" });
+      trHead.createEl("th", { text: "🧵 Fil conducteur", style: "padding: 8px 12px; text-align: left; width: 200px;" });
+      trHead.createEl("th", { text: "Résumé", style: "padding: 8px 12px; text-align: left;" });
 
       const tbody = table.createEl("tbody");
 
       for (const item of items) {
         if (item.type === "folder") {
           const trFolder = tbody.createEl("tr", { style: "background: var(--background-secondary); border-top: 1px solid var(--background-modifier-border);" });
-          const tdFolder = trFolder.createEl("td", { colSpan: 6, style: "padding: 8px 10px; font-weight: bold; color: var(--text-accent);" });
+          const tdFolder = trFolder.createEl("td", { colSpan: 4, style: "padding: 8px 12px; font-weight: bold; color: var(--text-accent);" });
           tdFolder.setText(`📁 ${item.folder.name}`);
         } else {
           const file = item.file;
@@ -244,10 +220,8 @@ export class ArcsView extends ItemView {
           if (this.selectedArc && !list.includes(this.selectedArc)) continue;
 
           const fm = this.plugin.fmOf(file) || {};
-          const persos = scenePersosMap.get(file.path) || [];
           const fils = sceneFilsMap.get(file.path) || [];
           const labels = sceneLabelsMap.get(file.path) || [];
-          const pov = scenePovMap.get(file.path) || [];
 
           const trRow = tbody.createEl("tr", {
             style: "border-bottom: 1px solid var(--background-modifier-border); cursor: pointer; transition: background 0.1s ease;"
@@ -261,66 +235,39 @@ export class ArcsView extends ItemView {
           });
 
           // Col 1: Chapitre
-          const tdTitle = trRow.createEl("td", { style: "padding: 8px 10px; font-weight: 500;" });
+          const tdTitle = trRow.createEl("td", { style: "padding: 8px 12px; font-weight: 500;" });
           tdTitle.setText(this.plugin.shortTitleFor(file));
 
-          // Col 2: Personnages
-          const tdPersos = trRow.createEl("td", { style: "padding: 8px 10px;" });
-          if (persos.length > 0) {
-            for (const p of persos) {
-              const col = stringToColor(p);
-              tdPersos.createEl("span", {
-                text: p,
-                style: `display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 0.82em; font-weight: 500; background: ${col}20; color: ${col}; border: 1px solid ${col}40; margin: 2px 2px 2px 0;`
-              });
-            }
-          } else {
-            tdPersos.createEl("span", { text: "—", style: "color: var(--text-faint);" });
-          }
-
-          // Col 3: Fil / Arc
-          const tdFil = trRow.createEl("td", { style: "padding: 8px 10px;" });
-          if (fils.length > 0) {
-            for (const f of fils) {
-              const col = stringToColor(f);
-              tdFil.createEl("span", {
-                text: f,
-                style: `display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 0.82em; font-weight: 500; background: ${col}20; color: ${col}; border: 1px solid ${col}40; margin: 2px 2px 2px 0;`
-              });
-            }
-          } else {
-            tdFil.createEl("span", { text: "—", style: "color: var(--text-faint);" });
-          }
-
-          // Col 4: Lieu
-          const tdLabel = trRow.createEl("td", { style: "padding: 8px 10px;" });
+          // Col 2: Lieu
+          const tdLabel = trRow.createEl("td", { style: "padding: 8px 12px;" });
           if (labels.length > 0) {
             for (const l of labels) {
               const col = stringToColor(l);
               tdLabel.createEl("span", {
                 text: l,
-                style: `display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 0.82em; font-weight: 500; background: ${col}20; color: ${col}; border: 1px solid ${col}40; margin: 2px 2px 2px 0;`
+                style: `display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 500; background: ${col}18; color: ${col}; border: 1px solid ${col}30; margin-right: 4px;`
               });
             }
           } else {
             tdLabel.createEl("span", { text: "—", style: "color: var(--text-faint);" });
           }
 
-          // Col 5: POV
-          const tdPov = trRow.createEl("td", { style: "padding: 8px 10px;" });
-          if (pov.length > 0) {
-            const p = pov[0];
-            const col = stringToColor(p);
-            tdPov.createEl("span", {
-              text: p,
-              style: `display: inline-block; padding: 2px 6px; border-radius: 8px; font-size: 0.82em; font-weight: 600; background: ${col}25; color: ${col};`
-            });
+          // Col 3: Fil
+          const tdFil = trRow.createEl("td", { style: "padding: 8px 12px;" });
+          if (fils.length > 0) {
+            for (const f of fils) {
+              const col = stringToColor(f);
+              tdFil.createEl("span", {
+                text: f,
+                style: `display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 500; background: ${col}18; color: ${col}; border: 1px solid ${col}30; margin-right: 4px;`
+              });
+            }
           } else {
-            tdPov.createEl("span", { text: "—", style: "color: var(--text-faint);" });
+            tdFil.createEl("span", { text: "—", style: "color: var(--text-faint);" });
           }
 
-          // Col 6: Synopsis
-          const tdSyn = trRow.createEl("td", { style: "padding: 8px 10px; color: var(--text-muted); font-size: 0.88em; line-height: 1.35;" });
+          // Col 4: Synopsis
+          const tdSyn = trRow.createEl("td", { style: "padding: 8px 12px; color: var(--text-muted); font-size: 0.88em; line-height: 1.35;" });
           const synText = fm.synopsis || fm.sous_titre || "";
           tdSyn.setText(synText || "—");
         }
@@ -329,7 +276,7 @@ export class ArcsView extends ItemView {
     }
 
     // -------------------------------------------------------------
-    // OPTION B : MODE FRISE NARRATIVE / RAILS
+    // OPTION B : MODE FRISE CHRONOLOGIQUE RAILS
     // -------------------------------------------------------------
     const activeArcs = this.selectedArc ? [this.selectedArc] : allArcs;
     const filteredScenes = scenes.filter(sc => {
@@ -400,7 +347,7 @@ export class ArcsView extends ItemView {
     const headerLabel = headerRow.createDiv({
       style: "font-size: var(--font-ui-small); font-weight: var(--font-semibold, 600); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; padding-left: 8px;"
     });
-    headerLabel.setText(`Suivi Narratif (${activeArcs.length} élément${activeArcs.length > 1 ? "s" : ""})`);
+    headerLabel.setText(`Arcs & Lieux (${activeArcs.length})`);
 
     let sceneCount = 0;
     for (const item of items) {
