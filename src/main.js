@@ -1436,24 +1436,36 @@ class FeuilletsPlugin extends Plugin {
     return streak;
   }
 
-  openNeighbor(delta) {
+  /** `focusEditor: false` (Binder, navigation clavier flèches) : charge le
+   * feuillet suivant/précédent dans son volet SANS y déplacer le focus
+   * clavier — sinon la 2e pression de flèche irait déplacer le curseur de
+   * texte dans l'éditeur au lieu de continuer à naviguer dans le Binder. */
+  async openNeighbor(delta, { focusEditor = true } = {}) {
     const root = this.getProjectFolder();
     const current = this.app.workspace.getActiveFile();
-    if (!root || !current) return;
+    if (!root || !current) return null;
     const files = this.flattenFiles(root);
     const idx = files.findIndex((f) => f.path === current.path);
     if (idx === -1) {
       new Notice("Le fichier actif n'appartient pas au projet.");
-      return;
+      return null;
     }
     const next = files[idx + delta];
     if (!next) {
       new Notice(delta > 0 ? "Dernier feuillet." : "Premier feuillet.");
-      return;
+      return null;
     }
     const leaf = this.getLeafForOpeningFile();
-    openFileActivating(this.app, leaf, next);
-    this.app.workspace.revealLeaf(leaf);
+    if (focusEditor) {
+      openFileActivating(this.app, leaf, next);
+      this.app.workspace.revealLeaf(leaf);
+    } else {
+      // Attendu ici (contrairement au cas focusEditor) : l'appelant clavier
+      // du Binder (feuillets-view.js) a besoin du fichier réellement ouvert
+      // pour resynchroniser le dossier sélectionné avant de rendre la main.
+      await leaf.openFile(next, { active: true });
+    }
+    return next;
   }
 
   async updateStatusBar() {
@@ -1595,7 +1607,7 @@ class FeuilletsPlugin extends Plugin {
       const activeSidebarLeaf = this.app.workspace.getLeavesOfType(VIEW_SIDEBAR)[0];
       if (activeSidebarLeaf) {
         const isSinglePane = this.settings.binderTreeCollapsed || this.settings.binderListCollapsed;
-        const width = this.settings.binderLayout === "split" && !isSinglePane ? 400 : 250;
+        const width = !isSinglePane ? 400 : 250;
         this.safeSetSize(leftSplit, width);
       }
     }
@@ -2011,6 +2023,20 @@ class FeuilletsPlugin extends Plugin {
       const root = this.getProjectFolder();
       if (root) await this.renumberTitles(root);
     }
+    /* Un fichier qui porte EXACTEMENT le nom de son nouveau dossier parent
+       devient sa "note de dossier" (synopsis/description, convention
+       partagée avec getOrderedChildren dans folder-structure.js) au lieu
+       d'une scène normale — donc invisible dans toutes les vues (Binder,
+       Cartes, Plan…) sans le moindre signe. Sans cet avertissement,
+       glisser par erreur « Postface.md » dans un dossier « Postface » fait
+       "disparaître" le fichier sans explication. */
+    if (movedNow instanceof TFile && movedNow.basename === destFolder.name) {
+      new Notice(
+        `« ${node.name} » porte le même nom que le dossier « ${destFolder.name} » : il devient sa note de dossier (synopsis/description) et n'apparaît plus comme un feuillet dans les vues. Renomme-le pour qu'il redevienne une scène visible.`,
+        10000
+      );
+      return;
+    }
     new Notice(`« ${this.titleFor(movedNow) || node.name} » déplacé.`);
   }
 
@@ -2335,8 +2361,14 @@ class FeuilletsPlugin extends Plugin {
   }
 
   registerSwipeGestures() {
-    const leftSplit = this.app.workspace.leftSplit;
-    const rightSplit = this.app.workspace.rightSplit;
+    /* Lus à CHAQUE geste, jamais capturés une fois pour toutes : cette
+       méthode est appelée depuis onload(), bien avant que la mise en page
+       d'Obsidian soit restaurée (onLayoutReady arrive beaucoup plus tard)
+       — leftSplit/rightSplit valaient encore undefined à ce moment-là, et
+       une capture figée dans des `const` les gardait undefined pour
+       toujours, rendant tout le geste silencieusement inopérant. */
+    const getLeftSplit = () => this.app.workspace.leftSplit;
+    const getRightSplit = () => this.app.workspace.rightSplit;
     const isFichesView = () => !!this.settings.binderTreeCollapsed;
 
     const toggleFichesViewLight = (collapsed) => {
@@ -2361,26 +2393,41 @@ class FeuilletsPlugin extends Plugin {
       if (!toggleFichesViewLight(false)) this.renderAllViews(true);
     };
 
-    const executeSwipeRight = () => {
+    /* Volet GAUCHE (Binder) : 3 états cycliques (replié → fiches seules →
+       dossiers+fiches). `reveal` : true = déployer davantage, false =
+       replier davantage — c'est l'appelant (tactile ou trackpad) qui
+       traduit un sens de balayage en reveal/replier, jamais l'inverse ici. */
+    const executeLeftPanel = (reveal) => {
+      const leftSplit = getLeftSplit();
+      const rightSplit = getRightSplit();
       if (!this.settings.swipeGesturesEnabled) return;
       if (!leftSplit || !rightSplit) return;
       try {
-        if (leftSplit.collapsed) {
-          leftSplit.expand();
-          if (this.settings.binderLayout === "split") showFichesView();
-        } else if (this.settings.binderLayout === "split" && isFichesView()) {
-          showDossiersView();
+        if (reveal) {
+          if (leftSplit.collapsed) {
+            leftSplit.expand();
+            showFichesView();
+          } else if (isFichesView()) {
+            showDossiersView();
+          }
+        } else if (!leftSplit.collapsed) {
+          if (!isFichesView()) showFichesView();
+          else leftSplit.collapse();
         }
       } catch (e) {}
     };
 
-    const executeSwipeLeft = () => {
-      if (!this.settings.swipeGesturesEnabled) return;
-      if (!leftSplit || !rightSplit) return;
+    /* Volet DROIT (panneau Feuillets — Inspecteur, ou tout autre panneau
+       qui y est ancré) : simple bascule replié/déplié, pas de cycle à 3
+       états comme à gauche — rien d'équivalent au mode "fiches seules". */
+    const executeRightPanel = (reveal) => {
+      const rightSplit = getRightSplit();
+      if (!this.settings.swipeGesturesEnabled || !rightSplit) return;
       try {
-        if (!leftSplit.collapsed) {
-          if (this.settings.binderLayout === "split" && !isFichesView()) showFichesView();
-          else leftSplit.collapse();
+        if (reveal) {
+          if (rightSplit.collapsed) rightSplit.expand();
+        } else if (!rightSplit.collapsed) {
+          rightSplit.collapse();
         }
       } catch (e) {}
     };
@@ -2407,16 +2454,84 @@ class FeuilletsPlugin extends Plugin {
       const duration = Date.now() - touchStartTime;
       touchStartTime = 0;
       if (Math.abs(deltaX) > 80 && Math.abs(deltaY) < 50 && duration < 300) {
-        if (!leftSplit || !rightSplit) return;
         if (touchStartX < window.innerWidth * 0.37) {
-          if (deltaX > 0) executeSwipeRight();
-          else if (deltaX < 0) executeSwipeLeft();
+          // Près du bord gauche : geste sur le volet gauche.
+          executeLeftPanel(deltaX > 0);
+        } else if (touchStartX > window.innerWidth * 0.63) {
+          // Près du bord droit : geste sur le volet droit, sens inversé
+          // (on "tire" le panneau depuis le bord droit vers l'intérieur).
+          executeRightPanel(deltaX < 0);
         }
       }
     };
 
     this.registerDomEvent(window, "touchstart", onTouchStart, { passive: true });
     this.registerDomEvent(window, "touchend", onTouchEnd, { passive: true });
+
+    /* Balayage 2 doigts au trackpad (macOS/Windows precision trackpad) : ne
+       déclenche AUCUN événement tactile (touchstart/touchend ci-dessus,
+       écrans tactiles uniquement) — un trackpad envoie des événements
+       "wheel" avec deltaX/deltaY, jamais des Touch. Le réglage annonçait
+       "trackpad / tactile" mais seul le tactile était câblé ; ceci comble
+       le trou. On regroupe les événements "wheel" rapprochés en une seule
+       "rafale" (comme un seul balayage tactile) pour ne déclencher qu'une
+       fois par geste, même si le trackpad envoie des dizaines d'événements
+       pendant une seule glissade des doigts. */
+    let wheelAccumX = 0;
+    let wheelAccumY = 0;
+    let wheelLastTime = 0;
+    let wheelTriggered = false;
+    let wheelStartClientX = 0;
+
+    const onWheel = (e) => {
+      if (!this.settings.swipeGesturesEnabled) return;
+      if (e.ctrlKey) return; // pincer-zoomer envoie aussi des événements wheel
+      const target = e.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.closest(".cm-editor")) return;
+
+      const now = Date.now();
+      if (now - wheelLastTime > 200) {
+        // Doigts reposés puis relevés depuis > 200ms : nouvelle rafale.
+        wheelAccumX = 0;
+        wheelAccumY = 0;
+        wheelTriggered = false;
+        wheelStartClientX = e.clientX;
+      }
+      wheelLastTime = now;
+      wheelAccumX += e.deltaX;
+      wheelAccumY += e.deltaY;
+
+      if (wheelTriggered) return;
+      /* Pas de zone morte comme au tactile (le curseur traîne souvent côté
+         éditeur pendant qu'on écrit) — mais avec DEUX volets possibles, il
+         faut malgré tout décider LEQUEL cibler : la moitié de fenêtre où le
+         geste démarre tranche, sur toute la largeur, sans zone ignorée. */
+      const targetsLeft = wheelStartClientX < window.innerWidth / 2;
+      if (targetsLeft ? !getLeftSplit() : !getRightSplit()) return;
+      // Dominante horizontale franche, sinon un simple défilement vertical
+      // (deltaY) déclencherait le geste par erreur. Seuil abaissé (40, au
+      // lieu de 70) : le geste se déclenche avec moins de distance.
+      if (Math.abs(wheelAccumX) < 40 || Math.abs(wheelAccumX) < Math.abs(wheelAccumY) * 1.2) return;
+
+      wheelTriggered = true;
+      /* Sens du signe deltaX volontairement inversé par rapport à
+         l'intuition : confirmé par test (retour utilisateur) que le sens
+         "naturel" attendu était inversé sur ce trackpad. */
+      if (targetsLeft) executeLeftPanel(wheelAccumX < 0);
+      else executeRightPanel(wheelAccumX > 0);
+    };
+
+    /* capture:true — indispensable avec des plugins comme Notebook
+       Navigator : React attache son propre gestionnaire délégué pour
+       "wheel"/"touchstart"/"touchmove" en PHASE DE CAPTURE sur son
+       conteneur racine (confirmé dans son bundle : addEventListener(type,
+       handler, {capture:true, passive}) pour ces trois types précisément).
+       Un écouteur posé en phase de bulles sur `window`, comme avant, arrive
+       après coup et peut ne jamais recevoir l'événement si ce gestionnaire
+       react stoppe la propagation en chemin. En capture sur `window`, on
+       est les tout premiers servis, quoi que fasse un plugin plus bas dans
+       l'arbre ensuite. */
+    this.registerDomEvent(window, "wheel", onWheel, { passive: true, capture: true });
   }
 
   // --- GESTION DYNAMIQUE DES PANNEAUX SECONDAIRES ---

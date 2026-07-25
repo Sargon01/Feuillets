@@ -24,13 +24,14 @@ export const DEFAULT_SETTINGS = {
   liveJustify: false, // texte justifié en Live Preview (sans césure : la césure y coûte trop cher au défilement)
   readingMatchLive: true, // mode lecture : même interligne et espacement de paragraphes qu'en Live Preview
   readingFontSize: 0, // px, mode lecture uniquement — 0 = taille par défaut d'Obsidian (partagée avec Live Preview, donc pas réglable indépendamment sans ceci)
-  binderLayout: "split", // "tree" (historique) | "split" (dossiers | feuillets, façon Notebook Navigator/Ulysses — par défaut)
+  binderLayout: "split", // toujours "split" désormais (dossiers | feuillets) — "tree" retiré (couvert par la racine du double volet en récursif)
   binderSelectedPath: "", // dossier sélectionné dans le volet gauche en vue double volet
   binderTreeWidth: 170, // px, largeur du volet gauche en vue double volet
   binderTreeCollapsed: false, // replie le volet gauche (dossiers) en vue double volet — volet unique "fiches"
   binderListCollapsed: false, // replie le volet droit (feuillets) en vue double volet — volet unique "dossiers"
   listPanePreviewField: "synopsis", // "none" | "synopsis" | "resume" | "notes" | "tags" — champ affiché en aperçu dans le volet fichier (lecture seule)
   listPanePreviewLines: 2, // nombre de lignes avant troncature de l'aperçu
+  binderCompact: false, // volet fichier : masque l'aperçu, lignes plus denses (menu clic droit "Double volet")
 
   binderSplitRecursive: true, // volet fichier : inclure les sous-dossiers du dossier sélectionné (sinon feuillets à plusieurs niveaux invisibles)
   swipeGesturesEnabled: true, // gestes trackpad/tactile pour ouvrir/fermer les volets latéraux — désactivable en cas de conflit avec un autre plugin
@@ -89,7 +90,6 @@ export const DEFAULT_SETTINGS = {
   liveEmptyLines: "normal", // "normal" | "reduit" | "invisible"
   liveHyphenation: false, // césure française en mode lecture
   liveTwoEnters: false, // Entrée insère un saut de paragraphe (ligne vide)
-  settingsAdvanced: false, // affiche les réglages avancés
   concentrationWidth: 720, // px — largeur de la colonne de texte
   dimOpacity: 35, // % — estompage du texte hors focus
   concentrationUnit: "line", // "line" (fiable) | "paragraph"

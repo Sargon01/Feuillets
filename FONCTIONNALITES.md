@@ -102,16 +102,24 @@ Plein écran d'écriture, activable par icône (ruban, binder) ou commande.
 
 ## 7. Gestes de balayage (swipe)
 
-Ouverture/fermeture des barres latérales par geste, sans clic.
+Ouverture/fermeture des barres latérales par geste, sans clic — **[Réglages]**
+`swipeGesturesEnabled`.
 
-- **Tactile** (mobile/tablette) : balayage horizontal dans le tiers gauche/droit
-  de l'écran
-- **Trackpad/souris horizontale** (Magic Mouse) : accumulation du défilement
-  horizontal sur toute la durée du geste (pas un seuil par évènement), un seul
-  déclenchement par geste physique
-- Cycle à gauche : Fermé ↔ Fiches (volet fichiers seul) ↔ Dossiers (double
-  volet complet)
-- Zone de détection : 37 % gauche / 37 % droit de la largeur de fenêtre
+- **Tactile** (mobile/tablette, écran tactile) : balayage horizontal, zone de
+  détection 37 % gauche / 37 % droit de la largeur de fenêtre
+- **Trackpad à 2 doigts** (macOS/Windows) : accumulation du défilement
+  horizontal (`wheel`) sur toute la durée du geste, un seul déclenchement par
+  geste physique ; pas de zone de détection par bord — le curseur peut se
+  trouver n'importe où hors de l'éditeur, seule la moitié de fenêtre où le
+  geste démarre (gauche/droite) décide quel volet est ciblé
+- **Volet gauche (Binder)** : cycle à 3 états — Fermé ↔ Fiches (volet fichiers
+  seul) ↔ Dossiers (double volet complet)
+- **Volet droit** (panneau Feuillets — Inspecteur) : bascule simple ouvert/
+  fermé
+- Écouteurs posés en phase de capture sur `window`, pour rester prioritaires
+  sur d'éventuels plugins tiers basés sur React (ex. Notebook Navigator) qui
+  posent leurs propres gestionnaires délégués `wheel`/`touch*` plus bas dans
+  l'arbre DOM
 
 ## 8. Labels de couleur
 
@@ -303,8 +311,17 @@ Barre latérale gauche, toujours visible — arborescence du manuscrit.
   `binderShowWords`, `listPanePreviewField`, `listPanePreviewLines`
 - **Gestion du projet et export** → panneau dédié (§18), plus de bouton ici
 - **Mode concentration** — icône directe dans la barre
-- **Glisser-déposer** pour réorganiser/déplacer feuillets et dossiers,
-  commande "Annuler le dernier déplacement"
+- **Glisser-déposer** pour réorganiser/déplacer feuillets et dossiers, y
+  compris déposer un feuillet directement sur un dossier frère (même
+  parent) pour l'y déplacer ; commande "Annuler le dernier déplacement"
+- Si un feuillet déplacé finit par porter **exactement le même nom que son
+  dossier parent**, il devient la note de ce dossier (synopsis/description)
+  au lieu d'une scène — exclu des vues en conséquence ; une notification
+  explique le changement plutôt que de le laisser silencieux
+- **Navigation clavier** : flèches ↑/↓ = feuillet suivant/précédent dans
+  l'ordre du manuscrit (comme les commandes "Feuillet suivant/précédent"),
+  dès que le focus est dans le Binder — le dossier sélectionné suit
+  automatiquement si la fiche voisine appartient à un autre dossier
 - **Import de plan** (Markdown multi-niveaux → arborescence de dossiers/
   scènes)
 - Renumérotation automatique des chapitres — **[Réglages]** `autoRename`,
@@ -317,11 +334,13 @@ Panneau central, 5 modes d'affichage, toujours visible.
 - **Cartes** — tuiles en grille (taille réglable ou colonnes fixes,
   contenu extrait/synopsis, tags et barres de progression optionnels) —
   **[Réglages]** `tileSize`, `columns`, `cardContent`, `showCardTags`,
-  `showProgress`
+  `showProgress` ; en mode "Tout le manuscrit", les en-têtes de dossier sont
+  repliables (chevron) et réorganisables par glisser-déposer
 - **Plan** (outline) — tableau de colonnes configurables (synopsis, résumé,
   notes, tags, label, statut, date, compiler, fichier, mots, objectif,
   progression), largeurs ajustables — **[Réglages]** `outlineCols`,
-  `outlineWidths`
+  `outlineWidths` ; les lignes de dossier sont repliables (chevron, même clé
+  de repli que le Binder) et réorganisables par glisser-déposer
 - **Chemin de fer** (Canvas) — corkboard généré en tableau natif Obsidian
   (Canvas), cartes colorées par label, colonnes par fil narratif ; pensé
   pour rester fluide même à 100 scènes — commande "Générer/mettre à jour le

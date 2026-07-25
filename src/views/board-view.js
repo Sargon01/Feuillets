@@ -736,6 +736,7 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   renderBoardWholeManuscript(container, root, numbering, bumpTotal) {
+    const S = this.plugin.settings;
     const walk = (folder, depth) => {
       const children = this.plugin.getOrderedChildren(folder).filter((c) => !this.plugin.isFrontMatter(c));
       let activeGrid = null;
@@ -745,8 +746,29 @@ export class BoardView extends BaseFeuilletsView {
           activeGrid = null;
           const sec = container.createDiv({ cls: "feuillets-board-whole-section" });
           sec.style.marginLeft = `${depth * 16}px`;
-          const collapsed = this.renderSectionHead(sec, "folder", item.name, "board:whole", item.path);
-          if (!collapsed) walk(item, depth + 1);
+
+          /* En-tête construit ici plutôt qu'avec le renderSectionHead
+             partagé (Notes/Propriétés/Projet…) : on a besoin que toute la
+             ligne serve de poignée de glisser-déposer, comme les cartes de
+             scène juste en dessous (renderCard) — une petite poignée dédiée
+             de quelques pixels s'est révélée peu fiable/découvrable. */
+          const collapseKey = `board:whole:${item.path}`;
+          const isCollapsed = !!S.collapsed[collapseKey];
+          const head = sec.createDiv({ cls: "feuillets-section-head" });
+          const titleEl = head.createDiv({ cls: "feuillets-section-title" });
+          titleEl.createSpan({ cls: "feuillets-chevron" }).setText(isCollapsed ? "▸" : "▾");
+          const iconEl = titleEl.createSpan({ cls: "feuillets-section-icon" });
+          setIcon(iconEl, "folder");
+          titleEl.createSpan({ cls: "feuillets-section-title-text" }).setText(item.name);
+          titleEl.addEventListener("click", async () => {
+            if (isCollapsed) delete S.collapsed[collapseKey];
+            else S.collapsed[collapseKey] = true;
+            await this.plugin.saveSettings();
+            this.render(true);
+          });
+          if (!this.filterActive()) this.attachDragHandlers(head, sec, folder, i, children, container);
+
+          if (!isCollapsed) walk(item, depth + 1);
         } else if (item instanceof TFile) {
           if (!this.passesFilter(item)) continue;
           if (!activeGrid) {
@@ -1419,18 +1441,37 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   async renderOutlineLevel(table, parentFolder, depth, numbering, bumpTotal, cols, progress, gen) {
+    const S = this.plugin.settings;
     const children = this.plugin.getOrderedChildren(parentFolder).filter((c) => !this.plugin.isFrontMatter(c));
     for (let i = 0; i < children.length; i++) {
       if (this._renderGen !== gen) return;
       const child = children[i];
       if (child instanceof TFolder) {
+        /* Même clé que le repli du Binder (S.collapsed[folder.path]) — un
+           dossier replié dans un panneau reste replié dans l'autre. */
+        const isCollapsed = !!S.collapsed[child.path];
         const row = table.createDiv({ cls: "feuillets-row feuillets-row-folder" });
         const handle = row.createDiv({ cls: "feuillets-col-handle", text: "⋮⋮" });
         const titleCell = row.createDiv({ cls: "feuillets-cell feuillets-cell-title" });
         titleCell.style.paddingLeft = `${depth * 16}px`;
+        titleCell.style.cursor = "pointer";
+        titleCell.createSpan({ cls: "feuillets-chevron" }).setText(isCollapsed ? "▸" : "▾");
         titleCell.createSpan({ cls: "feuillets-folder-name", text: child.name });
+        titleCell.addEventListener("click", async () => {
+          if (isCollapsed) delete S.collapsed[child.path];
+          else S.collapsed[child.path] = true;
+          await this.plugin.saveSettings();
+          this.render(true);
+        });
+        /* Sans ça, une ligne de dossier n'avait aucun écouteur de
+           glisser-déposer (seules les scènes en avaient, plus bas) : les
+           dossiers étaient donc impossibles à réorganiser dans la vue
+           Plan. */
+        this.attachDragHandlers(handle, row, parentFolder, i, children, table);
 
-        await this.renderOutlineLevel(table, child, depth + 1, numbering, bumpTotal, cols, progress, gen);
+        if (!isCollapsed) {
+          await this.renderOutlineLevel(table, child, depth + 1, numbering, bumpTotal, cols, progress, gen);
+        }
         continue;
       }
 

@@ -148,6 +148,13 @@
   user-select: none;
 }
 
+/* tabindex="-1" (voir renderFileRow) sert seulement à capter le focus
+   clavier pour les flèches haut/bas — pas un vrai parcours au Tab, pas
+   besoin d'un anneau de focus natif qui ferait doublon avec is-active. */
+.feuillets-item:focus {
+  outline: none;
+}
+
 .feuillets-item:hover {
   background: var(--background-modifier-hover);
 }
@@ -748,14 +755,42 @@
 
 /* ===== volet fichier : cartes façon Notebook Navigator ===== */
 
-/* lignes aérées, séparées par un filet, titre au-dessus de l'aperçu —
-   plutôt que la ligne compacte de la vue arbre, qui sert à scanner vite */
+/* Lignes plus denses (inspiré de Notebook Navigator : rythme vertical
+   serré même sur une ligne multi-contenu — titre, aperçu, métadonnées)
+   que l'ancien padding généreux, qui gaspillait de la place à l'écran
+   sans rien ajouter de lisible. Toujours séparées par un filet, titre
+   au-dessus de l'aperçu — distinct de la ligne compacte de la vue arbre,
+   qui sert à scanner vite plutôt qu'à prévisualiser. */
 .feuillets-list-pane .feuillets-item {
   align-items: flex-start;
   flex-wrap: wrap;
-  padding: var(--size-4-2) 10px;
+  gap: var(--size-4-1);
+  padding: 5px 10px;
   border-bottom: 1px solid var(--background-modifier-border);
   border-radius: 0;
+}
+
+/* Mode Compact (menu clic droit "Double volet") : rendu EXACTEMENT comme
+   la vue arbre classique (.feuillets-item de base, sans aucune des
+   surcharges du volet fichiers) — même gap/padding/coin arrondi/absence
+   de filet, même libellé non gras et de couleur normale. Aperçu déjà
+   retiré côté JS (voir renderFileRow), ceci ne touche que ce qui reste. */
+.feuillets-list-pane.feuillets-compact .feuillets-item {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-2);
+  border-bottom: none;
+  border-radius: var(--radius-s);
+}
+
+/* Sélecteur plus précis que .feuillets-list-pane .feuillets-item .feuillets-item-name
+   (même poids sinon : cette dernière, définie plus bas dans ce fichier,
+   l'emportait à égalité de spécificité malgré le modificateur compact). */
+.feuillets-list-pane.feuillets-compact .feuillets-item .feuillets-item-name {
+  white-space: nowrap;
+  font-weight: var(--font-normal, 400);
+  color: inherit;
 }
 
 .feuillets-list-pane .feuillets-item:last-child {
@@ -796,9 +831,9 @@
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-  line-height: 1.4;
+  line-height: 1.3;
   white-space: pre-wrap;
-  margin-top: 2px;
+  margin-top: 1px;
   cursor: default;
   user-select: text;
 }
@@ -1905,6 +1940,16 @@ body.feuillets-reading-fs .feuillets-reading {
   color: var(--text-normal);
 }
 
+/* Boutons du Binder (Double volet, Densité, Recherche, Filtres…) :
+   transparents même à l'état actif — pas de pastille pleine couleur
+   accent (contrairement à .feuillets-mode-active générique, ligne ~376,
+   toujours utilisé ailleurs). Juste l'icône qui change de couleur. */
+.feuillets-header .feuillets-mode-active,
+.feuillets-binder-filters .feuillets-mode-active {
+  background: transparent;
+  color: var(--interactive-accent);
+}
+
 /* Choix dossiers/fichiers du binder : même disposition que .feuillets-mode-group,
    mais SANS son override d'état actif en gris — pour rester visuellement
    cohérent avec les autres icônes du binder (Double volet, Vue arbre,
@@ -2658,6 +2703,15 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-merge-card { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 10px; padding: 0.65rem 0.75rem; min-width: 0; overflow: hidden; }
 .feuillets-merge-card-full { margin-top: 0.55rem; }
 .feuillets-merge-card-title { font-weight: 600; margin-bottom: 0.35rem; font-size: 0.88rem; }
+
+.feuillets-preset-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--size-4-2);
+}
+.feuillets-preset-card-head .feuillets-merge-card-title { margin-bottom: 0; }
+.feuillets-settings-panel .feuillets-merge-card { margin-bottom: var(--size-4-3); }
 .feuillets-merge-path { font-weight: 600; margin-bottom: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .feuillets-merge-path-secondary { color: var(--text-muted); font-size: 0.75rem; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-word; margin-bottom: 0.45rem; }
 .feuillets-merge-list { margin: 0; padding-left: 0.9rem; font-size: 0.84rem; }

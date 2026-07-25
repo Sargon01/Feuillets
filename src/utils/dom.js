@@ -65,7 +65,15 @@ export function highlightActive(rootEl, activePath) {
   if (!activePath) return;
   rootEl
     .querySelectorAll(`[data-path="${CSS.escape(activePath)}"]`)
-    .forEach((el) => el.addClass("is-active"));
+    .forEach((el) => {
+      el.addClass("is-active");
+      /* Révèle la scène active dans le Binder quand on y arrive par un
+         lien interne, la palette de commandes ou "Feuillet suivant/
+         précédent" — pas seulement par un clic direct dans la liste,
+         qui la montre déjà forcément. "nearest" : ne bouge rien si déjà
+         visible, pas de scroll parasite à chaque changement de fichier. */
+      el.scrollIntoView({ block: "nearest" });
+    });
 }
 
 export function isEditing(rootEl) {

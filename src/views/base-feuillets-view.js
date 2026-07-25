@@ -1224,7 +1224,7 @@ export class BaseFeuilletsView extends ItemView {
       if (isCollapsed) delete S.collapsed[collapseKey];
       else S.collapsed[collapseKey] = true;
       await this.plugin.saveSettings();
-      this.render();
+      this.render(true);
     });
     if (renderActions) {
       const actions = head.createDiv({ cls: "feuillets-project-actions" });
@@ -1724,8 +1724,24 @@ export class BaseFeuilletsView extends ItemView {
 
       if (drag.multi) {
         if (this.plugin._binderMultiSelect) this.plugin._binderMultiSelect.clear();
-        if (drag.parentPath === parent.path) {
-          const draggedIndices = new Set(drag.items.map((it) => it.index));
+        const sameParentTarget = drag.parentPath === parent.path ? siblings[index] : null;
+        const draggedIndices = new Set(drag.items.map((it) => it.index));
+        if (
+          sameParentTarget instanceof TFolder &&
+          !draggedIndices.has(index)
+        ) {
+          /* Cible = un dossier frère (même parent que le groupe déplacé,
+             ex. tous deux enfants directs de la racine du projet) : on
+             veut y déposer le groupe, pas le réordonner parmi ses frères
+             — sinon glisser un feuillet à la racine vers un dossier vide
+             comme Front (même parent) ne faisait jamais rien. */
+          let insertIndex = Number.MAX_SAFE_INTEGER;
+          for (const it of drag.items) {
+            const node = this.app.vault.getAbstractFileByPath(it.path);
+            if (!node) continue;
+            await this.plugin.moveNode(node, parent, sameParentTarget, insertIndex);
+          }
+        } else if (drag.parentPath === parent.path) {
           if (draggedIndices.has(index)) return;
           const movedNodes = drag.items.map((it) => siblings[it.index]).filter(Boolean);
           const remaining = siblings.filter((_, i) => !draggedIndices.has(i));
@@ -1762,6 +1778,28 @@ export class BaseFeuilletsView extends ItemView {
       if (drag.parentPath === parent.path) {
         const from = drag.index;
         if (from === index) return;
+        const target = siblings[index];
+        const draggedNode = siblings[from];
+        /* Cible = un dossier frère (même parent que le fichier déplacé,
+           ex. tous deux enfants directs de la racine du projet) : déposer
+           dessus doit le déplacer DEDANS, pas juste réordonner les frères
+           — sinon glisser un feuillet à la racine vers un dossier vide
+           comme Front (même parent) ne faisait jamais rien. Seulement si
+           l'élément déplacé est un FICHIER : un dossier déplacé sur un
+           dossier frère doit rester un simple réordonnancement (Cartes,
+           Plan…), sinon on ne peut plus jamais réorganiser l'ordre des
+           dossiers entre eux — glisser un dossier reste toujours une
+           réorganisation ici, jamais un emboîtement. */
+        if (
+          target instanceof TFolder &&
+          target.path !== drag.path &&
+          !(draggedNode instanceof TFolder)
+        ) {
+          const moved = this.app.vault.getAbstractFileByPath(drag.path || "");
+          if (moved) await this.plugin.moveNode(moved, parent, target, Number.MAX_SAFE_INTEGER);
+          this.plugin.renderAllViews(true);
+          return;
+        }
         const reordered = [...siblings];
         const [moved] = reordered.splice(from, 1);
         reordered.splice(index, 0, moved);
@@ -1781,6 +1819,51 @@ export class BaseFeuilletsView extends ItemView {
         insertIndex = Number.MAX_SAFE_INTEGER;
       }
       await this.plugin.moveNode(moved, srcParent, destFolder, insertIndex);
+      this.plugin.renderAllViews(true);
+    });
+  }
+
+  /** Zone de dépôt de secours pour un dossier sans aucun feuillet (ex. Front
+   * juste après la création du projet) : attachDragHandlers n'attache ses
+   * écouteurs qu'aux lignes de fiches réellement rendues, donc un dossier
+   * vide n'a alors aucune cible de drop — glisser une scène dedans ne
+   * faisait rien. `dropEl` est ici le message "Aucun feuillet…" affiché à
+   * la place de la liste ; le dépôt ajoute simplement à la fin de `folder`. */
+  attachEmptyFolderDropHandler(dropEl, folder) {
+    dropEl.addEventListener("dragover", (e) => {
+      if (!this.plugin.dragState) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      dropEl.addClass("feuillets-dragover");
+    });
+    dropEl.addEventListener("dragleave", () => {
+      dropEl.removeClass("feuillets-dragover");
+    });
+    dropEl.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      dropEl.removeClass("feuillets-dragover");
+      if (!this.plugin.dragState) return;
+      const drag = this.plugin.dragState;
+      this.plugin.dragState = null;
+
+      if (drag.multi) {
+        if (this.plugin._binderMultiSelect) this.plugin._binderMultiSelect.clear();
+        const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
+        if (srcParent instanceof TFolder) {
+          for (const it of drag.items) {
+            const node = this.app.vault.getAbstractFileByPath(it.path);
+            if (!node) continue;
+            await this.plugin.moveNode(node, srcParent, folder, Number.MAX_SAFE_INTEGER);
+          }
+        }
+        this.plugin.renderAllViews(true);
+        return;
+      }
+
+      const moved = this.app.vault.getAbstractFileByPath(drag.path || "");
+      const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
+      if (!moved || !(srcParent instanceof TFolder)) return;
+      await this.plugin.moveNode(moved, srcParent, folder, Number.MAX_SAFE_INTEGER);
       this.plugin.renderAllViews(true);
     });
   }
