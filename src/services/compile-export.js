@@ -1,6 +1,6 @@
 const { Notice, TFolder, TFile, normalizePath, Platform } = require("obsidian");
-import { embedHardBreaks, frenchTypography } from "../utils/core.js";
-import { renamespaceFootnotes } from "../utils/footnotes.js";
+import { embedHardBreaks } from "../utils/core.js";
+import { footnotePrefixFor, applyCompileTransforms } from "../utils/compile-text.js";
 import { fmOf, compiledTitleFor, compiledSubtitleFor } from "./frontmatter.js";
 import {
   getProjectFolder,
@@ -81,18 +81,9 @@ export async function compile(app, settings) {
        - typographie française : guillemets/apostrophe/points de suspension/
          espaces insécables garantis même sans la frappe typographique
          (texte collé d'un traitement externe…). Réglable (Réglages → Export). */
-    const footnotePrefix = file.path
-      .replace(/\.md$/i, "")
-      .replace(/[^a-zA-Z0-9]+/g, "-");
-    const applyTextTransforms = (str) => {
-      str = renamespaceFootnotes(str, footnotePrefix);
-      str = str.replace(
-        /(?<!!)\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g,
-        (_, target, alias) => (alias !== undefined ? alias : target).trim()
-      );
-      if (settings.exportFrenchTypography) str = frenchTypography(str, false);
-      return str;
-    };
+    const footnotePrefix = footnotePrefixFor(file.path);
+    const applyTextTransforms = (str) =>
+      applyCompileTransforms(str, footnotePrefix, settings.exportFrenchTypography);
 
     /* Page de titre à rôles : chaque ligne `:::rôle: contenu` devient un
        paragraphe-marqueur `FEUILLETS-FPROLE:rôle` suivi de son contenu, que
