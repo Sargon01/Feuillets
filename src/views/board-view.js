@@ -1107,6 +1107,7 @@ export class BoardView extends BaseFeuilletsView {
       activeLabels.forEach((lb) => {
         const col = rails.createDiv({ cls: "feuillets-arcs-col" });
         setTooltip(col, lb);
+        col.setAttr("title", lb);
         const color = this.plugin.labelColor(lb);
         col.style.setProperty("--arc-color", color);
         const hasLabel = currentLabels.includes(lb);
@@ -1144,6 +1145,7 @@ export class BoardView extends BaseFeuilletsView {
       activeFils.forEach((f) => {
         const col = filRails.createDiv({ cls: "feuillets-arcs-col" });
         setTooltip(col, f);
+        col.setAttr("title", f);
         const color = filColor(f);
         col.style.setProperty("--arc-color", color);
         const hasFil = currentFils.includes(f);

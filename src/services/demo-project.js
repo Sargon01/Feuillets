@@ -6,6 +6,7 @@ import { ensureDayEntry } from "./journal.js";
 import { dateKey } from "../utils/journal-stats.js";
 import { applyModeDefaults } from "../utils/project-modes.js";
 import { getProjectMode } from "./project-mode.js";
+import { CANDIDE_CHAPTER_BODIES, CANDIDE_FRONT_FILES, CANDIDE_RESEARCH } from "./candide-content.js";
 
 const VOLUME_NAME = "Feuillets — Exemple";
 const CANDIDE_VOLUME_NAME = "Candide, ou l'Optimisme — Exemple";
@@ -357,19 +358,6 @@ function candideSceneLines({ ordre, titre, titreBinder, sousTitre, label, fil, p
   return lines;
 }
 
-function candideBody({ ordre, sousTitre }) {
-  if (ordre === 1) {
-    return `${sousTitre}\n\nCe premier chapitre illustre les trois axes que le panneau Cartes \u2192 mode Chemin de fer suit à travers tout le manuscrit : \`label: Westphalie\` (le lieu, à gauche, en rond), \`fil: L'Optimisme\` (l'intrigue, à droite, en carré) et \`personnages:\` (qui apparaît dans la scène). Ouvre ce mode, survole un point pour voir son nom, ou utilise les boutons Label / Personnage / Fil en haut du panneau pour filtrer.`;
-  }
-  if (ordre === 8) {
-    return `${sousTitre}\n\nLe fil \`La Quête de Cunégonde\` traverse ce chapitre et plusieurs autres, non consécutifs, jusqu'à la fin du roman — sélectionne-le dans le bouton Fil du Chemin de fer pour voir la ligne continue qu'il dessine, même quand d'autres chapitres s'intercalent entre deux apparitions.`;
-  }
-  if (ordre === 30) {
-    return `${sousTitre}\n\nDernier chapitre du manuscrit : il réunit à lui seul la quasi-totalité des personnages du roman dans son champ \`personnages:\` — un bon point de départ pour tester le filtre Personnage.`;
-  }
-  return sousTitre;
-}
-
 async function generateCandide(app, S, plugin, manuscritPath) {
   S.projectFolder = manuscritPath;
   if (!S.projectMeta) S.projectMeta = {};
@@ -390,29 +378,58 @@ async function generateCandide(app, S, plugin, manuscritPath) {
       `Dossier projet introuvable juste après sa création (${manuscritPath}) — abandon de la génération.`
     );
   }
+  const mode = getProjectMode(app, S);
+  if (!mode) {
+    throw new Error(
+      "Mode de projet introuvable (getProjectMode a renvoyé undefined) — abandon de la génération."
+    );
+  }
+  const rf = mode.researchFolders;
+
+  /* ---------- Front ---------- */
 
   const front = await ensureFolder(app, `${root.path}/Front`);
-  await writeSheet(app, front, "Page de titre", [
-    "---",
-    "titre: Candide, ou l'Optimisme",
-    "compiler: true",
-    "---",
-    "",
-    "**CANDIDE, OU L'OPTIMISME**",
-    "",
-    "Voltaire — 1759",
-    "",
-  ]);
+  for (const [name, content] of Object.entries(CANDIDE_FRONT_FILES)) {
+    await writeSheet(app, front, name, [content]);
+  }
+
+  /* ---------- Manuscrit : texte réel des 30 chapitres ---------- */
 
   for (const partie of CANDIDE_PARTIES) {
     const partieFolder = await ensureFolder(app, `${root.path}/${partie.nom}`);
     for (const ch of partie.chapitres) {
       const lines = candideSceneLines(ch);
-      const body = candideBody(ch);
+      const body = CANDIDE_CHAPTER_BODIES[ch.ordre] || ch.sousTitre;
       const name = `${String(ch.ordre).padStart(2, "0")}. Chapitre ${ch.ordre} — ${ch.titre}`;
       await writeSheet(app, partieFolder, name, [...lines, body, ""]);
     }
   }
+
+  /* ---------- Recherche : fiches réelles (Personnages, Lieux, Lore, Chronologie) ---------- */
+
+  const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, `${root.parent.path}/Recherche`));
+
+  const personnages = await ensureFolder(app, `${researchRoot.path}/${rf.personnages.label}`);
+  for (const [name, content] of Object.entries(CANDIDE_RESEARCH.Personnages)) {
+    await writeSheet(app, personnages, name, [content]);
+  }
+
+  const lieux = await ensureFolder(app, `${researchRoot.path}/${rf.lieux.label}`);
+  for (const [name, content] of Object.entries(CANDIDE_RESEARCH.Lieux)) {
+    await writeSheet(app, lieux, name, [content]);
+  }
+
+  const codex = await ensureFolder(app, `${researchRoot.path}/${rf.codex.label}`);
+  for (const [name, content] of Object.entries(CANDIDE_RESEARCH.Lore)) {
+    await writeSheet(app, codex, name, [content]);
+  }
+
+  const chrono = getChronoFolder(app, S) || (await ensureFolder(app, `${researchRoot.path}/Chronologie`));
+  for (const [name, content] of Object.entries(CANDIDE_RESEARCH.Chronologie)) {
+    await writeSheet(app, chrono, name, [content]);
+  }
+
+  /* ---------- Lisez-moi ---------- */
 
   await writeSheet(app, root.parent, "Lisez-moi", [
     "---",
@@ -421,7 +438,7 @@ async function generateCandide(app, S, plugin, manuscritPath) {
     "",
     `# ${CANDIDE_VOLUME_NAME}`,
     "",
-    "Candide, ou l'Optimisme (Voltaire, 1759, domaine public) importé comme projet d'exemple, ses 30 chapitres déjà balisés en `label:` (lieu), `fil:` (intrigue) et `personnages:` — pour explorer le panneau Chemin de fer sur un vrai texte plutôt qu'un squelette minimal.",
+    "Candide, ou l'Optimisme (Voltaire, 1759, domaine public) importé comme projet d'exemple : texte intégral des 30 chapitres, déjà balisés en `label:` (lieu), `fil:` (intrigue) et `personnages:`, plus les fiches de Recherche (Personnages, Lieux, Lore, Chronologie) — pour explorer le plugin sur un vrai manuscrit plutôt qu'un squelette minimal.",
     "",
     "## Où regarder",
     "",
@@ -429,6 +446,7 @@ async function generateCandide(app, S, plugin, manuscritPath) {
     "- Choisis « La Quête de Cunégonde » dans le bouton Fil pour voir la ligne courir sur plusieurs chapitres non consécutifs.",
     "- Survole un rond ou un carré pour voir le nom du lieu ou du fil auquel il correspond.",
     "- Le chapitre 30 réunit presque tous les personnages du roman — bon point de départ pour le filtre Personnage.",
+    "- **Recherche/** — fiches Personnages, Lieux, Lore et Chronologie déjà remplies.",
     "",
   ]);
 }
