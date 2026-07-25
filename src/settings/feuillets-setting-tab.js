@@ -3,7 +3,7 @@ import { BOARD_MODES, HIDEABLE_PANELS } from "../constants.js";
 import { resolveType } from "../utils/project-modes.js";
 import { NewProjectModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
-const { PluginSettingTab, Setting, TFolder, Notice } = require("obsidian");
+const { PluginSettingTab, Setting, TFolder, Notice, Menu } = require("obsidian");
 
 export class FeuilletsSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
@@ -1118,9 +1118,23 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         "Génère un projet Feuillets complet, avec du contenu réel dans chaque panneau (chemin de fer, fils narratifs, Recherche, Journal…), pour explorer toutes les fonctionnalités du plugin. N'affecte pas ton projet actif."
       )
       .addButton((b) =>
-        b.setButtonText("Créer un projet d'exemple").onClick(async () => {
-          await this.plugin.createDemoProject();
-          this.display();
+        b.setButtonText("Créer un projet d'exemple").onClick((e) => {
+          const menu = new Menu();
+          menu.addItem((item) =>
+            item.setTitle("Roman générique (Elira) — explique chaque champ").onClick(async () => {
+              await this.plugin.createDemoProject("elira");
+              this.display();
+            })
+          );
+          menu.addItem((item) =>
+            item
+              .setTitle("Candide, ou l'Optimisme (Voltaire) — labels, fils & personnages")
+              .onClick(async () => {
+                await this.plugin.createDemoProject("candide");
+                this.display();
+              })
+          );
+          menu.showAtMouseEvent(e);
         })
       );
 
