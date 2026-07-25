@@ -26,6 +26,16 @@ export function personnagesOf(fm) {
   return fm.personnages ? [String(fm.personnages)] : [];
 }
 
+/** Point de vue (narrateur) d'une scène : valeur unique, distincte de
+ * `personnages` (qui liste tout le monde PRÉSENT dans la scène, pas qui la
+ * raconte) — un roman multi-POV a besoin de filtrer "toutes les scènes du
+ * point de vue de X" indépendamment du casting. Champ facultatif, jamais
+ * ajouté au modèle de scène par défaut (comme `fil`/`personnages`) : à
+ * l'auteur de le renseigner s'il en a besoin. */
+export function povOf(fm) {
+  return oneOf(fm.pov);
+}
+
 /** Fils narratifs d'une scène : liste de textes (une scène peut avoir
  * plusieurs fils ouverts en même temps). Seule la virgule sépare — pas
  * l'espace — pour ne jamais couper une valeur en texte libre du genre

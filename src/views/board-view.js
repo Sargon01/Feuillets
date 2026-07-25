@@ -5,10 +5,11 @@ import { openFileActivating } from "../utils/dom.js";
 import { parseStoryDate, foldAccents, stripMarkdown } from "../utils/core.js";
 import { PROJECT_MODES, resolveType } from "../utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
-import { filsOf } from "../utils/arc-fields.js";
+import { filsOf, povOf } from "../utils/arc-fields.js";
 import { ScriveningsManager } from "./scrivenings-editor.js";
 import { ReadSelectionModal } from "../ui/selection-modals.js";
 import { DiffModal } from "../ui/diff-modal.js";
+import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 
 function isInputFocused(el) {
@@ -94,6 +95,11 @@ export class BoardView extends BaseFeuilletsView {
       const currentLabel = this.plugin.labelOf(file);
       if (labelFilter === "Sans label" ? currentLabel !== "" : currentLabel !== labelFilter) return false;
     }
+    const povFilter = S.povFilter;
+    if (povFilter && povFilter !== "Tous") {
+      const currentPov = povOf(this.fm(file));
+      if (povFilter === "Sans POV" ? currentPov !== "" : currentPov !== povFilter) return false;
+    }
     const tagTerm = (S.tagFilter || "").trim().toLowerCase().replace(/^#/, "");
     if (tagTerm && !this.plugin.tagsOf(file).map((l) => l.toLowerCase()).some((l) => l.includes(tagTerm))) return false;
     const progressFilter = S.progressFilter;
@@ -116,6 +122,7 @@ export class BoardView extends BaseFeuilletsView {
       (S.statusFilter && S.statusFilter !== "Tous") ||
       (S.labelFilter && S.labelFilter !== "Tous") ||
       (S.progressFilter && S.progressFilter !== "Tous") ||
+      (S.povFilter && S.povFilter !== "Tous") ||
       (S.tagFilter || "").trim() !== ""
     );
   }
@@ -178,7 +185,7 @@ export class BoardView extends BaseFeuilletsView {
     if (this.selectionModeActive === undefined) this.selectionModeActive = false;
 
     const bar = container.createDiv({ cls: "feuillets-board-bar" }).createDiv({ cls: "feuillets-board-bar-right" });
-    this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", "Filtres (statut, label, progression)", (e) => {
+    this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", "Filtres (statut, label, POV, progression)", (e) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle("— Statut —").setDisabled(true));
       for (const st of ["Tous", ...getProjectStatuses(S).filter(Boolean), "Sans statut"]) {
@@ -218,6 +225,32 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.addSeparator();
+      const povs = new Set();
+      if (projectRoot) {
+        const collectPov = (f) => {
+          for (const c of this.plugin.getOrderedChildren(f)) {
+            if (c instanceof TFile) {
+              const p = povOf(this.fm(c));
+              if (p) povs.add(p);
+            } else if (c instanceof TFolder) collectPov(c);
+          }
+        };
+        collectPov(projectRoot);
+      }
+      const sortedPovs = Array.from(povs).sort((a, b) => a.localeCompare(b, "fr"));
+      if (sortedPovs.length > 0) {
+        menu.addItem((item) => item.setTitle("— POV —").setDisabled(true));
+        for (const pv of ["Tous", ...sortedPovs, "Sans POV"]) {
+          menu.addItem((item) =>
+            item.setTitle(pv).setChecked((S.povFilter || "Tous") === pv).onClick(async () => {
+              S.povFilter = pv;
+              await this.plugin.saveSettings();
+              this.render();
+            })
+          );
+        }
+        menu.addSeparator();
+      }
       menu.addItem((item) => item.setTitle("— Progression —").setDisabled(true));
       for (const pr of ["Tous", "Atteint", "En dessous", "Dépassé"]) {
         menu.addItem((item) =>
@@ -235,6 +268,7 @@ export class BoardView extends BaseFeuilletsView {
             S.statusFilter = "Tous";
             S.labelFilter = "Tous";
             S.progressFilter = "Tous";
+            S.povFilter = "Tous";
             S.tagFilter = "";
             await this.plugin.saveSettings();
             this.render();
@@ -818,6 +852,13 @@ export class BoardView extends BaseFeuilletsView {
     titleEl.setText(this.plugin.shortTitleFor(file));
     titleEl.setAttr("title", file.basename);
 
+    const pov = povOf(this.fm(file));
+    if (pov) {
+      const povEl = head.createDiv({ cls: "feuillets-card-pov" });
+      povEl.setText(pov);
+      povEl.setAttr("title", `Point de vue : ${pov}`);
+    }
+
     const more = head.createDiv({ cls: "feuillets-card-more clickable-icon" });
     setIcon(more, "more-horizontal");
     more.setAttr("title", "Statut, tags, notes…");
@@ -841,7 +882,12 @@ export class BoardView extends BaseFeuilletsView {
       );
       menu.addItem((item) =>
         item.setTitle("Modifier le résumé…").onClick(() => {
-          this.plugin.openFmFieldModal(file, "resume", "Résumé long");
+          new FmFieldModal(this.app, this.plugin, file, "resume", "Résumé long").open();
+        })
+      );
+      menu.addItem((item) =>
+        item.setTitle("Modifier le POV…").onClick(() => {
+          new FmFieldModal(this.app, this.plugin, file, "pov", "Point de vue (POV)").open();
         })
       );
       menu.addItem((item) =>

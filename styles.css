@@ -539,6 +539,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+.feuillets-card-pov {
+  flex-shrink: 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  padding: 0 var(--size-4-1);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* C'est la prose du feuillet, pas un libellé d'interface : même
    traitement de lisibilité que le reste du plugin (line-height généreux),
    et un poil plus grand — sur une grille de fiches, c'est ce texte-là

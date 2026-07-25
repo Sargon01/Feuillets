@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { oneOf, arcsOf, personnagesOf, filsOf } from "../src/utils/arc-fields.js";
+import { oneOf, arcsOf, personnagesOf, filsOf, povOf } from "../src/utils/arc-fields.js";
 
 test("oneOf", async (t) => {
   await t.test("retourne une string telle quelle", () => {
@@ -113,5 +113,23 @@ test("filsOf", async (t) => {
 
   await t.test("filtre les entrées vides", () => {
     assert.deepEqual(filsOf({ fil: ["indice", "", null] }), ["indice"]);
+  });
+});
+
+test("povOf", async (t) => {
+  await t.test("retourne la valeur telle quelle", () => {
+    assert.equal(povOf({ pov: "Marc" }), "Marc");
+  });
+
+  await t.test("tolère une liste YAML à un élément", () => {
+    assert.equal(povOf({ pov: ["Marc"] }), "Marc");
+  });
+
+  await t.test("chaîne vide sans champ", () => {
+    assert.equal(povOf({}), "");
+  });
+
+  await t.test("distinct de personnages : n'y touche pas", () => {
+    assert.equal(povOf({ personnages: ["Marc", "Julie"] }), "");
   });
 });
