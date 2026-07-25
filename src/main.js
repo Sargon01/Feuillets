@@ -37,6 +37,8 @@ import { fmOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, label
 import { getProjectFolder, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { getProjectMode } from "./services/project-mode.js";
 import { getChronoFolder, getResearchRoot, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
+import { buildNumbering } from "./services/numbering.js";
+import { orderFromSnapshot } from "./utils/sibling-order.js";
 import { handleFilChanged } from "./services/narrative-threads.js";
 import { createDemoProject } from "./services/demo-project.js";
 import { generateCanvasBoard } from "./services/canvas-board.js";
@@ -328,16 +330,8 @@ class FeuilletsPlugin extends Plugin {
             return;
           }
           await this.app.fileManager.renameFile(node, backPath);
-          const restoreOrder = async (folder, names) => {
-            const byName = new Map(this.getOrderedChildren(folder).map((c) => [c.name, c]));
-            const restored = names.map((n) => byName.get(n)).filter(Boolean);
-            for (const c of byName.values()) {
-              if (!restored.includes(c)) restored.push(c);
-            }
-            await this.writeOrder(folder, restored);
-          };
-          await restoreOrder(srcParent, snap.srcOrder);
-          await restoreOrder(destFolder, snap.destOrder);
+          await this.writeOrder(srcParent, this.orderFromSnapshot(srcParent, snap.srcOrder));
+          await this.writeOrder(destFolder, this.orderFromSnapshot(destFolder, snap.destOrder));
           if (this.settings.autoRename) {
             const root = this.getProjectFolder();
             if (root) await this.renumberTitles(root);
@@ -352,12 +346,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice("Le dossier du déplacement n'existe plus.");
           return;
         }
-        const byName = new Map(this.getOrderedChildren(parent).map((c) => [c.name, c]));
-        const restored = snap.order.map((n) => byName.get(n)).filter(Boolean);
-        for (const c of byName.values()) {
-          if (!restored.includes(c)) restored.push(c);
-        }
-        await this.applySiblingOrder(parent, restored, false);
+        await this.applySiblingOrder(parent, this.orderFromSnapshot(parent, snap.order), false);
         this.renderAllViews(true);
         new Notice("Réorganisation annulée.");
       },
@@ -1141,15 +1130,31 @@ class FeuilletsPlugin extends Plugin {
     document.body.removeClass("feuillets-lignesvides-reduit");
     document.body.removeClass("feuillets-cesure");
     if (this._originalGetDisplayText) {
-      MarkdownView.prototype.getDisplayText = this._originalGetDisplayText;
+      /* Ne restaurer QUE si le prototype porte encore notre patch. Un autre
+         plugin ayant patché après nous a enveloppé le nôtre : écraser avec
+         notre « original » supprimerait le sien au passage. Dans ce cas on
+         laisse la chaîne en place — notre patch reste appelé mais retombe
+         toujours sur l'original, donc inoffensif. */
+      if (MarkdownView.prototype.getDisplayText === this._patchedGetDisplayText) {
+        MarkdownView.prototype.getDisplayText = this._originalGetDisplayText;
+        this._originalGetDisplayText = null;
+        this._patchedGetDisplayText = null;
+      }
+      /* Si on n'a PAS pu se retirer, on garde `_originalGetDisplayText` :
+         notre patch est encore appelable via la chaîne du plugin qui nous
+         enveloppe, et il s'en sert comme repli. */
     }
     this.refreshAllTabHeaders();
   }
 
   patchTabTitles() {
     const plugin = this;
+    /* Garde contre un double appel : sans elle, le second capturerait NOTRE
+       patch comme « original », et l'appel de repli en fin de fonction
+       bouclerait indéfiniment. */
+    if (this._originalGetDisplayText) return;
     this._originalGetDisplayText = MarkdownView.prototype.getDisplayText;
-    MarkdownView.prototype.getDisplayText = function () {
+    this._patchedGetDisplayText = function () {
       try {
         if (this.file) {
           const fm = plugin.app.metadataCache.getFileCache(this.file)?.frontmatter;
@@ -1157,9 +1162,15 @@ class FeuilletsPlugin extends Plugin {
           const short = raw ? String(raw).trim() : "";
           if (short) return short;
         }
-      } catch (e) {}
+      } catch (e) {
+        /* Silence délibéré, contrairement aux catches métier : on est sur le
+           rendu d'en-tête d'onglet, appelé à chaque affichage. Y logger
+           inonderait la console, et le repli ci-dessous est déjà le
+           comportement correct (titre Obsidian par défaut). */
+      }
       return plugin._originalGetDisplayText.call(this);
     };
+    MarkdownView.prototype.getDisplayText = this._patchedGetDisplayText;
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.refreshTabHeaderFor(file)));
     this.app.workspace.onLayoutReady(() => this.refreshAllTabHeaders());
   }
@@ -1676,10 +1687,18 @@ class FeuilletsPlugin extends Plugin {
     new Notice(isRepeat ? `Ibid. inséré — note ${n}.` : `Citation insérée — note ${n}.`);
   }
 
+  /* L'échec n'interrompt pas l'insertion de la citation (déjà écrite dans le
+     texte à ce stade), mais il ne doit pas passer inaperçu : `cite_count` est
+     ce qui décide de la présence de la source dans generateBibliographyFile,
+     donc un échec silencieux ici se manifeste bien plus tard, sous forme
+     d'entrée manquante dans la bibliographie. */
   markSourceCited(sourceFile) {
     this.app.fileManager.processFrontMatter(sourceFile, (fm) => {
       fm.cite_count = (fm.cite_count || 0) + 1;
-    }).catch((e) => {});
+    }).catch((e) => {
+      console.error(`Feuillets: compteur de citations non mis à jour (${sourceFile.path})`, e);
+      new Notice("Citation insérée, mais la source n'a pas pu être marquée comme citée.");
+    });
   }
 
   async generateBibliographyFile() {
@@ -1711,7 +1730,12 @@ class FeuilletsPlugin extends Plugin {
       if (existing instanceof TFile) await this.app.vault.modify(existing, content);
       else await this.app.vault.create(path, content);
       new Notice(`Bibliographie générée : ${path}`);
-    } catch (e) {}
+    } catch (e) {
+      /* Action déclenchée par un clic explicite : sans ce retour, l'échec se
+         traduit par « rien ne se passe », indiscernable d'un bouton inerte. */
+      console.error("Feuillets: génération de la bibliographie impossible", e);
+      new Notice("Bibliographie non générée. Voir la console pour le détail.");
+    }
   }
 
   unitLabel() { return this.projectMode().unit; }
@@ -1763,55 +1787,12 @@ class FeuilletsPlugin extends Plugin {
   parseStoryDate(raw, file = null) { return parseStoryDate(raw, file); }
 
   buildNumbering(root) {
-    const map = new Map();
-    const mode = this.settings.sceneNumbering;
-    const chapMode = this.settings.chapterNumbering || "continu";
-    let n = 0;
-    let sGlobal = 0;
-    const chapLabel = () => (chapMode === "aucune" ? "" : `${n}.`);
-    const markFrontMatter = (f) => {
-      for (const c of this.getOrderedChildren(f)) {
-        map.set(c.path, "");
-        if (c instanceof TFolder) markFrontMatter(c);
-      }
-    };
-    const walk = (f) => {
-      if (chapMode === "parPartie" && this.roleOfFolder(f) === "partie") n = 0;
-      for (const child of this.getOrderedChildren(f)) {
-        if (this.isFrontMatter(child)) {
-          map.set(child.path, "");
-          if (child instanceof TFolder) markFrontMatter(child);
-          continue;
-        }
-        if (child instanceof TFolder) {
-          if (this.roleOfFolder(child) === "chapitre") {
-            n++;
-            map.set(child.path, chapLabel());
-            let m = 0;
-            const walkScenes = (cf) => {
-              for (const sc of this.getOrderedChildren(cf)) {
-                if (sc instanceof TFolder) walkScenes(sc);
-                else {
-                  m++;
-                  sGlobal++;
-                  if (mode === "continue") map.set(sc.path, String(sGlobal));
-                  else if (mode === "aucune") map.set(sc.path, "");
-                  else map.set(sc.path, chapMode === "aucune" ? String(m) : `${n}.${m}`);
-                }
-              }
-            };
-            walkScenes(child);
-          } else {
-            walk(child);
-          }
-        } else {
-          n++;
-          map.set(child.path, chapLabel());
-        }
-      }
-    };
-    walk(root);
-    return map;
+    return buildNumbering(this.settings, root, {
+      getOrderedChildren: (f) => this.getOrderedChildren(f),
+      roleOfFolder: (f) => this.roleOfFolder(f),
+      isFrontMatter: (node) => this.isFrontMatter(node),
+      isFolder: (node) => node instanceof TFolder,
+    });
   }
 
   async getWordCounts(files) {
@@ -1874,6 +1855,14 @@ class FeuilletsPlugin extends Plugin {
     if (!this.moveStack) this.moveStack = [];
     this.moveStack.push(entry);
     if (this.moveStack.length > 30) this.moveStack.shift();
+  }
+
+  /* Enfants de `parent` réordonnés selon un instantané de noms pris avant un
+     déplacement (voir pushHistory), pour la commande « Annuler le dernier
+     déplacement » — dont les deux branches écrivent ensuite le résultat
+     différemment (writeOrder / applySiblingOrder). */
+  orderFromSnapshot(parent, names) {
+    return orderFromSnapshot(this.getOrderedChildren(parent), names);
   }
 
   async writeOrder(parent, orderedChildren) {
