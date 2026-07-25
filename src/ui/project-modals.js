@@ -1,4 +1,4 @@
-const { Modal, Notice, normalizePath, setIcon, TFolder } = require("obsidian");
+const { Modal, Notice, normalizePath, setIcon, TFolder, Menu } = require("obsidian");
 import { PROJECT_MODES, applyModeDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
@@ -134,6 +134,24 @@ export class ManageProjectsModal extends Modal {
     this.iconBtn(actions, "import", "Importer un projet Scrivener…", () =>
       new ScrivenerImportModal(this.app, this.plugin).open()
     );
+    this.iconBtn(actions, "sparkles", "Créer un projet d'exemple…", (e) => {
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item.setTitle("Roman générique (Elira) — explique chaque champ").onClick(async () => {
+          await this.plugin.createDemoProject("elira");
+          this.render();
+        })
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle("Candide, ou l'Optimisme (Voltaire) — labels, fils & personnages")
+          .onClick(async () => {
+            await this.plugin.createDemoProject("candide");
+            this.render();
+          })
+      );
+      menu.showAtMouseEvent(e);
+    });
 
     const root = this.plugin.getProjectFolder();
     if (root) {
