@@ -11,6 +11,7 @@ import { ReadSelectionModal } from "../ui/selection-modals.js";
 import { DiffModal } from "../ui/diff-modal.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
+import { TextInputModal } from "../scenes-editor.js";
 
 function isInputFocused(el) {
   const active = document.activeElement;
@@ -383,6 +384,53 @@ export class BoardView extends BaseFeuilletsView {
               const files = getSelectedFiles();
               clearSel();
               if (files.length > 0) this.plugin.openMoveManyModal(files);
+            })
+          );
+          menu.addSeparator();
+
+          for (const st of getProjectStatuses(this.plugin.settings).filter(Boolean)) {
+            menu.addItem((item) =>
+              item.setTitle(`Statut : ${st} (${selSize})`).setDisabled(selSize < 1).onClick(async () => {
+                const files = getSelectedFiles();
+                clearSel();
+                for (const f of files) await this.setFm(f, "statut", st);
+                new Notice(`Statut « ${st} » appliqué à ${files.length} ${unitPlural}.`);
+              })
+            );
+          }
+          menu.addSeparator();
+
+          for (const l of this.getProjectLabels()) {
+            menu.addItem((item) =>
+              item.setTitle(`Label : ${l.name} (${selSize})`).setDisabled(selSize < 1).onClick(async () => {
+                const files = getSelectedFiles();
+                clearSel();
+                for (const f of files) await this.setFm(f, "label", l.name);
+                new Notice(`Label « ${l.name} » appliqué à ${files.length} ${unitPlural}.`);
+              })
+            );
+          }
+          menu.addSeparator();
+
+          menu.addItem((item) =>
+            item.setTitle(`Ajouter un tag (${selSize})…`).setIcon("tag").setDisabled(selSize < 1).onClick(() => {
+              const files = getSelectedFiles();
+              clearSel();
+              new TextInputModal(
+                this.app,
+                `Ajouter un tag à ${files.length} ${unitPlural}`,
+                [{ name: "tag", label: "Tag", value: "" }],
+                async (values) => {
+                  const clean = String(values.tag || "").trim().replace(/^#/, "");
+                  if (!clean) return;
+                  for (const f of files) {
+                    const existing = this.plugin.tagsOf(f);
+                    if (!existing.includes(clean)) await this.setFm(f, "tags", [...existing, clean]);
+                  }
+                  new Notice(`Tag « ${clean} » ajouté à ${files.length} ${unitPlural}.`);
+                  this.render(true);
+                }
+              ).open();
             })
           );
           menu.addSeparator();
