@@ -667,15 +667,30 @@ class FeuilletsPlugin extends Plugin {
         for (let i = 1; i < leaves.length; i++) leaves[i].detach();
       }
 
+      // Restauration du dernier projet valide ouvert s'il n'y a pas de projet actif
+      if (!this.getProjectFolder() && Array.isArray(this.settings.projects) && this.settings.projects.length > 0) {
+        const lastValid = this.settings.projects.slice().reverse().find((p) => {
+          const af = this.app.vault.getAbstractFileByPath(p);
+          return af instanceof TFolder && af.path !== "" && af.path !== "/";
+        });
+        if (lastValid) {
+          this.settings.projectFolder = lastValid;
+          await this.saveSettings();
+        }
+      }
+
+      const hasProject = !!this.getProjectFolder();
+
+      // Si un projet existe et qu'autoOpenBinder est actif, ou si AUCUN projet n'existe (nouvelle installation), ouvrir le volet binder
       if (
-        this.settings.autoOpenBinder &&
+        (this.settings.autoOpenBinder || !hasProject) &&
         this.app.workspace.getLeavesOfType(VIEW_SIDEBAR).length === 0
       ) {
         const leaf = this.app.workspace.getLeftLeaf(false);
-        if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR, active: false });
+        if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR, active: !hasProject });
       }
 
-      if (!this.getProjectFolder()) return;
+      if (!hasProject) return;
 
       if (this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS).length === 0) {
         const leaf = this.app.workspace.getRightLeaf(false);
