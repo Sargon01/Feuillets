@@ -116,21 +116,18 @@ export class ArcsView extends ItemView {
     };
 
     // 3. Carte d'aide explicative
-    const helpCard = wrapper.createDiv({
-      cls: "feuillets-arcs-help-card",
-      style: "display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); margin-bottom: 12px; font-size: var(--font-ui-small);"
-    });
-    const helpLeft = helpCard.createDiv({ style: "display: flex; align-items: center; gap: 10px;" });
-    helpLeft.createDiv({ style: "font-size: 1.3em;" }).setText("🛤️");
-    helpLeft.createDiv({ style: "color: var(--text-muted); line-height: 1.4;" }).innerHTML =
+    const helpCard = wrapper.createDiv({ cls: "feuillets-arcs-help-card" });
+    const helpLeft = helpCard.createDiv({ cls: "feuillets-arcs-help-left" });
+    helpLeft.createDiv({ cls: "feuillets-arcs-help-icon" }).setText("🛤️");
+    helpLeft.createDiv({ cls: "feuillets-arcs-help-text" }).innerHTML =
       `<strong>Gestion des Fils & Lieux :</strong> Visualisez la répartition des intrigues (<code>fil:</code>) et des décors (<code>label:</code>) dans chaque chapitre de votre manuscrit.`;
 
     // Mode d'affichage Toggle (Tableau vs Frise)
-    const modeToggleGroup = helpCard.createDiv({ style: "display: flex; gap: 2px; background: var(--background-modifier-form-field); padding: 2px; border-radius: var(--radius-s); border: 1px solid var(--background-modifier-border); flex-shrink: 0;" });
-    
+    const modeToggleGroup = helpCard.createDiv({ cls: "feuillets-arcs-mode-toggle" });
+
     const btnTable = modeToggleGroup.createEl("button", {
       text: "📊 Tableau",
-      style: `padding: 4px 10px; font-size: var(--font-ui-smaller); border: none; border-radius: var(--radius-xs); cursor: pointer; background: ${this.displayMode === "table" ? "var(--interactive-accent)" : "transparent"}; color: ${this.displayMode === "table" ? "var(--text-on-accent)" : "var(--text-muted)"};`
+      cls: "feuillets-arcs-toggle-btn" + (this.displayMode === "table" ? " is-active" : "")
     });
     btnTable.addEventListener("click", () => {
       this.displayMode = "table";
@@ -139,7 +136,7 @@ export class ArcsView extends ItemView {
 
     const btnRails = modeToggleGroup.createEl("button", {
       text: "🛤️ Frise rails",
-      style: `padding: 4px 10px; font-size: var(--font-ui-smaller); border: none; border-radius: var(--radius-xs); cursor: pointer; background: ${this.displayMode === "rails" ? "var(--interactive-accent)" : "transparent"}; color: ${this.displayMode === "rails" ? "var(--text-on-accent)" : "var(--text-muted)"};`
+      cls: "feuillets-arcs-toggle-btn" + (this.displayMode === "rails" ? " is-active" : "")
     });
     btnRails.addEventListener("click", () => {
       this.displayMode = "rails";
@@ -147,13 +144,10 @@ export class ArcsView extends ItemView {
     });
 
     // 4. Barre d'outils avec filtres
-    const toolbar = wrapper.createDiv({
-      cls: "feuillets-arcs-toolbar",
-      style: "display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--background-secondary-alt); border-bottom: 1px solid var(--background-modifier-border); margin-bottom: 14px; border-radius: var(--radius-m); flex-wrap: wrap;"
-    });
+    const toolbar = wrapper.createDiv({ cls: "feuillets-arcs-toolbar" });
 
     // Filtre de catégorie (Tous / Fils conducteurs / Lieux)
-    const catGroup = toolbar.createDiv({ style: "display: flex; gap: 4px; background: var(--background-modifier-form-field); padding: 2px; border-radius: var(--radius-s); border: 1px solid var(--background-modifier-border);" });
+    const catGroup = toolbar.createDiv({ cls: "feuillets-arcs-cat-group" });
     const catOptions = [
       { id: "all", label: "Tous" },
       { id: "fils", label: "🧵 Fils conducteurs" },
@@ -163,7 +157,7 @@ export class ArcsView extends ItemView {
     for (const opt of catOptions) {
       const btn = catGroup.createEl("button", {
         text: opt.label,
-        style: `padding: 4px 10px; font-size: var(--font-ui-smaller); border: none; border-radius: var(--radius-xs); cursor: pointer; background: ${(this.categoryFilter || "all") === opt.id ? "var(--interactive-accent)" : "transparent"}; color: ${(this.categoryFilter || "all") === opt.id ? "var(--text-on-accent)" : "var(--text-muted)"};`
+        cls: "feuillets-arcs-toggle-btn" + ((this.categoryFilter || "all") === opt.id ? " is-active" : "")
       });
       btn.addEventListener("click", () => {
         this.categoryFilter = opt.id;
@@ -172,10 +166,7 @@ export class ArcsView extends ItemView {
     }
 
     // Sélecteur d'arc individuel
-    const select = toolbar.createEl("select", {
-      cls: "feuillets-arcs-filter",
-      style: "padding: 5px 8px; border-radius: var(--radius-s); font-size: var(--font-ui-small); background: var(--background-modifier-form-field); border: 1px solid var(--background-modifier-border); cursor: pointer;"
-    });
+    const select = toolbar.createEl("select", { cls: "feuillets-arcs-filter" });
 
     const allOpt = select.createEl("option", { text: "— Filtrer une élement précis —" });
     allOpt.value = "";
@@ -203,26 +194,31 @@ export class ArcsView extends ItemView {
     // OPTION A : MODE TABLEAU CLAIR ET LISIBLE (PAR DÉFAUT)
     // -------------------------------------------------------------
     if (this.displayMode === "table") {
-      const tableContainer = wrapper.createDiv({ cls: "feuillets-arcs-table-container", style: "overflow-x: auto;" });
-      const table = tableContainer.createEl("table", {
-        style: "width: 100%; border-collapse: collapse; font-size: var(--font-ui-small);"
-      });
+      const tableContainer = wrapper.createDiv({ cls: "feuillets-arcs-table-container" });
+      const table = tableContainer.createEl("table", { cls: "feuillets-arcs-table" });
+
+      const renderBadge = (parent, name) => {
+        const col = stringToColor(name);
+        const badge = parent.createEl("span", { text: name, cls: "feuillets-arcs-table-badge" });
+        badge.style.setProperty("--arc-color-bg", col + "20");
+        badge.style.setProperty("--arc-color-text", col);
+        badge.style.setProperty("--arc-color-border", col + "40");
+      };
 
       // En-tête du tableau
       const thead = table.createEl("thead");
-      const trHead = thead.createEl("tr", { style: "border-bottom: 2px solid var(--background-modifier-border); background: var(--background-secondary-alt);" });
-      trHead.createEl("th", { text: "Chapitre", style: "padding: 8px 12px; text-align: left; width: 220px;" });
-      trHead.createEl("th", { text: "📍 Lieu (label)", style: "padding: 8px 12px; text-align: left; width: 140px;" });
-      trHead.createEl("th", { text: "🧵 Fil conducteur", style: "padding: 8px 12px; text-align: left; width: 180px;" });
-      trHead.createEl("th", { text: "Résumé / Sous-titre", style: "padding: 8px 12px; text-align: left;" });
+      const trHead = thead.createEl("tr");
+      trHead.createEl("th", { text: "Chapitre" });
+      trHead.createEl("th", { text: "📍 Lieu (label)" });
+      trHead.createEl("th", { text: "🧵 Fil conducteur" });
+      trHead.createEl("th", { text: "Résumé / Sous-titre" });
 
       const tbody = table.createEl("tbody");
 
       for (const item of items) {
         if (item.type === "folder") {
-          const trFolder = tbody.createEl("tr", { style: "background: var(--background-secondary); border-top: 1px solid var(--background-modifier-border);" });
-          const tdFolder = trFolder.createEl("td", { colSpan: 4, style: "padding: 8px 12px; font-weight: bold; color: var(--text-accent);" });
-          tdFolder.setText(`📁 ${item.folder.name}`);
+          const trFolder = tbody.createEl("tr", { cls: "feuillets-arcs-table-row-folder" });
+          trFolder.createEl("td", { text: `📁 ${item.folder.name}`, attr: { colSpan: 4 } });
         } else {
           const file = item.file;
           const list = sceneArcs.get(file.path) || [];
@@ -232,51 +228,33 @@ export class ArcsView extends ItemView {
           const fils = sceneFilsMap.get(file.path) || [];
           const labels = sceneLabelsMap.get(file.path) || [];
 
-          const trRow = tbody.createEl("tr", {
-            style: "border-bottom: 1px solid var(--background-modifier-border); cursor: pointer; transition: background 0.1s ease;"
-          });
-          trRow.addEventListener("mouseenter", () => trRow.style.background = "var(--background-modifier-hover)");
-          trRow.style.background = "transparent";
-          trRow.addEventListener("mouseleave", () => trRow.style.background = "transparent");
-
+          const trRow = tbody.createEl("tr", { cls: "feuillets-arcs-table-row" });
           trRow.addEventListener("click", () => {
             openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
           });
 
           // Col 1: Titre du chapitre
-          const tdTitle = trRow.createEl("td", { style: "padding: 8px 12px; font-weight: 500;" });
+          const tdTitle = trRow.createEl("td", { cls: "feuillets-arcs-table-title" });
           tdTitle.setText(this.plugin.shortTitleFor(file));
 
           // Col 2: Lieu (label)
-          const tdLabel = trRow.createEl("td", { style: "padding: 8px 12px;" });
+          const tdLabel = trRow.createEl("td");
           if (labels.length > 0) {
-            for (const l of labels) {
-              const col = stringToColor(l);
-              const badge = tdLabel.createEl("span", {
-                text: l,
-                style: `display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 500; background: ${col}20; color: ${col}; border: 1px solid ${col}40; margin-right: 4px;`
-              });
-            }
+            for (const l of labels) renderBadge(tdLabel, l);
           } else {
-            tdLabel.createEl("span", { text: "—", style: "color: var(--text-faint);" });
+            tdLabel.createEl("span", { text: "—", cls: "feuillets-arcs-table-empty" });
           }
 
           // Col 3: Fil conducteur
-          const tdFil = trRow.createEl("td", { style: "padding: 8px 12px;" });
+          const tdFil = trRow.createEl("td");
           if (fils.length > 0) {
-            for (const f of fils) {
-              const col = stringToColor(f);
-              const badge = tdFil.createEl("span", {
-                text: f,
-                style: `display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 500; background: ${col}20; color: ${col}; border: 1px solid ${col}40; margin-right: 4px;`
-              });
-            }
+            for (const f of fils) renderBadge(tdFil, f);
           } else {
-            tdFil.createEl("span", { text: "—", style: "color: var(--text-faint);" });
+            tdFil.createEl("span", { text: "—", cls: "feuillets-arcs-table-empty" });
           }
 
           // Col 4: Synopsis / sous-titre
-          const tdSyn = trRow.createEl("td", { style: "padding: 8px 12px; color: var(--text-muted); font-size: 0.9em; line-height: 1.3;" });
+          const tdSyn = trRow.createEl("td", { cls: "feuillets-arcs-table-synopsis" });
           const synText = fm.synopsis || fm.sous_titre || "";
           tdSyn.setText(synText || "—");
         }
@@ -324,27 +302,20 @@ export class ArcsView extends ItemView {
     const timeline = wrapper.createDiv({ cls: "feuillets-arcs-timeline" });
 
     // En-tête des colonnes au-dessus des rails
-    const headerRow = timeline.createDiv({
-      cls: "feuillets-arcs-header-row",
-      style: "display: flex; align-items: flex-end; gap: 8px; padding: 6px 0 10px 0; border-bottom: 2px solid var(--background-modifier-border); margin-bottom: 8px;"
-    });
+    const headerRow = timeline.createDiv({ cls: "feuillets-arcs-header-row" });
 
-    const railsHeader = headerRow.createDiv({
-      cls: "feuillets-arcs-rails-header",
-      style: `display: flex; width: ${activeArcs.length * 28}px; flex-shrink: 0; gap: 0;`
-    });
+    const railsHeader = headerRow.createDiv({ cls: "feuillets-arcs-rails-header" });
+    railsHeader.style.width = `${activeArcs.length * 28}px`;
 
     activeArcs.forEach((arc) => {
       const colColor = stringToColor(arc);
       const symbol = getArcSymbol(arc);
       const colHeader = railsHeader.createDiv({
         cls: "feuillets-arcs-col-header",
-        style: "flex: 1; display: flex; flex-direction: column; align-items: center; cursor: pointer;",
         title: `${arc} (cliquer pour filtrer)`
       });
-      const dot = colHeader.createDiv({
-        style: `width: 18px; height: 18px; border-radius: 50%; background: ${colColor}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; margin-bottom: 4px;`
-      });
+      const dot = colHeader.createDiv({ cls: "feuillets-arcs-col-header-dot" });
+      dot.style.setProperty("--arc-color", colColor);
       dot.setText(symbol);
 
       colHeader.addEventListener("click", () => {
@@ -353,9 +324,7 @@ export class ArcsView extends ItemView {
       });
     });
 
-    const headerLabel = headerRow.createDiv({
-      style: "font-size: var(--font-ui-small); font-weight: var(--font-semibold, 600); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; padding-left: 8px;"
-    });
+    const headerLabel = headerRow.createDiv({ cls: "feuillets-arcs-header-label" });
     headerLabel.setText(`Arcs narratifs & Lieux du manuscrit (${activeArcs.length} colonne${activeArcs.length > 1 ? "s" : ""})`);
 
     let sceneCount = 0;
@@ -409,11 +378,11 @@ export class ArcsView extends ItemView {
         });
 
         const titleArea = row.createDiv({ cls: "feuillets-arcs-info" });
-        const titleRow = titleArea.createDiv({ style: "display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" });
+        const titleRow = titleArea.createDiv({ cls: "feuillets-arcs-title-row" });
         titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
 
         if (list.length > 0) {
-          const badges = titleRow.createDiv({ cls: "feuillets-arcs-row-badges", style: "display: flex; gap: 4px; flex-wrap: wrap;" });
+          const badges = titleRow.createDiv({ cls: "feuillets-arcs-row-badges" });
           for (const arcName of list) {
             const arcColor = stringToColor(arcName);
             const badge = badges.createSpan({

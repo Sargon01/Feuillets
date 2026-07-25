@@ -753,6 +753,13 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.handleFilChanged(file)));
+    this.registerEvent(this.app.workspace.on("layout-change", () => {
+      this.renderStaleViews();
+      this.syncProjectPanelsVisibility();
+    }));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+      this.syncProjectPanelsVisibility();
+    }));
   }
 
   async loadDeferredViews() {
@@ -1127,36 +1134,6 @@ class FeuilletsPlugin extends Plugin {
         new Notice("Notes de bas de page renumérotées.");
       },
     });
-  }
-
-  registerVaultEvents() {
-    const refresh = () => {
-      if (this.settings.projectFolder && !this.getProjectFolder()) {
-        this.settings.projectFolder = "";
-        this.saveSettings();
-        this.updateStatusBar();
-      }
-      this.refreshView();
-    };
-    this.registerEvent(this.app.vault.on("create", (file) => {
-      refresh();
-      this.maybeAutoInitializeResearchFile(file);
-    }));
-    this.registerEvent(this.app.vault.on("delete", refresh));
-    this.registerEvent(this.app.vault.on("rename", (file) => {
-      refresh();
-      this.maybeAutoInitializeResearchFile(file);
-    }));
-    this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
-    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
-    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.handleFilChanged(file)));
-    this.registerEvent(this.app.workspace.on("layout-change", () => {
-      this.renderStaleViews();
-      this.syncProjectPanelsVisibility();
-    }));
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
-      this.syncProjectPanelsVisibility();
-    }));
   }
 
   async maybeAutoInitializeResearchFile(file) {
