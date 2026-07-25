@@ -1401,11 +1401,16 @@ export class BoardView extends BaseFeuilletsView {
       if (!this.passesFilter(child)) continue;
       const row = table.createDiv({ cls: "feuillets-row feuillets-row-scene" });
       row.setAttr("data-path", child.path);
+      if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(child.path)) {
+        row.addClass("feuillets-multiselected");
+      }
 
       const handle = row.createDiv({ cls: "feuillets-col-handle", text: "⋮⋮" });
+      this.attachDragHandlers(handle, row, parentFolder, i, children, table);
       const titleCell = row.createDiv({ cls: "feuillets-cell feuillets-cell-title" });
       titleCell.style.paddingLeft = `${depth * 16}px`;
-      titleCell.createSpan({ cls: "feuillets-title-text", text: this.plugin.shortTitleFor(child) }).addEventListener("click", () => {
+      titleCell.createSpan({ cls: "feuillets-title-text", text: this.plugin.shortTitleFor(child) }).addEventListener("click", (e) => {
+        if (this.handleMultiSelectClick(e, child, parentFolder, i, children, table)) return;
         openFileActivating(this.app, this.app.workspace.getLeaf(false), child);
       });
 

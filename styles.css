@@ -867,6 +867,13 @@
   background: var(--background-modifier-hover);
 }
 
+/* Sélection multiple (mode Plan) — même langage que .feuillets-item
+   .feuillets-multiselected du Binder. */
+.feuillets-row.feuillets-multiselected {
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+  border-left: 3px solid var(--interactive-accent);
+}
+
 .feuillets-row-head {
   /* PLUS de position:sticky : deux tentatives de le faire flotter ont
      chacune fini par recouvrir une ligne du contenu, parce que la hauteur

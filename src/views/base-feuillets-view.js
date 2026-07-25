@@ -2,6 +2,7 @@ import { STATUSES, getProjectStatuses } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
+import { TextInputModal } from "../scenes-editor.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
@@ -1236,6 +1237,23 @@ export class BaseFeuilletsView extends ItemView {
     const menu = new Menu();
     const plugin = this.plugin;
 
+    /* Feuillet cliqué faisant partie d'une sélection multiple (voir
+       handleMultiSelectClick) : Statut/Label/Tags s'appliquent alors à
+       tout le groupe, pas seulement à celui sur lequel on a cliqué droit.
+       Le reste du menu (nouveau feuillet avant/après, snapshot,
+       dupliquer…) n'a de sens que pour CE feuillet précis et reste
+       inchangé. */
+    const groupSel = this.plugin._binderMultiSelect;
+    const isGroup = !!(groupSel && groupSel.size > 1 && groupSel.has(file.path));
+    const groupFiles = isGroup
+      ? [...groupSel].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f) => f instanceof TFile)
+      : [file];
+
+    if (isGroup) {
+      menu.addItem((item) => item.setTitle(`${groupFiles.length} feuillets sélectionnés`).setDisabled(true));
+      menu.addSeparator();
+    }
+
     menu.addItem((item) =>
       item
         .setTitle("Ouvrir dans un nouvel onglet")
@@ -1288,9 +1306,14 @@ export class BaseFeuilletsView extends ItemView {
       menu.addItem((item) =>
         item
           .setTitle(`Statut : ${st}`)
-          .setChecked(st === currentStatus)
+          .setChecked(!isGroup && st === currentStatus)
           .onClick(async () => {
-            await this.setFm(file, "statut", st === currentStatus ? "" : st);
+            if (isGroup) {
+              for (const f of groupFiles) await this.setFm(f, "statut", st);
+              new Notice(`Statut « ${st} » appliqué à ${groupFiles.length} feuillets.`);
+            } else {
+              await this.setFm(file, "statut", st === currentStatus ? "" : st);
+            }
           })
       );
     }
@@ -1301,13 +1324,46 @@ export class BaseFeuilletsView extends ItemView {
       menu.addItem((item) =>
         item
           .setTitle(`Label : ${l.name}`)
-          .setChecked(l.name === currentLabel)
+          .setChecked(!isGroup && l.name === currentLabel)
           .onClick(async () => {
-            await this.setFm(file, "label", l.name === currentLabel ? "" : l.name);
+            if (isGroup) {
+              for (const f of groupFiles) await this.setFm(f, "label", l.name);
+              new Notice(`Label « ${l.name} » appliqué à ${groupFiles.length} feuillets.`);
+            } else {
+              await this.setFm(file, "label", l.name === currentLabel ? "" : l.name);
+            }
           })
       );
     }
     menu.addSeparator();
+
+    if (isGroup) {
+      menu.addItem((item) =>
+        item
+          .setTitle("Ajouter un tag au groupe…")
+          .setIcon("tag")
+          .onClick(() => {
+            new TextInputModal(
+              this.app,
+              `Ajouter un tag à ${groupFiles.length} feuillets`,
+              [{ name: "tag", label: "Tag", value: "" }],
+              async (values) => {
+                const clean = String(values.tag || "").trim().replace(/^#/, "");
+                if (!clean) return;
+                for (const f of groupFiles) {
+                  const existing = this.plugin.tagsOf(f);
+                  if (!existing.includes(clean)) {
+                    await this.setFm(f, "tags", [...existing, clean]);
+                  }
+                }
+                new Notice(`Tag « ${clean} » ajouté à ${groupFiles.length} feuillets.`);
+                this.render();
+              }
+            ).open();
+          })
+      );
+      menu.addSeparator();
+    }
 
     menu.addItem((item) =>
       item
@@ -1545,6 +1601,64 @@ export class BaseFeuilletsView extends ItemView {
     const state = this.ringState(wc, goal);
     if (state === "hit" || state === "over")
       ring.addClass(`feuillets-ring-${state}`);
+  }
+
+  /** Clic sur une ligne sélectionnable en vue d'un déplacement groupé
+   * (Binder, Plan…) : Maj+clic sélectionne la PLAGE depuis le dernier
+   * point d'ancrage (comme un explorateur de fichiers), Cmd/Ctrl+clic
+   * bascule un élément un par un tout en déplaçant l'ancrage, un clic
+   * normal réinitialise. Partagé entre vues pour un comportement
+   * identique partout — voir attachDragHandlers pour la suite (le
+   * glisser-déposer group entraîne réellement toute la sélection).
+   * Retourne true si le clic a été consommé par la sélection (l'appelant
+   * ne doit alors pas ouvrir le fichier). */
+  handleMultiSelectClick(e, file, parent, index, siblings, scopeEl) {
+    if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
+    const sel = this.plugin._binderMultiSelect;
+
+    if (e.shiftKey) {
+      e.preventDefault();
+      const anchor = this.plugin._binderMultiSelectAnchor;
+      if (anchor && anchor.parentPath === parent.path) {
+        const lo = Math.min(anchor.index, index);
+        const hi = Math.max(anchor.index, index);
+        sel.clear();
+        for (let i = lo; i <= hi; i++) {
+          if (siblings[i]) sel.add(siblings[i].path);
+        }
+      } else {
+        sel.clear();
+        sel.add(file.path);
+        this.plugin._binderMultiSelectAnchor = { parentPath: parent.path, index };
+      }
+      this.refreshMultiSelectClasses(scopeEl);
+      return true;
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      if (sel.has(file.path)) sel.delete(file.path);
+      else sel.add(file.path);
+      this.plugin._binderMultiSelectAnchor = { parentPath: parent.path, index };
+      this.refreshMultiSelectClasses(scopeEl);
+      return true;
+    }
+
+    if (sel.size > 0) {
+      sel.clear();
+      this.refreshMultiSelectClasses(scopeEl);
+    }
+    this.plugin._binderMultiSelectAnchor = { parentPath: parent.path, index };
+    return false;
+  }
+
+  refreshMultiSelectClasses(scopeEl) {
+    const sel = this.plugin._binderMultiSelect;
+    scopeEl.querySelectorAll("[data-path]").forEach((el) => {
+      const path = el.getAttr("data-path");
+      if (sel && sel.has(path)) el.addClass("feuillets-multiselected");
+      else el.removeClass("feuillets-multiselected");
+    });
   }
 
   attachDragHandlers(handleEl, dropEl, parent, index, siblings, scopeEl) {

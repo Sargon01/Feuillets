@@ -646,31 +646,12 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       }
 
-      if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
-      if (this.plugin._binderMultiSelect.has(file.path)) item.addClass("feuillets-multiselected");
+      if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(file.path)) {
+        item.addClass("feuillets-multiselected");
+      }
 
       item.addEventListener("click", (e) => {
-        /* Cmd/Ctrl+clic ou Maj+clic : bascule cette scène dans une
-           sélection multiple (pour un déplacement groupé, voir
-           attachDragHandlers) au lieu de l'ouvrir — reset dès qu'un clic
-           SANS modificateur a lieu, comme un explorateur de fichiers
-           classique. */
-        if (e.shiftKey || e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          const sel = this.plugin._binderMultiSelect;
-          if (sel.has(file.path)) {
-            sel.delete(file.path);
-            item.removeClass("feuillets-multiselected");
-          } else {
-            sel.add(file.path);
-            item.addClass("feuillets-multiselected");
-          }
-          return;
-        }
-        if (this.plugin._binderMultiSelect.size > 0) {
-          this.plugin._binderMultiSelect.clear();
-          this.contentEl.querySelectorAll(".feuillets-multiselected").forEach((el) => el.removeClass("feuillets-multiselected"));
-        }
+        if (this.handleMultiSelectClick(e, file, parent, i, siblings, dragScopeEl)) return;
         /* mis en surbrillance immédiatement, sans attendre les événements
            workspace ("active-leaf-change"/"file-open") : ceux-ci arrivent
            parfois après qu'un autre rendu ait déjà eu lieu, ou pendant que
