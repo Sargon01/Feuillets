@@ -18,7 +18,7 @@ async function writeSheet(app, folder, name, lines) {
   return app.vault.create(path, lines.join("\n"));
 }
 
-const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, fil, personnages, tags, date, notes, compiler, body }) => {
+const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, fil, personnages, rythme, tags, date, notes, compiler, body }) => {
   const lines = [
     "---",
     `titre: ${titre}`,
@@ -32,6 +32,12 @@ const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, fil, pe
   if (personnages && personnages.length > 0) {
     lines.push("personnages:");
     for (const p of personnages) lines.push(`  - ${p}`);
+  }
+  if (rythme) {
+    lines.push("rythme:");
+    for (const dim of ["action", "dialogue", "description", "introspection"]) {
+      lines.push(`  ${dim}: ${rythme[dim] ?? 0}`);
+    }
   }
   lines.push(
     "objectif: 800",
@@ -103,6 +109,7 @@ async function generate(app, S, plugin, manuscritPath) {
     label: "Rouge",
     fil: "Éveil",
     personnages: ["Elira Voskan"],
+    rythme: { action: 1, dialogue: 0, description: 3, introspection: 4 },
     tags: "exemple, demo/premier-niveau",
     notes: "Ce champ « Notes » n'est jamais compilé ni compté dans le nombre de mots — utilise-le pour tes pense-bêtes.",
     body: 'Ceci est un exemple de scène. Le champ `titre_binder` ("Ouverture") est ce qui s\'affiche dans le binder et l\'onglet Obsidian, à la place du nom de fichier. Ouvre le panneau Cartes → mode Chemin de fer : trois boutons en haut — **Label** (`label: Rouge`, à gauche, en rond), **Personnage** (`personnages: Elira Voskan`, au centre) et **Fil** (`fil: Éveil`, à droite, en carré) — choisis-en un pour voir la ligne continue courir à travers les scènes qui le portent, même à travers des chapitres différents. Survole un point pour voir son nom. Le tag `demo/premier-niveau` est un tag imbriqué — regarde le panneau Tags pour voir comment il apparaît dans l\'arborescence.\n\nCette phrase porte une note de bas de page[^1] et une citation insérée depuis la fiche « Sources d\'inspiration » du panneau Recherche (sélectionne un passage dans une fiche Bibliographie, puis clique « Insérer comme citation »).\n\n> « Rien ne se perd, rien ne se crée, tout se transforme. » (Sources d\'inspiration)\n\n[^1]: Exemple de note de bas de page — commande « Insérer une note de bas de page », ou « Renuméroter les notes de bas de page » si l\'ordre change.',
@@ -115,6 +122,7 @@ async function generate(app, S, plugin, manuscritPath) {
     label: "Rouge, Bleu",
     fil: "Éveil",
     personnages: ["Elira Voskan", "Tomas Grey"],
+    rythme: { action: 2, dialogue: 4, description: 1, introspection: 1 },
     date: "1421-03-12",
     body: "Cette scène porte deux labels à la fois (`label: Rouge, Bleu`) — une scène peut appartenir à plusieurs fils en même temps, chacun avec sa propre couleur et sa propre ligne dans le Chemin de fer. Elle porte aussi une `date: 1421-03-12`, qui correspond à un jalon de la Chronologie (« Fondation de la Citadelle », dans Recherche/Chronologie) : garde ce feuillet actif et regarde le panneau Notes, tu verras le rapprochement automatique avec ce jalon historique. Elle cite aussi Elira et Tomas par leur nom — ouvre le panneau Notes et regarde la section « Contexte » : leurs fiches Recherche y apparaissent automatiquement, avec leur âge à la date de la scène.",
   }));
@@ -127,6 +135,35 @@ async function generate(app, S, plugin, manuscritPath) {
     statut: "Brouillon",
     body: "Une scène tout à fait ordinaire, sans label ni fil particulier — pour montrer qu'aucun champ n'est obligatoire en dehors de la structure elle-même (dossier projet → parties → chapitres → scènes).\n\nEssaie ici le mode concentration (icône focus dans le binder ou le ruban) : plein écran d'écriture, texte hors focus estompé, compteur de mots flottant, Échap pour sortir. Ou ouvre la barre « Chercher et remplacer dans le manuscrit… » (commande dédiée, distincte de la recherche native d'Obsidian) pour chercher un mot dans tout le projet.",
   }));
+
+  /* Scène volontairement imparfaite : fautes réelles pour Grammalecte,
+     répétitions/verbes passe-partout/voix passive pour le panneau Analyse,
+     et un champ `rythme` par dimension pour la courbe narrative. Les deux
+     outils sont distincts (correction grammaticale vs style), d'où les
+     deux types de défauts assemblés dans le même texte. */
+  await writeSheet(app, chap2, "2. Brouillon à corriger", [
+    "---",
+    "titre: Brouillon à corriger",
+    "titre_binder: Brouillon à corriger",
+    "ordre: 2",
+    "synopsis: Scène délibérément imparfaite, pour tester la correction grammaticale et le panneau Analyse.",
+    "statut: Brouillon",
+    "objectif: 800",
+    "rythme:",
+    "  action: 4",
+    "  dialogue: 1",
+    "  description: 4",
+    "  introspection: 1",
+    "compiler: true",
+    "---",
+    "",
+    "Les chevals étaient fatigués. Elira était fatiguée aussi. Elle était inquiète, elle était certaine que quelque chose était différent depuis la lettre — elle était sûre de l'avoir déjà lu quelque part, cette phrase, cette même phrase, cette phrase qui revenait sans cesse.",
+    "",
+    "La décision fut prise par Elira. La route fut prise sans un mot. Le silence fut à peine rompu par le vent.",
+    "",
+    "Cette scène contient volontairement : une faute d'accord (« Les chevals », « lu » au lieu de « lue ») pour la **correction grammaticale** (commande « vérifier le feuillet actif », panneau latéral Feuillets ouvert au préalable) ; une répétition serrée (« cette phrase » × 3) et un abus du verbe passe-partout « être » pour le **panneau Analyse** (icône dédiée, à côté de Notes/Recherche/Propriétés) ; trois phrases à la voix passive (« fut prise », « fut prise », « fut rompu ») que ce même panneau signale aussi. Le champ `rythme:` (action/dialogue/description/introspection, 0 à 5) alimente sa courbe narrative — répète-le sur d'autres scènes pour voir la courbe se dessiner sur tout le manuscrit.",
+    "",
+  ]);
 
   const partie2 = await ensureFolder(app, `${root.path}/Partie 2 - Les complications`);
   const chap3 = await ensureFolder(app, `${partie2.path}/Chapitre 3 - Le noeud`);
@@ -290,7 +327,28 @@ async function generate(app, S, plugin, manuscritPath) {
     "- **« 1. Ouverture »** — tour des champs de base : `titre_binder` (affiché dans le binder/l'onglet à la place du nom de fichier), `label`/`fil`/`personnages` (voir plus bas), tag imbriqué `demo/premier-niveau`, une note de bas de page et une citation insérée depuis une fiche Bibliographie.",
     "- **« 2. La rencontre »** — deux labels à la fois (`label: Rouge, Bleu`), une `date` alignée sur un jalon de la Chronologie (regarde le panneau Notes), et deux personnages cités par leur nom (section « Contexte » du panneau Notes, avec âge calculé à la date de la scène).",
     "- **« La route »** — scène sans aucun champ optionnel, pour rappeler que rien n'est obligatoire en dehors de la structure Partie/Chapitre/Scène. Bon endroit pour essayer le **mode concentration** (icône focus) ou la barre **Chercher et remplacer**.",
+    "- **« Brouillon à corriger »** — scène volontairement imparfaite (fautes réelles, répétitions, verbes ternes, voix passive) : voir « Correction et style » plus bas.",
     "- **« La révélation » / « Le silence »** — un **fil narratif** planté puis résolu automatiquement (`fil: secret-de-l-ordre`), et une suggestion de **fusion** de ces deux scènes (sélection multiple du Tableau → Fusionner) pour voir les presets de fusion à l'œuvre.",
+    "",
+    "## Créer ou importer un projet",
+    "",
+    "Ce projet a été généré par la commande « Créer un projet d'exemple » — mais un vrai projet démarre plus souvent d'un dossier vide ou d'un plan déjà en tête. Sur un **nouveau projet vide** (pas celui-ci), essaie :",
+    "",
+    "- **« Nouveau projet… »** — crée le dossier projet et initialise sa structure (Recherche, Snapshots, Ressources, Journal) en une fois.",
+    "- **« Importer un plan… »** — colle un plan Markdown dans la boîte de dialogue, chaque `#`/`##` devient un dossier, chaque tiret une scène. Exemple à copier-coller tel quel :",
+    "",
+    "```",
+    "# Partie 1",
+    "## Chapitre 1",
+    "- Scène 1",
+    "- Scène 2",
+    "## Chapitre 2",
+    "- Scène 3",
+    "# Partie 2",
+    "- Chapitre 3",
+    "```",
+    "",
+    "- **« Importer un projet Scrivener… »** — convertit directement un fichier `.scriv` en arborescence Feuillets (bureau uniquement, accès au système de fichiers requis).",
     "",
     "## Panneau Cartes → mode Chemin de fer",
     "",
@@ -304,19 +362,28 @@ async function generate(app, S, plugin, manuscritPath) {
     "- **Panneau Notes** (feuillet ouvert) — section Contexte (personnages/lieux détectés automatiquement), notes de dossier, Synopsis/Résumé/Notes de travail/Sources repliables et réordonnables, Plan du feuillet.",
     "- **Panneau Propriétés** — édite le frontmatter du feuillet ouvert (case à cocher, sélecteur de date, éditeur à jetons pour les listes), ou parcourt toutes les propriétés/tags utilisés dans **ce projet** (pas tout le coffre), avec ajout/suppression en masse.",
     "",
-    "## Suivi et relecture",
+    "## Suivi",
     "",
     "- **Journal/** — deux entrées de jours ; bouton « Compiler le carnet » en haut du panneau.",
     "- **Panneau Statistiques** — objectifs de mots, compteurs détaillés, historique 14 jours ; se remplit tout seul.",
-    "- **Correction grammaticale (Grammalecte)** — commande « vérifier le feuillet actif » (bureau uniquement).",
-    "- **Panneau Révision** — pour intégrer les retours d'un directeur/correcteur reçus en `.docx` annoté (aucun fichier d'exemple généré ici, panneau vide au départ).",
     "",
-    "## Import, sauvegarde, export",
+    "## Correction et style",
     "",
-    "- **Importer un plan…** ou **Importer un projet Scrivener…** — pour démarrer une structure sans tout créer à la main (essaie sur un nouveau projet vide, pas celui-ci).",
+    "Ouvre **« Brouillon à corriger »** (Partie 1 → Chapitre 2) pour tester les deux outils suivants sur un texte volontairement fautif :",
+    "",
+    "- **Correction grammaticale (Grammalecte)** — commande « Correction grammaticale : vérifier le feuillet actif » (le panneau latéral Feuillets doit être ouvert au préalable, n'importe quel onglet). Fautes soulignées directement dans l'éditeur, commandes « faute suivante »/« faute précédente ». Bureau uniquement.",
+    "- **Panneau Analyse** (icône dédiée, à côté de Notes/Recherche/Propriétés) — sur cette même scène : répétition de « cette phrase » signalée, verbe passe-partout « être » repéré, trois tournures à la voix passive détectées. Le champ `rythme:` (action/dialogue/description/introspection, posé aussi sur « Ouverture » et « La rencontre ») alimente la courbe narrative du panneau sur l'ensemble du manuscrit.",
+    "- **Panneau Révision** — pour intégrer les retours d'un directeur/correcteur reçus en `.docx` annoté ; importe n'importe quel `.docx` avec des commentaires Word pour l'essayer (panneau vide au départ, aucun fichier d'exemple généré ici).",
+    "",
+    "## Sauvegarde",
+    "",
     "- **Snapshots/** — vide au départ : clic-droit sur un feuillet → « Snapshot » pour voir une copie datée apparaître ici. « Sauvegarder les réglages du plugin » exporte toute la config en `.json`.",
-    "- **Ressources/Templates/** — gabarits YAML utilisés à la création d'une nouvelle fiche Recherche.",
-    "- **Export natif (par défaut, zéro dépendance, fonctionne sur mobile)** — commande « Compiler le manuscrit », puis « Exporter en .docx/.epub » (`.pdf` via l'impression, bureau uniquement) ; 7 modèles intégrés (Classique, Moderne, Machine à écrire, Roman simple, Roman français, APA, Thèse) ou un modèle personnalisé dans `Ressources/Modèles`. Pandoc reste disponible en option avancée pour qui l'a déjà installé (bureau uniquement) — c'est un choix, pas un prérequis.",
+    "",
+    "## Compiler et exporter",
+    "",
+    "1. **Compiler le manuscrit** — assemble tous les feuillets du projet dans l'ordre du binder, selon le **preset de compilation** actif (séparateur entre scènes, titres de parties/chapitres/scènes insérés ou non) ; possibilité de choisir les feuillets manuellement plutôt que tout le projet.",
+    "2. **Choisir un modèle de mise en page** — 7 modèles intégrés (Classique, Moderne, Machine à écrire, Roman simple, Roman français paysage 2 colonnes, APA, Thèse) dans le panneau Projet & export, ou un modèle personnalisé dans `Ressources/Modèles/` (bouton « Exporter les modèles intégrés » pour partir d'un modèle existant à personnaliser). À ne pas confondre avec `Ressources/Templates/`, les gabarits YAML utilisés à la création d'une nouvelle fiche Recherche.",
+    "3. **Exporter** — .docx/.epub/.pdf, moteur natif par défaut (zéro dépendance, fonctionne sur mobile, sauf .pdf qui passe par l'impression système donc bureau uniquement) ; typographie française appliquée automatiquement au texte compilé. Pandoc reste disponible en option avancée pour qui l'a déjà installé (bureau uniquement) — un choix, pas un prérequis.",
     "",
     "## Fiction vs Non-fiction",
     "",
