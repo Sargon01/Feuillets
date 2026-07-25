@@ -882,12 +882,12 @@ export class BoardView extends BaseFeuilletsView {
       );
       menu.addItem((item) =>
         item.setTitle("Modifier le résumé…").onClick(() => {
-          new FmFieldModal(this.app, this.plugin, file, "resume", "Résumé long").open();
+          new FmFieldModal(this.app, this.plugin, file, "resume", "Résumé long", () => this.render(true)).open();
         })
       );
       menu.addItem((item) =>
         item.setTitle("Modifier le POV…").onClick(() => {
-          new FmFieldModal(this.app, this.plugin, file, "pov", "Point de vue (POV)").open();
+          new FmFieldModal(this.app, this.plugin, file, "pov", "Point de vue (POV)", () => this.render(true)).open();
         })
       );
       menu.addItem((item) =>
@@ -1017,15 +1017,21 @@ export class BoardView extends BaseFeuilletsView {
     const filsMap = new Map();
     const personnagesSet = new Set();
     const personnagesMap = new Map();
+    const povSet = new Set();
+    const povMap = new Map();
 
     for (const item of fileItems) {
       const lbs = this.plugin.labelsOf(item.file);
       labelMap.set(item.file.path, lbs);
       for (const l of lbs) labelsSet.add(l);
-      filsMap.set(item.file.path, getFilsList(this.fm(item.file)));
-      const persos = getPersonnagesList(this.fm(item.file));
+      const fm = this.fm(item.file);
+      filsMap.set(item.file.path, getFilsList(fm));
+      const persos = getPersonnagesList(fm);
       personnagesMap.set(item.file.path, persos);
       for (const p of persos) personnagesSet.add(p);
+      const pv = povOf(fm);
+      povMap.set(item.file.path, pv);
+      if (pv) povSet.add(pv);
     }
 
     const sortedLabels = Array.from(labelsSet).sort((a, b) => a.localeCompare(b, "fr"));
@@ -1033,12 +1039,13 @@ export class BoardView extends BaseFeuilletsView {
     for (const arr of filsMap.values()) for (const f of arr) filsSet.add(f);
     const sortedFils = Array.from(filsSet).sort((a, b) => a.localeCompare(b, "fr"));
     const sortedPersonnages = Array.from(personnagesSet).sort((a, b) => a.localeCompare(b, "fr"));
+    const sortedPovs = Array.from(povSet).sort((a, b) => a.localeCompare(b, "fr"));
 
     const wrap = container.createDiv({ cls: "feuillets-notes-container" });
-    if (sortedLabels.length === 0 && sortedFils.length === 0) {
+    if (sortedLabels.length === 0 && sortedFils.length === 0 && sortedPovs.length === 0) {
       wrap.createDiv({
         cls: "feuillets-empty",
-        text: `Aucun label ni fil détecté. Ajoute label: Nom ou fil: indice dans le YAML pour construire le chemin de fer.`,
+        text: `Aucun label, fil ni POV détecté. Ajoute label: Nom, fil: indice ou pov: Nom dans le YAML pour construire le chemin de fer.`,
       });
       return;
     }
@@ -1080,19 +1087,24 @@ export class BoardView extends BaseFeuilletsView {
     if (sortedFils.length > 0) {
       buildFilterMenuBtn("route", "Fil", sortedFils, this.selectedFil, (v) => { this.selectedFil = v; });
     }
+    if (sortedPovs.length > 0) {
+      buildFilterMenuBtn("eye", "POV", sortedPovs, this.selectedPov, (v) => { this.selectedPov = v; });
+    }
 
     const filterLabel = this.selectedLabel || "";
     const filterFil = this.selectedFil || "";
     const filterPerso = this.selectedPerso || "";
+    const filterPov = this.selectedPov || "";
 
     const activeLabels = filterLabel ? [filterLabel] : sortedLabels;
     const activeFils = filterFil ? [filterFil] : sortedFils;
-    const matchedSet = (filterLabel || filterFil || filterPerso)
+    const matchedSet = (filterLabel || filterFil || filterPerso || filterPov)
       ? new Set(fileItems.filter((i) => {
           const path = i.file.path;
           if (filterLabel && !(labelMap.get(path) || []).includes(filterLabel)) return false;
           if (filterFil && !(filsMap.get(path) || []).includes(filterFil)) return false;
           if (filterPerso && !(personnagesMap.get(path) || []).includes(filterPerso)) return false;
+          if (filterPov && povMap.get(path) !== filterPov) return false;
           return true;
         }).map((i) => i.file.path))
       : null;
@@ -1179,6 +1191,11 @@ export class BoardView extends BaseFeuilletsView {
       titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
 
       if (fm.synopsis) info.createDiv({ cls: "feuillets-arcs-file-synopsis", text: fm.synopsis });
+
+      const currentPov = povMap.get(file.path) || "";
+      if (currentPov) {
+        info.createDiv({ cls: "feuillets-arcs-personnages", text: `POV : ${currentPov}` });
+      }
 
       const currentPersonnages = personnagesMap.get(file.path) || [];
       if (currentPersonnages.length > 0) {

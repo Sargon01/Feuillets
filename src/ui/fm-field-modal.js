@@ -1,12 +1,13 @@
 const { Modal } = require("obsidian");
 
 export class FmFieldModal extends Modal {
-  constructor(app, plugin, file, key, title) {
+  constructor(app, plugin, file, key, title, onSaved) {
     super(app);
     this.plugin = plugin;
     this.file = file;
     this.key = key;
     this.titleText = title;
+    this.onSaved = onSaved;
   }
   onOpen() {
     const { contentEl } = this;
@@ -25,6 +26,7 @@ export class FmFieldModal extends Modal {
         else delete x[this.key];
       });
       this.close();
+      if (this.onSaved) this.onSaved();
     };
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow

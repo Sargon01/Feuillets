@@ -70,9 +70,10 @@ export class AnalysisView extends BaseFeuilletsView {
     return "bar-chart-3";
   }
 
-  async onOpen() {
-    await this.render();
-  }
+  /* Pas de onOpen() : comme GrammarView, cette vue n'est jamais ouverte
+     comme sa propre feuille — SidebarFeuilletsView appelle directement
+     .render() sur cette instance (voir sidebar-feuillets-view.js). Un
+     onOpen() ici ne serait jamais invoqué par Obsidian : du code mort. */
 
   /** Une section-outil repliable, avec titre, dont l'état de repli persiste
    * (comme les autres sections du panneau). `renderBody` ne s'exécute que si

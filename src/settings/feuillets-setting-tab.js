@@ -1574,7 +1574,15 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       )
         continue; // le toggle reste en tête
       if (node.tagName === "H3") {
-        currentCategory = MAP[node.textContent] || "Avancé";
+        if (!MAP[node.textContent]) {
+          /* Filet de sécurité : une section h3 oubliée dans MAP tombait
+             jusqu'ici dans "Avancé", masqué par défaut ("Réglages
+             avancés" désactivé) — invisible sans que rien ne l'indique
+             (vécu avec la section Sauvegarde). Repli sur un onglet
+             toujours visible : au pire mal rangée, jamais invisible. */
+          console.warn(`Feuillets : section de réglages "${node.textContent}" absente de MAP — ajoutée à "Projet & Écriture" par défaut.`);
+        }
+        currentCategory = MAP[node.textContent] || "Projet & Écriture";
         currentSub = { title: node.textContent, nodes: [] };
         byCategory[currentCategory].push(currentSub);
         node.remove(); // son texte devient le résumé du repli imbriqué

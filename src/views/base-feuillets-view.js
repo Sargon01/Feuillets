@@ -1366,7 +1366,7 @@ export class BaseFeuilletsView extends ItemView {
         .onClick(async () => {
           const targetNote = note || await plugin.getOrCreateFolderNote(folder);
           if (targetNote) {
-            new FmFieldModal(this.app, plugin, targetNote, "synopsis", "Synopsis du dossier").open();
+            new FmFieldModal(this.app, plugin, targetNote, "synopsis", "Synopsis du dossier", () => this.render(true)).open();
           }
         })
     );
@@ -1377,7 +1377,7 @@ export class BaseFeuilletsView extends ItemView {
         .onClick(async () => {
           const targetNote = note || await plugin.getOrCreateFolderNote(folder);
           if (targetNote) {
-            new FmFieldModal(this.app, plugin, targetNote, "resume", "Résumé du dossier").open();
+            new FmFieldModal(this.app, plugin, targetNote, "resume", "Résumé du dossier", () => this.render(true)).open();
           }
         })
     );
