@@ -23,6 +23,13 @@ function getFilsList(fm) {
   return [];
 }
 
+function getPersonnagesList(fm) {
+  const persos = fm.personnages ?? fm.persos;
+  if (Array.isArray(persos)) return persos.filter(Boolean).map((r) => String(r).trim()).filter(Boolean);
+  if (typeof persos === "string" && persos.trim()) return persos.split(",").map((r) => r.trim()).filter(Boolean);
+  return [];
+}
+
 function filColor(name) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -961,18 +968,24 @@ export class BoardView extends BaseFeuilletsView {
     const labelsSet = new Set();
     const labelMap = new Map();
     const filsMap = new Map();
+    const personnagesSet = new Set();
+    const personnagesMap = new Map();
 
     for (const item of fileItems) {
       const lbs = this.plugin.labelsOf(item.file);
       labelMap.set(item.file.path, lbs);
       for (const l of lbs) labelsSet.add(l);
       filsMap.set(item.file.path, getFilsList(this.fm(item.file)));
+      const persos = getPersonnagesList(this.fm(item.file));
+      personnagesMap.set(item.file.path, persos);
+      for (const p of persos) personnagesSet.add(p);
     }
 
     const sortedLabels = Array.from(labelsSet).sort((a, b) => a.localeCompare(b, "fr"));
     const filsSet = new Set();
     for (const arr of filsMap.values()) for (const f of arr) filsSet.add(f);
     const sortedFils = Array.from(filsSet).sort((a, b) => a.localeCompare(b, "fr"));
+    const sortedPersonnages = Array.from(personnagesSet).sort((a, b) => a.localeCompare(b, "fr"));
 
     const wrap = container.createDiv({ cls: "feuillets-notes-container" });
     if (sortedLabels.length === 0 && sortedFils.length === 0) {
@@ -984,7 +997,7 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     const filterBar = wrap.createDiv({ cls: "feuillets-arcs-filter-bar" });
-    filterBar.createDiv({ cls: "feuillets-arcs-filter-label", text: "Label / Fil" });
+    filterBar.createDiv({ cls: "feuillets-arcs-filter-label", text: "Filtrer par" });
     const select = filterBar.createEl("select", { cls: "dropdown feuillets-arcs-filter-select" });
     select.createEl("option", { value: "", text: "Tous" });
 
@@ -996,6 +1009,10 @@ export class BoardView extends BaseFeuilletsView {
       const grp = select.createEl("optgroup", { attr: { label: "Fils" } });
       for (const f of sortedFils) grp.createEl("option", { value: `fil:${f}`, text: f });
     }
+    if (sortedPersonnages.length > 0) {
+      const grp = select.createEl("optgroup", { attr: { label: "Personnages" } });
+      for (const p of sortedPersonnages) grp.createEl("option", { value: `perso:${p}`, text: p });
+    }
 
     select.value = this.selectedArc || "";
     select.addEventListener("change", () => {
@@ -1006,6 +1023,7 @@ export class BoardView extends BaseFeuilletsView {
     const activeFilter = select.value;
     const filterLabel = activeFilter.startsWith("label:") ? activeFilter.slice(6) : "";
     const filterFil = activeFilter.startsWith("fil:") ? activeFilter.slice(4) : "";
+    const filterPerso = activeFilter.startsWith("perso:") ? activeFilter.slice(6) : "";
 
     const activeLabels = filterLabel ? [filterLabel] : sortedLabels;
     const activeFils = filterFil ? [filterFil] : sortedFils;
@@ -1013,6 +1031,8 @@ export class BoardView extends BaseFeuilletsView {
       ? new Set(fileItems.filter((i) => (labelMap.get(i.file.path) || []).includes(filterLabel)).map((i) => i.file.path))
       : filterFil
       ? new Set(fileItems.filter((i) => (filsMap.get(i.file.path) || []).includes(filterFil)).map((i) => i.file.path))
+      : filterPerso
+      ? new Set(fileItems.filter((i) => (personnagesMap.get(i.file.path) || []).includes(filterPerso)).map((i) => i.file.path))
       : null;
 
     // Étendue (première → dernière apparition) de chaque lieu/fil parmi les scènes
@@ -1094,6 +1114,11 @@ export class BoardView extends BaseFeuilletsView {
       titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
 
       if (fm.synopsis) info.createDiv({ cls: "feuillets-arcs-file-synopsis", text: fm.synopsis });
+
+      const currentPersonnages = personnagesMap.get(file.path) || [];
+      if (currentPersonnages.length > 0) {
+        info.createDiv({ cls: "feuillets-arcs-personnages", text: `Avec ${currentPersonnages.join(", ")}` });
+      }
 
       // Fils (fil:) à droite en carrés
       const filRails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
