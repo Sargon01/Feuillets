@@ -1219,28 +1219,43 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 
 .feuillets-notes-folder-links {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--size-4-3);
-  margin-top: var(--size-4-3);
-  margin-bottom: var(--size-4-2);
+  align-items: center;
+  gap: var(--size-4-1);
+  margin-top: var(--size-4-2);
+  margin-bottom: var(--size-4-1);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  overflow: hidden;
+  /* Une seule ligne façon fil d'Ariane : le dernier maillon (le plus
+     utile, le chapitre courant) doit rester lisible même si le nom de
+     la partie est long — donc on tronque le premier lien flexible
+     plutôt que de laisser toute la ligne passer à la ligne suivante. */
 }
 
 .feuillets-notes-folder-link {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-1);
   color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
   cursor: pointer;
-  /* Sans ceci, un nom de dossier long revenait à la ligne À L'INTÉRIEUR
-     du lien (l'icône restant collée en haut), au lieu de tronquer
-     proprement — le lien lui-même reste libre de passer à la ligne
-     suivante (voir .feuillets-notes-folder-links, flex-wrap). */
-  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+/* Le dernier maillon de la chaîne (chapitre courant) ne doit jamais être
+   celui qu'on tronque en premier. */
+.feuillets-notes-folder-link:last-child {
+  flex-shrink: 0;
+  max-width: 60%;
 }
 
 .feuillets-notes-folder-link:hover {
   color: var(--interactive-accent);
+}
+
+.feuillets-notes-folder-link-sep {
+  color: var(--text-faint);
+  flex-shrink: 0;
 }
 
 .feuillets-notes-folder-link-icon {
@@ -1252,13 +1267,6 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 .feuillets-notes-folder-link-icon svg {
   width: 12px;
   height: 12px;
-}
-
-.feuillets-notes-folder-link-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
 }
 
 .feuillets-notes-area {

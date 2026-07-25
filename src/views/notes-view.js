@@ -389,11 +389,12 @@ export class NotesView extends BaseFeuilletsView {
     chain.reverse(); // partie d'abord, puis chapitre
 
     const box = container.createDiv({ cls: "feuillets-notes-folder-links" });
-    for (const folder of chain) {
-      const link = box.createDiv({ cls: "feuillets-notes-folder-link" });
-      const icon = link.createSpan({ cls: "feuillets-notes-folder-link-icon" });
-      setIcon(icon, "notebook-text");
-      link.createSpan({ cls: "feuillets-notes-folder-link-name" }).setText(folder.name);
+    const icon = box.createSpan({ cls: "feuillets-notes-folder-link-icon" });
+    setIcon(icon, "notebook-text");
+    chain.forEach((folder, i) => {
+      if (i > 0) box.createSpan({ cls: "feuillets-notes-folder-link-sep", text: "›" });
+      const link = box.createSpan({ cls: "feuillets-notes-folder-link" });
+      link.setText(folder.name);
       link.setAttr("title", `Note de « ${folder.name} »`);
       link.addEventListener("click", async (e) => {
         e.preventDefault();
@@ -403,7 +404,7 @@ export class NotesView extends BaseFeuilletsView {
           this.render();
         }
       });
-    }
+    });
   }
 
   async renderCitedEntities(container, file, sceneDate, jalons = []) {
