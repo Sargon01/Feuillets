@@ -1,7 +1,9 @@
 import { YAML_PRESETS } from "../scenes-editor.js";
 import { BOARD_MODES, HIDEABLE_PANELS } from "../constants.js";
 import { resolveType } from "../utils/project-modes.js";
-const { PluginSettingTab, Setting } = require("obsidian");
+import { NewProjectModal, ManageProjectsModal } from "../ui/project-modals.js";
+import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
+const { PluginSettingTab, Setting, TFolder, Notice } = require("obsidian");
 
 export class FeuilletsSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
@@ -32,20 +34,93 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Dossier du projet" });
+    containerEl.createEl("h3", { text: "Dossier & Gestion des projets" });
 
-    /* Ni champ texte ni chemin à taper à la main ici : créer, changer ou
-       retirer un projet se fait entièrement dans le panneau "Projet &
-       export" (liste cliquable, validée, avec confirmation avant de
-       retirer) — un second champ texte non validé ici ne ferait que
-       dupliquer ce contrôle et risquer une faute de frappe silencieuse. */
-    new Setting(containerEl)
-      .setName("Dossier projet")
-      .setDesc(
-        S.projectFolder
-          ? `Projet actif : ${S.projectFolder}. Structure : parties (dossiers) → chapitres (sous-dossiers) → ${unitPlural} (fichiers). Pour créer, changer ou retirer un projet, utilise le panneau "Projet & export".`
-          : `Aucun projet actif. Ouvre le panneau "Projet & export" pour en créer un, en importer un depuis Scrivener, ou en ajouter un existant.`
+    const allProjects = (S.projects || []).concat(S.projectFolder ? [S.projectFolder] : [])
+      .filter((p, i, a) => p && a.indexOf(p) === i)
+      .sort((a, b) =>
+        this.plugin.projectDisplayName(a).localeCompare(
+          this.plugin.projectDisplayName(b), "fr", { sensitivity: "base" }
+        )
       );
+
+    // Dropdown pour choisir le projet actif
+    new Setting(containerEl)
+      .setName("Projet actif")
+      .setDesc("Sélectionne le projet sur lequel travailler dans le coffre.")
+      .addDropdown((d) => {
+        d.addOption("", "— Aucun projet actif —");
+        for (const p of allProjects) {
+          const folderObj = this.app.vault.getAbstractFileByPath(p);
+          const exists = folderObj instanceof TFolder;
+          d.addOption(
+            p,
+            exists
+              ? this.plugin.projectDisplayName(p)
+              : `${this.plugin.projectDisplayName(p)} (introuvable)`
+          );
+        }
+        d.setValue(S.projectFolder || "");
+        d.onChange(async (v) => {
+          if (v && !(this.app.vault.getAbstractFileByPath(v) instanceof TFolder)) {
+            new Notice(`Le dossier « ${v} » n'existe plus dans le coffre.`);
+            d.setValue(S.projectFolder || "");
+            return;
+          }
+          S.projectFolder = v;
+          await this.plugin.saveSettings();
+          this.plugin.updateStatusBar();
+          this.plugin.renderAllViews(true);
+          this.display();
+        });
+      });
+
+    // Champ texte pour saisir / éditer le chemin directement
+    new Setting(containerEl)
+      .setName("Chemin du dossier projet (Manuscrit)")
+      .setDesc("Chemin relatif dans le coffre. Ex: Roman1/Manuscrit")
+      .addText((t) => {
+        t.setValue(S.projectFolder || "");
+        t.setPlaceholder("Roman1/Manuscrit");
+        t.onChange(async (v) => {
+          const val = v.trim();
+          S.projectFolder = val;
+          if (val && !(S.projects || []).includes(val)) {
+            if (!S.projects) S.projects = [];
+            S.projects.push(val);
+          }
+          await this.plugin.saveSettings();
+          this.plugin.updateStatusBar();
+          this.plugin.renderAllViews(true);
+        });
+      });
+
+    // Boutons d'actions rapides (Créer, Importer Scrivener, Gérer la liste)
+    const btnSetting = new Setting(containerEl)
+      .setName("Actions de projet")
+      .setDesc("Créer un nouveau projet structuré, importer un projet Scrivener, ou gérer la liste des projets.");
+
+    btnSetting.addButton((b) => {
+      b.setButtonText("Créer un projet")
+        .setCta()
+        .onClick(() => {
+          new NewProjectModal(this.app, this.plugin).open();
+        });
+    });
+
+    btnSetting.addButton((b) => {
+      b.setButtonText("Importer Scrivener")
+        .onClick(() => {
+          new ScrivenerImportModal(this.app, this.plugin).open();
+        });
+    });
+
+    btnSetting.addButton((b) => {
+      b.setButtonText("Gérer la liste…")
+        .onClick(() => {
+          new ManageProjectsModal(this.app, this.plugin).open();
+        });
+    });
 
     /* garde-fou : un dossier projet mal pointé (ex. un cran trop haut,
        contenant _Recherche/_Snapshots à côté du vrai manuscrit) ne casse
