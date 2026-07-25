@@ -658,6 +658,8 @@ class FeuilletsPlugin extends Plugin {
 
   registerAutoOpenPanels() {
     this.app.workspace.onLayoutReady(async () => {
+      this.isLayoutReady = true;
+
       for (const type of [VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW]) {
         const leaves = this.app.workspace.getLeavesOfType(type);
         for (const leaf of leaves) leaf.detach();
@@ -681,20 +683,26 @@ class FeuilletsPlugin extends Plugin {
 
       const hasProject = !!this.getProjectFolder();
 
-      // Si un projet existe et qu'autoOpenBinder est actif, ou si AUCUN projet n'existe (nouvelle installation), ouvrir le volet binder
-      if (
-        (this.settings.autoOpenBinder || !hasProject) &&
-        this.app.workspace.getLeavesOfType(VIEW_SIDEBAR).length === 0
-      ) {
-        const leaf = this.app.workspace.getLeftLeaf(false);
-        if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR, active: !hasProject });
-      }
+      // Si un projet est actif, ouvrir le binder et le volet droit (si autoOpenBinder est actif)
+      if (hasProject) {
+        if (
+          this.settings.autoOpenBinder &&
+          this.app.workspace.getLeavesOfType(VIEW_SIDEBAR).length === 0
+        ) {
+          const leaf = this.app.workspace.getLeftLeaf(false);
+          if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR, active: false });
+        }
 
-      if (!hasProject) return;
-
-      if (this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS).length === 0) {
-        const leaf = this.app.workspace.getRightLeaf(false);
-        if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR_FEUILLETS, active: false });
+        if (this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS).length === 0) {
+          const leaf = this.app.workspace.getRightLeaf(false);
+          if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR_FEUILLETS, active: false });
+        }
+      } else {
+        // Si VRAIMENT AUCUN projet n'existe (nouvelle installation), ouvrir le volet binder avec le gestionnaire de projet
+        if (this.app.workspace.getLeavesOfType(VIEW_SIDEBAR).length === 0) {
+          const leaf = this.app.workspace.getLeftLeaf(false);
+          if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR, active: true });
+        }
       }
 
       this.adjustSidebarWidth();
@@ -706,6 +714,45 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => this.loadDeferredViews())
     );
+  }
+
+  registerVaultEvents() {
+    const refresh = () => {
+      if (!this.isLayoutReady) return;
+      if (this.settings.projectFolder && !this.getProjectFolder()) {
+        const af = this.app.vault.getAbstractFileByPath(this.settings.projectFolder);
+        if (!af) {
+          this.settings.projectFolder = "";
+          this.saveSettings();
+          this.updateStatusBar();
+        }
+      }
+      this.refreshView();
+    };
+
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      if (this.isLayoutReady) refresh();
+      this.maybeAutoInitializeResearchFile(file);
+    }));
+
+    this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (this.isLayoutReady) {
+        if (this.settings.projectFolder && (file.path === this.settings.projectFolder || this.settings.projectFolder.startsWith(file.path + "/"))) {
+          this.settings.projectFolder = "";
+          this.saveSettings();
+          this.updateStatusBar();
+        }
+        this.refreshView();
+      }
+    }));
+
+    this.registerEvent(this.app.vault.on("rename", (file) => {
+      if (this.isLayoutReady) refresh();
+      this.maybeAutoInitializeResearchFile(file);
+    }));
+    this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.handleFilChanged(file)));
   }
 
   async loadDeferredViews() {
