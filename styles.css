@@ -1219,43 +1219,35 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 
 .feuillets-notes-folder-links {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: var(--size-4-1);
+  gap: var(--size-4-2);
   margin-top: var(--size-4-2);
   margin-bottom: var(--size-4-1);
-  font-size: var(--font-ui-smaller);
-  color: var(--text-faint);
   overflow: hidden;
-  /* Une seule ligne façon fil d'Ariane : le dernier maillon (le plus
-     utile, le chapitre courant) doit rester lisible même si le nom de
-     la partie est long — donc on tronque le premier lien flexible
-     plutôt que de laisser toute la ligne passer à la ligne suivante. */
 }
 
 .feuillets-notes-folder-link {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
   color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
   cursor: pointer;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   min-width: 0;
   flex-shrink: 1;
 }
 
-/* Le dernier maillon de la chaîne (chapitre courant) ne doit jamais être
-   celui qu'on tronque en premier. */
+/* Le dernier maillon (chapitre courant, le plus utile) ne doit jamais
+   être celui qu'on tronque en premier si la place manque. */
 .feuillets-notes-folder-link:last-child {
   flex-shrink: 0;
-  max-width: 60%;
+  max-width: 65%;
 }
 
 .feuillets-notes-folder-link:hover {
   color: var(--interactive-accent);
-}
-
-.feuillets-notes-folder-link-sep {
-  color: var(--text-faint);
-  flex-shrink: 0;
 }
 
 .feuillets-notes-folder-link-icon {
@@ -1267,6 +1259,13 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 .feuillets-notes-folder-link-icon svg {
   width: 12px;
   height: 12px;
+}
+
+.feuillets-notes-folder-link-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .feuillets-notes-area {
