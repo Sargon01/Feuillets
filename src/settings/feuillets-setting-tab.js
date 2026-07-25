@@ -1,11 +1,6 @@
 import { YAML_PRESETS } from "../scenes-editor.js";
 import { BOARD_MODES, HIDEABLE_PANELS } from "../constants.js";
 import { resolveType } from "../utils/project-modes.js";
-import {
-  listExportTemplates,
-  resolveExportTemplate,
-  updateTemplateTitlePage,
-} from "../services/export-templates-custom.js";
 const { PluginSettingTab, Setting } = require("obsidian");
 
 export class FeuilletsSettingTab extends PluginSettingTab {
@@ -1087,8 +1082,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h4", { text: "Mise en page — En-tête" });
-
     new Setting(containerEl)
       .setName("En-tête gauche")
       .setDesc("Texte affiché en haut à gauche des pages (variables {title}, {author}).")
@@ -1128,8 +1121,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h4", { text: "Mise en page — Pied de page" });
-
     new Setting(containerEl)
       .setName("Position du numéro de page")
       .addDropdown((d) =>
@@ -1153,12 +1144,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         })
       );
-
-    containerEl.createEl("h4", { text: "Mise en page — Page de titre" });
-    containerEl.createDiv({ cls: "setting-item-description" }).setText(
-      "Règle les blocs de la page de titre (:::titre:, :::sous-titre:…) du modèle choisi. Les réglages sont écrits dans le modèle lui-même (Ressources/Modèles), sans avoir à ouvrir le fichier."
-    );
-    this.renderTitlePageEditor(containerEl.createDiv());
 
     new Setting(containerEl)
       .setName("Format du papier")
@@ -1375,100 +1360,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     this.renderIgnoredRulesList(ignoredRulesWrap, S);
 
     this.organizeSections(containerEl);
-  }
-
-  /** Éditeur de page de titre (option A) : un sélecteur de modèle, puis les
-   * contrôles de chaque rôle. Toute modification est écrite dans le .md du
-   * modèle sélectionné (updateTemplateTitlePage) — le modèle reste l'unique
-   * source de vérité, l'utilisateur n'ouvre jamais le fichier. Asynchrone
-   * (chargement des modèles) : peuple son conteneur après coup. */
-  async renderTitlePageEditor(container) {
-    const S = this.plugin.settings;
-    const templates = await listExportTemplates(this.app, S);
-    if (!templates.length) {
-      container.createDiv({ cls: "setting-item-description" }).setText("Aucun modèle disponible.");
-      return;
-    }
-    let key = S.titlePageEditTemplate;
-    if (!templates.some((t) => t.key === key)) key = S.exportTemplate || templates[0].key;
-
-    new Setting(container)
-      .setName("Modèle à régler")
-      .addDropdown((d) => {
-        templates.forEach((t) => d.addOption(t.key, t.label));
-        d.setValue(key);
-        d.onChange(async (v) => {
-          S.titlePageEditTemplate = v;
-          await this.plugin.saveSettings();
-          body.empty();
-          await this.renderRoleControls(body, v);
-        });
-      });
-
-    const body = container.createDiv();
-    await this.renderRoleControls(body, key);
-  }
-
-  /** Contrôles d'un modèle : une sous-section par rôle (taille, alignement,
-   * gras, italique, marges haut/bas). Édite une copie en mémoire des styles
-   * et réécrit l'objet complet dans le .md à chaque changement, pour ne
-   * jamais perdre les autres rôles. */
-  async renderRoleControls(body, key) {
-    const S = this.plugin.settings;
-    const tpl = await resolveExportTemplate(this.app, S, key);
-    const styles =
-      tpl.titlePage && tpl.titlePage.styles
-        ? JSON.parse(JSON.stringify(tpl.titlePage.styles))
-        : {};
-    const roles = Object.keys(styles);
-    if (!roles.length) {
-      body.createDiv({ cls: "setting-item-description" }).setText(
-        "Ce modèle n'a pas de page de titre à rôles."
-      );
-      return;
-    }
-    const save = () => updateTemplateTitlePage(this.app, S, key, styles);
-    const numField = (parent, name, get, set) =>
-      new Setting(parent).setName(name).addText((t) =>
-        t.setValue(get() != null ? String(get()) : "").onChange(async (v) => {
-          const n = parseFloat(v);
-          set(v.trim() === "" || !Number.isFinite(n) ? undefined : n);
-          await save();
-        })
-      );
-
-    for (const role of roles) {
-      const st = styles[role];
-      body.createEl("h5", { text: role });
-      numField(body, "Taille (pt)", () => st.fontSizePt, (n) => (n == null ? delete st.fontSizePt : (st.fontSizePt = n)));
-      new Setting(body).setName("Alignement").addDropdown((d) =>
-        d
-          .addOption("left", "Gauche")
-          .addOption("center", "Centré")
-          .addOption("right", "Droite")
-          .setValue(st.align || "center")
-          .onChange(async (v) => {
-            st.align = v;
-            await save();
-          })
-      );
-      new Setting(body).setName("Gras").addToggle((t) =>
-        t.setValue(!!st.bold).onChange(async (v) => {
-          if (v) st.bold = true;
-          else delete st.bold;
-          await save();
-        })
-      );
-      new Setting(body).setName("Italique").addToggle((t) =>
-        t.setValue(!!st.italic).onChange(async (v) => {
-          if (v) st.italic = true;
-          else delete st.italic;
-          await save();
-        })
-      );
-      numField(body, "Marge au-dessus (pt)", () => st.marginTopPt, (n) => (n == null ? delete st.marginTopPt : (st.marginTopPt = n)));
-      numField(body, "Marge en dessous (pt)", () => st.marginBottomPt, (n) => (n == null ? delete st.marginBottomPt : (st.marginBottomPt = n)));
-    }
   }
 
   /** Regroupe les réglages en cinq catégories, affichées en onglets

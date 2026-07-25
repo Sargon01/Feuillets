@@ -35,7 +35,7 @@ export const YAML_PRESETS = {
     label: "Minimal",
     targetFields: [
       "titre",
-      "titre_court",
+      "titre_binder",
       "ordre",
       "date",
       "statut",
@@ -588,14 +588,17 @@ export function initScenesEditor(plugin) {
     const defaultTitle = fm.titre
       ? `${fm.titre} - 2`
       : `${file.basename} - 2`;
-    const defaultShort = fm.titre_court ? `${fm.titre_court} 2` : "";
+    // repli sur titre_court (ancienne clé, renommée) pour une fiche déjà
+    // écrite avant le renommage
+    const shortSource = fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court;
+    const defaultShort = shortSource ? `${shortSource} 2` : "";
 
     new TextInputModal(
       this.app,
       `Scinder la ${unit}`,
       [
         { name: "titre", label: "Nouveau titre", value: defaultTitle },
-        { name: "titre_court", label: "Titre court", value: defaultShort },
+        { name: "titre_binder", label: "Titre binder", value: defaultShort },
         { name: "ordre", label: "Ordre", value: String(currentOrder + 1) },
         { name: "filename", label: "Nom du fichier", value: defaultTitle },
       ],
@@ -611,23 +614,20 @@ export function initScenesEditor(plugin) {
         }
         const frontmatter = Object.assign({}, fm, {
           titre: values.titre || defaultTitle,
-          titre_court: values.titre_court || "",
+          titre_binder: values.titre_binder || "",
           ordre: ensureNumber(values.ordre, currentOrder + 1),
           statut: this.settings.splitStatus || fm.statut || "",
         });
+        delete frontmatter.titre_court;
         if (this.settings.resetSynopsisOnSplit) frontmatter.synopsis = "";
         if (this.settings.resetResumeOnSplit) frontmatter.resume = "";
         if (this.settings.resetNotesOnSplit) frontmatter.notes = "";
         if (!this.settings.copyCompilerOnSplit) frontmatter.compiler = false;
         if (frontmatter.objectif == null) frontmatter.objectif = 0;
         frontmatter.tags = normalizeTags(frontmatter.tags);
-        const yaml =
-          Object.keys(frontmatter)
-            .map((k) => yamlLine(k, frontmatter[k]))
-            .join("\n") + "\n";
         await this.app.vault.create(
           path,
-          `---\n${yaml}---\n\n${splitText.trimStart()}\n`
+          `---\n${stringifyYaml(frontmatter).trim()}\n---\n\n${splitText.trimStart()}\n`
         );
         if (selection && selection.trim()) {
           editor.replaceSelection("");
@@ -663,7 +663,12 @@ export function initScenesEditor(plugin) {
       `Dupliquer la ${unit}`,
       [
         { name: "titre", label: "Titre", value: defaultTitle },
-        { name: "titre_court", label: "Titre court", value: fm.titre_court || "" },
+        {
+          name: "titre_binder",
+          label: "Titre binder",
+          // repli sur titre_court (ancienne clé, renommée)
+          value: (fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court) || "",
+        },
         { name: "ordre", label: "Ordre", value: String(currentOrder + 1) },
         { name: "filename", label: "Nom du fichier", value: defaultTitle },
       ],
@@ -682,7 +687,8 @@ export function initScenesEditor(plugin) {
         if (!(copied instanceof TFile)) return new Notice("Copie introuvable.");
         await this.app.fileManager.processFrontMatter(copied, (fm2) => {
           fm2.titre = values.titre || defaultTitle;
-          fm2.titre_court = values.titre_court || "";
+          fm2.titre_binder = values.titre_binder || "";
+          delete fm2.titre_court;
           fm2.ordre = ensureNumber(values.ordre, currentOrder + 1);
           fm2.synopsis = "";
           fm2.resume = "";

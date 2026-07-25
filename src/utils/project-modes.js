@@ -2,28 +2,30 @@
  * ni les champs de frontmatter lus — seulement le vocabulaire affiché et
  * les réglages de départ appliqués une fois à la création du projet. */
 
-const SHARED_RESEARCH = {
-  bibliographie: { label: "Bibliographie", newName: "Nouvelle référence", tag: "bibliographie" },
+const bibliographie = { label: "Bibliographie", newName: "Nouvelle référence", tag: "bibliographie" };
+
+/** Personnages/Lieux/Lore/Glossaire/Événements sont des catégories nées
+ * pour la fiction (personnages, lieux d'une histoire) — elles ne
+ * généralisent pas à la non-fiction (une thèse de droit n'a pas besoin
+ * d'"Acteurs", une thèse de diplomatie a besoin de "Traités" plutôt que de
+ * "Géographie"). Plutôt que d'imposer un jeu de rubriques figé qui ne
+ * correspond à aucun sujet réel, la non-fiction ne crée plus que Sources
+ * et Bibliographie automatiquement — tout le reste se fait via le bouton
+ * "Nouvelle rubrique" (dossier de recherche personnalisé, voir
+ * renderResearchBody), qui s'adapte à CE sujet précis plutôt qu'à un
+ * gabarit générique. */
+const FICTION_RESEARCH = {
+  bibliographie,
   glossaire: { label: "Glossaire", newName: "Nouveau terme", tag: "glossaire" },
   evenements: { label: "Événements", newName: "Nouvel événement", tag: "evenement" },
-};
-
-/** Les 3 sous-dossiers qui changent de nom selon la famille du mode — le
- * tag structurel (donnée interne, jamais montré) reste le même des deux
- * côtés : seul l'habillage affiché varie. */
-const FICTION_RESEARCH = {
-  ...SHARED_RESEARCH,
   personnages: { label: "Personnages", newName: "Nouveau personnage", tag: "personnage" },
   lieux: { label: "Lieux", newName: "Nouveau lieu", tag: "lieu" },
   codex: { label: "Lore", newName: "Nouvelle entrée", tag: "codex" },
 };
 
 const NONFICTION_RESEARCH = {
-  ...SHARED_RESEARCH,
+  bibliographie,
   sources: { label: "Sources", newName: "Nouvelle source", tag: "source" },
-  personnages: { label: "Acteurs", newName: "Nouvel acteur", tag: "personnage" },
-  lieux: { label: "Géographie", newName: "Nouvelle entrée", tag: "lieu" },
-  codex: { label: "Concepts", newName: "Nouveau concept", tag: "codex" },
 };
 
 export const PROJECT_MODES = {

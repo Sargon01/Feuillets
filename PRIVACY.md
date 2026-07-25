@@ -23,9 +23,11 @@ statistics, no identifiers, no network calls of any kind — verified by
   Obsidian Sync, iCloud, or another vault-sync service, that service handles
   the file the same way it handles any other vault file; the plugin has no
   part in that.
-- **Exported files** (`.docx`/`.epub` via Pandoc, see `SECURITY.md`) are
-  written to your vault (or its configured output folder) on your own
-  machine. Pandoc itself runs locally; nothing is uploaded.
+- **Exported files** (`.docx`/`.epub`/`.pdf`, built natively in pure
+  JavaScript by default — see `SECURITY.md`) are written to your vault (or
+  its configured output folder) on your own machine. If you opt into the
+  Pandoc export engine instead, Pandoc itself runs locally; nothing is
+  uploaded either way.
 
 ## Third parties
 

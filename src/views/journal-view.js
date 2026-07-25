@@ -1,10 +1,11 @@
-const { ItemView, MarkdownRenderer, setIcon } = require("obsidian");
+const { setIcon, MarkdownRenderer } = require("obsidian");
 
 import { VIEW_JOURNAL } from "../constants.js";
+import { BaseFeuilletsView } from "./base-feuillets-view.js";
+import { formatNumber } from "../utils/text-metrics.js";
+import { isEditing, iconBtn, openFileActivating } from "../utils/dom.js";
 import { dateKey, statsForDay } from "../utils/journal-stats.js";
 import { journalEntryKeys, getLastEntry, getDayEntry } from "../services/journal.js";
-import { countWords } from "../utils/core.js";
-import { isEditing, iconBtn, openFileActivating } from "../utils/dom.js";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -22,10 +23,14 @@ function readableDate(key) {
   });
 }
 
-export class JournalView extends ItemView {
+/** Panneau Journal & statistiques : Journal d'écriture en haut, Statistiques
+ * en dessous — empilés dans un seul panneau plutôt qu'à onglets, pour
+ * rester visibles ensemble en permanence (contrairement à Projet/Export,
+ * qui se consultent rarement en même temps). */
+export class JournalView extends BaseFeuilletsView {
   constructor(leaf, plugin) {
-    super(leaf);
-    this.plugin = plugin;
+    super(leaf, plugin);
+    // Journal
     const today = new Date();
     this.monthCursor = new Date(today.getFullYear(), today.getMonth(), 1);
     this.viewedDate = null;
@@ -34,12 +39,21 @@ export class JournalView extends ItemView {
     return VIEW_JOURNAL;
   }
   getDisplayText() {
-    return "Journal d'écriture";
+    return "Journal & statistiques";
   }
   getIcon() {
     return "calendar";
   }
   async onOpen() {
+    this.registerEvent(
+      this.app.workspace.on("file-open", () => this.render())
+    );
+    /* Le Journal exigeait déjà un rafraîchissement inconditionnel (son
+       calendrier dépend des comptes de mots de tout le projet) — les deux
+       sections étant maintenant empilées dans un seul rendu, un
+       changement quelconque rafraîchit l'ensemble plutôt que de ne
+       cibler que la section Statistiques comme avant la fusion (effet de
+       bord sans gravité : au pire quelques rendus de plus). */
     this.registerEvent(this.app.vault.on("modify", () => this.render()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.render()));
     await this.render();
@@ -66,10 +80,24 @@ export class JournalView extends ItemView {
 
   async render(force = false) {
     const S = this.plugin.settings;
-    const container = this.contentEl;
+    const container = this.targetContainer || this.contentEl;
     if (!force && isEditing(container)) return;
     container.empty();
+
+    /* un seul conteneur défilant pour tout le panneau : `.feuillets-notes-
+       container` fixe `height: 100%` + `overflow-y: auto`, en empiler deux
+       (un par section) faisait déborder la 2e (Statistiques) hors du
+       viewport sans moyen de la faire défiler jusqu'ici. */
     const wrapper = container.createDiv({ cls: "feuillets-notes-container" });
+    await this.renderJournalSection(wrapper);
+    wrapper.createDiv({ cls: "feuillets-progression-divider" });
+    await this.renderProgressionSection(wrapper);
+  }
+
+  // ============================ Journal (haut) ============================
+
+  async renderJournalSection(wrapper) {
+    const S = this.plugin.settings;
 
     const root = this.plugin.getProjectFolder();
     if (!root) {
@@ -92,7 +120,6 @@ export class JournalView extends ItemView {
     const compileBtn = iconBtn(header, "refresh-cw", "Compiler le carnet", () => this.compileCarnet());
     compileBtn.addClass("feuillets-journal-compile-btn");
 
-
     const year = this.monthCursor.getFullYear();
     const month = this.monthCursor.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -100,9 +127,6 @@ export class JournalView extends ItemView {
     for (let d = 1; d <= daysInMonth; d++) {
       deltas.push(statsForDay(S, dateKey(new Date(year, month, d))).delta);
     }
-
-
-
 
     const weekRow = wrapper.createDiv({ cls: "feuillets-journal-grid feuillets-journal-weekdays" });
     for (const w of WEEKDAYS) {
@@ -154,6 +178,13 @@ export class JournalView extends ItemView {
     }
 
     const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+    /* Icône manquante ici alors que toutes les autres en-têtes de section
+       du plugin en ont une (Synopsis, Notes, Historique récent…) — sans
+       elle, "Dernière entrée" jurait visuellement à côté des sections
+       voisines qui suivent toutes le même patron icône + petites
+       majuscules. */
+    const headIcon = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(headIcon, "calendar");
     head
       .createSpan({ cls: "feuillets-notes-section-title" })
       .setText(viewingDay ? "Journal" : "Dernière entrée");
@@ -201,4 +232,82 @@ export class JournalView extends ItemView {
       }
     }
   }
+
+  // ========================= Statistiques (bas) ===========================
+
+  /** En-tête de bloc pliable de premier niveau (Historique récent) — icône
+   * + titre, même patron que les sections des autres panneaux. */
+  renderGroupHead(container, key, icon, title, S) {
+    const collapsed = !!S.collapsed[key];
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head", style: "cursor: pointer;" });
+    const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(iconSpan, icon);
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(title);
+    head.addEventListener("click", async () => {
+      if (collapsed) delete S.collapsed[key];
+      else S.collapsed[key] = true;
+      await this.plugin.saveSettings();
+      this.render();
+    });
+    return { section, collapsed };
+  }
+
+  async renderProgressionSection(container) {
+    const S = this.plugin.settings;
+    const wrapper = container.createDiv({ cls: "feuillets-progression-compact" });
+
+    const root = this.plugin.getProjectFolder();
+    if (!root) {
+      wrapper
+        .createDiv({ cls: "feuillets-empty" })
+        .setText("Configure d'abord un dossier projet dans les réglages.");
+      return;
+    }
+
+    /* Le détail par feuillet et les stats globales du projet vivent tous
+       les deux dans la modale ouverte d'un clic sur la barre d'état — ce
+       panneau ne garde que l'historique, pour laisser toute la place au
+       calendrier du Journal juste au-dessus. */
+    this.renderHistorySection(wrapper, S);
+  }
+
+  /** Petit histogramme des mots écrits par jour (14 derniers jours) —
+   * complémentaire du calendrier du Journal juste au-dessus, pas un
+   * doublon : un aperçu de régularité, pas une navigation par jour. */
+  renderHistorySection(wrapper, S) {
+    const { section, collapsed } = this.renderGroupHead(
+      wrapper, "progression:history", "bar-chart-3", "Historique récent", S
+    );
+    if (collapsed) return;
+
+    const days = 14;
+    const today = new Date();
+    const entries = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      entries.push({ date: d, delta: statsForDay(S, dateKey(d)).delta });
+    }
+    const max = Math.max(1, ...entries.map((e) => e.delta));
+
+    const chart = section.createDiv({ cls: "feuillets-progression-chart", style: "margin-top: 8px;" });
+    for (const e of entries) {
+      const bar = chart.createDiv({ cls: "feuillets-progression-bar" });
+      const fill = bar.createDiv({ cls: "feuillets-progression-bar-fill" });
+      fill.style.height = `${Math.max(2, Math.round((e.delta / max) * 100))}%`;
+      if (e.delta === 0) fill.addClass("is-empty");
+      bar.setAttr(
+        "aria-label",
+        `${e.date.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })} : ${e.delta} mot${e.delta > 1 ? "s" : ""}`
+      );
+      bar.setAttr("title", bar.getAttr("aria-label"));
+    }
+
+    const total = entries.reduce((s, e) => s + e.delta, 0);
+    section
+      .createDiv({ cls: "feuillets-progression-history-total" })
+      .setText(`${formatNumber(total)} mots sur les ${days} derniers jours`);
+  }
+
 }

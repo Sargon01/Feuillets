@@ -15,47 +15,44 @@ test("PROJECT_MODES", async (t) => {
       assert.equal(typeof mode.hasSources, "boolean", `${key}.hasSources`);
       assert.ok(mode.defaults, `${key}.defaults`);
       assert.ok(mode.researchFolders, `${key}.researchFolders`);
-      for (const role of ["bibliographie", "personnages", "lieux", "codex", "glossaire", "evenements"]) {
-        const entry = mode.researchFolders[role];
-        assert.ok(entry, `${key}.researchFolders.${role}`);
-        assert.ok(entry.label, `${key}.researchFolders.${role}.label`);
-        assert.ok(entry.newName, `${key}.researchFolders.${role}.newName`);
-        assert.ok(entry.tag, `${key}.researchFolders.${role}.tag`);
-      }
+      /* rf.bibliographie est le seul rôle garanti dans les deux modes —
+         personnages/lieux/codex/glossaire/evenements n'existent qu'en
+         fiction, sources n'existe qu'en non-fiction (voir le test dédié
+         ci-dessous : ces rubriques ne sont plus imposées d'avance en
+         non-fiction, l'utilisateur crée les siennes via le bouton
+         "Nouvelle rubrique"). */
+      const entry = mode.researchFolders.bibliographie;
+      assert.ok(entry, `${key}.researchFolders.bibliographie`);
+      assert.ok(entry.label, `${key}.researchFolders.bibliographie.label`);
+      assert.ok(entry.newName, `${key}.researchFolders.bibliographie.newName`);
+      assert.ok(entry.tag, `${key}.researchFolders.bibliographie.tag`);
     }
   });
 
-  await t.test("fiction garde Personnages/Lieux/Lore, pas de dossier Sources dédié", () => {
+  await t.test("fiction garde Personnages/Lieux/Lore/Glossaire/Événements, pas de dossier Sources dédié", () => {
     const rf = PROJECT_MODES.fiction.researchFolders;
     assert.equal(rf.personnages.label, "Personnages");
     assert.equal(rf.lieux.label, "Lieux");
     assert.equal(rf.codex.label, "Lore");
+    assert.equal(rf.glossaire.label, "Glossaire");
+    assert.equal(rf.evenements.label, "Événements");
     assert.equal(rf.sources, undefined);
   });
 
-  await t.test("non-fiction utilise Acteurs/Géographie/Concepts + Sources", () => {
+  await t.test("non-fiction ne garde que Sources + Bibliographie, aucune rubrique imposée", () => {
     const rf = PROJECT_MODES.nonfiction.researchFolders;
-    assert.equal(rf.personnages.label, "Acteurs");
-    assert.equal(rf.lieux.label, "Géographie");
-    assert.equal(rf.codex.label, "Concepts");
     assert.equal(rf.sources.label, "Sources");
+    assert.equal(rf.bibliographie.label, "Bibliographie");
+    assert.equal(rf.personnages, undefined);
+    assert.equal(rf.lieux, undefined);
+    assert.equal(rf.codex, undefined);
+    assert.equal(rf.glossaire, undefined);
+    assert.equal(rf.evenements, undefined);
   });
 
-  await t.test("Bibliographie/Glossaire/Événements identiques dans les deux modes", () => {
+  await t.test("Bibliographie identique dans les deux modes (seul rôle partagé)", () => {
     for (const mode of Object.values(PROJECT_MODES)) {
-      const rf = mode.researchFolders;
-      assert.equal(rf.bibliographie.label, "Bibliographie");
-      assert.equal(rf.glossaire.label, "Glossaire");
-      assert.equal(rf.evenements.label, "Événements");
-    }
-  });
-
-  await t.test("le tag structurel des rôles partagés ne varie jamais selon le mode", () => {
-    for (const role of ["personnages", "lieux", "codex", "bibliographie", "glossaire", "evenements"]) {
-      assert.equal(
-        PROJECT_MODES.fiction.researchFolders[role].tag,
-        PROJECT_MODES.nonfiction.researchFolders[role].tag
-      );
+      assert.equal(mode.researchFolders.bibliographie.label, "Bibliographie");
     }
   });
 });

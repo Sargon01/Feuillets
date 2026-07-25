@@ -1,3 +1,64 @@
+/** Retire la syntaxe Markdown d'un extrait pour un APERÇU en texte propre
+ * (cartes, binder) — on garde le texte lisible, on enlève seulement les
+ * balises (`*`, `**`, `#`, `[[ ]]`, `[texte](url)`, `> `, puces, séparateurs
+ * de scène, appels de note…). Volontairement conservateur sur l'underscore :
+ * seul un `_..._` clairement délimité (bordé de non-mots) est traité comme
+ * de l'italique, pour ne jamais amputer un identifiant en snake_case. */
+export function stripMarkdown(text) {
+  if (!text) return "";
+  let t = text;
+
+  // Blocs et spans de code : on retire les délimiteurs, on garde le contenu.
+  t = t.replace(/```[a-zA-Z0-9]*\r?\n?/g, "").replace(/```/g, "");
+  // Images (embed Obsidian ou Markdown) : retirées entièrement de l'aperçu.
+  t = t.replace(/!\[\[[^\]]*\]\]/g, "");
+  t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
+  // Wikiliens : [[cible|alias]] -> alias ; [[dossier/cible]] -> "cible".
+  t = t.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, target, alias) =>
+    alias !== undefined ? alias : target.split("/").pop()
+  );
+  // Liens Markdown [texte](url) -> texte.
+  t = t.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  // Appels de note de bas de page [^id] -> retirés.
+  t = t.replace(/\[\^[^\]]+\]/g, "");
+
+  // Balises ancrées en début de ligne : titres, citations, puces, numéros,
+  // séparateurs de scène (*** / --- / ___ seuls sur leur ligne).
+  t = t
+    .split("\n")
+    .map((line) => {
+      if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) return ""; // *** --- ___ (avec ou sans espaces)
+      return line
+        .replace(/^\s{0,3}#{1,6}\s+/, "")
+        .replace(/^\s{0,3}>\s?/, "")
+        .replace(/^\s{0,3}[-*+]\s+/, "")
+        .replace(/^\s{0,3}\d+\.\s+/, "");
+    })
+    .join("\n");
+
+  // Emphases à base d'astérisque (les plus courantes ici), surlignage,
+  // barré : marqueurs retirés, contenu gardé.
+  t = t.replace(/\*\*\*(.+?)\*\*\*/g, "$1");
+  t = t.replace(/\*\*(.+?)\*\*/g, "$1");
+  t = t.replace(/\*(.+?)\*/g, "$1");
+  t = t.replace(/~~(.+?)~~/g, "$1");
+  t = t.replace(/==(.+?)==/g, "$1");
+  t = t.replace(/`([^`]+)`/g, "$1");
+  // Italique par underscore UNIQUEMENT s'il est bordé de non-mots (jamais au
+  // milieu d'un mot type snake_case).
+  t = t.replace(/(^|[^A-Za-z0-9_])_(?!_)([^_]+?)_(?![A-Za-z0-9_])/g, "$1$2");
+  t = t.replace(/(^|[^A-Za-z0-9_])__([^_]+?)__(?![A-Za-z0-9_])/g, "$1$2");
+
+  // Caractères Markdown échappés : on rend le caractère littéral.
+  t = t.replace(/\\([\\`*_{}\[\]()#+\-.!~>])/g, "$1");
+  // Astérisques/accents graves esseulés restants (jamais l'underscore).
+  t = t.replace(/[*`]/g, "");
+
+  // Espaces et lignes vides surnuméraires.
+  t = t.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n");
+  return t.trim();
+}
+
 export function countWords(text) {
   let t = text;
   t = t.replace(/^---\n[\s\S]*?\n---\n?/, "");
@@ -30,7 +91,13 @@ export function embedHardBreaks(text) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const isLast = i === lines.length - 1;
-        const nextIsStructural = !isLast && structural.test(lines[i + 1]);
+        /* une ligne suivante vide (ou ne contenant que l'espace insécable
+           du marqueur de "ligne blanche visible" de Feuillets) sépare déjà
+           visuellement les deux lignes — lui ajouter un antislash de saut
+           forcé produisait un "\" littéral et visible juste avant chaque
+           ligne blanche, exporté tel quel en Word. */
+        const nextIsStructural =
+          !isLast && (structural.test(lines[i + 1]) || lines[i + 1].trim() === "");
         if (
           !isLast &&
           line.trim() !== "" &&
@@ -93,7 +160,9 @@ export function compactLineBreaks(text) {
   return out.join("\n");
 }
 
-/** Corrections typographiques françaises. skipFrontmatter : préserve l'en-tête. */
+/** Corrections typographiques françaises. skipFrontmatter : préserve l'en-tête.
+ * Le code (bloc ``` ``` ou span `inline`) n'est jamais touché : guillemets et
+ * apostrophes y ont un sens syntaxique, pas typographique. */
 export function frenchTypography(text, skipFrontmatter) {
   let head = "";
   let body = text;
@@ -105,15 +174,20 @@ export function frenchTypography(text, skipFrontmatter) {
     }
   }
   const NB = " "; // espace fine insécable
+  const applyRules = (s) =>
+    s
+      .replace(/\.\.\./g, "…")
+      .replace(/(^|[\s(«])"([^"]+)"/g, (_, a, inner) => `${a}«${NB}${inner}${NB}»`)
+      .replace(/'/g, "’")
+      .replace(/[ \t]+([;:!?»])/g, `${NB}$1`)
+      .replace(/«[ \t]+/g, `«${NB}`)
+      .replace(/([\wÀ-ÿ…!?.])([;:!?])/g, (m0, a, p) =>
+        p === ";" || p === ":" || p === "!" || p === "?" ? `${a}${NB}${p}` : m0
+      );
   body = body
-    .replace(/\.\.\./g, "…")
-    .replace(/(^|[\s(«])"([^"]+)"/g, (_, a, inner) => `${a}«${NB}${inner}${NB}»`)
-    .replace(/'/g, "’")
-    .replace(/[ \t]+([;:!?»])/g, `${NB}$1`)
-    .replace(/«[ \t]+/g, `«${NB}`)
-    .replace(/([\wÀ-ÿ…!?.])([;:!?])/g, (m0, a, p) =>
-      p === ";" || p === ":" || p === "!" || p === "?" ? `${a}${NB}${p}` : m0
-    );
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((part, i) => (i % 2 === 1 ? part : applyRules(part)))
+    .join("");
   return head + body;
 }
 

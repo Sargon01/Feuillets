@@ -1,10 +1,13 @@
 export const VIEW_SIDEBAR = "feuillets-view";
 export const VIEW_BOARD = "feuillets-board";
 export const VIEW_NOTES = "feuillets-notes";
+export const VIEW_PROPERTIES = "feuillets-properties";
 export const VIEW_RESEARCH = "feuillets-research";
-export const VIEW_PROGRESSION = "feuillets-progression";
 export const VIEW_JOURNAL = "feuillets-journal";
-export const VIEW_TAGS = "feuillets-tags";
+export const VIEW_PROJECT = "feuillets-project";
+export const VIEW_DOCX_REVIEW = "feuillets-docx-review";
+export const VIEW_SIDEBAR_FEUILLETS = "feuillets-sidebar-view";
+export const VIEW_GRAMMAR = "feuillets-grammar";
 
 export const STATUSES = ["", "Idée", "Brouillon", "En cours", "Révisé", "Terminé"];
 
@@ -25,7 +28,7 @@ export const BOARD_MODES = [
 export const HIDEABLE_PANELS = [
   { key: "research", label: "Recherche", view: VIEW_RESEARCH },
   { key: "notes", label: "Notes", view: VIEW_NOTES },
-  { key: "progression", label: "Statistiques", view: VIEW_PROGRESSION },
-  { key: "journal", label: "Journal d'écriture", view: VIEW_JOURNAL },
-  { key: "tags", label: "Tags", view: VIEW_TAGS },
+  { key: "journal", label: "Journal & statistiques", view: VIEW_JOURNAL },
+  { key: "project", label: "Projet & export", view: VIEW_PROJECT },
+  { key: "docxReview", label: "Révision (retours .docx)", view: VIEW_DOCX_REVIEW },
 ];

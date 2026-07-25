@@ -45,6 +45,39 @@ export class NewSheetModal extends Modal {
   }
 }
 
+/** Confirmation générique avant une action destructive/étendue (ex.
+ * supprimer une propriété de tous les feuillets d'un projet) — pas de
+ * window.confirm() natif, pour rester cohérent avec le reste de l'UI. */
+export class ConfirmModal extends Modal {
+  constructor(app, title, message, confirmLabel, onConfirm) {
+    super(app);
+    this.title = title;
+    this.message = message;
+    this.confirmLabel = confirmLabel;
+    this.onConfirm = onConfirm;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: this.title });
+    contentEl.createEl("p", { text: this.message });
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    const confirmBtn = btnRow.createEl("button", {
+      text: this.confirmLabel,
+      cls: "mod-warning",
+    });
+    confirmBtn.addEventListener("click", () => {
+      this.close();
+      this.onConfirm();
+    });
+    btnRow
+      .createEl("button", { text: "Annuler" })
+      .addEventListener("click", () => this.close());
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
 export class NewFolderModal extends Modal {
   constructor(app, parentName, onSubmit) {
     super(app);

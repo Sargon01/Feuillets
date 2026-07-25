@@ -16,11 +16,13 @@ export function titleFor(app, file) {
   return file.basename;
 }
 
-/** Titre court pour les vues denses (plan, binder) : clé `titre_court`
- * si renseignée, sinon le titre normal. Jamais utilisé à la compilation. */
+/** Titre court pour les vues denses (plan, binder) : clé `titre_binder`
+ * si renseignée, sinon le titre normal. Jamais utilisé à la compilation.
+ * Repli sur `titre_court` (ancienne clé, renommée) pour les fiches déjà
+ * écrites avant le renommage — ne pas leur faire perdre leur titre court. */
 export function shortTitleFor(app, file) {
   const fm = fmOf(app, file);
-  const t = fm.titre_court;
+  const t = fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court;
   return typeof t === "string" && t.trim() ? t.trim() : titleFor(app, file);
 }
 
@@ -28,6 +30,16 @@ export function shortTitleFor(app, file) {
 export function compiledTitleFor(app, file) {
   const fm = fmOf(app, file);
   const t = fm.titre !== undefined ? fm.titre : fm.title;
+  return typeof t === "string" && t.trim() ? t.trim() : null;
+}
+
+/** Sous-titre pour la COMPILATION : clé `sous_titre`, compilé un niveau de
+ * titre en dessous de `titre` (ex. titre en H2, sous-titre en H3) — voir
+ * compile(), services/compile-export.js. Cas typique : un chapitre
+ * Scrivener dont le titre tient sur deux lignes (titre + sous-titre). */
+export function compiledSubtitleFor(app, file) {
+  const fm = fmOf(app, file);
+  const t = fm.sous_titre;
   return typeof t === "string" && t.trim() ? t.trim() : null;
 }
 

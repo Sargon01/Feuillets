@@ -17,8 +17,15 @@ surface without reading the whole codebase.
 - No custom auto-update mechanism — updates are handled by Obsidian itself.
 
 ### What the plugin does that touches the system, and why
-- **Pandoc export (desktop only, user-triggered).** `.docx`/`.epub` export
-  invokes a locally installed `pandoc` binary via
+- **Native export (default engine, desktop and mobile, user-triggered).**
+  `.docx`/`.epub`/`.pdf` compilation builds files in pure JavaScript —
+  `docx` and `jszip` for `.docx`/`.epub` (bundled, no network fetch), and
+  Obsidian's own built-in print-to-PDF for `.pdf` (desktop only). No
+  external process, no filesystem access outside the vault. This is the
+  default and requires no opt-in.
+- **Pandoc export (optional alternative engine, desktop only, opt-in,
+  user-triggered).** Switching the export engine setting to Pandoc invokes a
+  locally installed `pandoc` binary via
   `child_process.execFile(path, args, ...)`. `execFile` is used deliberately
   instead of `exec`/shell string interpolation: arguments are passed as an
   array and never go through a shell, which rules out shell-metacharacter
@@ -26,25 +33,32 @@ surface without reading the whole codebase.
   binary path itself is a plain-text setting (default `"pandoc"`, resolved
   via the OS `PATH`), configurable by the vault owner only — it is never
   read from a file, a remote source, or vault content.
-- **Direct filesystem read/write (desktop only, export path only).** Needed
-  because Pandoc runs as an external process and reads/writes real files on
-  disk; Obsidian's vault adapter alone cannot hand a file to an external
-  process. The temporary compiled manuscript is written through Obsidian's
-  own `vault.adapter.write`/`remove` (inside the vault, cleaned up
+- **Direct filesystem read/write (desktop only, Pandoc export path only).**
+  Needed because Pandoc runs as an external process and reads/writes real
+  files on disk; Obsidian's vault adapter alone cannot hand a file to an
+  external process. The temporary compiled manuscript is written through
+  Obsidian's own `vault.adapter.write`/`remove` (inside the vault, cleaned up
   immediately after conversion). The optional "Pandoc reference document"
   setting is resolved and checked against the vault's base path; any
   resolution that would escape the vault (e.g. `../../..`) is rejected with
   a user-facing notice instead of being followed silently.
+- **One undocumented internal API call.** `WorkspaceSplit.setSize()` (used
+  to fix sidebar widths) is absent from Obsidian's published type
+  definitions — it could change or disappear in a future release without
+  notice. Both call sites are guarded by a `typeof` feature-detection check
+  and a `try/catch`, so a break degrades to "sidebar width no longer
+  auto-adjusts" rather than an exception.
 - Everything else in the plugin uses only Obsidian's public APIs
   (`app.vault`, `app.metadataCache`, `app.fileManager`, `app.workspace`) —
   grep-auditable, no other filesystem or process access exists in the
   codebase.
 
 ### Mobile
-`isDesktopOnly` is `false`: the plugin is usable on mobile for writing,
-organizing, and Markdown compilation. The Pandoc-dependent export commands
-detect `Platform.isMobile` and show an explicit notice instead of failing
-silently; no Node-only API is touched on the code path mobile devices take.
+`isDesktopOnly` is `false`: the plugin is fully usable on mobile, including
+compilation and native `.docx`/`.epub` export. Only the Pandoc engine and
+native `.pdf` export (both desktop-only) detect `Platform.isMobile` and show
+an explicit notice instead of failing silently; no Node-only API is touched
+on the code path mobile devices take.
 
 ## Supported versions
 

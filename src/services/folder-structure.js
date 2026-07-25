@@ -34,6 +34,13 @@ export function depthOf(app, settings, node) {
  * ce n'est pas du texte du roman, juste ce qui vient avant. Reste visible
  * et manipulable normalement dans le binder (rôle "partie" pour
  * l'affichage), seule la numérotation l'ignore. */
+/** Types de page Front reconnus (champ `type` du frontmatter) — chacun
+ * reçoit un traitement d'export dédié (saut de page, centrage, pas de
+ * titre/numérotation de chapitre) au lieu d'être compilé comme une scène
+ * ordinaire. Voir compile-export.js (détection) et chaque export-*.js
+ * (mise en forme propre au format). */
+export const FRONT_PAGE_TYPES = ["titre", "dedicace", "epigraphe"];
+
 export function isFrontMatter(app, settings, node) {
   const root = getProjectFolder(app, settings);
   if (!root) return false;

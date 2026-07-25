@@ -9,6 +9,7 @@ import {
   parseStoryDate,
   compactLineBreaks,
   frenchTypography,
+  stripMarkdown,
 } from "../src/utils/core.js";
 
 test("countWords", async (t) => {
@@ -95,6 +96,15 @@ test("embedHardBreaks", async (t) => {
       embedHardBreaks(input),
       "Ligne A\\\nLigne B\n\nLigne C\\\nLigne D"
     );
+  });
+
+  await t.test("n'ajoute pas d'antislash juste avant le marqueur de ligne blanche visible de Feuillets", () => {
+    // le marqueur ("\n" + une ligne ne contenant QUE l'espace insécable +
+    // "\n\n", voir liveDoubleEnter dans main.js) sépare une ligne d'un
+    // simple "\n", pas "\n\n" — sans ce cas, le antislash de saut forcé
+    // atterrissait juste avant, visible tel quel à l'export Word
+    const input = "Premier paragraphe.\n \n\nSecond paragraphe.";
+    assert.equal(embedHardBreaks(input), input);
   });
 });
 
@@ -211,5 +221,56 @@ test("frenchTypography", async (t) => {
 
   await t.test("ne modifie pas un texte sans motif à corriger", () => {
     assert.equal(frenchTypography("Un texte simple sans rien", false), "Un texte simple sans rien");
+  });
+
+  const NB = " ";
+
+  await t.test("préserve un bloc de code (guillemets/apostrophes syntaxiques)", () => {
+    const input = 'Il dit "bonjour".\n\n```js\nconst x = "a\'b";\n```\n\nElle dit "salut".';
+    const out = frenchTypography(input, false);
+    assert.ok(out.includes('const x = "a\'b";'), "le contenu du bloc de code ne doit pas être converti");
+    assert.ok(out.includes(`«${NB}bonjour${NB}»`), "le texte avant le bloc doit être converti");
+    assert.ok(out.includes(`«${NB}salut${NB}»`), "le texte après le bloc doit être converti");
+  });
+
+  await t.test("préserve un span de code inline", () => {
+    assert.equal(
+      frenchTypography('Utilise `git commit -m "msg"` puis "valide".', false),
+      `Utilise \`git commit -m "msg"\` puis «${NB}valide${NB}».`
+    );
+  });
+});
+
+test("stripMarkdown", async (t) => {
+  await t.test("retire gras et italique en gardant le texte", () => {
+    assert.equal(stripMarkdown("Le *ney* et **Ar-Rahman**"), "Le ney et Ar-Rahman");
+    assert.equal(stripMarkdown("***les deux***"), "les deux");
+  });
+
+  await t.test("wikilien -> alias, ou dernier segment du chemin", () => {
+    assert.equal(stripMarkdown("[[Personnages/Jean|Jean]]"), "Jean");
+    assert.equal(stripMarkdown("[[Dossier/Kali]]"), "Kali");
+  });
+
+  await t.test("lien Markdown -> texte, appel de note retiré", () => {
+    assert.equal(stripMarkdown("Voir [le site](https://x.com) ici[^1]."), "Voir le site ici.");
+  });
+
+  await t.test("titres, citations, puces et séparateurs de scène retirés", () => {
+    assert.equal(stripMarkdown("## Titre\n> cite\n- item"), "Titre\ncite\nitem");
+    assert.equal(stripMarkdown("***\n\nSuite."), "Suite.");
+  });
+
+  await t.test("préserve snake_case, retire l'italique par underscore délimité", () => {
+    assert.equal(stripMarkdown("mon_fichier reste, mais _ceci_ non"), "mon_fichier reste, mais ceci non");
+  });
+
+  await t.test("image embed retirée, code/surlignage/barré nettoyés", () => {
+    assert.equal(stripMarkdown("![[img.png]] `code` ==surb== ~~barré~~"), "code surb barré");
+  });
+
+  await t.test("chaîne vide ou nulle -> vide", () => {
+    assert.equal(stripMarkdown(""), "");
+    assert.equal(stripMarkdown(null), "");
   });
 });

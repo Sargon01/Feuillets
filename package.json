@@ -10,7 +10,7 @@
   },
   "keywords": [],
   "author": "Halim",
-  "license": "MIT",
+  "license": "GPL-3.0",
   "type": "module",
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -18,5 +18,10 @@
     "esbuild": "^0.28.1",
     "obsidian": "latest",
     "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "diff": "^9.0.0",
+    "docx": "^9.7.1",
+    "jszip": "^3.10.1"
   }
 }
