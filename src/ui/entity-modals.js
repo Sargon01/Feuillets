@@ -1,4 +1,4 @@
-const { Modal, TFolder } = require("obsidian");
+const { Modal, TFolder, setIcon } = require("obsidian");
 import { openFileActivating } from "../utils/dom.js";
 
 export class AppearancesModal extends Modal {
@@ -194,6 +194,92 @@ export class FolderGoalModal extends Modal {
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") doSave();
     });
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+/** Nomme le filtre actif du panneau Recherche (texte + tag) avant de
+ * l'enregistrer comme "dossier virtuel" réutilisable — voir
+ * base-feuillets-view.js renderSavedFiltersButton. */
+export class SaveResearchFilterModal extends Modal {
+  constructor(app, onSubmit) {
+    super(app);
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: "Enregistrer ce filtre" });
+    const input = contentEl.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Nom du dossier sauvegardé" },
+    });
+    input.style.width = "100%";
+    input.focus();
+    const submit = () => {
+      const name = input.value.trim();
+      if (!name) return;
+      this.close();
+      this.onSubmit(name);
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+    });
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow
+      .createEl("button", { text: "Enregistrer", cls: "mod-cta" })
+      .addEventListener("click", submit);
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+/** Liste/supprime les filtres de Recherche sauvegardés du projet actif
+ * (S.projectMeta[root.path].savedResearchFilters). Pas de renommage/édition
+ * ici : un filtre mal nommé se recrée en un clic (recherche + tag déjà en
+ * place), plus simple qu'un formulaire d'édition pour un usage aussi
+ * ponctuel. */
+export class ManageSavedFiltersModal extends Modal {
+  constructor(app, plugin, root, onChange) {
+    super(app);
+    this.plugin = plugin;
+    this.root = root;
+    this.onChange = onChange;
+  }
+  onOpen() {
+    this.render();
+  }
+  render() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Dossiers de recherche sauvegardés" });
+    const S = this.plugin.settings;
+    const meta = S.projectMeta[this.root.path] || {};
+    const filters = meta.savedResearchFilters || [];
+    if (filters.length === 0) {
+      contentEl.createDiv({ cls: "feuillets-empty" }).setText("Aucun filtre sauvegardé pour ce projet.");
+    }
+    const list = contentEl.createDiv({ cls: "feuillets-project-list" });
+    filters.forEach((f, i) => {
+      const row = list.createDiv({ cls: "feuillets-project-item" });
+      const desc = [f.search ? `"${f.search}"` : null, f.tag ? `#${f.tag}` : null]
+        .filter(Boolean)
+        .join(" · ") || "(sans critère)";
+      row.createSpan({ cls: "feuillets-project-name", text: `${f.name} — ${desc}` });
+      const del = row.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+      setIcon(del, "trash-2");
+      del.setAttr("aria-label", "Supprimer ce dossier sauvegardé");
+      del.addEventListener("click", async () => {
+        filters.splice(i, 1);
+        await this.plugin.saveSettings();
+        this.render();
+        if (this.onChange) this.onChange();
+      });
+    });
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow.createEl("button", { text: "Fermer" }).addEventListener("click", () => this.close());
   }
   onClose() {
     this.contentEl.empty();

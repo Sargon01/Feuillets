@@ -1,7 +1,7 @@
 import { STATUSES, getProjectStatuses } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
-import { AppearancesModal, FolderGoalModal, TagsModal } from "../ui/entity-modals.js";
+import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
@@ -268,7 +268,14 @@ export class BaseFeuilletsView extends ItemView {
         S.researchSearch = searchInput.value;
         await this.plugin.saveSettings();
         await this.render(true);
-        const el = this.contentEl.querySelector(".feuillets-binder-search");
+        /* this.contentEl est la feuille ENTIÈRE (partagée par tous les
+           sous-onglets de l'Inspecteur quand cette vue est une sous-vue de
+           SidebarFeuilletsView — voir son renderXTab()/targetContainer) :
+           y chercher l'input peut retrouver un ancien nœud détaché plutôt
+           que celui qu'on vient de recréer. Se limiter au conteneur réel
+           de CETTE vue lève l'ambiguïté. */
+        const scope = this.targetContainer || this.contentEl;
+        const el = scope.querySelector(".feuillets-binder-search");
         if (el) {
           el.focus();
           el.setSelectionRange(caret, caret);
@@ -445,7 +452,7 @@ export class BaseFeuilletsView extends ItemView {
       menu.showAtMouseEvent(e);
     });
 
-
+    this.renderSavedFiltersButton(toolbar, root);
 
     const body = container.createDiv({ cls: "feuillets-research-body" });
 
@@ -770,6 +777,8 @@ export class BaseFeuilletsView extends ItemView {
       const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
       nameEl.setText(this.plugin.titleFor(f));
 
+      this.addPreviewBtn(header, f);
+
       if (isMedia) {
         const insertLinkBtn = this.iconBtn(
           header,
@@ -823,17 +832,6 @@ export class BaseFeuilletsView extends ItemView {
       row.setAttr("data-search", foldAccents(this.plugin.titleFor(f)));
       row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
 
-      row.addEventListener("mouseenter", (event) => {
-        this.app.workspace.trigger("hover-link", {
-          event,
-          source: "feuillets",
-          hoverParent: this,
-          targetEl: row,
-          linktext: f.path,
-          sourcePath: f.path,
-        });
-      });
-
       row.addEventListener("click", (e) => {
         if (isMedia || Keymap.isModEvent(e)) {
           openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
@@ -843,6 +841,25 @@ export class BaseFeuilletsView extends ItemView {
         this.render();
       });
     }
+  }
+
+  /** Bouton "œil" : déclenche l'aperçu natif d'Obsidian (Aperçu de page) au
+   * CLIC plutôt qu'au survol — le survol automatique gênait (aperçu qui
+   * s'ouvre en passant simplement la souris sur la liste). */
+  addPreviewBtn(header, f) {
+    const btn = this.iconBtn(header, "eye", "Aperçu…");
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.app.workspace.trigger("hover-link", {
+        event: e,
+        source: "feuillets",
+        hoverParent: this,
+        targetEl: btn,
+        linktext: f.path,
+        sourcePath: f.path,
+      });
+    });
+    return btn;
   }
 
   /** Rend une fiche de recherche déplaçable : au dragstart, on mémorise son
@@ -1067,17 +1084,86 @@ export class BaseFeuilletsView extends ItemView {
     }
   }
 
+  /** "Dossiers de recherche sauvegardés" — un filtre Recherche (texte +
+   * tag) enregistré sous un nom, réappliqué en un clic. Ne crée pas de
+   * vrai dossier sur le disque : juste une combinaison de critères
+   * mémorisée par projet (S.projectMeta[root.path].savedResearchFilters),
+   * rejouée sur les mêmes fiches à chaque clic — donc toujours à jour,
+   * contrairement à un dossier figé qu'il faudrait retrier à la main. */
+  renderSavedFiltersButton(toolbar, root) {
+    if (!root) return;
+    const S = this.plugin.settings;
+    if (!S.projectMeta[root.path]) S.projectMeta[root.path] = {};
+    const meta = S.projectMeta[root.path];
+    const filters = meta.savedResearchFilters || [];
+
+    const btn = this.iconBtn(toolbar, "bookmark", "Dossiers de recherche sauvegardés…");
+    btn.addEventListener("click", (e) => {
+      const menu = new Menu();
+      const hasActiveFilter = !!(S.researchSearch || "").trim() || !!S.researchTagFilter;
+      menu.addItem((item) =>
+        item
+          .setTitle("Enregistrer le filtre actif…")
+          .setIcon("bookmark-plus")
+          .setDisabled(!hasActiveFilter)
+          .onClick(() => {
+            new SaveResearchFilterModal(this.app, async (name) => {
+              if (!meta.savedResearchFilters) meta.savedResearchFilters = [];
+              meta.savedResearchFilters.push({
+                name,
+                search: S.researchSearch || "",
+                tag: S.researchTagFilter || "",
+              });
+              await this.plugin.saveSettings();
+              this.render(true);
+            }).open();
+          })
+      );
+      if (filters.length > 0) {
+        menu.addSeparator();
+        for (const f of filters) {
+          menu.addItem((item) =>
+            item.setTitle(f.name).setIcon("bookmark").onClick(async () => {
+              S.researchSearch = f.search || "";
+              S.researchTagFilter = f.tag || "";
+              await this.plugin.saveSettings();
+              this.render(true);
+            })
+          );
+        }
+        menu.addSeparator();
+        menu.addItem((item) =>
+          item
+            .setTitle("Gérer les dossiers sauvegardés…")
+            .setIcon("settings")
+            .onClick(() => {
+              new ManageSavedFiltersModal(this.app, this.plugin, root, () => this.render(true)).open();
+            })
+        );
+      }
+      menu.showAtMouseEvent(e);
+    });
+  }
+
   filterEntities() {
+    /* this.contentEl est la feuille ENTIÈRE quand cette vue est une sous-vue
+       de SidebarFeuilletsView (Inspecteur) — voir renderSavedFiltersButton
+       et le correctif équivalent sur le focus de la recherche. Chercher
+       depuis this.contentEl pouvait manquer les éléments qu'on vient de
+       (re)construire, laissant tout affiché sans filtrage apparent. */
+    const scope = this.targetContainer || this.contentEl;
     const term = foldAccents((this.plugin.settings.researchSearch || "").trim());
     const tagFilter = foldAccents(this.plugin.settings.researchTagFilter || "");
-    const items = this.contentEl.querySelectorAll(".feuillets-research-item");
+    const items = scope.querySelectorAll(".feuillets-research-item");
     items.forEach((el) => {
-      const matchSearch = !term || (el.getAttr("data-search") || "").includes(term);
-      const tags = (el.getAttr("data-tags") || "").split(",").filter(Boolean);
+      const dataSearch = el.getAttr("data-search") || "";
+      const dataTags = el.getAttr("data-tags") || "";
+      const matchSearch = !term || dataSearch.includes(term) || dataTags.includes(term);
+      const tags = dataTags.split(",").filter(Boolean);
       const matchTag = !tagFilter || tags.includes(tagFilter);
       el.style.display = matchSearch && matchTag ? "" : "none";
     });
-    const sections = this.contentEl.querySelectorAll(
+    const sections = scope.querySelectorAll(
       ".feuillets-research-section"
     );
     const filterActive = !!term || !!tagFilter;
