@@ -364,7 +364,18 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "create-demo-project",
       name: "Créer un projet d'exemple (démonstration)",
-      callback: () => this.createDemoProject(),
+      callback: () => {
+        const menu = new Menu();
+        menu.addItem((item) =>
+          item.setTitle("Roman générique (Elira) — explique chaque champ").onClick(() => this.createDemoProject("elira"))
+        );
+        menu.addItem((item) =>
+          item
+            .setTitle("Candide, ou l'Optimisme (Voltaire) — labels, fils & personnages")
+            .onClick(() => this.createDemoProject("candide"))
+        );
+        menu.showAtPosition({ x: window.innerWidth / 2, y: 80 });
+      },
     });
     this.addCommand({
       id: "import-scrivener",
@@ -2044,7 +2055,7 @@ class FeuilletsPlugin extends Plugin {
   async ensureFolder(path) { return ensureFolder(this.app, path); }
   async snapshotFile(file, root) { return snapshotFile(this.app, file, root); }
   async initProjectStructure() { return initProjectStructure(this.app, this.settings); }
-  async createDemoProject() { return createDemoProject(this.app, this.settings, this); }
+  async createDemoProject(kind = "elira") { return createDemoProject(this.app, this.settings, this, kind); }
 
   async generateCanvasBoard() {
     const result = await generateCanvasBoard(this.app, this.settings);

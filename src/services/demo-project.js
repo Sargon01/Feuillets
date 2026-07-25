@@ -8,6 +8,7 @@ import { applyModeDefaults } from "../utils/project-modes.js";
 import { getProjectMode } from "./project-mode.js";
 
 const VOLUME_NAME = "Feuillets — Exemple";
+const CANDIDE_VOLUME_NAME = "Candide, ou l'Optimisme — Exemple";
 
 async function writeSheet(app, folder, name, lines) {
   const path = normalizePath(`${folder.path}/${name}.md`);
@@ -298,18 +299,158 @@ async function generate(app, S, plugin, manuscritPath) {
   }
 }
 
+const CANDIDE_PARTIES = [
+  { nom: "Partie 1 - L'Ancien Monde", chapitres: [
+    { ordre: 1, titre: "Éducation de Candide", titreBinder: "Éducation de Candide", sousTitre: "Comment Candide fut élevé dans un beau château, et comment il fut chassé d’icelui.", label: "Westphalie", fil: "L'Optimisme", personnages: ["Candide", "Pangloss", "Cunégonde", "M. le Baron", "Mme la Baronne"] },
+    { ordre: 2, titre: "Enrôlement chez les Bulgares", titreBinder: "Enrôlement chez les Bulgares", sousTitre: "Ce que devint Candide parmi les Bulgares.", label: "Bulgarie", fil: "La Guerre", personnages: ["Candide", "Recruteurs bulgares"] },
+    { ordre: 3, titre: "La boucherie héroïque", titreBinder: "La boucherie héroïque", sousTitre: "Comment Candide s’échappa d’entre les Bulgares, et ce qu’il devint.", label: "Hollande", fil: "La Guerre", personnages: ["Candide", "Jacques l'Anabaptiste", "Orateur protestant"] },
+    { ordre: 4, titre: "Retrouvailles avec Pangloss", titreBinder: "Retrouvailles avec Pangloss", sousTitre: "Comment Candide rencontra son ancien maître de philosophie, le docteur Pangloss, et ce qui en advint.", label: "Hollande", fil: "L'Optimisme", personnages: ["Candide", "Pangloss", "Jacques l'Anabaptiste"] },
+    { ordre: 5, titre: "Tempête et séisme", titreBinder: "Tempête et séisme", sousTitre: "Tempête, naufrage, tremblement de terre, et ce qui advint du docteur Pangloss, de Candide, et de l’anabaptiste Jacques.", label: "Lisbonne", fil: "Les Catastrophes", personnages: ["Candide", "Pangloss", "Jacques l'Anabaptiste", "Le Matelot brutal"] },
+    { ordre: 6, titre: "L'Auto-da-fé de Lisbonne", titreBinder: "L'Auto-da-fé de Lisbonne", sousTitre: "Comment on fit un bel auto-da-fé pour empêcher les tremblements de terre, et comment Candide fut fessé.", label: "Lisbonne", fil: "L'Inquisition", personnages: ["Candide", "Pangloss", "Le Grand Inquisiteur"] },
+    { ordre: 7, titre: "Soins de la vieille", titreBinder: "Soins de la vieille", sousTitre: "Comment une vieille prit soin de Candide, et comment il retrouva ce qu’il aimait.", label: "Lisbonne", fil: "La Quête de Cunégonde", personnages: ["Candide", "La Vieille", "Cunégonde"] },
+    { ordre: 8, titre: "Récit de Cunégonde", titreBinder: "Récit de Cunégonde", sousTitre: "Histoire de Cunégonde.", label: "Lisbonne", fil: "La Quête de Cunégonde", personnages: ["Cunégonde", "Candide", "La Vieille", "Don Issachar", "Le Grand Inquisiteur"] },
+    { ordre: 9, titre: "Fuite de Lisbonne", titreBinder: "Fuite de Lisbonne", sousTitre: "Ce qui advint de Cunégonde, de Candide, du grand Inquisiteur, et d’un Israélite.", label: "Lisbonne", fil: "La Quête de Cunégonde", personnages: ["Candide", "Cunégonde", "La Vieille", "Don Issachar", "Le Grand Inquisiteur"] },
+    { ordre: 10, titre: "Départ pour le Nouveau Monde", titreBinder: "Départ pour le Nouveau Monde", sousTitre: "Dans quel dénuement Candide, Cunégonde et la vieille arrivent à Cadix, et de leur embarquement.", label: "Cadix", fil: "L'Exil", personnages: ["Candide", "Cunégonde", "La Vieille"] },
+  ] },
+  { nom: "Partie 2 - Le Nouveau Monde et l'Eldorado", chapitres: [
+    { ordre: 11, titre: "Récit de la vieille I", titreBinder: "Récit de la vieille I", sousTitre: "Histoire de la vieille.", label: "En mer", fil: "La Misère humaine", personnages: ["La Vieille", "Fille du pape Urbain X", "Cunégonde", "Candide"] },
+    { ordre: 12, titre: "Récit de la vieille II", titreBinder: "Récit de la vieille II", sousTitre: "Suite des malheurs de la vieille.", label: "En mer", fil: "La Misère humaine", personnages: ["La Vieille", "Eunuque noir", "Cunégonde", "Candide"] },
+    { ordre: 13, titre: "Séparation à Buenos Aires", titreBinder: "Séparation à Buenos Aires", sousTitre: "Comment Candide fut obligé de se séparer de la belle Cunégonde et de la vieille.", label: "Buenos Aires", fil: "La Quête de Cunégonde", personnages: ["Candide", "Cunégonde", "La Vieille", "Don Fernando d'Ibaraa", "Cacambo"] },
+    { ordre: 14, titre: "Chez les Jésuites du Paraguay", titreBinder: "Chez les Jésuites du Paraguay", sousTitre: "Comment Candide et Cacambo furent reçus chez les Jésuites du Paraguay.", label: "Paraguay", fil: "L'Inquisition", personnages: ["Candide", "Cacambo", "Le Commandant (Frère de Cunégonde)"] },
+    { ordre: 15, titre: "Duel avec le frère", titreBinder: "Duel avec le frère", sousTitre: "Comment Candide tua le frère de sa chère Cunégonde.", label: "Paraguay", fil: "L'Orgueil aristocratique", personnages: ["Candide", "Le Commandant", "Cacambo"] },
+    { ordre: 16, titre: "Chez les Oreillons", titreBinder: "Chez les Oreillons", sousTitre: "Ce qui advint aux deux voyageurs avec deux filles, deux singes, et les sauvages nommés Oreillons.", label: "Nouveau Monde", fil: "L'État de nature", personnages: ["Candide", "Cacambo", "Deux filles et deux singes", "Sauvages Oreillons"] },
+    { ordre: 17, titre: "Arrivée en Eldorado", titreBinder: "Arrivée en Eldorado", sousTitre: "Arrivée de Candide et de son valet au pays d’Eldorado, et ce qu’ils y virent.", label: "Eldorado", fil: "L'Utopie", personnages: ["Candide", "Cacambo", "Enfants d'Eldorado", "Hôte du village"] },
+    { ordre: 18, titre: "Sagesse de l'Eldorado", titreBinder: "Sagesse de l'Eldorado", sousTitre: "Ce qu’ils virent dans le pays d’Eldorado.", label: "Eldorado", fil: "L'Utopie", personnages: ["Candide", "Cacambo", "Le Sage Vieillard", "Le Roi d'Eldorado"] },
+    { ordre: 19, titre: "L'esclave et Martin", titreBinder: "L'esclave et Martin", sousTitre: "Ce qui leur arriva à Surinam, et comment Candide fit connaissance avec Martin.", label: "Surinam", fil: "L'Esclavage", personnages: ["Candide", "Cacambo", "Le Nègre de Surinam", "Vanderdendur", "Martin"] },
+    { ordre: 20, titre: "Traversée de l'Atlantique", titreBinder: "Traversée de l'Atlantique", sousTitre: "Ce qui arriva sur mer à Candide et à Martin.", label: "En mer", fil: "", personnages: ["Candide", "Martin"] },
+  ] },
+  { nom: "Partie 3 - Le retour et la métairie", chapitres: [
+    { ordre: 21, titre: "Approche de la France", titreBinder: "Approche de la France", sousTitre: "Candide et Martin approchent des côtes de France et raisonnent.", label: "France", fil: "Le Pessimisme", personnages: ["Candide", "Martin"] },
+    { ordre: 22, titre: "Les déboires à Paris", titreBinder: "Les déboires à Paris", sousTitre: "Ce qui arriva en France à Candide et à Martin.", label: "Paris", fil: "La Corruption", personnages: ["Candide", "Martin", "L'Abbé de Périgord", "Marquise de Parolignac", "Le Critique Fréron"] },
+    { ordre: 23, titre: "Sur les côtes d'Angleterre", titreBinder: "Sur les côtes d'Angleterre", sousTitre: "Candide et Martin vont sur les côtes d’Angleterre ; ce qu’ils y voient.", label: "Angleterre", fil: "La Guerre", personnages: ["Candide", "Martin", "L'Amiral Byng"] },
+    { ordre: 24, titre: "Paquette et Frère Giroflée", titreBinder: "Paquette et Frère Giroflée", sousTitre: "De Paquette et de frère Giroflée.", label: "Venise", fil: "La Misère humaine", personnages: ["Candide", "Martin", "Paquette", "Frère Giroflée"] },
+    { ordre: 25, titre: "Chez le seigneur Pococurante", titreBinder: "Chez le seigneur Pococurante", sousTitre: "Visite chez le seigneur Pococurante, noble vénitien.", label: "Venise", fil: "L'Ennui", personnages: ["Candide", "Martin", "Seigneur Pococurante"] },
+    { ordre: 26, titre: "Souper avec les six rois", titreBinder: "Souper avec les six rois", sousTitre: "D’un soupé que Candide et Martin firent avec six étrangers, et qui ils étaient.", label: "Venise", fil: "La Vanité du pouvoir", personnages: ["Candide", "Martin", "Cacambo", "Les Six Rois détrônés"] },
+    { ordre: 27, titre: "Voyage vers Constantinople", titreBinder: "Voyage vers Constantinople", sousTitre: "Voyage de Candide à Constantinople.", label: "Constantinople", fil: "La Quête de Cunégonde", personnages: ["Candide", "Martin", "Cacambo", "Pangloss", "Le Baron Jésuite"] },
+    { ordre: 28, titre: "Récit de Pangloss et du Baron", titreBinder: "Récit de Pangloss et du Baron", sousTitre: "Ce qui arriva à Candide, à Cunégonde, à Pangloss, à Martin, etc.", label: "Constantinople", fil: "L'Optimisme", personnages: ["Candide", "Pangloss", "Le Baron Jésuite"] },
+    { ordre: 29, titre: "Retrouvailles avec Cunégonde", titreBinder: "Retrouvailles avec Cunégonde", sousTitre: "Comment Candide retrouva Cunégonde et la vieille.", label: "Constantinople", fil: "La Quête de Cunégonde", personnages: ["Candide", "Cunégonde", "La Vieille", "Pangloss", "Martin", "Cacambo", "Le Baron Jésuite"] },
+    { ordre: 30, titre: "Il faut cultiver notre jardin", titreBinder: "Il faut cultiver notre jardin", sousTitre: "Conclusion.", label: "Métairie", fil: "", personnages: ["Candide", "Cunégonde", "Pangloss", "Martin", "Cacambo", "La Vieille", "Paquette", "Frère Giroflée", "Le Derviche", "Le Bon Vieillard", "La Corruption"] },
+  ] },
+];
+
+function candideSceneLines({ ordre, titre, titreBinder, sousTitre, label, fil, personnages }) {
+  const lines = [
+    "---",
+    `titre: "Chapitre ${ordre} — ${titre}"`,
+    `titre_binder: ${JSON.stringify(titreBinder)}`,
+    `ordre: ${ordre}`,
+    `sous_titre: ${JSON.stringify(sousTitre)}`,
+    `synopsis: ${JSON.stringify(sousTitre)}`,
+    `label: ${JSON.stringify(label)}`,
+  ];
+  if (fil) lines.push(`fil: ${JSON.stringify(fil)}`);
+  if (personnages.length > 0) {
+    lines.push("personnages:");
+    for (const p of personnages) lines.push(`  - ${p}`);
+  }
+  lines.push("compiler: true", "---", "");
+  return lines;
+}
+
+function candideBody({ ordre, sousTitre }) {
+  if (ordre === 1) {
+    return `${sousTitre}\n\nCe premier chapitre illustre les trois axes que le panneau Cartes \u2192 mode Chemin de fer suit à travers tout le manuscrit : \`label: Westphalie\` (le lieu, à gauche, en rond), \`fil: L'Optimisme\` (l'intrigue, à droite, en carré) et \`personnages:\` (qui apparaît dans la scène). Ouvre ce mode, survole un point pour voir son nom, ou utilise les boutons Label / Personnage / Fil en haut du panneau pour filtrer.`;
+  }
+  if (ordre === 8) {
+    return `${sousTitre}\n\nLe fil \`La Quête de Cunégonde\` traverse ce chapitre et plusieurs autres, non consécutifs, jusqu'à la fin du roman — sélectionne-le dans le bouton Fil du Chemin de fer pour voir la ligne continue qu'il dessine, même quand d'autres chapitres s'intercalent entre deux apparitions.`;
+  }
+  if (ordre === 30) {
+    return `${sousTitre}\n\nDernier chapitre du manuscrit : il réunit à lui seul la quasi-totalité des personnages du roman dans son champ \`personnages:\` — un bon point de départ pour tester le filtre Personnage.`;
+  }
+  return sousTitre;
+}
+
+async function generateCandide(app, S, plugin, manuscritPath) {
+  S.projectFolder = manuscritPath;
+  if (!S.projectMeta) S.projectMeta = {};
+  S.projectMeta[manuscritPath] = {
+    type: "fiction",
+    author: "Voltaire",
+    description:
+      "Candide, ou l'Optimisme (1759) — domaine public — projet d'exemple pour explorer le panneau Chemin de fer (labels, fils, personnages) sur un vrai texte plutôt qu'un squelette minimal.",
+  };
+  applyModeDefaults(S, "fiction");
+  await plugin.saveSettings();
+
+  await initProjectStructure(app, S);
+
+  const root = getProjectFolder(app, S);
+  if (!root) {
+    throw new Error(
+      `Dossier projet introuvable juste après sa création (${manuscritPath}) — abandon de la génération.`
+    );
+  }
+
+  const front = await ensureFolder(app, `${root.path}/Front`);
+  await writeSheet(app, front, "Page de titre", [
+    "---",
+    "titre: Candide, ou l'Optimisme",
+    "compiler: true",
+    "---",
+    "",
+    "**CANDIDE, OU L'OPTIMISME**",
+    "",
+    "Voltaire — 1759",
+    "",
+  ]);
+
+  for (const partie of CANDIDE_PARTIES) {
+    const partieFolder = await ensureFolder(app, `${root.path}/${partie.nom}`);
+    for (const ch of partie.chapitres) {
+      const lines = candideSceneLines(ch);
+      const body = candideBody(ch);
+      const name = `${String(ch.ordre).padStart(2, "0")}. Chapitre ${ch.ordre} — ${ch.titre}`;
+      await writeSheet(app, partieFolder, name, [...lines, body, ""]);
+    }
+  }
+
+  await writeSheet(app, root.parent, "Lisez-moi", [
+    "---",
+    "compiler: false",
+    "---",
+    "",
+    `# ${CANDIDE_VOLUME_NAME}`,
+    "",
+    "Candide, ou l'Optimisme (Voltaire, 1759, domaine public) importé comme projet d'exemple, ses 30 chapitres déjà balisés en `label:` (lieu), `fil:` (intrigue) et `personnages:` — pour explorer le panneau Chemin de fer sur un vrai texte plutôt qu'un squelette minimal.",
+    "",
+    "## Où regarder",
+    "",
+    "- **Panneau Cartes → mode Chemin de fer** — trois boutons en haut du panneau : **Label** (lieux, à gauche, en rond), **Personnage** (au centre), **Fil** (intrigues, à droite, en carré).",
+    "- Choisis « La Quête de Cunégonde » dans le bouton Fil pour voir la ligne courir sur plusieurs chapitres non consécutifs.",
+    "- Survole un rond ou un carré pour voir le nom du lieu ou du fil auquel il correspond.",
+    "- Le chapitre 30 réunit presque tous les personnages du roman — bon point de départ pour le filtre Personnage.",
+    "",
+  ]);
+}
+
 /** Génère un projet Feuillets complet et déjà rempli, pour explorer toutes
  * les fonctionnalités du plugin sans partir d'une page blanche — le
  * contenu généré explique lui-même, dans son propre corps de texte, à quoi
  * sert chaque champ ou panneau qu'il illustre. Mode Fiction uniquement
  * (le plus riche des deux modes) ; une note dans "Lisez-moi.md" explique
  * la différence avec le mode Non-fiction sans dupliquer tout le contenu. */
-export async function createDemoProject(app, settings, plugin) {
+/** `kind` : "elira" (roman générique, squelette qui explique chaque champ
+ * dans son propre texte) ou "candide" (Candide, ou l'Optimisme — Voltaire,
+ * domaine public — 30 chapitres déjà balisés label/fil/personnages, pour
+ * explorer le Chemin de fer sur un vrai texte). */
+export async function createDemoProject(app, settings, plugin, kind = "elira") {
   const S = settings;
-  const volumePath = normalizePath(VOLUME_NAME);
+  const volumeName = kind === "candide" ? CANDIDE_VOLUME_NAME : VOLUME_NAME;
+  const generator = kind === "candide" ? generateCandide : generate;
+  const volumePath = normalizePath(volumeName);
   if (app.vault.getAbstractFileByPath(volumePath)) {
     new Notice(
-      `« ${VOLUME_NAME} » existe déjà — supprime-le manuellement pour le régénérer.`
+      `« ${volumeName} » existe déjà — supprime-le manuellement pour le régénérer.`
     );
     return;
   }
@@ -335,12 +476,12 @@ export async function createDemoProject(app, settings, plugin) {
   try {
     await ensureFolder(app, volumePath);
     await ensureFolder(app, manuscritPath);
-    await generate(app, S, plugin, manuscritPath);
+    await generator(app, S, plugin, manuscritPath);
     succeeded = true;
   } catch (err) {
     console.error("Feuillets: échec de la génération du projet d'exemple :", err);
     new Notice(
-      `Échec de la génération du projet d'exemple : ${err && err.message ? err.message : err}. Ouvre la console (Ctrl/Cmd+Maj+I) pour le détail, supprime « ${VOLUME_NAME} » avant de réessayer.`,
+      `Échec de la génération du projet d'exemple : ${err && err.message ? err.message : err}. Ouvre la console (Ctrl/Cmd+Maj+I) pour le détail, supprime « ${volumeName} » avant de réessayer.`,
       12000
     );
   } finally {
@@ -360,7 +501,7 @@ export async function createDemoProject(app, settings, plugin) {
 
   if (succeeded) {
     new Notice(
-      `Projet d'exemple créé : ${VOLUME_NAME}. Active-le depuis « Gestion des projets » pour l'explorer.`
+      `Projet d'exemple créé : ${volumeName}. Active-le depuis « Gestion des projets » pour l'explorer.`
     );
   }
 }
