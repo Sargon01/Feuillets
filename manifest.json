@@ -1,7 +1,7 @@
 {
   "id": "feuillets",
   "name": "Feuillets",
-  "version": "5.37.0",
+  "version": "1.0.0",
   "minAppVersion": "1.4.0",
   "description": "Atelier d'écriture pour romanciers : structure du manuscrit, fiches de personnages, compilation et export en .docx, EPUB, ODT et PDF.",
   "author": "Halim Yalcin",
