@@ -1,5 +1,6 @@
 import { STATUSES } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
+import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal } from "../ui/entity-modals.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
@@ -1030,31 +1031,11 @@ export class BaseFeuilletsView extends ItemView {
 
   async buildSearchIndex(files) {
     if (!this._searchCache) this._searchCache = new Map();
-    const cache = this._searchCache;
-    let misses = null;
-    for (const f of files) {
-      const hit = cache.get(f.path);
-      if (!hit || hit.mtime !== f.stat.mtime) (misses || (misses = [])).push(f);
-    }
-    if (misses) {
-      await Promise.all(
-        misses.map(async (f) => {
-          const raw = await this.app.vault.cachedRead(f);
-          const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
-          cache.set(f.path, {
-            mtime: f.stat.mtime,
-            text: foldAccents(body),
-          });
-        })
-      );
-    }
-    if (cache.size > files.length) {
-      const alive = new Set(files.map((f) => f.path));
-      for (const key of cache.keys()) {
-        if (!alive.has(key)) cache.delete(key);
-      }
-    }
-    return cache;
+    return refreshSearchIndex(this._searchCache, files, async (f) => {
+      const raw = await this.app.vault.cachedRead(f);
+      const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+      return foldAccents(body);
+    });
   }
 
   iconBtn(parent, icon, tooltip, onClick) {

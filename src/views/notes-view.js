@@ -172,19 +172,10 @@ export class NotesView extends BaseFeuilletsView {
     if (this.plugin.hasSources()) {
       this.renderCollapsibleTextarea(wrapper, "Sources", "sources", file, fm, "Références, lectures, entretiens…", 4);
     }
-  }
 
-  latestStateBefore(content, year) {
-    const re = /^\s*(?:[-*+]\s*)?\**\s*(-?\d{3,4})\s*\**\s*[:：–—-]\s*(.+)$/;
-    let best = null;
-    for (const line of content.split("\n")) {
-      const m = line.match(re);
-      if (!m) continue;
-      const y = parseInt(m[1], 10);
-      if (y > year) continue;
-      if (!best || y > best.y) best = { y, text: m[2].trim() };
+    if (S.notesShowFootnotes) {
+      await this.renderFootnotesSection(wrapper, file);
     }
-    return best;
   }
 
   entityKind(ent) {
@@ -555,7 +546,7 @@ export class NotesView extends BaseFeuilletsView {
       let shown = false;
       if (sceneDate && kind !== "codex") {
         const content = await this.app.vault.cachedRead(ent);
-        const state = this.latestStateBefore(content, sceneDate.y);
+        const state = latestStateBefore(content, sceneDate.y);
         if (state) {
           info.setText(state.text);
           info.setAttr("title", `État renseigné en ${state.y}`);
