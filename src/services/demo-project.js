@@ -102,9 +102,95 @@ async function generate(app, S, plugin, manuscritPath) {
     "",
   ]);
 
+  /* Page de titre : générée vide (juste :::titre:) par initProjectStructure
+     — on la complète ici pour un vrai exemple travaillé, et pour expliquer
+     le système de rôles (chaque ligne `:::rôle:` reçoit sa mise en forme —
+     taille, gras, alignement, marges — depuis titlePage.styles du modèle
+     d'export choisi, pas de composition à la main). */
+  const titlePagePath = normalizePath(`${front.path}/Page de titre.md`);
+  const titlePageFile = app.vault.getAbstractFileByPath(titlePagePath);
+  if (titlePageFile) {
+    await app.vault.modify(titlePageFile, [
+      "---",
+      "titre: La Citadelle Grise",
+      "titre_binder: ",
+      "ordre: 1",
+      "synopsis: ",
+      "statut: ",
+      "label: ",
+      "tags: ",
+      "date: ",
+      "notes: ",
+      "compiler: true",
+      "type: titre",
+      "---",
+      ":::titre: **La Citadelle Grise**",
+      ":::sous-titre: *roman*",
+      ":::mots: Un jeu de mots optionnel, sous le titre",
+      ":::auteur: Auteur d'exemple",
+      ":::adresse: ",
+      ":::coordonnées: ",
+      "",
+      "Chaque ligne `:::rôle: contenu` ci-dessus devient un bloc typé à l'export — `:::titre:`, `:::sous-titre:`, `:::mots:`, `:::auteur:`, `:::adresse:`, `:::coordonnées:` sont les rôles reconnus par les 7 modèles intégrés, mais le rôle est libre : n'importe quel nom que le modèle définit fonctionne, un rôle absent retombe simplement sur la mise en forme de base. Pour changer la **taille, le gras, l'alignement ou les marges** d'un rôle, ce n'est pas ici que ça se règle : ouvre le modèle de mise en page actif (panneau Projet & export, ou exporte les modèles intégrés dans `Ressources/Modèles/` pour en personnaliser un) et modifie sa section `titlePage.styles.<rôle>`. Une ligne sans `:::` (rare) reste stylée comme le corps de page Front normal.",
+      "",
+    ].join("\n"));
+  }
+
+  await writeSheet(app, front, "Comment démarrer un vrai projet", [
+    "---",
+    "titre: Comment démarrer un vrai projet",
+    "compiler: false",
+    "---",
+    "",
+    "Ce projet-ci a été généré tout fait, mais un vrai projet démarre le plus souvent d'un dossier vide ou d'un plan déjà en tête. Trois façons de commencer, sur un **nouveau projet vide** (pas celui-ci) :",
+    "",
+    "**1. À la main** — « Nouveau projet… » crée le dossier et initialise sa structure (Recherche, Snapshots, Ressources, Journal, Front avec sa page de titre) en une fois. Il ne reste qu'à créer les Parties/Chapitres/Scènes depuis le binder.",
+    "",
+    "**2. Importer un plan** — si la structure existe déjà dans un fichier texte, un carnet ou une autre appli, colle-la telle quelle dans « Importer un plan… » : chaque `#`/`##` devient un dossier (Partie/Chapitre), chaque tiret une scène. Exemple à copier-coller :",
+    "",
+    "```",
+    "# Partie 1",
+    "## Chapitre 1",
+    "- Scène 1",
+    "- Scène 2",
+    "## Chapitre 2",
+    "- Scène 3",
+    "# Partie 2",
+    "- Chapitre 3",
+    "```",
+    "",
+    "Toute une arborescence de roman posée en un seul copier-coller, avant même d'avoir écrit un mot de texte.",
+    "",
+    "**3. Importer depuis Scrivener** — commande « Importer un projet Scrivener… » : sélectionne le fichier `.scriv` de ton projet, il est converti directement en arborescence Feuillets (dossiers Partie/Chapitre, feuillets de scène, synopsis repris s'il existe). Bureau uniquement — l'import nécessite un accès direct au système de fichiers, indisponible sur mobile.",
+    "",
+  ]);
+
   const partie1 = await ensureFolder(app, `${root.path}/Partie 1 - Les commencements`);
   const chap1 = await ensureFolder(app, `${partie1.path}/Chapitre 1 - Le départ`);
-  await writeSheet(app, chap1, "1. Ouverture", sceneLines({
+
+  /* Notes de dossier (Partie/Chapitre) : convention "même nom que le
+     dossier, à l'intérieur" (services/folder-notes.js) — pré-remplies ici
+     avec un vrai contenu, plutôt que la coquille vide que produirait un
+     clic sur la pastille depuis le panneau Notes, pour que la fonction
+     soit immédiatement visible plutôt que juste un bouton qui marche. */
+  await writeSheet(app, partie1, "Partie 1 - Les commencements", [
+    "---",
+    "titre: Partie 1 - Les commencements",
+    "synopsis: Elira quitte son ancienne vie ; les prémices de l'intrigue se mettent en place.",
+    "notes: Ceci est une note de DOSSIER (une par Partie/Chapitre), pas une scène — elle sert aux intentions générales de toute une partie du roman. Accessible en cliquant la pastille correspondante en haut du panneau Notes quand un feuillet de cette partie est ouvert, ou directement ici depuis le binder.",
+    "---",
+    "",
+  ]);
+  await writeSheet(app, chap1, "Chapitre 1 - Le départ", [
+    "---",
+    "titre: Chapitre 1 - Le départ",
+    "synopsis: La lettre, puis la première rencontre avec Tomas Grey.",
+    "notes: Note de dossier de niveau Chapitre — plus précise que celle de la Partie englobante, mais toujours hors manuscrit compilé et hors comptage de mots.",
+    "---",
+    "",
+  ]);
+
+  const ouvertureFile = await writeSheet(app, chap1, "1. Ouverture", sceneLines({
     titre: "Ouverture",
     titreCourt: "Ouverture",
     ordre: 1,
@@ -118,6 +204,35 @@ async function generate(app, S, plugin, manuscritPath) {
     notes: "Ce champ « Notes » n'est jamais compilé ni compté dans le nombre de mots — utilise-le pour tes pense-bêtes.",
     body: 'Ceci est un exemple de scène. Le champ `titre_binder` ("Ouverture") est ce qui s\'affiche dans le binder et l\'onglet Obsidian, à la place du nom de fichier. Ouvre le panneau Cartes → mode Chemin de fer : trois boutons en haut — **Label** (`label: Rouge`, à gauche, en rond), **Personnage** (`personnages: Elira Voskan`, au centre) et **Fil** (`fil: Éveil`, à droite, en carré) — choisis-en un pour voir la ligne continue courir à travers les scènes qui le portent, même à travers des chapitres différents. Survole un point pour voir son nom. Le tag `demo/premier-niveau` est un tag imbriqué — regarde le panneau Tags pour voir comment il apparaît dans l\'arborescence.\n\nCette phrase porte une note de bas de page[^1] et une citation insérée depuis la fiche « Sources d\'inspiration » du panneau Recherche (sélectionne un passage dans une fiche Bibliographie, puis clique « Insérer comme citation »).\n\n> « Rien ne se perd, rien ne se crée, tout se transforme. » (Sources d\'inspiration)\n\n[^1]: Exemple de note de bas de page — commande « Insérer une note de bas de page », ou « Renuméroter les notes de bas de page » si l\'ordre change.\n\nCette scène porte aussi un **statut** (`statut: Terminé` — les autres valeurs possibles sont Idée, Brouillon, En cours, Révisé) et un **label de couleur** (`label: Rouge`, l\'un des 6 par défaut — Rouge/Orange/Jaune/Vert/Bleu/Violet —, renommables et recolorables dans les réglages du plugin, redéfinissables par projet). Les deux sont filtrables dans le binder et le Tableau.',
   }));
+
+  /* Snapshot réel (pas "vide au départ") : une version antérieure d'Ouverture,
+     dans la même arborescence que snapshotFile() (services/project-files.js)
+     — Snapshots/<basename>/<horodatage>.md — pour que « Restaurer un
+     snapshot » et le comparateur de différences aient tout de suite un vrai
+     avant/après à montrer, sans attendre que l'utilisateur en crée un. */
+  {
+    const snapshotsBase = normalizePath(`${root.parent.path}/Snapshots`);
+    const snapshotDir = normalizePath(`${snapshotsBase}/${ouvertureFile.basename}`);
+    await ensureFolder(app, snapshotsBase);
+    await ensureFolder(app, snapshotDir);
+    const d = new Date(Date.now() - 3 * 86400000);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}h${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+    const oldBody = sceneLines({
+      titre: "Ouverture",
+      titreCourt: "Ouverture",
+      ordre: 1,
+      synopsis: "Elira découvre la lettre qui bouleversera son existence.",
+      statut: "Brouillon",
+      label: "Rouge",
+      body: "Version de brouillon, avant relecture — c'est ce que « Restaurer un snapshot » (menu des 15 versions les plus récentes) ou le comparateur de différences donnent à voir en face de la version actuelle. Le champ `statut` était encore à Brouillon ; le texte lui-même était plus court, sans note de bas de page ni citation.",
+    }).join("\n");
+    const snapshotPath = normalizePath(`${snapshotDir}/${stamp}.md`);
+    if (!app.vault.getAbstractFileByPath(snapshotPath)) {
+      await app.vault.create(snapshotPath, oldBody);
+    }
+  }
+
   await writeSheet(app, chap1, "2. La rencontre", sceneLines({
     titre: "La rencontre",
     ordre: 2,
@@ -179,7 +294,7 @@ async function generate(app, S, plugin, manuscritPath) {
     personnages: ["Tomas Grey"],
     body: "Cette scène plante un fil narratif : juste après la génération de ce projet, `fil: secret-de-l-ordre` est ajouté ici, puis recopié automatiquement sur le tout dernier feuillet du manuscrit (la scène « Le silence », plus bas) comme marqueur « en attente de résolution ». Ouvre le mode Chemin de fer, bouton **Fil**, et choisis « secret-de-l-ordre » pour voir la ligne courir jusqu'au bout du manuscrit. Le jour où tu écris `fil: secret-de-l-ordre` ailleurs, ce marqueur disparaît tout seul du dernier feuillet — c'est la résolution.",
   }));
-  await writeSheet(app, chap3, "2. Le silence", sceneLines({
+  const silenceFile = await writeSheet(app, chap3, "2. Le silence", sceneLines({
     titre: "Le silence",
     ordre: 2,
     synopsis: "Le silence retombe — dernier feuillet du manuscrit.",
@@ -336,7 +451,7 @@ async function generate(app, S, plugin, manuscritPath) {
     "",
     "## Le manuscrit",
     "",
-    "- **Front/** — dédicace, page de titre… n'apparaît jamais dans le Chemin de fer, la Chronologie ou le mode Lecture.",
+    "- **Front/** — dédicace, page de titre à rôles déjà composée (`:::titre:`/`:::sous-titre:`/`:::auteur:`…), et « Comment démarrer un vrai projet » (Nouveau projet, import de plan, import Scrivener) ; n'apparaît jamais dans le Chemin de fer, la Chronologie ou le mode Lecture.",
     "- **« 1. Ouverture »** — tour des champs de base : `titre_binder` (affiché dans le binder/l'onglet à la place du nom de fichier), `label`/`fil`/`personnages` (voir plus bas), tag imbriqué `demo/premier-niveau`, une note de bas de page et une citation insérée depuis une fiche Bibliographie.",
     "- **« 2. La rencontre »** — deux labels à la fois (`label: Rouge, Bleu`), une `date` alignée sur un jalon de la Chronologie (regarde le panneau Notes), et deux personnages cités par leur nom (section « Contexte » du panneau Notes, avec âge calculé à la date de la scène).",
     "- **« La route »** — scène sans aucun champ optionnel, pour rappeler que rien n'est obligatoire en dehors de la structure Partie/Chapitre/Scène. Bon endroit pour essayer le **mode concentration** (icône focus) ou la barre **Chercher et remplacer**.",
@@ -372,7 +487,7 @@ async function generate(app, S, plugin, manuscritPath) {
     "## Recherche, Notes, Propriétés",
     "",
     "- **Recherche/** — une fiche par catégorie (Personnages, Lieux, Lore, Bibliographie, Glossaire, Chronologie/Événements). Sélectionne un passage dans une fiche puis insère-le dans une scène (lien simple, citation, ou citation sourcée).",
-    "- **Panneau Notes** (feuillet ouvert) — section Contexte (personnages/lieux détectés automatiquement), notes de dossier, Synopsis/Résumé/Notes de travail/Sources repliables et réordonnables, Plan du feuillet.",
+    "- **Panneau Notes** (feuillet ouvert) — section Contexte (personnages/lieux détectés automatiquement), **notes de dossier** (fil d'Ariane en haut du panneau, sur « 1. Ouverture » ou « 2. La rencontre » : clique « Partie 1 - Les commencements » ou « Chapitre 1 - Le départ » — ces deux notes sont déjà rédigées, pas vides), Synopsis/Résumé/Notes de travail/Sources repliables et réordonnables, Plan du feuillet.",
     "- **Panneau Propriétés** — édite le frontmatter du feuillet ouvert (case à cocher, sélecteur de date, éditeur à jetons pour les listes), ou parcourt toutes les propriétés/tags utilisés dans **ce projet** (pas tout le coffre), avec ajout/suppression en masse.",
     "",
     "## Suivi",
@@ -390,7 +505,7 @@ async function generate(app, S, plugin, manuscritPath) {
     "",
     "## Sauvegarde",
     "",
-    "- **Snapshots/** — vide au départ : clic-droit sur un feuillet → « Snapshot » pour voir une copie datée apparaître ici. « Sauvegarder les réglages du plugin » exporte toute la config en `.json`.",
+    "- **Snapshots/** — « 1. Ouverture » a déjà une version antérieure de trois jours : clic-droit sur ce feuillet → « Restaurer un snapshot » pour voir le comparateur de différences avec un vrai avant/après. « Sauvegarder les réglages du plugin » exporte toute la config en `.json`.",
     "",
     "## Compiler et exporter",
     "",
@@ -416,20 +531,30 @@ async function generate(app, S, plugin, manuscritPath) {
     "",
   ]);
 
-  /* ---------- Fil narratif : déclenche l'automatisation réelle ---------- */
+  /* ---------- Fil narratif : plante le marqueur des deux côtés directement ---------- */
 
-  /* Fait maintenant, une fois tout le manuscrit en place, pour que
-     getLastProjectFile() (services/narrative-threads.js) résolve bien
-     « Le silence » comme dernier feuillet — pas un chapitre encore
-     inexistant. Le vrai gestionnaire est appelé directement (pas seulement
-     via l'événement natif metadataCache "changed") pour que le marqueur
-     soit posé de façon déterministe avant qu'on restaure S.projectFolder. */
+  /* handleFilChanged() (services/narrative-threads.js) relit fmOf(app, file)
+     via app.metadataCache juste après processFrontMatter — dans un vrai
+     usage interactif, l'événement metadataCache "changed" qui le déclenche
+     ne se déclenche justement QU'UNE FOIS le cache à jour, donc pas de
+     souci. Ici, en génération par lot, appeler handleFilChanged juste après
+     avoir attendu processFrontMatter ne garantit pas que le cache ait déjà
+     absorbé l'écriture — le marqueur automatique n'apparaissait jamais sur
+     « Le silence » en pratique. Plus fiable : poser nous-mêmes les deux
+     côtés (origine + marqueur), et enregistrer l'état exactement comme le
+     ferait l'automatisation, pour qu'une résolution manuelle ultérieure
+     par l'utilisateur continue de fonctionner normalement ensuite. */
   await app.fileManager.processFrontMatter(plantScene, (fm) => {
     fm.fil = "secret-de-l-ordre";
   });
-  if (plugin.handleFilChanged) {
-    await plugin.handleFilChanged(plantScene);
-  }
+  await app.fileManager.processFrontMatter(silenceFile, (fm) => {
+    fm.fil = "secret-de-l-ordre";
+  });
+  if (!S.filPlaceholders) S.filPlaceholders = {};
+  if (!S.filOrigins) S.filOrigins = {};
+  S.filPlaceholders["secret-de-l-ordre"] = silenceFile.path;
+  S.filOrigins["secret-de-l-ordre"] = plantScene.path;
+  await plugin.saveSettings();
 }
 
 const CANDIDE_PARTIES = [
