@@ -999,8 +999,12 @@ export class BoardView extends BaseFeuilletsView {
     const filterBar = wrap.createDiv({ cls: "feuillets-arcs-filter-bar" });
 
     const buildFilterMenuBtn = (icon, name, options, currentValue, onSelect) => {
-      const tooltip = currentValue ? `${name} : ${currentValue}` : `Filtrer par ${name.toLowerCase()}`;
-      const btn = this.iconBtn(filterBar, icon, tooltip, (e) => {
+      const btn = filterBar.createEl("button", { cls: "clickable-icon feuillets-arcs-filter-btn" });
+      setIcon(btn.createSpan(), icon);
+      btn.createSpan({ cls: "feuillets-arcs-filter-btn-label", text: currentValue || name });
+      setTooltip(btn, currentValue ? `${name} : ${currentValue}` : `Filtrer par ${name.toLowerCase()}`);
+      if (currentValue) btn.addClass("is-active");
+      btn.addEventListener("click", (e) => {
         const menu = new Menu();
         menu.addItem((item) => item.setTitle("Tous").setChecked(!currentValue).onClick(() => {
           onSelect("");
@@ -1017,7 +1021,6 @@ export class BoardView extends BaseFeuilletsView {
         }
         menu.showAtMouseEvent(e);
       });
-      if (currentValue) btn.addClass("is-active");
       return btn;
     };
 
@@ -1103,6 +1106,7 @@ export class BoardView extends BaseFeuilletsView {
 
       activeLabels.forEach((lb) => {
         const col = rails.createDiv({ cls: "feuillets-arcs-col" });
+        setTooltip(col, lb);
         const color = this.plugin.labelColor(lb);
         col.style.setProperty("--arc-color", color);
         const hasLabel = currentLabels.includes(lb);
@@ -1113,7 +1117,6 @@ export class BoardView extends BaseFeuilletsView {
         }
         if (hasLabel) {
           const dot = col.createDiv({ cls: "feuillets-arcs-dot" });
-          setTooltip(dot, lb);
           dot.style.backgroundColor = color;
         }
       });
@@ -1140,6 +1143,7 @@ export class BoardView extends BaseFeuilletsView {
 
       activeFils.forEach((f) => {
         const col = filRails.createDiv({ cls: "feuillets-arcs-col" });
+        setTooltip(col, f);
         const color = filColor(f);
         col.style.setProperty("--arc-color", color);
         const hasFil = currentFils.includes(f);
@@ -1150,7 +1154,6 @@ export class BoardView extends BaseFeuilletsView {
         }
         if (hasFil) {
           const dot = col.createDiv({ cls: "feuillets-arcs-dot feuillets-arcs-dot-fil" });
-          setTooltip(dot, f);
           dot.style.backgroundColor = color;
         }
       });

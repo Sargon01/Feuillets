@@ -3656,7 +3656,7 @@ body.feuillets-concentration .markdown-preview-view {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--size-4-6);
   padding: 8px var(--size-4-6);
   background: var(--background-secondary-alt);
   border-bottom: 1px solid var(--background-modifier-border);
@@ -3664,6 +3664,19 @@ body.feuillets-concentration .markdown-preview-view {
   max-width: 1000px;
   border-radius: var(--radius-m);
   flex-wrap: wrap;
+}
+
+.feuillets-arcs-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  padding: 4px 10px;
+}
+
+.feuillets-arcs-filter-btn-label {
+  font-size: var(--font-ui-small);
+  white-space: nowrap;
 }
 
 .feuillets-arcs-filter-bar .clickable-icon.is-active {
