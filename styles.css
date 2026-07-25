@@ -3657,7 +3657,7 @@ body.feuillets-concentration .markdown-preview-view {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px var(--size-4-6);
+  padding: 8px var(--size-4-6);
   background: var(--background-secondary-alt);
   border-bottom: 1px solid var(--background-modifier-border);
   margin: 0 auto var(--size-4-4);
@@ -3666,26 +3666,8 @@ body.feuillets-concentration .markdown-preview-view {
   flex-wrap: wrap;
 }
 
-.feuillets-arcs-filter-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.feuillets-arcs-filter-group.is-fil {
-  flex-direction: row-reverse;
-}
-
-.feuillets-arcs-filter-label {
-  font-size: var(--font-ui-small);
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
-}
-
-.feuillets-arcs-filter-select {
-  min-width: 180px;
+.feuillets-arcs-filter-bar .clickable-icon.is-active {
+  color: var(--interactive-accent);
 }
 
 .feuillets-arcs-filter-count {

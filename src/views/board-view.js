@@ -1,4 +1,4 @@
-const { Menu, TFile, TFolder, setIcon, MarkdownRenderer, Notice } = require("obsidian");
+const { Menu, TFile, TFolder, setIcon, setTooltip, MarkdownRenderer, Notice } = require("obsidian");
 import { VIEW_BOARD, STATUSES, BOARD_MODES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating } from "../utils/dom.js";
@@ -998,28 +998,37 @@ export class BoardView extends BaseFeuilletsView {
 
     const filterBar = wrap.createDiv({ cls: "feuillets-arcs-filter-bar" });
 
-    const buildFilterGroup = (icon, labelText, options, currentValue, onChange, extraCls) => {
-      const group = filterBar.createDiv({ cls: "feuillets-arcs-filter-group" + (extraCls ? ` ${extraCls}` : "") });
-      group.createSpan({ cls: "feuillets-arcs-filter-label", text: `${icon} ${labelText}` });
-      const sel = group.createEl("select", { cls: "dropdown feuillets-arcs-filter-select" });
-      sel.createEl("option", { value: "", text: "Tous" });
-      for (const opt of options) sel.createEl("option", { value: opt, text: opt });
-      sel.value = currentValue || "";
-      sel.addEventListener("change", () => {
-        onChange(sel.value);
-        this.render(true);
+    const buildFilterMenuBtn = (icon, name, options, currentValue, onSelect) => {
+      const tooltip = currentValue ? `${name} : ${currentValue}` : `Filtrer par ${name.toLowerCase()}`;
+      const btn = this.iconBtn(filterBar, icon, tooltip, (e) => {
+        const menu = new Menu();
+        menu.addItem((item) => item.setTitle("Tous").setChecked(!currentValue).onClick(() => {
+          onSelect("");
+          this.render(true);
+        }));
+        menu.addSeparator();
+        for (const opt of options) {
+          menu.addItem((item) =>
+            item.setTitle(opt).setChecked(currentValue === opt).onClick(() => {
+              onSelect(opt);
+              this.render(true);
+            })
+          );
+        }
+        menu.showAtMouseEvent(e);
       });
-      return group;
+      if (currentValue) btn.addClass("is-active");
+      return btn;
     };
 
     if (sortedLabels.length > 0) {
-      buildFilterGroup("📍", "Lieu", sortedLabels, this.selectedLabel, (v) => { this.selectedLabel = v; }, "is-label");
+      buildFilterMenuBtn("map-pin", "Label", sortedLabels, this.selectedLabel, (v) => { this.selectedLabel = v; });
     }
     if (sortedPersonnages.length > 0) {
-      buildFilterGroup("👤", "Personnage", sortedPersonnages, this.selectedPerso, (v) => { this.selectedPerso = v; }, "is-perso");
+      buildFilterMenuBtn("users", "Personnage", sortedPersonnages, this.selectedPerso, (v) => { this.selectedPerso = v; });
     }
     if (sortedFils.length > 0) {
-      buildFilterGroup("🧵", "Fil", sortedFils, this.selectedFil, (v) => { this.selectedFil = v; }, "is-fil");
+      buildFilterMenuBtn("route", "Fil", sortedFils, this.selectedFil, (v) => { this.selectedFil = v; });
     }
 
     const filterLabel = this.selectedLabel || "";
@@ -1103,7 +1112,8 @@ export class BoardView extends BaseFeuilletsView {
           if (!hasLabel) line.style.opacity = "0.2";
         }
         if (hasLabel) {
-          const dot = col.createDiv({ cls: "feuillets-arcs-dot", attr: { title: lb } });
+          const dot = col.createDiv({ cls: "feuillets-arcs-dot" });
+          setTooltip(dot, lb);
           dot.style.backgroundColor = color;
         }
       });
@@ -1139,7 +1149,8 @@ export class BoardView extends BaseFeuilletsView {
           if (!hasFil) line.style.opacity = "0.2";
         }
         if (hasFil) {
-          const dot = col.createDiv({ cls: "feuillets-arcs-dot feuillets-arcs-dot-fil", attr: { title: f } });
+          const dot = col.createDiv({ cls: "feuillets-arcs-dot feuillets-arcs-dot-fil" });
+          setTooltip(dot, f);
           dot.style.backgroundColor = color;
         }
       });
