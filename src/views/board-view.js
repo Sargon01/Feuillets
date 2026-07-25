@@ -23,6 +23,12 @@ function getFilsList(fm) {
   return [];
 }
 
+function filColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return `hsl(${Math.abs(hash) % 360}, 70%, 45%)`;
+}
+
 export class BoardView extends BaseFeuilletsView {
   constructor(leaf, plugin) {
     super(leaf, plugin);
@@ -1002,6 +1008,7 @@ export class BoardView extends BaseFeuilletsView {
     const filterFil = activeFilter.startsWith("fil:") ? activeFilter.slice(4) : "";
 
     const activeLabels = filterLabel ? [filterLabel] : sortedLabels;
+    const activeFils = filterFil ? [filterFil] : sortedFils;
     const matchedSet = filterLabel
       ? new Set(fileItems.filter((i) => (labelMap.get(i.file.path) || []).includes(filterLabel)).map((i) => i.file.path))
       : filterFil
@@ -1014,12 +1021,14 @@ export class BoardView extends BaseFeuilletsView {
     for (const item of items) {
       if (item.type === "folder") {
         const row = timeline.createDiv({ cls: `feuillets-arcs-row-folder feuillets-arcs-${item.role}` });
-        const spacer = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
-        spacer.style.width = `${activeLabels.length * 24}px`;
+        const spacerLeft = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
+        spacerLeft.style.width = `${activeLabels.length * 24}px`;
         const title = row.createDiv({ cls: "feuillets-arcs-folder-title" });
         const num = numbering ? numbering.get(item.folder.path) : "";
         if (num) title.createSpan({ cls: "feuillets-arcs-folder-num", text: num });
         title.createSpan({ text: item.folder.name });
+        const spacerRight = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
+        spacerRight.style.width = `${activeFils.length * 24}px`;
         continue;
       }
 
@@ -1031,6 +1040,7 @@ export class BoardView extends BaseFeuilletsView {
       const row = timeline.createDiv({ cls: "feuillets-arcs-row-file" });
       row.style.cursor = "pointer";
 
+      // Lieux (label:) à gauche en ronds
       const rails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
       rails.style.width = `${activeLabels.length * 24}px`;
       const currentLabels = labelMap.get(file.path) || [];
@@ -1054,6 +1064,21 @@ export class BoardView extends BaseFeuilletsView {
       titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
 
       if (fm.synopsis) info.createDiv({ cls: "feuillets-arcs-file-synopsis", text: fm.synopsis });
+
+      // Fils (fil:) à droite en carrés
+      const filRails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
+      filRails.style.width = `${activeFils.length * 24}px`;
+      const currentFils = filsMap.get(file.path) || [];
+
+      activeFils.forEach((f) => {
+        const col = filRails.createDiv({ cls: "feuillets-arcs-col" });
+        const color = filColor(f);
+        col.style.setProperty("--arc-color", color);
+        if (currentFils.includes(f)) {
+          const dot = col.createDiv({ cls: "feuillets-arcs-dot feuillets-arcs-dot-fil" });
+          dot.style.backgroundColor = color;
+        }
+      });
 
       row.addEventListener("click", () => {
         openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
