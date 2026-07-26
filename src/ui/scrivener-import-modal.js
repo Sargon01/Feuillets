@@ -111,28 +111,28 @@ export class ScrivenerImportModal extends Modal {
       type: "text",
       attr: { placeholder: "/Users/toi/Documents/Mon Roman.scriv" },
     });
-    scrivInput.style.width = "100%";
-    scrivInput.style.marginBottom = "10px";
+    scrivInput.addClass("feuillets-input-full");
+    scrivInput.addClass("feuillets-field-spacer");
 
     contentEl.createEl("label", { text: t("modal.newProject.parentFolderLabel") });
     const parentInput = contentEl.createEl("input", {
       type: "text",
       attr: { placeholder: t("modal.newProject.parentFolderPlaceholder") },
     });
-    parentInput.style.width = "100%";
-    parentInput.style.marginBottom = "10px";
+    parentInput.addClass("feuillets-input-full");
+    parentInput.addClass("feuillets-field-spacer");
 
     contentEl.createEl("label", { text: t("modal.newProject.nameLabel") });
     const nameInput = contentEl.createEl("input", {
       type: "text",
       attr: { placeholder: "Mon Roman" },
     });
-    nameInput.style.width = "100%";
-    nameInput.style.marginBottom = "10px";
+    nameInput.addClass("feuillets-input-full");
+    nameInput.addClass("feuillets-field-spacer");
 
     contentEl.createEl("label", { text: t("modal.newProject.typeLabel") });
     const typeSelect = contentEl.createEl("select");
-    typeSelect.style.width = "100%";
+    typeSelect.addClass("feuillets-input-full");
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
       typeSelect.createEl("option", { text: mode.label, value: key });
     }

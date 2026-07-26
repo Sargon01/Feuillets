@@ -20,7 +20,7 @@ export class DuplicateVersionModal extends Modal {
       cls: "setting-item-description",
     });
     const input = contentEl.createEl("input", { type: "text", placeholder: t("modal.duplicateVersion.placeholder") });
-    input.style.width = "100%";
+    input.addClass("feuillets-input-full");
     input.focus();
     const submit = () => {
       const label = input.value.trim();
@@ -57,20 +57,20 @@ export class NewProjectModal extends Modal {
       type: "text",
       attr: { placeholder: t("modal.newProject.parentFolderPlaceholder") },
     });
-    parentInput.style.width = "100%";
-    parentInput.style.marginBottom = "10px";
+    parentInput.addClass("feuillets-input-full");
+    parentInput.addClass("feuillets-field-spacer");
 
     contentEl.createEl("label", { text: t("modal.newProject.nameLabel") });
     const nameInput = contentEl.createEl("input", {
       type: "text",
       attr: { placeholder: "Roman1" },
     });
-    nameInput.style.width = "100%";
-    nameInput.style.marginBottom = "10px";
+    nameInput.addClass("feuillets-input-full");
+    nameInput.addClass("feuillets-field-spacer");
 
     contentEl.createEl("label", { text: t("modal.newProject.typeLabel") });
     const typeSelect = contentEl.createEl("select");
-    typeSelect.style.width = "100%";
+    typeSelect.addClass("feuillets-input-full");
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
       typeSelect.createEl("option", { text: mode.label, value: key });
     }
@@ -262,8 +262,7 @@ export class ManageProjectsModal extends Modal {
         : t("settings.activeProject.notFound", { name: this.plugin.projectDisplayName(path) })
     );
     if (!folderExists) {
-      name.style.opacity = "0.6";
-      name.style.fontStyle = "italic";
+      name.addClass("feuillets-muted-italic");
     }
     row.addEventListener("click", activate);
 
@@ -372,7 +371,7 @@ export class ManageProjectsModal extends Modal {
 
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.descriptionField"));
     const desc = detail.createEl("textarea", { attr: { rows: "2" } });
-    desc.style.gridColumn = "1 / -1";
+    desc.addClass("feuillets-grid-full-row");
     desc.value = meta.description || "";
     desc.addEventListener("blur", async () => {
       if (!S.projectMeta[path]) S.projectMeta[path] = {};

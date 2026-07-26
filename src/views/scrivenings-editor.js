@@ -65,13 +65,13 @@ export class ScriveningsManager {
 
           bodyContainer.empty();
           const area = bodyContainer.createEl("textarea", {
-            cls: "feuillets-inline-editor",
+            cls: "feuillets-inline-editor feuillets-autosize",
             attr: { spellcheck: "true" }
           });
           area.value = body;
 
           const adjustHeight = () => {
-            area.style.height = "auto";
+            area.style.removeProperty("height");
             area.style.height = Math.max(120, area.scrollHeight) + "px";
           };
 

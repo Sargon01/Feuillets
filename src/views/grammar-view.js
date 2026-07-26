@@ -216,7 +216,7 @@ export class GrammarView extends BaseFeuilletsView {
     );
     const badge = summary.createSpan({ cls: "feuillets-tag-chip" });
     badge.setText(engineLabel);
-    badge.style.marginTop = "4px";
+    badge.addClass("feuillets-mt-xs");
 
     if (
       !this.checking &&
@@ -252,7 +252,7 @@ export class GrammarView extends BaseFeuilletsView {
       name.createDiv({ cls: "feuillets-docx-review-anchor" }).setText(`« ${issue.underlined} »`);
     }
 
-    row.style.cursor = "pointer";
+    row.addClass("feuillets-clickable");
     row.title = t("grammar.jumpToPassageTooltip");
     row.addEventListener("click", () => this.jumpTo(file, issue));
 

@@ -149,7 +149,7 @@ export class ProjectPropertiesModal extends Modal {
         const valKey = `${key} ${val}`;
         const isValExpanded = this.expandedProps.has(valKey);
         const vrow = list.createDiv({ cls: "feuillets-tags-row" });
-        vrow.style.paddingLeft = "16px";
+        vrow.addClass("feuillets-indent-1");
         vrow.createSpan({ cls: "feuillets-chevron" }).setText(isValExpanded ? "▾" : "▸");
         vrow.createSpan({ cls: "feuillets-tags-name" }).setText(val);
         vrow.createSpan({ cls: "feuillets-tags-count" }).setText(String(valMap.get(val).size));
@@ -167,7 +167,7 @@ export class ProjectPropertiesModal extends Modal {
           .sort((a, b) => this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), "fr"));
         for (const f of matching) {
           const frow = list.createDiv({ cls: "feuillets-tags-file-row" });
-          frow.style.paddingLeft = "32px";
+          frow.addClass("feuillets-indent-2");
           frow.setText(this.plugin.shortTitleFor(f));
           frow.addEventListener("click", (e) => {
             e.stopPropagation();

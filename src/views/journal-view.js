@@ -215,7 +215,7 @@ export class JournalView extends BaseFeuilletsView {
 
       // Affichage en lecture seule : rendu Markdown
       const body = section.createDiv({ cls: "feuillets-journal-last-entry-body" });
-      body.style.marginTop = "8px";
+      body.addClass("feuillets-mt-sm");
       await MarkdownRenderer.render(this.app, entry.body || "", body, entry.file.path, this);
     } else {
       if (viewingDay) {

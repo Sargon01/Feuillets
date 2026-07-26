@@ -673,7 +673,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     const fallbackText = change.type === "move" ? change.toContext : change.contextBefore;
 
     if (file) {
-      row.style.cursor = "pointer";
+      row.addClass("feuillets-clickable");
       row.title = t("docxReview.openAndShowTooltip");
       row.addEventListener("click", () => this.openAndReveal(file, change, fallbackText));
 
@@ -750,7 +750,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     if (row && candidates[0]) {
       const fFirst = resolveVaultFile(this.app, candidates[0]);
       if (fFirst instanceof TFile) {
-        row.style.cursor = "pointer";
+        row.addClass("feuillets-clickable");
         row.title = t("docxReview.clickToOpen", { title: this.plugin.titleFor(fFirst) });
         row.addEventListener("click", () => this.openAndReveal(fFirst, item.anchorText || searchTextForChange(item)));
       }
@@ -840,7 +840,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
 
     if (file) {
-      row.style.cursor = "pointer";
+      row.addClass("feuillets-clickable");
       row.title = t("docxReview.openAndShowTooltip");
       row.addEventListener("click", () => this.openAndReveal(file, comment.anchorText));
     } else {

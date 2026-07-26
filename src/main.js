@@ -2270,7 +2270,7 @@ class FeuilletsPlugin extends Plugin {
     parts.push(result.added > 0 ? t("main.notice.canvasCardsAdded", { count: result.added }) : t("main.notice.canvasCardsUpToDate", { count: result.total }));
     parts.push(result.edgesAdded > 0 ? t("main.notice.canvasLinksDrawn", { count: result.edgesAdded }) : t("main.notice.canvasNoLinks"));
     const notice = new Notice(`${parts.join(" — ")}. ${t("main.notice.clickToOpen")}`, 8000);
-    notice.noticeEl.style.cursor = "pointer";
+    notice.noticeEl.addClass("feuillets-clickable");
     notice.noticeEl.addEventListener("click", () => {
       openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
     });

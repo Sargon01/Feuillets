@@ -2,6 +2,33 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.9
+
+### Modifié
+
+- **Les 106 styles posés en ligne (`element.style.x = "…"`) passent dans
+  `styles.css`.** Ils sont désormais surchargeables par un thème, ne sont
+  plus dupliqués d'un fichier à l'autre, et le rendu ne change pas : les
+  valeurs sont reprises à l'identique. Les bascules d'affichage utilisent
+  l'API officielle (`show()` / `hide()` / `toggleVisibility()`) plutôt que
+  d'écrire `display` à la main.
+- Deux cas méritaient mieux qu'un simple déplacement :
+  - Les pastilles de dossier du panneau Notes recevaient un
+    `style.cssText` entièrement en `!important`, qui écrasait les règles
+    `.feuillets-notes-folder-links` / `.feuillets-notes-folder-link`
+    existantes — celles-ci n'étaient donc jamais appliquées. Les valeurs
+    réellement rendues ont été reportées dans ces règles (le fond gris et
+    la couleur du texte restent codés en dur : ils gagneraient à passer
+    sur les variables de thème, c'est noté pour plus tard).
+  - L'accueil du Binder (aucun projet ouvert) construisait ses cartes
+    entièrement en styles en ligne alors que les éléments portaient déjà
+    les classes `feuillets-project-hub` / `feuillets-hub-card` : ces
+    classes ont simplement récupéré leurs propriétés.
+- Les zones de texte qui s'ajustent à leur contenu retirent maintenant
+  l'override en ligne (`style.removeProperty("height")`) avant de mesurer,
+  la hauteur `auto` vivant dans la classe `.feuillets-autosize` — même
+  résultat, sans style statique en JavaScript.
+
 ## 1.2.8
 
 ### Corrigé

@@ -394,9 +394,7 @@ class MergeSelectModal extends Modal {
     contentEl.createEl("p", { text: `Sélectionnez les ${unitPlural} à fusionner dans cette ${unit} cible :` });
 
     const listEl = contentEl.createDiv({ cls: "feuillets-merge-select-list" });
-    listEl.style.maxHeight = "40vh";
-    listEl.style.overflowY = "auto";
-    listEl.style.marginBottom = "15px";
+    listEl.addClasses(["feuillets-scroll-list", "feuillets-mb-lg"]);
 
     this.scenes.forEach(file => {
       new Setting(listEl)

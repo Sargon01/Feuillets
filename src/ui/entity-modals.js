@@ -101,13 +101,13 @@ export class TagsModal extends Modal {
       type: "text",
       attr: { placeholder: "tag1, tag2, tag3" },
     });
-    input.style.width = "100%";
+    input.addClass("feuillets-input-full");
     input.value = current.join(", ");
 
     const favs = this.plugin.settings.favoriteTags || [];
     if (favs.length > 0) {
       const favRow = contentEl.createDiv({ cls: "feuillets-tags" });
-      favRow.style.marginTop = "8px";
+      favRow.addClass("feuillets-mt-sm");
       for (const f of favs) {
         const chip = favRow.createSpan({ cls: "feuillets-tag-chip" });
         chip.setText(`#${f}`);
@@ -171,7 +171,7 @@ export class FolderGoalModal extends Modal {
       type: "number",
       attr: { placeholder: t("modal.folderGoal.placeholder") },
     });
-    input.style.width = "100%";
+    input.addClass("feuillets-input-full");
     input.value = String(current);
     input.focus();
 
@@ -216,7 +216,7 @@ export class SaveResearchFilterModal extends Modal {
       type: "text",
       attr: { placeholder: t("modal.saveFilter.placeholder") },
     });
-    input.style.width = "100%";
+    input.addClass("feuillets-input-full");
     input.focus();
     const submit = () => {
       const name = input.value.trim();

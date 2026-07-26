@@ -133,7 +133,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       const count = this.plugin.chapterCount(root);
       if (count === 0) {
         const warn = containerEl.createDiv({ cls: "feuillets-empty" });
-        warn.style.color = "var(--text-error)";
+        warn.addClass("feuillets-settings-warning");
         warn.setText(t("settings.emptyProjectWarning", { name: root.name }));
       }
       if (!S.projectMeta) S.projectMeta = {};
@@ -996,7 +996,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       .addTextArea((area) => {
         area.setValue(S.mergeNotesSeparator);
         area.inputEl.rows = 3;
-        area.inputEl.style.width = "100%";
+        area.inputEl.addClass("feuillets-input-full");
         area.onChange(async (value) => {
           S.mergeNotesSeparator = value;
           await this.plugin.saveSettings();
@@ -1896,7 +1896,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     // à la fois) — les sous-sections gardent leur propre repli à l'intérieur.
     for (const name of ORDER) {
       const panel = containerEl.createDiv({ cls: "feuillets-settings-panel" });
-      if (name !== this._activeSettingsTab) panel.style.display = "none";
+      panel.toggleVisibility(name === this._activeSettingsTab);
 
       for (const sub of byCategory[name]) {
         if (!sub.title) {

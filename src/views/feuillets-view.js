@@ -642,7 +642,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       }
 
       const ring = item.createDiv({ cls: "feuillets-ring" });
-      if (hidden || !S.binderShowProgress) ring.style.display = "none";
+      if (hidden || !S.binderShowProgress) ring.hide();
 
       const body = item.createDiv({ cls: "feuillets-item-body" });
       const nameRow = body.createDiv({ cls: "feuillets-item-name-row" });
@@ -849,7 +849,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     // Project List
     const projectListEl = treePane.createDiv({ cls: "feuillets-project-list" });
-    projectListEl.style.padding = "4px 0";
+    projectListEl.addClass("feuillets-project-list");
 
     const allProjects = (S.projects || []).concat(S.projectFolder ? [S.projectFolder] : [])
       .filter((p, i, a) => p && a.indexOf(p) === i)
@@ -870,7 +870,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         const isActive = folderExists && path === S.projectFolder;
         const meta = S.projectMeta[path] || {};
         const row = projectListEl.createDiv({ cls: `feuillets-folder-row ${isActive ? "is-selected" : ""}` });
-        row.style.paddingLeft = "12px";
+        row.addClass("feuillets-project-row-indent");
 
         const icon = row.createDiv({ cls: "feuillets-cell-icon" });
         setIcon(icon, !folderExists ? "alert-triangle" : meta.icon || (isActive ? "folder-open" : "folder"));
@@ -882,8 +882,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             : t("binder.projectManager.notFound", { name: this.plugin.projectDisplayName(path) })
         );
         if (!folderExists) {
-          nameSpan.style.opacity = "0.6";
-          nameSpan.style.fontStyle = "italic";
+          nameSpan.addClass("feuillets-muted-italic");
         }
 
         const actionsEl = row.createDiv({ cls: "feuillets-project-actions" });
@@ -915,12 +914,12 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     // Add existing folder input
     const addRow = treePane.createDiv({ cls: "feuillets-properties-add-row" });
-    addRow.style.padding = "8px 10px";
+    addRow.addClass("feuillets-add-row");
     const addInput = addRow.createEl("input", {
       type: "text",
       attr: { placeholder: t("binder.projectManager.addExisting") },
     });
-    addInput.style.width = "100%";
+    addInput.addClass("feuillets-input-full");
     addInput.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
       const p = normalizePath(addInput.value.trim());
@@ -941,42 +940,22 @@ export class FeuilletsView extends BaseFeuilletsView {
     // --- Right Pane: Hub & Cards ---
     const listBody = listPane.createDiv({ cls: "feuillets-list" });
     const hub = listBody.createDiv({ cls: "feuillets-project-hub" });
-    hub.style.padding = "16px 14px";
-    hub.style.display = "flex";
-    hub.style.flexDirection = "column";
-    hub.style.gap = "14px";
 
-    const titleEl = hub.createEl("h3", { text: t("binder.projectManager.hubTitle") });
-    titleEl.style.marginTop = "0";
-    titleEl.style.marginBottom = "4px";
+    const titleEl = hub.createEl("h3", { cls: "feuillets-hub-title", text: t("binder.projectManager.hubTitle") });
 
     const subEl = hub.createDiv({ cls: "feuillets-notes-sub" });
     subEl.setText(t("binder.projectManager.hubSub"));
 
     const cardsContainer = hub.createDiv({ cls: "feuillets-hub-cards" });
-    cardsContainer.style.display = "flex";
-    cardsContainer.style.flexDirection = "column";
-    cardsContainer.style.gap = "10px";
 
     const makeHubCard = (icon, title, desc, btnText, onClick) => {
       const card = cardsContainer.createDiv({ cls: "feuillets-hub-card" });
-      card.style.display = "flex";
-      card.style.alignItems = "center";
-      card.style.gap = "10px";
-      card.style.padding = "12px 14px";
-      card.style.border = "1px solid var(--background-modifier-border)";
-      card.style.borderRadius = "var(--radius-m)";
-      card.style.background = "var(--background-secondary-alt)";
-      card.style.cursor = "pointer";
 
-      const iconEl = card.createDiv({ cls: "feuillets-cell-icon" });
-      iconEl.style.fontSize = "1.4em";
+      const iconEl = card.createDiv({ cls: "feuillets-cell-icon feuillets-hub-card-icon" });
       setIcon(iconEl, icon);
 
-      const textWrap = card.createDiv();
-      textWrap.style.flex = "1";
-      const cardTitle = textWrap.createDiv();
-      cardTitle.style.fontWeight = "bold";
+      const textWrap = card.createDiv({ cls: "feuillets-hub-card-text" });
+      const cardTitle = textWrap.createDiv({ cls: "feuillets-hub-card-title" });
       cardTitle.setText(title);
 
       const cardDesc = textWrap.createDiv({ cls: "feuillets-notes-sub" });
@@ -1399,7 +1378,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       if (depth > 0 && files.length > 0) {
         const heading = listBody.createDiv({ cls: "feuillets-list-subheading" });
         heading.setText(folder.name);
-        heading.style.cursor = "pointer";
+        heading.addClass("feuillets-clickable");
         heading.addEventListener("click", async () => {
           if (S.collapsed[folder.path]) delete S.collapsed[folder.path];
           else S.collapsed[folder.path] = true;

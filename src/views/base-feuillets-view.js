@@ -143,17 +143,17 @@ export class BaseFeuilletsView extends ItemView {
 
     textEl.addEventListener("click", (e) => {
       e.stopPropagation();
-      textEl.style.display = "none";
+      textEl.hide();
 
       const ta = editorWrapper.createEl("textarea", {
-        cls: "feuillets-flat-textarea",
+        cls: "feuillets-flat-textarea feuillets-autosize",
         attr: { placeholder: t("shared.sheetEditor.placeholder"), rows: "12" },
         style: "width: 100%; min-height: 180px; font-family: var(--font-monospace);"
       });
       ta.value = parts.body;
       ta.focus();
 
-      ta.style.height = "auto";
+      ta.style.removeProperty("height");
       ta.style.height = Math.max(180, ta.scrollHeight) + "px";
 
       const saveAndExit = async () => {
@@ -166,7 +166,7 @@ export class BaseFeuilletsView extends ItemView {
             await this.app.vault.modify(file, newContent);
           }
           ta.remove();
-          textEl.style.display = "";
+          textEl.show();
           this.render();
         }
       };
@@ -1175,7 +1175,7 @@ export class BaseFeuilletsView extends ItemView {
         '.feuillets-research-item:not([style*="display: none"])'
       );
       const empty = sec.querySelector(".feuillets-research-empty");
-      if (filterActive && empty) empty.style.display = "none";
+      if (filterActive && empty) empty.hide();
       sec.style.display =
         filterActive && visible.length === 0 && !empty ? "none" : "";
     });

@@ -34,9 +34,7 @@ export function paginateManuscript(containerEl, footnotes, settings, tpl, title 
 
   // Conteneur de mesure des éléments HTML
   const measureHost = document.createElement("div");
-  measureHost.style.position = "absolute";
-  measureHost.style.visibility = "hidden";
-  measureHost.style.left = "-9999px";
+  measureHost.addClass("feuillets-pdf-measure-host");
   measureHost.style.width = `${pageWpx - Math.round((mLeft + mRight) * 10 * mmToPx)}px`;
   measureHost.style.fontFamily = tpl.fontFamily;
   measureHost.style.fontSize = `${tpl.fontSizePt}pt`;
@@ -243,12 +241,7 @@ export async function exportPdf(app, settings, { markdown, title, author, source
   const orientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
 
   const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
+  iframe.addClass("feuillets-pdf-print-frame");
   document.body.appendChild(iframe);
 
   const doc = iframe.contentDocument;

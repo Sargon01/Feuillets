@@ -17,7 +17,7 @@ export class FmFieldModal extends Modal {
     });
     const fm = this.plugin.fmOf(this.file);
     const ta = contentEl.createEl("textarea", { attr: { rows: "8" } });
-    ta.style.width = "100%";
+    ta.addClass("feuillets-input-full");
     ta.value = fm[this.key] || "";
     ta.focus();
     const save = async () => {

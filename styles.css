@@ -1278,21 +1278,32 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
    fautif) coupait tout le bloc à zéro selon la mise en page ambiante,
    le rendant invisible. Ces règles restent surtout pour :last-child et
    :hover, qu'un style inline ne peut pas exprimer. */
+/* Idem : valeurs reprises du style.cssText en !important qui écrasait
+   cette règle (voir .feuillets-notes-folder-link plus bas). */
 .feuillets-notes-folder-links {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: var(--size-4-1);
-  margin-top: var(--size-4-2);
-  margin-bottom: var(--size-4-1);
+  gap: 3px;
+  margin: 0 0 4px 0;
   overflow: visible;
+  position: relative;
+  z-index: 1;
 }
 
+/* Ces valeurs étaient jusqu'ici posées en ligne via style.cssText, toutes
+   en !important : cette règle-ci existait mais n'était donc jamais
+   appliquée. Elles sont reprises telles quelles pour que le rendu ne bouge
+   pas — le fond et la couleur sont codés en dur (héritage), ils gagneraient
+   à passer sur les variables de thème (--tag-background / --tag-color). */
 .feuillets-notes-folder-link {
-  font-size: var(--font-ui-smaller);
+  font-size: 11px;
+  background: #888888;
+  color: #ffffff;
   border-radius: var(--tag-radius, 999px);
-  padding: 0px 6px;
-  line-height: 16px;
+  padding: 0 5px;
+  line-height: 14px;
+  display: inline-block;
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5849,3 +5860,66 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   border-top: none;
   padding-top: var(--size-4-2);
 }
+
+/* ==========================================================================
+   Styles autrefois posés en ligne (element.style.x = "…").
+
+   Ils sont regroupés ici pour trois raisons : le thème de l'utilisateur peut
+   les surcharger, ils ne sont plus dupliqués d'un fichier à l'autre, et
+   l'ESLint officiel d'Obsidian interdit les styles statiques appliqués
+   directement au DOM. Les valeurs sont reprises à l'identique pour que le
+   rendu ne bouge pas.
+   ========================================================================== */
+
+/* --- Utilitaires transverses --- */
+.feuillets-input-full { width: 100%; }
+.feuillets-clickable { cursor: pointer; }
+.feuillets-muted-italic { opacity: 0.6; font-style: italic; }
+.feuillets-dim { opacity: 0.2; }
+.feuillets-indent-1 { padding-left: 16px; }
+.feuillets-indent-2 { padding-left: 32px; }
+.feuillets-mono { font-family: monospace; }
+.feuillets-field-spacer { margin-bottom: 10px; }
+.feuillets-mb-sm { margin-bottom: 8px; }
+.feuillets-mb-lg { margin-bottom: 15px; }
+.feuillets-mt-xs { margin-top: 4px; }
+.feuillets-mt-sm { margin-top: 8px; }
+.feuillets-scroll-list { max-height: 40vh; overflow-y: auto; }
+.feuillets-grid-full-row { grid-column: 1 / -1; }
+.feuillets-settings-warning { color: var(--text-error); }
+
+/* Zone de texte qui se redimensionne sur son contenu : la hauteur en pixels
+   est posée en ligne après mesure, et retirée (removeProperty) avant chaque
+   nouvelle mesure — c'est cette règle qui reprend alors la main. */
+.feuillets-autosize { height: auto; }
+
+/* Pendant le glissement d'une bordure de colonne (vue Tableau) : posé sur
+   <body> le temps du geste. */
+.feuillets-col-resizing { user-select: none; cursor: col-resize; }
+
+/* --- Export PDF : conteneurs hors écran --- */
+.feuillets-pdf-measure-host { position: absolute; visibility: hidden; left: -9999px; }
+.feuillets-pdf-print-frame { position: fixed; right: 0; bottom: 0; width: 0; height: 0; border: 0; }
+
+/* --- Accueil du Binder (aucun projet ouvert) --- */
+.feuillets-project-hub { padding: 16px 14px; display: flex; flex-direction: column; gap: 14px; }
+.feuillets-hub-title { margin-top: 0; margin-bottom: 4px; }
+.feuillets-hub-cards { display: flex; flex-direction: column; gap: 10px; }
+.feuillets-hub-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary-alt);
+  cursor: pointer;
+}
+.feuillets-hub-card-icon { font-size: 1.4em; }
+.feuillets-hub-card-text { flex: 1; }
+.feuillets-hub-card-title { font-weight: bold; }
+
+/* --- Liste des projets (Binder) --- */
+.feuillets-project-list { padding: 4px 0; }
+.feuillets-project-row-indent { padding-left: 12px; }
+.feuillets-add-row { padding: 8px 10px; }

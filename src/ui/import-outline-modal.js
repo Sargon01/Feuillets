@@ -20,8 +20,8 @@ export class ImportOutlineModal extends Modal {
         placeholder: t("modal.importOutline.placeholder"),
       },
     });
-    ta.style.width = "100%";
-    ta.style.fontFamily = "monospace";
+    ta.addClass("feuillets-input-full");
+    ta.addClass("feuillets-mono");
     ta.focus();
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });

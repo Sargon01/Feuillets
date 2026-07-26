@@ -818,11 +818,11 @@ export class BoardView extends BaseFeuilletsView {
     }
     cell.addEventListener("click", (e) => {
       e.stopPropagation();
-      cell.style.display = "none";
-      const area = parent.createEl("textarea", { cls: "feuillets-flat-textarea" });
+      cell.hide();
+      const area = parent.createEl("textarea", { cls: "feuillets-flat-textarea feuillets-autosize" });
       area.value = fm[key] || "";
       area.focus();
-      area.style.height = "auto";
+      area.style.removeProperty("height");
       area.style.height = `${area.scrollHeight}px`;
       const save = async () => {
         if (area.parentNode) {
@@ -833,7 +833,7 @@ export class BoardView extends BaseFeuilletsView {
             if (raw) cell.removeClass("is-empty"); else cell.addClass("is-empty");
           }
           area.remove();
-          cell.style.display = "";
+          cell.show();
         }
       };
       area.addEventListener("blur", save);
@@ -879,7 +879,7 @@ export class BoardView extends BaseFeuilletsView {
 
     const wcEl = head.createDiv({ cls: "feuillets-card-wc" });
     const ring = head.createDiv({ cls: "feuillets-ring" });
-    if (!S.showProgress) ring.style.display = "none";
+    if (!S.showProgress) ring.hide();
 
     const totalWc = this.plugin.flattenFiles(folder).reduce((acc, f) => acc + (this.wcMap.get(f.path) || 0), 0);
     const goal = this.plugin.folderGoal(folder);
@@ -889,7 +889,7 @@ export class BoardView extends BaseFeuilletsView {
     const fieldKey = this.currentCardContent === "synopsis" ? "synopsis" : "summary";
     const summary = (folderNote && this.plugin.fmOf(folderNote)[fieldKey]) || "";
     const excerpt = card.createDiv({ cls: "feuillets-card-excerpt" });
-    excerpt.style.marginTop = "8px";
+    excerpt.addClass("feuillets-mt-sm");
     excerpt.setText(summary || (fieldKey === "synopsis" ? t("board.folderCard.synopsisPlaceholder") : t("board.folderCard.summaryPlaceholder")));
 
     if (!this.filterActive()) this.attachDragHandlers(head, card, parentFolder, index, siblings, container);
@@ -999,7 +999,7 @@ export class BoardView extends BaseFeuilletsView {
 
     const wcEl = head.createDiv({ cls: "feuillets-card-wc" });
     const ring = head.createDiv({ cls: "feuillets-ring" });
-    if (!S.showProgress) ring.style.display = "none";
+    if (!S.showProgress) ring.hide();
 
     if (this.currentCardContent === "synopsis") {
       this.makeClickToEditFmArea(card, file, "synopsis", t("board.card.synopsisPlaceholder"), 6);
@@ -1239,7 +1239,7 @@ export class BoardView extends BaseFeuilletsView {
       const idx = fileIndex++;
       const fm = this.fm(file);
       const row = timeline.createDiv({ cls: "feuillets-arcs-row-file" });
-      row.style.cursor = "pointer";
+      row.addClass("feuillets-clickable");
 
       // Lieux (label:) à gauche en ronds
       const rails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
@@ -1256,7 +1256,7 @@ export class BoardView extends BaseFeuilletsView {
         if (labelFirst[lb] !== -1 && idx >= labelFirst[lb] && idx <= labelLast[lb]) {
           const line = col.createDiv({ cls: "feuillets-arcs-line" });
           line.style.backgroundColor = color;
-          if (!hasLabel) line.style.opacity = "0.2";
+          if (!hasLabel) line.addClass("feuillets-dim");
         }
         if (hasLabel) {
           const dot = col.createDiv({ cls: "feuillets-arcs-dot" });
@@ -1300,7 +1300,7 @@ export class BoardView extends BaseFeuilletsView {
         if (filFirst[f] !== -1 && idx >= filFirst[f] && idx <= filLast[f]) {
           const line = col.createDiv({ cls: "feuillets-arcs-line" });
           line.style.backgroundColor = color;
-          if (!hasFil) line.style.opacity = "0.2";
+          if (!hasFil) line.addClass("feuillets-dim");
         }
         if (hasFil) {
           const dot = col.createDiv({ cls: "feuillets-arcs-dot feuillets-arcs-dot-fil" });
@@ -1431,8 +1431,7 @@ export class BoardView extends BaseFeuilletsView {
          7px de large, et user-select:none évite de sélectionner le texte
          des lignes en dessous pendant qu'on tire. */
       resizer.addClass("is-resizing");
-      document.body.style.userSelect = "none";
-      document.body.style.cursor = "col-resize";
+      document.body.addClass("feuillets-col-resizing");
 
       const onMouseMove = (moveEvent) => {
         liveWidth = Math.max(60, startWidth + (moveEvent.clientX - startX));
@@ -1445,8 +1444,7 @@ export class BoardView extends BaseFeuilletsView {
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp);
         resizer.removeClass("is-resizing");
-        document.body.style.userSelect = "";
-        document.body.style.cursor = "";
+        document.body.removeClass("feuillets-col-resizing");
         widths[colId] = liveWidth;
         await this.plugin.saveSettings();
       };
@@ -1479,7 +1477,7 @@ export class BoardView extends BaseFeuilletsView {
         const handle = row.createDiv({ cls: "feuillets-col-handle", text: "⋮⋮" });
         const titleCell = row.createDiv({ cls: "feuillets-cell feuillets-cell-title" });
         titleCell.style.paddingLeft = `${depth * 16}px`;
-        titleCell.style.cursor = "pointer";
+        titleCell.addClass("feuillets-clickable");
         titleCell.createSpan({ cls: "feuillets-chevron" }).setText(isCollapsed ? "▸" : "▾");
         titleCell.createSpan({ cls: "feuillets-folder-name", text: child.name });
         titleCell.addEventListener("click", async () => {

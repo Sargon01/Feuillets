@@ -383,7 +383,7 @@ export class PropertiesView extends BaseFeuilletsView {
         const valKey = `${key} ${val}`;
         const isValExpanded = this.expandedProps.has(valKey);
         const vrow = list.createDiv({ cls: "feuillets-tags-row" });
-        vrow.style.paddingLeft = "16px";
+        vrow.addClass("feuillets-indent-1");
         vrow.createSpan({ cls: "feuillets-chevron" }).setText(isValExpanded ? "▾" : "▸");
         vrow.createSpan({ cls: "feuillets-tags-name" }).setText(val);
         vrow
@@ -405,7 +405,7 @@ export class PropertiesView extends BaseFeuilletsView {
           );
         for (const f of matching) {
           const frow = list.createDiv({ cls: "feuillets-tags-file-row" });
-          frow.style.paddingLeft = "32px";
+          frow.addClass("feuillets-indent-2");
           frow.setText(this.plugin.shortTitleFor(f));
           frow.addEventListener("click", (e) => {
             e.stopPropagation();

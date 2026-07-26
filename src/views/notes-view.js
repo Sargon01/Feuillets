@@ -412,10 +412,8 @@ export class NotesView extends BaseFeuilletsView {
     chain.reverse(); // partie d'abord, puis chapitre
 
     const box = container.createDiv({ cls: "feuillets-notes-folder-links" });
-    box.style.cssText = "display: flex !important; flex-wrap: nowrap !important; align-items: center !important; gap: 3px !important; margin: 0 0 4px 0 !important; overflow: visible !important; position: relative !important; z-index: 1 !important;";
     for (const folder of chain) {
       const link = box.createDiv({ cls: "feuillets-notes-folder-link" });
-      link.style.cssText = "font-size: 11px !important; background: #888888 !important; color: #ffffff !important; border-radius: 999px !important; padding: 0 5px !important; line-height: 14px !important; display: inline-block !important; cursor: pointer !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; min-width: 0 !important; flex-shrink: 1 !important;";
       link.setText(folder.name);
       link.setAttr("title", t("notes.folderNoteTooltip", { name: folder.name }));
       link.addEventListener("click", async (e) => {
@@ -636,7 +634,7 @@ export class NotesView extends BaseFeuilletsView {
       const row = list.createDiv({ cls: "feuillets-flat-text-cell" });
       row.createSpan({ cls: "feuillets-entity-name" }).setText(`[^${fn.label}] `);
       row.createSpan().setText(fn.text);
-      row.style.cursor = "pointer";
+      row.addClass("feuillets-clickable");
       row.addEventListener("click", () => {
         openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
@@ -676,16 +674,16 @@ export class NotesView extends BaseFeuilletsView {
 
     textEl.addEventListener("click", (e) => {
       e.stopPropagation();
-      textEl.style.display = "none";
+      textEl.hide();
 
       const ta = list.createEl("textarea", {
-        cls: "feuillets-flat-textarea",
+        cls: "feuillets-flat-textarea feuillets-autosize",
         attr: { placeholder, rows: String(rows) }
       });
       ta.value = fm[key] || "";
       ta.focus();
 
-      ta.style.height = "auto";
+      ta.style.removeProperty("height");
       ta.style.height = ta.scrollHeight + "px";
 
       const saveAndExit = async () => {
@@ -701,7 +699,7 @@ export class NotesView extends BaseFeuilletsView {
             else textEl.addClass("is-empty");
           }
           ta.remove();
-          textEl.style.display = "";
+          textEl.show();
         }
       };
 

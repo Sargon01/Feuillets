@@ -17,13 +17,13 @@ export class NewSheetModal extends Modal {
       type: "text",
       placeholder: t("modal.newSheet.fileNamePlaceholder"),
     });
-    fileInput.style.width = "100%";
-    fileInput.style.marginBottom = "8px";
+    fileInput.addClass("feuillets-input-full");
+    fileInput.addClass("feuillets-mb-sm");
     contentEl.createEl("label", {
       text: t("modal.newSheet.titleLabel"),
     });
     const titleInput = contentEl.createEl("input", { type: "text" });
-    titleInput.style.width = "100%";
+    titleInput.addClass("feuillets-input-full");
     fileInput.focus();
     const submit = () => {
       const fileName = fileInput.value.trim();
@@ -94,7 +94,7 @@ export class NewFolderModal extends Modal {
       type: "text",
       placeholder: t("modal.newFolder.placeholder"),
     });
-    input.style.width = "100%";
+    input.addClass("feuillets-input-full");
     input.focus();
     const submit = () => {
       const name = input.value.trim();
