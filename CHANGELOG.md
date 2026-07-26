@@ -2,6 +2,22 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.7
+
+### Corrigé
+
+- 140 des erreurs « Uses Obsidian APIs newer than the declared
+  `minAppVersion` » du tableau de bord tenaient toutes à une seule chose :
+  Obsidian 1.13.0 a documenté `Plugin.settings?: unknown` dans son API, et
+  l'analyseur résolvait chaque `this.settings` du plugin vers ce membre
+  marqué `@since 1.13.0`. Aucune incompatibilité réelle — c'est une
+  déclaration de type, sans effet à l'exécution, et y affecter les réglages
+  est précisément l'usage documenté (une simple propriété d'instance sur
+  les versions antérieures). `FeuilletsPlugin` déclare désormais
+  explicitement sa propriété `settings` typée, comme le demande la doc
+  d'Obsidian. `minAppVersion` reste donc à 1.7.2 : rien ne justifiait
+  d'exclure les utilisateurs des versions 1.7.2 à 1.12.x.
+
 ## 1.2.6
 
 ### Corrigé

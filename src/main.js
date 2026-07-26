@@ -87,6 +87,19 @@ const {
 const RIGHT_SIDEBAR_WIDTH = 280;
 
 class FeuilletsPlugin extends Plugin {
+  /**
+   * Déclaré explicitement sur la sous-classe, comme le demande la doc
+   * d'Obsidian (« Declare a concrete type on your subclass to type it »)
+   * depuis qu'`Plugin.settings?: unknown` existe dans l'API (1.13.0).
+   * Sans cette déclaration, l'ESLint officiel d'Obsidian résout chaque
+   * `this.settings` vers ce membre marqué `@since 1.13.0` et signale ~140
+   * fois « requires Obsidian v1.13.0 » — alors qu'affecter `this.settings`
+   * est justement l'usage documenté et fonctionne depuis toujours (simple
+   * propriété d'instance sur les versions antérieures).
+   * @type {FeuilletsSettings}
+   */
+  settings;
+
   async onload() {
     await this.loadSettings();
     setLocale(detectLocale(this.settings));
