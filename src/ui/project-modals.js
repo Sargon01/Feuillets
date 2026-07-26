@@ -2,6 +2,7 @@ const { Modal, Notice, normalizePath, setIcon, TFolder, Menu } = require("obsidi
 import { PROJECT_MODES, applyModeDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
+import { t } from "../i18n/index.js";
 
 /** Étiquette de version pour dupliquer un manuscrit (ex. "v1", "premier
  * jet") — le dossier dupliqué est nommé "<manuscrit> (<étiquette>)". */
@@ -13,12 +14,12 @@ export class DuplicateVersionModal extends Modal {
   }
   onOpen() {
     const { contentEl } = this;
-    contentEl.createEl("h3", { text: `Dupliquer « ${this.projectName} » en nouvelle version` });
+    contentEl.createEl("h3", { text: t("modal.duplicateVersion.title", { name: this.projectName }) });
     contentEl.createEl("p", {
-      text: "Fige une copie du manuscrit (chapitres/parties/scènes) sous un nouveau nom — la Recherche (personnages, lieux…) reste partagée entre les deux versions.",
+      text: t("modal.duplicateVersion.desc"),
       cls: "setting-item-description",
     });
-    const input = contentEl.createEl("input", { type: "text", placeholder: "ex. v1, premier jet" });
+    const input = contentEl.createEl("input", { type: "text", placeholder: t("modal.duplicateVersion.placeholder") });
     input.style.width = "100%";
     input.focus();
     const submit = () => {
@@ -31,7 +32,7 @@ export class DuplicateVersionModal extends Modal {
       if (e.key === "Enter") submit();
     });
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
-    btnRow.createEl("button", { text: "Dupliquer" }).addEventListener("click", submit);
+    btnRow.createEl("button", { text: t("modal.duplicateVersion.btn") }).addEventListener("click", submit);
   }
   onClose() {
     this.contentEl.empty();
@@ -46,20 +47,20 @@ export class NewProjectModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.addClass("feuillets-project-modal");
-    contentEl.createEl("h3", { text: "Créer un nouveau projet" });
+    contentEl.createEl("h3", { text: t("modal.newProject.title") });
     contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      "Crée un dossier de volume contenant Manuscrit, Recherche, Snapshots, Journal et Sortie en frères — la structure correcte dès le départ, sans réglage manuel à faire dans le bon ordre."
+      t("modal.newProject.desc")
     );
 
-    contentEl.createEl("label", { text: "Dossier parent (facultatif)" });
+    contentEl.createEl("label", { text: t("modal.newProject.parentFolderLabel") });
     const parentInput = contentEl.createEl("input", {
       type: "text",
-      attr: { placeholder: "Romans (laisser vide pour la racine du coffre)" },
+      attr: { placeholder: t("modal.newProject.parentFolderPlaceholder") },
     });
     parentInput.style.width = "100%";
     parentInput.style.marginBottom = "10px";
 
-    contentEl.createEl("label", { text: "Nom du projet" });
+    contentEl.createEl("label", { text: t("modal.newProject.nameLabel") });
     const nameInput = contentEl.createEl("input", {
       type: "text",
       attr: { placeholder: "Roman1" },
@@ -67,7 +68,7 @@ export class NewProjectModal extends Modal {
     nameInput.style.width = "100%";
     nameInput.style.marginBottom = "10px";
 
-    contentEl.createEl("label", { text: "Type de document" });
+    contentEl.createEl("label", { text: t("modal.newProject.typeLabel") });
     const typeSelect = contentEl.createEl("select");
     typeSelect.style.width = "100%";
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
@@ -77,13 +78,13 @@ export class NewProjectModal extends Modal {
     const create = async () => {
       const name = nameInput.value.trim();
       if (!name) {
-        new Notice("Donne un nom au projet.");
+        new Notice(t("modal.newProject.giveAName"));
         return;
       }
       const parent = parentInput.value.trim().replace(/\/+$/, "");
       const volumePath = normalizePath(parent ? `${parent}/${name}` : name);
       if (this.app.vault.getAbstractFileByPath(volumePath)) {
-        new Notice(`« ${volumePath} » existe déjà.`);
+        new Notice(t("modal.newProject.alreadyExists", { path: volumePath }));
         return;
       }
 
@@ -108,14 +109,14 @@ export class NewProjectModal extends Modal {
       this.plugin.renderAllViews(true);
       this.plugin.updateStatusBar();
       new Notice(
-        `Projet créé : ${volumePath} (Manuscrit, Recherche, Snapshots, Journal, Sortie).`
+        t("modal.newProject.created", { path: volumePath })
       );
       this.close();
     };
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
-      .createEl("button", { text: "Créer et activer" })
+      .createEl("button", { text: t("modal.newProject.createAndActivate") })
       .addEventListener("click", create);
     nameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") create();
@@ -161,25 +162,25 @@ export class ManageProjectsModal extends Modal {
     const S = this.plugin.settings;
 
     const header = contentEl.createDiv({ cls: "feuillets-modal-header-row" });
-    header.createEl("h3", { text: "Gérer les projets" });
+    header.createEl("h3", { text: t("modal.manageProjects.title") });
     const actions = header.createDiv({ cls: "feuillets-project-actions" });
-    this.iconBtn(actions, "folder-plus", "Créer un nouveau projet…", () =>
+    this.iconBtn(actions, "folder-plus", t("main.cmd.createProject"), () =>
       new NewProjectModal(this.app, this.plugin).open()
     );
-    this.iconBtn(actions, "import", "Importer un projet Scrivener…", () =>
+    this.iconBtn(actions, "import", t("main.cmd.importScrivener"), () =>
       new ScrivenerImportModal(this.app, this.plugin).open()
     );
-    this.iconBtn(actions, "sparkles", "Créer un projet d'exemple…", (e) => {
+    this.iconBtn(actions, "sparkles", t("modal.manageProjects.createDemoTooltip"), (e) => {
       const menu = new Menu();
       menu.addItem((item) =>
-        item.setTitle("Roman générique (Elira) — explique chaque champ").onClick(async () => {
+        item.setTitle(t("settings.demoProject.elira")).onClick(async () => {
           await this.plugin.createDemoProject("elira");
           this.render();
         })
       );
       menu.addItem((item) =>
         item
-          .setTitle("Candide, ou l'Optimisme (Voltaire) — labels, fils & personnages")
+          .setTitle(t("settings.demoProject.candide"))
           .onClick(async () => {
             await this.plugin.createDemoProject("candide");
             this.render();
@@ -198,13 +199,13 @@ export class ManageProjectsModal extends Modal {
     } else {
       contentEl
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucun projet actif — crée-en un, importe un projet Scrivener, ou ajoute un dossier existant ci-dessous.");
+        .setText(t("modal.manageProjects.noneActive"));
     }
 
     const addRow = contentEl.createDiv({ cls: "feuillets-properties-add-row" });
     const input = addRow.createEl("input", {
       type: "text",
-      attr: { placeholder: "Ajouter un projet existant (chemin du dossier)…" },
+      attr: { placeholder: t("modal.manageProjects.addExistingPlaceholder") },
     });
     input.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
@@ -212,7 +213,7 @@ export class ManageProjectsModal extends Modal {
       if (!p) return;
       const folder = this.app.vault.getAbstractFileByPath(p);
       if (!(folder instanceof TFolder)) {
-        new Notice("Dossier introuvable dans le coffre.");
+        new Notice(t("modal.manageProjects.folderNotFound"));
         return;
       }
       if (!S.projectFolder) {
@@ -236,7 +237,7 @@ export class ManageProjectsModal extends Modal {
 
     const activate = async () => {
       if (!folderExists) {
-        new Notice(`Le dossier « ${path} » n'existe plus dans le coffre (supprimé ou déplacé).`);
+        new Notice(t("modal.manageProjects.folderGone", { path }));
         return;
       }
       if (isActive) return;
@@ -258,7 +259,7 @@ export class ManageProjectsModal extends Modal {
     name.setText(
       folderExists
         ? this.plugin.projectDisplayName(path)
-        : `${this.plugin.projectDisplayName(path)} (introuvable)`
+        : t("settings.activeProject.notFound", { name: this.plugin.projectDisplayName(path) })
     );
     if (!folderExists) {
       name.style.opacity = "0.6";
@@ -279,7 +280,7 @@ export class ManageProjectsModal extends Modal {
     if (folderExists) {
       const dupBtn = actions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
       setIcon(dupBtn, "copy-plus");
-      dupBtn.setAttr("aria-label", "Dupliquer en nouvelle version…");
+      dupBtn.setAttr("aria-label", t("modal.manageProjects.duplicateTooltip"));
       dupBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         new DuplicateVersionModal(this.app, this.plugin.projectDisplayName(path), async (label) => {
@@ -292,14 +293,14 @@ export class ManageProjectsModal extends Modal {
     if (!isActive) {
       const removeBtn = actions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
       setIcon(removeBtn, "trash-2");
-      removeBtn.setAttr("aria-label", "Retirer ce projet…");
+      removeBtn.setAttr("aria-label", t("modal.manageProjects.removeTooltip"));
       removeBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         new ConfirmModal(
           this.app,
-          `Retirer « ${this.plugin.projectDisplayName(path)} » ?`,
-          "Le projet disparaît de cette liste — le dossier reste intact sur le disque.",
-          "Retirer",
+          t("modal.manageProjects.removeConfirmTitle", { name: this.plugin.projectDisplayName(path) }),
+          t("modal.manageProjects.removeConfirmBody"),
+          t("modal.manageProjects.removeBtn"),
           async () => {
             S.projects = (S.projects || []).filter((p) => p !== path);
             delete S.projectMeta[path];
@@ -324,7 +325,7 @@ export class ManageProjectsModal extends Modal {
         await this.plugin.saveSettings();
       });
     };
-    detail.createDiv({ cls: "feuillets-notes-label" }).setText("Nom");
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.nameField"));
     const nameInput = detail.createEl("input", {
       type: "text",
       attr: { placeholder: this.plugin.projectDisplayName(path) },
@@ -338,15 +339,15 @@ export class ManageProjectsModal extends Modal {
       this.render();
     });
 
-    mkField("Auteur", "author", "Nom de l'auteur");
+    mkField(t("modal.manageProjects.authorField"), "author", t("modal.manageProjects.authorPlaceholder"));
 
-    detail.createDiv({ cls: "feuillets-notes-label" }).setText("Icône");
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.iconField"));
     const iconWrap = detail.createDiv({ cls: "feuillets-project-icon-row" });
     const iconPreview = iconWrap.createSpan({ cls: "feuillets-cell-icon" });
     setIcon(iconPreview, meta.icon || "folder");
     const iconInput = iconWrap.createEl("input", {
       type: "text",
-      attr: { placeholder: "ex. book, feather, compass…" },
+      attr: { placeholder: t("modal.manageProjects.iconPlaceholder") },
     });
     iconInput.value = meta.icon || "";
     iconInput.addEventListener("blur", async () => {
@@ -357,7 +358,7 @@ export class ManageProjectsModal extends Modal {
       this.plugin.renderAllViews(true);
     });
 
-    detail.createDiv({ cls: "feuillets-notes-label" }).setText("Type");
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.typeField"));
     const typeSelect = detail.createEl("select");
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
       typeSelect.createEl("option", { text: mode.label, value: key });
@@ -369,7 +370,7 @@ export class ManageProjectsModal extends Modal {
       await this.plugin.saveSettings();
     });
 
-    detail.createDiv({ cls: "feuillets-notes-label" }).setText("Description");
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.descriptionField"));
     const desc = detail.createEl("textarea", { attr: { rows: "2" } });
     desc.style.gridColumn = "1 / -1";
     desc.value = meta.description || "";
