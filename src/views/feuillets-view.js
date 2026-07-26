@@ -1,4 +1,4 @@
-import { VIEW_SIDEBAR, STATUSES, getProjectStatuses } from "../constants.js";
+import { VIEW_SIDEBAR, getProjectStatuses } from "../constants.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
@@ -641,10 +641,8 @@ export class FeuilletsView extends BaseFeuilletsView {
       if (!hidden && S.binderShowStatus) {
         const st = this.fm(file).statut || "";
         if (st) {
-          const stIdx = getProjectStatuses(S).indexOf(st);
-          const dot = nameRow.createSpan({
-            cls: `feuillets-status-dot feuillets-status-dot-${stIdx >= 0 ? stIdx : 0}`,
-          });
+          const dot = nameRow.createSpan({ cls: "feuillets-status-dot" });
+          dot.style.background = this.plugin.getStatusColor(st) || "var(--text-faint)";
           dot.setAttr("title", `Statut : ${st}`);
         }
       }

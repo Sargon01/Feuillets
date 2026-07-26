@@ -433,7 +433,10 @@ d'Obsidian.
 - **Dossier du projet**, dossier de Recherche, dossier Snapshots, dossier
   Ressources (Templates, Export, Visuels, Modèles), dossier Journal —
   détectés ou créés via "Initialiser la structure du projet"
-- **Statuts** — Idée / Brouillon / En cours / Révisé / Terminé
+- **Statuts** — entièrement personnalisables (nom + couleur), comme les
+  labels — 5 statuts par défaut (Idée/Brouillon/En cours/Révisé/Terminé),
+  renommables/recolorables/supprimables, d'autres ajoutables librement —
+  **[Réglages]** `statuses`
 - **Fusion et scission de scènes** — réglages de comportement par défaut
   (statut à la scission, copie des réglages de compilation, remise à zéro
   synopsis/résumé/notes, séparateur de fusion, mode et préréglage YAML) —

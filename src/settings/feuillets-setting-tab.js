@@ -222,22 +222,46 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       "Catégorisation par scène — filtrable dans le Binder, le Tableau et le Chemin de fer."
     );
 
-    new Setting(containerEl)
-      .setName("Statuts personnalisés")
-      .setDesc("Statuts de feuillets supplémentaires séparés par des virgules (ex: Relecture, BAT, À corriger).")
-      .addText((t) =>
-        t
-          .setPlaceholder("Relecture, BAT, À corriger")
-          .setValue(Array.isArray(S.customStatuses) ? S.customStatuses.join(", ") : "")
-          .onChange(async (v) => {
-            S.customStatuses = v
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean);
+    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText("Statuts");
+
+    if (!Array.isArray(S.statuses)) S.statuses = [];
+    S.statuses.forEach((st, i) => {
+      new Setting(containerEl)
+        .setName(`Statut ${i + 1}`)
+        .addText((t) =>
+          t.setValue(st.name).onChange(async (v) => {
+            st.name = v.trim() || `Statut ${i + 1}`;
             await this.plugin.saveSettings();
             refresh();
           })
-      );
+        )
+        .addColorPicker((c) =>
+          c.setValue(st.color || "#888888").onChange(async (v) => {
+            st.color = v;
+            await this.plugin.saveSettings();
+            refresh();
+          })
+        )
+        .addExtraButton((b) =>
+          b
+            .setIcon("trash")
+            .setTooltip("Supprimer ce statut")
+            .onClick(async () => {
+              S.statuses.splice(i, 1);
+              await this.plugin.saveSettings();
+              this.display();
+              refresh();
+            })
+        );
+    });
+
+    new Setting(containerEl).addButton((b) =>
+      b.setButtonText("Ajouter un statut").onClick(async () => {
+        S.statuses.push({ name: `Statut ${S.statuses.length + 1}`, color: "#888888" });
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
 
     const currentMeta = root ? S.projectMeta[root.path] : null;
     const projectLabels = currentMeta && currentMeta.labels ? currentMeta.labels : S.labels;

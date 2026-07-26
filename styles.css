@@ -2133,6 +2133,9 @@ body.feuillets-concentration .markdown-preview-view {
   font-variant-numeric: tabular-nums;
 }
 
+/* Couleur posée en style inline (this.plugin.getStatusColor(name)) — les
+   statuts sont entièrement personnalisables (voir constants.js), plus de
+   couleur figée par position dans une liste. */
 .feuillets-status-dot {
   width: 8px;
   height: 8px;
@@ -2140,13 +2143,6 @@ body.feuillets-concentration .markdown-preview-view {
   border-radius: 50%;
   display: inline-block;
 }
-
-/* index STATUSES : 0="" 1=Idée 2=Brouillon 3=En cours 4=Révisé 5=Terminé */
-.feuillets-status-dot-1 { background: var(--text-faint); }
-.feuillets-status-dot-2 { background: var(--color-orange, #e08f4f); }
-.feuillets-status-dot-3 { background: var(--color-yellow, #d9c04a); }
-.feuillets-status-dot-4 { background: var(--color-blue, #5a8fd9); }
-.feuillets-status-dot-5 { background: var(--color-green, #5aa564); }
 
 /* ===== badge d'écart temporel dans la chronologie ===== */
 

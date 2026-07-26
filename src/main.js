@@ -13,7 +13,7 @@
  */
 
 import { DEFAULT_SETTINGS } from "./default-settings.js";
-import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, STATUSES, HIDEABLE_PANELS } from "./constants.js";
+import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { countWords, foldAccents, escapeRegExp, embedHardBreaks, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import { nextFootnoteNumber, renumberFootnotes } from "./utils/footnotes.js";
@@ -1523,6 +1523,20 @@ class FeuilletsPlugin extends Plugin {
       if (data.autoOpenProgression) this.settings.autoOpenJournal = true;
       if (data.autoOpenExport) this.settings.autoOpenProject = true;
     }
+    /* Migration : les statuts personnalisés (simples chaînes, ajoutées à une
+       liste de base figée) deviennent des entrées {name, color} au même
+       titre que les 5 statuts par défaut — voir constants.js. */
+    if (data && Array.isArray(data.customStatuses) && data.customStatuses.length) {
+      const existingNames = new Set(this.settings.statuses.map((s) => s.name));
+      for (const name of data.customStatuses) {
+        const clean = typeof name === "string" ? name.trim() : "";
+        if (clean && !existingNames.has(clean)) {
+          this.settings.statuses.push({ name: clean, color: "#888888" });
+          existingNames.add(clean);
+        }
+      }
+    }
+    delete this.settings.customStatuses;
   }
 
   async saveSettings() {
@@ -1854,6 +1868,7 @@ class FeuilletsPlugin extends Plugin {
   labelOf(file) { return labelOf(this.app, file); }
   labelsOf(file) { return labelsOf(this.app, file); }
   labelColor(name) { return labelColor(this.settings, name); }
+  getStatusColor(name) { return getStatusColor(this.settings, name); }
   folderGoal(folder) { return folderGoal(this.settings, folder); }
   depthOf(node) { return depthOf(this.app, this.settings, node); }
   isFrontMatter(node) { return isFrontMatter(this.app, this.settings, node); }

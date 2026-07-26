@@ -1,5 +1,5 @@
 const { Menu, TFile, TFolder, setIcon, setTooltip, MarkdownRenderer, Notice } = require("obsidian");
-import { VIEW_BOARD, STATUSES, getProjectStatuses, BOARD_MODES } from "../constants.js";
+import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating } from "../utils/dom.js";
 import { parseStoryDate, foldAccents, stripMarkdown } from "../utils/core.js";
@@ -1243,8 +1243,8 @@ export class BoardView extends BaseFeuilletsView {
       const titleRow = info.createDiv({ cls: "feuillets-arcs-title-row" }).createDiv({ cls: "feuillets-arcs-title-left" });
       if (numbering) titleRow.createSpan({ cls: "feuillets-row-num", text: numbering.get(file.path) || "" });
       if (fm.statut) {
-        const stIdx = getProjectStatuses(this.plugin.settings).indexOf(fm.statut);
-        titleRow.createSpan({ cls: `feuillets-status-dot feuillets-status-dot-${stIdx >= 0 ? stIdx : 0}` });
+        const dot = titleRow.createSpan({ cls: "feuillets-status-dot" });
+        dot.style.background = this.plugin.getStatusColor(fm.statut) || "var(--text-faint)";
       }
       titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
 

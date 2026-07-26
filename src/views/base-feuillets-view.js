@@ -1,4 +1,4 @@
-import { STATUSES, getProjectStatuses } from "../constants.js";
+import { getProjectStatuses } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";

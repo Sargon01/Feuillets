@@ -9,17 +9,22 @@ export const VIEW_DOCX_REVIEW = "feuillets-docx-review";
 export const VIEW_SIDEBAR_FEUILLETS = "feuillets-sidebar-view";
 export const VIEW_GRAMMAR = "feuillets-grammar";
 
-export const STATUSES = ["", "Idée", "Brouillon", "En cours", "Révisé", "Terminé"];
-
+/** Statuts : entièrement personnalisables (nom + couleur), comme les
+ * labels — plus de liste figée ni de couleur déterminée par la position.
+ * `settings.statuses` est un tableau de `{name, color}` ; "" (sans statut)
+ * reste implicite, toujours en tête, jamais stocké comme entrée. */
 export function getProjectStatuses(settings) {
-  const custom = (settings && Array.isArray(settings.customStatuses)) ? settings.customStatuses : [];
-  const list = [...STATUSES];
-  for (const s of custom) {
-    if (typeof s === "string" && s.trim() && !list.includes(s.trim())) {
-      list.push(s.trim());
-    }
-  }
-  return list;
+  const statuses = (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
+  const names = statuses
+    .map((s) => (s && typeof s.name === "string" ? s.name.trim() : ""))
+    .filter(Boolean);
+  return ["", ...names];
+}
+
+export function getStatusColor(settings, name) {
+  const statuses = (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
+  const found = statuses.find((s) => s.name === name);
+  return found ? found.color : null;
 }
 
 /** Modes du panneau Cartes, dans l'ordre d'affichage — clé + libellé par

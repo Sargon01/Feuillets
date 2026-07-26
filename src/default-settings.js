@@ -10,7 +10,15 @@ export const DEFAULT_SETTINGS = {
   boardMode: "board",
   boardWholeManuscript: false, // Cartes : tout le manuscrit d'un coup (groupé par dossier) au lieu de naviguer dossier par dossier
   statusFilter: "Tous",
-  customStatuses: [], // statuts personnalisés supplémentaires
+  // Statuts entièrement personnalisables (nom + couleur), comme les labels —
+  // ceux-ci ne sont que des valeurs de départ éditables, pas une liste figée.
+  statuses: [
+    { name: "Idée", color: "#8a8a8a" },
+    { name: "Brouillon", color: "#e08f4f" },
+    { name: "En cours", color: "#d9c04a" },
+    { name: "Révisé", color: "#5a8fd9" },
+    { name: "Terminé", color: "#5aa564" },
+  ],
   tagFilter: "",
   autoRename: true,
   renamePrefix: "chapitre",
