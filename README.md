@@ -95,6 +95,13 @@ to generate the whole Parts/Chapters/Scenes tree in one step. Use the ribbon
 icons or command palette to open the Board, Notes, Recherche, and Properties
 panels.
 
+Want a clean, distraction-free look from the start? See
+[`SETUP-INTERFACE.md`](./SETUP-INTERFACE.md) for a reference theme +
+companion-plugin combination (not required — Feuillets works with any
+theme). To carry your settings to a new vault, use the **"Export
+settings"**/**"Import settings"** commands from the command palette (they
+save/load a `feuillets-reglages-*.json` file in the vault).
+
 ## System access — what this plugin does and does not do
 
 This section exists so both reviewers and users know exactly what Feuillets
