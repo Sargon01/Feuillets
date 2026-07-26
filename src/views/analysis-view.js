@@ -154,10 +154,9 @@ export class AnalysisView extends BaseFeuilletsView {
    * uniquement (le moteur nécessite fs/vm). Synchrone — d'où le cache et le
    * calcul seulement quand la section est dépliée. */
   computeVocab(rawText) {
-    const checker = this.plugin.grammalecteChecker;
-    if (!checker) return null;
-    checker.ensureLoaded();
-    const sc = checker.spellChecker;
+    const companion = this.plugin.grammarCheckerManager && this.plugin.grammarCheckerManager.getCompanion();
+    const sc = companion && companion.getSpellChecker ? companion.getSpellChecker("fr") : null;
+    if (!sc) return null;
 
     const clean = stripWritingNoise(rawText || "");
     const morphCache = new Map();

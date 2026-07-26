@@ -2,7 +2,7 @@ const { TFile, Platform, setIcon, Notice, Menu } = require("obsidian");
 import { VIEW_GRAMMAR } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { applyGrammarHighlights, clearGrammarHighlights } from "../utils/cm-grammar-highlighter.js";
-import { grammarIssueSignature } from "../services/grammalecte-checker.js";
+import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { sanitizeForGrammarCheck } from "../utils/sanitize-for-grammar.js";
 import { t } from "../i18n/index.js";
 
@@ -15,8 +15,8 @@ function typeLabel(type) {
  * choix délibéré, voir la discussion produit : plus réactif, se comporte
  * comme un panneau "Problèmes" qui suit l'édition en cours plutôt qu'une
  * analyse de fond sur tout le manuscrit). Desktop uniquement : le moteur
- * tourne dans un processus Node séparé (voir services/grammalecte-checker.js),
- * indisponible sur Obsidian mobile. */
+ * local tourne dans le plugin compagnon "Feuillet Linters" (vm/fs, voir
+ * GrammarCheckerManager), indisponible sur Obsidian mobile. */
 export class GrammarView extends BaseFeuilletsView {
   constructor(leaf, plugin) {
     super(leaf, plugin);
@@ -71,14 +71,14 @@ export class GrammarView extends BaseFeuilletsView {
       const raw = await this.app.vault.cachedRead(file);
       const { body } = this.splitFrontmatter(raw);
       this.frontmatterOffset = raw.length - body.length; // le YAML n'est jamais soumis au correcteur
-      const knownWords = this.plugin.settings.grammalecteKnownWords || [];
-      const ignoredRules = this.plugin.settings.grammalecteIgnoredRules || [];
       // sanitizeForGrammarCheck préserve la longueur du texte (masque au lieu
       // de supprimer) : les offsets restent valables tels quels, aucun
       // remappage supplémentaire nécessaire au-delà de frontmatterOffset.
       const sanitized = sanitizeForGrammarCheck(body);
-      const detectRepetitions = !!this.plugin.settings.grammalecteDetectRepetitions;
-      this.issues = await this.plugin.grammalecteChecker.checkText(sanitized, knownWords, ignoredRules, detectRepetitions);
+      const activeLocale = this.plugin.settings.locale || "fr";
+      this.issues = this.plugin.grammarCheckerManager
+        ? await this.plugin.grammarCheckerManager.checkText(sanitized, this.plugin.settings, activeLocale)
+        : [];
       this.highlightInEditor();
     } catch (e) {
       new Notice(t("grammar.checkUnavailable", { error: e.message }));
@@ -203,11 +203,17 @@ export class GrammarView extends BaseFeuilletsView {
     }
 
     const summary = container.createDiv({ cls: "feuillets-research-section" });
-    summary.createDiv({ cls: "feuillets-notes-sub" }).setText(
+    const engineKey = this.plugin.settings.grammarEngine || "grammalecte";
+    const engineLabel = engineKey === "languagetool" ? "LanguageTool" : (engineKey === "off" ? "Désactivé" : (engineKey === "auto" ? "LanguageTool (Auto)" : "Grammalecte"));
+    const sub = summary.createDiv({ cls: "feuillets-notes-sub" });
+    sub.setText(
       this.checking
         ? t("grammar.checkingInProgress", { title: this.plugin.titleFor(file) })
         : t("grammar.issuesFound", { count: this.issues.length, s: this.issues.length > 1 ? "s" : "", title: this.plugin.titleFor(file) })
     );
+    const badge = summary.createSpan({ cls: "feuillets-tag-chip" });
+    badge.setText(engineLabel);
+    badge.style.marginTop = "4px";
 
     if (
       !this.checking &&
@@ -315,6 +321,7 @@ export class GrammarView extends BaseFeuilletsView {
     const to = editor.offsetToPos(issue.end + this.frontmatterOffset);
     editor.setSelection(from, to);
     editor.scrollIntoView({ from, to }, true);
+    if (typeof editor.focus === "function") editor.focus();
   }
 
   async learnWord(word) {

@@ -1206,6 +1206,78 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h3", { text: t("settings.section.grammarCheck"), attr: { "data-cat": "Panneaux latéraux" } });
     new Setting(containerEl)
+      .setName(t("settings.grammarEngine.name"))
+      .setDesc(t("settings.grammarEngine.desc"))
+      .addDropdown((drop) => {
+        drop.addOption("grammalecte", t("settings.grammarEngine.grammalecte"));
+        drop.addOption("languagetool", t("settings.grammarEngine.languagetool"));
+        drop.addOption("auto", t("settings.grammarEngine.auto"));
+        drop.addOption("off", t("settings.grammarEngine.off"));
+        drop.setValue(S.grammarEngine || "grammalecte");
+        drop.onChange(async (v) => {
+          S.grammarEngine = v;
+          await this.plugin.saveSettings();
+          refresh();
+        });
+      });
+
+    if ((S.grammarEngine === "grammalecte" || S.grammarEngine === "auto") && !this.plugin.grammarCheckerManager.getCompanion()) {
+      containerEl.createEl("p", {
+        text: t("settings.grammarEngine.companionMissing"),
+        cls: "feuillets-docx-review-warning",
+      });
+    }
+
+    if (S.grammarEngine === "languagetool" || S.grammarEngine === "auto") {
+      new Setting(containerEl)
+        .setName(t("settings.languageToolUrl.name"))
+        .setDesc(t("settings.languageToolUrl.desc"))
+        .addText((t2) =>
+          t2.setValue(S.languageToolUrl || "https://api.languagetool.org/v2/check").onChange(async (v) => {
+            S.languageToolUrl = v.trim() || "https://api.languagetool.org/v2/check";
+            await this.plugin.saveSettings();
+          })
+        );
+
+      new Setting(containerEl)
+        .setName(t("settings.languageToolLanguage.name"))
+        .setDesc(t("settings.languageToolLanguage.desc"))
+        .addDropdown((drop) => {
+          drop.addOption("auto", t("settings.languageToolLanguage.auto"));
+          drop.addOption("en-US", "English (US)");
+          drop.addOption("en-GB", "English (UK)");
+          drop.addOption("fr", "Français");
+          drop.addOption("de", "Deutsch");
+          drop.addOption("es", "Español");
+          drop.setValue(S.languageToolLanguage || "auto");
+          drop.onChange(async (v) => {
+            S.languageToolLanguage = v;
+            await this.plugin.saveSettings();
+          });
+        });
+    }
+
+    new Setting(containerEl)
+      .setName(t("settings.harperRecommendation.name"))
+      .setDesc(t("settings.harperRecommendation.desc"))
+      .addButton((btn) => {
+        btn.setButtonText(t("settings.harperRecommendation.btn"));
+        btn.onClick(() => {
+          try {
+            const settingModal = this.app.setting;
+            if (settingModal && settingModal.openTabById) {
+              settingModal.openTabById("community-plugins");
+              const tab = settingModal.activeTab;
+              if (tab && tab.searchComponent) {
+                tab.searchComponent.setValue("Harper");
+                tab.searchComponent.onChanged();
+              }
+            }
+          } catch (e) {}
+        });
+      });
+
+    new Setting(containerEl)
       .setName(t("settings.detectRepetitions.name"))
       .setDesc(t("settings.detectRepetitions.desc"))
       .addToggle((t2) =>

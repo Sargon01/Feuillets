@@ -60,7 +60,7 @@ import { PdfStyleModal } from "./ui/pdf-style-modal.js";
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
 import { grammarIssuesField, grammarClickHandler } from "./utils/cm-grammar-highlighter.js";
-import { GrammalecteChecker } from "./services/grammalecte-checker.js";
+import { GrammarCheckerManager } from "./services/grammar-checker-manager.js";
 
 const {
   Plugin,
@@ -112,10 +112,10 @@ class FeuilletsPlugin extends Plugin {
     this.registerEditorExtension(grammarIssuesField);
     this.registerEditorExtension(grammarClickHandler(this));
 
-    // worker_threads = Node : indisponible sur mobile (voir GrammarView).
-    if (!Platform.isMobile) {
-      this.grammalecteChecker = new GrammalecteChecker(this.app, this.manifest);
-    }
+    // La correction locale (Grammalecte FR / Harper EN) vit dans le plugin
+    // compagnon "Feuillet Linters" — voir GrammarCheckerManager, qui le
+    // détecte via app.plugins.plugins et bascule sur LanguageTool sinon.
+    this.grammarCheckerManager = new GrammarCheckerManager(this.app, this.manifest);
 
     initScenesEditor(this);
   }
@@ -1204,7 +1204,6 @@ class FeuilletsPlugin extends Plugin {
   }
 
   onunload() {
-    if (this.grammalecteChecker) this.grammalecteChecker.destroy();
     clearTimeout(this._refreshTimer);
     clearTimeout(this._statusTimer);
     clearTimeout(this._concTimer);
