@@ -455,14 +455,22 @@ d'Obsidian.
   `mergeYamlPreset`
 - **Projet de démonstration** — commande "Créer un projet d'exemple" pour
   découvrir le plugin sans partir de zéro
-- **Vocabulaire frontmatter en anglais** (première étape d'internationalisation) :
-  les clés YAML sont désormais en anglais (`title`, `short_title`, `subtitle`,
-  `order`, `status`, `goal`, `summary`, `thread`, `characters`, `author`,
-  `publisher`, `pace`, `role`, `end_date`, `birth`, `death`, `compile`) — les
-  anciennes clés françaises (`titre`, `statut`, `ordre`…) restent lues
-  indéfiniment en repli sur les fiches déjà écrites, jamais réécrites de
-  force ; seules les nouvelles fiches et les nouvelles écritures utilisent
-  les clés anglaises — voir `services/frontmatter.js` (`LEGACY_FIELD_ALIASES`)
+- **Vocabulaire frontmatter en anglais** : les clés YAML sont désormais en
+  anglais (`title`, `short_title`, `subtitle`, `order`, `status`, `goal`,
+  `summary`, `thread`, `characters`, `author`, `publisher`, `pace`, `role`,
+  `end_date`, `birth`, `death`, `compile`) — les anciennes clés françaises
+  (`titre`, `statut`, `ordre`…) restent lues indéfiniment en repli sur les
+  fiches déjà écrites, jamais réécrites de force ; seules les nouvelles
+  fiches et les nouvelles écritures utilisent les clés anglaises — voir
+  `services/frontmatter.js` (`LEGACY_FIELD_ALIASES`)
+- **Interface bilingue français/anglais** — mécanisme `src/i18n/` (dictionnaire
+  plat, `t(clé, paramètres)`), utilisé dans l'intégralité de l'interface :
+  tous les panneaux, l'onglet Réglages, les commandes/notifications de
+  `main.js`, et toutes les modales. Langue suivant celle d'Obsidian par
+  défaut ("Automatique"), ou forcée en français/anglais — **[Réglages]**
+  `language`. Les identifiants internes (clés frontmatter, valeurs stockées,
+  noms de rôle de la page de titre) restent inchangés quelle que soit la
+  langue affichée — seul le texte affiché à l'écran est traduit.
 - **Panneaux au démarrage** — ouverture automatique du binder, Recherche,
   Notes, Statistiques, Journal, Projet & export, Propriétés (chacun
   indépendamment réglable) — **[Réglages]** `autoOpen*`

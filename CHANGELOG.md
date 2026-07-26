@@ -25,6 +25,18 @@ Toutes les évolutions notables du plugin sont consignées ici.
   anglaises. Concerne aussi les colonnes du Plan et le contenu affiché sur
   les tuiles (`resume`→`summary`, `compiler`→`compile` dans les réglages,
   migrés automatiquement).
+- **Interface entièrement bilingue (français/anglais).** Nouveau mécanisme
+  `src/i18n/` (dictionnaire plat `t(clé, paramètres)`, détection automatique
+  de la langue d'Obsidian, réglage de substitution `language` —
+  Automatique/Français/English). Traduction complète : tous les panneaux
+  (Binder, Cartes/Plan, Notes, Propriétés, Recherche, Projet & export,
+  Journal, Analyse, Révision .docx, Correcteur grammatical, Chercher et
+  remplacer), l'intégralité de l'onglet Réglages, toutes les commandes et
+  notifications de `main.js`, et toutes les modales (import Scrivener,
+  mise en page/export, gestion de projets, comparaison de snapshots, etc.).
+  Les identifiants internes (clés frontmatter, valeurs de réglages stockées,
+  rôles de la page de titre) ne sont jamais traduits — seul le texte affiché
+  à l'écran change avec la langue.
 - **Deuxième étape d'internationalisation : noms de dossiers en anglais.**
   Les nouveaux projets créent désormais `Research` (Recherche), `Resources`
   (Ressources) et ses sous-dossiers `Assets`/`Layouts` (Visuels/Modèles), et

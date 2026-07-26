@@ -4,12 +4,15 @@ Feuillets brings a long-form writer's workflow to Obsidian: your manuscript
 as a living structure — from first outline to final export — rather than a
 folder of disconnected Markdown files.
 
-> **Note on language**: the plugin's interface is entirely in French. This
-> README is in English to follow the Obsidian Community Plugins convention;
-> see the in-app settings and commands for the (French-only) UI.
+> **Note on language**: the plugin's interface is bilingual (French/English).
+> It follows Obsidian's own display language by default ("Automatic"), or can
+> be forced to French or English in Settings → Feuillets → Langue de
+> l'interface, independently of Obsidian's language.
 
 ## Features
 
+- **Bilingual interface** (French/English) — follows Obsidian's own display
+  language by default, or can be set explicitly in the plugin settings.
 - **Board** (Cards / Outline / Corkboard [Canvas] / Timeline / Reading modes)
   for the whole manuscript, filterable by status, label, tag, and progress.
 - **Sidebar binder** (Ulysses-style split-pane, files-only, or classic tree),
