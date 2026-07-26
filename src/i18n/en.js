@@ -1066,4 +1066,27 @@ export const en = {
   "modal.pdfStyle.marginTopBottom": "Top/Bottom margin (cm)",
   "modal.pdfStyle.dummyP2": "Here's some reading before you start writing.",
   "modal.pdfStyle.dummyP3": "In {section}, we explain the project's core principles. Don't worry: it's nothing complicated, and you'll have it all figured out in no time.",
+
+  "modal.close": "Close",
+
+  "modal.appearances.title": "Appearances of “{name}”",
+  "modal.appearances.searching": "Searching the manuscript…",
+  "modal.appearances.none": "No scene cites this sheet yet.",
+  "modal.appearances.count": "{count} scene{s}, in manuscript order",
+  "modal.appearances.presenceOnChapters": "Present in {count} chapters",
+  "modal.appearances.chapterN": "Chapter {n}",
+
+  "modal.tags.title": "Tags — {name}",
+  "modal.tags.toggleTooltip": "Click to add/remove",
+
+  "modal.folderGoal.title": "Word goal — {name}",
+  "modal.folderGoal.placeholder": "Goal (e.g. 5000)",
+
+  "modal.saveFilter.title": "Save this filter",
+  "modal.saveFilter.placeholder": "Saved folder name",
+
+  "modal.manageSavedFilters.title": "Saved research filters",
+  "modal.manageSavedFilters.empty": "No saved filter for this project.",
+  "modal.manageSavedFilters.noCriteria": "(no criteria)",
+  "modal.manageSavedFilters.deleteAria": "Delete this saved filter",
 };

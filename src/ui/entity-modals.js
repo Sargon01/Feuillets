@@ -1,5 +1,6 @@
 const { Modal, TFolder, setIcon } = require("obsidian");
 import { openFileActivating } from "../utils/dom.js";
+import { t } from "../i18n/index.js";
 
 export class AppearancesModal extends Modal {
   constructor(app, plugin, entityFile) {
@@ -11,10 +12,10 @@ export class AppearancesModal extends Modal {
     const { contentEl } = this;
     contentEl.addClass("feuillets-appearances-modal");
     contentEl.createEl("h3", {
-      text: `Apparitions de « ${this.plugin.titleFor(this.entityFile)} »`,
+      text: t("modal.appearances.title", { name: this.plugin.titleFor(this.entityFile) }),
     });
     const loading = contentEl.createDiv({ cls: "feuillets-empty" });
-    loading.setText("Recherche dans le manuscrit…");
+    loading.setText(t("modal.appearances.searching"));
 
     const root = this.plugin.getProjectFolder();
     const numbering = root ? this.plugin.buildNumbering(root) : new Map();
@@ -24,14 +25,14 @@ export class AppearancesModal extends Modal {
     if (results.length === 0) {
       contentEl
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucune scène ne cite cette fiche pour l'instant.");
+        .setText(t("modal.appearances.none"));
       return;
     }
 
     contentEl
       .createDiv({ cls: "feuillets-notes-sub" })
       .setText(
-        `${results.length} scène${results.length > 1 ? "s" : ""}, dans l'ordre du manuscrit`
+        t("modal.appearances.count", { count: results.length, s: results.length > 1 ? "s" : "" })
       );
 
     if (root) {
@@ -50,12 +51,12 @@ export class AppearancesModal extends Modal {
         }
         contentEl
           .createDiv({ cls: "feuillets-notes-label" })
-          .setText(`Présence sur ${totalChapters} chapitres`);
+          .setText(t("modal.appearances.presenceOnChapters", { count: totalChapters }));
         const density = contentEl.createDiv({ cls: "feuillets-density-strip" });
         for (let c = 1; c <= totalChapters; c++) {
           const tick = density.createDiv({ cls: "feuillets-density-tick" });
           if (chaptersWithAppearance.has(c)) tick.addClass("feuillets-density-hit");
-          tick.setAttr("title", `Chapitre ${c}`);
+          tick.setAttr("title", t("modal.appearances.chapterN", { n: c }));
         }
       }
     }
@@ -93,7 +94,7 @@ export class TagsModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.createEl("h3", {
-      text: `Tags — ${this.plugin.titleFor(this.file)}`,
+      text: t("modal.tags.title", { name: this.plugin.titleFor(this.file) }),
     });
     const current = this.plugin.tagsOf(this.file);
     const input = contentEl.createEl("input", {
@@ -110,11 +111,11 @@ export class TagsModal extends Modal {
       for (const f of favs) {
         const chip = favRow.createSpan({ cls: "feuillets-tag-chip" });
         chip.setText(`#${f}`);
-        chip.setAttr("title", "Cliquer pour ajouter/retirer");
+        chip.setAttr("title", t("modal.tags.toggleTooltip"));
         chip.addEventListener("click", () => {
           const tags = input.value
             .split(/[,\s]+/)
-            .map((t) => t.replace(/^#/, "").trim())
+            .map((tg) => tg.replace(/^#/, "").trim())
             .filter(Boolean);
           const idx = tags.indexOf(f);
           if (idx >= 0) tags.splice(idx, 1);
@@ -129,7 +130,7 @@ export class TagsModal extends Modal {
         ...new Set(
           input.value
             .split(/[,\s]+/)
-            .map((t) => t.replace(/^#/, "").trim())
+            .map((tg) => tg.replace(/^#/, "").trim())
             .filter(Boolean)
         ),
       ];
@@ -144,7 +145,7 @@ export class TagsModal extends Modal {
     });
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
-      .createEl("button", { text: "Enregistrer" })
+      .createEl("button", { text: t("modal.save") })
       .addEventListener("click", save);
   }
   onClose() {
@@ -161,24 +162,24 @@ export class FolderGoalModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.createEl("h3", {
-      text: `Objectif de mots — ${this.folder.name}`,
+      text: t("modal.folderGoal.title", { name: this.folder.name }),
     });
-    
+
     const current = this.plugin.settings.folderGoals[this.folder.path] || "";
-    
+
     const input = contentEl.createEl("input", {
       type: "number",
-      attr: { placeholder: "Objectif (ex. 5000)" },
+      attr: { placeholder: t("modal.folderGoal.placeholder") },
     });
     input.style.width = "100%";
     input.value = String(current);
     input.focus();
 
     const btnRow = contentEl.createDiv({ style: "margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;" });
-    const cancel = btnRow.createEl("button", { text: "Annuler" });
+    const cancel = btnRow.createEl("button", { text: t("modal.cancel") });
     cancel.addEventListener("click", () => this.close());
-    
-    const save = btnRow.createEl("button", { text: "Enregistrer", cls: "mod-cta" });
+
+    const save = btnRow.createEl("button", { text: t("modal.save"), cls: "mod-cta" });
     const doSave = async () => {
       const val = parseInt(input.value, 10);
       if (isNaN(val) || val <= 0) {
@@ -210,10 +211,10 @@ export class SaveResearchFilterModal extends Modal {
   }
   onOpen() {
     const { contentEl } = this;
-    contentEl.createEl("h3", { text: "Enregistrer ce filtre" });
+    contentEl.createEl("h3", { text: t("modal.saveFilter.title") });
     const input = contentEl.createEl("input", {
       type: "text",
-      attr: { placeholder: "Nom du dossier sauvegardé" },
+      attr: { placeholder: t("modal.saveFilter.placeholder") },
     });
     input.style.width = "100%";
     input.focus();
@@ -228,7 +229,7 @@ export class SaveResearchFilterModal extends Modal {
     });
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
-      .createEl("button", { text: "Enregistrer", cls: "mod-cta" })
+      .createEl("button", { text: t("modal.save"), cls: "mod-cta" })
       .addEventListener("click", submit);
   }
   onClose() {
@@ -254,23 +255,23 @@ export class ManageSavedFiltersModal extends Modal {
   render() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h3", { text: "Dossiers de recherche sauvegardés" });
+    contentEl.createEl("h3", { text: t("modal.manageSavedFilters.title") });
     const S = this.plugin.settings;
     const meta = S.projectMeta[this.root.path] || {};
     const filters = meta.savedResearchFilters || [];
     if (filters.length === 0) {
-      contentEl.createDiv({ cls: "feuillets-empty" }).setText("Aucun filtre sauvegardé pour ce projet.");
+      contentEl.createDiv({ cls: "feuillets-empty" }).setText(t("modal.manageSavedFilters.empty"));
     }
     const list = contentEl.createDiv({ cls: "feuillets-project-list" });
     filters.forEach((f, i) => {
       const row = list.createDiv({ cls: "feuillets-project-item" });
       const desc = [f.search ? `"${f.search}"` : null, f.tag ? `#${f.tag}` : null]
         .filter(Boolean)
-        .join(" · ") || "(sans critère)";
+        .join(" · ") || t("modal.manageSavedFilters.noCriteria");
       row.createSpan({ cls: "feuillets-project-name", text: `${f.name} — ${desc}` });
       const del = row.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
       setIcon(del, "trash-2");
-      del.setAttr("aria-label", "Supprimer ce dossier sauvegardé");
+      del.setAttr("aria-label", t("modal.manageSavedFilters.deleteAria"));
       del.addEventListener("click", async () => {
         filters.splice(i, 1);
         await this.plugin.saveSettings();
@@ -279,7 +280,7 @@ export class ManageSavedFiltersModal extends Modal {
       });
     });
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
-    btnRow.createEl("button", { text: "Fermer" }).addEventListener("click", () => this.close());
+    btnRow.createEl("button", { text: t("modal.close") }).addEventListener("click", () => this.close());
   }
   onClose() {
     this.contentEl.empty();

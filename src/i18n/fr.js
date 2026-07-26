@@ -1067,4 +1067,27 @@ export const fr = {
   "modal.pdfStyle.marginTopBottom": "Marge Haut/Bas (cm)",
   "modal.pdfStyle.dummyP2": "Voici donc un peu de lecture avant de commencer à écrire.",
   "modal.pdfStyle.dummyP3": "Dans {section}, nous expliquons les principes fondamentaux du projet. Rassurez-vous : ça n'a rien de compliqué, et vous aurez tout compris en un rien de temps.",
+
+  "modal.close": "Fermer",
+
+  "modal.appearances.title": "Apparitions de « {name} »",
+  "modal.appearances.searching": "Recherche dans le manuscrit…",
+  "modal.appearances.none": "Aucune scène ne cite cette fiche pour l'instant.",
+  "modal.appearances.count": "{count} scène{s}, dans l'ordre du manuscrit",
+  "modal.appearances.presenceOnChapters": "Présence sur {count} chapitres",
+  "modal.appearances.chapterN": "Chapitre {n}",
+
+  "modal.tags.title": "Tags — {name}",
+  "modal.tags.toggleTooltip": "Cliquer pour ajouter/retirer",
+
+  "modal.folderGoal.title": "Objectif de mots — {name}",
+  "modal.folderGoal.placeholder": "Objectif (ex. 5000)",
+
+  "modal.saveFilter.title": "Enregistrer ce filtre",
+  "modal.saveFilter.placeholder": "Nom du dossier sauvegardé",
+
+  "modal.manageSavedFilters.title": "Dossiers de recherche sauvegardés",
+  "modal.manageSavedFilters.empty": "Aucun filtre sauvegardé pour ce projet.",
+  "modal.manageSavedFilters.noCriteria": "(sans critère)",
+  "modal.manageSavedFilters.deleteAria": "Supprimer ce dossier sauvegardé",
 };
