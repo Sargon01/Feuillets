@@ -5,6 +5,7 @@ import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getChapters, flattenFiles, isFrontMatter, resourcesFolderPath } from "../services/folder-structure.js";
 import { findRepetitions } from "../utils/repetitions.js";
 import { ensureFolder } from "../services/project-files.js";
+import { t } from "../i18n/index.js";
 
 const { TFile, TFolder, Platform, Notice, normalizePath } = require("obsidian");
 
@@ -35,12 +36,14 @@ const ETRE_INTRANSITIFS = new Set([
    intensité 0–5 par dimension, sous la clé `rythme`. Tags MANUELS (posés par
    l'autrice) — pas de classification automatique, peu fiable. La courbe du
    roman en est déduite. */
-const RYTHME_DIMS = [
-  { key: "action", label: "Action" },
-  { key: "dialogue", label: "Dialogue" },
-  { key: "description", label: "Description" },
-  { key: "introspection", label: "Introspection" },
-];
+function rythmeDims() {
+  return [
+    { key: "action", label: t("analysis.pace.action") },
+    { key: "dialogue", label: t("analysis.pace.dialogue") },
+    { key: "description", label: t("analysis.pace.description") },
+    { key: "introspection", label: t("analysis.pace.introspection") },
+  ];
+}
 const RYTHME_MAX = 5;
 
 function median(nums) {
@@ -63,7 +66,7 @@ export class AnalysisView extends BaseFeuilletsView {
   }
 
   getDisplayText() {
-    return "Analyse";
+    return t("analysis.displayText");
   }
 
   getIcon() {
@@ -308,17 +311,20 @@ export class AnalysisView extends BaseFeuilletsView {
    * feuillet et pour le roman). */
   renderVocabInto(section, vocab) {
     if (Platform.isMobile) {
-      section.createDiv({ cls: "feuillets-empty" }).setText("Analyse morphologique : bureau uniquement.");
+      section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.vocab.desktopOnly"));
       return;
     }
     if (!vocab || vocab.error) {
-      section.createDiv({ cls: "feuillets-empty" }).setText("Analyse indisponible (moteur Grammalecte non chargé).");
+      section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.vocab.unavailable"));
       return;
     }
     section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-      `Richesse lexicale ${Math.round(vocab.richness * 100)} % · ` +
-        `${formatNumber(vocab.uniqueLemmas)} lemmes / ${formatNumber(vocab.contentTotal)} mots pleins · ` +
-        `${formatNumber(vocab.hapaxCount)} hapax`
+      t("analysis.vocab.summary", {
+        richness: Math.round(vocab.richness * 100),
+        lemmas: formatNumber(vocab.uniqueLemmas),
+        content: formatNumber(vocab.contentTotal),
+        hapax: formatNumber(vocab.hapaxCount),
+      })
     );
     const group = (label, entries) => {
       section.createDiv({ cls: "feuillets-analysis-summary feuillets-vocab-group" }).setText(label);
@@ -333,24 +339,24 @@ export class AnalysisView extends BaseFeuilletsView {
         row.createDiv({ cls: "feuillets-notes-metadata-value", text: `×${n}` });
       }
     };
-    group("Verbes favoris", vocab.verbs);
+    group(t("analysis.vocab.favoriteVerbs"), vocab.verbs);
     group(
-      `Verbes passe-partout : ${formatNumber(vocab.weakTotal)} (${vocab.weakPct} % des verbes)` +
-        (vocab.weakPct >= 40 ? " · à varier" : ""),
+      t("analysis.vocab.weakVerbs", { total: formatNumber(vocab.weakTotal), pct: vocab.weakPct }) +
+        (vocab.weakPct >= 40 ? t("analysis.vocab.toVary") : ""),
       vocab.weakTop
     );
-    group("Adjectifs favoris", vocab.adjs);
-    group("Adverbes favoris", vocab.advs);
+    group(t("analysis.vocab.favoriteAdjs"), vocab.adjs);
+    group(t("analysis.vocab.favoriteAdvs"), vocab.advs);
     group(
-      `Adverbes en -ment : ${formatNumber(vocab.mentTotal)} (${vocab.mentPct} %)` +
-        (vocab.mentPct >= 3 ? " · à surveiller" : ""),
+      t("analysis.vocab.mentAdverbs", { total: formatNumber(vocab.mentTotal), pct: vocab.mentPct }) +
+        (vocab.mentPct >= 3 ? t("analysis.vocab.toWatch") : ""),
       vocab.mentTop
     );
     section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-      `Voix passive : ${formatNumber(vocab.passiveCount)} tournure(s) (estimation)`
+      t("analysis.vocab.passiveVoice", { count: formatNumber(vocab.passiveCount) })
     );
     section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-      "Morphologie française (Grammalecte) — formes ambiguës comptées au plus large, indicatif."
+      t("analysis.vocab.morphologyNote")
     );
   }
 
@@ -381,7 +387,7 @@ export class AnalysisView extends BaseFeuilletsView {
     const outliers = counts.filter((w) => med > 0 && (w > med * 1.75 || w < med * 0.4)).length;
     const tagged = scenes.filter((f) => {
       const r = this.rythmeOf(f);
-      return RYTHME_DIMS.some((d) => r[d.key] > 0);
+      return rythmeDims().some((d) => r[d.key] > 0);
     }).length;
     return {
       words,
@@ -404,18 +410,18 @@ export class AnalysisView extends BaseFeuilletsView {
   /** Synthèse du tableau de bord en Markdown (export presse-papier). */
   dashboardMarkdown(dash) {
     const root = this.plugin.getProjectFolder();
-    const name = this.plugin.settings.manuscriptTitle || (root ? root.name : "Manuscrit");
+    const name = this.plugin.settings.manuscriptTitle || (root ? root.name : t("analysis.dashboard.defaultManuscriptName"));
     return [
-      `## Tableau de bord — ${name}`,
+      `## ${t("analysis.dashboard.title")} — ${name}`,
       "",
-      `- Mots : ${formatNumber(dash.words)}`,
-      `- Chapitres : ${formatNumber(dash.chapters)}`,
-      `- Scènes : ${formatNumber(dash.scenes)}`,
-      `- Ratio dialogue : ${dash.dialoguePct} %`,
-      `- Mots différents : ${formatNumber(dash.uniqueSurface)}`,
-      `- Zones de répétition : ${formatNumber(dash.repZones)}`,
-      `- Chapitres déséquilibrés : ${formatNumber(dash.outliers)}`,
-      `- Scènes taguées (rythme) : ${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`,
+      `- ${t("analysis.dashboard.words")} : ${formatNumber(dash.words)}`,
+      `- ${t("analysis.dashboard.chapters")} : ${formatNumber(dash.chapters)}`,
+      `- ${t("analysis.dashboard.scenes")} : ${formatNumber(dash.scenes)}`,
+      `- ${t("analysis.dashboard.dialogueRatio")} : ${dash.dialoguePct} %`,
+      `- ${t("analysis.dashboard.distinctWords")} : ${formatNumber(dash.uniqueSurface)}`,
+      `- ${t("analysis.dashboard.repZones")} : ${formatNumber(dash.repZones)}`,
+      `- ${t("analysis.dashboard.unbalancedChapters")} : ${formatNumber(dash.outliers)}`,
+      `- ${t("analysis.dashboard.taggedScenes")} : ${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`,
       "",
     ].join("\n");
   }
@@ -425,19 +431,22 @@ export class AnalysisView extends BaseFeuilletsView {
   async exportDashboardFile(dash) {
     const root = this.plugin.getProjectFolder();
     if (!root) {
-      new Notice("Aucun projet actif.");
+      new Notice(t("analysis.dashboard.noActiveProject"));
       return;
     }
     const dir = resourcesFolderPath(this.app, root);
     await ensureFolder(this.app, dir);
-    const path = normalizePath(`${dir}/Tableau de bord.md`);
+    const path = normalizePath(`${dir}/${t("analysis.dashboard.fileName")}.md`);
     const md = this.dashboardMarkdown(dash);
-    const existing = this.app.vault.getAbstractFileByPath(path);
+    // Réutilise le fichier déjà présent, quel que soit son nom (ancienne
+    // langue) — jamais deux fichiers dupliqués juste parce que la langue a changé.
+    const legacyPath = normalizePath(`${dir}/Tableau de bord.md`);
+    const existing = this.app.vault.getAbstractFileByPath(path) || this.app.vault.getAbstractFileByPath(legacyPath);
     if (existing instanceof TFile) await this.app.vault.modify(existing, md);
     else await this.app.vault.create(path, md);
-    const file = this.app.vault.getAbstractFileByPath(path);
+    const file = existing instanceof TFile ? existing : this.app.vault.getAbstractFileByPath(path);
     if (file instanceof TFile) openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
-    new Notice(`Tableau de bord enregistré dans ${dir.split("/").pop()}.`);
+    new Notice(t("analysis.dashboard.savedNotice", { folder: dir.split("/").pop() }));
   }
 
   /** Scènes du manuscrit dans l'ordre (fichiers md, hors Front). Lecture du
@@ -471,7 +480,7 @@ export class AnalysisView extends BaseFeuilletsView {
     const fm = this.fm(file);
     const r = (fm && fm.pace) || {};
     const out = {};
-    for (const d of RYTHME_DIMS) {
+    for (const d of rythmeDims()) {
       const v = Number(r[d.key]);
       out[d.key] = Number.isFinite(v) ? Math.max(0, Math.min(RYTHME_MAX, Math.round(v))) : 0;
     }
@@ -512,7 +521,7 @@ export class AnalysisView extends BaseFeuilletsView {
 
     const file = this.app.workspace.getActiveFile();
     if (!(file instanceof TFile) || file.extension !== "md") {
-      container.createDiv({ cls: "feuillets-empty" }).setText("Ouvre un feuillet pour l'analyser.");
+      container.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.openSheetToAnalyze"));
       return;
     }
 
@@ -521,10 +530,10 @@ export class AnalysisView extends BaseFeuilletsView {
     const S = this.plugin.settings;
 
     // ========================= CE FEUILLET =========================
-    if (!this.group(container, "file-text", "Ce feuillet", "feuillet")) {
+    if (!this.group(container, "file-text", t("analysis.group.thisSheet"), "feuillet")) {
     const gb = container.createDiv({ cls: "feuillets-analysis-groupbody" });
 
-    this.tool(gb, "metrics", "bar-chart-3", "Métriques du feuillet", (section) => {
+    this.tool(gb, "metrics", "bar-chart-3", t("analysis.metrics.title"), (section) => {
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const addRow = (label, value, hint) => {
         const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
@@ -532,20 +541,20 @@ export class AnalysisView extends BaseFeuilletsView {
         row.createDiv({ cls: "feuillets-notes-metadata-value", text: value });
         if (hint) row.setAttr("title", hint);
       };
-      addRow("Mots", formatNumber(a.words));
-      addRow("Phrases", formatNumber(a.sentences));
-      addRow("Paragraphes", formatNumber(a.paragraphs));
-      addRow("Longueur moy. des phrases", `${a.avgSentenceLength.toFixed(1)} mots`);
-      addRow("Longueur moy. des mots", `${a.avgWordLength.toFixed(1)} lettres`);
+      addRow(t("analysis.metrics.words"), formatNumber(a.words));
+      addRow(t("analysis.metrics.sentences"), formatNumber(a.sentences));
+      addRow(t("analysis.metrics.paragraphs"), formatNumber(a.paragraphs));
+      addRow(t("analysis.metrics.avgSentenceLength"), t("analysis.metrics.wordsUnit", { count: a.avgSentenceLength.toFixed(1) }));
+      addRow(t("analysis.metrics.avgWordLength"), t("analysis.metrics.lettersUnit", { count: a.avgWordLength.toFixed(1) }));
       addRow(
-        "Phrases longues (>40 mots)",
+        t("analysis.metrics.longSentences"),
         formatNumber(a.longSentenceCount),
-        "Phrases à envisager d'alléger"
+        t("analysis.metrics.longSentencesHint")
       );
       addRow(
-        "Ratio dialogue",
+        t("analysis.metrics.dialogueRatio"),
         `${Math.round(a.dialogueRatio * 100)} %`,
-        "Part des mots dans des paragraphes de dialogue (estimation)"
+        t("analysis.metrics.dialogueRatioHint")
       );
     });
 
@@ -556,7 +565,7 @@ export class AnalysisView extends BaseFeuilletsView {
     const repMinLen = S.analysisRepMinLen ?? 4;
     const reps = findRepetitions(raw.slice(bodyStart), { window: repWindow, minLen: repMinLen });
 
-    this.tool(gb, "repetitions", "copy", "Répétitions rapprochées", (section) => {
+    this.tool(gb, "repetitions", "copy", t("analysis.repetitions.title"), (section) => {
       // Réglages : fenêtre (distance max en mots) et longueur mini d'un mot.
       const ctrl = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const numCtrl = (label, value, set, min) => {
@@ -571,15 +580,15 @@ export class AnalysisView extends BaseFeuilletsView {
           this.render();
         });
       };
-      numCtrl("Fenêtre (mots)", repWindow, (v) => (S.analysisRepWindow = v), 5);
-      numCtrl("Longueur mini", repMinLen, (v) => (S.analysisRepMinLen = v), 2);
+      numCtrl(t("analysis.repetitions.window"), repWindow, (v) => (S.analysisRepWindow = v), 5);
+      numCtrl(t("analysis.repetitions.minLength"), repMinLen, (v) => (S.analysisRepMinLen = v), 2);
 
       if (!reps.length) {
-        section.createDiv({ cls: "feuillets-empty" }).setText("Aucune répétition rapprochée détectée.");
+        section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.repetitions.none"));
         return;
       }
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        `${reps.length} mot(s) répété(s) à faible distance · clic pour parcourir les occurrences.`
+        t("analysis.repetitions.summary", { count: reps.length })
       );
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const MAXROWS = 40;
@@ -588,9 +597,9 @@ export class AnalysisView extends BaseFeuilletsView {
         row.createDiv({ cls: "feuillets-notes-metadata-label", text: rep.word });
         row.createDiv({
           cls: "feuillets-notes-metadata-value",
-          text: `×${rep.count} · à ${rep.minGap} mots`,
+          text: t("analysis.repetitions.countAtGap", { count: rep.count, gap: rep.minGap }),
         });
-        row.setAttr("title", "Cliquer pour surligner toutes les occurrences dans le texte");
+        row.setAttr("title", t("analysis.repetitions.rowTooltip"));
         row.addEventListener("click", () => {
           list.querySelectorAll(".is-active").forEach((el) => el.removeClass("is-active"));
           row.addClass("is-active");
@@ -599,7 +608,7 @@ export class AnalysisView extends BaseFeuilletsView {
       }
       if (reps.length > MAXROWS) {
         section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-          `… et ${reps.length - MAXROWS} autres.`
+          t("analysis.repetitions.andMore", { count: reps.length - MAXROWS })
         );
       }
     });
@@ -608,18 +617,18 @@ export class AnalysisView extends BaseFeuilletsView {
     const vocabCollapsed = !!(S.collapsed && S.collapsed["analyse:vocab"]);
     const vocab = vocabCollapsed || Platform.isMobile ? null : this.getVocab(file, raw);
 
-    this.tool(gb, "vocab", "book-a", "Vocabulaire (Grammalecte)", (section) => {
+    this.tool(gb, "vocab", "book-a", t("analysis.vocab.sheetTitle"), (section) => {
       this.renderVocabInto(section, vocab);
     });
 
     // Rythme du feuillet (tags manuels de la scène active)
-    this.tool(gb, "rythme", "sliders-horizontal", "Rythme du feuillet", (section) => {
+    this.tool(gb, "rythme", "sliders-horizontal", t("analysis.pace.sheetTitle"), (section) => {
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        `Note l'intensité (0–${RYTHME_MAX}) de chaque dimension pour cette scène.`
+        t("analysis.pace.instructions", { max: RYTHME_MAX })
       );
       const r = this.rythmeOf(file);
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
-      for (const d of RYTHME_DIMS) {
+      for (const d of rythmeDims()) {
         const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
         row.createDiv({ cls: "feuillets-notes-metadata-label", text: d.label });
         const input = row.createEl("input", { cls: "feuillets-rythme-input", type: "number" });
@@ -642,13 +651,13 @@ export class AnalysisView extends BaseFeuilletsView {
     } // fin du groupe « Ce feuillet »
 
     // ========================= LE ROMAN =========================
-    if (!this.group(container, "book-open", "Le roman", "roman")) {
+    if (!this.group(container, "book-open", t("analysis.group.novel"), "roman")) {
     const gb = container.createDiv({ cls: "feuillets-analysis-groupbody" });
 
     // Tableau de bord (synthèse du manuscrit)
     const dashCollapsed = !!(S.collapsed && S.collapsed["analyse:dashboard"]);
     const dash = dashCollapsed ? null : await this.getDashboard();
-    this.tool(gb, "dashboard", "layout-dashboard", "Tableau de bord", (section) => {
+    this.tool(gb, "dashboard", "layout-dashboard", t("analysis.dashboard.title"), (section) => {
       if (!dash) return;
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const row = (label, value) => {
@@ -656,26 +665,26 @@ export class AnalysisView extends BaseFeuilletsView {
         r.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
         r.createDiv({ cls: "feuillets-notes-metadata-value", text: value });
       };
-      row("Mots", formatNumber(dash.words));
-      row("Chapitres", formatNumber(dash.chapters));
-      row("Scènes", formatNumber(dash.scenes));
-      row("Ratio dialogue", `${dash.dialoguePct} %`);
-      row("Mots différents", formatNumber(dash.uniqueSurface));
-      row("Zones de répétition", formatNumber(dash.repZones));
-      row("Chapitres déséquilibrés", formatNumber(dash.outliers));
-      row("Scènes taguées (rythme)", `${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`);
+      row(t("analysis.dashboard.words"), formatNumber(dash.words));
+      row(t("analysis.dashboard.chapters"), formatNumber(dash.chapters));
+      row(t("analysis.dashboard.scenes"), formatNumber(dash.scenes));
+      row(t("analysis.dashboard.dialogueRatio"), `${dash.dialoguePct} %`);
+      row(t("analysis.dashboard.distinctWords"), formatNumber(dash.uniqueSurface));
+      row(t("analysis.dashboard.repZones"), formatNumber(dash.repZones));
+      row(t("analysis.dashboard.unbalancedChapters"), formatNumber(dash.outliers));
+      row(t("analysis.dashboard.taggedScenes"), `${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`);
 
       const bar = section.createDiv({ cls: "feuillets-analysis-export-bar" });
-      const copyBtn = bar.createEl("button", { text: "Copier la synthèse" });
+      const copyBtn = bar.createEl("button", { text: t("analysis.dashboard.copySummary") });
       copyBtn.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(this.dashboardMarkdown(dash));
-          new Notice("Synthèse copiée dans le presse-papier.");
+          new Notice(t("analysis.dashboard.summaryCopied"));
         } catch (e) {
-          new Notice("Copie impossible.");
+          new Notice(t("analysis.dashboard.copyFailed"));
         }
       });
-      const saveBtn = bar.createEl("button", { text: "Enregistrer (.md)" });
+      const saveBtn = bar.createEl("button", { text: t("analysis.dashboard.saveMd") });
       saveBtn.addEventListener("click", () => this.exportDashboardFile(dash));
     });
 
@@ -685,9 +694,9 @@ export class AnalysisView extends BaseFeuilletsView {
     const chaptersCollapsed = !!(S.collapsed && S.collapsed["analyse:chapters"]);
     const chapters = chaptersCollapsed ? null : await this.getChaptersData();
 
-    this.tool(gb, "chapters", "bar-chart-horizontal", "Équilibre des chapitres", (section) => {
+    this.tool(gb, "chapters", "bar-chart-horizontal", t("analysis.chapters.title"), (section) => {
       if (!chapters || !chapters.length) {
-        section.createDiv({ cls: "feuillets-empty" }).setText("Aucun chapitre détecté.");
+        section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.chapters.none"));
         return;
       }
       const counts = chapters.map((c) => c.words);
@@ -697,8 +706,8 @@ export class AnalysisView extends BaseFeuilletsView {
       const outliers = counts.filter(isOutlier).length;
 
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        `${chapters.length} chapitres · médiane ${formatNumber(Math.round(med))} mots` +
-          (outliers ? ` · ${outliers} hors norme` : "")
+        t("analysis.chapters.summary", { count: chapters.length, median: formatNumber(Math.round(med)) }) +
+          (outliers ? t("analysis.chapters.outliersSuffix", { count: outliers }) : "")
       );
 
       for (const c of chapters) {
@@ -706,12 +715,12 @@ export class AnalysisView extends BaseFeuilletsView {
         const block = section.createDiv({
           cls: "feuillets-analysis-chapter" + (out ? " is-outlier" : ""),
         });
-        if (out) block.setAttr("title", "Longueur nettement éloignée de la médiane");
+        if (out) block.setAttr("title", t("analysis.chapters.outlierTooltip"));
         const cHead = block.createDiv({ cls: "feuillets-analysis-chapter-head" });
         cHead.createSpan({ cls: "feuillets-analysis-chapter-label", text: c.title });
         cHead.createSpan({
           cls: "feuillets-analysis-chapter-value",
-          text: `${formatNumber(c.words)} mots · ${Math.round(c.dialogueRatio * 100)} % dial.`,
+          text: t("analysis.chapters.wordsAndDialogue", { words: formatNumber(c.words), pct: Math.round(c.dialogueRatio * 100) }),
         });
         const bar = block.createDiv({ cls: "feuillets-analysis-bar" });
         bar.createDiv({ cls: "feuillets-analysis-bar-fill" }).style.width =
@@ -723,20 +732,20 @@ export class AnalysisView extends BaseFeuilletsView {
     const romanVocabCollapsed = !!(S.collapsed && S.collapsed["analyse:vocab-roman"]);
     const romanVocab = romanVocabCollapsed || Platform.isMobile ? null : await this.getRomanVocab();
 
-    this.tool(gb, "vocab-roman", "book-marked", "Vocabulaire du roman (Grammalecte)", (section) => {
+    this.tool(gb, "vocab-roman", "book-marked", t("analysis.vocab.novelTitle"), (section) => {
       this.renderVocabInto(section, romanVocab);
     });
 
     // ---- Courbe narrative (déduite des tags de rythme) ----
-    this.tool(gb, "curve", "activity", "Courbe narrative", (section) => {
+    this.tool(gb, "curve", "activity", t("analysis.curve.title"), (section) => {
       const scenes = this.sceneFiles();
       const tagged = scenes.filter((f) => {
         const r = this.rythmeOf(f);
-        return RYTHME_DIMS.some((d) => r[d.key] > 0);
+        return rythmeDims().some((d) => r[d.key] > 0);
       });
       if (!tagged.length) {
         section.createDiv({ cls: "feuillets-empty" }).setText(
-          "Aucune scène taguée. Renseigne « Rythme du feuillet » (groupe Ce feuillet) sur tes scènes pour tracer la courbe."
+          t("analysis.curve.noTaggedScenes")
         );
         return;
       }
@@ -744,15 +753,15 @@ export class AnalysisView extends BaseFeuilletsView {
       const curve = section.createDiv({ cls: "feuillets-curve" });
       for (const f of scenes) {
         const r = this.rythmeOf(f);
-        const total = RYTHME_DIMS.reduce((n, d) => n + r[d.key], 0);
+        const total = rythmeDims().reduce((n, d) => n + r[d.key], 0);
         const rowEl = curve.createDiv({ cls: "feuillets-curve-row" });
         rowEl.createSpan({ cls: "feuillets-curve-label", text: this.plugin.shortTitleFor(f) });
         const bar = rowEl.createDiv({ cls: "feuillets-curve-bar" + (total ? "" : " is-empty") });
-        for (const d of RYTHME_DIMS) {
+        for (const d of rythmeDims()) {
           if (r[d.key] <= 0) continue;
           const seg = bar.createDiv({ cls: `feuillets-curve-seg feuillets-curve-seg-${d.key}` });
           seg.style.flexGrow = String(r[d.key]);
-          seg.setAttr("title", `${d.label} ${r[d.key]}/${RYTHME_MAX}`);
+          seg.setAttr("title", t("analysis.curve.segTooltip", { label: d.label, value: r[d.key], max: RYTHME_MAX }));
         }
         rowEl.addEventListener("click", () =>
           openFileActivating(this.app, this.app.workspace.getLeaf(false), f)
@@ -760,7 +769,7 @@ export class AnalysisView extends BaseFeuilletsView {
       }
 
       const legend = section.createDiv({ cls: "feuillets-curve-legend" });
-      for (const d of RYTHME_DIMS) {
+      for (const d of rythmeDims()) {
         const item = legend.createSpan({ cls: "feuillets-curve-legend-item" });
         item.createSpan({ cls: `feuillets-curve-swatch feuillets-curve-seg-${d.key}` });
         item.createSpan({ text: d.label });
