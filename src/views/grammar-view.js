@@ -1,4 +1,4 @@
-const { TFile, Platform, setIcon, Notice, Menu } = require("obsidian");
+import { TFile, Platform, setIcon, Notice, Menu } from "obsidian";
 import { VIEW_GRAMMAR } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { applyGrammarHighlights, clearGrammarHighlights } from "../utils/cm-grammar-highlighter.js";

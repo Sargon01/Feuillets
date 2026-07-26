@@ -1,4 +1,4 @@
-const { TFile, normalizePath } = require("obsidian");
+import { TFile, normalizePath } from "obsidian";
 
 /** Note de dossier (Partie ou Chapitre) : convention « même nom que le
  * dossier, à l'intérieur » (ex. « Partie I/Partie I.md »), reconnaissable

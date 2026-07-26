@@ -154,7 +154,7 @@ export function labelOf(app, file) {
  */
 export function labelsOf(app, file) {
   const fm = fmOf(app, file);
-  let l = fm.label !== undefined ? fm.label : fm.labels;
+  const l = fm.label !== undefined ? fm.label : fm.labels;
   if (Array.isArray(l)) return l.filter(Boolean).map((x) => String(x).trim()).filter(Boolean);
   if (typeof l === "string" && l.trim()) {
     return l.split(/[,;]+/).map((x) => x.trim()).filter(Boolean);

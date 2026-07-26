@@ -16,6 +16,7 @@
 // reproduit donc ce scope global partagé avec vm, dans le même ordre de
 // chargement que le vrai gce_worker.js de Grammalecte.
 
+/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path/vm pour le moteur Grammalecte embarque, desktop uniquement (voir l'en-tete du fichier) */
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
 export { grammarIssueSignature };
@@ -104,7 +105,10 @@ export class GrammalecteChecker {
           this.context.gc_engine.setOption("redon2", detectRepetitions);
           resolve(this.runParse(sText, lowerKnown, ignored));
         } catch (e) {
-          reject(e);
+          /* Toujours rejeter avec une Error : le moteur Grammalecte est du
+             JS embarqué qui peut lancer une chaîne nue, et un rejet non-Error
+             perd la pile à la remontée. */
+          reject(e instanceof Error ? e : new Error(String(e)));
         }
       }, 0);
     });

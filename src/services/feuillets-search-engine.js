@@ -57,7 +57,7 @@ export class FeuilletsSearchEngine {
       }
 
       return new RegExp(pattern, flags);
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -111,7 +111,7 @@ export class FeuilletsSearchEngine {
       let content = "";
       try {
         content = await app.vault.read(file);
-      } catch (e) {
+      } catch {
         continue;
       }
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : modules Node (fs/path) et requestUrl, charges seulement cote desktop et seulement au moment du telechargement des moteurs */
 import JSZip from "jszip";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
 

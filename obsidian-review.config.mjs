@@ -64,6 +64,7 @@ export default [
          les écritures innerHTML — toutes laissées en erreur ici. */
       "@typescript-eslint/no-require-imports": "warn",
       "@typescript-eslint/no-this-alias": "warn",
+      "eslint-comments/disable-enable-pair": ["error", { "allowWholeFile": true }],
       "no-empty": "warn",
       "no-useless-escape": "warn",
       "no-misleading-character-class": "warn",

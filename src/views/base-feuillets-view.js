@@ -13,7 +13,6 @@ import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js"
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { t } from "../i18n/index.js";
 
-
 function getResearchSectionIcon(key) {
   return {
     sources: "file-search",
@@ -27,7 +26,7 @@ function getResearchSectionIcon(key) {
   }[key] || "info";
 }
 
-const {
+import {
   ItemView,
   TFile,
   TFolder,
@@ -38,13 +37,7 @@ const {
   Menu,
   MarkdownRenderer,
   Keymap,
-} = require("obsidian");
-
-function shortenPath(path) {
-  if (!path) return t("shared.wholeVault");
-  const parts = path.split("/");
-  return parts.length <= 3 ? path : `…/${parts.slice(-2).join("/")}`;
-}
+} from "obsidian";
 
 function cleanExcerpt(text) {
   return String(text || "")
@@ -589,7 +582,7 @@ export class BaseFeuilletsView extends ItemView {
     this.filterEntities();
   }
 
-  async renderFileView(container, file, root) {
+  async renderFileView(container, file, _root) {
     /* Ne réinitialiser la sélection que si la fiche affichée change
        vraiment — PAS à chaque appel de renderFileView. Ce panneau est
        reconstruit très souvent sans que l'utilisateur ait rien demandé :
@@ -687,8 +680,6 @@ export class BaseFeuilletsView extends ItemView {
       this.viewingFile = null;
       this.render();
     });
-
-
 
     const row = wrapper.createDiv({ cls: "feuillets-fileview-row" });
     row.createSpan({ cls: "feuillets-notes-label" }).setText(t("shared.label.field"));
@@ -1235,7 +1226,7 @@ export class BaseFeuilletsView extends ItemView {
     return isCollapsed;
   }
 
-  showFileContextMenu(e, file, parent, index, siblings) {
+  showFileContextMenu(e, file, parent, index, _siblings) {
     const menu = new Menu();
     const plugin = this.plugin;
 
@@ -1401,7 +1392,7 @@ export class BaseFeuilletsView extends ItemView {
     menu.showAtMouseEvent(e);
   }
 
-  showFolderContextMenu(e, folder, parent, index, siblings) {
+  showFolderContextMenu(e, folder, _parent, _index, _siblings) {
     const menu = new Menu();
     const plugin = this.plugin;
 
@@ -1671,7 +1662,7 @@ export class BaseFeuilletsView extends ItemView {
     ).open();
   }
 
-  attachDragHandlers(handleEl, dropEl, parent, index, siblings, scopeEl) {
+  attachDragHandlers(handleEl, dropEl, parent, index, siblings, _scopeEl) {
     handleEl.draggable = true;
     handleEl.addEventListener("dragstart", (e) => {
       /* Poignée d'une scène faisant partie d'une sélection multiple
@@ -1738,7 +1729,7 @@ export class BaseFeuilletsView extends ItemView {
              veut y déposer le groupe, pas le réordonner parmi ses frères
              — sinon glisser un feuillet à la racine vers un dossier vide
              comme Front (même parent) ne faisait jamais rien. */
-          let insertIndex = Number.MAX_SAFE_INTEGER;
+          const insertIndex = Number.MAX_SAFE_INTEGER;
           for (const it of drag.items) {
             const node = this.app.vault.getAbstractFileByPath(it.path);
             if (!node) continue;

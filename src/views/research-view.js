@@ -3,7 +3,7 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { isEditing } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
 
-const { TFile } = require("obsidian");
+import { TFile } from "obsidian";
 
 export class ResearchView extends BaseFeuilletsView {
   constructor(leaf, plugin) {

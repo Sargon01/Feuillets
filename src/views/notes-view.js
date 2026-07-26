@@ -1,4 +1,4 @@
-const { TFile, TFolder, setIcon } = require("obsidian");
+import { TFile, TFolder, setIcon } from "obsidian";
 
 import { VIEW_NOTES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -487,7 +487,7 @@ export class NotesView extends BaseFeuilletsView {
 
       if (candidates.length === 0) continue;
 
-      const escapedCandidates = candidates.map(c => c.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
+      const escapedCandidates = candidates.map(c => c.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'));
       const pattern = "(?:^|[^a-zA-Z0-9À-ÖØ-öø-ÿ])(" + escapedCandidates.join("|") + ")(?:$|[^a-zA-Z0-9À-ÖØ-öø-ÿ])";
       const regex = new RegExp(pattern, "i");
 

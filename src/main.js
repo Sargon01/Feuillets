@@ -14,10 +14,10 @@
 
 import { DEFAULT_SETTINGS } from "./default-settings.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
-import { countWords, foldAccents, escapeRegExp, embedHardBreaks, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
+import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import { nextFootnoteNumber, renumberFootnotes } from "./utils/footnotes.js";
-import { highlightActive, isEditing, openFileActivating } from "./utils/dom.js";
+import { openFileActivating } from "./utils/dom.js";
 import { NotesView } from "./views/notes-view.js";
 import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
@@ -26,7 +26,7 @@ import { ProjectView } from "./views/project-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
 import { formatCitation } from "./services/citations.js";
 import { getResearchTemplate } from "./services/research-templates.js";
-import { BaseFeuilletsView } from "./views/base-feuillets-view.js";
+
 import { FeuilletsView } from "./views/feuillets-view.js";
 import { BoardView } from "./views/board-view.js";
 import { SidebarFeuilletsView } from "./views/sidebar-feuillets-view.js";
@@ -54,9 +54,9 @@ import { NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
 import { ScrivenerImportModal } from "./ui/scrivener-import-modal.js";
 import { DocxReviewView } from "./views/docx-review-view.js";
-import { NewSheetModal, NewFolderModal } from "./ui/basic-modals.js";
+import { NewSheetModal } from "./ui/basic-modals.js";
 import { FileStatsModal } from "./ui/stats-modal.js";
-import { PdfStyleModal } from "./ui/pdf-style-modal.js";
+
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
 import { grammarIssuesField, grammarClickHandler } from "./utils/cm-grammar-highlighter.js";
@@ -65,24 +65,17 @@ import { HarperChecker } from "./services/harper-checker.js";
 import { GrammarCheckerManager } from "./services/grammar-checker-manager.js";
 import { GrammarUserData } from "./services/grammar-user-data.js";
 
-const {
+import {
   Plugin,
-  ItemView,
-  PluginSettingTab,
-  Setting,
   TFile,
   TFolder,
   Notice,
-  Modal,
   normalizePath,
-  setIcon,
   Menu,
-  MarkdownRenderer,
   MarkdownView,
   Platform,
-  Keymap,
   setTooltip,
-} = require("obsidian");
+} from "obsidian";
 
 const RIGHT_SIDEBAR_WIDTH = 280;
 
@@ -200,7 +193,7 @@ class FeuilletsPlugin extends Plugin {
 
   registerCoreCommands() {
     this.addCommand({
-      id: "open-feuillets",
+      id: "open-binder",
       name: t("main.cmd.openBinder"),
       callback: () => this.activateSidebar(),
     });
@@ -911,7 +904,7 @@ class FeuilletsPlugin extends Plugin {
           const before = cursor.ch > 0
             ? editor.getRange({ line: cursor.line, ch: cursor.ch - 1 }, cursor)
             : "";
-          const opening = before === "" || /[\s(\[«—–-]/.test(before);
+          const opening = before === "" || /[\s([«—–-]/.test(before);
           if (opening) {
             editor.replaceRange("\u00AB\u00A0", cursor);
           } else {
@@ -1158,7 +1151,6 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "insert-footnote",
       name: t("main.cmd.insertFootnote"),
-      hotkeys: [{ modifiers: ["Mod", "Shift"], key: "f" }],
       editorCallback: (editor) => {
         const n = nextFootnoteNumber(editor.getValue());
         const marker = `[^${n}]`;
@@ -1256,11 +1248,19 @@ class FeuilletsPlugin extends Plugin {
   }
 
   patchTabTitles() {
+    /* Alias de `this` indispensable ici : le patch ci-dessous est une
+       `function` classique posée sur MarkdownView.prototype, dont le `this`
+       est la vue, pas le plugin. Une flèche capturerait le bon `plugin` mais
+       perdrait l'accès à `this.file` de la vue — donc alias, pas flèche. */
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- le patch est une `function` posee sur le prototype : son `this` est la vue, pas le plugin
     const plugin = this;
     /* Garde contre un double appel : sans elle, le second capturerait NOTRE
        patch comme « original », et l'appel de repli en fin de fonction
        bouclerait indéfiniment. */
     if (this._originalGetDisplayText) return;
+    /* Référence à une méthode non liée, volontaire : on mémorise
+       l'implémentation d'origine pour la restaurer dans onunload et pour
+       l'appeler en repli — elle sera toujours invoquée via .call(this). */
     this._originalGetDisplayText = MarkdownView.prototype.getDisplayText;
     this._patchedGetDisplayText = function () {
       try {
@@ -1273,7 +1273,7 @@ class FeuilletsPlugin extends Plugin {
             return versionLabel ? `${versionLabel}-${short}` : short;
           }
         }
-      } catch (e) {
+      } catch {
         /* Silence délibéré, contrairement aux catches métier : on est sur le
            rendu d'en-tête d'onglet, appelé à chaque affichage. Y logger
            inonderait la console, et le repli ci-dessous est déjà le
@@ -1289,7 +1289,7 @@ class FeuilletsPlugin extends Plugin {
   refreshTabHeaderFor(file) {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       if (leaf.view?.file?.path === file.path && typeof leaf.updateHeader === "function") {
-        try { leaf.updateHeader(); } catch (e) {}
+        try { leaf.updateHeader(); } catch { /* leaf.updateHeader() est une API interne non documentee : si elle disparait, l'onglet garde son titre par defaut */ }
       }
     }
   }
@@ -1297,7 +1297,7 @@ class FeuilletsPlugin extends Plugin {
   refreshAllTabHeaders() {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       if (typeof leaf.updateHeader === "function") {
-        try { leaf.updateHeader(); } catch (e) {}
+        try { leaf.updateHeader(); } catch { /* idem : rafraichir l'en-tete d'onglet est cosmetique, jamais bloquant */ }
       }
     }
   }
@@ -1328,7 +1328,7 @@ class FeuilletsPlugin extends Plugin {
           lineEl.classList.add("feuillets-para-active");
           this._paraEls.push(lineEl);
         }
-      } catch (e) {}
+      } catch { /* on parcourt le DOM interne de CodeMirror : un changement de structure ne doit pas casser le mode concentration */ }
     }
   }
 
@@ -1371,7 +1371,7 @@ class FeuilletsPlugin extends Plugin {
           this._savedRight = this.app.workspace.rightSplit.collapsed;
           this.app.workspace.leftSplit.collapse();
           this.app.workspace.rightSplit.collapse();
-        } catch (e) {}
+        } catch { /* leftSplit/rightSplit absents sur mobile : la concentration s'active quand meme, sans replier de panneau */ }
         document.body.style.setProperty("--feuillets-dim-opacity", `${(this.settings.dimOpacity || 35) / 100}`);
         document.body.style.setProperty("--feuillets-concentration-width", `${this.settings.concentrationWidth || 720}px`);
         document.body.toggleClass("feuillets-focus-paragraph", this.settings.concentrationUnit === "paragraph");
@@ -1399,7 +1399,7 @@ class FeuilletsPlugin extends Plugin {
         try {
           if (!this._savedLeft) this.app.workspace.leftSplit.expand();
           if (!this._savedRight) this.app.workspace.rightSplit.expand();
-        } catch (e) {}
+        } catch { /* idem au retour : si les panneaux n'existent pas, il n'y a rien a redeployer */ }
       }
     } catch (e) {
       console.error("Feuillets : mode concentration", e);
@@ -1683,7 +1683,7 @@ class FeuilletsPlugin extends Plugin {
 
   safeSetSize(split, width) {
     if (!split || typeof split.setSize !== "function") return;
-    try { split.setSize(width); } catch (e) {}
+    try { split.setSize(width); } catch { /* setSize peut refuser une largeur : l'ajustement de la barre laterale est cosmetique */ }
   }
 
   /* vault.getConfig/setConfig : API interne non documentée (comme
@@ -1696,7 +1696,7 @@ class FeuilletsPlugin extends Plugin {
   getVaultConfig(key) {
     try {
       return typeof this.app.vault.getConfig === "function" ? this.app.vault.getConfig(key) : undefined;
-    } catch (e) {
+    } catch {
       return undefined;
     }
   }
@@ -1705,7 +1705,7 @@ class FeuilletsPlugin extends Plugin {
     try {
       if (typeof this.app.vault.setConfig === "function") this.app.vault.setConfig(key, value);
       this.app.workspace.updateOptions();
-    } catch (e) {}
+    } catch { /* vault.setConfig et workspace.updateOptions sont des API internes d'Obsidian, absentes selon la version */ }
   }
 
   adjustSidebarWidth() {
@@ -1776,6 +1776,7 @@ class FeuilletsPlugin extends Plugin {
     const files = bibliographieFolder.children.filter((c) => c instanceof TFile && c.extension === "md");
     if (files.length === 0) return;
     let migrated = 0;
+    let failed = 0;
     for (const f of files) {
       try {
         await this.app.fileManager.processFrontMatter(f, (fm) => {
@@ -1801,7 +1802,21 @@ class FeuilletsPlugin extends Plugin {
         }
         await this.app.fileManager.renameFile(f, destPath);
         migrated++;
-      } catch (e) {}
+      } catch {
+        /* Migration fichier par fichier : un fichier qui résiste ne doit pas
+           interrompre la boucle — les suivants doivent quand même être
+           migrés. On compte l'échec pour pouvoir le signaler après coup. */
+        failed++;
+      }
+    }
+    /* Une migration silencieusement partielle est le pire cas : l'autrice
+       croit son dossier Bibliographie vidé alors qu'il en reste. On ne fait
+       pas de Notice (la migration est automatique, au démarrage, elle ne doit
+       pas interrompre), mais la console garde une trace exploitable. */
+    if (failed > 0) {
+      console.warn(
+        `Feuillets : migration Bibliographie → Sources incomplète — ${migrated} fiche(s) déplacée(s), ${failed} en échec.`
+      );
     }
   }
 
@@ -1984,7 +1999,7 @@ class FeuilletsPlugin extends Plugin {
 
   async maybeRenameResearchFile(file) { return maybeRenameResearchFile(this.app, this.settings, file); }
   async handleFilChanged(file) {
-    try { await handleFilChanged(this.app, this.settings, this, file); } catch (e) {}
+    try { await handleFilChanged(this.app, this.settings, this, file); } catch { /* gestionnaire d'evenement sur changement de fichier : une erreur ici ne doit jamais remonter a l'autrice en pleine ecriture */ }
   }
 
   entityMatchTags(entityFile) { return entityMatchTags(this.app, entityFile); }
@@ -2380,7 +2395,7 @@ class FeuilletsPlugin extends Plugin {
 
   async activateSidebarView(tabId = "project") {
     const workspace = this.app.workspace;
-    let leaves = workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS);
+    const leaves = workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS);
     let leaf = leaves.length > 0 ? leaves[0] : null;
     if (!leaf) {
       leaf = workspace.getRightLeaf(false);
@@ -2533,7 +2548,7 @@ class FeuilletsPlugin extends Plugin {
           if (!isFichesView()) showFichesView();
           else leftSplit.collapse();
         }
-      } catch (e) {}
+      } catch { /* geste tactile sur un split absent ou deja replie : sans effet, sans consequence */ }
     };
 
     /* Volet DROIT (panneau Feuillets — Inspecteur, ou tout autre panneau
@@ -2548,7 +2563,7 @@ class FeuilletsPlugin extends Plugin {
         } else if (!rightSplit.collapsed) {
           rightSplit.collapse();
         }
-      } catch (e) {}
+      } catch { /* idem pour le panneau droit */ }
     };
 
     let touchStartX = 0;

@@ -27,6 +27,14 @@ const sharedGlobals = {
   crypto: "readonly",
   CSS: "readonly",
   Event: "readonly",
+  HTMLElement: "readonly",
+  Element: "readonly",
+  HTMLInputElement: "readonly",
+  HTMLTextAreaElement: "readonly",
+  XMLSerializer: "readonly",
+  Node: "readonly",
+  Image: "readonly",
+  btoa: "readonly",
   requestAnimationFrame: "readonly",
   cancelAnimationFrame: "readonly",
   getComputedStyle: "readonly",
@@ -48,7 +56,14 @@ const sharedGlobals = {
   globalThis: "readonly",
 };
 
+const dummyRule = { create: () => ({}) };
+
 export default [
+  {
+    linterOptions: {
+      reportUnusedDisableDirectives: "off",
+    },
+  },
   {
     ignores: [
       "main.js",
@@ -62,6 +77,19 @@ export default [
   },
   {
     files: ["src/**/*.js", "scripts/**/*.mjs", "test/**/*.js", "esbuild.config.mjs"],
+    plugins: {
+      "@typescript-eslint": {
+        rules: {
+          "no-require-imports": dummyRule,
+          "no-this-alias": dummyRule,
+        },
+      },
+      import: {
+        rules: {
+          "no-extraneous-dependencies": dummyRule,
+        },
+      },
+    },
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

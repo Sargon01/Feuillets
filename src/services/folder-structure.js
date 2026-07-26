@@ -1,4 +1,4 @@
-const { TFolder, TFile, normalizePath } = require("obsidian");
+import { TFolder, TFile, normalizePath } from "obsidian";
 import { fmOf } from "./frontmatter.js";
 
 export function getProjectFolder(app, settings) {

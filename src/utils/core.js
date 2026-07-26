@@ -50,7 +50,7 @@ export function stripMarkdown(text) {
   t = t.replace(/(^|[^A-Za-z0-9_])__([^_]+?)__(?![A-Za-z0-9_])/g, "$1$2");
 
   // Caractères Markdown échappés : on rend le caractère littéral.
-  t = t.replace(/\\([\\`*_{}\[\]()#+\-.!~>])/g, "$1");
+  t = t.replace(/\\([\\`*_{}[\]()#+\-.!~>])/g, "$1");
   // Astérisques/accents graves esseulés restants (jamais l'underscore).
   t = t.replace(/[*`]/g, "");
 

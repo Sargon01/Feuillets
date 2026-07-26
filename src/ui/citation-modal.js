@@ -1,4 +1,4 @@
-const { FuzzySuggestModal } = require("obsidian");
+import { FuzzySuggestModal } from "obsidian";
 import { TextInputModal } from "../scenes-editor.js";
 import { t } from "../i18n/index.js";
 

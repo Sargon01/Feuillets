@@ -117,7 +117,7 @@ export function buildSearchRegExp(searchQuery, options = {}) {
     }
 
     return new RegExp(pattern, flags);
-  } catch (e) {
+  } catch {
     return null;
   }
 }

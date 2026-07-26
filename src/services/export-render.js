@@ -1,5 +1,5 @@
-const { Component, MarkdownRenderer } = require("obsidian");
-import { TITLE_ROLE_MARKER, parseTitleRoles, hasTitleRoleLines } from "../utils/title-roles.js";
+import { Component, MarkdownRenderer } from "obsidian";
+import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
 
 /** Rend un markdown déjà compilé (sortie de compile()) en HTML propre via
  * le moteur natif d'Obsidian — pas de parseur maison : MarkdownRenderer
@@ -190,14 +190,14 @@ function extractFootnotes(container) {
       // Clean trailing slashes, backslashes, spaces, and backref markers
       text = text
         .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
-        .replace(/[\s\/\\]+$/, "")
+        .replace(/[\s/\\]+$/, "")
         .trim();
 
       html = html
         .replace(/<a[^>]*class=["'](?:footnote-backref|internal-link)["'][^>]*>.*?<\/a>/gi, "")
         .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
-        .replace(/(?:&nbsp;|\s)*[\/\\]+\s*(?:<\/p>)?$/gi, "$1")
-        .replace(/[\s\/\\]+(?=<\/p>|$)/gi, "")
+        .replace(/(?:&nbsp;|\s)*[/\\]+\s*(?:<\/p>)?$/gi, "$1")
+        .replace(/[\s/\\]+(?=<\/p>|$)/gi, "")
         .trim();
 
       footnotes.push({ id, html, text });

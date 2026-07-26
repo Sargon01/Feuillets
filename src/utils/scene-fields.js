@@ -14,7 +14,7 @@
    Le « : » compte double ici : la typographie française l'emploie couramment
    dans un titre (« Chapitre 3 : la fuite »), et il était absent de la version
    précédente — le fichier créé était donc invalide sous Windows. */
-const FORBIDDEN_IN_FILENAME = /[\\/:*?"<>|#^\[\]]/g;
+const FORBIDDEN_IN_FILENAME = /[\\/:*?"<>|#^[\]]/g;
 
 /** Découpe une saisie « a, b, c » en liste, sans entrées vides.
  * @param {unknown} value

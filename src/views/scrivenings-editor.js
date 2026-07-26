@@ -1,4 +1,4 @@
-const { TFile, MarkdownRenderer } = require("obsidian");
+import { MarkdownRenderer } from "obsidian";
 import { t } from "../i18n/index.js";
 
 function escapeRegExp(str) {

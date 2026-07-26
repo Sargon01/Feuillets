@@ -1,4 +1,4 @@
-const { TFile, TFolder, normalizePath } = require("obsidian");
+import { TFile, TFolder, normalizePath } from "obsidian";
 import { foldAccents } from "../utils/core.js";
 import { fmOf, titleFor, tagsOf } from "./frontmatter.js";
 import { getProjectFolder, flattenFiles } from "./folder-structure.js";
@@ -168,7 +168,7 @@ export async function findAppearances(app, settings, entityFile) {
   // Regex globale avec frontières de mots
   let nameRegex = null;
   if (matchNames.length > 0) {
-    const escaped = matchNames.map(n => n.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
+    const escaped = matchNames.map(n => n.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'));
     nameRegex = new RegExp(`\\b(${escaped.join("|")})\\b`, "i");
   }
 
@@ -191,7 +191,7 @@ export async function findAppearances(app, settings, entityFile) {
     if (!viaTag && !viaLink && !viaName) continue;
 
     let excerpt = "";
-    let via = viaLink ? "lien" : (viaName ? "nom" : "tag");
+    const via = viaLink ? "lien" : (viaName ? "nom" : "tag");
 
     if (viaLink) {
       linkRe.lastIndex = 0;

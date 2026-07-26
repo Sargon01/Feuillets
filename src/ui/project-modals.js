@@ -1,4 +1,4 @@
-const { Modal, Notice, normalizePath, setIcon, TFolder, Menu } = require("obsidian");
+import { Modal, Notice, normalizePath, setIcon, TFolder, Menu } from "obsidian";
 import { PROJECT_MODES, applyModeDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";

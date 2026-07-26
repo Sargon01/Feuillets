@@ -1,4 +1,4 @@
-const { Modal, TFolder, setIcon } = require("obsidian");
+import { Modal, TFolder, setIcon } from "obsidian";
 import { openFileActivating } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
 

@@ -1,6 +1,10 @@
-const { Modal, Notice, ButtonComponent, DropdownComponent, TFile, TFolder, setIcon } = require("obsidian");
-const Diff = require("diff");
+import { Modal, Notice, ButtonComponent, DropdownComponent, TFile, TFolder, setIcon } from "obsidian";
+/* `import * as` et non un import par défaut : diff v9 est un paquet ESM pur
+   qui n'expose que des exports nommés (diffWords, diffLines…). Un
+   `import Diff from "diff"` compile chez tsc mais fait échouer esbuild. */
+import * as Diff from "diff";
 import { listSnapshotFiles } from "../services/project-files.js";
+import { ConfirmModal } from "./basic-modals.js";
 import { foldAccents } from "../utils/core.js";
 import { t } from "../i18n/index.js";
 
@@ -84,7 +88,7 @@ export class CompareFilesModal extends Modal {
   }
 
   async onOpen() {
-    const { contentEl, modalEl } = this;
+    const { modalEl } = this;
     modalEl.addClass("feuillets-diff-modal");
     await this.render();
   }
@@ -361,21 +365,28 @@ export class DiffModal extends Modal {
     new ButtonComponent(footerBar)
       .setButtonText(t("modal.diff.restoreSnapshot"))
       .setWarning()
-      .onClick(async () => {
+      .onClick(() => {
         if (!this.selectedSnapshot) return;
-        const confirmRestore = confirm(
-          t("modal.diff.restoreConfirm", { snapshot: this.selectedSnapshot.basename, current: this.currentFile.basename })
-        );
-        if (confirmRestore) {
-          const root = this.plugin ? this.plugin.getProjectFolder() : null;
-          if (this.plugin && root) {
-            await this.plugin.snapshotFile(this.currentFile, root);
+        /* ConfirmModal plutôt que window.confirm() : cohérence avec le reste
+           de l'UI (cf. src/ui/basic-modals.js) et confirm() est bloquant,
+           donc proscrit par la revue Obsidian. */
+        const snapshot = this.selectedSnapshot;
+        new ConfirmModal(
+          this.app,
+          t("modal.diff.restoreSnapshot"),
+          t("modal.diff.restoreConfirm", { snapshot: snapshot.basename, current: this.currentFile.basename }),
+          t("modal.diff.restoreSnapshot"),
+          async () => {
+            const root = this.plugin ? this.plugin.getProjectFolder() : null;
+            if (this.plugin && root) {
+              await this.plugin.snapshotFile(this.currentFile, root);
+            }
+            const content = await this.app.vault.read(snapshot);
+            await this.app.vault.modify(this.currentFile, content);
+            new Notice(t("modal.diff.restoredNotice", { name: snapshot.basename }));
+            this.close();
           }
-          const content = await this.app.vault.read(this.selectedSnapshot);
-          await this.app.vault.modify(this.currentFile, content);
-          new Notice(t("modal.diff.restoredNotice", { name: this.selectedSnapshot.basename }));
-          this.close();
-        }
+        ).open();
       });
 
     new ButtonComponent(footerBar)

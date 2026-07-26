@@ -1,4 +1,4 @@
-const { Modal, Notice, Setting, ButtonComponent } = require("obsidian");
+import { Modal, Notice, Setting } from "obsidian";
 import { exportPdf, paginateManuscript } from "../services/export-pdf.js";
 import { resolveExportTemplate, exportBuiltInTemplates } from "../services/export-templates-custom.js";
 import { templateToCss, EXPORT_TEMPLATES } from "../utils/export-templates.js";

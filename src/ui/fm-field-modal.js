@@ -1,4 +1,4 @@
-const { Modal } = require("obsidian");
+import { Modal } from "obsidian";
 import { t } from "../i18n/index.js";
 
 export class FmFieldModal extends Modal {

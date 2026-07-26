@@ -1,4 +1,4 @@
-const { TFile } = require("obsidian");
+import { TFile } from "obsidian";
 import { getProjectFolder, flattenFiles, isFrontMatter, roleOfFile } from "./folder-structure.js";
 import { fmOf } from "./frontmatter.js";
 import { filsOf } from "../utils/arc-fields.js";

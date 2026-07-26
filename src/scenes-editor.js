@@ -1,17 +1,14 @@
-const {
+import {
   TFile,
-  TFolder,
   Notice,
   Modal,
   Setting,
   MarkdownView,
   Menu,
-  normalizePath,
   stringifyYaml,
-} = require("obsidian");
+} from "obsidian";
 
 import {
-  splitCsv,
   normalizeTags,
   shortText,
   splitFrontmatter,
@@ -350,7 +347,7 @@ class YamlOptionsModal extends Modal {
       text: `Règles du preset ${preset.label} : cible / source / agrégation / premier non vide / ignore.`,
     });
 
-    const note = this.contentEl.createDiv({
+    this.contentEl.createDiv({
       cls: "feuillets-yaml-note",
       text: "Version volontairement simple : pas d’édition champ par champ dans l’interface.",
     });
@@ -419,7 +416,6 @@ class MergeSelectModal extends Modal {
       .addButton(btn => btn.setButtonText("Annuler").onClick(() => this.close()));
   }
 }
-
 
 export function initScenesEditor(plugin) {
   // 1. Attach helper functions and methods to the main plugin
@@ -677,7 +673,7 @@ export function initScenesEditor(plugin) {
         : `${file.basename} - copie`;
       const folder = file.parent?.path || "";
       const safe = sanitizeFileBasename(defaultTitle, defaultTitle);
-      let path = folder ? `${folder}/${safe}.md` : `${safe}.md`;
+      const path = folder ? `${folder}/${safe}.md` : `${safe}.md`;
       if (this.app.vault.getAbstractFileByPath(path)) {
         new Notice(`Ignoré (nom déjà pris) : ${safe}`);
         continue;
@@ -911,7 +907,6 @@ export function initScenesEditor(plugin) {
     localRules = {}
   ) {
     const unit = this.unitLabel();
-    const unitPlural = this.unitLabelPlural();
     if (!(target instanceof TFile) || sources.length === 0) {
       return new Notice(`Aucune ${unit} à fusionner.`);
     }
@@ -969,23 +964,22 @@ export function initScenesEditor(plugin) {
 
   // 3. Register Commands
   plugin.addCommand({
-    id: "feuillets-split",
+    id: "split-scene",
     name: "Scinder la scène",
-    hotkeys: [{ modifiers: ["Mod", "Shift"], key: "k" }],
     callback: async () => plugin.splitActiveScene(),
   });
   plugin.addCommand({
-    id: "feuillets-duplicate",
+    id: "duplicate-scene",
     name: "Dupliquer la scène",
     callback: async () => plugin.duplicateActiveScene(),
   });
   plugin.addCommand({
-    id: "feuillets-move",
+    id: "move-scene",
     name: "Déplacer la scène",
     callback: async () => plugin.moveActiveScene(),
   });
   plugin.addCommand({
-    id: "feuillets-merge-selected",
+    id: "merge-selected-scenes",
     name: "Fusionner les scènes sélectionnées",
     callback: async () =>
       new Notice("Sélectionne au moins deux fichiers dans l’explorateur."),

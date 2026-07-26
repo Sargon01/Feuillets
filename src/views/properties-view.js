@@ -1,4 +1,4 @@
-const { TFile, TFolder, Notice, setIcon } = require("obsidian");
+import { TFile, TFolder, Notice, setIcon } from "obsidian";
 
 import { VIEW_PROPERTIES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";

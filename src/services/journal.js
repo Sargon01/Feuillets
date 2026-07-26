@@ -1,4 +1,4 @@
-const { TFile, TFolder, Notice, normalizePath } = require("obsidian");
+import { TFile, TFolder, Notice, normalizePath } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
 import { dateKey } from "../utils/journal-stats.js";
 import { buildCarnet } from "../utils/journal-carnet.js";

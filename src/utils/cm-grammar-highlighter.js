@@ -1,5 +1,13 @@
-const { StateField, StateEffect } = require("@codemirror/state");
-const { Decoration, EditorView } = require("@codemirror/view");
+/* @codemirror/* est FOURNI PAR OBSIDIAN à l'exécution, exactement comme le
+   module "obsidian" : ces paquets sont marqués `external` dans
+   esbuild.config.mjs et ne sont jamais bundlés. Ils ne figurent volontairement
+   pas dans package.json depuis 72d9303 — leurs contraintes de version rendaient
+   `npm ci` insoluble. Les déclarer pour satisfaire le linter réintroduirait
+   cette panne d'installation, donc la règle est désactivée ici, sciemment. */
+/* eslint-disable import/no-extraneous-dependencies -- @codemirror/* est fourni par Obsidian a l'execution, marque external dans esbuild, jamais installe (voir 72d9303) */
+import { StateField, StateEffect } from "@codemirror/state";
+import { Decoration, EditorView } from "@codemirror/view";
+/* eslint-enable import/no-extraneous-dependencies -- fin de la zone d'imports fournis par l'hote */
 
 export const setGrammarIssuesEffect = StateEffect.define();
 
@@ -8,7 +16,7 @@ export const grammarIssuesField = StateField.define({
     return Decoration.none;
   },
   update(decorations, tr) {
-    for (let e of tr.effects) {
+    for (const e of tr.effects) {
       if (e.is(setGrammarIssuesEffect)) {
         return e.value;
       }
@@ -58,7 +66,7 @@ export function applyGrammarHighlights(editorView, issues, offset = 0) {
     editorView.dispatch({
       effects: setGrammarIssuesEffect.of(Decoration.set(decos, true)),
     });
-  } catch (e) {
+  } catch {
     // S'assure de ne jamais interrompre le flux d'édition
   }
 }
@@ -67,7 +75,7 @@ export function clearGrammarHighlights(editorView) {
   if (editorView && typeof editorView.dispatch === "function") {
     try {
       editorView.dispatch({ effects: setGrammarIssuesEffect.of(Decoration.none) });
-    } catch (e) {}
+    } catch { /* dispatch sur un EditorView deja detruit (onglet ferme entre-temps) : il n'y a plus rien a effacer */ }
   }
 }
 

@@ -1,4 +1,4 @@
-const { setIcon } = require("obsidian");
+import { setIcon } from "obsidian";
 
 /** Construit l'en-tête d'une section repliable (div section + head + chevron
  * + titre + icône/bouton optionnels + clic qui bascule l'état replié) et la

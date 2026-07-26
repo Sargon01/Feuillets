@@ -734,7 +734,7 @@ export function mergeGlobalMovePairs(byPath, unmatched = {}, unclassified = {}) 
       allContainers.push({ path, list: bucket.changes });
     }
   }
-  for (const [id, bucket] of Object.entries(unmatched)) {
+  for (const bucket of Object.values(unmatched)) {
     if (bucket && bucket.changes) {
       allContainers.push({ path: null, list: bucket.changes });
     }
@@ -1166,7 +1166,6 @@ export function planApply(content, change) {
  * successives dans la même zone. */
 export function findTolerant(content, text) {
   if (!text) return null;
-  const bodyStart = getFrontmatterEndOffset(content);
   const re = new RegExp(toleranceGroup(text), "g");
   const count = countRegexMatches(re, content);
   if (count === 1) {

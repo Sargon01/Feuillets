@@ -1,4 +1,4 @@
-const { Modal, Notice, normalizePath } = require("obsidian");
+import { Modal, Notice, normalizePath } from "obsidian";
 import { t } from "../i18n/index.js";
 
 export class ImportOutlineModal extends Modal {

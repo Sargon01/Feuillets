@@ -1,4 +1,4 @@
-const { TFile, TFolder, normalizePath } = require("obsidian");
+import { TFile, TFolder, normalizePath } from "obsidian";
 import JSZip from "jszip";
 import { ensureFolder } from "./project-files.js";
 

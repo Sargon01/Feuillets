@@ -6,7 +6,7 @@ import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
 import { isEngineInstalled, downloadEngine } from "../services/grammar-assets-manager.js";
 import { GrammarUserDataModal } from "../ui/grammar-user-data-modal.js";
-const { PluginSettingTab, Setting, TFolder, Notice, Menu, Platform } = require("obsidian");
+import { PluginSettingTab, Setting, TFolder, Notice, Menu, Platform } from "obsidian";
 
 export class FeuilletsSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
@@ -1937,14 +1937,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         tab.searchComponent.setValue(query);
         tab.searchComponent.onChanged();
       }
-    } catch (e) {}
+    } catch { /* app.setting est une API interne : ouvrir l'onglet des plugins communautaires est un confort, pas une fonction */ }
   }
 
   openAppearanceTab() {
     try {
       const settingModal = this.app.setting;
       if (settingModal && settingModal.openTabById) settingModal.openTabById("appearance");
-    } catch (e) {}
+    } catch { /* idem pour l'onglet Apparence */ }
   }
 
   /** Ligne de réglage pour un moteur local (Grammalecte/Harper) : état

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path ne sont pas disponibles sur mobile, ils ne sont charges qu'a l'ecriture des mots appris */
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
 
 // Mots appris / fautes ignorées de la correction grammaticale : à part de

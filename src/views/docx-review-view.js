@@ -1,4 +1,5 @@
-const { setIcon, Notice, Platform, TFile } = require("obsidian");
+/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs, desktop uniquement */
+import { setIcon, Notice, Platform, TFile } from "obsidian";
 import JSZip from "jszip";
 import { VIEW_DOCX_REVIEW } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -160,7 +161,7 @@ export class DocxReviewView extends BaseFeuilletsView {
          snapshot » / le dossier Snapshots) avant que la relecture ne touche
          son manuscrit. */
       if (first) new Notice(t("docxReview.snapshotCreatedNotice"));
-    } catch (e) {}
+    } catch { /* le snapshot est une precaution, au mieux : s'il echoue, la relecture doit quand meme pouvoir demarrer */ }
   }
 
   async analyzeBuffer(buf, docxName = "docx-review") {
@@ -169,7 +170,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     let zip;
     try {
       zip = await JSZip.loadAsync(buf);
-    } catch (e) {
+    } catch {
       new Notice(t("docxReview.unreadableFile"));
       return;
     }
@@ -346,14 +347,14 @@ export class DocxReviewView extends BaseFeuilletsView {
         let fs;
         try {
           fs = require("fs");
-        } catch (e) {
+        } catch {
           new Notice(t("docxReview.readUnavailable"));
           return;
         }
         let buf;
         try {
           buf = fs.readFileSync(path);
-        } catch (e) {
+        } catch {
           new Notice(t("docxReview.fileNotFound", { path }));
           return;
         }
@@ -601,7 +602,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     if (!match) return;
 
     let selStart = match.index;
-    let selEnd = match.index + match.length;
+    const selEnd = match.index + match.length;
 
     // Si contextBefore précède la cible, restreindre la sélection aux seuls mots ciblés !
     if (targetText && searchText.length > targetText.length && searchText.endsWith(targetText)) {

@@ -23,17 +23,17 @@ test("checkTextLanguageTool : parse et formate les erreurs LanguageTool correcte
     },
   ];
 
-  const originalFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: true,
-    json: async () => ({ matches: mockMatches }),
-  });
+  /* Transport injecté : le code de production passe par requestUrl
+     d'Obsidian, indisponible hors de l'application. On imite sa forme de
+     réponse (status + json en PROPRIÉTÉ, pas en méthode comme fetch). */
+  const request = () => Promise.resolve({ status: 200, json: { matches: mockMatches } });
 
-  try {
+  {
     const text = "Thsi is an test.";
     const issues = await checkTextLanguageTool(text, {
       url: "https://api.languagetool.org/v2/check",
       language: "en-US",
+      request,
     });
 
     assert.equal(issues.length, 2);
@@ -48,8 +48,6 @@ test("checkTextLanguageTool : parse et formate les erreurs LanguageTool correcte
     assert.equal(issues[1].start, 8);
     assert.equal(issues[1].end, 10);
     assert.equal(issues[1].suggestions[0], "a");
-  } finally {
-    global.fetch = originalFetch;
   }
 });
 
@@ -64,22 +62,15 @@ test("checkTextLanguageTool : filtre les mots connus (knownWords) et règles ign
     },
   ];
 
-  const originalFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: true,
-    json: async () => ({ matches: mockMatches }),
+  const request = () => Promise.resolve({ status: 200, json: { matches: mockMatches } });
+
+  const text = "Sargon is testing.";
+  const issuesIgnored = await checkTextLanguageTool(text, {
+    knownWords: ["sargon"],
+    request,
   });
 
-  try {
-    const text = "Sargon is testing.";
-    const issuesIgnored = await checkTextLanguageTool(text, {
-      knownWords: ["sargon"],
-    });
-
-    assert.equal(issuesIgnored.length, 0);
-  } finally {
-    global.fetch = originalFetch;
-  }
+  assert.equal(issuesIgnored.length, 0);
 });
 
 test("GrammarCheckerManager : renvoie un tableau vide si le moteur est désactivé (off)", async () => {

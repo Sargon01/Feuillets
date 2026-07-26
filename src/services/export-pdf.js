@@ -1,6 +1,6 @@
-const { Notice, Platform } = require("obsidian");
+import { Notice, Platform } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
-import { templateToCss, templatePrintCss, titleRoleCss, cmToPt, marginsFor } from "../utils/export-templates.js";
+import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
 
 /** Pagine le contenu HTML en boîtes de pages réelles (.pdf-page) pour l'impression PDF et l'aperçu WYSIWYG.
@@ -115,7 +115,7 @@ export function paginateManuscript(containerEl, footnotes, settings, tpl, title 
     let hLeftText = (settings.pdfHeaderLeft ?? "{title}").replace(/\{title\}/gi, title).replace(/\{author\}/gi, author);
     let hRightText = (settings.pdfHeaderRight ?? "{author}").replace(/\{title\}/gi, title).replace(/\{author\}/gi, author);
 
-    let numStr = (settings.pdfFooterRight ?? "Page {page} sur {pages}")
+    const numStr = (settings.pdfFooterRight ?? "Page {page} sur {pages}")
       .replace(/\{title\}/gi, title)
       .replace(/\{author\}/gi, author)
       .replace(/\{page\}/gi, String(pageNum))

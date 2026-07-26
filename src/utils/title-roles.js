@@ -15,8 +15,11 @@
  * moteur Markdown), il est retiré par chaque export après repérage. */
 export const TITLE_ROLE_MARKER = "FEUILLETS-FPROLE:";
 
-/* Espaces admis autour du deux-points, y compris insécable ( ) et fine
-   insécable ( ) que la typographie française peut poser avant un « : ». */
+/* Espaces admis autour du deux-points, y compris l'insécable U+00A0 et la
+   fine insécable U+202F que la typographie française peut poser avant un
+   « : ». Désignés par leur code et non glissés en clair dans ce commentaire :
+   littéraux, ils sont invisibles à la relecture et indiscernables d'une
+   espace ordinaire — d'où la règle no-irregular-whitespace. */
 const SP = "[ \\t\\u00A0\\u202F]";
 const TITLE_ROLE_LINE_RE = new RegExp(`^:::${SP}*(.+?)${SP}*:${SP}?(.*)$`);
 

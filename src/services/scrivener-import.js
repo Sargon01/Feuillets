@@ -45,7 +45,7 @@ export function findAttachedDataImages(scrivPath, uuid, fs, pathMod) {
         }
       }
     }
-  } catch (e) {}
+  } catch { /* dossier .scriv illisible ou partiel : on rend les images deja trouvees plutot que d'echouer l'import */ }
 
   if (images.length === 0) {
     try {
@@ -63,7 +63,7 @@ export function findAttachedDataImages(scrivPath, uuid, fs, pathMod) {
           }
         }
       }
-    } catch (e) {}
+    } catch { /* idem pour le balayage des chemins candidats d'un uuid */ }
   }
   return images;
 }
@@ -296,7 +296,7 @@ export function parseScrImageLinks(text) {
   const links = [];
   if (!text) return links;
 
-  const reScr = /\{?\$SCRImageLink\[[^\]]*\][:=]+\$PROJECT:\/\/([^\}\s]+)\}?/gi;
+  const reScr = /\{?\$SCRImageLink\[[^\]]*\][:=]+\$PROJECT:\/\/([^}\s]+)\}?/gi;
   let m;
   while ((m = reScr.exec(text))) {
     const rawRef = m[1].trim();
@@ -306,7 +306,7 @@ export function parseScrImageLinks(text) {
     }
   }
 
-  const reProject = /\$PROJECT:\/\/([^\s"'<>\}\)]+)/gi;
+  const reProject = /\$PROJECT:\/\/([^\s"'<>})]+)/gi;
   while ((m = reProject.exec(text))) {
     const rawRef = m[1].trim();
     const fileName = rawRef.slice(rawRef.lastIndexOf("/") + 1).trim();
@@ -726,7 +726,7 @@ export function rtfToMarkdown(rtf, comments = {}, binderItemMap = null, options 
 
           const linkMatch = /(?:scrivlink|x-scrivener-item):\/\/([0-9A-Fa-f-]+)/.exec(inner);
           const commentMatch = /scrivcmt:\/\/([0-9A-Fa-f-]+)/.exec(inner);
-          const webLinkMatch = !linkMatch && !commentMatch && /HYPERLINK\s+(?:"([^"]+)"|([^\s\}]+))/i.exec(inner);
+          const webLinkMatch = !linkMatch && !commentMatch && /HYPERLINK\s+(?:"([^"]+)"|([^\s}]+))/i.exec(inner);
 
           if (linkMatch) {
             const targetUuid = linkMatch[1];
@@ -972,7 +972,7 @@ export function extractChapterTitleMarker(text) {
   }
 
   let rawTitle = m[1];
-  let rest = m[2];
+  const rest = m[2];
 
   rawTitle = rawTitle.replace(/<\$ScrKeepWithNext>/g, "").replace(/\*\*|\*/g, "").trim();
   const parts = rawTitle.split(/[\r\n]+/).map((p) => p.trim()).filter(Boolean);
@@ -992,12 +992,12 @@ function finalizeConvertedText(raw) {
 
   text = text.replace(/<\$ScrKeepWithNext>/g, "");
 
-  text = text.replace(/\{?\$SCRImageLink\[[^\]]*\][:=]+\$PROJECT:\/\/([^\}\s]+)\}?/gi, (match, rawRef) => {
+  text = text.replace(/\{?\$SCRImageLink\[[^\]]*\][:=]+\$PROJECT:\/\/([^}\s]+)\}?/gi, (match, rawRef) => {
     const fileName = rawRef.slice(rawRef.lastIndexOf("/") + 1).trim();
     return `\n\n![[${fileName}]]\n\n`;
   });
 
-  text = text.replace(/\$PROJECT:\/\/([^\s"'<>\}\)]+)/gi, (match, rawRef) => {
+  text = text.replace(/\$PROJECT:\/\/([^\s"'<>})]+)/gi, (match, rawRef) => {
     const fileName = rawRef.slice(rawRef.lastIndexOf("/") + 1).trim();
     return `\n\n![[${fileName}]]\n\n`;
   });

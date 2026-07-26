@@ -1,4 +1,4 @@
-const { normalizePath, Notice } = require("obsidian");
+import { normalizePath, Notice } from "obsidian";
 import { getProjectFolder, flattenFiles, resourcesFolderPath } from "./folder-structure.js";
 import { fmOf, labelOf, labelColor } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
@@ -76,7 +76,7 @@ export async function generateCanvasBoard(app, settings) {
       const raw = await app.vault.read(existing);
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.nodes)) canvas = parsed;
-    } catch (e) {
+    } catch {
       new Notice("Tableau canvas existant illisible — reconstruit à neuf (rien n'a été écrasé sur le disque avant que tu ne confirmes).");
       canvas = { nodes: [], edges: [] };
     }

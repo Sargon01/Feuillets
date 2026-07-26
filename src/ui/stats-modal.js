@@ -1,4 +1,4 @@
-const { Modal } = require("obsidian");
+import { Modal } from "obsidian";
 
 import { countWords } from "../utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "../utils/text-metrics.js";

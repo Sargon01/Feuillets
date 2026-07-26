@@ -1,4 +1,4 @@
-const { TFile, normalizePath } = require("obsidian");
+import { TFile, normalizePath } from "obsidian";
 import { getProjectFolder, getResourcesRoot } from "./folder-structure.js";
 
 export async function getResearchTemplate(app, settings, mode, sectionKey, defaultName) {

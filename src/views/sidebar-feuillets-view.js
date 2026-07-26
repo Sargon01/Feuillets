@@ -1,4 +1,4 @@
-const { ItemView, setIcon } = require("obsidian");
+import { ItemView, setIcon } from "obsidian";
 import { VIEW_SIDEBAR_FEUILLETS } from "../constants.js";
 import { NotesView } from "./notes-view.js";
 import { ResearchView } from "./research-view.js";

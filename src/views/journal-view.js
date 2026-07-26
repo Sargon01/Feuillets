@@ -1,4 +1,4 @@
-const { setIcon, MarkdownRenderer } = require("obsidian");
+import { setIcon, MarkdownRenderer } from "obsidian";
 
 import { VIEW_JOURNAL } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -89,7 +89,6 @@ export class JournalView extends BaseFeuilletsView {
   }
 
   async render(force = false) {
-    const S = this.plugin.settings;
     const container = this.targetContainer || this.contentEl;
     if (!force && isEditing(container)) return;
     container.empty();

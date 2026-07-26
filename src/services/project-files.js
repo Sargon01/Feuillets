@@ -1,4 +1,4 @@
-const { Notice, TFolder, TFile, normalizePath } = require("obsidian");
+import { Notice, TFolder, TFile, normalizePath } from "obsidian";
 import { NewSheetModal, NewFolderModal } from "../ui/basic-modals.js";
 import { getProjectFolder, getOrderedChildren, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { getResearchRoot } from "./research.js";

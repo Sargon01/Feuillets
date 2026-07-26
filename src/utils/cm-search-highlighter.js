@@ -1,5 +1,10 @@
-const { StateField, StateEffect } = require("@codemirror/state");
-const { Decoration, EditorView } = require("@codemirror/view");
+/* Voir l'explication détaillée en tête de cm-grammar-highlighter.js :
+   @codemirror/* est fourni par Obsidian à l'exécution, marqué `external`
+   dans esbuild, et délibérément absent de package.json depuis 72d9303. */
+/* eslint-disable import/no-extraneous-dependencies -- @codemirror/* est fourni par Obsidian a l'execution, marque external dans esbuild, jamais installe (voir 72d9303) */
+import { StateField, StateEffect } from "@codemirror/state";
+import { Decoration, EditorView } from "@codemirror/view";
+/* eslint-enable import/no-extraneous-dependencies -- fin de la zone d'imports fournis par l'hote */
 
 export const setSearchHighlightsEffect = StateEffect.define();
 
@@ -8,7 +13,7 @@ export const searchHighlightField = StateField.define({
     return Decoration.none;
   },
   update(decorations, tr) {
-    for (let e of tr.effects) {
+    for (const e of tr.effects) {
       if (e.is(setSearchHighlightsEffect)) {
         return e.value;
       }
@@ -58,7 +63,7 @@ export function applyEditorHighlights(editorView, occurrences, activeIndex = -1)
     editorView.dispatch({
       effects: setSearchHighlightsEffect.of(decoSet),
     });
-  } catch (e) {
+  } catch {
     // S'assure de ne jamais interrompre le flux d'édition
   }
 }
@@ -69,6 +74,6 @@ export function clearEditorHighlights(editorView) {
       editorView.dispatch({
         effects: setSearchHighlightsEffect.of(Decoration.none),
       });
-    } catch (e) {}
+    } catch { /* idem : la vue a ete detruite avant le nettoyage des surlignages */ }
   }
 }

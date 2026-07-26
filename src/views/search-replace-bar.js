@@ -1,4 +1,4 @@
-const { MarkdownView, Notice, setIcon } = require("obsidian");
+import { MarkdownView, Notice, setIcon } from "obsidian";
 import { FeuilletsSearchEngine } from "../services/feuillets-search-engine.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyEditorHighlights, clearEditorHighlights } from "../utils/cm-search-highlighter.js";

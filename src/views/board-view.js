@@ -1,11 +1,11 @@
-const { Menu, TFile, TFolder, setIcon, setTooltip, MarkdownRenderer, Notice } = require("obsidian");
+import { Menu, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
 import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating } from "../utils/dom.js";
-import { parseStoryDate, foldAccents, stripMarkdown } from "../utils/core.js";
+import { parseStoryDate, stripMarkdown } from "../utils/core.js";
 import { PROJECT_MODES, resolveType } from "../utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
-import { filsOf, povOf } from "../utils/arc-fields.js";
+import { povOf } from "../utils/arc-fields.js";
 import { ScriveningsManager } from "./scrivenings-editor.js";
 import { ReadSelectionModal } from "../ui/selection-modals.js";
 import { DiffModal } from "../ui/diff-modal.js";
@@ -844,7 +844,7 @@ export class BoardView extends BaseFeuilletsView {
     return cell;
   }
 
-  renderFolderCard(container, parentFolder, folder, index, siblings, numbering, bumpTotal) {
+  renderFolderCard(container, parentFolder, folder, index, siblings, _numbering, _bumpTotal) {
     const S = this.plugin.settings;
     const card = container.createDiv({ cls: "feuillets-card feuillets-card-folder" });
     card.setAttr("title", t("board.folderCard.doubleClickEnter", { name: folder.name }));
@@ -1031,7 +1031,7 @@ export class BoardView extends BaseFeuilletsView {
     if (!this.filterActive()) this.attachDragHandlers(head, card, parentFolder, index, siblings, container);
   }
 
-  async renderReading(container, rootFolder, numbering) {
+  async renderReading(container, rootFolder, _numbering) {
     container.empty();
     const scrollWrap = container.createDiv({ cls: "feuillets-reading-wrapper" });
 
@@ -1318,7 +1318,7 @@ export class BoardView extends BaseFeuilletsView {
     return this.renderTimelineInner(container, folder, numbering);
   }
 
-  renderTimelineInner(container, folder, numbering) {
+  renderTimelineInner(container, folder, _numbering) {
     const files = this.plugin.flattenFiles(folder).filter((f) => this.passesFilter(f) && !this.plugin.isFrontMatter(f));
     const items = [];
     for (const file of files) {

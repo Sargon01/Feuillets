@@ -7,7 +7,7 @@ import { findRepetitions } from "../utils/repetitions.js";
 import { ensureFolder } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 
-const { TFile, TFolder, Platform, Notice, normalizePath } = require("obsidian");
+import { TFile, TFolder, Platform, Notice, normalizePath } from "obsidian";
 
 /** Extrait le lemme d'une chaîne morphologique Grammalecte (`>lemme …`). */
 function lemmaOfMorph(morph) {
@@ -680,7 +680,7 @@ export class AnalysisView extends BaseFeuilletsView {
         try {
           await navigator.clipboard.writeText(this.dashboardMarkdown(dash));
           new Notice(t("analysis.dashboard.summaryCopied"));
-        } catch (e) {
+        } catch {
           new Notice(t("analysis.dashboard.copyFailed"));
         }
       });

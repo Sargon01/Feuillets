@@ -1,4 +1,4 @@
-const { Modal, Notice, TFile, TFolder, setIcon } = require("obsidian");
+import { Modal, Notice, TFile, TFolder, setIcon } from "obsidian";
 import { foldAccents } from "../utils/core.js";
 import { openFileActivating } from "../utils/dom.js";
 import { buildTagTree, collectFiles, sortTagNodes } from "../utils/tag-tree.js";

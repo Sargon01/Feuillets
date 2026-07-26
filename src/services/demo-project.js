@@ -1,4 +1,4 @@
-const { Notice, normalizePath } = require("obsidian");
+import { Notice, normalizePath } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
 import { getResearchRoot, getChronoFolder, researchFolderPath } from "./research.js";
 import { ensureFolder, initProjectStructure } from "./project-files.js";
@@ -326,7 +326,7 @@ async function generate(app, S, plugin, manuscritPath) {
     "- 1415 : quitte le village natal après la Grande Rupture.",
     "- 1421 : scribe pour l'Ordre du Silence, sans en connaître encore les secrets.",
     "",
-    "Ces lignes datées (`année : état`, avec ou sans puce, l\'année en gras ou non — le tiret, le deux-points pleine chasse et le tiret cadratin sont aussi acceptés comme séparateur) sont ce que le panneau Notes lit pour remplir sa section **Contexte** : ouvre « 2. La rencontre » (datée du 12 mars 1421) et regarde cette section — au lieu du synopsis générique de cette fiche, c'est la ligne « scribe pour l'Ordre du Silence... » qui s'affiche, parce que c'est le dernier état connu à cette date ou avant. Le titre `## Évolution` est une convention de lisibilité, pas une syntaxe obligatoire : seules les lignes `année : texte` elles-mêmes sont reconnues, où qu'elles soient dans la fiche.",
+    "Ces lignes datées (`année : état`, avec ou sans puce, l'année en gras ou non — le tiret, le deux-points pleine chasse et le tiret cadratin sont aussi acceptés comme séparateur) sont ce que le panneau Notes lit pour remplir sa section **Contexte** : ouvre « 2. La rencontre » (datée du 12 mars 1421) et regarde cette section — au lieu du synopsis générique de cette fiche, c'est la ligne « scribe pour l'Ordre du Silence... » qui s'affiche, parce que c'est le dernier état connu à cette date ou avant. Le titre `## Évolution` est une convention de lisibilité, pas une syntaxe obligatoire : seules les lignes `année : texte` elles-mêmes sont reconnues, où qu'elles soient dans la fiche.",
     "",
   ]);
   await writeSheet(app, personnages, "Tomas Grey", [

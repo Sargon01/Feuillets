@@ -1,5 +1,5 @@
 // @ts-check
-const { TFile, TFolder, Notice, normalizePath, stringifyYaml } = require("obsidian");
+import { TFile, TFolder, Notice, normalizePath, stringifyYaml } from "obsidian";
 import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { fmOf } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
@@ -133,7 +133,7 @@ export async function exportBuiltInTemplates(app, settings) {
   for (const t of Object.values(EXPORT_TEMPLATES)) {
     const filePath = normalizePath(`${path}/${t.key}.md`);
     if (app.vault.getAbstractFileByPath(filePath)) continue;
-    const { key, ...fields } = t;
+    const { key: _key, ...fields } = t;
     const content = `---\n${stringifyYaml(fields).trim()}\n---\n`;
     await app.vault.create(filePath, content);
     count++;

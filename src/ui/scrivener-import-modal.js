@@ -1,4 +1,5 @@
-const { Modal, Notice, Platform, normalizePath } = require("obsidian");
+/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path pour lire un dossier .scriv sur disque, desktop uniquement */
+import { Modal, Notice, Platform, normalizePath } from "obsidian";
 
 import { PROJECT_MODES, applyModeDefaults } from "../utils/project-modes.js";
 import {
@@ -50,7 +51,7 @@ function findScrivenerFile(dirPath, targetName, fs, pathMod) {
         return fullPath;
       }
     }
-  } catch (e) {}
+  } catch { /* dossier illisible pendant le parcours disque : traite comme fichier non trouve */ }
 
   const uuidMatch =
     /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/i.exec(targetName) ||
@@ -68,7 +69,7 @@ function findScrivenerFile(dirPath, targetName, fs, pathMod) {
           }
         }
       }
-    } catch (e) {}
+    } catch { /* idem : pas de visuel trouve dans ce dossier de donnees */ }
   }
   return null;
 }
@@ -153,7 +154,7 @@ export class ScrivenerImportModal extends Modal {
       try {
         fs = require("fs");
         pathMod = require("path");
-      } catch (e) {
+      } catch {
         new Notice(t("modal.scrivenerImport.importUnavailable"));
         return;
       }
@@ -161,7 +162,7 @@ export class ScrivenerImportModal extends Modal {
       let entries;
       try {
         entries = fs.readdirSync(scrivPath);
-      } catch (e) {
+      } catch {
         new Notice(t("modal.scrivenerImport.folderNotFound", { path: scrivPath }));
         return;
       }
@@ -174,7 +175,7 @@ export class ScrivenerImportModal extends Modal {
       let xmlContent;
       try {
         xmlContent = fs.readFileSync(pathMod.join(scrivPath, check.scrivxName), "utf-8");
-      } catch (e) {
+      } catch {
         new Notice(t("modal.scrivenerImport.cannotReadScrivx"));
         return;
       }
@@ -274,7 +275,7 @@ export class ScrivenerImportModal extends Modal {
       for (const candidate of rtfPathCandidates(uuid)) {
         try {
           return fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
-        } catch (e) {}
+        } catch { /* on essaie plusieurs emplacements de RTF : l'absence est le cas NORMAL, on passe au candidat suivant */ }
       }
       unreadableCount++;
       return "";
@@ -287,7 +288,7 @@ export class ScrivenerImportModal extends Modal {
           "utf-8"
         );
         return parseScrivenerComments(xml);
-      } catch (e) {
+      } catch {
         return {};
       }
     };
@@ -301,7 +302,7 @@ export class ScrivenerImportModal extends Modal {
           const rtf = fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
           const { text } = rtfToMarkdown(rtf, {}, binderItemMap);
           if (text) return text.trim();
-        } catch (e) {}
+        } catch { /* idem pour notes.rtf : candidat absent, on tente le suivant */ }
       }
       return "";
     };
@@ -314,7 +315,7 @@ export class ScrivenerImportModal extends Modal {
         try {
           const txt = fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
           if (txt) return txt.trim();
-        } catch (e) {}
+        } catch { /* idem pour synopsis.txt */ }
       }
       return "";
     };
@@ -334,7 +335,7 @@ export class ScrivenerImportModal extends Modal {
         if (!app.vault.getAbstractFileByPath(imgPath)) {
           try {
             await app.vault.createBinary(imgPath, toArrayBuffer(img.bytes));
-          } catch (e) {}
+          } catch { /* une image integree qui resiste ne doit pas faire echouer l'import de tout le manuscrit */ }
         }
       }
     };
@@ -350,7 +351,7 @@ export class ScrivenerImportModal extends Modal {
             try {
               const bytes = fs.readFileSync(diskPath);
               await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
-            } catch (e) {}
+            } catch { /* idem : image liee introuvable ou illisible sur disque */ }
           }
         }
       }
@@ -374,7 +375,7 @@ export class ScrivenerImportModal extends Modal {
           try {
             const bytes = fs.readFileSync(img.fullPath);
             await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
-          } catch (e) {}
+          } catch { /* idem */ }
         }
 
         const hasImageEmbed = /!\[\[[^\]]+\]\]/.test(updatedBody);
@@ -419,7 +420,7 @@ export class ScrivenerImportModal extends Modal {
             try {
               const bytes = fs.readFileSync(img.fullPath);
               await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
-            } catch (e) {}
+            } catch { /* idem */ }
           }
           text = `![[${uniqueFileName}]]`;
         }
@@ -595,7 +596,7 @@ export class ScrivenerImportModal extends Modal {
             try {
               const bytes = fs.readFileSync(img.fullPath);
               await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
-            } catch (e) {}
+            } catch { /* idem */ }
           }
           text = `![[${uniqueFileName}]]`;
         }

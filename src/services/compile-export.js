@@ -1,4 +1,5 @@
-const { Notice, TFolder, TFile, normalizePath, Platform } = require("obsidian");
+/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : child_process/path/fs pour l'export Pandoc, desktop uniquement */
+import { Notice, TFolder, TFile, normalizePath, Platform } from "obsidian";
 import { embedHardBreaks } from "../utils/core.js";
 import { footnotePrefixFor, applyCompileTransforms } from "../utils/compile-text.js";
 import { fmOf, compiledTitleFor, compiledSubtitleFor } from "./frontmatter.js";
@@ -382,7 +383,7 @@ async function exportViaPandoc(app, settings, format = "docx") {
     basePath = app.vault.adapter.getBasePath
       ? app.vault.adapter.getBasePath()
       : app.vault.adapter.basePath;
-  } catch (e) {
+  } catch {
     new Notice("Export indisponible sur cette plateforme (mobile ?).");
     return;
   }
@@ -430,7 +431,7 @@ async function exportViaPandoc(app, settings, format = "docx") {
       normalizePath(refRel),
     ];
 
-    let resolvedRel = candidates.find((c) => app.vault.getAbstractFileByPath(c)) || "";
+    const resolvedRel = candidates.find((c) => app.vault.getAbstractFileByPath(c)) || "";
 
     if (resolvedRel) {
       const absRef = pathMod.resolve(pathMod.join(basePath, resolvedRel));
@@ -457,10 +458,10 @@ async function exportViaPandoc(app, settings, format = "docx") {
   }
 
   new Notice(`Conversion Pandoc (${format}) en cours…`);
-  execFile(S.pandocPath || "pandoc", args, async (err, stdout, stderr) => {
+  execFile(S.pandocPath || "pandoc", args, async (err, _stdout, _stderr) => {
     try {
       await app.vault.adapter.remove(exportRel);
-    } catch (e) {}
+    } catch { /* suppression du fichier d'export temporaire, au mieux : Pandoc a deja produit sa sortie */ }
     if (err) {
       new Notice(
         `Échec Pandoc (${format}) : vérifie l'installation et le chemin dans les réglages. ${

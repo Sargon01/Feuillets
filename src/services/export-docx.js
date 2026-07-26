@@ -16,7 +16,7 @@ import {
   VerticalAlignSection,
 } from "docx";
 import { renderManuscriptHtml } from "./export-render.js";
-import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
+
 import { normalizeHeadings } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
 import { markedMarkdownFor, bookmarkMarkerInfoOf } from "../utils/docx-bookmarks.js";
@@ -46,7 +46,7 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
   footnotes.forEach((f, i) => {
     const id = i + 1;
     footnoteIdByHref.set(f.id, id);
-    const text = (f.text || "").replace(/[\s\/\\]+$/, "").trim();
+    const text = (f.text || "").replace(/[\s/\\]+$/, "").trim();
     footnoteMap[id] = { children: [new Paragraph({ children: [new TextRun(` ${text}`)] })] };
   });
 
@@ -56,7 +56,7 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
      l'autrice a déjà composé sa propre page Front de type "titre" — sans
      quoi le document ouvrirait sur DEUX pages de titre à la suite. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));
-  let bodyParagraphs = hasAuthoredTitlePage
+  const bodyParagraphs = hasAuthoredTitlePage
     ? []
     : [new Paragraph({ heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, children: [new TextRun(title)] })];
   if (!hasAuthoredTitlePage && author) {

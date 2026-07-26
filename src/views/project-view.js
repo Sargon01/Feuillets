@@ -1,4 +1,4 @@
-const { Notice, Platform, setIcon } = require("obsidian");
+import { Notice, Platform, setIcon } from "obsidian";
 
 import { VIEW_PROJECT } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";

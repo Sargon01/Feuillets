@@ -1,4 +1,4 @@
-const { Modal, Notice, setIcon } = require("obsidian");
+import { Modal, Notice, setIcon } from "obsidian";
 import { t } from "../i18n/index.js";
 
 /** Gestion des mots appris / fautes ignorées de la correction grammaticale

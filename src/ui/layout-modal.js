@@ -6,7 +6,7 @@ import {
 } from "../services/export-templates-custom.js";
 import { CompileSelectionModal } from "./selection-modals.js";
 
-const { Modal, Setting, Notice, Platform } = require("obsidian");
+import { Modal, Setting, Notice, Platform } from "obsidian";
 import { t } from "../i18n/index.js";
 
 /* Échelle de la maquette : la zone de contenu (entre bande en-tête et bande

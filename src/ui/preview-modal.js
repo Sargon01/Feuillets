@@ -1,4 +1,4 @@
-const { Modal } = require("obsidian");
+import { Modal } from "obsidian";
 import { resolveExportTemplate } from "../services/export-templates-custom.js";
 import { paginateManuscript } from "../services/export-pdf.js";
 import { templateToCss } from "../utils/export-templates.js";

@@ -1,6 +1,14 @@
 import esbuild from "esbuild";
 import process from "node:process";
-import builtins from "builtin-modules";
+/* `node:module` plutôt que le paquet `builtin-modules` : Node fournit la
+   même liste nativement depuis longtemps, et la revue Obsidian signale
+   `builtin-modules` comme dépendance à remplacer (module-replacements).
+   Une dépendance de moins à installer et à auditer. */
+import { builtinModules } from "node:module";
+
+/* Les deux graphies doivent être externes : `require("fs")` comme
+   `require("node:fs")`. builtinModules ne renvoie que la forme nue. */
+const builtins = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)];
 
 const prod = process.argv[2] === "production";
 

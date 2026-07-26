@@ -7,7 +7,7 @@ import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { t } from "../i18n/index.js";
-const { Menu, TFile, TFolder, setIcon, Notice, normalizePath } = require("obsidian");
+import { Menu, TFile, TFolder, setIcon, Notice, normalizePath } from "obsidian";
 
 export class FeuilletsView extends BaseFeuilletsView {
   getViewType() {
@@ -759,7 +759,6 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     this.renderSplitBody(container, folder, {
       S,
-      numbering,
       binderFilterActive,
       folderHasMatch,
       renderFileRow,
@@ -941,7 +940,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     const listBody = listPane.createDiv({ cls: "feuillets-list" });
     const hub = listBody.createDiv({ cls: "feuillets-project-hub" });
 
-    const titleEl = hub.createEl("h3", { cls: "feuillets-hub-title", text: t("binder.projectManager.hubTitle") });
+    hub.createEl("h3", { cls: "feuillets-hub-title", text: t("binder.projectManager.hubTitle") });
 
     const subEl = hub.createDiv({ cls: "feuillets-notes-sub" });
     subEl.setText(t("binder.projectManager.hubSub"));
@@ -1155,7 +1154,6 @@ export class FeuilletsView extends BaseFeuilletsView {
   renderSplitBody(container, root, ctx) {
     const {
       S,
-      numbering,
       binderFilterActive,
       folderHasMatch,
       renderFileRow,
