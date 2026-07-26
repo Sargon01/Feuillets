@@ -25,3 +25,5 @@ repomix-output.*
 # pas commités ici — trop lourds pour l'installeur standard d'Obsidian.
 /resources/grammalecte/
 /resources/harper/
+/resources/.grammalecte-version.json
+/resources/.harper-version.json

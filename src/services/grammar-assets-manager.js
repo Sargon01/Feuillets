@@ -67,11 +67,21 @@ export async function downloadEngine(app, manifest, engine, onProgress) {
   if (!def) throw new Error(`Moteur inconnu : ${engine}`);
 
   if (onProgress) onProgress("download");
-  const response = await fetch(def.url);
-  if (!response.ok) {
+  // requestUrl (API Obsidian) plutôt que fetch() global : fetch() se heurte
+  // au CORS/CSP du process de rendu d'Electron pour un domaine externe
+  // comme github.com, requestUrl le contourne (même raison que BRAT s'en
+  // sert pour ses propres téléchargements de releases GitHub).
+  const { requestUrl } = require("obsidian");
+  let response;
+  try {
+    response = await requestUrl({ url: def.url, method: "GET" });
+  } catch (e) {
+    throw new Error(`Téléchargement échoué : ${e.message || e}`);
+  }
+  if (response.status < 200 || response.status >= 300) {
     throw new Error(`Téléchargement échoué (HTTP ${response.status}) : ${def.url}`);
   }
-  const buffer = await response.arrayBuffer();
+  const buffer = response.arrayBuffer;
 
   if (onProgress) onProgress("extract");
   const zip = await JSZip.loadAsync(buffer);
