@@ -3,6 +3,7 @@ import { exportPdf, paginateManuscript } from "../services/export-pdf.js";
 import { resolveExportTemplate, exportBuiltInTemplates } from "../services/export-templates-custom.js";
 import { templateToCss, EXPORT_TEMPLATES } from "../utils/export-templates.js";
 import { compile, exportFile } from "../services/compile-export.js";
+import { t } from "../i18n/index.js";
 
 export class PdfStyleModal extends Modal {
   constructor(app, plugin) {
@@ -19,29 +20,29 @@ export class PdfStyleModal extends Modal {
 
     // 1. En-tête fixe et stable
     const headerBar = contentEl.createDiv({ cls: "feuillets-studio-header-bar" });
-    headerBar.createEl("h3", { text: "Studio d'exportation & Mise en page" });
+    headerBar.createEl("h3", { text: t("modal.pdfStyle.title") });
 
     // Onglets de format (PDF, Word, EPUB)
     const formatTabs = headerBar.createDiv({ cls: "feuillets-studio-format-tabs" });
-    
+
     const pdfTab = formatTabs.createEl("button", {
       cls: `feuillets-studio-tab ${this.activeFormat === "pdf" ? "is-active" : ""}`,
-      text: "📄 PDF (Impression)"
+      text: `📄 ${t("modal.pdfStyle.tabPdf")}`
     });
     const docxTab = formatTabs.createEl("button", {
       cls: `feuillets-studio-tab ${this.activeFormat === "docx" ? "is-active" : ""}`,
-      text: "📝 Word (.docx)"
+      text: `📝 ${t("modal.pdfStyle.tabDocx")}`
     });
     const epubTab = formatTabs.createEl("button", {
       cls: `feuillets-studio-tab ${this.activeFormat === "epub" ? "is-active" : ""}`,
-      text: "📚 EPUB (Ebook)"
+      text: `📚 ${t("modal.pdfStyle.tabEpub")}`
     });
 
     // Actions à droite : Bouton Exporter (CTA) + Bouton Fermer
     const headerActions = headerBar.createDiv({ cls: "feuillets-studio-header-actions" });
     const exportCta = headerActions.createEl("button", {
       cls: "mod-cta feuillets-studio-export-btn",
-      text: "Exporter"
+      text: t("project.compilation.exportBtn")
     });
     const closeBtn = headerActions.createEl("button", {
       cls: "feuillets-studio-close-btn",
@@ -55,7 +56,7 @@ export class PdfStyleModal extends Modal {
     const previewPane = bodyLayout.createDiv({ cls: "feuillets-studio-preview" });
 
     const previewHeader = previewPane.createDiv({ cls: "feuillets-studio-preview-header" });
-    previewHeader.createSpan({ text: "Aperçu visuel du manuscrit" });
+    previewHeader.createSpan({ text: t("modal.pdfStyle.previewHeader") });
 
     const sheetContainer = previewPane.createDiv({ cls: "feuillets-studio-sheet-container" });
 
@@ -79,7 +80,7 @@ export class PdfStyleModal extends Modal {
       await this.plugin.saveSettings();
       const root = this.plugin.getProjectFolder();
       if (!root) {
-        new Notice("Veuillez sélectionner un projet actif.");
+        new Notice(t("modal.pdfStyle.selectActiveProject"));
         return;
       }
 
@@ -104,11 +105,11 @@ export class PdfStyleModal extends Modal {
     container.empty();
 
     // Section 1 : Style Éditorial
-    container.createEl("h4", { text: "🎨 Modèle de mise en page" });
+    container.createEl("h4", { text: `🎨 ${t("modal.pdfStyle.layoutModel")}` });
 
     new Setting(container)
-      .setName("Modèle éditorial")
-      .setDesc("Style de typographie et d'interligne.")
+      .setName(t("modal.pdfStyle.editorialModel"))
+      .setDesc(t("modal.pdfStyle.editorialModelDesc"))
       .addDropdown((d) => {
         Object.keys(EXPORT_TEMPLATES).forEach((k) => {
           d.addOption(k, EXPORT_TEMPLATES[k].label);
@@ -121,34 +122,34 @@ export class PdfStyleModal extends Modal {
       });
 
     new Setting(container)
-      .setName("Modèles personnalisés")
-      .setDesc("Exporter les modèles dans le coffre (Resources/Layouts) pour les éditer.")
+      .setName(t("modal.pdfStyle.customTemplates"))
+      .setDesc(t("modal.pdfStyle.customTemplatesDesc"))
       .addButton((b) =>
-        b.setButtonText("Exporter…").onClick(async () => {
+        b.setButtonText(t("modal.pdfStyle.exportBtn")).onClick(async () => {
           const n = await exportBuiltInTemplates(this.app, this.settings);
           new Notice(
             n > 0
-              ? `${n} modèle(s) exporté(s) dans Resources/Layouts.`
-              : "Tous les modèles intégrés sont déjà présents dans Resources/Layouts."
+              ? t("main.notice.templatesExported", { count: n })
+              : t("main.notice.templatesAlreadyPresent")
           );
         })
       );
 
     // Section 2 : En-têtes & Pieds de page (Word & PDF)
-    container.createEl("h4", { text: "✍️ En-têtes & Pieds de page" });
+    container.createEl("h4", { text: `✍️ ${t("modal.pdfStyle.headersFooters")}` });
 
     new Setting(container)
-      .setName("En-têtes alternés")
-      .setDesc("Pages paires (gauches) et impaires (droites).")
-      .addToggle((t) =>
-        t.setValue(!!this.settings.pdfDiffHeaders).onChange(async (v) => {
+      .setName(t("settings.pdfDiffHeaders.name"))
+      .setDesc(t("modal.pdfStyle.altHeadersDesc"))
+      .addToggle((t2) =>
+        t2.setValue(!!this.settings.pdfDiffHeaders).onChange(async (v) => {
           this.settings.pdfDiffHeaders = v;
           await this.renderWysiwygPreview(sheetContainer);
         })
       );
 
     new Setting(container)
-      .setName("En-tête gauche")
+      .setName(t("settings.pdfHeaderLeft.name"))
       .addText((text) =>
         text.setValue(this.settings.pdfHeaderLeft || "{title}").onChange(async (v) => {
           this.settings.pdfHeaderLeft = v;
@@ -157,7 +158,7 @@ export class PdfStyleModal extends Modal {
       );
 
     new Setting(container)
-      .setName("En-tête droit")
+      .setName(t("settings.pdfHeaderRight.name"))
       .addText((text) =>
         text.setValue(this.settings.pdfHeaderRight || "{author}").onChange(async (v) => {
           this.settings.pdfHeaderRight = v;
@@ -166,13 +167,17 @@ export class PdfStyleModal extends Modal {
       );
 
     // Section 3 : Numérotation
-    container.createEl("h4", { text: "🔢 Numérotation des pages" });
+    container.createEl("h4", { text: `🔢 ${t("modal.pdfStyle.pageNumbering")}` });
 
     new Setting(container)
-      .setName("Position du numéro")
+      .setName(t("modal.pdfStyle.numberPosition"))
       .addDropdown((d) =>
         d
-          .addOptions({ right: "Droite", center: "Centré", left: "Gauche" })
+          .addOptions({
+            right: t("settings.pdfPageNumberPosition.right"),
+            center: t("settings.pdfPageNumberPosition.center"),
+            left: t("settings.pdfPageNumberPosition.left"),
+          })
           .setValue(this.settings.pdfPageNumberPosition || "right")
           .onChange(async (v) => {
             this.settings.pdfPageNumberPosition = v;
@@ -181,7 +186,7 @@ export class PdfStyleModal extends Modal {
       );
 
     new Setting(container)
-      .setName("Format du numéro")
+      .setName(t("modal.pdfStyle.numberFormat"))
       .addText((text) =>
         text.setValue(this.settings.pdfFooterRight || "Page {page} sur {pages}").onChange(async (v) => {
           this.settings.pdfFooterRight = v;
@@ -190,9 +195,9 @@ export class PdfStyleModal extends Modal {
       );
 
     new Setting(container)
-      .setName("Masquer sur 1re page")
-      .addToggle((t) =>
-        t.setValue(this.settings.pdfHideFirstPageHeader ?? true).onChange(async (v) => {
+      .setName(t("modal.pdfStyle.hideOnFirstPage"))
+      .addToggle((t2) =>
+        t2.setValue(this.settings.pdfHideFirstPageHeader ?? true).onChange(async (v) => {
           this.settings.pdfHideFirstPageHeader = v;
           await this.renderWysiwygPreview(sheetContainer);
         })
@@ -200,13 +205,13 @@ export class PdfStyleModal extends Modal {
 
     if (this.activeFormat !== "epub") {
       // Section 4 : Format & Marges
-      container.createEl("h4", { text: "📐 Marges & Reliure" });
+      container.createEl("h4", { text: `📐 ${t("modal.pdfStyle.marginsBinding")}` });
 
       new Setting(container)
-        .setName("Format du papier")
+        .setName(t("settings.pdfPageSize.name"))
         .addDropdown((d) =>
           d
-            .addOptions({ A4: "A4", letter: "US Letter", A5: "A5", poche: "Poche (11x18 cm)" })
+            .addOptions({ A4: "A4", letter: "US Letter", A5: "A5", poche: t("modal.pdfStyle.pocketSize") })
             .setValue(this.settings.pdfPageSize || "A4")
             .onChange(async (v) => {
               this.settings.pdfPageSize = v;
@@ -215,9 +220,9 @@ export class PdfStyleModal extends Modal {
         );
 
       new Setting(container)
-        .setName("Marge Haut/Bas (cm)")
-        .addText((t) =>
-          t.setValue(String(this.settings.pdfMarginTop ?? 2.5)).onChange(async (v) => {
+        .setName(t("modal.pdfStyle.marginTopBottom"))
+        .addText((t2) =>
+          t2.setValue(String(this.settings.pdfMarginTop ?? 2.5)).onChange(async (v) => {
             this.settings.pdfMarginTop = parseFloat(v) || 2.5;
             this.settings.pdfMarginBottom = parseFloat(v) || 2.5;
             await this.renderWysiwygPreview(sheetContainer);
@@ -225,18 +230,18 @@ export class PdfStyleModal extends Modal {
         );
 
       new Setting(container)
-        .setName("Marge Reliure (cm)")
-        .addText((t) =>
-          t.setValue(String(this.settings.pdfMarginLeft ?? 2.5)).onChange(async (v) => {
+        .setName(t("settings.pdfMarginLeft.name"))
+        .addText((t2) =>
+          t2.setValue(String(this.settings.pdfMarginLeft ?? 2.5)).onChange(async (v) => {
             this.settings.pdfMarginLeft = parseFloat(v) || 2.5;
             await this.renderWysiwygPreview(sheetContainer);
           })
         );
 
       new Setting(container)
-        .setName("Marges miroir")
-        .addToggle((t) =>
-          t.setValue(!!this.settings.pdfMirrorMargins).onChange(async (v) => {
+        .setName(t("settings.pdfMirrorMargins.name"))
+        .addToggle((t2) =>
+          t2.setValue(!!this.settings.pdfMirrorMargins).onChange(async (v) => {
             this.settings.pdfMirrorMargins = v;
             await this.renderWysiwygPreview(sheetContainer);
           })
@@ -248,21 +253,21 @@ export class PdfStyleModal extends Modal {
     container.empty();
 
     const root = this.plugin ? this.plugin.getProjectFolder() : null;
-    const title = this.settings.manuscriptTitle || (root ? root.name : "Manuscrit");
-    const author = this.settings.manuscriptAuthor || "Auteur";
+    const title = this.settings.manuscriptTitle || (root ? root.name : t("analysis.dashboard.defaultManuscriptName"));
+    const author = this.settings.manuscriptAuthor || t("modal.preview.defaultAuthor");
 
     const tpl = await resolveExportTemplate(this.app, this.settings, this.settings.exportTemplate);
     const css = templateToCss(tpl);
 
     const dummyEl = document.createElement("div");
     dummyEl.innerHTML = `
-      <h1>Bonjour et bienvenue !</h1>
-      <p>Nous sommes ravis de vous voir ici ! Merci de nous accorder quelques instants avant de vous lancer dans l'écriture. Bien que l'éditeur ressemble à un simple outil de texte, il offre une mise en page très complète.</p>
-      <p>Voici donc un peu de lecture avant de commencer à écrire.</p>
-      <h2>Ce qu'il faut savoir</h2>
-      <p>Dans <strong>Ce qu'il faut savoir</strong>, nous expliquons les principes fondamentaux du projet. Rassurez-vous : ça n'a rien de compliqué, et vous aurez tout compris en un rien de temps.</p>
-      <h2>Organisation du manuscrit</h2>
-      <p>Vous pouvez facilement structurer vos chapitres, vos scènes et vos notes de projet.</p>
+      <h1>${t("modal.preview.dummy.h1")}</h1>
+      <p>${t("modal.preview.dummy.p1")}</p>
+      <p>${t("modal.pdfStyle.dummyP2")}</p>
+      <h2>${t("modal.preview.dummy.h2a")}</h2>
+      <p>${t("modal.pdfStyle.dummyP3", { section: `<strong>${t("modal.preview.dummy.h2a")}</strong>` })}</p>
+      <h2>${t("modal.preview.dummy.h2b")}</h2>
+      <p>${t("modal.preview.dummy.p3")}</p>
     `;
 
     const { pagesHtml } = paginateManuscript(dummyEl, [], this.settings, tpl, title, author);

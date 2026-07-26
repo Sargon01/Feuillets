@@ -1,4 +1,5 @@
 const { Modal, Notice, normalizePath } = require("obsidian");
+import { t } from "../i18n/index.js";
 
 export class ImportOutlineModal extends Modal {
   constructor(app, plugin) {
@@ -8,17 +9,15 @@ export class ImportOutlineModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.createEl("h3", {
-      text: "Importer un plan (Multi-niveaux)",
+      text: t("modal.importOutline.title"),
     });
     contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      "Colle ton plan en Markdown ci-dessous. Les lignes commençant par # (##, ###, etc.) créent des dossiers " +
-      "correspondant au niveau de titre. Les tirets (-) ou le texte brut créent des scènes au format .md."
+      t("modal.importOutline.desc")
     );
     const ta = contentEl.createEl("textarea", {
       attr: {
         rows: 14,
-        placeholder:
-          "# Partie 1\n## Chapitre 1\n- Scène 1\n- Scène 2\n## Chapitre 2\n- Scène 3\n# Partie 2\n- Chapitre 3",
+        placeholder: t("modal.importOutline.placeholder"),
       },
     });
     ta.style.width = "100%";
@@ -27,18 +26,18 @@ export class ImportOutlineModal extends Modal {
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
-      .createEl("button", { text: "Créer l'arborescence", cls: "mod-cta" })
+      .createEl("button", { text: t("modal.importOutline.createBtn"), cls: "mod-cta" })
       .addEventListener("click", async () => {
         const text = ta.value;
         if (!text.trim()) {
-          new Notice("Colle d'abord une liste.");
+          new Notice(t("modal.importOutline.pasteFirst"));
           return;
         }
         await this.importOutline(text);
         this.close();
       });
     btnRow
-      .createEl("button", { text: "Annuler" })
+      .createEl("button", { text: t("modal.cancel") })
       .addEventListener("click", () => this.close());
   }
   onClose() {
@@ -47,14 +46,14 @@ export class ImportOutlineModal extends Modal {
 
   safeFolderName(title, index) {
     const cleaned = title.replace(/[\\/:*?"<>|]/g, "").trim();
-    return cleaned || `Sans-titre-${index}`;
+    return cleaned || t("modal.importOutline.untitled", { index });
   }
 
   async importOutline(text) {
     const plugin = this.plugin;
     const root = plugin.getProjectFolder();
     if (!root) {
-      new Notice("Aucun dossier projet défini dans les réglages.");
+      new Notice(t("modal.importOutline.noProjectFolder"));
       return;
     }
     const lines = text.split("\n").filter((l) => l.trim().length > 0);
@@ -156,6 +155,6 @@ export class ImportOutlineModal extends Modal {
     }
 
     plugin.renderAllViews(true);
-    new Notice(`Import réussi : ${createdFoldersCount} dossier(s), ${createdFilesCount} scène(s) créée(s).`);
+    new Notice(t("modal.importOutline.importDone", { folders: createdFoldersCount, files: createdFilesCount }));
   }
 }
