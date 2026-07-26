@@ -1,7 +1,7 @@
 {
   "id": "feuillets",
   "name": "Feuillets",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "minAppVersion": "1.4.0",
   "description": "Writing studio for novelists: manuscript structure, character sheets, compilation and export to .docx, EPUB, ODT and PDF.",
   "author": "Halim Yalcin",

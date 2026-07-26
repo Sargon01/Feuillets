@@ -2,7 +2,7 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
-## Non publié
+## 1.1.0
 
 ### Ajouté
 
