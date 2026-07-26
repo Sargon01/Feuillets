@@ -1,0 +1,16 @@
+# Generated build assets
+main.js
+main.js.map
+
+# Dependencies
+node_modules/
+
+# Resource assets & user data
+resources/
+
+# Backups & test vaults
+_cleanup-backups/
+Candide - Voltaire/
+
+# Coverage
+coverage/

@@ -1,13 +1,23 @@
 {
-  "root": true,
   "env": {
     "browser": true,
-    "es2022": true,
+    "es2024": true,
     "node": true
   },
   "parserOptions": {
-    "ecmaVersion": 2022,
+    "ecmaVersion": "latest",
     "sourceType": "module"
   },
-  "rules": {}
+  "ignorePatterns": [
+    "main.js",
+    "main.js.map",
+    "node_modules/",
+    "resources/",
+    "_cleanup-backups/",
+    "Candide - Voltaire/",
+    "coverage/"
+  ],
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }]
+  }
 }

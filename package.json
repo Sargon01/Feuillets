@@ -7,6 +7,7 @@
     "postinstall": "node scripts/patch-harper.mjs && node scripts/patch-script-polyfills.mjs",
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "lint": "tsc -noEmit -skipLibCheck",
     "test": "node --test test/*.test.js"
   },
   "keywords": [],
