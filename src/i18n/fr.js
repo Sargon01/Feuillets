@@ -855,9 +855,14 @@ export const fr = {
   "settings.category.sidePanels": "Panneaux latéraux",
   "settings.category.export": "Export",
   "settings.knownWords.empty": "Aucun mot appris pour l'instant.",
-  "settings.knownWords.removeTooltip": "Cliquer pour retirer (le mot sera de nouveau signalé s'il n'est pas dans le dictionnaire)",
+  "settings.knownWords.manageBtn": "Gérer ({count})",
   "settings.ignoredRules.empty": "Aucune faute ignorée pour l'instant.",
-  "settings.ignoredRules.removeTooltip": "Cliquer pour retirer (cette règle sera de nouveau signalée sur ce mot)",
+  "settings.ignoredRules.manageBtn": "Gérer ({count})",
+  "modal.grammarUserData.filterPlaceholder": "Filtrer…",
+  "modal.grammarUserData.noMatch": "Aucun résultat.",
+  "modal.grammarUserData.removeAria": "Retirer",
+  "modal.grammarUserData.clearAllAria": "Tout effacer",
+  "modal.grammarUserData.cleared": "Liste vidée.",
 
   // ---------- main.js (ruban, commandes, notifications) ----------
   "main.ribbon.binder": "Feuillets : binder",

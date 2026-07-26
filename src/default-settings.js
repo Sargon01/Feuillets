@@ -191,14 +191,11 @@ export const DEFAULT_SETTINGS = {
   languageToolUrl: "https://api.languagetool.org/v2/check",
   languageToolLanguage: "auto",
 
-  /* mots "appris" par l'utilisateur dans l'onglet Correction grammaticale —
-     vocabulaire volontairement absent du dictionnaire (noms propres, mots
-     étrangers...), à ne plus jamais signaler comme faute d'orthographe. */
-  grammalecteKnownWords: [],
-  /* fautes de grammaire ignorées (bouton "Ignorer" de l'onglet Correction
-     grammaticale) — signatures "règle::mot" (voir grammarIssueSignature,
-     utils/grammar-issue-signature.js), pas juste l'orthographe. */
-  grammalecteIgnoredRules: [],
+  /* Mots appris / fautes ignorées de la correction grammaticale : stockés
+     à part (services/grammar-user-data.js, resources/grammar-user-data.json),
+     pas ici — une liste qui grossit sans limite ne doit pas gonfler data.json
+     réécrit en entier à chaque saveSettings(). */
+
   /* désactivé par défaut : redon1/redon2 (répétitions de mots proches) sont
      bruyantes — Grammalecte lui-même les désactive par défaut. */
   grammalecteDetectRepetitions: false,

@@ -63,6 +63,7 @@ import { grammarIssuesField, grammarClickHandler } from "./utils/cm-grammar-high
 import { GrammalecteChecker } from "./services/grammalecte-checker.js";
 import { HarperChecker } from "./services/harper-checker.js";
 import { GrammarCheckerManager } from "./services/grammar-checker-manager.js";
+import { GrammarUserData } from "./services/grammar-user-data.js";
 
 const {
   Plugin,
@@ -118,8 +119,10 @@ class FeuilletsPlugin extends Plugin {
     if (!Platform.isMobile) {
       this.grammalecteChecker = new GrammalecteChecker(this.app, this.manifest);
       this.harperChecker = new HarperChecker(this.app, this.manifest);
+      this.grammarUserData = new GrammarUserData(this.app, this.manifest);
+      if (this.grammarUserData.migrateFromSettings(this.settings)) await this.saveSettings();
     }
-    this.grammarCheckerManager = new GrammarCheckerManager(this.app, this.manifest, this.grammalecteChecker, this.harperChecker);
+    this.grammarCheckerManager = new GrammarCheckerManager(this.app, this.manifest, this.grammalecteChecker, this.harperChecker, this.grammarUserData);
 
     initScenesEditor(this);
   }

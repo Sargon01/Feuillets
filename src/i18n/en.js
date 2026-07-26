@@ -854,9 +854,14 @@ export const en = {
   "settings.category.sidePanels": "Side panels",
   "settings.category.export": "Export",
   "settings.knownWords.empty": "No learned word yet.",
-  "settings.knownWords.removeTooltip": "Click to remove (the word will be flagged again if it's not in the dictionary)",
+  "settings.knownWords.manageBtn": "Manage ({count})",
   "settings.ignoredRules.empty": "No ignored issue yet.",
-  "settings.ignoredRules.removeTooltip": "Click to remove (this rule will be flagged again on this word)",
+  "settings.ignoredRules.manageBtn": "Manage ({count})",
+  "modal.grammarUserData.filterPlaceholder": "Filter…",
+  "modal.grammarUserData.noMatch": "No match.",
+  "modal.grammarUserData.removeAria": "Remove",
+  "modal.grammarUserData.clearAllAria": "Clear all",
+  "modal.grammarUserData.cleared": "List cleared.",
 
   // ---------- main.js (ribbon, commands, notices) ----------
   "main.ribbon.binder": "Feuillets: binder",

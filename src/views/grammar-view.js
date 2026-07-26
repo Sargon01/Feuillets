@@ -328,22 +328,17 @@ export class GrammarView extends BaseFeuilletsView {
   }
 
   async learnWord(word) {
-    const S = this.plugin.settings;
-    const known = S.grammalecteKnownWords || (S.grammalecteKnownWords = []);
-    if (known.some((w) => w.toLowerCase() === word.toLowerCase())) return;
-    known.push(word);
-    await this.plugin.saveSettings();
+    if (!this.plugin.grammarUserData) return;
+    if (!this.plugin.grammarUserData.learnWord(word)) return;
     new Notice(t("grammar.wordWontBeFlagged", { word }));
     this.checkedMtime = null; // force une nouvelle vérification au prochain render()
     await this.render();
   }
 
   async ignoreIssue(issue) {
-    const S = this.plugin.settings;
-    const ignored = S.grammalecteIgnoredRules || (S.grammalecteIgnoredRules = []);
+    if (!this.plugin.grammarUserData) return;
     const sig = grammarIssueSignature(issue);
-    if (!ignored.includes(sig)) ignored.push(sig);
-    await this.plugin.saveSettings();
+    if (!this.plugin.grammarUserData.ignoreIssueSignature(sig)) return;
     new Notice(t("grammar.issueWontBeFlagged"));
     this.checkedMtime = null; // force une nouvelle vérification au prochain render()
     await this.render();

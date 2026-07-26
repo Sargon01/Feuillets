@@ -9,11 +9,12 @@ import { t } from "../i18n/index.js";
  * explicitement ou utilisé en secours sur mobile / langue non couverte).
  */
 export class GrammarCheckerManager {
-  constructor(app, manifest, grammalecteChecker, harperChecker) {
+  constructor(app, manifest, grammalecteChecker, harperChecker, grammarUserData) {
     this.app = app;
     this.manifest = manifest;
     this.grammalecteChecker = grammalecteChecker;
     this.harperChecker = harperChecker;
+    this.grammarUserData = grammarUserData;
   }
 
   async checkText(text, settings, activeLocale = "fr") {
@@ -23,8 +24,10 @@ export class GrammarCheckerManager {
       return [];
     }
 
-    const knownWords = settings ? settings.grammalecteKnownWords || [] : [];
-    const ignoredRules = settings ? settings.grammalecteIgnoredRules || [] : [];
+    // Mots appris / fautes ignorées : voir GrammarUserData — stockés à part
+    // de data.json, pas dans les réglages.
+    const knownWords = this.grammarUserData ? this.grammarUserData.knownWords : [];
+    const ignoredRules = this.grammarUserData ? this.grammarUserData.ignoredRules : [];
     const detectRepetitions = settings ? !!settings.grammalecteDetectRepetitions : false;
 
     const languageToolOptions = () => ({

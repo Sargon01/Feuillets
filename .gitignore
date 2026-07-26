@@ -27,3 +27,7 @@ repomix-output.*
 /resources/harper/
 /resources/.grammalecte-version.json
 /resources/.harper-version.json
+
+# Mots appris / fautes ignorées de la correction grammaticale — données
+# utilisateur, jamais publiées (voir services/grammar-user-data.js).
+/resources/grammar-user-data.json

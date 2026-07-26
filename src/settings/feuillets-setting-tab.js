@@ -5,6 +5,7 @@ import { NewProjectModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
 import { isEngineInstalled, downloadEngine } from "../services/grammar-assets-manager.js";
+import { GrammarUserDataModal } from "../ui/grammar-user-data-modal.js";
 const { PluginSettingTab, Setting, TFolder, Notice, Menu } = require("obsidian");
 
 export class FeuilletsSettingTab extends PluginSettingTab {
@@ -1266,17 +1267,29 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
-      .setName(t("settings.knownWords.name"))
-      .setDesc(t("settings.knownWords.desc"));
-    const knownWordsWrap = containerEl.createDiv({ cls: "feuillets-tags" });
-    this.renderKnownWordsList(knownWordsWrap, S);
+    {
+      const count = this.plugin.grammarUserData ? this.plugin.grammarUserData.knownWords.length : 0;
+      new Setting(containerEl)
+        .setName(t("settings.knownWords.name"))
+        .setDesc(t("settings.knownWords.desc"))
+        .addButton((btn) =>
+          btn.setButtonText(t("settings.knownWords.manageBtn", { count })).onClick(() => {
+            new GrammarUserDataModal(this.app, this.plugin, "known").open();
+          })
+        );
+    }
 
-    new Setting(containerEl)
-      .setName(t("settings.ignoredRules.name"))
-      .setDesc(t("settings.ignoredRules.desc"));
-    const ignoredRulesWrap = containerEl.createDiv({ cls: "feuillets-tags" });
-    this.renderIgnoredRulesList(ignoredRulesWrap, S);
+    {
+      const count = this.plugin.grammarUserData ? this.plugin.grammarUserData.ignoredRules.length : 0;
+      new Setting(containerEl)
+        .setName(t("settings.ignoredRules.name"))
+        .setDesc(t("settings.ignoredRules.desc"))
+        .addButton((btn) =>
+          btn.setButtonText(t("settings.ignoredRules.manageBtn", { count })).onClick(() => {
+            new GrammarUserDataModal(this.app, this.plugin, "ignored").open();
+          })
+        );
+    }
 
     containerEl.createEl("h3", { text: t("settings.section.compilation"), attr: { "data-cat": "Export" } });
 
@@ -1729,45 +1742,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         }
       });
     });
-  }
-
-  renderKnownWordsList(container, S) {
-    container.empty();
-    const words = S.grammalecteKnownWords || [];
-    if (words.length === 0) {
-      container.createSpan({ cls: "feuillets-notes-sub" }).setText(t("settings.knownWords.empty"));
-      return;
-    }
-    for (const word of [...words].sort((a, b) => a.localeCompare(b, "fr"))) {
-      const chip = container.createSpan({ cls: "feuillets-tag-chip" });
-      chip.setText(word);
-      chip.title = t("settings.knownWords.removeTooltip");
-      chip.addEventListener("click", async () => {
-        S.grammalecteKnownWords = words.filter((w) => w !== word);
-        await this.plugin.saveSettings();
-        this.renderKnownWordsList(container, S);
-      });
-    }
-  }
-
-  renderIgnoredRulesList(container, S) {
-    container.empty();
-    const sigs = S.grammalecteIgnoredRules || [];
-    if (sigs.length === 0) {
-      container.createSpan({ cls: "feuillets-notes-sub" }).setText(t("settings.ignoredRules.empty"));
-      return;
-    }
-    for (const sig of [...sigs].sort()) {
-      const [ruleId, word] = sig.split("::");
-      const chip = container.createSpan({ cls: "feuillets-tag-chip" });
-      chip.setText(word ? `${word} (${ruleId})` : ruleId);
-      chip.title = t("settings.ignoredRules.removeTooltip");
-      chip.addEventListener("click", async () => {
-        S.grammalecteIgnoredRules = sigs.filter((s) => s !== sig);
-        await this.plugin.saveSettings();
-        this.renderIgnoredRulesList(container, S);
-      });
-    }
   }
 
   renderSectionOrderList(container, S, key, defaults, refresh) {
