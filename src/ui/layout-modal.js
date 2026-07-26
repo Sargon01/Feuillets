@@ -7,6 +7,7 @@ import {
 import { CompileSelectionModal } from "./selection-modals.js";
 
 const { Modal, Setting, Notice, Platform } = require("obsidian");
+import { t } from "../i18n/index.js";
 
 /* Échelle de la maquette : la zone de contenu (entre bande en-tête et bande
    pied de page) représente la hauteur utile d'une A4 (≈700pt). Aperçu, pas
@@ -44,12 +45,12 @@ export class LayoutModal extends Modal {
     this.titleEl = contentEl.createEl("h3", { cls: "feuillets-tp-title" });
     contentEl.createEl("p", {
       cls: "setting-item-description feuillets-tp-desc",
-      text: "Clique une zone (en-tête, blocs de titre, pied de page) pour l'éditer.",
+      text: t("modal.layout.clickToEdit"),
     });
 
     const S = this.plugin.settings;
     this.templates = await listExportTemplates(this.app, S);
-    if (!this.templates.some((t) => t.key === this.templateKey) && this.templates[0]) {
+    if (!this.templates.some((tpl) => tpl.key === this.templateKey) && this.templates[0]) {
       this.templateKey = this.templates[0].key;
     }
 
@@ -57,14 +58,14 @@ export class LayoutModal extends Modal {
     // de compilation réuni ici, réglable sans quitter le modal.
     const bar = contentEl.createDiv({ cls: "feuillets-tp-configbar" });
 
-    new Setting(bar).setName("Feuillets").addButton((b) =>
-      b.setButtonText("Choisir…").onClick(() => new CompileSelectionModal(this.app, this.plugin).open())
+    new Setting(bar).setName(t("modal.layout.sheets")).addButton((b) =>
+      b.setButtonText(t("modal.layout.chooseBtn")).onClick(() => new CompileSelectionModal(this.app, this.plugin).open())
     );
 
     const presets = S.compilePresets || [];
-    new Setting(bar).setName("Preset").addDropdown((d) => {
-      d.addOption("-1", "Réglages par défaut");
-      presets.forEach((p, i) => d.addOption(String(i), p.name || `Preset ${i + 1}`));
+    new Setting(bar).setName(t("modal.layout.preset")).addDropdown((d) => {
+      d.addOption("-1", t("modal.layout.defaultSettings"));
+      presets.forEach((p, i) => d.addOption(String(i), p.name || t("settings.compilePresets.item", { n: i + 1 })));
       d.setValue(String(S.activePreset >= 0 ? S.activePreset : -1));
       d.onChange(async (v) => {
         S.activePreset = parseInt(v, 10);
@@ -74,14 +75,14 @@ export class LayoutModal extends Modal {
     });
 
     new Setting(bar)
-      .setName("Modèle")
+      .setName(t("modal.layout.template"))
       .addDropdown((d) => {
-        this.templates.forEach((t) => d.addOption(t.key, t.label));
+        this.templates.forEach((tpl) => d.addOption(tpl.key, tpl.label));
         d.setValue(this.templateKey);
         d.onChange(async (v) => {
           this.templateKey = v;
-          const t = this.templates.find((x) => x.key === v);
-          this.templateLabel = t ? t.label : v;
+          const tpl = this.templates.find((x) => x.key === v);
+          this.templateLabel = tpl ? tpl.label : v;
           S.exportTemplate = v;
           await this.plugin.saveSettings();
           this.notifyChange();
@@ -91,18 +92,18 @@ export class LayoutModal extends Modal {
       .addExtraButton((b) =>
         b
           .setIcon("copy-plus")
-          .setTooltip("Exporter les modèles intégrés vers Resources/Layouts…")
+          .setTooltip(t("modal.layout.exportTemplatesTooltip"))
           .onClick(async () => {
             const n = await exportBuiltInTemplates(this.app, S);
             new Notice(
               n > 0
-                ? `${n} modèle(s) exporté(s) dans Resources/Layouts.`
-                : "Tous les modèles sont déjà présents dans Resources/Layouts."
+                ? t("main.notice.templatesExported", { count: n })
+                : t("modal.layout.allTemplatesPresent")
             );
           })
       );
 
-    new Setting(bar).setName("Format").addDropdown((d) => {
+    new Setting(bar).setName(t("project.compilation.formatLabel")).addDropdown((d) => {
       d.addOption("docx", ".docx (Word)");
       d.addOption("odt", ".odt (LibreOffice)");
       d.addOption("epub", ".epub (Ebook)");
@@ -121,7 +122,7 @@ export class LayoutModal extends Modal {
 
     const footer = contentEl.createDiv({ cls: "feuillets-tp-footer" });
     new Setting(footer).addButton((b) =>
-      b.setButtonText("Exporter").setCta().onClick(() => this.doExport())
+      b.setButtonText(t("project.compilation.exportBtn")).setCta().onClick(() => this.doExport())
     );
   }
 
@@ -135,7 +136,7 @@ export class LayoutModal extends Modal {
   /** (Re)charge les blocs du modèle courant et (re)construit la maquette
    * (bandes + blocs + inspecteur) — rejoué quand on change de modèle. */
   async renderLayout() {
-    this.titleEl.setText(`Mise en page — ${this.templateLabel || this.templateKey}`);
+    this.titleEl.setText(t("modal.layout.pageLayoutTitle", { name: this.templateLabel || this.templateKey }));
     const c = this.layoutContainer;
     c.empty();
     this.selected = null;
@@ -209,12 +210,12 @@ export class LayoutModal extends Modal {
     this.headerBand.toggleClass("is-selected", this.selected === "header");
     this.headerBand.toggleClass("is-muted", off || hideP1);
     if (off) {
-      this.headerBand.createSpan().setText("En-tête désactivé");
+      this.headerBand.createSpan().setText(t("modal.layout.headerDisabled"));
     } else {
       this.headerBand.createSpan({ cls: "feuillets-tp-band-l" }).setText(S.pdfHeaderLeft || "{title}");
       this.headerBand.createSpan({ cls: "feuillets-tp-band-r" }).setText(S.pdfHeaderRight || "{author}");
     }
-    if (hideP1) this.headerBand.createSpan({ cls: "feuillets-tp-band-note" }).setText("masqués p.1");
+    if (hideP1) this.headerBand.createSpan({ cls: "feuillets-tp-band-note" }).setText(t("modal.layout.hiddenOnP1"));
 
     this.footerBand.empty();
     this.footerBand.toggleClass("is-selected", this.selected === "footer");
@@ -259,43 +260,43 @@ export class LayoutModal extends Modal {
     if (this.selected === "footer") return this.renderFooterInspector(insp);
     if (this.selected && this.styles[this.selected]) return this.renderBlockInspector(insp, this.selected);
     insp.createDiv({ cls: "setting-item-description" }).setText(
-      "Clique une zone de la page (en-tête, un bloc de titre, pied de page)."
+      t("modal.layout.clickAZone")
     );
   }
 
   renderHeaderInspector(insp) {
     const S = this.plugin.settings;
-    insp.createEl("h4", { text: "En-tête (toutes les pages)" });
+    insp.createEl("h4", { text: t("modal.layout.headerAllPages") });
     const saveBands = async () => {
       await this.plugin.saveSettings();
       this.renderBands();
     };
-    new Setting(insp).setName("Activer l'en-tête").addToggle((t) =>
-      t.setValue(S.pdfEnableHeaders !== false).onChange(async (v) => {
+    new Setting(insp).setName(t("modal.layout.enableHeader")).addToggle((t2) =>
+      t2.setValue(S.pdfEnableHeaders !== false).onChange(async (v) => {
         S.pdfEnableHeaders = v;
         await saveBands();
       })
     );
-    new Setting(insp).setName("En-tête gauche").addText((t) =>
-      t.setValue(S.pdfHeaderLeft || "{title}").onChange(async (v) => {
+    new Setting(insp).setName(t("settings.pdfHeaderLeft.name")).addText((t2) =>
+      t2.setValue(S.pdfHeaderLeft || "{title}").onChange(async (v) => {
         S.pdfHeaderLeft = v;
         await saveBands();
       })
     );
-    new Setting(insp).setName("En-tête droit").addText((t) =>
-      t.setValue(S.pdfHeaderRight || "{author}").onChange(async (v) => {
+    new Setting(insp).setName(t("settings.pdfHeaderRight.name")).addText((t2) =>
+      t2.setValue(S.pdfHeaderRight || "{author}").onChange(async (v) => {
         S.pdfHeaderRight = v;
         await saveBands();
       })
     );
-    new Setting(insp).setName("Alternés (paires/impaires)").addToggle((t) =>
-      t.setValue(!!S.pdfDiffHeaders).onChange(async (v) => {
+    new Setting(insp).setName(t("modal.layout.alternating")).addToggle((t2) =>
+      t2.setValue(!!S.pdfDiffHeaders).onChange(async (v) => {
         S.pdfDiffHeaders = v;
         await saveBands();
       })
     );
-    new Setting(insp).setName("Masquer sur la page de titre").addToggle((t) =>
-      t.setValue(S.pdfHideFirstPageHeader !== false).onChange(async (v) => {
+    new Setting(insp).setName(t("modal.layout.hideOnTitlePage")).addToggle((t2) =>
+      t2.setValue(S.pdfHideFirstPageHeader !== false).onChange(async (v) => {
         S.pdfHideFirstPageHeader = v;
         await saveBands();
       })
@@ -304,24 +305,24 @@ export class LayoutModal extends Modal {
 
   renderFooterInspector(insp) {
     const S = this.plugin.settings;
-    insp.createEl("h4", { text: "Pied de page (numéro)" });
+    insp.createEl("h4", { text: t("modal.layout.footerNumber") });
     const saveBands = async () => {
       await this.plugin.saveSettings();
       this.renderBands();
     };
-    new Setting(insp).setName("Position du numéro").addDropdown((d) =>
+    new Setting(insp).setName(t("modal.pdfStyle.numberPosition")).addDropdown((d) =>
       d
-        .addOption("right", "Droite")
-        .addOption("center", "Centré")
-        .addOption("left", "Gauche")
+        .addOption("right", t("settings.pdfPageNumberPosition.right"))
+        .addOption("center", t("settings.pdfPageNumberPosition.center"))
+        .addOption("left", t("settings.pdfPageNumberPosition.left"))
         .setValue(S.pdfPageNumberPosition || "right")
         .onChange(async (v) => {
           S.pdfPageNumberPosition = v;
           await saveBands();
         })
     );
-    new Setting(insp).setName("Format ({page}, {pages})").addText((t) =>
-      t.setValue(S.pdfFooterRight || "Page {page} sur {pages}").onChange(async (v) => {
+    new Setting(insp).setName(t("modal.layout.formatWithVars")).addText((t2) =>
+      t2.setValue(S.pdfFooterRight || "Page {page} sur {pages}").onChange(async (v) => {
         S.pdfFooterRight = v;
         await saveBands();
       })
@@ -332,9 +333,9 @@ export class LayoutModal extends Modal {
     const st = this.styles[role];
     insp.createEl("h4", { text: role });
     const num = (name, get, set) =>
-      new Setting(insp).setName(name).addText((t) => {
-        t.inputEl.type = "number";
-        t.setValue(get() != null ? String(get()) : "").onChange(async (v) => {
+      new Setting(insp).setName(name).addText((t2) => {
+        t2.inputEl.type = "number";
+        t2.setValue(get() != null ? String(get()) : "").onChange(async (v) => {
           const n = parseFloat(v);
           set(v.trim() === "" || !Number.isFinite(n) ? undefined : n);
           this.layout();
@@ -342,9 +343,9 @@ export class LayoutModal extends Modal {
         });
       });
 
-    num("Taille (pt)", () => st.fontSizePt, (n) => (n == null ? delete st.fontSizePt : (st.fontSizePt = n)));
+    num(t("modal.layout.sizePt"), () => st.fontSizePt, (n) => (n == null ? delete st.fontSizePt : (st.fontSizePt = n)));
 
-    new Setting(insp).setName("Alignement").then((s) => {
+    new Setting(insp).setName(t("modal.layout.alignment")).then((s) => {
       for (const [val, icon] of [["left", "align-left"], ["center", "align-center"], ["right", "align-right"]]) {
         s.addExtraButton((b) => {
           b.setIcon(icon).setTooltip(val).onClick(async () => {
@@ -358,8 +359,8 @@ export class LayoutModal extends Modal {
       }
     });
 
-    num("Marge au-dessus (pt)", () => st.marginTopPt, (n) => (n == null ? delete st.marginTopPt : (st.marginTopPt = n)));
-    num("Marge en dessous (pt)", () => st.marginBottomPt, (n) => (n == null ? delete st.marginBottomPt : (st.marginBottomPt = n)));
+    num(t("modal.layout.marginAbove"), () => st.marginTopPt, (n) => (n == null ? delete st.marginTopPt : (st.marginTopPt = n)));
+    num(t("modal.layout.marginBelow"), () => st.marginBottomPt, (n) => (n == null ? delete st.marginBottomPt : (st.marginBottomPt = n)));
   }
 
   /** Met à jour le champ « marge au-dessus » pendant un glisser, sans
