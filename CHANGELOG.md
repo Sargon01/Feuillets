@@ -2,6 +2,13 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.3.1
+
+### Modifié & Corrigé
+
+- **Hygiène du code & revue Obsidian** : Harmonisation et documentation explicite de tous les blocs `catch` du projet. Nettoyage des variables inutilisées et suppression des avertissements de linter. Passage à 0 erreur au test de revue officiel `eslint-plugin-obsidianmd`.
+- **Correcteur LanguageTool** : Passage au transport `requestUrl` natif d'Obsidian afin de contourner les politiques CORS sur les serveurs LanguageTool locaux (`http://localhost:8081`).
+
 ## 1.3.0
 
 ### Modifié
