@@ -78,3 +78,5 @@ export class HarperChecker {
     this.importedWords.clear();
   }
 }
+
+/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

@@ -160,3 +160,5 @@ export class GrammalecteChecker {
     this.spellChecker = null;
   }
 }
+
+/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

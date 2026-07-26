@@ -94,3 +94,5 @@ export class GrammarUserData {
     this.save();
   }
 }
+
+/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

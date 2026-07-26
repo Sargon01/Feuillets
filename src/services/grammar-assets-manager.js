@@ -99,3 +99,5 @@ export async function downloadEngine(app, manifest, engine, onProgress) {
 
   fs.writeFileSync(versionMarkerPath(app, manifest, engine), JSON.stringify({ version: ASSETS_VERSION }));
 }
+
+/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

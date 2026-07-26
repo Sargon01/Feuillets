@@ -866,3 +866,5 @@ export class DocxReviewView extends BaseFeuilletsView {
     });
   }
 }
+
+/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

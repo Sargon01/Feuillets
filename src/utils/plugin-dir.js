@@ -9,3 +9,5 @@ export function pluginAbsoluteDir(app, manifest) {
     : app.vault.adapter.basePath;
   return path.join(basePath, manifest.dir);
 }
+
+/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

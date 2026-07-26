@@ -473,3 +473,5 @@ async function exportViaPandoc(app, settings, format = "docx") {
     }
   });
 }
+
+/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

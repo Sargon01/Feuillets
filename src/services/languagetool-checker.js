@@ -96,3 +96,5 @@ export async function checkTextLanguageTool(text, options = {}) {
 
   return issues;
 }
+
+/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */
