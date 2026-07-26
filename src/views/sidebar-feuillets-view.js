@@ -7,6 +7,7 @@ import { ProjectView } from "./project-view.js";
 import { DocxReviewView } from "./docx-review-view.js";
 import { GrammarView } from "./grammar-view.js";
 import { AnalysisView } from "./analysis-view.js";
+import { t } from "../i18n/index.js";
 
 export class SidebarFeuilletsView extends ItemView {
   constructor(leaf, plugin) {
@@ -36,7 +37,7 @@ export class SidebarFeuilletsView extends ItemView {
   }
 
   getDisplayText() {
-    return "Feuillets — Inspecteur";
+    return t("sidebar.displayText");
   }
 
   getIcon() {
@@ -82,12 +83,12 @@ export class SidebarFeuilletsView extends ItemView {
     const tabBar = container.createDiv({ cls: "feuillets-sidebar-tab-bar" });
 
     const tabs = [
-      { id: "notes", icon: "file-text", title: "Notes du feuillet" },
-      { id: "research", icon: "book-marked", title: "Recherche & extraits" },
-      { id: "journal", icon: "calendar", title: "Journal & statistiques" },
-      { id: "project", icon: "folder-cog", title: "Export & révision (.docx)" },
-      { id: "grammar", icon: "spell-check", title: "Correction grammaticale" },
-      { id: "analyse", icon: "bar-chart-3", title: "Analyse du texte" },
+      { id: "notes", icon: "file-text", title: t("sidebar.tab.notes") },
+      { id: "research", icon: "book-marked", title: t("sidebar.tab.research") },
+      { id: "journal", icon: "calendar", title: t("sidebar.tab.journal") },
+      { id: "project", icon: "folder-cog", title: t("sidebar.tab.project") },
+      { id: "grammar", icon: "spell-check", title: t("sidebar.tab.grammar") },
+      { id: "analyse", icon: "bar-chart-3", title: t("sidebar.tab.analysis") },
     ];
 
     for (const tab of tabs) {

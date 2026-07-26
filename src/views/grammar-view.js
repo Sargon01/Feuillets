@@ -4,9 +4,12 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { applyGrammarHighlights, clearGrammarHighlights } from "../utils/cm-grammar-highlighter.js";
 import { grammarIssueSignature } from "../services/grammalecte-checker.js";
 import { sanitizeForGrammarCheck } from "../utils/sanitize-for-grammar.js";
+import { t } from "../i18n/index.js";
 
 const TYPE_ICON = { grammar: "spell-check", spelling: "text-cursor-input" };
-const TYPE_LABEL = { grammar: "Grammaire", spelling: "Orthographe" };
+function typeLabel(type) {
+  return type === "spelling" ? t("grammar.type.spelling") : t("grammar.type.grammar");
+}
 
 /** Onglet Grammalecte : vérifie le feuillet actif (pas tout le projet — un
  * choix délibéré, voir la discussion produit : plus réactif, se comporte
@@ -34,7 +37,7 @@ export class GrammarView extends BaseFeuilletsView {
     return VIEW_GRAMMAR;
   }
   getDisplayText() {
-    return "Correction grammaticale";
+    return t("grammar.displayText");
   }
   getIcon() {
     return "spell-check";
@@ -78,7 +81,7 @@ export class GrammarView extends BaseFeuilletsView {
       this.issues = await this.plugin.grammalecteChecker.checkText(sanitized, knownWords, ignoredRules, detectRepetitions);
       this.highlightInEditor();
     } catch (e) {
-      new Notice("Correction grammaticale indisponible : " + e.message);
+      new Notice(t("grammar.checkUnavailable", { error: e.message }));
       this.issues = [];
     } finally {
       this.checking = false;
@@ -146,21 +149,21 @@ export class GrammarView extends BaseFeuilletsView {
     if (issue.type === "spelling") {
       menu.addItem((item) =>
         item
-          .setTitle("Apprendre")
+          .setTitle(t("grammar.learn"))
           .setIcon("book-plus")
           .onClick(() => this.learnWord(issue.underlined))
       );
     } else {
       menu.addItem((item) =>
         item
-          .setTitle("Ignorer")
+          .setTitle(t("grammar.ignore"))
           .setIcon("eye-off")
           .onClick(() => this.ignoreIssue(issue))
       );
     }
     menu.addItem((item) =>
       item
-        .setTitle("Voir dans le panneau")
+        .setTitle(t("grammar.viewInPanel"))
         .setIcon("panel-right")
         .onClick(() => this.highlightRowInPanel(idx))
     );
@@ -176,12 +179,12 @@ export class GrammarView extends BaseFeuilletsView {
     if (Platform.isMobile) {
       container
         .createDiv({ cls: "feuillets-research-empty" })
-        .setText("Correction grammaticale indisponible sur mobile.");
+        .setText(t("grammar.unavailableOnMobile"));
       return;
     }
 
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
-    const refreshBtn = this.iconBtn(toolbar, "refresh-cw", "Revérifier maintenant");
+    const refreshBtn = this.iconBtn(toolbar, "refresh-cw", t("grammar.recheckNowTooltip"));
     refreshBtn.addEventListener("click", () => {
       this.checkedMtime = null; // force une nouvelle vérification même si rien n'a changé
       this.render();
@@ -195,15 +198,15 @@ export class GrammarView extends BaseFeuilletsView {
       }
       container
         .createDiv({ cls: "feuillets-research-empty" })
-        .setText("Ouvre un feuillet pour le vérifier.");
+        .setText(t("grammar.openSheetToCheck"));
       return;
     }
 
     const summary = container.createDiv({ cls: "feuillets-research-section" });
     summary.createDiv({ cls: "feuillets-notes-sub" }).setText(
       this.checking
-        ? `Vérification de « ${this.plugin.titleFor(file)} »…`
-        : `${this.issues.length} signalement(s) dans « ${this.plugin.titleFor(file)} ».`
+        ? t("grammar.checkingInProgress", { title: this.plugin.titleFor(file) })
+        : t("grammar.issuesFound", { count: this.issues.length, s: this.issues.length > 1 ? "s" : "", title: this.plugin.titleFor(file) })
     );
 
     if (
@@ -219,7 +222,7 @@ export class GrammarView extends BaseFeuilletsView {
     if (this.issues.length === 0) {
       container
         .createDiv({ cls: "feuillets-research-empty" })
-        .setText("Aucune faute détectée.");
+        .setText(t("grammar.noIssuesDetected"));
       return;
     }
 
@@ -234,24 +237,24 @@ export class GrammarView extends BaseFeuilletsView {
     setIcon(icon, TYPE_ICON[issue.type] || "info");
 
     const name = header.createDiv({ cls: "feuillets-research-item-name" });
-    name.createDiv({ cls: "feuillets-docx-review-meta" }).setText(TYPE_LABEL[issue.type] || issue.type);
+    name.createDiv({ cls: "feuillets-docx-review-meta" }).setText(typeLabel(issue.type));
     name.createDiv({ cls: "feuillets-grammar-message" }).setText(issue.message);
     if (issue.underlined) {
       name.createDiv({ cls: "feuillets-docx-review-anchor" }).setText(`« ${issue.underlined} »`);
     }
 
     row.style.cursor = "pointer";
-    row.title = "Cliquer pour aller au passage concerné";
+    row.title = t("grammar.jumpToPassageTooltip");
     row.addEventListener("click", () => this.jumpTo(file, issue));
 
     if (issue.type === "spelling" && issue.underlined) {
-      const learnBtn = this.iconBtn(header, "book-plus", `Apprendre « ${issue.underlined} » (ne plus signaler ce mot, où qu'il apparaisse)`);
+      const learnBtn = this.iconBtn(header, "book-plus", t("grammar.learnWordTooltip", { word: issue.underlined }));
       learnBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         await this.learnWord(issue.underlined);
       });
     } else if (issue.type === "grammar") {
-      const ignoreBtn = this.iconBtn(header, "eye-off", "Ignorer cette faute (cette règle ne sera plus signalée sur ce mot)");
+      const ignoreBtn = this.iconBtn(header, "eye-off", t("grammar.ignoreIssueTooltip"));
       ignoreBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         await this.ignoreIssue(issue);
@@ -268,15 +271,15 @@ export class GrammarView extends BaseFeuilletsView {
     const editor = this.plugin.activeEditorAnywhere();
     const file = this.app.workspace.getActiveFile();
     if (!editor || !file) {
-      new Notice("Ouvre un feuillet dans l'éditeur principal.");
+      new Notice(t("grammar.openSheetInEditor"));
       return;
     }
     if (this.checkedPath !== file.path) {
-      new Notice("Ouvre l'onglet Correction grammaticale pour vérifier ce feuillet d'abord.");
+      new Notice(t("grammar.openTabFirst"));
       return;
     }
     if (!this.issues || this.issues.length === 0) {
-      new Notice("Aucune faute détectée dans ce feuillet.");
+      new Notice(t("grammar.noIssuesInSheet"));
       return;
     }
 
@@ -286,13 +289,13 @@ export class GrammarView extends BaseFeuilletsView {
       target = this.issues.find((i) => i.start > cursorOffset);
       if (!target) {
         target = this.issues[0];
-        new Notice("Retour au début du feuillet.");
+        new Notice(t("grammar.backToStart"));
       }
     } else {
       target = [...this.issues].reverse().find((i) => i.start < cursorOffset);
       if (!target) {
         target = this.issues[this.issues.length - 1];
-        new Notice("Retour à la fin du feuillet.");
+        new Notice(t("grammar.backToEnd"));
       }
     }
 
@@ -305,7 +308,7 @@ export class GrammarView extends BaseFeuilletsView {
   jumpTo(file, issue) {
     const editor = this.plugin.activeEditorAnywhere();
     if (!editor) {
-      new Notice("Ouvre ce feuillet dans l'éditeur principal pour y accéder.");
+      new Notice(t("grammar.openThisSheetInEditor"));
       return;
     }
     const from = editor.offsetToPos(issue.start + this.frontmatterOffset);
@@ -320,7 +323,7 @@ export class GrammarView extends BaseFeuilletsView {
     if (known.some((w) => w.toLowerCase() === word.toLowerCase())) return;
     known.push(word);
     await this.plugin.saveSettings();
-    new Notice(`« ${word} » ne sera plus signalé.`);
+    new Notice(t("grammar.wordWontBeFlagged", { word }));
     this.checkedMtime = null; // force une nouvelle vérification au prochain render()
     await this.render();
   }
@@ -331,7 +334,7 @@ export class GrammarView extends BaseFeuilletsView {
     const sig = grammarIssueSignature(issue);
     if (!ignored.includes(sig)) ignored.push(sig);
     await this.plugin.saveSettings();
-    new Notice("Cette faute ne sera plus signalée.");
+    new Notice(t("grammar.issueWontBeFlagged"));
     this.checkedMtime = null; // force une nouvelle vérification au prochain render()
     await this.render();
   }

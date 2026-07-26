@@ -1,4 +1,5 @@
 const { TFile, MarkdownRenderer } = require("obsidian");
+import { t } from "../i18n/index.js";
 
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -35,7 +36,7 @@ export class ScriveningsManager {
       // En-tête de séparation visuelle
       const header = sceneBlock.createDiv({ cls: "feuillets-scrivenings-header" });
       header.createSpan({ cls: "feuillets-scrivenings-title", text: `📄 ${shortTitle}` })
-        .setAttr("title", "Cliquer pour ouvrir ce fichier dans l'éditeur principal");
+        .setAttr("title", t("scrivenings.openInMainEditorTooltip"));
       header.addEventListener("click", () => this.onOpenFile(file));
 
       // Conteneur adoptant les classes de la vue Lecture native d'Obsidian
@@ -47,10 +48,10 @@ export class ScriveningsManager {
         bodyContainer.empty();
 
         const renderEl = bodyContainer.createDiv({ cls: "feuillets-rendered-body" });
-        renderEl.setAttr("title", "Double-cliquer pour éditer cette scène");
+        renderEl.setAttr("title", t("scrivenings.doubleClickToEditTooltip"));
 
         // Rendu Markdown natif (génère <p>, <em>, <strong>, etc.)
-        await MarkdownRenderer.render(this.app, body || "*Scène vide*", renderEl, file.path, component);
+        await MarkdownRenderer.render(this.app, body || t("scrivenings.emptyScene"), renderEl, file.path, component);
 
         // Double-clic pour passer en mode édition sur cette scène
         renderEl.addEventListener("dblclick", (evt) => {

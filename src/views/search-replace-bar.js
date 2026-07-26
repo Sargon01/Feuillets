@@ -2,6 +2,7 @@ const { MarkdownView, Notice, setIcon } = require("obsidian");
 import { FeuilletsSearchEngine } from "../services/feuillets-search-engine.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyEditorHighlights, clearEditorHighlights } from "../utils/cm-search-highlighter.js";
+import { t } from "../i18n/index.js";
 
 function insertAtCursor(inputEl, str) {
   if (!inputEl) return;
@@ -39,7 +40,7 @@ export class SearchReplaceBar {
   open() {
     const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!activeLeaf) {
-      new Notice("Ouvrez d'abord un feuillet en mode édition.");
+      new Notice(t("searchReplace.openSheetFirst"));
       return;
     }
 
@@ -84,7 +85,7 @@ export class SearchReplaceBar {
 
     const settingsBtn = inputWrapper.createEl("button", {
       cls: "feuillets-search-settings-btn",
-      attr: { title: "Réglages de recherche (Loupe)" },
+      attr: { title: t("searchReplace.settingsTooltip") },
     });
     setIcon(settingsBtn, "search");
     settingsBtn.addEventListener("click", (e) => {
@@ -95,7 +96,7 @@ export class SearchReplaceBar {
     const searchInput = inputWrapper.createEl("input", {
       type: "text",
       cls: "feuillets-search-input",
-      attr: { placeholder: "Rechercher…" },
+      attr: { placeholder: t("binder.search.placeholder") },
     });
     searchInput.value = this.searchQuery;
     setTimeout(() => searchInput.focus(), 50);
@@ -123,7 +124,7 @@ export class SearchReplaceBar {
     // Flèche Précédent (<)
     const prevBtn = searchRow.createDiv({
       cls: "feuillets-search-icon-btn",
-      attr: { title: "Occurrence précédente (Maj+Entrée)" },
+      attr: { title: t("searchReplace.prevOccurrenceTooltip") },
     });
     setIcon(prevBtn, "chevron-left");
     prevBtn.addEventListener("click", () => this.navigateMatch(-1));
@@ -131,7 +132,7 @@ export class SearchReplaceBar {
     // Flèche Suivant (>)
     const nextBtn = searchRow.createDiv({
       cls: "feuillets-search-icon-btn",
-      attr: { title: "Occurrence suivante (Entrée)" },
+      attr: { title: t("searchReplace.nextOccurrenceTooltip") },
     });
     setIcon(nextBtn, "chevron-right");
     nextBtn.addEventListener("click", () => this.navigateMatch(1));
@@ -139,7 +140,7 @@ export class SearchReplaceBar {
     // Bouton de bascule Remplacement
     const toggleReplaceBtn = searchRow.createDiv({
       cls: `feuillets-search-icon-btn ${this.showReplace ? "is-active" : ""}`,
-      attr: { title: "Basculer le remplacement" },
+      attr: { title: t("searchReplace.toggleReplaceTooltip") },
     });
     setIcon(toggleReplaceBtn, "replace");
     toggleReplaceBtn.addEventListener("click", () => {
@@ -150,7 +151,7 @@ export class SearchReplaceBar {
     // Bouton Fermer (×)
     const closeBtn = searchRow.createDiv({
       cls: "feuillets-search-icon-btn feuillets-close-btn",
-      attr: { title: "Fermer (Échap)" },
+      attr: { title: t("searchReplace.closeTooltip") },
     });
     setIcon(closeBtn, "x");
     closeBtn.addEventListener("click", () => this.close());
@@ -162,7 +163,7 @@ export class SearchReplaceBar {
       const replaceInput = replaceRow.createEl("input", {
         type: "text",
         cls: "feuillets-replace-input",
-        attr: { placeholder: "Remplacer par…" },
+        attr: { placeholder: t("searchReplace.replaceWithPlaceholder") },
       });
       replaceInput.value = this.replaceQuery;
       replaceInput.addEventListener("input", () => {
@@ -181,7 +182,7 @@ export class SearchReplaceBar {
 
       // Bouton Remplacer tout (CTA)
       const replaceAllBtn = replaceRow.createEl("button", {
-        text: "Tout remplacer",
+        text: t("searchReplace.replaceAllBtn"),
         cls: "feuillets-btn-replace-all feuillets-replace-all-btn",
       });
       replaceAllBtn.addEventListener("click", () => this.executeReplaceAll());
@@ -225,23 +226,23 @@ export class SearchReplaceBar {
     };
 
     // 1. Casse & Diacritiques
-    addItem("Ignorer la casse", this.options.ignoreCase, () => {
+    addItem(t("searchReplace.options.ignoreCase"), this.options.ignoreCase, () => {
       this.options.ignoreCase = !this.options.ignoreCase;
     });
-    addItem("Ignorer diacritiques", this.options.ignoreDiacritics, () => {
+    addItem(t("searchReplace.options.ignoreDiacritics"), this.options.ignoreDiacritics, () => {
       this.options.ignoreDiacritics = !this.options.ignoreDiacritics;
     });
 
     addDivider();
 
     // 2. Mode de correspondance
-    addItem("Contient", this.options.matchMode === "contains", () => {
+    addItem(t("searchReplace.options.contains"), this.options.matchMode === "contains", () => {
       this.options.matchMode = "contains";
     });
-    addItem("Commence par", this.options.matchMode === "startsWith", () => {
+    addItem(t("searchReplace.options.startsWith"), this.options.matchMode === "startsWith", () => {
       this.options.matchMode = "startsWith";
     });
-    addItem("Mot entier", this.options.matchMode === "wholeWord", () => {
+    addItem(t("searchReplace.options.wholeWord"), this.options.matchMode === "wholeWord", () => {
       this.options.matchMode = "wholeWord";
     });
 
@@ -264,17 +265,17 @@ export class SearchReplaceBar {
       });
     };
 
-    addCharItem("⇥", "Tabulation", "\t");
-    addCharItem("¶", "Paragraphe", "\n\n");
-    addCharItem("↵", "Saut de ligne", "\n");
+    addCharItem("⇥", t("searchReplace.options.tab"), "\t");
+    addCharItem("¶", t("searchReplace.options.paragraph"), "\n\n");
+    addCharItem("↵", t("searchReplace.options.lineBreak"), "\n");
 
     addDivider();
 
     // 4. Portée
-    addItem("Document actif", this.options.scope === "document", () => {
+    addItem(t("searchReplace.options.activeDocument"), this.options.scope === "document", () => {
       this.options.scope = "document";
     });
-    addItem("Dossier actif", this.options.scope === "manuscript", () => {
+    addItem(t("searchReplace.options.activeFolder"), this.options.scope === "manuscript", () => {
       this.options.scope = "manuscript";
     });
 
@@ -410,7 +411,7 @@ export class SearchReplaceBar {
 
   async executeReplaceAll() {
     if (!this.searchQuery) {
-      new Notice("Feuillets : Veuillez saisir un terme à rechercher.");
+      new Notice(t("searchReplace.enterSearchTerm"));
       return;
     }
 
@@ -430,7 +431,7 @@ export class SearchReplaceBar {
     );
 
     new Notice(
-      `Feuillets : ${totalReplacements} occurrence(s) remplacée(s) dans ${filesCount} fichier(s).`
+      t("searchReplace.replacedNotice", { count: totalReplacements, s1: totalReplacements > 1 ? "s" : "", files: filesCount, s2: filesCount > 1 ? "s" : "" })
     );
 
     await this.runSearch();
