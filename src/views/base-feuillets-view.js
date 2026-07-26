@@ -265,9 +265,9 @@ export class BaseFeuilletsView extends ItemView {
     searchInput.value = S.researchSearch || "";
     let researchSearchTimer;
     searchInput.addEventListener("input", () => {
-      clearTimeout(researchSearchTimer);
+      window.clearTimeout(researchSearchTimer);
       const caret = searchInput.selectionStart;
-      researchSearchTimer = setTimeout(async () => {
+      researchSearchTimer = window.setTimeout(async () => {
         S.researchSearch = searchInput.value;
         await this.plugin.saveSettings();
         await this.render(true);

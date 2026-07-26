@@ -96,7 +96,7 @@ async function handleFilChangedLocked(app, settings, plugin, file, root, fils) {
     /* filet de sécurité : si "changed" ne se redéclenche jamais pour cette
        écriture (cas rare), on ne veut pas rester bloqué à ignorer pour de
        bon la prochaine modification légitime de ce fichier. */
-    setTimeout(() => plugin._filSuppressed && plugin._filSuppressed.delete(path), 5000);
+    window.setTimeout(() => plugin._filSuppressed && plugin._filSuppressed.delete(path), 5000);
   };
 
   for (const value of fils) {

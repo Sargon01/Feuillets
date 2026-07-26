@@ -99,7 +99,7 @@ export class SearchReplaceBar {
       attr: { placeholder: t("binder.search.placeholder") },
     });
     searchInput.value = this.searchQuery;
-    setTimeout(() => searchInput.focus(), 50);
+    window.setTimeout(() => searchInput.focus(), 50);
 
     searchInput.addEventListener("input", () => {
       this.searchQuery = searchInput.value;
@@ -286,7 +286,7 @@ export class SearchReplaceBar {
           this.closePopover();
         }
       };
-      setTimeout(() => {
+      window.setTimeout(() => {
         document.addEventListener("click", this.onOutsideClick);
       }, 10);
     }
@@ -304,8 +304,8 @@ export class SearchReplaceBar {
   }
 
   scheduleSearch() {
-    clearTimeout(this.searchTimer);
-    this.searchTimer = setTimeout(() => this.runSearch(), 200);
+    window.clearTimeout(this.searchTimer);
+    this.searchTimer = window.setTimeout(() => this.runSearch(), 200);
   }
 
   async runSearch() {
@@ -372,7 +372,7 @@ export class SearchReplaceBar {
         leaf = this.app.workspace.getLeaf(false);
       }
       openFileActivating(this.app, leaf, match.file);
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      await new Promise((resolve) => window.setTimeout(resolve, 80));
       targetView = this.app.workspace.getActiveViewOfType(MarkdownView);
     }
 

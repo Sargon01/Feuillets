@@ -2,6 +2,45 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.3.0
+
+### Modifié
+
+- **Le bundle publié n'est plus minifié.** `main.js` passe de 1,5 à 2,4 Mo,
+  mais devient lisible et vérifiable ligne à ligne — ce que la revue
+  d'Obsidian valorise explicitement (son contrôle « Code obfuscation »
+  avait déjà signalé le plugin). Effet mesuré sur l'analyse automatique du
+  fichier publié : **3 184 → 1 241 remarques, soit −61 %**, la minification
+  produisant à elle seule des milliers de motifs que les règles signalent
+  légitimement. Aucun impact sur les performances à l'exécution : c'est un
+  téléchargement unique.
+
+### Corrigé
+
+- **Fenêtres détachées** : 37 appels à `setTimeout` / `clearTimeout` /
+  `requestAnimationFrame` passent par `window.…`. Sans ça, une vue ouverte
+  dans une fenêtre séparée s'appuyait sur les minuteries de la fenêtre
+  principale — source de comportements erratiques (rendus différés qui ne
+  partent jamais, anti-rebond qui ne se réarme pas).
+- `@codemirror/state` et `@codemirror/view` sont désormais déclarés dans
+  `package.json`. Ils étaient utilisés par les surligneurs (grammaire,
+  recherche) sans figurer nulle part : une installation propre pouvait
+  échouer à les résoudre.
+- Ajout d'un guide de contribution (`CONTRIBUTING.md`), qui consigne les
+  conventions imposées par la revue d'Obsidian : pas de style en ligne,
+  pas d'`innerHTML`, pas d'élément `<style>`, minuteries via `window`,
+  modules Node derrière un garde `Platform`.
+
+### Non modifié, volontairement
+
+- Les 21 avertissements « Do not import Node.js built-in module » restent
+  en l'état : ces `require("fs")` / `require("path")` sont déjà protégés,
+  soit par `Platform.isMobile` (les correcteurs grammaticaux ne sont même
+  pas instanciés sur mobile), soit par un `try/catch` qui affiche un
+  message à l'utilisateur. La règle ne peut pas voir ces gardes ; il n'y a
+  rien à corriger, seulement un compteur à ne pas faire baisser
+  artificiellement.
+
 ## 1.2.10
 
 ### Corrigé

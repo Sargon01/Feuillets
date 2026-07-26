@@ -291,11 +291,11 @@ ${pagesHtml}
 
   await new Promise((resolve) => {
     iframe.onload = () => resolve();
-    setTimeout(resolve, 300);
+    window.setTimeout(resolve, 300);
   });
 
   new Notice("Choisis « Enregistrer au format PDF » dans la boîte d'impression.", 6000);
   iframe.contentWindow.focus();
   iframe.contentWindow.print();
-  setTimeout(cleanup, 10000);
+  window.setTimeout(cleanup, 10000);
 }

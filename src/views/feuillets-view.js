@@ -72,7 +72,7 @@ export class FeuilletsView extends BaseFeuilletsView {
          sur l'ancienne ligne, plus "active"). Léger délai : l'événement
          "file-open" (qui pose is-active) n'a pas forcément fini avant que
          ce callback continue. */
-      setTimeout(() => {
+      window.setTimeout(() => {
         this.contentEl.querySelector(".feuillets-item.is-active")?.focus();
       }, 60);
     }, { capture: true });
@@ -98,7 +98,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     if (treePane) treePane.toggleClass("is-tree-collapsed", collapsed);
     if (resizer) resizer.toggleClass("is-tree-collapsed", collapsed);
     this.plugin.adjustSidebarWidth();
-    setTimeout(() => this.plugin.adjustSidebarWidth(), 60);
+    window.setTimeout(() => this.plugin.adjustSidebarWidth(), 60);
   }
 
   /** Version à 3 états (double volet / fiches seules / dossiers seuls) —
@@ -129,7 +129,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        — probablement une histoire de mise en page pas encore recalculée
        par Obsidian à cet instant précis. Un second appel différé est un
        filet de sécurité peu coûteux. */
-    setTimeout(() => this.plugin.adjustSidebarWidth(), 60);
+    window.setTimeout(() => this.plugin.adjustSidebarWidth(), 60);
   }
 
   /** Réglages d'affichage (Affichage des lignes + accès aux réglages
@@ -190,7 +190,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     await this.plugin.saveSettings();
     this.render(true);
     this.plugin.adjustSidebarWidth();
-    setTimeout(() => this.plugin.adjustSidebarWidth(), 60);
+    window.setTimeout(() => this.plugin.adjustSidebarWidth(), 60);
   }
 
   showSplitPaneOptionsMenu(e) {
@@ -341,7 +341,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         this.plugin.saveSettings().then(() => this.render(true));
       } else {
         this.render(true);
-        setTimeout(() => {
+        window.setTimeout(() => {
           this.contentEl.querySelector(".feuillets-binder-search")?.focus();
         }, 50);
       }
@@ -484,9 +484,9 @@ export class FeuilletsView extends BaseFeuilletsView {
       searchInput.value = S.binderSearch || "";
       let searchTimer;
       searchInput.addEventListener("input", () => {
-        clearTimeout(searchTimer);
+        window.clearTimeout(searchTimer);
         const caret = searchInput.selectionStart;
-        searchTimer = setTimeout(async () => {
+        searchTimer = window.setTimeout(async () => {
           S.binderSearch = searchInput.value;
           await this.plugin.saveSettings();
           await this.render(true);
@@ -742,7 +742,7 @@ export class FeuilletsView extends BaseFeuilletsView {
            reprendre ici, la 1ère flèche haut/bas après un simple clic ne
            navigue jamais (le keydown du Binder, sur this.contentEl, ne
            reçoit rien tant que le focus n'y est pas revenu ; voir onOpen). */
-        setTimeout(() => {
+        window.setTimeout(() => {
           this.contentEl.querySelector(".feuillets-item.is-active")?.focus();
         }, 60);
       });
@@ -795,7 +795,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        volet peut n'être finalisée qu'après le prochain calcul de mise en
        page (largeur de barre latérale ajustée, images…), auquel cas le
        premier scrollTop serait plafonné trop bas. */
-    requestAnimationFrame(apply);
+    window.requestAnimationFrame(apply);
   }
 
   renderProjectManagerSplitView(container, S) {

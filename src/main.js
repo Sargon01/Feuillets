@@ -841,8 +841,8 @@ class FeuilletsPlugin extends Plugin {
           const cur = editor.getCursor();
           editor.scrollIntoView({ from: cur, to: cur }, true);
         }
-        clearTimeout(this._concTimer);
-        this._concTimer = setTimeout(
+        window.clearTimeout(this._concTimer);
+        this._concTimer = window.setTimeout(
           () => this.updateConcentrationCounter(editor),
           250
         );
@@ -989,8 +989,8 @@ class FeuilletsPlugin extends Plugin {
       new FileStatsModal(this.app, this, file).open();
     });
     const updateStatus = () => {
-      clearTimeout(this._statusTimer);
-      this._statusTimer = setTimeout(() => this.updateStatusBar(), 300);
+      window.clearTimeout(this._statusTimer);
+      this._statusTimer = window.setTimeout(() => this.updateStatusBar(), 300);
     };
     this.registerEvent(this.app.workspace.on("file-open", updateStatus));
     this.registerEvent(this.app.workspace.on("editor-change", updateStatus));
@@ -1227,9 +1227,9 @@ class FeuilletsPlugin extends Plugin {
   onunload() {
     if (this.grammalecteChecker) this.grammalecteChecker.destroy();
     if (this.harperChecker) this.harperChecker.destroy();
-    clearTimeout(this._refreshTimer);
-    clearTimeout(this._statusTimer);
-    clearTimeout(this._concTimer);
+    window.clearTimeout(this._refreshTimer);
+    window.clearTimeout(this._statusTimer);
+    window.clearTimeout(this._concTimer);
     document.body.removeClass("feuillets-indent");
     document.body.removeClass("feuillets-concentration");
     this.removeConcentrationCounter();
@@ -1391,7 +1391,7 @@ class FeuilletsPlugin extends Plugin {
       } else {
         document.body.removeClass("feuillets-concentration");
         this.removeConcentrationCounter();
-        clearTimeout(this._concTimer);
+        window.clearTimeout(this._concTimer);
         if (this._paraEls) {
           for (const el of this._paraEls) el.classList.remove("feuillets-para-active");
           this._paraEls = null;
@@ -1627,8 +1627,8 @@ class FeuilletsPlugin extends Plugin {
   }
 
   refreshView(delay = 800) {
-    clearTimeout(this._refreshTimer);
-    this._refreshTimer = setTimeout(() => {
+    window.clearTimeout(this._refreshTimer);
+    this._refreshTimer = window.setTimeout(() => {
       if (this._dragInProgress) {
         this._dragRetryCount = (this._dragRetryCount || 0) + 1;
         if (this._dragRetryCount < 10) {

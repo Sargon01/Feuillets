@@ -82,7 +82,7 @@ export class GrammalecteChecker {
     this.spellChecker = context.gc_engine.getSpellChecker();
   }
 
-  // Enveloppé dans un setTimeout(0) : laisse le temps au "Vérification en
+  // Enveloppé dans un window.setTimeout(0) : laisse le temps au "Vérification en
   // cours…" de s'afficher avant le calcul bloquant (pas de vrai parallélisme
   // possible sans processus séparé, voir le commentaire en tête de fichier).
   // knownWords : mots que l'utilisateur a marqués "appris" (onglet Grammalecte,
@@ -97,7 +97,7 @@ export class GrammalecteChecker {
     const lowerKnown = new Set(knownWords.map((w) => w.toLowerCase()));
     const ignored = new Set(ignoredSignatures);
     return new Promise((resolve, reject) => {
-      setTimeout(() => {
+      window.setTimeout(() => {
         try {
           this.ensureLoaded();
           this.context.gc_engine.setOption("redon1", detectRepetitions);

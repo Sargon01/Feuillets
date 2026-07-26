@@ -332,8 +332,8 @@ export class ProjectTagsModal extends Modal {
 
     let searchTimer;
     searchInput.addEventListener("input", () => {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(() => {
         this.tagSearch = searchInput.value;
         renderList();
       }, 120);

@@ -118,7 +118,7 @@ export class GrammarView extends BaseFeuilletsView {
     if (!row) return;
     row.scrollIntoView({ block: "center", behavior: "smooth" });
     row.addClass("feuillets-grammar-row-flash");
-    setTimeout(() => row.removeClass("feuillets-grammar-row-flash"), 1200);
+    window.setTimeout(() => row.removeClass("feuillets-grammar-row-flash"), 1200);
   }
 
   /* Clic sur un mot souligné dans l'éditeur (voir cm-grammar-highlighter.js,

@@ -102,7 +102,7 @@ export class ScriveningsManager {
               try {
                 await this.app.vault.modify(file, frontmatter + (frontmatter ? "\n" : "") + body + "\n");
               } finally {
-                setTimeout(() => { this.isSaving = false; }, 400);
+                window.setTimeout(() => { this.isSaving = false; }, 400);
               }
             }
             await renderScene();
