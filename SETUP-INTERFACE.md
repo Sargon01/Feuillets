@@ -1,86 +1,91 @@
 # Setting up a clean, distraction-free interface
 
-Feuillets stays deliberately agnostic about theme and chrome — it doesn't
-bundle a "simple/advanced mode" switch or force any particular look. If you
-want a stripped-down, writing-focused interface, that's a combination of
-Obsidian's own theme system plus a couple of community plugins, configured
-once. This guide walks through the exact combination that works well
-alongside Feuillets, as a starting point to adjust to your own taste — not
-something Feuillets requires or configures for you.
+Most of what used to require a theme and a couple of community plugins is
+now a built-in setting: Settings → Feuillets → **Interface** covers
+properties/title/tab-bar visibility, the whole icon ribbon, the vault
+switcher, panel and tab-bar transparency, dimming native action icons,
+font/size/accent color, line height, and text width — all reading and
+writing Obsidian's own native settings where one exists, nothing
+duplicated or hidden behind a "mode" switch. The only piece Feuillets
+still can't (and shouldn't) do itself is an actual background *color* and
+a full theme — that stays external, on purpose (see below).
 
-## 1. Theme: Minimal
+Note: a few "reveal on hover" variants (tab bar, ribbon, binder) were
+tried and dropped — unreliable across window-chrome configurations
+(overlap with macOS's own traffic-light buttons) and redundant with
+Obsidian's own touch/swipe gestures for the binder. Not present in the
+current build.
 
-Settings → Appearance → Themes → Manage → search "Minimal" → install and
-use. ([Repository](https://github.com/kepano/obsidian-minimal))
+## 1. Feuillets' own Interface tab (start here)
 
-A few base Appearance settings worth setting alongside it:
-- **Hide tab title bar** (`showViewHeader: false`) — one less row of chrome
-  when a single pane is open.
-- Pick a comfortable **base font size** and **font family** — the reference
-  setup here uses `iA Writer Quattro` for text and `iA Writer Mono` for
-  monospace, at 19px base.
+Settings → Feuillets → **Interface**:
 
-## 2. Companion plugins
+- **Apparence** — interface language, font size, Feuillets' own UI scale,
+  line height, text width, base font size, text/monospace font family,
+  accent color.
+- **Mode concentration** — distraction-free writing mode, typewriter
+  scrolling, floating word counter.
+- **Interface épurée** — hide properties (YAML) in the editor, hide the
+  sheet's inline title, hide the tab title bar, hide the whole ribbon, hide
+  the vault switcher, transparent panel and tab-bar backgrounds, dim
+  native tab-action icons and inactive side-panel tabs. A **"Valeurs
+  suggérées"** button pre-fills all of these with a reasonable starting
+  point — still editable afterwards, nothing gets locked or hidden by
+  using it.
 
-Install these three from Community Plugins (Browse):
+## 2. Background color: still a CSS snippet, on purpose
 
-- **[Style Settings](https://github.com/mgmeyers/obsidian-style-settings)**
-  — the underlying engine Minimal (and Minimal Theme Settings) uses to
-  expose its options as a settings UI instead of raw CSS variables.
-- **[Minimal Theme Settings](https://github.com/kepano/obsidian-minimal-settings)**
-  — the fine-grained controls for the Minimal theme itself (line width,
-  colorful headings, status bar, etc.).
-- **[Hider](https://github.com/kepano/obsidian-hider)** — hides specific
-  interface elements outright (tooltips, the vault name in the sidebar,
-  etc.) rather than just restyling them.
+A warm/cream (or any custom) background isn't a discrete Obsidian setting
+the way font size or accent color are — it comes from the active theme or
+a CSS override of `--background-primary`/`--background-secondary`. Feuillets
+deliberately doesn't touch this: doing so would mean re-skinning the whole
+app, not just its own panels, which is exactly the line we didn't want to
+cross (see `SECURITY.md`/`PRIVACY.md` — no theme management, no touching
+other plugins' settings).
 
-## 3. A reference starting configuration
+Drop a snippet like this in `.obsidian/snippets/` and enable it in
+Settings → Appearance → CSS snippets — combine with "Interface épurée"'s
+transparent-panels/transparent-tab-bar toggles above so Feuillets' own
+panels blend into it automatically:
 
-These are the values from a working "épuré" (stripped-down) setup — open
-each plugin's own settings tab to adjust them, not meant to be copied as a
-file:
+```css
+.theme-light {
+  --background-primary: #f3eee0;
+  --background-primary-alt: #f3eee0;
+  --background-secondary: #ece4d0;
+  --background-secondary-alt: #ece4d0;
+}
+```
 
-**Minimal Theme Settings**
-| Setting | Value |
-|---|---|
-| Line width / wide | 40 / 50 |
-| Max width | 90 |
-| Normal / small text | 19 / 14 |
-| Line height | 2 |
-| Colorful headings / frame / active states | off |
-| Underline internal links | off |
-| Underline external links | on |
-| Full-width media | on |
-| Readable line length | on |
-| Minimal status bar | on |
-| Trim file names (sidebar) | on |
+## 3. Optional extras Feuillets doesn't (and can't) provide
 
-**Hider**
-| Setting | Value |
-|---|---|
-| Hide tooltips | on |
-| Hide vault name | on |
-| Everything else | off (status bar, tabs, scrollbar, sidebar buttons, etc. left visible) |
+Nothing here is required anymore for a stripped-down look — install only
+if you want something specific Feuillets' own Interface tab doesn't cover:
 
-## 4. Feuillets' own panel visibility
-
-Separately from theme/chrome, Feuillets has its own setting for which ribbon
-icons/panels show up at all: Settings → Feuillets → **hidden panels** — hide
-the ones you don't use (e.g. Journal or Docx review) without touching any
-of the above. This is the one piece of "épure" that actually lives inside
-Feuillets itself.
+- **[Minimal](https://github.com/kepano/obsidian-minimal)** (theme) — a
+  different visual base than Obsidian's default theme. Feuillets can't
+  install a theme for you (no plugin API allows it); Settings → Feuillets →
+  Interface → "Interface épurée" has a shortcut button that opens
+  Obsidian's own Appearance tab to browse it.
+- **[Hider](https://github.com/kepano/obsidian-hider)** /
+  **[Style Settings](https://github.com/mgmeyers/obsidian-style-settings)** /
+  **[Minimal Theme Settings](https://github.com/kepano/obsidian-minimal-settings)**
+  — finer per-element hiding and Minimal-theme-specific tuning (colorful
+  headings, sidebar trimming, etc.) beyond what Feuillets exposes. Same
+  section has a shortcut button per plugin, opening Community Plugins with
+  the search pre-filled — still not an automatic install, just a shortcut.
 
 ## Carrying this setup to a new vault
 
-Once configured, you can replicate this exact setup in another vault two
-ways:
-- **Manually**: repeat steps 1–4 above in the new vault.
-- **By copying config files**: from the old vault's
-  `.obsidian/` folder, copy `appearance.json`, the `themes/Minimal/` folder,
-  and the `plugins/obsidian-hider/`, `plugins/obsidian-style-settings/`,
-  `plugins/obsidian-minimal-settings/` folders (each includes its own
-  `data.json`) into the new vault's `.obsidian/`, then enable those three
-  plugins in Settings → Community plugins. For Feuillets' own settings, use
-  its built-in **"Export settings"** / **"Import settings"** commands (see
-  the main [README](./README.md#getting-started)) rather than copying
-  `data.json` by hand.
+- **Feuillets' own settings** (everything in section 1): use its built-in
+  **"Export settings"** / **"Import settings"** commands (see the main
+  [README](./README.md#getting-started)) — they cover the Interface tab
+  along with everything else.
+- **The background snippet** (section 2, if used): copy the `.css` file
+  from `.obsidian/snippets/` into the new vault and re-enable it in
+  Appearance → CSS snippets.
+- **Optional extras** (section 3, if installed): repeat the install, or
+  copy `appearance.json`, `themes/Minimal/`, and the relevant
+  `plugins/obsidian-*/` folders (each with its own `data.json`) from the
+  old vault's `.obsidian/` into the new one, then enable them in Settings →
+  Community plugins.

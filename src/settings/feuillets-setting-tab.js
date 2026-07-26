@@ -20,28 +20,17 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const unit = this.plugin.unitLabel();
     const unitPlural = this.plugin.unitLabelPlural();
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Feuillets" });
+
+    const header = containerEl.createDiv({ cls: "feuillets-settings-header" });
+    header.createEl("h2", { text: "Feuillets", cls: "feuillets-settings-title" });
+    header.createDiv({ cls: "feuillets-settings-tagline" }).setText(t("settings.tagline"));
+    const links = header.createDiv({ cls: "feuillets-settings-links" });
+    const REPO = "https://github.com/Sargon01/Feuillets";
+    links.createEl("a", { text: t("settings.links.github"), href: REPO, attr: { target: "_blank", rel: "noopener" } });
+    links.createEl("a", { text: t("settings.links.readme"), href: `${REPO}/blob/main/README.md`, attr: { target: "_blank", rel: "noopener" } });
+    links.createEl("a", { text: t("settings.links.features"), href: `${REPO}/blob/main/FONCTIONNALITES.md`, attr: { target: "_blank", rel: "noopener" } });
 
     const refresh = () => this.plugin.refreshView();
-
-    new Setting(containerEl)
-      .setName(t("settings.language.name"))
-      .setDesc(t("settings.language.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("auto", t("settings.language.auto"))
-          .addOption("fr", "Français")
-          .addOption("en", "English")
-          .setValue(S.language || "auto")
-          .onChange(async (v) => {
-            S.language = v;
-            await this.plugin.saveSettings();
-            setLocale(detectLocale(S));
-            this.plugin.renderAllViews(true);
-            this.plugin.refreshRibbonIcons();
-            this.display();
-          })
-      );
 
     containerEl.createEl("h3", { text: t("settings.section.projectFolder"), attr: { "data-cat": "Projet", "data-open": "1" } });
 
@@ -228,6 +217,72 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
+    containerEl.createEl("h3", { text: t("settings.section.numbering"), attr: { "data-cat": "Projet" } });
+
+    new Setting(containerEl)
+      .setName(t("settings.level1Role.name"))
+      .setDesc(t("settings.level1Role.desc"))
+      .addDropdown((d) =>
+        d
+          .addOption("parties", t("settings.level1Role.parts"))
+          .addOption("chapitres", t("settings.level1Role.chapters", { unitPlural }))
+          .setValue(S.level1Role)
+          .onChange(async (v) => {
+            S.level1Role = v;
+            await this.plugin.saveSettings();
+            refresh();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.chapterNumbering.name"))
+      .setDesc(t("settings.chapterNumbering.desc"))
+      .addDropdown((d) =>
+        d
+          .addOption("continu", t("settings.chapterNumbering.continuous"))
+          .addOption("parPartie", t("settings.chapterNumbering.perPart"))
+          .addOption("aucune", t("settings.chapterNumbering.none"))
+          .setValue(S.chapterNumbering)
+          .onChange(async (v) => {
+            S.chapterNumbering = v;
+            await this.plugin.saveSettings();
+            refresh();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.sceneNumbering.name", { unitPlural }))
+      .setDesc(t("settings.sceneNumbering.desc"))
+      .addDropdown((d) =>
+        d
+          .addOption("hier", t("settings.sceneNumbering.hierarchical", { unit }))
+          .addOption("continue", t("settings.sceneNumbering.continuous"))
+          .addOption("aucune", t("settings.chapterNumbering.none"))
+          .setValue(S.sceneNumbering)
+          .onChange(async (v) => {
+            S.sceneNumbering = v;
+            await this.plugin.saveSettings();
+            refresh();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.autoRename.name"))
+      .setDesc(t("settings.autoRename.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.autoRename).onChange(async (v) => {
+          S.autoRename = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl).setName(t("settings.renamePrefix.name")).addText((t2) =>
+      t2.setValue(S.renamePrefix).onChange(async (v) => {
+        S.renamePrefix = v.trim() || "chapitre";
+        await this.plugin.saveSettings();
+      })
+    );
+
     containerEl.createEl("h3", { text: t("settings.section.statusesLabels"), attr: { "data-cat": "Projet" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
@@ -319,6 +374,25 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         this.display();
       })
     );
+
+    new Setting(containerEl)
+      .setName(t("settings.favoriteTags.name"))
+      .setDesc(t("settings.favoriteTags.desc"))
+      .addTextArea((t2) =>
+        t2
+          .setValue((S.favoriteTags || []).join(", "))
+          .onChange(async (v) => {
+            S.favoriteTags = [
+              ...new Set(
+                v
+                  .split(/[,\n]+/)
+                  .map((x) => x.replace(/^#/, "").trim())
+                  .filter(Boolean)
+              ),
+            ];
+            await this.plugin.saveSettings();
+          })
+      );
 
     containerEl.createEl("h3", { text: t("settings.section.goals"), attr: { "data-cat": "Projet" } });
 
@@ -435,7 +509,26 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         );
     }
 
-    containerEl.createEl("h3", { text: t("settings.section.appearance"), attr: { "data-cat": "Écriture" } });
+    containerEl.createEl("h3", { text: t("settings.section.appearance"), attr: { "data-cat": "Interface" } });
+
+    new Setting(containerEl)
+      .setName(t("settings.language.name"))
+      .setDesc(t("settings.language.desc"))
+      .addDropdown((d) =>
+        d
+          .addOption("auto", t("settings.language.auto"))
+          .addOption("fr", "Français")
+          .addOption("en", "English")
+          .setValue(S.language || "auto")
+          .onChange(async (v) => {
+            S.language = v;
+            await this.plugin.saveSettings();
+            setLocale(detectLocale(S));
+            this.plugin.renderAllViews(true);
+            this.plugin.refreshRibbonIcons();
+            this.display();
+          })
+      );
 
     new Setting(containerEl)
       .setName(t("settings.fontSize.name"))
@@ -466,23 +559,75 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName(t("settings.favoriteTags.name"))
-      .setDesc(t("settings.favoriteTags.desc"))
-      .addTextArea((t2) =>
+      .setName(t("settings.lineHeight.name"))
+      .setDesc(t("settings.lineHeight.desc"))
+      .addText((t2) => {
+        t2.inputEl.type = "number";
+        t2.inputEl.step = "0.05";
+        t2.inputEl.min = "0";
         t2
-          .setValue((S.favoriteTags || []).join(", "))
+          .setValue(S.lineHeight ? String(S.lineHeight) : "")
+          .setPlaceholder(t("settings.lineHeight.placeholder"))
           .onChange(async (v) => {
-            S.favoriteTags = [
-              ...new Set(
-                v
-                  .split(/[,\n]+/)
-                  .map((x) => x.replace(/^#/, "").trim())
-                  .filter(Boolean)
-              ),
-            ];
+            const n = parseFloat(v);
+            S.lineHeight = Number.isFinite(n) && n > 0 ? n : 0;
             await this.plugin.saveSettings();
-          })
+            this.plugin.applyLiveTypoClasses();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName(t("settings.textWidth.name"))
+      .setDesc(t("settings.textWidth.desc"))
+      .addText((t2) => {
+        t2.inputEl.type = "number";
+        t2.inputEl.step = "10";
+        t2.inputEl.min = "0";
+        t2
+          .setValue(S.textWidth ? String(S.textWidth) : "")
+          .setPlaceholder(t("settings.textWidth.placeholder"))
+          .onChange(async (v) => {
+            const n = parseInt(v, 10);
+            S.textWidth = Number.isFinite(n) && n > 0 ? n : 0;
+            await this.plugin.saveSettings();
+            this.plugin.applyLiveTypoClasses();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName(t("settings.baseFontSize.name"))
+      .addSlider((sl) => {
+        const current = this.plugin.getVaultConfig("baseFontSize");
+        sl.setLimits(12, 28, 1)
+          .setValue(typeof current === "number" ? current : 16)
+          .setDynamicTooltip()
+          .onChange((v) => this.plugin.setVaultConfig("baseFontSize", v));
+      });
+
+    new Setting(containerEl)
+      .setName(t("settings.textFontFamily.name"))
+      .setDesc(t("settings.textFontFamily.desc"))
+      .addText((t2) =>
+        t2.setValue(this.plugin.getVaultConfig("textFontFamily") || "").onChange((v) => {
+          this.plugin.setVaultConfig("textFontFamily", v.trim());
+        })
       );
+
+    new Setting(containerEl)
+      .setName(t("settings.monospaceFontFamily.name"))
+      .addText((t2) =>
+        t2.setValue(this.plugin.getVaultConfig("monospaceFontFamily") || "").onChange((v) => {
+          this.plugin.setVaultConfig("monospaceFontFamily", v.trim());
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.accentColor.name"))
+      .addColorPicker((cp) => {
+        const current = this.plugin.getVaultConfig("accentColor");
+        if (typeof current === "string" && current) cp.setValue(current);
+        cp.onChange((v) => this.plugin.setVaultConfig("accentColor", v));
+      });
 
     containerEl.createEl("h3", { text: t("settings.section.liveTypography"), attr: { "data-cat": "Écriture" } });
 
@@ -611,7 +756,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.focusMode"), attr: { "data-cat": "Écriture" } });
+    containerEl.createEl("h3", { text: t("settings.section.focusMode"), attr: { "data-cat": "Interface" } });
 
      new Setting(containerEl)
       .setName(t("settings.focusUnit.name"))
@@ -682,71 +827,119 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.numbering"), attr: { "data-cat": "Projet" } });
+    containerEl.createEl("h3", { text: t("settings.section.leanInterface"), attr: { "data-cat": "Interface" } });
+    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.leanInterface.desc"));
 
     new Setting(containerEl)
-      .setName(t("settings.level1Role.name"))
-      .setDesc(t("settings.level1Role.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("parties", t("settings.level1Role.parts"))
-          .addOption("chapitres", t("settings.level1Role.chapters", { unitPlural }))
-          .setValue(S.level1Role)
-          .onChange(async (v) => {
-            S.level1Role = v;
-            await this.plugin.saveSettings();
-            refresh();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.chapterNumbering.name"))
-      .setDesc(t("settings.chapterNumbering.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("continu", t("settings.chapterNumbering.continuous"))
-          .addOption("parPartie", t("settings.chapterNumbering.perPart"))
-          .addOption("aucune", t("settings.chapterNumbering.none"))
-          .setValue(S.chapterNumbering)
-          .onChange(async (v) => {
-            S.chapterNumbering = v;
-            await this.plugin.saveSettings();
-            refresh();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.sceneNumbering.name", { unitPlural }))
-      .setDesc(t("settings.sceneNumbering.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("hier", t("settings.sceneNumbering.hierarchical", { unit }))
-          .addOption("continue", t("settings.sceneNumbering.continuous"))
-          .addOption("aucune", t("settings.chapterNumbering.none"))
-          .setValue(S.sceneNumbering)
-          .onChange(async (v) => {
-            S.sceneNumbering = v;
-            await this.plugin.saveSettings();
-            refresh();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.autoRename.name"))
-      .setDesc(t("settings.autoRename.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.autoRename).onChange(async (v) => {
-          S.autoRename = v;
+      .setName(t("settings.leanInterface.suggestedValues.name"))
+      .setDesc(t("settings.leanInterface.suggestedValues.desc"))
+      .addButton((btn) =>
+        btn.setButtonText(t("settings.leanInterface.suggestedValues.btn")).onClick(async () => {
+          this.plugin.setVaultConfig("propertiesInDocument", "hidden");
+          this.plugin.setVaultConfig("showInlineTitle", false);
+          this.plugin.setVaultConfig("showViewHeader", false);
+          this.plugin.setVaultConfig("showRibbon", false);
+          this.plugin.setVaultConfig("baseFontSize", 19);
+          this.plugin.setVaultConfig("textFontFamily", "iA Writer Quattro S");
+          this.plugin.setVaultConfig("monospaceFontFamily", "iA Writer Mono S");
+          this.plugin.setVaultConfig("accentColor", "#c1a777");
+          S.uiTransparentPanels = true;
           await this.plugin.saveSettings();
+          this.plugin.applyLeanInterfaceClasses();
+          new Notice(t("settings.leanInterface.suggestedValues.applied"));
+          this.display();
         })
       );
 
-    new Setting(containerEl).setName(t("settings.renamePrefix.name")).addText((t2) =>
-      t2.setValue(S.renamePrefix).onChange(async (v) => {
-        S.renamePrefix = v.trim() || "chapitre";
-        await this.plugin.saveSettings();
-      })
-    );
+    new Setting(containerEl)
+      .setName(t("settings.hideProperties.name"))
+      .setDesc(t("settings.hideProperties.desc"))
+      .addToggle((t2) =>
+        t2.setValue(this.plugin.getVaultConfig("propertiesInDocument") === "hidden").onChange((v) => {
+          this.plugin.setVaultConfig("propertiesInDocument", v ? "hidden" : "visible");
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.hideInlineTitle.name"))
+      .setDesc(t("settings.hideInlineTitle.desc"))
+      .addToggle((t2) =>
+        t2.setValue(this.plugin.getVaultConfig("showInlineTitle") === false).onChange((v) => {
+          this.plugin.setVaultConfig("showInlineTitle", !v);
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.hideTabHeader.name"))
+      .setDesc(t("settings.hideTabHeader.desc"))
+      .addToggle((t2) =>
+        t2.setValue(this.plugin.getVaultConfig("showViewHeader") === false).onChange((v) => {
+          this.plugin.setVaultConfig("showViewHeader", !v);
+        })
+      );
+
+
+    new Setting(containerEl)
+      .setName(t("settings.hideRibbon.name"))
+      .setDesc(t("settings.hideRibbon.desc"))
+      .addToggle((t2) =>
+        t2.setValue(this.plugin.getVaultConfig("showRibbon") === false).onChange((v) => {
+          this.plugin.setVaultConfig("showRibbon", !v);
+        })
+      );
+
+
+    new Setting(containerEl)
+      .setName(t("settings.transparentPanels.name"))
+      .setDesc(t("settings.transparentPanels.desc"))
+      .addToggle((t2) =>
+        t2.setValue(!!S.uiTransparentPanels).onChange(async (v) => {
+          S.uiTransparentPanels = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyLeanInterfaceClasses();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.transparentTabBar.name"))
+      .setDesc(t("settings.transparentTabBar.desc"))
+      .addToggle((t2) =>
+        t2.setValue(!!S.uiTransparentTabBar).onChange(async (v) => {
+          S.uiTransparentTabBar = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyLeanInterfaceClasses();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.hideVaultSwitcher.name"))
+      .setDesc(t("settings.hideVaultSwitcher.desc"))
+      .addToggle((t2) =>
+        t2.setValue(!!S.uiHideVaultSwitcher).onChange(async (v) => {
+          S.uiHideVaultSwitcher = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyLeanInterfaceClasses();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.dimTabActions.name"))
+      .setDesc(t("settings.dimTabActions.desc"))
+      .addToggle((t2) =>
+        t2.setValue(!!S.uiDimTabActions).onChange(async (v) => {
+          S.uiDimTabActions = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyLeanInterfaceClasses();
+        })
+      );
+
+
+    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.leanInterface.goFurther"));
+    const goFurther = containerEl.createDiv({ cls: "feuillets-tags" });
+    this.storeLinkButton(goFurther, t("settings.leanInterface.themeMinimal"), () => this.openAppearanceTab());
+    this.storeLinkButton(goFurther, t("settings.leanInterface.pluginHider"), () => this.openCommunityPluginsSearch("Hider"));
+    this.storeLinkButton(goFurther, t("settings.leanInterface.pluginStyleSettings"), () => this.openCommunityPluginsSearch("Style Settings"));
+    this.storeLinkButton(goFurther, t("settings.leanInterface.pluginMinimalSettings"), () => this.openCommunityPluginsSearch("Minimal Theme Settings"));
 
     containerEl.createEl("h3", { text: t("settings.section.sceneMerge"), attr: { "data-cat": "Écriture" } });
 
@@ -805,7 +998,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl("h3", { text: t("settings.section.boardPanel"), attr: { "data-cat": "Tableau" } });
+    containerEl.createEl("h3", { text: t("settings.section.boardPanel"), attr: { "data-cat": "Panneaux latéraux" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.boardPanel.intro")
@@ -1206,7 +1399,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const orderWrapNotes = containerEl.createDiv({ cls: "feuillets-notes-order-wrap" });
     this.renderSectionOrderList(orderWrapNotes, S, "notesSectionOrder", ["Synopsis", "Résumé", "Notes"], refresh);
 
-    containerEl.createEl("h3", { text: t("settings.section.grammarCheck"), attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createEl("h3", { text: t("settings.section.grammarCheck"), attr: { "data-cat": "Correction" } });
     new Setting(containerEl)
       .setName(t("settings.grammarEngine.name"))
       .setDesc(t("settings.grammarEngine.desc"))
@@ -1624,12 +1817,13 @@ export class FeuilletsSettingTab extends PluginSettingTab {
    * raisons de chercher — tout est maintenant rangé par sujet et
    * toujours visible, quitte à replier la sous-section elle-même. */
   organizeSections(containerEl) {
-    const ORDER = ["Projet", "Écriture", "Tableau", "Panneaux latéraux", "Export"];
+    const ORDER = ["Projet", "Écriture", "Interface", "Panneaux latéraux", "Correction", "Export"];
     const CATEGORY_LABELS = {
       "Projet": t("settings.category.project"),
       "Écriture": t("settings.category.writing"),
-      "Tableau": t("settings.category.board"),
+      "Interface": t("settings.category.interface"),
       "Panneaux latéraux": t("settings.category.sidePanels"),
+      "Correction": t("settings.category.grammar"),
       "Export": t("settings.category.export"),
     };
 
@@ -1642,7 +1836,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     let currentSub = null;
     const nodes = Array.from(containerEl.children);
     for (const node of nodes) {
-      if (node.tagName === "H2") continue; // titre principal reste en tête
+      if (node.tagName === "H2" || node.classList.contains("feuillets-settings-header")) continue; // en-tête (titre/slogan/liens) reste fixe au-dessus des onglets
       if (node.tagName === "H3") {
         /* La catégorie vit sur le h3 lui-même (attr data-cat, posé à la
            création — voir les containerEl.createEl("h3", ...) plus haut) :
@@ -1708,6 +1902,37 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         panel.appendChild(subDet);
       }
     }
+  }
+
+  /** Bouton discret pointant vers un thème/plugin communautaire — jamais une
+   * installation automatique (aucune API publique ne le permet, et pour
+   * cause : un plugin ne doit pas pouvoir en installer un autre à l'insu de
+   * l'utilisateur), juste un raccourci vers le navigateur intégré
+   * d'Obsidian, recherche pré-remplie si possible. */
+  storeLinkButton(container, label, onClick) {
+    const chip = container.createSpan({ cls: "feuillets-tag-chip", attr: { role: "button", tabindex: "0" } });
+    chip.setText(label);
+    chip.addEventListener("click", onClick);
+  }
+
+  openCommunityPluginsSearch(query) {
+    try {
+      const settingModal = this.app.setting;
+      if (!settingModal || !settingModal.openTabById) return;
+      settingModal.openTabById("community-plugins");
+      const tab = settingModal.activeTab;
+      if (tab && tab.searchComponent) {
+        tab.searchComponent.setValue(query);
+        tab.searchComponent.onChanged();
+      }
+    } catch (e) {}
+  }
+
+  openAppearanceTab() {
+    try {
+      const settingModal = this.app.setting;
+      if (settingModal && settingModal.openTabById) settingModal.openTabById("appearance");
+    } catch (e) {}
   }
 
   /** Ligne de réglage pour un moteur local (Grammalecte/Harper) : état

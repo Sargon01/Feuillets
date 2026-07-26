@@ -22,12 +22,37 @@ Toutes les évolutions notables du plugin sont consignées ici.
   d'une liste illimitée directement dans les réglages. Ces données sont
   stockées à part (`resources/grammar-user-data.json`), plus dans
   `data.json`.
+- **Nouvel onglet de réglages « Interface »** — regroupe Apparence (langue
+  de l'interface, taille de police, échelle, hauteur de ligne, largeur de
+  texte, police, couleur d'accent), Mode concentration, et une nouvelle
+  section **Interface épurée** : masquer les propriétés (YAML)/le titre du
+  feuillet/la barre d'onglet/le ruban entier/le sélecteur de coffre, fonds
+  transparents (panneaux latéraux et bande d'onglets), estomper les icônes
+  d'action des onglets et les onglets latéraux non actifs. Un bouton
+  « Valeurs suggérées » pré-remplit ces réglages sans rien masquer ni
+  verrouiller. La plupart de ce qui nécessitait un thème/des plugins tiers
+  (voir [`SETUP-INTERFACE.md`](./SETUP-INTERFACE.md)) est donc désormais
+  natif.
+- Onglets de réglages réorganisés : Numérotation en position 2 dans Projet
+  (juste après Dossier & Gestion des projets), Tags favoris déplacés vers
+  Projet (avec Statuts & Labels), Correction grammaticale et
+  Tableau/Panneaux latéraux fusionnés/renommés en onglets propres
+  (« Correcteur », « Panneaux »).
+- En-tête des réglages : titre agrandi, slogan, liens GitHub/README/
+  Fonctionnalités.
 
 ### Corrigé
 
 - Le texte n'était jamais vérifié dans la langue réellement active : le
   code lisait un réglage inexistant (`settings.locale`) au lieu de la
   langue d'interface effective.
+- L'en-tête des réglages (titre/slogan/liens) et la langue d'interface
+  étaient aspirés dans l'onglet « Projet » au lieu de rester fixes
+  au-dessus de la barre d'onglets.
+- Trois interrupteurs « révélé(e) au survol » (bande d'onglets, ruban,
+  binder) ont été essayés puis retirés : trop instables (chevauchement
+  avec les boutons de fenêtre macOS, survol peu fiable) et redondants avec
+  les gestes tactiles déjà en place pour le binder.
 
 ## 1.1.0
 

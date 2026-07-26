@@ -1691,6 +1691,42 @@ body.feuillets-concentration .markdown-preview-view {
   transition: box-shadow 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
 }
 
+/* ===== réglages du plugin : en-tête ===== */
+
+.feuillets-settings-header {
+  margin-bottom: var(--size-4-2);
+}
+
+.feuillets-settings-title {
+  margin: 0 0 2px;
+  font-size: var(--font-ui-larger, 1.5em);
+  font-weight: var(--font-bold, 700);
+  letter-spacing: 0.01em;
+  color: var(--text-normal);
+}
+
+.feuillets-settings-tagline {
+  margin: 0 0 var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-settings-links {
+  display: flex;
+  gap: var(--size-4-3);
+  margin-bottom: var(--size-4-2);
+}
+
+.feuillets-settings-links a {
+  font-size: var(--font-ui-small);
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+.feuillets-settings-links a:hover {
+  text-decoration: underline;
+}
+
 /* ===== réglages du plugin : onglets de catégorie ===== */
 
 .feuillets-settings-tabs {
@@ -1872,6 +1908,26 @@ body.feuillets-lecture-comme-live .markdown-rendered p {
 body.feuillets-reading-fs .markdown-preview-view,
 body.feuillets-reading-fs .feuillets-reading {
   font-size: var(--feuillets-reading-fs) !important;
+}
+
+/* Interlignage réglable (settings.lineHeight) : contrairement à la taille de
+   police ci-dessus, couvre édition ET lecture — aucun réglage natif
+   Obsidian n'existe pour ça, contrairement à la police/taille/couleur
+   d'accent gérées via vault.setConfig. */
+body.feuillets-line-height .markdown-source-view .cm-content,
+body.feuillets-line-height .markdown-preview-view,
+body.feuillets-line-height .feuillets-reading {
+  line-height: var(--feuillets-line-height) !important;
+}
+
+/* Largeur de texte réglable (settings.textWidth) : contrairement à
+   concentrationWidth ci-dessus (actif seulement en mode concentration),
+   celle-ci s'applique en permanence à l'édition et à la lecture. */
+body.feuillets-text-width .markdown-source-view,
+body.feuillets-text-width .markdown-preview-view {
+  max-width: var(--feuillets-text-width) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
 }
 
 /* ===== contrôles natifs ===== */
@@ -2952,6 +3008,67 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-sidebar-content,
 .feuillets-sidebar-container {
   background: var(--background-secondary-alt) !important;
+}
+
+/* Réglage "Fond transparent pour les panneaux latéraux" (settings.
+   uiTransparentPanels) : au lieu des fonds --background-secondary(-alt)
+   ci-dessus, laisse voir le fond de la fenêtre à travers — au choix,
+   au-delà du minimalisme déjà appliqué par défaut ci-dessus. */
+body.feuillets-transparent-panels .feuillets-container,
+body.feuillets-transparent-panels .feuillets-list-pane,
+body.feuillets-transparent-panels .feuillets-tree-pane,
+body.feuillets-transparent-panels .feuillets-sidebar-content,
+body.feuillets-transparent-panels .feuillets-sidebar-container {
+  background: transparent !important;
+}
+
+/* Réglage "Fond transparent pour la bande d'onglets" (settings.
+   uiTransparentTabBar) : élément natif d'Obsidian (pas propre à Feuillets),
+   distinct de "Masquer la barre d'onglet" (showViewHeader) qui masque le
+   titre du feuillet au-dessus du texte — ici on garde la bande d'onglets,
+   juste sans son fond opaque. */
+/* border/box-shadow seulement — pas de display:none sur les ::before/::after
+   du conteneur : ceux-ci réservent l'espace des boutons de fenêtre macOS
+   (traffic lights), les masquer les fait chevaucher par les icônes du
+   ruban/de la barre d'onglets. */
+body.feuillets-transparent-tabbar .workspace-tab-header-container,
+body.feuillets-transparent-tabbar .workspace-tab-header-container-inner,
+body.feuillets-transparent-tabbar .workspace-tab-header {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Réglage "Masquer le sélecteur de coffre" (settings.uiHideVaultSwitcher) :
+   nom du vault + accès aux réglages/changement de vault, en bas du binder.
+   Élément natif d'Obsidian, pas de vault.getConfig équivalent — même
+   sélecteur que le plugin Hider. */
+body.feuillets-hide-vault-switcher .workspace-sidedock-vault-profile {
+  display: none !important;
+}
+
+/* Réglage "Estomper les icônes d'action des onglets" (settings.
+   uiDimTabActions) : mêmes icônes qu'on ne peut pas masquer proprement
+   (classes internes non stables selon le bouton précis) — .view-actions
+   est en revanche une classe Obsidian stable et documentée, on l'estompe
+   plutôt que de cibler un bouton précis. Même motif que les boutons des
+   panneaux Feuillets ci-dessous (opacité réduite, pleine au survol). */
+body.feuillets-dim-tab-actions .workspace-tab-header-inner-icon {
+  opacity: 0.25 !important;
+  transition: opacity 0.2s ease !important;
+}
+body.feuillets-dim-tab-actions .workspace-tab-header-container:hover .workspace-tab-header-inner-icon {
+  opacity: 1 !important;
+}
+/* Onglets du panneau latéral Feuillets (Binder/Tableau/Notes/Recherche…) :
+   même traitement, sauf l'onglet actif (déjà mis en avant par sa propre
+   couleur/soulignement, pas besoin d'un estompage en plus). */
+body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active) {
+  opacity: 0.4 !important;
+  transition: opacity 0.2s ease !important;
+}
+body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
+  opacity: 1 !important;
 }
 
 /* 2. SÉLECTION DISCRÈTE (STYLE ULYSSES 10% OPACITÉ & 6PX RADIUS) */

@@ -100,6 +100,7 @@ class FeuilletsPlugin extends Plugin {
     this.addSettingTab(new FeuilletsSettingTab(this.app, this));
 
     this.applyIndentClass();
+    this.applyLeanInterfaceClasses();
 
     this.registerAutoOpenPanels();
     this.registerConcentrationTracking();
@@ -1428,10 +1429,31 @@ class FeuilletsPlugin extends Plugin {
     } else {
       document.body.style.removeProperty("--feuillets-reading-fs");
     }
+    const lh = inProject ? S.lineHeight : 0;
+    document.body.toggleClass("feuillets-line-height", lh > 0);
+    if (lh > 0) {
+      document.body.style.setProperty("--feuillets-line-height", `${lh}`);
+    } else {
+      document.body.style.removeProperty("--feuillets-line-height");
+    }
+    const tw = inProject ? S.textWidth : 0;
+    document.body.toggleClass("feuillets-text-width", tw > 0);
+    if (tw > 0) {
+      document.body.style.setProperty("--feuillets-text-width", `${tw}px`);
+    } else {
+      document.body.style.removeProperty("--feuillets-text-width");
+    }
   }
 
   applyIndentClass() {
     document.body.toggleClass("feuillets-indent", this.isActiveFileInProject() && this.settings.indentParagraphs);
+  }
+
+  applyLeanInterfaceClasses() {
+    document.body.toggleClass("feuillets-transparent-panels", !!this.settings.uiTransparentPanels);
+    document.body.toggleClass("feuillets-transparent-tabbar", !!this.settings.uiTransparentTabBar);
+    document.body.toggleClass("feuillets-hide-vault-switcher", !!this.settings.uiHideVaultSwitcher);
+    document.body.toggleClass("feuillets-dim-tab-actions", !!this.settings.uiDimTabActions);
   }
 
   currentStreak() {
@@ -1649,6 +1671,28 @@ class FeuilletsPlugin extends Plugin {
   safeSetSize(split, width) {
     if (!split || typeof split.setSize !== "function") return;
     try { split.setSize(width); } catch (e) {}
+  }
+
+  /* vault.getConfig/setConfig : API interne non documentée (comme
+     WorkspaceSplit.setSize ci-dessus) mais stable — c'est le même stockage
+     que les réglages natifs "Éditeur"/"Apparence" d'Obsidian
+     (app.json/appearance.json). Pas de valeur par défaut Feuillets pour ces
+     clés : les réglages lisent la valeur réelle courante à chaque rendu, on
+     ne fait qu'exposer un raccourci vers un réglage Obsidian existant,
+     jamais une préférence stockée en double côté plugin. */
+  getVaultConfig(key) {
+    try {
+      return typeof this.app.vault.getConfig === "function" ? this.app.vault.getConfig(key) : undefined;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  setVaultConfig(key, value) {
+    try {
+      if (typeof this.app.vault.setConfig === "function") this.app.vault.setConfig(key, value);
+      this.app.workspace.updateOptions();
+    } catch (e) {}
   }
 
   adjustSidebarWidth() {

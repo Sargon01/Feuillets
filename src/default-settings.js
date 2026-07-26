@@ -33,6 +33,8 @@ export const DEFAULT_SETTINGS = {
   liveJustify: false, // texte justifié en Live Preview (sans césure : la césure y coûte trop cher au défilement)
   readingMatchLive: true, // mode lecture : même interligne et espacement de paragraphes qu'en Live Preview
   readingFontSize: 0, // px, mode lecture uniquement — 0 = taille par défaut d'Obsidian (partagée avec Live Preview, donc pas réglable indépendamment sans ceci)
+  lineHeight: 0, // multiplicateur (ex. 1.75) appliqué à l'édition ET à la lecture — 0 = valeur du thème, pas de réglage natif Obsidian équivalent
+  textWidth: 0, // px, largeur max du texte appliquée à l'édition ET à la lecture (distinct de concentrationWidth, actif seulement en mode concentration) — 0 = pas de contrainte
   binderLayout: "split", // toujours "split" désormais (dossiers | feuillets) — "tree" retiré (couvert par la racine du double volet en récursif)
   binderSelectedPath: "", // dossier sélectionné dans le volet gauche en vue double volet
   binderTreeWidth: 170, // px, largeur du volet gauche en vue double volet
@@ -104,6 +106,10 @@ export const DEFAULT_SETTINGS = {
   concentrationUnit: "line", // "line" (fiable) | "paragraph"
   concentrationTypewriter: true, // ligne du curseur maintenue centrée
   concentrationCounter: true, // compteur de mots flottant
+  uiTransparentPanels: false, // fond transparent pour les panneaux latéraux Feuillets (au lieu de --background-secondary)
+  uiTransparentTabBar: false, // fond transparent pour la bande d'onglets d'Obsidian (workspace-tab-header-container)
+  uiHideVaultSwitcher: false, // masque le sélecteur de coffre (nom du vault + accès aux réglages/changement de vault) en bas du binder
+  uiDimTabActions: false, // estompe les icônes d'action natives d'Obsidian (tags, infos, panneau droit...) en haut à droite, pleine opacité au survol
   projectMeta: {}, // { cheminDossier: { author, type, description } }
 
   autoOpenNotes: false, // ouvre le panneau Notes au démarrage — interface sobre par défaut
