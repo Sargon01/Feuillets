@@ -4,6 +4,7 @@ import { resolveExportTemplate, exportBuiltInTemplates } from "../services/expor
 import { templateToCss, EXPORT_TEMPLATES } from "../utils/export-templates.js";
 import { compile, exportFile } from "../services/compile-export.js";
 import { t } from "../i18n/index.js";
+import { appendParagraphWithStrong, mountTemplatePreview } from "./template-preview.js";
 
 export class PdfStyleModal extends Modal {
   constructor(app, plugin) {
@@ -260,27 +261,22 @@ export class PdfStyleModal extends Modal {
     const css = templateToCss(tpl);
 
     const dummyEl = document.createElement("div");
-    dummyEl.innerHTML = `
-      <h1>${t("modal.preview.dummy.h1")}</h1>
-      <p>${t("modal.preview.dummy.p1")}</p>
-      <p>${t("modal.pdfStyle.dummyP2")}</p>
-      <h2>${t("modal.preview.dummy.h2a")}</h2>
-      <p>${t("modal.pdfStyle.dummyP3", { section: `<strong>${t("modal.preview.dummy.h2a")}</strong>` })}</p>
-      <h2>${t("modal.preview.dummy.h2b")}</h2>
-      <p>${t("modal.preview.dummy.p3")}</p>
-    `;
+    dummyEl.createEl("h1", { text: t("modal.preview.dummy.h1") });
+    dummyEl.createEl("p", { text: t("modal.preview.dummy.p1") });
+    dummyEl.createEl("p", { text: t("modal.pdfStyle.dummyP2") });
+    dummyEl.createEl("h2", { text: t("modal.preview.dummy.h2a") });
+    appendParagraphWithStrong(dummyEl, "modal.pdfStyle.dummyP3", t("modal.preview.dummy.h2a"));
+    dummyEl.createEl("h2", { text: t("modal.preview.dummy.h2b") });
+    dummyEl.createEl("p", { text: t("modal.preview.dummy.p3") });
 
     const { pagesHtml } = paginateManuscript(dummyEl, [], this.settings, tpl, title, author);
 
-    const styleEl = document.createElement("style");
-    styleEl.textContent = `
-      ${css}
-      .pdf-page { transform: scale(0.56); transform-origin: top center; margin-bottom: -175px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); border-radius: 2px; }
-    `;
-
     const previewWrap = container.createDiv({ cls: "feuillets-pdf-spread-wrap" });
-    previewWrap.appendChild(styleEl);
-    previewWrap.innerHTML += pagesHtml;
+    mountTemplatePreview(previewWrap, css, pagesHtml, {
+      scale: 0.56,
+      marginBottomPx: -175,
+      shadow: "0 4px 16px rgba(0,0,0,0.15)",
+    });
   }
 
   onClose() {

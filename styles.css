@@ -1693,6 +1693,16 @@ body.feuillets-concentration .markdown-preview-view {
 
 /* ===== réglages du plugin : en-tête ===== */
 
+/* Aperçu de mise en page (modales « Aperçu visuel » et style PDF) : rendu
+   dans une iframe isolée pour que le CSS du modèle d'export ne déborde pas
+   sur l'interface d'Obsidian (voir ui/template-preview.js). */
+.feuillets-template-preview-frame {
+  width: 100%;
+  height: 60vh;
+  border: none;
+  background: transparent;
+}
+
 .feuillets-settings-header {
   margin-bottom: var(--size-4-2);
 }

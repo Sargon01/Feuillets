@@ -2,6 +2,38 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.8
+
+### Corrigé
+
+- **Le CSS des modèles d'export ne repeint plus toute l'interface.** Les
+  aperçus de mise en page injectaient le CSS du modèle dans un `<style>`
+  ajouté au DOM d'Obsidian ; ses règles `body { … }` (police, taille,
+  interlignage, marges) s'appliquaient donc au `<body>` de l'application
+  elle-même tant que la modale restait ouverte. L'aperçu vit désormais
+  dans une iframe `sandbox` isolée : le rendu ne déborde plus, et il est
+  au passage plus fidèle au fichier exporté puisqu'il n'hérite plus du
+  thème d'Obsidian.
+- Les 21 « titres » de sections des réglages n'en étaient pas : ces `h3`
+  servaient uniquement de marqueurs, lus puis retirés du DOM par
+  `organizeSections()`, leur texte devenant le résumé d'un repli. Ils
+  deviennent des `div` porteurs d'une classe — sémantiquement juste, et
+  conforme à l'ESLint officiel d'Obsidian qui réserve les titres à
+  `new Setting().setHeading()`. Le titre « Feuillets » de l'en-tête passe
+  lui aussi en `div` : son apparence est entièrement définie par
+  `.feuillets-settings-title`, rien n'y dépendait des styles par défaut
+  d'un `h2`.
+- Contenus de démonstration des aperçus construits avec l'API DOM au lieu
+  d'`innerHTML`.
+
+### Connu
+
+- Une écriture `innerHTML` subsiste (`services/export-pdf.js`, section des
+  notes de bas de page) : le HTML des notes est nettoyé par expressions
+  régulières sur la chaîne sérialisée. S'en passer demande de faire
+  circuler des nœuds DOM dans toute la chaîne de rendu — un changement
+  plus profond, à faire délibérément.
+
 ## 1.2.7
 
 ### Corrigé

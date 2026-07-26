@@ -3,6 +3,7 @@ import { resolveExportTemplate } from "../services/export-templates-custom.js";
 import { paginateManuscript } from "../services/export-pdf.js";
 import { templateToCss } from "../utils/export-templates.js";
 import { t } from "../i18n/index.js";
+import { appendParagraphWithStrong, mountTemplatePreview } from "./template-preview.js";
 
 /** Modale d'aperçu visuel dédiée : s'ouvre uniquement au clic sur l'icône d'œil
  * ou le bouton "Aperçu visuel", sans encombrer la barre latérale. */
@@ -40,26 +41,21 @@ export class PreviewModal extends Modal {
     const css = templateToCss(tpl);
 
     const dummyEl = document.createElement("div");
-    dummyEl.innerHTML = `
-      <h1>${t("modal.preview.dummy.h1")}</h1>
-      <p>${t("modal.preview.dummy.p1")}</p>
-      <h2>${t("modal.preview.dummy.h2a")}</h2>
-      <p>${t("modal.preview.dummy.p2", { section: `<strong>${t("modal.preview.dummy.h2a")}</strong>` })}</p>
-      <h2>${t("modal.preview.dummy.h2b")}</h2>
-      <p>${t("modal.preview.dummy.p3")}</p>
-    `;
+    dummyEl.createEl("h1", { text: t("modal.preview.dummy.h1") });
+    dummyEl.createEl("p", { text: t("modal.preview.dummy.p1") });
+    dummyEl.createEl("h2", { text: t("modal.preview.dummy.h2a") });
+    appendParagraphWithStrong(dummyEl, "modal.preview.dummy.p2", t("modal.preview.dummy.h2a"));
+    dummyEl.createEl("h2", { text: t("modal.preview.dummy.h2b") });
+    dummyEl.createEl("p", { text: t("modal.preview.dummy.p3") });
 
     const { pagesHtml } = paginateManuscript(dummyEl, [], this.settings, tpl, title, author);
 
-    const styleEl = document.createElement("style");
-    styleEl.textContent = `
-      ${css}
-      .pdf-page { transform: scale(0.65); transform-origin: top center; margin-bottom: -130px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); border-radius: 2px; }
-    `;
-
     const wrap = container.createDiv({ cls: "feuillets-pdf-spread-wrap" });
-    wrap.appendChild(styleEl);
-    wrap.innerHTML += pagesHtml;
+    mountTemplatePreview(wrap, css, pagesHtml, {
+      scale: 0.65,
+      marginBottomPx: -130,
+      shadow: "0 4px 20px rgba(0,0,0,0.2)",
+    });
   }
 
   onClose() {

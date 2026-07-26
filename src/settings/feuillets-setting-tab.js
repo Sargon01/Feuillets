@@ -22,7 +22,12 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     const header = containerEl.createDiv({ cls: "feuillets-settings-header" });
-    header.createEl("h2", { text: "Feuillets", cls: "feuillets-settings-title" });
+    /* Un div, pas un h2 : l'apparence est entièrement définie par
+       .feuillets-settings-title (taille, graisse, marges, couleur), rien
+       n'y dépend des styles par défaut d'un titre — et l'ESLint officiel
+       d'Obsidian interdit les éléments de titre créés à la main dans un
+       onglet de réglages. */
+    header.createDiv({ cls: "feuillets-settings-title", text: "Feuillets" });
     header.createDiv({ cls: "feuillets-settings-tagline" }).setText(t("settings.tagline"));
     const links = header.createDiv({ cls: "feuillets-settings-links" });
     const REPO = "https://github.com/Sargon01/Feuillets";
@@ -32,7 +37,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     const refresh = () => this.plugin.refreshView();
 
-    containerEl.createEl("h3", { text: t("settings.section.projectFolder"), attr: { "data-cat": "Projet", "data-open": "1" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.projectFolder"), attr: { "data-cat": "Projet", "data-open": "1" } });
 
     const allProjects = (S.projects || []).concat(S.projectFolder ? [S.projectFolder] : [])
       .filter((p, i, a) => p && a.indexOf(p) === i)
@@ -217,7 +222,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.numbering"), attr: { "data-cat": "Projet" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.numbering"), attr: { "data-cat": "Projet" } });
 
     new Setting(containerEl)
       .setName(t("settings.level1Role.name"))
@@ -283,7 +288,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       })
     );
 
-    containerEl.createEl("h3", { text: t("settings.section.statusesLabels"), attr: { "data-cat": "Projet" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.statusesLabels"), attr: { "data-cat": "Projet" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.statusesLabels.intro")
@@ -394,7 +399,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.goals"), attr: { "data-cat": "Projet" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.goals"), attr: { "data-cat": "Projet" } });
 
     new Setting(containerEl)
       .setName(t("settings.wordGoal.name", { unit }))
@@ -454,7 +459,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.history"), attr: { "data-cat": "Projet" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.history"), attr: { "data-cat": "Projet" } });
 
     new Setting(containerEl)
       .setName(t("settings.statsRetention.name"))
@@ -467,7 +472,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.backup"), attr: { "data-cat": "Projet", "data-open": "1" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.backup"), attr: { "data-cat": "Projet", "data-open": "1" } });
 
     new Setting(containerEl)
       .setName(t("settings.backupEnabled.name"))
@@ -509,7 +514,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         );
     }
 
-    containerEl.createEl("h3", { text: t("settings.section.appearance"), attr: { "data-cat": "Interface" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.appearance"), attr: { "data-cat": "Interface" } });
 
     new Setting(containerEl)
       .setName(t("settings.language.name"))
@@ -629,7 +634,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         cp.onChange((v) => this.plugin.setVaultConfig("accentColor", v));
       });
 
-    containerEl.createEl("h3", { text: t("settings.section.liveTypography"), attr: { "data-cat": "Écriture" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.liveTypography"), attr: { "data-cat": "Écriture" } });
 
     new Setting(containerEl)
       .setName(t("settings.indentParagraphs.name"))
@@ -756,7 +761,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.focusMode"), attr: { "data-cat": "Interface" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.focusMode"), attr: { "data-cat": "Interface" } });
 
      new Setting(containerEl)
       .setName(t("settings.focusUnit.name"))
@@ -827,7 +832,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.leanInterface"), attr: { "data-cat": "Interface" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.leanInterface"), attr: { "data-cat": "Interface" } });
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.leanInterface.desc"));
 
     new Setting(containerEl)
@@ -941,7 +946,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     this.storeLinkButton(goFurther, t("settings.leanInterface.pluginStyleSettings"), () => this.openCommunityPluginsSearch("Style Settings"));
     this.storeLinkButton(goFurther, t("settings.leanInterface.pluginMinimalSettings"), () => this.openCommunityPluginsSearch("Minimal Theme Settings"));
 
-    containerEl.createEl("h3", { text: t("settings.section.sceneMerge"), attr: { "data-cat": "Écriture" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.sceneMerge"), attr: { "data-cat": "Écriture" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.sceneMerge.intro")
@@ -998,7 +1003,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl("h3", { text: t("settings.section.boardPanel"), attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.boardPanel"), attr: { "data-cat": "Panneaux latéraux" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.boardPanel.intro")
@@ -1086,7 +1091,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.startupPanels"), attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.startupPanels"), attr: { "data-cat": "Panneaux latéraux" } });
 
     new Setting(containerEl)
       .setName(t("settings.autoOpenBinder.name"))
@@ -1159,7 +1164,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
 
-    containerEl.createEl("h3", { text: t("settings.section.activeViews"), attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.activeViews"), attr: { "data-cat": "Panneaux latéraux" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.activeViews.intro")
@@ -1216,7 +1221,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
     }
 
-    containerEl.createEl("h3", { text: "Binder", attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: "Binder", attr: { "data-cat": "Panneaux latéraux" } });
 
      new Setting(containerEl)
       .setName(t("binder.display.labelStripes"))
@@ -1324,7 +1329,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.notesPanel"), attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.notesPanel"), attr: { "data-cat": "Panneaux latéraux" } });
 
     new Setting(containerEl)
       .setName(t("settings.notesShowEntities.name"))
@@ -1399,7 +1404,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const orderWrapNotes = containerEl.createDiv({ cls: "feuillets-notes-order-wrap" });
     this.renderSectionOrderList(orderWrapNotes, S, "notesSectionOrder", ["Synopsis", "Résumé", "Notes"], refresh);
 
-    containerEl.createEl("h3", { text: t("settings.section.grammarCheck"), attr: { "data-cat": "Correction" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.grammarCheck"), attr: { "data-cat": "Correction" } });
     new Setting(containerEl)
       .setName(t("settings.grammarEngine.name"))
       .setDesc(t("settings.grammarEngine.desc"))
@@ -1484,7 +1489,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         );
     }
 
-    containerEl.createEl("h3", { text: t("settings.section.compilation"), attr: { "data-cat": "Export" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilation"), attr: { "data-cat": "Export" } });
 
     new Setting(containerEl)
       .setName(t("settings.compileFileName.name"))
@@ -1544,7 +1549,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: t("settings.section.compilePresets"), attr: { "data-cat": "Export" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilePresets"), attr: { "data-cat": "Export" } });
 
     (S.compilePresets || []).forEach((p, i) => {
       // Une carte par preset, une ligne étiquetée par champ : l'ancienne
@@ -1621,7 +1626,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       })
     );
 
-    containerEl.createEl("h3", { text: t("settings.section.export"), attr: { "data-cat": "Export" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.export"), attr: { "data-cat": "Export" } });
 
     containerEl.createDiv({ cls: "setting-item-description" }).setText(
       t("settings.export.engineIntro")
@@ -1836,12 +1841,19 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     let currentSub = null;
     const nodes = Array.from(containerEl.children);
     for (const node of nodes) {
-      if (node.tagName === "H2" || node.classList.contains("feuillets-settings-header")) continue; // en-tête (titre/slogan/liens) reste fixe au-dessus des onglets
-      if (node.tagName === "H3") {
-        /* La catégorie vit sur le h3 lui-même (attr data-cat, posé à la
-           création — voir les containerEl.createEl("h3", ...) plus haut) :
-           plus de dictionnaire séparé à tenir synchronisé avec les titres.
-           Un h3 sans data-cat (oubli) tombe dans un onglet toujours
+      if (node.classList.contains("feuillets-settings-header")) continue; // en-tête (titre/slogan/liens) reste fixe au-dessus des onglets
+      if (node.classList.contains("feuillets-settings-section")) {
+        /* Ces marqueurs de section ne sont jamais affichés tels quels : on
+           lit leurs attributs puis on les retire (node.remove() plus bas),
+           leur texte devenant le résumé du repli. C'étaient des h3
+           auparavant — sémantiquement faux (ce ne sont pas des titres
+           rendus) et interdit par l'ESLint officiel d'Obsidian, qui exige
+           new Setting().setHeading() pour un vrai titre de réglages.
+           La catégorie vit sur le marqueur lui-même (attr data-cat, posé à
+           la création — voir les containerEl.createDiv({ cls:
+           "feuillets-settings-section", ... }) plus haut) : plus de
+           dictionnaire séparé à tenir synchronisé avec les titres. Un
+           marqueur sans data-cat (oubli) tombe dans un onglet toujours
            visible plutôt que d'être caché en silence. */
         const cat = node.getAttr("data-cat");
         if (!cat || !ORDER.includes(cat)) {
