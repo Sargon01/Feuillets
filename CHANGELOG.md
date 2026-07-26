@@ -2,6 +2,22 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.5
+
+### Corrigé
+
+- Cause probable, enfin trouvée, des échecs répétés du contrôle « Source
+  code » du scanner d'Obsidian : `eslint.config.mjs` importait le paquet
+  npm `globals`. Si le scanner clone le dépôt et lance ESLint sans lancer
+  `npm install` au préalable, cet `import` échoue au chargement même de la
+  configuration (`ERR_MODULE_NOT_FOUND`) — avant d'avoir ouvert le moindre
+  fichier source, ce qui correspond exactement à l'erreur générique et
+  sans fichier/ligne observée à chaque fois. Remplacé par une liste de
+  globals écrite à la main (aucune dépendance externe dans la config
+  ESLint désormais) ; `no-undef` passé de `error` à `warn` puisque cette
+  liste manuelle est nécessairement moins exhaustive que celle du paquet.
+  Dépendance `globals` retirée de `package.json`.
+
 ## 1.2.4
 
 ### Corrigé
