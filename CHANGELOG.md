@@ -2,6 +2,22 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.2
+
+### Corrigé
+
+- Retiré une branche de code morte (jamais atteinte dans Electron) présente
+  dans `docx` et `jszip` : un vieux polyfill IE6-8 créait un élément
+  `<script>` vide uniquement pour exploiter son événement
+  `onreadystatechange` comme astuce de minuterie — jamais de `src` assigné,
+  aucun chargement de code externe. Patché via un script `postinstall`
+  (`scripts/patch-script-polyfills.mjs`) pour ne plus déclencher les
+  scanners de sécurité qui détectent la création dynamique de `<script>`
+  sans distinguer ce cas mort du vrai risque.
+- CI/CD : ajout de workflows GitHub Actions (build + tests sur chaque push,
+  build + tests + attestations de provenance + release automatique sur
+  chaque tag).
+
 ## 1.2.1
 
 ### Corrigé

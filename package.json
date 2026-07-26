@@ -1,10 +1,10 @@
 {
   "name": "feuillets-dev",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Feuillets plugin development",
   "main": "main.js",
   "scripts": {
-    "postinstall": "node scripts/patch-harper.mjs",
+    "postinstall": "node scripts/patch-harper.mjs && node scripts/patch-script-polyfills.mjs",
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "test": "node --test test/*.test.js"
