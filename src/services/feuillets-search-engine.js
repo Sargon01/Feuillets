@@ -38,6 +38,7 @@ export class FeuilletsSearchEngine {
         .replace(/\\\[LIGNE\\\]/g, "\\r?\\n");
 
       if (ignoreDiacritics) {
+        // eslint-disable-next-line no-misleading-character-class -- remplacement de diacritiques dans la chaîne de recherche
         pattern = pattern
           .replace(/[aàáâãäåAÀÁÃÄÅ]/g, "[aàáâãäåAÀÁÃÄÅ]")
           .replace(/[eèéêëEÈÉÊË]/g, "[eèéêëEÈÉÊË]")
