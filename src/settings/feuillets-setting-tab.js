@@ -36,6 +36,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             setLocale(detectLocale(S));
             this.plugin.renderAllViews(true);
+            this.plugin.refreshRibbonIcons();
             this.display();
           })
       );

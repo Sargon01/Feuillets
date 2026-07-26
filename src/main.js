@@ -134,11 +134,11 @@ class FeuilletsPlugin extends Plugin {
 
   registerRibbonIcons() {
     this._ribbonDefs = [
-      { key: "sidebar", icon: "files", label: "Feuillets : binder", action: () => this.activateSidebar() },
-      { key: "board", icon: "layout-grid", label: "Feuillets : cartes / plan", action: () => this.activateBoard() },
-      { key: "journal", icon: "calendar", label: "Feuillets : journal & statistiques", action: () => this.activateJournal(), hideable: true },
-      { key: "project", icon: "folder-cog", label: "Feuillets : projet & export", action: () => this.activateProject(), hideable: true },
-      { key: "concentration", icon: "focus", label: "Mode concentration", action: () => this.toggleConcentration() },
+      { key: "sidebar", icon: "files", labelKey: "main.ribbon.binder", action: () => this.activateSidebar() },
+      { key: "board", icon: "layout-grid", labelKey: "main.ribbon.board", action: () => this.activateBoard() },
+      { key: "journal", icon: "calendar", labelKey: "main.ribbon.journal", action: () => this.activateJournal(), hideable: true },
+      { key: "project", icon: "folder-cog", labelKey: "main.ribbon.project", action: () => this.activateProject(), hideable: true },
+      { key: "concentration", icon: "focus", labelKey: "settings.section.focusMode", action: () => this.toggleConcentration() },
     ];
     this._ribbonEls = {};
     this.refreshRibbonIcons();
@@ -150,10 +150,13 @@ class FeuilletsPlugin extends Plugin {
       const shouldShow = !def.hideable || !hidden.has(def.key);
       const existing = this._ribbonEls[def.key];
       if (shouldShow && !existing) {
-        this._ribbonEls[def.key] = this.addRibbonIcon(def.icon, def.label, def.action);
+        this._ribbonEls[def.key] = this.addRibbonIcon(def.icon, t(def.labelKey), def.action);
       } else if (!shouldShow && existing) {
         existing.remove();
         delete this._ribbonEls[def.key];
+      } else if (shouldShow && existing) {
+        // Langue changée entre-temps : la tooltip existante doit suivre.
+        setTooltip(existing, t(def.labelKey));
       }
     }
   }
@@ -177,20 +180,20 @@ class FeuilletsPlugin extends Plugin {
   registerCoreCommands() {
     this.addCommand({
       id: "open-feuillets",
-      name: "Ouvrir le binder",
+      name: t("main.cmd.openBinder"),
       callback: () => this.activateSidebar(),
     });
     this.addCommand({
       id: "open-board",
-      name: "Ouvrir les cartes / le plan",
+      name: t("main.cmd.openBoard"),
       callback: () => this.activateBoard(),
     });
     this.addCommand({
       id: "open-progression",
-      name: "Ouvrir le panneau Statistiques",
+      name: t("main.cmd.openStatsPanel"),
       callback: () => {
         if (this.isPanelHidden("journal")) {
-          new Notice("Panneau Journal & statistiques masqué — réactive-le dans les réglages.");
+          new Notice(t("main.notice.journalPanelHidden"));
           return;
         }
         this.activateJournal();
@@ -198,10 +201,10 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "open-journal",
-      name: "Ouvrir le journal d'écriture",
+      name: t("main.cmd.openJournal"),
       callback: () => {
         if (this.isPanelHidden("journal")) {
-          new Notice("Panneau Journal & statistiques masqué — réactive-le dans les réglages.");
+          new Notice(t("main.notice.journalPanelHidden"));
           return;
         }
         this.activateJournal();
@@ -209,10 +212,10 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "open-project",
-      name: "Ouvrir le panneau Projet",
+      name: t("main.cmd.openProjectPanel"),
       callback: () => {
         if (this.isPanelHidden("project")) {
-          new Notice("Panneau Projet & export masqué — réactive-le dans les réglages.");
+          new Notice(t("main.notice.projectPanelHidden"));
           return;
         }
         this.activateProject();
@@ -220,10 +223,10 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "open-export",
-      name: "Ouvrir le panneau Compilation & export",
+      name: t("main.cmd.openCompileExportPanel"),
       callback: () => {
         if (this.isPanelHidden("project")) {
-          new Notice("Panneau Projet & export masqué — réactive-le dans les réglages.");
+          new Notice(t("main.notice.projectPanelHidden"));
           return;
         }
         this.activateProject();
@@ -231,7 +234,7 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "open-properties",
-      name: "Propriétés du projet…",
+      name: t("main.cmd.projectProperties"),
       // Panneau retiré (fusionné dans l'onglet Notes) — ouvre directement
       // la fenêtre flottante, comme les icônes de la section "Propriétés
       // du fichier" (voir notes-view.js).
@@ -239,20 +242,20 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "open-project-tags",
-      name: "Tags du projet…",
+      name: t("main.cmd.projectTags"),
       callback: () => new ProjectTagsModal(this.app, this).open(),
     });
     this.addCommand({
       id: "grammalecte-check-active-file",
-      name: "Correction grammaticale : vérifier le feuillet actif",
+      name: t("main.cmd.grammarCheckActiveFile"),
       callback: () => {
         if (!this._grammarView) {
-          new Notice("Ouvre d'abord le panneau latéral Feuillets (n'importe quel onglet).");
+          new Notice(t("main.notice.openSidebarFirst"));
           return;
         }
         const file = this.app.workspace.getActiveFile();
         if (!file || file.extension !== "md") {
-          new Notice("Ouvre un feuillet à vérifier.");
+          new Notice(t("main.notice.openSheetToCheck"));
           return;
         }
         // Ne nécessite pas d'avoir l'onglet ouvert/actif : lance la
@@ -262,10 +265,10 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "grammalecte-next-issue",
-      name: "Correction grammaticale : aller à la faute suivante",
+      name: t("main.cmd.grammarNextIssue"),
       callback: () => {
         if (!this._grammarView) {
-          new Notice("Ouvre d'abord l'onglet Correction grammaticale.");
+          new Notice(t("main.notice.openGrammarTabFirst"));
           return;
         }
         this._grammarView.jumpToAdjacentIssue(1);
@@ -273,10 +276,10 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "grammalecte-prev-issue",
-      name: "Correction grammaticale : aller à la faute précédente",
+      name: t("main.cmd.grammarPrevIssue"),
       callback: () => {
         if (!this._grammarView) {
-          new Notice("Ouvre d'abord l'onglet Correction grammaticale.");
+          new Notice(t("main.notice.openGrammarTabFirst"));
           return;
         }
         this._grammarView.jumpToAdjacentIssue(-1);
@@ -284,40 +287,40 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "compile-manuscript",
-      name: "Compiler le manuscrit",
+      name: t("main.cmd.compileManuscript"),
       callback: () => this.compile(),
     });
     this.addCommand({
       id: "compile-journal",
-      name: "Compiler le carnet d'écriture",
+      name: t("main.cmd.compileJournal"),
       callback: () => this.compileJournal(),
     });
     this.addCommand({
       id: "export-docx",
-      name: "Exporter en .docx",
+      name: t("main.cmd.exportDocx"),
       callback: () => this.exportFile("docx"),
     });
     this.addCommand({
       id: "export-epub",
-      name: "Exporter en .epub",
+      name: t("main.cmd.exportEpub"),
       callback: () => this.exportFile("epub"),
     });
     this.addCommand({
       id: "export-pdf",
-      name: "Exporter en .pdf (via impression, bureau uniquement)",
+      name: t("main.cmd.exportPdf"),
       callback: () => this.exportFile("pdf"),
     });
     this.addCommand({
       id: "import-outline",
-      name: "Importer un plan en arborescence (Parties/Chapitres/Scènes)",
+      name: t("main.cmd.importOutline"),
       callback: () => new ImportOutlineModal(this.app, this).open(),
     });
     this.addCommand({
       id: "undo-move",
-      name: "Annuler le dernier déplacement",
+      name: t("main.cmd.undoMove"),
       callback: async () => {
         if (!this.moveStack || this.moveStack.length === 0) {
-          new Notice("Aucun déplacement à annuler.");
+          new Notice(t("main.notice.nothingToUndo"));
           return;
         }
         const snap = this.moveStack.pop();
@@ -327,12 +330,12 @@ class FeuilletsPlugin extends Plugin {
           const destFolder = this.app.vault.getAbstractFileByPath(snap.destFolderPath);
           const node = this.app.vault.getAbstractFileByPath(normalizePath(`${snap.destFolderPath}/${snap.nodeName}`));
           if (!(srcParent instanceof TFolder) || !(destFolder instanceof TFolder) || !node) {
-            new Notice("Impossible d'annuler : un élément a changé entre-temps.");
+            new Notice(t("main.notice.undoImpossibleChanged"));
             return;
           }
           const backPath = normalizePath(`${snap.srcParentPath}/${snap.nodeName}`);
           if (this.app.vault.getAbstractFileByPath(backPath)) {
-            new Notice("Impossible d'annuler : le nom est repris à l'origine.");
+            new Notice(t("main.notice.undoImpossibleNameTaken"));
             return;
           }
           await this.app.fileManager.renameFile(node, backPath);
@@ -343,41 +346,41 @@ class FeuilletsPlugin extends Plugin {
             if (root) await this.renumberTitles(root);
           }
           this.renderAllViews(true);
-          new Notice("Déplacement inter-dossiers annulé.");
+          new Notice(t("main.notice.crossFolderMoveUndone"));
           return;
         }
 
         const parent = this.app.vault.getAbstractFileByPath(snap.parentPath);
         if (!(parent instanceof TFolder)) {
-          new Notice("Le dossier du déplacement n'existe plus.");
+          new Notice(t("main.notice.moveFolderGone"));
           return;
         }
         await this.applySiblingOrder(parent, this.orderFromSnapshot(parent, snap.order), false);
         this.renderAllViews(true);
-        new Notice("Réorganisation annulée.");
+        new Notice(t("main.notice.reorderUndone"));
       },
     });
     this.addCommand({
       id: "toggle-concentration",
-      name: "Basculer le mode concentration",
+      name: t("main.cmd.toggleConcentration"),
       callback: () => this.toggleConcentration(),
     });
     this.addCommand({
       id: "create-project",
-      name: "Créer un nouveau projet…",
+      name: t("main.cmd.createProject"),
       callback: () => new NewProjectModal(this.app, this).open(),
     });
     this.addCommand({
       id: "create-demo-project",
-      name: "Créer un projet d'exemple (démonstration)",
+      name: t("main.cmd.createDemoProject"),
       callback: () => {
         const menu = new Menu();
         menu.addItem((item) =>
-          item.setTitle("Roman générique (Elira) — explique chaque champ").onClick(() => this.createDemoProject("elira"))
+          item.setTitle(t("settings.demoProject.elira")).onClick(() => this.createDemoProject("elira"))
         );
         menu.addItem((item) =>
           item
-            .setTitle("Candide, ou l'Optimisme (Voltaire) — labels, fils & personnages")
+            .setTitle(t("settings.demoProject.candide"))
             .onClick(() => this.createDemoProject("candide"))
         );
         menu.showAtPosition({ x: window.innerWidth / 2, y: 80 });
@@ -385,10 +388,10 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "import-scrivener",
-      name: "Importer un projet Scrivener…",
+      name: t("main.cmd.importScrivener"),
       callback: () => {
         if (Platform.isMobile) {
-          new Notice("L'import Scrivener nécessite un accès au système de fichiers, disponible uniquement sur ordinateur.");
+          new Notice(t("main.notice.scrivenerDesktopOnly"));
           return;
         }
         new ScrivenerImportModal(this.app, this).open();
@@ -396,10 +399,10 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "open-docx-review",
-      name: "Ouvrir le panneau Révision (retours .docx d'un directeur/éditeur)",
+      name: t("main.cmd.openDocxReview"),
       callback: () => {
         if (this.isPanelHidden("docxReview")) {
-          new Notice("Panneau Révision masqué — réactive-le dans les réglages.");
+          new Notice(t("main.notice.reviewPanelHidden"));
           return;
         }
         this.activateDocxReview();
@@ -407,15 +410,15 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "generate-canvas-board",
-      name: "Générer/mettre à jour le tableau canvas (brainstorming)",
+      name: t("main.cmd.generateCanvasBoard"),
       callback: () => this.generateCanvasBoard(),
     });
     this.addCommand({
       id: "manage-projects",
-      name: "Gestion des projets…",
+      name: t("main.cmd.manageProjects"),
       callback: () => {
         if (this.isPanelHidden("project")) {
-          new Notice("Panneau Projet & export masqué — réactive-le dans les réglages.");
+          new Notice(t("main.notice.projectPanelHidden"));
           return;
         }
         this.activateProject();
@@ -423,14 +426,14 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "switch-project",
-      name: "Changer de projet…",
+      name: t("main.cmd.switchProject"),
       callback: () => {
         const all = [
           this.settings.projectFolder,
           ...this.settings.projects,
         ].filter((p, i, a) => p && a.indexOf(p) === i);
         if (all.length < 2) {
-          new Notice("Ajoute d'autres projets dans les réglages (un chemin par ligne).");
+          new Notice(t("main.notice.addOtherProjects"));
           return;
         }
         const menu = new Menu();
@@ -458,11 +461,11 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "duplicate-project",
-      name: "Dupliquer le manuscrit actif (nouvelle version)…",
+      name: t("main.cmd.duplicateProject"),
       callback: () => {
         const root = this.getProjectFolder();
         if (!root) {
-          new Notice("Aucun projet actif.");
+          new Notice(t("analysis.dashboard.noActiveProject"));
           return;
         }
         new DuplicateVersionModal(this.app, this.projectDisplayName(root.path), async (label) => {
@@ -472,65 +475,65 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "backup-project-now",
-      name: "Sauvegarder le projet maintenant (.zip)",
+      name: t("main.cmd.backupProjectNow"),
       callback: () => this.backupProjectNow(),
     });
     this.addCommand({
       id: "next-sheet",
-      name: "Feuillet suivant (ordre du manuscrit)",
+      name: t("main.cmd.nextSheet"),
       callback: () => this.openNeighbor(1),
     });
     this.addCommand({
       id: "previous-sheet",
-      name: "Feuillet précédent (ordre du manuscrit)",
+      name: t("main.cmd.previousSheet"),
       callback: () => this.openNeighbor(-1),
     });
     this.addCommand({
       id: "snapshot-file",
-      name: "Snapshot du feuillet actif",
+      name: t("main.cmd.snapshotFile"),
       callback: async () => {
         const file = this.app.workspace.getActiveFile();
         const root = this.getProjectFolder();
         if (!file || !root || !file.path.startsWith(root.path + "/")) {
-          new Notice("Aucun feuillet du projet actif.");
+          new Notice(t("main.notice.noActiveProjectSheet"));
           return;
         }
         const n = await this.snapshotFile(file, root);
-        new Notice(`Snapshot créé : ${n}`);
+        new Notice(t("main.notice.snapshotCreated", { name: n }));
       },
     });
     this.addCommand({
       id: "snapshot-project",
-      name: "Snapshot du projet complet",
+      name: t("main.cmd.snapshotProject"),
       callback: async () => {
         const root = this.getProjectFolder();
         if (!root) {
-          new Notice("Dossier projet introuvable.");
+          new Notice(t("main.notice.projectFolderNotFound"));
           return;
         }
         const files = this.flattenFiles(root);
         for (const f of files) await this.snapshotFile(f, root);
-        new Notice(`Snapshot du projet : ${files.length} feuillets copiés.`);
+        new Notice(t("main.notice.projectSnapshotDone", { count: files.length }));
       },
     });
     this.addCommand({
       id: "pdf-style-modal",
-      name: "Ouvrir le panneau Projet & Export",
+      name: t("main.cmd.openProjectExportPanel"),
       callback: () => this.activateProject(),
     });
     this.addCommand({
       id: "restore-snapshot",
-      name: "Restaurer un snapshot du feuillet actif",
+      name: t("main.cmd.restoreSnapshot"),
       callback: async () => {
         const file = this.app.workspace.getActiveFile();
         const root = this.getProjectFolder();
         if (!file || !root || !file.path.startsWith(root.path + "/")) {
-          new Notice("Aucun feuillet du projet actif.");
+          new Notice(t("main.notice.noActiveProjectSheet"));
           return;
         }
         const snaps = listSnapshotFiles(this.app, file, root);
         if (snaps.length === 0) {
-          new Notice("Aucun snapshot pour ce feuillet.");
+          new Notice(t("main.notice.noSnapshotForSheet"));
           return;
         }
         const menu = new Menu();
@@ -540,7 +543,7 @@ class FeuilletsPlugin extends Plugin {
               await this.snapshotFile(file, root);
               const content = await this.app.vault.read(snap);
               await this.app.vault.modify(file, content);
-              new Notice(`Restauré : ${snap.basename}`);
+              new Notice(t("main.notice.restored", { name: snap.basename }));
             })
           );
         }
@@ -549,7 +552,7 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "export-settings",
-      name: "Sauvegarder les réglages du plugin (fichier .json)",
+      name: t("main.cmd.exportSettings"),
       callback: async () => {
         const root = this.getProjectFolder();
         const dir = root ? root.path : "";
@@ -564,18 +567,18 @@ class FeuilletsPlugin extends Plugin {
         } else {
           await this.app.vault.create(path, payload);
         }
-        new Notice(`Réglages sauvegardés : ${path}`);
+        new Notice(t("main.notice.settingsSaved", { path }));
       },
     });
     this.addCommand({
       id: "import-settings",
-      name: "Restaurer les réglages du plugin depuis un fichier .json",
+      name: t("main.cmd.importSettings"),
       callback: async () => {
         const files = this.app.vault
           .getFiles()
           .filter((f) => f.extension === "json" && f.name.startsWith("feuillets-reglages"));
         if (files.length === 0) {
-          new Notice("Aucune sauvegarde trouvée (fichier feuillets-reglages-*.json).");
+          new Notice(t("main.notice.noSettingsBackupFound"));
           return;
         }
         const menu = new Menu();
@@ -591,10 +594,10 @@ class FeuilletsPlugin extends Plugin {
                 this.applyIndentClass();
                 this.applyLiveTypoClasses();
                 this.renderAllViews(true);
-                new Notice(`Réglages restaurés depuis ${f.name}.`);
+                new Notice(t("main.notice.settingsRestored", { name: f.name }));
               } catch (e) {
                 console.error("Feuillets : import des réglages", e);
-                new Notice("Fichier de réglages illisible ou corrompu.");
+                new Notice(t("main.notice.settingsFileUnreadable"));
               }
             })
           );
@@ -604,11 +607,11 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "migrate-research",
-      name: "Regrouper la recherche dans _Recherche (migration)",
+      name: t("main.cmd.migrateResearch"),
       callback: async () => {
         const root = this.getProjectFolder();
         if (!root) {
-          new Notice("Dossier projet introuvable.");
+          new Notice(t("main.notice.projectFolderNotFound"));
           return;
         }
         const searchBases = [root.path, root.parent ? root.parent.path : null].filter(Boolean);
@@ -641,7 +644,7 @@ class FeuilletsPlugin extends Plugin {
           if (!src) continue;
           const destPath = normalizePath(`${destBase}/${to}`);
           if (this.app.vault.getAbstractFileByPath(destPath)) {
-            new Notice(`« ${to} » existe déjà : « ${from} » laissé en place.`);
+            new Notice(t("main.notice.migrateAlreadyExists", { to, from }));
             continue;
           }
           await this.app.fileManager.renameFile(src, destPath);
@@ -649,45 +652,45 @@ class FeuilletsPlugin extends Plugin {
         }
         new Notice(
           moved > 0
-            ? `Migration : ${moved} élément(s) déplacé(s) dans _Recherche (liens mis à jour).`
-            : "Rien à migrer."
+            ? t("main.notice.migrateDone", { count: moved })
+            : t("main.notice.nothingToMigrate")
         );
         this.renderAllViews(true);
       },
     });
     this.addCommand({
       id: "init-project",
-      name: "Initialiser la structure du projet (_dossiers + bases)",
+      name: t("main.cmd.initProject"),
       callback: () => this.initProjectStructure(),
     });
     this.addCommand({
       id: "export-builtin-templates",
-      name: "Exporter les modèles d'export intégrés vers Resources/Layouts",
+      name: t("main.cmd.exportBuiltinTemplates"),
       callback: async () => {
         const n = await exportBuiltInTemplates(this.app, this.settings);
         new Notice(
           n > 0
-            ? `${n} modèle(s) exporté(s) dans Resources/Layouts.`
-            : "Tous les modèles intégrés sont déjà présents dans Resources/Layouts."
+            ? t("main.notice.templatesExported", { count: n })
+            : t("main.notice.templatesAlreadyPresent")
         );
       },
     });
     this.addCommand({
       id: "renumber-chapters",
-      name: "Renuméroter les titres des chapitres",
+      name: t("main.cmd.renumberChapters"),
       callback: async () => {
         const folder = this.getProjectFolder();
         if (!folder) {
-          new Notice("Dossier projet introuvable.");
+          new Notice(t("main.notice.projectFolderNotFound"));
           return;
         }
         const n = await this.renumberTitles(folder);
-        new Notice(`${n} titre(s) mis à jour.`);
+        new Notice(t("main.notice.titlesUpdated", { count: n }));
       },
     });
     this.addCommand({
       id: "open-search-replace-bar",
-      name: "Chercher et remplacer dans le manuscrit…",
+      name: t("main.cmd.openSearchReplaceBar"),
       callback: () => this.toggleSearchReplaceBar(),
     });
   }
@@ -957,7 +960,7 @@ class FeuilletsPlugin extends Plugin {
     this.statusEl = this.addStatusBarItem();
     this.statusEl.addClass("feuillets-status-bar");
     this.statusEl.addClass("feuillets-status-bar-clickable");
-    setTooltip(this.statusEl, "Statistiques complètes (feuillet actif + projet entier)");
+    setTooltip(this.statusEl, t("main.statusBarTooltip"));
     this.statusEl.addEventListener("click", () => {
       const file = this.app.workspace.getActiveFile();
       const root = this.getProjectFolder();
@@ -977,11 +980,11 @@ class FeuilletsPlugin extends Plugin {
   registerTextEditingCommands() {
     this.addCommand({
       id: "split-chronology",
-      name: "Extraire et éclater la chronologie active en fichiers uniques",
+      name: t("main.cmd.splitChronology"),
       callback: async () => {
         const file = this.app.workspace.getActiveFile();
         if (!file || file.extension !== "md") {
-          new Notice("Ouvre d'abord le document de chronologie à éclater.");
+          new Notice(t("main.notice.openChronologyDocFirst"));
           return;
         }
         const raw = await this.app.vault.read(file);
@@ -1001,7 +1004,7 @@ class FeuilletsPlugin extends Plugin {
           blocks.push(last);
         }
         if (blocks.length === 0) {
-          new Notice("Aucun titre daté trouvé (## ou ### suivi d'une date).");
+          new Notice(t("main.notice.noDatedTitleFound"));
           return;
         }
         const chronoFolder =
@@ -1015,7 +1018,7 @@ class FeuilletsPlugin extends Plugin {
         for (const b of blocks) {
           const text = body.slice(b.start, b.end).trim();
           const safeTitle = b.title.replace(/[\\/:*?"<>|]/g, "-").slice(0, 80);
-          const fileName = `${b.date} - ${safeTitle || "sans titre"}`;
+          const fileName = `${b.date} - ${safeTitle || t("main.untitled")}`;
           const path = normalizePath(`${chronoFolder.path}/${fileName}.md`);
           if (this.app.vault.getAbstractFileByPath(path)) {
             skipped++;
@@ -1038,18 +1041,18 @@ class FeuilletsPlugin extends Plugin {
           created++;
         }
         new Notice(
-          `Chronologie éclatée : ${created} fichier(s) créé(s)` +
-            (skipped > 0 ? `, ${skipped} déjà existant(s) ignoré(s).` : ".")
+          t("main.notice.chronologySplit", { count: created }) +
+            (skipped > 0 ? t("main.notice.chronologySplitSkipped", { count: skipped }) : ".")
         );
         this.renderAllViews(true);
       },
     });
     this.addCommand({
       id: "open-research",
-      name: "Ouvrir le panneau de Recherche",
+      name: t("main.cmd.openResearchPanel"),
       callback: async () => {
         if (this.isPanelHidden("research")) {
-          new Notice("Panneau Recherche masqué — réactive-le dans les réglages.");
+          new Notice(t("main.notice.researchPanelHidden"));
           return;
         }
         this.activateResearch();
@@ -1057,10 +1060,10 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "open-notes",
-      name: "Ouvrir les notes du feuillet (panneau latéral)",
+      name: t("main.cmd.openNotesPanel"),
       callback: async () => {
         if (this.isPanelHidden("notes")) {
-          new Notice("Panneau Notes masqué — réactive-le dans les réglages.");
+          new Notice(t("main.notice.notesPanelHidden"));
           return;
         }
         this.activateNotes();
@@ -1068,58 +1071,58 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "fix-escaped-scene-breaks",
-      name: "Réparer les séparateurs de scène échappés (\\*\\*\\* → ***)",
+      name: t("main.cmd.fixEscapedSceneBreaks"),
       editorCallback: (editor) => {
         const hasSel = editor.somethingSelected();
         const src = hasSel ? editor.getSelection() : editor.getValue();
         const out = src.replace(/^[ \t]*\\?\*\\?\*\\?\*[ \t]*$/gm, "***");
         if (out === src) {
-          new Notice("Rien à réparer.");
+          new Notice(t("main.notice.nothingToFix"));
           return;
         }
         if (hasSel) editor.replaceSelection(out);
         else editor.setValue(out);
-        new Notice("Séparateurs de scène réparés.");
+        new Notice(t("main.notice.sceneBreaksFixed"));
       },
     });
     this.addCommand({
       id: "compact-line-breaks",
-      name: "Compacter les lignes vides en sauts de ligne simples (sélection ou document)",
+      name: t("main.cmd.compactLineBreaks"),
       editorCallback: (editor) => {
         const hasSel = editor.somethingSelected();
         const src = hasSel ? editor.getSelection() : editor.getValue();
         const out = this.compactLineBreaks(src);
         if (out === src) {
-          new Notice("Rien à compacter.");
+          new Notice(t("main.notice.nothingToCompact"));
           return;
         }
         if (hasSel) editor.replaceSelection(out);
         else editor.setValue(out);
-        new Notice(hasSel ? "Sélection compactée." : "Document compacté.");
+        new Notice(hasSel ? t("main.notice.selectionCompacted") : t("main.notice.documentCompacted"));
       },
     });
     this.addCommand({
       id: "insert-scene-separator",
-      name: "Insérer un séparateur de scène (***)",
+      name: t("main.cmd.insertSceneSeparator"),
       editorCallback: (editor) => {
         editor.replaceSelection("\n***\n\n");
       },
     });
     this.addCommand({
       id: "french-typography",
-      name: "Typographie française (sélection ou document)",
+      name: t("main.cmd.frenchTypography"),
       editorCallback: (editor) => {
         const file = this.app.workspace.getActiveFile();
         const root = this.getProjectFolder();
         if (!file || !root || (root.path !== "" && !file.path.startsWith(root.path + "/"))) {
-          new Notice("Cette commande n'est disponible que pour les fichiers du manuscrit.");
+          new Notice(t("main.notice.manuscriptFilesOnly"));
           return;
         }
         const hasSel = editor.somethingSelected();
         const src = hasSel ? editor.getSelection() : editor.getValue();
         const out = this.frenchTypography(src, !hasSel);
         if (out === src) {
-          new Notice("Rien à corriger.");
+          new Notice(t("main.notice.nothingToFixShort"));
           return;
         }
         if (hasSel) editor.replaceSelection(out);
@@ -1128,12 +1131,12 @@ class FeuilletsPlugin extends Plugin {
           editor.setValue(out);
           editor.setCursor(cursor);
         }
-        new Notice("Typographie française appliquée.");
+        new Notice(t("main.notice.frenchTypographyApplied"));
       },
     });
     this.addCommand({
       id: "insert-footnote",
-      name: "Insérer une note de bas de page",
+      name: t("main.cmd.insertFootnote"),
       hotkeys: [{ modifiers: ["Mod", "Shift"], key: "f" }],
       editorCallback: (editor) => {
         const n = nextFootnoteNumber(editor.getValue());
@@ -1147,28 +1150,28 @@ class FeuilletsPlugin extends Plugin {
         const newLastLine = editor.lastLine();
         editor.setCursor({ line: newLastLine, ch: editor.getLine(newLastLine).length });
         editor.focus();
-        new Notice(`Note ${n} insérée.`);
+        new Notice(t("main.notice.footnoteInserted", { n }));
       },
     });
     this.addCommand({
       id: "insert-citation",
-      name: "Insérer une citation",
+      name: t("main.cmd.insertCitation"),
       editorCallback: (editor) => this.openInsertCitation(editor),
     });
     this.addCommand({
       id: "renumber-footnotes",
-      name: "Renuméroter les notes de bas de page",
+      name: t("main.cmd.renumberFootnotes"),
       editorCallback: (editor) => {
         const src = editor.getValue();
         const out = renumberFootnotes(src);
         if (out === src) {
-          new Notice("Rien à renuméroter.");
+          new Notice(t("main.notice.nothingToRenumber"));
           return;
         }
         const cursor = editor.getCursor();
         editor.setValue(out);
         editor.setCursor(cursor);
-        new Notice("Notes de bas de page renumérotées.");
+        new Notice(t("main.notice.footnotesRenumbered"));
       },
     });
   }
@@ -1362,7 +1365,7 @@ class FeuilletsPlugin extends Plugin {
         }
         const ed = this.app.workspace.activeEditor?.editor;
         this.updateConcentrationCounter(ed);
-        new Notice("Mode concentration — Échap pour sortir.");
+        new Notice(t("main.notice.concentrationModeOn"));
       } else {
         document.body.removeClass("feuillets-concentration");
         this.removeConcentrationCounter();
@@ -1378,7 +1381,7 @@ class FeuilletsPlugin extends Plugin {
       }
     } catch (e) {
       console.error("Feuillets : mode concentration", e);
-      new Notice("Erreur du mode concentration.");
+      new Notice(t("main.notice.concentrationModeError"));
     }
   }
 
@@ -1450,12 +1453,12 @@ class FeuilletsPlugin extends Plugin {
     const files = this.flattenFiles(root);
     const idx = files.findIndex((f) => f.path === current.path);
     if (idx === -1) {
-      new Notice("Le fichier actif n'appartient pas au projet.");
+      new Notice(t("main.notice.activeFileNotInProject"));
       return null;
     }
     const next = files[idx + delta];
     if (!next) {
-      new Notice(delta > 0 ? "Dernier feuillet." : "Premier feuillet.");
+      new Notice(delta > 0 ? t("main.notice.lastSheet") : t("main.notice.firstSheet"));
       return null;
     }
     const leaf = this.getLeafForOpeningFile();
@@ -1488,14 +1491,14 @@ class FeuilletsPlugin extends Plugin {
     const chars = stripWritingNoise(content).length;
     const g = parseInt(this.fmOf(file).goal, 10);
     const goal = isNaN(g) ? this.settings.wordGoal : g;
-    let txt = goal > 0 ? `${wc} / ${goal} mots` : `${wc} mots`;
-    txt += ` · ${formatNumber(chars)} caractères`;
+    let txt = goal > 0 ? t("main.statusBar.wordsWithGoal", { wc, goal }) : t("main.statusBar.words", { wc });
+    txt += ` · ${t("main.statusBar.chars", { count: formatNumber(chars) })}`;
     const key = todayKey();
     const st = (this.settings.stats || {})[key];
     if (st) {
       const total = await this.wordCountOfFolder(root);
       const delta = total - st.start;
-      txt += ` · ${delta >= 0 ? "+" : ""}${delta} aujourd'hui`;
+      txt += ` · ${t("main.statusBar.todayDelta", { sign: delta >= 0 ? "+" : "", delta })}`;
     }
     this.statusEl.setText(txt);
     this.statusEl.removeClass("feuillets-status-hit");
@@ -1740,17 +1743,17 @@ class FeuilletsPlugin extends Plugin {
   openInsertCitation(editor) {
     editor = editor || this.activeEditorAnywhere();
     if (!editor) {
-      new Notice("Ouvre une scène et place le curseur dedans avant d'insérer une citation.");
+      new Notice(t("main.notice.openSceneBeforeCitation"));
       return;
     }
     const folders = this.getCitationFolders();
     if (folders.length === 0) {
-      new Notice("Disponible uniquement pour un projet non-fiction.");
+      new Notice(t("main.notice.nonfictionOnly"));
       return;
     }
     const files = folders.flatMap((f) => f.children.filter((c) => c instanceof TFile && c.extension === "md"));
     if (files.length === 0) {
-      new Notice("Aucune fiche Source ou Bibliographie pour l'instant.");
+      new Notice(t("main.notice.noSourceOrBibliographySheet"));
       return;
     }
     new CitationSourceModal(this.app, this, files, (file, page) =>
@@ -1761,7 +1764,7 @@ class FeuilletsPlugin extends Plugin {
   quickCiteSource(sourceFile) {
     const editor = this.activeEditorAnywhere();
     if (!editor) {
-      new Notice("Ouvre une scène et place le curseur dedans avant d'insérer une citation.");
+      new Notice(t("main.notice.openSceneBeforeCitation"));
       return;
     }
     promptForPage(this.app, this, sourceFile, (file, page) =>
@@ -1772,19 +1775,19 @@ class FeuilletsPlugin extends Plugin {
   renumberActiveFootnotes() {
     const editor = this.activeEditorAnywhere();
     if (!editor) {
-      new Notice("Ouvre un feuillet avant de renuméroter ses notes.");
+      new Notice(t("main.notice.openSheetBeforeRenumbering"));
       return;
     }
     const src = editor.getValue();
     const out = renumberFootnotes(src);
     if (out === src) {
-      new Notice("Rien à renuméroter.");
+      new Notice(t("main.notice.nothingToRenumber"));
       return;
     }
     const cursor = editor.getCursor();
     editor.setValue(out);
     editor.setCursor(cursor);
-    new Notice("Notes de bas de page renumérotées.");
+    new Notice(t("main.notice.footnotesRenumbered"));
   }
 
   insertCitationFor(sourceFile, page, editor) {
@@ -1802,7 +1805,7 @@ class FeuilletsPlugin extends Plugin {
     const isRepeat = !!activeFile && this._lastCitedSourceByFile.get(activeFile.path) === sourceFile.path;
     const text = formatCitation(fm, page, style, isRepeat);
     if (!text) {
-      new Notice("Fiche source vide — rien à insérer.");
+      new Notice(t("main.notice.emptySourceSheet"));
       return;
     }
     if (activeFile) this._lastCitedSourceByFile.set(activeFile.path, sourceFile.path);
@@ -1812,7 +1815,7 @@ class FeuilletsPlugin extends Plugin {
       editor.replaceRange(text, at, at);
       editor.setCursor({ line: at.line, ch: at.ch + text.length });
       editor.focus();
-      new Notice(isRepeat ? "Ibid. inséré." : "Citation insérée.");
+      new Notice(isRepeat ? t("main.notice.ibidInserted") : t("main.notice.citationInserted"));
       return;
     }
     const n = nextFootnoteNumber(editor.getValue());
@@ -1824,7 +1827,7 @@ class FeuilletsPlugin extends Plugin {
     editor.replaceRange(`\n\n[^${n}]: ${text}`, end, end);
     editor.setCursor({ line: at.line, ch: at.ch + refMarker.length });
     editor.focus();
-    new Notice(isRepeat ? `Ibid. inséré — note ${n}.` : `Citation insérée — note ${n}.`);
+    new Notice(isRepeat ? t("main.notice.ibidInsertedNote", { n }) : t("main.notice.citationInsertedNote", { n }));
   }
 
   /* L'échec n'interrompt pas l'insertion de la citation (déjà écrite dans le
@@ -1837,7 +1840,7 @@ class FeuilletsPlugin extends Plugin {
       fm.cite_count = (fm.cite_count || 0) + 1;
     }).catch((e) => {
       console.error(`Feuillets: compteur de citations non mis à jour (${sourceFile.path})`, e);
-      new Notice("Citation insérée, mais la source n'a pas pu être marquée comme citée.");
+      new Notice(t("main.notice.citationInsertedButNotMarked"));
     });
   }
 
@@ -1849,7 +1852,7 @@ class FeuilletsPlugin extends Plugin {
     const files = folders.flatMap((f) => f.children.filter((c) => c instanceof TFile && c.extension === "md"));
     const cited = files.filter((f) => (this.fmOf(f).cite_count || 0) > 0);
     if (cited.length === 0) {
-      new Notice("Aucune source citée pour l'instant.");
+      new Notice(t("main.notice.noSourceCitedYet"));
       return;
     }
     const entries = cited
@@ -1860,7 +1863,7 @@ class FeuilletsPlugin extends Plugin {
       })
       .filter((e) => e.text);
     entries.sort((a, b) => a.author.localeCompare(b.author, "fr"));
-    const lines = ["# Bibliographie", "", ...entries.map((e) => e.text)];
+    const lines = [`# ${t("shared.bibliography.title")}`, "", ...entries.map((e) => e.text)];
     try {
       const outputFolder = await getOutputFolder(this.app, this.settings);
       const outBase = outputFolder ? outputFolder.path : root.path;
@@ -1869,12 +1872,12 @@ class FeuilletsPlugin extends Plugin {
       const existing = this.app.vault.getAbstractFileByPath(path);
       if (existing instanceof TFile) await this.app.vault.modify(existing, content);
       else await this.app.vault.create(path, content);
-      new Notice(`Bibliographie générée : ${path}`);
+      new Notice(t("main.notice.bibliographyGenerated", { path }));
     } catch (e) {
       /* Action déclenchée par un clic explicite : sans ce retour, l'échec se
          traduit par « rien ne se passe », indiscernable d'un bouton inerte. */
       console.error("Feuillets: génération de la bibliographie impossible", e);
-      new Notice("Bibliographie non générée. Voir la console pour le détail.");
+      new Notice(t("main.notice.bibliographyNotGenerated"));
     }
   }
 
@@ -2040,12 +2043,12 @@ class FeuilletsPlugin extends Plugin {
   async moveNode(node, srcParent, destFolder, insertIndex) {
     if (node.path === destFolder.path) return;
     if (node instanceof TFolder && (destFolder.path === node.path || destFolder.path.startsWith(node.path + "/"))) {
-      new Notice("Impossible de déplacer un dossier dans lui-même.");
+      new Notice(t("main.notice.cannotMoveFolderIntoItself"));
       return;
     }
     const destPath = normalizePath(`${destFolder.path}/${node.name}`);
     if (this.app.vault.getAbstractFileByPath(destPath)) {
-      new Notice(`« ${node.name} » existe déjà dans « ${destFolder.name} ».`);
+      new Notice(t("main.notice.alreadyExistsIn", { name: node.name, folder: destFolder.name }));
       return;
     }
     this.pushHistory({
@@ -2077,12 +2080,12 @@ class FeuilletsPlugin extends Plugin {
        "disparaître" le fichier sans explication. */
     if (movedNow instanceof TFile && movedNow.basename === destFolder.name) {
       new Notice(
-        `« ${node.name} » porte le même nom que le dossier « ${destFolder.name} » : il devient sa note de dossier (synopsis/description) et n'apparaît plus comme un feuillet dans les vues. Renomme-le pour qu'il redevienne une scène visible.`,
+        t("main.notice.becameFolderNote", { name: node.name, folder: destFolder.name }),
         10000
       );
       return;
     }
-    new Notice(`« ${this.titleFor(movedNow) || node.name} » déplacé.`);
+    new Notice(t("main.notice.moved", { name: this.titleFor(movedNow) || node.name }));
   }
 
   chapterPattern() {
@@ -2099,8 +2102,8 @@ class FeuilletsPlugin extends Plugin {
     let changed = 0;
     const concernsFile = (f) => {
       const fm = this.fmOf(f);
-      const t = typeof fm.title === "string" ? fm.title.trim() : "";
-      if (t) return pattern.test(t);
+      const title = typeof fm.title === "string" ? fm.title.trim() : "";
+      if (title) return pattern.test(title);
       return pattern.test(f.basename);
     };
     const walk = async (f) => {
@@ -2162,18 +2165,18 @@ class FeuilletsPlugin extends Plugin {
   async duplicateProject(path, label) {
     const folder = this.app.vault.getAbstractFileByPath(path);
     if (!(folder instanceof TFolder)) {
-      new Notice("Dossier introuvable.");
+      new Notice(t("main.notice.folderNotFound"));
       return null;
     }
     let destPath;
     try {
       destPath = await duplicateProjectFolder(this.app, folder, label, this.settings);
     } catch (e) {
-      new Notice(e.message || "Duplication impossible.");
+      new Notice(e.message || t("main.notice.duplicationImpossible"));
       return null;
     }
     await this.saveSettings();
-    new Notice(`Version dupliquée dans « ${destPath} ».`, 8000);
+    new Notice(t("main.notice.versionDuplicated", { path: destPath }), 8000);
     this.renderAllViews(true);
     return destPath;
   }
@@ -2199,9 +2202,9 @@ class FeuilletsPlugin extends Plugin {
     const result = await generateCanvasBoard(this.app, this.settings);
     if (!result) return;
     const parts = [];
-    parts.push(result.added > 0 ? `${result.added} carte(s) ajoutée(s)` : `${result.total} carte(s), à jour`);
-    parts.push(result.edgesAdded > 0 ? `${result.edgesAdded} lien(s) tracé(s)` : "aucun lien");
-    const notice = new Notice(`${parts.join(" — ")}. Cliquer pour ouvrir.`, 8000);
+    parts.push(result.added > 0 ? t("main.notice.canvasCardsAdded", { count: result.added }) : t("main.notice.canvasCardsUpToDate", { count: result.total }));
+    parts.push(result.edgesAdded > 0 ? t("main.notice.canvasLinksDrawn", { count: result.edgesAdded }) : t("main.notice.canvasNoLinks"));
+    const notice = new Notice(`${parts.join(" — ")}. ${t("main.notice.clickToOpen")}`, 8000);
     notice.noticeEl.style.cursor = "pointer";
     notice.noticeEl.addEventListener("click", () => {
       openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
@@ -2226,7 +2229,7 @@ class FeuilletsPlugin extends Plugin {
     new NewSheetModal(this.app, folder.name, async (fileName, chapTitle) => {
       const path = normalizePath(`${folder.path}/${fileName}.md`);
       if (this.app.vault.getAbstractFileByPath(path)) {
-        new Notice("Un feuillet portant ce nom existe déjà.");
+        new Notice(t("main.notice.sheetNameExists"));
         return;
       }
       const isFiction = getProjectMode(this.app, this.settings).yamlPreset === "roman";
@@ -2350,7 +2353,7 @@ class FeuilletsPlugin extends Plugin {
   insertIntoActiveEditor(text) {
     const editor = this.activeEditorAnywhere();
     if (!editor) {
-      new Notice("Aucun éditeur Markdown détecté.");
+      new Notice(t("main.notice.noMarkdownEditor"));
       return;
     }
     const hasSelection = typeof editor.getSelection === "function" && !!editor.getSelection();
@@ -2361,7 +2364,7 @@ class FeuilletsPlugin extends Plugin {
       editor.replaceRange(text, cursor);
       editor.setCursor({ line: cursor.line, ch: cursor.ch + text.length });
     }
-    new Notice("Contenu inséré.");
+    new Notice(t("main.notice.contentInserted"));
   }
 
   /** Sauvegarde automatique périodique (.zip de tout le projet actif dans
@@ -2392,16 +2395,16 @@ class FeuilletsPlugin extends Plugin {
   async backupProjectNow() {
     const root = this.getProjectFolder();
     if (!root) {
-      new Notice("Aucun projet actif.");
+      new Notice(t("analysis.dashboard.noActiveProject"));
       return;
     }
-    new Notice("Sauvegarde en cours…");
+    new Notice(t("main.notice.backupInProgress"));
     try {
       const path = await createProjectBackup(this.app, root, this.settings);
       this._lastBackupAt = Date.now();
-      new Notice(`Sauvegarde créée : ${path}`, 8000);
+      new Notice(t("main.notice.backupCreated", { path }), 8000);
     } catch (e) {
-      new Notice(`Échec de la sauvegarde : ${(e.message || String(e)).slice(0, 200)}`);
+      new Notice(t("main.notice.backupFailed", { error: (e.message || String(e)).slice(0, 200) }));
     }
   }
 
