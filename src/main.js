@@ -2441,7 +2441,13 @@ class FeuilletsPlugin extends Plugin {
     };
     // Vérifié toutes les minutes ; la vraie cadence des sauvegardes est
     // imposée par backupIntervalMinutes (comparaison de date dans tick()).
-    this.registerInterval(window.setInterval(() => tick(), 60 * 1000));
+    // `tick` passé par référence, surtout pas `() => tick()` : la règle
+    // obsidianmd/no-sample-code de l'ESLint officiel d'Obsidian plante
+    // (TypeError) sur `window.setInterval(() => f(), …)` — elle déréférence
+    // `callback.body.callee?.property.type` sans `?.` sur `property`, qui
+    // est undefined quand l'appel vise un identifiant simple. Ce plantage
+    // faisait échouer toute la revue « Source code » du tableau de bord.
+    this.registerInterval(window.setInterval(tick, 60 * 1000));
   }
 
   async backupProjectNow() {

@@ -2,6 +2,28 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.6
+
+### Corrigé
+
+- **Vraie cause, enfin identifiée, des échecs à répétition du contrôle
+  « Source code » du tableau de bord d'Obsidian** — reproduite localement
+  en installant leur propre outil (`eslint-plugin-obsidianmd`) : leur
+  règle `obsidianmd/no-sample-code` plante avec un `TypeError` sur
+  `window.setInterval(() => f(), …)`. Elle lit
+  `callback.body.callee?.property.type` sans `?.` sur `property`, qui vaut
+  `undefined` dès que la fonction fléchée appelle un identifiant simple.
+  Ce plantage interrompait toute l'analyse — d'où le message d'erreur
+  générique, sans jamais aucun fichier ni ligne cité. `registerAutoBackup`
+  passe désormais `tick` par référence (strictement équivalent, et forme
+  plus idiomatique) au lieu de l'envelopper dans une fonction fléchée.
+- Retiré `.eslintignore` (format hérité, désormais redondant avec
+  `ignores` dans `eslint.config.mjs` — il déclenchait un avertissement de
+  dépréciation à chaque analyse) et `.eslintrc.json` (ajouté en 1.2.3 sur
+  l'hypothèse, désormais réfutée, d'un scanner sous ESLint 8 ; le support
+  d'eslintrc a de toute façon été supprimé dans ESLint 10). La
+  configuration flat `eslint.config.mjs` est la seule source de vérité.
+
 ## 1.2.5
 
 ### Corrigé
