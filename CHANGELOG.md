@@ -2,6 +2,16 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.3
+
+### Corrigé
+
+- Ajout de `.eslintrc.json` en plus de `eslint.config.js` : le scanner
+  d'analyse statique d'Obsidian semble utiliser une version d'ESLint
+  antérieure à la 9 (qui ne cherche que `.eslintrc.*`, pas le format flat
+  config `eslint.config.js` introduit en v9) — vérifié localement avec
+  ESLint 8 et 10, les deux trouvent maintenant une configuration valide.
+
 ## 1.2.2
 
 ### Corrigé
