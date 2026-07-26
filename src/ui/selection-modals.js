@@ -10,7 +10,7 @@ export class CompileSelectionModal extends Modal {
     const { contentEl } = this;
     contentEl.createEl("h3", { text: "Feuillets à compiler" });
     contentEl.createEl("p", { cls: "feuillets-notes-sub" }).setText(
-      "Décocher un feuillet écrit compiler: false dans son frontmatter — il reste visible et numéroté, mais saute à l'export."
+      "Décocher un feuillet écrit compile: false dans son frontmatter — il reste visible et numéroté, mais saute à l'export."
     );
 
     const root = this.plugin.getProjectFolder();
@@ -27,7 +27,7 @@ export class CompileSelectionModal extends Modal {
       const fm = this.plugin.fmOf(file);
       const row = listEl.createDiv({ cls: "feuillets-read-selection-row" });
       const cb = row.createEl("input", { type: "checkbox" });
-      cb.checked = !(fm.compiler === false || fm.compile === false);
+      cb.checked = fm.compile !== false;
       checkboxes.push([cb, file]);
 
       const label = row.createSpan();
@@ -47,12 +47,12 @@ export class CompileSelectionModal extends Modal {
     btnRow.createEl("button", { text: "Enregistrer", cls: "mod-cta" }).addEventListener("click", async () => {
       for (const [cb, file] of checkboxes) {
         const fm = this.plugin.fmOf(file);
-        const current = !(fm.compiler === false || fm.compile === false);
+        const current = fm.compile !== false;
         if (cb.checked !== current) {
           await this.app.fileManager.processFrontMatter(file, (data) => {
-            if (cb.checked) delete data.compiler;
-            else data.compiler = false;
-            delete data.compile;
+            if (cb.checked) delete data.compile;
+            else data.compile = false;
+            delete data.compiler;
           });
         }
       }

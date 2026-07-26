@@ -21,30 +21,30 @@ async function writeSheet(app, folder, name, lines) {
 const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, fil, personnages, rythme, tags, date, notes, compiler, body }) => {
   const lines = [
     "---",
-    `titre: ${titre}`,
-    `titre_binder: ${titreCourt || ""}`,
-    `ordre: ${ordre}`,
+    `title: ${titre}`,
+    `short_title: ${titreCourt || ""}`,
+    `order: ${ordre}`,
     `synopsis: ${synopsis || ""}`,
-    `statut: ${statut || ""}`,
+    `status: ${statut || ""}`,
     `label: ${label || ""}`,
   ];
-  if (fil) lines.push(`fil: ${fil}`);
+  if (fil) lines.push(`thread: ${fil}`);
   if (personnages && personnages.length > 0) {
-    lines.push("personnages:");
+    lines.push("characters:");
     for (const p of personnages) lines.push(`  - ${p}`);
   }
   if (rythme) {
-    lines.push("rythme:");
+    lines.push("pace:");
     for (const dim of ["action", "dialogue", "description", "introspection"]) {
       lines.push(`  ${dim}: ${rythme[dim] ?? 0}`);
     }
   }
   lines.push(
-    "objectif: 800",
+    "goal: 800",
     `tags: ${tags || ""}`,
     `date: ${date || ""}`,
     `notes: ${notes || ""}`,
-    `compiler: ${compiler === false ? "false" : "true"}`,
+    `compile: ${compiler === false ? "false" : "true"}`,
     "---",
     "",
     body,
@@ -90,8 +90,8 @@ async function generate(app, S, plugin, manuscritPath) {
   const front = await ensureFolder(app, `${root.path}/Front`);
   await writeSheet(app, front, "Dédicace", [
     "---",
-    "titre: Dédicace",
-    "compiler: true",
+    "title: Dédicace",
+    "compile: true",
     "---",
     "",
     "Le dossier « Front » (ici, dossier parent de ce feuillet) n'apparaît jamais dans le mode Chemin de fer, la Chronologie ou le mode Lecture narratif — ce n'est pas du texte de roman, juste ce qui vient avant (dédicace, épigraphe, page de titre...). Il reste néanmoins un dossier normal du binder, que tu peux réorganiser comme les autres.",
@@ -112,16 +112,16 @@ async function generate(app, S, plugin, manuscritPath) {
   if (titlePageFile) {
     await app.vault.modify(titlePageFile, [
       "---",
-      "titre: La Citadelle Grise",
-      "titre_binder: ",
-      "ordre: 1",
+      "title: La Citadelle Grise",
+      "short_title: ",
+      "order: 1",
       "synopsis: ",
-      "statut: ",
+      "status: ",
       "label: ",
       "tags: ",
       "date: ",
       "notes: ",
-      "compiler: true",
+      "compile: true",
       "type: titre",
       "---",
       ":::titre: **La Citadelle Grise**",
@@ -138,8 +138,8 @@ async function generate(app, S, plugin, manuscritPath) {
 
   await writeSheet(app, front, "Comment démarrer un vrai projet", [
     "---",
-    "titre: Comment démarrer un vrai projet",
-    "compiler: false",
+    "title: Comment démarrer un vrai projet",
+    "compile: false",
     "---",
     "",
     "Ce projet-ci a été généré tout fait, mais un vrai projet démarre le plus souvent d'un dossier vide ou d'un plan déjà en tête. Trois façons de commencer, sur un **nouveau projet vide** (pas celui-ci) :",
@@ -175,7 +175,7 @@ async function generate(app, S, plugin, manuscritPath) {
      soit immédiatement visible plutôt que juste un bouton qui marche. */
   await writeSheet(app, partie1, "Partie 1 - Les commencements", [
     "---",
-    "titre: Partie 1 - Les commencements",
+    "title: Partie 1 - Les commencements",
     "synopsis: Elira quitte son ancienne vie ; les prémices de l'intrigue se mettent en place.",
     "notes: Ceci est une note de DOSSIER (une par Partie/Chapitre), pas une scène — elle sert aux intentions générales de toute une partie du roman. Accessible en cliquant la pastille correspondante en haut du panneau Notes quand un feuillet de cette partie est ouvert, ou directement ici depuis le binder.",
     "---",
@@ -183,7 +183,7 @@ async function generate(app, S, plugin, manuscritPath) {
   ]);
   await writeSheet(app, chap1, "Chapitre 1 - Le départ", [
     "---",
-    "titre: Chapitre 1 - Le départ",
+    "title: Chapitre 1 - Le départ",
     "synopsis: La lettre, puis la première rencontre avec Tomas Grey.",
     "notes: Note de dossier de niveau Chapitre — plus précise que celle de la Partie englobante, mais toujours hors manuscrit compilé et hors comptage de mots.",
     "---",
@@ -262,18 +262,18 @@ async function generate(app, S, plugin, manuscritPath) {
      deux types de défauts assemblés dans le même texte. */
   await writeSheet(app, chap2, "2. Brouillon à corriger", [
     "---",
-    "titre: Brouillon à corriger",
-    "titre_binder: Brouillon à corriger",
-    "ordre: 2",
+    "title: Brouillon à corriger",
+    "short_title: Brouillon à corriger",
+    "order: 2",
     "synopsis: Scène délibérément imparfaite, pour tester la correction grammaticale et le panneau Analyse.",
-    "statut: Brouillon",
-    "objectif: 800",
-    "rythme:",
+    "status: Brouillon",
+    "goal: 800",
+    "pace:",
     "  action: 4",
     "  dialogue: 1",
     "  description: 4",
     "  introspection: 1",
-    "compiler: true",
+    "compile: true",
     "---",
     "",
     "Les chevals étaient fatigués. Elira était fatiguée aussi. Elle était inquiète, elle était certaine que quelque chose était différent depuis la lettre — elle était sûre de l'avoir déjà lu quelque part, cette phrase, cette même phrase, cette phrase qui revenait sans cesse.",
@@ -309,10 +309,10 @@ async function generate(app, S, plugin, manuscritPath) {
   const personnages = await ensureFolder(app, `${researchRoot.path}/${rf.personnages.label}`);
   await writeSheet(app, personnages, "Elira Voskan", [
     "---",
-    "nom: Voskan",
-    "prénom: Elira",
-    "naissance: 1398",
-    "mort: ",
+    "last_name: Voskan",
+    "first_name: Elira",
+    "birth: 1398",
+    "death: ",
     "synopsis: Héroïne de ce projet d'exemple.",
     "tags:",
     "  - personnage",
@@ -331,10 +331,10 @@ async function generate(app, S, plugin, manuscritPath) {
   ]);
   await writeSheet(app, personnages, "Tomas Grey", [
     "---",
-    "nom: Grey",
-    "prénom: Tomas",
-    "naissance: 1395",
-    "mort: ",
+    "last_name: Grey",
+    "first_name: Tomas",
+    "birth: 1395",
+    "death: ",
     "synopsis: Second personnage principal — voir « La rencontre » et « La révélation ».",
     "tags:",
     "  - personnage",
@@ -345,7 +345,7 @@ async function generate(app, S, plugin, manuscritPath) {
   const lieux = await ensureFolder(app, `${researchRoot.path}/${rf.lieux.label}`);
   await writeSheet(app, lieux, "La Citadelle Grise", [
     "---",
-    'titre: "La Citadelle Grise"',
+    'title: "La Citadelle Grise"',
     "synopsis: Forteresse assiégée où se déroule l'essentiel de l'intrigue.",
     "tags:",
     "  - lieu",
@@ -363,7 +363,7 @@ async function generate(app, S, plugin, manuscritPath) {
   const codex = await ensureFolder(app, `${researchRoot.path}/${rf.codex.label}`);
   await writeSheet(app, codex, "L'Ordre du Silence", [
     "---",
-    'titre: "L\'Ordre du Silence"',
+    'title: "L\'Ordre du Silence"',
     "description: Confrérie secrète au cœur de l'intrigue.",
     "tags:",
     "  - codex",
@@ -376,10 +376,10 @@ async function generate(app, S, plugin, manuscritPath) {
   const biblio = await ensureFolder(app, `${researchRoot.path}/${rf.bibliographie.label}`);
   await writeSheet(app, biblio, "Sources d'inspiration", [
     "---",
-    'titre: "Sources d\'inspiration"',
-    "auteur: Lavoisier",
-    "annee: 1789",
-    "edition: Traité élémentaire de chimie",
+    'title: "Sources d\'inspiration"',
+    "author: Lavoisier",
+    "date: 1789",
+    "publisher: Traité élémentaire de chimie",
     "synopsis: Disponible même en mode Fiction, pour noter tes sources d'inspiration ou de recherche documentaire.",
     "tags:",
     "  - bibliographie",
@@ -394,7 +394,7 @@ async function generate(app, S, plugin, manuscritPath) {
   const glossaire = await ensureFolder(app, `${researchRoot.path}/${rf.glossaire.label}`);
   await writeSheet(app, glossaire, "Vocable", [
     "---",
-    'titre: "Vocable"',
+    'title: "Vocable"',
     "definition: Terme inventé pour cet univers — exemple de fiche de glossaire.",
     "synopsis: ",
     "tags:",
@@ -406,9 +406,9 @@ async function generate(app, S, plugin, manuscritPath) {
   const chrono = getChronoFolder(app, S) || (await ensureFolder(app, `${researchRoot.path}/Chronologie`));
   await writeSheet(app, chrono, "Fondation de la Citadelle", [
     "---",
-    'titre: "Fondation de la Citadelle"',
+    'title: "Fondation de la Citadelle"',
     "date: 1421-03-12",
-    "date_fin: ",
+    "end_date: ",
     "synopsis: Jalon historique — sa date correspond à celle de la scène « La rencontre ».",
     "tags:",
     "  - evenement",
@@ -417,9 +417,9 @@ async function generate(app, S, plugin, manuscritPath) {
   ]);
   await writeSheet(app, chrono, "La Grande Rupture", [
     "---",
-    'titre: "La Grande Rupture"',
+    'title: "La Grande Rupture"',
     "date: 1418-11-02",
-    "date_fin: ",
+    "end_date: ",
     "synopsis: Second jalon d'exemple, sans scène qui y fasse référence pour l'instant.",
     "tags:",
     "  - evenement",
@@ -446,7 +446,7 @@ async function generate(app, S, plugin, manuscritPath) {
 
   await writeSheet(app, root.parent, "Lisez-moi", [
     "---",
-    "compiler: false",
+    "compile: false",
     "---",
     "",
     `# ${VOLUME_NAME}`,
@@ -562,10 +562,10 @@ async function generate(app, S, plugin, manuscritPath) {
      ferait l'automatisation, pour qu'une résolution manuelle ultérieure
      par l'utilisateur continue de fonctionner normalement ensuite. */
   await app.fileManager.processFrontMatter(plantScene, (fm) => {
-    fm.fil = "secret-de-l-ordre";
+    fm.thread = "secret-de-l-ordre";
   });
   await app.fileManager.processFrontMatter(silenceFile, (fm) => {
-    fm.fil = "secret-de-l-ordre";
+    fm.thread = "secret-de-l-ordre";
   });
   if (!S.filPlaceholders) S.filPlaceholders = {};
   if (!S.filOrigins) S.filOrigins = {};
@@ -616,19 +616,19 @@ const CANDIDE_PARTIES = [
 function candideSceneLines({ ordre, titre, titreBinder, sousTitre, label, fil, personnages }) {
   const lines = [
     "---",
-    `titre: "Chapitre ${ordre} — ${titre}"`,
-    `titre_binder: ${JSON.stringify(titreBinder)}`,
-    `ordre: ${ordre}`,
-    `sous_titre: ${JSON.stringify(sousTitre)}`,
+    `title: "Chapitre ${ordre} — ${titre}"`,
+    `short_title: ${JSON.stringify(titreBinder)}`,
+    `order: ${ordre}`,
+    `subtitle: ${JSON.stringify(sousTitre)}`,
     `synopsis: ${JSON.stringify(sousTitre)}`,
     `label: ${JSON.stringify(label)}`,
   ];
-  if (fil) lines.push(`fil: ${JSON.stringify(fil)}`);
+  if (fil) lines.push(`thread: ${JSON.stringify(fil)}`);
   if (personnages.length > 0) {
-    lines.push("personnages:");
+    lines.push("characters:");
     for (const p of personnages) lines.push(`  - ${p}`);
   }
-  lines.push("compiler: true", "---", "");
+  lines.push("compile: true", "---", "");
   return lines;
 }
 
@@ -707,7 +707,7 @@ async function generateCandide(app, S, plugin, manuscritPath) {
 
   await writeSheet(app, root.parent, "Lisez-moi", [
     "---",
-    "compiler: false",
+    "compile: false",
     "---",
     "",
     `# ${CANDIDE_VOLUME_NAME}`,

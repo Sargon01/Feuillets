@@ -1021,7 +1021,7 @@ class FeuilletsPlugin extends Plugin {
           const synopsis = text.replace(/\n+/g, " ").slice(0, 160).trim();
           const content = [
             "---",
-            `titre: ${b.title || b.date}`,
+            `title: ${b.title || b.date}`,
             `date: ${b.date}`,
             `synopsis: ${synopsis.replace(/"/g, "'")}`,
             "tags:",
@@ -1237,8 +1237,8 @@ class FeuilletsPlugin extends Plugin {
     this._patchedGetDisplayText = function () {
       try {
         if (this.file) {
-          const fm = plugin.app.metadataCache.getFileCache(this.file)?.frontmatter;
-          const raw = fm && (fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court);
+          const fm = plugin.fmOf(this.file);
+          const raw = fm && fm.short_title;
           const short = raw ? String(raw).trim() : "";
           if (short) {
             const versionLabel = plugin.versionLabelForFile(this.file);
@@ -1315,7 +1315,7 @@ class FeuilletsPlugin extends Plugin {
     const body = text.replace(/^---\n[\s\S]*?\n---\n?/, "");
     const wc = countWords(body);
     const fm = this.fmOf(file);
-    const g = parseInt(fm.objectif, 10);
+    const g = parseInt(fm.goal, 10);
     const goal = isNaN(g) ? this.settings.wordGoal : g;
     this._concCounterEl.setText(goal > 0 ? `${wc} / ${goal}` : String(wc));
     const tol = this.settings.tolerance;
@@ -1483,7 +1483,7 @@ class FeuilletsPlugin extends Plugin {
         : await this.app.vault.cachedRead(file);
     const wc = countWords(content);
     const chars = stripWritingNoise(content).length;
-    const g = parseInt(this.fmOf(file).objectif, 10);
+    const g = parseInt(this.fmOf(file).goal, 10);
     const goal = isNaN(g) ? this.settings.wordGoal : g;
     let txt = goal > 0 ? `${wc} / ${goal} mots` : `${wc} mots`;
     txt += ` · ${formatNumber(chars)} caractères`;
@@ -1537,6 +1537,29 @@ class FeuilletsPlugin extends Plugin {
       }
     }
     delete this.settings.customStatuses;
+    /* Migration : colonnes du Plan renommées (resume->summary,
+       compiler->compile, voir default-settings.js) — reprend la valeur
+       true/false que l'utilisateur avait choisie sous l'ancien nom. */
+    if (data && data.outlineCols) {
+      if (data.outlineCols.resume !== undefined && data.outlineCols.summary === undefined) {
+        this.settings.outlineCols.summary = data.outlineCols.resume;
+      }
+      if (data.outlineCols.compiler !== undefined && data.outlineCols.compile === undefined) {
+        this.settings.outlineCols.compile = data.outlineCols.compiler;
+      }
+    }
+    if (data && data.outlineWidths) {
+      if (data.outlineWidths.resume !== undefined && data.outlineWidths.summary === undefined) {
+        this.settings.outlineWidths.summary = data.outlineWidths.resume;
+      }
+      if (data.outlineWidths.compiler !== undefined && data.outlineWidths.compile === undefined) {
+        this.settings.outlineWidths.compile = data.outlineWidths.compiler;
+      }
+    }
+    // Migration : valeur d'enum "resume" -> "summary" (cardContent,
+    // listPanePreviewField — voir default-settings.js/utils/project-modes.js)
+    if (this.settings.cardContent === "resume") this.settings.cardContent = "summary";
+    if (this.settings.listPanePreviewField === "resume") this.settings.listPanePreviewField = "summary";
   }
 
   async saveSettings() {
@@ -1689,10 +1712,14 @@ class FeuilletsPlugin extends Plugin {
             fm.date = fm.annee;
             delete fm.annee;
           }
-          if (fm.edition !== undefined && fm.editeur === undefined) {
-            fm.editeur = fm.edition;
-            delete fm.edition;
+          // edition/editeur (vocabulaire Bibliographie) -> publisher (voir
+          // services/frontmatter.js, LEGACY_FIELD_ALIASES)
+          if (fm.publisher === undefined) {
+            if (fm.editeur !== undefined) fm.publisher = fm.editeur;
+            else if (fm.edition !== undefined) fm.publisher = fm.edition;
           }
+          delete fm.editeur;
+          delete fm.edition;
         });
         let name = f.name;
         let destPath = normalizePath(`${sourcesFolder.path}/${name}`);
@@ -1760,10 +1787,10 @@ class FeuilletsPlugin extends Plugin {
   insertCitationFor(sourceFile, page, editor) {
     const rawFm = this.fmOf(sourceFile);
     const fm = {
-      auteur: rawFm.auteur,
-      titre: rawFm.titre,
+      author: rawFm.author,
+      title: rawFm.title,
       date: rawFm.date || rawFm.annee,
-      editeur: rawFm.editeur || rawFm.edition,
+      publisher: rawFm.publisher,
       url: rawFm.url,
     };
     const style = this.citationStyleFor();
@@ -1825,11 +1852,11 @@ class FeuilletsPlugin extends Plugin {
     const entries = cited
       .map((f) => {
         const raw = this.fmOf(f);
-        const fields = { auteur: raw.auteur, titre: raw.titre, date: raw.date || raw.annee, editeur: raw.editeur || raw.edition, url: raw.url };
-        return { auteur: raw.auteur || "", text: formatCitation(fields, "", "footnote", false) };
+        const fields = { author: raw.author, title: raw.title, date: raw.date || raw.annee, publisher: raw.publisher, url: raw.url };
+        return { author: raw.author || "", text: formatCitation(fields, "", "footnote", false) };
       })
       .filter((e) => e.text);
-    entries.sort((a, b) => a.auteur.localeCompare(b.auteur, "fr"));
+    entries.sort((a, b) => a.author.localeCompare(b.author, "fr"));
     const lines = ["# Bibliographie", "", ...entries.map((e) => e.text)];
     try {
       const outputFolder = await getOutputFolder(this.app, this.settings);
@@ -1981,9 +2008,9 @@ class FeuilletsPlugin extends Plugin {
     for (let i = 0; i < orderedChildren.length; i++) {
       const child = orderedChildren[i];
       if (child instanceof TFile) {
-        const current = parseInt(this.fmOf(child).ordre, 10);
+        const current = parseInt(this.fmOf(child).order, 10);
         if (current !== i + 1) {
-          await this.app.fileManager.processFrontMatter(child, (fm) => { fm.ordre = i + 1; });
+          await this.app.fileManager.processFrontMatter(child, (fm) => { fm.order = i + 1; });
         }
       } else {
         this.settings.folderPositions[child.path] = i + 1;
@@ -2069,7 +2096,7 @@ class FeuilletsPlugin extends Plugin {
     let changed = 0;
     const concernsFile = (f) => {
       const fm = this.fmOf(f);
-      const t = typeof fm.titre === "string" ? fm.titre.trim() : typeof fm.title === "string" ? fm.title.trim() : "";
+      const t = typeof fm.title === "string" ? fm.title.trim() : "";
       if (t) return pattern.test(t);
       return pattern.test(f.basename);
     };
@@ -2108,7 +2135,7 @@ class FeuilletsPlugin extends Plugin {
           if (concernsFile(child)) {
             const target = `${prefix} ${n}`;
             if (this.titleFor(child) !== target) {
-              await this.app.fileManager.processFrontMatter(child, (fm) => { fm.titre = target; });
+              await this.app.fileManager.processFrontMatter(child, (fm) => { fm.title = target; });
               changed++;
             }
           }
@@ -2202,18 +2229,18 @@ class FeuilletsPlugin extends Plugin {
       const isFiction = getProjectMode(this.app, this.settings).yamlPreset === "roman";
       const lines = [
         "---",
-        `titre: ${chapTitle || ""}`,
-        "titre_binder: ",
-        "ordre: 0",
-        ...(isFiction ? ["synopsis: "] : ["resume: "]),
-        "statut: ",
+        `title: ${chapTitle || ""}`,
+        "short_title: ",
+        "order: 0",
+        ...(isFiction ? ["synopsis: "] : ["summary: "]),
+        "status: ",
         "label: ",
-        `objectif: ${this.settings.wordGoal}`,
+        `goal: ${this.settings.wordGoal}`,
         "tags: ",
         "date: ",
         "notes: ",
         ...(!isFiction ? ["sources: "] : []),
-        "compiler: true",
+        "compile: true",
         "---",
         "",
         "",

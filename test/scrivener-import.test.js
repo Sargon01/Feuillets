@@ -621,8 +621,8 @@ test("buildSceneFrontmatter", async (t) => {
       includeInCompile: true,
       wordGoal: 700,
     });
-    assert.match(fm, /^titre: $/m);
-    assert.match(fm, /^titre_binder: 05-le-vent-hurle$/m);
+    assert.match(fm, /^title: $/m);
+    assert.match(fm, /^short_title: 05-le-vent-hurle$/m);
   });
 
   await t.test("titre peut porter un vrai titre extrait d'un heading", () => {
@@ -638,7 +638,7 @@ test("buildSceneFrontmatter", async (t) => {
       includeInCompile: true,
       wordGoal: 700,
     });
-    assert.match(fm, /^titre: Le vent hurle$/m);
+    assert.match(fm, /^title: Le vent hurle$/m);
   });
 
   await t.test("un titre purement numérique est mis entre guillemets — sinon YAML le lit comme un nombre et le titre disparaît de l'export Word", () => {
@@ -658,7 +658,7 @@ test("buildSceneFrontmatter", async (t) => {
       includeInCompile: true,
       wordGoal: 700,
     });
-    assert.match(fm, /^titre: "4"$/m);
+    assert.match(fm, /^title: "4"$/m);
   });
 });
 

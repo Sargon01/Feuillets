@@ -16,7 +16,7 @@ export async function getOrCreateFolderNote(app, folder) {
   const path = normalizePath(`${folder.path}/${folder.name}.md`);
   const lines = [
     "---",
-    `titre: ${folder.name}`,
+    `title: ${folder.name}`,
     "synopsis: ",
     "notes: ",
     "---",

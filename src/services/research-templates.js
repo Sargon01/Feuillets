@@ -26,8 +26,8 @@ export async function getResearchTemplate(app, settings, mode, sectionKey, defau
         try {
           let content = await app.vault.read(file);
           // Remplacement dynamique du titre générique si présent
-          if (content.includes(`titre: "Nouveau`) || content.includes("titre: Nouvelle") || content.includes("titre: Nouvel")) {
-            content = content.replace(/titre:\s*["']?Nouvel[le]?\s+\w+["']?/g, `titre: "${defaultName}"`);
+          if (content.includes(`title: "Nouveau`) || content.includes("title: Nouvelle") || content.includes("title: Nouvel")) {
+            content = content.replace(/title:\s*["']?Nouvel[le]?\s+\w+["']?/g, `title: "${defaultName}"`);
           }
           return content;
         } catch (err) {
@@ -41,10 +41,10 @@ export async function getResearchTemplate(app, settings, mode, sectionKey, defau
   if (sectionKey === "sources") {
     return [
       "---",
-      `titre: "${defaultName}"`,
-      "auteur: ",
+      `title: "${defaultName}"`,
+      "author: ",
       "date: ",
-      "editeur: ",
+      "publisher: ",
       "pages: ",
       "url: ",
       "synopsis: ",
@@ -57,10 +57,10 @@ export async function getResearchTemplate(app, settings, mode, sectionKey, defau
   if (sectionKey === "bibliographie") {
     return [
       "---",
-      `titre: "${defaultName}"`,
-      "auteur: ",
-      "annee: ",
-      "edition: ",
+      `title: "${defaultName}"`,
+      "author: ",
+      "date: ",
+      "publisher: ",
       "synopsis: ",
       "tags:",
       "  - bibliographie",
@@ -72,10 +72,10 @@ export async function getResearchTemplate(app, settings, mode, sectionKey, defau
     if (mode.yamlPreset === "roman" || mode.yamlPreset === "nouvelle") {
       return [
         "---",
-        "nom: ",
-        "prénom: ",
-        "naissance: ",
-        "mort: ",
+        "last_name: ",
+        "first_name: ",
+        "birth: ",
+        "death: ",
         "synopsis: ",
         "tags:",
         "  - personnage",
@@ -85,9 +85,9 @@ export async function getResearchTemplate(app, settings, mode, sectionKey, defau
     } else {
       return [
         "---",
-        "nom: ",
-        "prénom: ",
-        "fonction: ",
+        "last_name: ",
+        "first_name: ",
+        "role: ",
         "synopsis: ",
         "tags:",
         "  - personnage",
@@ -99,7 +99,7 @@ export async function getResearchTemplate(app, settings, mode, sectionKey, defau
   if (sectionKey === "lieux") {
     return [
       "---",
-      `titre: "${defaultName}"`,
+      `title: "${defaultName}"`,
       "description: ",
       "tags:",
       "  - lieu",
@@ -110,7 +110,7 @@ export async function getResearchTemplate(app, settings, mode, sectionKey, defau
   if (sectionKey === "codex") {
     return [
       "---",
-      `titre: "${defaultName}"`,
+      `title: "${defaultName}"`,
       "description: ",
       "tags:",
       "  - codex",
@@ -121,7 +121,7 @@ export async function getResearchTemplate(app, settings, mode, sectionKey, defau
   if (sectionKey === "glossaire") {
     return [
       "---",
-      `titre: "${defaultName}"`,
+      `title: "${defaultName}"`,
       "definition: ",
       "synopsis: ",
       "tags:",
@@ -133,9 +133,9 @@ export async function getResearchTemplate(app, settings, mode, sectionKey, defau
   if (sectionKey === "evenements") {
     return [
       "---",
-      `titre: "${defaultName}"`,
+      `title: "${defaultName}"`,
       "date: ",
-      "date_fin: ",
+      "end_date: ",
       "synopsis: ",
       "tags:",
       "  - evenement",

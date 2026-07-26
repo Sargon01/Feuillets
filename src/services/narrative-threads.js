@@ -24,8 +24,9 @@ export function getLastProjectFile(app, settings) {
 
 async function setFilList(app, file, fils) {
   await app.fileManager.processFrontMatter(file, (fm) => {
-    if (fils.length === 0) delete fm.fil;
-    else fm.fil = fils;
+    if (fils.length === 0) delete fm.thread;
+    else fm.thread = fils;
+    delete fm.fil;
   });
 }
 

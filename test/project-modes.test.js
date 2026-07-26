@@ -84,7 +84,7 @@ test("applyModeDefaults", async (t) => {
     const settings = { boardMode: "read", cardContent: "extrait" };
     applyModeDefaults(settings, "nonfiction");
     assert.equal(settings.boardMode, "outline");
-    assert.equal(settings.cardContent, "resume");
+    assert.equal(settings.cardContent, "summary");
     assert.equal(settings.mergeYamlPreset, "minimal");
   });
 

@@ -2,6 +2,39 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## Non publié
+
+### Ajouté
+
+- **Statuts entièrement personnalisables** (nom + couleur), au même titre
+  que les labels — plus de liste figée ni de couleur déterminée par la
+  position dans la liste. Migration automatique des anciens statuts
+  personnalisés.
+- **Première étape d'internationalisation : vocabulaire frontmatter en
+  anglais.** Les clés YAML des fiches (scènes, personnages, lieux,
+  sources…) passent en anglais — `title`, `short_title`, `subtitle`,
+  `order`, `status`, `goal`, `summary`, `thread`, `characters`, `author`,
+  `publisher`, `pace`, `role`, `end_date`, `birth`, `death`, `compile`.
+  Les anciennes clés françaises (`titre`, `statut`, `ordre`, `resume`,
+  `objectif`, `fil`, `personnages`, `auteur`, `rythme`, `editeur`/`edition`,
+  `sous_titre`, `arc_secondaire`, `fonction`, `date_fin`, `naissance`,
+  `mort`, `nom`, `prénom`, `compiler`) restent lues indéfiniment en repli
+  sur toute fiche déjà écrite — **aucun fichier existant n'est réécrit de
+  force.** Seules les nouvelles fiches et les nouvelles écritures (via
+  l'éditeur, les menus, les imports Scrivener/plan) utilisent les clés
+  anglaises. Concerne aussi les colonnes du Plan et le contenu affiché sur
+  les tuiles (`resume`→`summary`, `compiler`→`compile` dans les réglages,
+  migrés automatiquement).
+
+### Corrigé
+
+- `workspace.activeLeaf` (API dépréciée par Obsidian) retiré de
+  `getActiveFileSafe` — remplacé par `getMostRecentLeaf()`.
+- Description du manifeste en anglais (texte affiché dans le catalogue
+  Community Plugins quelle que soit la langue de l'interface).
+- Un statut personnalisé au-delà des 5 par défaut n'avait aucune couleur
+  définie.
+
 ## 1.0.1
 
 ### Corrigé

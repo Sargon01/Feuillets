@@ -8,13 +8,61 @@
  * @typedef {import("obsidian").TFolder} TFolder
  */
 
+/** Traduction progressive du vocabulaire frontmatter (français → anglais,
+ * voir CHANGELOG) : nouvelle clé → ancienne(s) clé(s) lue(s) en repli si la
+ * nouvelle est absente. Écriture en dur uniquement — aucune fiche existante
+ * n'est réécrite ; une fiche déjà écrite avec l'ancienne clé continue de se
+ * lire normalement via ce mécanisme, pour toujours. Tout code qui ÉCRIT du
+ * frontmatter doit désormais utiliser la clé de droite (nouvelle) partout ;
+ * seule la lecture (fmOf) connaît encore l'ancienne. */
+const LEGACY_FIELD_ALIASES = {
+  title: ["titre"],
+  short_title: ["titre_binder", "titre_court"],
+  summary: ["resume"],
+  order: ["ordre"],
+  status: ["statut"],
+  thread: ["fil"],
+  characters: ["personnages", "persos"],
+  goal: ["objectif"],
+  last_name: ["nom"],
+  first_name: ["prénom"],
+  author: ["auteur"],
+  pace: ["rythme"],
+  publisher: ["editeur", "edition"],
+  subtitle: ["sous_titre"],
+  arc_secondary: ["arc_secondaire"],
+  role: ["fonction"],
+  end_date: ["date_fin"],
+  birth: ["naissance"],
+  death: ["mort"],
+  compile: ["compiler"],
+};
+
 export function fmOf(app, file) {
   if (!file || !file.path) return {};
   const cache = app.metadataCache.getFileCache(file);
-  return (cache && cache.frontmatter) || {};
+  const fm = (cache && cache.frontmatter) || {};
+  return withLegacyFieldAliases(fm);
 }
 
-/** Titre d'affichage : `titre` (ou `title`), sinon `prénom`/`nom` pour les
+/** N'alloue une copie que si au moins un alias hérité s'applique réellement
+ * — une fiche déjà en clés anglaises traverse cette fonction sans coût. */
+function withLegacyFieldAliases(fm) {
+  let out = fm;
+  for (const newKey in LEGACY_FIELD_ALIASES) {
+    if (fm[newKey] !== undefined) continue;
+    for (const oldKey of LEGACY_FIELD_ALIASES[newKey]) {
+      if (fm[oldKey] !== undefined) {
+        if (out === fm) out = { ...fm };
+        out[newKey] = fm[oldKey];
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** Titre d'affichage : `title`, sinon `first_name`/`last_name` pour les
  * fiches personnage, sinon le nom du fichier — jamais vide.
  * @param {App} app
  * @param {TFile} file
@@ -23,21 +71,20 @@ export function fmOf(app, file) {
 export function titleFor(app, file) {
   if (!file) return "";
   const fm = fmOf(app, file);
-  const t = fm.titre !== undefined ? fm.titre : fm.title;
+  const t = fm.title;
   if (typeof t === "string" && t.trim()) return t.trim();
-  /* repli sur `nom` (+ `prénom` s'il existe) : les fiches personnage
-     créées via le panneau Recherche utilisent ces clés plutôt que `titre` */
-  const nom = typeof fm.nom === "string" ? fm.nom.trim() : "";
-  const prenom = typeof fm["prénom"] === "string" ? fm["prénom"].trim() : "";
-  if (prenom && nom) return `${prenom} ${nom}`;
-  if (nom) return nom;
+  /* repli sur `last_name` (+ `first_name` s'il existe) : les fiches
+     personnage créées via le panneau Recherche utilisent ces clés plutôt
+     que `title` */
+  const lastName = typeof fm.last_name === "string" ? fm.last_name.trim() : "";
+  const firstName = typeof fm.first_name === "string" ? fm.first_name.trim() : "";
+  if (firstName && lastName) return `${firstName} ${lastName}`;
+  if (lastName) return lastName;
   return file.basename || "";
 }
 
-/** Titre court pour les vues denses (plan, binder) : clé `titre_binder`
- * si renseignée, sinon le titre normal. Jamais utilisé à la compilation.
- * Repli sur `titre_court` (ancienne clé, renommée) pour les fiches déjà
- * écrites avant le renommage — ne pas leur faire perdre leur titre court.
+/** Titre court pour les vues denses (plan, binder) : clé `short_title` si
+ * renseignée, sinon le titre normal. Jamais utilisé à la compilation.
  * @param {App} app
  * @param {TFile} file
  * @returns {string}
@@ -45,23 +92,23 @@ export function titleFor(app, file) {
 export function shortTitleFor(app, file) {
   if (!file) return "";
   const fm = fmOf(app, file);
-  const t = fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court;
+  const t = fm.short_title;
   return typeof t === "string" && t.trim() ? t.trim() : titleFor(app, file);
 }
 
-/** Titre pour la COMPILATION : clé `titre` uniquement, jamais le nom du fichier.
+/** Titre pour la COMPILATION : clé `title` uniquement, jamais le nom du fichier.
  * @param {App} app
  * @param {TFile} file
  * @returns {string|null} `null` = pas de titre à insérer dans le manuscrit.
  */
 export function compiledTitleFor(app, file) {
   const fm = fmOf(app, file);
-  const t = fm.titre !== undefined ? fm.titre : fm.title;
+  const t = fm.title;
   return typeof t === "string" && t.trim() ? t.trim() : null;
 }
 
-/** Sous-titre pour la COMPILATION : clé `sous_titre`, compilé un niveau de
- * titre en dessous de `titre` (ex. titre en H2, sous-titre en H3) — voir
+/** Sous-titre pour la COMPILATION : clé `subtitle`, compilé un niveau de
+ * titre en dessous de `title` (ex. titre en H2, sous-titre en H3) — voir
  * compile(), services/compile-export.js. Cas typique : un chapitre
  * Scrivener dont le titre tient sur deux lignes (titre + sous-titre).
  * @param {App} app
@@ -70,7 +117,7 @@ export function compiledTitleFor(app, file) {
  */
 export function compiledSubtitleFor(app, file) {
   const fm = fmOf(app, file);
-  const t = fm.sous_titre;
+  const t = fm.subtitle;
   return typeof t === "string" && t.trim() ? t.trim() : null;
 }
 

@@ -165,7 +165,7 @@ export class NotesView extends BaseFeuilletsView {
       if (sectionName === "Synopsis" && S.notesShowSynopsis) {
         this.renderCollapsibleTextarea(wrapper, "Synopsis", "synopsis", file, fm, "Accroche courte…", 3);
       } else if (sectionName === "Résumé" && S.notesShowResume) {
-        this.renderCollapsibleTextarea(wrapper, "Résumé", "resume", file, fm, "Déroulé long…", 5);
+        this.renderCollapsibleTextarea(wrapper, "Résumé", "summary", file, fm, "Déroulé long…", 5);
       } else if (sectionName === "Notes" && S.notesShowNotes) {
         this.renderCollapsibleTextarea(wrapper, "Notes", "notes", file, fm, "Notes de travail — jamais compilées ni comptées.", 8);
       }
@@ -544,8 +544,8 @@ export class NotesView extends BaseFeuilletsView {
       this.addPreviewBtn(head, ent);
 
       if (kind === "personnage" && sceneDate) {
-        const birth = this.plugin.parseStoryDate(efm.naissance ?? efm.birth);
-        const death = this.plugin.parseStoryDate(efm.mort ?? efm.death);
+        const birth = this.plugin.parseStoryDate(efm.birth);
+        const death = this.plugin.parseStoryDate(efm.death);
         if (death && sceneDate.sort > death.sort) {
           const diff = sceneDate.y - death.y;
           let text = `mort en ${death.y}`;

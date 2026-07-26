@@ -250,10 +250,10 @@ export async function initProjectStructure(app, settings) {
     // Templates de fiction
     await writeTemplate(`${resPath}/Templates/Personnages.md`, [
       "---",
-      "nom: ",
-      "prénom: ",
-      "naissance: ",
-      "mort: ",
+      "last_name: ",
+      "first_name: ",
+      "birth: ",
+      "death: ",
       "synopsis: ",
       "tags:",
       "  - personnage",
@@ -263,7 +263,7 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Lieux.md`, [
       "---",
-      'titre: "Nouveau lieu"',
+      'title: "Nouveau lieu"',
       "description: ",
       "tags:",
       "  - lieu",
@@ -273,7 +273,7 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Lore.md`, [
       "---",
-      'titre: "Nouvelle entrée"',
+      'title: "Nouvelle entrée"',
       "description: ",
       "tags:",
       "  - codex",
@@ -283,10 +283,10 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Bibliographie.md`, [
       "---",
-      'titre: "Nouvelle référence"',
-      "auteur: ",
-      "annee: ",
-      "edition: ",
+      'title: "Nouvelle référence"',
+      "author: ",
+      "date: ",
+      "publisher: ",
       "synopsis: ",
       "tags:",
       "  - bibliographie",
@@ -296,7 +296,7 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Glossaire.md`, [
       "---",
-      'titre: "Nouveau terme"',
+      'title: "Nouveau terme"',
       "definition: ",
       "synopsis: ",
       "tags:",
@@ -307,9 +307,9 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Evenements.md`, [
       "---",
-      'titre: "Nouvel événement"',
+      'title: "Nouvel événement"',
       "date: ",
-      "date_fin: ",
+      "end_date: ",
       "synopsis: ",
       "tags:",
       "  - evenement",
@@ -320,10 +320,10 @@ export async function initProjectStructure(app, settings) {
     // Templates de non-fiction
     await writeTemplate(`${resPath}/Templates/Sources.md`, [
       "---",
-      'titre: "Nouvelle source"',
-      "auteur: ",
+      'title: "Nouvelle source"',
+      "author: ",
       "date: ",
-      "editeur: ",
+      "publisher: ",
       "pages: ",
       "url: ",
       "synopsis: ",
@@ -335,9 +335,9 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Acteurs.md`, [
       "---",
-      "nom: ",
-      "prénom: ",
-      "fonction: ",
+      "last_name: ",
+      "first_name: ",
+      "role: ",
       "synopsis: ",
       "tags:",
       "  - personnage",
@@ -347,7 +347,7 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Geographie.md`, [
       "---",
-      'titre: "Nouvelle entrée"',
+      'title: "Nouvelle entrée"',
       "description: ",
       "tags:",
       "  - lieu",
@@ -357,7 +357,7 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Concepts.md`, [
       "---",
-      'titre: "Nouveau concept"',
+      'title: "Nouveau concept"',
       "description: ",
       "tags:",
       "  - codex",
@@ -367,10 +367,10 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Bibliographie.md`, [
       "---",
-      'titre: "Nouvelle référence"',
-      "auteur: ",
-      "annee: ",
-      "edition: ",
+      'title: "Nouvelle référence"',
+      "author: ",
+      "date: ",
+      "publisher: ",
       "synopsis: ",
       "tags:",
       "  - bibliographie",
@@ -380,7 +380,7 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Glossaire.md`, [
       "---",
-      'titre: "Nouveau terme"',
+      'title: "Nouveau terme"',
       "definition: ",
       "synopsis: ",
       "tags:",
@@ -391,9 +391,9 @@ export async function initProjectStructure(app, settings) {
 
     await writeTemplate(`${resPath}/Templates/Evenements.md`, [
       "---",
-      'titre: "Nouvel événement"',
+      'title: "Nouvel événement"',
       "date: ",
-      "date_fin: ",
+      "end_date: ",
       "synopsis: ",
       "tags:",
       "  - evenement",
@@ -417,16 +417,16 @@ export async function initProjectStructure(app, settings) {
   const projectTitle = settings.manuscriptTitle || root.name;
   await writeTemplate(`${root.path}/Front/Page de titre.md`, [
     "---",
-    `titre: ${projectTitle}`,
-    "titre_binder: ",
-    "ordre: 1",
+    `title: ${projectTitle}`,
+    "short_title: ",
+    "order: 1",
     "synopsis: ",
-    "statut: ",
+    "status: ",
     "label: ",
     "tags: ",
     "date: ",
     "notes: ",
-    "compiler: true",
+    "compile: true",
     "type: titre",
     "---",
     `:::titre: ${projectTitle}`,
@@ -469,18 +469,18 @@ export function newSheet(app, settings, folder) {
     const isFiction = getProjectMode(app, settings).yamlPreset === "roman" || getProjectMode(app, settings).yamlPreset === "nouvelle";
     const lines = [
       "---",
-      `titre: ${chapTitle || ""}`,
-      "titre_binder: ",
-      `ordre: ${position}`,
-      ...(isFiction ? ["synopsis: "] : ["resume: "]),
-      "statut: ",
+      `title: ${chapTitle || ""}`,
+      "short_title: ",
+      `order: ${position}`,
+      ...(isFiction ? ["synopsis: "] : ["summary: "]),
+      "status: ",
       "label: ",
-      `objectif: ${settings.wordGoal}`,
+      `goal: ${settings.wordGoal}`,
       "tags: ",
       "date: ",
       "notes: ",
       ...(!isFiction ? ["sources: "] : []),
-      "compiler: true",
+      "compile: true",
       "---",
       "",
       "",

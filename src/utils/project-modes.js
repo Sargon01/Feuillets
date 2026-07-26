@@ -56,7 +56,7 @@ export const PROJECT_MODES = {
       chapterNumbering: "continu",
       sceneNumbering: "continue",
       boardMode: "outline",
-      cardContent: "resume",
+      cardContent: "summary",
     },
   },
 };

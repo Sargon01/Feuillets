@@ -469,8 +469,8 @@ export class AnalysisView extends BaseFeuilletsView {
 
   /** Intensités `rythme` d'une scène, normalisées 0–RYTHME_MAX (0 si absent). */
   rythmeOf(file) {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const r = (fm && fm.rythme) || {};
+    const fm = this.fm(file);
+    const r = (fm && fm.pace) || {};
     const out = {};
     for (const d of RYTHME_DIMS) {
       const v = Number(r[d.key]);
@@ -631,8 +631,9 @@ export class AnalysisView extends BaseFeuilletsView {
           const v = Math.max(0, Math.min(RYTHME_MAX, Math.round(Number(input.value) || 0)));
           input.value = String(v);
           await this.app.fileManager.processFrontMatter(file, (fm) => {
-            fm.rythme = fm.rythme || {};
-            fm.rythme[d.key] = v;
+            fm.pace = fm.pace || fm.rythme || {};
+            fm.pace[d.key] = v;
+            delete fm.rythme;
           });
           this.render();
         });

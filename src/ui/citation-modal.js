@@ -24,8 +24,8 @@ export class CitationSourceModal extends FuzzySuggestModal {
 
   getItemText(file) {
     const fm = this.plugin.fmOf(file);
-    const auteur = fm.auteur ? ` — ${fm.auteur}` : "";
-    return `${this.plugin.titleFor(file)}${auteur}`;
+    const author = fm.author ? ` — ${fm.author}` : "";
+    return `${this.plugin.titleFor(file)}${author}`;
   }
 
   onChooseItem(file) {

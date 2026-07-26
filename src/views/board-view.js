@@ -18,14 +18,14 @@ function isInputFocused(el) {
 }
 
 function getFilsList(fm) {
-  const fils = fm.fil;
+  const fils = fm.thread;
   if (Array.isArray(fils)) return fils.filter(Boolean).map((r) => String(r).trim()).filter(Boolean);
   if (typeof fils === "string" && fils.trim()) return fils.split(",").map((r) => r.trim()).filter(Boolean);
   return [];
 }
 
 function getPersonnagesList(fm) {
-  const persos = fm.personnages ?? fm.persos;
+  const persos = fm.characters;
   if (Array.isArray(persos)) return persos.filter(Boolean).map((r) => String(r).trim()).filter(Boolean);
   if (typeof persos === "string" && persos.trim()) return persos.split(",").map((r) => r.trim()).filter(Boolean);
   return [];
@@ -87,7 +87,7 @@ export class BoardView extends BaseFeuilletsView {
     const S = this.plugin.settings;
     const statusFilter = S.statusFilter;
     if (statusFilter && statusFilter !== "Tous") {
-      const currentStatus = this.fm(file).statut || "";
+      const currentStatus = this.fm(file).status || "";
       if (statusFilter === "Sans statut" ? currentStatus !== "" : currentStatus !== statusFilter) return false;
     }
     const labelFilter = S.labelFilter;
@@ -503,7 +503,7 @@ export class BoardView extends BaseFeuilletsView {
       menu.addSeparator();
       const contentOptions =
         pType === "nonfiction"
-          ? [["extrait", "Corps : extrait du texte"], ["resume", "Corps : résumé"]]
+          ? [["extrait", "Corps : extrait du texte"], ["summary", "Corps : résumé"]]
           : [["extrait", "Corps : extrait du texte"], ["synopsis", "Corps : synopsis"]];
       for (const [val, label] of contentOptions) {
         menu.addItem((item) =>
@@ -540,7 +540,7 @@ export class BoardView extends BaseFeuilletsView {
       menu.addItem((item) => item.setTitle("— Colonnes affichées —").setDisabled(true));
       for (const [colKey, label] of [
         ["synopsis", "Synopsis"],
-        ["resume", "Résumé"],
+        ["summary", "Résumé"],
         ["notes", "Notes"],
         ["tags", "Tags"],
         ["label", "Label"],
@@ -661,10 +661,10 @@ export class BoardView extends BaseFeuilletsView {
       type: "number",
       attr: { min: "0", placeholder: String(this.plugin.settings.wordGoal) },
     });
-    if (fm.objectif !== undefined) input.value = String(fm.objectif);
+    if (fm.goal !== undefined) input.value = String(fm.goal);
     input.addEventListener("change", async () => {
       const val = parseInt(input.value, 10);
-      await this.setFm(file, "objectif", isNaN(val) ? "" : val);
+      await this.setFm(file, "goal", isNaN(val) ? "" : val);
     });
     return input;
   }
@@ -861,7 +861,7 @@ export class BoardView extends BaseFeuilletsView {
     wcEl.setText(goal > 0 ? `${totalWc} / ${goal}` : String(totalWc));
     if (S.showProgress) this.fillRing(ring, totalWc, goal);
 
-    const fieldKey = this.currentCardContent === "synopsis" ? "synopsis" : "resume";
+    const fieldKey = this.currentCardContent === "synopsis" ? "synopsis" : "summary";
     const summary = (folderNote && this.plugin.fmOf(folderNote)[fieldKey]) || "";
     const excerpt = card.createDiv({ cls: "feuillets-card-excerpt" });
     excerpt.style.marginTop = "8px";
@@ -923,7 +923,7 @@ export class BoardView extends BaseFeuilletsView {
     more.addEventListener("click", (e) => {
       e.stopPropagation();
       const menu = new Menu();
-      const currentSt = this.fm(file).statut || "";
+      const currentSt = this.fm(file).status || "";
       const S = this.plugin.settings;
       for (const st of getProjectStatuses(S).filter(Boolean)) {
         menu.addItem((item) =>
@@ -940,7 +940,7 @@ export class BoardView extends BaseFeuilletsView {
       );
       menu.addItem((item) =>
         item.setTitle("Modifier le résumé…").onClick(() => {
-          new FmFieldModal(this.app, this.plugin, file, "resume", "Résumé long", () => this.render(true)).open();
+          new FmFieldModal(this.app, this.plugin, file, "summary", "Résumé long", () => this.render(true)).open();
         })
       );
       menu.addItem((item) =>
@@ -978,8 +978,8 @@ export class BoardView extends BaseFeuilletsView {
 
     if (this.currentCardContent === "synopsis") {
       this.makeClickToEditFmArea(card, file, "synopsis", "Synopsis…", 6);
-    } else if (this.currentCardContent === "resume") {
-      this.makeClickToEditFmArea(card, file, "resume", "Résumé…", 6);
+    } else if (this.currentCardContent === "summary") {
+      this.makeClickToEditFmArea(card, file, "summary", "Résumé…", 6);
     } else {
       const excerpt = card.createDiv({ cls: "feuillets-card-excerpt", text: "…" });
       excerpt.addEventListener("click", () => {
@@ -1103,7 +1103,7 @@ export class BoardView extends BaseFeuilletsView {
     if (sortedLabels.length === 0 && sortedFils.length === 0 && sortedPovs.length === 0) {
       wrap.createDiv({
         cls: "feuillets-empty",
-        text: `Aucun label, fil ni POV détecté. Ajoute label: Nom, fil: indice ou pov: Nom dans le YAML pour construire le chemin de fer.`,
+        text: `Aucun label, fil ni POV détecté. Ajoute label: Nom, thread: indice ou pov: Nom dans le YAML pour construire le chemin de fer.`,
       });
       return;
     }
@@ -1242,9 +1242,9 @@ export class BoardView extends BaseFeuilletsView {
       const info = row.createDiv({ cls: "feuillets-arcs-info" });
       const titleRow = info.createDiv({ cls: "feuillets-arcs-title-row" }).createDiv({ cls: "feuillets-arcs-title-left" });
       if (numbering) titleRow.createSpan({ cls: "feuillets-row-num", text: numbering.get(file.path) || "" });
-      if (fm.statut) {
+      if (fm.status) {
         const dot = titleRow.createSpan({ cls: "feuillets-status-dot" });
-        dot.style.background = this.plugin.getStatusColor(fm.statut) || "var(--text-faint)";
+        dot.style.background = this.plugin.getStatusColor(fm.status) || "var(--text-faint)";
       }
       titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
 
@@ -1349,13 +1349,13 @@ export class BoardView extends BaseFeuilletsView {
     const cols = this.plugin.settings.outlineCols;
     const res = [{ id: "title", label: "Feuillet" }];
     if (cols.synopsis) res.push({ id: "synopsis", label: "Synopsis" });
-    if (cols.resume) res.push({ id: "resume", label: "Résumé" });
+    if (cols.summary) res.push({ id: "summary", label: "Résumé" });
     if (cols.notes) res.push({ id: "notes", label: "Notes" });
     if (cols.tags) res.push({ id: "tags", label: "Tags" });
     if (cols.label) res.push({ id: "label", label: "Label" });
     if (cols.status) res.push({ id: "status", label: "Statut" });
     if (cols.date) res.push({ id: "date", label: "Date" });
-    if (cols.compiler) res.push({ id: "compiler", label: "Compiler" });
+    if (cols.compile) res.push({ id: "compile", label: "Compiler" });
     if (cols.filename) res.push({ id: "filename", label: "Fichier" });
     if (cols.words) res.push({ id: "words", label: "Mots" });
     if (cols.goal) res.push({ id: "goal", label: "Objectif" });
@@ -1496,13 +1496,13 @@ export class BoardView extends BaseFeuilletsView {
 
       this.emptyCells(row, cols, {
         synopsis: (cell) => this.makeClickToEditFmArea(cell, child, "synopsis", "Synopsis…", 1),
-        resume: (cell) => this.makeClickToEditFmArea(cell, child, "resume", "Résumé…", 1),
+        summary: (cell) => this.makeClickToEditFmArea(cell, child, "summary", "Résumé…", 1),
         notes: (cell) => this.makeClickToEditFmArea(cell, child, "notes", "Notes…", 1),
         tags: (cell) => this.makeTagsEditor(cell, child),
         label: (cell) => this.makeLabelSelect(cell, child),
         status: (cell) => this.makeStatusSelect(cell, child),
         date: (cell) => cell.setText(this.fm(child).date || "—"),
-        compiler: (cell) => cell.setText(this.fm(child).compiler !== false ? "Oui" : "Non"),
+        compile: (cell) => cell.setText(this.fm(child).compile !== false ? "Oui" : "Non"),
         filename: (cell) => cell.setText(child.basename),
         words: (cell) => cell.setText(String(wc)),
         goal: (cell) => cell.setText(String(this.goalFor(child))),

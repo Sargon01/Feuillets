@@ -64,7 +64,7 @@ export class FileStatsModal extends Modal {
 
     const rawText = await app.vault.cachedRead(file);
     const wc = countWords(rawText);
-    const g = parseInt(plugin.fmOf(file).objectif, 10);
+    const g = parseInt(plugin.fmOf(file).goal, 10);
     const goal = isNaN(g) ? plugin.settings.wordGoal : g;
 
     const cleanText = stripWritingNoise(rawText);

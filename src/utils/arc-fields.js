@@ -15,15 +15,15 @@ export function oneOf(val) {
  * anciennes fiches, ou saisie faite avec le nom générique). */
 export function arcsOf(fm, mode) {
   const key = (mode && mode.arc) || "arc";
-  const list = [oneOf(fm[key]), oneOf(fm[`${key}_secondaire`])].filter(Boolean);
+  const list = [oneOf(fm[key]), oneOf(fm[`${key}_secondary`])].filter(Boolean);
   if (list.length > 0 || key === "arc") return list;
-  return [oneOf(fm.arc), oneOf(fm.arc_secondaire)].filter(Boolean);
+  return [oneOf(fm.arc), oneOf(fm.arc_secondary)].filter(Boolean);
 }
 
 /** Personnages d'une scène : liste, ou valeur unique tolérée en string. */
 export function personnagesOf(fm) {
-  if (Array.isArray(fm.personnages)) return fm.personnages.filter(Boolean).map(String);
-  return fm.personnages ? [String(fm.personnages)] : [];
+  if (Array.isArray(fm.characters)) return fm.characters.filter(Boolean).map(String);
+  return fm.characters ? [String(fm.characters)] : [];
 }
 
 /** Point de vue (narrateur) d'une scène : valeur unique, distincte de
@@ -41,7 +41,7 @@ export function povOf(fm) {
  * l'espace — pour ne jamais couper une valeur en texte libre du genre
  * "plante l'indice ici" en plusieurs fils involontairement. */
 export function filsOf(fm) {
-  const val = fm.fil;
+  const val = fm.thread;
   if (Array.isArray(val)) return val.filter(Boolean).map((v) => String(v).trim()).filter(Boolean);
   if (typeof val === "string" && val.trim()) {
     return val.split(",").map((v) => v.trim()).filter(Boolean);

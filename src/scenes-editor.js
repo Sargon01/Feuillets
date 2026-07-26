@@ -27,40 +27,40 @@ import {
 export const YAML_PRESETS = {
   roman: {
     label: "Roman",
-    targetFields: ["titre", "titre_binder", "ordre", "date"],
+    targetFields: ["title", "short_title", "order", "date"],
     aggregateFields: ["tags", "notes"],
-    firstFields: ["statut", "label", "objectif", "compiler"],
-    ignoreFields: ["synopsis", "resume"],
+    firstFields: ["status", "label", "goal", "compile"],
+    ignoreFields: ["synopsis", "summary"],
   },
   nouvelle: {
     label: "Nouvelle",
-    targetFields: ["titre", "titre_binder", "ordre", "date", "statut"],
+    targetFields: ["title", "short_title", "order", "date", "status"],
     aggregateFields: ["tags", "notes"],
-    firstFields: ["label", "objectif", "compiler"],
-    ignoreFields: ["synopsis", "resume"],
+    firstFields: ["label", "goal", "compile"],
+    ignoreFields: ["synopsis", "summary"],
   },
   scenario: {
     label: "Scénario",
-    targetFields: ["titre", "ordre", "date"],
+    targetFields: ["title", "order", "date"],
     aggregateFields: ["tags", "notes", "label"],
-    firstFields: ["statut", "objectif", "compiler"],
-    ignoreFields: ["resume"],
+    firstFields: ["status", "goal", "compile"],
+    ignoreFields: ["summary"],
   },
   minimal: {
     label: "Minimal",
     targetFields: [
-      "titre",
-      "titre_binder",
-      "ordre",
+      "title",
+      "short_title",
+      "order",
       "date",
-      "statut",
+      "status",
       "label",
-      "objectif",
-      "compiler",
+      "goal",
+      "compile",
     ],
     aggregateFields: ["tags"],
     firstFields: [],
-    ignoreFields: ["synopsis", "resume", "notes"],
+    ignoreFields: ["synopsis", "summary", "notes"],
   },
 };
 
@@ -431,7 +431,7 @@ export function initScenesEditor(plugin) {
     if (!root || !file.path.startsWith(root.path + "/")) return false;
     if (file.parent && file.basename === file.parent.name) return false; // note de dossier
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    return !!fm && ("titre" in fm || "ordre" in fm || "compiler" in fm);
+    return !!fm && ("title" in fm || "titre" in fm || "order" in fm || "ordre" in fm || "compile" in fm || "compiler" in fm);
   }.bind(plugin);
 
   plugin.openSceneMenu = function (file, evt) {
@@ -503,18 +503,12 @@ export function initScenesEditor(plugin) {
       );
     }
 
-    const fm = Object.assign(
-      {},
-      this.app.metadataCache.getFileCache(file)?.frontmatter || {}
-    );
-    const currentOrder = ensureNumber(fm.ordre, 0);
-    const defaultTitle = fm.titre
-      ? `${fm.titre} - 2`
+    const fm = Object.assign({}, this.fmOf(file));
+    const currentOrder = ensureNumber(fm.order, 0);
+    const defaultTitle = fm.title
+      ? `${fm.title} - 2`
       : `${file.basename} - 2`;
-    // repli sur titre_court (ancienne clé, renommée) pour une fiche déjà
-    // écrite avant le renommage
-    const shortSource = fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court;
-    const defaultShort = shortSource ? `${shortSource} 2` : "";
+    const defaultShort = fm.short_title ? `${fm.short_title} 2` : "";
 
     new TextInputModal(
       this.app,
@@ -536,17 +530,24 @@ export function initScenesEditor(plugin) {
           return new Notice("Un fichier avec ce nom existe déjà.");
         }
         const frontmatter = Object.assign({}, fm, {
-          titre: values.titre || defaultTitle,
-          titre_binder: values.titre_binder || "",
-          ordre: ensureNumber(values.ordre, currentOrder + 1),
-          statut: this.settings.splitStatus || fm.statut || "",
+          title: values.titre || defaultTitle,
+          short_title: values.titre_binder || "",
+          order: ensureNumber(values.ordre, currentOrder + 1),
+          status: this.settings.splitStatus || fm.status || "",
         });
+        delete frontmatter.titre;
+        delete frontmatter.titre_binder;
         delete frontmatter.titre_court;
+        delete frontmatter.ordre;
+        delete frontmatter.statut;
         if (this.settings.resetSynopsisOnSplit) frontmatter.synopsis = "";
-        if (this.settings.resetResumeOnSplit) frontmatter.resume = "";
+        if (this.settings.resetResumeOnSplit) frontmatter.summary = "";
         if (this.settings.resetNotesOnSplit) frontmatter.notes = "";
-        if (!this.settings.copyCompilerOnSplit) frontmatter.compiler = false;
-        if (frontmatter.objectif == null) frontmatter.objectif = 0;
+        if (!this.settings.copyCompilerOnSplit) frontmatter.compile = false;
+        if (frontmatter.goal == null) frontmatter.goal = 0;
+        delete frontmatter.resume;
+        delete frontmatter.objectif;
+        delete frontmatter.compiler;
         frontmatter.tags = normalizeTags(frontmatter.tags);
         await this.app.vault.create(
           path,
@@ -573,13 +574,10 @@ export function initScenesEditor(plugin) {
     if (!this.isSceneFile(file)) {
       return new Notice(`Cette note ne ressemble pas à une ${unit} Feuillets.`);
     }
-    const fm = Object.assign(
-      {},
-      this.app.metadataCache.getFileCache(file)?.frontmatter || {}
-    );
-    const currentOrder = ensureNumber(fm.ordre, 0);
-    const defaultTitle = fm.titre
-      ? `${fm.titre} - copie`
+    const fm = Object.assign({}, this.fmOf(file));
+    const currentOrder = ensureNumber(fm.order, 0);
+    const defaultTitle = fm.title
+      ? `${fm.title} - copie`
       : `${file.basename} - copie`;
     new TextInputModal(
       this.app,
@@ -589,8 +587,7 @@ export function initScenesEditor(plugin) {
         {
           name: "titre_binder",
           label: "Titre binder",
-          // repli sur titre_court (ancienne clé, renommée)
-          value: (fm.titre_binder !== undefined ? fm.titre_binder : fm.titre_court) || "",
+          value: fm.short_title || "",
         },
         { name: "ordre", label: "Ordre", value: String(currentOrder + 1) },
         { name: "filename", label: "Nom du fichier", value: defaultTitle },
@@ -609,15 +606,20 @@ export function initScenesEditor(plugin) {
         const copied = this.app.vault.getAbstractFileByPath(path);
         if (!(copied instanceof TFile)) return new Notice("Copie introuvable.");
         await this.app.fileManager.processFrontMatter(copied, (fm2) => {
-          fm2.titre = values.titre || defaultTitle;
-          fm2.titre_binder = values.titre_binder || "";
-          delete fm2.titre_court;
-          fm2.ordre = ensureNumber(values.ordre, currentOrder + 1);
+          fm2.title = values.titre || defaultTitle;
+          fm2.short_title = values.titre_binder || "";
+          fm2.order = ensureNumber(values.ordre, currentOrder + 1);
           fm2.synopsis = "";
-          fm2.resume = "";
+          fm2.summary = "";
           fm2.notes = "";
           fm2.tags = normalizeTags(fm2.tags);
-          if (fm2.objectif == null) fm2.objectif = 0;
+          if (fm2.goal == null) fm2.goal = 0;
+          delete fm2.titre;
+          delete fm2.titre_binder;
+          delete fm2.titre_court;
+          delete fm2.ordre;
+          delete fm2.resume;
+          delete fm2.objectif;
         });
         new Notice(`${unitCap} dupliquée : ${safe}`);
       }
@@ -670,13 +672,10 @@ export function initScenesEditor(plugin) {
     let created = 0;
     for (const file of files) {
       if (!(file instanceof TFile) || !this.isSceneFile(file)) continue;
-      const fm = Object.assign(
-        {},
-        this.app.metadataCache.getFileCache(file)?.frontmatter || {}
-      );
-      const currentOrder = ensureNumber(fm.ordre, 0);
-      const defaultTitle = fm.titre
-        ? `${fm.titre} - copie`
+      const fm = Object.assign({}, this.fmOf(file));
+      const currentOrder = ensureNumber(fm.order, 0);
+      const defaultTitle = fm.title
+        ? `${fm.title} - copie`
         : `${file.basename} - copie`;
       const folder = file.parent?.path || "";
       const safe = sanitizeFileBasename(defaultTitle, defaultTitle);
@@ -689,13 +688,17 @@ export function initScenesEditor(plugin) {
       const copied = this.app.vault.getAbstractFileByPath(path);
       if (!(copied instanceof TFile)) continue;
       await this.app.fileManager.processFrontMatter(copied, (fm2) => {
-        fm2.titre = defaultTitle;
-        fm2.ordre = ensureNumber(currentOrder + 1);
+        fm2.title = defaultTitle;
+        fm2.order = ensureNumber(currentOrder + 1);
         fm2.synopsis = "";
-        fm2.resume = "";
+        fm2.summary = "";
         fm2.notes = "";
         fm2.tags = normalizeTags(fm2.tags);
-        if (fm2.objectif == null) fm2.objectif = 0;
+        if (fm2.goal == null) fm2.goal = 0;
+        delete fm2.titre;
+        delete fm2.ordre;
+        delete fm2.resume;
+        delete fm2.objectif;
       });
       created++;
     }
@@ -832,10 +835,7 @@ export function initScenesEditor(plugin) {
     const sources = ordered.map((p) => map.get(p)).filter(Boolean);
 
     const preset = YAML_PRESETS[this.settings.mergeYamlPreset];
-    const targetFm = Object.assign(
-      {},
-      this.app.metadataCache.getFileCache(target)?.frontmatter || {}
-    );
+    const targetFm = Object.assign({}, this.fmOf(target));
     const previewFm = Object.assign({}, targetFm);
     const collector = {};
     const sourceBodies = [];
@@ -843,12 +843,7 @@ export function initScenesEditor(plugin) {
     for (const src of sources) {
       const raw = await this.app.vault.read(src);
       sourceBodies.push(splitBody(raw));
-      sourceFms.push(
-        Object.assign(
-          {},
-          this.app.metadataCache.getFileCache(src)?.frontmatter || {}
-        )
-      );
+      sourceFms.push(Object.assign({}, this.fmOf(src)));
     }
     for (const sourceFm of sourceFms) {
       this.buildMergeYaml(previewFm, sourceFm, preset, localRules, collector);
@@ -878,9 +873,9 @@ export function initScenesEditor(plugin) {
           : `Fusionner ${sources.length} ${this.unitLabelPlural()} dans "${this.shortTitleFor(target)}" ?`,
       preview: {
         tags: normalizeTags(previewFm.tags),
-        statut: previewFm.statut || "",
-        compiler: Boolean(previewFm.compiler),
-        objectif: previewFm.objectif ?? 0,
+        statut: previewFm.status || "",
+        compiler: Boolean(previewFm.compile),
+        objectif: previewFm.goal ?? 0,
         notes: previewFm.notes || "",
         excerpts: sources.map((src, i) =>
           buildMergedSection(src, sourceBodies[i], mergeMode)
@@ -929,10 +924,7 @@ export function initScenesEditor(plugin) {
       try {
         const raw = await this.app.vault.read(source);
         const sourceBody = splitBody(raw);
-        const sourceFm = Object.assign(
-          {},
-          this.app.metadataCache.getFileCache(source)?.frontmatter || {}
-        );
+        const sourceFm = Object.assign({}, this.fmOf(source));
         await this.app.fileManager.processFrontMatter(target, (fm) =>
           this.buildMergeYaml(
             fm,

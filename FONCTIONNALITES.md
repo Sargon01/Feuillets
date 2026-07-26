@@ -136,12 +136,12 @@ Propriétés.
 
 Suivi de fils d'intrigue à travers les feuillets, via frontmatter.
 
-- **`fil:`** (et non `feuillets_fil`) — liste de fils ouverts sur une scène,
-  séparés par virgule
+- **`thread:`** (anciennement `fil:`, toujours lu en repli — et non
+  `feuillets_fil`) — liste de fils ouverts sur une scène, séparés par virgule
 - **Suivi automatique planté/résolu** : mémorise où un fil a été planté
   (`filOrigins`), où il attend sa résolution (`filPlaceholders`), et les
   valeurs déjà résolues à ne jamais retoucher (`filResolved`)
-- **Arcs** (`arc`/`arc_secondaire`, ou `argument`/`angle` selon le mode de
+- **Arcs** (`arc`/`arc_secondary`, ou `argument`/`angle` selon le mode de
   projet) — colonnes colorées dans le mode Chemin de fer (Canvas)
 - Couleur des fils dans le mode Chemin de fer : cohérente avec les labels
 
@@ -446,6 +446,14 @@ d'Obsidian.
   `mergeYamlPreset`
 - **Projet de démonstration** — commande "Créer un projet d'exemple" pour
   découvrir le plugin sans partir de zéro
+- **Vocabulaire frontmatter en anglais** (première étape d'internationalisation) :
+  les clés YAML sont désormais en anglais (`title`, `short_title`, `subtitle`,
+  `order`, `status`, `goal`, `summary`, `thread`, `characters`, `author`,
+  `publisher`, `pace`, `role`, `end_date`, `birth`, `death`, `compile`) — les
+  anciennes clés françaises (`titre`, `statut`, `ordre`…) restent lues
+  indéfiniment en repli sur les fiches déjà écrites, jamais réécrites de
+  force ; seules les nouvelles fiches et les nouvelles écritures utilisent
+  les clés anglaises — voir `services/frontmatter.js` (`LEGACY_FIELD_ALIASES`)
 - **Panneaux au démarrage** — ouverture automatique du binder, Recherche,
   Notes, Statistiques, Journal, Projet & export, Propriétés (chacun
   indépendamment réglable) — **[Réglages]** `autoOpen*`

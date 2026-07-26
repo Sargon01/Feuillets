@@ -20,7 +20,7 @@
  * suivre TOUTES les citations précédentes du fichier, pas seulement la
  * dernière, et une forme courte par source (nom + titre abrégé) — hors
  * périmètre pour l'instant. */
-export function formatCitation({ auteur, titre, date, editeur, url } = {}, page, style, isRepeat) {
+export function formatCitation({ author, title, date, publisher, url } = {}, page, style, isRepeat) {
   const p = (page || "").trim();
 
   if (isRepeat) {
@@ -31,15 +31,15 @@ export function formatCitation({ auteur, titre, date, editeur, url } = {}, page,
   }
 
   if (style === "parenthetical") {
-    const base = [auteur, date].filter(Boolean).join(", ");
+    const base = [author, date].filter(Boolean).join(", ");
     const withPage = p ? [base, `p. ${p}`].filter(Boolean).join(", ") : base;
     return withPage ? `(${withPage})` : "";
   }
 
   const parts = [];
-  if (auteur) parts.push(auteur);
-  if (titre) parts.push(`*${titre}*`);
-  if (editeur) parts.push(editeur);
+  if (author) parts.push(author);
+  if (title) parts.push(`*${title}*`);
+  if (publisher) parts.push(publisher);
   if (date) parts.push(String(date));
   if (p) parts.push(`p. ${p}`);
   /* URL en dernier, hors de la liste virgule — une adresse ne se lit pas

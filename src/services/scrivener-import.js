@@ -434,18 +434,18 @@ export function buildSceneFrontmatter({
   const binderTitle = sousTitre || titreCourt || titre || "";
   const lines = [
     "---",
-    `titre: ${yamlScalar(titre)}`,
-    `titre_binder: ${yamlScalar(binderTitle)}`,
-    `sous_titre: ${yamlScalar(sousTitre)}`,
-    `ordre: ${order}`,
-    `${isFiction ? "synopsis" : "resume"}: ${yamlScalar(synopsis)}`,
-    `statut: ${yamlScalar(statut)}`,
+    `title: ${yamlScalar(titre)}`,
+    `short_title: ${yamlScalar(binderTitle)}`,
+    `subtitle: ${yamlScalar(sousTitre)}`,
+    `order: ${order}`,
+    `${isFiction ? "synopsis" : "summary"}: ${yamlScalar(synopsis)}`,
+    `status: ${yamlScalar(statut)}`,
     `label: ${yamlScalar(label)}`,
-    `objectif: ${wordGoal || 0}`,
+    `goal: ${wordGoal || 0}`,
     yamlTagsBlock(tags),
     "date: ",
     `notes: ${yamlScalar(notes)}`,
-    `compiler: ${includeInCompile !== false ? "true" : "false"}`,
+    `compile: ${includeInCompile !== false ? "true" : "false"}`,
     "---",
     "",
   ];
@@ -455,7 +455,7 @@ export function buildSceneFrontmatter({
 export function buildEntityFrontmatter({ title, synopsis, tags, notes }) {
   const lines = [
     "---",
-    `titre: ${yamlScalar(title)}`,
+    `title: ${yamlScalar(title)}`,
     `synopsis: ${yamlScalar(synopsis)}`,
     `notes: ${yamlScalar(notes)}`,
     yamlTagsBlock(tags),

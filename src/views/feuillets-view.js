@@ -203,7 +203,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       ["none", "Aucun"],
       ["extrait", "Extrait du texte"],
       ["synopsis", "Synopsis"],
-      ["resume", "Résumé long"],
+      ["summary", "Résumé long"],
       ["notes", "Notes de travail"],
       ["tags", "Tags"],
     ];
@@ -547,7 +547,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       }
       const sf = S.binderStatusFilter;
       if (sf && sf !== "Tous") {
-        const st = this.fm(file).statut || "";
+        const st = this.fm(file).status || "";
         if (sf === "Sans statut" ? st !== "" : st !== sf) return false;
       }
       const lf = S.binderLabelFilter;
@@ -639,7 +639,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       const nameRow = body.createDiv({ cls: "feuillets-item-name-row" });
 
       if (!hidden && S.binderShowStatus) {
-        const st = this.fm(file).statut || "";
+        const st = this.fm(file).status || "";
         if (st) {
           const dot = nameRow.createSpan({ cls: "feuillets-status-dot" });
           dot.style.background = this.plugin.getStatusColor(st) || "var(--text-faint)";

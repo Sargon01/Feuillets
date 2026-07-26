@@ -139,7 +139,7 @@ export async function compile(app, settings) {
 
   const pushFile = async (file, role, depth) => {
     const fm = fmOf(app, file);
-    if (fm.compiler === false || fm.compile === false) return;
+    if (fm.compile === false) return;
 
     /* Page Front spéciale (titre/dédicace/épigraphe) : jamais de titre de
        chapitre ni de numérotation — juste le corps, avec sa propre mise en
@@ -246,13 +246,13 @@ export function listCompiledFilePaths(app, settings) {
         } else {
           for (const sc of flattenFiles(app, settings, child)) {
             const fm = fmOf(app, sc);
-            if (fm.compiler === false || fm.compile === false) continue;
+            if (fm.compile === false) continue;
             paths.push(sc.path);
           }
         }
       } else {
         const fm = fmOf(app, child);
-        if (fm.compiler === false || fm.compile === false) continue;
+        if (fm.compile === false) continue;
         paths.push(child.path);
       }
     }
@@ -301,8 +301,8 @@ async function exportViaNative(app, settings, format) {
   if (titrePageSeg) {
     const titreFile = app.vault.getAbstractFileByPath(titrePageSeg.path);
     const titreFm = titreFile ? fmOf(app, titreFile) : {};
-    if (typeof titreFm.titre === "string" && titreFm.titre.trim()) {
-      title = titreFm.titre.trim();
+    if (typeof titreFm.title === "string" && titreFm.title.trim()) {
+      title = titreFm.title.trim();
     }
   }
   /* Le fichier compilé réel (result.outPath) plutôt que le dossier projet :

@@ -37,7 +37,7 @@ export const DEFAULT_SETTINGS = {
   binderTreeWidth: 170, // px, largeur du volet gauche en vue double volet
   binderTreeCollapsed: false, // replie le volet gauche (dossiers) en vue double volet — volet unique "fiches"
   binderListCollapsed: false, // replie le volet droit (feuillets) en vue double volet — volet unique "dossiers"
-  listPanePreviewField: "synopsis", // "none" | "synopsis" | "resume" | "notes" | "tags" — champ affiché en aperçu dans le volet fichier (lecture seule)
+  listPanePreviewField: "synopsis", // "none" | "synopsis" | "summary" | "notes" | "tags" — champ affiché en aperçu dans le volet fichier (lecture seule)
   listPanePreviewLines: 2, // nombre de lignes avant troncature de l'aperçu
   binderCompact: false, // volet fichier : masque l'aperçu, lignes plus denses (menu clic droit "Double volet")
 
@@ -53,13 +53,13 @@ export const DEFAULT_SETTINGS = {
   cardContent: "extrait", // "extrait" (premières lignes) ou "synopsis"
   indentParagraphs: true, // alinéas en début de paragraphe dans l'éditeur
   outlineCols: {
-    synopsis: true, resume: false, notes: false, tags: false, label: false,
-    status: true, date: false, compiler: false, filename: false,
+    synopsis: true, summary: false, notes: false, tags: false, label: false,
+    status: true, date: false, compile: false, filename: false,
     words: true, goal: true, progress: true,
   },
   outlineWidths: {
-    title: 260, synopsis: 320, resume: 340, notes: 300, tags: 150, label: 110,
-    status: 105, date: 160, compiler: 80, filename: 200, words: 85, goal: 85, progress: 90,
+    title: 260, synopsis: 320, summary: 340, notes: 300, tags: 150, label: 110,
+    status: 105, date: 160, compile: 80, filename: 200, words: 85, goal: 85, progress: 90,
   },
   showCardTags: false, // tags sur les tuiles (le plan a sa colonne, menu Colonnes)
   projects: [], // autres dossiers projets (multi-projets façon Longform)

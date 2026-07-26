@@ -117,12 +117,12 @@ export function entityMatchNames(app, entityFile) {
     names.add(title.trim().toLowerCase());
   }
 
-  if (fm.nom && fm.nom.trim().length >= 3) {
-    names.add(fm.nom.trim().toLowerCase());
+  if (fm.last_name && fm.last_name.trim().length >= 3) {
+    names.add(fm.last_name.trim().toLowerCase());
   }
 
-  if (fm["prénom"] && fm["prénom"].trim().length >= 3) {
-    names.add(fm["prénom"].trim().toLowerCase());
+  if (fm.first_name && fm.first_name.trim().length >= 3) {
+    names.add(fm.first_name.trim().toLowerCase());
   }
 
   // Ajout des mots individuels distincts pour le prénom/nom

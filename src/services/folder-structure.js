@@ -85,7 +85,7 @@ export function getOrderedChildren(app, settings, folder, includeHidden = false)
 
   const posOf = (c) => {
     if (c instanceof TFile) {
-      const o = parseInt(fmOf(app, c).ordre, 10);
+      const o = parseInt(fmOf(app, c).order, 10);
       return isNaN(o) ? null : o;
     }
     const o = settings.folderPositions[c.path];

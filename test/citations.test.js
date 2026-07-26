@@ -4,10 +4,10 @@ import { formatCitation } from "../src/services/citations.js";
 
 test("formatCitation", async (t) => {
   const source = {
-    auteur: "Antoine Prost",
-    titre: "Douze leçons sur l'histoire",
+    author: "Antoine Prost",
+    title: "Douze leçons sur l'histoire",
     date: "1996",
-    editeur: "Seuil",
+    publisher: "Seuil",
   };
 
   await t.test("note de bas de page : auteur, titre en italique, éditeur, année, page", () => {
@@ -33,8 +33,8 @@ test("formatCitation", async (t) => {
   });
 
   await t.test("champs manquants : ne casse rien, ignore juste ce qui est vide", () => {
-    assert.equal(formatCitation({ auteur: "Prost" }, "12", "footnote"), "Prost, p. 12.");
-    assert.equal(formatCitation({ auteur: "Prost" }, "", "parenthetical"), "(Prost)");
+    assert.equal(formatCitation({ author: "Prost" }, "12", "footnote"), "Prost, p. 12.");
+    assert.equal(formatCitation({ author: "Prost" }, "", "parenthetical"), "(Prost)");
   });
 
   await t.test("fiche entièrement vide : chaîne vide, pas de ponctuation orpheline", () => {
@@ -44,7 +44,7 @@ test("formatCitation", async (t) => {
   });
 
   await t.test("url présente : ajoutée en note (footnote), ignorée en parenthétique", () => {
-    const web = { auteur: "Jean Dupont", titre: "Page web", url: "https://example.com/page" };
+    const web = { author: "Jean Dupont", title: "Page web", url: "https://example.com/page" };
     assert.equal(
       formatCitation(web, "", "footnote"),
       "Jean Dupont, *Page web*. https://example.com/page"

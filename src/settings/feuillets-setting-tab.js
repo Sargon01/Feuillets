@@ -1084,7 +1084,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("none", "Aucun")
           .addOption("extrait", "Extrait du texte")
           .addOption("synopsis", "Synopsis")
-          .addOption("resume", "Résumé long")
+          .addOption("summary", "Résumé long")
           .addOption("notes", "Notes de travail")
           .addOption("tags", "Tags")
           .setValue(S.listPanePreviewField)

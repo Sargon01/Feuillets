@@ -208,10 +208,10 @@ export class BaseFeuilletsView extends ItemView {
       const opt = sel.createEl("option", { text: s || "—" });
       opt.value = s;
     }
-    sel.value = statuses.includes(fm.statut) ? fm.statut : "";
+    sel.value = statuses.includes(fm.status) ? fm.status : "";
     sel.setAttr("title", sel.value || "Statut : aucun");
     sel.addEventListener("change", async () => {
-      await this.setFm(file, "statut", sel.value);
+      await this.setFm(file, "status", sel.value);
       sel.setAttr("title", sel.value || "Statut : aucun");
       sel.blur();
     });
@@ -558,7 +558,7 @@ export class BaseFeuilletsView extends ItemView {
           `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`,
           [
             "---",
-            `titre: "Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}"`,
+            `title: "Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}"`,
             "synopsis: ",
             "tags:",
             `  - ${folderTag}`,
@@ -1068,7 +1068,7 @@ export class BaseFeuilletsView extends ItemView {
     }
 
     const sorted = [...cited].sort((a, b) =>
-      (this.plugin.fmOf(a).auteur || "").localeCompare(this.plugin.fmOf(b).auteur || "", "fr")
+      (this.plugin.fmOf(a).author || "").localeCompare(this.plugin.fmOf(b).author || "", "fr")
     );
     for (const f of sorted) {
       const fm = this.plugin.fmOf(f);
@@ -1300,7 +1300,7 @@ export class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
-    const currentStatus = this.fm(file).statut || "";
+    const currentStatus = this.fm(file).status || "";
     const allStatuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
     for (const st of allStatuses.filter(Boolean)) {
       menu.addItem((item) =>
@@ -1447,7 +1447,7 @@ export class BaseFeuilletsView extends ItemView {
       );
     }
     menu.addSeparator();
-    const currentStatus = note ? this.fm(note).statut || "" : "";
+    const currentStatus = note ? this.fm(note).status || "" : "";
     const allStatuses = getProjectStatuses(plugin ? plugin.settings : null);
     for (const st of allStatuses.filter(Boolean)) {
       menu.addItem((item) =>
@@ -1493,7 +1493,7 @@ export class BaseFeuilletsView extends ItemView {
         .onClick(async () => {
           const targetNote = note || await plugin.getOrCreateFolderNote(folder);
           if (targetNote) {
-            new FmFieldModal(this.app, plugin, targetNote, "resume", "Résumé du dossier", () => this.render(true)).open();
+            new FmFieldModal(this.app, plugin, targetNote, "summary", "Résumé du dossier", () => this.render(true)).open();
           }
         })
     );
@@ -1555,7 +1555,7 @@ export class BaseFeuilletsView extends ItemView {
   }
 
   goalFor(file) {
-    const g = parseInt(this.fm(file).objectif, 10);
+    const g = parseInt(this.fm(file).goal, 10);
     return isNaN(g) ? this.plugin.settings.wordGoal : g;
   }
 

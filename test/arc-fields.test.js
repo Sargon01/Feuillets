@@ -22,15 +22,15 @@ test("oneOf", async (t) => {
 });
 
 test("arcsOf", async (t) => {
-  await t.test("combine arc et arc_secondaire", () => {
-    assert.deepEqual(arcsOf({ arc: "Derviche", arc_secondaire: "Palais" }), [
+  await t.test("combine arc et arc_secondary", () => {
+    assert.deepEqual(arcsOf({ arc: "Derviche", arc_secondary: "Palais" }), [
       "Derviche",
       "Palais",
     ]);
   });
 
   await t.test("tolère arc en liste YAML à un élément", () => {
-    assert.deepEqual(arcsOf({ arc: ["Kali"], arc_secondaire: "gitans" }), [
+    assert.deepEqual(arcsOf({ arc: ["Kali"], arc_secondary: "gitans" }), [
       "Kali",
       "gitans",
     ]);
@@ -40,21 +40,21 @@ test("arcsOf", async (t) => {
     assert.deepEqual(arcsOf({}), []);
   });
 
-  await t.test("ignore arc_secondaire absent", () => {
+  await t.test("ignore arc_secondary absent", () => {
     assert.deepEqual(arcsOf({ arc: "Derviche" }), ["Derviche"]);
   });
 
   await t.test("lit la clé du mode (ex. argument) plutôt que arc", () => {
     assert.deepEqual(
       arcsOf(
-        { argument: "Thèse principale", argument_secondaire: "Contre-exemple" },
+        { argument: "Thèse principale", argument_secondary: "Contre-exemple" },
         { arc: "argument" }
       ),
       ["Thèse principale", "Contre-exemple"]
     );
   });
 
-  await t.test("clé du mode absente : replie sur arc/arc_secondaire", () => {
+  await t.test("clé du mode absente : replie sur arc/arc_secondary", () => {
     assert.deepEqual(
       arcsOf({ arc: "Derviche" }, { arc: "argument" }),
       ["Derviche"]
@@ -71,14 +71,14 @@ test("arcsOf", async (t) => {
 
 test("personnagesOf", async (t) => {
   await t.test("retourne une liste telle quelle", () => {
-    assert.deepEqual(personnagesOf({ personnages: ["Boran", "Zemfira"] }), [
+    assert.deepEqual(personnagesOf({ characters: ["Boran", "Zemfira"] }), [
       "Boran",
       "Zemfira",
     ]);
   });
 
   await t.test("tolère une valeur unique en string", () => {
-    assert.deepEqual(personnagesOf({ personnages: "Boran" }), ["Boran"]);
+    assert.deepEqual(personnagesOf({ characters: "Boran" }), ["Boran"]);
   });
 
   await t.test("retourne une liste vide sans champ", () => {
@@ -86,25 +86,25 @@ test("personnagesOf", async (t) => {
   });
 
   await t.test("filtre les entrées vides d'une liste", () => {
-    assert.deepEqual(personnagesOf({ personnages: ["Boran", "", null] }), ["Boran"]);
+    assert.deepEqual(personnagesOf({ characters: ["Boran", "", null] }), ["Boran"]);
   });
 });
 
 test("filsOf", async (t) => {
   await t.test("retourne une liste telle quelle", () => {
-    assert.deepEqual(filsOf({ fil: ["indice", "lettre-volee"] }), ["indice", "lettre-volee"]);
+    assert.deepEqual(filsOf({ thread: ["indice", "lettre-volee"] }), ["indice", "lettre-volee"]);
   });
 
   await t.test("une seule valeur en string devient une liste à un élément", () => {
-    assert.deepEqual(filsOf({ fil: "indice" }), ["indice"]);
+    assert.deepEqual(filsOf({ thread: "indice" }), ["indice"]);
   });
 
   await t.test("sépare uniquement sur la virgule, jamais sur l'espace", () => {
-    assert.deepEqual(filsOf({ fil: "plante l'indice ici" }), ["plante l'indice ici"]);
+    assert.deepEqual(filsOf({ thread: "plante l'indice ici" }), ["plante l'indice ici"]);
   });
 
   await t.test("plusieurs valeurs séparées par des virgules", () => {
-    assert.deepEqual(filsOf({ fil: "indice, lettre-volee" }), ["indice", "lettre-volee"]);
+    assert.deepEqual(filsOf({ thread: "indice, lettre-volee" }), ["indice", "lettre-volee"]);
   });
 
   await t.test("retourne une liste vide sans champ", () => {
@@ -112,7 +112,7 @@ test("filsOf", async (t) => {
   });
 
   await t.test("filtre les entrées vides", () => {
-    assert.deepEqual(filsOf({ fil: ["indice", "", null] }), ["indice"]);
+    assert.deepEqual(filsOf({ thread: ["indice", "", null] }), ["indice"]);
   });
 });
 
@@ -130,6 +130,6 @@ test("povOf", async (t) => {
   });
 
   await t.test("distinct de personnages : n'y touche pas", () => {
-    assert.equal(povOf({ personnages: ["Marc", "Julie"] }), "");
+    assert.equal(povOf({ characters: ["Marc", "Julie"] }), "");
   });
 });
