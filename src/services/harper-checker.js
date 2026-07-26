@@ -1,18 +1,11 @@
 import { createBinaryModuleFromUrl, LocalLinter, Dialect } from "harper.js";
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
+import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
 
 // Catégories Harper que l'UI Feuillets traite comme fautes d'orthographe —
 // tout le reste est classé "grammar" (voir lintKindColor.ts du plugin
 // Harper officiel pour la liste complète des lint_kind() possibles).
 const SPELLING_KINDS = new Set(["Spelling", "Typo"]);
-
-function pluginAbsoluteDir(app, manifest) {
-  const path = require("path");
-  const basePath = app.vault.adapter.getBasePath
-    ? app.vault.adapter.getBasePath()
-    : app.vault.adapter.basePath;
-  return path.join(basePath, manifest.dir);
-}
 
 export class HarperChecker {
   constructor(app, manifest) {

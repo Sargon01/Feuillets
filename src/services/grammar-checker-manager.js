@@ -1,4 +1,6 @@
 import { checkTextLanguageTool } from "./languagetool-checker.js";
+import { isEngineInstalled } from "./grammar-assets-manager.js";
+import { t } from "../i18n/index.js";
 
 /**
  * Orchestrateur de vérification linguistique pour Feuillets.
@@ -48,7 +50,10 @@ export class GrammarCheckerManager {
       isMobile = false;
     }
 
-    if (!isMobile) {
+    const localEngine = lang === "fr" ? "grammalecte" : "harper";
+    const localReady = !isMobile && isEngineInstalled(this.app, this.manifest, localEngine);
+
+    if (localReady) {
       if (lang === "fr" && this.grammalecteChecker) {
         return this.grammalecteChecker.checkText(text, knownWords, ignoredRules, detectRepetitions);
       }
@@ -58,11 +63,14 @@ export class GrammarCheckerManager {
     }
 
     if (engine === "auto") {
-      // Moteur local absent (mobile, ou pas encore chargé) : secours cloud
-      // plutôt que de ne rien signaler.
+      // Moteur local absent (mobile, ou pas encore téléchargé) : secours
+      // cloud plutôt que de ne rien signaler.
       return checkTextLanguageTool(text, languageToolOptions());
     }
 
-    return [];
+    // Engine "grammalecte" explicite mais moteur local pas encore installé :
+    // message clair plutôt qu'un tableau vide silencieux ou une erreur
+    // fs.readFileSync brute — voir GrammarView, qui affiche ce message.
+    throw new Error(t("grammar.localEngineNotInstalled"));
   }
 }

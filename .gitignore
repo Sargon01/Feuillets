@@ -19,3 +19,9 @@ data.json
 
 # Sorties de repomix (export du dépôt pour analyse) — régénérables
 repomix-output.*
+
+# Moteurs locaux de correction (Grammalecte/Harper) : téléchargés à la
+# demande depuis Sargon01/feuillets-assets (voir grammar-assets-manager.js),
+# pas commités ici — trop lourds pour l'installeur standard d'Obsidian.
+/resources/grammalecte/
+/resources/harper/

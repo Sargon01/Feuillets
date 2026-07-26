@@ -17,15 +17,8 @@
 // chargement que le vrai gce_worker.js de Grammalecte.
 
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
+import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
 export { grammarIssueSignature };
-
-function pluginAbsoluteDir(app, manifest) {
-  const path = require("path");
-  const basePath = app.vault.adapter.getBasePath
-    ? app.vault.adapter.getBasePath()
-    : app.vault.adapter.basePath;
-  return path.join(basePath, manifest.dir);
-}
 
 export class GrammalecteChecker {
   constructor(app, manifest) {

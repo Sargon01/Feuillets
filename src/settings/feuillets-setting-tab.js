@@ -4,6 +4,7 @@ import { resolveType } from "../utils/project-modes.js";
 import { NewProjectModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
+import { isEngineInstalled, downloadEngine } from "../services/grammar-assets-manager.js";
 const { PluginSettingTab, Setting, TFolder, Notice, Menu } = require("obsidian");
 
 export class FeuilletsSettingTab extends PluginSettingTab {
@@ -1221,6 +1222,11 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         });
       });
 
+    if (S.grammarEngine === "grammalecte" || S.grammarEngine === "auto") {
+      this.renderEngineDownloadRow(containerEl, "grammalecte", t("settings.grammarAssets.grammalecte"), refresh);
+      this.renderEngineDownloadRow(containerEl, "harper", t("settings.grammarAssets.harper"), refresh);
+    }
+
     if (S.grammarEngine === "languagetool" || S.grammarEngine === "auto") {
       new Setting(containerEl)
         .setName(t("settings.languageToolUrl.name"))
@@ -1709,6 +1715,40 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         panel.appendChild(subDet);
       }
     }
+  }
+
+  /** Ligne de réglage pour un moteur local (Grammalecte/Harper) : état
+   * installé/absent + bouton de téléchargement à la demande — voir
+   * services/grammar-assets-manager.js pour pourquoi ils ne sont pas
+   * commités dans Feuillets lui-même. */
+  renderEngineDownloadRow(containerEl, engine, label, refresh) {
+    const installed = isEngineInstalled(this.app, this.plugin.manifest, engine);
+    const setting = new Setting(containerEl).setName(label);
+
+    if (installed) {
+      setting.setDesc(t("settings.grammarAssets.installed"));
+      return;
+    }
+
+    setting.setDesc(t(`settings.grammarAssets.${engine}Size`));
+    setting.addButton((btn) => {
+      btn.setButtonText(t("settings.grammarAssets.downloadBtn"));
+      btn.onClick(async () => {
+        btn.setDisabled(true);
+        try {
+          await downloadEngine(this.app, this.plugin.manifest, engine, (phase) => {
+            btn.setButtonText(t(`settings.grammarAssets.${phase}`));
+          });
+          new Notice(t("settings.grammarAssets.downloadDone", { label }));
+          refresh();
+        } catch (e) {
+          console.error("Feuillets : téléchargement du moteur local", e);
+          new Notice(t("settings.grammarAssets.downloadFailed", { error: e.message }));
+          btn.setDisabled(false);
+          btn.setButtonText(t("settings.grammarAssets.downloadBtn"));
+        }
+      });
+    });
   }
 
   renderKnownWordsList(container, S) {
