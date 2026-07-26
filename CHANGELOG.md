@@ -2,6 +2,18 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.1
+
+### Corrigé
+
+- `minAppVersion` relevé de 1.4.0 à 1.7.2 : plusieurs propriétés CSS déjà
+  utilisées (`scrollbar-width`, `:has()`, `text-decoration-color`) sont
+  plus récentes que le Chromium embarqué dans Obsidian 1.4.x — le déclarer
+  correctement évite un rendu dégradé chez qui serait resté sur une
+  version aussi ancienne, plutôt que de réécrire ces règles.
+- Ajout de `eslint.config.js` (ESLint 9+ refuse de tourner sans fichier de
+  configuration présent).
+
 ## 1.2.0
 
 ### Ajouté

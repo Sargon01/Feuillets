@@ -79,6 +79,9 @@ native `.pdf` export (both desktop-only) detect `Platform.isMobile` and show
 an explicit notice instead of failing silently; no Node-only API is touched
 on the code path mobile devices take.
 
+### Build integrity and artifact attestations
+Release assets (`main.js`, `styles.css`, `manifest.json`) are automatically built and published via GitHub Actions. Each release includes cryptographic [GitHub Artifact Attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds) generated during the build step, enabling users and reviewers to independently verify that release binaries were built directly from this source repository.
+
 ## Supported versions
 
 Only the latest published release is supported. Please update before
