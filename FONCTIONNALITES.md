@@ -30,11 +30,23 @@ Typos (réimplémentées, non copiées).
   guillemets/apostrophe/points de suspension/espaces insécables a posteriori
   sur du texte déjà tapé (hors code, jamais touché)
 
-## 2. Correction grammaticale (Grammalecte)
+## 2. Correction grammaticale (Grammalecte FR / Harper EN / LanguageTool)
 
 Vérification grammaticale et orthographique du feuillet actif, intégrée à
 l'éditeur — bureau uniquement.
 
+- **Deux moteurs locaux, zéro appel réseau en fonctionnement normal** —
+  Grammalecte pour le français, [Harper](https://writewithharper.com) pour
+  l'anglais (`GrammarCheckerManager`), choisis automatiquement selon la
+  langue active. Un moteur cloud **LanguageTool** reste disponible en option
+  explicite dans les réglages, ou en secours automatique sur mobile (où les
+  moteurs locaux ne peuvent pas tourner).
+- **Téléchargement à la demande** — les ressources de chaque moteur (~8,9 Mo
+  pour Grammalecte, ~17 Mo pour Harper) ne sont pas embarquées dans le
+  plugin ; un bouton dédié par langue dans les réglages les télécharge une
+  seule fois depuis les releases publiques de
+  [`Sargon01/feuillets-assets`](https://github.com/Sargon01/feuillets-assets),
+  mises en cache sur disque ensuite (`grammar-assets-manager.js`).
 - **Vérification à la demande** — commande "Correction grammaticale :
   vérifier le feuillet actif", nécessite le panneau latéral Feuillets ouvert
   (n'importe quel onglet) pour initialiser le vérificateur
@@ -44,8 +56,13 @@ l'éditeur — bureau uniquement.
 - **Soulignement dans l'éditeur** — extension CodeMirror dédiée
   (`grammarIssuesField`), avec gestionnaire de clic sur les fautes signalées
   (`grammarClickHandler`)
-- **Indisponible sur mobile** — `GrammalecteChecker` dépend de
-  `worker_threads` (Node), non chargé si `Platform.isMobile`
+- **Mots appris / fautes ignorées** — stockés à part (`grammar-user-data.js`,
+  `resources/grammar-user-data.json`, hors `data.json`), gérables via une
+  modale dédiée avec filtre de recherche depuis les réglages
+- **Indisponible sur mobile pour les moteurs locaux** — `GrammalecteChecker`
+  et `HarperChecker` dépendent tous deux de `require("fs")`/`require("vm")`
+  (Node), non chargés si `Platform.isMobile` ; LanguageTool prend le relais
+  automatiquement sur mobile si activé
 
 ## 3. Chercher et remplacer
 

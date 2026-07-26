@@ -2,6 +2,33 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## Non publié
+
+### Ajouté
+
+- **Correction grammaticale anglaise, via [Harper](https://writewithharper.com).**
+  S'ajoute à Grammalecte (français) : les deux moteurs tournent 100% en
+  local, choisis automatiquement selon la langue active, sans dépendance à
+  un service tiers.
+- **Téléchargement à la demande des moteurs locaux.** Les dictionnaires/
+  binaires de Grammalecte et Harper (~9 Mo / ~17 Mo) ne sont plus embarqués
+  dans le plugin — un bouton dédié par langue dans les réglages les
+  télécharge une seule fois depuis les releases publiques de
+  [`Sargon01/feuillets-assets`](https://github.com/Sargon01/feuillets-assets),
+  mis en cache sur disque ensuite. Chaque langue se télécharge
+  indépendamment.
+- **Gestion des mots appris / fautes ignorées** via une modale dédiée
+  (filtre de recherche, suppression individuelle, tout effacer), à la place
+  d'une liste illimitée directement dans les réglages. Ces données sont
+  stockées à part (`resources/grammar-user-data.json`), plus dans
+  `data.json`.
+
+### Corrigé
+
+- Le texte n'était jamais vérifié dans la langue réellement active : le
+  code lisait un réglage inexistant (`settings.locale`) au lieu de la
+  langue d'interface effective.
+
 ## 1.1.0
 
 ### Ajouté

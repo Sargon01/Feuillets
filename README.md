@@ -35,10 +35,15 @@ folder of disconnected Markdown files.
   compilation presets, and export.
 - **Progression and Journal panels**: word-count goals and detailed text
   stats, plus a monthly writing calendar with one journal entry per day.
-- **French grammar checking (Grammalecte)**: on-demand grammar and spelling
+- **Grammar checking (French via Grammalecte, English via
+  [Harper](https://writewithharper.com))**: on-demand grammar and spelling
   check of the active scene, in-editor underlining, and next/previous-issue
-  navigation commands (desktop only — relies on Node's `worker_threads`,
-  unavailable on mobile).
+  navigation commands. Both engines run fully locally with no network
+  call; their resource files (~9MB / ~17MB) are downloaded once on request
+  from Feuillets' own release assets rather than bundled, and cached on
+  disk afterwards. A cloud **LanguageTool** engine is available as an
+  explicit alternative, and as an automatic fallback on mobile, where the
+  local engines can't run (desktop only — they rely on Node's `fs`/`vm`).
 - **Docx review panel**: a dedicated panel to work through an editor's or
   proofreader's feedback received as an annotated `.docx` file.
 - **Find and replace bar**: a manuscript-wide search/replace tool, separate
@@ -95,9 +100,14 @@ panels.
 This section exists so both reviewers and users know exactly what Feuillets
 touches outside of normal Obsidian note editing.
 
-- **No network activity, ever.** Feuillets makes zero HTTP/HTTPS requests,
-  loads no remote scripts, fonts, or images, and contacts no server. Every
-  feature works fully offline. (See `PRIVACY.md`.)
+- **No network activity by default, and never silently.** Feuillets loads no
+  remote scripts, fonts, or images, and contacts no server on its own. The
+  only two things that ever make an HTTP request are both explicit,
+  visible, user-triggered actions — never on load, never in the background:
+  downloading a local grammar engine's resource files (see below), or
+  submitting text to LanguageTool if you deliberately pick it as your
+  proofreading engine. Everything else works fully offline. (See
+  `PRIVACY.md`.)
 - **No telemetry, analytics, or usage tracking** of any kind.
 - **No auto-update mechanism** of its own — plugin updates are handled
   entirely by Obsidian's Community Plugins system.
@@ -107,9 +117,23 @@ touches outside of normal Obsidian note editing.
   network fetch). No external process, no filesystem access outside the
   vault, no platform difference beyond `.pdf` requiring desktop (uses
   Obsidian's built-in print-to-PDF; unavailable in mobile WebViews).
-- **Grammar checking (Grammalecte, desktop only):** runs entirely locally via
-  Node's `worker_threads`; no text ever leaves the machine. Disabled outright
-  on mobile, where `worker_threads` isn't available.
+- **Grammar checking (desktop only for the local engines):** French
+  (Grammalecte) and English ([Harper](https://writewithharper.com)) both run
+  entirely locally — text never leaves the machine either way. Their
+  resource files aren't bundled in the plugin (Obsidian's installer only
+  ever fetches `main.js`/`manifest.json`/`styles.css` from a release, so
+  shipping ~26MB of dictionaries here wouldn't actually reach anyone); a
+  labeled button per language in Settings → Feuillets → Panneaux latéraux
+  downloads them once, on request, from
+  [`Sargon01/feuillets-assets`](https://github.com/Sargon01/feuillets-assets)
+  (a public repo hosting only these two archives, no code) via Obsidian's
+  own `requestUrl`, and caches them on disk under the plugin's `resources/`
+  folder. Nothing is downloaded automatically. An optional cloud
+  **LanguageTool** engine can be selected instead (or as an automatic
+  fallback on mobile, where the local engines can't run — they rely on
+  Node's `fs`/`vm`) — picking it means the text you check is sent to
+  whatever LanguageTool endpoint you configure (defaults to the public
+  `api.languagetool.org`, or a self-hosted server).
 - **Pandoc export (desktop only, opt-in, off by default):** switching the
   export engine setting to Pandoc shells out to a locally installed
   **Pandoc** binary via Node's `child_process.execFile` (no shell
@@ -164,4 +188,4 @@ report a vulnerability.
 
 [GPL-3.0](./LICENSE) — Copyright (c) 2026 Halim.
 
-Passé de MIT à GPL-3.0 pour intégrer le moteur [Grammalecte](https://github.com/algoo/grammalecte) (correcteur grammatical français, GPL-3.0).
+Passé de MIT à GPL-3.0 pour intégrer le moteur [Grammalecte](https://github.com/algoo/grammalecte) (correcteur grammatical français, GPL-3.0). Le moteur anglais [Harper](https://github.com/Automattic/harper) (`harper.js`) est sous licence Apache-2.0, compatible avec la distribution en GPL-3.0.

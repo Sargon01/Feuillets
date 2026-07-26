@@ -7,16 +7,35 @@ it can and cannot do, so both users and reviewers can assess its risk
 surface without reading the whole codebase.
 
 ### What the plugin never does
-- No network requests of any kind (no `fetch`, `XMLHttpRequest`,
-  `requestUrl`, WebSockets, or remote resource loading — CSS/fonts/images are
-  all bundled or theme-provided, none fetched at runtime).
+- No network requests outside two explicit, user-triggered actions (see
+  below) — no telemetry beacon, no remote resource loading (CSS/fonts/images
+  are all bundled or theme-provided), nothing fetched on load or in the
+  background.
 - No telemetry, analytics, crash reporting, or usage tracking.
-- No `eval`, `new Function`, or dynamic code loading.
+- No `eval`, `new Function`, or dynamic code loading — the one exception is
+  `vm.runInContext` used to load Grammalecte's own JS files (see below), not
+  arbitrary or remote code.
 - No credentials, API keys, or tokens are stored, requested, or transmitted
   (there is nothing to authenticate against).
 - No custom auto-update mechanism — updates are handled by Obsidian itself.
 
 ### What the plugin does that touches the system, and why
+- **Grammar-check engine assets, download on request (desktop only,
+  opt-in, user-triggered).** French (Grammalecte) and English (Harper)
+  proofreading both run fully locally and never transmit checked text. Their
+  resource files aren't bundled (Obsidian's installer only fetches
+  `main.js`/`manifest.json`/`styles.css` from a release); a labeled button
+  per language in Settings downloads them once, via Obsidian's `requestUrl`,
+  from the public repo
+  [`Sargon01/feuillets-assets`](https://github.com/Sargon01/feuillets-assets)
+  (release assets only, no code), and caches them under the plugin's
+  `resources/` folder. Grammalecte's own JS files are then loaded via
+  `vm.runInContext` (not `eval`/`require`) to reproduce the shared global
+  scope its rule files expect, in the same load order as its official
+  worker script. LanguageTool, if explicitly selected as the engine (or used
+  as the automatic mobile fallback), sends the checked text over HTTPS to
+  the configured endpoint (default `api.languagetool.org`) — this only fires
+  when a grammar check actually runs with that engine active.
 - **Native export (default engine, desktop and mobile, user-triggered).**
   `.docx`/`.epub`/`.pdf` compilation builds files in pure JavaScript —
   `docx` and `jszip` for `.docx`/`.epub` (bundled, no network fetch), and
