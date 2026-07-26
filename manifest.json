@@ -3,7 +3,7 @@
   "name": "Feuillets",
   "version": "1.0.1",
   "minAppVersion": "1.4.0",
-  "description": "Atelier d'écriture pour romanciers : structure du manuscrit, fiches de personnages, compilation et export en .docx, EPUB, ODT et PDF.",
+  "description": "Writing studio for novelists: manuscript structure, character sheets, compilation and export to .docx, EPUB, ODT and PDF.",
   "author": "Halim Yalcin",
   "authorUrl": "https://github.com/Sargon01",
   "isDesktopOnly": false

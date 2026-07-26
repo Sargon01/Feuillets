@@ -96,19 +96,16 @@ export function getActiveFileSafe(app) {
   const active = app.workspace.getActiveFile();
   if (active) return active;
 
-  // 2. Tenter via la feuille active globale
-  const activeLeaf = app.workspace.activeLeaf;
-  if (activeLeaf && activeLeaf.view && activeLeaf.view.file) {
-    return activeLeaf.view.file;
-  }
-
-  // 3. Tenter via la feuille la plus récemment active (très utile quand le focus est dans la barre latérale)
+  /* 2. Tenter via la feuille la plus récemment active (très utile quand le
+     focus est dans la barre latérale) — remplace l'ancien recours à
+     `workspace.activeLeaf`, déprécié par l'API Obsidian ; getMostRecentLeaf
+     couvre le même besoin sans dépendre d'une propriété retirée. */
   const recentLeaf = app.workspace.getMostRecentLeaf();
   if (recentLeaf && recentLeaf.view && recentLeaf.view.file) {
     return recentLeaf.view.file;
   }
 
-  // 4. Repli sur le premier onglet Markdown disponible
+  // 3. Repli sur le premier onglet Markdown disponible
   const leaves = app.workspace.getLeavesOfType("markdown");
   for (const leaf of leaves) {
     if (leaf.view && leaf.view.file) {
