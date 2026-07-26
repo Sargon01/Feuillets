@@ -2,6 +2,7 @@ const { Modal, Notice, ButtonComponent, DropdownComponent, TFile, TFolder, setIc
 const Diff = require("diff");
 import { listSnapshotFiles } from "../services/project-files.js";
 import { foldAccents } from "../utils/core.js";
+import { t } from "../i18n/index.js";
 
 /** Rendu partagé du corps de diff (côte à côte / vue unifiée) — utilisé par
  * DiffModal (comparaison avec un snapshot) et CompareFilesModal (comparaison
@@ -91,16 +92,16 @@ export class CompareFilesModal extends Modal {
   async render() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h3", { text: "Comparer deux feuillets" });
+    contentEl.createEl("h3", { text: t("modal.diff.compareTwoSheets") });
 
     const headerBar = contentEl.createDiv({ cls: "feuillets-diff-header-bar" });
     const modeControl = headerBar.createDiv({ cls: "feuillets-diff-controls" });
     const splitBtn = modeControl.createEl("button", {
-      text: "Côte à côte",
+      text: t("modal.diff.sideBySide"),
       cls: `feuillets-diff-mode-btn ${this.mode === "split" ? "mod-cta" : ""}`,
     });
     const inlineBtn = modeControl.createEl("button", {
-      text: "Vue unifiée",
+      text: t("modal.diff.unifiedView"),
       cls: `feuillets-diff-mode-btn ${this.mode === "inline" ? "mod-cta" : ""}`,
     });
     splitBtn.addEventListener("click", async () => {
@@ -120,7 +121,7 @@ export class CompareFilesModal extends Modal {
     );
 
     const footerBar = contentEl.createDiv({ cls: "feuillets-diff-footer-bar" });
-    new ButtonComponent(footerBar).setButtonText("Fermer").onClick(() => this.close());
+    new ButtonComponent(footerBar).setButtonText(t("modal.close")).onClick(() => this.close());
   }
 
   onClose() {
@@ -153,7 +154,7 @@ export class PickFileModal extends Modal {
   getOrigins() {
     const root = this.plugin.getProjectFolder();
     if (!(root instanceof TFolder)) return [];
-    const origins = [{ root, label: "Manuscrit actif", icon: "book-marked" }];
+    const origins = [{ root, label: t("modal.diff.activeManuscript"), icon: "book-marked" }];
     const versionsRoot = this.plugin.getVersionsRoot();
     if (versionsRoot instanceof TFolder) {
       for (const child of this.plugin.getOrderedChildren(versionsRoot)) {
@@ -166,12 +167,12 @@ export class PickFileModal extends Modal {
   render() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h3", { text: "Comparer avec quel feuillet ?" });
+    contentEl.createEl("h3", { text: t("modal.diff.compareWithWhich") });
 
     const search = contentEl.createEl("input", {
       type: "text",
       cls: "feuillets-binder-search",
-      attr: { placeholder: "Filtrer…" },
+      attr: { placeholder: t("modal.diff.filterPlaceholder") },
     });
     search.value = this.filter;
     search.addEventListener("input", () => {
@@ -189,7 +190,7 @@ export class PickFileModal extends Modal {
     const q = foldAccents(this.filter.trim());
     const origins = this.getOrigins();
     if (origins.length === 0) {
-      tree.createDiv({ cls: "feuillets-empty" }).setText("Aucun projet actif.");
+      tree.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.dashboard.noActiveProject"));
       return;
     }
 
@@ -289,8 +290,8 @@ export class DiffModal extends Modal {
     this.snapshots = listSnapshotFiles(this.app, this.currentFile, root);
 
     if (this.snapshots.length === 0) {
-      contentEl.createEl("h3", { text: `Comparaison : ${this.currentFile.basename}` });
-      contentEl.createDiv({ cls: "feuillets-empty", text: "Aucun snapshot disponible pour ce feuillet." });
+      contentEl.createEl("h3", { text: t("modal.diff.comparisonTitle", { name: this.currentFile.basename }) });
+      contentEl.createDiv({ cls: "feuillets-empty", text: t("modal.diff.noSnapshotAvailable") });
       return;
     }
 
@@ -302,18 +303,18 @@ export class DiffModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl("h3", { text: `Comparaison : ${this.currentFile.basename}` });
+    contentEl.createEl("h3", { text: t("modal.diff.comparisonTitle", { name: this.currentFile.basename }) });
 
     // Barre d'outils supérieure : Sélecteur de snapshot & Mode de vue
     const headerBar = contentEl.createDiv({ cls: "feuillets-diff-header-bar" });
 
     // Sélecteur de snapshot
     const snapControl = headerBar.createDiv({ cls: "feuillets-diff-controls" });
-    snapControl.createSpan({ text: "Snapshot : ", style: "font-weight: 500;" });
+    snapControl.createSpan({ text: `${t("modal.diff.snapshotLabel")} `, style: "font-weight: 500;" });
     const drop = new DropdownComponent(snapControl);
     this.snapshots.forEach((snap, idx) => {
       const dateLabel = snap.basename;
-      drop.addOption(snap.path, `${dateLabel}${idx === 0 ? " (plus récent)" : ""}`);
+      drop.addOption(snap.path, `${dateLabel}${idx === 0 ? ` ${t("modal.diff.mostRecent")}` : ""}`);
     });
     if (this.selectedSnapshot) {
       drop.setValue(this.selectedSnapshot.path);
@@ -329,11 +330,11 @@ export class DiffModal extends Modal {
     // Bascule de mode Côte à côte / Vue unifiée
     const modeControl = headerBar.createDiv({ cls: "feuillets-diff-controls" });
     const splitBtn = modeControl.createEl("button", {
-      text: "Côte à côte",
+      text: t("modal.diff.sideBySide"),
       cls: `feuillets-diff-mode-btn ${this.mode === "split" ? "mod-cta" : ""}`
     });
     const inlineBtn = modeControl.createEl("button", {
-      text: "Vue unifiée",
+      text: t("modal.diff.unifiedView"),
       cls: `feuillets-diff-mode-btn ${this.mode === "inline" ? "mod-cta" : ""}`
     });
 
@@ -358,12 +359,12 @@ export class DiffModal extends Modal {
     const footerBar = contentEl.createDiv({ cls: "feuillets-diff-footer-bar" });
     
     new ButtonComponent(footerBar)
-      .setButtonText("Restaurer ce snapshot")
+      .setButtonText(t("modal.diff.restoreSnapshot"))
       .setWarning()
       .onClick(async () => {
         if (!this.selectedSnapshot) return;
         const confirmRestore = confirm(
-          `Voulez-vous vraiment restaurer la version du snapshot "${this.selectedSnapshot.basename}" ?\nLe contenu actuel de "${this.currentFile.basename}" sera remplacé.`
+          t("modal.diff.restoreConfirm", { snapshot: this.selectedSnapshot.basename, current: this.currentFile.basename })
         );
         if (confirmRestore) {
           const root = this.plugin ? this.plugin.getProjectFolder() : null;
@@ -372,13 +373,13 @@ export class DiffModal extends Modal {
           }
           const content = await this.app.vault.read(this.selectedSnapshot);
           await this.app.vault.modify(this.currentFile, content);
-          new Notice(`Feuillet restauré depuis ${this.selectedSnapshot.basename}.`);
+          new Notice(t("modal.diff.restoredNotice", { name: this.selectedSnapshot.basename }));
           this.close();
         }
       });
 
     new ButtonComponent(footerBar)
-      .setButtonText("Fermer")
+      .setButtonText(t("modal.close"))
       .onClick(() => this.close());
   }
 
@@ -399,12 +400,12 @@ export class DiffModal extends Modal {
 
       // Panneau gauche : Snapshot
       const leftPane = splitWrap.createDiv({ cls: "feuillets-diff-pane" });
-      leftPane.createDiv({ cls: "feuillets-diff-pane-header", text: `Snapshot (${this.selectedSnapshot.basename})` });
+      leftPane.createDiv({ cls: "feuillets-diff-pane-header", text: t("modal.diff.snapshotPane", { name: this.selectedSnapshot.basename }) });
       const leftContent = leftPane.createDiv({ cls: "feuillets-diff-pane-content" });
 
       // Panneau droit : Version actuelle
       const rightPane = splitWrap.createDiv({ cls: "feuillets-diff-pane" });
-      rightPane.createDiv({ cls: "feuillets-diff-pane-header", text: `Version actuelle (${this.currentFile.basename})` });
+      rightPane.createDiv({ cls: "feuillets-diff-pane-header", text: t("modal.diff.currentVersionPane", { name: this.currentFile.basename }) });
       const rightContent = rightPane.createDiv({ cls: "feuillets-diff-pane-content" });
 
       // Synchronisation du défilement
