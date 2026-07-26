@@ -6,7 +6,7 @@ import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
 import { isEngineInstalled, downloadEngine } from "../services/grammar-assets-manager.js";
 import { GrammarUserDataModal } from "../ui/grammar-user-data-modal.js";
-const { PluginSettingTab, Setting, TFolder, Notice, Menu } = require("obsidian");
+const { PluginSettingTab, Setting, TFolder, Notice, Menu, Platform } = require("obsidian");
 
 export class FeuilletsSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
@@ -1715,9 +1715,16 @@ export class FeuilletsSettingTab extends PluginSettingTab {
    * services/grammar-assets-manager.js pour pourquoi ils ne sont pas
    * commités dans Feuillets lui-même. */
   renderEngineDownloadRow(containerEl, engine, label, refresh) {
-    const installed = isEngineInstalled(this.app, this.plugin.manifest, engine);
     const setting = new Setting(containerEl).setName(label);
 
+    // require("fs")/require("path") indisponibles sur mobile — ni le check
+    // d'installation ni le téléchargement ne peuvent y tourner.
+    if (Platform.isMobile) {
+      setting.setDesc(t("grammar.unavailableOnMobile"));
+      return;
+    }
+
+    const installed = isEngineInstalled(this.app, this.plugin.manifest, engine);
     if (installed) {
       setting.setDesc(t("settings.grammarAssets.installed"));
       return;
