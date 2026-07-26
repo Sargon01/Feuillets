@@ -22,10 +22,6 @@ Toutes les évolutions notables du plugin sont consignées ici.
   dans une fenêtre séparée s'appuyait sur les minuteries de la fenêtre
   principale — source de comportements erratiques (rendus différés qui ne
   partent jamais, anti-rebond qui ne se réarme pas).
-- `@codemirror/state` et `@codemirror/view` sont désormais déclarés dans
-  `package.json`. Ils étaient utilisés par les surligneurs (grammaire,
-  recherche) sans figurer nulle part : une installation propre pouvait
-  échouer à les résoudre.
 - Ajout d'un guide de contribution (`CONTRIBUTING.md`), qui consigne les
   conventions imposées par la revue d'Obsidian : pas de style en ligne,
   pas d'`innerHTML`, pas d'élément `<style>`, minuteries via `window`,
@@ -33,6 +29,15 @@ Toutes les évolutions notables du plugin sont consignées ici.
 
 ### Non modifié, volontairement
 
+- Les 4 avertissements « `@codemirror/state` should be listed in the
+  project's dependencies » restent en l'état. Ces paquets sont marqués
+  `external` dans la configuration esbuild : ils sont **fournis par
+  Obsidian à l'exécution**, jamais embarqués dans le bundle — les déclarer
+  en dépendance serait donc faux. Les ajouter casse d'ailleurs
+  l'installation : `obsidian` les épingle en version exacte comme
+  `peerDependencies`, et `eslint-plugin-obsidianmd` embarque une autre
+  version d'`obsidian` qui en épingle une autre, ce qui rend `npm ci`
+  insoluble.
 - Les 21 avertissements « Do not import Node.js built-in module » restent
   en l'état : ces `require("fs")` / `require("path")` sont déjà protégés,
   soit par `Platform.isMobile` (les correcteurs grammaticaux ne sont même

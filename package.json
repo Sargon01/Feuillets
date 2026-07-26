@@ -16,8 +16,6 @@
   "license": "GPL-3.0",
   "type": "module",
   "devDependencies": {
-    "@codemirror/state": "^6.7.1",
-    "@codemirror/view": "^6.38.6",
     "@types/node": "^24.0.0",
     "@typescript-eslint/parser": "^8.65.0",
     "builtin-modules": "^5.0.0",
