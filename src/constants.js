@@ -12,7 +12,10 @@ export const VIEW_GRAMMAR = "feuillets-grammar";
 /** Statuts : entièrement personnalisables (nom + couleur), comme les
  * labels — plus de liste figée ni de couleur déterminée par la position.
  * `settings.statuses` est un tableau de `{name, color}` ; "" (sans statut)
- * reste implicite, toujours en tête, jamais stocké comme entrée. */
+ * reste implicite, toujours en tête, jamais stocké comme entrée.
+ * @param {FeuilletsSettings} settings 
+ * @returns {string[]}
+ */
 export function getProjectStatuses(settings) {
   const statuses = (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
   const names = statuses
@@ -21,6 +24,11 @@ export function getProjectStatuses(settings) {
   return ["", ...names];
 }
 
+/**
+ * @param {FeuilletsSettings} settings 
+ * @param {string} name 
+ * @returns {string|null}
+ */
 export function getStatusColor(settings, name) {
   const statuses = (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
   const found = statuses.find((s) => s.name === name);

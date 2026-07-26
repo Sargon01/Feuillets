@@ -93,6 +93,12 @@ class FeuilletsPlugin extends Plugin {
    */
   settings;
 
+  /** @type {Array<{key: string, icon: string, labelKey: string, action: Function, hideable?: boolean}>} */
+  _ribbonDefs;
+
+  /** @type {Record<string, HTMLElement>} */
+  _ribbonEls;
+
   async onload() {
     await this.loadSettings();
     setLocale(detectLocale(this.settings));

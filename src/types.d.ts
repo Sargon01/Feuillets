@@ -69,7 +69,7 @@ declare type SceneFrontmatter = {
   edition?: string;
   cite_count?: number;
 
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 /** Label de couleur, tel que stocké dans settings.labels / ProjectMeta.labels. */
@@ -103,7 +103,7 @@ declare type ProjectMeta = {
   cardContent?: string;
   hiddenBoardModes?: string[];
 
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 /** Marges en centimètres, forme normalisée renvoyée par marginsFor(). */
@@ -192,7 +192,7 @@ declare type ExportTemplate = {
 
   titlePage?: { styles?: Record<string, TitlePageStyle> };
 
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 /** Réglages du plugin. Volontairement PARTIEL : seuls les champs consommés
@@ -219,5 +219,8 @@ declare type FeuilletsSettings = {
   orders: Record<string, string[]>;
   folderPositions: Record<string, number>;
 
-  [key: string]: any;
+  statuses: {name: string, color: string}[];
+  hiddenPanels?: string[];
+
+  [key: string]: unknown;
 };

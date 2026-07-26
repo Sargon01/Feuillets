@@ -17,6 +17,7 @@
 // chargement que le vrai gce_worker.js de Grammalecte.
 
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path/vm pour le moteur Grammalecte embarque, desktop uniquement (voir l'en-tete du fichier) */
+/* global require -- défini par environnement */
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
 export { grammarIssueSignature };

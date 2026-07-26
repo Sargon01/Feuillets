@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path pour lire un dossier .scriv sur disque, desktop uniquement */
+/* global require -- défini par environnement */
 import { Modal, Notice, Platform, normalizePath } from "obsidian";
 
 import { PROJECT_MODES, applyModeDefaults } from "../utils/project-modes.js";

@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs, desktop uniquement */
+/* global require -- défini par environnement */
 import { setIcon, Notice, Platform, TFile } from "obsidian";
 import JSZip from "jszip";
 import { VIEW_DOCX_REVIEW } from "../constants.js";

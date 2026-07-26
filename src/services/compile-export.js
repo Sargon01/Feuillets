@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : child_process/path/fs pour l'export Pandoc, desktop uniquement */
+/* global require -- défini par environnement */
 import { Notice, TFolder, TFile, normalizePath, Platform } from "obsidian";
 import { embedHardBreaks } from "../utils/core.js";
 import { footnotePrefixFor, applyCompileTransforms } from "../utils/compile-text.js";

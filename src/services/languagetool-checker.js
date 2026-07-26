@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : le paquet obsidian est types-only, un import statique rendrait ce module intestable */
+/* global require -- défini par environnement */
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 
 /* requestUrl (API Obsidian) plutôt que fetch() global : fetch() se heurte à

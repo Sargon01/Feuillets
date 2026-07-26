@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : path, charge seulement quand le moteur Harper local est sollicite */
+/* global require -- défini par environnement */
 import { createBinaryModuleFromUrl, LocalLinter, Dialect } from "harper.js";
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
