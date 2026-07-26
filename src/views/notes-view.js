@@ -8,14 +8,15 @@ import { isEditing, openFileActivating } from "../utils/dom.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "../ui/project-properties-modals.js";
 import { FRONT_PAGE_TYPES } from "../services/folder-structure.js";
 import { DiffModal } from "../ui/diff-modal.js";
+import { t } from "../i18n/index.js";
 
 
-function getNotesSectionIcon(title) {
+function getNotesSectionIcon(key) {
   return {
-    "Synopsis": "align-left",
-    "Résumé": "file-text",
-    "Notes": "sticky-note"
-  }[title] || "info";
+    synopsis: "align-left",
+    summary: "file-text",
+    notes: "sticky-note",
+  }[key] || "info";
 }
 
 /** Icônes par type de propriété, même esprit que le panneau natif
@@ -52,7 +53,7 @@ export class NotesView extends BaseFeuilletsView {
     return VIEW_NOTES;
   }
   getDisplayText() {
-    return "Notes du feuillet";
+    return t("notes.displayText");
   }
   getIcon() {
     return "sticky-note";
@@ -112,7 +113,7 @@ export class NotesView extends BaseFeuilletsView {
     if (!file || !root || !file.path.startsWith(root.path + "/")) {
       wrapper
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Ouvre un feuillet du projet pour voir ses notes.");
+        .setText(t("notes.openSheetFirst"));
       this.currentPath = null;
       return;
     }
@@ -124,7 +125,7 @@ export class NotesView extends BaseFeuilletsView {
       const backBar = wrapper.createDiv({ cls: "feuillets-notes-back-bar" });
       const backBtn = backBar.createEl("button", {
         cls: "feuillets-back-btn",
-        text: " Retour au feuillet"
+        text: ` ${t("notes.backToSheet")}`
       });
       const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" });
       setIcon(iconSpan, "arrow-left");
@@ -163,16 +164,16 @@ export class NotesView extends BaseFeuilletsView {
     const order = S.notesSectionOrder || ["Synopsis", "Résumé", "Notes"];
     for (const sectionName of order) {
       if (sectionName === "Synopsis" && S.notesShowSynopsis) {
-        this.renderCollapsibleTextarea(wrapper, "Synopsis", "synopsis", file, fm, "Accroche courte…", 3);
+        this.renderCollapsibleTextarea(wrapper, t("notes.section.synopsis"), "synopsis", file, fm, t("notes.section.synopsisPlaceholder"), 3);
       } else if (sectionName === "Résumé" && S.notesShowResume) {
-        this.renderCollapsibleTextarea(wrapper, "Résumé", "summary", file, fm, "Déroulé long…", 5);
+        this.renderCollapsibleTextarea(wrapper, t("notes.section.summary"), "summary", file, fm, t("notes.section.summaryPlaceholder"), 5);
       } else if (sectionName === "Notes" && S.notesShowNotes) {
-        this.renderCollapsibleTextarea(wrapper, "Notes", "notes", file, fm, "Notes de travail — jamais compilées ni comptées.", 8);
+        this.renderCollapsibleTextarea(wrapper, t("notes.section.notes"), "notes", file, fm, t("notes.section.notesPlaceholder"), 8);
       }
     }
 
     if (this.plugin.hasSources()) {
-      this.renderCollapsibleTextarea(wrapper, "Sources", "sources", file, fm, "Références, lectures, entretiens…", 4);
+      this.renderCollapsibleTextarea(wrapper, t("notes.section.sources"), "sources", file, fm, t("notes.section.sourcesPlaceholder"), 4);
     }
 
     if (S.notesShowFootnotes) {
@@ -200,17 +201,17 @@ export class NotesView extends BaseFeuilletsView {
     const collapsed = this.renderSectionHead(
       section,
       "file-text",
-      "Propriétés",
+      t("notes.properties.title"),
       "notes",
       "proprietes-fichier",
       (actions) => {
-        this.iconBtn(actions, "list-tree", "Propriétés du projet…", () =>
+        this.iconBtn(actions, "list-tree", t("notes.properties.projectPropertiesTooltip"), () =>
           new ProjectPropertiesModal(this.app, this.plugin).open()
         );
-        this.iconBtn(actions, "tags", "Tags du projet…", () =>
+        this.iconBtn(actions, "tags", t("notes.properties.projectTagsTooltip"), () =>
           new ProjectTagsModal(this.app, this.plugin).open()
         );
-        this.iconBtn(actions, "history", "Comparer avec un snapshot (Diff)…", () =>
+        this.iconBtn(actions, "history", t("notes.properties.compareSnapshotTooltip"), () =>
           new DiffModal(this.app, this.plugin, file).open()
         );
       }
@@ -230,7 +231,7 @@ export class NotesView extends BaseFeuilletsView {
     const addRow = section.createDiv({ cls: "feuillets-properties-add-row" });
     const input = addRow.createEl("input", {
       type: "text",
-      attr: { placeholder: "Nouvelle propriété…" },
+      attr: { placeholder: t("notes.properties.newPropertyPlaceholder") },
     });
     input.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
@@ -258,11 +259,15 @@ export class NotesView extends BaseFeuilletsView {
     const row = section.createDiv({ cls: "feuillets-properties-row" });
     const iconEl = row.createSpan({ cls: "feuillets-cell-icon" });
     setIcon(iconEl, "book-open-text");
-    row.createSpan({ cls: "feuillets-properties-key" }).setText("Type de page Front");
+    row.createSpan({ cls: "feuillets-properties-key" }).setText(t("notes.properties.frontPageTypeLabel"));
 
     const select = row.createEl("select", { cls: "feuillets-properties-value" });
-    select.createEl("option", { text: "— page normale (pas de mise en forme spéciale) —", value: "" });
-    const LABELS = { titre: "Page de titre", dedicace: "Dédicace", epigraphe: "Épigraphe" };
+    select.createEl("option", { text: t("notes.properties.frontPageTypeNormal"), value: "" });
+    const LABELS = {
+      titre: t("notes.properties.frontPageTypeTitle"),
+      dedicace: t("notes.properties.frontPageTypeDedication"),
+      epigraphe: t("notes.properties.frontPageTypeEpigraph"),
+    };
     for (const t of FRONT_PAGE_TYPES) {
       select.createEl("option", { text: LABELS[t] || t, value: t });
     }
@@ -333,7 +338,7 @@ export class NotesView extends BaseFeuilletsView {
 
     const delBtn = row.createSpan({ cls: "feuillets-properties-delete" });
     setIcon(delBtn, "x");
-    delBtn.setAttr("aria-label", `Supprimer « ${key} »`);
+    delBtn.setAttr("aria-label", t("notes.properties.deleteAria", { key }));
     delBtn.addEventListener("click", async () => {
       await this.app.fileManager.processFrontMatter(file, (data) => {
         delete data[key];
@@ -349,7 +354,7 @@ export class NotesView extends BaseFeuilletsView {
     values.forEach((v, idx) => {
       const chip = wrap.createSpan({ cls: "feuillets-tag-chip" });
       chip.setText(String(v));
-      chip.setAttr("title", "Cliquer pour retirer");
+      chip.setAttr("title", t("notes.properties.removeValueTooltip"));
       chip.addEventListener("click", async () => {
         const next = values.filter((_, i) => i !== idx);
         await this.app.fileManager.processFrontMatter(file, (data) => {
@@ -361,7 +366,7 @@ export class NotesView extends BaseFeuilletsView {
     const input = wrap.createEl("input", {
       cls: "feuillets-tags-input",
       type: "text",
-      attr: { placeholder: values.length ? "+" : "+ valeur" },
+      attr: { placeholder: values.length ? "+" : t("notes.properties.newValuePlaceholder") },
     });
     input.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
@@ -412,7 +417,7 @@ export class NotesView extends BaseFeuilletsView {
       const link = box.createDiv({ cls: "feuillets-notes-folder-link" });
       link.style.cssText = "font-size: 11px !important; background: #888888 !important; color: #ffffff !important; border-radius: 999px !important; padding: 0 5px !important; line-height: 14px !important; display: inline-block !important; cursor: pointer !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; min-width: 0 !important; flex-shrink: 1 !important;";
       link.setText(folder.name);
-      link.setAttr("title", `Note de « ${folder.name} »`);
+      link.setAttr("title", t("notes.folderNoteTooltip", { name: folder.name }));
       link.addEventListener("click", async (e) => {
         e.preventDefault();
         const note = await this.plugin.getOrCreateFolderNote(folder);
@@ -512,7 +517,7 @@ export class NotesView extends BaseFeuilletsView {
     const iconSpan = headSection.createSpan({ cls: "feuillets-notes-section-icon" });
     setIcon(iconSpan, "book-open");
 
-    const sectionTitle = sceneDate ? `Contexte (${sceneDate.display})` : "Contexte";
+    const sectionTitle = sceneDate ? t("notes.context.titleWithDate", { date: sceneDate.display }) : t("notes.context.title");
     headSection.createSpan({ cls: "feuillets-notes-section-title" }).setText(sectionTitle);
 
     headSection.addEventListener("click", async () => {
@@ -548,10 +553,9 @@ export class NotesView extends BaseFeuilletsView {
         const death = this.plugin.parseStoryDate(efm.death);
         if (death && sceneDate.sort > death.sort) {
           const diff = sceneDate.y - death.y;
-          let text = `mort en ${death.y}`;
-          if (diff > 0) {
-            text = `mort depuis ${diff} ${diff > 1 ? "ans" : "an"} (en ${death.y})`;
-          }
+          const text = diff > 0
+            ? t("notes.context.deadSince", { count: diff, s: diff > 1 ? "s" : "", year: death.y })
+            : t("notes.context.deadIn", { year: death.y });
           head
             .createSpan({ cls: "feuillets-entity-age" })
             .setText(text);
@@ -560,7 +564,7 @@ export class NotesView extends BaseFeuilletsView {
           if (age >= 0) {
             head
               .createSpan({ cls: "feuillets-entity-age" })
-              .setText(`~${age} ans`);
+              .setText(t("notes.context.approxAge", { age }));
           }
         }
       }
@@ -572,11 +576,11 @@ export class NotesView extends BaseFeuilletsView {
         const state = latestStateBefore(content, sceneDate.y);
         if (state) {
           info.setText(state.text);
-          info.setAttr("title", `État renseigné en ${state.y}`);
+          info.setAttr("title", t("notes.context.stateAsOf", { year: state.y }));
           if (state.y !== sceneDate.y) {
             info
               .createSpan({ cls: "feuillets-entity-since" })
-              .setText(` (depuis ${state.y})`);
+              .setText(t("notes.context.since", { year: state.y }));
           }
           shown = true;
         }
@@ -616,7 +620,7 @@ export class NotesView extends BaseFeuilletsView {
     const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
     setIcon(iconSpan, "list");
 
-    head.createSpan({ cls: "feuillets-notes-section-title" }).setText("Notes de bas de page");
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("shared.footnotes.title"));
 
     head.addEventListener("click", async () => {
       if (collapsed) delete S.collapsed[collapseKey];
@@ -648,7 +652,7 @@ export class NotesView extends BaseFeuilletsView {
     const head = section.createDiv({ cls: "feuillets-notes-section-head" });
 
     const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
-    setIcon(iconSpan, getNotesSectionIcon(label));
+    setIcon(iconSpan, getNotesSectionIcon(key));
 
     head.createSpan({ cls: "feuillets-notes-section-title" }).setText(label);
 

@@ -11,6 +11,7 @@ import { DiffModal, CompareFilesModal, PickFileModal } from "../ui/diff-modal.js
 import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
+import { t } from "../i18n/index.js";
 
 
 function getResearchSectionIcon(key) {
@@ -40,7 +41,7 @@ const {
 } = require("obsidian");
 
 function shortenPath(path) {
-  if (!path) return "Vault entier";
+  if (!path) return t("shared.wholeVault");
   const parts = path.split("/");
   return parts.length <= 3 ? path : `…/${parts.slice(-2).join("/")}`;
 }
@@ -137,7 +138,7 @@ export class BaseFeuilletsView extends ItemView {
     if (bodyText) {
       await MarkdownRenderer.render(this.app, bodyText, textEl, file.path, this);
     } else {
-      textEl.createDiv({ cls: "feuillets-empty" }).setText("(fiche vide — cliquer pour écrire)");
+      textEl.createDiv({ cls: "feuillets-empty" }).setText(t("shared.sheetEditor.empty"));
     }
 
     textEl.addEventListener("click", (e) => {
@@ -146,7 +147,7 @@ export class BaseFeuilletsView extends ItemView {
 
       const ta = editorWrapper.createEl("textarea", {
         cls: "feuillets-flat-textarea",
-        attr: { placeholder: "Contenu de la fiche…", rows: "12" },
+        attr: { placeholder: t("shared.sheetEditor.placeholder"), rows: "12" },
         style: "width: 100%; min-height: 180px; font-family: var(--font-monospace);"
       });
       ta.value = parts.body;
@@ -190,12 +191,12 @@ export class BaseFeuilletsView extends ItemView {
       opt.value = l.name;
     }
     sel.value = current;
-    sel.setAttr("title", current || "Label : aucun");
+    sel.setAttr("title", current || t("shared.label.none"));
     const color = current ? this.plugin.labelColor(current) : null;
     if (color) sel.style.borderLeft = `4px solid ${color}`;
     sel.addEventListener("change", async () => {
       await this.setFm(file, "label", sel.value);
-      sel.setAttr("title", sel.value || "Label : aucun");
+      sel.setAttr("title", sel.value || t("shared.label.none"));
       sel.blur();
     });
     return sel;
@@ -210,10 +211,10 @@ export class BaseFeuilletsView extends ItemView {
       opt.value = s;
     }
     sel.value = statuses.includes(fm.status) ? fm.status : "";
-    sel.setAttr("title", sel.value || "Statut : aucun");
+    sel.setAttr("title", sel.value || t("shared.status.none"));
     sel.addEventListener("change", async () => {
       await this.setFm(file, "status", sel.value);
-      sel.setAttr("title", sel.value || "Statut : aucun");
+      sel.setAttr("title", sel.value || t("shared.status.none"));
       sel.blur();
     });
     return sel;
@@ -228,7 +229,7 @@ export class BaseFeuilletsView extends ItemView {
     const input = wrap.createEl("input", {
       cls: "feuillets-tags-input",
       type: "text",
-      attr: { placeholder: tags.length ? "+" : "+ tags" },
+      attr: { placeholder: tags.length ? "+" : t("shared.tags.placeholder") },
     });
     input.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
@@ -244,7 +245,7 @@ export class BaseFeuilletsView extends ItemView {
       input.blur();
     });
     wrap.querySelectorAll(".feuillets-tag-chip").forEach((chip, idx) => {
-      chip.setAttr("title", "Cliquer pour retirer ce tag");
+      chip.setAttr("title", t("shared.tags.removeTooltip"));
       chip.addEventListener("click", async () => {
         const next = tags.filter((_, j) => j !== idx);
         await this.setFm(file, "tags", next);
@@ -259,7 +260,7 @@ export class BaseFeuilletsView extends ItemView {
     const searchInput = toolbar.createEl("input", {
       type: "text",
       cls: "feuillets-binder-search",
-      attr: { placeholder: "Rechercher dans la recherche…" },
+      attr: { placeholder: t("shared.research.searchPlaceholder") },
     });
     searchInput.value = S.researchSearch || "";
     let researchSearchTimer;
@@ -302,14 +303,14 @@ export class BaseFeuilletsView extends ItemView {
       const citeSearchBtn = this.iconBtn(
         toolbar,
         "quote",
-        "Insérer une citation (recherche dans Sources et Bibliographie)"
+        t("shared.research.insertCitationTooltip")
       );
       citeSearchBtn.addEventListener("click", () => this.plugin.openInsertCitation());
 
       const renumberBtn = this.iconBtn(
         toolbar,
         "list-ordered",
-        "Renuméroter les notes de bas de page du feuillet actif"
+        t("shared.research.renumberFootnotesTooltip")
       );
       renumberBtn.addEventListener("click", () => this.plugin.renumberActiveFootnotes());
     }
@@ -319,7 +320,7 @@ export class BaseFeuilletsView extends ItemView {
        les catégories dont SON sujet a besoin — un sous-dossier de
        Recherche/ créé ici apparaît automatiquement comme sa propre
        section. Disponible en fiction comme en non-fiction. */
-    const newFolderBtn = this.iconBtn(toolbar, "folder-plus", "Nouvelle rubrique de recherche…");
+    const newFolderBtn = this.iconBtn(toolbar, "folder-plus", t("shared.research.newTopicTooltip"));
     newFolderBtn.addEventListener("click", () => {
       if (baseResearchFolder) this.plugin.newFolder(baseResearchFolder);
     });
@@ -424,14 +425,16 @@ export class BaseFeuilletsView extends ItemView {
     const tagFilterBtn = this.iconBtn(
       toolbar,
       tagFilterActive ? "tag" : "tags",
-      tagFilterActive ? `Filtre de tag : #${S.researchTagFilter}` : "Filtrer les fiches par tag"
+      tagFilterActive
+        ? t("shared.research.tagFilterActive", { tag: S.researchTagFilter })
+        : t("shared.research.tagFilterTooltip")
     );
     if (tagFilterActive) tagFilterBtn.addClass("feuillets-mode-active");
     tagFilterBtn.addEventListener("click", (e) => {
       const menu = new Menu();
       menu.addItem((item) =>
         item
-          .setTitle("Tous les tags")
+          .setTitle(t("shared.research.allTags"))
           .setChecked(!S.researchTagFilter)
           .onClick(async () => {
             S.researchTagFilter = "";
@@ -579,7 +582,7 @@ export class BaseFeuilletsView extends ItemView {
       }).sort((a, b) => a.path.localeCompare(b.path, "fr")).slice(0, 30);
 
       if (vaultMatches.length > 0) {
-        this.renderSection(body, "Coffre (autres notes)", vaultMatches, undefined, "coffre");
+        this.renderSection(body, t("shared.research.vaultOtherNotes"), vaultMatches, undefined, "coffre");
       }
     }
 
@@ -606,30 +609,30 @@ export class BaseFeuilletsView extends ItemView {
     const wrapper = container.createDiv({ cls: "feuillets-fileview" });
     const bar = wrapper.createDiv({ cls: "feuillets-fileview-bar" });
     
-    this.iconBtn(bar, "arrow-left", "Fermer (retour à la liste)", () => {
+    this.iconBtn(bar, "arrow-left", t("shared.fileView.closeTooltip"), () => {
       this.viewingFile = null;
       this.render();
     });
-    this.iconBtn(bar, "external-link", "Ouvrir dans un nouvel onglet", () => {
+    this.iconBtn(bar, "external-link", t("shared.openNewTab"), () => {
       openFileActivating(this.app, this.app.workspace.getLeaf(true), file);
     });
 
     this.barSep(bar);
 
     // Boutons de prélèvement
-    this.iconBtn(bar, "link", "Insérer un lien double-crochets", () => {
+    this.iconBtn(bar, "link", t("shared.fileView.insertLinkTooltip"), () => {
       this.plugin.insertIntoActiveEditor(`[[${file.path}]]`);
     });
-    this.iconBtn(bar, "quote", "Insérer l'extrait sélectionné", () => {
+    this.iconBtn(bar, "quote", t("shared.fileView.insertExcerptTooltip"), () => {
       if (!this.selectedText || !this.selectedText.trim()) {
-        new Notice("Sélectionnez d'abord un extrait de texte dans la fiche.");
+        new Notice(t("shared.fileView.selectExcerptFirst"));
         return;
       }
       this.plugin.insertIntoActiveEditor(formatExcerpt(this.selectedText));
     });
-    this.iconBtn(bar, "book-copy", "Insérer l'extrait avec citation de la source", () => {
+    this.iconBtn(bar, "book-copy", t("shared.fileView.insertSourcedExcerptTooltip"), () => {
       if (!this.selectedText || !this.selectedText.trim()) {
-        new Notice("Sélectionnez d'abord un extrait de texte dans la fiche.");
+        new Notice(t("shared.fileView.selectExcerptFirst"));
         return;
       }
       /* fiche Source/Bibliographie : citation formatée (footnote ou
@@ -646,7 +649,7 @@ export class BaseFeuilletsView extends ItemView {
       }
       const editor = this.plugin.activeEditorAnywhere();
       if (!editor) {
-        new Notice("Ouvre une scène et place le curseur dedans avant d'insérer un extrait.");
+        new Notice(t("shared.fileView.openSceneFirst"));
         return;
       }
       const excerpt = formatExcerpt(this.selectedText);
@@ -663,23 +666,24 @@ export class BaseFeuilletsView extends ItemView {
 
     this.barSep(bar);
 
-    this.iconBtn(bar, "copy-plus", "Dupliquer", async () => {
+    this.iconBtn(bar, "copy-plus", t("shared.duplicate"), async () => {
       const content = await this.app.vault.read(file);
-      let name = `${file.basename} (copie)`;
+      const copySuffix = t("binder.research.copySuffix");
+      let name = `${file.basename} (${copySuffix})`;
       let dest = normalizePath(`${file.parent.path}/${name}.md`);
       let k = 2;
       while (this.app.vault.getAbstractFileByPath(dest)) {
-        name = `${file.basename} (copie ${k++})`;
+        name = `${file.basename} (${copySuffix} ${k++})`;
         dest = normalizePath(`${file.parent.path}/${name}.md`);
       }
       const copy = await this.app.vault.create(dest, content);
-      new Notice(`Dupliqué : ${name}`);
+      new Notice(t("shared.duplicated", { name }));
       this.viewingFile = copy;
       this.render();
     });
-    this.iconBtn(bar, "trash", "Mettre à la corbeille", async () => {
+    this.iconBtn(bar, "trash", t("shared.trash"), async () => {
       await this.app.vault.trash(file, true);
-      new Notice(`« ${this.plugin.titleFor(file)} » mis à la corbeille.`);
+      new Notice(t("shared.trashed", { name: this.plugin.titleFor(file) }));
       this.viewingFile = null;
       this.render();
     });
@@ -687,7 +691,7 @@ export class BaseFeuilletsView extends ItemView {
 
 
     const row = wrapper.createDiv({ cls: "feuillets-fileview-row" });
-    row.createSpan({ cls: "feuillets-notes-label" }).setText("Label");
+    row.createSpan({ cls: "feuillets-notes-label" }).setText(t("shared.label.field"));
     this.makeLabelSelect(row, file);
     this.makeTagsEditorPlain(wrapper, file);
 
@@ -758,7 +762,7 @@ export class BaseFeuilletsView extends ItemView {
     }
 
     if (files.length === 0) {
-      list.createDiv({ cls: "feuillets-research-empty" }).setText("Vide.");
+      list.createDiv({ cls: "feuillets-research-empty" }).setText(t("shared.research.empty"));
       return;
     }
 
@@ -786,20 +790,20 @@ export class BaseFeuilletsView extends ItemView {
           header,
           "link",
           isImageFile(f)
-            ? "Insérer l'image dans la scène active (![[...]])"
-            : "Insérer le lien PDF dans la scène active ([[...]])"
+            ? t("shared.research.insertImageTooltip")
+            : t("shared.research.insertPdfLinkTooltip")
         );
         insertLinkBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           const link = isImageFile(f) ? `![[${f.name}]]` : `[[${f.name}]]`;
           this.plugin.insertIntoActiveEditor(link);
-          new Notice(`Lien inséré : ${f.name}`);
+          new Notice(t("shared.research.linkInserted", { name: f.name }));
         });
 
         const openFileBtn = this.iconBtn(
           header,
           "external-link",
-          "Ouvrir le fichier"
+          t("shared.research.openFile")
         );
         openFileBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -809,7 +813,7 @@ export class BaseFeuilletsView extends ItemView {
         const openFileBtn = this.iconBtn(
           header,
           "external-link",
-          "Ouvrir dans un nouvel onglet"
+          t("shared.openNewTab")
         );
         openFileBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -819,7 +823,7 @@ export class BaseFeuilletsView extends ItemView {
         const appearBtn = this.iconBtn(
           header,
           "list",
-          "Voir ses apparitions dans le manuscrit"
+          t("shared.research.appearancesTooltip")
         );
         appearBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -849,7 +853,7 @@ export class BaseFeuilletsView extends ItemView {
    * CLIC plutôt qu'au survol — le survol automatique gênait (aperçu qui
    * s'ouvre en passant simplement la souris sur la liste). */
   addPreviewBtn(header, f) {
-    const btn = this.iconBtn(header, "eye", "Aperçu…");
+    const btn = this.iconBtn(header, "eye", t("shared.previewTooltip"));
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.app.workspace.trigger("hover-link", {
@@ -912,7 +916,7 @@ export class BaseFeuilletsView extends ItemView {
       if (file.parent && file.parent.path === destFolder.path) return;
       const dest = normalizePath(`${destFolder.path}/${file.name}`);
       if (this.app.vault.getAbstractFileByPath(dest)) {
-        new Notice("Une fiche du même nom existe déjà dans cette rubrique.");
+        new Notice(t("shared.research.duplicateNameInSection"));
         return;
       }
       await this.app.fileManager.renameFile(file, dest);
@@ -938,7 +942,7 @@ export class BaseFeuilletsView extends ItemView {
         title: "feuillets-notes-section-title",
         icon: "feuillets-notes-section-icon",
       },
-      title: "Notes de bas de page (relecture)",
+      title: t("shared.footnotes.title"),
       icon: "list",
       collapsed,
       collapseKey,
@@ -979,7 +983,7 @@ export class BaseFeuilletsView extends ItemView {
       const group = list.createDiv({ cls: "feuillets-footnotes-overview-group" });
       const head = group.createDiv({ cls: "feuillets-footnotes-overview-head" });
       head.setText(`${numbering.get(file.path) || ""} ${this.plugin.shortTitleFor(file)}`.trim());
-      head.setAttr("title", "Ouvrir cette scène");
+      head.setAttr("title", t("shared.footnotes.openSceneTooltip"));
       head.addEventListener("click", () => {
         openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
@@ -990,7 +994,7 @@ export class BaseFeuilletsView extends ItemView {
         row.createSpan({ cls: "feuillets-footnotes-overview-text" }).setText(footnoteText);
         if (!refs.has(label)) {
           row.addClass("feuillets-footnotes-overview-orphan");
-          row.setAttr("title", "Définie mais jamais citée dans le texte de cette scène — à vérifier.");
+          row.setAttr("title", t("shared.footnotes.definedNeverCited"));
         }
       }
       for (const label of refs) {
@@ -1001,15 +1005,15 @@ export class BaseFeuilletsView extends ItemView {
         row.createSpan({ cls: "feuillets-footnotes-overview-label" }).setText(`[^${label}]`);
         row
           .createSpan({ cls: "feuillets-footnotes-overview-text" })
-          .setText("citée dans le texte, mais aucune définition correspondante");
-        row.setAttr("title", "Citée dans le texte, mais aucune ligne \"[^…]: texte\" ne la définit — à vérifier.");
+          .setText(t("shared.footnotes.citedNeverDefined"));
+        row.setAttr("title", t("shared.footnotes.citedNeverDefinedTooltip"));
       }
     }
 
     if (!anyContent) {
       list
         .createDiv({ cls: "feuillets-research-empty" })
-        .setText("Aucune note de bas de page dans le manuscrit pour l'instant.");
+        .setText(t("shared.footnotes.empty"));
     }
   }
 
@@ -1033,7 +1037,7 @@ export class BaseFeuilletsView extends ItemView {
         title: "feuillets-notes-section-title",
         icon: "feuillets-notes-section-icon",
       },
-      title: "Bibliographie",
+      title: t("shared.bibliography.title"),
       icon: "library",
       collapsed,
       collapseKey,
@@ -1051,20 +1055,17 @@ export class BaseFeuilletsView extends ItemView {
     const cited = files.filter((f) => (this.plugin.fmOf(f).cite_count || 0) > 0);
 
     const exportRow = section.createDiv({ cls: "feuillets-bibliography-export-row" });
-    exportRow.setAttr(
-      "title",
-      "Écrit le fichier bibliographie dans le dossier Sortie, prêt à être collé dans le manuscrit compilé."
-    );
+    exportRow.setAttr("title", t("shared.bibliography.exportTooltip"));
     const exportIcon = exportRow.createSpan({ cls: "feuillets-cell-icon" });
     setIcon(exportIcon, "file-output");
-    exportRow.createSpan().setText("Générer la bibliographie…");
+    exportRow.createSpan().setText(t("shared.bibliography.generate"));
     exportRow.addEventListener("click", () => this.plugin.generateBibliographyFile());
 
     const list = section.createDiv({ cls: "feuillets-research-list" });
     if (cited.length === 0) {
       list
         .createDiv({ cls: "feuillets-research-empty" })
-        .setText("Aucune source citée pour l'instant — l'icône guillemet d'une fiche l'ajoutera ici.");
+        .setText(t("shared.bibliography.empty"));
       return;
     }
 
@@ -1078,7 +1079,7 @@ export class BaseFeuilletsView extends ItemView {
       const n = fm.cite_count || 0;
       header
         .createDiv({ cls: "feuillets-research-item-name" })
-        .setText(`${this.plugin.titleFor(f)} — ${n} citation${n > 1 ? "s" : ""}`);
+        .setText(t("shared.bibliography.citationCount", { title: this.plugin.titleFor(f), count: n, s: n > 1 ? "s" : "" }));
       row.addEventListener("click", () => {
         this.viewingFile = f;
         this.render();
@@ -1099,13 +1100,13 @@ export class BaseFeuilletsView extends ItemView {
     const meta = S.projectMeta[root.path];
     const filters = meta.savedResearchFilters || [];
 
-    const btn = this.iconBtn(toolbar, "bookmark", "Dossiers de recherche sauvegardés…");
+    const btn = this.iconBtn(toolbar, "bookmark", t("shared.savedFilters.tooltip"));
     btn.addEventListener("click", (e) => {
       const menu = new Menu();
       const hasActiveFilter = !!(S.researchSearch || "").trim() || !!S.researchTagFilter;
       menu.addItem((item) =>
         item
-          .setTitle("Enregistrer le filtre actif…")
+          .setTitle(t("shared.savedFilters.save"))
           .setIcon("bookmark-plus")
           .setDisabled(!hasActiveFilter)
           .onClick(() => {
@@ -1136,7 +1137,7 @@ export class BaseFeuilletsView extends ItemView {
         menu.addSeparator();
         menu.addItem((item) =>
           item
-            .setTitle("Gérer les dossiers sauvegardés…")
+            .setTitle(t("shared.savedFilters.manage"))
             .setIcon("settings")
             .onClick(() => {
               new ManageSavedFiltersModal(this.app, this.plugin, root, () => this.render(true)).open();
@@ -1251,13 +1252,13 @@ export class BaseFeuilletsView extends ItemView {
       : [file];
 
     if (isGroup) {
-      menu.addItem((item) => item.setTitle(`${groupFiles.length} feuillets sélectionnés`).setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("shared.contextMenu.groupSelected", { count: groupFiles.length })).setDisabled(true));
       menu.addSeparator();
     }
 
     menu.addItem((item) =>
       item
-        .setTitle("Ouvrir dans un nouvel onglet")
+        .setTitle(t("shared.openNewTab"))
         .setIcon("file-plus")
         .onClick(() => {
           openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
@@ -1265,7 +1266,7 @@ export class BaseFeuilletsView extends ItemView {
     );
     menu.addItem((item) =>
       item
-        .setTitle("Ouvrir en vue côte à côte")
+        .setTitle(t("binder.research.openSplit"))
         .setIcon("columns-2")
         .onClick(() => {
           openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file);
@@ -1273,7 +1274,7 @@ export class BaseFeuilletsView extends ItemView {
     );
     menu.addItem((item) =>
       item
-        .setTitle("Comparer avec un autre feuillet…")
+        .setTitle(t("binder.research.compareWith"))
         .setIcon("diff")
         .onClick(() => {
           new PickFileModal(this.app, plugin, file, (other) => {
@@ -1285,7 +1286,7 @@ export class BaseFeuilletsView extends ItemView {
 
     menu.addItem((item) =>
       item
-        .setTitle("Nouveau feuillet avant")
+        .setTitle(t("shared.contextMenu.newSheetBefore"))
         .setIcon("corner-left-up")
         .onClick(async () => {
           await plugin.newSheetAt(parent, index);
@@ -1293,7 +1294,7 @@ export class BaseFeuilletsView extends ItemView {
     );
     menu.addItem((item) =>
       item
-        .setTitle("Nouveau feuillet après")
+        .setTitle(t("shared.contextMenu.newSheetAfter"))
         .setIcon("corner-left-down")
         .onClick(async () => {
           await plugin.newSheetAt(parent, index + 1);
@@ -1306,7 +1307,7 @@ export class BaseFeuilletsView extends ItemView {
     for (const st of allStatuses.filter(Boolean)) {
       menu.addItem((item) =>
         item
-          .setTitle(`Statut : ${st}`)
+          .setTitle(t("shared.contextMenu.statusLabel", { status: st }))
           .setChecked(!isGroup && st === currentStatus)
           .onClick(async () => {
             if (isGroup) await this.applyBulkStatus(groupFiles, st);
@@ -1320,7 +1321,7 @@ export class BaseFeuilletsView extends ItemView {
     for (const l of this.getProjectLabels()) {
       menu.addItem((item) =>
         item
-          .setTitle(`Label : ${l.name}`)
+          .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
           .setChecked(!isGroup && l.name === currentLabel)
           .onClick(async () => {
             if (isGroup) await this.applyBulkLabel(groupFiles, l.name);
@@ -1333,7 +1334,7 @@ export class BaseFeuilletsView extends ItemView {
     if (isGroup) {
       menu.addItem((item) =>
         item
-          .setTitle("Ajouter un tag au groupe…")
+          .setTitle(t("shared.contextMenu.addTagToGroup"))
           .setIcon("tag")
           .onClick(() => this.promptBulkTag(groupFiles, () => this.render()))
       );
@@ -1342,25 +1343,25 @@ export class BaseFeuilletsView extends ItemView {
 
     menu.addItem((item) =>
       item
-        .setTitle("Snapshot")
+        .setTitle(t("shared.contextMenu.snapshot"))
         .setIcon("camera")
         .onClick(async () => {
           const root = plugin.getProjectFolder();
           if (!root) return;
           const n = await plugin.snapshotFile(file, root);
-          new Notice(`Snapshot créé : ${n}`);
+          new Notice(t("shared.contextMenu.snapshotCreated", { name: n }));
         })
     );
     menu.addItem((item) =>
       item
-        .setTitle("Comparer avec le snapshot")
+        .setTitle(t("shared.contextMenu.compareWithSnapshot"))
         .setIcon("history")
         .onClick(async () => {
           const root = plugin.getProjectFolder();
           if (!root) return;
           const snapshots = listSnapshotFiles(this.app, file, root);
           if (snapshots.length === 0) {
-            new Notice(`Aucun snapshot trouvé pour : ${file.basename}`);
+            new Notice(t("shared.contextMenu.noSnapshotFound", { name: file.basename }));
             return;
           }
           new DiffModal(this.app, plugin, file, snapshots[0]).open();
@@ -1368,32 +1369,33 @@ export class BaseFeuilletsView extends ItemView {
     );
     menu.addItem((item) =>
       item
-        .setTitle("Dupliquer")
+        .setTitle(t("shared.duplicate"))
         .setIcon("copy")
         .onClick(async () => {
           const content = await this.app.vault.read(file);
-          let name = file.basename + " (copie)";
+          const copySuffix = t("binder.research.copySuffix");
+          let name = `${file.basename} (${copySuffix})`;
           let dest = normalizePath(`${parent.path}/${name}.md`);
           let k = 2;
           while (this.app.vault.getAbstractFileByPath(dest)) {
-            name = `${file.basename} (copie ${k++})`;
+            name = `${file.basename} (${copySuffix} ${k++})`;
             dest = normalizePath(`${parent.path}/${name}.md`);
           }
           await this.app.vault.create(dest, content);
           plugin.renderAllViews(true);
-          new Notice(`Dupliqué : ${name}`);
+          new Notice(t("shared.duplicated", { name }));
         })
     );
     menu.addSeparator();
 
     menu.addItem((item) =>
       item
-        .setTitle("Mettre à la corbeille")
+        .setTitle(t("shared.trash"))
         .setIcon("trash")
         .onClick(async () => {
           await this.app.vault.trash(file, true);
           plugin.renderAllViews(true);
-          new Notice(`« ${plugin.titleFor(file) || file.basename} » mis à la corbeille.`);
+          new Notice(t("shared.trashed", { name: plugin.titleFor(file) || file.basename }));
         })
     );
     menu.showAtMouseEvent(e);
@@ -1405,7 +1407,7 @@ export class BaseFeuilletsView extends ItemView {
 
     menu.addItem((item) =>
       item
-        .setTitle("Nouveau feuillet à l'intérieur")
+        .setTitle(t("shared.contextMenu.newSheetInside"))
         .setIcon("file-plus")
         .onClick(async () => {
           await plugin.newSheet(folder);
@@ -1413,7 +1415,7 @@ export class BaseFeuilletsView extends ItemView {
     );
     menu.addItem((item) =>
       item
-        .setTitle("Nouveau sous-dossier")
+        .setTitle(t("binder.newSubfolder"))
         .setIcon("folder-plus")
         .onClick(async () => {
           await plugin.newFolder(folder);
@@ -1423,7 +1425,7 @@ export class BaseFeuilletsView extends ItemView {
 
     menu.addItem((item) =>
       item
-        .setTitle("Ouvrir la note de dossier")
+        .setTitle(t("shared.contextMenu.openFolderNote"))
         .setIcon("notebook-text")
         .onClick(async () => {
           const note = await plugin.getOrCreateFolderNote(folder);
@@ -1437,7 +1439,7 @@ export class BaseFeuilletsView extends ItemView {
     for (const l of this.getProjectLabels()) {
       menu.addItem((item) =>
         item
-          .setTitle(`Label : ${l.name}`)
+          .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
           .setChecked(l.name === currentLabel)
           .onClick(async () => {
             const targetNote = note || await plugin.getOrCreateFolderNote(folder);
@@ -1453,7 +1455,7 @@ export class BaseFeuilletsView extends ItemView {
     for (const st of allStatuses.filter(Boolean)) {
       menu.addItem((item) =>
         item
-          .setTitle(`Statut : ${st}`)
+          .setTitle(t("shared.contextMenu.statusLabel", { status: st }))
           .setChecked(st === currentStatus)
           .onClick(async () => {
             const targetNote = note || await plugin.getOrCreateFolderNote(folder);
@@ -1467,7 +1469,7 @@ export class BaseFeuilletsView extends ItemView {
 
     menu.addItem((item) =>
       item
-        .setTitle("Modifier les tags…")
+        .setTitle(t("shared.contextMenu.editTags"))
         .setIcon("tag")
         .onClick(async () => {
           const targetNote = note || await plugin.getOrCreateFolderNote(folder);
@@ -1478,23 +1480,23 @@ export class BaseFeuilletsView extends ItemView {
     );
     menu.addItem((item) =>
       item
-        .setTitle("Modifier le synopsis…")
+        .setTitle(t("shared.contextMenu.editSynopsis"))
         .setIcon("text")
         .onClick(async () => {
           const targetNote = note || await plugin.getOrCreateFolderNote(folder);
           if (targetNote) {
-            new FmFieldModal(this.app, plugin, targetNote, "synopsis", "Synopsis du dossier", () => this.render(true)).open();
+            new FmFieldModal(this.app, plugin, targetNote, "synopsis", t("shared.contextMenu.folderSynopsisLabel"), () => this.render(true)).open();
           }
         })
     );
     menu.addItem((item) =>
       item
-        .setTitle("Modifier le résumé…")
+        .setTitle(t("shared.contextMenu.editSummary"))
         .setIcon("file-text")
         .onClick(async () => {
           const targetNote = note || await plugin.getOrCreateFolderNote(folder);
           if (targetNote) {
-            new FmFieldModal(this.app, plugin, targetNote, "summary", "Résumé du dossier", () => this.render(true)).open();
+            new FmFieldModal(this.app, plugin, targetNote, "summary", t("shared.contextMenu.folderSummaryLabel"), () => this.render(true)).open();
           }
         })
     );
@@ -1502,7 +1504,7 @@ export class BaseFeuilletsView extends ItemView {
 
     menu.addItem((item) =>
       item
-        .setTitle("Définir l'objectif de mots…")
+        .setTitle(t("shared.contextMenu.setWordGoal"))
         .setIcon("target")
         .onClick(() => {
           new FolderGoalModal(this.app, plugin, folder).open();
@@ -1512,12 +1514,12 @@ export class BaseFeuilletsView extends ItemView {
 
     menu.addItem((item) =>
       item
-        .setTitle("Mettre à la corbeille (Supprimer)")
+        .setTitle(t("shared.contextMenu.trashFolder"))
         .setIcon("trash")
         .onClick(async () => {
           await this.app.vault.trash(folder, true);
           plugin.renderAllViews(true);
-          new Notice(`Le dossier « ${folder.name} » a été mis à la corbeille.`);
+          new Notice(t("shared.contextMenu.folderTrashed", { name: folder.name }));
         })
     );
     menu.showAtMouseEvent(e);
@@ -1643,19 +1645,19 @@ export class BaseFeuilletsView extends ItemView {
    * copies de la même boucle setFm+Notice à maintenir. */
   async applyBulkStatus(files, status) {
     for (const f of files) await this.setFm(f, "statut", status);
-    new Notice(`Statut « ${status} » appliqué à ${files.length} feuillet${files.length > 1 ? "s" : ""}.`);
+    new Notice(t("shared.bulk.statusApplied", { status, count: files.length, s: files.length > 1 ? "s" : "" }));
   }
 
   async applyBulkLabel(files, labelName) {
     for (const f of files) await this.setFm(f, "label", labelName);
-    new Notice(`Label « ${labelName} » appliqué à ${files.length} feuillet${files.length > 1 ? "s" : ""}.`);
+    new Notice(t("shared.bulk.labelApplied", { label: labelName, count: files.length, s: files.length > 1 ? "s" : "" }));
   }
 
   promptBulkTag(files, onDone) {
     new TextInputModal(
       this.app,
-      `Ajouter un tag à ${files.length} feuillet${files.length > 1 ? "s" : ""}`,
-      [{ name: "tag", label: "Tag", value: "" }],
+      t("shared.bulk.addTagTitle", { count: files.length, s: files.length > 1 ? "s" : "" }),
+      [{ name: "tag", label: t("shared.tags.field"), value: "" }],
       async (values) => {
         const clean = String(values.tag || "").trim().replace(/^#/, "");
         if (!clean) return;
@@ -1663,7 +1665,7 @@ export class BaseFeuilletsView extends ItemView {
           const existing = this.plugin.tagsOf(f);
           if (!existing.includes(clean)) await this.setFm(f, "tags", [...existing, clean]);
         }
-        new Notice(`Tag « ${clean} » ajouté à ${files.length} feuillet${files.length > 1 ? "s" : ""}.`);
+        new Notice(t("shared.bulk.tagApplied", { tag: clean, count: files.length, s: files.length > 1 ? "s" : "" }));
         if (onDone) onDone();
       }
     ).open();

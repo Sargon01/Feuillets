@@ -5,6 +5,7 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { CompileSelectionModal } from "../ui/selection-modals.js";
 import { listExportTemplates } from "../services/export-templates-custom.js";
 import { LayoutModal } from "../ui/layout-modal.js";
+import { t } from "../i18n/index.js";
 
 /** Panneau Compilation / export (Bouton de sélection des feuillets dans
  * l'en-tête, Preset, Modèle, Sous-rubrique "Mise en page" identique au
@@ -24,7 +25,7 @@ export class ProjectView extends BaseFeuilletsView {
   }
 
   getDisplayText() {
-    return "Projet & export";
+    return t("project.displayText");
   }
 
   getIcon() {
@@ -47,7 +48,7 @@ export class ProjectView extends BaseFeuilletsView {
     } else {
       container
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucun projet actif — gère tes projets depuis le binder (menu de la racine, double volet).");
+        .setText(t("project.noActiveProject"));
     }
   }
 
@@ -78,12 +79,12 @@ export class ProjectView extends BaseFeuilletsView {
     const collapsed = this.renderSectionHead(
       section,
       "sliders",
-      "Compilation / export",
+      t("project.compilation.title"),
       "project",
       "compilation",
       (actions) => {
         // Bouton de sélection des feuillets à compiler calé dans l'en-tête
-        this.iconBtn(actions, "list-checks", "Choisir les feuillets à compiler…", () =>
+        this.iconBtn(actions, "list-checks", t("project.compilation.chooseSheetsTooltip"), () =>
           new CompileSelectionModal(this.app, this.plugin).open()
         );
       }
@@ -95,10 +96,10 @@ export class ProjectView extends BaseFeuilletsView {
        — l'éditeur de mise en page (LayoutModal). Le panneau ne garde que
        l'accès au hub, le format et le bouton Exporter (chemin rapide). */
     const templates = await listExportTemplates(this.app, S);
-    const currentTpl = templates.find((t) => t.key === S.exportTemplate) || templates[0];
-    this.makeRow(section, "sliders", "Compilation & mise en page…", () => {
+    const currentTpl = templates.find((tpl) => tpl.key === S.exportTemplate) || templates[0];
+    this.makeRow(section, "sliders", t("project.compilation.layoutRow"), () => {
       if (!currentTpl) {
-        new Notice("Aucun modèle disponible.");
+        new Notice(t("project.compilation.noTemplate"));
         return;
       }
       new LayoutModal(this.app, this.plugin, currentTpl.key, currentTpl.label, () => this.render()).open();
@@ -118,10 +119,10 @@ export class ProjectView extends BaseFeuilletsView {
       S.exportFormat = formatSelect.value;
       await this.plugin.saveSettings();
     });
-    this.makePropertyRowWithIcon(section, "file-output", "Format", formatSelect);
+    this.makePropertyRowWithIcon(section, "file-output", t("project.compilation.formatLabel"), formatSelect);
 
     // 5. Bouton "Exporter" placé en dessous
-    const exportBtn = section.createEl("button", { text: "Exporter", cls: "mod-cta feuillets-export-cta-btn" });
+    const exportBtn = section.createEl("button", { text: t("project.compilation.exportBtn"), cls: "mod-cta feuillets-export-cta-btn" });
     exportBtn.addEventListener("click", () => {
       const fmt = S.exportFormat || "docx";
       if (fmt === "md") {

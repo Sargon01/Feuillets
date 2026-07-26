@@ -3,6 +3,7 @@ import { BOARD_MODES, HIDEABLE_PANELS } from "../constants.js";
 import { resolveType } from "../utils/project-modes.js";
 import { NewProjectModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
+import { setLocale, detectLocale } from "../i18n/index.js";
 const { PluginSettingTab, Setting, TFolder, Notice, Menu } = require("obsidian");
 
 export class FeuilletsSettingTab extends PluginSettingTab {
@@ -20,6 +21,24 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "Feuillets" });
 
     const refresh = () => this.plugin.refreshView();
+
+    new Setting(containerEl)
+      .setName("Langue de l'interface")
+      .setDesc("« Automatique » suit la langue d'Obsidian lui-même. Traduction en cours — une partie de l'interface reste en français même en anglais, ça se complète progressivement.")
+      .addDropdown((d) =>
+        d
+          .addOption("auto", "Automatique")
+          .addOption("fr", "Français")
+          .addOption("en", "English")
+          .setValue(S.language || "auto")
+          .onChange(async (v) => {
+            S.language = v;
+            await this.plugin.saveSettings();
+            setLocale(detectLocale(S));
+            this.plugin.renderAllViews(true);
+            this.display();
+          })
+      );
 
     containerEl.createEl("h3", { text: "Dossier & Gestion des projets", attr: { "data-cat": "Projet" } });
 

@@ -11,6 +11,7 @@ import { ReadSelectionModal } from "../ui/selection-modals.js";
 import { DiffModal } from "../ui/diff-modal.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
+import { t } from "../i18n/index.js";
 
 function isInputFocused(el) {
   const active = document.activeElement;
@@ -49,7 +50,29 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   getDisplayText() {
-    return "Feuillets — Tableau";
+    return t("board.displayText");
+  }
+
+  /** Libellé affiché d'un mode du panneau Cartes (BOARD_MODES ne fournit
+   * qu'une clé + un repli français) — traduit via i18n, jamais le repli
+   * brut de constants.js. */
+  boardModeLabel(k) {
+    return t(`board.mode.${k}`);
+  }
+
+  /** Traduit à l'affichage les valeurs sentinelles internes des filtres
+   * (stockées en français dans les réglages, comme pour le Binder — voir
+   * filterSentinelLabel dans feuillets-view.js) ; un statut/label/POV réel
+   * choisi par l'utilisateur passe inchangé. */
+  filterSentinelLabel(v) {
+    return v === "Tous" ? t("binder.filter.all")
+      : v === "Sans statut" ? t("binder.filter.noStatus")
+      : v === "Sans label" ? t("binder.filter.noLabel")
+      : v === "Sans POV" ? t("board.filter.noPov")
+      : v === "Atteint" ? t("binder.filter.progressHit")
+      : v === "En dessous" ? t("binder.filter.progressUnder")
+      : v === "Dépassé" ? t("binder.filter.progressOver")
+      : v;
   }
 
   getIcon() {
@@ -148,7 +171,7 @@ export class BoardView extends BaseFeuilletsView {
 
     const root = this.getProjectFolder();
     if (!root) {
-      container.createDiv({ cls: "feuillets-empty", text: "Aucun dossier projet défini (réglages du plugin)." });
+      container.createDiv({ cls: "feuillets-empty", text: t("board.noProjectFolder") });
       return;
     }
 
@@ -190,12 +213,12 @@ export class BoardView extends BaseFeuilletsView {
     if (this.selectionModeActive === undefined) this.selectionModeActive = false;
 
     const bar = container.createDiv({ cls: "feuillets-board-bar" }).createDiv({ cls: "feuillets-board-bar-right" });
-    this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", "Filtres (statut, label, POV, progression)", (e) => {
+    this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", t("board.filter.tooltip"), (e) => {
       const menu = new Menu();
-      menu.addItem((item) => item.setTitle("— Statut —").setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
       for (const st of ["Tous", ...getProjectStatuses(S).filter(Boolean), "Sans statut"]) {
         menu.addItem((item) =>
-          item.setTitle(st).setChecked((S.statusFilter || "Tous") === st).onClick(async () => {
+          item.setTitle(this.filterSentinelLabel(st)).setChecked((S.statusFilter || "Tous") === st).onClick(async () => {
             S.statusFilter = st;
             await this.plugin.saveSettings();
             this.render();
@@ -219,10 +242,10 @@ export class BoardView extends BaseFeuilletsView {
       const pMeta = projectRoot ? S.projectMeta[projectRoot.path] : null;
       (pMeta && pMeta.labels ? pMeta.labels : S.labels || []).forEach((l) => { if (l.name) labels.add(l.name); });
       const sortedLabels = Array.from(labels).sort((a, b) => a.localeCompare(b, "fr"));
-      menu.addItem((item) => item.setTitle("— Label —").setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
       for (const lb of ["Tous", ...sortedLabels, "Sans label"]) {
         menu.addItem((item) =>
-          item.setTitle(lb).setChecked((S.labelFilter || "Tous") === lb).onClick(async () => {
+          item.setTitle(this.filterSentinelLabel(lb)).setChecked((S.labelFilter || "Tous") === lb).onClick(async () => {
             S.labelFilter = lb;
             await this.plugin.saveSettings();
             this.render();
@@ -244,10 +267,10 @@ export class BoardView extends BaseFeuilletsView {
       }
       const sortedPovs = Array.from(povs).sort((a, b) => a.localeCompare(b, "fr"));
       if (sortedPovs.length > 0) {
-        menu.addItem((item) => item.setTitle("— POV —").setDisabled(true));
+        menu.addItem((item) => item.setTitle(t("board.filter.povHeader")).setDisabled(true));
         for (const pv of ["Tous", ...sortedPovs, "Sans POV"]) {
           menu.addItem((item) =>
-            item.setTitle(pv).setChecked((S.povFilter || "Tous") === pv).onClick(async () => {
+            item.setTitle(this.filterSentinelLabel(pv)).setChecked((S.povFilter || "Tous") === pv).onClick(async () => {
               S.povFilter = pv;
               await this.plugin.saveSettings();
               this.render();
@@ -256,10 +279,10 @@ export class BoardView extends BaseFeuilletsView {
         }
         menu.addSeparator();
       }
-      menu.addItem((item) => item.setTitle("— Progression —").setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("binder.filter.progressHeader")).setDisabled(true));
       for (const pr of ["Tous", "Atteint", "En dessous", "Dépassé"]) {
         menu.addItem((item) =>
-          item.setTitle(pr).setChecked((S.progressFilter || "Tous") === pr).onClick(async () => {
+          item.setTitle(this.filterSentinelLabel(pr)).setChecked((S.progressFilter || "Tous") === pr).onClick(async () => {
             S.progressFilter = pr;
             await this.plugin.saveSettings();
             this.render();
@@ -269,7 +292,7 @@ export class BoardView extends BaseFeuilletsView {
       if (this.filterActive()) {
         menu.addSeparator();
         menu.addItem((item) =>
-          item.setTitle("Réinitialiser tous les filtres").setIcon("filter-x").onClick(async () => {
+          item.setTitle(t("binder.filter.reset")).setIcon("filter-x").onClick(async () => {
             S.statusFilter = "Tous";
             S.labelFilter = "Tous";
             S.progressFilter = "Tous";
@@ -305,22 +328,22 @@ export class BoardView extends BaseFeuilletsView {
 
     const modeGroup = bar.createDiv({ cls: "feuillets-mode-group" });
     const icons = { board: "layout-grid", outline: "list-tree", arcs: "git-branch", timeline: "milestone", read: "book-open-text" };
-    for (const [k, label] of BOARD_MODES) {
+    for (const [k] of BOARD_MODES) {
       if (!visibleModes.includes(k)) continue;
-      const btn = this.iconBtn(modeGroup, icons[k], label, switchMode(k));
+      const btn = this.iconBtn(modeGroup, icons[k], this.boardModeLabel(k), switchMode(k));
       if (activeMode === k) btn.addClass("feuillets-mode-active");
     }
 
-    this.iconBtn(modeGroup, "layout-dashboard", "Tableau canvas (brainstorming)", () => {
+    this.iconBtn(modeGroup, "layout-dashboard", t("board.canvasTooltip"), () => {
       this.plugin.generateCanvasBoard();
     });
 
-    this.iconBtn(modeGroup, "sliders-horizontal", "Options de la vue", (e) => {
+    this.iconBtn(modeGroup, "sliders-horizontal", t("board.viewOptionsTooltip"), (e) => {
       const menu = new Menu();
-      menu.addItem((item) => item.setTitle("— Modes affichés —").setDisabled(true));
-      for (const [k, label] of BOARD_MODES) {
+      menu.addItem((item) => item.setTitle(t("board.visibleModesHeader")).setDisabled(true));
+      for (const [k] of BOARD_MODES) {
         menu.addItem((item) =>
-          item.setTitle(label).setChecked(visibleModes.includes(k)).onClick(async () => {
+          item.setTitle(this.boardModeLabel(k)).setChecked(visibleModes.includes(k)).onClick(async () => {
             const set = new Set(hiddenModes);
             if (set.has(k)) set.delete(k); else set.add(k);
             const arr = [...set];
@@ -352,12 +375,14 @@ export class BoardView extends BaseFeuilletsView {
       const btnSel = this.iconBtn(
         bar,
         "list-checks",
-        this.selectionModeActive ? `Actions de ${unitLabel} (${selSize} sélectionnée${selSize > 1 ? "s" : ""})` : `Sélectionner des ${unitPlural}…`,
+        this.selectionModeActive
+          ? t("board.selection.actionsTooltip", { unit: unitLabel, count: selSize, s: selSize > 1 ? "s" : "" })
+          : t("board.selection.selectTooltip", { unitPlural }),
         (e) => {
           const menu = new Menu();
           if (!this.selectionModeActive) {
             menu.addItem((item) =>
-              item.setTitle(`Sélectionner des ${unitPlural}…`).setIcon("list-checks").onClick(() => {
+              item.setTitle(t("board.selection.selectTooltip", { unitPlural })).setIcon("list-checks").onClick(() => {
                 this.selectionModeActive = true;
                 this.render(true);
               })
@@ -366,25 +391,25 @@ export class BoardView extends BaseFeuilletsView {
             return;
           }
           menu.addItem((item) =>
-            item.setTitle(`Fusionner (${selSize})`).setIcon("git-merge").setDisabled(selSize < 2).onClick(() => {
+            item.setTitle(t("board.selection.merge", { count: selSize })).setIcon("git-merge").setDisabled(selSize < 2).onClick(() => {
               const files = getSelectedFiles();
               clearSel();
               if (files.length < 2) {
-                new Notice(`Sélectionne au moins deux ${unitPlural} à fusionner.`);
+                new Notice(t("board.selection.mergeNeedsTwo", { unitPlural }));
                 return;
               }
               this.plugin.openMergeModal(files);
             })
           );
           menu.addItem((item) =>
-            item.setTitle(`Dupliquer (${selSize})`).setIcon("copy").setDisabled(selSize < 1).onClick(async () => {
+            item.setTitle(t("board.selection.duplicate", { count: selSize })).setIcon("copy").setDisabled(selSize < 1).onClick(async () => {
               const files = getSelectedFiles();
               clearSel();
               if (files.length > 0) await this.plugin.duplicateManyScenes(files);
             })
           );
           menu.addItem((item) =>
-            item.setTitle(`Déplacer (${selSize})…`).setIcon("move").setDisabled(selSize < 1).onClick(() => {
+            item.setTitle(t("board.selection.move", { count: selSize })).setIcon("move").setDisabled(selSize < 1).onClick(() => {
               const files = getSelectedFiles();
               clearSel();
               if (files.length > 0) this.plugin.openMoveManyModal(files);
@@ -394,7 +419,7 @@ export class BoardView extends BaseFeuilletsView {
 
           for (const st of getProjectStatuses(this.plugin.settings).filter(Boolean)) {
             menu.addItem((item) =>
-              item.setTitle(`Statut : ${st} (${selSize})`).setDisabled(selSize < 1).onClick(async () => {
+              item.setTitle(t("board.selection.statusCount", { status: st, count: selSize })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
                 clearSel();
                 await this.applyBulkStatus(files, st);
@@ -405,7 +430,7 @@ export class BoardView extends BaseFeuilletsView {
 
           for (const l of this.getProjectLabels()) {
             menu.addItem((item) =>
-              item.setTitle(`Label : ${l.name} (${selSize})`).setDisabled(selSize < 1).onClick(async () => {
+              item.setTitle(t("board.selection.labelCount", { label: l.name, count: selSize })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
                 clearSel();
                 await this.applyBulkLabel(files, l.name);
@@ -415,21 +440,21 @@ export class BoardView extends BaseFeuilletsView {
           menu.addSeparator();
 
           menu.addItem((item) =>
-            item.setTitle(`Ajouter un tag (${selSize})…`).setIcon("tag").setDisabled(selSize < 1).onClick(() => {
+            item.setTitle(t("board.selection.addTag", { count: selSize })).setIcon("tag").setDisabled(selSize < 1).onClick(() => {
               const files = getSelectedFiles();
               clearSel();
               this.promptBulkTag(files, () => this.render(true));
             })
           );
           menu.addSeparator();
-          menu.addItem((item) => item.setTitle("Quitter le mode sélection").setIcon("x").onClick(clearSel));
+          menu.addItem((item) => item.setTitle(t("board.selection.exit")).setIcon("x").onClick(clearSel));
           menu.showAtMouseEvent(e);
         }
       );
       if (this.selectionModeActive) btnSel.addClass("feuillets-mode-active");
     }
 
-    this.iconBtn(bar, "undo-2", "Annuler le dernier déplacement", () => this.app.commands.executeCommandById("feuillets:undo-move"));
+    this.iconBtn(bar, "undo-2", t("board.undoMoveTooltip"), () => this.app.commands.executeCommandById("feuillets:undo-move"));
 
     const flattened = this.plugin.flattenFiles(root);
     const wcMapRaw = await this.plugin.getWordCounts(flattened);
@@ -446,7 +471,7 @@ export class BoardView extends BaseFeuilletsView {
     });
 
     if (this.filterActive()) {
-      container.createDiv({ cls: "feuillets-filter-note", text: "Filtre actif — glisser-déposer désactivé, total partiel." });
+      container.createDiv({ cls: "feuillets-filter-note", text: t("board.filterActiveNote") });
     }
 
     const numbering = this.plugin.buildNumbering(root);
@@ -486,8 +511,8 @@ export class BoardView extends BaseFeuilletsView {
       );
 
     if (activeMode === "board") {
-      menu.addItem((item) => item.setTitle("— Cartes —").setDisabled(true));
-      for (const [val, label] of [[false, "Dossier par dossier"], [true, "Tout le manuscrit"]]) {
+      menu.addItem((item) => item.setTitle(t("board.options.cardsHeader")).setDisabled(true));
+      for (const [val, label] of [[false, t("board.options.folderByFolder")], [true, t("board.options.wholeManuscript")]]) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(wholeManuscript === val).onClick(async () => {
             if (meta) meta.boardWholeManuscript = val;
@@ -498,13 +523,13 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.addSeparator();
-      addToggleOption("showProgress", "Barres de progression");
-      addToggleOption("showCardTags", "Tags sur les tuiles");
+      addToggleOption("showProgress", t("binder.display.progressBars"));
+      addToggleOption("showCardTags", t("board.options.tagsOnTiles"));
       menu.addSeparator();
       const contentOptions =
         pType === "nonfiction"
-          ? [["extrait", "Corps : extrait du texte"], ["summary", "Corps : résumé"]]
-          : [["extrait", "Corps : extrait du texte"], ["synopsis", "Corps : synopsis"]];
+          ? [["extrait", t("board.options.bodyExcerpt")], ["summary", t("board.options.bodySummary")]]
+          : [["extrait", t("board.options.bodyExcerpt")], ["synopsis", t("board.options.bodySynopsis")]];
       for (const [val, label] of contentOptions) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(this.currentCardContent === val).onClick(async () => {
@@ -516,7 +541,7 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.addSeparator();
-      for (const [val, label] of [[180, "Tuiles petites"], [240, "Tuiles moyennes"], [320, "Tuiles grandes"]]) {
+      for (const [val, label] of [[180, t("board.options.tilesSmall")], [240, t("board.options.tilesMedium")], [320, t("board.options.tilesLarge")]]) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(S.tileSize === val).onClick(async () => {
             S.tileSize = val;
@@ -526,31 +551,31 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
     } else if (activeMode === "outline") {
-      menu.addItem((item) => item.setTitle("— Plan —").setDisabled(true));
-      addToggleOption("showProgress", "Barres de progression");
+      menu.addItem((item) => item.setTitle(t("board.options.outlineHeader")).setDisabled(true));
+      addToggleOption("showProgress", t("binder.display.progressBars"));
       menu.addSeparator();
       menu.addItem((item) =>
-        item.setTitle("Réinitialiser la largeur des colonnes").onClick(async () => {
+        item.setTitle(t("board.options.resetColumnWidths")).onClick(async () => {
           S.outlineWidths = Object.assign({}, DEFAULT_SETTINGS.outlineWidths);
           await this.plugin.saveSettings();
           this.render();
         })
       );
       menu.addSeparator();
-      menu.addItem((item) => item.setTitle("— Colonnes affichées —").setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("board.options.visibleColumnsHeader")).setDisabled(true));
       for (const [colKey, label] of [
-        ["synopsis", "Synopsis"],
-        ["summary", "Résumé"],
-        ["notes", "Notes"],
-        ["tags", "Tags"],
-        ["label", "Label"],
-        ["status", "Statut"],
-        ["date", "Date"],
-        ["compiler", "Compiler"],
-        ["filename", "Fichier"],
-        ["words", "Mots"],
-        ["goal", "Objectif"],
-        ["progress", "Progression"],
+        ["synopsis", t("board.col.synopsis")],
+        ["summary", t("board.col.summary")],
+        ["notes", t("board.col.notes")],
+        ["tags", t("board.col.tags")],
+        ["label", t("board.col.label")],
+        ["status", t("board.col.status")],
+        ["date", t("board.col.date")],
+        ["compiler", t("board.col.compiler")],
+        ["filename", t("board.col.filename")],
+        ["words", t("board.col.words")],
+        ["goal", t("board.col.goal")],
+        ["progress", t("board.col.progress")],
       ]) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(!!S.outlineCols[colKey]).onClick(async () => {
@@ -561,8 +586,8 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
     } else if (activeMode === "timeline") {
-      menu.addItem((item) => item.setTitle("— Chronologie —").setDisabled(true));
-      for (const [val, label] of [["chrono", "Ordre chronologique"], ["narratif", "Ordre narratif"]]) {
+      menu.addItem((item) => item.setTitle(t("board.options.timelineHeader")).setDisabled(true));
+      for (const [val, label] of [["chrono", t("board.options.chronoOrder")], ["narratif", t("board.options.narrativeOrder")]]) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(S.timelineOrder === val).onClick(async () => {
             S.timelineOrder = val;
@@ -573,7 +598,7 @@ export class BoardView extends BaseFeuilletsView {
       }
       menu.addSeparator();
       menu.addItem((item) =>
-        item.setTitle("Tous les jalons").setChecked(!S.timelineTagFilter).onClick(async () => {
+        item.setTitle(t("board.options.allMilestones")).setChecked(!S.timelineTagFilter).onClick(async () => {
           S.timelineTagFilter = "";
           await this.plugin.saveSettings();
           this.render();
@@ -603,11 +628,11 @@ export class BoardView extends BaseFeuilletsView {
       }
       menu.addSeparator();
       for (const [val, label] of [
-        ["siecle", "Échelle : siècle"],
-        ["annee", "Échelle : année"],
-        ["mois", "Échelle : mois"],
-        ["jour", "Échelle : jour"],
-        ["aucune", "Échelle : sans en-têtes"],
+        ["siecle", t("board.options.scaleCentury")],
+        ["annee", t("board.options.scaleYear")],
+        ["mois", t("board.options.scaleMonth")],
+        ["jour", t("board.options.scaleDay")],
+        ["aucune", t("board.options.scaleNone")],
       ]) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked((S.timelineScale || "annee") === val).onClick(async () => {
@@ -618,9 +643,9 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
     } else if (activeMode === "read" && folder) {
-      menu.addItem((item) => item.setTitle("— Lecture —").setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("board.options.readingHeader")).setDisabled(true));
       menu.addItem((item) =>
-        item.setTitle("Tout le manuscrit").setChecked(!S.readScope).onClick(async () => {
+        item.setTitle(t("board.options.wholeManuscript")).setChecked(!S.readScope).onClick(async () => {
           S.readScope = "";
           await this.plugin.saveSettings();
           this.render();
@@ -643,7 +668,7 @@ export class BoardView extends BaseFeuilletsView {
       addFolderScopeOptions(folder, 0);
       menu.addItem((item) =>
         item
-          .setTitle(S.readScope === "__selection__" ? "Modifier la sélection manuelle…" : "Sélection manuelle…")
+          .setTitle(S.readScope === "__selection__" ? t("board.options.editManualSelection") : t("board.options.manualSelection"))
           .setChecked(S.readScope === "__selection__")
           .onClick(() => {
             new ReadSelectionModal(this.app, this.plugin, () => {
@@ -677,7 +702,7 @@ export class BoardView extends BaseFeuilletsView {
     const input = wrap.createEl("input", {
       cls: "feuillets-tags-input",
       type: "text",
-      attr: { placeholder: tags.length ? "+" : "+ tags" },
+      attr: { placeholder: tags.length ? "+" : t("shared.tags.placeholder") },
     });
     input.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
@@ -690,7 +715,7 @@ export class BoardView extends BaseFeuilletsView {
       input.blur();
     });
     wrap.querySelectorAll(".feuillets-tag-chip").forEach((chip, idx) => {
-      chip.setAttr("title", "Cliquer pour retirer ce tag");
+      chip.setAttr("title", t("shared.tags.removeTooltip"));
       chip.addEventListener("click", async () => {
         const next = tags.filter((_, i) => i !== idx);
         await this.setFm(file, "tags", next);
@@ -713,7 +738,7 @@ export class BoardView extends BaseFeuilletsView {
       if (idx > 0) breadcrumbs.createSpan({ text: "  /  ", cls: "feuillets-breadcrumb-sep" });
       const isLast = idx === chain.length - 1;
       breadcrumbs
-        .createSpan({ cls: "feuillets-breadcrumb-link" + (isLast ? " is-active" : ""), text: f.path === root.path ? "Projet" : f.name })
+        .createSpan({ cls: "feuillets-breadcrumb-link" + (isLast ? " is-active" : ""), text: f.path === root.path ? t("board.projectBreadcrumb") : f.name })
         .addEventListener("click", () => {
           this.focusedFolderPath = f.path;
           this.render(true);
@@ -822,7 +847,7 @@ export class BoardView extends BaseFeuilletsView {
   renderFolderCard(container, parentFolder, folder, index, siblings, numbering, bumpTotal) {
     const S = this.plugin.settings;
     const card = container.createDiv({ cls: "feuillets-card feuillets-card-folder" });
-    card.setAttr("title", `Double-cliquer pour entrer dans : ${folder.name}`);
+    card.setAttr("title", t("board.folderCard.doubleClickEnter", { name: folder.name }));
     card.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this.showFolderContextMenu(e, folder, parentFolder, index, siblings);
@@ -845,7 +870,7 @@ export class BoardView extends BaseFeuilletsView {
       style: "font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 90px; cursor: pointer;",
     });
     num.setText(folder.name);
-    num.setAttr("title", "Cliquer pour entrer");
+    num.setAttr("title", t("board.folderCard.clickToEnter"));
     num.addEventListener("click", (e) => {
       e.stopPropagation();
       this.focusedFolderPath = folder.path;
@@ -865,7 +890,7 @@ export class BoardView extends BaseFeuilletsView {
     const summary = (folderNote && this.plugin.fmOf(folderNote)[fieldKey]) || "";
     const excerpt = card.createDiv({ cls: "feuillets-card-excerpt" });
     excerpt.style.marginTop = "8px";
-    excerpt.setText(summary || (fieldKey === "synopsis" ? "Synopsis du dossier…" : "Résumé du dossier…"));
+    excerpt.setText(summary || (fieldKey === "synopsis" ? t("board.folderCard.synopsisPlaceholder") : t("board.folderCard.summaryPlaceholder")));
 
     if (!this.filterActive()) this.attachDragHandlers(head, card, parentFolder, index, siblings, container);
   }
@@ -894,7 +919,7 @@ export class BoardView extends BaseFeuilletsView {
     if (this.selectionModeActive && this.plugin.isSceneFile(file)) {
       const cb = head.createEl("input", { type: "checkbox", cls: "feuillets-scene-select" });
       cb.checked = this.plugin._binderMultiSelect.has(file.path);
-      cb.setAttr("title", `Sélectionner cette ${this.plugin.unitLabel()}`);
+      cb.setAttr("title", t("board.card.selectThisUnit", { unit: this.plugin.unitLabel() }));
       cb.addEventListener("click", (e) => e.stopPropagation());
       cb.addEventListener("change", () => {
         if (cb.checked) this.plugin._binderMultiSelect.add(file.path);
@@ -914,12 +939,12 @@ export class BoardView extends BaseFeuilletsView {
     if (pov) {
       const povEl = head.createDiv({ cls: "feuillets-card-pov" });
       povEl.setText(pov);
-      povEl.setAttr("title", `Point de vue : ${pov}`);
+      povEl.setAttr("title", t("board.card.povTooltip", { pov }));
     }
 
     const more = head.createDiv({ cls: "feuillets-card-more clickable-icon" });
     setIcon(more, "more-horizontal");
-    more.setAttr("title", "Statut, tags, notes…");
+    more.setAttr("title", t("board.card.moreTooltip"));
     more.addEventListener("click", (e) => {
       e.stopPropagation();
       const menu = new Menu();
@@ -927,41 +952,41 @@ export class BoardView extends BaseFeuilletsView {
       const S = this.plugin.settings;
       for (const st of getProjectStatuses(S).filter(Boolean)) {
         menu.addItem((item) =>
-          item.setTitle(`Statut : ${st}`).setChecked(st === currentSt).onClick(async () => {
+          item.setTitle(t("shared.contextMenu.statusLabel", { status: st })).setChecked(st === currentSt).onClick(async () => {
             await this.setFm(file, "statut", st === currentSt ? "" : st);
           })
         );
       }
       menu.addSeparator();
       menu.addItem((item) =>
-        item.setTitle("Modifier les tags…").onClick(() => {
+        item.setTitle(t("shared.contextMenu.editTags")).onClick(() => {
           this.plugin.openTagsModal(file);
         })
       );
       menu.addItem((item) =>
-        item.setTitle("Modifier le résumé…").onClick(() => {
-          new FmFieldModal(this.app, this.plugin, file, "summary", "Résumé long", () => this.render(true)).open();
+        item.setTitle(t("shared.contextMenu.editSummary")).onClick(() => {
+          new FmFieldModal(this.app, this.plugin, file, "summary", t("board.card.longSummaryLabel"), () => this.render(true)).open();
         })
       );
       menu.addItem((item) =>
-        item.setTitle("Modifier le POV…").onClick(() => {
-          new FmFieldModal(this.app, this.plugin, file, "pov", "Point de vue (POV)", () => this.render(true)).open();
+        item.setTitle(t("board.card.editPov")).onClick(() => {
+          new FmFieldModal(this.app, this.plugin, file, "pov", t("board.card.povFieldLabel"), () => this.render(true)).open();
         })
       );
       menu.addItem((item) =>
-        item.setTitle("Ouvrir le fichier").onClick(() => {
+        item.setTitle(t("shared.research.openFile")).onClick(() => {
           openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
         })
       );
 
       menu.addSeparator();
       menu.addItem((item) =>
-        item.setTitle("Comparer avec le snapshot").setIcon("history").onClick(async () => {
+        item.setTitle(t("shared.contextMenu.compareWithSnapshot")).setIcon("history").onClick(async () => {
           const projectRoot = this.plugin.getProjectFolder();
           const snapshots = listSnapshotFiles(this.app, file, projectRoot);
 
           if (snapshots.length === 0) {
-            new Notice(`Aucun snapshot trouvé pour : ${file.basename}`);
+            new Notice(t("shared.contextMenu.noSnapshotFound", { name: file.basename }));
             return;
           }
 
@@ -977,9 +1002,9 @@ export class BoardView extends BaseFeuilletsView {
     if (!S.showProgress) ring.style.display = "none";
 
     if (this.currentCardContent === "synopsis") {
-      this.makeClickToEditFmArea(card, file, "synopsis", "Synopsis…", 6);
+      this.makeClickToEditFmArea(card, file, "synopsis", t("board.card.synopsisPlaceholder"), 6);
     } else if (this.currentCardContent === "summary") {
-      this.makeClickToEditFmArea(card, file, "summary", "Résumé…", 6);
+      this.makeClickToEditFmArea(card, file, "summary", t("board.card.summaryPlaceholder"), 6);
     } else {
       const excerpt = card.createDiv({ cls: "feuillets-card-excerpt", text: "…" });
       excerpt.addEventListener("click", () => {
@@ -992,7 +1017,7 @@ export class BoardView extends BaseFeuilletsView {
            inutile de dépouiller tout le corps du feuillet pour un aperçu. */
         const limit = S.excerptLength || 420;
         const clean = stripMarkdown(body.slice(0, limit + 200)).slice(0, limit);
-        excerpt.setText(clean || "— vide —");
+        excerpt.setText(clean || t("binder.item.emptyPreview"));
       });
     }
 
@@ -1033,8 +1058,8 @@ export class BoardView extends BaseFeuilletsView {
       scrollWrap.createDiv({
         cls: "feuillets-empty",
         text: S.readScope === "__selection__"
-          ? "Aucun feuillet sélectionné — choisis « Sélection manuelle… » dans le menu."
-          : "Aucun feuillet ne passe les filtres actifs.",
+          ? t("board.reading.noSelection")
+          : t("board.reading.noneMatchFilters"),
       });
       return;
     }
@@ -1103,7 +1128,7 @@ export class BoardView extends BaseFeuilletsView {
     if (sortedLabels.length === 0 && sortedFils.length === 0 && sortedPovs.length === 0) {
       wrap.createDiv({
         cls: "feuillets-empty",
-        text: `Aucun label, fil ni POV détecté. Ajoute label: Nom, thread: indice ou pov: Nom dans le YAML pour construire le chemin de fer.`,
+        text: t("board.arcs.empty"),
       });
       return;
     }
@@ -1114,11 +1139,11 @@ export class BoardView extends BaseFeuilletsView {
       const btn = filterBar.createEl("button", { cls: "clickable-icon feuillets-arcs-filter-btn" });
       setIcon(btn.createSpan(), icon);
       btn.createSpan({ cls: "feuillets-arcs-filter-btn-label", text: currentValue || name });
-      setTooltip(btn, currentValue ? `${name} : ${currentValue}` : `Filtrer par ${name.toLowerCase()}`);
+      setTooltip(btn, currentValue ? `${name} : ${currentValue}` : t("board.arcs.filterByTooltip", { name: name.toLowerCase() }));
       if (currentValue) btn.addClass("is-active");
       btn.addEventListener("click", (e) => {
         const menu = new Menu();
-        menu.addItem((item) => item.setTitle("Tous").setChecked(!currentValue).onClick(() => {
+        menu.addItem((item) => item.setTitle(t("binder.filter.all")).setChecked(!currentValue).onClick(() => {
           onSelect("");
           this.render(true);
         }));
@@ -1137,16 +1162,16 @@ export class BoardView extends BaseFeuilletsView {
     };
 
     if (sortedLabels.length > 0) {
-      buildFilterMenuBtn("map-pin", "Label", sortedLabels, this.selectedLabel, (v) => { this.selectedLabel = v; });
+      buildFilterMenuBtn("map-pin", t("board.arcs.labelFilterName"), sortedLabels, this.selectedLabel, (v) => { this.selectedLabel = v; });
     }
     if (sortedPersonnages.length > 0) {
-      buildFilterMenuBtn("users", "Personnage", sortedPersonnages, this.selectedPerso, (v) => { this.selectedPerso = v; });
+      buildFilterMenuBtn("users", t("board.arcs.characterFilterName"), sortedPersonnages, this.selectedPerso, (v) => { this.selectedPerso = v; });
     }
     if (sortedFils.length > 0) {
-      buildFilterMenuBtn("route", "Fil", sortedFils, this.selectedFil, (v) => { this.selectedFil = v; });
+      buildFilterMenuBtn("route", t("board.arcs.threadFilterName"), sortedFils, this.selectedFil, (v) => { this.selectedFil = v; });
     }
     if (sortedPovs.length > 0) {
-      buildFilterMenuBtn("eye", "POV", sortedPovs, this.selectedPov, (v) => { this.selectedPov = v; });
+      buildFilterMenuBtn("eye", t("board.arcs.povFilterName"), sortedPovs, this.selectedPov, (v) => { this.selectedPov = v; });
     }
 
     const filterLabel = this.selectedLabel || "";
@@ -1252,12 +1277,12 @@ export class BoardView extends BaseFeuilletsView {
 
       const currentPov = povMap.get(file.path) || "";
       if (currentPov) {
-        info.createDiv({ cls: "feuillets-arcs-personnages", text: `POV : ${currentPov}` });
+        info.createDiv({ cls: "feuillets-arcs-personnages", text: t("board.arcs.povLine", { pov: currentPov }) });
       }
 
       const currentPersonnages = personnagesMap.get(file.path) || [];
       if (currentPersonnages.length > 0) {
-        info.createDiv({ cls: "feuillets-arcs-personnages", text: `Avec ${currentPersonnages.join(", ")}` });
+        info.createDiv({ cls: "feuillets-arcs-personnages", text: t("board.arcs.withCharacters", { names: currentPersonnages.join(", ") }) });
       }
 
       // Fils (fil:) à droite en carrés
@@ -1326,7 +1351,7 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     if (items.length === 0) {
-      container.createDiv({ cls: "feuillets-empty", text: "Aucune scène datée." });
+      container.createDiv({ cls: "feuillets-empty", text: t("board.timeline.empty") });
       return;
     }
 
@@ -1347,19 +1372,19 @@ export class BoardView extends BaseFeuilletsView {
 
   visibleCols() {
     const cols = this.plugin.settings.outlineCols;
-    const res = [{ id: "title", label: "Feuillet" }];
-    if (cols.synopsis) res.push({ id: "synopsis", label: "Synopsis" });
-    if (cols.summary) res.push({ id: "summary", label: "Résumé" });
-    if (cols.notes) res.push({ id: "notes", label: "Notes" });
-    if (cols.tags) res.push({ id: "tags", label: "Tags" });
-    if (cols.label) res.push({ id: "label", label: "Label" });
-    if (cols.status) res.push({ id: "status", label: "Statut" });
-    if (cols.date) res.push({ id: "date", label: "Date" });
-    if (cols.compile) res.push({ id: "compile", label: "Compiler" });
-    if (cols.filename) res.push({ id: "filename", label: "Fichier" });
-    if (cols.words) res.push({ id: "words", label: "Mots" });
-    if (cols.goal) res.push({ id: "goal", label: "Objectif" });
-    if (cols.progress) res.push({ id: "progress", label: "Progression" });
+    const res = [{ id: "title", label: t("board.col.title") }];
+    if (cols.synopsis) res.push({ id: "synopsis", label: t("board.col.synopsis") });
+    if (cols.summary) res.push({ id: "summary", label: t("board.col.summary") });
+    if (cols.notes) res.push({ id: "notes", label: t("board.col.notes") });
+    if (cols.tags) res.push({ id: "tags", label: t("board.col.tags") });
+    if (cols.label) res.push({ id: "label", label: t("board.col.label") });
+    if (cols.status) res.push({ id: "status", label: t("board.col.status") });
+    if (cols.date) res.push({ id: "date", label: t("board.col.date") });
+    if (cols.compile) res.push({ id: "compile", label: t("board.col.compiler") });
+    if (cols.filename) res.push({ id: "filename", label: t("board.col.filename") });
+    if (cols.words) res.push({ id: "words", label: t("board.col.words") });
+    if (cols.goal) res.push({ id: "goal", label: t("board.col.goal") });
+    if (cols.progress) res.push({ id: "progress", label: t("board.col.progress") });
     return res;
   }
 
@@ -1495,14 +1520,14 @@ export class BoardView extends BaseFeuilletsView {
       bumpTotal(wc);
 
       this.emptyCells(row, cols, {
-        synopsis: (cell) => this.makeClickToEditFmArea(cell, child, "synopsis", "Synopsis…", 1),
-        summary: (cell) => this.makeClickToEditFmArea(cell, child, "summary", "Résumé…", 1),
-        notes: (cell) => this.makeClickToEditFmArea(cell, child, "notes", "Notes…", 1),
+        synopsis: (cell) => this.makeClickToEditFmArea(cell, child, "synopsis", t("board.card.synopsisPlaceholder"), 1),
+        summary: (cell) => this.makeClickToEditFmArea(cell, child, "summary", t("board.card.summaryPlaceholder"), 1),
+        notes: (cell) => this.makeClickToEditFmArea(cell, child, "notes", t("board.outline.notesPlaceholder"), 1),
         tags: (cell) => this.makeTagsEditor(cell, child),
         label: (cell) => this.makeLabelSelect(cell, child),
         status: (cell) => this.makeStatusSelect(cell, child),
         date: (cell) => cell.setText(this.fm(child).date || "—"),
-        compile: (cell) => cell.setText(this.fm(child).compile !== false ? "Oui" : "Non"),
+        compile: (cell) => cell.setText(this.fm(child).compile !== false ? t("shared.yes") : t("shared.no")),
         filename: (cell) => cell.setText(child.basename),
         words: (cell) => cell.setText(String(wc)),
         goal: (cell) => cell.setText(String(this.goalFor(child))),

@@ -6,6 +6,7 @@ import { ManageProjectsModal, NewProjectModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
+import { t } from "../i18n/index.js";
 const { Menu, TFile, TFolder, setIcon, Notice, normalizePath } = require("obsidian");
 
 export class FeuilletsView extends BaseFeuilletsView {
@@ -14,7 +15,7 @@ export class FeuilletsView extends BaseFeuilletsView {
   }
 
   getDisplayText() {
-    return "Feuillets";
+    return t("binder.displayText");
   }
 
   getIcon() {
@@ -149,17 +150,17 @@ export class FeuilletsView extends BaseFeuilletsView {
           })
       );
 
-    menu.addItem((item) => item.setTitle("— Affichage —").setDisabled(true));
-    toggle("Liserés de couleur des labels", "binderShowLabels");
-    toggle("Pastilles de tags", "binderShowTags");
-    toggle("Pastille de statut", "binderShowStatus");
-    toggle("Barres de progression", "binderShowProgress");
-    toggle("Nombre de mots en chiffres", "binderShowWords");
+    menu.addItem((item) => item.setTitle(t("binder.display.header")).setDisabled(true));
+    toggle(t("binder.display.labelStripes"), "binderShowLabels");
+    toggle(t("binder.display.tagChips"), "binderShowTags");
+    toggle(t("binder.display.statusDot"), "binderShowStatus");
+    toggle(t("binder.display.progressBars"), "binderShowProgress");
+    toggle(t("binder.display.wordCountNumbers"), "binderShowWords");
     menu.addSeparator();
 
     menu.addItem((item) =>
       item
-        .setTitle("Plus d'options (réglages du binder)…")
+        .setTitle(t("binder.display.moreOptions"))
         .setIcon("settings")
         .onClick(() => {
           this.app.setting.open();
@@ -198,14 +199,14 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     /* Pas de choix de densité ici : bascule directe sur le bouton Densité
        lui-même (un clic), inutile de la dupliquer dans ce menu. */
-    menu.addItem((item) => item.setTitle("— Aperçu de la fiche —").setDisabled(true));
+    menu.addItem((item) => item.setTitle(t("binder.preview.header")).setDisabled(true));
     const previewFields = [
-      ["none", "Aucun"],
-      ["extrait", "Extrait du texte"],
-      ["synopsis", "Synopsis"],
-      ["summary", "Résumé long"],
-      ["notes", "Notes de travail"],
-      ["tags", "Tags"],
+      ["none", t("binder.preview.none")],
+      ["extrait", t("binder.preview.excerpt")],
+      ["synopsis", t("binder.preview.synopsis")],
+      ["summary", t("binder.preview.summary")],
+      ["notes", t("binder.preview.notes")],
+      ["tags", t("binder.preview.tags")],
     ];
     for (const [key, label] of previewFields) {
       menu.addItem((item) =>
@@ -222,7 +223,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     menu.addSeparator();
 
     if (!S.binderCompact && S.listPanePreviewField !== "none") {
-      menu.addItem((item) => item.setTitle("— Lignes d'aperçu —").setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("binder.preview.linesHeader")).setDisabled(true));
       for (let n = 1; n <= 6; n++) {
         menu.addItem((item) =>
           item
@@ -263,11 +264,11 @@ export class FeuilletsView extends BaseFeuilletsView {
        dossiers (qui restait cachée dans un mode d'affichage précis) —
        toujours disponible en premier, quel que soit le mode du Binder
        (arbre, double volet, fichiers seuls). */
-    this.iconBtn(actions, "folder-cog", "Gérer les projets…", () => {
+    this.iconBtn(actions, "folder-cog", t("binder.manageProjects"), () => {
       new ManageProjectsModal(this.app, this.plugin).open();
     });
     this.barSep(actions);
-    this.iconBtn(actions, "layout-grid", "Tableau / plan", () =>
+    this.iconBtn(actions, "layout-grid", t("binder.boardPlan"), () =>
       this.plugin.activateBoard()
     );
     this.barSep(actions);
@@ -288,7 +289,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        arbre n'apportait plus rien de distinct, juste un second chemin
        vers le même résultat. */
     const isSplit = () => S.binderLayout === "split";
-    const splitBtn = this.iconBtn(actions, "columns-2", "Double volet — cliquer pour basculer dossiers+fichiers/fichiers seuls, clic droit : options", async () => {
+    const splitBtn = this.iconBtn(actions, "columns-2", t("binder.splitPane.tooltip"), async () => {
       const next = isSplit() && this.currentSplitMode() === "both" ? "files" : "both";
       await this.applySplitPaneMode(next);
     });
@@ -303,7 +304,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        directe Standard/Compact (voir showSplitPaneOptionsMenu pour le
        détail des deux — clic droit y donne accès en plus des lignes
        d'aperçu et de l'affichage transversal). */
-    const densityBtn = this.iconBtn(actions, "rows-3", `Densité : ${S.binderCompact ? "Compact" : "Standard"} — cliquer pour basculer, clic droit : options`, async () => {
+    const densityBtn = this.iconBtn(actions, "rows-3", t("binder.density.tooltip", { mode: S.binderCompact ? t("binder.density.compact") : t("binder.density.standard") }), async () => {
       S.binderCompact = !S.binderCompact;
       await this.plugin.saveSettings();
       this.render(true);
@@ -332,7 +333,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     const searchIsOpen =
       this._binderSearchOpen || !!(S.binderSearch || "").trim();
-    const searchBtn = this.iconBtn(filterBar, "search", "Rechercher");
+    const searchBtn = this.iconBtn(filterBar, "search", t("binder.search.tooltip"));
     searchBtn.addEventListener("click", () => {
       this._binderSearchOpen = !this._binderSearchOpen;
       if (!this._binderSearchOpen) {
@@ -359,17 +360,25 @@ export class FeuilletsView extends BaseFeuilletsView {
     const filterBtn = this.iconBtn(
       filterBar,
       binderFilterIsActive() ? "filter" : "list-filter",
-      "Filtres (statut, label, progression)"
+      t("binder.filter.tooltip")
     );
     if (binderFilterIsActive()) filterBtn.addClass("feuillets-mode-active");
+    const filterSentinelLabel = (v) =>
+      v === "Tous" ? t("binder.filter.all")
+      : v === "Sans statut" ? t("binder.filter.noStatus")
+      : v === "Sans label" ? t("binder.filter.noLabel")
+      : v === "Atteint" ? t("binder.filter.progressHit")
+      : v === "En dessous" ? t("binder.filter.progressUnder")
+      : v === "Dépassé" ? t("binder.filter.progressOver")
+      : v;
     filterBtn.addEventListener("click", (e) => {
       const menu = new Menu();
 
-      menu.addItem((item) => item.setTitle("— Statut —").setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
       for (const s of ["Tous", ...getProjectStatuses(S).filter(Boolean), "Sans statut"]) {
         menu.addItem((item) =>
           item
-            .setTitle(s)
+            .setTitle(filterSentinelLabel(s))
             .setChecked((S.binderStatusFilter || "Tous") === s)
             .onClick(async () => {
               S.binderStatusFilter = s;
@@ -399,11 +408,11 @@ export class FeuilletsView extends BaseFeuilletsView {
       });
       const labelList = Array.from(activeLabels).sort((a, b) => a.localeCompare(b, "fr"));
 
-      menu.addItem((item) => item.setTitle("— Label —").setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
       for (const lb of ["Tous", ...labelList, "Sans label"]) {
         menu.addItem((item) =>
           item
-            .setTitle(lb)
+            .setTitle(filterSentinelLabel(lb))
             .setChecked((S.binderLabelFilter || "Tous") === lb)
             .onClick(async () => {
               S.binderLabelFilter = lb;
@@ -414,11 +423,11 @@ export class FeuilletsView extends BaseFeuilletsView {
       }
       menu.addSeparator();
 
-      menu.addItem((item) => item.setTitle("— Progression —").setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("binder.filter.progressHeader")).setDisabled(true));
       for (const pr of ["Tous", "Atteint", "En dessous", "Dépassé"]) {
         menu.addItem((item) =>
           item
-            .setTitle(pr)
+            .setTitle(filterSentinelLabel(pr))
             .setChecked((S.binderProgressFilter || "Tous") === pr)
             .onClick(async () => {
               S.binderProgressFilter = pr;
@@ -432,7 +441,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         menu.addSeparator();
         menu.addItem((item) =>
           item
-            .setTitle("Réinitialiser tous les filtres")
+            .setTitle(t("binder.filter.reset"))
             .setIcon("filter-x")
             .onClick(async () => {
               S.binderStatusFilter = "Tous";
@@ -450,7 +459,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       const resetBtn = this.iconBtn(
         filterBar,
         "x",
-        "Réinitialiser la recherche et les filtres"
+        t("binder.filter.resetSearchAndFilters")
       );
       resetBtn.addEventListener("click", async () => {
         S.binderSearch = "";
@@ -470,7 +479,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       const searchInput = searchRow.createEl("input", {
         type: "text",
         cls: "feuillets-binder-search",
-        attr: { placeholder: "Rechercher…" },
+        attr: { placeholder: t("binder.search.placeholder") },
       });
       searchInput.value = S.binderSearch || "";
       let searchTimer;
@@ -511,7 +520,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       const contentToggle = this.iconBtn(
         searchRow,
         S.binderSearchContent ? "file-search" : "file",
-        S.binderSearchContent ? "Recherche dans le titre et le contenu — cliquer pour limiter au titre" : "Recherche dans le titre seul — cliquer pour inclure le contenu"
+        S.binderSearchContent ? t("binder.search.contentToggle.on") : t("binder.search.contentToggle.off")
       );
       if (S.binderSearchContent) contentToggle.addClass("feuillets-mode-active");
       contentToggle.addEventListener("mousedown", (e) => e.preventDefault());
@@ -643,7 +652,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         if (st) {
           const dot = nameRow.createSpan({ cls: "feuillets-status-dot" });
           dot.style.background = this.plugin.getStatusColor(st) || "var(--text-faint)";
-          dot.setAttr("title", `Statut : ${st}`);
+          dot.setAttr("title", t("binder.item.statusTooltip", { status: st }));
         }
       }
 
@@ -662,7 +671,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         if (!inTitle) {
           const badge = nameRow.createSpan({ cls: "feuillets-search-badge" });
           setIcon(badge, "text-search");
-          badge.setAttr("title", "Trouvé dans le texte du feuillet");
+          badge.setAttr("title", t("binder.item.foundInBody"));
         }
       }
 
@@ -679,7 +688,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
             const limit = S.excerptLength || 420;
             const clean = stripMarkdown(body.slice(0, limit + 200)).slice(0, limit);
-            prev.setText(clean || "— vide —");
+            prev.setText(clean || t("binder.item.emptyPreview"));
           });
         } else {
           let text = "";
@@ -710,7 +719,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         const wc = wcCache.get(file.path)?.wc || 0;
         if (S.binderShowProgress) this.fillRing(ring, wc, goal);
         if (S.binderShowWords) {
-          body.createDiv({ cls: "feuillets-item-wc" }).setText(`${wc} mots`);
+          body.createDiv({ cls: "feuillets-item-wc" }).setText(t("binder.item.words", { count: wc }));
         }
       }
 
@@ -818,13 +827,13 @@ export class FeuilletsView extends BaseFeuilletsView {
     const treeHeader = treePane.createDiv({ cls: "feuillets-folder-row feuillets-tree-root" });
     const rootIcon = treeHeader.createDiv({ cls: "feuillets-cell-icon" });
     setIcon(rootIcon, "folder-cog");
-    treeHeader.createSpan({ cls: "feuillets-folder-name" }).setText("Gérer les projets");
+    treeHeader.createSpan({ cls: "feuillets-folder-name" }).setText(t("binder.projectManager.title"));
 
     const treeActions = treeHeader.createDiv({ cls: "feuillets-project-actions" });
 
     const newBtn = treeActions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
     setIcon(newBtn, "folder-plus");
-    newBtn.setAttr("aria-label", "Créer un nouveau projet…");
+    newBtn.setAttr("aria-label", t("binder.projectManager.newProject"));
     newBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       new NewProjectModal(this.app, this.plugin).open();
@@ -832,7 +841,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     const importBtn = treeActions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
     setIcon(importBtn, "import");
-    importBtn.setAttr("aria-label", "Importer un projet Scrivener…");
+    importBtn.setAttr("aria-label", t("binder.projectManager.importScrivener"));
     importBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       new ScrivenerImportModal(this.app, this.plugin).open();
@@ -853,7 +862,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     if (allProjects.length === 0) {
       projectListEl
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucun projet enregistré.");
+        .setText(t("binder.projectManager.noProjects"));
     } else {
       for (const path of allProjects) {
         const folderObj = this.app.vault.getAbstractFileByPath(path);
@@ -870,7 +879,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         nameSpan.setText(
           folderExists
             ? this.plugin.projectDisplayName(path)
-            : `${this.plugin.projectDisplayName(path)} (introuvable)`
+            : t("binder.projectManager.notFound", { name: this.plugin.projectDisplayName(path) })
         );
         if (!folderExists) {
           nameSpan.style.opacity = "0.6";
@@ -880,7 +889,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         const actionsEl = row.createDiv({ cls: "feuillets-project-actions" });
         const removeBtn = actionsEl.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
         setIcon(removeBtn, "trash-2");
-        removeBtn.setAttr("aria-label", "Retirer de la liste");
+        removeBtn.setAttr("aria-label", t("binder.projectManager.removeFromList"));
         removeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           S.projects = (S.projects || []).filter((p) => p !== path);
@@ -893,7 +902,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
         row.addEventListener("click", async () => {
           if (!folderExists) {
-            new Notice(`Le dossier « ${path} » n'existe plus dans le coffre (supprimé ou déplacé).`);
+            new Notice(t("binder.projectManager.folderGone", { path }));
             return;
           }
           S.projectFolder = path;
@@ -909,7 +918,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     addRow.style.padding = "8px 10px";
     const addInput = addRow.createEl("input", {
       type: "text",
-      attr: { placeholder: "Ajouter un dossier existant…" },
+      attr: { placeholder: t("binder.projectManager.addExisting") },
     });
     addInput.style.width = "100%";
     addInput.addEventListener("keydown", async (e) => {
@@ -918,7 +927,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       if (!p) return;
       const folder = this.app.vault.getAbstractFileByPath(p);
       if (!(folder instanceof TFolder)) {
-        new Notice("Dossier introuvable dans le coffre.");
+        new Notice(t("binder.projectManager.folderNotFound"));
         return;
       }
       S.projectFolder = p;
@@ -937,12 +946,12 @@ export class FeuilletsView extends BaseFeuilletsView {
     hub.style.flexDirection = "column";
     hub.style.gap = "14px";
 
-    const titleEl = hub.createEl("h3", { text: "Gestionnaire de projets Feuillets" });
+    const titleEl = hub.createEl("h3", { text: t("binder.projectManager.hubTitle") });
     titleEl.style.marginTop = "0";
     titleEl.style.marginBottom = "4px";
 
     const subEl = hub.createDiv({ cls: "feuillets-notes-sub" });
-    subEl.setText("Aucun projet n'est actuellement actif. Vous pouvez créer un nouveau projet, importer un projet Scrivener ou ajouter un dossier existant de votre coffre.");
+    subEl.setText(t("binder.projectManager.hubSub"));
 
     const cardsContainer = hub.createDiv({ cls: "feuillets-hub-cards" });
     cardsContainer.style.display = "flex";
@@ -984,25 +993,25 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     makeHubCard(
       "folder-plus",
-      "Créer un nouveau projet",
-      "Génère automatiquement la structure complète (Manuscrit, Recherche, Snapshots, Journal).",
-      "Créer",
+      t("binder.projectManager.card.new.title"),
+      t("binder.projectManager.card.new.desc"),
+      t("binder.projectManager.card.new.btn"),
       () => new NewProjectModal(this.app, this.plugin).open()
     );
 
     makeHubCard(
       "import",
-      "Importer un projet Scrivener",
-      "Importe l'arborescence et les fiches depuis un projet Scrivener (.scriv).",
-      "Importer",
+      t("binder.projectManager.card.import.title"),
+      t("binder.projectManager.card.import.desc"),
+      t("binder.projectManager.card.import.btn"),
       () => new ScrivenerImportModal(this.app, this.plugin).open()
     );
 
     makeHubCard(
       "folder-open",
-      "Ajouter un dossier du coffre",
-      "Spécifiez un dossier de votre coffre Obsidian pour l'utiliser comme manuscrit.",
-      "Ajouter",
+      t("binder.projectManager.card.add.title"),
+      t("binder.projectManager.card.add.desc"),
+      t("binder.projectManager.card.add.btn"),
       () => addInput.focus()
     );
   }
@@ -1039,19 +1048,19 @@ export class FeuilletsView extends BaseFeuilletsView {
       const menu = new Menu();
       menu.addItem((item) =>
         item
-          .setTitle("Nouveau dossier…")
+          .setTitle(t("binder.research.newFolder"))
           .setIcon("folder-plus")
           .onClick(() => this.plugin.newFolder(folder))
       );
       menu.addItem((item) =>
         item
-          .setTitle("Nouveau fichier…")
+          .setTitle(t("binder.research.newFile"))
           .setIcon("file-plus")
           .onClick(async () => {
-            let name = "Nouveau fichier";
+            let name = t("binder.research.newFileDefaultName");
             let n = 2;
             while (this.app.vault.getAbstractFileByPath(normalizePath(`${folder.path}/${name}.md`))) {
-              name = `Nouveau fichier ${n++}`;
+              name = `${t("binder.research.newFileDefaultName")} ${n++}`;
             }
             const file = await this.app.vault.create(normalizePath(`${folder.path}/${name}.md`), "");
             openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
@@ -1068,19 +1077,19 @@ export class FeuilletsView extends BaseFeuilletsView {
       const menu = new Menu();
       menu.addItem((item) =>
         item
-          .setTitle("Ouvrir dans un nouvel onglet")
+          .setTitle(t("binder.research.openNewTab"))
           .setIcon("file-plus")
           .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file))
       );
       menu.addItem((item) =>
         item
-          .setTitle("Ouvrir en vue côte à côte")
+          .setTitle(t("binder.research.openSplit"))
           .setIcon("columns-2")
           .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file))
       );
       menu.addItem((item) =>
         item
-          .setTitle("Comparer avec un autre feuillet…")
+          .setTitle(t("binder.research.compareWith"))
           .setIcon("diff")
           .onClick(() => {
             new PickFileModal(this.app, this.plugin, file, (other) => {
@@ -1091,29 +1100,30 @@ export class FeuilletsView extends BaseFeuilletsView {
       menu.addSeparator();
       menu.addItem((item) =>
         item
-          .setTitle("Dupliquer")
+          .setTitle(t("binder.research.duplicate"))
           .setIcon("copy")
           .onClick(async () => {
             const content = await this.app.vault.read(file);
-            let name = `${file.basename} (copie)`;
+            const copySuffix = t("binder.research.copySuffix");
+            let name = `${file.basename} (${copySuffix})`;
             let dest = normalizePath(`${file.parent.path}/${name}.md`);
             let k = 2;
             while (this.app.vault.getAbstractFileByPath(dest)) {
-              name = `${file.basename} (copie ${k++})`;
+              name = `${file.basename} (${copySuffix} ${k++})`;
               dest = normalizePath(`${file.parent.path}/${name}.md`);
             }
             await this.app.vault.create(dest, content);
-            new Notice(`Dupliqué : ${name}`);
+            new Notice(t("binder.research.duplicated", { name }));
             this.render(true);
           })
       );
       menu.addItem((item) =>
         item
-          .setTitle("Mettre à la corbeille")
+          .setTitle(t("binder.research.trash"))
           .setIcon("trash")
           .onClick(async () => {
             await this.app.vault.trash(file, true);
-            new Notice(`« ${this.plugin.titleFor(file) || file.basename} » mis à la corbeille.`);
+            new Notice(t("binder.research.trashed", { name: this.plugin.titleFor(file) || file.basename }));
             this.render(true);
           })
       );
@@ -1244,19 +1254,19 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     const rootAdd = rootRow.createSpan({ cls: "feuillets-folder-add" });
     rootAdd.setText("+");
-    rootAdd.setAttr("title", "Nouveau dossier…");
+    rootAdd.setAttr("title", t("binder.newFolder"));
     rootAdd.addEventListener("click", (e) => {
       e.stopPropagation();
       const menu = new Menu();
       menu.addItem((item) =>
         item
-          .setTitle("Nouveau dossier…")
+          .setTitle(t("binder.newFolder"))
           .setIcon("folder-plus")
           .onClick(() => this.plugin.newFolder(root))
       );
       menu.addItem((item) =>
         item
-          .setTitle("Importer un plan…")
+          .setTitle(t("binder.importOutline"))
           .setIcon("list-tree")
           .onClick(() => new ImportOutlineModal(this.app, this.plugin).open())
       );
@@ -1291,7 +1301,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         if (treeRowCount >= MAX_TREE_ROWS) {
           treeTruncated = true;
           const warn = treePane.createDiv({ cls: "feuillets-empty" });
-          warn.setText(`Affichage limité à ${MAX_TREE_ROWS} dossiers (projet très volumineux) — replie certains dossiers pour voir le reste.`);
+          warn.setText(t("binder.tree.truncated", { max: MAX_TREE_ROWS }));
           return;
         }
         treeRowCount++;
@@ -1312,19 +1322,19 @@ export class FeuilletsView extends BaseFeuilletsView {
 
         const addBtn = row.createSpan({ cls: "feuillets-folder-add" });
         addBtn.setText("+");
-        addBtn.setAttr("title", `Ajouter dans « ${child.name} »`);
+        addBtn.setAttr("title", t("binder.addToFolder", { name: child.name }));
         addBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           const menu = new Menu();
           menu.addItem((item) =>
             item
-              .setTitle("Nouveau sous-dossier…")
+              .setTitle(t("binder.newSubfolder"))
               .setIcon("folder-plus")
               .onClick(() => this.plugin.newFolder(child))
           );
           menu.addItem((item) =>
             item
-              .setTitle("Nouveau feuillet ici")
+              .setTitle(t("binder.newSheetHere"))
               .setIcon("file-plus")
               .onClick(async () => {
                 await selectFolder(child);
@@ -1407,7 +1417,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             listTruncated = true;
             listBody
               .createDiv({ cls: "feuillets-empty" })
-              .setText(`Affichage limité à ${MAX_LIST_ROWS} feuillets (projet très volumineux) — choisis un dossier plus précis, ou désactive la liste récursive.`);
+              .setText(t("binder.list.truncated", { max: MAX_LIST_ROWS }));
             return;
           }
 
@@ -1438,8 +1448,8 @@ export class FeuilletsView extends BaseFeuilletsView {
         .createDiv({ cls: "feuillets-empty" })
         .setText(
           S.binderSplitRecursive !== false
-            ? "Aucun feuillet dans ce dossier ni ses sous-dossiers."
-            : "Aucun feuillet directement dans ce dossier."
+            ? t("binder.list.emptyRecursive")
+            : t("binder.list.emptyDirect")
         );
       this.attachEmptyFolderDropHandler(emptyEl, selected);
     }

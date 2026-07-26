@@ -6,6 +6,7 @@ import { foldAccents } from "../utils/core.js";
 import { openFileActivating } from "../utils/dom.js";
 import { buildTagTree, collectFiles, sortTagNodes } from "../utils/tag-tree.js";
 import { ConfirmModal } from "../ui/basic-modals.js";
+import { t } from "../i18n/index.js";
 
 const STRUCTURAL_TAGS = new Set([
   "personnage", "lieu", "evenement", "codex", "source", "bibliographie", "glossaire",
@@ -65,7 +66,7 @@ export class PropertiesView extends BaseFeuilletsView {
   }
 
   getDisplayText() {
-    return "Propriétés";
+    return t("properties.displayText");
   }
 
   getIcon() {
@@ -120,7 +121,7 @@ export class PropertiesView extends BaseFeuilletsView {
     if (!root) {
       wrapper
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Configure d'abord un dossier projet dans les réglages.");
+        .setText(t("properties.noProjectFolder"));
       return;
     }
 
@@ -136,7 +137,7 @@ export class PropertiesView extends BaseFeuilletsView {
     const collapsed = this.renderSectionHead(
       section,
       "file-text",
-      "Fichier ouvert",
+      t("properties.openFile.title"),
       "properties",
       "fichier"
     );
@@ -145,7 +146,7 @@ export class PropertiesView extends BaseFeuilletsView {
     if (!activeFile) {
       section
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Ouvre un feuillet du projet pour voir/éditer ses propriétés.");
+        .setText(t("properties.openFile.empty"));
       return;
     }
 
@@ -158,7 +159,7 @@ export class PropertiesView extends BaseFeuilletsView {
     const addRow = section.createDiv({ cls: "feuillets-properties-add-row" });
     const input = addRow.createEl("input", {
       type: "text",
-      attr: { placeholder: "Nouvelle propriété…" },
+      attr: { placeholder: t("notes.properties.newPropertyPlaceholder") },
     });
     input.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
@@ -231,7 +232,7 @@ export class PropertiesView extends BaseFeuilletsView {
 
     const delBtn = row.createSpan({ cls: "feuillets-properties-delete" });
     setIcon(delBtn, "x");
-    delBtn.setAttr("aria-label", `Supprimer « ${key} »`);
+    delBtn.setAttr("aria-label", t("notes.properties.deleteAria", { key }));
     delBtn.addEventListener("click", async () => {
       await this.app.fileManager.processFrontMatter(file, (data) => {
         delete data[key];
@@ -249,7 +250,7 @@ export class PropertiesView extends BaseFeuilletsView {
     values.forEach((v, idx) => {
       const chip = wrap.createSpan({ cls: "feuillets-tag-chip" });
       chip.setText(String(v));
-      chip.setAttr("title", "Cliquer pour retirer");
+      chip.setAttr("title", t("notes.properties.removeValueTooltip"));
       chip.addEventListener("click", async () => {
         const next = values.filter((_, i) => i !== idx);
         await this.app.fileManager.processFrontMatter(file, (data) => {
@@ -261,7 +262,7 @@ export class PropertiesView extends BaseFeuilletsView {
     const input = wrap.createEl("input", {
       cls: "feuillets-tags-input",
       type: "text",
-      attr: { placeholder: values.length ? "+" : "+ valeur" },
+      attr: { placeholder: values.length ? "+" : t("notes.properties.newValuePlaceholder") },
     });
     input.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
@@ -281,7 +282,7 @@ export class PropertiesView extends BaseFeuilletsView {
     const collapsed = this.renderSectionHead(
       section,
       "list-tree",
-      "Propriétés du projet",
+      t("properties.project.title"),
       "properties",
       "proprietes"
     );
@@ -299,7 +300,7 @@ export class PropertiesView extends BaseFeuilletsView {
         const values = Array.isArray(value) ? value : [value];
         for (const v of values) {
           const label =
-            v === undefined || v === null || v === "" ? "(vide)" : String(v);
+            v === undefined || v === null || v === "" ? t("properties.project.emptyValue") : String(v);
           if (!valMap.has(label)) valMap.set(label, new Set());
           valMap.get(label).add(f.path);
         }
@@ -310,7 +311,7 @@ export class PropertiesView extends BaseFeuilletsView {
     if (keys.length === 0) {
       section
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucune propriété dans ce projet.");
+        .setText(t("properties.project.empty"));
       return;
     }
 
@@ -333,7 +334,7 @@ export class PropertiesView extends BaseFeuilletsView {
       setIcon(addBtn, "plus");
       addBtn.setAttr(
         "aria-label",
-        canAdd ? `Ajouter « ${key} » au fichier ouvert` : "Déjà présente sur le fichier ouvert"
+        canAdd ? t("properties.project.addToOpenFile", { key }) : t("properties.project.alreadyOnOpenFile")
       );
       if (canAdd) {
         addBtn.addEventListener("click", async (e) => {
@@ -349,14 +350,14 @@ export class PropertiesView extends BaseFeuilletsView {
          fichiers d'un coup. */
       const delBtn = row.createSpan({ cls: "feuillets-tags-add" });
       setIcon(delBtn, "trash-2");
-      delBtn.setAttr("aria-label", `Supprimer « ${key} » de tous les feuillets du projet`);
+      delBtn.setAttr("aria-label", t("properties.project.deleteFromProjectAria", { key }));
       delBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         new ConfirmModal(
           this.app,
-          `Supprimer « ${key} » ?`,
-          `Cette propriété sera retirée de ${totalFiles} feuillet${totalFiles > 1 ? "s" : ""} du projet. Cette action ne peut pas être annulée.`,
-          "Supprimer",
+          t("properties.project.deleteConfirmTitle", { key }),
+          t("properties.project.deleteConfirmBody", { count: totalFiles, s: totalFiles > 1 ? "s" : "" }),
+          t("properties.project.deleteConfirmBtn"),
           async () => {
             const paths = new Set([...valMap.values()].flatMap((s) => [...s]));
             for (const p of paths) {
@@ -366,7 +367,7 @@ export class PropertiesView extends BaseFeuilletsView {
                 delete data[key];
               });
             }
-            new Notice(`« ${key} » supprimée de ${paths.size} feuillet(s).`);
+            new Notice(t("properties.project.deletedNotice", { key, count: paths.size, s: paths.size > 1 ? "s" : "" }));
           }
         ).open();
       });
@@ -420,7 +421,7 @@ export class PropertiesView extends BaseFeuilletsView {
     const collapsed = this.renderSectionHead(
       section,
       "tags",
-      "Tags du projet",
+      t("properties.tags.title"),
       "properties",
       "tags"
     );
@@ -430,14 +431,14 @@ export class PropertiesView extends BaseFeuilletsView {
     const fileIndex = new Map(files.map((f) => [f.path, f]));
     const filesWithTags = files.map((f) => ({
       path: f.path,
-      tags: this.plugin.tagsOf(f).filter((t) => !STRUCTURAL_TAGS.has(foldAccents(t))),
+      tags: this.plugin.tagsOf(f).filter((tg) => !STRUCTURAL_TAGS.has(foldAccents(tg))),
     }));
     const tree = buildTagTree(filesWithTags);
     const roots = sortTagNodes(tree);
     if (roots.length === 0) {
       section
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucun tag dans ce projet.");
+        .setText(t("properties.tags.empty"));
       return;
     }
 
@@ -445,7 +446,7 @@ export class PropertiesView extends BaseFeuilletsView {
     const searchInput = searchWrap.createEl("input", {
       type: "text",
       cls: "feuillets-tags-search",
-      attr: { placeholder: "Filtrer les tags…" },
+      attr: { placeholder: t("properties.tags.filterPlaceholder") },
     });
     searchInput.value = this.tagSearch;
 
@@ -471,7 +472,7 @@ export class PropertiesView extends BaseFeuilletsView {
       setIcon(addBtn, "plus");
       addBtn.setAttr(
         "aria-label",
-        canAdd ? `Ajouter #${node.fullPath} au fichier ouvert` : "Déjà présent sur le fichier ouvert"
+        canAdd ? t("properties.tags.addToOpenFile", { tag: node.fullPath }) : t("properties.tags.alreadyOnOpenFile")
       );
       if (canAdd) {
         addBtn.addEventListener("click", async (e) => {
@@ -484,24 +485,24 @@ export class PropertiesView extends BaseFeuilletsView {
          action potentiellement étendue à de nombreux fichiers. */
       const delBtn = row.createSpan({ cls: "feuillets-tags-add" });
       setIcon(delBtn, "trash-2");
-      delBtn.setAttr("aria-label", `Supprimer #${node.fullPath} de tous les feuillets du projet`);
+      delBtn.setAttr("aria-label", t("properties.tags.deleteFromProjectAria", { tag: node.fullPath }));
       delBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         const count = node.files.size;
         if (count === 0) return;
         new ConfirmModal(
           this.app,
-          `Supprimer #${node.fullPath} ?`,
-          `Ce tag sera retiré de ${count} feuillet${count > 1 ? "s" : ""} du projet. Cette action ne peut pas être annulée.`,
-          "Supprimer",
+          t("properties.tags.deleteConfirmTitle", { tag: node.fullPath }),
+          t("properties.project.deleteConfirmBody", { count, s: count > 1 ? "s" : "" }),
+          t("properties.project.deleteConfirmBtn"),
           async () => {
             for (const p of node.files) {
               const f = fileIndex.get(p);
               if (!f) continue;
               const current = this.plugin.tagsOf(f);
-              await this.setFm(f, "tags", current.filter((t) => t !== node.fullPath));
+              await this.setFm(f, "tags", current.filter((tg) => tg !== node.fullPath));
             }
-            new Notice(`#${node.fullPath} supprimé de ${count} feuillet(s).`);
+            new Notice(t("properties.tags.deletedNotice", { tag: node.fullPath, count, s: count > 1 ? "s" : "" }));
           }
         ).open();
       });
@@ -540,7 +541,7 @@ export class PropertiesView extends BaseFeuilletsView {
         if (nodeMatchesSearch(node, term)) renderTagNode(node, 0, term);
       }
       if (term && list.childElementCount === 0) {
-        list.createDiv({ cls: "feuillets-empty" }).setText("Aucun tag ne correspond.");
+        list.createDiv({ cls: "feuillets-empty" }).setText(t("properties.tags.noMatch"));
       }
     };
     renderList();

@@ -48,6 +48,7 @@ import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { matchesResearchLabel } from "./utils/project-modes.js";
+import { setLocale, detectLocale, t } from "./i18n/index.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
 import { NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
@@ -85,6 +86,7 @@ const RIGHT_SIDEBAR_WIDTH = 280;
 class FeuilletsPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
+    setLocale(detectLocale(this.settings));
 
     this.registerViews();
     this.registerHoverLinkSource("feuillets", { display: "Feuillets", defaultMod: false });

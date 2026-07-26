@@ -1,4 +1,5 @@
 export const DEFAULT_SETTINGS = {
+  language: "auto", // "auto" (langue d'Obsidian) | "fr" | "en" — voir src/i18n
   insertFolderTitles: true, // parties
   insertTitles: true, // chapitres
   insertSceneTitles: false, // scènes (clé titre uniquement, jamais le nom du fichier)

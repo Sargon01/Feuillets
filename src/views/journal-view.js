@@ -6,8 +6,18 @@ import { formatNumber } from "../utils/text-metrics.js";
 import { isEditing, iconBtn, openFileActivating } from "../utils/dom.js";
 import { dateKey, statsForDay } from "../utils/journal-stats.js";
 import { journalEntryKeys, getLastEntry, getDayEntry } from "../services/journal.js";
+import { t, getLocale } from "../i18n/index.js";
 
-const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+function dateLocale() {
+  return getLocale() === "en" ? "en-US" : "fr-FR";
+}
+
+function weekdays() {
+  return [
+    t("journal.weekday.mon"), t("journal.weekday.tue"), t("journal.weekday.wed"),
+    t("journal.weekday.thu"), t("journal.weekday.fri"), t("journal.weekday.sat"), t("journal.weekday.sun"),
+  ];
+}
 
 /** Lundi = 0 … Dimanche = 6, contrairement à getDay() (Dimanche = 0). */
 function mondayIndex(date) {
@@ -16,7 +26,7 @@ function mondayIndex(date) {
 
 function readableDate(key) {
   const [y, m, d] = key.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("fr-FR", {
+  return new Date(y, m - 1, d).toLocaleDateString(dateLocale(), {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -39,7 +49,7 @@ export class JournalView extends BaseFeuilletsView {
     return VIEW_JOURNAL;
   }
   getDisplayText() {
-    return "Journal & statistiques";
+    return t("journal.displayText");
   }
   getIcon() {
     return "calendar";
@@ -103,7 +113,7 @@ export class JournalView extends BaseFeuilletsView {
     if (!root) {
       wrapper
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Configure d'abord un dossier projet dans les réglages.");
+        .setText(t("properties.noProjectFolder"));
       return;
     }
 
@@ -112,12 +122,12 @@ export class JournalView extends BaseFeuilletsView {
     setIcon(prevBtn, "chevron-left");
     prevBtn.addEventListener("click", () => this.changeMonth(-1));
     header.createSpan({ cls: "feuillets-journal-month" }).setText(
-      this.monthCursor.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
+      this.monthCursor.toLocaleDateString(dateLocale(), { month: "long", year: "numeric" })
     );
     const nextBtn = header.createSpan({ cls: "feuillets-journal-nav-btn clickable-icon" });
     setIcon(nextBtn, "chevron-right");
     nextBtn.addEventListener("click", () => this.changeMonth(1));
-    const compileBtn = iconBtn(header, "refresh-cw", "Compiler le carnet", () => this.compileCarnet());
+    const compileBtn = iconBtn(header, "refresh-cw", t("journal.compileTooltip"), () => this.compileCarnet());
     compileBtn.addClass("feuillets-journal-compile-btn");
 
     const year = this.monthCursor.getFullYear();
@@ -129,7 +139,7 @@ export class JournalView extends BaseFeuilletsView {
     }
 
     const weekRow = wrapper.createDiv({ cls: "feuillets-journal-grid feuillets-journal-weekdays" });
-    for (const w of WEEKDAYS) {
+    for (const w of weekdays()) {
       weekRow.createDiv({ cls: "feuillets-journal-weekday" }).setText(w);
     }
 
@@ -153,7 +163,7 @@ export class JournalView extends BaseFeuilletsView {
       if (entryKeys.has(key)) {
         cell.createDiv({ cls: "feuillets-journal-dot" });
       }
-      cell.setAttr("title", delta > 0 ? `${delta} mots` : "");
+      cell.setAttr("title", delta > 0 ? t("journal.wordsCount", { count: delta }) : "");
       cell.addEventListener("click", () => this.openDay(date));
     }
 
@@ -171,7 +181,7 @@ export class JournalView extends BaseFeuilletsView {
 
     if (viewingDay) {
       const backBar = section.createDiv({ cls: "feuillets-notes-back-bar" });
-      iconBtn(backBar, "arrow-left", "Retour à la dernière entrée", () => {
+      iconBtn(backBar, "arrow-left", t("journal.backToLastEntry"), () => {
         this.viewedDate = null;
         this.render();
       });
@@ -187,7 +197,7 @@ export class JournalView extends BaseFeuilletsView {
     setIcon(headIcon, "calendar");
     head
       .createSpan({ cls: "feuillets-notes-section-title" })
-      .setText(viewingDay ? "Journal" : "Dernière entrée");
+      .setText(viewingDay ? t("journal.journalTitle") : t("journal.lastEntryTitle"));
 
     if (entry) {
       const dateEl = section
@@ -197,8 +207,8 @@ export class JournalView extends BaseFeuilletsView {
           text: readableDate(entry.key),
           style: "cursor: pointer; text-decoration: underline;"
         });
-      dateEl.setAttr("aria-label", "Ouvrir et éditer dans un nouvel onglet");
-      dateEl.setAttr("title", "Ouvrir et éditer dans un nouvel onglet");
+      dateEl.setAttr("aria-label", t("journal.openEditNewTab"));
+      dateEl.setAttr("title", t("journal.openEditNewTab"));
       dateEl.addEventListener("click", () => {
         openFileActivating(this.app, this.app.workspace.getLeaf("tab"), entry.file);
       });
@@ -211,11 +221,11 @@ export class JournalView extends BaseFeuilletsView {
       if (viewingDay) {
         section
           .createDiv({ cls: "feuillets-empty" })
-          .setText("Aucune entrée pour ce jour.");
+          .setText(t("journal.noEntryForDay"));
 
         const createBtn = section.createEl("button", {
           cls: "mod-cta",
-          text: "Créer et éditer l'entrée",
+          text: t("journal.createAndEditEntry"),
           style: "margin-top: 12px; width: 100%; cursor: pointer;"
         });
         createBtn.addEventListener("click", async () => {
@@ -228,7 +238,7 @@ export class JournalView extends BaseFeuilletsView {
       } else {
         section
           .createDiv({ cls: "feuillets-empty" })
-          .setText("Aucune entrée pour l'instant — clique un jour pour commencer.");
+          .setText(t("journal.noEntryYet"));
       }
     }
   }
@@ -261,7 +271,7 @@ export class JournalView extends BaseFeuilletsView {
     if (!root) {
       wrapper
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Configure d'abord un dossier projet dans les réglages.");
+        .setText(t("properties.noProjectFolder"));
       return;
     }
 
@@ -277,7 +287,7 @@ export class JournalView extends BaseFeuilletsView {
    * doublon : un aperçu de régularité, pas une navigation par jour. */
   renderHistorySection(wrapper, S) {
     const { section, collapsed } = this.renderGroupHead(
-      wrapper, "progression:history", "bar-chart-3", "Historique récent", S
+      wrapper, "progression:history", "bar-chart-3", t("journal.recentHistory"), S
     );
     if (collapsed) return;
 
@@ -299,7 +309,11 @@ export class JournalView extends BaseFeuilletsView {
       if (e.delta === 0) fill.addClass("is-empty");
       bar.setAttr(
         "aria-label",
-        `${e.date.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })} : ${e.delta} mot${e.delta > 1 ? "s" : ""}`
+        t("journal.dayWordsAria", {
+          date: e.date.toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" }),
+          count: e.delta,
+          s: e.delta > 1 ? "s" : "",
+        })
       );
       bar.setAttr("title", bar.getAttr("aria-label"));
     }
@@ -307,7 +321,7 @@ export class JournalView extends BaseFeuilletsView {
     const total = entries.reduce((s, e) => s + e.delta, 0);
     section
       .createDiv({ cls: "feuillets-progression-history-total" })
-      .setText(`${formatNumber(total)} mots sur les ${days} derniers jours`);
+      .setText(t("journal.historyTotal", { total: formatNumber(total), days }));
   }
 
 }

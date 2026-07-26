@@ -1,6 +1,7 @@
 import { VIEW_RESEARCH } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { isEditing } from "../utils/dom.js";
+import { t } from "../i18n/index.js";
 
 const { TFile } = require("obsidian");
 
@@ -14,7 +15,7 @@ export class ResearchView extends BaseFeuilletsView {
   }
 
   getDisplayText() {
-    return "Recherche";
+    return t("research.displayText");
   }
 
   getIcon() {
@@ -37,7 +38,7 @@ export class ResearchView extends BaseFeuilletsView {
     if (!root) {
       container
         .createDiv({ cls: "feuillets-empty" })
-        .setText("Aucun dossier projet défini (réglages du plugin).");
+        .setText(t("board.noProjectFolder"));
       return;
     }
 
