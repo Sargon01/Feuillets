@@ -1257,26 +1257,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     }
 
     new Setting(containerEl)
-      .setName(t("settings.harperRecommendation.name"))
-      .setDesc(t("settings.harperRecommendation.desc"))
-      .addButton((btn) => {
-        btn.setButtonText(t("settings.harperRecommendation.btn"));
-        btn.onClick(() => {
-          try {
-            const settingModal = this.app.setting;
-            if (settingModal && settingModal.openTabById) {
-              settingModal.openTabById("community-plugins");
-              const tab = settingModal.activeTab;
-              if (tab && tab.searchComponent) {
-                tab.searchComponent.setValue("Harper");
-                tab.searchComponent.onChanged();
-              }
-            }
-          } catch (e) {}
-        });
-      });
-
-    new Setting(containerEl)
       .setName(t("settings.detectRepetitions.name"))
       .setDesc(t("settings.detectRepetitions.desc"))
       .addToggle((t2) =>
