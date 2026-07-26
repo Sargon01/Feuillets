@@ -2,6 +2,19 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.10
+
+### Corrigé
+
+- Dernière écriture `innerHTML` retirée (section des notes de bas de page
+  de l'export PDF). Le contenu d'une note est du HTML issu du rendu
+  Markdown d'Obsidian : il est désormais analysé dans un document inerte
+  (`DOMParser`, qui n'exécute ni script ni gestionnaire d'événement et ne
+  touche pas au document courant), puis ses nœuds sont déplacés dans le
+  `<li>`. La liste elle-même est construite avec l'API DOM. L'export EPUB
+  continue d'utiliser la chaîne HTML, ce qui est légitime : il écrit un
+  fichier, il ne manipule pas le DOM de l'application.
+
 ## 1.2.9
 
 ### Modifié

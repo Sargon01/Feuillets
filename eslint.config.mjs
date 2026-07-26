@@ -22,6 +22,7 @@ const sharedGlobals = {
   FormData: "readonly",
   AbortController: "readonly",
   MutationObserver: "readonly",
+  DOMParser: "readonly",
   performance: "readonly",
   crypto: "readonly",
   CSS: "readonly",

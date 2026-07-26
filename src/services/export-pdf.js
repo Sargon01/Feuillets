@@ -45,7 +45,20 @@ export function paginateManuscript(containerEl, footnotes, settings, tpl, title 
   if (footnotes && footnotes.length > 0) {
     const fnDiv = document.createElement("div");
     fnDiv.className = "pdf-footnotes-section";
-    fnDiv.innerHTML = `<hr/><ol>${footnotes.map((f) => `<li id="${f.id}">${f.html}</li>`).join("")}</ol>`;
+    fnDiv.createEl("hr");
+    const ol = fnDiv.createEl("ol");
+    /* Le contenu d'une note est du HTML issu du rendu Markdown d'Obsidian
+       (voir extractFootnotes dans export-render.js). Il est analysé dans un
+       document inerte via DOMParser — qui n'exécute ni script ni gestionnaire
+       d'événement, et ne touche pas au document courant — puis ses nœuds sont
+       déplacés dans le <li>. Plus sûr, et plus lisible, qu'une affectation à
+       innerHTML sur un élément vivant. */
+    for (const f of footnotes) {
+      const li = ol.createEl("li");
+      li.id = f.id;
+      const parsed = new DOMParser().parseFromString(f.html, "text/html");
+      while (parsed.body.firstChild) li.appendChild(parsed.body.firstChild);
+    }
     elements.push(fnDiv);
   }
 
