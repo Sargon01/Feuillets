@@ -1,24 +1,30 @@
 const { TFile, normalizePath } = require("obsidian");
-import { getProjectFolder } from "./folder-structure.js";
+import { getProjectFolder, getResourcesRoot } from "./folder-structure.js";
 
 export async function getResearchTemplate(app, settings, mode, sectionKey, defaultName) {
   const root = getProjectFolder(app, settings);
   if (root) {
-    const resPath = root.parent ? `${root.parent.path}/Ressources` : `${root.path}/Ressources`;
+    const resourcesRoot = getResourcesRoot(app, root);
+    const resPath = resourcesRoot ? resourcesRoot.path : normalizePath(`${root.parent ? root.parent.path : root.path}/Resources`);
 
     const isFiction = mode.yamlPreset === "roman" || mode.yamlPreset === "nouvelle";
 
+    /* Nom (anglais) du fichier modèle, avec repli sur l'ancien nom français
+       si l'utilisateur a personnalisé ce fichier avant ce renommage — voir
+       le même principe pour les champs frontmatter (LEGACY_FIELD_ALIASES). */
     const fileNames = {
-      sources: "Sources.md",
-      bibliographie: "Bibliographie.md",
-      personnages: isFiction ? "Personnages.md" : "Acteurs.md",
-      lieux: isFiction ? "Lieux.md" : "Geographie.md",
-      codex: isFiction ? "Lore.md" : "Concepts.md",
-      glossaire: "Glossaire.md",
-      evenements: "Evenements.md",
+      sources: ["Sources.md"],
+      bibliographie: ["Bibliography.md", "Bibliographie.md"],
+      personnages: isFiction ? ["Characters.md", "Personnages.md"] : ["Acteurs.md"],
+      lieux: isFiction ? ["Places.md", "Lieux.md"] : ["Geographie.md"],
+      codex: isFiction ? ["Lore.md"] : ["Concepts.md"],
+      glossaire: ["Glossary.md", "Glossaire.md"],
+      evenements: ["Events.md", "Evenements.md"],
     };
 
-    const fileName = fileNames[sectionKey];
+    const fileName = (fileNames[sectionKey] || []).find((name) =>
+      app.vault.getAbstractFileByPath(normalizePath(`${resPath}/Templates/${name}`))
+    );
     if (fileName) {
       const templatePath = normalizePath(`${resPath}/Templates/${fileName}`);
       const file = app.vault.getAbstractFileByPath(templatePath);

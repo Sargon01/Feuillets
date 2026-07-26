@@ -1389,7 +1389,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       });
 
     containerEl.createDiv({ cls: "setting-item-description" }).setText(
-      "Le choix du modèle de mise en page (Classique, Roman, APA…) se fait directement dans le menu « Compiler et exporter », pas ici — tu peux aussi ajouter tes propres modèles en déposant un fichier .md dans Ressources/Modèles."
+      "Le choix du modèle de mise en page (Classique, Roman, APA…) se fait directement dans le menu « Compiler et exporter », pas ici — tu peux aussi ajouter tes propres modèles en déposant un fichier .md dans Resources/Layouts."
     );
 
     new Setting(containerEl)

@@ -47,6 +47,7 @@ import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
+import { matchesResearchLabel } from "./utils/project-modes.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
 import { NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
@@ -659,13 +660,13 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "export-builtin-templates",
-      name: "Exporter les modèles d'export intégrés vers Ressources/Modèles",
+      name: "Exporter les modèles d'export intégrés vers Resources/Layouts",
       callback: async () => {
         const n = await exportBuiltInTemplates(this.app, this.settings);
         new Notice(
           n > 0
-            ? `${n} modèle(s) exporté(s) dans Ressources/Modèles.`
-            : "Tous les modèles intégrés sont déjà présents dans Ressources/Modèles."
+            ? `${n} modèle(s) exporté(s) dans Resources/Layouts.`
+            : "Tous les modèles intégrés sont déjà présents dans Resources/Layouts."
         );
       },
     });
@@ -1179,13 +1180,13 @@ class FeuilletsPlugin extends Plugin {
     const rf = mode.researchFolders;
     const parentName = file.parent ? file.parent.name : "";
     let sectionKey = "";
-    if (rf.sources && parentName === rf.sources.label) sectionKey = "sources";
-    else if (parentName === rf.bibliographie.label) sectionKey = "bibliographie";
-    else if (rf.personnages && parentName === rf.personnages.label) sectionKey = "personnages";
-    else if (rf.lieux && parentName === rf.lieux.label) sectionKey = "lieux";
-    else if (rf.codex && parentName === rf.codex.label) sectionKey = "codex";
-    else if (rf.glossaire && parentName === rf.glossaire.label) sectionKey = "glossaire";
-    else if (parentName === "Chronologie") sectionKey = "evenements";
+    if (matchesResearchLabel(rf, "sources", parentName)) sectionKey = "sources";
+    else if (matchesResearchLabel(rf, "bibliographie", parentName)) sectionKey = "bibliographie";
+    else if (matchesResearchLabel(rf, "personnages", parentName)) sectionKey = "personnages";
+    else if (matchesResearchLabel(rf, "lieux", parentName)) sectionKey = "lieux";
+    else if (matchesResearchLabel(rf, "codex", parentName)) sectionKey = "codex";
+    else if (matchesResearchLabel(rf, "glossaire", parentName)) sectionKey = "glossaire";
+    else if (parentName === "Chronology" || parentName === "Chronologie") sectionKey = "evenements";
     if (!sectionKey) return;
     const template = await getResearchTemplate(this.app, this.settings, mode, sectionKey, file.basename);
     if (template) {

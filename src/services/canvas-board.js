@@ -1,5 +1,5 @@
 const { normalizePath, Notice } = require("obsidian");
-import { getProjectFolder, flattenFiles } from "./folder-structure.js";
+import { getProjectFolder, flattenFiles, resourcesFolderPath } from "./folder-structure.js";
 import { fmOf, labelOf, labelColor } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
 import { filsOf } from "../utils/arc-fields.js";
@@ -17,9 +17,8 @@ function generateId() {
   return s;
 }
 
-function canvasPathFor(root) {
-  const base = root.parent ? root.parent.path : root.path;
-  return normalizePath(`${base}/Ressources/Tableau brainstorming.canvas`);
+function canvasPathFor(app, root) {
+  return normalizePath(`${resourcesFolderPath(app, root)}/Tableau brainstorming.canvas`);
 }
 
 /** Équivalents de isFrontMatter/roleOfFile (folder-structure.js), mais
@@ -67,7 +66,7 @@ export async function generateCanvasBoard(app, settings) {
       ["scene", "chapitre"].includes(roleOfFileWithRoot(settings, root, f))
   );
 
-  const path = canvasPathFor(root);
+  const path = canvasPathFor(app, root);
   await ensureFolder(app, path.slice(0, path.lastIndexOf("/")));
 
   let canvas = { nodes: [], edges: [] };

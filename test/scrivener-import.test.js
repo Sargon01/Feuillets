@@ -219,8 +219,8 @@ test("classifyResearchFolder / researchTargetLabel", async (t) => {
   });
 
   await t.test("nom de dossier cible selon le mode du projet", () => {
-    assert.equal(researchTargetLabel("Characters", "fiction"), "Personnages");
-    assert.equal(researchTargetLabel("Places", "fiction"), "Lieux");
+    assert.equal(researchTargetLabel("Characters", "fiction"), "Characters");
+    assert.equal(researchTargetLabel("Places", "fiction"), "Places");
     /* La non-fiction ne force plus de rubriques Personnages/Lieux (voir
        utils/project-modes.js) — Characters/Places Scrivener y tombent donc
        dans le panier de repli "non classé" plutôt que dans un dossier

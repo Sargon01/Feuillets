@@ -203,12 +203,15 @@ Compteurs et objectifs, à deux niveaux : projet entier et feuillet actif.
 Fiches de "bible" narrative, organisées par catégorie — vocabulaire différent
 selon le mode de projet (voir §19).
 
-- **Catégories fiction** : Personnages, Lieux, Lore (Codex), Bibliographie,
-  Glossaire, Événements
+- **Catégories fiction** : Characters, Places, Lore (Codex), Bibliography,
+  Glossary, Events — noms de dossiers en anglais depuis cette version ;
+  l'ancien nom français (Personnages, Lieux, Bibliographie, Glossaire,
+  Événements) reste reconnu indéfiniment sur les projets déjà créés, jamais
+  renommé de force — voir `utils/project-modes.js` (`LEGACY_RESEARCH_LABELS`)
 - **Catégories non-fiction** : Sources, Acteurs, Géographie, Concepts,
-  Bibliographie, Glossaire, Événements
+  Bibliography, Glossary, Events
 - **Dossiers personnalisés** ajoutés par l'utilisateur, détectés
-  automatiquement (tout sous-dossier non standard de Ressources/Recherche)
+  automatiquement (tout sous-dossier non standard de Resources/Research)
 - **Recherche texte** dans les fiches — **[Réglages]** `researchSearch`
 - **Filtre par tag** (icône, menu au lieu d'un menu déroulant) —
   **[Réglages]** `researchTagFilter`
@@ -382,7 +385,8 @@ sans rien installer.
   alignement, retrait, styles de titres par niveau, séparateur de scène,
   numérotation des pages, césure
 - **Modèles personnalisés** — fichiers `.md` avec frontmatter YAML dans
-  `Ressources/Modèles`, même schéma que les modèles intégrés ; un fichier du
+  `Resources/Layouts` (anciennement `Ressources/Modèles`, toujours reconnu),
+  même schéma que les modèles intégrés ; un fichier du
   même nom qu'un modèle intégré le remplace réellement (pas de doublon dans
   le menu) ; action "Exporter les modèles intégrés" pour partir d'un modèle
   existant à personnaliser
@@ -430,9 +434,14 @@ d'Obsidian.
   "personnages/lieux/lore") ou Non-fiction (sections, "acteurs/géographie/
   concepts/sources") — appliqué une fois à la création, jamais réécrasé
   automatiquement ensuite
-- **Dossier du projet**, dossier de Recherche, dossier Snapshots, dossier
-  Ressources (Templates, Export, Visuels, Modèles), dossier Journal —
-  détectés ou créés via "Initialiser la structure du projet"
+- **Dossier du projet**, dossier Research (Recherche), dossier Snapshots,
+  dossier Resources (Templates, Export, Assets, Layouts — anciennement
+  Ressources/Visuels/Modèles), dossier Journal — détectés ou créés via
+  "Initialiser la structure du projet" ; les anciens noms de dossiers
+  français restent reconnus indéfiniment sur les projets déjà créés,
+  jamais renommés de force sur le disque — voir
+  `services/folder-structure.js` (`getResourcesRoot`) et
+  `services/research.js` (`getResearchRoot`)
 - **Statuts** — entièrement personnalisables (nom + couleur), comme les
   labels — 5 statuts par défaut (Idée/Brouillon/En cours/Révisé/Terminé),
   renommables/recolorables/supprimables, d'autres ajoutables librement —

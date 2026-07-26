@@ -1,6 +1,6 @@
 // @ts-check
 const { TFile, TFolder, Notice, normalizePath, stringifyYaml } = require("obsidian");
-import { getProjectFolder } from "./folder-structure.js";
+import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { fmOf } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
 import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
@@ -12,7 +12,7 @@ import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
  */
 
 /** Dossier où le plugin cherche les modèles d'export personnalisés —
- * voisin de Ressources/Templates et Ressources/Export, jamais dans le
+ * voisin de Resources/Templates et Resources/Export, jamais dans le
  * dossier projet lui-même.
  * @param {App} app
  * @param {FeuilletsSettings} settings
@@ -21,8 +21,8 @@ import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
 function customTemplatesFolderPath(app, settings) {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
-  const base = root.parent ? root.parent.path : root.path;
-  return normalizePath(`${base}/Ressources/Modèles`);
+  const resPath = resourcesFolderPath(app, root);
+  return resourcesSubfolderPath(app, resPath, "Layouts", "Modèles");
 }
 
 /** Le dossier s'il existe déjà dans le coffre — jamais créé ici.
@@ -38,7 +38,7 @@ function customTemplatesFolder(app, settings) {
 }
 
 /** Modèles d'export personnalisés : des fiches .md avec frontmatter dans
- * Ressources/Modèles — même forme que les modèles intégrés
+ * Resources/Layouts — même forme que les modèles intégrés
  * (utils/export-templates.js), lue via fmOf() (déjà utilisée partout
  * ailleurs dans le plugin), pas de nouveau format ni de nouvelle
  * dépendance. Le nom du fichier (sans .md) sert de clé et de repli pour
@@ -93,7 +93,7 @@ export async function listExportTemplates(app, settings) {
 }
 
 /** Résout un modèle par clé — personnalisé en priorité s'il existe pour
- * cette clé (un fichier Ressources/Modèles/<clé>.md personnalise ainsi
+ * cette clé (un fichier Resources/Layouts/<clé>.md personnalise ainsi
  * réellement le modèle intégré du même nom, ex. après
  * exportBuiltInTemplates), sinon intégré, sinon repli sur "classique".
  * Utilisée par export-docx.js/export-epub.js/export-pdf.js à la place de
@@ -110,7 +110,7 @@ export async function resolveExportTemplate(app, settings, key) {
 }
 
 /** Matérialise chaque modèle intégré (Classique, Roman simple, APA…) en
- * fichier .md dans Ressources/Modèles — un point de départ concret à
+ * fichier .md dans Resources/Layouts — un point de départ concret à
  * éditer plutôt qu'à réécrire depuis Exemple.md. Un fichier généré ici
  * porte la même clé que le modèle intégré correspondant (ex. classique.md)
  * : l'éditer le personnalise réellement pour ce projet (voir
@@ -142,7 +142,7 @@ export async function exportBuiltInTemplates(app, settings) {
 }
 
 /** Garantit un fichier .md éditable pour la clé de modèle donnée dans
- * Ressources/Modèles : s'il n'existe pas encore, le matérialise depuis le
+ * Resources/Layouts : s'il n'existe pas encore, le matérialise depuis le
  * modèle intégré correspondant (comme exportBuiltInTemplates, mais pour un
  * seul modèle) — condition pour que l'UI de réglages puisse éditer un modèle
  * intégré « en coulisses » sans que l'utilisateur ouvre le .md.

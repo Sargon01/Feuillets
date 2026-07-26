@@ -1,6 +1,6 @@
 const { Notice, TFolder, TFile, normalizePath } = require("obsidian");
 import { NewSheetModal, NewFolderModal } from "../ui/basic-modals.js";
-import { getProjectFolder, getOrderedChildren } from "./folder-structure.js";
+import { getProjectFolder, getOrderedChildren, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { getResearchRoot } from "./research.js";
 import { ensureJournalFolder } from "./journal.js";
 import { getProjectMode } from "./project-mode.js";
@@ -185,27 +185,38 @@ export async function initProjectStructure(app, settings) {
     : root.parent
     ? root.parent.path
     : root.path;
+  /* Nom réel du dossier de recherche : celui déjà présent sur le disque
+     quel qu'il soit (Recherche, _Recherche, Research…), sinon "Research"
+     pour un tout nouveau projet — jamais un nom en dur qui dupliquerait
+     un dossier existant sous un autre nom. */
+  const researchName = existingResearch ? existingResearch.name : "Research";
+  const existingChronoName = existingResearch && existingResearch.children
+    ? (existingResearch.children.find((c) => c instanceof TFolder && (c.name === "Chronology" || c.name === "Chronologie")) || {}).name
+    : null;
+  const chronoName = existingChronoName || "Chronology";
   const rf = getProjectMode(app, settings).researchFolders;
-  const foldersToCreate = ["Recherche"];
+  const foldersToCreate = [researchName];
   for (const key of ["sources", "bibliographie", "personnages", "lieux", "codex", "glossaire"]) {
     if (rf[key]) {
-      foldersToCreate.push(`Recherche/${rf[key].label}`);
+      foldersToCreate.push(`${researchName}/${rf[key].label}`);
     }
   }
-  foldersToCreate.push("Recherche/Chronologie");
+  foldersToCreate.push(`${researchName}/${chronoName}`);
   foldersToCreate.push("Snapshots");
 
   for (const d of foldersToCreate) {
     await ensureFolder(app, `${base}/${d}`);
   }
 
-  // Initialisation du dossier Ressources au niveau frère (sibling) de root (Manuscrit)
-  const resPath = root.parent ? `${root.parent.path}/Ressources` : `${root.path}/Ressources`;
+  // Initialisation du dossier Ressources (Resources), voisin de root (Manuscrit)
+  const resPath = resourcesFolderPath(app, root);
   await ensureFolder(app, resPath);
   await ensureFolder(app, `${resPath}/Templates`);
   await ensureFolder(app, `${resPath}/Export`);
-  await ensureFolder(app, `${resPath}/Visuels`);
-  await ensureFolder(app, `${resPath}/Modèles`);
+  const assetsPath = resourcesSubfolderPath(app, resPath, "Assets", "Visuels");
+  const layoutsPath = resourcesSubfolderPath(app, resPath, "Layouts", "Modèles");
+  await ensureFolder(app, assetsPath);
+  await ensureFolder(app, layoutsPath);
 
   const writeTemplate = async (path, content) => {
     const norm = normalizePath(path);
@@ -218,7 +229,7 @@ export async function initProjectStructure(app, settings) {
      à dupliquer plutôt qu'une page blanche. Même format que les modèles
      intégrés (src/utils/export-templates.js), lu via le frontmatter
      (voir services/export-templates-custom.js), pas de format à part. */
-  await writeTemplate(`${resPath}/Modèles/Exemple.md`, [
+  await writeTemplate(`${layoutsPath}/Exemple.md`, [
     "---",
     "label: Mon modèle",
     "fontFamily: Georgia, serif",
@@ -248,7 +259,7 @@ export async function initProjectStructure(app, settings) {
 
   if (isFiction) {
     // Templates de fiction
-    await writeTemplate(`${resPath}/Templates/Personnages.md`, [
+    await writeTemplate(`${resPath}/Templates/Characters.md`, [
       "---",
       "last_name: ",
       "first_name: ",
@@ -261,7 +272,7 @@ export async function initProjectStructure(app, settings) {
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Lieux.md`, [
+    await writeTemplate(`${resPath}/Templates/Places.md`, [
       "---",
       'title: "Nouveau lieu"',
       "description: ",
@@ -281,7 +292,7 @@ export async function initProjectStructure(app, settings) {
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Bibliographie.md`, [
+    await writeTemplate(`${resPath}/Templates/Bibliography.md`, [
       "---",
       'title: "Nouvelle référence"',
       "author: ",
@@ -294,7 +305,7 @@ export async function initProjectStructure(app, settings) {
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Glossaire.md`, [
+    await writeTemplate(`${resPath}/Templates/Glossary.md`, [
       "---",
       'title: "Nouveau terme"',
       "definition: ",
@@ -305,7 +316,7 @@ export async function initProjectStructure(app, settings) {
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Evenements.md`, [
+    await writeTemplate(`${resPath}/Templates/Events.md`, [
       "---",
       'title: "Nouvel événement"',
       "date: ",
@@ -365,7 +376,7 @@ export async function initProjectStructure(app, settings) {
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Bibliographie.md`, [
+    await writeTemplate(`${resPath}/Templates/Bibliography.md`, [
       "---",
       'title: "Nouvelle référence"',
       "author: ",
@@ -378,7 +389,7 @@ export async function initProjectStructure(app, settings) {
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Glossaire.md`, [
+    await writeTemplate(`${resPath}/Templates/Glossary.md`, [
       "---",
       'title: "Nouveau terme"',
       "definition: ",
@@ -389,7 +400,7 @@ export async function initProjectStructure(app, settings) {
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Evenements.md`, [
+    await writeTemplate(`${resPath}/Templates/Events.md`, [
       "---",
       'title: "Nouvel événement"',
       "date: ",
@@ -438,7 +449,13 @@ export async function initProjectStructure(app, settings) {
     "",
   ].join("\n"));
 
-  const listParts = [`Front`, `Recherche`, `Snapshots`, `Ressources`, `Journal`].join(", ");
+  const listParts = [
+    "Front",
+    researchName,
+    "Snapshots",
+    resPath.split("/").pop(),
+    settings.journalFolder || "Journal",
+  ].join(", ");
   new Notice(
     `Structure initialisée : ${listParts}.`
   );

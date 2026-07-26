@@ -25,6 +25,18 @@ Toutes les évolutions notables du plugin sont consignées ici.
   anglaises. Concerne aussi les colonnes du Plan et le contenu affiché sur
   les tuiles (`resume`→`summary`, `compiler`→`compile` dans les réglages,
   migrés automatiquement).
+- **Deuxième étape d'internationalisation : noms de dossiers en anglais.**
+  Les nouveaux projets créent désormais `Research` (Recherche), `Resources`
+  (Ressources) et ses sous-dossiers `Assets`/`Layouts` (Visuels/Modèles), et
+  les catégories de recherche `Characters`/`Places`/`Glossary`/`Events`/
+  `Bibliography` (Personnages/Lieux/Glossaire/Événements/Bibliographie).
+  Comme pour le frontmatter : **aucun dossier existant n'est renommé de
+  force** — l'ancien nom français reste détecté indéfiniment (voir
+  `getResourcesRoot`/`getResearchRoot` dans `services/folder-structure.js`
+  et `services/research.js`, `LEGACY_RESEARCH_LABELS` dans
+  `utils/project-modes.js`). `Front`, `Snapshots`, `Journal` (déjà
+  configurable) et le sous-dossier `Templates` n'ont pas changé — déjà
+  anglais ou déjà neutres.
 
 ### Corrigé
 

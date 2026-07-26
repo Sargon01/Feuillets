@@ -2,7 +2,13 @@
  * ni les champs de frontmatter lus — seulement le vocabulaire affiché et
  * les réglages de départ appliqués une fois à la création du projet. */
 
-const bibliographie = { label: "Bibliographie", newName: "Nouvelle référence", tag: "bibliographie" };
+/* Noms de dossiers en anglais depuis cette version (voir services/
+   folder-structure.js pour Front/Ressources/Recherche) — l'ancien nom
+   français de chaque catégorie reste reconnu indéfiniment sur les
+   projets déjà créés, voir LEGACY_RESEARCH_LABELS/matchesResearchLabel
+   plus bas. Seuls les nouveaux projets créent des dossiers avec le
+   nouveau nom. */
+const bibliographie = { label: "Bibliography", newName: "Nouvelle référence", tag: "bibliographie" };
 
 /** Personnages/Lieux/Lore/Glossaire/Événements sont des catégories nées
  * pour la fiction (personnages, lieux d'une histoire) — elles ne
@@ -16,10 +22,10 @@ const bibliographie = { label: "Bibliographie", newName: "Nouvelle référence",
  * gabarit générique. */
 const FICTION_RESEARCH = {
   bibliographie,
-  glossaire: { label: "Glossaire", newName: "Nouveau terme", tag: "glossaire" },
-  evenements: { label: "Événements", newName: "Nouvel événement", tag: "evenement" },
-  personnages: { label: "Personnages", newName: "Nouveau personnage", tag: "personnage" },
-  lieux: { label: "Lieux", newName: "Nouveau lieu", tag: "lieu" },
+  glossaire: { label: "Glossary", newName: "Nouveau terme", tag: "glossaire" },
+  evenements: { label: "Events", newName: "Nouvel événement", tag: "evenement" },
+  personnages: { label: "Characters", newName: "Nouveau personnage", tag: "personnage" },
+  lieux: { label: "Places", newName: "Nouveau lieu", tag: "lieu" },
   codex: { label: "Lore", newName: "Nouvelle entrée", tag: "codex" },
 };
 
@@ -27,6 +33,25 @@ const NONFICTION_RESEARCH = {
   bibliographie,
   sources: { label: "Sources", newName: "Nouvelle source", tag: "source" },
 };
+
+/** Ancien nom français de chaque catégorie (dossiers déjà créés avant ce
+ * renommage) — jamais renommés de force sur le disque, toujours reconnus
+ * en plus du nouveau nom anglais. */
+export const LEGACY_RESEARCH_LABELS = {
+  bibliographie: "Bibliographie",
+  glossaire: "Glossaire",
+  evenements: "Événements",
+  personnages: "Personnages",
+  lieux: "Lieux",
+};
+
+/** `name` correspond-il à la catégorie `key` de `researchFolders`, sous
+ * son nom actuel (anglais) OU son ancien nom (français) ? */
+export function matchesResearchLabel(researchFolders, key, name) {
+  const entry = researchFolders[key];
+  if (!entry) return false;
+  return name === entry.label || name === LEGACY_RESEARCH_LABELS[key];
+}
 
 export const PROJECT_MODES = {
   fiction: {

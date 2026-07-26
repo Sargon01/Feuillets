@@ -91,13 +91,13 @@ export class LayoutModal extends Modal {
       .addExtraButton((b) =>
         b
           .setIcon("copy-plus")
-          .setTooltip("Exporter les modèles intégrés vers Ressources/Modèles…")
+          .setTooltip("Exporter les modèles intégrés vers Resources/Layouts…")
           .onClick(async () => {
             const n = await exportBuiltInTemplates(this.app, S);
             new Notice(
               n > 0
-                ? `${n} modèle(s) exporté(s) dans Ressources/Modèles.`
-                : "Tous les modèles sont déjà présents dans Ressources/Modèles."
+                ? `${n} modèle(s) exporté(s) dans Resources/Layouts.`
+                : "Tous les modèles sont déjà présents dans Resources/Layouts."
             );
           })
       );

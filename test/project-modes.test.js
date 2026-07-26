@@ -31,18 +31,18 @@ test("PROJECT_MODES", async (t) => {
 
   await t.test("fiction garde Personnages/Lieux/Lore/Glossaire/Événements, pas de dossier Sources dédié", () => {
     const rf = PROJECT_MODES.fiction.researchFolders;
-    assert.equal(rf.personnages.label, "Personnages");
-    assert.equal(rf.lieux.label, "Lieux");
+    assert.equal(rf.personnages.label, "Characters");
+    assert.equal(rf.lieux.label, "Places");
     assert.equal(rf.codex.label, "Lore");
-    assert.equal(rf.glossaire.label, "Glossaire");
-    assert.equal(rf.evenements.label, "Événements");
+    assert.equal(rf.glossaire.label, "Glossary");
+    assert.equal(rf.evenements.label, "Events");
     assert.equal(rf.sources, undefined);
   });
 
   await t.test("non-fiction ne garde que Sources + Bibliographie, aucune rubrique imposée", () => {
     const rf = PROJECT_MODES.nonfiction.researchFolders;
     assert.equal(rf.sources.label, "Sources");
-    assert.equal(rf.bibliographie.label, "Bibliographie");
+    assert.equal(rf.bibliographie.label, "Bibliography");
     assert.equal(rf.personnages, undefined);
     assert.equal(rf.lieux, undefined);
     assert.equal(rf.codex, undefined);
@@ -52,7 +52,7 @@ test("PROJECT_MODES", async (t) => {
 
   await t.test("Bibliographie identique dans les deux modes (seul rôle partagé)", () => {
     for (const mode of Object.values(PROJECT_MODES)) {
-      assert.equal(mode.researchFolders.bibliographie.label, "Bibliographie");
+      assert.equal(mode.researchFolders.bibliographie.label, "Bibliography");
     }
   });
 });

@@ -141,7 +141,7 @@ declare type TitlePageStyle = {
 /** Modèle de mise en page pour l'export natif EPUB/DOCX/PDF — source de
  * vérité unique consommée par les trois formats (utils/export-templates.js).
  *
- * Un modèle personnalisé est un fichier Ressources/Modèles/<clé>.md dont le
+ * Un modèle personnalisé est un fichier Resources/Layouts/<clé>.md dont le
  * frontmatter est fusionné PAR-DESSUS le modèle « classique »
  * (loadCustomTemplates) : d'où la signature d'index, et d'où le fait que
  * seuls `key` et `label` sont réellement garantis présents. */
@@ -150,7 +150,7 @@ declare type ExportTemplate = {
   key: string;
   /** Libellé affiché dans le sélecteur d'export. */
   label: string;
-  /** Vrai pour un modèle issu de Ressources/Modèles, pas un intégré. */
+  /** Vrai pour un modèle issu de Resources/Layouts, pas un intégré. */
   custom?: boolean;
 
   fontFamily?: string;

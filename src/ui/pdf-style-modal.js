@@ -122,14 +122,14 @@ export class PdfStyleModal extends Modal {
 
     new Setting(container)
       .setName("Modèles personnalisés")
-      .setDesc("Exporter les modèles dans le coffre (Ressources/Modèles) pour les éditer.")
+      .setDesc("Exporter les modèles dans le coffre (Resources/Layouts) pour les éditer.")
       .addButton((b) =>
         b.setButtonText("Exporter…").onClick(async () => {
           const n = await exportBuiltInTemplates(this.app, this.settings);
           new Notice(
             n > 0
-              ? `${n} modèle(s) exporté(s) dans Ressources/Modèles.`
-              : "Tous les modèles intégrés sont déjà présents dans Ressources/Modèles."
+              ? `${n} modèle(s) exporté(s) dans Resources/Layouts.`
+              : "Tous les modèles intégrés sont déjà présents dans Resources/Layouts."
           );
         })
       );

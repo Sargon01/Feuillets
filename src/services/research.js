@@ -29,13 +29,18 @@ export function getChronoFolder(app, settings) {
       if (f instanceof TFolder) return f;
     }
   }
-  /* « Recherche » sans underscore : uniquement à côté du dossier projet,
-     jamais dedans — même restriction que getResearchRoot. */
+  /* « Recherche »/« Research » sans underscore : uniquement à côté du
+     dossier projet, jamais dedans — même restriction que getResearchRoot.
+     "Research" (anglais) reconnu au même titre que "Recherche" (voir
+     services/frontmatter.js pour le même principe appliqué aux champs) :
+     jamais renommé de force, seuls les nouveaux projets créent "Research". */
   if (root.parent) {
-    const f = app.vault.getAbstractFileByPath(
-      normalizePath(`${root.parent.path}/Recherche/Chronologie`)
-    );
-    if (f instanceof TFolder) return f;
+    for (const rel of ["Recherche/Chronologie", "Research/Chronology"]) {
+      const f = app.vault.getAbstractFileByPath(
+        normalizePath(`${root.parent.path}/${rel}`)
+      );
+      if (f instanceof TFolder) return f;
+    }
   }
   return null;
 }
@@ -56,17 +61,29 @@ export function getResearchRoot(app, settings) {
     );
     if (f instanceof TFolder) return f;
   }
-  /* « Recherche » sans underscore : reconnu UNIQUEMENT à côté du dossier
-     projet, jamais à l'intérieur — dedans, l'absence de préfixe le
-     ferait apparaître comme une fausse Partie dans le manuscrit, exactement
-     ce que l'underscore existe pour empêcher. */
+  /* « Recherche »/« Research » sans underscore : reconnu UNIQUEMENT à côté
+     du dossier projet, jamais à l'intérieur — dedans, l'absence de préfixe
+     le ferait apparaître comme une fausse Partie dans le manuscrit,
+     exactement ce que l'underscore existe pour empêcher. */
   if (root.parent) {
-    const f = app.vault.getAbstractFileByPath(
-      normalizePath(`${root.parent.path}/Recherche`)
-    );
-    if (f instanceof TFolder) return f;
+    for (const name of ["Recherche", "Research"]) {
+      const f = app.vault.getAbstractFileByPath(
+        normalizePath(`${root.parent.path}/${name}`)
+      );
+      if (f instanceof TFolder) return f;
+    }
   }
   return null;
+}
+
+/** Chemin du dossier de recherche à utiliser pour une ÉCRITURE (création) :
+ * reprend le dossier déjà présent sur le disque quel que soit son nom,
+ * sinon "Research" (nouveaux projets) — voisin du dossier manuscrit. */
+export function researchFolderPath(app, settings, root) {
+  const existing = getResearchRoot(app, settings);
+  if (existing) return existing.path;
+  const base = root && root.parent ? root.parent.path : root ? root.path : null;
+  return base ? normalizePath(`${base}/Research`) : null;
 }
 
 /** Renomme un fichier de recherche encore sous son nom provisoire dès

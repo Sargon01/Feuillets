@@ -2,7 +2,7 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { analyzeProse } from "../utils/literary-analysis.js";
 import { formatNumber, stripWritingNoise } from "../utils/text-metrics.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
-import { getChapters, flattenFiles, isFrontMatter } from "../services/folder-structure.js";
+import { getChapters, flattenFiles, isFrontMatter, resourcesFolderPath } from "../services/folder-structure.js";
 import { findRepetitions } from "../utils/repetitions.js";
 import { ensureFolder } from "../services/project-files.js";
 
@@ -420,7 +420,7 @@ export class AnalysisView extends BaseFeuilletsView {
     ].join("\n");
   }
 
-  /** Enregistre la synthèse dans un fichier du coffre (Ressources/Tableau de
+  /** Enregistre la synthèse dans un fichier du coffre (Resources/Tableau de
    * bord.md), le crée ou le remplace, puis l'ouvre. */
   async exportDashboardFile(dash) {
     const root = this.plugin.getProjectFolder();
@@ -428,8 +428,7 @@ export class AnalysisView extends BaseFeuilletsView {
       new Notice("Aucun projet actif.");
       return;
     }
-    const base = root.parent ? root.parent.path : root.path;
-    const dir = normalizePath(`${base}/Ressources`);
+    const dir = resourcesFolderPath(this.app, root);
     await ensureFolder(this.app, dir);
     const path = normalizePath(`${dir}/Tableau de bord.md`);
     const md = this.dashboardMarkdown(dash);
@@ -438,7 +437,7 @@ export class AnalysisView extends BaseFeuilletsView {
     else await this.app.vault.create(path, md);
     const file = this.app.vault.getAbstractFileByPath(path);
     if (file instanceof TFile) openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
-    new Notice("Tableau de bord enregistré dans Ressources.");
+    new Notice(`Tableau de bord enregistré dans ${dir.split("/").pop()}.`);
   }
 
   /** Scènes du manuscrit dans l'ordre (fichiers md, hors Front). Lecture du

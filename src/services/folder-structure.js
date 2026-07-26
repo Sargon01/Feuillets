@@ -25,6 +25,42 @@ export function projectDisplayName(path) {
   return last;
 }
 
+/** Dossier "Ressources" (modèles, exports personnalisés, images…), voisin
+ * du dossier projet — "Resources" pour les nouveaux projets, l'ancien nom
+ * français reconnu indéfiniment sur les projets déjà créés (même principe
+ * que LEGACY_FIELD_ALIASES en frontmatter, appliqué ici à un vrai dossier :
+ * jamais renommé de force sur le disque). */
+export function getResourcesRoot(app, root) {
+  if (!root) return null;
+  const base = root.parent ? root.parent.path : root.path;
+  const en = app.vault.getAbstractFileByPath(normalizePath(`${base}/Resources`));
+  if (en instanceof TFolder) return en;
+  const fr = app.vault.getAbstractFileByPath(normalizePath(`${base}/Ressources`));
+  if (fr instanceof TFolder) return fr;
+  return null;
+}
+
+/** Chemin du dossier Ressources à utiliser pour une ÉCRITURE (création
+ * d'un fichier/sous-dossier dedans) : reprend le dossier déjà présent sur
+ * le disque quel que soit son nom, sinon "Resources" (nouveaux projets). */
+export function resourcesFolderPath(app, root) {
+  if (!root) return null;
+  const base = root.parent ? root.parent.path : root.path;
+  const existing = getResourcesRoot(app, root);
+  return existing ? existing.path : normalizePath(`${base}/Resources`);
+}
+
+/** Sous-dossier de Ressources dont le nom a changé (Visuels->Assets,
+ * Modèles->Layouts) : reprend le nom déjà présent sur le disque s'il y en
+ * a un, sinon le nouveau nom anglais. */
+export function resourcesSubfolderPath(app, resourcesPath, newName, legacyName) {
+  const en = app.vault.getAbstractFileByPath(normalizePath(`${resourcesPath}/${newName}`));
+  if (en instanceof TFolder) return en.path;
+  const fr = app.vault.getAbstractFileByPath(normalizePath(`${resourcesPath}/${legacyName}`));
+  if (fr instanceof TFolder) return fr.path;
+  return normalizePath(`${resourcesPath}/${newName}`);
+}
+
 export function depthOf(app, settings, node) {
   const root = getProjectFolder(app, settings);
   if (!root) return 0;

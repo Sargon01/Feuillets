@@ -10,6 +10,7 @@ import { promptForPage } from "../ui/citation-modal.js";
 import { DiffModal, CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js";
+import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 
 
 function getResearchSectionIcon(key) {
@@ -383,8 +384,8 @@ export class BaseFeuilletsView extends ItemView {
       }
     }
 
-    const projBase = root.parent ? root.parent.path : root.path;
-    const visuelsPath = normalizePath(`${projBase}/Ressources/Visuels`);
+    const resPath = resourcesFolderPath(this.app, root);
+    const visuelsPath = resourcesSubfolderPath(this.app, resPath, "Assets", "Visuels");
     const fVisuels = this.app.vault.getAbstractFileByPath(visuelsPath);
     if (fVisuels instanceof TFolder && fVisuels.children.some((c) => isResearchFile(c))) {
       if (!customFolders.some((f) => f.path === fVisuels.path)) {

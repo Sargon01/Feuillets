@@ -251,8 +251,8 @@ export class ScrivenerImportModal extends Modal {
     const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
     await plugin.ensureFolder(manuscritPath);
 
-    // Dossier d'images du projet (Ressources/Visuels)
-    const visuelsFolderPath = normalizePath(`${volumePath}/Ressources/Visuels`);
+    // Dossier d'images du projet (Resources/Assets)
+    const visuelsFolderPath = normalizePath(`${volumePath}/Resources/Assets`);
     await plugin.ensureFolder(visuelsFolderPath);
 
     if (S.projectFolder && !S.projects.includes(S.projectFolder)) {
@@ -326,7 +326,7 @@ export class ScrivenerImportModal extends Modal {
       return buf;
     };
 
-    // Sauvegarde les images intégrées RTF (\pict) dans Ressources/Visuels/
+    // Sauvegarde les images intégrées RTF (\pict) dans Resources/Assets/
     const saveExtractedImages = async (extractedImages) => {
       for (const img of extractedImages) {
         const imgPath = normalizePath(`${visuelsFolderPath}/${img.name}`);
@@ -632,7 +632,7 @@ export class ScrivenerImportModal extends Modal {
     };
 
     if (parsed.research) {
-      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Recherche`));
+      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`));
       if (researchRoot) {
         for (const child of parsed.research.children) {
           const key = child.isFolder ? classifyResearchFolder(child.title) : null;
@@ -656,7 +656,7 @@ export class ScrivenerImportModal extends Modal {
 
     // ============================== Autres éléments racines ==================
     if (parsed.others && parsed.others.length > 0) {
-      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Recherche`));
+      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`));
       if (researchRoot) {
         const fallback = await plugin.ensureFolder(
           normalizePath(`${researchRoot.path}/Scrivener (non classé)`)

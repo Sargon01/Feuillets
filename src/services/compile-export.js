@@ -422,18 +422,15 @@ async function exportViaPandoc(app, settings, format = "docx") {
     args.push("--to", "docx");
     const refRel = S.pandocReference || "reference-feuillets.docx";
     const projBase = folder.parent ? folder.parent.path : folder.path;
-    const cand1 = normalizePath(`${projBase}/Ressources/Export/${refRel}`);
-    const cand2 = normalizePath(`${projBase}/Ressources/Export/reference-feuillets.docx`);
-    const cand3 = normalizePath(refRel);
+    const candidates = [
+      normalizePath(`${projBase}/Resources/Export/${refRel}`),
+      normalizePath(`${projBase}/Ressources/Export/${refRel}`),
+      normalizePath(`${projBase}/Resources/Export/reference-feuillets.docx`),
+      normalizePath(`${projBase}/Ressources/Export/reference-feuillets.docx`),
+      normalizePath(refRel),
+    ];
 
-    let resolvedRel = "";
-    if (app.vault.getAbstractFileByPath(cand1)) {
-      resolvedRel = cand1;
-    } else if (app.vault.getAbstractFileByPath(cand2)) {
-      resolvedRel = cand2;
-    } else if (app.vault.getAbstractFileByPath(cand3)) {
-      resolvedRel = cand3;
-    }
+    let resolvedRel = candidates.find((c) => app.vault.getAbstractFileByPath(c)) || "";
 
     if (resolvedRel) {
       const absRef = pathMod.resolve(pathMod.join(basePath, resolvedRel));

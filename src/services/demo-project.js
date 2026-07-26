@@ -1,6 +1,6 @@
 const { Notice, normalizePath } = require("obsidian");
 import { getProjectFolder } from "./folder-structure.js";
-import { getResearchRoot, getChronoFolder } from "./research.js";
+import { getResearchRoot, getChronoFolder, researchFolderPath } from "./research.js";
 import { ensureFolder, initProjectStructure } from "./project-files.js";
 import { ensureDayEntry } from "./journal.js";
 import { dateKey } from "../utils/journal-stats.js";
@@ -304,7 +304,7 @@ async function generate(app, S, plugin, manuscritPath) {
 
   /* ---------- Recherche ---------- */
 
-  const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, `${root.parent.path}/Recherche`));
+  const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, researchFolderPath(app, S, root)));
 
   const personnages = await ensureFolder(app, `${researchRoot.path}/${rf.personnages.label}`);
   await writeSheet(app, personnages, "Elira Voskan", [
@@ -681,7 +681,7 @@ async function generateCandide(app, S, plugin, manuscritPath) {
 
   /* ---------- Recherche : fiches réelles (Personnages, Lieux, Lore, Chronologie) ---------- */
 
-  const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, `${root.parent.path}/Recherche`));
+  const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, researchFolderPath(app, S, root)));
 
   const personnages = await ensureFolder(app, `${researchRoot.path}/${rf.personnages.label}`);
   for (const [name, content] of Object.entries(CANDIDE_RESEARCH.Personnages)) {
