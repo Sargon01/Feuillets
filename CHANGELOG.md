@@ -2,6 +2,13 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.3.2
+
+### Modifié & Corrigé
+
+- **Revue Obsidian** : Correction finale des faux-positifs de linting (no-undef pour require, no-misleading-character-class).
+- **Typage** : Initialisation du typage JSDoc sur `constants.js` et `main.js` pour éliminer les alertes TypeScript sous-jacentes.
+
 ## 1.3.1
 
 ### Modifié & Corrigé
