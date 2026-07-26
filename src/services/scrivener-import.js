@@ -2,6 +2,7 @@
 
 import { PROJECT_MODES } from "../utils/project-modes.js";
 import { extractTag, extractAllTags, getAttr, decodeXmlEntities } from "../utils/xml.js";
+import { t } from "../i18n/index.js";
 
 export { extractTag, extractAllTags, getAttr, decodeXmlEntities };
 
@@ -11,13 +12,12 @@ export function checkScrivenerFormat(entries) {
   if (entries.includes("binder.scrivproj")) {
     return {
       ok: false,
-      error:
-        "Ce projet utilise l'ancien format Scrivener 1.x (Mac), non pris en charge. Ouvre-le dans Scrivener 3 pour le convertir, puis réessaie.",
+      error: t("modal.scrivenerImport.legacyFormat"),
     };
   }
   const scrivxName = entries.find((f) => f.toLowerCase().endsWith(".scrivx"));
   if (!scrivxName) {
-    return { ok: false, error: "Aucun fichier .scrivx trouvé dans ce dossier." };
+    return { ok: false, error: t("modal.scrivenerImport.noScrivxFound") };
   }
   return { ok: true, scrivxName };
 }
@@ -258,7 +258,7 @@ function parseBinderItem(attrs, body, labelTitles, statusTitles, keywordTitles, 
 }
 
 export function parseScrivx(xmlContent) {
-  const projectTitle = decodeXmlEntities(extractTag(xmlContent, "ProjectTitle")) || "Projet importé";
+  const projectTitle = decodeXmlEntities(extractTag(xmlContent, "ProjectTitle")) || t("modal.scrivenerImport.importedProject");
   const labelTitles = parseListItems(extractTag(xmlContent, "LabelSettings"));
   const statusTitles = parseListItems(extractTag(xmlContent, "StatusSettings"));
   const keywordTitles = parseKeywordSettings(xmlContent);

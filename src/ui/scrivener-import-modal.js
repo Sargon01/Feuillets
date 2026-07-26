@@ -16,10 +16,11 @@ import {
   parseScrivenerComments,
   buildUuidTitleMap,
 } from "../services/scrivener-import.js";
+import { t } from "../i18n/index.js";
 
 function sanitizeName(title) {
   const cleaned = (title || "").replace(/[\\/:*?"<>|]/g, "").trim();
-  return cleaned || "Sans-titre";
+  return cleaned || t("modal.scrivenerImport.untitled");
 }
 
 function unusedPath(app, basePath) {
@@ -81,11 +82,11 @@ export class ScrivenerImportModal extends Modal {
   onOpen() {
     if (Platform.isMobile) {
       const { contentEl } = this;
-      contentEl.createEl("h3", { text: "Importer un projet Scrivener" });
+      contentEl.createEl("h3", { text: t("modal.scrivenerImport.title") });
       contentEl
         .createEl("p", { cls: "setting-item-description" })
         .setText(
-          "L'import Scrivener lit directement le dossier .scriv sur le disque — disponible uniquement sur ordinateur."
+          t("modal.scrivenerImport.desktopOnly")
         );
       return;
     }
@@ -100,12 +101,12 @@ export class ScrivenerImportModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
-    contentEl.createEl("h3", { text: "Importer un projet Scrivener" });
+    contentEl.createEl("h3", { text: t("modal.scrivenerImport.title") });
     contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      "Crée un nouveau projet Feuillets à partir d'un dossier .scriv — images, liens et métadonnées conservés, dossiers avec texte importés en dossiers avec note."
+      t("modal.scrivenerImport.desc")
     );
 
-    contentEl.createEl("label", { text: "Dossier .scriv" });
+    contentEl.createEl("label", { text: t("modal.scrivenerImport.scrivFolderLabel") });
     const scrivInput = contentEl.createEl("input", {
       type: "text",
       attr: { placeholder: "/Users/toi/Documents/Mon Roman.scriv" },
@@ -113,15 +114,15 @@ export class ScrivenerImportModal extends Modal {
     scrivInput.style.width = "100%";
     scrivInput.style.marginBottom = "10px";
 
-    contentEl.createEl("label", { text: "Dossier parent (facultatif)" });
+    contentEl.createEl("label", { text: t("modal.newProject.parentFolderLabel") });
     const parentInput = contentEl.createEl("input", {
       type: "text",
-      attr: { placeholder: "Romans (laisser vide pour la racine du coffre)" },
+      attr: { placeholder: t("modal.newProject.parentFolderPlaceholder") },
     });
     parentInput.style.width = "100%";
     parentInput.style.marginBottom = "10px";
 
-    contentEl.createEl("label", { text: "Nom du projet" });
+    contentEl.createEl("label", { text: t("modal.newProject.nameLabel") });
     const nameInput = contentEl.createEl("input", {
       type: "text",
       attr: { placeholder: "Mon Roman" },
@@ -129,7 +130,7 @@ export class ScrivenerImportModal extends Modal {
     nameInput.style.width = "100%";
     nameInput.style.marginBottom = "10px";
 
-    contentEl.createEl("label", { text: "Type de document" });
+    contentEl.createEl("label", { text: t("modal.newProject.typeLabel") });
     const typeSelect = contentEl.createEl("select");
     typeSelect.style.width = "100%";
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
@@ -139,12 +140,12 @@ export class ScrivenerImportModal extends Modal {
     const analyze = async () => {
       const scrivPath = scrivInput.value.trim().replace(/[/\\]+$/, "");
       if (!scrivPath) {
-        new Notice("Indique le chemin du dossier .scriv.");
+        new Notice(t("modal.scrivenerImport.enterScrivPath"));
         return;
       }
       const name = nameInput.value.trim();
       if (!name) {
-        new Notice("Donne un nom au projet.");
+        new Notice(t("modal.newProject.giveAName"));
         return;
       }
 
@@ -153,7 +154,7 @@ export class ScrivenerImportModal extends Modal {
         fs = require("fs");
         pathMod = require("path");
       } catch (e) {
-        new Notice("Import indisponible sur cette plateforme.");
+        new Notice(t("modal.scrivenerImport.importUnavailable"));
         return;
       }
 
@@ -161,7 +162,7 @@ export class ScrivenerImportModal extends Modal {
       try {
         entries = fs.readdirSync(scrivPath);
       } catch (e) {
-        new Notice(`Dossier introuvable : ${scrivPath}`);
+        new Notice(t("modal.scrivenerImport.folderNotFound", { path: scrivPath }));
         return;
       }
       const check = checkScrivenerFormat(entries);
@@ -174,13 +175,13 @@ export class ScrivenerImportModal extends Modal {
       try {
         xmlContent = fs.readFileSync(pathMod.join(scrivPath, check.scrivxName), "utf-8");
       } catch (e) {
-        new Notice("Impossible de lire le fichier .scrivx.");
+        new Notice(t("modal.scrivenerImport.cannotReadScrivx"));
         return;
       }
 
       const parsed = parseScrivx(xmlContent);
       if (!parsed.draft) {
-        new Notice("Aucun dossier Draft/Manuscrit trouvé dans ce projet Scrivener.");
+        new Notice(t("modal.scrivenerImport.noDraftFound"));
         return;
       }
 
@@ -197,43 +198,43 @@ export class ScrivenerImportModal extends Modal {
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
-      .createEl("button", { text: "Analyser le projet", cls: "mod-cta" })
+      .createEl("button", { text: t("modal.scrivenerImport.analyzeBtn"), cls: "mod-cta" })
       .addEventListener("click", analyze);
-    btnRow.createEl("button", { text: "Annuler" }).addEventListener("click", () => this.close());
+    btnRow.createEl("button", { text: t("modal.cancel") }).addEventListener("click", () => this.close());
   }
 
   showPreview(ctx) {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
-    contentEl.createEl("h3", { text: `Importer « ${ctx.parsed.projectTitle} »` });
+    contentEl.createEl("h3", { text: t("modal.scrivenerImport.importTitle", { name: ctx.parsed.projectTitle }) });
 
     const counts = countImportPreview(ctx.parsed);
     const list = contentEl.createEl("ul");
-    list.createEl("li", { text: `${counts.folders} dossier(s) (parties/chapitres)` });
-    list.createEl("li", { text: `${counts.scenes} scène(s)` });
-    list.createEl("li", { text: `${counts.researchEntries} fiche(s) de recherche` });
+    list.createEl("li", { text: t("modal.scrivenerImport.countFolders", { count: counts.folders }) });
+    list.createEl("li", { text: t("modal.scrivenerImport.countScenes", { count: counts.scenes }) });
+    list.createEl("li", { text: t("modal.scrivenerImport.countResearch", { count: counts.researchEntries }) });
     if (counts.unclassifiedRoots > 0) {
       list.createEl("li", {
-        text: `${counts.unclassifiedRoots} élément(s) racine non reconnu(s) — importé(s) tel quel.`,
+        text: t("modal.scrivenerImport.countUnclassified", { count: counts.unclassifiedRoots }),
       });
     }
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
-    const confirmBtn = btnRow.createEl("button", { text: "Confirmer l'import", cls: "mod-cta" });
+    const confirmBtn = btnRow.createEl("button", { text: t("modal.scrivenerImport.confirmBtn"), cls: "mod-cta" });
     confirmBtn.addEventListener("click", async () => {
       confirmBtn.disabled = true;
-      confirmBtn.setText("Import en cours…");
+      confirmBtn.setText(t("modal.scrivenerImport.importing"));
       try {
         await this.runImport(ctx);
         this.close();
       } catch (e) {
-        new Notice(`Échec de l'import : ${e.message || e}`);
+        new Notice(t("modal.scrivenerImport.importFailed", { error: e.message || e }));
         confirmBtn.disabled = false;
-        confirmBtn.setText("Confirmer l'import");
+        confirmBtn.setText(t("modal.scrivenerImport.confirmBtn"));
       }
     });
-    btnRow.createEl("button", { text: "Retour" }).addEventListener("click", () => this.showForm());
+    btnRow.createEl("button", { text: t("modal.back") }).addEventListener("click", () => this.showForm());
   }
 
   async runImport({ scrivPath, parsed, parentPath, name, mode, fs, pathMod }) {
@@ -244,7 +245,7 @@ export class ScrivenerImportModal extends Modal {
 
     const volumePath = normalizePath(parentPath ? `${parentPath}/${name}` : name);
     if (app.vault.getAbstractFileByPath(volumePath)) {
-      throw new Error(`« ${volumePath} » existe déjà.`);
+      throw new Error(t("modal.newProject.alreadyExists", { path: volumePath }));
     }
 
     await plugin.ensureFolder(volumePath);
@@ -450,7 +451,7 @@ export class ScrivenerImportModal extends Modal {
       let docNotes = readNotes(item.uuid);
       if (rtfRes && rtfRes.extractedComments && rtfRes.extractedComments.length > 0) {
         const commentLines = rtfRes.extractedComments.map((c) =>
-          c.word ? `[Commentaire sur "${c.word}"]: ${c.text}` : c.text
+          c.word ? t("modal.scrivenerImport.commentOn", { word: c.word, text: c.text }) : c.text
         );
         docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
       }
@@ -494,7 +495,7 @@ export class ScrivenerImportModal extends Modal {
 
         if (extractedComments && extractedComments.length > 0) {
           const commentLines = extractedComments.map((c) =>
-            c.word ? `[Commentaire sur "${c.word}"]: ${c.text}` : c.text
+            c.word ? t("modal.scrivenerImport.commentOn", { word: c.word, text: c.text }) : c.text
           );
           docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
         }
@@ -615,7 +616,7 @@ export class ScrivenerImportModal extends Modal {
       let docNotes = readNotes(item.uuid);
       if (rtfRes && rtfRes.extractedComments && rtfRes.extractedComments.length > 0) {
         const commentLines = rtfRes.extractedComments.map((c) =>
-          c.word ? `[Commentaire sur "${c.word}"]: ${c.text}` : c.text
+          c.word ? t("modal.scrivenerImport.commentOn", { word: c.word, text: c.text }) : c.text
         );
         docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
       }
@@ -646,7 +647,7 @@ export class ScrivenerImportModal extends Modal {
             }
           } else {
             const fallback = await plugin.ensureFolder(
-              normalizePath(`${researchRoot.path}/Scrivener (non classé)`)
+              normalizePath(`${researchRoot.path}/${t("modal.scrivenerImport.unclassifiedFolder")}`)
             );
             await writeResearchNode(child, fallback, null);
           }
@@ -659,7 +660,7 @@ export class ScrivenerImportModal extends Modal {
       const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`));
       if (researchRoot) {
         const fallback = await plugin.ensureFolder(
-          normalizePath(`${researchRoot.path}/Scrivener (non classé)`)
+          normalizePath(`${researchRoot.path}/${t("modal.scrivenerImport.unclassifiedFolder")}`)
         );
         for (const otherItem of parsed.others) {
           await writeResearchNode(otherItem, fallback, null);
@@ -687,8 +688,8 @@ export class ScrivenerImportModal extends Modal {
     plugin.renderAllViews(true);
     plugin.updateStatusBar();
     const warning = unreadableCount > 0
-      ? ` Attention : ${unreadableCount} fichier(s) sans contenu retrouvé.`
+      ? ` ${t("modal.scrivenerImport.unreadableWarning", { count: unreadableCount })}`
       : "";
-    new Notice(`Import Scrivener réussi : ${volumePath}.${warning}`, warning ? 10000 : 4000);
+    new Notice(t("modal.scrivenerImport.importSuccess", { path: volumePath }) + warning, warning ? 10000 : 4000);
   }
 }
