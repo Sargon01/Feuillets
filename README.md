@@ -181,7 +181,20 @@ npm install
 npm run dev     # esbuild watch mode
 npm run build   # type-check (structural, via allowJs) + production bundle
 npm test        # node:test — pure-function unit tests (utils/core.js)
+npm run lint    # eslint + type-check
 ```
+
+Before submitting a release to the Obsidian community catalogue, run the
+same automated review their developer dashboard performs — it uses the
+public [`eslint-plugin-obsidianmd`](https://github.com/obsidianmd/eslint-plugin),
+so it can be reproduced locally instead of waiting for the dashboard's
+(often file-less) error messages:
+
+```bash
+npm run lint:obsidian   # must report 0 errors; warnings are informational
+```
+
+See `obsidian-review.config.mjs` for what counts as an error and why.
 
 Source lives in `src/`; `main.js` at the repository root is a **build
 artifact** (gitignored) — never edit it directly.
