@@ -14,6 +14,7 @@ import {
   findTolerant,
 } from "../services/docx-review-import.js";
 import { bookmarkIdFor } from "../utils/docx-bookmarks.js";
+import { t, getLocale } from "../i18n/index.js";
 
 /* Icône par type de retour — même esprit que getResearchSectionIcon
  * (base-feuillets-view.js) : un repère visuel immédiat, avant même de lire
@@ -97,7 +98,7 @@ export class DocxReviewView extends BaseFeuilletsView {
   }
 
   getDisplayText() {
-    return "Révision";
+    return t("docxReview.displayText");
   }
 
   getIcon() {
@@ -114,7 +115,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     container.addClass("feuillets-docx-review-container");
 
     const section = container.createDiv({ cls: "feuillets-project-section" });
-    const collapsed = this.renderSectionHead(section, "file-diff", "Révision", "docxReview", "revision");
+    const collapsed = this.renderSectionHead(section, "file-diff", t("docxReview.displayText"), "docxReview", "revision");
     if (collapsed) return;
 
     if (this.mode === "results" && this.results) {
@@ -158,7 +159,7 @@ export class DocxReviewView extends BaseFeuilletsView {
          sait qu'un point de retour existe (via « Comparer avec le
          snapshot » / le dossier Snapshots) avant que la relecture ne touche
          son manuscrit. */
-      if (first) new Notice("Snapshot du feuillet créé avant la première modification — tu peux revenir en arrière.");
+      if (first) new Notice(t("docxReview.snapshotCreatedNotice"));
     } catch (e) {}
   }
 
@@ -169,12 +170,12 @@ export class DocxReviewView extends BaseFeuilletsView {
     try {
       zip = await JSZip.loadAsync(buf);
     } catch (e) {
-      new Notice("Fichier illisible — vérifie que c'est bien un .docx.");
+      new Notice(t("docxReview.unreadableFile"));
       return;
     }
     const docXmlFile = zip.file("word/document.xml");
     if (!docXmlFile) {
-      new Notice("Ce fichier ne ressemble pas à un .docx valide (word/document.xml absent).");
+      new Notice(t("docxReview.invalidDocx"));
       return;
     }
     const documentXml = await docXmlFile.async("string");
@@ -275,7 +276,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       Object.keys(unmatched).length +
       (unclassified.changes.length > 0 || unclassified.comments.length > 0 ? 1 : 0);
     if (totalFound === 0) {
-      new Notice("Aucun commentaire ni modification suivie trouvé dans ce fichier.");
+      new Notice(t("docxReview.noReviewFound"));
       return;
     }
     this.results = { byPath, unmatched, unclassified };
@@ -293,7 +294,7 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     const section = container.createDiv({ cls: "feuillets-research-section" });
     section.createDiv({ cls: "feuillets-docx-review-group-label" }).setText(
-      `Dans Sortie${outputFolder ? " · " + outputFolder.path : ""}`
+      t("docxReview.inOutputFolder", { path: outputFolder ? " · " + outputFolder.path : "" })
     );
     const list = section.createDiv({ cls: "feuillets-research-list" });
     if (docxFiles.length === 0) {
@@ -301,8 +302,8 @@ export class DocxReviewView extends BaseFeuilletsView {
         .createDiv({ cls: "feuillets-research-empty" })
         .setText(
           outputFolder
-            ? "Aucun .docx dans Sortie pour l'instant — enregistre le fichier renvoyé par le directeur/éditeur dedans."
-            : "Dossier Sortie introuvable (aucun export encore fait pour ce projet)."
+            ? t("docxReview.noDocxYet")
+            : t("docxReview.outputFolderNotFound")
         );
     } else {
       for (const f of docxFiles) {
@@ -313,7 +314,7 @@ export class DocxReviewView extends BaseFeuilletsView {
         name.createSpan().setText(f.name);
         name
           .createSpan({ cls: "feuillets-docx-review-file-date" })
-          .setText(new Date(f.stat.mtime).toLocaleString("fr-FR"));
+          .setText(new Date(f.stat.mtime).toLocaleString(getLocale() === "en" ? "en-US" : "fr-FR"));
         row.addEventListener("click", async () => {
           const buf = await this.app.vault.readBinary(f);
           await this.analyzeBuffer(buf, f.name);
@@ -323,11 +324,11 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     if (!Platform.isMobile) {
       const extSection = container.createDiv({ cls: "feuillets-research-section" });
-      extSection.createDiv({ cls: "feuillets-docx-review-group-label" }).setText("Ou un autre fichier (hors du coffre)");
+      extSection.createDiv({ cls: "feuillets-docx-review-group-label" }).setText(t("docxReview.orOtherFile"));
       const row = extSection.createDiv({ cls: "feuillets-docx-review-path-row" });
       const pathInput = row.createEl("input", {
         type: "text",
-        attr: { placeholder: "/Users/toi/Downloads/Manuscrit (retours).docx — ou dépose le fichier ici" },
+        attr: { placeholder: t("docxReview.pathPlaceholder") },
       });
       pathInput.addEventListener("dragover", (e) => e.preventDefault());
       pathInput.addEventListener("drop", (e) => {
@@ -339,21 +340,21 @@ export class DocxReviewView extends BaseFeuilletsView {
       const analyze = async () => {
         const path = pathInput.value.trim();
         if (!path) {
-          new Notice("Indique le chemin du fichier .docx.");
+          new Notice(t("docxReview.enterPath"));
           return;
         }
         let fs;
         try {
           fs = require("fs");
         } catch (e) {
-          new Notice("Lecture indisponible sur cette plateforme.");
+          new Notice(t("docxReview.readUnavailable"));
           return;
         }
         let buf;
         try {
           buf = fs.readFileSync(path);
         } catch (e) {
-          new Notice(`Fichier introuvable : ${path}`);
+          new Notice(t("docxReview.fileNotFound", { path }));
           return;
         }
         const filename = path.split("/").pop() || "docx-review";
@@ -362,14 +363,14 @@ export class DocxReviewView extends BaseFeuilletsView {
       pathInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") analyze();
       });
-      const analyzeBtn = this.iconBtn(row, "search", "Analyser ce fichier");
+      const analyzeBtn = this.iconBtn(row, "search", t("docxReview.analyzeFile"));
       analyzeBtn.addEventListener("click", analyze);
     }
   }
 
   async renderResultsPanel(container) {
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
-    const backBtn = this.iconBtn(toolbar, "arrow-left", "Analyser un autre .docx");
+    const backBtn = this.iconBtn(toolbar, "arrow-left", t("docxReview.analyzeAnother"));
     backBtn.addEventListener("click", () => {
       this.mode = "picker";
       this.results = null;
@@ -379,7 +380,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     const toggleResolvedBtn = this.iconBtn(
       toolbar,
       this.showResolved ? "eye-off" : "eye",
-      this.showResolved ? "Masquer les retours résolus" : "Afficher les retours résolus"
+      this.showResolved ? t("docxReview.hideResolved") : t("docxReview.showResolved")
     );
     toggleResolvedBtn.addEventListener("click", () => {
       this.showResolved = !this.showResolved;
@@ -418,7 +419,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     const totalResolved = resolvedMatched + resolvedUnmatched;
 
     if (totalActive > 0) {
-      const dismissAllBtn = this.iconBtn(toolbar, "check-check", "Tout marquer comme résolu");
+      const dismissAllBtn = this.iconBtn(toolbar, "check-check", t("docxReview.markAllResolved"));
       dismissAllBtn.addEventListener("click", async () => {
         for (const path of paths) {
           for (const c of byPath[path].changes) { c.dismissed = true; await this.saveItemState(c); }
@@ -430,29 +431,30 @@ export class DocxReviewView extends BaseFeuilletsView {
         }
         for (const c of unclassified.changes) { c.dismissed = true; await this.saveItemState(c); }
         for (const c of unclassified.comments) { c.dismissed = true; await this.saveItemState(c); }
-        new Notice("Tous les retours ont été marqués comme résolus.");
+        new Notice(t("docxReview.allMarkedResolved"));
         this.render();
       });
     }
 
     const summary = container.createDiv({ cls: "feuillets-research-section" });
     summary.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      `${totalActive} retour(s) à traiter${totalResolved > 0 ? " · " + totalResolved + " résolu(s) ou masqué(s)" : ""}`
+      t("docxReview.toProcess", { count: totalActive }) +
+        (totalResolved > 0 ? t("docxReview.resolvedSuffix", { count: totalResolved }) : "")
     );
 
     if (totalActive === 0 && totalResolved > 0 && !this.showResolved) {
       const emptyBox = container.createDiv({ cls: "feuillets-research-section feuillets-docx-review-done-box" });
-      emptyBox.createDiv({ cls: "feuillets-notes-section-title" }).setText("Manuscrit révisé avec succès !");
+      emptyBox.createDiv({ cls: "feuillets-notes-section-title" }).setText(t("docxReview.allDoneTitle"));
       emptyBox.createDiv({ cls: "feuillets-notes-sub" }).setText(
-        `Tous les ${totalResolved} retour(s) de ce fichier ont été traités ou masqués. Ta pile de révision est entièrement vide.`
+        t("docxReview.allDoneBody", { count: totalResolved })
       );
       const row = emptyBox.createDiv({ cls: "feuillets-docx-review-done-actions" });
-      const viewResolvedBtn = this.iconBtn(row, "eye", "Afficher les retours résolus");
+      const viewResolvedBtn = this.iconBtn(row, "eye", t("docxReview.showResolved"));
       viewResolvedBtn.addEventListener("click", () => {
         this.showResolved = true;
         this.render();
       });
-      const pickAnotherBtn = this.iconBtn(row, "arrow-left", "Analyser un autre .docx");
+      const pickAnotherBtn = this.iconBtn(row, "arrow-left", t("docxReview.analyzeAnother"));
       pickAnotherBtn.addEventListener("click", () => {
         this.mode = "picker";
         this.results = null;
@@ -495,7 +497,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       const titleEl = head ? head.querySelector(".feuillets-notes-section-title") : null;
       if (titleEl) {
         const badgeEl = titleEl.createSpan({ cls: "feuillets-docx-review-section-badge" });
-        badgeEl.setText(activeCount > 0 ? `${activeCount} à traiter` : "résolu");
+        badgeEl.setText(activeCount > 0 ? t("docxReview.badgeToProcess", { count: activeCount }) : t("docxReview.badgeResolved"));
         if (activeCount === 0) badgeEl.addClass("mod-resolved");
       }
 
@@ -527,7 +529,7 @@ export class DocxReviewView extends BaseFeuilletsView {
             title: "feuillets-notes-section-title",
             icon: "feuillets-notes-section-icon",
           },
-          title: `Non rattachés à un feuillet`,
+          title: t("docxReview.unmatchedTitle"),
           icon: "help-circle",
           collapsed: !!S.collapsed[collapseKey],
           collapseKey,
@@ -541,12 +543,12 @@ export class DocxReviewView extends BaseFeuilletsView {
         const titleEl = head ? head.querySelector(".feuillets-notes-section-title") : null;
         if (titleEl) {
           const badgeEl = titleEl.createSpan({ cls: "feuillets-docx-review-section-badge" });
-          badgeEl.setText(`${allUnmatchedChanges.length + allUnmatchedComments.length} à traiter`);
+          badgeEl.setText(t("docxReview.badgeToProcess", { count: allUnmatchedChanges.length + allUnmatchedComments.length }));
         }
 
         if (!S.collapsed[collapseKey]) {
           section.createDiv({ cls: "feuillets-notes-sub" }).setText(
-            "Le feuillet d'origine n'a pas été retrouvé (renommé/déplacé depuis l'export) ou ce passage a été retapé en dehors de tout repère de feuillet."
+            t("docxReview.unmatchedExplanation")
           );
           const list = section.createDiv({ cls: "feuillets-research-list" });
           for (const change of allUnmatchedChanges) this.renderChange(list, null, change);
@@ -624,10 +626,15 @@ export class DocxReviewView extends BaseFeuilletsView {
     const icon = header.createSpan({ cls: "feuillets-cell-icon" });
     setIcon(icon, iconFor(change));
 
-    const labels = { insertion: "Ajout proposé", deletion: "Suppression proposée", replacement: "Remplacement proposé", move: "Déplacement" };
+    const labels = {
+      insertion: t("docxReview.change.insertion"),
+      deletion: t("docxReview.change.deletion"),
+      replacement: t("docxReview.change.replacement"),
+      move: t("docxReview.change.move"),
+    };
     const label =
-      (change.inFootnote ? "Note de bas de page · " : "") +
-      (change.moved && change.type !== "move" ? "Déplacement — " : "") +
+      (change.inFootnote ? t("docxReview.change.footnotePrefix") : "") +
+      (change.moved && change.type !== "move" ? t("docxReview.change.movedPrefix") : "") +
       labels[change.type];
     const name = header.createDiv({ cls: "feuillets-research-item-name" });
     name.createDiv({ cls: "feuillets-docx-review-meta" }).setText(`${label} — ${change.author}${change.date ? " · " + change.date : ""}`);
@@ -642,8 +649,12 @@ export class DocxReviewView extends BaseFeuilletsView {
       const fromFileObj = change.fromPath ? resolveVaultFile(this.app, change.fromPath) : null;
       const toFileObj = change.toPath ? resolveVaultFile(this.app, change.toPath) : null;
 
-      const fromLabel = fromFileObj instanceof TFile && fromFileObj !== file ? `Couper de (${this.plugin.titleFor(fromFileObj)}) : ` : "Couper : ";
-      const toLabel = toFileObj instanceof TFile && toFileObj !== file ? `Coller dans (${this.plugin.titleFor(toFileObj)}) : ` : "Coller : ";
+      const fromLabel = fromFileObj instanceof TFile && fromFileObj !== file
+        ? t("docxReview.change.cutFrom", { title: this.plugin.titleFor(fromFileObj) })
+        : t("docxReview.change.cut");
+      const toLabel = toFileObj instanceof TFile && toFileObj !== file
+        ? t("docxReview.change.pasteInto", { title: this.plugin.titleFor(toFileObj) })
+        : t("docxReview.change.paste");
 
       preview.createSpan({ cls: "feuillets-docx-review-move-label mod-cut" }).setText(fromLabel);
       if (change.fromContext) preview.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.fromContext + " ");
@@ -663,11 +674,11 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     if (file) {
       row.style.cursor = "pointer";
-      row.title = "Cliquer pour ouvrir le feuillet et afficher le passage";
+      row.title = t("docxReview.openAndShowTooltip");
       row.addEventListener("click", () => this.openAndReveal(file, change, fallbackText));
 
       if (!change.applied) {
-        const applyBtn = this.iconBtn(header, "check", "Appliquer la modification");
+        const applyBtn = this.iconBtn(header, "check", t("docxReview.applyChange"));
         applyBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
           let result;
@@ -691,15 +702,15 @@ export class DocxReviewView extends BaseFeuilletsView {
           if (!result.ok) {
             new Notice(
               result.reason === "ambiguous"
-                ? "Ce passage apparaît plusieurs fois — impossible d'appliquer automatiquement sans risque de se tromper d'endroit. Modifie-le toi-même."
-                : "Passage introuvable tel quel dans le feuillet (la compilation transforme parfois le texte — typographie, liens...). Modifie-le toi-même."
+                ? t("docxReview.ambiguousPassage")
+                : t("docxReview.passageNotFound")
             );
             return;
           }
           change.applied = true;
           change.dismissed = true;
           await this.saveItemState(change);
-          new Notice("Modification appliquée et marquée comme résolue.");
+          new Notice(t("docxReview.changeAppliedNotice"));
           this.render();
         });
       }
@@ -710,16 +721,16 @@ export class DocxReviewView extends BaseFeuilletsView {
     const dismissBtn = this.iconBtn(
       header,
       change.dismissed ? "rotate-ccw" : "x",
-      change.dismissed ? "Rétablir dans la pile de retours" : "Masquer / Marquer comme résolu (sans modifier le fichier)"
+      change.dismissed ? t("docxReview.restoreInStack") : t("docxReview.hideMarkResolved")
     );
     dismissBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       change.dismissed = !change.dismissed;
       await this.saveItemState(change);
       if (change.dismissed) {
-        new Notice("Retour masqué (marqué comme résolu).");
+        new Notice(t("docxReview.itemHiddenNotice"));
       } else {
-        new Notice("Retour rétabli dans la pile.");
+        new Notice(t("docxReview.itemRestoredNotice"));
       }
       this.render();
     });
@@ -740,7 +751,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       const fFirst = resolveVaultFile(this.app, candidates[0]);
       if (fFirst instanceof TFile) {
         row.style.cursor = "pointer";
-        row.title = `Cliquer pour ouvrir : ${this.plugin.titleFor(fFirst)}`;
+        row.title = t("docxReview.clickToOpen", { title: this.plugin.titleFor(fFirst) });
         row.addEventListener("click", () => this.openAndReveal(fFirst, item.anchorText || searchTextForChange(item)));
       }
     }
@@ -751,7 +762,7 @@ export class DocxReviewView extends BaseFeuilletsView {
         if (!(f instanceof TFile)) continue;
         const title = this.plugin.titleFor(f);
 
-        const applyBtn = this.iconBtn(header, "check", `Appliquer dans : ${title}`);
+        const applyBtn = this.iconBtn(header, "check", t("docxReview.applyInto", { title }));
         applyBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
           let result;
@@ -776,15 +787,15 @@ export class DocxReviewView extends BaseFeuilletsView {
           if (!result.ok) {
             new Notice(
               result.reason === "ambiguous"
-                ? "Ce passage apparaît plusieurs fois — impossible d'appliquer automatiquement sans risque de se tromper d'endroit."
-                : "Passage introuvable tel quel dans ce feuillet."
+                ? t("docxReview.ambiguousPassageShort")
+                : t("docxReview.passageNotFoundInSheet")
             );
             return;
           }
           item.applied = true;
           item.dismissed = true;
           await this.saveItemState(item);
-          new Notice(`Modification appliquée dans ${title}.`);
+          new Notice(t("docxReview.changeAppliedInto", { title }));
           this.render();
         });
       }
@@ -801,13 +812,15 @@ export class DocxReviewView extends BaseFeuilletsView {
     const icon = header.createSpan({ cls: "feuillets-cell-icon" });
     setIcon(icon, iconFor(comment));
 
-    const baseLabel = comment.isFormatting ? "Mise en forme" : (comment.parentId != null ? "Réponse" : "Commentaire");
-    const label = (comment.inFootnote ? "Note de bas de page · " : "") + baseLabel;
+    const baseLabel = comment.isFormatting
+      ? t("docxReview.comment.formatting")
+      : (comment.parentId != null ? t("docxReview.comment.reply") : t("docxReview.comment.comment"));
+    const label = (comment.inFootnote ? t("docxReview.change.footnotePrefix") : "") + baseLabel;
     const name = header.createDiv({ cls: "feuillets-research-item-name" });
     const metaEl = name.createDiv({ cls: "feuillets-docx-review-meta" });
     metaEl.setText(`${label} — ${comment.author}${comment.date ? " · " + comment.date : ""}`);
     if (comment.resolvedInWord) {
-      metaEl.createSpan({ cls: "feuillets-docx-review-section-badge mod-resolved" }).setText("résolu dans Word");
+      metaEl.createSpan({ cls: "feuillets-docx-review-section-badge mod-resolved" }).setText(t("docxReview.comment.resolvedInWord"));
     }
     if (comment.anchorText) {
       const anchorEl = name.createDiv({ cls: "feuillets-docx-review-anchor" });
@@ -819,7 +832,7 @@ export class DocxReviewView extends BaseFeuilletsView {
           if (cls) span.addClass(cls);
         }
       } else {
-        anchorEl.setText(`« ${comment.anchorText} »`);
+        anchorEl.setText(t("docxReview.comment.anchorQuoted", { text: comment.anchorText }));
       }
     }
     if (!comment.isFormatting) {
@@ -828,7 +841,7 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     if (file) {
       row.style.cursor = "pointer";
-      row.title = "Cliquer pour ouvrir le feuillet et afficher le passage";
+      row.title = t("docxReview.openAndShowTooltip");
       row.addEventListener("click", () => this.openAndReveal(file, comment.anchorText));
     } else {
       this.renderNearFilesHints(header, comment, row);
@@ -837,16 +850,16 @@ export class DocxReviewView extends BaseFeuilletsView {
     const dismissBtn = this.iconBtn(
       header,
       comment.dismissed ? "rotate-ccw" : "x",
-      comment.dismissed ? "Rafficher dans la pile" : "Masquer / Marquer comme résolu"
+      comment.dismissed ? t("docxReview.showInStack") : t("docxReview.hideMarkResolvedShort")
     );
     dismissBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       comment.dismissed = !comment.dismissed;
       await this.saveItemState(comment);
       if (comment.dismissed) {
-        new Notice("Commentaire marqué comme résolu.");
+        new Notice(t("docxReview.commentResolvedNotice"));
       } else {
-        new Notice("Commentaire rétabli dans la pile.");
+        new Notice(t("docxReview.commentRestoredNotice"));
       }
       this.render();
     });
