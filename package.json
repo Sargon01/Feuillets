@@ -1,13 +1,13 @@
 {
   "name": "feuillets-dev",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Feuillets plugin development",
   "main": "main.js",
   "scripts": {
     "postinstall": "node scripts/patch-harper.mjs && node scripts/patch-script-polyfills.mjs",
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "lint": "tsc -noEmit -skipLibCheck",
+    "lint": "eslint . && tsc -noEmit -skipLibCheck",
     "test": "node --test test/*.test.js"
   },
   "keywords": [],
@@ -18,6 +18,8 @@
     "@types/node": "^24.0.0",
     "builtin-modules": "^5.0.0",
     "esbuild": "^0.28.1",
+    "eslint": "^10.8.0",
+    "globals": "^17.8.0",
     "obsidian": "latest",
     "typescript": "^5.0.0"
   },

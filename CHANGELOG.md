@@ -2,6 +2,20 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.2.4
+
+### Corrigé
+
+- Retiré `/Candide - Voltaire/` du suivi git (reste sur le disque local,
+  mais ne doit jamais avoir été commité) — un vault de test/démo, pas du
+  code du plugin.
+- Réconcilié la configuration ESLint : `eslint.config.mjs` (paquet
+  `globals`, couvre aussi `scripts/`/`test/`/`esbuild.config.mjs`) est
+  désormais la seule config flat active — `eslint.config.js` supprimé pour
+  éviter que les deux coexistent silencieusement. `.eslintrc.json` a
+  retrouvé son `root: true`. Le script `lint` lance maintenant vraiment
+  ESLint (il ne relançait que la vérification de types).
+
 ## 1.2.3
 
 ### Corrigé

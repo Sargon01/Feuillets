@@ -31,3 +31,7 @@ repomix-output.*
 # Mots appris / fautes ignorées de la correction grammaticale — données
 # utilisateur, jamais publiées (voir services/grammar-user-data.js).
 /resources/grammar-user-data.json
+
+# Vault de test/démo local (généré par "Créer un projet de démonstration")
+# — n'a rien à faire dans le dépôt du plugin, jamais commité désormais.
+/Candide - Voltaire/
