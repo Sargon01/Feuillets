@@ -3,6 +3,7 @@ import { foldAccents } from "../utils/core.js";
 import { openFileActivating } from "../utils/dom.js";
 import { buildTagTree, collectFiles, sortTagNodes } from "../utils/tag-tree.js";
 import { ConfirmModal } from "./basic-modals.js";
+import { t } from "../i18n/index.js";
 
 const STRUCTURAL_TAGS = new Set([
   "personnage", "lieu", "evenement", "codex", "source", "bibliographie", "glossaire",
@@ -57,11 +58,11 @@ export class ProjectPropertiesModal extends Modal {
   render() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h3", { text: "Propriétés du projet" });
+    contentEl.createEl("h3", { text: t("properties.project.title") });
 
     const root = this.plugin.getProjectFolder();
     if (!root) {
-      contentEl.createDiv({ cls: "feuillets-empty" }).setText("Aucun projet actif.");
+      contentEl.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.dashboard.noActiveProject"));
       return;
     }
     const activeFile = activeProjectFile(this.app, root);
@@ -76,7 +77,7 @@ export class ProjectPropertiesModal extends Modal {
         const valMap = propMap.get(key);
         const values = Array.isArray(value) ? value : [value];
         for (const v of values) {
-          const label = v === undefined || v === null || v === "" ? "(vide)" : String(v);
+          const label = v === undefined || v === null || v === "" ? t("properties.project.emptyValue") : String(v);
           if (!valMap.has(label)) valMap.set(label, new Set());
           valMap.get(label).add(f.path);
         }
@@ -85,7 +86,7 @@ export class ProjectPropertiesModal extends Modal {
 
     const keys = [...propMap.keys()].sort((a, b) => a.localeCompare(b, "fr"));
     if (keys.length === 0) {
-      contentEl.createDiv({ cls: "feuillets-empty" }).setText("Aucune propriété dans ce projet.");
+      contentEl.createDiv({ cls: "feuillets-empty" }).setText(t("properties.project.empty"));
       return;
     }
 
@@ -103,7 +104,7 @@ export class ProjectPropertiesModal extends Modal {
       row.createSpan({ cls: "feuillets-tags-count" }).setText(String(totalFiles));
       const addBtn = row.createSpan({ cls: "feuillets-tags-add" + (canAdd ? "" : " is-disabled") });
       setIcon(addBtn, "plus");
-      addBtn.setAttr("aria-label", canAdd ? `Ajouter « ${key} » au fichier ouvert` : "Déjà présente sur le fichier ouvert");
+      addBtn.setAttr("aria-label", canAdd ? t("properties.project.addToOpenFile", { key }) : t("properties.project.alreadyOnOpenFile"));
       if (canAdd) {
         addBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
@@ -114,14 +115,14 @@ export class ProjectPropertiesModal extends Modal {
       }
       const delBtn = row.createSpan({ cls: "feuillets-tags-add" });
       setIcon(delBtn, "trash-2");
-      delBtn.setAttr("aria-label", `Supprimer « ${key} » de tous les feuillets du projet`);
+      delBtn.setAttr("aria-label", t("properties.project.deleteFromProjectAria", { key }));
       delBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         new ConfirmModal(
           this.app,
-          `Supprimer « ${key} » ?`,
-          `Cette propriété sera retirée de ${totalFiles} feuillet${totalFiles > 1 ? "s" : ""} du projet. Cette action ne peut pas être annulée.`,
-          "Supprimer",
+          t("properties.project.deleteConfirmTitle", { key }),
+          t("properties.project.deleteConfirmBody", { count: totalFiles, s: totalFiles > 1 ? "s" : "" }),
+          t("properties.project.deleteConfirmBtn"),
           async () => {
             const paths = new Set([...valMap.values()].flatMap((s) => [...s]));
             for (const p of paths) {
@@ -131,7 +132,7 @@ export class ProjectPropertiesModal extends Modal {
                 delete data[key];
               });
             }
-            new Notice(`« ${key} » supprimée de ${paths.size} feuillet(s).`);
+            new Notice(t("properties.project.deletedNotice", { key, count: paths.size, s: paths.size > 1 ? "s" : "" }));
             this.render();
           }
         ).open();
@@ -201,11 +202,11 @@ export class ProjectTagsModal extends Modal {
   render() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h3", { text: "Tags du projet" });
+    contentEl.createEl("h3", { text: t("properties.tags.title") });
 
     const root = this.plugin.getProjectFolder();
     if (!root) {
-      contentEl.createDiv({ cls: "feuillets-empty" }).setText("Aucun projet actif.");
+      contentEl.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.dashboard.noActiveProject"));
       return;
     }
     const activeFile = activeProjectFile(this.app, root);
@@ -213,12 +214,12 @@ export class ProjectTagsModal extends Modal {
     const fileIndex = new Map(files.map((f) => [f.path, f]));
     const filesWithTags = files.map((f) => ({
       path: f.path,
-      tags: this.plugin.tagsOf(f).filter((t) => !STRUCTURAL_TAGS.has(foldAccents(t))),
+      tags: this.plugin.tagsOf(f).filter((tg) => !STRUCTURAL_TAGS.has(foldAccents(tg))),
     }));
     const tree = buildTagTree(filesWithTags);
     const roots = sortTagNodes(tree);
     if (roots.length === 0) {
-      contentEl.createDiv({ cls: "feuillets-empty" }).setText("Aucun tag dans ce projet.");
+      contentEl.createDiv({ cls: "feuillets-empty" }).setText(t("properties.tags.empty"));
       return;
     }
 
@@ -226,7 +227,7 @@ export class ProjectTagsModal extends Modal {
     const searchInput = searchWrap.createEl("input", {
       type: "text",
       cls: "feuillets-tags-search",
-      attr: { placeholder: "Filtrer les tags…" },
+      attr: { placeholder: t("properties.tags.filterPlaceholder") },
     });
     searchInput.value = this.tagSearch;
 
@@ -253,7 +254,7 @@ export class ProjectTagsModal extends Modal {
       const canAdd = activeFile && !activeTags.includes(node.fullPath);
       const addBtn = row.createSpan({ cls: "feuillets-tags-add" + (canAdd ? "" : " is-disabled") });
       setIcon(addBtn, "plus");
-      addBtn.setAttr("aria-label", canAdd ? `Ajouter #${node.fullPath} au fichier ouvert` : "Déjà présent sur le fichier ouvert");
+      addBtn.setAttr("aria-label", canAdd ? t("properties.tags.addToOpenFile", { tag: node.fullPath }) : t("properties.tags.alreadyOnOpenFile"));
       if (canAdd) {
         addBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
@@ -265,27 +266,27 @@ export class ProjectTagsModal extends Modal {
       }
       const delBtn = row.createSpan({ cls: "feuillets-tags-add" });
       setIcon(delBtn, "trash-2");
-      delBtn.setAttr("aria-label", `Supprimer #${node.fullPath} de tous les feuillets du projet`);
+      delBtn.setAttr("aria-label", t("properties.tags.deleteFromProjectAria", { tag: node.fullPath }));
       delBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         const count = node.files.size;
         if (count === 0) return;
         new ConfirmModal(
           this.app,
-          `Supprimer #${node.fullPath} ?`,
-          `Ce tag sera retiré de ${count} feuillet${count > 1 ? "s" : ""} du projet. Cette action ne peut pas être annulée.`,
-          "Supprimer",
+          t("properties.tags.deleteConfirmTitle", { tag: node.fullPath }),
+          t("properties.project.deleteConfirmBody", { count, s: count > 1 ? "s" : "" }),
+          t("properties.project.deleteConfirmBtn"),
           async () => {
             for (const p of node.files) {
               const f = fileIndex.get(p);
               if (!f) continue;
               const current = this.plugin.tagsOf(f);
-              const next = current.filter((t) => t !== node.fullPath);
+              const next = current.filter((tg) => tg !== node.fullPath);
               await this.app.fileManager.processFrontMatter(f, (data) => {
                 data.tags = next;
               });
             }
-            new Notice(`#${node.fullPath} supprimé de ${count} feuillet(s).`);
+            new Notice(t("properties.tags.deletedNotice", { tag: node.fullPath, count, s: count > 1 ? "s" : "" }));
             this.render();
           }
         ).open();
@@ -324,7 +325,7 @@ export class ProjectTagsModal extends Modal {
         if (nodeMatchesSearch(node, term)) renderTagNode(node, 0, term);
       }
       if (term && list.childElementCount === 0) {
-        list.createDiv({ cls: "feuillets-empty" }).setText("Aucun tag ne correspond.");
+        list.createDiv({ cls: "feuillets-empty" }).setText(t("properties.tags.noMatch"));
       }
     };
     renderList();
