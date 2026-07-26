@@ -1,4 +1,5 @@
 const { Modal } = require("obsidian");
+import { t } from "../i18n/index.js";
 
 export class CompileSelectionModal extends Modal {
   constructor(app, plugin) {
@@ -8,14 +9,14 @@ export class CompileSelectionModal extends Modal {
 
   onOpen() {
     const { contentEl } = this;
-    contentEl.createEl("h3", { text: "Feuillets à compiler" });
+    contentEl.createEl("h3", { text: t("modal.compileSelection.title") });
     contentEl.createEl("p", { cls: "feuillets-notes-sub" }).setText(
-      "Décocher un feuillet écrit compile: false dans son frontmatter — il reste visible et numéroté, mais saute à l'export."
+      t("modal.compileSelection.desc")
     );
 
     const root = this.plugin.getProjectFolder();
     if (!root) {
-      contentEl.setText("Dossier projet introuvable.");
+      contentEl.setText(t("main.notice.projectFolderNotFound"));
       return;
     }
 
@@ -38,13 +39,13 @@ export class CompileSelectionModal extends Modal {
     }
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
-    btnRow.createEl("button", { text: "Tout" }).addEventListener("click", () => {
+    btnRow.createEl("button", { text: t("modal.selectAll") }).addEventListener("click", () => {
       checkboxes.forEach(([cb]) => (cb.checked = true));
     });
-    btnRow.createEl("button", { text: "Aucun" }).addEventListener("click", () => {
+    btnRow.createEl("button", { text: t("modal.selectNone") }).addEventListener("click", () => {
       checkboxes.forEach(([cb]) => (cb.checked = false));
     });
-    btnRow.createEl("button", { text: "Enregistrer", cls: "mod-cta" }).addEventListener("click", async () => {
+    btnRow.createEl("button", { text: t("modal.save"), cls: "mod-cta" }).addEventListener("click", async () => {
       for (const [cb, file] of checkboxes) {
         const fm = this.plugin.fmOf(file);
         const current = fm.compile !== false;
@@ -75,11 +76,11 @@ export class ReadSelectionModal extends Modal {
 
   onOpen() {
     const { contentEl } = this;
-    contentEl.createEl("h3", { text: "Sélection de feuillets à lire" });
+    contentEl.createEl("h3", { text: t("modal.readSelection.title") });
 
     const root = this.plugin.getProjectFolder();
     if (!root) {
-      contentEl.setText("Dossier projet introuvable.");
+      contentEl.setText(t("main.notice.projectFolderNotFound"));
       return;
     }
 
@@ -103,13 +104,13 @@ export class ReadSelectionModal extends Modal {
     }
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
-    btnRow.createEl("button", { text: "Tout" }).addEventListener("click", () => {
+    btnRow.createEl("button", { text: t("modal.selectAll") }).addEventListener("click", () => {
       checkboxes.forEach(([cb]) => (cb.checked = true));
     });
-    btnRow.createEl("button", { text: "Aucun" }).addEventListener("click", () => {
+    btnRow.createEl("button", { text: t("modal.selectNone") }).addEventListener("click", () => {
       checkboxes.forEach(([cb]) => (cb.checked = false));
     });
-    btnRow.createEl("button", { text: "Lire la sélection", cls: "mod-cta" }).addEventListener("click", async () => {
+    btnRow.createEl("button", { text: t("modal.readSelection.readBtn"), cls: "mod-cta" }).addEventListener("click", async () => {
       this.plugin.settings.readSelection = checkboxes.filter(([cb]) => cb.checked).map(([, path]) => path);
       this.plugin.settings.readScope = "__selection__";
       await this.plugin.saveSettings();

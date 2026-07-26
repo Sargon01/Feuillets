@@ -984,4 +984,53 @@ export const en = {
   "main.notice.backupInProgress": "Backup in progress…",
   "main.notice.backupCreated": "Backup created: {path}",
   "main.notice.backupFailed": "Backup failed: {error}",
+
+  // ---------- Shared modals (src/ui/) ----------
+  "modal.save": "Save",
+
+  "modal.citation.searchSourcePlaceholder": "Search a source (title, author)…",
+  "modal.citation.citeTitle": "Cite “{title}”",
+  "modal.citation.pageLabel": "Page (optional)",
+
+  "modal.preview.title": "Visual manuscript preview (A4)",
+  "modal.preview.defaultAuthor": "Author",
+  "modal.preview.dummy.h1": "Hello and welcome!",
+  "modal.preview.dummy.p1": "We're glad to see you here! Please take a moment before you start writing. Although the editor looks like a plain text tool, it offers very complete layout options.",
+  "modal.preview.dummy.h2a": "What you need to know",
+  "modal.preview.dummy.p2": "In {section}, we explain the project's core principles.",
+  "modal.preview.dummy.h2b": "Manuscript organization",
+  "modal.preview.dummy.p3": "You can easily structure your chapters, scenes, and project notes.",
+
+  "modal.create": "Create",
+  "modal.cancel": "Cancel",
+  "modal.selectAll": "All",
+  "modal.selectNone": "None",
+
+  "modal.newSheet.title": "New sheet in “{folder}”",
+  "modal.newSheet.fileNameLabel": "File name (technical)",
+  "modal.newSheet.fileNamePlaceholder": "e.g. scene-12-01",
+  "modal.newSheet.titleLabel": "Title (optional, only the title may appear when compiling)",
+
+  "modal.newFolder.title": "New folder in “{parent}”",
+  "modal.newFolder.placeholder": "e.g. Part III",
+
+  "modal.compileSelection.title": "Sheets to compile",
+  "modal.compileSelection.desc": "Uncheck a sheet with compile: false written in its frontmatter — it stays visible and numbered, but is skipped on export.",
+
+  "modal.readSelection.title": "Select sheets to read",
+  "modal.readSelection.readBtn": "Read the selection",
+
+  "modal.stats.characters": "Characters",
+  "modal.stats.withoutSpaces": "Without spaces",
+  "modal.stats.wordsPerSentence": "Words/sentence",
+  "modal.stats.pages": "Pages",
+  "modal.stats.readingTime": "Reading time",
+  "modal.stats.minutes": "{count} min",
+  "modal.stats.wholeProject": "Whole project",
+  "modal.stats.deadline": "Deadline",
+  "modal.stats.daysLeft": "Days left",
+  "modal.stats.dailyQuota": "Daily quota",
+  "modal.stats.wordsPerDay": "{count} words/day",
+  "modal.stats.today": "Today",
+  "modal.stats.overdue": "Overdue",
 };

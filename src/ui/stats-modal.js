@@ -2,6 +2,7 @@ const { Modal } = require("obsidian");
 
 import { countWords } from "../utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "../utils/text-metrics.js";
+import { t } from "../i18n/index.js";
 
 /** Statistiques complètes — ouvertes d'un clic sur la barre d'état : le
  * détail du feuillet actif, puis les stats globales du projet entier.
@@ -45,13 +46,13 @@ export class FileStatsModal extends Modal {
       row.createDiv({ cls: "feuillets-notes-metadata-label", text: rLabel });
       row.createDiv({ cls: "feuillets-notes-metadata-value", text: String(value) });
     };
-    addRow("Caractères", formatNumber(chars));
-    addRow("Sans espaces", formatNumber(charsNoSpaces));
-    addRow("Phrases", formatNumber(sentences));
-    addRow("Mots/phrase", wordsPerSentence);
-    addRow("Paragraphes", formatNumber(paragraphs));
-    addRow("Pages", formatNumber(estPages));
-    addRow("Temps de lecture", `${readTime} min`);
+    addRow(t("modal.stats.characters"), formatNumber(chars));
+    addRow(t("modal.stats.withoutSpaces"), formatNumber(charsNoSpaces));
+    addRow(t("analysis.metrics.sentences"), formatNumber(sentences));
+    addRow(t("modal.stats.wordsPerSentence"), wordsPerSentence);
+    addRow(t("analysis.metrics.paragraphs"), formatNumber(paragraphs));
+    addRow(t("modal.stats.pages"), formatNumber(estPages));
+    addRow(t("modal.stats.readingTime"), t("modal.stats.minutes", { count: readTime }));
     return { list, addRow };
   }
 
@@ -73,12 +74,12 @@ export class FileStatsModal extends Modal {
     const sentences = countSentences(cleanText);
     const paragraphs = countParagraphs(cleanText);
 
-    this.renderStatsBlock(contentEl, "Mots", wc, goal, chars, charsNoSpaces, sentences, paragraphs);
+    this.renderStatsBlock(contentEl, t("analysis.metrics.words"), wc, goal, chars, charsNoSpaces, sentences, paragraphs);
 
     // ------------------------------- Projet entier ---------------------------
     const root = plugin.getProjectFolder();
     if (root) {
-      contentEl.createEl("h3", { text: "Projet entier", cls: "feuillets-stats-modal-section" });
+      contentEl.createEl("h3", { text: t("modal.stats.wholeProject"), cls: "feuillets-stats-modal-section" });
 
       const files = plugin.flattenFiles(root);
       const counts = await plugin.getWordCounts(files);
@@ -94,7 +95,7 @@ export class FileStatsModal extends Modal {
       }
 
       const { addRow } = this.renderStatsBlock(
-        contentEl, "Mots", pWords, plugin.settings.projectWordGoal || 0,
+        contentEl, t("analysis.metrics.words"), pWords, plugin.settings.projectWordGoal || 0,
         pChars, pCharsNoSpaces, pSentences, pParagraphs
       );
 
@@ -108,14 +109,14 @@ export class FileStatsModal extends Modal {
           const targetGoal = plugin.settings.projectWordGoal || 0;
           const wordsLeft = Math.max(0, targetGoal - pWords);
 
-          addRow("Date limite", plugin.settings.deadlineDate);
+          addRow(t("modal.stats.deadline"), plugin.settings.deadlineDate);
           if (daysLeft > 0) {
-            addRow("Jours restants", daysLeft);
-            addRow("Quota quotidien", `${formatNumber(Math.ceil(wordsLeft / daysLeft))} mots/jour`);
+            addRow(t("modal.stats.daysLeft"), daysLeft);
+            addRow(t("modal.stats.dailyQuota"), t("modal.stats.wordsPerDay", { count: formatNumber(Math.ceil(wordsLeft / daysLeft)) }));
           } else if (daysLeft === 0) {
-            addRow("Jours restants", "Aujourd'hui");
+            addRow(t("modal.stats.daysLeft"), t("modal.stats.today"));
           } else {
-            addRow("Jours restants", "Dépassée");
+            addRow(t("modal.stats.daysLeft"), t("modal.stats.overdue"));
           }
         }
       }

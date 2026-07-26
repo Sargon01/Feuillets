@@ -1,4 +1,5 @@
 const { Modal } = require("obsidian");
+import { t } from "../i18n/index.js";
 
 export class FmFieldModal extends Modal {
   constructor(app, plugin, file, key, title, onSaved) {
@@ -30,7 +31,7 @@ export class FmFieldModal extends Modal {
     };
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
-      .createEl("button", { text: "Enregistrer" })
+      .createEl("button", { text: t("modal.save") })
       .addEventListener("click", save);
   }
   onClose() {

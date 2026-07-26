@@ -1,5 +1,6 @@
 const { FuzzySuggestModal } = require("obsidian");
 import { TextInputModal } from "../scenes-editor.js";
+import { t } from "../i18n/index.js";
 
 /** Sélectionne une fiche Source par recherche floue (titre + auteur),
  * demande ensuite une page — propre à CETTE citation, jamais stockée sur
@@ -15,7 +16,7 @@ export class CitationSourceModal extends FuzzySuggestModal {
     this.plugin = plugin;
     this.sourceFiles = sourceFiles;
     this.onChoose = onChoose;
-    this.setPlaceholder("Chercher une source (titre, auteur)…");
+    this.setPlaceholder(t("modal.citation.searchSourcePlaceholder"));
   }
 
   getItems() {
@@ -39,8 +40,8 @@ export class CitationSourceModal extends FuzzySuggestModal {
 export function promptForPage(app, plugin, file, onChoose) {
   new TextInputModal(
     app,
-    `Citer « ${plugin.titleFor(file)} »`,
-    [{ name: "page", label: "Page (facultatif)", value: "" }],
+    t("modal.citation.citeTitle", { title: plugin.titleFor(file) }),
+    [{ name: "page", label: t("modal.citation.pageLabel"), value: "" }],
     async (values) => {
       onChoose(file, values.page);
     }

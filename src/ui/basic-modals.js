@@ -1,4 +1,5 @@
 const { Modal } = require("obsidian");
+import { t } from "../i18n/index.js";
 
 export class NewSheetModal extends Modal {
   constructor(app, folderName, onSubmit) {
@@ -9,17 +10,17 @@ export class NewSheetModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.createEl("h3", {
-      text: `Nouveau feuillet dans « ${this.folderName} »`,
+      text: t("modal.newSheet.title", { folder: this.folderName }),
     });
-    contentEl.createEl("label", { text: "Nom du fichier (technique)" });
+    contentEl.createEl("label", { text: t("modal.newSheet.fileNameLabel") });
     const fileInput = contentEl.createEl("input", {
       type: "text",
-      placeholder: "ex. scene-12-01",
+      placeholder: t("modal.newSheet.fileNamePlaceholder"),
     });
     fileInput.style.width = "100%";
     fileInput.style.marginBottom = "8px";
     contentEl.createEl("label", {
-      text: "Titre (facultatif, seul le titre peut apparaître à la compilation)",
+      text: t("modal.newSheet.titleLabel"),
     });
     const titleInput = contentEl.createEl("input", { type: "text" });
     titleInput.style.width = "100%";
@@ -37,7 +38,7 @@ export class NewSheetModal extends Modal {
     }
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
-      .createEl("button", { text: "Créer" })
+      .createEl("button", { text: t("modal.create") })
       .addEventListener("click", submit);
   }
   onClose() {
@@ -70,7 +71,7 @@ export class ConfirmModal extends Modal {
       this.onConfirm();
     });
     btnRow
-      .createEl("button", { text: "Annuler" })
+      .createEl("button", { text: t("modal.cancel") })
       .addEventListener("click", () => this.close());
   }
   onClose() {
@@ -87,11 +88,11 @@ export class NewFolderModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.createEl("h3", {
-      text: `Nouveau dossier dans « ${this.parentName} »`,
+      text: t("modal.newFolder.title", { parent: this.parentName }),
     });
     const input = contentEl.createEl("input", {
       type: "text",
-      placeholder: "ex. Partie III",
+      placeholder: t("modal.newFolder.placeholder"),
     });
     input.style.width = "100%";
     input.focus();
@@ -106,7 +107,7 @@ export class NewFolderModal extends Modal {
     });
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
-      .createEl("button", { text: "Créer" })
+      .createEl("button", { text: t("modal.create") })
       .addEventListener("click", submit);
   }
   onClose() {

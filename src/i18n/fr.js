@@ -985,4 +985,53 @@ export const fr = {
   "main.notice.backupInProgress": "Sauvegarde en cours…",
   "main.notice.backupCreated": "Sauvegarde créée : {path}",
   "main.notice.backupFailed": "Échec de la sauvegarde : {error}",
+
+  // ---------- Modales partagées (src/ui/) ----------
+  "modal.save": "Enregistrer",
+
+  "modal.citation.searchSourcePlaceholder": "Chercher une source (titre, auteur)…",
+  "modal.citation.citeTitle": "Citer « {title} »",
+  "modal.citation.pageLabel": "Page (facultatif)",
+
+  "modal.preview.title": "Aperçu visuel du manuscrit (A4)",
+  "modal.preview.defaultAuthor": "Auteur",
+  "modal.preview.dummy.h1": "Bonjour et bienvenue !",
+  "modal.preview.dummy.p1": "Nous sommes ravis de vous voir ici ! Merci de nous accorder quelques instants avant de vous lancer dans l'écriture. Bien que l'éditeur ressemble à un simple outil de texte, il offre une mise en page très complète.",
+  "modal.preview.dummy.h2a": "Ce qu'il faut savoir",
+  "modal.preview.dummy.p2": "Dans {section}, nous expliquons les principes fondamentaux du projet.",
+  "modal.preview.dummy.h2b": "Organisation du manuscrit",
+  "modal.preview.dummy.p3": "Vous pouvez facilement structurer vos chapitres, vos scènes et vos notes de projet.",
+
+  "modal.create": "Créer",
+  "modal.cancel": "Annuler",
+  "modal.selectAll": "Tout",
+  "modal.selectNone": "Aucun",
+
+  "modal.newSheet.title": "Nouveau feuillet dans « {folder} »",
+  "modal.newSheet.fileNameLabel": "Nom du fichier (technique)",
+  "modal.newSheet.fileNamePlaceholder": "ex. scene-12-01",
+  "modal.newSheet.titleLabel": "Titre (facultatif, seul le titre peut apparaître à la compilation)",
+
+  "modal.newFolder.title": "Nouveau dossier dans « {parent} »",
+  "modal.newFolder.placeholder": "ex. Partie III",
+
+  "modal.compileSelection.title": "Feuillets à compiler",
+  "modal.compileSelection.desc": "Décocher un feuillet écrit compile: false dans son frontmatter — il reste visible et numéroté, mais saute à l'export.",
+
+  "modal.readSelection.title": "Sélection de feuillets à lire",
+  "modal.readSelection.readBtn": "Lire la sélection",
+
+  "modal.stats.characters": "Caractères",
+  "modal.stats.withoutSpaces": "Sans espaces",
+  "modal.stats.wordsPerSentence": "Mots/phrase",
+  "modal.stats.pages": "Pages",
+  "modal.stats.readingTime": "Temps de lecture",
+  "modal.stats.minutes": "{count} min",
+  "modal.stats.wholeProject": "Projet entier",
+  "modal.stats.deadline": "Date limite",
+  "modal.stats.daysLeft": "Jours restants",
+  "modal.stats.dailyQuota": "Quota quotidien",
+  "modal.stats.wordsPerDay": "{count} mots/jour",
+  "modal.stats.today": "Aujourd'hui",
+  "modal.stats.overdue": "Dépassée",
 };
