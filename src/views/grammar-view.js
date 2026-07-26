@@ -4,7 +4,7 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { applyGrammarHighlights, clearGrammarHighlights } from "../utils/cm-grammar-highlighter.js";
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { sanitizeForGrammarCheck } from "../utils/sanitize-for-grammar.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 
 const TYPE_ICON = { grammar: "spell-check", spelling: "text-cursor-input" };
 function typeLabel(type) {
@@ -15,8 +15,8 @@ function typeLabel(type) {
  * choix délibéré, voir la discussion produit : plus réactif, se comporte
  * comme un panneau "Problèmes" qui suit l'édition en cours plutôt qu'une
  * analyse de fond sur tout le manuscrit). Desktop uniquement : le moteur
- * local tourne dans le plugin compagnon "Feuillet Linters" (vm/fs, voir
- * GrammarCheckerManager), indisponible sur Obsidian mobile. */
+ * local (Grammalecte/Harper, vm/fs, voir GrammarCheckerManager) est
+ * indisponible sur Obsidian mobile. */
 export class GrammarView extends BaseFeuilletsView {
   constructor(leaf, plugin) {
     super(leaf, plugin);
@@ -75,7 +75,10 @@ export class GrammarView extends BaseFeuilletsView {
       // de supprimer) : les offsets restent valables tels quels, aucun
       // remappage supplémentaire nécessaire au-delà de frontmatterOffset.
       const sanitized = sanitizeForGrammarCheck(body);
-      const activeLocale = this.plugin.settings.locale || "fr";
+      // this.plugin.settings.locale n'existe pas : la langue d'interface
+      // effective (réglage settings.language + repli sur Obsidian lui-même)
+      // vit dans le module i18n, voir detectLocale()/setLocale() dans main.js.
+      const activeLocale = getLocale();
       this.issues = this.plugin.grammarCheckerManager
         ? await this.plugin.grammarCheckerManager.checkText(sanitized, this.plugin.settings, activeLocale)
         : [];

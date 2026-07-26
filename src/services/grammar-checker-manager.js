@@ -1,23 +1,17 @@
 import { checkTextLanguageTool } from "./languagetool-checker.js";
 
-const COMPANION_PLUGIN_ID = "feuillet-linters";
-
 /**
  * Orchestrateur de vérification linguistique pour Feuillets.
- * Redirige vers le compagnon local "Feuillet Linters" (Grammalecte FR /
- * Harper EN, aucun appel réseau) ou vers LanguageTool (cloud/local API,
- * multi-langue, sélectionné explicitement ou utilisé en secours quand le
- * compagnon n'est pas installé ou ne couvre pas la langue/plateforme visée).
+ * Redirige vers les moteurs locaux (Grammalecte FR / Harper EN, aucun appel
+ * réseau) ou vers LanguageTool (cloud/local API, multi-langue, sélectionné
+ * explicitement ou utilisé en secours sur mobile / langue non couverte).
  */
 export class GrammarCheckerManager {
-  constructor(app, manifest) {
+  constructor(app, manifest, grammalecteChecker, harperChecker) {
     this.app = app;
     this.manifest = manifest;
-  }
-
-  getCompanion() {
-    const plugin = this.app.plugins && this.app.plugins.plugins && this.app.plugins.plugins[COMPANION_PLUGIN_ID];
-    return plugin && plugin.api ? plugin.api : null;
+    this.grammalecteChecker = grammalecteChecker;
+    this.harperChecker = harperChecker;
   }
 
   async checkText(text, settings, activeLocale = "fr") {
@@ -44,12 +38,8 @@ export class GrammarCheckerManager {
 
     const lang = activeLocale === "fr" || (settings.languageToolLanguage && settings.languageToolLanguage.startsWith("fr")) ? "fr" : "en";
 
-    if (engine === "auto" && lang !== "fr") {
-      return checkTextLanguageTool(text, languageToolOptions());
-    }
-
-    // Mode local (compagnon Feuillet Linters) : Grammalecte FR / Harper EN,
-    // aucun appel réseau. Indisponible sur mobile (vm/fs) — voir GrammalecteChecker.
+    // Mode local : Grammalecte FR / Harper EN, aucun appel réseau.
+    // Indisponible sur mobile (vm/fs) — voir GrammalecteChecker/HarperChecker.
     let isMobile = false;
     try {
       const obsidian = await import("obsidian");
@@ -58,18 +48,18 @@ export class GrammarCheckerManager {
       isMobile = false;
     }
 
-    if (isMobile) {
-      return checkTextLanguageTool(text, languageToolOptions());
-    }
-
-    const companion = this.getCompanion();
-    if (companion && companion.checkText && (!companion.supportsLang || companion.supportsLang(lang))) {
-      return companion.checkText(text, lang, { knownWords, ignoredRules, detectRepetitions });
+    if (!isMobile) {
+      if (lang === "fr" && this.grammalecteChecker) {
+        return this.grammalecteChecker.checkText(text, knownWords, ignoredRules, detectRepetitions);
+      }
+      if (lang === "en" && this.harperChecker) {
+        return this.harperChecker.checkText(text, knownWords, ignoredRules);
+      }
     }
 
     if (engine === "auto") {
-      // Compagnon absent ou langue non couverte (ex. anglais avant l'intégration
-      // Harper) : secours cloud plutôt que de ne rien signaler.
+      // Moteur local absent (mobile, ou pas encore chargé) : secours cloud
+      // plutôt que de ne rien signaler.
       return checkTextLanguageTool(text, languageToolOptions());
     }
 

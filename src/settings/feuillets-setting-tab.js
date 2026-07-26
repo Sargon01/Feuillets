@@ -1221,13 +1221,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         });
       });
 
-    if ((S.grammarEngine === "grammalecte" || S.grammarEngine === "auto") && !this.plugin.grammarCheckerManager.getCompanion()) {
-      containerEl.createEl("p", {
-        text: t("settings.grammarEngine.companionMissing"),
-        cls: "feuillets-docx-review-warning",
-      });
-    }
-
     if (S.grammarEngine === "languagetool" || S.grammarEngine === "auto") {
       new Setting(containerEl)
         .setName(t("settings.languageToolUrl.name"))
