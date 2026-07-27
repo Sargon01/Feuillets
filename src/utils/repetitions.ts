@@ -8,6 +8,12 @@
 
 import { foldAccents } from "./core.js";
 
+type Occurrence = {
+  raw: string;
+  wi: number;
+  offset: number;
+};
+
 /** Mots-outils français exclus (articles, pronoms, prépositions, conjonctions,
  * auxiliaires, adverbes très fréquents) : leur répétition est normale et ne
  * doit jamais être signalée. Liste volontairement compacte, extensible. */
@@ -22,26 +28,24 @@ export const FR_STOPWORDS = new Set([
   "tout", "toute", "toutes", "très", "vers", "votre", "vous", "était",
 ]);
 
-function normalize(word) {
+function normalize(word: string): string {
   return foldAccents(word).replace(/[’]/g, "'");
 }
 
 /** Répétitions rapprochées d'un texte.
- * @param {string} text
- * @param {{window?:number, minLen?:number, stopWords?:Set<string>}} opts
- *   window : distance max en mots entre deux occurrences pour les lier (déf. 50)
- *   minLen : longueur minimale d'un mot considéré (déf. 4)
- * @returns {Array<{word:string, norm:string, count:number, offsets:number[], minGap:number}>}
- *   trié de la répétition la plus rapprochée à la moins rapprochée.
- */
-export function findRepetitions(text, opts = {}) {
+ * window : distance max en mots entre deux occurrences pour les lier (déf. 50)
+ * minLen : longueur minimale d'un mot considéré (déf. 4) */
+export function findRepetitions(
+  text: string,
+  opts: { window?: number; minLen?: number; stopWords?: Set<string> } = {}
+): Array<{ word: string; norm: string; count: number; offsets: number[]; minGap: number }> {
   const window = opts.window ?? 50;
   const minLen = opts.minLen ?? 4;
   const stopWords = opts.stopWords ?? FR_STOPWORDS;
 
   const re = /[\p{L}][\p{L}\p{N}'’-]*/gu;
-  const groups = new Map();
-  let m;
+  const groups = new Map<string, Occurrence[]>();
+  let m: RegExpExecArray | null;
   let wi = 0;
   while ((m = re.exec(text)) !== null) {
     const raw = m[0];
@@ -49,10 +53,10 @@ export function findRepetitions(text, opts = {}) {
     wi++;
     if (norm.length < minLen || stopWords.has(norm)) continue;
     if (!groups.has(norm)) groups.set(norm, []);
-    groups.get(norm).push({ raw, wi, offset: m.index });
+    groups.get(norm)!.push({ raw, wi, offset: m.index });
   }
 
-  const result = [];
+  const result: Array<{ word: string; norm: string; count: number; offsets: number[]; minGap: number }> = [];
   for (const [norm, occ] of groups) {
     if (occ.length < 2) continue;
     // Signalé seulement si au moins deux occurrences sont proches (< window),
