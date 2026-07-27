@@ -29,7 +29,12 @@ const TITLE_ROLE_LINE_RE = new RegExp(`^:::${SP}*(.+?)${SP}*:${SP}?(.*)$`);
  * corps de page Front par défaut. Les lignes vides sont ignorées : sur une
  * page à rôles, l'espacement vient des marges du modèle, pas de lignes
  * blanches tapées. */
-export function parseTitleRoles(text) {
+type TitleRoleBlock = {
+  role: string | null;
+  content: string;
+};
+
+export function parseTitleRoles(text: string): TitleRoleBlock[] {
   return text
     .split("\n")
     .map((l) => l.trim())
@@ -43,6 +48,6 @@ export function parseTitleRoles(text) {
 
 /** Vrai si le corps contient au moins une ligne `:::rôle:` — sinon la page de
  * titre est en composition libre et suit l'ancien chemin WYSIWYG. */
-export function hasTitleRoleLines(text) {
+export function hasTitleRoleLines(text: string) {
   return text.split("\n").some((l) => TITLE_ROLE_LINE_RE.test(l.trim()));
 }

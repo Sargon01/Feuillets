@@ -1,7 +1,13 @@
 /** Un champ frontmatter donné peut être une string ou une liste YAML à un
  * seul élément selon la façon dont Obsidian l'a enregistré (panneau
  * Propriétés) — les deux formes existent réellement dans un même coffre. */
-export function oneOf(val) {
+type SceneFrontmatter = Record<string, unknown>;
+
+type ProjectArcMode = {
+  arc?: string;
+};
+
+export function oneOf(val: unknown) {
   return (Array.isArray(val) ? String(val[0] || "") : String(val || "")).trim();
 }
 
@@ -13,7 +19,7 @@ export function oneOf(val) {
  * saisit "argument: …" en pensant que ça marche et le mode Arcs reste
  * vide. Repli sur `arc`/`arc_secondaire` si la clé du mode est vide (
  * anciennes fiches, ou saisie faite avec le nom générique). */
-export function arcsOf(fm, mode) {
+export function arcsOf(fm: SceneFrontmatter, mode?: ProjectArcMode | null) {
   const key = (mode && mode.arc) || "arc";
   const list = [oneOf(fm[key]), oneOf(fm[`${key}_secondary`])].filter(Boolean);
   if (list.length > 0 || key === "arc") return list;
@@ -21,7 +27,7 @@ export function arcsOf(fm, mode) {
 }
 
 /** Personnages d'une scène : liste, ou valeur unique tolérée en string. */
-export function personnagesOf(fm) {
+export function personnagesOf(fm: SceneFrontmatter) {
   if (Array.isArray(fm.characters)) return fm.characters.filter(Boolean).map(String);
   return fm.characters ? [String(fm.characters)] : [];
 }
@@ -32,7 +38,7 @@ export function personnagesOf(fm) {
  * point de vue de X" indépendamment du casting. Champ facultatif, jamais
  * ajouté au modèle de scène par défaut (comme `fil`/`personnages`) : à
  * l'auteur de le renseigner s'il en a besoin. */
-export function povOf(fm) {
+export function povOf(fm: SceneFrontmatter) {
   return oneOf(fm.pov);
 }
 
@@ -40,7 +46,7 @@ export function povOf(fm) {
  * plusieurs fils ouverts en même temps). Seule la virgule sépare — pas
  * l'espace — pour ne jamais couper une valeur en texte libre du genre
  * "plante l'indice ici" en plusieurs fils involontairement. */
-export function filsOf(fm) {
+export function filsOf(fm: SceneFrontmatter) {
   const val = fm.thread;
   if (Array.isArray(val)) return val.filter(Boolean).map((v) => String(v).trim()).filter(Boolean);
   if (typeof val === "string" && val.trim()) {
