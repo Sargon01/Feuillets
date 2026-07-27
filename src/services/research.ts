@@ -1,11 +1,12 @@
 import { TFile, TFolder, normalizePath } from "obsidian";
+import type { App } from "obsidian";
 import { foldAccents } from "../utils/core.js";
 import { fmOf, titleFor, tagsOf } from "./frontmatter.js";
 import { getProjectFolder, flattenFiles } from "./folder-structure.js";
 
 /** Dossier des jalons historiques : le chemin configuré d'abord, puis
  * les emplacements historiques, pour ne casser aucun coffre existant. */
-export function getChronoFolder(app, settings) {
+export function getChronoFolder(app: App, settings: FeuilletsSettings): TFolder | null {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const candidates = [
@@ -19,7 +20,7 @@ export function getChronoFolder(app, settings) {
      (requis pour un calcul correct des rôles par profondeur), auquel
      cas _Recherche est un voisin de Manuscrit, pas un enfant. */
   const bases = [root.path, root.parent ? root.parent.path : null].filter(
-    Boolean
+    (path): path is string => Boolean(path)
   );
   for (const base of bases) {
     for (const rel of candidates) {
@@ -47,13 +48,13 @@ export function getChronoFolder(app, settings) {
 
 /** Dossier racine de la recherche (parent du dossier de chronologie) —
  * sert à reconnaître qu'un lien pointe vers une fiche personnage/lieu. */
-export function getResearchRoot(app, settings) {
+export function getResearchRoot(app: App, settings: FeuilletsSettings): TFolder | null {
   const chrono = getChronoFolder(app, settings);
   if (chrono && chrono.parent) return chrono.parent;
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const bases = [root.path, root.parent ? root.parent.path : null].filter(
-    Boolean
+    (path): path is string => Boolean(path)
   );
   for (const base of bases) {
     const f = app.vault.getAbstractFileByPath(
@@ -79,7 +80,7 @@ export function getResearchRoot(app, settings) {
 /** Chemin du dossier de recherche à utiliser pour une ÉCRITURE (création) :
  * reprend le dossier déjà présent sur le disque quel que soit son nom,
  * sinon "Research" (nouveaux projets) — voisin du dossier manuscrit. */
-export function researchFolderPath(app, settings, root) {
+export function researchFolderPath(app: App, settings: FeuilletsSettings, root: TFolder | null | undefined): string | null {
   const existing = getResearchRoot(app, settings);
   if (existing) return existing.path;
   const base = root && root.parent ? root.parent.path : root ? root.path : null;
@@ -90,7 +91,7 @@ export function researchFolderPath(app, settings, root) {
  * que `nom`/`prénom` (personnage) ou `titre` (lieu, événement) est
  * rempli. Ne touche jamais un fichier déjà renommé manuellement — la
  * détection se fait sur le nom de fichier "Nouveau X" par défaut. */
-export async function maybeRenameResearchFile(app, settings, file) {
+export async function maybeRenameResearchFile(app: App, settings: FeuilletsSettings, file: TFile | null | undefined): Promise<void> {
   if (!(file instanceof TFile) || file.extension !== "md") return;
   const researchRoot = getResearchRoot(app, settings);
   if (!researchRoot || !file.path.startsWith(researchRoot.path + "/"))
@@ -101,7 +102,7 @@ export async function maybeRenameResearchFile(app, settings, file) {
   if (!desired || desired === file.basename) return;
   const safe = desired.replace(/[\\/:*?"<>|]/g, "-").trim().slice(0, 100);
   if (!safe) return;
-  const destPath = normalizePath(`${file.parent.path}/${safe}.md`);
+  const destPath = normalizePath(`${file.parent!.path}/${safe}.md`);
   if (app.vault.getAbstractFileByPath(destPath)) return;
   try {
     await app.fileManager.renameFile(file, destPath);
@@ -115,7 +116,7 @@ export async function maybeRenameResearchFile(app, settings, file) {
  * (personnage/lieu/evenement/codex), repliés sans accent/casse. À défaut
  * d'un tag propre, le nom normalisé de la fiche sert d'identifiant —
  * aucune configuration n'est donc obligatoire pour que ça fonctionne. */
-export function entityMatchTags(app, entityFile) {
+export function entityMatchTags(app: App, entityFile: TFile): string[] {
   const STRUCTURAL = new Set(["personnage", "lieu", "evenement", "codex"]);
   const own = tagsOf(app, entityFile)
     .map((t) => foldAccents(t))
@@ -125,21 +126,23 @@ export function entityMatchTags(app, entityFile) {
   return slug ? [slug] : [];
 }
 
-export function entityMatchNames(app, entityFile) {
+export function entityMatchNames(app: App, entityFile: TFile): string[] {
   const fm = fmOf(app, entityFile);
-  const names = new Set();
+  const names = new Set<string>();
+  const lastName = fm.last_name as string | undefined;
+  const firstName = fm.first_name as string | undefined;
 
   const title = titleFor(app, entityFile);
   if (title && title.length >= 3) {
     names.add(title.trim().toLowerCase());
   }
 
-  if (fm.last_name && fm.last_name.trim().length >= 3) {
-    names.add(fm.last_name.trim().toLowerCase());
+  if (lastName && lastName.trim().length >= 3) {
+    names.add(lastName.trim().toLowerCase());
   }
 
-  if (fm.first_name && fm.first_name.trim().length >= 3) {
-    names.add(fm.first_name.trim().toLowerCase());
+  if (firstName && firstName.trim().length >= 3) {
+    names.add(firstName.trim().toLowerCase());
   }
 
   // Ajout des mots individuels distincts pour le prénom/nom
@@ -155,7 +158,7 @@ export function entityMatchNames(app, entityFile) {
   return [...names];
 }
 
-export async function findAppearances(app, settings, entityFile) {
+export async function findAppearances(app: App, settings: FeuilletsSettings, entityFile: TFile): Promise<Array<{ file: TFile; excerpt: string; via: "lien" | "nom" | "tag" }>> {
   const root = getProjectFolder(app, settings);
   if (!root) return [];
   const files = flattenFiles(app, settings, root); // déjà dans l'ordre du manuscrit
@@ -163,10 +166,10 @@ export async function findAppearances(app, settings, entityFile) {
   const matchNames = entityMatchNames(app, entityFile);
   const resolved = app.metadataCache.resolvedLinks || {};
   const linkRe = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
-  const results = [];
+  const results: Array<{ file: TFile; excerpt: string; via: "lien" | "nom" | "tag" }> = [];
 
   // Regex globale avec frontières de mots
-  let nameRegex = null;
+  let nameRegex: RegExp | null = null;
   if (matchNames.length > 0) {
     const escaped = matchNames.map(n => n.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'));
     nameRegex = new RegExp(`\\b(${escaped.join("|")})\\b`, "i");
@@ -191,7 +194,7 @@ export async function findAppearances(app, settings, entityFile) {
     if (!viaTag && !viaLink && !viaName) continue;
 
     let excerpt = "";
-    const via = viaLink ? "lien" : (viaName ? "nom" : "tag");
+    const via: "lien" | "nom" | "tag" = viaLink ? "lien" : (viaName ? "nom" : "tag");
 
     if (viaLink) {
       linkRe.lastIndex = 0;
@@ -238,21 +241,20 @@ export async function findAppearances(app, settings, entityFile) {
 const RESEARCH_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "avif"]);
 
 /** Indique si un fichier est pris en compte dans le panneau Recherche (markdown, image ou PDF). */
-export function isResearchFile(file) {
+export function isResearchFile(file: unknown): file is TFile {
   if (!(file instanceof TFile)) return false;
   const ext = file.extension.toLowerCase();
   return ext === "md" || ext === "pdf" || RESEARCH_IMAGE_EXTS.has(ext);
 }
 
 /** Indique si un fichier est un média image supporté. */
-export function isImageFile(file) {
+export function isImageFile(file: unknown): file is TFile {
   if (!(file instanceof TFile)) return false;
   return RESEARCH_IMAGE_EXTS.has(file.extension.toLowerCase());
 }
 
 /** Indique si un fichier est un document PDF. */
-export function isPdfFile(file) {
+export function isPdfFile(file: unknown): file is TFile {
   if (!(file instanceof TFile)) return false;
   return file.extension.toLowerCase() === "pdf";
 }
-
