@@ -5,13 +5,13 @@
 // ne pas fusionner des paragraphes). Résultat : les offsets du texte nettoyé
 // et du texte brut sont IDENTIQUES, aucune table de correspondance requise.
 
-function blankFull(text, regex) {
+function blankFull(text: string, regex: RegExp) {
   return text.replace(regex, (m) => m.replace(/[^\n]/g, " "));
 }
 
 // [texte](url) et ![alt](url) : on garde le texte visible (ce qui doit être
 // vérifié), on masque uniquement la syntaxe et l'URL autour.
-function unwrapLinksAndImages(text) {
+function unwrapLinksAndImages(text: string) {
   return text.replace(/(!?)\[([^\]\n]*)\]\(([^)\n]*)\)/g, (_whole, bang, label, url) => {
     const lead = " ".repeat(bang.length + 1); // "!" éventuel + "["
     const trail = " ".repeat(url.length + 3); // "]" + "(" + url + ")"
@@ -19,7 +19,7 @@ function unwrapLinksAndImages(text) {
   });
 }
 
-export function sanitizeForGrammarCheck(text) {
+export function sanitizeForGrammarCheck(text: string) {
   let out = text;
   out = blankFull(out, /```[\s\S]*?```/g); // blocs de code (```)
   out = blankFull(out, /~~~[\s\S]*?~~~/g); // blocs de code (~~~)
