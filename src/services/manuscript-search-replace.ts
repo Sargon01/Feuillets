@@ -8,12 +8,40 @@
  * - Sécurité Frontmatter avec option d'inclusion du YAML
  */
 
+type SearchReplaceOptions = {
+  scope?: string;
+  caseSensitive?: boolean;
+  preserveCase?: boolean;
+  ignoreDiacritics?: boolean;
+  matchMode?: string;
+  useRegex?: boolean;
+  includeYaml?: boolean;
+  targetFile?: SearchReplaceFile;
+};
+
+type SearchReplaceFile = {
+  path: string;
+  parent?: { path: string } | null;
+};
+
+type SearchReplaceApp = {
+  vault: {
+    getMarkdownFiles?: () => SearchReplaceFile[];
+    process: (file: SearchReplaceFile, callback: (content: string) => string) => Promise<void>;
+  };
+};
+
+type SearchReplacePlugin = {
+  getManuscriptFiles?: () => SearchReplaceFile[];
+  getProjectFolder?: () => SearchReplaceFile | null;
+};
+
 /**
  * Sépare le bloc frontmatter (--- ... ---) du corps du document Markdown.
  * @param {string} content - Le contenu complet du fichier
  * @returns {{ frontmatter: string, body: string }}
  */
-export function splitFrontmatter(content) {
+export function splitFrontmatter(content: unknown): { frontmatter: string; body: string } {
   if (typeof content !== "string") return { frontmatter: "", body: "" };
   const match = content.match(/^---[\s\S]*?\n---\n?/);
   if (!match) {
@@ -31,7 +59,7 @@ export function splitFrontmatter(content) {
  * @param {string} replacementText
  * @returns {string}
  */
-export function preserveCase(matchText, replacementText) {
+export function preserveCase(matchText: string, replacementText: string) {
   if (!matchText || !replacementText) return replacementText;
 
   // TOUT EN MAJUSCULES (ex: "KEMAL")
@@ -60,7 +88,7 @@ export function preserveCase(matchText, replacementText) {
  * @param {string} str
  * @returns {string}
  */
-export function buildDiacriticsPattern(str) {
+export function buildDiacriticsPattern(str: string): string {
   const diacriticsMap = {
     a: "[aàâäAÀÂÄ]",
     e: "[eéèêëEÉÈÊË]",
@@ -88,7 +116,7 @@ export function buildDiacriticsPattern(str) {
  * @param {{ caseSensitive?: boolean, ignoreDiacritics?: boolean, matchMode?: string, useRegex?: boolean }} options
  * @returns {RegExp|null}
  */
-export function buildSearchRegExp(searchQuery, options = {}) {
+export function buildSearchRegExp(searchQuery: string, options: SearchReplaceOptions = {}): RegExp | null {
   if (!searchQuery) return null;
 
   const caseSensitive = !!options.caseSensitive;
@@ -130,7 +158,7 @@ export function buildSearchRegExp(searchQuery, options = {}) {
  * @param {{ caseSensitive?: boolean, preserveCase?: boolean, ignoreDiacritics?: boolean, matchMode?: string, useRegex?: boolean, includeYaml?: boolean }} options
  * @returns {{ newContent: string, count: number }}
  */
-export function replaceInText(content, searchQuery, replaceQuery, options = {}) {
+export function replaceInText(content: string | null | undefined, searchQuery: string, replaceQuery: string, options: SearchReplaceOptions = {}): { newContent: string; count: number } {
   if (typeof content !== "string" || !searchQuery) {
     return { newContent: content || "", count: 0 };
   }
@@ -142,7 +170,7 @@ export function replaceInText(content, searchQuery, replaceQuery, options = {}) 
   const shouldPreserveCase = options.preserveCase !== false && !options.caseSensitive && !options.useRegex;
   const includeYaml = !!options.includeYaml;
 
-  const processBlock = (text) => {
+  const processBlock = (text: string): { newText: string; count: number } => {
     let count = 0;
     const newText = text.replace(regex, (...args) => {
       count++;
@@ -182,7 +210,7 @@ export function replaceInText(content, searchQuery, replaceQuery, options = {}) 
  * @param {string} scope - "manuscript" | "project"
  * @returns {Array<object>}
  */
-export function getSearchReplaceFiles(app, plugin, scope = "manuscript") {
+export function getSearchReplaceFiles(app: SearchReplaceApp, plugin: SearchReplacePlugin, scope = "manuscript"): SearchReplaceFile[] {
   if (scope === "manuscript") {
     return plugin.getManuscriptFiles ? plugin.getManuscriptFiles() : [];
   }
@@ -207,11 +235,11 @@ export function getSearchReplaceFiles(app, plugin, scope = "manuscript") {
  * @param {{ scope?: string, caseSensitive?: boolean, preserveCase?: boolean, ignoreDiacritics?: boolean, matchMode?: string, useRegex?: boolean, includeYaml?: boolean, targetFile?: object }} options
  * @returns {Promise<{ totalReplacements: number, filesCount: number }>}
  */
-export function replaceInManuscriptBody(app, plugin, searchQuery, replaceQuery, options = {}) {
+export function replaceInManuscriptBody(app: SearchReplaceApp, plugin: SearchReplacePlugin, searchQuery: string, replaceQuery: string, options: SearchReplaceOptions = {}): Promise<{ totalReplacements: number; filesCount: number }> {
   return replaceInManuscriptScope(app, plugin, searchQuery, replaceQuery, options);
 }
 
-export async function replaceInManuscriptScope(app, plugin, searchQuery, replaceQuery, options = {}) {
+export async function replaceInManuscriptScope(app: SearchReplaceApp, plugin: SearchReplacePlugin, searchQuery: string, replaceQuery: string, options: SearchReplaceOptions = {}): Promise<{ totalReplacements: number; filesCount: number }> {
   if (!searchQuery || typeof searchQuery !== "string") {
     return { totalReplacements: 0, filesCount: 0 };
   }
