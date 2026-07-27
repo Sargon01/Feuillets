@@ -1,7 +1,18 @@
 import { TFile, normalizePath } from "obsidian";
+import type { App } from "obsidian";
 import { getProjectFolder, getResourcesRoot } from "./folder-structure.js";
 
-export async function getResearchTemplate(app, settings, mode, sectionKey, defaultName) {
+type ResearchMode = {
+  yamlPreset?: string;
+};
+
+export async function getResearchTemplate(
+  app: App,
+  settings: FeuilletsSettings,
+  mode: ResearchMode,
+  sectionKey: string,
+  defaultName: string,
+): Promise<string> {
   const root = getProjectFolder(app, settings);
   if (root) {
     const resourcesRoot = getResourcesRoot(app, root);
