@@ -1,4 +1,5 @@
 import { Notice, TFolder, TFile, normalizePath } from "obsidian";
+import type { App, TAbstractFile } from "obsidian";
 import { NewSheetModal, NewFolderModal } from "../ui/basic-modals.js";
 import { getProjectFolder, getOrderedChildren, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { getResearchRoot } from "./research.js";
@@ -6,7 +7,7 @@ import { ensureJournalFolder } from "./journal.js";
 import { getProjectMode } from "./project-mode.js";
 import { openFileActivating } from "../utils/dom.js";
 
-export async function ensureFolder(app, path) {
+export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
   const p = normalizePath(path);
   let f = app.vault.getAbstractFileByPath(p);
   if (!f) {
@@ -20,7 +21,7 @@ export async function ensureFolder(app, path) {
  * convention) ou son voisin (quand "Dossier projet" pointe directement
  * sur le sous-dossier des parties/chapitres) — les deux emplacements
  * existants sont respectés ; à défaut, créé en voisin. */
-export async function snapshotFile(app, file, root) {
+export async function snapshotFile(app: App, file: TFile, root: TFolder): Promise<string> {
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
   const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(
@@ -60,11 +61,11 @@ export async function snapshotFile(app, file, root) {
 }
 
 /** Récupère la liste des fichiers snapshots (.md) pour un feuillet, triés du plus récent au plus ancien. */
-export function listSnapshotFiles(app, file, root) {
+export function listSnapshotFiles(app: App, file: TFile | null | undefined, root: TFolder | null | undefined): TFile[] {
   if (!file || !root) return [];
   const candidates = [root.path, root.parent ? root.parent.path : null].filter(Boolean);
   const snapshotFolderNames = ["Snapshots", "_Snapshots"];
-  const found = [];
+  const found: TFile[] = [];
 
   for (const base of candidates) {
     for (const folderName of snapshotFolderNames) {
@@ -100,7 +101,7 @@ export function listSnapshotFiles(app, file, root) {
 
 /** Copie récursive du contenu d'un dossier (fichiers + sous-dossiers) vers
  * destPath, qui est créé s'il n'existe pas encore. */
-async function copyFolderContents(app, folder, destPath) {
+async function copyFolderContents(app: App, folder: TFolder, destPath: string): Promise<void> {
   await ensureFolder(app, destPath);
   for (const child of folder.children) {
     const target = normalizePath(`${destPath}/${child.name}`);
@@ -117,7 +118,7 @@ async function copyFolderContents(app, folder, destPath) {
  * retombe sur l'ordre alphabétique — orders est déjà une liste de NOMS
  * (identiques des deux côtés, copiable telle quelle), seul folderPositions
  * est indexé par chemin complet et doit être remappé. */
-function copyOrderSettings(settings, origFolder, destPath) {
+function copyOrderSettings(settings: FeuilletsSettings, origFolder: TFolder, destPath: string): void {
   if (settings.orders[origFolder.path]) {
     settings.orders[destPath] = [...settings.orders[origFolder.path]];
   }
@@ -135,7 +136,7 @@ function copyOrderSettings(settings, origFolder, destPath) {
  * _Recherche/_Snapshots (voisin du dossier manuscrit s'il y en a un, sinon
  * enfant du dossier projet), caché de l'arborescence normale (préfixe "_")
  * mais accessible via sa propre section dans le volet dossiers du binder. */
-export function getVersionsRoot(app, root) {
+export function getVersionsRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
   const base = root.parent ? root.parent.path : root.path;
   const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/_Versions`));
@@ -151,7 +152,7 @@ export function getVersionsRoot(app, root) {
  * une version (premier jet, etc.) avant de continuer à écrire sur
  * l'original. Retourne le chemin du dossier créé, ou lève une erreur si le
  * nom est déjà pris. */
-export async function duplicateProjectFolder(app, root, label, settings) {
+export async function duplicateProjectFolder(app: App, root: TFolder, label: string, settings?: FeuilletsSettings | null): Promise<string> {
   const base = root.parent ? root.parent.path : root.path;
   const safeLabel = String(label || "").trim().replace(/[\\/:*?"<>|]/g, "-");
   const destName = `${root.name} (${safeLabel || "copie"})`;
@@ -165,7 +166,7 @@ export async function duplicateProjectFolder(app, root, label, settings) {
 }
 
 /** Crée les dossiers _ et les fichiers Bases (personnages, lieux). */
-export async function initProjectStructure(app, settings) {
+export async function initProjectStructure(app: App, settings: FeuilletsSettings): Promise<void> {
   const root = getProjectFolder(app, settings);
   if (!root) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
@@ -218,7 +219,7 @@ export async function initProjectStructure(app, settings) {
   await ensureFolder(app, assetsPath);
   await ensureFolder(app, layoutsPath);
 
-  const writeTemplate = async (path, content) => {
+  const writeTemplate = async (path: string, content: string): Promise<void> => {
     const norm = normalizePath(path);
     if (!app.vault.getAbstractFileByPath(norm)) {
       await app.vault.create(norm, content).catch(() => {});
@@ -463,7 +464,7 @@ export async function initProjectStructure(app, settings) {
 
 /** `onDone` : appelé après création réussie (le plugin y branche son
  * propre rafraîchissement des vues, ce module ne connaît pas les vues). */
-export function newFolder(app, parent, onDone) {
+export function newFolder(app: App, parent: TFolder, onDone?: () => void): void {
   new NewFolderModal(app, parent.name, async (name) => {
     const path = normalizePath(`${parent.path}/${name}`);
     if (app.vault.getAbstractFileByPath(path)) {
@@ -475,7 +476,7 @@ export function newFolder(app, parent, onDone) {
   }).open();
 }
 
-export function newSheet(app, settings, folder) {
+export function newSheet(app: App, settings: FeuilletsSettings, folder: TFolder): void {
   new NewSheetModal(app, folder.name, async (fileName, chapTitle) => {
     const path = normalizePath(`${folder.path}/${fileName}.md`);
     if (app.vault.getAbstractFileByPath(path)) {
