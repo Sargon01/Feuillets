@@ -2,6 +2,22 @@ import { checkTextLanguageTool } from "./languagetool-checker.js";
 import { isEngineInstalled } from "./grammar-assets-manager.js";
 import { t } from "../i18n/index.js";
 
+type GrammarSettings = {
+  grammarEngine?: string;
+  languageToolUrl?: string;
+  languageToolLanguage?: string;
+  grammalecteDetectRepetitions?: boolean;
+};
+
+type GrammarUserData = {
+  knownWords?: string[];
+  ignoredRules?: string[];
+};
+
+type GrammarChecker = {
+  checkText(text: string, knownWords: string[] | undefined, ignoredRules: string[] | undefined, detectRepetitions?: boolean): Promise<unknown[]>;
+};
+
 /**
  * Orchestrateur de vérification linguistique pour Feuillets.
  * Redirige vers les moteurs locaux (Grammalecte FR / Harper EN, aucun appel
@@ -9,15 +25,16 @@ import { t } from "../i18n/index.js";
  * explicitement ou utilisé en secours sur mobile / langue non couverte).
  */
 export class GrammarCheckerManager {
-  constructor(app, manifest, grammalecteChecker, harperChecker, grammarUserData) {
-    this.app = app;
-    this.manifest = manifest;
-    this.grammalecteChecker = grammalecteChecker;
-    this.harperChecker = harperChecker;
-    this.grammarUserData = grammarUserData;
+  constructor(
+    private app: unknown,
+    private manifest: unknown,
+    private grammalecteChecker: GrammarChecker | null,
+    private harperChecker: GrammarChecker | null,
+    private grammarUserData: GrammarUserData | null,
+  ) {
   }
 
-  async checkText(text, settings, activeLocale = "fr") {
+  async checkText(text: string, settings: GrammarSettings, activeLocale = "fr") {
     const engine = settings ? settings.grammarEngine || "grammalecte" : "grammalecte";
 
     if (engine === "off") {
