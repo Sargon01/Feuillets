@@ -1,7 +1,12 @@
 import { TFile } from "obsidian";
+import type { App, TFolder } from "obsidian";
 import { getProjectFolder, flattenFiles, isFrontMatter, roleOfFile } from "./folder-structure.js";
 import { fmOf } from "./frontmatter.js";
 import { filsOf } from "../utils/arc-fields.js";
+
+type NarrativeThreadsPlugin = NarrativeThreadsPluginState & {
+  _filQueues?: Map<string, Promise<void>>;
+};
 
 /** Dernier feuillet du projet, dans l'ordre du manuscrit — celui qui reçoit
  * automatiquement le marqueur d'un fil narratif fraîchement planté. Fixé au
@@ -9,7 +14,7 @@ import { filsOf } from "../utils/arc-fields.js";
  * coup, le marqueur ne "saute" pas tout seul vers le nouveau dernier
  * feuillet (ça demanderait de déplacer du contenu généré automatiquement
  * sans prévenir, plus surprenant qu'utile). */
-export function getLastProjectFile(app, settings) {
+export function getLastProjectFile(app: App, settings: FeuilletsSettings): TFile | null {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const scenes = flattenFiles(app, settings, root).filter(
@@ -22,7 +27,7 @@ export function getLastProjectFile(app, settings) {
   return scenes.length > 0 ? scenes[scenes.length - 1] : null;
 }
 
-async function setFilList(app, file, fils) {
+async function setFilList(app: App, file: TFile, fils: string[]): Promise<void> {
   await app.fileManager.processFrontMatter(file, (fm) => {
     if (fils.length === 0) delete fm.thread;
     else fm.thread = fils;
@@ -30,7 +35,7 @@ async function setFilList(app, file, fils) {
   });
 }
 
-function existsElsewhere(app, settings, root, value, excludePath) {
+function existsElsewhere(app: App, settings: FeuilletsSettings, root: TFolder, value: string, excludePath: string): boolean {
   const scenes = flattenFiles(app, settings, root).filter(
     (f) => f instanceof TFile && f.extension === "md" && !isFrontMatter(app, settings, f)
   );
@@ -56,7 +61,7 @@ function existsElsewhere(app, settings, root, value, excludePath) {
  * `plugin._filSuppressed` (Set en mémoire, jamais persisté) sert à ignorer
  * l'événement "changed" que déclenche notre propre écriture, sans quoi
  * chaque marqueur automatique se reléverait pour une resolution fictive. */
-export async function handleFilChanged(app, settings, plugin, file) {
+export async function handleFilChanged(app: App, settings: FeuilletsSettings, plugin: NarrativeThreadsPlugin, file: TFile): Promise<void> {
   if (plugin._filSuppressed && plugin._filSuppressed.has(file.path)) {
     plugin._filSuppressed.delete(file.path);
     return;
@@ -84,13 +89,13 @@ export async function handleFilChanged(app, settings, plugin, file) {
   return run;
 }
 
-async function handleFilChangedLocked(app, settings, plugin, file, root, fils) {
+async function handleFilChangedLocked(app: App, settings: FeuilletsSettings, plugin: NarrativeThreadsPlugin, file: TFile, root: TFolder, fils: string[]): Promise<void> {
   if (!settings.filPlaceholders) settings.filPlaceholders = {};
   if (!settings.filOrigins) settings.filOrigins = {};
   if (!settings.filResolved) settings.filResolved = [];
   const resolvedSet = new Set(settings.filResolved);
 
-  const suppress = (path) => {
+  const suppress = (path: string): void => {
     if (!plugin._filSuppressed) plugin._filSuppressed = new Set();
     plugin._filSuppressed.add(path);
     /* filet de sécurité : si "changed" ne se redéclenche jamais pour cette
