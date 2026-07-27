@@ -25,6 +25,8 @@ export class Notice {
   }
 }
 
+export class Modal {}
+
 export function normalizePath(path) {
   return path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\//, "");
 }

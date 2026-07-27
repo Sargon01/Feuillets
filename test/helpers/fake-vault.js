@@ -4,6 +4,16 @@ export function createFakeVault(entries = []) {
   const files = new Map();
   for (const entry of entries) files.set(entry.path, entry);
 
+  const parentFolder = (path) => files.get(normalizePath(path).split("/").slice(0, -1).join("/"));
+  const addFile = (path, content) => {
+    const file = new TFile(normalizePath(path), content);
+    file.parent = parentFolder(file.path) || null;
+    file.stat = { mtime: Date.now() };
+    files.set(file.path, file);
+    if (file.parent?.children) file.parent.children.push(file);
+    return file;
+  };
+
   const vault = {
     getAbstractFileByPath(path) {
       return files.get(normalizePath(path)) || null;
@@ -12,12 +22,20 @@ export function createFakeVault(entries = []) {
       return file.content || "";
     },
     async create(path, content) {
-      const file = new TFile(normalizePath(path), content);
-      files.set(file.path, file);
-      return file;
+      return addFile(path, content);
     },
     async modify(file, content) {
       file.content = content;
+    },
+    async readBinary(file) {
+      return file.content || "";
+    },
+    async createBinary(path, content) {
+      return addFile(path, content);
+    },
+    async delete(file) {
+      files.delete(file.path);
+      if (file.parent?.children) file.parent.children = file.parent.children.filter((child) => child !== file);
     },
   };
 
