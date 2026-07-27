@@ -1,6 +1,24 @@
 import JSZip from "jszip";
+import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages } from "./export-render.js";
 import { escapeXml } from "../utils/xml.js";
+
+type ExportSegment = {
+  text: string;
+  frontType?: string;
+};
+
+type ExportInput = {
+  markdown: string;
+  title: string;
+  author: string;
+  sourcePath: string;
+  segments?: ExportSegment[];
+};
+
+type OdtOptions = {
+  frontStyle?: string;
+};
 
 /** opts.frontStyle : nom du style de paragraphe à utiliser pour un <p>/
  * <blockquote> à l'intérieur d'une page Front (titre/dédicace/épigraphe,
@@ -8,21 +26,22 @@ import { escapeXml } from "../utils/xml.js";
  * page (celui qui porte le saut de page, fo:break-before="page" défini dans
  * les styles automatiques plus bas), "FrontPage" pour les suivants (centrés,
  * mais sans resaut de page). undefined en dehors d'une page Front. */
-function domToOdtContent(node, opts = {}) {
+function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
   if (node.nodeType === Node.TEXT_NODE) {
     return escapeXml(node.textContent);
   }
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
-  const tag = node.tagName.toLowerCase();
+  const element = node as Element;
+  const tag = element.tagName.toLowerCase();
 
-  if (tag === "div" && node.classList && node.classList.contains("feuillets-frontpage")) {
-    return Array.from(node.children)
+  if (tag === "div" && element.classList && element.classList.contains("feuillets-frontpage")) {
+    return Array.from(element.children)
       .map((child, i) => domToOdtContent(child, { frontStyle: i === 0 ? "FrontPageFirst" : "FrontPage" }))
       .join("\n");
   }
 
-  const childrenXml = Array.from(node.childNodes).map((n) => domToOdtContent(n, opts)).join("");
+  const childrenXml = Array.from(element.childNodes).map((n) => domToOdtContent(n, opts)).join("");
 
   if (tag === "strong" || tag === "b") {
     return `<text:span text:style-name="Bold">${childrenXml}</text:span>`;
@@ -34,7 +53,7 @@ function domToOdtContent(node, opts = {}) {
     return `<text:span text:style-name="Source_20_Text">${childrenXml}</text:span>`;
   }
   if (tag === "a") {
-    const href = node.getAttribute("href") || "#";
+    const href = element.getAttribute("href") || "#";
     return `<text:a xlink:type="simple" xlink:href="${escapeXml(href)}">${childrenXml}</text:a>`;
   }
   if (tag === "h1") {
@@ -66,18 +85,18 @@ function domToOdtContent(node, opts = {}) {
 }
 
 /** Export ODT (OpenDocument Text pour LibreOffice / OpenOffice) natif sans conversion intermédiaire. */
-export async function exportOdt(app, settings, { markdown, title, author, sourcePath, segments }) {
+export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Uint8Array> {
   const { containerEl } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
 
-  const bodyXml = Array.from(containerEl.childNodes).map(domToOdtContent).join("\n");
+  const bodyXml = Array.from(containerEl.childNodes).map((node) => domToOdtContent(node)).join("\n");
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre
      page Front de type "titre" — voir même choix dans export-docx.js. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));
 
-  const headerText = (settings.pdfHeaderLeft || "{title}")
+  const headerText = (settings.pdfHeaderLeft as string || "{title}")
     .replace(/\{title\}/gi, title)
     .replace(/\{author\}/gi, author);
-  const footerText = (settings.pdfFooterRight || "Page {page} sur {pages}")
+  const footerText = (settings.pdfFooterRight as string || "Page {page} sur {pages}")
     .replace(/\{title\}/gi, title)
     .replace(/\{author\}/gi, author);
 
