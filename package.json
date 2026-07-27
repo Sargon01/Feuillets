@@ -9,7 +9,9 @@
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "lint": "eslint . && tsc -noEmit -skipLibCheck",
     "lint:obsidian": "eslint --config obsidian-review.config.mjs src",
-    "test": "node --test test/*.test.js"
+    "test": "npm run test:compiled",
+    "test:direct": "node --test test/*.test.js",
+    "test:compiled": "node -e \"require('node:fs').rmSync('.test-dist', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node --test .test-dist/test/*.test.js"
   },
   "keywords": [],
   "author": "Halim",
