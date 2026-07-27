@@ -9,14 +9,26 @@
  * `files` contient les chemins des fichiers tagués EXACTEMENT à ce
  * niveau (pas ceux des descendants — voir `collectFiles` pour l'agrégat).
  */
-export function buildTagTree(filesWithTags) {
-  const root = new Map();
+type TagNode = {
+  name: string;
+  fullPath: string;
+  files: Set<string>;
+  children: Map<string, TagNode>;
+};
 
-  const getOrCreate = (map, name, fullPath) => {
+type FileWithTags = {
+  path: string;
+  tags: string[];
+};
+
+export function buildTagTree(filesWithTags: FileWithTags[]) {
+  const root = new Map<string, TagNode>();
+
+  const getOrCreate = (map: Map<string, TagNode>, name: string, fullPath: string) => {
     if (!map.has(name)) {
       map.set(name, { name, fullPath, files: new Set(), children: new Map() });
     }
-    return map.get(name);
+    return map.get(name)!;
   };
 
   for (const { path, tags } of filesWithTags) {
@@ -25,13 +37,14 @@ export function buildTagTree(filesWithTags) {
       if (parts.length === 0) continue;
       let map = root;
       let fullPath = "";
-      let node = null;
+      let node: TagNode | null = null;
       for (const part of parts) {
         fullPath = fullPath ? `${fullPath}/${part}` : part;
-        node = getOrCreate(map, part, fullPath);
-        map = node.children;
+        const nextNode = getOrCreate(map, part, fullPath);
+        node = nextNode;
+        map = nextNode.children;
       }
-      node.files.add(path);
+      if (node) node.files.add(path);
     }
   }
   return root;
@@ -39,7 +52,7 @@ export function buildTagTree(filesWithTags) {
 
 /** Chemins de fichiers uniques portés par un nœud ET tous ses descendants
  * — c'est le compte affiché à côté d'un tag parent (comme Obsidian). */
-export function collectFiles(node) {
+export function collectFiles(node: TagNode) {
   const files = new Set(node.files);
   for (const child of node.children.values()) {
     for (const f of collectFiles(child)) files.add(f);
@@ -49,6 +62,6 @@ export function collectFiles(node) {
 
 /** Nœuds d'une Map triés alphabétiquement (fr) — même convention que le
  * reste du plugin. */
-export function sortTagNodes(map) {
+export function sortTagNodes(map: Map<string, TagNode>) {
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "fr"));
 }

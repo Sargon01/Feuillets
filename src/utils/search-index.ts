@@ -24,9 +24,24 @@
  *   débarrassé du frontmatter et normalisé (voir buildSearchIndex).
  * @returns {Promise<Map<string, IndexEntry>>} le `cache` reçu, à jour.
  */
-export async function refreshSearchIndex(cache, files, readBody) {
-  /** @type {IndexableFile[]|null} */
-  let misses = null;
+type IndexableFile = {
+  path: string;
+  stat: {
+    mtime: number;
+  };
+};
+
+type IndexEntry = {
+  mtime: number;
+  text: string;
+};
+
+export async function refreshSearchIndex(
+  cache: Map<string, IndexEntry>,
+  files: IndexableFile[],
+  readBody: (file: IndexableFile) => Promise<string>,
+): Promise<Map<string, IndexEntry>> {
+  let misses: IndexableFile[] | null = null;
   for (const f of files) {
     const hit = cache.get(f.path);
     if (!hit || hit.mtime !== f.stat.mtime) (misses || (misses = [])).push(f);
