@@ -195,6 +195,24 @@ declare type ExportTemplate = {
   [key: string]: unknown;
 };
 
+/** État persistant des fils narratifs. Les clés sont les valeurs de `thread`
+ * du frontmatter ; les valeurs sont les chemins du feuillet qui porte le
+ * marqueur automatique ou de son origine. Voir services/narrative-threads.js. */
+declare type NarrativeThreadState = {
+  filPlaceholders: Record<string, string>;
+  filOrigins: Record<string, string>;
+  filResolved: string[];
+};
+
+/** État mémoire minimal utilisé par l'automatisation des fils narratifs.
+ * Il reste volontairement séparé de FeuilletsSettings : ces collections ne
+ * sont jamais persistées et appartiennent à l'instance du plugin. */
+declare type NarrativeThreadsPluginState = {
+  _filSuppressed?: Set<string>;
+  _filQueues?: Map<string, Promise<void>>;
+  saveSettings(): Promise<void>;
+};
+
 /** Réglages du plugin. Volontairement PARTIEL : seuls les champs consommés
  * par du code déjà vérifié sont déclarés, la signature d'index couvre le
  * reste. DEFAULT_SETTINGS (src/default-settings.js) reste la référence
@@ -221,6 +239,16 @@ declare type FeuilletsSettings = {
   orders: Record<string, string[]>;
   folderPositions: Record<string, number>;
   collapsed: Record<string, boolean>;
+
+  /** Valeurs utilisées pour l'initialisation de l'arborescence projet. */
+  manuscriptTitle: string;
+  journalFolder: string;
+  wordGoal: number;
+
+  /** Automatisation des fils narratifs, persistée dans les réglages. */
+  filPlaceholders: NarrativeThreadState["filPlaceholders"];
+  filOrigins: NarrativeThreadState["filOrigins"];
+  filResolved: NarrativeThreadState["filResolved"];
 
   statuses: {name: string, color: string}[];
   hiddenPanels: string[];
