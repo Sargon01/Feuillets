@@ -1,12 +1,10 @@
 import { TFolder, TFile, normalizePath } from "obsidian";
+import type { App } from "obsidian";
 import { fmOf } from "./frontmatter.js";
 
-/**
- * @param {import("obsidian").App} app
- * @param {FeuilletsSettings | null | undefined} settings
- * @returns {TFolder | null}
- */
-export function getProjectFolder(app, settings) {
+type ProjectNode = TFile | TFolder;
+
+export function getProjectFolder(app: App, settings: FeuilletsSettings | null | undefined): TFolder | null {
   if (!settings || !settings.projectFolder) return null;
   const raw = String(settings.projectFolder).trim();
   if (!raw || raw === "/" || raw === ".") return null;
@@ -16,15 +14,11 @@ export function getProjectFolder(app, settings) {
   return (af instanceof TFolder && af.path !== "" && af.path !== "/") ? af : null;
 }
 
-/**
- * @param {string} path
- * @returns {string}
- *
- * Nom affiché d'un projet : le dossier de volume (parent), pas
+/** Nom affiché d'un projet : le dossier de volume (parent), pas
  * "Manuscrit" — sinon tous les projets s'appellent pareil dès qu'on
  * suit la convention Manuscrit/Recherche/Snapshots en frères. Repli sur
  * le dernier segment si le chemin ne suit pas cette convention. */
-export function projectDisplayName(path) {
+export function projectDisplayName(path: string): string {
   const parts = normalizePath(path || "").split("/").filter(Boolean);
   if (parts.length === 0) return path;
   const last = parts[parts.length - 1];
@@ -34,17 +28,12 @@ export function projectDisplayName(path) {
   return last;
 }
 
-/**
- * @param {import("obsidian").App} app
- * @param {TFolder | null | undefined} root
- * @returns {TFolder | null}
- *
- * Dossier "Ressources" (modèles, exports personnalisés, images…), voisin
+/** Dossier "Ressources" (modèles, exports personnalisés, images…), voisin
  * du dossier projet — "Resources" pour les nouveaux projets, l'ancien nom
  * français reconnu indéfiniment sur les projets déjà créés (même principe
  * que LEGACY_FIELD_ALIASES en frontmatter, appliqué ici à un vrai dossier :
  * jamais renommé de force sur le disque). */
-export function getResourcesRoot(app, root) {
+export function getResourcesRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
   const base = root.parent ? root.parent.path : root.path;
   const en = app.vault.getAbstractFileByPath(normalizePath(`${base}/Resources`));
@@ -54,44 +43,22 @@ export function getResourcesRoot(app, root) {
   return null;
 }
 
-/**
- * @overload
- * @param {import("obsidian").App} app
- * @param {TFolder} root
- * @returns {string}
- */
-/**
- * @overload
- * @param {import("obsidian").App} app
- * @param {null | undefined} root
- * @returns {null}
- */
-/**
- * @param {import("obsidian").App} app
- * @param {TFolder | null | undefined} root
- * @returns {string | null}
- *
- * Chemin du dossier Ressources à utiliser pour une ÉCRITURE (création
+export function resourcesFolderPath(app: App, root: TFolder): string;
+export function resourcesFolderPath(app: App, root: null | undefined): null;
+/** Chemin du dossier Ressources à utiliser pour une ÉCRITURE (création
  * d'un fichier/sous-dossier dedans) : reprend le dossier déjà présent sur
  * le disque quel que soit son nom, sinon "Resources" (nouveaux projets). */
-export function resourcesFolderPath(app, root) {
+export function resourcesFolderPath(app: App, root: TFolder | null | undefined): string | null {
   if (!root) return null;
   const base = root.parent ? root.parent.path : root.path;
   const existing = getResourcesRoot(app, root);
   return existing ? existing.path : normalizePath(`${base}/Resources`);
 }
 
-/**
- * @param {import("obsidian").App} app
- * @param {string} resourcesPath
- * @param {string} newName
- * @param {string} legacyName
- * @returns {string}
- *
- * Sous-dossier de Ressources dont le nom a changé (Visuels->Assets,
+/** Sous-dossier de Ressources dont le nom a changé (Visuels->Assets,
  * Modèles->Layouts) : reprend le nom déjà présent sur le disque s'il y en
  * a un, sinon le nouveau nom anglais. */
-export function resourcesSubfolderPath(app, resourcesPath, newName, legacyName) {
+export function resourcesSubfolderPath(app: App, resourcesPath: string, newName: string, legacyName: string): string {
   const en = app.vault.getAbstractFileByPath(normalizePath(`${resourcesPath}/${newName}`));
   if (en instanceof TFolder) return en.path;
   const fr = app.vault.getAbstractFileByPath(normalizePath(`${resourcesPath}/${legacyName}`));
@@ -99,8 +66,7 @@ export function resourcesSubfolderPath(app, resourcesPath, newName, legacyName) 
   return normalizePath(`${resourcesPath}/${newName}`);
 }
 
-/** @param {import("obsidian").App} app @param {FeuilletsSettings} settings @param {TFile | TFolder} node @returns {number} */
-export function depthOf(app, settings, node) {
+export function depthOf(app: App, settings: FeuilletsSettings, node: ProjectNode): number {
   const root = getProjectFolder(app, settings);
   if (!root) return 0;
   if (node.path === root.path) return 0;
@@ -119,23 +85,20 @@ export function depthOf(app, settings, node) {
  * (mise en forme propre au format). */
 export const FRONT_PAGE_TYPES = ["titre", "dedicace", "epigraphe"];
 
-/** @param {import("obsidian").App} app @param {FeuilletsSettings} settings @param {TFile | TFolder} node @returns {boolean} */
-export function isFrontMatter(app, settings, node) {
+export function isFrontMatter(app: App, settings: FeuilletsSettings, node: ProjectNode): boolean {
   const root = getProjectFolder(app, settings);
   if (!root) return false;
   const p = normalizePath(`${root.path}/Front`);
   return node.path === p || node.path.startsWith(`${p}/`);
 }
 
-/** @param {import("obsidian").App} app @param {FeuilletsSettings} settings @param {TFolder} folder @returns {"chapitre" | "partie"} */
-export function roleOfFolder(app, settings, folder) {
+export function roleOfFolder(app: App, settings: FeuilletsSettings, folder: TFolder): "chapitre" | "partie" {
   const d = depthOf(app, settings, folder);
   if (d >= 2) return "chapitre";
   return settings.level1Role === "chapitres" ? "chapitre" : "partie";
 }
 
-/** @param {import("obsidian").App} app @param {FeuilletsSettings} settings @param {TFile} file @returns {"chapitre" | "scene"} */
-export function roleOfFile(app, settings, file) {
+export function roleOfFile(app: App, settings: FeuilletsSettings, file: TFile): "chapitre" | "scene" {
   const parent = file.parent;
   const root = getProjectFolder(app, settings);
   if (!root || !parent || parent.path === root.path) return "chapitre";
@@ -146,17 +109,15 @@ export function roleOfFile(app, settings, file) {
  * du manuscrit : ni numéroté, ni compilé, ni affiché dans aucune vue.
  * `includeHidden` reste disponible pour les cas internes qui doivent
  * malgré tout parcourir ces dossiers (ex. tout-plier). */
-/**
- * @param {import("obsidian").App} app
- * @param {FeuilletsSettings} settings
- * @param {TFolder | null | undefined} folder
- * @param {boolean} [includeHidden]
- * @returns {(TFile | TFolder)[]}
- */
-export function getOrderedChildren(app, settings, folder, includeHidden = false) {
+export function getOrderedChildren(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null | undefined,
+  includeHidden = false
+): ProjectNode[] {
   if (!folder || !(folder instanceof TFolder) || !Array.isArray(folder.children)) return [];
   const children = folder.children.filter(
-    (c) =>
+    (c): c is ProjectNode =>
       (c instanceof TFolder &&
         !c.name.startsWith(".") &&
         (includeHidden || !c.name.startsWith("_"))) ||
@@ -168,9 +129,9 @@ export function getOrderedChildren(app, settings, folder, includeHidden = false)
   const saved = settings.orders[folder.path] || [];
   const savedIndex = new Map(saved.map((n, i) => [n, i]));
 
-  const posOf = (c) => {
+  const posOf = (c: ProjectNode): number | null => {
     if (c instanceof TFile) {
-      const o = parseInt(fmOf(app, c).order, 10);
+      const o = parseInt(String(fmOf(app, c).order), 10);
       return isNaN(o) ? null : o;
     }
     const o = settings.folderPositions[c.path];
@@ -178,8 +139,8 @@ export function getOrderedChildren(app, settings, folder, includeHidden = false)
   };
 
   return children.sort((a, b) => {
-    const ia = savedIndex.has(a.name) ? savedIndex.get(a.name) : null;
-    const ib = savedIndex.has(b.name) ? savedIndex.get(b.name) : null;
+    const ia = savedIndex.has(a.name) ? savedIndex.get(a.name)! : null;
+    const ib = savedIndex.has(b.name) ? savedIndex.get(b.name)! : null;
     if (ia !== null && ib !== null && ia !== ib) return ia - ib;
     if (ia !== null && ib === null) return -1;
     if (ia === null && ib !== null) return 1;
@@ -192,11 +153,10 @@ export function getOrderedChildren(app, settings, folder, includeHidden = false)
   });
 }
 
-/** @param {import("obsidian").App} app @param {FeuilletsSettings} settings @param {TFolder | null | undefined} folder @returns {TFile[]} */
-export function flattenFiles(app, settings, folder) {
+export function flattenFiles(app: App, settings: FeuilletsSettings, folder: TFolder | null | undefined): TFile[] {
   if (!folder || !(folder instanceof TFolder)) return [];
-  const out = [];
-  const walk = (f) => {
+  const out: TFile[] = [];
+  const walk = (f: TFolder): void => {
     for (const child of getOrderedChildren(app, settings, f)) {
       if (child instanceof TFolder) walk(child);
       else out.push(child);
@@ -206,11 +166,10 @@ export function flattenFiles(app, settings, folder) {
   return out;
 }
 
-/** @param {import("obsidian").App} app @param {FeuilletsSettings} settings @param {TFolder | null | undefined} root @returns {number} */
-export function chapterCount(app, settings, root) {
+export function chapterCount(app: App, settings: FeuilletsSettings, root: TFolder | null | undefined): number {
   if (!root || !(root instanceof TFolder)) return 0;
   let n = 0;
-  const walk = (f) => {
+  const walk = (f: TFolder): void => {
     for (const child of getOrderedChildren(app, settings, f)) {
       if (isFrontMatter(app, settings, child)) continue; // jamais compté
       if (child instanceof TFolder) {
@@ -223,11 +182,10 @@ export function chapterCount(app, settings, root) {
   return n;
 }
 
-/** @param {import("obsidian").App} app @param {FeuilletsSettings} settings @param {TFolder | null | undefined} root @returns {(TFile | TFolder)[]} */
-export function getChapters(app, settings, root) {
+export function getChapters(app: App, settings: FeuilletsSettings, root: TFolder | null | undefined): ProjectNode[] {
   if (!root || !(root instanceof TFolder)) return [];
-  const chapters = [];
-  const walk = (f) => {
+  const chapters: ProjectNode[] = [];
+  const walk = (f: TFolder): void => {
     for (const child of getOrderedChildren(app, settings, f)) {
       if (isFrontMatter(app, settings, child)) continue;
       if (child instanceof TFolder) {
@@ -235,10 +193,8 @@ export function getChapters(app, settings, root) {
           chapters.push(child);
         }
         walk(child);
-      } else {
-        if (roleOfFile(app, settings, child) === "chapitre") {
-          chapters.push(child);
-        }
+      } else if (roleOfFile(app, settings, child) === "chapitre") {
+        chapters.push(child);
       }
     }
   };
