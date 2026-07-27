@@ -1,11 +1,27 @@
 import { setIcon } from "obsidian";
+import type { App, TFile, WorkspaceLeaf } from "obsidian";
+
+type ObsidianElement = HTMLElement & {
+  createDiv(options: { cls: string }): ObsidianElement;
+  createSpan(options: { cls: string }): ObsidianElement;
+  createEl(tag: string, options: { cls: string }): ObsidianElement;
+  setText(text: string): void;
+  setAttr(name: string, value: string): void;
+  addEventListener(type: string, callback: (event: MouseEvent) => void | Promise<void>): void;
+  querySelectorAll(selector: string): NodeListOf<ObsidianElement>;
+  removeClass(name: string): void;
+  addClass(name: string): void;
+  scrollIntoView(options: ScrollIntoViewOptions): void;
+};
+
+type CollapsibleSettings = { collapsed: Record<string, boolean> };
 
 /** Construit l'en-tête d'une section repliable (div section + head + chevron
  * + titre + icône/bouton optionnels + clic qui bascule l'état replié) et la
  * retourne pour que l'appelant y ajoute son propre contenu. `collapsed` et la
  * logique de calcul du repli restent à la charge de l'appelant (ex. la vue
  * Recherche force l'ouverture des sections pendant une recherche active). */
-export function renderCollapsibleHead(container, {
+export function renderCollapsibleHead(container: ObsidianElement, {
   classes,
   title,
   icon,
@@ -14,6 +30,15 @@ export function renderCollapsibleHead(container, {
   settings,
   onToggle,
   onCreate,
+}: {
+  classes: { section: string; head: string; icon: string; title: string };
+  title: string;
+  icon?: string;
+  collapsed: boolean;
+  collapseKey: string;
+  settings: CollapsibleSettings;
+  onToggle: () => void | Promise<void>;
+  onCreate?: () => void;
 }) {
   const section = container.createDiv({ cls: classes.section });
   const head = section.createDiv({ cls: classes.head });
@@ -44,7 +69,7 @@ export function renderCollapsibleHead(container, {
   return { section, head };
 }
 
-export function iconBtn(parent, icon, tooltip, onClick) {
+export function iconBtn(parent: ObsidianElement, icon: string, tooltip: string, onClick?: (event: MouseEvent) => void) {
   const btn = parent.createEl("button", { cls: "clickable-icon" });
   setIcon(btn, icon);
   btn.setAttr("aria-label", tooltip);
@@ -53,7 +78,7 @@ export function iconBtn(parent, icon, tooltip, onClick) {
   return btn;
 }
 
-export function highlightActive(rootEl, activePath) {
+export function highlightActive(rootEl: ObsidianElement | null, activePath: string | null | undefined) {
   if (!rootEl) return;
   rootEl
     .querySelectorAll(".is-active, .feuillets-dragover, .feuillets-dragging")
@@ -76,7 +101,7 @@ export function highlightActive(rootEl, activePath) {
     });
 }
 
-export function isEditing(rootEl) {
+export function isEditing(rootEl: ObsidianElement) {
   const a = document.activeElement;
   return a && rootEl.contains(a) && ["TEXTAREA", "INPUT"].includes(a.tagName);
 }
@@ -86,12 +111,12 @@ export function isEditing(rootEl) {
  * explicite, l'événement "file-open" — dont dépendent les panneaux Notes
  * et Progression ainsi que le panneau Propriétés natif d'Obsidian — ne se
  * déclenche pas pour une feuille simplement révélée mais pas "active". */
-export function openFileActivating(app, leaf, file) {
+export function openFileActivating(app: App, leaf: WorkspaceLeaf, file: TFile) {
   leaf.openFile(file, { active: true });
   app.workspace.setActiveLeaf(leaf, { focus: true });
 }
 
-export function getActiveFileSafe(app) {
+export function getActiveFileSafe(app: App) {
   // 1. Tenter via le fichier actif du workspace (très fiable si un onglet d'écriture est actif)
   const active = app.workspace.getActiveFile();
   if (active) return active;
@@ -101,15 +126,17 @@ export function getActiveFileSafe(app) {
      `workspace.activeLeaf`, déprécié par l'API Obsidian ; getMostRecentLeaf
      couvre le même besoin sans dépendre d'une propriété retirée. */
   const recentLeaf = app.workspace.getMostRecentLeaf();
-  if (recentLeaf && recentLeaf.view && recentLeaf.view.file) {
-    return recentLeaf.view.file;
+  const recentFile = recentLeaf && (recentLeaf.view as { file?: TFile }).file;
+  if (recentFile) {
+    return recentFile;
   }
 
   // 3. Repli sur le premier onglet Markdown disponible
   const leaves = app.workspace.getLeavesOfType("markdown");
   for (const leaf of leaves) {
-    if (leaf.view && leaf.view.file) {
-      return leaf.view.file;
+    const leafFile = (leaf.view as { file?: TFile }).file;
+    if (leafFile) {
+      return leafFile;
     }
   }
   return null;
