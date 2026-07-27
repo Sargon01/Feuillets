@@ -1,4 +1,3 @@
-// @ts-check
 /** Manipulation des champs et du corps d'un feuillet pendant le découpage et
  * la fusion de scènes (voir scenes-editor.js). Ces fonctions décident du nom
  * des fichiers créés et du contenu écrit dedans — d'où leur sortie du module
@@ -16,11 +15,8 @@
    précédente — le fichier créé était donc invalide sous Windows. */
 const FORBIDDEN_IN_FILENAME = /[\\/:*?"<>|#^[\]]/g;
 
-/** Découpe une saisie « a, b, c » en liste, sans entrées vides.
- * @param {unknown} value
- * @returns {string[]}
- */
-export function splitCsv(value) {
+/** Découpe une saisie « a, b, c » en liste, sans entrées vides. */
+export function splitCsv(value: unknown): string[] {
   return String(value || "")
     .split(",")
     .map((v) => v.trim())
@@ -28,11 +24,8 @@ export function splitCsv(value) {
 }
 
 /** Tags normalisés et dédoublonnés, que la source soit une liste YAML ou une
- * saisie « a, b, c ». L'ordre de première apparition est conservé.
- * @param {unknown} value
- * @returns {string[]}
- */
-export function normalizeTags(value) {
+ * saisie « a, b, c ». L'ordre de première apparition est conservé. */
+export function normalizeTags(value: unknown): string[] {
   if (!value) return [];
   if (Array.isArray(value)) {
     return [...new Set(value.map((v) => String(v).trim()).filter(Boolean))];
@@ -42,12 +35,8 @@ export function normalizeTags(value) {
 }
 
 /** Aperçu sur une ligne, tronqué. `"—"` si le texte est vide — c'est un
- * affichage, jamais une valeur écrite dans un fichier.
- * @param {unknown} value
- * @param {number} [max]
- * @returns {string}
- */
-export function shortText(value, max = 180) {
+ * affichage, jamais une valeur écrite dans un fichier. */
+export function shortText(value: unknown, max = 180): string {
   const text = String(value || "")
     .replace(/\s+/g, " ")
     .trim();
@@ -56,26 +45,19 @@ export function shortText(value, max = 180) {
 }
 
 /** Sépare le frontmatter du corps. `frontmatter` est `null` s'il n'y en a pas
- * — à distinguer d'un frontmatter vide, qui donne `""`.
- * @param {string} content
- * @returns {{ frontmatter: string|null, body: string }}
- */
-export function splitFrontmatter(content) {
+ * — à distinguer d'un frontmatter vide, qui donne `""`. */
+export function splitFrontmatter(content: unknown): { frontmatter: string | null; body: string } {
   const match = String(content ?? "").match(/^---\n([\s\S]*?)\n---\n?/);
   if (!match) return { frontmatter: null, body: String(content ?? "") };
   return { frontmatter: match[1], body: String(content).slice(match[0].length) };
 }
 
-/** Corps seul, sans frontmatter ni blancs de bord.
- * @param {string} raw
- * @returns {string}
- */
-export function splitBody(raw) {
+/** Corps seul, sans frontmatter ni blancs de bord. */
+export function splitBody(raw: unknown): string {
   return splitFrontmatter(raw).body.trim();
 }
 
-/** @param {unknown} value @param {number} [fallback] @returns {number} */
-export function ensureNumber(value, fallback = 0) {
+export function ensureNumber(value: unknown, fallback = 0): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -85,11 +67,8 @@ export function ensureNumber(value, fallback = 0) {
  * Le `trim()` vient AVANT le retrait de l'extension : l'ancre `$` de la regex
  * ne matchait pas en présence d'espaces finaux, si bien qu'une saisie
  * « Scene 1.md » suivie d'une espace gardait son extension — et le fichier
- * créé s'appelait « Scene 1.md.md ».
- * @param {unknown} name
- * @returns {string}
- */
-export function stripMdExtension(name) {
+ * créé s'appelait « Scene 1.md.md ». */
+export function stripMdExtension(name: unknown): string {
   return String(name || "")
     .trim()
     .replace(/\.md$/i, "")
@@ -98,12 +77,8 @@ export function stripMdExtension(name) {
 
 /** Nom de fichier sûr dérivé d'un titre saisi par l'autrice. Ne renvoie
  * jamais une chaîne vide : un titre entièrement composé de caractères
- * interdits retomberait sinon sur un nom vide, et `vault.create` échouerait.
- * @param {unknown} name
- * @param {string} [fallback]
- * @returns {string}
- */
-export function sanitizeFileBasename(name, fallback = "Nouvelle scène") {
+ * interdits retomberait sinon sur un nom vide, et `vault.create` échouerait. */
+export function sanitizeFileBasename(name: unknown, fallback = "Nouvelle scène"): string {
   const base = stripMdExtension(name)
     .replace(FORBIDDEN_IN_FILENAME, "-")
     /* Un point final est ignoré par Windows (« a. » devient « a »), ce qui
@@ -118,38 +93,23 @@ export function sanitizeFileBasename(name, fallback = "Nouvelle scène") {
   return base;
 }
 
-/** Déplace un élément dans une copie du tableau.
- * @template T
- * @param {T[]} array
- * @param {number} fromIndex
- * @param {number} toIndex
- * @returns {T[]}
- */
-export function moveItem(array, fromIndex, toIndex) {
+/** Déplace un élément dans une copie du tableau. */
+export function moveItem<T>(array: T[], fromIndex: number, toIndex: number): T[] {
   const next = [...array];
   const [item] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, item);
   return next;
 }
 
-/** Valeur d'un champ pour un formulaire : une liste devient « a, b ».
- * @param {unknown} value
- * @returns {string}
- */
-export function toValue(value) {
+/** Valeur d'un champ pour un formulaire : une liste devient « a, b ». */
+export function toValue(value: unknown): string {
   return Array.isArray(value) ? value.join(", ") : String(value ?? "");
 }
 
 /** Corps d'une scène fusionnée dans une autre, selon le mode choisi :
  * `continuous` colle le texte tel quel, `comment` le fait précéder d'une
- * citation, tout autre mode d'un titre de niveau 2.
- * @param {{ basename: string }} source
- * @param {unknown} body
- * @param {string} mode
- * @returns {string} `""` si le corps est vide — l'appelant n'insère alors
- *   ni titre ni citation orpheline.
- */
-export function buildMergedSection(source, body, mode) {
+ * citation, tout autre mode d'un titre de niveau 2. */
+export function buildMergedSection(source: { basename: string }, body: unknown, mode: string): string {
   const clean = String(body || "").trim();
   if (!clean) return "";
   if (mode === "continuous") return clean;
