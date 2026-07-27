@@ -1900,7 +1900,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     // identique dans toutes les versions d'Obsidian.
     for (const name of ORDER) {
       const panel = containerEl.createDiv({ cls: "feuillets-settings-panel" });
-      if (name !== this._activeSettingsTab) panel.style.display = "none";
+      if (name !== this._activeSettingsTab) panel.setCssProps({ display: "none" });
 
       for (const sub of byCategory[name]) {
         if (!sub.title) {

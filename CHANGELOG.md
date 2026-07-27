@@ -2,6 +2,12 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.3.5
+
+### Corrigé
+
+- **Réglages** : remplacement de l'affectation directe de style par l'API Obsidian `setCssProps`, afin de respecter la règle de revue `obsidianmd/no-static-styles-assignment`.
+
 ## 1.3.4
 
 ### Corrigé
