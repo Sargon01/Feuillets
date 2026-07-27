@@ -15,7 +15,7 @@
  * long). FNV-1a 32 bits : pas cryptographique, mais stable et bien réparti —
  * largement suffisant pour un espace de quelques centaines de feuillets par
  * projet (collision fortuite quasi impossible à cette échelle). */
-export function bookmarkIdFor(path) {
+export function bookmarkIdFor(path: string | null | undefined) {
   const s = String(path || "");
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
@@ -45,7 +45,7 @@ const MARKER_RE = /^FEUILLETS-SCENE:([a-zA-Z0-9_]+)(?::(titre|dedicace|epigraphe
  * @param {{ path?: string|null, text: string, frontType?: string|null }[]} segments
  * @returns {string}
  */
-export function markedMarkdownFor(segments) {
+export function markedMarkdownFor(segments: Array<{ path?: string | null; text: string; frontType?: string | null }>) {
   return segments
     .map((seg) => {
       if (!seg.path) return `${MARKER_PREFIX}${RESET_MARKER_ID}\n\n${seg.text}`;
@@ -64,7 +64,7 @@ export function markedMarkdownFor(segments) {
  * @param {{ textContent?: string|null }|null|undefined} el
  * @returns {{ id: string|null, frontType: string|null }|null}
  */
-export function bookmarkMarkerInfoOf(el) {
+export function bookmarkMarkerInfoOf(el: { textContent?: string | null } | null | undefined) {
   if (!el) return null;
   const raw = (el.textContent || "").trim();
   const m = raw.match(MARKER_RE);

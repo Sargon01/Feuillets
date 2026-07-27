@@ -9,7 +9,7 @@ const LONG_SENTENCE_WORDS = 40;
 
 /** Tokens « mots » d'un fragment déjà nettoyé (même définition que countWords :
  * un token comptant au moins une lettre/chiffre). */
-function wordTokens(text) {
+function wordTokens(text: string) {
   return text
     .replace(/[#>*_`~=[\]()]/g, " ")
     .trim()
@@ -18,14 +18,14 @@ function wordTokens(text) {
 }
 
 /** Découpe en phrases (terminateurs . ! ? …), fragments non vides. */
-function splitSentences(text) {
+function splitSentences(text: string) {
   return (text.match(/[^.!?…]+[.!?…]+/g) || []).map((s) => s.trim()).filter(Boolean);
 }
 
 /** Un paragraphe est considéré « dialogue » s'il ouvre par un tiret de
  * dialogue (— – -) ou contient des guillemets. Heuristique (pas du NLP) —
  * suffisante pour un ratio indicatif. */
-function isDialogueParagraph(p) {
+function isDialogueParagraph(p: string) {
   const s = p.trimStart();
   return /^[—–-]/.test(s) || /[«»""]/.test(p);
 }
@@ -35,7 +35,7 @@ function isDialogueParagraph(p) {
  * longues (>40 mots) et ratio dialogue (part des mots dans des paragraphes de
  * dialogue). `longSentences` liste les phrases concernées pour une future
  * navigation. */
-export function analyzeProse(rawText) {
+export function analyzeProse(rawText: string | null | undefined) {
   const clean = stripWritingNoise(rawText || "");
   const tokensAll = wordTokens(clean);
   const words = tokensAll.length;

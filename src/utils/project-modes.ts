@@ -47,7 +47,7 @@ export const LEGACY_RESEARCH_LABELS = {
 
 /** `name` correspond-il à la catégorie `key` de `researchFolders`, sous
  * son nom actuel (anglais) OU son ancien nom (français) ? */
-export function matchesResearchLabel(researchFolders, key, name) {
+export function matchesResearchLabel(researchFolders: Record<string, { label: string }>, key: string, name: string) {
   const entry = researchFolders[key];
   if (!entry) return false;
   return name === entry.label || name === LEGACY_RESEARCH_LABELS[key];
@@ -89,7 +89,7 @@ export const PROJECT_MODES = {
 /** Ramène une valeur de type quelconque (absente, ou ancien texte libre
  * non reconnu) sur une clé valide de PROJECT_MODES — "fiction" par repli,
  * pour qu'aucun projet existant ne casse. */
-export function resolveType(type) {
+export function resolveType(type: string | null | undefined) {
   const rawType = (type || "").trim().toLowerCase();
   if (rawType === "fiction" || rawType === "roman" || rawType === "nouvelle") {
     return "fiction";
@@ -103,9 +103,8 @@ export function resolveType(type) {
 /** Applique les réglages de départ d'un mode — à appeler UNE SEULE FOIS, à
  * la création du projet. Ne doit jamais être rappelée automatiquement
  * ensuite (écraserait les réglages ajustés par l'utilisateur depuis). */
-export function applyModeDefaults(settings, type) {
+export function applyModeDefaults(settings: FeuilletsSettings, type: string | null | undefined) {
   const mode = PROJECT_MODES[resolveType(type)];
   Object.assign(settings, mode.defaults);
   settings.mergeYamlPreset = mode.yamlPreset;
 }
-
