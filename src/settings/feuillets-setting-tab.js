@@ -222,7 +222,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.numbering"), attr: { "data-cat": "Projet" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.numbering"), attr: { "data-cat": "Projet", "data-open": "1" } });
 
     new Setting(containerEl)
       .setName(t("settings.level1Role.name"))
@@ -288,7 +288,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       })
     );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.statusesLabels"), attr: { "data-cat": "Projet" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.statusesLabels"), attr: { "data-cat": "Projet", "data-open": "1" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.statusesLabels.intro")
@@ -399,7 +399,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.goals"), attr: { "data-cat": "Projet" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.goals"), attr: { "data-cat": "Projet", "data-open": "1" } });
 
     new Setting(containerEl)
       .setName(t("settings.wordGoal.name", { unit }))
@@ -459,7 +459,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.history"), attr: { "data-cat": "Projet" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.history"), attr: { "data-cat": "Projet", "data-open": "1" } });
 
     new Setting(containerEl)
       .setName(t("settings.statsRetention.name"))
@@ -514,7 +514,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         );
     }
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.appearance"), attr: { "data-cat": "Interface" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.appearance"), attr: { "data-cat": "Interface", "data-open": "1" } });
 
     new Setting(containerEl)
       .setName(t("settings.language.name"))
@@ -634,7 +634,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         cp.onChange((v) => this.plugin.setVaultConfig("accentColor", v));
       });
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.liveTypography"), attr: { "data-cat": "Écriture" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.liveTypography"), attr: { "data-cat": "Écriture", "data-open": "1" } });
 
     new Setting(containerEl)
       .setName(t("settings.indentParagraphs.name"))
@@ -761,7 +761,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.focusMode"), attr: { "data-cat": "Interface" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.focusMode"), attr: { "data-cat": "Interface", "data-open": "1" } });
 
      new Setting(containerEl)
       .setName(t("settings.focusUnit.name"))
@@ -832,7 +832,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.leanInterface"), attr: { "data-cat": "Interface" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.leanInterface"), attr: { "data-cat": "Interface", "data-open": "1" } });
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.leanInterface.desc"));
 
     new Setting(containerEl)
@@ -946,7 +946,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     this.storeLinkButton(goFurther, t("settings.leanInterface.pluginStyleSettings"), () => this.openCommunityPluginsSearch("Style Settings"));
     this.storeLinkButton(goFurther, t("settings.leanInterface.pluginMinimalSettings"), () => this.openCommunityPluginsSearch("Minimal Theme Settings"));
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.sceneMerge"), attr: { "data-cat": "Écriture" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.sceneMerge"), attr: { "data-cat": "Écriture", "data-open": "1" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.sceneMerge.intro")
@@ -1003,7 +1003,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.boardPanel"), attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.boardPanel"), attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.boardPanel.intro")
@@ -1091,7 +1091,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.startupPanels"), attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.startupPanels"), attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
 
     new Setting(containerEl)
       .setName(t("settings.autoOpenBinder.name"))
@@ -1164,7 +1164,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.activeViews"), attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.activeViews"), attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
 
     containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.activeViews.intro")
@@ -1221,7 +1221,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
     }
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: "Binder", attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: "Binder", attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
 
      new Setting(containerEl)
       .setName(t("binder.display.labelStripes"))
@@ -1329,7 +1329,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.notesPanel"), attr: { "data-cat": "Panneaux latéraux" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.notesPanel"), attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
 
     new Setting(containerEl)
       .setName(t("settings.notesShowEntities.name"))
@@ -1404,7 +1404,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const orderWrapNotes = containerEl.createDiv({ cls: "feuillets-notes-order-wrap" });
     this.renderSectionOrderList(orderWrapNotes, S, "notesSectionOrder", ["Synopsis", "Résumé", "Notes"], refresh);
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.grammarCheck"), attr: { "data-cat": "Correction" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.grammarCheck"), attr: { "data-cat": "Correction", "data-open": "1" } });
     new Setting(containerEl)
       .setName(t("settings.grammarEngine.name"))
       .setDesc(t("settings.grammarEngine.desc"))
@@ -1489,7 +1489,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         );
     }
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilation"), attr: { "data-cat": "Export" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilation"), attr: { "data-cat": "Export", "data-open": "1" } });
 
     new Setting(containerEl)
       .setName(t("settings.compileFileName.name"))
@@ -1549,7 +1549,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilePresets"), attr: { "data-cat": "Export" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilePresets"), attr: { "data-cat": "Export", "data-open": "1" } });
 
     (S.compilePresets || []).forEach((p, i) => {
       // Une carte par preset, une ligne étiquetée par champ : l'ancienne
@@ -1626,7 +1626,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       })
     );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.export"), attr: { "data-cat": "Export" } });
+    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.export"), attr: { "data-cat": "Export", "data-open": "1" } });
 
     containerEl.createDiv({ cls: "setting-item-description" }).setText(
       t("settings.export.engineIntro")
