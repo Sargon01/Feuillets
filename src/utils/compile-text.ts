@@ -1,4 +1,3 @@
-// @ts-check
 /** Transformations appliquées au corps de chaque feuillet pendant la
  * compilation (voir readBody, services/compile-export.js). Elles s'appliquent
  * soit au corps entier d'une scène, soit bloc par bloc sur une page de titre à
@@ -34,11 +33,8 @@ const WIKILINK_RE = /(?<!!)\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g;
  * mélangeraient. Cas rare mais réel ; le corriger demande de suffixer un
  * condensé du chemin (voir bookmarkIdFor, utils/docx-bookmarks.js), au prix
  * d'étiquettes de notes moins lisibles dans le Manuscrit.md compilé.
- *
- * @param {string} path chemin du feuillet dans le coffre.
- * @returns {string}
  */
-export function footnotePrefixFor(path) {
+export function footnotePrefixFor(path: string): string {
   return String(path || "")
     .replace(/\.md$/i, "")
     .replace(/[^a-zA-Z0-9]+/g, "-");
@@ -47,10 +43,8 @@ export function footnotePrefixFor(path) {
 /**
  * Retire les wikiliens en conservant leur texte lisible. Les embeds
  * (`![[…]]`) sont laissés intacts : ce sont des images, pas des liens.
- * @param {string} str
- * @returns {string}
  */
-export function stripWikilinks(str) {
+export function stripWikilinks(str: string): string {
   return str.replace(WIKILINK_RE, (_, target, alias) =>
     (alias !== undefined ? alias : target).trim()
   );
@@ -64,13 +58,12 @@ export function stripWikilinks(str) {
  * L'ordre compte — la typographie française insère des espaces insécables et
  * remplace les guillemets ; l'appliquer avant le retrait des wikiliens
  * risquerait de toucher au contenu d'un lien qui n'aurait pas dû l'être.
- *
- * @param {string} str corps du feuillet, frontmatter déjà retiré.
- * @param {string} footnotePrefix voir footnotePrefixFor().
- * @param {boolean} [applyFrenchTypography] réglage `exportFrenchTypography`.
- * @returns {string}
  */
-export function applyCompileTransforms(str, footnotePrefix, applyFrenchTypography = false) {
+export function applyCompileTransforms(
+  str: string,
+  footnotePrefix: string,
+  applyFrenchTypography = false
+): string {
   let out = renamespaceFootnotes(str, footnotePrefix);
   out = stripWikilinks(out);
   if (applyFrenchTypography) out = frenchTypography(out, false);
