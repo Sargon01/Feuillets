@@ -2,6 +2,12 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.3.3
+
+### Corrigé
+
+- **Réglages** : Toutes les sous-sections des panneaux de réglages (Numérotation, Statuts & Labels, Objectifs, Historique, Apparence, Typographie, Mode concentration, Interface sobre, Fusion de scènes, Panneau Cartes, Panneaux au démarrage, Vues actives, Binder, Panneau Notes, Correcteur grammatical, Compilation, Préréglages de compilation, Export) s'affichaient vides car elles étaient repliées par défaut. Elles sont désormais toutes ouvertes à l'ouverture du panneau de réglages.
+
 ## 1.3.2
 
 ### Modifié & Corrigé
