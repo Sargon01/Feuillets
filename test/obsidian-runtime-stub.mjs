@@ -1,5 +1,19 @@
 export function setIcon() {}
 
+export class Component {
+  load() {}
+  unload() {}
+}
+
+export const MarkdownRenderer = {
+  async render() {},
+};
+
+export const Platform = {
+  isMobile: false,
+  isDesktop: true,
+};
+
 export class TFile {
   constructor(path, content = "") {
     this.path = path;
