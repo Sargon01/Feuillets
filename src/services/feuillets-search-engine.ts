@@ -9,6 +9,48 @@
 
 import { splitFrontmatter, preserveCase } from "./manuscript-search-replace.js";
 
+type SearchFile = {
+  path: string;
+  extension?: string;
+  parent?: {
+    children?: SearchFile[];
+  };
+};
+
+type SearchOptions = {
+  scope?: string;
+  ignoreCase?: boolean;
+  ignoreDiacritics?: boolean;
+  matchMode?: string;
+  useRegex?: boolean;
+  includeYaml?: boolean;
+  activeFile?: SearchFile | null;
+};
+
+type SearchApp = {
+  workspace?: {
+    getActiveFile(): SearchFile | null;
+  };
+  vault: {
+    read(file: SearchFile): Promise<string>;
+    process(file: SearchFile, callback: (content: string) => string): Promise<unknown>;
+  };
+};
+
+type SearchPlugin = {
+  getManuscriptFiles?: () => SearchFile[];
+};
+
+type SearchOccurrence = {
+  file: SearchFile;
+  index: number;
+  length: number;
+  line: number;
+  ch: number;
+  matchText: string;
+  contextSnippet: string;
+};
+
 export class FeuilletsSearchEngine {
   /**
    * Construit la Regex selon la requête et les options de recherche.
@@ -16,7 +58,7 @@ export class FeuilletsSearchEngine {
    * @param {{ ignoreCase?: boolean, ignoreDiacritics?: boolean, matchMode?: string, useRegex?: boolean }} options
    * @returns {RegExp|null}
    */
-  static buildRegex(query, options = {}) {
+  static buildRegex(query: string, options: SearchOptions = {}) {
     if (!query || typeof query !== "string") return null;
 
     const useRegex = !!options.useRegex;
@@ -70,7 +112,7 @@ export class FeuilletsSearchEngine {
    * @param {object} activeFile
    * @returns {Array<object>}
    */
-  static getScopedFiles(app, plugin, scopeOption = "manuscript", activeFile = null) {
+  static getScopedFiles(app: SearchApp, plugin: SearchPlugin, scopeOption = "manuscript", activeFile: SearchFile | null = null) {
     const currentFile = activeFile || (app.workspace ? app.workspace.getActiveFile() : null);
 
     if (scopeOption === "document") {
@@ -93,7 +135,7 @@ export class FeuilletsSearchEngine {
    * @param {{ scope?: string, ignoreCase?: boolean, ignoreDiacritics?: boolean, matchMode?: string, useRegex?: boolean, includeYaml?: boolean, activeFile?: object }} options
    * @returns {Promise<{ occurrences: Array<object>, totalCount: number, filesCount: number }>}
    */
-  static async searchInVault(app, plugin, query, options = {}) {
+  static async searchInVault(app: SearchApp, plugin: SearchPlugin, query: string, options: SearchOptions = {}) {
     if (!query || typeof query !== "string") {
       return { occurrences: [], totalCount: 0, filesCount: 0 };
     }
@@ -102,7 +144,7 @@ export class FeuilletsSearchEngine {
     if (!regex) return { occurrences: [], totalCount: 0, filesCount: 0 };
 
     const files = this.getScopedFiles(app, plugin, options.scope, options.activeFile);
-    const occurrences = [];
+    const occurrences: SearchOccurrence[] = [];
     let filesCount = 0;
 
     for (const file of files) {
@@ -166,7 +208,7 @@ export class FeuilletsSearchEngine {
    * @param {{ scope?: string, ignoreCase?: boolean, ignoreDiacritics?: boolean, matchMode?: string, useRegex?: boolean, includeYaml?: boolean, activeFile?: object }} options
    * @returns {Promise<{ totalReplacements: number, filesCount: number }>}
    */
-  static async replaceInVault(app, plugin, query, replaceQuery, options = {}) {
+  static async replaceInVault(app: SearchApp, plugin: SearchPlugin, query: string, replaceQuery: string | null | undefined, options: SearchOptions = {}) {
     if (!query || typeof query !== "string") {
       return { totalReplacements: 0, filesCount: 0 };
     }
@@ -188,7 +230,7 @@ export class FeuilletsSearchEngine {
       let fileReplaced = 0;
 
       await app.vault.process(file, (content) => {
-        const processBlock = (text) => {
+        const processBlock = (text: string) => {
           let count = 0;
           regex.lastIndex = 0;
           const newText = text.replace(regex, (...args) => {
