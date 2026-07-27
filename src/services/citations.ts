@@ -1,8 +1,8 @@
 /** Construit le texte d'une citation à partir des champs d'une fiche
  * Source (auteur, titre, date, editeur, url — voir services/research-
  * templates.js) et d'une page ponctuelle propre à CETTE citation (jamais
- * stockée sur la fiche : la même source est citée à des pages
- * différentes selon l'endroit). Deux formats, réglés par projet
+ * stockée sur la fiche : la même source est citée à des pages différentes
+ * selon l'endroit). Deux formats, réglés par projet
  * (S.projectMeta[path].citationStyle, voir main.js) :
  * - "footnote" (par défaut) : note de bas de page, style notes-
  *   bibliographie (histoire, sciences humaines françaises) — insérée via
@@ -20,7 +20,21 @@
  * suivre TOUTES les citations précédentes du fichier, pas seulement la
  * dernière, et une forme courte par source (nom + titre abrégé) — hors
  * périmètre pour l'instant. */
-export function formatCitation({ author, title, date, publisher, url } = {}, page, style, isRepeat) {
+
+type CitationSource = {
+  author?: string;
+  title?: string;
+  date?: unknown;
+  publisher?: string;
+  url?: string;
+};
+
+export function formatCitation(
+  { author, title, date, publisher, url }: CitationSource = {},
+  page: string,
+  style: string,
+  isRepeat?: boolean
+): string {
   const p = (page || "").trim();
 
   if (isRepeat) {
@@ -36,7 +50,7 @@ export function formatCitation({ author, title, date, publisher, url } = {}, pag
     return withPage ? `(${withPage})` : "";
   }
 
-  const parts = [];
+  const parts: string[] = [];
   if (author) parts.push(author);
   if (title) parts.push(`*${title}*`);
   if (publisher) parts.push(publisher);
