@@ -32,7 +32,7 @@ export const grammarIssuesField = StateField.define({
  * @param {Array<{start:number, end:number, type:string}>} issues - Signalements, offsets relatifs au corps (sans frontmatter)
  * @param {number} offset - Longueur du frontmatter retiré avant la vérification, à rajouter aux offsets
  */
-export function applyGrammarHighlights(editorView, issues, offset = 0) {
+export function applyGrammarHighlights(editorView: any, issues: Array<{ start: number; end: number; type: string }> | null | undefined, offset = 0) {
   if (!editorView || typeof editorView.dispatch !== "function") return;
 
   if (!issues || issues.length === 0) {
@@ -41,7 +41,7 @@ export function applyGrammarHighlights(editorView, issues, offset = 0) {
   }
 
   const docLength = editorView.state.doc.length;
-  const decos = [];
+  const decos: any[] = [];
 
   issues.forEach((issue, idx) => {
     const from = issue.start + offset;
@@ -71,7 +71,7 @@ export function applyGrammarHighlights(editorView, issues, offset = 0) {
   }
 }
 
-export function clearGrammarHighlights(editorView) {
+export function clearGrammarHighlights(editorView: any) {
   if (editorView && typeof editorView.dispatch === "function") {
     try {
       editorView.dispatch({ effects: setGrammarIssuesEffect.of(Decoration.none) });
@@ -85,7 +85,7 @@ export function clearGrammarHighlights(editorView) {
  * apprendre, façon Ulysses — sans quitter l'éditeur ni ouvrir l'onglet.
  * plugin._grammarView est posé par le constructeur de GrammarView.
  */
-export function grammarClickHandler(plugin) {
+export function grammarClickHandler(plugin: { _grammarView?: { showIssueMenu(index: number, event: MouseEvent): void } }) {
   return EditorView.domEventHandlers({
     click(event) {
       const target = event.target.closest && event.target.closest("[data-grammar-idx]");

@@ -29,7 +29,7 @@ export const searchHighlightField = StateField.define({
  * @param {Array<{ index: number, length: number }>} occurrences - Occurrences dans le document actif
  * @param {number} activeIndex - Index de l'occurrence active dans le document (-1 si aucune)
  */
-export function applyEditorHighlights(editorView, occurrences, activeIndex = -1) {
+export function applyEditorHighlights(editorView: any, occurrences: Array<{ index: number; length: number }> | null | undefined, activeIndex = -1) {
   if (!editorView || typeof editorView.dispatch !== "function") return;
 
   if (!occurrences || occurrences.length === 0) {
@@ -38,7 +38,7 @@ export function applyEditorHighlights(editorView, occurrences, activeIndex = -1)
   }
 
   const docLength = editorView.state.doc.length;
-  const decos = [];
+  const decos: any[] = [];
 
   for (let i = 0; i < occurrences.length; i++) {
     const occ = occurrences[i];
@@ -68,7 +68,7 @@ export function applyEditorHighlights(editorView, occurrences, activeIndex = -1)
   }
 }
 
-export function clearEditorHighlights(editorView) {
+export function clearEditorHighlights(editorView: any) {
   if (editorView && typeof editorView.dispatch === "function") {
     try {
       editorView.dispatch({
