@@ -1,5 +1,5 @@
-// @ts-check
 import { TFile, TFolder, Notice, normalizePath, stringifyYaml } from "obsidian";
+import type { App } from "obsidian";
 import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { fmOf } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
@@ -18,7 +18,7 @@ import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
  * @param {FeuilletsSettings} settings
  * @returns {string|null} `null` si aucun dossier projet n'est défini.
  */
-function customTemplatesFolderPath(app, settings) {
+function customTemplatesFolderPath(app: App, settings: FeuilletsSettings): string | null {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const resPath = resourcesFolderPath(app, root);
@@ -30,7 +30,7 @@ function customTemplatesFolderPath(app, settings) {
  * @param {FeuilletsSettings} settings
  * @returns {TFolderType|null}
  */
-function customTemplatesFolder(app, settings) {
+function customTemplatesFolder(app: App, settings: FeuilletsSettings): TFolder | null {
   const path = customTemplatesFolderPath(app, settings);
   if (!path) return null;
   const folder = app.vault.getAbstractFileByPath(path);
@@ -49,7 +49,7 @@ function customTemplatesFolder(app, settings) {
  * @param {FeuilletsSettings} settings
  * @returns {Promise<Record<string, ExportTemplate>>} vide si pas de dossier.
  */
-export async function loadCustomTemplates(app, settings) {
+export async function loadCustomTemplates(app: App, settings: FeuilletsSettings): Promise<Record<string, ExportTemplate>> {
   const folder = customTemplatesFolder(app, settings);
   if (!folder) return {};
   /** @type {Record<string, ExportTemplate>} */
@@ -84,7 +84,7 @@ export async function loadCustomTemplates(app, settings) {
  * @param {FeuilletsSettings} settings
  * @returns {Promise<{ key: string, label: string }[]>}
  */
-export async function listExportTemplates(app, settings) {
+export async function listExportTemplates(app: App, settings: FeuilletsSettings): Promise<Array<{ key: string; label: string }>> {
   const custom = await loadCustomTemplates(app, settings);
   const merged = new Map();
   Object.values(EXPORT_TEMPLATES).forEach((t) => merged.set(t.key, { key: t.key, label: t.label }));
@@ -103,7 +103,7 @@ export async function listExportTemplates(app, settings) {
  * @param {string} key
  * @returns {Promise<ExportTemplate>} jamais null — repli sur "classique".
  */
-export async function resolveExportTemplate(app, settings, key) {
+export async function resolveExportTemplate(app: App, settings: FeuilletsSettings, key: string): Promise<ExportTemplate> {
   const custom = await loadCustomTemplates(app, settings);
   if (custom[key]) return custom[key];
   return EXPORT_TEMPLATES[key] || EXPORT_TEMPLATES.classique;
@@ -122,7 +122,7 @@ export async function resolveExportTemplate(app, settings, key) {
  * @param {FeuilletsSettings} settings
  * @returns {Promise<number>} nombre de fichiers créés (0 si tous existaient).
  */
-export async function exportBuiltInTemplates(app, settings) {
+export async function exportBuiltInTemplates(app: App, settings: FeuilletsSettings): Promise<number> {
   const path = customTemplatesFolderPath(app, settings);
   if (!path) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
@@ -151,7 +151,7 @@ export async function exportBuiltInTemplates(app, settings) {
  * @param {string} key
  * @returns {Promise<TFileType|null>} `null` si aucun dossier projet.
  */
-export async function ensureTemplateFile(app, settings, key) {
+export async function ensureTemplateFile(app: App, settings: FeuilletsSettings, key: string): Promise<TFile | null> {
   const folderPath = customTemplatesFolderPath(app, settings);
   if (!folderPath) return null;
   await ensureFolder(app, folderPath);
@@ -180,7 +180,7 @@ export async function ensureTemplateFile(app, settings, key) {
  * @param {Record<string, TitlePageStyle>} styles
  * @returns {Promise<void>}
  */
-export async function updateTemplateTitlePage(app, settings, key, styles) {
+export async function updateTemplateTitlePage(app: App, settings: FeuilletsSettings, key: string, styles: Record<string, TitlePageStyle>): Promise<void> {
   const file = await ensureTemplateFile(app, settings, key);
   if (!file) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");

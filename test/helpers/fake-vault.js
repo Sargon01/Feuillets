@@ -24,6 +24,13 @@ export function createFakeVault(entries = []) {
     async create(path, content) {
       return addFile(path, content);
     },
+    async createFolder(path) {
+      const folder = new TFolder(normalizePath(path));
+      folder.parent = parentFolder(folder.path) || null;
+      files.set(folder.path, folder);
+      if (folder.parent?.children) folder.parent.children.push(folder);
+      return folder;
+    },
     async modify(file, content) {
       file.content = content;
     },

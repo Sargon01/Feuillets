@@ -27,6 +27,10 @@ export class Notice {
 
 export class Modal {}
 
+export function stringifyYaml(value) {
+  return Object.entries(value).map(([key, item]) => `${key}: ${String(item)}`).join("\n");
+}
+
 export function normalizePath(path) {
   return path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\//, "");
 }
