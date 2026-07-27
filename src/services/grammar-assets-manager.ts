@@ -3,6 +3,19 @@
 import JSZip from "jszip";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
 
+type EngineDefinition = {
+  url: string;
+  dir: string;
+  marker: string;
+};
+
+type RequestUrlResponse = {
+  status: number;
+  arrayBuffer: ArrayBuffer;
+};
+
+type RequestUrl = (options: { url: string; method: string }) => Promise<RequestUrlResponse>;
+
 // Grammalecte (FR) et Harper (EN) sont trop lourds (~26 Mo à eux deux) pour
 // être commités dans Feuillets lui-même : l'installeur standard d'Obsidian
 // (Store communautaire, BRAT) ne télécharge que main.js/manifest.json/
@@ -14,7 +27,7 @@ import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
 const ASSETS_VERSION = "v1";
 const ASSETS_BASE_URL = "https://github.com/Sargon01/feuillets-assets/releases/download/v1";
 
-const ENGINES = {
+const ENGINES: Record<string, EngineDefinition> = {
   grammalecte: {
     url: `${ASSETS_BASE_URL}/grammalecte.zip`,
     dir: "grammalecte",
@@ -28,12 +41,12 @@ const ENGINES = {
   },
 };
 
-function resourcesDir(app, manifest) {
+function resourcesDir(app: unknown, manifest: unknown): string {
   const path = require("path");
   return path.join(pluginAbsoluteDir(app, manifest), "resources");
 }
 
-function versionMarkerPath(app, manifest, engine) {
+function versionMarkerPath(app: unknown, manifest: unknown, engine: string): string {
   const path = require("path");
   return path.join(resourcesDir(app, manifest), `.${engine}-version.json`);
 }
@@ -41,14 +54,14 @@ function versionMarkerPath(app, manifest, engine) {
 /** true si le moteur donné ("grammalecte" | "harper") est déjà téléchargé
  * et à la bonne version — synchrone, pensé pour un check rapide au rendu
  * des réglages ou avant un checkText(). */
-export function isEngineInstalled(app, manifest, engine) {
+export function isEngineInstalled(app: unknown, manifest: unknown, engine: string): boolean {
   const fs = require("fs");
   const path = require("path");
   const def = ENGINES[engine];
   if (!def) return false;
 
   try {
-    const marker = JSON.parse(fs.readFileSync(versionMarkerPath(app, manifest, engine), "utf8"));
+    const marker = JSON.parse(fs.readFileSync(versionMarkerPath(app, manifest, engine), "utf8")) as { version?: unknown };
     if (marker.version !== ASSETS_VERSION) return false;
   } catch {
     return false;
@@ -62,7 +75,7 @@ export function isEngineInstalled(app, manifest, engine) {
  * Le marqueur de version n'est écrit qu'une fois l'extraction terminée
  * avec succès : un échec en cours de route laisse isEngineInstalled() à
  * false plutôt que de faire croire à une installation à moitié faite. */
-export async function downloadEngine(app, manifest, engine, onProgress) {
+export async function downloadEngine(app: unknown, manifest: unknown, engine: string, onProgress?: (phase: "download" | "extract") => void): Promise<void> {
   const fs = require("fs");
   const path = require("path");
   const def = ENGINES[engine];
@@ -73,8 +86,8 @@ export async function downloadEngine(app, manifest, engine, onProgress) {
   // au CORS/CSP du process de rendu d'Electron pour un domaine externe
   // comme github.com, requestUrl le contourne (même raison que BRAT s'en
   // sert pour ses propres téléchargements de releases GitHub).
-  const { requestUrl } = require("obsidian");
-  let response;
+  const { requestUrl } = require("obsidian") as { requestUrl: RequestUrl };
+  let response: RequestUrlResponse;
   try {
     response = await requestUrl({ url: def.url, method: "GET" });
   } catch (e) {
