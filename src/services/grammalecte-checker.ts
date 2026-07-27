@@ -22,15 +22,66 @@ import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
 export { grammarIssueSignature };
 
+type GrammarIssue = {
+  type: "grammar" | "spelling";
+  start: number;
+  end: number;
+  ruleId: string;
+  message: string;
+  suggestions: string[];
+  underlined: string;
+};
+
+type GrammalecteError = {
+  nStart: number;
+  nEnd: number;
+  sRuleId: string;
+  sMessage: string;
+  aSuggestions: string[];
+  sUnderlined: string;
+};
+
+type SpellToken = {
+  nStart: number;
+  nEnd: number;
+  sValue: string;
+};
+
+type SpellChecker = {
+  parseParagraph(text: string): Iterable<SpellToken>;
+  suggest(word: string): Iterator<string[]>;
+};
+
+type GrammalecteContext = {
+  self: unknown;
+  XMLHttpRequest: unknown;
+  __dirname: string;
+  conj: { init(data: string): void };
+  phonet: { init(data: string): void };
+  mfsp: { init(data: string): void };
+  text: { getParagraph(text: string): Iterable<string> };
+  gc_engine: {
+    load(language: string, country: string, dictionariesPath: string, dictionaryName: string): void;
+    setOption(name: string, value: boolean): void;
+    parse(text: string, language: string, debug: boolean, context: null, fullInfo: boolean): Iterable<GrammalecteError>;
+    getSpellChecker(): SpellChecker;
+  };
+};
+
 export class GrammalecteChecker {
-  constructor(app, manifest) {
+  app: unknown;
+  manifest: unknown;
+  context: GrammalecteContext | null;
+  spellChecker: SpellChecker | null;
+
+  constructor(app: unknown, manifest: unknown) {
     this.app = app;
     this.manifest = manifest;
     this.context = null;
     this.spellChecker = null;
   }
 
-  ensureLoaded() {
+  ensureLoaded(): void {
     if (this.context) return;
 
     const fs = require("fs");
@@ -38,7 +89,7 @@ export class GrammalecteChecker {
     const vm = require("vm");
     const grammalecteDir = path.join(pluginAbsoluteDir(this.app, this.manifest), "resources", "grammalecte");
 
-    const context = vm.createContext({ console });
+    const context = vm.createContext({ console }) as GrammalecteContext;
     context.self = context;
 
     // Émulation minimale et synchrone de XMLHttpRequest : helpers.loadFile()
@@ -50,7 +101,7 @@ export class GrammalecteChecker {
       this.send = () => { this.responseText = fs.readFileSync(this._path, "utf8"); };
     };
 
-    const loadScript = (...segments) => {
+    const loadScript = (...segments: string[]): void => {
       const file = path.join(grammalecteDir, ...segments);
       context.__dirname = path.dirname(file);
       vm.runInContext(fs.readFileSync(file, "utf8"), context, { filename: file });
@@ -95,15 +146,15 @@ export class GrammalecteChecker {
   // (bouton "Ignorer" de l'onglet), voir grammarIssueSignature().
   // detectRepetitions : active redon1/redon2 (répétitions de mots proches,
   // désactivées par défaut dans Grammalecte lui-même — bruyant).
-  checkText(sText, knownWords = [], ignoredSignatures = [], detectRepetitions = false) {
+  checkText(sText: string, knownWords: string[] = [], ignoredSignatures: string[] = [], detectRepetitions = false): Promise<GrammarIssue[]> {
     const lowerKnown = new Set(knownWords.map((w) => w.toLowerCase()));
     const ignored = new Set(ignoredSignatures);
-    return new Promise((resolve, reject) => {
+    return new Promise<GrammarIssue[]>((resolve, reject) => {
       window.setTimeout(() => {
         try {
           this.ensureLoaded();
-          this.context.gc_engine.setOption("redon1", detectRepetitions);
-          this.context.gc_engine.setOption("redon2", detectRepetitions);
+          this.context!.gc_engine.setOption("redon1", detectRepetitions);
+          this.context!.gc_engine.setOption("redon2", detectRepetitions);
           resolve(this.runParse(sText, lowerKnown, ignored));
         } catch (e) {
           /* Toujours rejeter avec une Error : le moteur Grammalecte est du
@@ -115,17 +166,17 @@ export class GrammalecteChecker {
     });
   }
 
-  runParse(sText, lowerKnown, ignored) {
+  runParse(sText: string, lowerKnown: Set<string>, ignored: Set<string>): GrammarIssue[] {
     const { context, spellChecker } = this;
-    const lIssues = [];
+    const lIssues: GrammarIssue[] = [];
     const sNormalized = sText.replace(/­/g, "").normalize("NFC");
     let iParaStart = 0;
 
-    for (const sParagraph of context.text.getParagraph(sNormalized)) {
+    for (const sParagraph of context!.text.getParagraph(sNormalized)) {
       if (sParagraph.trim() !== "") {
-        for (const oErr of context.gc_engine.parse(sParagraph, "FR", false, null, true)) {
+        for (const oErr of context!.gc_engine.parse(sParagraph, "FR", false, null, true)) {
           const issue = {
-            type: "grammar",
+            type: "grammar" as GrammarIssue["type"],
             start: iParaStart + oErr.nStart,
             end: iParaStart + oErr.nEnd,
             ruleId: oErr.sRuleId,
@@ -136,15 +187,15 @@ export class GrammalecteChecker {
           if (ignored.has(grammarIssueSignature(issue))) continue;
           lIssues.push(issue);
         }
-        for (const oToken of spellChecker.parseParagraph(sParagraph)) {
+        for (const oToken of spellChecker!.parseParagraph(sParagraph)) {
           if (lowerKnown.has(oToken.sValue.toLowerCase())) continue;
           lIssues.push({
-            type: "spelling",
+            type: "spelling" as GrammarIssue["type"],
             start: iParaStart + oToken.nStart,
             end: iParaStart + oToken.nEnd,
             ruleId: "orthographe",
             message: `« ${oToken.sValue} » : mot inconnu du dictionnaire.`,
-            suggestions: spellChecker.suggest(oToken.sValue).next().value || [],
+            suggestions: spellChecker!.suggest(oToken.sValue).next().value || [],
             underlined: oToken.sValue,
           });
         }
@@ -156,7 +207,7 @@ export class GrammalecteChecker {
     return lIssues;
   }
 
-  destroy() {
+  destroy(): void {
     this.context = null;
     this.spellChecker = null;
   }
