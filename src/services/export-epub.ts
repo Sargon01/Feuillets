@@ -1,10 +1,29 @@
 import JSZip from "jszip";
+import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
 import { templateToCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
 import { escapeXml } from "../utils/xml.js";
 
-function uuid() {
+type ExportSegment = {
+  text: string;
+  frontType?: string;
+};
+
+type ExportInput = {
+  markdown: string;
+  title: string;
+  author: string;
+  sourcePath: string;
+  segments?: ExportSegment[];
+};
+
+type ExportFootnote = {
+  id: string;
+  html: string;
+};
+
+function uuid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   // repli si crypto.randomUUID indisponible (anciens moteurs mobiles)
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -17,7 +36,7 @@ function uuid() {
  * les éléments vides — <br/>, <img/>… — comme l'exige le XHTML de l'EPUB).
  * Plus sûr qu'une concaténation de innerHTML : XMLSerializer travaille
  * sur l'arbre DOM réel, pas sur du texte. */
-function serializeXhtmlBody(containerEl) {
+function serializeXhtmlBody(containerEl: HTMLElement): string {
   const serializer = new XMLSerializer();
   let out = "";
   for (const child of Array.from(containerEl.childNodes)) {
@@ -26,7 +45,7 @@ function serializeXhtmlBody(containerEl) {
   return out;
 }
 
-function footnotesXhtml(footnotes) {
+function footnotesXhtml(footnotes: ExportFootnote[]): string {
   if (!footnotes || footnotes.length === 0) return "";
   const items = footnotes
     .map((f) => `<li id="${escapeXml(f.id)}">${f.html}</li>`)
@@ -38,8 +57,8 @@ function footnotesXhtml(footnotes) {
  * (markdown, sortie de compile()) : un seul flux XHTML continu, pas de
  * découpage par chapitre en v1 (portée assumée — voir plan). Utilise
  * jszip (pur JS, aucune dépendance Node) : fonctionne desktop et mobile. */
-export async function exportEpub(app, settings, { markdown, title, author, sourcePath, segments }) {
-  const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
+export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Uint8Array> {
+  const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate as string);
   const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
   const bodyXhtml = serializeXhtmlBody(containerEl);
   const css = templateToCss(tpl) + FRONT_PAGE_CSS;
