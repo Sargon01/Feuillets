@@ -1,5 +1,3 @@
-// @ts-check
-// @ts-check
 /** Modèles de mise en page pour l'export natif (EPUB/DOCX/PDF), façon
  * Ulysses/iA Writer — une seule source de vérité pour "à quoi ressemble
  * chaque modèle", consommée par les trois formats. Pur (pas de dépendance
@@ -29,7 +27,7 @@
  * @param {number} bodyPt taille du corps de texte du modèle, en points.
  * @returns {{ styles: Record<string, TitlePageStyle> }}
  */
-const titlePageFor = (bodyPt) => ({
+const titlePageFor = (bodyPt: number): { styles: Record<string, TitlePageStyle> } => ({
   styles: {
     titre: { fontSizePt: Math.round(bodyPt * 1.5), align: "center", marginTopPt: 126, marginBottomPt: 24 },
     "sous-titre": { fontSizePt: bodyPt, align: "center", marginBottomPt: 120 },
@@ -44,7 +42,7 @@ const titlePageFor = (bodyPt) => ({
  * littéral ci-dessous contre ExportTemplate (src/types.d.ts) : un champ mal
  * typé dans un modèle est signalé ici, pas à l'export.
  * @type {Record<string, ExportTemplate>} */
-export const EXPORT_TEMPLATES = {
+export const EXPORT_TEMPLATES: Record<string, ExportTemplate> = {
   classique: {
     key: "classique",
     label: "Classique (manuscrit)",
@@ -233,7 +231,7 @@ export const EXPORT_TEMPLATES = {
  * @param {ExportTemplate} tpl
  * @returns {{ h1?: HeadingStyle, h2?: HeadingStyle, h3?: HeadingStyle }}
  */
-export function normalizeHeadings(tpl) {
+export function normalizeHeadings(tpl: ExportTemplate): { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle } {
   if (tpl.headings) return tpl.headings;
   if (tpl.chapterTitle) {
     return { h1: { ...tpl.chapterTitle, bold: false, pageBreakBefore: true } };
@@ -248,15 +246,15 @@ export function normalizeHeadings(tpl) {
  * @param {string} key
  * @returns {ExportTemplate}
  */
-export function templateFor(key) {
-  return EXPORT_TEMPLATES[key] || EXPORT_TEMPLATES.classique;
+export function templateFor(key: string | null | undefined): ExportTemplate {
+  return (key && EXPORT_TEMPLATES[key]) || EXPORT_TEMPLATES.classique;
 }
 
 /** 1 cm ≈ 28.3465 points (unité utilisée par CSS/print et par docx).
  * @param {number} cm
  * @returns {number} points, arrondis à l'entier.
  */
-export function cmToPt(cm) {
+export function cmToPt(cm: number) {
   return Math.round(cm * 28.3465);
 }
 
@@ -266,7 +264,7 @@ export function cmToPt(cm) {
  * @param {ExportTemplate} tpl
  * @returns {Margins} en centimètres.
  */
-export function marginsFor(tpl) {
+export function marginsFor(tpl: ExportTemplate): Margins {
   if (tpl.marginsCm) return tpl.marginsCm;
   const m = tpl.marginCm || 2.5;
   return { top: m, bottom: m, left: m, right: m };
@@ -278,12 +276,12 @@ export function marginsFor(tpl) {
  * @param {ExportTemplate} tpl
  * @returns {string}
  */
-export function templateToCss(tpl) {
+export function templateToCss(tpl: ExportTemplate) {
   const m = marginsFor(tpl);
   const headingFont = tpl.headingFontFamily || tpl.fontFamily;
   const headings = normalizeHeadings(tpl);
 
-  const headingRules = ["h1", "h2", "h3"].map((level) => {
+  const headingRules = (["h1", "h2", "h3"] as const).map((level) => {
     const h = headings[level];
     // repli historique : toujours un saut de page, police héritée, ni
     // taille ni graisse imposées — comportement des modèles qui ne
@@ -344,13 +342,13 @@ export function templateToCss(tpl) {
  * @param {ExportTemplate} tpl
  * @returns {string} "" si le modèle ne style aucun rôle.
  */
-export function titleRoleCss(tpl) {
+export function titleRoleCss(tpl: ExportTemplate) {
   const styles = tpl && tpl.titlePage && tpl.titlePage.styles;
   if (!styles) return "";
   return Object.entries(styles)
     .map(([role, st]) => {
       if (!st) return "";
-      const decl = [];
+      const decl: string[] = [];
       if (st.fontSizePt != null) decl.push(`font-size: ${st.fontSizePt}pt`);
       if (st.bold != null) decl.push(`font-weight: ${st.bold ? 700 : 400}`);
       if (st.italic != null) decl.push(`font-style: ${st.italic ? "italic" : "normal"}`);
@@ -373,7 +371,7 @@ export function titleRoleCss(tpl) {
  * @param {ExportTemplate} tpl
  * @returns {string} "" si le modèle n'est pas en colonnes.
  */
-export function templatePrintCss(tpl) {
+export function templatePrintCss(tpl: ExportTemplate) {
   if (!tpl.columns) return "";
   return `body { column-count: ${tpl.columns.count}; column-gap: ${tpl.columns.gutterPt}pt; }`;
 }
