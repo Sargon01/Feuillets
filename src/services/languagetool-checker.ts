@@ -2,6 +2,59 @@
 /* global require -- défini par environnement */
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 
+type LanguageToolReplacement = {
+  value: string;
+};
+
+type LanguageToolMatch = {
+  message?: string;
+  shortMessage?: string;
+  offset: number;
+  length: number;
+  replacements?: LanguageToolReplacement[];
+  rule?: {
+    id?: string;
+    category?: {
+      id?: string;
+    };
+  };
+};
+
+type LanguageToolRequestParams = {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: string;
+  throw: boolean;
+};
+
+type LanguageToolRequest = (params: LanguageToolRequestParams) => Promise<{
+  status: number;
+  json: {
+    matches?: LanguageToolMatch[];
+  };
+}>;
+
+type LanguageToolOptions = {
+  url?: string;
+  language?: string;
+  knownWords?: string[];
+  ignoredRules?: string[];
+  request?: LanguageToolRequest;
+};
+
+type LanguageToolIssue = {
+  type: "spelling" | "grammar";
+  ruleId: string;
+  message: string;
+  start: number;
+  end: number;
+  offset: number;
+  length: number;
+  underlined: string;
+  suggestions: string[];
+};
+
 /* requestUrl (API Obsidian) plutôt que fetch() global : fetch() se heurte à
    la politique CORS du renderer, requestUrl la contourne — même raison qu'en
    tête de grammar-assets-manager.js. C'est ce qui permet de joindre un
@@ -11,9 +64,9 @@ import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
    `require` paresseux, DANS la fonction : le paquet "obsidian" est
    types-only, il n'a aucun fichier JS. Un import statique rendrait ce module
    impossible à charger hors d'Obsidian, donc intestable. */
-function obsidianRequestUrl(params) {
+function obsidianRequestUrl(params: LanguageToolRequestParams) {
   const { requestUrl } = require("obsidian");
-  return requestUrl(params);
+  return requestUrl(params) as ReturnType<LanguageToolRequest>;
 }
 
 /**
@@ -23,7 +76,7 @@ function obsidianRequestUrl(params) {
  * `request` : transport HTTP, injectable pour les tests unitaires. En
  * production on prend toujours celui d'Obsidian (voir ci-dessus).
  */
-export async function checkTextLanguageTool(text, options = {}) {
+export async function checkTextLanguageTool(text: string, options: LanguageToolOptions = {}) {
   const {
     url = "https://api.languagetool.org/v2/check",
     language = "auto",
@@ -61,12 +114,12 @@ export async function checkTextLanguageTool(text, options = {}) {
   const data = response.json;
   const matches = data.matches || [];
 
-  const issues = [];
+  const issues: LanguageToolIssue[] = [];
   for (const match of matches) {
     const offset = match.offset;
     const length = match.length;
     const underlined = text.slice(offset, offset + length);
-    const ruleId = match.rule ? match.rule.id : "LT_RULE";
+    const ruleId = (match.rule && match.rule.id) || "LT_RULE";
     const categoryId = match.rule && match.rule.category ? match.rule.category.id : "";
     const isSpelling = categoryId === "TYPOS" || ruleId.toLowerCase().includes("spell") || ruleId.toLowerCase().includes("typo");
 
@@ -76,7 +129,7 @@ export async function checkTextLanguageTool(text, options = {}) {
     }
 
     const issue = {
-      type: isSpelling ? "spelling" : "grammar",
+      type: isSpelling ? ("spelling" as const) : ("grammar" as const),
       ruleId,
       message: match.message || match.shortMessage || "Erreur détectée par LanguageTool",
       start: offset,
