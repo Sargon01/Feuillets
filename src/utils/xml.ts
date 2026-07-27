@@ -1,4 +1,3 @@
-// @ts-check
 /** Extraction XML générique à profondeur suivie — aucune regex non gourmande
  * naïve sur un tag qui peut s'imbriquer en lui-même (ex. <Item><Item>…). Née
  * pour l'import Scrivener (.scrivx), réutilisée telle quelle pour lire le XML
@@ -7,6 +6,18 @@
  *
  * Contient aussi l'échappement dans l'autre sens, pour les formats que le
  * plugin ÉCRIT (EPUB, ODT). */
+
+type OpenTag = {
+  index: number;
+  endIndex: number;
+  attrs: string;
+  selfClosing: boolean;
+};
+
+type MatchingClose = {
+  bodyEnd: number;
+  afterEnd: number;
+};
 
 /** Échappe un texte destiné à du contenu XML ou à une valeur d'attribut entre
  * guillemets doubles.
@@ -18,11 +29,8 @@
  *
  * L'ordre compte : `&` d'abord, sinon les `&` des entités produites ensuite
  * seraient rééchappés en `&amp;lt;`.
- *
- * @param {unknown} s
- * @returns {string}
  */
-export function escapeXml(s) {
+export function escapeXml(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -30,7 +38,7 @@ export function escapeXml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function findOpenTag(xml, tag, fromIndex) {
+function findOpenTag(xml: string, tag: string, fromIndex: number): OpenTag | null {
   const re = new RegExp(`<${tag}(?=[\\s/>])([^>]*)>`, "gi");
   re.lastIndex = fromIndex;
   const m = re.exec(xml);
@@ -49,11 +57,11 @@ function findOpenTag(xml, tag, fromIndex) {
  * `fromIndex`, en comptant la profondeur des ouvertures/fermetures du même
  * tag rencontrées entre-temps — indispensable pour un tag qui s'imbrique en
  * lui-même (BinderItem/Children côté Scrivener, w:p côté OOXML). */
-function findMatchingClose(xml, tag, fromIndex) {
+function findMatchingClose(xml: string, tag: string, fromIndex: number): MatchingClose | null {
   const re = new RegExp(`</?${tag}(?=[\\s/>])(?:[^>]*)>`, "gi");
   re.lastIndex = fromIndex;
   let depth = 1;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(xml)) !== null) {
     const isClose = m[0][1] === "/";
     const selfClosing = !isClose && /\/\s*>$/.test(m[0]);
@@ -68,7 +76,7 @@ function findMatchingClose(xml, tag, fromIndex) {
 }
 
 /** Contenu du premier tag `<tag>…</tag>` rencontré, profondeur suivie. */
-export function extractTag(xml, tag) {
+export function extractTag(xml: string | null | undefined, tag: string): string {
   if (!xml) return "";
   const open = findOpenTag(xml, tag, 0);
   if (!open || open.selfClosing) return "";
@@ -80,8 +88,8 @@ export function extractTag(xml, tag) {
 /** Tous les tags `<tag>` de premier niveau dans `xml` (pas les tags du même
  * nom imbriqués à l'intérieur d'un autre `tag` — ceux-là font partie de son
  * `body` et sont extraits par un appel récursif dessus). */
-export function extractAllTags(xml, tag) {
-  const results = [];
+export function extractAllTags(xml: string | null | undefined, tag: string): Array<{ attrs: string; body: string }> {
+  const results: Array<{ attrs: string; body: string }> = [];
   if (!xml) return results;
   let cursor = 0;
   for (;;) {
@@ -100,13 +108,13 @@ export function extractAllTags(xml, tag) {
   return results;
 }
 
-export function getAttr(attrs, name) {
+export function getAttr(attrs: string | null | undefined, name: string): string {
   if (!attrs) return "";
   const m = new RegExp(`${name}="([^"]*)"`, "i").exec(attrs);
   return m ? decodeXmlEntities(m[1]) : "";
 }
 
-export function decodeXmlEntities(str) {
+export function decodeXmlEntities(str: unknown): string {
   if (!str) return "";
   return String(str)
     .replace(/&lt;/g, "<")
@@ -129,7 +137,7 @@ export function decodeXmlEntities(str) {
  * @param {number} n
  * @returns {string}
  */
-function codePoint(n) {
+function codePoint(n: number): string {
   if (!Number.isInteger(n) || n < 0 || n > 0x10ffff) return "�";
   try {
     return String.fromCodePoint(n);
@@ -144,11 +152,25 @@ function codePoint(n) {
  * d'un .docx), plutôt que de chercher un tag précis à la fois. Chaque pas
  * renvoie soit un élément vide `<tag .../>`, soit un élément ouvrant/fermant
  * `<tag ...>`/`</tag>` — au consommateur de suivre lui-même la pile. */
-export function walkTags(xml) {
-  const results = [];
+export function walkTags(xml: string | null | undefined): Array<{
+  name: string;
+  attrs: string;
+  selfClosing: boolean;
+  isClose: boolean;
+  index: number;
+  endIndex: number;
+}> {
+  const results: Array<{
+    name: string;
+    attrs: string;
+    selfClosing: boolean;
+    isClose: boolean;
+    index: number;
+    endIndex: number;
+  }> = [];
   if (!xml) return results;
   const re = /<\/?([a-zA-Z0-9:_-]+)((?:\s+[^>]*?)?)\s*(\/?)>/g;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(xml)) !== null) {
     const isClose = m[0][1] === "/";
     results.push({
