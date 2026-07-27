@@ -22,10 +22,9 @@
  * @param {string[]} names noms de l'instantané, dans l'ordre voulu.
  * @returns {T[]} exactement les éléments de `current`, réordonnés.
  */
-export function orderFromSnapshot(current, names) {
+export function orderFromSnapshot<T extends { name: string }>(current: T[], names: string[]): T[] {
   const byName = new Map(current.map((c) => [c.name, c]));
-  /** @type {T[]} */
-  const restored = [];
+  const restored: T[] = [];
   for (const n of names) {
     const child = byName.get(n);
     /* `delete` au passage : un instantané contenant deux fois le même nom ne

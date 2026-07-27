@@ -29,9 +29,13 @@ const STATE_LINE = /^\s*(?:[-*+]\s+)?\**\s*(-?\d{3,4})\s*\**\s*[:：–—-]\s*(
  * @returns {{ y: number, text: string }|null} `null` si la fiche ne contient
  *   aucune ligne d'état, ou aucune qui soit antérieure ou égale à `year`.
  */
-export function latestStateBefore(content, year) {
-  /** @type {{ y: number, text: string }|null} */
-  let best = null;
+type EntityState = {
+  y: number;
+  text: string;
+};
+
+export function latestStateBefore(content: string, year: number): EntityState | null {
+  let best: EntityState | null = null;
   for (const line of content.split("\n")) {
     const m = line.match(STATE_LINE);
     if (!m) continue;
