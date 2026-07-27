@@ -1,3 +1,6 @@
+type ProjectStatus = { name?: string; color: string };
+type SettingsWithStatuses = { statuses?: unknown };
+
 export const VIEW_SIDEBAR = "feuillets-view";
 export const VIEW_BOARD = "feuillets-board";
 export const VIEW_NOTES = "feuillets-notes";
@@ -16,8 +19,8 @@ export const VIEW_GRAMMAR = "feuillets-grammar";
  * @param {FeuilletsSettings} settings 
  * @returns {string[]}
  */
-export function getProjectStatuses(settings) {
-  const statuses = (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
+export function getProjectStatuses(settings: SettingsWithStatuses | null | undefined): string[] {
+  const statuses: ProjectStatus[] = (settings && Array.isArray(settings.statuses)) ? settings.statuses as ProjectStatus[] : [];
   const names = statuses
     .map((s) => (s && typeof s.name === "string" ? s.name.trim() : ""))
     .filter(Boolean);
@@ -29,8 +32,8 @@ export function getProjectStatuses(settings) {
  * @param {string} name 
  * @returns {string|null}
  */
-export function getStatusColor(settings, name) {
-  const statuses = (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
+export function getStatusColor(settings: SettingsWithStatuses | null | undefined, name: string): string | null {
+  const statuses: ProjectStatus[] = (settings && Array.isArray(settings.statuses)) ? settings.statuses as ProjectStatus[] : [];
   const found = statuses.find((s) => s.name === name);
   return found ? found.color : null;
 }
