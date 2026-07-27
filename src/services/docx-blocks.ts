@@ -36,11 +36,47 @@ import {
   frontAlignment,
 } from "./export-docx-style.js";
 
+type ExportImage = {
+  bytes?: Uint8Array;
+  ext?: string;
+  width?: number;
+  height?: number;
+  caption?: string;
+};
+
+type ExportImages = Map<unknown, ExportImage>;
+
+type InlineMarks = {
+  bold?: boolean;
+  italics?: boolean;
+  color?: string;
+  size?: number;
+};
+
+type ExportDomNode = {
+  nodeType: number;
+  nodeValue?: string | null;
+};
+
+type ExportDomElement = ExportDomNode & {
+  tagName: string;
+  childNodes: ArrayLike<ExportDomNode | ExportDomElement>;
+  children: ArrayLike<ExportDomElement>;
+  textContent?: string | null;
+  getAttribute(name: string): string | null;
+  classList: { contains(name: string): boolean };
+  querySelector(selector: string): ExportDomElement | null;
+};
+
 /* Valeurs figées par la spécification DOM. En dur plutôt que via la globale
    `Node`, qui n'existe pas sous Node.js : sans ça, tout ce module reste
    intestable, alors qu'il ne dépend de rien d'autre. */
 const TEXT_NODE = 3;
 const ELEMENT_NODE = 1;
+
+function isExportDomElement(node: ExportDomNode | ExportDomElement): node is ExportDomElement {
+  return node.nodeType === ELEMENT_NODE;
+}
 
 const HEADING_MAP = {
   H1: HeadingLevel.HEADING_1,
@@ -60,11 +96,10 @@ const MAX_IMAGE_WIDTH = 500;
    sous une extension fausse : mieux vaut une image manquante et un
    avertissement en console qu'un .docx corrompu. `svg` en est exclu aussi,
    `docx` exigeant pour lui une image de repli qu'on n'a pas ici. */
-/** @type {Record<string, "jpg"|"png"|"gif"|"bmp">} */
-const DOCX_IMAGE_TYPES = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", bmp: "bmp" };
+const DOCX_IMAGE_TYPES: Record<string, "jpg" | "png" | "gif" | "bmp"> = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", bmp: "bmp" };
 
 /** @param {string|undefined} ext @returns {"jpg"|"png"|"gif"|"bmp"|null} */
-function docxImageType(ext) {
+function docxImageType(ext: string | undefined): "jpg" | "png" | "gif" | "bmp" | null {
   return DOCX_IMAGE_TYPES[String(ext || "").toLowerCase()] || null;
 }
 
@@ -75,7 +110,7 @@ function docxImageType(ext) {
  * @param {ExportImages} [images]
  * @returns {any|null} `null` si le paragraphe n'a pas d'image, ou pas de texte.
  */
-export function captionParagraphFor(el, images = new Map()) {
+export function captionParagraphFor(el: ExportDomElement, images: ExportImages = new Map()) {
   if (!el || el.tagName !== "P") return null;
   const imgEl = el.querySelector("img");
   if (!imgEl) return null;
@@ -101,14 +136,14 @@ export function captionParagraphFor(el, images = new Map()) {
  * @param {InlineMarks} [defaultMarks] marques héritées du contexte (page Front).
  * @returns {any[]}
  */
-export function inlineChildren(el, footnoteIdByHref, images = new Map(), defaultMarks = {}) {
-  const runs = [];
+export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<string, number>, images: ExportImages = new Map(), defaultMarks: InlineMarks = {}) {
+  const runs: Array<TextRun | ImageRun | FootnoteReferenceRun> = [];
 
   /**
    * @param {any} node
    * @param {InlineMarks} marks
    */
-  function walk(node, marks) {
+  function walk(node: ExportDomNode | ExportDomElement, marks: InlineMarks) {
     if (node.nodeType === TEXT_NODE) {
       const text = node.nodeValue;
       if (text) {
@@ -124,7 +159,7 @@ export function inlineChildren(el, footnoteIdByHref, images = new Map(), default
       }
       return;
     }
-    if (node.nodeType !== ELEMENT_NODE) return;
+    if (!isExportDomElement(node)) return;
 
     const tag = node.tagName.toLowerCase();
     if (tag === "br") {
@@ -183,13 +218,13 @@ export function inlineChildren(el, footnoteIdByHref, images = new Map(), default
       }
     }
 
-    for (const child of Array.from(node.childNodes)) {
-      walk(child, nextMarks);
+    for (let index = 0; index < node.childNodes.length; index++) {
+      walk(node.childNodes[index], nextMarks);
     }
   }
 
-  for (const child of Array.from(el.childNodes)) {
-    walk(child, defaultMarks);
+  for (let index = 0; index < el.childNodes.length; index++) {
+    walk(el.childNodes[index], defaultMarks);
   }
   return runs;
 }
@@ -214,7 +249,14 @@ export function inlineChildren(el, footnoteIdByHref, images = new Map(), default
  * @param {{ style?: TitlePageStyle|null, isTitleLine?: boolean }|null} [frontOverride]
  * @returns {any[]}
  */
-export function blockToParagraphs(el, footnoteIdByHref, tpl, headings = {}, images = new Map(), frontOverride = null) {
+export function blockToParagraphs(
+  el: ExportDomElement,
+  footnoteIdByHref: Map<string, number>,
+  tpl: ExportTemplate,
+  headings: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle } = {},
+  images: ExportImages = new Map(),
+  frontOverride: { style?: TitlePageStyle | null; isTitleLine?: boolean } | null = null,
+) {
   if (!el || el.nodeType !== ELEMENT_NODE) return [];
   const tag = el.tagName;
 
