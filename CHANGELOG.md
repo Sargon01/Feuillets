@@ -2,6 +2,12 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.3.4
+
+### Corrigé
+
+- **Réglages** : Réécriture de la méthode d'organisation des panneaux. L'approche précédente (déplacement de nœuds DOM actifs + toggleVisibility) causait des panneaux vides sur certaines versions d'Obsidian. La nouvelle approche classe d'abord les nœuds, vide le conteneur, puis reconstruit proprement — garantissant que tous les onglets affichent bien leur contenu.
+
 ## 1.3.3
 
 ### Corrigé

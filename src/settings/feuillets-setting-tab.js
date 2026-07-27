@@ -1810,17 +1810,19 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     this.organizeSections(containerEl);
   }
 
-  /** Regroupe les réglages en quatre catégories, affichées en onglets
-   * (Projet & Écriture, Tableau, Panneaux latéraux, Export) — un seul
-   * onglet visible à la fois, plutôt qu'une longue page à défiler. À
-   * l'intérieur de chaque onglet, chaque sous-section (Dossier du
-   * projet, Objectifs...) garde son propre repli. Tout ça par
-   * post-traitement du DOM : les réglages sont créés normalement, puis
-   * déplacés — aucun risque sur leur logique. Pas de cinquième onglet
-   * "Avancé" masqué par défaut : ça cachait des réglages courants
-   * (taille de police, labels…) qu'un utilisateur avait de vraies
-   * raisons de chercher — tout est maintenant rangé par sujet et
-   * toujours visible, quitte à replier la sous-section elle-même. */
+  /** Regroupe les réglages en onglets (Projet, Écriture, Interface,
+   * Panneaux latéraux, Correction, Export) avec sous-sections repliables.
+   *
+   * Stratégie en deux temps :
+   *   1. Classifier — parcourir containerEl.children, lire les marqueurs
+   *      .feuillets-settings-section pour savoir où va chaque nœud.
+   *      Aucune modification du DOM à ce stade.
+   *   2. Reconstruire — containerEl.empty(), puis réinsérer l'en-tête,
+   *      la barre d'onglets et les panneaux. Les nœuds détachés lors du
+   *      empty() sont réassignés à leur <details> via appendChild.
+   *
+   * style.display = "none" plutôt que toggleVisibility() : comportement
+   * garanti identique dans toutes les versions d'Obsidian. */
   organizeSections(containerEl) {
     const ORDER = ["Projet", "Écriture", "Interface", "Panneaux latéraux", "Correction", "Export"];
     const CATEGORY_LABELS = {
@@ -1832,42 +1834,37 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       "Export": t("settings.category.export"),
     };
 
-    // Passe 1 : regrouper les nœuds par catégorie puis par sous-section,
-    // sans encore toucher au DOM (facile à corriger si une catégorie ne
-    // correspond à aucun texte de h3 connu).
+    // --- Passe 1 : classification, sans toucher au DOM ---
     const byCategory = {};
     for (const name of ORDER) byCategory[name] = [];
-    let currentCategory = "Projet"; // tout ce qui précède le premier h3
+    let currentCategory = "Projet";
     let currentSub = null;
-    const nodes = Array.from(containerEl.children);
-    for (const node of nodes) {
-      if (node.classList.contains("feuillets-settings-header")) continue; // en-tête (titre/slogan/liens) reste fixe au-dessus des onglets
+    let header = null;
+
+    for (const node of Array.from(containerEl.children)) {
+      if (node.classList.contains("feuillets-settings-header")) {
+        header = node; // conservé séparément, réinséré apr\u00e8s empty()
+        continue;
+      }
       if (node.classList.contains("feuillets-settings-section")) {
-        /* Ces marqueurs de section ne sont jamais affichés tels quels : on
-           lit leurs attributs puis on les retire (node.remove() plus bas),
-           leur texte devenant le résumé du repli. C'étaient des h3
-           auparavant — sémantiquement faux (ce ne sont pas des titres
-           rendus) et interdit par l'ESLint officiel d'Obsidian, qui exige
-           new Setting().setHeading() pour un vrai titre de réglages.
-           La catégorie vit sur le marqueur lui-même (attr data-cat, posé à
-           la création — voir les containerEl.createDiv({ cls:
-           "feuillets-settings-section", ... }) plus haut) : plus de
-           dictionnaire séparé à tenir synchronisé avec les titres. Un
-           marqueur sans data-cat (oubli) tombe dans un onglet toujours
-           visible plutôt que d'être caché en silence. */
+        /* La catégorie est portée par l'attribut data-cat du marqueur,
+           posé à la création — voir les createDiv({ attr: { "data-cat": … }})
+           dans display(). Un marqueur sans data-cat valide avertit en console
+           et tombe dans "Projet" plutôt que de disparaître silencieusement. */
         const cat = node.getAttr("data-cat");
         if (!cat || !ORDER.includes(cat)) {
-          console.warn(`Feuillets : section de réglages "${node.textContent}" sans data-cat valide — ajoutée à "Projet" par défaut.`);
+          console.warn(`Feuillets : section "${node.textContent}" sans data-cat valide — Projet par défaut.`);
         }
         currentCategory = (cat && ORDER.includes(cat)) ? cat : "Projet";
-        /* data-open (posé à la création, comme data-cat) plutôt que
-           comparer node.textContent à un titre français en dur : le
-           titre est maintenant traduit, cette comparaison casserait
-           silencieusement en anglais. */
-        currentSub = { title: node.textContent, openByDefault: node.getAttr("data-open") === "1", nodes: [] };
+        /* data-open sur le marqueur plutôt qu'une comparaison avec le titre
+           traduit : la comparaison casserait silencieusement en anglais. */
+        currentSub = {
+          title: node.textContent,
+          openByDefault: node.getAttr("data-open") === "1",
+          nodes: [],
+        };
         byCategory[currentCategory].push(currentSub);
-        node.remove(); // son texte devient le résumé du repli imbriqué
-        continue;
+        continue; // le marqueur lui-même ne sera pas réinséré
       }
       if (currentSub) currentSub.nodes.push(node);
       else byCategory[currentCategory].push({ title: null, nodes: [node] });
@@ -1877,7 +1874,13 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       this._activeSettingsTab = ORDER[0];
     }
 
-    // Passe 2 : barre d'onglets.
+    // --- Reconstruction : table rase puis réinsertion ---
+    // containerEl.empty() détache tous les nœuds mais leurs références JS
+    // (stockées dans byCategory) restent valides — on peut les réappendre.
+    containerEl.empty();
+    if (header) containerEl.appendChild(header);
+
+    // Passe 2 : barre d'onglets
     const tabBar = containerEl.createDiv({ cls: "feuillets-settings-tabs" });
     for (const name of ORDER) {
       const btn = tabBar.createEl("button", {
@@ -1892,29 +1895,28 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       });
     }
 
-    // Passe 3 : un panneau par catégorie (tous construits, un seul visible
-    // à la fois) — les sous-sections gardent leur propre repli à l'intérieur.
+    // Passe 3 : panneaux — un seul visible, les autres cachés.
+    // style.display plutôt que toggleVisibility() : comportement garanti
+    // identique dans toutes les versions d'Obsidian.
     for (const name of ORDER) {
       const panel = containerEl.createDiv({ cls: "feuillets-settings-panel" });
-      panel.toggleVisibility(name === this._activeSettingsTab);
+      if (name !== this._activeSettingsTab) panel.style.display = "none";
 
       for (const sub of byCategory[name]) {
         if (!sub.title) {
           for (const n of sub.nodes) panel.appendChild(n);
           continue;
         }
-        const subDet = document.createElement("details");
-        subDet.addClass("feuillets-settings-subsection");
-        if (sub.openByDefault) subDet.setAttr("open", "");
-        const subSum = document.createElement("summary");
-        subSum.setText(sub.title);
-        subSum.addClass("feuillets-settings-subhead");
-        subDet.appendChild(subSum);
+        // createEl() Obsidian plutôt que document.createElement() :
+        // les méthodes Obsidian (addClass, setText…) sont disponibles sur l'élément.
+        const subDet = panel.createEl("details", { cls: "feuillets-settings-subsection" });
+        if (sub.openByDefault) subDet.setAttribute("open", "");
+        subDet.createEl("summary", { cls: "feuillets-settings-subhead", text: sub.title });
         for (const n of sub.nodes) subDet.appendChild(n);
-        panel.appendChild(subDet);
       }
     }
   }
+
 
   /** Bouton discret pointant vers un thème/plugin communautaire — jamais une
    * installation automatique (aucune API publique ne le permet, et pour
