@@ -9,6 +9,7 @@
  * utilisant tous les deux `[^1]` se retrouveraient à pointer vers la même
  * note dans le document final — Pandoc ne voit alors qu'un identifiant
  * global, pas un identifiant par fichier. */
+/** @param {string} content @param {string} prefix @returns {string} */
 export function renamespaceFootnotes(content, prefix) {
   if (!content || !prefix) return content;
   return content.replace(/\[\^([^\]]+)\]/g, (_, id) => `[^${prefix}-${id}]`);
@@ -18,6 +19,7 @@ export function renamespaceFootnotes(content, prefix) {
  * grand identifiant purement numérique + 1 (les identifiants nommés comme
  * `[^remarque]` sont ignorés pour ce calcul, sans faire planter le
  * comptage). 1 si le fichier n'a encore aucune note numérique. */
+/** @param {string} content @returns {number} */
 export function nextFootnoteNumber(content) {
   if (!content) return 1;
   let max = 0;
@@ -32,6 +34,7 @@ export function nextFootnoteNumber(content) {
  * rencontrée dans la lecture linéaire du fichier) — utile après avoir
  * supprimé ou réordonné des notes, la suite devenant non contiguë (1, 3, 4…).
  * Idempotent : ré-appliqué sur un fichier déjà propre, ne change rien. */
+/** @param {string} content @returns {string} */
 export function renumberFootnotes(content) {
   if (!content) return content;
   const order = new Map();

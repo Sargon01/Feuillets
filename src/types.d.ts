@@ -213,14 +213,59 @@ declare type FeuilletsSettings = {
   projectMeta: Record<string, ProjectMeta>;
   /** Palette globale, repli quand le projet n'a pas la sienne. */
   labels: Label[];
+  /** Dossiers projet connus, en plus du projet actuellement actif. */
+  projects: string[];
   /** { cheminDossier: objectif en mots }. */
   folderGoals: Record<string, number>;
   /** { cheminDossier: [noms des enfants, dans l'ordre] }. */
   orders: Record<string, string[]>;
   folderPositions: Record<string, number>;
+  collapsed: Record<string, boolean>;
 
   statuses: {name: string, color: string}[];
-  hiddenPanels?: string[];
+  hiddenPanels: string[];
+  hiddenBoardModes: string[];
+
+  statusFilter: string;
+  labelFilter: string;
+  progressFilter: string;
+  povFilter: string;
+  tagFilter: string;
+  grammarEngine: string;
+
+  binderSelectedPath: string;
+  binderSearch: string;
+  binderSearchContent: boolean;
+  binderStatusFilter: string;
+  binderLabelFilter: string;
+  binderProgressFilter: string;
+  binderTreeWidth: number;
+  binderTreeCollapsed: boolean;
+  binderListCollapsed: boolean;
+  binderCompact: boolean;
+  binderSplitRecursive: boolean;
+  binderShowLabels: boolean;
+  binderShowTags: boolean;
+  binderShowStatus: boolean;
+  binderShowProgress: boolean;
+  binderShowWords: boolean;
+  listPanePreviewField: string;
+  listPanePreviewLines: number;
+
+  boardMode: string;
+  cardContent: string;
+  tileSize: number;
+  columns: number;
+  showCardTags: boolean;
+  showProgress: boolean;
+  outlineCols: Record<string, boolean>;
+
+  readScope: string;
+  readSelection: string[];
+  timelineTagFilter: string;
+  timelineOrder: string;
+  timelineScale: string;
+  compilePresets: unknown[];
 
   [key: string]: unknown;
 };

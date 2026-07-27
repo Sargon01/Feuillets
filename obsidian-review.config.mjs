@@ -71,4 +71,34 @@ export default [
       "no-irregular-whitespace": "warn",
     },
   },
+  {
+    // Frontières de données et utilitaires déjà typés : ici, un `any` qui
+    // traverse le module est directement actionnable. Les autres services
+    // restent progressivement typables avant d'entrer dans cette liste.
+    files: [
+      "src/services/frontmatter.js",
+      "src/services/folder-structure.js",
+      "src/utils/core.js",
+      "src/utils/text-metrics.js",
+      "src/utils/footnotes.js",
+    ],
+    rules: {
+      "@typescript-eslint/no-unsafe-member-access": "warn",
+      "@typescript-eslint/no-unsafe-assignment": "warn",
+      "@typescript-eslint/no-unsafe-call": "warn",
+      "@typescript-eslint/no-unsafe-return": "warn",
+    },
+  },
+  {
+    // Les vues et modales manipulent directement les objets dynamiques
+    // d'Obsidian et du DOM. Ces alertes y sont trop bruitées pour être
+    // actionnables ; les règles de sûreté propres à Obsidian restent actives.
+    files: ["src/views/**/*.js", "src/ui/**/*.js", "src/settings/**/*.js"],
+    rules: {
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+    },
+  },
 ];

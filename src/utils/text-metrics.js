@@ -1,6 +1,7 @@
 /** Retire du texte tout ce qui ne doit pas compter dans les statistiques
  * d'écriture : frontmatter YAML, commentaires (%%...%%, <!--...-->), et
  * blocs/segments de code. */
+/** @param {string} text @returns {string} */
 export function stripWritingNoise(text) {
   let result = text || "";
   result = result.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
@@ -11,15 +12,18 @@ export function stripWritingNoise(text) {
   return result;
 }
 
+/** @param {string} text @returns {number} */
 export function countSentences(text) {
   const m = text.match(/[^.!?]+[.!?]+/g);
   return m ? m.length : 0;
 }
 
+/** @param {string} text @returns {number} */
 export function countParagraphs(text) {
   return text.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
 }
 
+/** @param {unknown} n @returns {string} */
 export function formatNumber(n) {
   return Number(n || 0).toLocaleString("fr-FR");
 }

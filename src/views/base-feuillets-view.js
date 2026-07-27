@@ -69,6 +69,9 @@ function formatSourcedExcerpt(text, filePath) {
 }
 
 export class BaseFeuilletsView extends ItemView {
+  /** @type {import("../main.js").default} */
+  plugin;
+
   getProjectLabels() {
     const S = this.plugin.settings;
     const root = this.plugin.getProjectFolder();
@@ -1516,6 +1519,10 @@ export class BaseFeuilletsView extends ItemView {
     menu.showAtMouseEvent(e);
   }
 
+  /**
+   * @param {import("obsidian").WorkspaceLeaf} leaf
+   * @param {import("../main.js").default} plugin
+   */
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;

@@ -4,6 +4,7 @@
  * de scène, appels de note…). Volontairement conservateur sur l'underscore :
  * seul un `_..._` clairement délimité (bordé de non-mots) est traité comme
  * de l'italique, pour ne jamais amputer un identifiant en snake_case. */
+/** @param {string} text @returns {string} */
 export function stripMarkdown(text) {
   if (!text) return "";
   let t = text;
@@ -59,6 +60,7 @@ export function stripMarkdown(text) {
   return t.trim();
 }
 
+/** @param {string} text @returns {number} */
 export function countWords(text) {
   let t = text;
   t = t.replace(/^---\n[\s\S]*?\n---\n?/, "");
@@ -70,6 +72,7 @@ export function countWords(text) {
   return words.length;
 }
 
+/** @param {unknown} str @returns {string} */
 export function foldAccents(str) {
   return String(str)
     .toLowerCase()
@@ -77,10 +80,12 @@ export function foldAccents(str) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+/** @param {string} s @returns {string} */
 export function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** @param {string} text @returns {string} */
 export function embedHardBreaks(text) {
   const structural = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>|```|\||\s*\*{3}\s*$)/;
   return text
@@ -114,6 +119,11 @@ export function embedHardBreaks(text) {
     .join("\n\n");
 }
 
+/**
+ * @param {unknown} raw
+ * @param {import("obsidian").TFile | null} [file]
+ * @returns {{ sort: number, y: number, mo: number, d: number, display: string } | null}
+ */
 export function parseStoryDate(raw, file = null) {
   let str = raw !== undefined && raw !== null ? String(raw).trim() : "";
   if (!str && file) {
@@ -136,6 +146,7 @@ export function parseStoryDate(raw, file = null) {
  * (ni vides, ni structurelles) : les paragraphes déjà séparés par une ligne
  * vide, et les lignes de structure (titres, listes, citations, code,
  * tableaux, ***), sont laissés intacts. */
+/** @param {string} text @returns {string} */
 export function compactLineBreaks(text) {
   const structural = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>|```|\||\s*\*{3}\s*$|\s*$)/;
   const lines = text.split("\n");
@@ -163,6 +174,7 @@ export function compactLineBreaks(text) {
 /** Corrections typographiques françaises. skipFrontmatter : préserve l'en-tête.
  * Le code (bloc ``` ``` ou span `inline`) n'est jamais touché : guillemets et
  * apostrophes y ont un sens syntaxique, pas typographique. */
+/** @param {string} text @param {boolean} skipFrontmatter @returns {string} */
 export function frenchTypography(text, skipFrontmatter) {
   let head = "";
   let body = text;
@@ -191,6 +203,7 @@ export function frenchTypography(text, skipFrontmatter) {
   return head + body;
 }
 
+/** @returns {string} */
 export function todayKey() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");

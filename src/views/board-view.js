@@ -13,11 +13,13 @@ import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 
+/** @param {HTMLElement} el */
 function isInputFocused(el) {
   const active = document.activeElement;
   return active && el.contains(active) && ["TEXTAREA", "INPUT"].includes(active.tagName);
 }
 
+/** @param {Record<string, unknown>} fm */
 function getFilsList(fm) {
   const fils = fm.thread;
   if (Array.isArray(fils)) return fils.filter(Boolean).map((r) => String(r).trim()).filter(Boolean);
@@ -25,6 +27,7 @@ function getFilsList(fm) {
   return [];
 }
 
+/** @param {Record<string, unknown>} fm */
 function getPersonnagesList(fm) {
   const persos = fm.characters;
   if (Array.isArray(persos)) return persos.filter(Boolean).map((r) => String(r).trim()).filter(Boolean);
@@ -32,6 +35,7 @@ function getPersonnagesList(fm) {
   return [];
 }
 
+/** @param {string} name */
 function filColor(name) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -39,6 +43,10 @@ function filColor(name) {
 }
 
 export class BoardView extends BaseFeuilletsView {
+  /**
+   * @param {import("obsidian").WorkspaceLeaf} leaf
+   * @param {import("../main.js").default} plugin
+   */
   constructor(leaf, plugin) {
     super(leaf, plugin);
     this.focusedFolderPath = null;

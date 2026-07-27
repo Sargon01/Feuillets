@@ -38,15 +38,23 @@ const LEGACY_FIELD_ALIASES = {
   compile: ["compiler"],
 };
 
+/**
+ * @param {App} app
+ * @param {TFile | null | undefined} file
+ * @returns {SceneFrontmatter}
+ */
 export function fmOf(app, file) {
   if (!file || !file.path) return {};
   const cache = app.metadataCache.getFileCache(file);
-  const fm = (cache && cache.frontmatter) || {};
+  const fm = /** @type {SceneFrontmatter} */ ((cache && cache.frontmatter) || {});
   return withLegacyFieldAliases(fm);
 }
 
 /** N'alloue une copie que si au moins un alias hérité s'applique réellement
- * — une fiche déjà en clés anglaises traverse cette fonction sans coût. */
+ * — une fiche déjà en clés anglaises traverse cette fonction sans coût.
+ * @param {SceneFrontmatter} fm
+ * @returns {SceneFrontmatter}
+ */
 function withLegacyFieldAliases(fm) {
   let out = fm;
   for (const newKey in LEGACY_FIELD_ALIASES) {

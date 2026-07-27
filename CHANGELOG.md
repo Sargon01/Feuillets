@@ -2,6 +2,12 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.3.6
+
+### Modifié
+
+- **Qualité du code** : ajout de contrats JSDoc aux frontières du plugin, aux services de structure et de frontmatter, ainsi qu'aux utilitaires de texte et de notes. Les règles `no-unsafe-*` sont désormais ciblées sur ces modules déjà typés, tout en étant neutralisées dans les couches UI Obsidian dynamiques où elles ne produisaient pas de signal exploitable.
+
 ## 1.3.5
 
 ### Corrigé

@@ -79,6 +79,20 @@ import {
 
 const RIGHT_SIDEBAR_WIDTH = 280;
 
+/**
+ * @typedef {
+ *   | { type: "reorder", parentPath: string, order: string[] }
+ *   | {
+ *       type: "move",
+ *       nodeName: string,
+ *       srcParentPath: string,
+ *       destFolderPath: string,
+ *       srcOrder: string[],
+ *       destOrder: string[]
+ *     }
+ * } MoveHistoryEntry
+ */
+
 class FeuilletsPlugin extends Plugin {
   /**
    * Déclaré explicitement sur la sous-classe, comme le demande la doc
@@ -92,6 +106,12 @@ class FeuilletsPlugin extends Plugin {
    * @type {FeuilletsSettings}
    */
   settings;
+
+  /** @type {import("./views/grammar-view.js").GrammarView | undefined} */
+  _grammarView;
+
+  /** @type {MoveHistoryEntry[] | undefined} */
+  moveStack;
 
   /** @type {Array<{key: string, icon: string, labelKey: string, action: Function, hideable?: boolean}>} */
   _ribbonDefs;
@@ -344,6 +364,7 @@ class FeuilletsPlugin extends Plugin {
           return;
         }
         const snap = this.moveStack.pop();
+        if (!snap) return;
 
         if (snap.type === "move") {
           const srcParent = this.app.vault.getAbstractFileByPath(snap.srcParentPath);
@@ -2081,6 +2102,7 @@ class FeuilletsPlugin extends Plugin {
     return currentTotal - stats[key].start;
   }
 
+  /** @param {MoveHistoryEntry} entry */
   pushHistory(entry) {
     if (!this.moveStack) this.moveStack = [];
     this.moveStack.push(entry);

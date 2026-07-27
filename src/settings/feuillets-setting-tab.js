@@ -9,6 +9,10 @@ import { GrammarUserDataModal } from "../ui/grammar-user-data-modal.js";
 import { PluginSettingTab, Setting, TFolder, Notice, Menu, Platform } from "obsidian";
 
 export class FeuilletsSettingTab extends PluginSettingTab {
+  /**
+   * @param {import("obsidian").App} app
+   * @param {import("../main.js").default} plugin
+   */
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
