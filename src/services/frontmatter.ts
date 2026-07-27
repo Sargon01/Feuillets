@@ -1,12 +1,8 @@
-// @ts-check
+import type { App, TFile, TFolder } from "obsidian";
+
 /** Lecture du frontmatter des feuillets. Vérifié par `tsc` (voir types.d.ts) :
  * ce module est la porte d'entrée de toutes les données YAML du plugin, donc
- * l'endroit où une faute de frappe sur un nom de clé coûte le plus cher.
- *
- * @typedef {import("obsidian").App} App
- * @typedef {import("obsidian").TFile} TFile
- * @typedef {import("obsidian").TFolder} TFolder
- */
+ * l'endroit où une faute de frappe sur un nom de clé coûte le plus cher. */
 
 /** Traduction progressive du vocabulaire frontmatter (français → anglais,
  * voir CHANGELOG) : nouvelle clé → ancienne(s) clé(s) lue(s) en repli si la
@@ -38,24 +34,16 @@ const LEGACY_FIELD_ALIASES = {
   compile: ["compiler"],
 };
 
-/**
- * @param {App} app
- * @param {TFile | null | undefined} file
- * @returns {SceneFrontmatter}
- */
-export function fmOf(app, file) {
+export function fmOf(app: App, file: TFile | null | undefined): SceneFrontmatter {
   if (!file || !file.path) return {};
   const cache = app.metadataCache.getFileCache(file);
-  const fm = /** @type {SceneFrontmatter} */ ((cache && cache.frontmatter) || {});
+  const fm = (cache && cache.frontmatter) as SceneFrontmatter || {};
   return withLegacyFieldAliases(fm);
 }
 
 /** N'alloue une copie que si au moins un alias hérité s'applique réellement
- * — une fiche déjà en clés anglaises traverse cette fonction sans coût.
- * @param {SceneFrontmatter} fm
- * @returns {SceneFrontmatter}
- */
-function withLegacyFieldAliases(fm) {
+ * — une fiche déjà en clés anglaises traverse cette fonction sans coût. */
+function withLegacyFieldAliases(fm: SceneFrontmatter): SceneFrontmatter {
   let out = fm;
   for (const newKey in LEGACY_FIELD_ALIASES) {
     if (fm[newKey] !== undefined) continue;
@@ -71,12 +59,8 @@ function withLegacyFieldAliases(fm) {
 }
 
 /** Titre d'affichage : `title`, sinon `first_name`/`last_name` pour les
- * fiches personnage, sinon le nom du fichier — jamais vide.
- * @param {App} app
- * @param {TFile} file
- * @returns {string}
- */
-export function titleFor(app, file) {
+ * fiches personnage, sinon le nom du fichier — jamais vide. */
+export function titleFor(app: App, file: TFile): string {
   if (!file) return "";
   const fm = fmOf(app, file);
   const t = fm.title;
@@ -92,24 +76,16 @@ export function titleFor(app, file) {
 }
 
 /** Titre court pour les vues denses (plan, binder) : clé `short_title` si
- * renseignée, sinon le titre normal. Jamais utilisé à la compilation.
- * @param {App} app
- * @param {TFile} file
- * @returns {string}
- */
-export function shortTitleFor(app, file) {
+ * renseignée, sinon le titre normal. Jamais utilisé à la compilation. */
+export function shortTitleFor(app: App, file: TFile): string {
   if (!file) return "";
   const fm = fmOf(app, file);
   const t = fm.short_title;
   return typeof t === "string" && t.trim() ? t.trim() : titleFor(app, file);
 }
 
-/** Titre pour la COMPILATION : clé `title` uniquement, jamais le nom du fichier.
- * @param {App} app
- * @param {TFile} file
- * @returns {string|null} `null` = pas de titre à insérer dans le manuscrit.
- */
-export function compiledTitleFor(app, file) {
+/** Titre pour la COMPILATION : clé `title` uniquement, jamais le nom du fichier. */
+export function compiledTitleFor(app: App, file: TFile): string | null {
   const fm = fmOf(app, file);
   const t = fm.title;
   return typeof t === "string" && t.trim() ? t.trim() : null;
@@ -118,24 +94,16 @@ export function compiledTitleFor(app, file) {
 /** Sous-titre pour la COMPILATION : clé `subtitle`, compilé un niveau de
  * titre en dessous de `title` (ex. titre en H2, sous-titre en H3) — voir
  * compile(), services/compile-export.js. Cas typique : un chapitre
- * Scrivener dont le titre tient sur deux lignes (titre + sous-titre).
- * @param {App} app
- * @param {TFile} file
- * @returns {string|null}
- */
-export function compiledSubtitleFor(app, file) {
+ * Scrivener dont le titre tient sur deux lignes (titre + sous-titre). */
+export function compiledSubtitleFor(app: App, file: TFile): string | null {
   const fm = fmOf(app, file);
   const t = fm.subtitle;
   return typeof t === "string" && t.trim() ? t.trim() : null;
 }
 
 /** Tags normalisés (sans `#`, sans vides). Accepte une liste YAML comme une
- * chaîne séparée par virgules/espaces.
- * @param {App} app
- * @param {TFile} file
- * @returns {string[]}
- */
-export function tagsOf(app, file) {
+ * chaîne séparée par virgules/espaces. */
+export function tagsOf(app: App, file: TFile): string[] {
   const fm = fmOf(app, file);
   let tags = fm.tags;
   if (typeof tags === "string") tags = tags.split(/[,\s]+/);
@@ -145,22 +113,14 @@ export function tagsOf(app, file) {
     .filter(Boolean);
 }
 
-/** Premier label sous forme de chaîne simple, `""` si aucun.
- * @param {App} app
- * @param {TFile} file
- * @returns {string}
- */
-export function labelOf(app, file) {
+/** Premier label sous forme de chaîne simple, `""` si aucun. */
+export function labelOf(app: App, file: TFile): string {
   const l = fmOf(app, file).label;
   return typeof l === "string" && l.trim() ? l.trim() : "";
 }
 
-/** Tous les labels d'un feuillet (un feuillet peut en porter plusieurs).
- * @param {App} app
- * @param {TFile} file
- * @returns {string[]}
- */
-export function labelsOf(app, file) {
+/** Tous les labels d'un feuillet (un feuillet peut en porter plusieurs). */
+export function labelsOf(app: App, file: TFile): string[] {
   const fm = fmOf(app, file);
   const l = fm.label !== undefined ? fm.label : fm.labels;
   if (Array.isArray(l)) return l.filter(Boolean).map((x) => String(x).trim()).filter(Boolean);
@@ -172,12 +132,8 @@ export function labelsOf(app, file) {
 
 /** Couleur d'un label : celle définie dans la palette du projet (ou globale),
  * sinon une couleur stable dérivée du nom, piochée dans cette même palette —
- * pour qu'un arc jamais déclaré ait quand même toujours la même couleur.
- * @param {FeuilletsSettings} settings
- * @param {string} name
- * @returns {string|null} `null` uniquement si `name` est vide.
- */
-export function labelColor(settings, name) {
+ * pour qu'un arc jamais déclaré ait quand même toujours la même couleur. */
+export function labelColor(settings: FeuilletsSettings, name: string): string | null {
   const rootPath = settings.projectFolder;
   const meta = rootPath && settings.projectMeta ? settings.projectMeta[rootPath] : null;
   const labels = (meta && meta.labels) ? meta.labels : (settings.labels || []);
@@ -198,12 +154,8 @@ export function labelColor(settings, name) {
   return null;
 }
 
-/** Objectif de mots d'un dossier, `0` si non défini ou invalide.
- * @param {FeuilletsSettings} settings
- * @param {TFolder} folder
- * @returns {number}
- */
-export function folderGoal(settings, folder) {
+/** Objectif de mots d'un dossier, `0` si non défini ou invalide. */
+export function folderGoal(settings: FeuilletsSettings, folder: TFolder): number {
   const g = settings.folderGoals[folder.path];
   return typeof g === "number" && g > 0 ? g : 0;
 }
