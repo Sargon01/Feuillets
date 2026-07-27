@@ -1,4 +1,5 @@
 import { normalizePath, Notice } from "obsidian";
+import type { App, TFile, TFolder } from "obsidian";
 import { getProjectFolder, flattenFiles, resourcesFolderPath } from "./folder-structure.js";
 import { fmOf, labelOf, labelColor } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
@@ -10,14 +11,40 @@ const GAP_X = 40;
 const GAP_Y = 40;
 const COLS = 5;
 
-function generateId() {
+type CanvasNode = {
+  id: string;
+  type?: string;
+  file?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  color?: string;
+  [key: string]: unknown;
+};
+
+type CanvasEdge = {
+  id: string;
+  fromNode?: string;
+  toNode?: string;
+  fil?: string;
+  feuillets_fil?: string;
+  [key: string]: unknown;
+};
+
+type CanvasData = {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+};
+
+function generateId(): string {
   const chars = "0123456789abcdef";
   let s = "";
   for (let i = 0; i < 16; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
 }
 
-function canvasPathFor(app, root) {
+function canvasPathFor(app: App, root: TFolder): string {
   return normalizePath(`${resourcesFolderPath(app, root)}/Tableau brainstorming.canvas`);
 }
 
@@ -27,11 +54,11 @@ function canvasPathFor(app, root) {
  * redondants à app.vault.getAbstractFileByPath rien que pour filtrer la
  * liste des scènes. Logique strictement identique, juste sans le travail
  * répété. */
-function isFrontWithRoot(root, node) {
+function isFrontWithRoot(root: TFolder, node: TFile | TFolder): boolean {
   const p = `${root.path}/Front`;
   return node.path === p || node.path.startsWith(`${p}/`);
 }
-function roleOfFileWithRoot(settings, root, file) {
+function roleOfFileWithRoot(settings: FeuilletsSettings, root: TFolder, file: TFile): "chapitre" | "scene" {
   const parent = file.parent;
   if (!parent || parent.path === root.path) return "chapitre";
   const depth = parent.path === root.path
@@ -52,7 +79,7 @@ function roleOfFileWithRoot(settings, root, file) {
  * comme le mode "freeform" du corkboard de Scrivener : le déplacer ici ne
  * réordonne rien dans le binder — c'est un espace de brainstorming, pas
  * une seconde source de vérité pour la séquence des scènes. */
-export async function generateCanvasBoard(app, settings) {
+export async function generateCanvasBoard(app: App, settings: FeuilletsSettings): Promise<{ file: TFile; added: number; edgesAdded: number; total: number } | null> {
   const root = getProjectFolder(app, settings);
   if (!root) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
@@ -69,12 +96,12 @@ export async function generateCanvasBoard(app, settings) {
   const path = canvasPathFor(app, root);
   await ensureFolder(app, path.slice(0, path.lastIndexOf("/")));
 
-  let canvas = { nodes: [], edges: [] };
-  const existing = app.vault.getAbstractFileByPath(path);
+  let canvas: CanvasData = { nodes: [], edges: [] };
+  const existing = app.vault.getAbstractFileByPath(path) as TFile | null;
   if (existing) {
     try {
       const raw = await app.vault.read(existing);
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as CanvasData;
       if (parsed && Array.isArray(parsed.nodes)) canvas = parsed;
     } catch {
       new Notice("Tableau canvas existant illisible — reconstruit à neuf (rien n'a été écrasé sur le disque avant que tu ne confirmes).");
@@ -87,9 +114,9 @@ export async function generateCanvasBoard(app, settings) {
   // Retire les cartes dont le fichier n'appartient plus au projet (scène
   // supprimée ou déplacée hors du manuscrit).
   const scenePaths = new Set(scenes.map((f) => f.path));
-  canvas.nodes = canvas.nodes.filter((n) => n.type !== "file" || scenePaths.has(n.file));
+  canvas.nodes = canvas.nodes.filter((n) => n.type !== "file" || scenePaths.has(n.file as string));
   const nodeIds = new Set(canvas.nodes.map((n) => n.id));
-  canvas.edges = canvas.edges.filter((e) => nodeIds.has(e.fromNode) && nodeIds.has(e.toNode));
+  canvas.edges = canvas.edges.filter((e) => nodeIds.has(e.fromNode as string) && nodeIds.has(e.toNode as string));
 
   // Nouvelles cartes : placées en dessous de tout ce qui existe déjà, en
   // grille, jamais superposées à un arrangement déjà en place. La couleur
@@ -104,8 +131,8 @@ export async function generateCanvasBoard(app, settings) {
   }
   let col = 0;
   let added = 0;
-  const nodeByFileSoFar = new Map();
-  for (const n of canvas.nodes) if (n.type === "file") nodeByFileSoFar.set(n.file, n);
+  const nodeByFileSoFar = new Map<string, CanvasNode>();
+  for (const n of canvas.nodes) if (n.type === "file") nodeByFileSoFar.set(n.file as string, n);
 
   for (const file of scenes) {
     const label = labelOf(app, file);
@@ -116,7 +143,7 @@ export async function generateCanvasBoard(app, settings) {
       else delete existingNode.color;
       continue;
     }
-    const node = {
+    const node: CanvasNode = {
       id: generateId(),
       type: "file",
       file: file.path,
@@ -147,15 +174,15 @@ export async function generateCanvasBoard(app, settings) {
   // jamais utilisé) — filtré ici aussi une fois pour toutes, migration
   // silencieuse vers "fil" sans dupliquer les arêtes déjà tracées.
   canvas.edges = canvas.edges.filter((e) => !e.fil && !e.feuillets_fil);
-  const nodeByFile = new Map();
+  const nodeByFile = new Map<string, CanvasNode>();
   for (const n of canvas.nodes) {
-    if (n.type === "file") nodeByFile.set(n.file, n);
+    if (n.type === "file") nodeByFile.set(n.file as string, n);
   }
-  const byFil = new Map();
+  const byFil = new Map<string, TFile[]>();
   for (const file of scenes) {
     for (const value of filsOf(fmOf(app, file))) {
       if (!byFil.has(value)) byFil.set(value, []);
-      byFil.get(value).push(file);
+      byFil.get(value)?.push(file);
     }
   }
   let edgesAdded = 0;
@@ -181,7 +208,7 @@ export async function generateCanvasBoard(app, settings) {
   }
 
   const content = JSON.stringify(canvas, null, "\t");
-  let file;
+  let file: TFile;
   if (existing) {
     await app.vault.modify(existing, content);
     file = existing;
