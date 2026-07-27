@@ -1,11 +1,12 @@
+import type { TFile } from "obsidian";
+
 /** Retire la syntaxe Markdown d'un extrait pour un APERÇU en texte propre
  * (cartes, binder) — on garde le texte lisible, on enlève seulement les
  * balises (`*`, `**`, `#`, `[[ ]]`, `[texte](url)`, `> `, puces, séparateurs
  * de scène, appels de note…). Volontairement conservateur sur l'underscore :
  * seul un `_..._` clairement délimité (bordé de non-mots) est traité comme
  * de l'italique, pour ne jamais amputer un identifiant en snake_case. */
-/** @param {string} text @returns {string} */
-export function stripMarkdown(text) {
+export function stripMarkdown(text: string | null | undefined): string {
   if (!text) return "";
   let t = text;
 
@@ -16,7 +17,7 @@ export function stripMarkdown(text) {
   t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
   // Wikiliens : [[cible|alias]] -> alias ; [[dossier/cible]] -> "cible".
   t = t.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, target, alias) =>
-    alias !== undefined ? alias : target.split("/").pop()
+    alias !== undefined ? alias : target.split("/").pop()!
   );
   // Liens Markdown [texte](url) -> texte.
   t = t.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
@@ -60,8 +61,7 @@ export function stripMarkdown(text) {
   return t.trim();
 }
 
-/** @param {string} text @returns {number} */
-export function countWords(text) {
+export function countWords(text: string): number {
   let t = text;
   t = t.replace(/^---\n[\s\S]*?\n---\n?/, "");
   t = t.replace(/```[\s\S]*?```/g, " ");
@@ -72,27 +72,24 @@ export function countWords(text) {
   return words.length;
 }
 
-/** @param {unknown} str @returns {string} */
-export function foldAccents(str) {
+export function foldAccents(str: unknown): string {
   return String(str)
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-/** @param {string} s @returns {string} */
-export function escapeRegExp(s) {
+export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** @param {string} text @returns {string} */
-export function embedHardBreaks(text) {
+export function embedHardBreaks(text: string): string {
   const structural = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>|```|\||\s*\*{3}\s*$)/;
   return text
     .split(/\n{2,}/)
     .map((para) => {
       const lines = para.split("\n");
-      const out = [];
+      const out: string[] = [];
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const isLast = i === lines.length - 1;
@@ -119,12 +116,10 @@ export function embedHardBreaks(text) {
     .join("\n\n");
 }
 
-/**
- * @param {unknown} raw
- * @param {import("obsidian").TFile | null} [file]
- * @returns {{ sort: number, y: number, mo: number, d: number, display: string } | null}
- */
-export function parseStoryDate(raw, file = null) {
+export function parseStoryDate(
+  raw: unknown,
+  file: TFile | null = null
+): { sort: number; y: number; mo: number; d: number; display: string } | null {
   let str = raw !== undefined && raw !== null ? String(raw).trim() : "";
   if (!str && file) {
     /* année à 4 chiffres exigée : un fichier nommé "4.md" ou "10.md"
@@ -146,11 +141,10 @@ export function parseStoryDate(raw, file = null) {
  * (ni vides, ni structurelles) : les paragraphes déjà séparés par une ligne
  * vide, et les lignes de structure (titres, listes, citations, code,
  * tableaux, ***), sont laissés intacts. */
-/** @param {string} text @returns {string} */
-export function compactLineBreaks(text) {
+export function compactLineBreaks(text: string): string {
   const structural = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>|```|\||\s*\*{3}\s*$|\s*$)/;
   const lines = text.split("\n");
-  const out = [];
+  const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const isBlank = line.trim() === "";
@@ -174,8 +168,7 @@ export function compactLineBreaks(text) {
 /** Corrections typographiques françaises. skipFrontmatter : préserve l'en-tête.
  * Le code (bloc ``` ``` ou span `inline`) n'est jamais touché : guillemets et
  * apostrophes y ont un sens syntaxique, pas typographique. */
-/** @param {string} text @param {boolean} skipFrontmatter @returns {string} */
-export function frenchTypography(text, skipFrontmatter) {
+export function frenchTypography(text: string, skipFrontmatter: boolean): string {
   let head = "";
   let body = text;
   if (skipFrontmatter) {
@@ -186,7 +179,7 @@ export function frenchTypography(text, skipFrontmatter) {
     }
   }
   const NB = " "; // espace fine insécable
-  const applyRules = (s) =>
+  const applyRules = (s: string): string =>
     s
       .replace(/\.\.\./g, "…")
       .replace(/(^|[\s(«])"([^"]+)"/g, (_, a, inner) => `${a}«${NB}${inner}${NB}»`)
@@ -203,9 +196,8 @@ export function frenchTypography(text, skipFrontmatter) {
   return head + body;
 }
 
-/** @returns {string} */
-export function todayKey() {
+export function todayKey(): string {
   const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
+  const p = (n: number): string => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
