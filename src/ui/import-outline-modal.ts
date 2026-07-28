@@ -1,8 +1,22 @@
-import { Modal, Notice, normalizePath } from "obsidian";
+import { Modal, Notice, normalizePath, type App, type TAbstractFile, type TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
 
+type ImportOutlineSettings = {
+  wordGoal: number;
+};
+
+type ImportOutlinePlugin = {
+  settings: ImportOutlineSettings;
+  getProjectFolder(): TFolder | null;
+  ensureFolder(path: string): Promise<TAbstractFile>;
+  writeOrder(parent: TAbstractFile, children: TAbstractFile[]): Promise<void>;
+  renderAllViews(force: boolean): void;
+};
+
 export class ImportOutlineModal extends Modal {
-  constructor(app, plugin) {
+  plugin: ImportOutlinePlugin;
+
+  constructor(app: App, plugin: ImportOutlinePlugin) {
     super(app);
     this.plugin = plugin;
   }
@@ -44,12 +58,12 @@ export class ImportOutlineModal extends Modal {
     this.contentEl.empty();
   }
 
-  safeFolderName(title, index) {
+  safeFolderName(title: string, index: number): string {
     const cleaned = title.replace(/[\\/:*?"<>|]/g, "").trim();
-    return cleaned || t("modal.importOutline.untitled", { index });
+    return cleaned || t("modal.importOutline.untitled", { index: String(index) });
   }
 
-  async importOutline(text) {
+  async importOutline(text: string): Promise<void> {
     const plugin = this.plugin;
     const root = plugin.getProjectFolder();
     if (!root) {
@@ -58,12 +72,12 @@ export class ImportOutlineModal extends Modal {
     }
     const lines = text.split("\n").filter((l) => l.trim().length > 0);
 
-    const activeFolders = [root];
+    const activeFolders: Array<TAbstractFile | null> = [root];
     let createdFoldersCount = 0;
     let createdFilesCount = 0;
-    const orderMap = new Map();
+    const orderMap = new Map<string, TAbstractFile[]>();
 
-    const record = (parent, child) => {
+    const record = (parent: TAbstractFile, child: TAbstractFile): void => {
       const arr = orderMap.get(parent.path) || [];
       arr.push(child);
       orderMap.set(parent.path, arr);
@@ -83,10 +97,11 @@ export class ImportOutlineModal extends Modal {
         const title = headerMatch[2].trim();
         if (!title) continue;
 
-        let parent = root;
+        let parent: TAbstractFile = root;
         for (let i = hashes - 1; i >= 0; i--) {
-          if (activeFolders[i]) {
-            parent = activeFolders[i];
+          const activeFolder = activeFolders[i];
+          if (activeFolder) {
+            parent = activeFolder;
             break;
           }
         }
@@ -111,10 +126,11 @@ export class ImportOutlineModal extends Modal {
         }
         if (!title) continue;
 
-        let parent = root;
+        let parent: TAbstractFile = root;
         for (let i = activeFolders.length - 1; i >= 0; i--) {
-          if (activeFolders[i]) {
-            parent = activeFolders[i];
+          const activeFolder = activeFolders[i];
+          if (activeFolder) {
+            parent = activeFolder;
             break;
           }
         }
@@ -155,6 +171,6 @@ export class ImportOutlineModal extends Modal {
     }
 
     plugin.renderAllViews(true);
-    new Notice(t("modal.importOutline.importDone", { folders: createdFoldersCount, files: createdFilesCount }));
+    new Notice(t("modal.importOutline.importDone", { folders: String(createdFoldersCount), files: String(createdFilesCount) }));
   }
 }
