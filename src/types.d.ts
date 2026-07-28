@@ -250,6 +250,27 @@ declare type FeuilletsSettings = {
 
   /** Valeurs utilisées pour l'initialisation de l'arborescence projet. */
   manuscriptTitle: string;
+  epubLanguage: string;
+  exportTemplate: string;
+
+  pdfPageSize: string;
+  pdfOrientation: "portrait" | "landscape";
+  pdfMarginTop: number;
+  pdfMarginBottom: number;
+  pdfMarginLeft: number;
+  pdfMarginRight: number;
+  pdfMirrorMargins: boolean;
+  pdfDiffHeaders: boolean;
+  pdfHeaderLeft: string;
+  pdfHeaderRight: string;
+  pdfFooterLeft: string;
+  pdfFooterRight: string;
+  pdfPageNumberPosition: "right" | "center" | "left";
+  pdfHideFirstPageHeader: boolean;
+  pdfOrphans: number;
+  pdfWidows: number;
+  pdfPreventHeadingOrphans: boolean;
+
   journalFolder: string;
   wordGoal: number;
 
