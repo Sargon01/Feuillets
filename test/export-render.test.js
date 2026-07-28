@@ -232,7 +232,30 @@ test("renderManuscriptHtml : extrait et retire les notes de bas de page", async 
   try {
     const { containerEl, footnotes } = await renderManuscriptHtml(fakeApp(), "texte", "Source.md");
     assert.deepEqual(footnotes, [{ id: "fn1", html: "<p>Une note</p>", text: "Une note" }]);
+    assert.equal(footnotes[0].html.includes("$1"), false);
+    assert.doesNotMatch(footnotes[0].html, /\/\s*<\/p>$/);
     assert.equal(containerEl.querySelector("section.footnotes"), null);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
+test("renderManuscriptHtml : retire un slash final des notes sans injecter $1", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    const section = element("section", "", { class: "footnotes" });
+    const note = element("li", "", { id: "fn-slash" });
+    note.appendChild(element("p", "Une note / "));
+    note.appendChild(element("a", "↩", { class: "footnote-backref" }));
+    section.appendChild(note);
+    container.appendChild(section);
+  });
+  try {
+    const { footnotes } = await renderManuscriptHtml(fakeApp(), "texte", "Source.md");
+    assert.deepEqual(footnotes, [{ id: "fn-slash", html: "<p>Une note</p>", text: "Une note" }]);
+    assert.equal(footnotes[0].html.includes("$1"), false);
+    assert.doesNotMatch(footnotes[0].html, /\/\s*<\/p>$/);
   } finally {
     restoreRenderer();
     restoreDom();

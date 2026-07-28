@@ -250,7 +250,7 @@ function extractFootnotes(container: HTMLElement): RenderedFootnote[] {
         .replace(/<a[^>]*class=["'](?:footnote-backref|internal-link)["'][^>]*>.*?<\/a>/gi, "")
         // eslint-disable-next-line no-misleading-character-class -- voulu : on cible ↩ avec ses variantes de presentation U+FE0E/U+FE0F
         .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
-        .replace(/(?:&nbsp;|\s)*[/\\]+\s*(?:<\/p>)?$/gi, "$1")
+        .replace(/(?:&nbsp;|\s)*[/\\]+\s*(<\/p>)?$/gi, "$1")
         .replace(/[\s/\\]+(?=<\/p>|$)/gi, "")
         .trim();
 
