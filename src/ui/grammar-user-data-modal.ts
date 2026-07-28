@@ -1,12 +1,23 @@
-import { Modal, Notice, setIcon } from "obsidian";
+import { Modal, Notice, setIcon, type App } from "obsidian";
+import type { GrammarUserData } from "../services/grammar-user-data.js";
 import { t } from "../i18n/index.js";
+
+type GrammarDataKind = "known" | "ignored";
+
+type GrammarUserDataPlugin = {
+  grammarUserData: GrammarUserData;
+};
 
 /** Gestion des mots appris / fautes ignorées de la correction grammaticale
  * (voir services/grammar-user-data.js) : liste filtrable par recherche,
  * suppression par entrée, vidage complet. Sortie des réglages pour que la
  * page reste compacte quel que soit le nombre d'entrées accumulées. */
 export class GrammarUserDataModal extends Modal {
-  constructor(app, plugin, kind) {
+  plugin: GrammarUserDataPlugin;
+  kind: GrammarDataKind;
+  search: string;
+
+  constructor(app: App, plugin: GrammarUserDataPlugin, kind: GrammarDataKind) {
     super(app);
     this.plugin = plugin;
     this.kind = kind; // "known" | "ignored"
@@ -21,31 +32,31 @@ export class GrammarUserDataModal extends Modal {
     this.contentEl.empty();
   }
 
-  get entries() {
+  get entries(): string[] {
     const data = this.plugin.grammarUserData;
     if (!data) return [];
     return this.kind === "known" ? data.knownWords : data.ignoredRules;
   }
 
-  labelFor(entry) {
+  labelFor(entry: string): string {
     if (this.kind === "known") return entry;
     const [ruleId, word] = entry.split("::");
     return word ? `${word} (${ruleId})` : ruleId;
   }
 
-  remove(entry) {
+  remove(entry: string): void {
     const data = this.plugin.grammarUserData;
     if (this.kind === "known") data.unlearnWord(entry);
     else data.unignoreSignature(entry);
   }
 
-  clearAll() {
+  clearAll(): void {
     const data = this.plugin.grammarUserData;
     if (this.kind === "known") data.clearKnownWords();
     else data.clearIgnoredRules();
   }
 
-  render() {
+  render(): void {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
@@ -83,7 +94,7 @@ export class GrammarUserDataModal extends Modal {
 
     const list = contentEl.createDiv({ cls: "feuillets-project-list" });
 
-    const renderList = () => {
+    const renderList = (): void => {
       list.empty();
       const term = this.search.trim().toLowerCase();
       const filtered = [...this.entries]
