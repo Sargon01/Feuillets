@@ -1,8 +1,32 @@
-import { Modal } from "obsidian";
+import { Modal, type App, type TFile, type TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
 
+type SelectionSettings = FeuilletsSettings & {
+  readSelection: string[];
+  readScope: string;
+};
+
+type CompileFrontmatter = {
+  compile?: boolean;
+};
+
+type SelectionPlugin = {
+  settings: SelectionSettings;
+  getProjectFolder(): TFolder | null;
+  buildNumbering(folder: TFolder): Map<string, string>;
+  flattenFiles(folder: TFolder): TFile[];
+  fmOf(file: TFile): CompileFrontmatter;
+  shortTitleFor(file: TFile): string;
+  renderAllViews(force: boolean): void;
+  saveSettings(): Promise<void>;
+};
+
+type SelectionDoneHandler = () => void | Promise<void>;
+
 export class CompileSelectionModal extends Modal {
-  constructor(app, plugin) {
+  plugin: SelectionPlugin;
+
+  constructor(app: App, plugin: SelectionPlugin) {
     super(app);
     this.plugin = plugin;
   }
@@ -22,7 +46,7 @@ export class CompileSelectionModal extends Modal {
 
     const numbering = this.plugin.buildNumbering(root);
     const listEl = contentEl.createDiv({ cls: "feuillets-read-selection" });
-    const checkboxes = [];
+    const checkboxes: Array<[HTMLInputElement, TFile]> = [];
 
     for (const file of this.plugin.flattenFiles(root)) {
       const fm = this.plugin.fmOf(file);
@@ -68,7 +92,10 @@ export class CompileSelectionModal extends Modal {
 }
 
 export class ReadSelectionModal extends Modal {
-  constructor(app, plugin, onDone) {
+  plugin: SelectionPlugin;
+  onDone?: SelectionDoneHandler;
+
+  constructor(app: App, plugin: SelectionPlugin, onDone?: SelectionDoneHandler) {
     super(app);
     this.plugin = plugin;
     this.onDone = onDone;
@@ -87,7 +114,7 @@ export class ReadSelectionModal extends Modal {
     const currentSelection = new Set(this.plugin.settings.readSelection || []);
     const numbering = this.plugin.buildNumbering(root);
     const listEl = contentEl.createDiv({ cls: "feuillets-read-selection" });
-    const checkboxes = [];
+    const checkboxes: Array<[HTMLInputElement, string]> = [];
 
     for (const file of this.plugin.flattenFiles(root)) {
       const row = listEl.createDiv({ cls: "feuillets-read-selection-row" });
