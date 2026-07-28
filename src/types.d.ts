@@ -297,3 +297,41 @@ declare type FeuilletsSettings = {
 
   [key: string]: unknown;
 };
+
+/** Configuration d'un preset de compilation actif (résultat de
+ * activePresetConfig). */
+declare type PresetConfig = {
+  name: string;
+  fileName: string;
+  folderTitles: boolean;
+  chapterTitles: boolean;
+  sceneTitles: boolean;
+  separator: string;
+  [key: string]: unknown;
+};
+
+/** Segment d'un manuscrit compilé — conservé pour les exports natifs
+ * (signets par feuillet, détection des pages Front) mais jamais transmis
+ * à Pandoc. */
+declare type CompileSegment = {
+  path: string | null;
+  text: string;
+  frontType: string | null;
+};
+
+/** Résultat de compile() : chemin du fichier écrit, texte complet et
+ * segments pour les exports natifs. */
+declare type CompileResult = {
+  outPath: string;
+  manuscript: string;
+  segments: CompileSegment[];
+};
+
+/** Contexte d'export partagé par les moteurs natifs (EPUB, DOCX, ODT, PDF). */
+declare type ExportContext = {
+  markdown: string;
+  title: string;
+  author: string;
+  sourcePath: string;
+  segments?: CompileSegment[];
+};
