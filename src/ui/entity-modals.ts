@@ -1,9 +1,56 @@
-import { Modal, TFolder, setIcon } from "obsidian";
+import { Modal, TFile, TFolder, setIcon } from "obsidian";
+import type { App } from "obsidian";
 import { openFileActivating } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
 
+type Appearance = {
+  file: TFile;
+  excerpt?: string;
+};
+
+type AppearancesPlugin = {
+  titleFor(file: TFile): string;
+  getProjectFolder(): TFolder | null;
+  buildNumbering(root: TFolder): Map<string, string>;
+  findAppearances(file: TFile): Promise<Appearance[]>;
+  getChapters(root: TFolder): Array<TFile | TFolder>;
+  shortTitleFor(file: TFile): string;
+};
+
+type TagsPlugin = {
+  settings: { favoriteTags?: string[] };
+  titleFor(file: TFile): string;
+  tagsOf(file: TFile): string[];
+};
+
+type FolderGoalPlugin = {
+  settings: { folderGoals: Record<string, number> };
+  saveSettings(): Promise<void>;
+  renderAllViews(force: boolean): void;
+};
+
+type NameSubmitHandler = (name: string) => void | Promise<void>;
+
+type SavedResearchFilter = {
+  name: string;
+  search?: string;
+  tag?: string;
+};
+
+type SavedFiltersPlugin = {
+  settings: {
+    projectMeta: Record<string, { savedResearchFilters?: SavedResearchFilter[] }>;
+  };
+  saveSettings(): Promise<void>;
+};
+
+type ChangeHandler = () => void | Promise<void>;
+
 export class AppearancesModal extends Modal {
-  constructor(app, plugin, entityFile) {
+  plugin: AppearancesPlugin;
+  entityFile: TFile;
+
+  constructor(app: App, plugin: AppearancesPlugin, entityFile: TFile) {
     super(app);
     this.plugin = plugin;
     this.entityFile = entityFile;
@@ -18,7 +65,7 @@ export class AppearancesModal extends Modal {
     loading.setText(t("modal.appearances.searching"));
 
     const root = this.plugin.getProjectFolder();
-    const numbering = root ? this.plugin.buildNumbering(root) : new Map();
+    const numbering = root ? this.plugin.buildNumbering(root) : new Map<string, string>();
     const results = await this.plugin.findAppearances(this.entityFile);
     loading.remove();
 
@@ -32,7 +79,7 @@ export class AppearancesModal extends Modal {
     contentEl
       .createDiv({ cls: "feuillets-notes-sub" })
       .setText(
-        t("modal.appearances.count", { count: results.length, s: results.length > 1 ? "s" : "" })
+        t("modal.appearances.count", { count: String(results.length), s: results.length > 1 ? "s" : "" })
       );
 
     if (root) {
@@ -40,7 +87,7 @@ export class AppearancesModal extends Modal {
       const totalChapters = chapters.length;
 
       if (totalChapters > 0) {
-        const chaptersWithAppearance = new Set();
+        const chaptersWithAppearance = new Set<number>();
         for (const r of results) {
           const idx = chapters.findIndex((c) =>
             c instanceof TFolder
@@ -51,12 +98,12 @@ export class AppearancesModal extends Modal {
         }
         contentEl
           .createDiv({ cls: "feuillets-notes-label" })
-          .setText(t("modal.appearances.presenceOnChapters", { count: totalChapters }));
+          .setText(t("modal.appearances.presenceOnChapters", { count: String(totalChapters) }));
         const density = contentEl.createDiv({ cls: "feuillets-density-strip" });
         for (let c = 1; c <= totalChapters; c++) {
           const tick = density.createDiv({ cls: "feuillets-density-tick" });
           if (chaptersWithAppearance.has(c)) tick.addClass("feuillets-density-hit");
-          tick.setAttr("title", t("modal.appearances.chapterN", { n: c }));
+          tick.setAttr("title", t("modal.appearances.chapterN", { n: String(c) }));
         }
       }
     }
@@ -86,7 +133,10 @@ export class AppearancesModal extends Modal {
 }
 
 export class TagsModal extends Modal {
-  constructor(app, plugin, file) {
+  plugin: TagsPlugin;
+  file: TFile;
+
+  constructor(app: App, plugin: TagsPlugin, file: TFile) {
     super(app);
     this.plugin = plugin;
     this.file = file;
@@ -154,7 +204,10 @@ export class TagsModal extends Modal {
 }
 
 export class FolderGoalModal extends Modal {
-  constructor(app, plugin, folder) {
+  plugin: FolderGoalPlugin;
+  folder: TFolder;
+
+  constructor(app: App, plugin: FolderGoalPlugin, folder: TFolder) {
     super(app);
     this.plugin = plugin;
     this.folder = folder;
@@ -175,7 +228,8 @@ export class FolderGoalModal extends Modal {
     input.value = String(current);
     input.focus();
 
-    const btnRow = contentEl.createDiv({ style: "margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;" });
+    const btnRow = contentEl.createDiv();
+    btnRow.style.cssText = "margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;";
     const cancel = btnRow.createEl("button", { text: t("modal.cancel") });
     cancel.addEventListener("click", () => this.close());
 
@@ -205,7 +259,9 @@ export class FolderGoalModal extends Modal {
  * l'enregistrer comme "dossier virtuel" réutilisable — voir
  * base-feuillets-view.js renderSavedFiltersButton. */
 export class SaveResearchFilterModal extends Modal {
-  constructor(app, onSubmit) {
+  onSubmit: NameSubmitHandler;
+
+  constructor(app: App, onSubmit: NameSubmitHandler) {
     super(app);
     this.onSubmit = onSubmit;
   }
@@ -243,7 +299,11 @@ export class SaveResearchFilterModal extends Modal {
  * place), plus simple qu'un formulaire d'édition pour un usage aussi
  * ponctuel. */
 export class ManageSavedFiltersModal extends Modal {
-  constructor(app, plugin, root, onChange) {
+  plugin: SavedFiltersPlugin;
+  root: TFolder;
+  onChange?: ChangeHandler;
+
+  constructor(app: App, plugin: SavedFiltersPlugin, root: TFolder, onChange?: ChangeHandler) {
     super(app);
     this.plugin = plugin;
     this.root = root;
