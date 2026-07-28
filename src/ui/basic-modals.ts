@@ -1,8 +1,15 @@
-import { Modal } from "obsidian";
+import { Modal, type App } from "obsidian";
 import { t } from "../i18n/index.js";
 
+type NewSheetHandler = (fileName: string, title: string) => void | Promise<void>;
+type NewFolderHandler = (name: string) => void | Promise<void>;
+type ConfirmHandler = () => void | Promise<void>;
+
 export class NewSheetModal extends Modal {
-  constructor(app, folderName, onSubmit) {
+  folderName: string;
+  onSubmit: NewSheetHandler;
+
+  constructor(app: App, folderName: string, onSubmit: NewSheetHandler) {
     super(app);
     this.folderName = folderName;
     this.onSubmit = onSubmit;
@@ -50,7 +57,12 @@ export class NewSheetModal extends Modal {
  * supprimer une propriété de tous les feuillets d'un projet) — pas de
  * window.confirm() natif, pour rester cohérent avec le reste de l'UI. */
 export class ConfirmModal extends Modal {
-  constructor(app, title, message, confirmLabel, onConfirm) {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: ConfirmHandler;
+
+  constructor(app: App, title: string, message: string, confirmLabel: string, onConfirm: ConfirmHandler) {
     super(app);
     this.title = title;
     this.message = message;
@@ -80,7 +92,10 @@ export class ConfirmModal extends Modal {
 }
 
 export class NewFolderModal extends Modal {
-  constructor(app, parentName, onSubmit) {
+  parentName: string;
+  onSubmit: NewFolderHandler;
+
+  constructor(app: App, parentName: string, onSubmit: NewFolderHandler) {
     super(app);
     this.parentName = parentName;
     this.onSubmit = onSubmit;
