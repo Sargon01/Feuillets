@@ -1,20 +1,34 @@
-import { Modal } from "obsidian";
+import { Modal, type App, type TFolder } from "obsidian";
 import { resolveExportTemplate } from "../services/export-templates-custom.js";
 import { paginateManuscript } from "../services/export-pdf.js";
 import { templateToCss } from "../utils/export-templates.js";
 import { t } from "../i18n/index.js";
 import { appendParagraphWithStrong, mountTemplatePreview } from "./template-preview.js";
 
+type PreviewSettings = FeuilletsSettings & {
+  exportTemplate: string;
+  manuscriptTitle?: string;
+  manuscriptAuthor?: string;
+};
+
+type PreviewPlugin = {
+  settings: PreviewSettings;
+  getProjectFolder(): TFolder | null;
+};
+
 /** Modale d'aperçu visuel dédiée : s'ouvre uniquement au clic sur l'icône d'œil
  * ou le bouton "Aperçu visuel", sans encombrer la barre latérale. */
 export class PreviewModal extends Modal {
-  constructor(app, plugin) {
+  plugin: PreviewPlugin;
+  settings: PreviewSettings;
+
+  constructor(app: App, plugin: PreviewPlugin) {
     super(app);
     this.plugin = plugin;
     this.settings = plugin.settings;
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     const { contentEl, modalEl } = this;
     modalEl.addClass("feuillets-preview-modal");
     contentEl.empty();
@@ -31,7 +45,7 @@ export class PreviewModal extends Modal {
     await this.renderPreview(body);
   }
 
-  async renderPreview(container) {
+  async renderPreview(container: HTMLElement): Promise<void> {
     container.empty();
     const root = this.plugin ? this.plugin.getProjectFolder() : null;
     const title = this.settings.manuscriptTitle || (root ? root.name : t("analysis.dashboard.defaultManuscriptName"));
