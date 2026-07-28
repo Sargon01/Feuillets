@@ -1,5 +1,47 @@
 import { Component, MarkdownRenderer } from "obsidian";
+import type { App, TFile } from "obsidian";
 import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
+
+type RenderedFootnote = {
+  id: string;
+  html: string;
+  text: string;
+};
+
+type RenderedImage = {
+  bytes: Uint8Array;
+  ext: string;
+  width: number;
+  height: number;
+  caption: string;
+};
+
+type RenderedManuscript = {
+  containerEl: HTMLDivElement;
+  footnotes: RenderedFootnote[];
+  images: Map<HTMLImageElement, RenderedImage>;
+};
+
+type ExportRenderSegment = {
+  text: string;
+  frontType?: string | null;
+};
+
+type ImageDimensions = {
+  width: number;
+  height: number;
+};
+
+type ImageMime = "image/jpeg" | "image/png" | "image/gif" | "image/svg+xml" | "image/webp";
+
+const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, ImageMime>> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+};
 
 /** Rend un markdown déjà compilé (sortie de compile()) en HTML propre via
  * le moteur natif d'Obsidian — pas de parseur maison : MarkdownRenderer
@@ -18,12 +60,12 @@ import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
  * aussi enveloppée dans un <figure>/<figcaption> si elle a une légende),
  * le DOCX a besoin des octets bruts pour construire un vrai ImageRun (la
  * légende y est ajoutée comme un paragraphe séparé — voir export-docx.js). */
-export async function renderManuscriptHtml(app, markdown, sourcePath) {
+export async function renderManuscriptHtml(app: App, markdown: string, sourcePath?: string): Promise<RenderedManuscript> {
   const container = document.createElement("div");
   const component = new Component();
   component.load();
   try {
-    await MarkdownRenderer.render(app, markdown, container, sourcePath, component);
+    await MarkdownRenderer.render(app, markdown, container, sourcePath || "", component);
   } finally {
     component.unload();
   }
@@ -63,7 +105,7 @@ const TITLE_ROLE_MARKER_RE = new RegExp(`^${TITLE_ROLE_MARKER}(.+)$`);
  * les paragraphes-marqueurs `FEUILLETS-FPROLE:rôle` et pose `data-fp-role` sur
  * le paragraphe de contenu qui suit — c'est cet attribut que l'export PDF/
  * HTML cible ensuite en CSS pour appliquer le style du rôle. */
-function tagTitleRolesInDom(containerEl) {
+function tagTitleRolesInDom(containerEl: HTMLElement): void {
   containerEl.querySelectorAll(".feuillets-frontpage").forEach((fp) => {
     const kids = Array.from(fp.children);
     for (let i = 0; i < kids.length; i++) {
@@ -88,11 +130,11 @@ function tagTitleRolesInDom(containerEl) {
  * matérialise donc chaque ligne vide par son propre paragraphe rempli d'une
  * espace insécable, sans exception : pas de "première ligne vide consommée
  * comme séparateur", puisque ce séparateur-là ne se voit pas. */
-export function preserveBlankLinesForFrontPage(text) {
+export function preserveBlankLinesForFrontPage(text: string): string {
   const BLANK_LINE_MARKER = "\u00A0";
   const lines = text.split("\n");
-  const paragraphs = [];
-  let current = [];
+  const paragraphs: string[] = [];
+  let current: string[] = [];
   let i = 0;
   while (i < lines.length) {
     if (lines[i].trim() !== "") {
@@ -123,7 +165,12 @@ export function preserveBlankLinesForFrontPage(text) {
  * directement sur le HTML rendu. Sans `segments` (pandoc, ou aucun
  * feuillet Front dans ce projet), se comporte exactement comme
  * renderManuscriptHtml. */
-export async function renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath) {
+export async function renderManuscriptHtmlWithFrontPages(
+  app: App,
+  markdown: string,
+  segments?: ExportRenderSegment[] | null,
+  sourcePath?: string
+): Promise<RenderedManuscript> {
   if (!segments || !segments.length || !segments.some((s) => s.frontType)) {
     return renderManuscriptHtml(app, markdown, sourcePath);
   }
@@ -138,7 +185,7 @@ export async function renderManuscriptHtmlWithFrontPages(app, markdown, segments
   return result;
 }
 
-function wrapFrontPagesInDom(containerEl) {
+function wrapFrontPagesInDom(containerEl: HTMLElement): void {
   const children = Array.from(containerEl.children);
   let i = 0;
   while (i < children.length) {
@@ -173,8 +220,12 @@ function wrapFrontPagesInDom(containerEl) {
  * plutôt que d'échouer ; les notes restent alors simplement des liens
  * internes non traduits dans l'export, dégradation acceptable plutôt
  * qu'un export qui plante. */
-function extractFootnotes(container) {
-  const footnotes = [];
+function isHtmlElement(node: Node): node is HTMLElement & { textContent: string } {
+  return "innerHTML" in node && "querySelectorAll" in node && typeof node.textContent === "string";
+}
+
+function extractFootnotes(container: HTMLElement): RenderedFootnote[] {
+  const footnotes: RenderedFootnote[] = [];
   try {
     const section = container.querySelector("section.footnotes, .footnotes");
     if (!section) return footnotes;
@@ -182,6 +233,7 @@ function extractFootnotes(container) {
     items.forEach((li) => {
       const id = li.getAttribute("id") || "";
       const clone = li.cloneNode(true);
+      if (!isHtmlElement(clone)) return;
       clone.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
 
       let html = clone.innerHTML.trim();
@@ -216,7 +268,7 @@ function extractFootnotes(container) {
  * `![[fichier.png]]` sans alias (le nom du fichier lui-même) ou d'un
  * indice de taille façon `![[fichier.png|300]]` (juste un nombre) — ni
  * l'un ni l'autre n'est une vraie légende à afficher. */
-function realCaption(alt, file) {
+function realCaption(alt: string | null, file: TFile): string {
   const a = (alt || "").trim();
   if (!a) return "";
   const lower = a.toLowerCase();
@@ -236,7 +288,7 @@ function realCaption(alt, file) {
  * app:// rendue, en dernier recours un simple appariement par nom de
  * fichier — moins fiable en cas d'homonymes dans des dossiers différents,
  * mais mieux que rien. */
-function resolveImageFile(app, img, src, sourcePath) {
+function resolveImageFile(app: App, img: HTMLImageElement, src: string, sourcePath?: string): TFile | null {
   const embedEl = img.closest(".internal-embed");
   const linkpath = embedEl?.getAttribute("src") || "";
   if (linkpath) {
@@ -257,8 +309,8 @@ function resolveImageFile(app, img, src, sourcePath) {
  * — le DOCX en a besoin pour construire un vrai ImageRun + un paragraphe
  * de légende (voir export-docx.js) ; l'EPUB/PDF reçoivent directement un
  * <figure>/<figcaption> dans le DOM. */
-async function inlineImages(app, container, sourcePath) {
-  const images = new Map();
+async function inlineImages(app: App, container: HTMLElement, sourcePath?: string): Promise<Map<HTMLImageElement, RenderedImage>> {
+  const images = new Map<HTMLImageElement, RenderedImage>();
   const imgs = Array.from(container.querySelectorAll("img"));
   for (const img of imgs) {
     const src = img.getAttribute("src") || "";
@@ -269,7 +321,7 @@ async function inlineImages(app, container, sourcePath) {
       const buf = await app.vault.readBinary(file);
       const b64 = arrayBufferToBase64(buf);
       const ext = (file.extension || "png").toLowerCase();
-      const mime = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", svg: "image/svg+xml", webp: "image/webp" }[ext] || "image/png";
+      const mime = IMAGE_MIME_BY_EXTENSION[ext] || "image/png";
       const dataUri = `data:${mime};base64,${b64}`;
       img.setAttribute("src", dataUri);
       const { width, height } = await naturalSizeOf(dataUri);
@@ -294,7 +346,7 @@ async function inlineImages(app, container, sourcePath) {
  * pour dimensionner un ImageRun docx sans le déformer. Repli sur une
  * taille raisonnable si le décodage échoue plutôt que de faire échouer
  * tout l'export pour une seule image récalcitrante. */
-function naturalSizeOf(dataUri) {
+function naturalSizeOf(dataUri: string): Promise<ImageDimensions> {
   return new Promise((resolve) => {
     const el = new Image();
     el.onload = () => resolve({ width: el.naturalWidth || 400, height: el.naturalHeight || 300 });
@@ -303,7 +355,7 @@ function naturalSizeOf(dataUri) {
   });
 }
 
-function arrayBufferToBase64(buf) {
+function arrayBufferToBase64(buf: ArrayBuffer): string {
   let binary = "";
   const bytes = new Uint8Array(buf);
   const chunk = 0x8000;
@@ -317,7 +369,7 @@ function arrayBufferToBase64(buf) {
  * code, attributs data-* internes) — le contenu sémantique (titres,
  * paragraphes, gras/italique, listes, citations, références de notes)
  * reste intact. */
-function stripObsidianCruft(container) {
+function stripObsidianCruft(container: HTMLElement): void {
   container
     .querySelectorAll("button, .copy-code-button, .edit-block-button, .callout-icon, .collapse-indicator")
     .forEach((el) => el.remove());
