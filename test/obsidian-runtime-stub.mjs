@@ -1,4 +1,6 @@
-export function setIcon() {}
+export function setIcon(element, icon) {
+  if (element && typeof element === "object") element.icon = icon;
+}
 
 export class Component {
   load() {}
