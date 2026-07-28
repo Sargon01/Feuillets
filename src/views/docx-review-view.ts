@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs, desktop uniquement */
 /* global require -- défini par environnement */
-import { setIcon, Notice, Platform, TFile } from "obsidian";
+import { setIcon, Notice, Platform, TFile, type App, type WorkspaceLeaf } from "obsidian";
 import JSZip from "jszip";
 import { VIEW_DOCX_REVIEW } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -18,12 +18,78 @@ import {
 import { bookmarkIdFor } from "../utils/docx-bookmarks.js";
 import { t, getLocale } from "../i18n/index.js";
 
+type DocxReviewPluginBase = ConstructorParameters<typeof BaseFeuilletsView>[1];
+type ReviewMode = "picker" | "results";
+type ReviewChangeType = "insertion" | "deletion" | "replacement" | "move";
+type SavedReviewState = { applied: boolean; dismissed: boolean };
+type ReviewStateByItem = Record<string, SavedReviewState>;
+type ReviewStateByDocument = Record<string, ReviewStateByItem>;
+type ReviewEntryBase = {
+  type?: ReviewChangeType;
+  author: string;
+  date: string;
+  text?: string;
+  contextBefore?: string;
+  fromContext?: string;
+  fromText?: string;
+  toContext?: string;
+  oldText?: string;
+  newText?: string;
+  fromPath?: string | null;
+  toPath?: string | null;
+  anchorText?: string;
+  parentId?: string;
+  isFormatting?: boolean;
+  markers?: string[];
+  nearFiles?: string[];
+  moved?: boolean;
+  inFootnote?: boolean;
+  resolvedInWord?: boolean;
+  ord?: number | string;
+  applied?: boolean;
+  dismissed?: boolean;
+};
+type ReviewChange = ReviewEntryBase & { type: ReviewChangeType };
+type ReviewComment = ReviewEntryBase & { anchorText: string };
+type ReviewBucket = { changes: ReviewChange[]; comments: ReviewComment[] };
+type ReviewBuckets = Record<string, ReviewBucket>;
+type ReviewResults = { byPath: ReviewBuckets; unmatched: ReviewBuckets; unclassified: ReviewBucket };
+type ReviewEntry = ReviewChange | ReviewComment;
+type DocxReviewSettings = FeuilletsSettings & {
+  collapsed: Record<string, boolean>;
+  docxReviewResolved?: ReviewStateByDocument;
+};
+type DocxReviewPlugin = Omit<DocxReviewPluginBase, "settings"> & {
+  settings: DocxReviewSettings;
+  getOutputFolder(): Promise<{ path: string; children: unknown[] } | null>;
+  listCompiledFilePaths(): string[];
+  snapshotFile(file: TFile, root: unknown): Promise<unknown>;
+  titleFor(file: TFile): string;
+};
+type DocxInputFile = { async(type: "string"): Promise<string> };
+type DocxArchive = { file(path: string): DocxInputFile | null };
+type EditorLike = {
+  getValue(): string;
+  offsetToPos(offset: number): unknown;
+  setSelection(from: unknown, to: unknown): void;
+  scrollIntoView(range: { from: unknown; to: unknown }, center: boolean): void;
+};
+type ReviewLeaf = { openFile(file: TFile, state: { active: boolean }): Promise<void>; view?: { editor?: EditorLike } };
+
+function hasEditor(view: object): view is { editor: EditorLike } {
+  return "editor" in view;
+}
+
+function hasChildren(folder: object): folder is { children: unknown[] } {
+  return "children" in folder && Array.isArray(folder.children);
+}
+
 /* Icône par type de retour — même esprit que getResearchSectionIcon
  * (base-feuillets-view.js) : un repère visuel immédiat, avant même de lire
  * le texte, pour distinguer d'un coup d'œil ajout/suppression/remplacement/
  * déplacement/commentaire/mise en forme dans une liste qui peut en
  * contenir des dizaines. */
-function iconFor(entry) {
+function iconFor(entry: ReviewEntry): string {
   if (entry.type === "move" || entry.moved) return "move";
   if (entry.anchorText !== undefined) return entry.isFormatting ? "highlighter" : "message-square";
   if (entry.type === "insertion") return "plus";
@@ -60,7 +126,7 @@ const FORMAT_MARKER_CLASSES = {
  * (même classe de bug que celui corrigé sur la sélection d'extrait du
  * panneau Recherche). Seules les actions de CE panneau déclenchent son
  * propre re-rendu. */
-function getItemKey(item) {
+function getItemKey(item: ReviewEntry): string {
   const type = item.type || (item.isFormatting ? "formatting" : "comment");
   const author = item.author || "";
   const date = item.date || "";
@@ -75,7 +141,7 @@ function getItemKey(item) {
   return `${type}|${author}|${date}|${ctx}|${txt}|${ord}`;
 }
 
-function resolveVaultFile(app, path) {
+function resolveVaultFile(app: App, path: string | null | undefined): TFile | null {
   if (!path) return null;
   const direct = app.vault.getAbstractFileByPath(path);
   if (direct instanceof TFile) return direct;
@@ -87,7 +153,15 @@ function resolveVaultFile(app, path) {
 }
 
 export class DocxReviewView extends BaseFeuilletsView {
-  constructor(leaf, plugin) {
+  declare plugin: DocxReviewPlugin;
+  declare targetContainer?: HTMLElement;
+  mode: ReviewMode;
+  results: ReviewResults | null;
+  showResolved: boolean;
+  docxName: string;
+  _snapshotted: Set<string> | undefined;
+
+  constructor(leaf: WorkspaceLeaf, plugin: DocxReviewPluginBase) {
     super(leaf, plugin);
     this.mode = "picker"; // "picker" | "results"
     this.results = null; // { byPath, unmatched, unclassified }
@@ -288,9 +362,9 @@ export class DocxReviewView extends BaseFeuilletsView {
 
   async renderPickerPanel(container) {
     const outputFolder = await this.plugin.getOutputFolder();
-    const docxFiles = outputFolder
+    const docxFiles = outputFolder && hasChildren(outputFolder)
       ? outputFolder.children
-          .filter((f) => f instanceof TFile && f.extension === "docx")
+          .filter((f): f is TFile => f instanceof TFile && f.extension === "docx")
           .sort((a, b) => b.stat.mtime - a.stat.mtime)
       : [];
 
@@ -389,6 +463,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       this.render();
     });
 
+    if (!this.results) return;
     const { byPath, unmatched, unclassified } = this.results;
     const paths = Object.keys(byPath).sort((a, b) => a.localeCompare(b, "fr"));
     const unmatchedIds = Object.keys(unmatched);
@@ -440,15 +515,15 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     const summary = container.createDiv({ cls: "feuillets-research-section" });
     summary.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      t("docxReview.toProcess", { count: totalActive }) +
-        (totalResolved > 0 ? t("docxReview.resolvedSuffix", { count: totalResolved }) : "")
+      t("docxReview.toProcess", { count: String(totalActive) }) +
+        (totalResolved > 0 ? t("docxReview.resolvedSuffix", { count: String(totalResolved) }) : "")
     );
 
     if (totalActive === 0 && totalResolved > 0 && !this.showResolved) {
       const emptyBox = container.createDiv({ cls: "feuillets-research-section feuillets-docx-review-done-box" });
       emptyBox.createDiv({ cls: "feuillets-notes-section-title" }).setText(t("docxReview.allDoneTitle"));
       emptyBox.createDiv({ cls: "feuillets-notes-sub" }).setText(
-        t("docxReview.allDoneBody", { count: totalResolved })
+        t("docxReview.allDoneBody", { count: String(totalResolved) })
       );
       const row = emptyBox.createDiv({ cls: "feuillets-docx-review-done-actions" });
       const viewResolvedBtn = this.iconBtn(row, "eye", t("docxReview.showResolved"));
@@ -499,7 +574,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       const titleEl = head ? head.querySelector(".feuillets-notes-section-title") : null;
       if (titleEl) {
         const badgeEl = titleEl.createSpan({ cls: "feuillets-docx-review-section-badge" });
-        badgeEl.setText(activeCount > 0 ? t("docxReview.badgeToProcess", { count: activeCount }) : t("docxReview.badgeResolved"));
+        badgeEl.setText(activeCount > 0 ? t("docxReview.badgeToProcess", { count: String(activeCount) }) : t("docxReview.badgeResolved"));
         if (activeCount === 0) badgeEl.addClass("mod-resolved");
       }
 
@@ -545,7 +620,7 @@ export class DocxReviewView extends BaseFeuilletsView {
         const titleEl = head ? head.querySelector(".feuillets-notes-section-title") : null;
         if (titleEl) {
           const badgeEl = titleEl.createSpan({ cls: "feuillets-docx-review-section-badge" });
-          badgeEl.setText(t("docxReview.badgeToProcess", { count: allUnmatchedChanges.length + allUnmatchedComments.length }));
+          badgeEl.setText(t("docxReview.badgeToProcess", { count: String(allUnmatchedChanges.length + allUnmatchedComments.length) }));
         }
 
         if (!S.collapsed[collapseKey]) {
@@ -560,16 +635,16 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
   }
 
-  async openAndReveal(file, itemOrText, fallbackText) {
+  async openAndReveal(file: TFile, itemOrText: ReviewEntry | string | null | undefined, fallbackText?: string): Promise<void> {
     const leaf = this.app.workspace.getLeaf(false);
     await leaf.openFile(file, { active: true });
     this.app.workspace.setActiveLeaf(leaf, { focus: true });
-    const editor = leaf.view && leaf.view.editor;
-    if (!editor) return;
+    if (!leaf.view || !hasEditor(leaf.view)) return;
+    const editor = leaf.view.editor;
 
     const content = editor.getValue();
     let searchText = "";
-    let targetText = "";
+    let targetText: string | undefined = "";
 
     if (typeof itemOrText === "string") {
       searchText = itemOrText;
