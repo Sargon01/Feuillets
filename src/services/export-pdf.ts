@@ -1,14 +1,61 @@
 import { Notice, Platform } from "obsidian";
+import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
 
+type PdfFootnote = {
+  id: string;
+  html: string;
+};
+
+type PdfExportSegment = {
+  text: string;
+  frontType?: string | null;
+};
+
+type PdfExportInput = {
+  markdown: string;
+  title: string;
+  author: string;
+  sourcePath: string;
+  segments?: PdfExportSegment[];
+};
+
+type PaginationResult = {
+  pagesHtml: string;
+  totalPages: number;
+};
+
+type PdfPageSize = string;
+type PdfOrientation = string;
+type PdfPageNumberPosition = "left" | "center" | "right";
+
+function isPageElement(node: Node): node is Element {
+  return "outerHTML" in node && "classList" in node;
+}
+
+function measuredHeight(node: Element): number {
+  return "offsetHeight" in node && typeof node.offsetHeight === "number" ? node.offsetHeight || 30 : 30;
+}
+
+function isPrintableIframe(iframe: HTMLIFrameElement): iframe is HTMLIFrameElement & { contentDocument: Document; contentWindow: Window } {
+  return iframe.contentDocument !== null && iframe.contentWindow !== null;
+}
+
 /** Pagine le contenu HTML en boîtes de pages réelles (.pdf-page) pour l'impression PDF et l'aperçu WYSIWYG.
  * Gère les en-têtes et pieds de page différenciés (paires/impaires), les sauts de page sur titres (H1/H2),
  * la position des numéros de page (droite, centré, gauche) et la couleur adoucie des en-têtes (#aaaaaa). */
-export function paginateManuscript(containerEl, footnotes, settings, tpl, title = "", author = "") {
-  const pageSize = settings.pdfPageSize || "A4";
-  const orientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
+export function paginateManuscript(
+  containerEl: HTMLElement,
+  footnotes: PdfFootnote[] | null | undefined,
+  settings: FeuilletsSettings,
+  tpl: ResolvedExportTemplate,
+  title = "",
+  author = ""
+): PaginationResult {
+  const pageSize: PdfPageSize = settings.pdfPageSize || "A4";
+  const orientation: PdfOrientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
   const mTop = settings.pdfMarginTop ?? 2.5;
   const mBottom = settings.pdfMarginBottom ?? 2.5;
   const mLeft = settings.pdfMarginLeft ?? 2.5;
@@ -17,7 +64,7 @@ export function paginateManuscript(containerEl, footnotes, settings, tpl, title 
   const mirror = !!settings.pdfMirrorMargins;
   const diffHeaders = !!settings.pdfDiffHeaders;
   const hideFirst = settings.pdfHideFirstPageHeader ?? true;
-  const pageNumPos = settings.pdfPageNumberPosition || "right"; // "right" | "center" | "left"
+  const pageNumPos: PdfPageNumberPosition = settings.pdfPageNumberPosition || "right"; // "right" | "center" | "left"
 
   // Dimensions de la page (A4 = 210x297mm)
   const isLandscape = orientation === "landscape";
@@ -41,7 +88,9 @@ export function paginateManuscript(containerEl, footnotes, settings, tpl, title 
   measureHost.style.lineHeight = String(tpl.lineHeight);
   document.body.appendChild(measureHost);
 
-  const elements = Array.from(containerEl.children).map((el) => el.cloneNode(true));
+  const elements = Array.from(containerEl.children)
+    .map((el) => el.cloneNode(true))
+    .filter(isPageElement);
   if (footnotes && footnotes.length > 0) {
     const fnDiv = document.createElement("div");
     fnDiv.className = "pdf-footnotes-section";
@@ -62,8 +111,8 @@ export function paginateManuscript(containerEl, footnotes, settings, tpl, title 
     elements.push(fnDiv);
   }
 
-  const rawPages = [];
-  let currentPageNodes = [];
+  const rawPages: Element[][] = [];
+  let currentPageNodes: Element[] = [];
   let currentH = 0;
 
   for (let i = 0; i < elements.length; i++) {
@@ -71,7 +120,7 @@ export function paginateManuscript(containerEl, footnotes, settings, tpl, title 
     const tag = node.tagName ? node.tagName.toLowerCase() : "";
 
     measureHost.appendChild(node);
-    const nodeH = node.offsetHeight || 30;
+    const nodeH = measuredHeight(node);
     measureHost.removeChild(node);
 
     const isHeading = ["h1", "h2", "h3", "h4"].includes(tag);
@@ -220,7 +269,7 @@ export function paginateManuscript(containerEl, footnotes, settings, tpl, title 
 }
 
 /** PDF via la boîte de dialogue d'impression du système */
-export async function exportPdf(app, settings, { markdown, title, author, sourcePath, segments }) {
+export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: PdfExportInput): Promise<void> {
   if (Platform.isMobile) {
     new Notice(
       "L'export PDF n'est disponible que sur desktop pour l'instant — utilise EPUB ou Word (.docx) sur mobile."
@@ -250,12 +299,16 @@ export async function exportPdf(app, settings, { markdown, title, author, source
   const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, title, author);
 
   const css = templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl);
-  const pageSize = settings.pdfPageSize || "A4";
-  const orientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
+  const pageSize: PdfPageSize = settings.pdfPageSize || "A4";
+  const orientation: PdfOrientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
 
   const iframe = document.createElement("iframe");
   iframe.addClass("feuillets-pdf-print-frame");
   document.body.appendChild(iframe);
+
+  if (!isPrintableIframe(iframe)) {
+    throw new Error("Impossible de préparer la fenêtre d'impression PDF.");
+  }
 
   const doc = iframe.contentDocument;
   doc.open();
@@ -289,7 +342,7 @@ ${pagesHtml}
     if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
   };
 
-  await new Promise((resolve) => {
+  await new Promise<void>((resolve) => {
     iframe.onload = () => resolve();
     window.setTimeout(resolve, 300);
   });
