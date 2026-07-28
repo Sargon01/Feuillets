@@ -7,7 +7,34 @@ import {
 import { CompileSelectionModal } from "./selection-modals.js";
 
 import { Modal, Setting, Notice, Platform } from "obsidian";
+import type { App } from "obsidian";
 import { t } from "../i18n/index.js";
+
+type ExportFormat = "docx" | "odt" | "epub" | "md" | "pdf";
+type LayoutSelection = "header" | "footer" | string | null;
+type ExportTemplateOption = { key: string; label: string };
+type TitlePageStyles = Record<string, TitlePageStyle>;
+type BlockElements = Record<string, HTMLElement>;
+type OnLayoutChange = () => void;
+type NumberFieldSetter = (value: number | undefined) => void;
+type SelectionPlugin = ConstructorParameters<typeof CompileSelectionModal>[1];
+type LayoutPlugin = SelectionPlugin & {
+  settings: FeuilletsSettings;
+  saveSettings(): Promise<void>;
+  compile(): Promise<CompileResult | null>;
+  exportFile(format: ExportFormat): Promise<void>;
+};
+
+function presetLabel(preset: unknown, index: number): string {
+  if (typeof preset === "object" && preset !== null && "name" in preset && typeof preset.name === "string") {
+    return preset.name;
+  }
+  return t("settings.compilePresets.item", { n: String(index + 1) });
+}
+
+function isExportFormat(value: string): value is ExportFormat {
+  return value === "docx" || value === "odt" || value === "epub" || value === "md" || value === "pdf";
+}
 
 /* Échelle de la maquette : la zone de contenu (entre bande en-tête et bande
    pied de page) représente la hauteur utile d'une A4 (≈700pt). Aperçu, pas
@@ -26,7 +53,23 @@ const SCALE = (MOCKUP_H_PX - HEADER_PX - FOOTER_PX) / PAGE_USABLE_PT;
  * option A). La page de titre masque normalement en-tête/pied (réglage
  * « Masquer p.1 ») : les bandes sont alors grisées avec la mention. */
 export class LayoutModal extends Modal {
-  constructor(app, plugin, templateKey, templateLabel, onChange) {
+  plugin: LayoutPlugin;
+  templateKey: string;
+  templateLabel: string;
+  onChange: OnLayoutChange | undefined;
+  styles: TitlePageStyles;
+  roles: string[];
+  selected: LayoutSelection;
+  blockEls: BlockElements;
+  templates: ExportTemplateOption[] = [];
+  titleEl!: HTMLElement;
+  layoutContainer!: HTMLElement;
+  pageEl!: HTMLElement;
+  headerBand!: HTMLElement;
+  footerBand!: HTMLElement;
+  inspectorEl!: HTMLElement;
+
+  constructor(app: App, plugin: LayoutPlugin, templateKey: string, templateLabel: string, onChange?: OnLayoutChange) {
     super(app);
     this.plugin = plugin;
     this.templateKey = templateKey;
@@ -38,7 +81,7 @@ export class LayoutModal extends Modal {
     this.blockEls = {};
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     const { contentEl, modalEl } = this;
     modalEl.addClass("feuillets-titlepage-modal");
     contentEl.empty();
@@ -65,10 +108,11 @@ export class LayoutModal extends Modal {
     const presets = S.compilePresets || [];
     new Setting(bar).setName(t("modal.layout.preset")).addDropdown((d) => {
       d.addOption("-1", t("modal.layout.defaultSettings"));
-      presets.forEach((p, i) => d.addOption(String(i), p.name || t("settings.compilePresets.item", { n: i + 1 })));
-      d.setValue(String(S.activePreset >= 0 ? S.activePreset : -1));
+      presets.forEach((preset, index) => d.addOption(String(index), presetLabel(preset, index)));
+      const activePreset = S["activePreset"];
+      d.setValue(String(typeof activePreset === "number" && activePreset >= 0 ? activePreset : -1));
       d.onChange(async (v) => {
-        S.activePreset = parseInt(v, 10);
+        S["activePreset"] = parseInt(v, 10);
         await this.plugin.saveSettings();
         this.notifyChange();
       });
@@ -97,7 +141,7 @@ export class LayoutModal extends Modal {
             const n = await exportBuiltInTemplates(this.app, S);
             new Notice(
               n > 0
-                ? t("main.notice.templatesExported", { count: n })
+                ? t("main.notice.templatesExported", { count: String(n) })
                 : t("modal.layout.allTemplatesPresent")
             );
           })
@@ -109,9 +153,11 @@ export class LayoutModal extends Modal {
       d.addOption("epub", ".epub (Ebook)");
       d.addOption("md", ".md (Markdown)");
       if (!Platform.isMobile) d.addOption("pdf", ".pdf (PDF)");
-      d.setValue(S.exportFormat || "docx");
+      const exportFormat = S["exportFormat"];
+      d.setValue(typeof exportFormat === "string" ? exportFormat : "docx");
       d.onChange(async (v) => {
-        S.exportFormat = v;
+        if (!isExportFormat(v)) return;
+        S["exportFormat"] = v;
         await this.plugin.saveSettings();
         this.notifyChange();
       });
@@ -126,8 +172,9 @@ export class LayoutModal extends Modal {
     );
   }
 
-  doExport() {
-    const fmt = this.plugin.settings.exportFormat || "docx";
+  doExport(): void {
+    const savedFormat = this.plugin.settings["exportFormat"];
+    const fmt = typeof savedFormat === "string" && isExportFormat(savedFormat) ? savedFormat : "docx";
     this.close();
     if (fmt === "md") this.plugin.compile();
     else this.plugin.exportFile(fmt);
@@ -135,15 +182,14 @@ export class LayoutModal extends Modal {
 
   /** (Re)charge les blocs du modèle courant et (re)construit la maquette
    * (bandes + blocs + inspecteur) — rejoué quand on change de modèle. */
-  async renderLayout() {
+  async renderLayout(): Promise<void> {
     this.titleEl.setText(t("modal.layout.pageLayoutTitle", { name: this.templateLabel || this.templateKey }));
     const c = this.layoutContainer;
     c.empty();
     this.selected = null;
 
     const tpl = await resolveExportTemplate(this.app, this.plugin.settings, this.templateKey);
-    this.styles =
-      tpl.titlePage && tpl.titlePage.styles ? JSON.parse(JSON.stringify(tpl.titlePage.styles)) : {};
+    this.styles = tpl.titlePage && tpl.titlePage.styles ? JSON.parse(JSON.stringify(tpl.titlePage.styles)) : {};
     this.roles = Object.keys(this.styles);
 
     const wrap = c.createDiv({ cls: "feuillets-tp-editor" });
@@ -167,11 +213,11 @@ export class LayoutModal extends Modal {
     this.renderInspector();
   }
 
-  notifyChange() {
+  notifyChange(): void {
     if (this.onChange) this.onChange();
   }
 
-  buildBlocks() {
+  buildBlocks(): void {
     this.blockEls = {};
     for (const role of this.roles) {
       const el = this.pageEl.createDiv({ cls: "feuillets-tp-block" });
@@ -183,7 +229,7 @@ export class LayoutModal extends Modal {
 
   /** Positionne chaque bloc dans la zone de contenu (sous la bande en-tête),
    * pile verticale à marges cumulées. */
-  layout() {
+  layout(): void {
     let y = 0;
     for (const role of this.roles) {
       const st = this.styles[role];
@@ -201,9 +247,9 @@ export class LayoutModal extends Modal {
   }
 
   /** Contenu et état (grisé) des bandes en-tête/pied selon les réglages. */
-  renderBands() {
+  renderBands(): void {
     const S = this.plugin.settings;
-    const off = S.pdfEnableHeaders === false;
+    const off = S["pdfEnableHeaders"] === false;
     const hideP1 = S.pdfHideFirstPageHeader !== false;
 
     this.headerBand.empty();
@@ -225,19 +271,19 @@ export class LayoutModal extends Modal {
     span.setText(S.pdfFooterRight || "Page {page} sur {pages}");
   }
 
-  startDrag(e, role) {
+  startDrag(e: PointerEvent, role: string): void {
     e.preventDefault();
     this.select(role);
     const st = this.styles[role];
     const startY = e.clientY;
     const startMargin = st.marginTopPt != null ? st.marginTopPt : 0;
-    const onMove = (ev) => {
+    const onMove = (ev: PointerEvent) => {
       const dPt = (ev.clientY - startY) / SCALE;
       st.marginTopPt = Math.max(0, Math.round(startMargin + dPt));
       this.layout();
       this.syncInspectorValues();
     };
-    const onUp = async () => {
+    const onUp = async (): Promise<void> => {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       await this.saveModel();
@@ -246,14 +292,14 @@ export class LayoutModal extends Modal {
     document.addEventListener("pointerup", onUp);
   }
 
-  select(target) {
+  select(target: LayoutSelection): void {
     this.selected = target;
     this.layout();
     this.renderBands();
     this.renderInspector();
   }
 
-  renderInspector() {
+  renderInspector(): void {
     const insp = this.inspectorEl;
     insp.empty();
     if (this.selected === "header") return this.renderHeaderInspector(insp);
@@ -264,7 +310,7 @@ export class LayoutModal extends Modal {
     );
   }
 
-  renderHeaderInspector(insp) {
+  renderHeaderInspector(insp: HTMLElement): void {
     const S = this.plugin.settings;
     insp.createEl("h4", { text: t("modal.layout.headerAllPages") });
     const saveBands = async () => {
@@ -272,8 +318,8 @@ export class LayoutModal extends Modal {
       this.renderBands();
     };
     new Setting(insp).setName(t("modal.layout.enableHeader")).addToggle((t2) =>
-      t2.setValue(S.pdfEnableHeaders !== false).onChange(async (v) => {
-        S.pdfEnableHeaders = v;
+      t2.setValue(S["pdfEnableHeaders"] !== false).onChange(async (v) => {
+        S["pdfEnableHeaders"] = v;
         await saveBands();
       })
     );
@@ -303,7 +349,7 @@ export class LayoutModal extends Modal {
     );
   }
 
-  renderFooterInspector(insp) {
+  renderFooterInspector(insp: HTMLElement): void {
     const S = this.plugin.settings;
     insp.createEl("h4", { text: t("modal.layout.footerNumber") });
     const saveBands = async () => {
@@ -317,6 +363,7 @@ export class LayoutModal extends Modal {
         .addOption("left", t("settings.pdfPageNumberPosition.left"))
         .setValue(S.pdfPageNumberPosition || "right")
         .onChange(async (v) => {
+          if (v !== "right" && v !== "center" && v !== "left") return;
           S.pdfPageNumberPosition = v;
           await saveBands();
         })
@@ -329,10 +376,10 @@ export class LayoutModal extends Modal {
     );
   }
 
-  renderBlockInspector(insp, role) {
+  renderBlockInspector(insp: HTMLElement, role: string): void {
     const st = this.styles[role];
     insp.createEl("h4", { text: role });
-    const num = (name, get, set) =>
+    const num = (name: string, get: () => number | undefined, set: NumberFieldSetter): Setting =>
       new Setting(insp).setName(name).addText((t2) => {
         t2.inputEl.type = "number";
         t2.setValue(get() != null ? String(get()) : "").onChange(async (v) => {
@@ -346,7 +393,8 @@ export class LayoutModal extends Modal {
     num(t("modal.layout.sizePt"), () => st.fontSizePt, (n) => (n == null ? delete st.fontSizePt : (st.fontSizePt = n)));
 
     new Setting(insp).setName(t("modal.layout.alignment")).then((s) => {
-      for (const [val, icon] of [["left", "align-left"], ["center", "align-center"], ["right", "align-right"]]) {
+      const alignments: Array<[string, string]> = [["left", "align-left"], ["center", "align-center"], ["right", "align-right"]];
+      for (const [val, icon] of alignments) {
         s.addExtraButton((b) => {
           b.setIcon(icon).setTooltip(val).onClick(async () => {
             st.align = val;
@@ -365,19 +413,19 @@ export class LayoutModal extends Modal {
 
   /** Met à jour le champ « marge au-dessus » pendant un glisser, sans
    * reconstruire l'inspecteur (garde le focus des autres champs). */
-  syncInspectorValues() {
+  syncInspectorValues(): void {
     if (!this.selected || !this.styles[this.selected]) return;
     const st = this.styles[this.selected];
-    const inputs = this.inspectorEl.querySelectorAll('input[type="number"]');
+    const inputs = this.inspectorEl.querySelectorAll<HTMLInputElement>('input[type="number"]');
     // ordre : Taille, Marge au-dessus, Marge en dessous
     if (inputs[1]) inputs[1].value = st.marginTopPt != null ? String(st.marginTopPt) : "";
   }
 
-  saveModel() {
+  saveModel(): Promise<void> {
     return updateTemplateTitlePage(this.app, this.plugin.settings, this.templateKey, this.styles);
   }
 
-  onClose() {
+  onClose(): void {
     this.contentEl.empty();
   }
 }
