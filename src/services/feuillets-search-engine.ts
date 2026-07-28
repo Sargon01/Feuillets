@@ -8,14 +8,7 @@
  */
 
 import { splitFrontmatter, preserveCase } from "./manuscript-search-replace.js";
-
-type SearchFile = {
-  path: string;
-  extension?: string;
-  parent?: {
-    children?: SearchFile[];
-  };
-};
+import type { TFile } from "obsidian";
 
 type SearchOptions = {
   scope?: string;
@@ -24,25 +17,25 @@ type SearchOptions = {
   matchMode?: string;
   useRegex?: boolean;
   includeYaml?: boolean;
-  activeFile?: SearchFile | null;
+  activeFile?: TFile | null;
 };
 
 type SearchApp = {
   workspace?: {
-    getActiveFile(): SearchFile | null;
+    getActiveFile(): TFile | null;
   };
   vault: {
-    read(file: SearchFile): Promise<string>;
-    process(file: SearchFile, callback: (content: string) => string): Promise<unknown>;
+    read(file: TFile): Promise<string>;
+    process(file: TFile, callback: (content: string) => string): Promise<unknown>;
   };
 };
 
 type SearchPlugin = {
-  getManuscriptFiles?: () => SearchFile[];
+  getManuscriptFiles?: () => TFile[];
 };
 
-type SearchOccurrence = {
-  file: SearchFile;
+export type SearchOccurrence = {
+  file: TFile;
   index: number;
   length: number;
   line: number;
@@ -112,7 +105,7 @@ export class FeuilletsSearchEngine {
    * @param {object} activeFile
    * @returns {Array<object>}
    */
-  static getScopedFiles(app: SearchApp, plugin: SearchPlugin, scopeOption = "manuscript", activeFile: SearchFile | null = null) {
+  static getScopedFiles(app: SearchApp, plugin: SearchPlugin, scopeOption = "manuscript", activeFile: TFile | null = null): TFile[] {
     const currentFile = activeFile || (app.workspace ? app.workspace.getActiveFile() : null);
 
     if (scopeOption === "document") {
@@ -121,7 +114,7 @@ export class FeuilletsSearchEngine {
 
     // Scope "manuscript" : uniquement les fichiers .md situés dans le même dossier parent que le document actif
     if (currentFile && currentFile.parent && currentFile.parent.children) {
-      return currentFile.parent.children.filter((file) => file && file.extension === "md");
+      return currentFile.parent.children.filter((file): file is TFile => file && "extension" in file && file.extension === "md");
     }
 
     return plugin.getManuscriptFiles ? plugin.getManuscriptFiles() : [];
