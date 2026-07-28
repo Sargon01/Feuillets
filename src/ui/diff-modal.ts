@@ -1,4 +1,5 @@
 import { Modal, Notice, ButtonComponent, DropdownComponent, TFile, TFolder, setIcon } from "obsidian";
+import type { App } from "obsidian";
 /* `import * as` et non un import par défaut : diff v9 est un paquet ESM pur
    qui n'expose que des exports nommés (diffWords, diffLines…). Un
    `import Diff from "diff"` compile chez tsc mais fait échouer esbuild. */
@@ -8,10 +9,59 @@ import { ConfirmModal } from "./basic-modals.js";
 import { foldAccents } from "../utils/core.js";
 import { t } from "../i18n/index.js";
 
+type DiffMode = "split" | "inline";
+
+type DiffPaneElement = HTMLElement & {
+  createDiv(options?: { cls?: string; text?: string }): DiffPaneElement;
+  createSpan(options?: { cls?: string; text?: string }): DiffPaneElement;
+  empty(): void;
+};
+
+type ComparePlugin = {
+  shortTitleFor(file: TFile): string;
+};
+
+type PickFilePlugin = {
+  getProjectFolder(): TFolder | null;
+  getVersionsRoot(): TFolder | null;
+  getOrderedChildren(folder: TFolder): Array<TFile | TFolder>;
+  shortTitleFor(file: TFile): string;
+};
+
+type DiffPlugin = ComparePlugin & {
+  getProjectFolder(): TFolder | null;
+  snapshotFile(file: TFile, root: TFolder): Promise<unknown>;
+};
+
+type FileChooseHandler = (file: TFile) => void | Promise<void>;
+
+type DiffOrigin = {
+  root: TFolder;
+  label: string;
+  icon: string;
+};
+
+type DiffModalArguments =
+  | [plugin: DiffPlugin, currentFile: TFile, initialSnapshot?: TFile]
+  | [currentFile: TFile, initialSnapshot?: TFile];
+
+function isFileOnlyDiffModalArguments(
+  args: DiffModalArguments
+): args is [currentFile: TFile, initialSnapshot?: TFile] {
+  return args[0] instanceof TFile;
+}
+
 /** Rendu partagé du corps de diff (côte à côte / vue unifiée) — utilisé par
  * DiffModal (comparaison avec un snapshot) et CompareFilesModal (comparaison
  * entre deux feuillets quelconques, ex. une scène dans deux versions). */
-function renderDiffPanes(container, mode, textA, textB, labelA, labelB) {
+function renderDiffPanes(
+  container: DiffPaneElement,
+  mode: DiffMode,
+  textA: string,
+  textB: string,
+  labelA: string,
+  labelB: string
+) {
   container.empty();
   const diffs = Diff.diffWords(textA, textB);
 
@@ -67,7 +117,7 @@ function renderDiffPanes(container, mode, textA, textB, labelA, labelB) {
   }
 }
 
-const stripFrontmatter = (raw) => raw.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+const stripFrontmatter = (raw: string) => raw.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
 
 /** Comparaison entre deux feuillets quelconques (pas forcément un fichier et
  * son snapshot) — sert notamment à comparer une même scène entre deux
@@ -75,7 +125,12 @@ const stripFrontmatter = (raw) => raw.replace(/^---\n[\s\S]*?\n---\n?/, "").trim
  * manuscrit actif. Pas de bouton "Restaurer" : contrairement à un
  * snapshot, rien ne dit lequel des deux devrait écraser l'autre. */
 export class CompareFilesModal extends Modal {
-  constructor(app, plugin, fileA, fileB) {
+  plugin: ComparePlugin | null;
+  fileA: TFile;
+  fileB: TFile;
+  mode: DiffMode;
+
+  constructor(app: App, plugin: ComparePlugin | null, fileA: TFile, fileB: TFile) {
     super(app);
     this.plugin = plugin;
     this.fileA = fileA;
@@ -83,7 +138,7 @@ export class CompareFilesModal extends Modal {
     this.mode = "split";
   }
 
-  labelFor(file) {
+  labelFor(file: TFile): string {
     return `${this.plugin ? this.plugin.shortTitleFor(file) : file.basename} — ${file.parent ? file.parent.name : ""}`;
   }
 
@@ -140,7 +195,13 @@ export class CompareFilesModal extends Modal {
  * liste plate à recherche floue — une liste seule ne disait pas si un
  * résultat venait du manuscrit ou d'une version, ni de quel dossier. */
 export class PickFileModal extends Modal {
-  constructor(app, plugin, excludeFile, onChoose) {
+  plugin: PickFilePlugin;
+  excludeFile: TFile;
+  onChoose: FileChooseHandler;
+  collapsed: Set<string>;
+  filter: string;
+
+  constructor(app: App, plugin: PickFilePlugin, excludeFile: TFile, onChoose: FileChooseHandler) {
     super(app);
     this.plugin = plugin;
     this.excludeFile = excludeFile;
@@ -155,7 +216,7 @@ export class PickFileModal extends Modal {
     this.render();
   }
 
-  getOrigins() {
+  getOrigins(): DiffOrigin[] {
     const root = this.plugin.getProjectFolder();
     if (!(root instanceof TFolder)) return [];
     const origins = [{ root, label: t("modal.diff.activeManuscript"), icon: "book-marked" }];
@@ -189,7 +250,7 @@ export class PickFileModal extends Modal {
     this.renderTree(tree);
   }
 
-  renderTree(tree) {
+  renderTree(tree: DiffPaneElement) {
     tree.empty();
     const q = foldAccents(this.filter.trim());
     const origins = this.getOrigins();
@@ -212,7 +273,7 @@ export class PickFileModal extends Modal {
       if (isCollapsed) continue;
 
       const anyShown = { value: false };
-      const renderChildren = (folder, depth) => {
+      const renderChildren = (folder: TFolder, depth: number) => {
         for (const child of this.plugin.getOrderedChildren(folder)) {
           if (child instanceof TFolder) {
             const matchInside = !q || this.folderHasMatch(child, q);
@@ -252,7 +313,7 @@ export class PickFileModal extends Modal {
     }
   }
 
-  folderHasMatch(folder, q) {
+  folderHasMatch(folder: TFolder, q: string): boolean {
     for (const child of folder.children) {
       if (child instanceof TFolder) {
         if (this.folderHasMatch(child, q)) return true;
@@ -269,16 +330,30 @@ export class PickFileModal extends Modal {
 }
 
 export class DiffModal extends Modal {
-  constructor(app, pluginOrFile, currentFileOrSnap, initialSnapshot) {
+  plugin: DiffPlugin | null;
+  currentFile: TFile;
+  initialSnapshot: TFile | undefined;
+  mode: DiffMode;
+  snapshots: TFile[];
+  selectedSnapshot: TFile | null;
+
+  constructor(app: App, plugin: DiffPlugin, currentFile: TFile, initialSnapshot?: TFile);
+  constructor(app: App, currentFile: TFile, initialSnapshot?: TFile);
+  constructor(
+    app: App,
+    ...args: DiffModalArguments
+  ) {
     super(app);
-    if (pluginOrFile && pluginOrFile.getProjectFolder) {
-      this.plugin = pluginOrFile;
-      this.currentFile = currentFileOrSnap;
+    if (isFileOnlyDiffModalArguments(args)) {
+      const [currentFile, initialSnapshot] = args;
+      this.plugin = null;
+      this.currentFile = currentFile;
       this.initialSnapshot = initialSnapshot;
     } else {
-      this.plugin = null;
-      this.currentFile = pluginOrFile;
-      this.initialSnapshot = currentFileOrSnap;
+      const [plugin, currentFile, initialSnapshot] = args;
+      this.plugin = plugin;
+      this.currentFile = currentFile;
+      this.initialSnapshot = initialSnapshot;
     }
     this.mode = "split"; // "split" | "inline"
     this.snapshots = [];
@@ -314,7 +389,8 @@ export class DiffModal extends Modal {
 
     // Sélecteur de snapshot
     const snapControl = headerBar.createDiv({ cls: "feuillets-diff-controls" });
-    snapControl.createSpan({ text: `${t("modal.diff.snapshotLabel")} `, style: "font-weight: 500;" });
+    const snapshotLabel = snapControl.createSpan({ text: `${t("modal.diff.snapshotLabel")} ` });
+    snapshotLabel.style.fontWeight = "500";
     const drop = new DropdownComponent(snapControl);
     this.snapshots.forEach((snap, idx) => {
       const dateLabel = snap.basename;

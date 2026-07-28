@@ -34,12 +34,60 @@ export class TFolder {
 }
 
 export class Notice {
+  static onCreate = null;
+
   constructor(message) {
     this.message = message;
+    Notice.onCreate?.(message);
   }
 }
 
 export class Modal {}
+
+export class ButtonComponent {
+  constructor(container) {
+    this.container = container;
+    this.container.buttonComponents ||= [];
+    this.container.buttonComponents.push(this);
+  }
+
+  setButtonText(text) {
+    this.text = text;
+    return this;
+  }
+
+  setWarning() {
+    this.warning = true;
+    return this;
+  }
+
+  onClick(callback) {
+    this.callback = callback;
+    return this;
+  }
+}
+
+export class DropdownComponent {
+  constructor(container) {
+    this.container = container;
+    this.options = [];
+  }
+
+  addOption(value, label) {
+    this.options.push({ value, label });
+    return this;
+  }
+
+  setValue(value) {
+    this.value = value;
+    return this;
+  }
+
+  onChange(callback) {
+    this.callback = callback;
+    return this;
+  }
+}
 
 export function stringifyYaml(value) {
   return Object.entries(value).map(([key, item]) => `${key}: ${String(item)}`).join("\n");
