@@ -1,15 +1,47 @@
-import { Modal } from "obsidian";
+import { Modal, type App, type TFile, type TFolder } from "obsidian";
 
 import { countWords } from "../utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "../utils/text-metrics.js";
 import { t } from "../i18n/index.js";
+
+type StatsSettings = FeuilletsSettings & {
+  tolerance: number;
+  wordGoal: number;
+  projectWordGoal?: number;
+  deadlineDate?: string;
+};
+
+type WordCount = {
+  chars?: number;
+  charsNoSpaces?: number;
+  wc?: number;
+  sentences?: number;
+  paragraphs?: number;
+};
+
+type StatsPlugin = {
+  settings: StatsSettings;
+  titleFor(file: TFile): string;
+  fmOf(file: TFile): Record<string, string>;
+  getProjectFolder(): TFolder | null;
+  flattenFiles(folder: TFolder): TFile[];
+  getWordCounts(files: TFile[]): Promise<Map<string, WordCount>>;
+};
+
+type StatsBlock = {
+  list: HTMLElement;
+  addRow(label: string, value: string | number): void;
+};
 
 /** Statistiques complètes — ouvertes d'un clic sur la barre d'état : le
  * détail du feuillet actif, puis les stats globales du projet entier.
  * Ni l'un ni l'autre n'a de section dédiée dans un panneau : à la demande
  * plutôt que d'alourdir en permanence Journal ou Projet & export. */
 export class FileStatsModal extends Modal {
-  constructor(app, plugin, file) {
+  plugin: StatsPlugin;
+  file: TFile;
+
+  constructor(app: App, plugin: StatsPlugin, file: TFile) {
     super(app);
     this.plugin = plugin;
     this.file = file;
@@ -17,7 +49,16 @@ export class FileStatsModal extends Modal {
 
   /** Carte objectif/mots (barre de pourcentage) + liste de compteurs —
    * même structure pour le feuillet actif et pour le projet entier. */
-  renderStatsBlock(container, label, wc, goal, chars, charsNoSpaces, sentences, paragraphs) {
+  renderStatsBlock(
+    container: HTMLElement,
+    label: string,
+    wc: number,
+    goal: number,
+    chars: number,
+    charsNoSpaces: number,
+    sentences: number,
+    paragraphs: number,
+  ): StatsBlock {
     const wcCard = container.createDiv({ cls: "feuillets-wc-card" });
     const wcHeader = wcCard.createDiv({ cls: "feuillets-wc-header" });
     const wcLabel = wcHeader.createDiv({ cls: "feuillets-wc-label", text: label });
@@ -40,8 +81,9 @@ export class FileStatsModal extends Modal {
     const estPages = Math.max(1, Math.ceil(wc / 250));
     const readTime = Math.max(1, Math.ceil(wc / 200));
 
-    const list = container.createDiv({ cls: "feuillets-notes-metadata-list", style: "margin-top: 8px;" });
-    const addRow = (rLabel, value) => {
+    const list = container.createDiv({ cls: "feuillets-notes-metadata-list" });
+    list.style.marginTop = "8px";
+    const addRow = (rLabel: string, value: string | number): void => {
       const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
       row.createDiv({ cls: "feuillets-notes-metadata-label", text: rLabel });
       row.createDiv({ cls: "feuillets-notes-metadata-value", text: String(value) });
@@ -52,11 +94,11 @@ export class FileStatsModal extends Modal {
     addRow(t("modal.stats.wordsPerSentence"), wordsPerSentence);
     addRow(t("analysis.metrics.paragraphs"), formatNumber(paragraphs));
     addRow(t("modal.stats.pages"), formatNumber(estPages));
-    addRow(t("modal.stats.readingTime"), t("modal.stats.minutes", { count: readTime }));
+    addRow(t("modal.stats.readingTime"), t("modal.stats.minutes", { count: String(readTime) }));
     return { list, addRow };
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     const { contentEl } = this;
     const { app, plugin, file } = this;
 
