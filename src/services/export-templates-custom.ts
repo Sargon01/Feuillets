@@ -37,6 +37,28 @@ function customTemplatesFolder(app: App, settings: FeuilletsSettings): TFolder |
   return folder instanceof TFolder ? folder : null;
 }
 
+/** Une police personnalisée doit rester une chaîne réellement utilisable. */
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/** Les dimensions DOCX sont exprimées par des nombres positifs et finis. */
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * Préserve les valeurs de modèle valides, sans laisser un frontmatter mal
+ * formé effacer les valeurs par défaut nécessaires à l'export.
+ */
+function validTemplateOverrides(frontmatter: Record<string, unknown>): Record<string, unknown> {
+  const overrides = { ...frontmatter };
+  if (!isNonEmptyString(overrides.fontFamily)) delete overrides.fontFamily;
+  if (!isPositiveFiniteNumber(overrides.fontSizePt)) delete overrides.fontSizePt;
+  if (!isPositiveFiniteNumber(overrides.lineHeight)) delete overrides.lineHeight;
+  return overrides;
+}
+
 /** Modèles d'export personnalisés : des fiches .md avec frontmatter dans
  * Resources/Layouts — même forme que les modèles intégrés
  * (utils/export-templates.js), lue via fmOf() (déjà utilisée partout
@@ -65,7 +87,7 @@ export async function loadCustomTemplates(app: App, settings: FeuilletsSettings)
          telle quelle dans le <option> du sélecteur d'export. Même garde
          défensive que partout ailleurs sur le frontmatter (voir titleFor). */
       const label = typeof fm.label === "string" && fm.label.trim() ? fm.label.trim() : file.basename;
-      custom[key] = Object.assign({}, EXPORT_TEMPLATES.classique, fm, {
+      custom[key] = Object.assign({}, EXPORT_TEMPLATES.classique, validTemplateOverrides(fm), {
         key,
         label,
         custom: true,
