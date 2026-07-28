@@ -1,10 +1,38 @@
-import { MarkdownView, Notice, setIcon } from "obsidian";
-import { FeuilletsSearchEngine } from "../services/feuillets-search-engine.js";
+import { MarkdownView, Notice, setIcon, type App, type TFile } from "obsidian";
+import { FeuilletsSearchEngine, type SearchOccurrence } from "../services/feuillets-search-engine.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyEditorHighlights, clearEditorHighlights } from "../utils/cm-search-highlighter.js";
 import { t } from "../i18n/index.js";
 
-function insertAtCursor(inputEl, str) {
+type MatchMode = "contains" | "startsWith" | "wholeWord";
+type SearchScope = "document" | "manuscript";
+type SearchOptions = {
+  ignoreCase: boolean;
+  ignoreDiacritics: boolean;
+  matchMode: MatchMode;
+  scope: SearchScope;
+  includeYaml: boolean;
+};
+type SearchReplacePlugin = {
+  renderAllViews(force?: boolean): Promise<void>;
+  getManuscriptFiles?: () => TFile[];
+};
+type SearchEditor = {
+  cm?: { dispatch?: (transaction: unknown) => void };
+  setSelection(from: { line: number; ch: number }, to: { line: number; ch: number }): void;
+  scrollIntoView(range: { from: { line: number; ch: number }; to: { line: number; ch: number } }, center: boolean): void;
+};
+type SearchMarkdownView = MarkdownView & { file?: TFile; editor?: SearchEditor; containerEl: HTMLElement };
+
+function hasSearchView(view: MarkdownView): view is SearchMarkdownView {
+  return "file" in view && "editor" in view;
+}
+
+function hasFileView(view: object): view is { file?: TFile } {
+  return "file" in view;
+}
+
+function insertAtCursor(inputEl: HTMLInputElement | null, str: string): void {
   if (!inputEl) return;
   const start = inputEl.selectionStart ?? inputEl.value.length;
   const end = inputEl.selectionEnd ?? inputEl.value.length;
@@ -16,7 +44,20 @@ function insertAtCursor(inputEl, str) {
 }
 
 export class SearchReplaceBar {
-  constructor(app, plugin) {
+  app: App;
+  plugin: SearchReplacePlugin;
+  containerEl: HTMLElement | null;
+  popoverEl: HTMLElement | null;
+  onOutsideClick: ((event: MouseEvent) => void) | null;
+  searchQuery: string;
+  replaceQuery: string;
+  showReplace: boolean;
+  occurrences: SearchOccurrence[];
+  currentIndex: number;
+  searchTimer: ReturnType<Window["setTimeout"]> | null;
+  options: SearchOptions;
+
+  constructor(app: App, plugin: SearchReplacePlugin) {
     this.app = app;
     this.plugin = plugin;
     this.containerEl = null;
@@ -47,7 +88,7 @@ export class SearchReplaceBar {
     const parent = activeLeaf.containerEl;
     const existing = parent.querySelector(".feuillets-search-bar");
     if (existing) {
-      const input = existing.querySelector(".feuillets-search-input-wrapper input");
+      const input = existing.querySelector<HTMLInputElement>(".feuillets-search-input-wrapper input");
       if (input) input.focus();
       return;
     }
@@ -205,10 +246,11 @@ export class SearchReplaceBar {
       this.popoverEl.remove();
     }
 
-    this.popoverEl = this.containerEl.createDiv({ cls: "feuillets-search-popover" });
+    const popover = this.containerEl.createDiv({ cls: "feuillets-search-popover" });
+    this.popoverEl = popover;
 
     const addItem = (label, checked, onClick) => {
-      const item = this.popoverEl.createDiv({ cls: "feuillets-search-popover-item" });
+      const item = popover.createDiv({ cls: "feuillets-search-popover-item" });
       const checkSpan = item.createSpan({ cls: "popover-icon" });
       checkSpan.setText(checked ? "✓" : "");
 
@@ -222,7 +264,7 @@ export class SearchReplaceBar {
     };
 
     const addDivider = () => {
-      this.popoverEl.createDiv({ cls: "feuillets-search-popover-divider" });
+      popover.createDiv({ cls: "feuillets-search-popover-divider" });
     };
 
     // 1. Casse & Diacritiques
@@ -250,13 +292,13 @@ export class SearchReplaceBar {
 
     // 3. Caractères spéciaux
     const addCharItem = (symbol, label, textToInsert) => {
-      const item = this.popoverEl.createDiv({ cls: "feuillets-search-popover-item" });
+      const item = popover.createDiv({ cls: "feuillets-search-popover-item" });
       const symbolSpan = item.createSpan({ cls: "popover-icon" });
       symbolSpan.setText(symbol);
       item.createSpan().setText(label);
       item.addEventListener("click", (e) => {
         e.stopPropagation();
-        const input = this.containerEl?.querySelector(".feuillets-search-input-wrapper input");
+        const input = this.containerEl?.querySelector<HTMLInputElement>(".feuillets-search-input-wrapper input") ?? null;
         if (input) {
           insertAtCursor(input, textToInsert);
           this.searchQuery = input.value;
@@ -281,13 +323,14 @@ export class SearchReplaceBar {
 
     // Clic extérieur pour fermer
     if (!this.onOutsideClick) {
-      this.onOutsideClick = (e) => {
-        if (this.containerEl && !this.containerEl.contains(e.target)) {
+      const onOutsideClick = (e: MouseEvent) => {
+        if (this.containerEl && e.target instanceof Node && !this.containerEl.contains(e.target)) {
           this.closePopover();
         }
       };
+      this.onOutsideClick = onOutsideClick;
       window.setTimeout(() => {
-        document.addEventListener("click", this.onOutsideClick);
+        document.addEventListener("click", onOutsideClick);
       }, 10);
     }
   }
@@ -304,7 +347,7 @@ export class SearchReplaceBar {
   }
 
   scheduleSearch() {
-    window.clearTimeout(this.searchTimer);
+    window.clearTimeout(this.searchTimer ?? undefined);
     this.searchTimer = window.setTimeout(() => this.runSearch(), 200);
   }
 
@@ -367,7 +410,7 @@ export class SearchReplaceBar {
     let targetView = this.app.workspace.getActiveViewOfType(MarkdownView);
 
     if (!activeFile || activeFile.path !== match.file.path) {
-      let leaf = this.app.workspace.getLeavesOfType("markdown").find((l) => l.view && l.view.file && l.view.file.path === match.file.path);
+      let leaf = this.app.workspace.getLeavesOfType("markdown").find((l) => hasFileView(l.view) && l.view.file?.path === match.file.path);
       if (!leaf) {
         leaf = this.app.workspace.getLeaf(false);
       }
@@ -376,7 +419,7 @@ export class SearchReplaceBar {
       targetView = this.app.workspace.getActiveViewOfType(MarkdownView);
     }
 
-    if (targetView && targetView.editor) {
+    if (targetView && hasSearchView(targetView) && targetView.editor) {
       const editor = targetView.editor;
       editor.setSelection({ line: match.line, ch: match.ch }, { line: match.line, ch: match.ch + match.length });
       editor.scrollIntoView({ from: { line: match.line, ch: match.ch }, to: { line: match.line, ch: match.ch + match.length } }, true);
@@ -385,9 +428,9 @@ export class SearchReplaceBar {
     }
   }
 
-  updateActiveEditorHighlights(view) {
+  updateActiveEditorHighlights(view?: SearchMarkdownView | null): void {
     const activeView = view || this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!activeView || !activeView.file || !activeView.editor || !activeView.editor.cm) return;
+    if (!activeView || !hasSearchView(activeView) || !activeView.file || !activeView.editor || !activeView.editor.cm) return;
 
     const currentFilePath = activeView.file.path;
     const docOccurrences = this.occurrences.filter((occ) => occ.file && occ.file.path === currentFilePath);
@@ -402,9 +445,9 @@ export class SearchReplaceBar {
     applyEditorHighlights(activeView.editor.cm, docOccurrences, activeIndexInDoc);
   }
 
-  clearActiveHighlights() {
+  clearActiveHighlights(): void {
     const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (activeView && activeView.editor && activeView.editor.cm) {
+    if (activeView && hasSearchView(activeView) && activeView.editor && activeView.editor.cm) {
       clearEditorHighlights(activeView.editor.cm);
     }
   }
@@ -431,7 +474,7 @@ export class SearchReplaceBar {
     );
 
     new Notice(
-      t("searchReplace.replacedNotice", { count: totalReplacements, s1: totalReplacements > 1 ? "s" : "", files: filesCount, s2: filesCount > 1 ? "s" : "" })
+      t("searchReplace.replacedNotice", { count: String(totalReplacements), s1: totalReplacements > 1 ? "s" : "", files: String(filesCount), s2: filesCount > 1 ? "s" : "" })
     );
 
     await this.runSearch();
