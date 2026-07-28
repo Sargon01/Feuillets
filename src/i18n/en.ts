@@ -1,6 +1,8 @@
 /** Dictionnaire anglais — traduction progressive, voir i18n/index.js.
  * Une clé absente ici retombe automatiquement sur le français, jamais un
  * écran à moitié traduit avec la clé brute affichée. */
+import type { fr } from "./fr.js";
+
 export const en = {
   // ---------- Binder ----------
   "binder.displayText": "Feuillets",
@@ -1262,4 +1264,4 @@ export const en = {
   "modal.scrivenerImport.importSuccess": "Scrivener import successful: {path}.",
   "modal.scrivenerImport.legacyFormat": "This project uses the old Scrivener 1.x (Mac) format, which is not supported. Open it in Scrivener 3 to convert it, then try again.",
   "modal.scrivenerImport.noScrivxFound": "No .scrivx file found in this folder.",
-};
+} satisfies Record<keyof typeof fr, string>;
