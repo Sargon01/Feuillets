@@ -1,11 +1,23 @@
-import { Notice, Platform, setIcon } from "obsidian";
-
+import { Notice, Platform, setIcon, type WorkspaceLeaf } from "obsidian";
 import { VIEW_PROJECT } from "../constants.js";
-import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { CompileSelectionModal } from "../ui/selection-modals.js";
 import { listExportTemplates } from "../services/export-templates-custom.js";
-import { LayoutModal } from "../ui/layout-modal.js";
 import { t } from "../i18n/index.js";
+import { CompileSelectionModal } from "../ui/selection-modals.js";
+import { LayoutModal } from "../ui/layout-modal.js";
+import { BaseFeuilletsView } from "./base-feuillets-view.js";
+
+type ProjectViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
+type ElementOptions = ElementCreationOptions & {
+  cls?: string;
+  text?: string;
+  value?: string;
+};
+type RowClickHandler = (event: MouseEvent) => void;
+
+function exportFormatFor(settings: FeuilletsSettings): string {
+  const format = settings.exportFormat;
+  return typeof format === "string" && format ? format : "docx";
+}
 
 /** Panneau Compilation / export (Bouton de sélection des feuillets dans
  * l'en-tête, Preset, Modèle, Sous-rubrique "Mise en page" identique au
@@ -16,35 +28,38 @@ import { t } from "../i18n/index.js";
  * (menu de la racine, double volet) puisqu'on peut déjà y basculer de
  * projet directement. */
 export class ProjectView extends BaseFeuilletsView {
-  constructor(leaf, plugin) {
+  declare plugin: ProjectViewPlugin;
+  declare targetContainer?: HTMLElement;
+
+  constructor(leaf: WorkspaceLeaf, plugin: ProjectViewPlugin) {
     super(leaf, plugin);
   }
 
-  getViewType() {
+  getViewType(): string {
     return VIEW_PROJECT;
   }
 
-  getDisplayText() {
+  getDisplayText(): string {
     return t("project.displayText");
   }
 
-  getIcon() {
+  getIcon(): string {
     return "folder-cog";
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     await this.render();
   }
 
-  async render() {
+  async render(): Promise<void> {
     const container = this.targetContainer || this.contentEl;
     container.empty();
     container.addClass("feuillets-project-container");
 
-    const S = this.plugin.settings;
+    const settings = this.plugin.settings;
     const root = this.plugin.getProjectFolder();
     if (root) {
-      await this.renderCompilationSection(container, S);
+      await this.renderCompilationSection(container, settings);
     } else {
       container
         .createDiv({ cls: "feuillets-empty" })
@@ -52,7 +67,7 @@ export class ProjectView extends BaseFeuilletsView {
     }
   }
 
-  makeRow(parent, icon, label, onClick) {
+  makeRow(parent: HTMLElement, icon: string, label: string, onClick?: RowClickHandler): HTMLElement {
     const row = parent.createDiv({ cls: "feuillets-project-row" });
     const iconEl = row.createSpan({ cls: "feuillets-cell-icon" });
     setIcon(iconEl, icon);
@@ -61,7 +76,7 @@ export class ProjectView extends BaseFeuilletsView {
     return row;
   }
 
-  makePropertyRowWithIcon(parent, icon, label, childControl) {
+  makePropertyRowWithIcon(parent: HTMLElement, icon: string, label: string, childControl: HTMLElement): HTMLElement {
     const row = parent.createDiv({ cls: "feuillets-properties-row" });
     if (icon) {
       const iconEl = row.createSpan({ cls: "feuillets-cell-icon" });
@@ -74,7 +89,7 @@ export class ProjectView extends BaseFeuilletsView {
 
   // ============================== 2. COMPILATION / EXPORT ==============================
 
-  async renderCompilationSection(container, S) {
+  async renderCompilationSection(container: HTMLElement, settings: FeuilletsSettings): Promise<void> {
     const section = container.createDiv({ cls: "feuillets-project-section" });
     const collapsed = this.renderSectionHead(
       section,
@@ -82,7 +97,7 @@ export class ProjectView extends BaseFeuilletsView {
       t("project.compilation.title"),
       "project",
       "compilation",
-      (actions) => {
+      (actions: HTMLElement) => {
         // Bouton de sélection des feuillets à compiler calé dans l'en-tête
         this.iconBtn(actions, "list-checks", t("project.compilation.chooseSheetsTooltip"), () =>
           new CompileSelectionModal(this.app, this.plugin).open()
@@ -95,8 +110,8 @@ export class ProjectView extends BaseFeuilletsView {
        en-tête/pied de page, blocs de la page de titre) est réuni dans le hub
        — l'éditeur de mise en page (LayoutModal). Le panneau ne garde que
        l'accès au hub, le format et le bouton Exporter (chemin rapide). */
-    const templates = await listExportTemplates(this.app, S);
-    const currentTpl = templates.find((tpl) => tpl.key === S.exportTemplate) || templates[0];
+    const templates = await listExportTemplates(this.app, settings);
+    const currentTpl = templates.find((tpl) => tpl.key === settings.exportTemplate) || templates[0];
     this.makeRow(section, "sliders", t("project.compilation.layoutRow"), () => {
       if (!currentTpl) {
         new Notice(t("project.compilation.noTemplate"));
@@ -106,7 +121,7 @@ export class ProjectView extends BaseFeuilletsView {
     });
 
     // Ligne "Format" avec sélection du format (accès rapide)
-    const formatSelect = this.createEl("select", { cls: "feuillets-properties-value" });
+    const formatSelect: HTMLSelectElement = this.createEl("select", { cls: "feuillets-properties-value" });
     formatSelect.createEl("option", { text: ".docx (Word)", value: "docx" });
     formatSelect.createEl("option", { text: ".odt (LibreOffice)", value: "odt" });
     formatSelect.createEl("option", { text: ".epub (Ebook)", value: "epub" });
@@ -114,9 +129,9 @@ export class ProjectView extends BaseFeuilletsView {
     if (!Platform.isMobile) {
       formatSelect.createEl("option", { text: ".pdf (PDF)", value: "pdf" });
     }
-    formatSelect.value = S.exportFormat || "docx";
+    formatSelect.value = exportFormatFor(settings);
     formatSelect.addEventListener("change", async () => {
-      S.exportFormat = formatSelect.value;
+      settings.exportFormat = formatSelect.value;
       await this.plugin.saveSettings();
     });
     this.makePropertyRowWithIcon(section, "file-output", t("project.compilation.formatLabel"), formatSelect);
@@ -124,16 +139,16 @@ export class ProjectView extends BaseFeuilletsView {
     // 5. Bouton "Exporter" placé en dessous
     const exportBtn = section.createEl("button", { text: t("project.compilation.exportBtn"), cls: "mod-cta feuillets-export-cta-btn" });
     exportBtn.addEventListener("click", () => {
-      const fmt = S.exportFormat || "docx";
-      if (fmt === "md") {
+      const format = exportFormatFor(settings);
+      if (format === "md") {
         this.plugin.compile();
       } else {
-        this.plugin.exportFile(fmt);
+        this.plugin.exportFile(format);
       }
     });
   }
 
-  createEl(tag, options) {
+  createEl<K extends keyof HTMLElementTagNameMap>(tag: K, options: ElementOptions): HTMLElementTagNameMap[K] {
     return document.createElement(tag, options);
   }
 }
