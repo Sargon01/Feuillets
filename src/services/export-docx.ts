@@ -15,6 +15,8 @@ import {
   SectionType,
   VerticalAlignSection,
 } from "docx";
+import type { App } from "obsidian";
+import type { ISectionOptions, IStylesOptions } from "docx";
 import { renderManuscriptHtml } from "./export-render.js";
 
 import { normalizeHeadings } from "../utils/export-templates.js";
@@ -30,19 +32,78 @@ import {
 } from "./export-docx-style.js";
 import { blockToParagraphs } from "./docx-blocks.js";
 
+type ExportSegment = {
+  text: string;
+  frontType?: string;
+};
+
+type ExportInput = {
+  markdown: string;
+  title: string;
+  author: string;
+  sourcePath: string;
+  segments?: ExportSegment[];
+};
+
+type RenderedFootnote = {
+  id: string;
+  text: string;
+};
+
+type RenderedImage = {
+  bytes?: Uint8Array;
+  ext?: string;
+  width?: number;
+  height?: number;
+  caption?: string;
+};
+
+type RenderedManuscript = {
+  containerEl: HTMLElement;
+  footnotes: RenderedFootnote[];
+  images: Map<unknown, RenderedImage>;
+};
+
+type FrontOverride = {
+  role?: string;
+  style?: TitlePageStyle | null;
+  isTitleLine?: boolean;
+};
+
+type HeadingDefaults = {
+  heading1?: NonNullable<IStylesOptions["default"]>["heading1"];
+  heading2?: NonNullable<IStylesOptions["default"]>["heading2"];
+  heading3?: NonNullable<IStylesOptions["default"]>["heading3"];
+};
+type AlignmentValue = typeof AlignmentType[keyof typeof AlignmentType];
+type HeaderGroup = { default: Header; first?: Header };
+type FooterGroup = { default: Footer; first?: Footer };
+type ExportDocxSettings = FeuilletsSettings & {
+  exportTemplate: string;
+  pdfHeaderLeft?: string | null;
+  pdfHeaderRight?: string | null;
+  pdfFooterRight?: string | null;
+  pdfPageNumberPosition?: string | null;
+  pdfHideFirstPageHeader?: boolean | null;
+  epubLanguage?: string | null;
+};
+
 /* Le format des marqueurs de découpe et leur lecture vivent dans
    utils/docx-bookmarks.js, avec le calcul d'identifiant de signet qu'ils
    transportent — c'est le même contrat d'aller-retour, lu à l'autre bout par
    services/docx-review-import.js. */
 
 /** Génère un fichier Word (.docx) avec gestion des en-têtes/pieds et numérotation des pages */
-export async function exportDocx(app, settings, { markdown, title, author, sourcePath, segments }) {
-  const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
+export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Buffer> {
+  /* Ces champs sont fournis par DEFAULT_SETTINGS ; FeuilletsSettings les
+     garde ouverts pendant la migration progressive pour les autres services. */
+  const docxSettings = settings as ExportDocxSettings;
+  const tpl = await resolveExportTemplate(app, settings, docxSettings.exportTemplate);
   const renderMarkdown = segments && segments.length ? markedMarkdownFor(segments) : markdown;
-  const { containerEl, footnotes, images } = await renderManuscriptHtml(app, renderMarkdown, sourcePath);
+  const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath);
 
-  const footnoteIdByHref = new Map();
-  const footnoteMap = {};
+  const footnoteIdByHref = new Map<string, number>();
+  const footnoteMap: Record<string, { children: Paragraph[] }> = {};
   footnotes.forEach((f, i) => {
     const id = i + 1;
     footnoteIdByHref.set(f.id, id);
@@ -74,8 +135,8 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
      pour toutes ses pages). `frontSections` accumule ces sections déjà
      finalisées ; `bodyParagraphs` ne garde que le contenu du manuscrit
      normal (avant ET après les pages Front, le cas échéant). */
-  const frontSections = [];
-  let currentFrontBuffer = null;
+  const frontSections: ISectionOptions[] = [];
+  let currentFrontBuffer: Paragraph[] | null = null;
   /* Une page de titre à rôles positionne ses éléments par des marges venues du
      modèle (marginTopPt/marginBottomPt), mesurées depuis le HAUT de la page —
      elle est donc ancrée en haut (verticalAlign TOP), comme le modèle Word de
@@ -83,7 +144,7 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
      page de titre sans rôles) reste centrée verticalement, Word répartissant
      lui-même le bloc au milieu. */
   let currentFrontIsRoleTitle = false;
-  const flushFrontBuffer = () => {
+  const flushFrontBuffer = (): void => {
     if (!currentFrontBuffer) return;
     frontSections.push({
       properties: {
@@ -99,8 +160,8 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
   };
 
   const nextBookmarkLinkId = bookmarkUniqueNumericIdGen();
-  let openBookmarkLinkId = null;
-  let currentFrontType = null;
+  let openBookmarkLinkId: number | null = null;
+  let currentFrontType: string | null = null;
   /* Sur une page de titre spécifiquement, l'autrice compose son titre en
      tout premier bloc de contenu (18pt, voir isTitleLine) — le reste (genre,
      nombre de mots, coordonnées…) suit en taille normale.
@@ -118,7 +179,7 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
      suit, auquel on applique alors le style du modèle. Une page de titre à
      rôles court-circuite la détection titleLineEmitted (repli des pages
      libres). */
-  let currentRole = null;
+  let currentRole: string | null = null;
   for (const child of Array.from(containerEl.children)) {
     const markerInfo = bookmarkMarkerInfoOf(child);
     if (markerInfo != null) {
@@ -161,7 +222,7 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
       if (currentFrontType === "titre") currentFrontIsRoleTitle = true;
       continue;
     }
-    let frontOverride = null;
+    let frontOverride: FrontOverride | null = null;
     if (currentFrontType) {
       if (currentRole != null) {
         frontOverride = { role: currentRole, style: frontRoleStyle(tpl, currentRole) };
@@ -189,8 +250,8 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
   const fontFamily = tpl.fontFamily.split(",")[0].replace(/['"]/g, "").trim();
   const headingFontFamily = (tpl.headingFontFamily || tpl.fontFamily).split(",")[0].replace(/['"]/g, "").trim();
 
-  const headingStyles = {};
-  for (const [level, styleKey] of [["h1", "heading1"], ["h2", "heading2"], ["h3", "heading3"]]) {
+  const headingStyles: HeadingDefaults = {};
+  for (const [level, styleKey] of [["h1", "heading1"], ["h2", "heading2"], ["h3", "heading3"]] as const) {
     const h = headings[level];
     if (!h) continue;
     headingStyles[styleKey] = {
@@ -206,7 +267,7 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
   }
 
   // Construction dynamique des en-têtes et pieds de page pour Word (.docx)
-  const parseHeaderFooterText = (str) => {
+  const parseHeaderFooterText = (str: string): TextRun[] => {
     if (!str) return [];
     const parts = str.split(/(\{page\}|\{pages\})/gi);
     return parts.map((part) => {
@@ -221,12 +282,12 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
     });
   };
 
-  const headerLeftStr = settings.pdfHeaderLeft ?? "{title}";
-  const headerRightStr = settings.pdfHeaderRight ?? "{author}";
-  const footerRightStr = settings.pdfFooterRight ?? "Page {page} sur {pages}";
-  const pageNumPos = settings.pdfPageNumberPosition || "right"; // "right" | "center" | "left"
+  const headerLeftStr = docxSettings.pdfHeaderLeft ?? "{title}";
+  const headerRightStr = docxSettings.pdfHeaderRight ?? "{author}";
+  const footerRightStr = docxSettings.pdfFooterRight ?? "Page {page} sur {pages}";
+  const pageNumPos = docxSettings.pdfPageNumberPosition || "right"; // "right" | "center" | "left"
 
-  const alignMap = {
+  const alignMap: Record<string, AlignmentValue> = {
     right: AlignmentType.RIGHT,
     center: AlignmentType.CENTER,
     left: AlignmentType.LEFT,
@@ -247,10 +308,10 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
     children: parseHeaderFooterText(footerRightStr),
   });
 
-  const docHeaders = { default: new Header({ children: [headerParagraph] }) };
-  const docFooters = { default: new Footer({ children: [footerParagraph] }) };
+  const docHeaders: HeaderGroup = { default: new Header({ children: [headerParagraph] }) };
+  const docFooters: FooterGroup = { default: new Footer({ children: [footerParagraph] }) };
 
-  if (settings.pdfHideFirstPageHeader ?? true) {
+  if (docxSettings.pdfHideFirstPageHeader ?? true) {
     docHeaders.first = new Header({ children: [] });
     docFooters.first = new Footer({ children: [] });
   }
@@ -263,7 +324,7 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
     styles: {
       default: {
         document: {
-          run: { font: fontFamily, size: `${tpl.fontSizePt}pt`, language: { value: wordLocale(settings.epubLanguage) } },
+          run: { font: fontFamily, size: `${tpl.fontSizePt}pt`, language: { value: wordLocale(docxSettings.epubLanguage) } },
           paragraph: { spacing: { line: Math.round(tpl.lineHeight * 240) } },
         },
         ...headingStyles,
@@ -283,7 +344,7 @@ export async function exportDocx(app, settings, { markdown, title, author, sourc
             size: tpl.pageOrientation === "landscape" ? { orientation: PageOrientation.LANDSCAPE } : undefined,
           },
           column: tpl.columns ? { count: tpl.columns.count, space: `${tpl.columns.gutterPt}pt` } : undefined,
-          titlePage: settings.pdfHideFirstPageHeader ?? true,
+          titlePage: docxSettings.pdfHideFirstPageHeader ?? true,
         },
         headers: docHeaders,
         footers: docFooters,
