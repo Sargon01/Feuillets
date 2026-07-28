@@ -25,7 +25,145 @@ import { escapeRegExp } from "../utils/core.js";
 
 const CONTEXT_CHARS = 40;
 
-function emptyBucket() {
+type ChangeType = "insertion" | "deletion" | "replacement" | "move";
+
+type ChangeMetadata = {
+  author: string;
+  date: string;
+  moved?: boolean;
+  moveName?: string | null;
+  nearFiles?: string[];
+  prevScene?: string | null;
+  nextScene?: string | null;
+  inFootnote?: boolean;
+  ord?: number | string;
+};
+
+type InsertionChange = ChangeMetadata & {
+  type: "insertion";
+  text: string;
+  contextBefore: string;
+};
+
+type DeletionChange = ChangeMetadata & {
+  type: "deletion";
+  text: string;
+  contextBefore: string;
+};
+
+type ReplacementChange = ChangeMetadata & {
+  type: "replacement";
+  oldText: string;
+  newText: string;
+  contextBefore: string;
+};
+
+type MoveChange = ChangeMetadata & {
+  type: "move";
+  text: string;
+  fromContext: string;
+  fromText: string;
+  toContext: string;
+  fromPath?: string | null;
+  toPath?: string | null;
+};
+
+type ReviewChange = InsertionChange | DeletionChange | ReplacementChange | MoveChange;
+
+type ReviewComment = {
+  anchorText: string;
+  text: string;
+  author: string;
+  date: string;
+  resolvedInWord?: boolean;
+  parentId?: string;
+  isFormatting?: boolean;
+  markers?: string[];
+  nearFiles?: string[];
+  prevScene?: string | null;
+  nextScene?: string | null;
+  inFootnote?: boolean;
+  ord?: number | string;
+};
+
+type ReviewBucket = {
+  changes: ReviewChange[];
+  comments: ReviewComment[];
+};
+
+type ReviewBuckets = Record<string, ReviewBucket>;
+
+type ExtendedCommentInfo = {
+  done: boolean;
+  paraIdParent: string | null;
+};
+
+type ExtendedCommentsByParaId = Record<string, ExtendedCommentInfo>;
+
+type ParsedComment = {
+  author: string;
+  date: string;
+  text: string;
+  done?: boolean;
+  parentId?: string;
+};
+
+type CommentsById = Record<string, ParsedComment>;
+
+type TrackedChangeInfo = {
+  author: string;
+  date: string;
+  buffer: string;
+  contextBefore: string;
+  moved: boolean;
+  moveName: string | null;
+  fmtBold?: boolean | "mixed";
+  fmtItalic?: boolean | "mixed";
+};
+
+type FormatChangeInfo = {
+  author: string;
+  date: string;
+  markers: string[];
+};
+
+type DocxFiles = Record<string, string | undefined>;
+
+type ApplyChange = {
+  type: ChangeType;
+  text: string;
+  oldText: string;
+  newText: string;
+  contextBefore: string;
+  fromContext: string;
+  fromText: string;
+  toContext: string;
+};
+
+type ApplyResult =
+  | { ok: true; newContent: string }
+  | { ok: false; reason: "no-context" | "not-found" | "ambiguous" };
+
+type ReviewVaultFile = { path: string };
+
+type ReviewVault = {
+  read(file: ReviewVaultFile): Promise<string>;
+  modify(file: ReviewVaultFile, content: string): Promise<void>;
+};
+
+type ContentReader = (path: string) => Promise<string | null>;
+
+type RegexMatch = { index: number; 0: string; 1?: string };
+
+function isInsertionChange(change: ReviewChange): change is InsertionChange {
+  return change.type === "insertion";
+}
+
+function isDeletionChange(change: ReviewChange): change is DeletionChange {
+  return change.type === "deletion";
+}
+
+function emptyBucket(): ReviewBucket {
   return { changes: [], comments: [] };
 }
 
@@ -36,8 +174,8 @@ function emptyBucket() {
  * commentaire concret se fait via le w14:paraId partagé avec comments.xml
  * (voir parseCommentsXml). Fichier absent des .docx anciens : dégradation
  * silencieuse (aucun état résolu, aucun fil), jamais une erreur. */
-export function parseCommentsExtended(commentsExtendedXml) {
-  const byParaId = {};
+export function parseCommentsExtended(commentsExtendedXml: string): ExtendedCommentsByParaId {
+  const byParaId: ExtendedCommentsByParaId = {};
   if (!commentsExtendedXml) return byParaId;
   for (const { attrs } of extractAllTags(commentsExtendedXml, "w15:commentEx")) {
     const paraId = getAttr(attrs, "w15:paraId");
@@ -58,11 +196,14 @@ export function parseCommentsExtended(commentsExtendedXml) {
  * commentaire partage avec commentsExtended.xml. `done`/`parentId` ne sont
  * posés que s'ils s'appliquent : un commentaire ordinaire garde la forme
  * exacte { author, date, text }. */
-export function parseCommentsXml(commentsXml, extendedByParaId = {}) {
-  const byId = {};
+export function parseCommentsXml(
+  commentsXml: string,
+  extendedByParaId: ExtendedCommentsByParaId = {}
+): CommentsById {
+  const byId: CommentsById = {};
   if (!commentsXml) return byId;
-  const paraIdToId = {}; // w14:paraId -> w:id du commentaire (pour résoudre paraIdParent -> id parent)
-  const collected = []; // { id, paraIds } pour la 2e passe (parent/résolu)
+  const paraIdToId: Record<string, string> = {}; // w14:paraId -> w:id du commentaire (pour résoudre paraIdParent -> id parent)
+  const collected: Array<{ id: string; paraIds: string[] }> = []; // { id, paraIds } pour la 2e passe (parent/résolu)
   for (const { attrs, body } of extractAllTags(commentsXml, "w:comment")) {
     const id = getAttr(attrs, "w:id");
     if (!id) continue;
@@ -102,7 +243,7 @@ export function parseCommentsXml(commentsXml, extendedByParaId = {}) {
  * doit rester un extrait littéral trouvable tel quel — l'ellipse cosmétique
  * ("…contexte") est un choix d'affichage, ajouté seulement à la lecture,
  * jamais mêlé à la valeur qui sert de repère de recherche. */
-function trimContextBefore(text) {
+function trimContextBefore(text: string): string {
   return text.length > CONTEXT_CHARS ? text.slice(-CONTEXT_CHARS) : text;
 }
 
@@ -110,9 +251,10 @@ function trimContextBefore(text) {
  * les espaces de tête/fin HORS des marqueurs (Markdown refuse une emphase
  * qui commence/finit par une espace : "** mot**" n'est pas du gras). Rend
  * le texte inchangé si aucun format ou si le cœur est vide. */
-function wrapEmphasis(text, bold, italic) {
+function wrapEmphasis(text: string, bold: boolean, italic: boolean): string {
   if (!text || (!bold && !italic)) return text;
   const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(text);
+  if (!m) return text;
   const lead = m[1], core = m[2], trail = m[3];
   if (!core) return text;
   const open = (bold ? "**" : "") + (italic ? "*" : "");
@@ -130,10 +272,13 @@ function wrapEmphasis(text, bold, italic) {
  * dans le même paragraphe se retrouverait à tort inclus dans le texte
  * "inséré"), et les commentaires actuellement ouverts (w:commentRangeStart
  * avant w:commentRangeEnd). */
-export function parseDocumentXml(documentXml, commentsById = {}) {
-  const scenes = {};
+export function parseDocumentXml(
+  documentXml: string,
+  commentsById: CommentsById = {}
+): { scenes: ReviewBuckets; unclassified: ReviewBucket; footnoteOwners: Record<string, string | null> } {
+  const scenes: ReviewBuckets = {};
   const unclassified = emptyBucket();
-  const bucketFor = (bookmarkId) => {
+  const bucketFor = (bookmarkId: string | null): ReviewBucket => {
     if (!bookmarkId) return unclassified;
     if (!scenes[bookmarkId]) scenes[bookmarkId] = emptyBucket();
     return scenes[bookmarkId];
@@ -142,29 +287,29 @@ export function parseDocumentXml(documentXml, commentsById = {}) {
   const xml = documentXml || "";
   const tags = walkTags(xml);
 
-  let currentBookmarkId = null; // signet de feuillet en cours (nom, pas w:id)
-  const bookmarkNameById = new Map(); // w:id numérique -> nom (pour retrouver quel signet ferme un w:bookmarkEnd)
-  let lastClosedBookmarkId = null; // dernier signet refermé — scène candidate "avant" pour un orphelin posé à la frontière
-  let pendingOrphans = []; // éléments poussés dans unclassified en attendant de connaître leur scène candidate "après"
-  let currentMoveName = null; // nom de déplacement en cours (partagé origine/destination)
-  const moveRangeNameById = new Map(); // w:id numérique -> nom (pour retrouver quel déplacement ferme un w:move{From,To}RangeEnd)
-  let insInfo = null; // { author, date, buffer, contextBefore } pendant un w:ins
-  let delInfo = null; // idem pour w:del
-  const openComments = new Map(); // w:id -> texte d'ancrage accumulé
+  let currentBookmarkId: string | null = null; // signet de feuillet en cours (nom, pas w:id)
+  const bookmarkNameById = new Map<string, string>(); // w:id numérique -> nom (pour retrouver quel signet ferme un w:bookmarkEnd)
+  let lastClosedBookmarkId: string | null = null; // dernier signet refermé — scène candidate "avant" pour un orphelin posé à la frontière
+  let pendingOrphans: Array<ReviewChange | ReviewComment> = []; // éléments poussés dans unclassified en attendant de connaître leur scène candidate "après"
+  let currentMoveName: string | null = null; // nom de déplacement en cours (partagé origine/destination)
+  const moveRangeNameById = new Map<string, string>(); // w:id numérique -> nom (pour retrouver quel déplacement ferme un w:move{From,To}RangeEnd)
+  let insInfo: TrackedChangeInfo | null = null; // { author, date, buffer, contextBefore } pendant un w:ins
+  let delInfo: TrackedChangeInfo | null = null; // idem pour w:del
+  const openComments = new Map<string, string>(); // w:id -> texte d'ancrage accumulé
   /* w:footnoteReference w:id="N" (appel de note dans le corps) -> le signet
      de feuillet où il apparaît. C'est le SEUL lien entre une note et son
      feuillet : word/footnotes.xml, lui, ne porte aucun signet — sans cette
      table, une correction faite par le relecteur À L'INTÉRIEUR d'une note
      (donc dans footnotes.xml) ne saurait pas dans quel feuillet l'appliquer.
      Voir parseFootnotesXml + parseDocxReview. */
-  const footnoteOwners = {};
+  const footnoteOwners: Record<string, string | null> = {};
 
   /* Appelé juste après avoir poussé un élément dans `unclassified` (jamais
      dans une scène reconnue) : y attache les deux scènes candidates de
      part et d'autre de la frontière où il est tombé — `nextScene` reste
      null ici, rempli plus tard par bookmarkStart dès que la prochaine
      scène s'ouvre (voir plus haut). */
-  const trackOrphan = (obj) => {
+  const trackOrphan = (obj: ReviewChange | ReviewComment) => {
     if (currentBookmarkId != null) return;
     obj.prevScene = lastClosedBookmarkId;
     obj.nextScene = null;
@@ -212,11 +357,11 @@ export function parseDocumentXml(documentXml, commentsById = {}) {
      aucun résultat. Capturé comme un commentaire informatif (pas de sens
      à "Appliquer" une mise en forme dans du markdown source) plutôt que
      silencieusement ignoré. */
-  const FORMAT_MARKER_TAGS = new Set(["w:b", "w:i", "w:u", "w:strike", "w:highlight"]);
-  const FORMAT_LABELS = { "w:b": "gras", "w:i": "italique", "w:u": "souligné", "w:strike": "barré", "w:highlight": "surligné" };
-  let formatMarkers = null; // accumulé pendant qu'on est DANS un <w:rPr>, hors de tout <w:rPrChange> imbriqué
+  const FORMAT_MARKER_TAGS = new Set<string>(["w:b", "w:i", "w:u", "w:strike", "w:highlight"]);
+  const FORMAT_LABELS: Record<string, string> = { "w:b": "gras", "w:i": "italique", "w:u": "souligné", "w:strike": "barré", "w:highlight": "surligné" };
+  let formatMarkers: string[] | null = null; // accumulé pendant qu'on est DANS un <w:rPr>, hors de tout <w:rPrChange> imbriqué
   let insideRPrChange = false;
-  let pendingFormatChange = null; // { author, date, markers } capturé à la fermeture de w:rPrChange, consommé par le prochain w:t
+  let pendingFormatChange: FormatChangeInfo | null = null; // { author, date, markers } capturé à la fermeture de w:rPrChange, consommé par le prochain w:t
   /* Format gras/italique du run EN COURS — sert à conserver la mise en forme
      d'un texte INSÉRÉ par le relecteur (w:ins) : sans ça, un mot ajouté en
      gras/italique dans Word arrivait en texte brut (audit #1). Réinitialisé
@@ -224,7 +369,7 @@ export function parseDocumentXml(documentXml, commentsById = {}) {
   let runBold = false;
   let runItalic = false;
 
-  const appendText = (raw) => {
+  const appendText = (raw: string) => {
     const isInserted = !!insInfo; // dans un w:ins/w:moveTo actif : pas encore dans la source
     if (pendingParaBreak) {
       pendingParaBreak = false;
@@ -338,7 +483,7 @@ export function parseDocumentXml(documentXml, commentsById = {}) {
         if (!insInfo.moved && !text.includes("\n\n")) {
           text = wrapEmphasis(text, insInfo.fmtBold === true, insInfo.fmtItalic === true);
         }
-        const entry = {
+        const entry: InsertionChange = {
           type: "insertion",
           text,
           author: insInfo.author,
@@ -366,7 +511,7 @@ export function parseDocumentXml(documentXml, commentsById = {}) {
     }
     if ((t.name === "w:del" || t.name === "w:moveFrom") && t.isClose) {
       if (delInfo && delInfo.buffer.length > 0) {
-        const entry = {
+        const entry: DeletionChange = {
           type: "deletion",
           text: delInfo.buffer,
           author: delInfo.author,
@@ -427,7 +572,7 @@ export function parseDocumentXml(documentXml, commentsById = {}) {
       if (pendingFormatChange && pendingFormatChange.markers.length > 0 && raw.trim()) {
         const markers = [...new Set(pendingFormatChange.markers)];
         const labels = markers.map((m) => FORMAT_LABELS[m]).filter(Boolean);
-        const entry = {
+        const entry: ReviewComment = {
           anchorText: raw,
           text: `Mise en forme modifiée : ${labels.length ? labels.join(", ") : "mise en forme"}`,
           author: pendingFormatChange.author,
@@ -482,11 +627,11 @@ export function parseDocumentXml(documentXml, commentsById = {}) {
     if (t.name === "w:commentRangeEnd" && t.selfClosing) {
       const id = getAttr(t.attrs, "w:id");
       if (id && openComments.has(id)) {
-        const anchorText = openComments.get(id).trim();
+        const anchorText = (openComments.get(id) ?? "").trim();
         openComments.delete(id);
         const comment = commentsById[id];
         if (comment) {
-          const entry = {
+          const entry: ReviewComment = {
             anchorText,
             text: comment.text,
             author: comment.author,
@@ -536,7 +681,7 @@ export function parseDocumentXml(documentXml, commentsById = {}) {
      assert.deepEqual sur la forme du changement (les tests vérifient la
      forme exacte). getItemKey y accède directement (item.ord), l'accès
      fonctionne quelle que soit l'énumérabilité. */
-  const stamp = (obj) => {
+  const stamp = (obj: ReviewChange | ReviewComment) => {
     Object.defineProperty(obj, "ord", { value: ord++, enumerable: false, configurable: true, writable: true });
   };
   for (const bucket of [...Object.values(scenes), unclassified]) {
@@ -554,18 +699,18 @@ export function parseDocumentXml(documentXml, commentsById = {}) {
  * déplacements (inexistants en pratique dans une note). Le w:footnoteRef
  * auto-numéro en tête n'est PAS du texte de la note (c'est le chiffre
  * d'appel) : ignoré. */
-function parseFootnoteBody(body, commentsById) {
-  const changes = [];
-  const comments = [];
+function parseFootnoteBody(body: string, commentsById: CommentsById): ReviewBucket {
+  const changes: ReviewChange[] = [];
+  const comments: ReviewComment[] = [];
   const tags = walkTags(body);
   let runningText = "";
-  let insInfo = null;
-  let delInfo = null;
-  const openComments = new Map();
+  let insInfo: TrackedChangeInfo | null = null;
+  let delInfo: TrackedChangeInfo | null = null;
+  const openComments = new Map<string, string>();
   let pendingParaBreak = false;
   let sawParagraph = false;
 
-  const append = (raw) => {
+  const append = (raw: string) => {
     const inserted = !!insInfo;
     if (pendingParaBreak) {
       pendingParaBreak = false;
@@ -589,23 +734,25 @@ function parseFootnoteBody(body, commentsById) {
       continue;
     }
     if (t.name === "w:ins" && !t.isClose && !t.selfClosing) {
-      insInfo = { author: getAttr(t.attrs, "w:author") || "Inconnu", date: getAttr(t.attrs, "w:date") || "", buffer: "", contextBefore: runningText };
+      insInfo = { author: getAttr(t.attrs, "w:author") || "Inconnu", date: getAttr(t.attrs, "w:date") || "", buffer: "", contextBefore: runningText, moved: false, moveName: null };
       continue;
     }
     if (t.name === "w:ins" && t.isClose) {
       if (insInfo && insInfo.buffer.length > 0) {
-        changes.push({ type: "insertion", text: insInfo.buffer, author: insInfo.author, date: insInfo.date, contextBefore: trimContextBefore(insInfo.contextBefore), moved: false, moveName: null });
+        const change: InsertionChange = { type: "insertion", text: insInfo.buffer, author: insInfo.author, date: insInfo.date, contextBefore: trimContextBefore(insInfo.contextBefore), moved: false, moveName: null };
+        changes.push(change);
       }
       insInfo = null;
       continue;
     }
     if (t.name === "w:del" && !t.isClose && !t.selfClosing) {
-      delInfo = { author: getAttr(t.attrs, "w:author") || "Inconnu", date: getAttr(t.attrs, "w:date") || "", buffer: "", contextBefore: runningText };
+      delInfo = { author: getAttr(t.attrs, "w:author") || "Inconnu", date: getAttr(t.attrs, "w:date") || "", buffer: "", contextBefore: runningText, moved: false, moveName: null };
       continue;
     }
     if (t.name === "w:del" && t.isClose) {
       if (delInfo && delInfo.buffer.length > 0) {
-        changes.push({ type: "deletion", text: delInfo.buffer, author: delInfo.author, date: delInfo.date, contextBefore: trimContextBefore(delInfo.contextBefore), moved: false, moveName: null });
+        const change: DeletionChange = { type: "deletion", text: delInfo.buffer, author: delInfo.author, date: delInfo.date, contextBefore: trimContextBefore(delInfo.contextBefore), moved: false, moveName: null };
+        changes.push(change);
       }
       delInfo = null;
       continue;
@@ -625,11 +772,11 @@ function parseFootnoteBody(body, commentsById) {
     if (t.name === "w:commentRangeEnd" && t.selfClosing) {
       const id = getAttr(t.attrs, "w:id");
       if (id && openComments.has(id)) {
-        const anchorText = openComments.get(id).trim();
+        const anchorText = (openComments.get(id) ?? "").trim();
         openComments.delete(id);
         const comment = commentsById[id];
         if (comment) {
-          const c = { anchorText, text: comment.text, author: comment.author, date: comment.date };
+          const c: ReviewComment = { anchorText, text: comment.text, author: comment.author, date: comment.date };
           if (comment.done) c.resolvedInWord = true;
           if (comment.parentId != null) c.parentId = comment.parentId;
           comments.push(c);
@@ -649,8 +796,8 @@ function parseFootnoteBody(body, commentsById) {
 /** `word/footnotes.xml` -> { [w:id]: { changes, comments } }. Ignore les
  * deux notes techniques (séparateur/continuation, marquées w:type et d'id
  * ≤ 0) que Word place toujours en tête. */
-export function parseFootnotesXml(footnotesXml, commentsById = {}) {
-  const byId = {};
+export function parseFootnotesXml(footnotesXml: string, commentsById: CommentsById = {}): ReviewBuckets {
+  const byId: ReviewBuckets = {};
   if (!footnotesXml) return byId;
   let fnOrd = 0;
   for (const { attrs, body } of extractAllTags(footnotesXml, "w:footnote")) {
@@ -686,26 +833,28 @@ export function parseFootnotesXml(footnotesXml, commentsById = {}) {
  * séparés, chacun sur son propre feuillet) — retour utilisateur : "tu
  * montres deux commentaires, un pour supprimer, un autre pour coller" au
  * lieu d'un seul retour "déplacement" cohérent. */
-function mergeMovePairs(changes) {
-  const byMoveName = new Map();
+function mergeMovePairs(changes: ReviewChange[]): ReviewChange[] {
+  const byMoveName = new Map<string, ReviewChange[]>();
   for (const c of changes) {
     if (c.moved && c.moveName) {
-      if (!byMoveName.has(c.moveName)) byMoveName.set(c.moveName, []);
-      byMoveName.get(c.moveName).push(c);
+      const group = byMoveName.get(c.moveName);
+      if (group) group.push(c);
+      else byMoveName.set(c.moveName, [c]);
     }
   }
-  const consumed = new Set();
-  const merged = [];
+  const consumed = new Set<ReviewChange>();
+  const merged: ReviewChange[] = [];
   for (const c of changes) {
     if (consumed.has(c)) continue;
     if (c.moved && c.moveName) {
       const group = byMoveName.get(c.moveName);
-      const del = group.find((g) => g.type === "deletion");
-      const ins = group.find((g) => g.type === "insertion");
+      if (!group) continue;
+      const del = group.find(isDeletionChange);
+      const ins = group.find(isInsertionChange);
       if (del && ins && group.length === 2) {
         consumed.add(del);
         consumed.add(ins);
-        merged.push({
+        const move: MoveChange = {
           type: "move",
           text: ins.text,
           author: ins.author,
@@ -713,7 +862,8 @@ function mergeMovePairs(changes) {
           fromContext: del.contextBefore,
           fromText: del.text,
           toContext: ins.contextBefore,
-        });
+        };
+        merged.push(move);
         continue;
       }
     }
@@ -726,8 +876,12 @@ function mergeMovePairs(changes) {
  * des feuillets et des éléments non rattachés (unclassified/unmatched) —
  * permettant de réunir les déplacements y compris quand l'origine et la
  * destination tombent dans des feuillets différents ou aux frontières. */
-export function mergeGlobalMovePairs(byPath, unmatched = {}, unclassified = {}) {
-  const allContainers = [];
+export function mergeGlobalMovePairs(
+  byPath: ReviewBuckets,
+  unmatched: ReviewBuckets = {},
+  unclassified: ReviewBucket = emptyBucket()
+): void {
+  const allContainers: Array<{ path: string | null; list: ReviewChange[] }> = [];
 
   for (const [path, bucket] of Object.entries(byPath)) {
     if (bucket && bucket.changes) {
@@ -743,20 +897,24 @@ export function mergeGlobalMovePairs(byPath, unmatched = {}, unclassified = {}) 
     allContainers.push({ path: null, list: unclassified.changes });
   }
 
-  const byMoveName = new Map();
+  const byMoveName = new Map<string, Array<{ container: { path: string | null; list: ReviewChange[] }; change: ReviewChange }>>();
   for (const container of allContainers) {
     for (const c of container.list) {
       if (c.moved && c.moveName && c.type !== "move") {
-        if (!byMoveName.has(c.moveName)) byMoveName.set(c.moveName, []);
-        byMoveName.get(c.moveName).push({ container, change: c });
+        const items = byMoveName.get(c.moveName);
+        if (items) items.push({ container, change: c });
+        else byMoveName.set(c.moveName, [{ container, change: c }]);
       }
     }
   }
 
   for (const [moveName, items] of byMoveName.entries()) {
-    const delItem = items.find((i) => i.change.type === "deletion");
-    const insItem = items.find((i) => i.change.type === "insertion");
-    if (delItem && insItem && items.length === 2) {
+    const delItem = items.find((item) => isDeletionChange(item.change));
+    const insItem = items.find((item) => isInsertionChange(item.change));
+    if (
+      delItem && insItem && items.length === 2 &&
+      isDeletionChange(delItem.change) && isInsertionChange(insItem.change)
+    ) {
       const delIndex = delItem.container.list.indexOf(delItem.change);
       if (delIndex !== -1) delItem.container.list.splice(delIndex, 1);
 
@@ -766,7 +924,7 @@ export function mergeGlobalMovePairs(byPath, unmatched = {}, unclassified = {}) 
       const del = delItem.change;
       const ins = insItem.change;
 
-      const mergedMove = {
+      const mergedMove: MoveChange = {
         type: "move",
         text: ins.text,
         author: ins.author || del.author,
@@ -818,7 +976,11 @@ export function mergeGlobalMovePairs(byPath, unmatched = {}, unclassified = {}) 
  * (contexte disparu). Le lien qui, lui, SURVIT à la troncature :
  * ins.contextBefore est toujours le suffixe de (del.contextBefore + del.text)
  * — d'où endsWith plutôt qu'égalité. */
-function isChainAdjacent(chain, last, next) {
+function isChainAdjacent(
+  chain: Array<InsertionChange | DeletionChange>,
+  last: InsertionChange | DeletionChange,
+  next: InsertionChange | DeletionChange
+): boolean {
   if (last.moved || next.moved) return false;
   if (last.type === "deletion" && next.type === "insertion") return (last.contextBefore + last.text).endsWith(next.contextBefore);
   if (last.type === "insertion" && next.type === "deletion") return last.contextBefore === next.contextBefore;
@@ -838,8 +1000,8 @@ function isChainAdjacent(chain, last, next) {
  * "replacement" (oldText = concaténation, DANS L'ORDRE, du texte de
  * chaque suppression de la chaîne ; newText = idem pour les insertions),
  * appliquée en une seule opération atomique (voir planApply). */
-function mergeAdjacentReplacements(changes) {
-  const merged = [];
+function mergeAdjacentReplacements(changes: ReviewChange[]): ReviewChange[] {
+  const merged: ReviewChange[] = [];
   let i = 0;
   while (i < changes.length) {
     const cur = changes[i];
@@ -848,14 +1010,17 @@ function mergeAdjacentReplacements(changes) {
       i++;
       continue;
     }
-    const chain = [cur];
+    const chain: Array<InsertionChange | DeletionChange> = [cur];
     let j = i + 1;
-    while (j < changes.length && isChainAdjacent(chain, chain[chain.length - 1], changes[j])) {
-      chain.push(changes[j]);
+    while (j < changes.length) {
+      const next = changes[j];
+      if (!isInsertionChange(next) && !isDeletionChange(next)) break;
+      if (!isChainAdjacent(chain, chain[chain.length - 1], next)) break;
+      chain.push(next);
       j++;
     }
     if (chain.length > 1) {
-      merged.push({
+      const replacement: ReplacementChange = {
         type: "replacement",
         oldText: chain.filter((c) => c.type === "deletion").map((c) => c.text).join(""),
         newText: chain.filter((c) => c.type === "insertion").map((c) => c.text).join(""),
@@ -863,7 +1028,8 @@ function mergeAdjacentReplacements(changes) {
         date: chain[0].date,
         contextBefore: chain[0].contextBefore,
         moved: false,
-      });
+      };
+      merged.push(replacement);
     } else {
       merged.push(cur);
     }
@@ -880,7 +1046,7 @@ function mergeAdjacentReplacements(changes) {
  * de bas de page (footnotes.xml) sont rattachés au feuillet où l'appel de
  * note apparaît (footnoteOwners, voir parseDocumentXml) — ou à unclassified
  * si l'appel n'est dans aucun signet reconnu. */
-export function parseDocxReview(files) {
+export function parseDocxReview(files: DocxFiles): { scenes: ReviewBuckets; unclassified: ReviewBucket } {
   const extendedByParaId = parseCommentsExtended(files["word/commentsExtended.xml"] || "");
   const commentsById = parseCommentsXml(files["word/comments.xml"] || "", extendedByParaId);
   const { scenes, unclassified, footnoteOwners } = parseDocumentXml(files["word/document.xml"] || "", commentsById);
@@ -888,7 +1054,7 @@ export function parseDocxReview(files) {
   const footnoteBuckets = parseFootnotesXml(files["word/footnotes.xml"] || "", commentsById);
   for (const [fnId, bucket] of Object.entries(footnoteBuckets)) {
     const owner = footnoteOwners[fnId] || null;
-    let target;
+    let target: ReviewBucket;
     if (owner) {
       if (!scenes[owner]) scenes[owner] = emptyBucket();
       target = scenes[owner];
@@ -911,10 +1077,13 @@ export function parseDocxReview(files) {
  * l'export) part dans `unmatched`, distinct de `unclassified`
  * (parseDocumentXml : contenu jamais rattaché à un signet du tout) — deux
  * causes différentes, deux messages différents pour l'utilisateur. */
-export function resolveScenesToPaths(scenes, currentPaths) {
+export function resolveScenesToPaths(
+  scenes: ReviewBuckets,
+  currentPaths: string[]
+): { byPath: ReviewBuckets; unmatched: ReviewBuckets } {
   const idToPath = new Map(currentPaths.map((p) => [bookmarkIdFor(p), p]));
-  const byPath = {};
-  const unmatched = {};
+  const byPath: ReviewBuckets = {};
+  const unmatched: ReviewBuckets = {};
   for (const [bookmarkId, bucket] of Object.entries(scenes)) {
     const path = idToPath.get(bookmarkId);
     if (path) byPath[path] = bucket;
@@ -935,7 +1104,7 @@ export function resolveScenesToPaths(scenes, currentPaths) {
  * elle-même (" vs «/») est couverte ici, les espaces insécables ajoutées
  * autour restent un angle mort assumé plutôt qu'un mécanisme de tolérance
  * à longueur variable bien plus complexe pour un gain marginal. */
-function toleranceGroup(text) {
+function toleranceGroup(text: string): string {
   let pattern = "";
   let i = 0;
   const MD = "[*_~=]*";
@@ -972,34 +1141,34 @@ function toleranceGroup(text) {
   return `(${MD}${pattern}${MD})`;
 }
 
-function getFrontmatterEndOffset(content) {
+function getFrontmatterEndOffset(content: string): number {
   if (!content) return 0;
   const match = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
   return match ? match[0].length : 0;
 }
 
-function countRegexMatches(re, content) {
+function countRegexMatches(re: RegExp, content: string): number {
   const bodyStart = getFrontmatterEndOffset(content);
   let count = 0;
   re.lastIndex = 0;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(content))) {
     if (m.index >= bodyStart) count++;
   }
   return count;
 }
 
-function findSingleRegexMatch(re, content) {
+function findSingleRegexMatch(re: RegExp, content: string): RegExpExecArray | null {
   const bodyStart = getFrontmatterEndOffset(content);
   re.lastIndex = 0;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(content))) {
     if (m.index >= bodyStart) return m;
   }
   return null;
 }
 
-function getContextCandidates(contextText) {
+function getContextCandidates(contextText: string): string[] {
   if (!contextText) return [""];
   const candidates = [contextText];
   const lengths = [30, 20, 15, 10, 8, 6];
@@ -1016,13 +1185,12 @@ function getContextCandidates(contextText) {
  * superposées. Recherche tolérante avec dégradation progressive du contexte
  * pour résister aux édits multiples dans la même phrase ou au découpage dans
  * le même paragraphe. */
-function planApplyMove(content, change) {
-  if (change.fromContext === undefined || change.toContext === undefined) return { ok: false, reason: "no-context" };
+function planApplyMove(content: string, change: ApplyChange): ApplyResult {
 
-  let toMatch = null;
+  let toMatch: RegexMatch | null = null;
   if (change.toContext === "") {
     const bodyStart = getFrontmatterEndOffset(content);
-    toMatch = { index: bodyStart, length: 0, 0: "" };
+    toMatch = { index: bodyStart, 0: "" };
   } else {
     const toCandidates = getContextCandidates(change.toContext);
     for (const ctx of toCandidates) {
@@ -1040,7 +1208,7 @@ function planApplyMove(content, change) {
   const bodyStart = getFrontmatterEndOffset(content);
   const insertAt = Math.max(bodyStart, toMatch.index + toMatch[0].length);
 
-  let fromMatch = null;
+  let fromMatch: RegExpExecArray | null = null;
   let usedFromCtx = true;
   const fromCandidates = [...getContextCandidates(change.fromContext), ""];
   for (const ctx of fromCandidates) {
@@ -1088,7 +1256,7 @@ function planApplyMove(content, change) {
  * Utilise une recherche à dégradation progressive de contexte pour permettre
  * l'application successive de plusieurs modifications dans la même phrase ou
  * paragraphe sans être bloqué par la modification du contexte voisin. */
-export function planApply(content, change) {
+export function planApply(content: string, change: ApplyChange | null | undefined): ApplyResult {
   if (!change) return { ok: false, reason: "no-context" };
   if (change.type === "move") return planApplyMove(content, change);
   if (change.contextBefore === undefined && !change.text && !change.oldText) return { ok: false, reason: "no-context" };
@@ -1164,7 +1332,7 @@ export function planApply(content, change) {
 /** Cherche `text` (tolérance typographique, voir toleranceGroup) dans
  * `content` avec dégradation progressive du contexte en cas de modifs
  * successives dans la même zone. */
-export function findTolerant(content, text) {
+export function findTolerant(content: string, text: string): { index: number; length: number } | null {
   if (!text) return null;
   const re = new RegExp(toleranceGroup(text), "g");
   const count = countRegexMatches(re, content);
@@ -1193,7 +1361,7 @@ export function findTolerant(content, text) {
  * fois pour "Ouvrir le feuillet" (voir docx-review-view.js) et pour
  * résoudre un orphelin de frontière (voir resolveOrphans) : les deux
  * doivent toujours pointer sur exactement ce qu'Appliquer manipulerait. */
-export function searchTextForChange(change) {
+export function searchTextForChange(change: ReviewChange): string {
   if (change.type === "insertion") return change.contextBefore;
   if (change.type === "replacement") return change.contextBefore + change.oldText;
   if (change.type === "move") return change.toContext;
@@ -1215,22 +1383,32 @@ export function searchTextForChange(change) {
  * que devoir les chercher. `readContent` est injecté (async path -> texte
  * | null) pour que cette fonction reste pure et testable sans coffre
  * réel — voir docx-review-view.js pour l'appel avec `vault.read`. */
-export async function resolveOrphans(unclassified, idToPath, readContent) {
-  const relocated = {}; // path -> { changes: [], comments: [] }
+export async function resolveOrphans(
+  unclassified: ReviewBucket,
+  idToPath: Map<string, string>,
+  readContent: ContentReader
+): Promise<ReviewBuckets> {
+  const relocated: ReviewBuckets = {}; // path -> { changes: [], comments: [] }
 
-  const resolveList = async (list, isComment) => {
-    const stillUnresolved = [];
+  const resolveList = async <T extends ReviewChange | ReviewComment>(list: T[]): Promise<T[]> => {
+    const stillUnresolved: T[] = [];
     for (const item of list) {
-      const candidates = [...new Set([item.prevScene, item.nextScene].filter(Boolean).map((id) => idToPath.get(id)).filter(Boolean))];
-      const searchText = isComment ? item.anchorText : searchTextForChange(item);
-      const matches = [];
+      const candidates = [...new Set(
+        [item.prevScene, item.nextScene]
+          .filter((id): id is string => typeof id === "string")
+          .map((id) => idToPath.get(id))
+          .filter((path): path is string => typeof path === "string")
+      )];
+      const searchText = "anchorText" in item ? item.anchorText : searchTextForChange(item);
+      const matches: string[] = [];
       for (const path of candidates) {
         const content = await readContent(path);
         if (content != null && findTolerant(content, searchText)) matches.push(path);
       }
       if (matches.length === 1) {
         if (!relocated[matches[0]]) relocated[matches[0]] = { changes: [], comments: [] };
-        relocated[matches[0]][isComment ? "comments" : "changes"].push(item);
+        if ("anchorText" in item) relocated[matches[0]].comments.push(item);
+        else relocated[matches[0]].changes.push(item);
       } else {
         item.nearFiles = candidates;
         stillUnresolved.push(item);
@@ -1239,14 +1417,19 @@ export async function resolveOrphans(unclassified, idToPath, readContent) {
     return stillUnresolved;
   };
 
-  unclassified.changes = await resolveList(unclassified.changes, false);
-  unclassified.comments = await resolveList(unclassified.comments, true);
+  unclassified.changes = await resolveList(unclassified.changes);
+  unclassified.comments = await resolveList(unclassified.comments);
   return relocated;
 }
 
 /** Applique un déplacement de texte inter-feuillets : supprime le texte
  * à l'origine (fromFile) et l'insère à la destination (toFile). */
-export async function planApplyInterFile(vault, fromFile, toFile, moveChange) {
+export async function planApplyInterFile(
+  vault: ReviewVault,
+  fromFile: ReviewVaultFile,
+  toFile: ReviewVaultFile,
+  moveChange: MoveChange
+): Promise<{ ok: true } | { ok: false; step: "from" | "to"; reason: string }> {
   const fromContent = await vault.read(fromFile);
   const toContent = await vault.read(toFile);
 
@@ -1254,6 +1437,11 @@ export async function planApplyInterFile(vault, fromFile, toFile, moveChange) {
     type: "deletion",
     contextBefore: moveChange.fromContext,
     text: moveChange.fromText,
+    oldText: "",
+    newText: "",
+    fromContext: "",
+    fromText: "",
+    toContext: "",
   });
   if (!delResult.ok) return { ok: false, step: "from", reason: delResult.reason };
 
@@ -1261,6 +1449,11 @@ export async function planApplyInterFile(vault, fromFile, toFile, moveChange) {
     type: "insertion",
     contextBefore: moveChange.toContext,
     text: moveChange.text,
+    oldText: "",
+    newText: "",
+    fromContext: "",
+    fromText: "",
+    toContext: "",
   });
   if (!insResult.ok) return { ok: false, step: "to", reason: insResult.reason };
 
