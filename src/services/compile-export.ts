@@ -1,3 +1,4 @@
+// @ts-check
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : child_process/path/fs pour l'export Pandoc, desktop uniquement */
 /* global require -- défini par environnement */
 import { Notice, TFolder, TFile, normalizePath, Platform } from "obsidian";
@@ -21,8 +22,22 @@ import { exportDocx } from "./export-docx.js";
 import { exportPdf } from "./export-pdf.js";
 import { exportOdt } from "./export-odt.js";
 
+/** @typedef {{ name: string; color: string }} Label */
+/** @typedef {{ [key: string]: unknown }} ProjectMeta */
+/** @typedef {{ filPlaceholders: Record<string, string>; filOrigins: Record<string, string>; filResolved: string[] }} NarrativeThreadState */
+
+/** @typedef {{ name: string; fileName: string; folderTitles: boolean; chapterTitles: boolean; sceneTitles: boolean; separator: string; [key: string]: unknown }} PresetConfig */
+/** @typedef {{ path: string | null; text: string; frontType: string | null }} CompileSegment */
+/** @typedef {{ outPath: string; manuscript: string; segments: CompileSegment[] }} CompileResult */
+/** @typedef {{ markdown: string; title: string; author: string; sourcePath: string; segments?: CompileSegment[] }} ExportContext */
+
+/**
+ * @param {{ activePreset: number; compilePresets: unknown[]; compileFileName: string; insertFolderTitles: boolean; insertTitles: boolean; insertSceneTitles: boolean; separator: string }} settings
+ * @returns {PresetConfig}
+ */
 export function activePresetConfig(settings) {
   const S = settings;
+  /** @type {PresetConfig} */
   const base = {
     name: "Réglages par défaut",
     fileName: S.compileFileName,
@@ -42,6 +57,11 @@ export function activePresetConfig(settings) {
  * projet (comme _Recherche et _Snapshots), jamais dedans : le manuscrit
  * compilé ne doit jamais apparaître comme un feuillet de plus dans tes
  * propres vues. Créé automatiquement s'il n'existe pas. */
+/**
+ * @param {import("obsidian").App} app
+ * @param {import("./types.d.ts").FeuilletsSettings} settings
+ * @returns {Promise<TFolder|null>}
+ */
 export async function getOutputFolder(app, settings) {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
@@ -49,6 +69,11 @@ export async function getOutputFolder(app, settings) {
   return await ensureFolder(app, `${base}/Sortie`);
 }
 
+/**
+ * @param {import("obsidian").App} app
+ * @param {import("./types.d.ts").FeuilletsSettings} settings
+ * @returns {Promise<CompileResult|null>}
+ */
 export async function compile(app, settings) {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
@@ -56,9 +81,15 @@ export async function compile(app, settings) {
     return null;
   }
   const P = activePresetConfig(settings);
+  /** @type {string[]} */
   const parts = [];
   let count = 0;
 
+  /**
+   * @param {TFile} file
+   * @param {string|null|undefined} frontType
+   * @returns {Promise<string>}
+   */
   const readBody = async (file, frontType = null) => {
     const isFrontPage = !!frontType;
     let content = await app.vault.cachedRead(file);
@@ -84,6 +115,7 @@ export async function compile(app, settings) {
          espaces insécables garantis même sans la frappe typographique
          (texte collé d'un traitement externe…). Réglable (Réglages → Export). */
     const footnotePrefix = footnotePrefixFor(file.path);
+    /** @param {string} str */
     const applyTextTransforms = (str) =>
       applyCompileTransforms(str, footnotePrefix, settings.exportFrenchTypography);
 
@@ -133,12 +165,25 @@ export async function compile(app, settings) {
      Pandoc : aucun risque de faire fuiter un marqueur dans du texte visible
      (contrairement à l'erreur des commentaires HTML pour les citations,
      plus tôt). */
+  /** @type {CompileSegment[]} */
   const segments = [];
-  const push = (text, path, frontType) => {
+  /**
+   * @param {string} text
+   * @param {string|null} path
+   * @param {string|null|undefined} [frontType]
+   */
+  const push = (text, path, frontType = null) => {
     parts.push(text);
-    segments.push({ path: path || null, text, frontType: frontType || null });
+    /** @type {CompileSegment} */
+    const seg = { path: path || null, text, frontType: frontType || null };
+    segments.push(seg);
   };
 
+  /**
+   * @param {TFile} file
+   * @param {string} role
+   * @param {number} depth
+   */
   const pushFile = async (file, role, depth) => {
     const fm = fmOf(app, file);
     if (fm.compile === false) return;
@@ -148,7 +193,7 @@ export async function compile(app, settings) {
        forme dédiée appliquée par chaque export-*.js à partir de frontType. */
     const normalizedFrontType = typeof fm.type === "string" ? fm.type.trim().toLowerCase() : "";
     const isFront = isFrontMatter(app, settings, file) && FRONT_PAGE_TYPES.includes(normalizedFrontType);
-    const body = await readBody(file, isFront ? normalizedFrontType : null);
+    const body = await readBody(file, isFront ? normalizedFrontType : undefined);
 
     if (isFront) {
       push(body, file.path, normalizedFrontType);
@@ -170,13 +215,17 @@ export async function compile(app, settings) {
       const subtitleLine = subtitle
         ? `\n\n${"#".repeat(Math.min(depth + 2, 6))} ${subtitle}`
         : "";
-      push(`${level} ${t}${subtitleLine}\n\n${body}`, file.path);
+      push(`${level} ${t}${subtitleLine}\n\n${body}`, file.path, null);
     } else {
-      push(body, file.path);
+      push(body, file.path, null);
     }
     count++;
   };
 
+  /**
+   * @param {TFolder} f
+   * @param {number} depth
+   */
   const walk = async (f, depth) => {
     for (const child of getOrderedChildren(app, settings, f)) {
       if (child instanceof TFolder) {
@@ -187,10 +236,10 @@ export async function compile(app, settings) {
         const role = roleOfFolder(app, settings, child);
         const level = "#".repeat(Math.min(depth + 1, 6));
         if (role === "partie") {
-          if (P.folderTitles && !isFrontFolder) push(`${level} ${child.name}`, null);
+          if (P.folderTitles && !isFrontFolder) push(`${level} ${child.name}`, null, null);
           await walk(child, depth + 1);
         } else {
-          if (P.chapterTitles && !isFrontFolder) push(`${level} ${child.name}`, null);
+          if (P.chapterTitles && !isFrontFolder) push(`${level} ${child.name}`, null, null);
           for (const sc of flattenFiles(app, settings, child)) {
             await pushFile(sc, "scene", depth + 1);
           }
@@ -219,9 +268,15 @@ export async function compile(app, settings) {
   new Notice(
     `Manuscrit compilé (${P.name}) : ${count} feuillets → ${P.fileName || "Manuscrit.md"}`
   );
+  /** @type {CompileResult} */
   return { outPath, manuscript, segments };
 }
 
+/**
+ * @param {import("./types.d.ts").FeuilletsSettings} settings
+ * @param {TFolder|null} folder
+ * @returns {ProjectMeta}
+ */
 export function projectMetaFor(settings, folder) {
   if (!folder) return {};
   return settings.projectMeta[folder.path] || {};
@@ -235,10 +290,19 @@ export function projectMetaFor(settings, folder) {
  * et services/docx-review-import.js) : le lecteur recalcule l'identifiant de
  * signet pour chaque chemin ACTUEL ici et retrouve ainsi de quel feuillet
  * vient chaque signet rencontré dans le docx, sans avoir à recompiler. */
+/**
+ * @param {import("obsidian").App} app
+ * @param {import("./types.d.ts").FeuilletsSettings} settings
+ * @returns {string[]}
+ */
 export function listCompiledFilePaths(app, settings) {
   const folder = getProjectFolder(app, settings);
   if (!folder) return [];
+  /** @type {string[]} */
   const paths = [];
+  /**
+   * @param {TFolder} f
+   */
   const visit = (f) => {
     for (const child of getOrderedChildren(app, settings, f)) {
       if (child instanceof TFolder) {
@@ -266,6 +330,12 @@ export function listCompiledFilePaths(app, settings) {
 /** Point d'entrée de l'export : route vers le moteur natif (par défaut,
  * zéro dépendance, fonctionne partout dont mobile) ou vers Pandoc (option
  * avancée, réglage `exportEngine`, pour qui l'a déjà configuré). */
+/**
+ * @param {import("obsidian").App} app
+ * @param {import("./types.d.ts").FeuilletsSettings} settings
+ * @param {string} format
+ * @returns {Promise<void>}
+ */
 export async function exportFile(app, settings, format = "docx") {
   /* Le PDF n'a jamais été un format Pandoc de ce plugin (ça demanderait
      LaTeX, hors périmètre) — il passe toujours par le moteur natif
@@ -281,6 +351,12 @@ export async function exportFile(app, settings, format = "docx") {
  * fonctionne desktop et mobile (sauf PDF, desktop uniquement — voir
  * export-pdf.js). Réutilise `compile()` tel quel : seule la conversion
  * finale change de moteur. */
+/**
+ * @param {import("obsidian").App} app
+ * @param {import("./types.d.ts").FeuilletsSettings} settings
+ * @param {string} format
+ * @returns {Promise<void>}
+ */
 async function exportViaNative(app, settings, format) {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
@@ -316,6 +392,7 @@ async function exportViaNative(app, settings, format) {
   const outBase = outputFolder ? outputFolder.path : folder.path;
   const P = activePresetConfig(settings);
   const baseName = (P.fileName || "Manuscrit.md").replace(/\.md$/i, "");
+  /** @type {ExportContext} */
   const ctx = { markdown: result.manuscript, title, author, sourcePath, segments: result.segments };
 
   try {
@@ -345,6 +422,12 @@ async function exportViaNative(app, settings, format) {
   }
 }
 
+/**
+ * @param {import("obsidian").App} app
+ * @param {string} path
+ * @param {Uint8Array|Blob|ArrayBuffer} data
+ * @returns {Promise<void>}
+ */
 async function writeBinaryFile(app, path, data) {
   let buf = data;
   if (typeof Blob !== "undefined" && buf instanceof Blob) buf = await buf.arrayBuffer();
@@ -362,6 +445,12 @@ async function writeBinaryFile(app, path, data) {
  * Pour un PDF : exporter en .docx puis imprimer/exporter depuis Word.
  * Réglage avancé — le moteur natif (exportViaNative) est le chemin par
  * défaut, celui qui ne nécessite rien d'installé. */
+/**
+ * @param {import("obsidian").App} app
+ * @param {import("./types.d.ts").FeuilletsSettings} settings
+ * @param {string} format
+ * @returns {Promise<void>}
+ */
 async function exportViaPandoc(app, settings, format = "docx") {
   /* Pandoc passe par child_process : indisponible sur mobile. On le dit
      clairement plutôt que d'échouer en silence sur une promesse non tenue. */
@@ -373,6 +462,7 @@ async function exportViaPandoc(app, settings, format = "docx") {
   }
   const S = settings;
   const folder = getProjectFolder(app, settings);
+  if (!folder) return;
   const result = await compile(app, settings);
   if (!result) return;
 
@@ -394,7 +484,7 @@ async function exportViaPandoc(app, settings, format = "docx") {
   }
 
   const meta = projectMetaFor(settings, folder);
-  const title = S.manuscriptTitle || (folder ? folder.name : "Manuscrit");
+  const title = S.manuscriptTitle || folder.name;
   const author = S.manuscriptAuthor || meta.author || "";
   const pageBreak =
     '```{=openxml}\n<w:p><w:r><w:br w:type="page"/></w:r></w:p>\n```';
@@ -418,6 +508,7 @@ async function exportViaPandoc(app, settings, format = "docx") {
   );
   const absOut = baseOut.replace(/\.md$/i, `.${format}`);
 
+  /** @type {string[]} */
   const args = [absMd, "-o", absOut, "--from", "markdown+raw_attribute+hard_line_breaks"];
 
   if (format === "docx") {

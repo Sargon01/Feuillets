@@ -69,6 +69,7 @@ export default [
       "main.js",
       "main.js.map",
       "node_modules/",
+      ".test-dist/",
       "resources/",
       "_cleanup-backups/",
       "Candide - Voltaire/",
