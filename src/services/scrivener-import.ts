@@ -6,6 +6,43 @@ import { t } from "../i18n/index.js";
 
 export { extractTag, extractAllTags, getAttr, decodeXmlEntities };
 
+type AttachedImage = { fileName: string; fullPath: string; ext: string };
+type ScrivenerNode = {
+  uuid: string;
+  xmlType: string;
+  isFolder: boolean;
+  isImage: boolean;
+  title: string;
+  synopsis: string;
+  labelTitle: string;
+  statusTitle: string;
+  includeInCompile: boolean;
+  wordGoal: number;
+  keywords: string[];
+  children: ScrivenerNode[];
+};
+type ParsedScrivx = {
+  projectTitle: string;
+  draft: ScrivenerNode | null;
+  research: ScrivenerNode | null;
+  trash: ScrivenerNode | null;
+  others: ScrivenerNode[];
+};
+type ScrImageLink = { rawRef: string; fileName: string; fullMatch: string };
+type ScrivenerComment = { rtf: string; isFootnote: boolean };
+type RtfOptions = { prefix?: string; uuid?: string };
+type ExtractedImage = { name: string; bytes: Uint8Array; ext: string };
+type ExtractedComment = { word: string; text: string };
+type RtfResult = {
+  text: string;
+  footnotes: string[];
+  chapterTitle?: string;
+  sousTitre?: string;
+  extractedImages?: ExtractedImage[];
+  extractedComments?: ExtractedComment[];
+  imageLinks?: ScrImageLink[];
+};
+
 // ============================ Garde-fou de format ==========================
 
 export function checkScrivenerFormat(entries) {
@@ -27,7 +64,7 @@ export function rtfPathCandidates(uuid) {
 }
 
 export function findAttachedDataImages(scrivPath, uuid, fs, pathMod) {
-  const images = [];
+  const images: AttachedImage[] = [];
   if (!uuid || !fs || !pathMod) return images;
   const imgExts = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".pdf"];
   const dirPath = pathMod.join(scrivPath, `Files/Data/${uuid}`);
@@ -71,7 +108,7 @@ export function findAttachedDataImages(scrivPath, uuid, fs, pathMod) {
 // ============================ Parseur du binder =============================
 
 function parseListItems(xml) {
-  const map = new Map();
+  const map = new Map<string, string>();
   if (!xml) return map;
 
   const reS3 = /<(?:Label|Status)\b([^>]*)>([\s\S]*?)<\/(?:Label|Status)>/g;
@@ -96,7 +133,7 @@ function parseListItems(xml) {
 }
 
 function parseKeywordSettings(xmlContent) {
-  const map = new Map();
+  const map = new Map<string, string>();
   if (!xmlContent) return map;
   const nonBinderXml = xmlContent.replace(/<Binder\b[\s\S]*?<\/Binder>/gi, "");
   const kwSettings =
@@ -121,7 +158,7 @@ function parseKeywordSettings(xmlContent) {
 }
 
 function parseCustomMetaDataSettings(xmlContent) {
-  const map = new Map();
+  const map = new Map<string, string>();
   if (!xmlContent) return map;
   const metaSettings =
     extractTag(xmlContent, "MetaDataSettings") ||
@@ -144,7 +181,14 @@ function parseCustomMetaDataSettings(xmlContent) {
   return map;
 }
 
-function parseBinderItem(attrs, body, labelTitles, statusTitles, keywordTitles, customMetaTitles) {
+function parseBinderItem(
+  attrs: string,
+  body: string,
+  labelTitles: Map<string, string>,
+  statusTitles: Map<string, string>,
+  keywordTitles: Map<string, string>,
+  customMetaTitles: Map<string, string>
+): ScrivenerNode {
   const uuid = getAttr(attrs, "UUID") || getAttr(attrs, "ID") || "";
   const xmlType = getAttr(attrs, "Type") || "Text";
   const title = decodeXmlEntities(extractTag(body, "Title")) || "Sans titre";
@@ -166,7 +210,7 @@ function parseBinderItem(attrs, body, labelTitles, statusTitles, keywordTitles, 
   }
 
   const keywordsXml = extractTag(metaXml, "Keywords") || extractTag(body, "Keywords");
-  const keywords = [];
+  const keywords: string[] = [];
   if (keywordsXml) {
     const kwIdTags = extractAllTags(keywordsXml, "KeywordID");
     for (const k of kwIdTags) {
@@ -223,7 +267,7 @@ function parseBinderItem(attrs, body, labelTitles, statusTitles, keywordTitles, 
   }
 
   const childrenXml = extractTag(body, "Children");
-  const children = childrenXml
+  const children: ScrivenerNode[] = childrenXml
     ? extractAllTags(childrenXml, "BinderItem").map(({ attrs: a2, body: b2 }) =>
         parseBinderItem(a2, b2, labelTitles, statusTitles, keywordTitles, customMetaTitles)
       )
@@ -257,7 +301,7 @@ function parseBinderItem(attrs, body, labelTitles, statusTitles, keywordTitles, 
   };
 }
 
-export function parseScrivx(xmlContent) {
+export function parseScrivx(xmlContent: string): ParsedScrivx {
   const projectTitle = decodeXmlEntities(extractTag(xmlContent, "ProjectTitle")) || t("modal.scrivenerImport.importedProject");
   const labelTitles = parseListItems(extractTag(xmlContent, "LabelSettings"));
   const statusTitles = parseListItems(extractTag(xmlContent, "StatusSettings"));
@@ -277,9 +321,9 @@ export function parseScrivx(xmlContent) {
   return { projectTitle, draft, research, trash, others };
 }
 
-export function buildUuidTitleMap(parsed) {
-  const map = new Map();
-  const walk = (item) => {
+export function buildUuidTitleMap(parsed: ParsedScrivx): Map<string, string> {
+  const map = new Map<string, string>();
+  const walk = (item: ScrivenerNode) => {
     if (item.uuid && item.title) map.set(item.uuid, item.title);
     for (const c of item.children) walk(c);
   };
@@ -292,8 +336,8 @@ export function buildUuidTitleMap(parsed) {
 
 // ========================= Extractions des liens d'images ====================
 
-export function parseScrImageLinks(text) {
-  const links = [];
+export function parseScrImageLinks(text: string): ScrImageLink[] {
+  const links: ScrImageLink[] = [];
   if (!text) return links;
 
   const reScr = /\{?\$SCRImageLink\[[^\]]*\][:=]+\$PROJECT:\/\/([^}\s]+)\}?/gi;
@@ -510,12 +554,17 @@ function scanGroup(src, start) {
   return i;
 }
 
-export function rtfToMarkdown(rtf, comments = {}, binderItemMap = null, options = {}) {
+export function rtfToMarkdown(
+  rtf: string,
+  comments: Record<string, ScrivenerComment> = {},
+  binderItemMap: Map<string, string> | null = null,
+  options: RtfOptions = {}
+): RtfResult {
   if (!rtf || !rtf.startsWith("{\\rtf")) return { text: (rtf || "").trim(), footnotes: [] };
 
-  const footnotes = [];
-  const extractedImages = [];
-  const extractedComments = [];
+  const footnotes: string[] = [];
+  const extractedImages: ExtractedImage[] = [];
+  const extractedComments: ExtractedComment[] = [];
 
   function convert(src, collectFootnotes) {
     const len = src.length;
@@ -526,7 +575,7 @@ export function rtfToMarkdown(rtf, comments = {}, binderItemMap = null, options 
     let unicodeSkip = 1;
 
     let inRow = false;
-    let cells = [];
+    let cells: string[] = [];
     let cellBuf = "";
     let tableRunActive = false;
 
@@ -553,7 +602,7 @@ export function rtfToMarkdown(rtf, comments = {}, binderItemMap = null, options 
     const emit = (s) => {
       if (!s) return;
       if (pendingOpen) {
-        const leading = /^[ \t]*/.exec(s)[0];
+        const leading = /^[ \t]*/.exec(s)?.[0] || "";
         const rest = s.slice(leading.length);
         if (leading) rawAppend(leading);
         if (rest) {
@@ -941,7 +990,7 @@ export function rtfToMarkdown(rtf, comments = {}, binderItemMap = null, options 
 
   const bodyContent = finalizeConvertedText(marker.title ? marker.rest : converted);
 
-  const res = {
+  const res: RtfResult = {
     text: bodyHeader + bodyContent,
     footnotes,
     chapterTitle: marker.title,
