@@ -1,8 +1,21 @@
-import { Modal } from "obsidian";
+import { Modal, type App, type TFile } from "obsidian";
 import { t } from "../i18n/index.js";
 
+type FrontmatterPlugin = {
+  titleFor(file: TFile): string;
+  fmOf(file: TFile): Record<string, string | undefined>;
+};
+
+type SavedHandler = () => void | Promise<void>;
+
 export class FmFieldModal extends Modal {
-  constructor(app, plugin, file, key, title, onSaved) {
+  plugin: FrontmatterPlugin;
+  file: TFile;
+  key: string;
+  titleText: string;
+  onSaved?: SavedHandler;
+
+  constructor(app: App, plugin: FrontmatterPlugin, file: TFile, key: string, title: string, onSaved?: SavedHandler) {
     super(app);
     this.plugin = plugin;
     this.file = file;
