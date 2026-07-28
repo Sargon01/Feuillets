@@ -5,6 +5,14 @@ export class Component {
   unload() {}
 }
 
+export class ItemView {
+  constructor(leaf) {
+    this.leaf = leaf;
+    this.app = leaf.app;
+    this.contentEl = leaf.contentEl;
+  }
+}
+
 export const MarkdownRenderer = {
   async render() {},
 };
@@ -43,6 +51,18 @@ export class Notice {
 }
 
 export class Modal {}
+
+export class Setting {}
+
+export class MarkdownView {}
+
+export class Menu {}
+
+export class Keymap {}
+
+export class FuzzySuggestModal {}
+
+export function setTooltip() {}
 
 export class ButtonComponent {
   constructor(container) {

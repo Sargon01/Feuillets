@@ -1,32 +1,38 @@
+import { TFile, type WorkspaceLeaf } from "obsidian";
 import { VIEW_RESEARCH } from "../constants.js";
-import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { isEditing } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
+import { isEditing } from "../utils/dom.js";
+import { BaseFeuilletsView } from "./base-feuillets-view.js";
 
-import { TFile } from "obsidian";
+type ResearchViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 
 export class ResearchView extends BaseFeuilletsView {
-  constructor(leaf, plugin) {
+  declare plugin: ResearchViewPlugin;
+  declare targetContainer?: HTMLElement;
+  declare viewingFile: TFile | null;
+  declare _renderGen?: number;
+
+  constructor(leaf: WorkspaceLeaf, plugin: ResearchViewPlugin) {
     super(leaf, plugin);
   }
 
-  getViewType() {
+  getViewType(): string {
     return VIEW_RESEARCH;
   }
 
-  getDisplayText() {
+  getDisplayText(): string {
     return t("research.displayText");
   }
 
-  getIcon() {
+  getIcon(): string {
     return "book-marked";
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     await this.render();
   }
 
-  async render(force = false) {
+  async render(force = false): Promise<void> {
     const container = this.targetContainer || this.contentEl;
     if (!force && isEditing(container)) return;
 
