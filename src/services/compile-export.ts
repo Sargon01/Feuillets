@@ -31,6 +31,20 @@ import { exportOdt } from "./export-odt.js";
 /** @typedef {{ outPath: string; manuscript: string; segments: CompileSegment[] }} CompileResult */
 /** @typedef {{ markdown: string; title: string; author: string; sourcePath: string; segments?: CompileSegment[] }} ExportContext */
 
+type NativeExportSegment = {
+  path: string | null;
+  text: string;
+  frontType?: string;
+};
+
+type NativeExportContext = {
+  markdown: string;
+  title: string;
+  author: string;
+  sourcePath: string;
+  segments: NativeExportSegment[];
+};
+
 /**
  * @param {{ activePreset: number; compilePresets: unknown[]; compileFileName: string; insertFolderTitles: boolean; insertTitles: boolean; insertSceneTitles: boolean; separator: string }} settings
  * @returns {PresetConfig}
@@ -81,8 +95,7 @@ export async function compile(app, settings) {
     return null;
   }
   const P = activePresetConfig(settings);
-  /** @type {string[]} */
-  const parts = [];
+  const parts: string[] = [];
   let count = 0;
 
   /**
@@ -90,7 +103,7 @@ export async function compile(app, settings) {
    * @param {string|null|undefined} frontType
    * @returns {Promise<string>}
    */
-  const readBody = async (file, frontType = null) => {
+  const readBody = async (file: TFile, frontType: string | null | undefined = null): Promise<string> => {
     const isFrontPage = !!frontType;
     let content = await app.vault.cachedRead(file);
     content = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
@@ -165,14 +178,13 @@ export async function compile(app, settings) {
      Pandoc : aucun risque de faire fuiter un marqueur dans du texte visible
      (contrairement à l'erreur des commentaires HTML pour les citations,
      plus tôt). */
-  /** @type {CompileSegment[]} */
-  const segments = [];
+  const segments: CompileSegment[] = [];
   /**
    * @param {string} text
    * @param {string|null} path
    * @param {string|null|undefined} [frontType]
    */
-  const push = (text, path, frontType = null) => {
+  const push = (text: string, path: string | null, frontType: string | null | undefined = null): void => {
     parts.push(text);
     /** @type {CompileSegment} */
     const seg = { path: path || null, text, frontType: frontType || null };
@@ -298,8 +310,7 @@ export function projectMetaFor(settings, folder) {
 export function listCompiledFilePaths(app, settings) {
   const folder = getProjectFolder(app, settings);
   if (!folder) return [];
-  /** @type {string[]} */
-  const paths = [];
+  const paths: string[] = [];
   /**
    * @param {TFolder} f
    */
@@ -392,8 +403,10 @@ async function exportViaNative(app, settings, format) {
   const outBase = outputFolder ? outputFolder.path : folder.path;
   const P = activePresetConfig(settings);
   const baseName = (P.fileName || "Manuscrit.md").replace(/\.md$/i, "");
-  /** @type {ExportContext} */
-  const ctx = { markdown: result.manuscript, title, author, sourcePath, segments: result.segments };
+  const segments: NativeExportSegment[] = result.segments.map(({ path, text, frontType }) =>
+    frontType === null ? { path, text } : { path, text, frontType }
+  );
+  const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments };
 
   try {
     if (format === "epub") {
