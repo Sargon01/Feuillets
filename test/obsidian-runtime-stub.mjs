@@ -54,7 +54,11 @@ export class Notice {
 
 export class Modal {}
 
-export class Setting {}
+export class Setting {
+  constructor(container) {
+    this.container = container;
+  }
+}
 
 export class MarkdownView {}
 
