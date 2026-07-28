@@ -1,4 +1,5 @@
-import { Notice, normalizePath } from "obsidian";
+import { Notice, normalizePath, TFile } from "obsidian";
+import type { App, TAbstractFile, TFolder } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
 import { getResearchRoot, getChronoFolder, researchFolderPath } from "./research.js";
 import { ensureFolder, initProjectStructure } from "./project-files.js";
@@ -11,14 +12,69 @@ import { CANDIDE_CHAPTER_BODIES, CANDIDE_FRONT_FILES, CANDIDE_RESEARCH } from ".
 const VOLUME_NAME = "Feuillets — Exemple";
 const CANDIDE_VOLUME_NAME = "Candide, ou l'Optimisme — Exemple";
 
-async function writeSheet(app, folder, name, lines) {
+type DemoKind = "elira" | "candide";
+
+type DemoPlugin = {
+  saveSettings(): Promise<void>;
+  renderAllViews(force?: boolean): void | Promise<void>;
+};
+
+type SceneInput = {
+  titre: string;
+  titreCourt?: string;
+  ordre: number;
+  synopsis?: string;
+  statut?: string;
+  label?: string;
+  fil?: string;
+  personnages?: string[];
+  rythme?: Partial<Record<"action" | "dialogue" | "description" | "introspection", number>>;
+  tags?: string;
+  date?: string;
+  notes?: string;
+  compiler?: boolean;
+  body: string;
+};
+
+type CandideChapter = {
+  ordre: number;
+  titre: string;
+  titreBinder: string;
+  sousTitre: string;
+  label: string;
+  fil: string;
+  personnages: string[];
+};
+
+type CandidePart = {
+  nom: string;
+  chapitres: CandideChapter[];
+};
+
+type DemoFrontmatter = Record<string, unknown>;
+
+type FictionResearchFolders = {
+  personnages: { label: string };
+  lieux: { label: string };
+  codex: { label: string };
+  bibliographie: { label: string };
+  glossaire: { label: string };
+};
+
+function isFictionResearchFolders(folders: object): folders is FictionResearchFolders {
+  return ["personnages", "lieux", "codex", "bibliographie", "glossaire"].every(
+    (key) => key in folders
+  );
+}
+
+async function writeSheet(app: App, folder: TAbstractFile, name: string, lines: string[]): Promise<TFile> {
   const path = normalizePath(`${folder.path}/${name}.md`);
   const existing = app.vault.getAbstractFileByPath(path);
-  if (existing) return existing;
+  if (existing instanceof TFile) return existing;
   return app.vault.create(path, lines.join("\n"));
 }
 
-const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, fil, personnages, rythme, tags, date, notes, compiler, body }) => {
+const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, fil, personnages, rythme, tags, date, notes, compiler, body }: SceneInput): string[] => {
   const lines = [
     "---",
     `title: ${titre}`,
@@ -56,7 +112,7 @@ const sceneLines = ({ titre, titreCourt, ordre, synopsis, statut, label, fil, pe
 /** Fait tout le travail de génération — isolée dans sa propre fonction pour
  * que `createDemoProject` puisse l'entourer d'un try/catch/finally propre
  * (restauration garantie des réglages même en cas d'échec à mi-chemin). */
-async function generate(app, S, plugin, manuscritPath) {
+async function generate(app: App, S: FeuilletsSettings, plugin: DemoPlugin, manuscritPath: string): Promise<void> {
   S.projectFolder = manuscritPath;
   if (!S.projectMeta) S.projectMeta = {};
   S.projectMeta[manuscritPath] = {
@@ -83,7 +139,11 @@ async function generate(app, S, plugin, manuscritPath) {
       "Mode de projet introuvable (getProjectMode a renvoyé undefined) — abandon de la génération."
     );
   }
-  const rf = mode.researchFolders;
+  const researchFolders = mode.researchFolders;
+  if (!isFictionResearchFolders(researchFolders)) {
+    throw new Error("Dossiers de recherche Fiction introuvables.");
+  }
+  const rf = researchFolders;
 
   /* ---------- Manuscrit ---------- */
 
@@ -109,7 +169,7 @@ async function generate(app, S, plugin, manuscritPath) {
      d'export choisi, pas de composition à la main). */
   const titlePagePath = normalizePath(`${front.path}/Page de titre.md`);
   const titlePageFile = app.vault.getAbstractFileByPath(titlePagePath);
-  if (titlePageFile) {
+  if (titlePageFile instanceof TFile) {
     await app.vault.modify(titlePageFile, [
       "---",
       "title: La Citadelle Grise",
@@ -211,7 +271,7 @@ async function generate(app, S, plugin, manuscritPath) {
      snapshot » et le comparateur de différences aient tout de suite un vrai
      avant/après à montrer, sans attendre que l'utilisateur en crée un. */
   {
-    const snapshotsBase = normalizePath(`${root.parent.path}/Snapshots`);
+    const snapshotsBase = normalizePath(`${root.parent!.path}/Snapshots`);
     const snapshotDir = normalizePath(`${snapshotsBase}/${ouvertureFile.basename}`);
     await ensureFolder(app, snapshotsBase);
     await ensureFolder(app, snapshotDir);
@@ -304,7 +364,9 @@ async function generate(app, S, plugin, manuscritPath) {
 
   /* ---------- Recherche ---------- */
 
-  const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, researchFolderPath(app, S, root)));
+  const researchPath = researchFolderPath(app, S, root);
+  if (!researchPath) throw new Error("Dossier Recherche introuvable.");
+  const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, researchPath));
 
   const personnages = await ensureFolder(app, `${researchRoot.path}/${rf.personnages.label}`);
   await writeSheet(app, personnages, "Elira Voskan", [
@@ -432,11 +494,13 @@ async function generate(app, S, plugin, manuscritPath) {
   const today = new Date();
   const yesterday = new Date(Date.now() - 86400000);
   const todayFile = await ensureDayEntry(app, S, today);
+  if (!todayFile) throw new Error("Entrée de journal introuvable.");
   await app.vault.modify(
     todayFile,
     ["---", `date: ${dateKey(today)}`, "notes: ", "---", "", "Exemple d'entrée de journal — un feuillet par jour, jamais compilé avec le manuscrit. Le bouton « Compiler le carnet » (icône en haut du panneau Journal) rassemble toutes ces entrées dans un seul fichier « Journal d'écriture.md », régénéré à chaque fois.", ""].join("\n")
   );
   const yesterdayFile = await ensureDayEntry(app, S, yesterday);
+  if (!yesterdayFile) throw new Error("Entrée de journal introuvable.");
   await app.vault.modify(
     yesterdayFile,
     ["---", `date: ${dateKey(yesterday)}`, "notes: ", "---", "", "Deuxième entrée d'exemple — ouvre le panneau Journal pour voir ces deux jours marqués d'un point dans le calendrier.", ""].join("\n")
@@ -444,7 +508,7 @@ async function generate(app, S, plugin, manuscritPath) {
 
   /* ---------- Lisez-moi ---------- */
 
-  await writeSheet(app, root.parent, "Lisez-moi", [
+  await writeSheet(app, root.parent!, "Lisez-moi", [
     "---",
     "compile: false",
     "---",
@@ -561,10 +625,10 @@ async function generate(app, S, plugin, manuscritPath) {
      côtés (origine + marqueur), et enregistrer l'état exactement comme le
      ferait l'automatisation, pour qu'une résolution manuelle ultérieure
      par l'utilisateur continue de fonctionner normalement ensuite. */
-  await app.fileManager.processFrontMatter(plantScene, (fm) => {
+  await app.fileManager.processFrontMatter(plantScene, (fm: DemoFrontmatter) => {
     fm.thread = "secret-de-l-ordre";
   });
-  await app.fileManager.processFrontMatter(silenceFile, (fm) => {
+  await app.fileManager.processFrontMatter(silenceFile, (fm: DemoFrontmatter) => {
     fm.thread = "secret-de-l-ordre";
   });
   if (!S.filPlaceholders) S.filPlaceholders = {};
@@ -574,7 +638,7 @@ async function generate(app, S, plugin, manuscritPath) {
   await plugin.saveSettings();
 }
 
-const CANDIDE_PARTIES = [
+const CANDIDE_PARTIES: CandidePart[] = [
   { nom: "Partie 1 - L'Ancien Monde", chapitres: [
     { ordre: 1, titre: "Éducation de Candide", titreBinder: "Éducation de Candide", sousTitre: "Comment Candide fut élevé dans un beau château, et comment il fut chassé d’icelui.", label: "Westphalie", fil: "L'Optimisme", personnages: ["Candide", "Pangloss", "Cunégonde", "M. le Baron", "Mme la Baronne"] },
     { ordre: 2, titre: "Enrôlement chez les Bulgares", titreBinder: "Enrôlement chez les Bulgares", sousTitre: "Ce que devint Candide parmi les Bulgares.", label: "Bulgarie", fil: "La Guerre", personnages: ["Candide", "Recruteurs bulgares"] },
@@ -613,7 +677,7 @@ const CANDIDE_PARTIES = [
   ] },
 ];
 
-function candideSceneLines({ ordre, titre, titreBinder, sousTitre, label, fil, personnages }) {
+function candideSceneLines({ ordre, titre, titreBinder, sousTitre, label, fil, personnages }: CandideChapter): string[] {
   const lines = [
     "---",
     `title: "Chapitre ${ordre} — ${titre}"`,
@@ -632,7 +696,7 @@ function candideSceneLines({ ordre, titre, titreBinder, sousTitre, label, fil, p
   return lines;
 }
 
-async function generateCandide(app, S, plugin, manuscritPath) {
+async function generateCandide(app: App, S: FeuilletsSettings, plugin: DemoPlugin, manuscritPath: string): Promise<void> {
   S.projectFolder = manuscritPath;
   if (!S.projectMeta) S.projectMeta = {};
   S.projectMeta[manuscritPath] = {
@@ -658,7 +722,11 @@ async function generateCandide(app, S, plugin, manuscritPath) {
       "Mode de projet introuvable (getProjectMode a renvoyé undefined) — abandon de la génération."
     );
   }
-  const rf = mode.researchFolders;
+  const researchFolders = mode.researchFolders;
+  if (!isFictionResearchFolders(researchFolders)) {
+    throw new Error("Dossiers de recherche Fiction introuvables.");
+  }
+  const rf = researchFolders;
 
   /* ---------- Front ---------- */
 
@@ -681,7 +749,9 @@ async function generateCandide(app, S, plugin, manuscritPath) {
 
   /* ---------- Recherche : fiches réelles (Personnages, Lieux, Lore, Chronologie) ---------- */
 
-  const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, researchFolderPath(app, S, root)));
+  const researchPath = researchFolderPath(app, S, root);
+  if (!researchPath) throw new Error("Dossier Recherche introuvable.");
+  const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, researchPath));
 
   const personnages = await ensureFolder(app, `${researchRoot.path}/${rf.personnages.label}`);
   for (const [name, content] of Object.entries(CANDIDE_RESEARCH.Personnages)) {
@@ -705,7 +775,7 @@ async function generateCandide(app, S, plugin, manuscritPath) {
 
   /* ---------- Lisez-moi ---------- */
 
-  await writeSheet(app, root.parent, "Lisez-moi", [
+  await writeSheet(app, root.parent!, "Lisez-moi", [
     "---",
     "compile: false",
     "---",
@@ -735,7 +805,12 @@ async function generateCandide(app, S, plugin, manuscritPath) {
  * dans son propre texte) ou "candide" (Candide, ou l'Optimisme — Voltaire,
  * domaine public — 30 chapitres déjà balisés label/fil/personnages, pour
  * explorer le Chemin de fer sur un vrai texte). */
-export async function createDemoProject(app, settings, plugin, kind = "elira") {
+export async function createDemoProject(
+  app: App,
+  settings: FeuilletsSettings,
+  plugin: DemoPlugin,
+  kind: DemoKind = "elira"
+): Promise<void> {
   const S = settings;
   const volumeName = kind === "candide" ? CANDIDE_VOLUME_NAME : VOLUME_NAME;
   const generator = kind === "candide" ? generateCandide : generate;
@@ -749,8 +824,14 @@ export async function createDemoProject(app, settings, plugin, kind = "elira") {
 
   const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
   const previousProjectFolder = S.projectFolder;
-  const hadProjectMeta = Object.prototype.hasOwnProperty.call(S, "projectMeta");
-  const previousProjectMeta = S.projectMeta;
+  const settingsWithOptionalProjectMeta: {
+    projectMeta?: Record<string, ProjectMeta | undefined>;
+  } = S;
+  const hadProjectMeta = Object.prototype.hasOwnProperty.call(
+    settingsWithOptionalProjectMeta,
+    "projectMeta"
+  );
+  const previousProjectMeta = settingsWithOptionalProjectMeta.projectMeta;
   const hadProjectMetaEntry = previousProjectMeta != null
     && typeof previousProjectMeta === "object"
     && Object.prototype.hasOwnProperty.call(previousProjectMeta, manuscritPath);
@@ -795,13 +876,13 @@ export async function createDemoProject(app, settings, plugin, kind = "elira") {
       if (!S.projects) S.projects = [];
       if (!S.projects.includes(manuscritPath)) S.projects.push(manuscritPath);
     } else if (!hadProjectMeta) {
-      delete S.projectMeta;
+      delete settingsWithOptionalProjectMeta.projectMeta;
     } else if (previousProjectMeta == null || typeof previousProjectMeta !== "object") {
-      S.projectMeta = previousProjectMeta;
+      settingsWithOptionalProjectMeta.projectMeta = previousProjectMeta;
     } else if (hadProjectMetaEntry) {
-      S.projectMeta[manuscritPath] = previousProjectMetaEntry;
+      settingsWithOptionalProjectMeta.projectMeta![manuscritPath] = previousProjectMetaEntry;
     } else {
-      delete S.projectMeta[manuscritPath];
+      delete settingsWithOptionalProjectMeta.projectMeta![manuscritPath];
     }
     await plugin.saveSettings();
     plugin.renderAllViews(true);
