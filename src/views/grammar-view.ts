@@ -1,4 +1,4 @@
-import { TFile, Platform, setIcon, Notice, Menu } from "obsidian";
+import { TFile, Platform, setIcon, Notice, Menu, type Editor, type WorkspaceLeaf } from "obsidian";
 import { VIEW_GRAMMAR } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { applyGrammarHighlights, clearGrammarHighlights } from "../utils/cm-grammar-highlighter.js";
@@ -6,8 +6,76 @@ import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { sanitizeForGrammarCheck } from "../utils/sanitize-for-grammar.js";
 import { t, getLocale } from "../i18n/index.js";
 
-const TYPE_ICON = { grammar: "spell-check", spelling: "text-cursor-input" };
-function typeLabel(type) {
+type GrammarIssueType = "grammar" | "spelling";
+
+type GrammarIssue = {
+  type: GrammarIssueType;
+  ruleId: string;
+  message: string;
+  underlined: string;
+  suggestions: string[];
+  start: number;
+  end: number;
+  offset?: number;
+  length?: number;
+};
+
+type GrammarCodeMirrorView = {
+  state: { doc: { length: number } };
+  dispatch(transaction: { effects: unknown }): void;
+};
+
+type GrammarChecker = {
+  checkText(text: string, settings: FeuilletsSettings, locale: string): Promise<GrammarIssue[]>;
+};
+
+type GrammarUserData = {
+  learnWord(word: string): boolean;
+  ignoreIssueSignature(signature: string): boolean;
+};
+
+type BaseFeuilletsPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
+type GrammarViewPlugin = BaseFeuilletsPlugin & {
+  settings: FeuilletsSettings;
+  grammarCheckerManager?: GrammarChecker | null;
+  grammarUserData?: GrammarUserData | null;
+  _grammarView?: GrammarView;
+  activeEditorAnywhere(): Editor | null;
+  titleFor(file: TFile): string;
+  saveSettings(): Promise<void>;
+};
+
+type GrammarSidebarView = { activeTab: string };
+type RenderableGrammarSidebarView = GrammarSidebarView & { render(): Promise<void> };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isGrammarSidebarView(value: unknown): value is GrammarSidebarView {
+  return isRecord(value) &&
+    "activeTab" in value && typeof value.activeTab === "string";
+}
+
+function isRenderableGrammarSidebarView(value: unknown): value is RenderableGrammarSidebarView {
+  return isGrammarSidebarView(value) && "render" in value && typeof value.render === "function";
+}
+
+function isGrammarCodeMirrorView(value: unknown): value is GrammarCodeMirrorView {
+  return isRecord(value) &&
+    "state" in value && isRecord(value.state) &&
+    "doc" in value.state && isRecord(value.state.doc) &&
+    "length" in value.state.doc && typeof value.state.doc.length === "number" &&
+    "dispatch" in value && typeof value.dispatch === "function";
+}
+
+function codeMirrorFrom(editor: Editor | null): GrammarCodeMirrorView | null {
+  if (!editor || !("cm" in editor)) return null;
+  return isGrammarCodeMirrorView(editor.cm) ? editor.cm : null;
+}
+
+const TYPE_ICON: Record<GrammarIssueType, string> = { grammar: "spell-check", spelling: "text-cursor-input" };
+function typeLabel(type: GrammarIssueType): string {
   return type === "spelling" ? t("grammar.type.spelling") : t("grammar.type.grammar");
 }
 
@@ -18,7 +86,16 @@ function typeLabel(type) {
  * local (Grammalecte/Harper, vm/fs, voir GrammarCheckerManager) est
  * indisponible sur Obsidian mobile. */
 export class GrammarView extends BaseFeuilletsView {
-  constructor(leaf, plugin) {
+  declare plugin: GrammarViewPlugin;
+  declare targetContainer?: HTMLElement;
+  issues: GrammarIssue[];
+  checking: boolean;
+  checkedPath: string | null;
+  checkedMtime: number | null;
+  frontmatterOffset: number;
+  _highlightedEditor: GrammarCodeMirrorView | null;
+
+  constructor(leaf: WorkspaceLeaf, plugin: BaseFeuilletsPlugin) {
     super(leaf, plugin);
     this.issues = [];
     this.checking = false;
@@ -33,13 +110,13 @@ export class GrammarView extends BaseFeuilletsView {
     this.plugin._grammarView = this;
   }
 
-  getViewType() {
+  getViewType(): string {
     return VIEW_GRAMMAR;
   }
-  getDisplayText() {
+  getDisplayText(): string {
     return t("grammar.displayText");
   }
-  getIcon() {
+  getIcon(): string {
     return "spell-check";
   }
 
@@ -56,12 +133,12 @@ export class GrammarView extends BaseFeuilletsView {
      runCheck() doit donc pouvoir tourner "en tête" (déclenché par une
      commande, sans jamais ouvrir cet onglet — voir main.js) sans jamais
      toucher au rendu tant que ce n'est pas l'onglet actif. */
-  isTabVisible() {
+  isTabVisible(): boolean {
     const sidebarView = this.leaf && this.leaf.view;
-    return !!(sidebarView && sidebarView.activeTab === "grammar");
+    return isGrammarSidebarView(sidebarView) && sidebarView.activeTab === "grammar";
   }
 
-  async runCheck(file) {
+  async runCheck(file: TFile): Promise<void> {
     this.checking = true;
     this.checkedPath = file.path;
     this.checkedMtime = file.stat.mtime;
@@ -83,8 +160,9 @@ export class GrammarView extends BaseFeuilletsView {
         ? await this.plugin.grammarCheckerManager.checkText(sanitized, this.plugin.settings, activeLocale)
         : [];
       this.highlightInEditor();
-    } catch (e) {
-      new Notice(t("grammar.checkUnavailable", { error: e.message }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      new Notice(t("grammar.checkUnavailable", { error: message }));
       this.issues = [];
     } finally {
       this.checking = false;
@@ -92,9 +170,9 @@ export class GrammarView extends BaseFeuilletsView {
     }
   }
 
-  highlightInEditor() {
+  highlightInEditor(): void {
     const editor = this.plugin.activeEditorAnywhere();
-    const cm = editor && editor.cm;
+    const cm = codeMirrorFrom(editor);
     if (!cm) return;
     applyGrammarHighlights(cm, this.issues, this.frontmatterOffset);
     this._highlightedEditor = cm;
@@ -103,9 +181,9 @@ export class GrammarView extends BaseFeuilletsView {
   /* Clic sur un mot souligné dans l'éditeur (voir cm-grammar-highlighter.js,
      grammarClickHandler) : bascule/révèle cet onglet si besoin, puis fait
      défiler jusqu'à la ligne correspondante avec un bref flash visuel. */
-  async highlightRowInPanel(idx) {
+  async highlightRowInPanel(idx: number): Promise<void> {
     const sidebarView = this.leaf && this.leaf.view;
-    if (sidebarView && sidebarView.activeTab !== "grammar" && typeof sidebarView.render === "function") {
+    if (isRenderableGrammarSidebarView(sidebarView) && sidebarView.activeTab !== "grammar") {
       sidebarView.activeTab = "grammar";
       this.plugin.settings.activeRightPanelTab = "grammar";
       await this.plugin.saveSettings();
@@ -127,9 +205,10 @@ export class GrammarView extends BaseFeuilletsView {
      l'onglet. Réutilise exactement les mêmes actions que les lignes du
      panneau (applySuggestion/ignoreIssue/learnWord), donc les deux surfaces
      restent cohérentes. */
-  showIssueMenu(idx, event) {
+  showIssueMenu(idx: number, event: MouseEvent): void {
     const issue = this.issues[idx];
     if (!issue) return;
+    if (!this.checkedPath) return;
     const file = this.app.vault.getAbstractFileByPath(this.checkedPath);
     if (!(file instanceof TFile)) return;
 
@@ -174,7 +253,7 @@ export class GrammarView extends BaseFeuilletsView {
     menu.showAtMouseEvent(event);
   }
 
-  async render() {
+  async render(): Promise<void> {
     const container = this.targetContainer || this.contentEl;
     container.empty();
     container.addClass("feuillets-grammar-container");
@@ -212,7 +291,7 @@ export class GrammarView extends BaseFeuilletsView {
     sub.setText(
       this.checking
         ? t("grammar.checkingInProgress", { title: this.plugin.titleFor(file) })
-        : t("grammar.issuesFound", { count: this.issues.length, s: this.issues.length > 1 ? "s" : "", title: this.plugin.titleFor(file) })
+        : t("grammar.issuesFound", { count: String(this.issues.length), s: this.issues.length > 1 ? "s" : "", title: this.plugin.titleFor(file) })
     );
     const badge = summary.createSpan({ cls: "feuillets-tag-chip" });
     badge.setText(engineLabel);
@@ -239,7 +318,7 @@ export class GrammarView extends BaseFeuilletsView {
     for (const issue of this.issues) this.renderIssue(list, file, issue);
   }
 
-  renderIssue(container, file, issue) {
+  renderIssue(container: HTMLElement, file: TFile, issue: GrammarIssue): void {
     const row = container.createDiv({ cls: "feuillets-research-item feuillets-grammar-row" });
     const header = row.createDiv({ cls: "feuillets-research-item-header" });
     const icon = header.createSpan({ cls: "feuillets-cell-icon" });
@@ -258,13 +337,13 @@ export class GrammarView extends BaseFeuilletsView {
 
     if (issue.type === "spelling" && issue.underlined) {
       const learnBtn = this.iconBtn(header, "book-plus", t("grammar.learnWordTooltip", { word: issue.underlined }));
-      learnBtn.addEventListener("click", async (e) => {
+      learnBtn.addEventListener("click", async (e: MouseEvent) => {
         e.stopPropagation();
         await this.learnWord(issue.underlined);
       });
     } else if (issue.type === "grammar") {
       const ignoreBtn = this.iconBtn(header, "eye-off", t("grammar.ignoreIssueTooltip"));
-      ignoreBtn.addEventListener("click", async (e) => {
+      ignoreBtn.addEventListener("click", async (e: MouseEvent) => {
         e.stopPropagation();
         await this.ignoreIssue(issue);
       });
@@ -276,7 +355,7 @@ export class GrammarView extends BaseFeuilletsView {
      interrompre le flux d'édition. Suppose que le feuillet actif est déjà
      celui vérifié par cet onglet (this.checkedPath) ; sinon, invite à
      d'abord ouvrir l'onglet pour lancer la vérification. */
-  jumpToAdjacentIssue(direction) {
+  jumpToAdjacentIssue(direction: number): void {
     const editor = this.plugin.activeEditorAnywhere();
     const file = this.app.workspace.getActiveFile();
     if (!editor || !file) {
@@ -314,7 +393,7 @@ export class GrammarView extends BaseFeuilletsView {
     editor.scrollIntoView({ from, to }, true);
   }
 
-  jumpTo(file, issue) {
+  jumpTo(file: TFile, issue: GrammarIssue): void {
     const editor = this.plugin.activeEditorAnywhere();
     if (!editor) {
       new Notice(t("grammar.openThisSheetInEditor"));
@@ -327,7 +406,7 @@ export class GrammarView extends BaseFeuilletsView {
     if (typeof editor.focus === "function") editor.focus();
   }
 
-  async learnWord(word) {
+  async learnWord(word: string): Promise<void> {
     if (!this.plugin.grammarUserData) return;
     if (!this.plugin.grammarUserData.learnWord(word)) return;
     new Notice(t("grammar.wordWontBeFlagged", { word }));
@@ -335,7 +414,7 @@ export class GrammarView extends BaseFeuilletsView {
     await this.render();
   }
 
-  async ignoreIssue(issue) {
+  async ignoreIssue(issue: GrammarIssue): Promise<void> {
     if (!this.plugin.grammarUserData) return;
     const sig = grammarIssueSignature(issue);
     if (!this.plugin.grammarUserData.ignoreIssueSignature(sig)) return;
@@ -344,7 +423,7 @@ export class GrammarView extends BaseFeuilletsView {
     await this.render();
   }
 
-  async applySuggestion(file, issue, suggestion) {
+  async applySuggestion(file: TFile, issue: GrammarIssue, suggestion: string): Promise<void> {
     const start = issue.start + this.frontmatterOffset;
     const end = issue.end + this.frontmatterOffset;
     const editor = this.plugin.activeEditorAnywhere();
