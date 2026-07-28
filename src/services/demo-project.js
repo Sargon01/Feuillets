@@ -747,7 +747,16 @@ export async function createDemoProject(app, settings, plugin, kind = "elira") {
     return;
   }
 
+  const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
   const previousProjectFolder = S.projectFolder;
+  const hadProjectMeta = Object.prototype.hasOwnProperty.call(S, "projectMeta");
+  const previousProjectMeta = S.projectMeta;
+  const hadProjectMetaEntry = previousProjectMeta != null
+    && typeof previousProjectMeta === "object"
+    && Object.prototype.hasOwnProperty.call(previousProjectMeta, manuscritPath);
+  const previousProjectMetaEntry = hadProjectMetaEntry
+    ? previousProjectMeta[manuscritPath]
+    : undefined;
   /* applyModeDefaults() touche des réglages GLOBAUX au plugin (boardMode,
      numérotation, level1Role, mergeYamlPreset...), pas propres à un projet
      — générer le projet d'exemple ne doit jamais modifier discrètement ces
@@ -762,7 +771,6 @@ export async function createDemoProject(app, settings, plugin, kind = "elira") {
     mergeYamlPreset: S.mergeYamlPreset,
   };
 
-  const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
   let succeeded = false;
 
   try {
@@ -786,6 +794,14 @@ export async function createDemoProject(app, settings, plugin, kind = "elira") {
     if (succeeded) {
       if (!S.projects) S.projects = [];
       if (!S.projects.includes(manuscritPath)) S.projects.push(manuscritPath);
+    } else if (!hadProjectMeta) {
+      delete S.projectMeta;
+    } else if (previousProjectMeta == null || typeof previousProjectMeta !== "object") {
+      S.projectMeta = previousProjectMeta;
+    } else if (hadProjectMetaEntry) {
+      S.projectMeta[manuscritPath] = previousProjectMetaEntry;
+    } else {
+      delete S.projectMeta[manuscritPath];
     }
     await plugin.saveSettings();
     plugin.renderAllViews(true);
