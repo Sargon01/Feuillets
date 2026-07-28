@@ -1,18 +1,37 @@
-import { setIcon, MarkdownRenderer } from "obsidian";
-
+import { MarkdownRenderer, setIcon, type WorkspaceLeaf } from "obsidian";
 import { VIEW_JOURNAL } from "../constants.js";
-import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { formatNumber } from "../utils/text-metrics.js";
-import { isEditing, iconBtn, openFileActivating } from "../utils/dom.js";
-import { dateKey, statsForDay } from "../utils/journal-stats.js";
-import { journalEntryKeys, getLastEntry, getDayEntry } from "../services/journal.js";
+import { getDayEntry, getLastEntry, journalEntryKeys } from "../services/journal.js";
 import { t, getLocale } from "../i18n/index.js";
+import { dateKey, statsForDay } from "../utils/journal-stats.js";
+import { formatNumber } from "../utils/text-metrics.js";
+import { iconBtn, isEditing, openFileActivating } from "../utils/dom.js";
+import { BaseFeuilletsView } from "./base-feuillets-view.js";
 
-function dateLocale() {
+type JournalViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
+type RenderGroupHeadResult = { section: HTMLElement; collapsed: boolean };
+type JournalEntry = Awaited<ReturnType<typeof getLastEntry>>;
+type JournalStats = Record<string, { start: number; latest: number }>;
+
+function journalStatsFor(settings: FeuilletsSettings): JournalStats {
+  const stats = settings.stats;
+  if (typeof stats !== "object" || stats === null || Array.isArray(stats)) return {};
+  const validStats: JournalStats = {};
+  for (const [key, value] of Object.entries(stats)) {
+    if (
+      typeof value === "object" && value !== null &&
+      typeof value.start === "number" && typeof value.latest === "number"
+    ) {
+      validStats[key] = { start: value.start, latest: value.latest };
+    }
+  }
+  return validStats;
+}
+
+function dateLocale(): string {
   return getLocale() === "en" ? "en-US" : "fr-FR";
 }
 
-function weekdays() {
+function weekdays(): string[] {
   return [
     t("journal.weekday.mon"), t("journal.weekday.tue"), t("journal.weekday.wed"),
     t("journal.weekday.thu"), t("journal.weekday.fri"), t("journal.weekday.sat"), t("journal.weekday.sun"),
@@ -20,13 +39,13 @@ function weekdays() {
 }
 
 /** Lundi = 0 … Dimanche = 6, contrairement à getDay() (Dimanche = 0). */
-function mondayIndex(date) {
+function mondayIndex(date: Date): number {
   return (date.getDay() + 6) % 7;
 }
 
-function readableDate(key) {
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(dateLocale(), {
+function readableDate(key: string): string {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(dateLocale(), {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -38,23 +57,32 @@ function readableDate(key) {
  * rester visibles ensemble en permanence (contrairement à Projet/Export,
  * qui se consultent rarement en même temps). */
 export class JournalView extends BaseFeuilletsView {
-  constructor(leaf, plugin) {
+  declare plugin: JournalViewPlugin;
+  declare targetContainer?: HTMLElement;
+  monthCursor: Date;
+  viewedDate: Date | null;
+
+  constructor(leaf: WorkspaceLeaf, plugin: JournalViewPlugin) {
     super(leaf, plugin);
     // Journal
     const today = new Date();
     this.monthCursor = new Date(today.getFullYear(), today.getMonth(), 1);
     this.viewedDate = null;
   }
-  getViewType() {
+
+  getViewType(): string {
     return VIEW_JOURNAL;
   }
-  getDisplayText() {
+
+  getDisplayText(): string {
     return t("journal.displayText");
   }
-  getIcon() {
+
+  getIcon(): string {
     return "calendar";
   }
-  async onOpen() {
+
+  async onOpen(): Promise<void> {
     this.registerEvent(
       this.app.workspace.on("file-open", () => this.render())
     );
@@ -69,7 +97,7 @@ export class JournalView extends BaseFeuilletsView {
     await this.render();
   }
 
-  changeMonth(delta) {
+  changeMonth(delta: number): void {
     this.monthCursor = new Date(
       this.monthCursor.getFullYear(),
       this.monthCursor.getMonth() + delta,
@@ -78,17 +106,17 @@ export class JournalView extends BaseFeuilletsView {
     this.render();
   }
 
-  openDay(date) {
+  openDay(date: Date): void {
     this.viewedDate = date;
     this.render();
   }
 
-  async compileCarnet() {
+  async compileCarnet(): Promise<void> {
     await this.plugin.compileJournal();
     this.render();
   }
 
-  async render(force = false) {
+  async render(force = false): Promise<void> {
     const container = this.targetContainer || this.contentEl;
     if (!force && isEditing(container)) return;
     container.empty();
@@ -105,8 +133,8 @@ export class JournalView extends BaseFeuilletsView {
 
   // ============================ Journal (haut) ============================
 
-  async renderJournalSection(wrapper) {
-    const S = this.plugin.settings;
+  async renderJournalSection(wrapper: HTMLElement): Promise<void> {
+    const settings = this.plugin.settings;
 
     const root = this.plugin.getProjectFolder();
     if (!root) {
@@ -132,50 +160,50 @@ export class JournalView extends BaseFeuilletsView {
     const year = this.monthCursor.getFullYear();
     const month = this.monthCursor.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const deltas = [];
-    for (let d = 1; d <= daysInMonth; d++) {
-      deltas.push(statsForDay(S, dateKey(new Date(year, month, d))).delta);
+    const deltas: number[] = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      deltas.push(statsForDay({ stats: journalStatsFor(settings) }, dateKey(new Date(year, month, day))).delta);
     }
 
     const weekRow = wrapper.createDiv({ cls: "feuillets-journal-grid feuillets-journal-weekdays" });
-    for (const w of weekdays()) {
-      weekRow.createDiv({ cls: "feuillets-journal-weekday" }).setText(w);
+    for (const weekday of weekdays()) {
+      weekRow.createDiv({ cls: "feuillets-journal-weekday" }).setText(weekday);
     }
 
     const grid = wrapper.createDiv({ cls: "feuillets-journal-grid" });
     const firstDay = new Date(year, month, 1);
     const leading = mondayIndex(firstDay);
     const todayKeyStr = dateKey(new Date());
-    const entryKeys = journalEntryKeys(this.app, S);
+    const entryKeys = journalEntryKeys(this.app, settings);
 
-    for (let i = 0; i < leading; i++) {
+    for (let index = 0; index < leading; index++) {
       grid.createDiv({ cls: "feuillets-journal-cell feuillets-journal-cell-empty" });
     }
-    for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(year, month, d);
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(year, month, day);
       const key = dateKey(date);
-      const delta = deltas[d - 1];
+      const delta = deltas[day - 1];
       const cell = grid.createDiv({ cls: "feuillets-journal-cell" });
       if (key === todayKeyStr) cell.addClass("feuillets-journal-cell-today");
-      cell.createDiv({ cls: "feuillets-journal-daynum" }).setText(String(d));
+      cell.createDiv({ cls: "feuillets-journal-daynum" }).setText(String(day));
 
       if (entryKeys.has(key)) {
         cell.createDiv({ cls: "feuillets-journal-dot" });
       }
-      cell.setAttr("title", delta > 0 ? t("journal.wordsCount", { count: delta }) : "");
+      cell.setAttr("title", delta > 0 ? t("journal.wordsCount", { count: String(delta) }) : "");
       cell.addEventListener("click", () => this.openDay(date));
     }
 
     const section = wrapper.createDiv({ cls: "feuillets-notes-section feuillets-journal-preview" });
 
-    let entry = null;
+    let entry: JournalEntry = null;
     let viewingDay = false;
     if (this.viewedDate) {
       viewingDay = true;
-      entry = await getDayEntry(this.app, S, this.viewedDate);
+      entry = await getDayEntry(this.app, settings, this.viewedDate);
     }
     if (!viewingDay) {
-      entry = await getLastEntry(this.app, S);
+      entry = await getLastEntry(this.app, settings);
     }
 
     if (viewingDay) {
@@ -203,9 +231,9 @@ export class JournalView extends BaseFeuilletsView {
         .createDiv({ cls: "feuillets-journal-last-entry-date" })
         .createSpan({
           cls: "feuillets-journal-open-date",
-          text: readableDate(entry.key),
-          style: "cursor: pointer; text-decoration: underline;"
+          text: readableDate(entry.key)
         });
+      dateEl.setAttr("style", "cursor: pointer; text-decoration: underline;");
       dateEl.setAttr("aria-label", t("journal.openEditNewTab"));
       dateEl.setAttr("title", t("journal.openEditNewTab"));
       dateEl.addEventListener("click", () => {
@@ -224,9 +252,9 @@ export class JournalView extends BaseFeuilletsView {
 
         const createBtn = section.createEl("button", {
           cls: "mod-cta",
-          text: t("journal.createAndEditEntry"),
-          style: "margin-top: 12px; width: 100%; cursor: pointer;"
+          text: t("journal.createAndEditEntry")
         });
+        createBtn.setAttr("style", "margin-top: 12px; width: 100%; cursor: pointer;");
         createBtn.addEventListener("click", async () => {
           const file = await this.plugin.ensureJournalEntry(this.viewedDate);
           if (file) {
@@ -246,24 +274,25 @@ export class JournalView extends BaseFeuilletsView {
 
   /** En-tête de bloc pliable de premier niveau (Historique récent) — icône
    * + titre, même patron que les sections des autres panneaux. */
-  renderGroupHead(container, key, icon, title, S) {
-    const collapsed = !!S.collapsed[key];
+  renderGroupHead(container: HTMLElement, key: string, icon: string, title: string, settings: FeuilletsSettings): RenderGroupHeadResult {
+    const collapsed = !!settings.collapsed[key];
     const section = container.createDiv({ cls: "feuillets-notes-section" });
-    const head = section.createDiv({ cls: "feuillets-notes-section-head", style: "cursor: pointer;" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+    head.setAttr("style", "cursor: pointer;");
     const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
     setIcon(iconSpan, icon);
     head.createSpan({ cls: "feuillets-notes-section-title" }).setText(title);
     head.addEventListener("click", async () => {
-      if (collapsed) delete S.collapsed[key];
-      else S.collapsed[key] = true;
+      if (collapsed) delete settings.collapsed[key];
+      else settings.collapsed[key] = true;
       await this.plugin.saveSettings();
       this.render();
     });
     return { section, collapsed };
   }
 
-  async renderProgressionSection(container) {
-    const S = this.plugin.settings;
+  async renderProgressionSection(container: HTMLElement): Promise<void> {
+    const settings = this.plugin.settings;
     const wrapper = container.createDiv({ cls: "feuillets-progression-compact" });
 
     const root = this.plugin.getProjectFolder();
@@ -278,49 +307,49 @@ export class JournalView extends BaseFeuilletsView {
        les deux dans la modale ouverte d'un clic sur la barre d'état — ce
        panneau ne garde que l'historique, pour laisser toute la place au
        calendrier du Journal juste au-dessus. */
-    this.renderHistorySection(wrapper, S);
+    this.renderHistorySection(wrapper, settings);
   }
 
   /** Petit histogramme des mots écrits par jour (14 derniers jours) —
    * complémentaire du calendrier du Journal juste au-dessus, pas un
    * doublon : un aperçu de régularité, pas une navigation par jour. */
-  renderHistorySection(wrapper, S) {
+  renderHistorySection(wrapper: HTMLElement, settings: FeuilletsSettings): void {
     const { section, collapsed } = this.renderGroupHead(
-      wrapper, "progression:history", "bar-chart-3", t("journal.recentHistory"), S
+      wrapper, "progression:history", "bar-chart-3", t("journal.recentHistory"), settings
     );
     if (collapsed) return;
 
     const days = 14;
     const today = new Date();
-    const entries = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      entries.push({ date: d, delta: statsForDay(S, dateKey(d)).delta });
+    const entries: Array<{ date: Date; delta: number }> = [];
+    for (let index = days - 1; index >= 0; index--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - index);
+      entries.push({ date, delta: statsForDay({ stats: journalStatsFor(settings) }, dateKey(date)).delta });
     }
-    const max = Math.max(1, ...entries.map((e) => e.delta));
+    const max = Math.max(1, ...entries.map((entry) => entry.delta));
 
-    const chart = section.createDiv({ cls: "feuillets-progression-chart", style: "margin-top: 8px;" });
-    for (const e of entries) {
+    const chart = section.createDiv({ cls: "feuillets-progression-chart" });
+    chart.setAttr("style", "margin-top: 8px;");
+    for (const entry of entries) {
       const bar = chart.createDiv({ cls: "feuillets-progression-bar" });
       const fill = bar.createDiv({ cls: "feuillets-progression-bar-fill" });
-      fill.style.height = `${Math.max(2, Math.round((e.delta / max) * 100))}%`;
-      if (e.delta === 0) fill.addClass("is-empty");
+      fill.style.height = `${Math.max(2, Math.round((entry.delta / max) * 100))}%`;
+      if (entry.delta === 0) fill.addClass("is-empty");
       bar.setAttr(
         "aria-label",
         t("journal.dayWordsAria", {
-          date: e.date.toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" }),
-          count: e.delta,
-          s: e.delta > 1 ? "s" : "",
+          date: entry.date.toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" }),
+          count: String(entry.delta),
+          s: entry.delta > 1 ? "s" : "",
         })
       );
       bar.setAttr("title", bar.getAttr("aria-label"));
     }
 
-    const total = entries.reduce((s, e) => s + e.delta, 0);
+    const total = entries.reduce((sum, entry) => sum + entry.delta, 0);
     section
       .createDiv({ cls: "feuillets-progression-history-total" })
-      .setText(t("journal.historyTotal", { total: formatNumber(total), days }));
+      .setText(t("journal.historyTotal", { total: formatNumber(total), days: String(days) }));
   }
-
 }
