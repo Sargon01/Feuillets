@@ -42,7 +42,7 @@ const titlePageFor = (bodyPt: number): { styles: Record<string, TitlePageStyle> 
  * littéral ci-dessous contre ExportTemplate (src/types.d.ts) : un champ mal
  * typé dans un modèle est signalé ici, pas à l'export.
  * @type {Record<string, ExportTemplate>} */
-export const EXPORT_TEMPLATES: Record<string, ExportTemplate> = {
+export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
   classique: {
     key: "classique",
     label: "Classique (manuscrit)",

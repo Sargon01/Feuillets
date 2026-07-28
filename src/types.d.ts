@@ -195,6 +195,14 @@ declare type ExportTemplate = {
   [key: string]: unknown;
 };
 
+/** Modèle après résolution : les trois valeurs de typographie du corps sont
+ * garanties par les modèles intégrés ou le repli « classique ». */
+declare type ResolvedExportTemplate = ExportTemplate & {
+  fontFamily: string;
+  fontSizePt: number;
+  lineHeight: number;
+};
+
 /** État persistant des fils narratifs. Les clés sont les valeurs de `thread`
  * du frontmatter ; les valeurs sont les chemins du feuillet qui porte le
  * marqueur automatique ou de son origine. Voir services/narrative-threads.js. */

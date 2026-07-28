@@ -69,12 +69,12 @@ function validTemplateOverrides(frontmatter: Record<string, unknown>): Record<st
  * plutôt que de faire échouer tout le menu export.
  * @param {App} app
  * @param {FeuilletsSettings} settings
- * @returns {Promise<Record<string, ExportTemplate>>} vide si pas de dossier.
+ * @returns {Promise<Record<string, ResolvedExportTemplate>>} vide si pas de dossier.
  */
-export async function loadCustomTemplates(app: App, settings: FeuilletsSettings): Promise<Record<string, ExportTemplate>> {
+export async function loadCustomTemplates(app: App, settings: FeuilletsSettings): Promise<Record<string, ResolvedExportTemplate>> {
   const folder = customTemplatesFolder(app, settings);
   if (!folder) return {};
-  /** @type {Record<string, ExportTemplate>} */
+  /** @type {Record<string, ResolvedExportTemplate>} */
   const custom = {};
   for (const file of folder.children) {
     if (!(file instanceof TFile) || file.extension !== "md") continue;
@@ -123,9 +123,9 @@ export async function listExportTemplates(app: App, settings: FeuilletsSettings)
  * @param {App} app
  * @param {FeuilletsSettings} settings
  * @param {string} key
- * @returns {Promise<ExportTemplate>} jamais null — repli sur "classique".
+ * @returns {Promise<ResolvedExportTemplate>} jamais null — repli sur "classique".
  */
-export async function resolveExportTemplate(app: App, settings: FeuilletsSettings, key: string): Promise<ExportTemplate> {
+export async function resolveExportTemplate(app: App, settings: FeuilletsSettings, key: string): Promise<ResolvedExportTemplate> {
   const custom = await loadCustomTemplates(app, settings);
   if (custom[key]) return custom[key];
   return EXPORT_TEMPLATES[key] || EXPORT_TEMPLATES.classique;

@@ -3,6 +3,7 @@ import { marginsFor } from "../utils/export-templates.js";
 import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
 
 type FrontOverride = { style?: TitlePageStyle | null; isTitleLine?: boolean };
+type SectionPageMargin = Required<Pick<import("docx").IPageMarginAttributes, "top" | "right" | "bottom" | "left">>;
 
 export const FRONT_PAGE_LINE_SPACING = { line: 240, lineRule: "auto" } satisfies import("docx").ISpacingProperties;
 export const FRONT_TITLE_FONT_SIZE = 36;
@@ -23,7 +24,7 @@ export function wordLocale(lang: string | null | undefined): string {
   return "fr-FR";
 }
 
-export function sectionPageMargin(tpl: ExportTemplate): { top: string; bottom: string; left: string; right: string } {
+export function sectionPageMargin(tpl: ExportTemplate): SectionPageMargin {
   const margins = marginsFor(tpl);
   return { top: `${margins.top}cm`, bottom: `${margins.bottom}cm`, left: `${margins.left}cm`, right: `${margins.right}cm` };
 }
