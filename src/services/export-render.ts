@@ -60,12 +60,12 @@ const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, ImageMime>> = {
  * aussi enveloppée dans un <figure>/<figcaption> si elle a une légende),
  * le DOCX a besoin des octets bruts pour construire un vrai ImageRun (la
  * légende y est ajoutée comme un paragraphe séparé — voir export-docx.js). */
-export async function renderManuscriptHtml(app: App, markdown: string, sourcePath?: string): Promise<RenderedManuscript> {
+export async function renderManuscriptHtml(app: App, markdown: string, sourcePath: string): Promise<RenderedManuscript> {
   const container = document.createElement("div");
   const component = new Component();
   component.load();
   try {
-    await MarkdownRenderer.render(app, markdown, container, sourcePath || "", component);
+    await MarkdownRenderer.render(app, markdown, container, sourcePath, component);
   } finally {
     component.unload();
   }
@@ -168,8 +168,8 @@ export function preserveBlankLinesForFrontPage(text: string): string {
 export async function renderManuscriptHtmlWithFrontPages(
   app: App,
   markdown: string,
-  segments?: ExportRenderSegment[] | null,
-  sourcePath?: string
+  segments: ExportRenderSegment[] | null | undefined,
+  sourcePath: string
 ): Promise<RenderedManuscript> {
   if (!segments || !segments.length || !segments.some((s) => s.frontType)) {
     return renderManuscriptHtml(app, markdown, sourcePath);
