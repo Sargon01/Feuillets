@@ -53,7 +53,14 @@ class FakeElement {
   after(child) { const parent = this.parentNode; const index = parent.children.indexOf(this); child.remove(); child.parentNode = parent; parent.children.splice(index + 1, 0, child); }
   removeChild(child) { const index = this.children.indexOf(child); if (index >= 0) { this.children.splice(index, 1); child.parentNode = null; } return child; }
   remove() { if (this.parentNode) this.parentNode.removeChild(this); }
-  cloneNode(deep) { const clone = new FakeElement(this.tagName, this._text); clone.className = this.className; clone.offsetHeight = this.offsetHeight; if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true)); return clone; }
+  cloneNode(deep) {
+    const clone = new FakeElement(this.tagName, this._text);
+    clone.className = this.className;
+    clone.offsetHeight = this.offsetHeight;
+    for (const [name, value] of this._attributes) clone._attributes.set(name, value);
+    if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true));
+    return clone;
+  }
   querySelector() { return null; }
   // Support minimal, volontairement limité au seul motif utilisé par
   // export-pdf.js : `a[href^="#"]` (recherche des appels de note).
@@ -223,7 +230,51 @@ test("paginateManuscript : placement 'end' regroupe toutes les notes en fin de m
   } finally { dom.restore(); }
 });
 
-test("paginateManuscript : placement 'bottom' insère la note juste après son appel, pas dans une section groupée", () => {
+// Isole le HTML d'une zone de page en équilibrant les <div> imbriqués
+// (les entrées de notes sont elles-mêmes des <div> à l'intérieur de la
+// zone .pdf-page-footnotes — un simple regex non-greedy tronquerait à la
+// première d'entre elles).
+function extractZone(html, cls) {
+  const openTag = `<div class="${cls}"`;
+  const start = html.indexOf(openTag);
+  if (start < 0) return null;
+  const contentStart = html.indexOf(">", start) + 1;
+  let depth = 1;
+  let i = contentStart;
+  while (depth > 0) {
+    const nextOpen = html.indexOf("<div", i);
+    const nextClose = html.indexOf("</div>", i);
+    if (nextClose === -1) return null;
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      depth++;
+      i = nextOpen + 4;
+    } else {
+      depth--;
+      i = nextClose + 6;
+    }
+  }
+  return html.slice(contentStart, i - 6);
+}
+
+test("paginateManuscript : placement 'bottom' — la note n'est pas insérée juste après le paragraphe qui l'appelle (régression)", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(paragraphWithFootnoteRef("fn1", 30));
+    const settings = { pdfFootnotePlacement: "bottom" };
+    const footnotes = [{ id: "fn1", html: "<p>Texte de la note</p>" }];
+    const result = paginateManuscript(container, footnotes, settings, template);
+    const contentZone = extractZone(result.pagesHtml, "pdf-page-content");
+    assert.ok(contentZone, "zone de contenu introuvable");
+    // La note ne doit PAS se trouver dans le flux du contenu principal :
+    // c'était exactement la régression (note insérée juste après le
+    // paragraphe, au milieu de la page).
+    assert.equal(contentZone.includes("pdf-footnote-entry"), false);
+    assert.match(contentZone, /footnote-ref/);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : placement 'bottom' — la note se trouve dans une zone dédiée en bas de la même page", () => {
   const dom = installDom();
   try {
     const container = element("div");
@@ -233,16 +284,38 @@ test("paginateManuscript : placement 'bottom' insère la note juste après son a
     const result = paginateManuscript(container, footnotes, settings, template);
     assert.equal(result.totalPages, 1);
     assert.equal(result.pagesHtml.includes("pdf-footnotes-section"), false);
-    assert.match(result.pagesHtml, /pdf-footnote-divider/);
-    assert.match(result.pagesHtml, /pdf-footnote-entry/);
-    assert.match(result.pagesHtml, /Texte de la note/);
-    const refIndex = result.pagesHtml.indexOf("footnote-ref");
-    const entryIndex = result.pagesHtml.indexOf("pdf-footnote-entry");
-    assert.ok(refIndex >= 0 && entryIndex > refIndex, "la note doit suivre son appel");
+    const footnoteZone = extractZone(result.pagesHtml, "pdf-page-footnotes");
+    assert.ok(footnoteZone, "zone de notes introuvable");
+    assert.match(footnoteZone, /pdf-footnote-entry/);
+    assert.match(footnoteZone, /Texte de la note/);
+    // La zone de notes suit la zone de contenu dans le HTML de la page
+    // (elle est ancrée après, donc visuellement en bas — voir le CSS
+    // flex de .pdf-page-content/.pdf-page-footnotes).
+    const contentIndex = result.pagesHtml.indexOf('class="pdf-page-content"');
+    const footnotesIndex = result.pagesHtml.indexOf('class="pdf-page-footnotes"');
+    assert.ok(contentIndex >= 0 && footnotesIndex > contentIndex);
   } finally { dom.restore(); }
 });
 
-test("paginateManuscript : placement 'bottom' - plusieurs notes sur la même page apparaissent toutes, dans l'ordre et numérotées", () => {
+test("paginateManuscript : placement 'bottom' — le contenu principal ne continue pas sous les notes", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(paragraphWithFootnoteRef("fn1", 30));
+    container.appendChild(element("p", "Paragraphe suivant", 30));
+    const settings = { pdfFootnotePlacement: "bottom" };
+    const footnotes = [{ id: "fn1", html: "<p>Texte de la note</p>" }];
+    const result = paginateManuscript(container, footnotes, settings, template);
+    const contentZone = extractZone(result.pagesHtml, "pdf-page-content");
+    // Tout le contenu principal (y compris ce qui suit le paragraphe
+    // appelant) reste dans la zone de contenu, jamais après les notes.
+    assert.match(contentZone, /Paragraphe suivant/);
+    const footnoteZone = extractZone(result.pagesHtml, "pdf-page-footnotes");
+    assert.equal(footnoteZone.includes("Paragraphe suivant"), false);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : placement 'bottom' - plusieurs notes sur la même page sont regroupées dans le même pied de page, dans l'ordre et numérotées", () => {
   const dom = installDom();
   try {
     const container = element("div");
@@ -255,15 +328,18 @@ test("paginateManuscript : placement 'bottom' - plusieurs notes sur la même pag
     ];
     const result = paginateManuscript(container, footnotes, settings, template);
     assert.equal(result.totalPages, 1);
-    assert.match(result.pagesHtml, /Première note/);
-    assert.match(result.pagesHtml, /Deuxième note/);
-    assert.ok(result.pagesHtml.indexOf("Première note") < result.pagesHtml.indexOf("Deuxième note"));
-    assert.match(result.pagesHtml, /pdf-footnote-num">1\./);
-    assert.match(result.pagesHtml, /pdf-footnote-num">2\./);
+    // Un seul pied de page pour la page entière (pas une zone par note).
+    assert.equal((result.pagesHtml.match(/class="pdf-page-footnotes"/g) || []).length, 1);
+    const footnoteZone = extractZone(result.pagesHtml, "pdf-page-footnotes");
+    assert.match(footnoteZone, /Première note/);
+    assert.match(footnoteZone, /Deuxième note/);
+    assert.ok(footnoteZone.indexOf("Première note") < footnoteZone.indexOf("Deuxième note"));
+    assert.match(footnoteZone, /pdf-footnote-num">1\./);
+    assert.match(footnoteZone, /pdf-footnote-num">2\./);
   } finally { dom.restore(); }
 });
 
-test("paginateManuscript : placement 'bottom' - une note longue provoque une repagination sans perte ni duplication", () => {
+test("paginateManuscript : placement 'bottom' - manque de place → la pagination est recalculée (le paragraphe déborde sur la page suivante) sans perte ni duplication", () => {
   const dom = installDom();
   try {
     const container = element("div");
@@ -275,7 +351,7 @@ test("paginateManuscript : placement 'bottom' - une note longue provoque une rep
     const result = paginateManuscript(container, footnotes, settings, template);
     assert.equal(result.totalPages, 2);
     assert.equal((result.pagesHtml.match(/Note très longue/g) || []).length, 1);
-    assert.equal((result.pagesHtml.match(/pdf-footnote-divider/g) || []).length, 1);
+    assert.equal((result.pagesHtml.match(/class="pdf-page-footnotes"/g) || []).length, 1);
     assert.match(result.pagesHtml, /Suite du texte/);
   } finally { dom.restore(); }
 });
