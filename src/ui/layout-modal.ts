@@ -291,13 +291,21 @@ export class LayoutModal extends Modal {
        fin réelle de saveModel() via `await listeners.get("pointerup")()` —
        un wrapper synchrone (void this.saveModel()) casse cette garantie
        observable sans rien changer au comportement réel côté DOM (qui
-       ignore de toute façon la valeur de retour d'un listener). */
+       ignore de toute façon la valeur de retour d'un listener). saveModel()
+       (updateTemplateTitlePage) enchaîne plusieurs `await` réels (lecture
+       puis écriture du fichier) : contrairement à project-view.ts/
+       sidebar-feuillets-view.ts (mocks de test sans await interne, où un
+       wrapper synchrone + void ne change pas l'ordre observable), ici le
+       fire-and-forget laisserait l'assertion suivante du test s'exécuter
+       avant la fin réelle de l'écriture. */
     const onUp = async (): Promise<void> => {
       document.removeEventListener("pointermove", onMove);
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- onUp doit rester la même référence (async) pour pointerup ; voir commentaire ci-dessus
       document.removeEventListener("pointerup", onUp);
       await this.saveModel();
     };
     document.addEventListener("pointermove", onMove);
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- écouteur async assumé : le test attend sa promesse réelle (voir commentaire ci-dessus)
     document.addEventListener("pointerup", onUp);
   }
 
