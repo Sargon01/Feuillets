@@ -1,11 +1,14 @@
 import {
   TFile,
+  TFolder,
   Notice,
   Modal,
   Setting,
   MarkdownView,
   Menu,
+  Plugin,
   stringifyYaml,
+  type App,
 } from "obsidian";
 
 import {
@@ -21,7 +24,15 @@ import {
   buildMergedSection,
 } from "./utils/scene-fields.js";
 
-export const YAML_PRESETS = {
+type YamlPreset = {
+  label: string;
+  targetFields: string[];
+  aggregateFields: string[];
+  firstFields: string[];
+  ignoreFields: string[];
+};
+
+export const YAML_PRESETS: Record<string, YamlPreset> = {
   roman: {
     label: "Roman",
     targetFields: ["title", "short_title", "order", "date"],
@@ -61,6 +72,97 @@ export const YAML_PRESETS = {
   },
 };
 
+type ScenesEditorSettings = FeuilletsSettings & {
+  splitStatus: string;
+  copyCompilerOnSplit: boolean;
+  resetSynopsisOnSplit: boolean;
+  resetResumeOnSplit: boolean;
+  resetNotesOnSplit: boolean;
+  mergeNotesSeparator: string;
+  mergeModeDefault: "heading" | "comment" | "continuous";
+  mergeKeepSeparatorDefault: boolean;
+  mergeYamlPreset: string;
+};
+
+type MergePreviewYamlEntry = { key: string; value: string; origin: string; defaultRule: string };
+type MergePreview = {
+  tags: string[];
+  statut: string;
+  compiler: boolean;
+  objectif: number;
+  notes: string;
+  excerpts: string[];
+  yamlLabel: string;
+  yamlEntries: MergePreviewYamlEntry[];
+};
+type MergePlan = {
+  target: TFile;
+  sources: TFile[];
+  mergeMode: string;
+  keepSeparator: boolean;
+  localRules: Record<string, string>;
+  summary: string;
+  preview: MergePreview;
+};
+
+type SceneField = { name: string; label: string; description?: string; value: string };
+
+/** Surface du plugin principal (main.js, non encore migré) réellement
+ * utilisée ici — évite d'importer FeuilletsPlugin directement (dépendance
+ * circulaire), et documente précisément ce dont ce module a besoin. Les
+ * méthodes de la section 1 d'initScenesEditor (isSceneFile, splitSceneFile…)
+ * sont déclarées ici aussi : elles n'existent pas encore sur `plugin` avant
+ * l'appel à initScenesEditor, qui les attache dynamiquement. */
+type ScenesEditorPlugin = Omit<Plugin, "settings"> & {
+  settings: ScenesEditorSettings;
+  getProjectFolder(): TFolder | null;
+  fmOf(file: TFile): SceneFrontmatter;
+  shortTitleFor(file: TFile): string;
+  unitLabel(): string;
+  unitLabelPlural(): string;
+  saveSettings(): Promise<void>;
+
+  isSceneFile(file: TFile): boolean;
+  openSceneMenu(file: TFile, evt?: MouseEvent): void;
+  splitActiveScene(): Promise<void> | void;
+  duplicateActiveScene(): Promise<void> | void;
+  moveActiveScene(): Promise<void> | void;
+  getActiveFile(): TFile | null;
+  splitSceneFile(file: TFile | null): Promise<void>;
+  duplicateSceneFile(file: TFile | null): Promise<void>;
+  moveSceneFile(file: TFile | null): Promise<void>;
+  duplicateManyScenes(files: TFile[]): Promise<void>;
+  openMoveManyModal(files: TFile[]): void;
+  getDefaultRule(preset: YamlPreset, field: string): string;
+  applyRule(targetValue: unknown, sourceValue: unknown, rule: string, field: string): unknown;
+  buildMergeYaml(
+    targetFm: Record<string, unknown>,
+    sourceFm: Record<string, unknown>,
+    preset: YamlPreset,
+    localRules?: Record<string, string>,
+    collector?: Record<string, { value: string; origin: string; defaultRule: string }> | null
+  ): void;
+  buildMergePlan(
+    files: TFile[],
+    targetPath: string,
+    sourceOrder: string[],
+    mergeMode: string,
+    keepSeparator: boolean,
+    localRules?: Record<string, string>
+  ): Promise<MergePlan>;
+  openMergeModal(files: TFile[]): Promise<void>;
+  openYamlOptions(mergeModal: MergeModal): Promise<void>;
+  openMergeSelectModal(targetFile: TFile, siblings: TFile[]): Promise<void>;
+  applyPreset(key: string): Promise<void>;
+  mergeManyScenes(
+    sources: TFile[],
+    target: TFile,
+    mergeMode?: string,
+    keepSeparator?: boolean,
+    localRules?: Record<string, string>
+  ): Promise<void>;
+};
+
 /* Le frontmatter est sérialisé par `stringifyYaml` (Obsidian), comme dans
    services/export-templates-custom.js. Il y avait ici un sérialiseur fait
    main dont l'« échappement » se limitait à remplacer les retours à la ligne
@@ -71,14 +173,19 @@ export const YAML_PRESETS = {
    ne se réimplémentent pas à la main. */
 
 export class TextInputModal extends Modal {
-  constructor(app, title, fields, onSubmit) {
+  titleText: string;
+  fields: SceneField[];
+  onSubmit: (values: Record<string, string>) => Promise<void> | void;
+  values: Record<string, string>;
+
+  constructor(app: App, title: string, fields: SceneField[], onSubmit: (values: Record<string, string>) => Promise<void> | void) {
     super(app);
     this.titleText = title;
     this.fields = fields;
     this.onSubmit = onSubmit;
     this.values = {};
   }
-  onOpen() {
+  onOpen(): void {
     this.contentEl.empty();
     this.setTitle(this.titleText);
     this.fields.forEach((field, idx) => {
@@ -113,7 +220,15 @@ export class TextInputModal extends Modal {
 }
 
 class MergeModal extends Modal {
-  constructor(app, plugin, files) {
+  plugin: ScenesEditorPlugin;
+  files: TFile[];
+  targetPath: string;
+  sourceOrder: string[];
+  mergeMode: string;
+  keepSeparator: boolean;
+  plan: MergePlan | null;
+
+  constructor(app: App, plugin: ScenesEditorPlugin, files: TFile[]) {
     super(app);
     this.plugin = plugin;
     this.files = files;
@@ -126,7 +241,7 @@ class MergeModal extends Modal {
     this.plan = null;
   }
 
-  async refresh() {
+  async refresh(): Promise<void> {
     this.plan = await this.plugin.buildMergePlan(
       this.files,
       this.targetPath,
@@ -137,17 +252,19 @@ class MergeModal extends Modal {
     this.render();
   }
 
-  render() {
+  render(): void {
+    const plan = this.plan;
+    if (!plan) return;
     this.contentEl.empty();
     this.setTitle("Fusion");
 
     const hero = this.contentEl.createDiv({ cls: "feuillets-merge-hero" });
-    hero.createDiv({ cls: "feuillets-merge-title", text: this.plan.summary });
+    hero.createDiv({ cls: "feuillets-merge-title", text: plan.summary });
     hero.createDiv({
       cls: "feuillets-merge-subtitle",
-      text: `${this.plan.sources.length} source${
-        this.plan.sources.length > 1 ? "s" : ""
-      } supprimée${this.plan.sources.length > 1 ? "s" : ""} après fusion.`,
+      text: `${plan.sources.length} source${
+        plan.sources.length > 1 ? "s" : ""
+      } supprimée${plan.sources.length > 1 ? "s" : ""} après fusion.`,
     });
 
     new Setting(this.contentEl)
@@ -198,10 +315,10 @@ class MergeModal extends Modal {
 
     const stats = this.contentEl.createDiv({ cls: "feuillets-merge-stats" });
     [
-      ["Sources", String(this.plan.sources.length)],
-      ["Tags", String(this.plan.preview.tags.length)],
-      ["Notes", this.plan.preview.notes ? "oui" : "non"],
-      ["Obj.", String(this.plan.preview.objectif)],
+      ["Sources", String(plan.sources.length)],
+      ["Tags", String(plan.preview.tags.length)],
+      ["Notes", plan.preview.notes ? "oui" : "non"],
+      ["Obj.", String(plan.preview.objectif)],
     ].forEach(([label, value]) => {
       const card = stats.createDiv({ cls: "feuillets-merge-stat" });
       card.createDiv({ cls: "feuillets-merge-stat-value", text: value });
@@ -213,18 +330,18 @@ class MergeModal extends Modal {
     left.createDiv({ cls: "feuillets-merge-card-title", text: "Cible" });
     left.createDiv({
       cls: "feuillets-merge-path",
-      text: this.plugin.shortTitleFor(this.plan.target),
+      text: this.plugin.shortTitleFor(plan.target),
     });
     left.createDiv({
       cls: "feuillets-merge-path-secondary",
-      text: this.plan.target.path,
+      text: plan.target.path,
     });
     left.createDiv({
       cls: "feuillets-merge-card-title",
       text: "Ordre des sources",
     });
     const sourceList = left.createDiv({ cls: "feuillets-merge-order" });
-    this.plan.sources.forEach((file, index) => {
+    plan.sources.forEach((file, index) => {
       const row = sourceList.createDiv({ cls: "feuillets-merge-order-row" });
       const label = row.createDiv({ cls: "feuillets-merge-order-label" });
       label.createDiv({
@@ -239,7 +356,7 @@ class MergeModal extends Modal {
       const up = actions.createEl("button", { text: "↑" });
       const down = actions.createEl("button", { text: "↓" });
       up.disabled = index === 0;
-      down.disabled = index === this.plan.sources.length - 1;
+      down.disabled = index === plan.sources.length - 1;
       up.addEventListener("click", async () => {
         this.sourceOrder = moveItem(this.sourceOrder, index, index - 1);
         await this.refresh();
@@ -255,9 +372,9 @@ class MergeModal extends Modal {
     const meta = right.createEl("ul", { cls: "feuillets-merge-list" });
     [
       `Preset : ${YAML_PRESETS[this.plugin.settings.mergeYamlPreset].label}`,
-      `Stratégie : ${this.plan.preview.yamlLabel}`,
-      `Tags : ${shortText(this.plan.preview.tags.join(", ") || "—", 42)}`,
-      `Notes : ${shortText(this.plan.preview.notes, 44)}`,
+      `Stratégie : ${plan.preview.yamlLabel}`,
+      `Tags : ${shortText(plan.preview.tags.join(", ") || "—", 42)}`,
+      `Notes : ${shortText(plan.preview.notes, 44)}`,
     ].forEach((line) => meta.createEl("li", { text: line }));
 
     const excerpts = this.contentEl.createDiv({
@@ -270,11 +387,11 @@ class MergeModal extends Modal {
     const excerptList = excerpts.createDiv({
       cls: "feuillets-merge-excerpts",
     });
-    this.plan.preview.excerpts.forEach((text, idx) => {
+    plan.preview.excerpts.forEach((text, idx) => {
       const item = excerptList.createDiv({ cls: "feuillets-merge-excerpt" });
       item.createDiv({
         cls: "feuillets-merge-excerpt-title",
-        text: this.plugin.shortTitleFor(this.plan.sources[idx]),
+        text: this.plugin.shortTitleFor(plan.sources[idx]),
       });
       item.createDiv({
         cls: "feuillets-merge-excerpt-text",
@@ -295,8 +412,8 @@ class MergeModal extends Modal {
           .onClick(async () => {
             this.close();
             await this.plugin.mergeManyScenes(
-              this.plan.sources,
-              this.plan.target,
+              plan.sources,
+              plan.target,
               this.mergeMode,
               this.keepSeparator
             );
@@ -307,19 +424,22 @@ class MergeModal extends Modal {
       );
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     await this.refresh();
   }
 }
 
 class YamlOptionsModal extends Modal {
-  constructor(app, plugin, mergeModal) {
+  plugin: ScenesEditorPlugin;
+  mergeModal: MergeModal;
+
+  constructor(app: App, plugin: ScenesEditorPlugin, mergeModal: MergeModal) {
     super(app);
     this.plugin = plugin;
     this.mergeModal = mergeModal;
   }
 
-  onOpen() {
+  onOpen(): void {
     this.contentEl.empty();
     this.setTitle("Options YAML");
     const preset = YAML_PRESETS[this.plugin.settings.mergeYamlPreset];
@@ -361,20 +481,25 @@ class YamlOptionsModal extends Modal {
   }
 }
 class MergeSelectModal extends Modal {
-  constructor(app, plugin, targetFile, siblings) {
+  plugin: ScenesEditorPlugin;
+  targetFile: TFile;
+  scenes: TFile[];
+  selected: Set<TFile>;
+
+  constructor(app: App, plugin: ScenesEditorPlugin, targetFile: TFile, siblings: TFile[]) {
     super(app);
     this.plugin = plugin;
     this.targetFile = targetFile;
     // Filtrer pour obtenir uniquement les autres scènes du dossier
-    this.scenes = siblings.filter(f => 
-      f instanceof TFile && 
-      f.path !== targetFile.path && 
+    this.scenes = siblings.filter(f =>
+      f instanceof TFile &&
+      f.path !== targetFile.path &&
       plugin.isSceneFile(f)
     );
     this.selected = new Set();
   }
 
-  onOpen() {
+  onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
     this.setTitle(`Fusionner dans : ${this.plugin.shortTitleFor(this.targetFile)}`);
@@ -417,9 +542,9 @@ class MergeSelectModal extends Modal {
   }
 }
 
-export function initScenesEditor(plugin) {
+export function initScenesEditor(plugin: ScenesEditorPlugin): void {
   // 1. Attach helper functions and methods to the main plugin
-  plugin.isSceneFile = function (file) {
+  plugin.isSceneFile = function (this: ScenesEditorPlugin, file: TFile): boolean {
     if (!(file instanceof TFile) || file.extension !== "md") return false;
     const root = this.getProjectFolder();
     if (!root || !file.path.startsWith(root.path + "/")) return false;
@@ -428,7 +553,7 @@ export function initScenesEditor(plugin) {
     return !!fm && ("title" in fm || "titre" in fm || "order" in fm || "ordre" in fm || "compile" in fm || "compiler" in fm);
   }.bind(plugin);
 
-  plugin.openSceneMenu = function (file, evt) {
+  plugin.openSceneMenu = function (this: ScenesEditorPlugin, file: TFile, evt?: MouseEvent): void {
     const menu = new Menu();
     menu
       .addItem((i) =>
@@ -458,31 +583,34 @@ export function initScenesEditor(plugin) {
     }
   }.bind(plugin);
 
-  plugin.splitActiveScene = function () {
+  plugin.splitActiveScene = function (this: ScenesEditorPlugin) {
     return this.splitSceneFile(this.getActiveFile());
   }.bind(plugin);
 
-  plugin.duplicateActiveScene = function () {
+  plugin.duplicateActiveScene = function (this: ScenesEditorPlugin) {
     return this.duplicateSceneFile(this.getActiveFile());
   }.bind(plugin);
 
-  plugin.moveActiveScene = function () {
+  plugin.moveActiveScene = function (this: ScenesEditorPlugin) {
     return this.moveSceneFile(this.getActiveFile());
   }.bind(plugin);
 
-  plugin.getActiveFile = function () {
+  plugin.getActiveFile = function (this: ScenesEditorPlugin): TFile | null {
     return this.app.workspace.getActiveViewOfType(MarkdownView)?.file || null;
   }.bind(plugin);
-  plugin.splitSceneFile = async function (file) {
+
+  plugin.splitSceneFile = async function (this: ScenesEditorPlugin, file: TFile | null): Promise<void> {
     const unit = this.unitLabel();
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     const editor = view?.editor;
-    if (!file) return new Notice(`Aucune ${unit} active.`);
+    if (!file) { new Notice(`Aucune ${unit} active.`); return; }
     if (!editor || view?.file?.path !== file.path) {
-      return new Notice(`Ouvre la ${unit} dans l’éditeur.`);
+      new Notice(`Ouvre la ${unit} dans l’éditeur.`);
+      return;
     }
     if (!this.isSceneFile(file)) {
-      return new Notice(`Cette note ne ressemble pas à une ${unit} Feuillets.`);
+      new Notice(`Cette note ne ressemble pas à une ${unit} Feuillets.`);
+      return;
     }
     const selection = editor.getSelection();
     const cursor = editor.getCursor();
@@ -492,12 +620,13 @@ export function initScenesEditor(plugin) {
         ? selection
         : content.slice(editor.posToOffset(cursor));
     if (!splitText.trim()) {
-      return new Notice(
+      new Notice(
         "Sélectionne un texte ou place le curseur avant la fin du document."
       );
+      return;
     }
 
-    const fm = Object.assign({}, this.fmOf(file));
+    const fm: Record<string, unknown> = Object.assign({}, this.fmOf(file));
     const currentOrder = ensureNumber(fm.order, 0);
     const defaultTitle = fm.title
       ? `${fm.title} - 2`
@@ -508,22 +637,23 @@ export function initScenesEditor(plugin) {
       this.app,
       `Scinder la ${unit}`,
       [
-        { name: "titre", label: "Nouveau titre", value: defaultTitle },
-        { name: "titre_binder", label: "Titre binder", value: defaultShort },
+        { name: "titre", label: "Nouveau titre", value: String(defaultTitle) },
+        { name: "titre_binder", label: "Titre binder", value: String(defaultShort) },
         { name: "ordre", label: "Ordre", value: String(currentOrder + 1) },
-        { name: "filename", label: "Nom du fichier", value: defaultTitle },
+        { name: "filename", label: "Nom du fichier", value: String(defaultTitle) },
       ],
       async (values) => {
         const folder = file.parent?.path || "";
         const safe = sanitizeFileBasename(
           values.filename || defaultTitle,
-          defaultTitle
+          String(defaultTitle)
         );
         const path = folder ? `${folder}/${safe}.md` : `${safe}.md`;
         if (this.app.vault.getAbstractFileByPath(path)) {
-          return new Notice("Un fichier avec ce nom existe déjà.");
+          new Notice("Un fichier avec ce nom existe déjà.");
+          return;
         }
-        const frontmatter = Object.assign({}, fm, {
+        const frontmatter: Record<string, unknown> = Object.assign({}, fm, {
           title: values.titre || defaultTitle,
           short_title: values.titre_binder || "",
           order: ensureNumber(values.ordre, currentOrder + 1),
@@ -561,14 +691,15 @@ export function initScenesEditor(plugin) {
     ).open();
   }.bind(plugin);
 
-  plugin.duplicateSceneFile = async function (file) {
+  plugin.duplicateSceneFile = async function (this: ScenesEditorPlugin, file: TFile | null): Promise<void> {
     const unit = this.unitLabel();
     const unitCap = unit.charAt(0).toUpperCase() + unit.slice(1);
-    if (!file) return new Notice(`Aucune ${unit} active.`);
+    if (!file) { new Notice(`Aucune ${unit} active.`); return; }
     if (!this.isSceneFile(file)) {
-      return new Notice(`Cette note ne ressemble pas à une ${unit} Feuillets.`);
+      new Notice(`Cette note ne ressemble pas à une ${unit} Feuillets.`);
+      return;
     }
-    const fm = Object.assign({}, this.fmOf(file));
+    const fm: Record<string, unknown> = Object.assign({}, this.fmOf(file));
     const currentOrder = ensureNumber(fm.order, 0);
     const defaultTitle = fm.title
       ? `${fm.title} - copie`
@@ -577,28 +708,29 @@ export function initScenesEditor(plugin) {
       this.app,
       `Dupliquer la ${unit}`,
       [
-        { name: "titre", label: "Titre", value: defaultTitle },
+        { name: "titre", label: "Titre", value: String(defaultTitle) },
         {
           name: "titre_binder",
           label: "Titre binder",
-          value: fm.short_title || "",
+          value: String(fm.short_title || ""),
         },
         { name: "ordre", label: "Ordre", value: String(currentOrder + 1) },
-        { name: "filename", label: "Nom du fichier", value: defaultTitle },
+        { name: "filename", label: "Nom du fichier", value: String(defaultTitle) },
       ],
       async (values) => {
         const folder = file.parent?.path || "";
         const safe = sanitizeFileBasename(
           values.filename || defaultTitle,
-          defaultTitle
+          String(defaultTitle)
         );
         const path = folder ? `${folder}/${safe}.md` : `${safe}.md`;
         if (this.app.vault.getAbstractFileByPath(path)) {
-          return new Notice("Un fichier avec ce nom existe déjà.");
+          new Notice("Un fichier avec ce nom existe déjà.");
+          return;
         }
         await this.app.vault.copy(file, path);
         const copied = this.app.vault.getAbstractFileByPath(path);
-        if (!(copied instanceof TFile)) return new Notice("Copie introuvable.");
+        if (!(copied instanceof TFile)) { new Notice("Copie introuvable."); return; }
         await this.app.fileManager.processFrontMatter(copied, (fm2) => {
           fm2.title = values.titre || defaultTitle;
           fm2.short_title = values.titre_binder || "";
@@ -620,10 +752,10 @@ export function initScenesEditor(plugin) {
     ).open();
   }.bind(plugin);
 
-  plugin.moveSceneFile = async function (file) {
+  plugin.moveSceneFile = async function (this: ScenesEditorPlugin, file: TFile | null): Promise<void> {
     const unit = this.unitLabel();
     const unitCap = unit.charAt(0).toUpperCase() + unit.slice(1);
-    if (!file) return new Notice(`Aucune ${unit} active.`);
+    if (!file) { new Notice(`Aucune ${unit} active.`); return; }
     new TextInputModal(
       this.app,
       `Déplacer la ${unit}`,
@@ -646,7 +778,8 @@ export function initScenesEditor(plugin) {
           targetPath !== file.path &&
           this.app.vault.getAbstractFileByPath(targetPath)
         ) {
-          return new Notice("Le fichier cible existe déjà.");
+          new Notice("Le fichier cible existe déjà.");
+          return;
         }
         if (folder && !this.app.vault.getAbstractFileByPath(folder)) {
           await this.app.vault.createFolder(folder);
@@ -662,11 +795,11 @@ export function initScenesEditor(plugin) {
    * même suffixe par défaut que duplicateSceneFile quand on ne change rien
    * au formulaire. Pour un titre personnalisé, dupliquer au cas par cas via
    * le menu contextuel reste possible. */
-  plugin.duplicateManyScenes = async function (files) {
+  plugin.duplicateManyScenes = async function (this: ScenesEditorPlugin, files: TFile[]): Promise<void> {
     let created = 0;
     for (const file of files) {
       if (!(file instanceof TFile) || !this.isSceneFile(file)) continue;
-      const fm = Object.assign({}, this.fmOf(file));
+      const fm: Record<string, unknown> = Object.assign({}, this.fmOf(file));
       const currentOrder = ensureNumber(fm.order, 0);
       const defaultTitle = fm.title
         ? `${fm.title} - copie`
@@ -707,13 +840,14 @@ export function initScenesEditor(plugin) {
   /** Déplacement en masse : UNE seule modale (dossier cible), chaque
    * fichier garde son propre nom — contrairement à moveSceneFile qui gère
    * aussi un renommage, inutile ici pour plusieurs fichiers à la fois. */
-  plugin.openMoveManyModal = function (files) {
+  plugin.openMoveManyModal = function (this: ScenesEditorPlugin, files: TFile[]): void {
     const unit = this.unitLabel();
     const sceneFiles = files.filter(
       (f) => f instanceof TFile && this.isSceneFile(f)
     );
     if (sceneFiles.length === 0) {
-      return new Notice(`Aucune ${unit} à déplacer.`);
+      new Notice(`Aucune ${unit} à déplacer.`);
+      return;
     }
     new TextInputModal(
       this.app,
@@ -752,14 +886,14 @@ export function initScenesEditor(plugin) {
     ).open();
   }.bind(plugin);
 
-  plugin.getDefaultRule = function (preset, field) {
+  plugin.getDefaultRule = function (this: ScenesEditorPlugin, preset: YamlPreset, field: string): string {
     if (preset.ignoreFields.includes(field)) return "ignore";
     if (preset.aggregateFields.includes(field)) return "aggregate";
     if (preset.firstFields.includes(field)) return "first";
     return "target";
   }.bind(plugin);
 
-  plugin.applyRule = function (targetValue, sourceValue, rule, field) {
+  plugin.applyRule = function (this: ScenesEditorPlugin, targetValue: unknown, sourceValue: unknown, rule: string, field: string): unknown {
     if (rule === "ignore") return "";
     if (rule === "source") return sourceValue ?? targetValue ?? "";
     if (
@@ -781,12 +915,13 @@ export function initScenesEditor(plugin) {
   }.bind(plugin);
 
   plugin.buildMergeYaml = function (
-    targetFm,
-    sourceFm,
-    preset,
-    localRules = {},
-    collector = null
-  ) {
+    this: ScenesEditorPlugin,
+    targetFm: Record<string, unknown>,
+    sourceFm: Record<string, unknown>,
+    preset: YamlPreset,
+    localRules: Record<string, string> = {},
+    collector: Record<string, { value: string; origin: string; defaultRule: string }> | null = null
+  ): void {
     const fields = [
       ...new Set([
         ...Object.keys(targetFm || {}),
@@ -812,13 +947,14 @@ export function initScenesEditor(plugin) {
   }.bind(plugin);
 
   plugin.buildMergePlan = async function (
-    files,
-    targetPath,
-    sourceOrder,
-    mergeMode,
-    keepSeparator,
-    localRules = {}
-  ) {
+    this: ScenesEditorPlugin,
+    files: TFile[],
+    targetPath: string,
+    sourceOrder: string[],
+    mergeMode: string,
+    keepSeparator: boolean,
+    localRules: Record<string, string> = {}
+  ): Promise<MergePlan> {
     const target = files.find((f) => f.path === targetPath) || files[0];
     const sourcesAll = files.filter((f) => f.path !== target.path);
     const map = new Map(sourcesAll.map((f) => [f.path, f]));
@@ -826,14 +962,14 @@ export function initScenesEditor(plugin) {
     for (const src of sourcesAll) {
       if (!ordered.includes(src.path)) ordered.push(src.path);
     }
-    const sources = ordered.map((p) => map.get(p)).filter(Boolean);
+    const sources = ordered.map((p) => map.get(p)).filter((f): f is TFile => !!f);
 
     const preset = YAML_PRESETS[this.settings.mergeYamlPreset];
-    const targetFm = Object.assign({}, this.fmOf(target));
-    const previewFm = Object.assign({}, targetFm);
-    const collector = {};
-    const sourceBodies = [];
-    const sourceFms = [];
+    const targetFm: Record<string, unknown> = Object.assign({}, this.fmOf(target));
+    const previewFm: Record<string, unknown> = Object.assign({}, targetFm);
+    const collector: Record<string, { value: string; origin: string; defaultRule: string }> = {};
+    const sourceBodies: string[] = [];
+    const sourceFms: Record<string, unknown>[] = [];
     for (const src of sources) {
       const raw = await this.app.vault.read(src);
       sourceBodies.push(splitBody(raw));
@@ -842,7 +978,7 @@ export function initScenesEditor(plugin) {
     for (const sourceFm of sourceFms) {
       this.buildMergeYaml(previewFm, sourceFm, preset, localRules, collector);
     }
-    const yamlEntries = [
+    const yamlEntries: MergePreviewYamlEntry[] = [
       ...new Set([...Object.keys(previewFm), ...Object.keys(collector)]),
     ]
       .sort()
@@ -867,10 +1003,10 @@ export function initScenesEditor(plugin) {
           : `Fusionner ${sources.length} ${this.unitLabelPlural()} dans "${this.shortTitleFor(target)}" ?`,
       preview: {
         tags: normalizeTags(previewFm.tags),
-        statut: previewFm.status || "",
+        statut: String(previewFm.status || ""),
         compiler: Boolean(previewFm.compile),
-        objectif: previewFm.goal ?? 0,
-        notes: previewFm.notes || "",
+        objectif: Number(previewFm.goal ?? 0),
+        notes: String(previewFm.notes || ""),
         excerpts: sources.map((src, i) =>
           buildMergedSection(src, sourceBodies[i], mergeMode)
         ),
@@ -880,19 +1016,19 @@ export function initScenesEditor(plugin) {
     };
   }.bind(plugin);
 
-  plugin.openMergeModal = async function (files) {
+  plugin.openMergeModal = async function (this: ScenesEditorPlugin, files: TFile[]): Promise<void> {
     new MergeModal(this.app, this, files).open();
   }.bind(plugin);
 
-  plugin.openYamlOptions = async function (mergeModal) {
+  plugin.openYamlOptions = async function (this: ScenesEditorPlugin, mergeModal: MergeModal): Promise<void> {
     new YamlOptionsModal(this.app, this, mergeModal).open();
   }.bind(plugin);
 
-  plugin.openMergeSelectModal = async function (targetFile, siblings) {
+  plugin.openMergeSelectModal = async function (this: ScenesEditorPlugin, targetFile: TFile, siblings: TFile[]): Promise<void> {
     new MergeSelectModal(this.app, this, targetFile, siblings).open();
   }.bind(plugin);
 
-  plugin.applyPreset = async function (key) {
+  plugin.applyPreset = async function (this: ScenesEditorPlugin, key: string): Promise<void> {
     const preset = YAML_PRESETS[key];
     if (!preset) return;
     this.settings.mergeYamlPreset = key;
@@ -900,15 +1036,17 @@ export function initScenesEditor(plugin) {
   }.bind(plugin);
 
   plugin.mergeManyScenes = async function (
-    sources,
-    target,
+    this: ScenesEditorPlugin,
+    sources: TFile[],
+    target: TFile,
     mergeMode = "heading",
     keepSeparator = true,
-    localRules = {}
-  ) {
+    localRules: Record<string, string> = {}
+  ): Promise<void> {
     const unit = this.unitLabel();
     if (!(target instanceof TFile) || sources.length === 0) {
-      return new Notice(`Aucune ${unit} à fusionner.`);
+      new Notice(`Aucune ${unit} à fusionner.`);
+      return;
     }
     const joiner = keepSeparator ? this.settings.mergeNotesSeparator : "\n\n";
     let mergedCount = 0;
@@ -917,7 +1055,7 @@ export function initScenesEditor(plugin) {
       try {
         const raw = await this.app.vault.read(source);
         const sourceBody = splitBody(raw);
-        const sourceFm = Object.assign({}, this.fmOf(source));
+        const sourceFm: Record<string, unknown> = Object.assign({}, this.fmOf(source));
         await this.app.fileManager.processFrontMatter(target, (fm) =>
           this.buildMergeYaml(
             fm,
@@ -956,7 +1094,8 @@ export function initScenesEditor(plugin) {
     (evt) => {
       const file = plugin.getActiveFile();
       if (!file || !plugin.isSceneFile(file)) {
-        return new Notice("Ouvre une scène Feuillets.");
+        new Notice("Ouvre une scène Feuillets.");
+        return;
       }
       plugin.openSceneMenu(file, evt);
     }
@@ -1013,7 +1152,7 @@ export function initScenesEditor(plugin) {
 
   plugin.registerEvent(
     plugin.app.workspace.on("editor-menu", (menu, editor, view) => {
-      const file = view?.file;
+      const file = view instanceof MarkdownView ? view.file : null;
       if (!(file instanceof TFile) || !plugin.isSceneFile(file)) return;
       menu.addSeparator();
       menu.addItem((item) =>
@@ -1040,7 +1179,7 @@ export function initScenesEditor(plugin) {
   plugin.registerEvent(
     plugin.app.workspace.on("files-menu", (menu, files) => {
       const sceneFiles = files.filter(
-        (f) => f instanceof TFile && plugin.isSceneFile(f)
+        (f): f is TFile => f instanceof TFile && plugin.isSceneFile(f)
       );
       if (sceneFiles.length < 2) return;
       menu.addSeparator();
