@@ -42,12 +42,12 @@ const ENGINES: Record<string, EngineDefinition> = {
 };
 
 function resourcesDir(app: unknown, manifest: unknown): string {
-  const path = require("path");
+  const path = require("path") as typeof import("path");
   return path.join(pluginAbsoluteDir(app, manifest), "resources");
 }
 
 function versionMarkerPath(app: unknown, manifest: unknown, engine: string): string {
-  const path = require("path");
+  const path = require("path") as typeof import("path");
   return path.join(resourcesDir(app, manifest), `.${engine}-version.json`);
 }
 
@@ -55,8 +55,8 @@ function versionMarkerPath(app: unknown, manifest: unknown, engine: string): str
  * et à la bonne version — synchrone, pensé pour un check rapide au rendu
  * des réglages ou avant un checkText(). */
 export function isEngineInstalled(app: unknown, manifest: unknown, engine: string): boolean {
-  const fs = require("fs");
-  const path = require("path");
+  const fs = require("fs") as typeof import("fs");
+  const path = require("path") as typeof import("path");
   const def = ENGINES[engine];
   if (!def) return false;
 
@@ -76,8 +76,8 @@ export function isEngineInstalled(app: unknown, manifest: unknown, engine: strin
  * avec succès : un échec en cours de route laisse isEngineInstalled() à
  * false plutôt que de faire croire à une installation à moitié faite. */
 export async function downloadEngine(app: unknown, manifest: unknown, engine: string, onProgress?: (phase: "download" | "extract") => void): Promise<void> {
-  const fs = require("fs");
-  const path = require("path");
+  const fs = require("fs") as typeof import("fs");
+  const path = require("path") as typeof import("path");
   const def = ENGINES[engine];
   if (!def) throw new Error(`Moteur inconnu : ${engine}`);
 
@@ -91,7 +91,8 @@ export async function downloadEngine(app: unknown, manifest: unknown, engine: st
   try {
     response = await requestUrl({ url: def.url, method: "GET" });
   } catch (e) {
-    throw new Error(`Téléchargement échoué : ${e.message || e}`);
+    const errMsg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Téléchargement échoué : ${errMsg}`);
   }
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`Téléchargement échoué (HTTP ${response.status}) : ${def.url}`);
