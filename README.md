@@ -179,8 +179,8 @@ and your vault's own files. Nothing is ever transmitted anywhere. See
 ```bash
 npm install
 npm run dev     # esbuild watch mode
-npm run build   # type-check (structural, via allowJs) + production bundle
-npm test        # node:test — pure-function unit tests (utils/core.js)
+npm run build   # TypeScript type-check + production bundle
+npm test        # node:test — pure-function unit tests (utils/core.ts)
 npm run lint    # eslint + type-check
 ```
 
@@ -196,8 +196,8 @@ npm run lint:obsidian   # must report 0 errors; warnings are informational
 
 See `obsidian-review.config.mjs` for what counts as an error and why.
 
-Source lives in `src/`; `main.js` at the repository root is a **build
-artifact** (gitignored) — never edit it directly.
+Source is TypeScript, living in `src/`; `main.js` at the repository root is a
+**build artifact** (gitignored) — never edit it directly.
 
 ## Security
 
