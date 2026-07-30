@@ -75,6 +75,29 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   writeOrder(parent: import("obsidian").TAbstractFile, orderedChildren: import("obsidian").TAbstractFile[]): Promise<void>;
 };
 
+/* Deux recommandations d'Obsidian restent volontairement non suivies ici.
+   Ce ne sont pas des oublis, et il n'y a aucune règle désactivée : les
+   avertissements sont laissés visibles.
+
+   1. `getSettingDefinitions()` / dépréciation de `display()` — API déclarative
+      apparue en 1.13.0, alors que minAppVersion vaut 1.7.2 : l'adopter seule
+      priverait de réglages tous les utilisateurs sous 1.13. S'y ajoute un
+      obstacle indépendant de la version : ce panneau construit une barre
+      d'onglets par catégories (marqueurs data-cat, panneaux, re-rendus
+      conditionnels via this.display()) que la forme déclarative ne sait pas
+      exprimer. La migration coûterait cette navigation. `display()` reste
+      déprécié mais pleinement fonctionnel. Contrepartie assumée : les
+      réglages n'apparaissent pas dans la recherche de réglages sur 1.13+.
+
+   2. `setDynamicTooltip()` — déprécié parce que, depuis 1.13.0, la valeur du
+      curseur est toujours affichée. En dessous, elle ne l'est pas : retirer
+      ces appels supprimerait le retour de valeur pendant le glissement sur
+      toute la moitié basse de la plage supportée. L'appel est conservé, sans
+      effet sur 1.13+ et utile en deçà.
+
+   À revoir le jour où minAppVersion passera à 1.13.0. Les dépréciations
+   réellement contournables (Notice.noticeEl, ButtonComponent.setWarning) le
+   sont par détection à l'exécution — voir src/utils/obsidian-compat.ts. */
 export class FeuilletsSettingTab extends PluginSettingTab {
   plugin: FeuilletsSettingTabPlugin;
   _activeSettingsTab?: string;
