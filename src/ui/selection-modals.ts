@@ -69,20 +69,22 @@ export class CompileSelectionModal extends Modal {
     btnRow.createEl("button", { text: t("modal.selectNone") }).addEventListener("click", () => {
       checkboxes.forEach(([cb]) => (cb.checked = false));
     });
-    btnRow.createEl("button", { text: t("modal.save"), cls: "mod-cta" }).addEventListener("click", async () => {
-      for (const [cb, file] of checkboxes) {
-        const fm = this.plugin.fmOf(file);
-        const current = fm.compile !== false;
-        if (cb.checked !== current) {
-          await this.app.fileManager.processFrontMatter(file, (data) => {
-            if (cb.checked) delete data.compile;
-            else data.compile = false;
-            delete data.compiler;
-          });
+    btnRow.createEl("button", { text: t("modal.save"), cls: "mod-cta" }).addEventListener("click", () => {
+      void (async () => {
+        for (const [cb, file] of checkboxes) {
+          const fm = this.plugin.fmOf(file);
+          const current = fm.compile !== false;
+          if (cb.checked !== current) {
+            await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+              if (cb.checked) delete data.compile;
+              else data.compile = false;
+              delete data.compiler;
+            });
+          }
         }
-      }
-      this.close();
-      this.plugin.renderAllViews(true);
+        this.close();
+        this.plugin.renderAllViews(true);
+      })();
     });
   }
 
@@ -137,12 +139,14 @@ export class ReadSelectionModal extends Modal {
     btnRow.createEl("button", { text: t("modal.selectNone") }).addEventListener("click", () => {
       checkboxes.forEach(([cb]) => (cb.checked = false));
     });
-    btnRow.createEl("button", { text: t("modal.readSelection.readBtn"), cls: "mod-cta" }).addEventListener("click", async () => {
-      this.plugin.settings.readSelection = checkboxes.filter(([cb]) => cb.checked).map(([, path]) => path);
-      this.plugin.settings.readScope = "__selection__";
-      await this.plugin.saveSettings();
-      this.close();
-      if (this.onDone) this.onDone();
+    btnRow.createEl("button", { text: t("modal.readSelection.readBtn"), cls: "mod-cta" }).addEventListener("click", () => {
+      void (async () => {
+        this.plugin.settings.readSelection = checkboxes.filter(([cb]) => cb.checked).map(([, path]) => path);
+        this.plugin.settings.readScope = "__selection__";
+        await this.plugin.saveSettings();
+        this.close();
+        if (this.onDone) void this.onDone();
+      })();
     });
   }
 

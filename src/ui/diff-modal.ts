@@ -163,11 +163,11 @@ export class CompareFilesModal extends Modal {
       text: t("modal.diff.unifiedView"),
       cls: `feuillets-diff-mode-btn ${this.mode === "inline" ? "mod-cta" : ""}`,
     });
-    splitBtn.addEventListener("click", async () => {
-      if (this.mode !== "split") { this.mode = "split"; await this.render(); }
+    splitBtn.addEventListener("click", () => {
+      if (this.mode !== "split") { this.mode = "split"; void this.render(); }
     });
-    inlineBtn.addEventListener("click", async () => {
-      if (this.mode !== "inline") { this.mode = "inline"; await this.render(); }
+    inlineBtn.addEventListener("click", () => {
+      if (this.mode !== "inline") { this.mode = "inline"; void this.render(); }
     });
 
     const bodyContainer = contentEl.createDiv();
@@ -301,7 +301,7 @@ export class PickFileModal extends Modal {
             row.createSpan({ cls: "feuillets-item-name" }).setText(title);
             row.addEventListener("click", () => {
               this.close();
-              this.onChoose(child);
+              void this.onChoose(child);
             });
           }
         }
@@ -390,6 +390,11 @@ export class DiffModal extends Modal {
     // Sélecteur de snapshot
     const snapControl = headerBar.createDiv({ cls: "feuillets-diff-controls" });
     const snapshotLabel = snapControl.createSpan({ text: `${t("modal.diff.snapshotLabel")} ` });
+    /* obsidianmd/no-static-styles-assignment recommande setCssStyles(), mais
+       le mock DOM utilisé par diff-modal.test.js ne l'implémente pas — le
+       remplacer casserait le test. Une classe CSS dédiée résoudrait aussi la
+       règle mais sortirait du périmètre de ce fichier (styles.css). Laissé
+       en l'état, comportement inchangé. */
     snapshotLabel.style.fontWeight = "500";
     const drop = new DropdownComponent(snapControl);
     this.snapshots.forEach((snap, idx) => {
@@ -418,16 +423,16 @@ export class DiffModal extends Modal {
       cls: `feuillets-diff-mode-btn ${this.mode === "inline" ? "mod-cta" : ""}`
     });
 
-    splitBtn.addEventListener("click", async () => {
+    splitBtn.addEventListener("click", () => {
       if (this.mode !== "split") {
         this.mode = "split";
-        await this.renderModalContent();
+        void this.renderModalContent();
       }
     });
-    inlineBtn.addEventListener("click", async () => {
+    inlineBtn.addEventListener("click", () => {
       if (this.mode !== "inline") {
         this.mode = "inline";
-        await this.renderModalContent();
+        void this.renderModalContent();
       }
     });
 

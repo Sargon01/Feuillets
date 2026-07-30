@@ -212,7 +212,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       }
       const meta = S.projectMeta[root.path];
       if (!meta.labels) {
-        meta.labels = JSON.parse(JSON.stringify(S.labels || []));
+        meta.labels = JSON.parse(JSON.stringify(S.labels || [])) as Label[];
       }
 
       new Setting(containerEl)
@@ -683,7 +683,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       .setName(t("settings.textFontFamily.name"))
       .setDesc(t("settings.textFontFamily.desc"))
       .addText((t2) =>
-        t2.setValue(String(this.plugin.getVaultConfig("textFontFamily") || "")).onChange((v) => {
+        t2.setValue(String((this.plugin.getVaultConfig("textFontFamily") as string | number | boolean | null | undefined) || "")).onChange((v) => {
           this.plugin.setVaultConfig("textFontFamily", v.trim());
         })
       );
@@ -691,7 +691,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName(t("settings.monospaceFontFamily.name"))
       .addText((t2) =>
-        t2.setValue(String(this.plugin.getVaultConfig("monospaceFontFamily") || "")).onChange((v) => {
+        t2.setValue(String((this.plugin.getVaultConfig("monospaceFontFamily") as string | number | boolean | null | undefined) || "")).onChange((v) => {
           this.plugin.setVaultConfig("monospaceFontFamily", v.trim());
         })
       );
@@ -1026,9 +1026,9 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       .setName(t("settings.mergeYamlPreset.name"))
       .setDesc(t("settings.mergeYamlPreset.desc"))
       .addDropdown((drop) => {
-        Object.entries(YAML_PRESETS).forEach(([key, item]) =>
-          drop.addOption(key, item.label)
-        );
+        Object.entries(YAML_PRESETS).forEach(([key, item]) => {
+          drop.addOption(key, item.label);
+        });
         drop.setValue(S.mergeYamlPreset);
         drop.onChange(async (value) => {
           S.mergeYamlPreset = value;
@@ -1631,12 +1631,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       cardHead.createSpan({ cls: "feuillets-merge-card-title", text: p.name || t("settings.compilePresets.item", { n: String(i + 1) }) });
       const delBtn = cardHead.createEl("button", { cls: "clickable-icon", attr: { "aria-label": t("settings.compilePresets.deleteAria") } });
       delBtn.setText("✕");
-      delBtn.addEventListener("click", async () => {
-        S.compilePresets.splice(i, 1);
-        if (S.activePreset >= S.compilePresets.length) S.activePreset = -1;
-        await this.plugin.saveSettings();
-        this.display();
-        refresh();
+      delBtn.addEventListener("click", () => {
+        void (async () => {
+          S.compilePresets.splice(i, 1);
+          if (S.activePreset >= S.compilePresets.length) S.activePreset = -1;
+          await this.plugin.saveSettings();
+          this.display();
+          refresh();
+        })();
       });
 
       new Setting(card)
@@ -2087,24 +2089,28 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
       const upBtn = btns.createEl("button", { text: "↑", cls: "clickable-icon" });
       upBtn.disabled = i === 0;
-      upBtn.addEventListener("click", async () => {
-        if (i === 0) return;
-        [order[i - 1], order[i]] = [order[i], order[i - 1]];
-        S[key] = order;
-        await this.plugin.saveSettings();
-        refresh();
-        this.renderSectionOrderList(container, S, key, defaults, refresh);
+      upBtn.addEventListener("click", () => {
+        void (async () => {
+          if (i === 0) return;
+          [order[i - 1], order[i]] = [order[i], order[i - 1]];
+          S[key] = order;
+          await this.plugin.saveSettings();
+          refresh();
+          this.renderSectionOrderList(container, S, key, defaults, refresh);
+        })();
       });
 
       const downBtn = btns.createEl("button", { text: "↓", cls: "clickable-icon" });
       downBtn.disabled = i === order.length - 1;
-      downBtn.addEventListener("click", async () => {
-        if (i === order.length - 1) return;
-        [order[i + 1], order[i]] = [order[i], order[i + 1]];
-        S[key] = order;
-        await this.plugin.saveSettings();
-        refresh();
-        this.renderSectionOrderList(container, S, key, defaults, refresh);
+      downBtn.addEventListener("click", () => {
+        void (async () => {
+          if (i === order.length - 1) return;
+          [order[i + 1], order[i]] = [order[i], order[i + 1]];
+          S[key] = order;
+          await this.plugin.saveSettings();
+          refresh();
+          this.renderSectionOrderList(container, S, key, defaults, refresh);
+        })();
       });
     });
   }
