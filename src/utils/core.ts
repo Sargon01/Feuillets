@@ -16,7 +16,7 @@ export function stripMarkdown(text: string | null | undefined): string {
   t = t.replace(/!\[\[[^\]]*\]\]/g, "");
   t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
   // Wikiliens : [[cible|alias]] -> alias ; [[dossier/cible]] -> "cible".
-  t = t.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, target, alias) =>
+  t = t.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, target: string, alias?: string) =>
     alias !== undefined ? alias : target.split("/").pop()!
   );
   // Liens Markdown [texte](url) -> texte.
@@ -73,7 +73,8 @@ export function countWords(text: string): number {
 }
 
 export function foldAccents(str: unknown): string {
-  return String(str)
+  const s = typeof str === "string" ? str : (typeof str === "number" || typeof str === "boolean" ? String(str) : "");
+  return s
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
@@ -120,7 +121,7 @@ export function parseStoryDate(
   raw: unknown,
   file: TFile | null = null
 ): { sort: number; y: number; mo: number; d: number; display: string } | null {
-  let str = raw !== undefined && raw !== null ? String(raw).trim() : "";
+  let str = typeof raw === "string" ? raw.trim() : (typeof raw === "number" || typeof raw === "boolean" ? String(raw).trim() : "");
   if (!str && file) {
     /* année à 4 chiffres exigée : un fichier nommé "4.md" ou "10.md"
        (numérotation ordinaire d'un chapitre) ne doit jamais être pris
