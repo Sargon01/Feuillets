@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs, desktop uniquement */
 /* global require -- défini par environnement */
-import { setIcon, Notice, Platform, TFile, type App, type WorkspaceLeaf } from "obsidian";
+import { setIcon, Notice, Platform, TFile, TAbstractFile, type App, type WorkspaceLeaf } from "obsidian";
 import JSZip from "jszip";
 import { VIEW_DOCX_REVIEW } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -100,7 +100,7 @@ function iconFor(entry: ReviewEntry): string {
 /* w:rPrChange marker -> classe CSS appliquant la VRAIE mise en forme
  * (barré/souligné/surligné/gras/italique) sur le texte d'ancrage, plutôt
  * qu'une étiquette qui se contente de la décrire (voir renderComment). */
-const FORMAT_MARKER_CLASSES = {
+const FORMAT_MARKER_CLASSES: Record<string, string> = {
   "w:strike": "feuillets-docx-review-format-strike",
   "w:u": "feuillets-docx-review-format-underline",
   "w:highlight": "feuillets-docx-review-format-highlight",
@@ -155,6 +155,12 @@ function resolveVaultFile(app: App, path: string | null | undefined): TFile | nu
 export class DocxReviewView extends BaseFeuilletsView {
   declare plugin: DocxReviewPlugin;
   declare targetContainer?: HTMLElement;
+  declare iconBtn: (
+    parent: HTMLElement,
+    icon: string,
+    tooltip?: string,
+    onClick?: (e: MouseEvent) => unknown
+  ) => HTMLElement;
   mode: ReviewMode;
   results: ReviewResults | null;
   showResolved: boolean;
@@ -201,7 +207,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
   }
 
-  async saveItemState(item) {
+  async saveItemState(item: ReviewEntry) {
     if (!this.docxName) return;
     const S = this.plugin.settings;
     if (!S.docxReviewResolved) S.docxReviewResolved = {};
@@ -221,7 +227,7 @@ export class DocxReviewView extends BaseFeuilletsView {
    * le snapshot" / la corbeille des snapshots). Une seule fois par feuillet
    * et par session (Set réinitialisé à chaque nouvelle analyse) : appliquer
    * dix retours dans un même feuillet ne crée pas dix copies. */
-  async ensureSnapshot(file) {
+  async ensureSnapshot(file: TFile | null) {
     if (!(file instanceof TFile)) return;
     if (!this._snapshotted) this._snapshotted = new Set();
     if (this._snapshotted.has(file.path)) return;
@@ -239,10 +245,10 @@ export class DocxReviewView extends BaseFeuilletsView {
     } catch { /* le snapshot est une precaution, au mieux : s'il echoue, la relecture doit quand meme pouvoir demarrer */ }
   }
 
-  async analyzeBuffer(buf, docxName = "docx-review") {
+  async analyzeBuffer(buf: ArrayBuffer, docxName = "docx-review") {
     this.docxName = docxName;
     this._snapshotted = new Set(); // nouvelle session de relecture : repartir de zéro
-    let zip;
+    let zip: JSZip;
     try {
       zip = await JSZip.loadAsync(buf);
     } catch {
@@ -278,7 +284,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     const { byPath, unmatched } = resolveScenesToPaths(scenes, currentPaths);
 
     const idToPath = new Map(currentPaths.map((p) => [bookmarkIdFor(p), p]));
-    const readContent = async (path) => {
+    const readContent = async (path: string) => {
       const f = this.app.vault.getAbstractFileByPath(path);
       return f instanceof TFile ? this.app.vault.read(f) : null;
     };
@@ -295,7 +301,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     const S = this.plugin.settings;
     const savedState = S.docxReviewResolved ? S.docxReviewResolved[this.docxName] || {} : {};
 
-    const processItem = async (item, file) => {
+    const processItem = async (item: ReviewEntry, file: TFile | TAbstractFile | null) => {
       const key = getItemKey(item);
       if (savedState[key]) {
         item.applied = !!savedState[key].applied;
@@ -360,7 +366,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     await this.render();
   }
 
-  async renderPickerPanel(container) {
+  async renderPickerPanel(container: HTMLElement) {
     const outputFolder = await this.plugin.getOutputFolder();
     const docxFiles = outputFolder && hasChildren(outputFolder)
       ? outputFolder.children
@@ -409,8 +415,8 @@ export class DocxReviewView extends BaseFeuilletsView {
       pathInput.addEventListener("dragover", (e) => e.preventDefault());
       pathInput.addEventListener("drop", (e) => {
         e.preventDefault();
-        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-        if (f && f.path) pathInput.value = f.path;
+        const f = e.dataTransfer?.files?.[0] as (File & { path?: string }) | undefined;
+        if (f?.path) pathInput.value = f.path;
       });
 
       const analyze = async () => {
@@ -419,14 +425,14 @@ export class DocxReviewView extends BaseFeuilletsView {
           new Notice(t("docxReview.enterPath"));
           return;
         }
-        let fs;
+        let fs: typeof import("fs");
         try {
-          fs = require("fs");
+          fs = require("fs") as typeof import("fs");
         } catch {
           new Notice(t("docxReview.readUnavailable"));
           return;
         }
-        let buf;
+        let buf: unknown;
         try {
           buf = fs.readFileSync(path);
         } catch {
@@ -434,7 +440,7 @@ export class DocxReviewView extends BaseFeuilletsView {
           return;
         }
         const filename = path.split("/").pop() || "docx-review";
-        await this.analyzeBuffer(buf, filename);
+        await this.analyzeBuffer(buf as ArrayBuffer, filename);
       };
       pathInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") analyze();
@@ -444,7 +450,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
   }
 
-  async renderResultsPanel(container) {
+  async renderResultsPanel(container: HTMLElement) {
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
     const backBtn = this.iconBtn(toolbar, "arrow-left", t("docxReview.analyzeAnother"));
     backBtn.addEventListener("click", () => {
@@ -468,7 +474,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     const paths = Object.keys(byPath).sort((a, b) => a.localeCompare(b, "fr"));
     const unmatchedIds = Object.keys(unmatched);
 
-    const isResolved = (item) => item && (item.dismissed || item.applied);
+    const isResolved = (item: ReviewEntry) => item && (item.dismissed || item.applied);
 
     let activeMatched = 0;
     let resolvedMatched = 0;
@@ -693,7 +699,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     editor.scrollIntoView({ from, to }, true);
   }
 
-  renderChange(container, file, change) {
+  renderChange(container: HTMLElement, file: TFile | null, change: ReviewChange) {
     const row = container.createDiv({ cls: "feuillets-research-item feuillets-docx-review-row" });
     if (change.dismissed || change.applied) {
       row.addClass("feuillets-docx-review-applied");
@@ -719,9 +725,9 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     if (change.type === "replacement") {
       if (change.contextBefore) preview.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.contextBefore + " ");
-      preview.createSpan({ cls: "feuillets-docx-review-removed" }).setText(change.oldText);
+      preview.createSpan({ cls: "feuillets-docx-review-removed" }).setText(change.oldText || "");
       preview.createSpan().setText(" → ");
-      preview.createSpan({ cls: "feuillets-docx-review-added" }).setText(change.newText);
+      preview.createSpan({ cls: "feuillets-docx-review-added" }).setText(change.newText || "");
     } else if (change.type === "move") {
       const fromFileObj = change.fromPath ? resolveVaultFile(this.app, change.fromPath) : null;
       const toFileObj = change.toPath ? resolveVaultFile(this.app, change.toPath) : null;
@@ -735,16 +741,16 @@ export class DocxReviewView extends BaseFeuilletsView {
 
       preview.createSpan({ cls: "feuillets-docx-review-move-label mod-cut" }).setText(fromLabel);
       if (change.fromContext) preview.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.fromContext + " ");
-      preview.createSpan({ cls: "feuillets-docx-review-removed" }).setText(change.fromText);
+      preview.createSpan({ cls: "feuillets-docx-review-removed" }).setText(change.fromText || "");
       preview.createEl("br");
       preview.createSpan({ cls: "feuillets-docx-review-move-label mod-paste" }).setText(toLabel);
       if (change.toContext) preview.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.toContext + " ");
-      preview.createSpan({ cls: "feuillets-docx-review-added" }).setText(change.text);
+      preview.createSpan({ cls: "feuillets-docx-review-added" }).setText(change.text || "");
     } else {
       if (change.contextBefore) preview.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.contextBefore + " ");
       preview
         .createSpan({ cls: change.type === "insertion" ? "feuillets-docx-review-added" : "feuillets-docx-review-removed" })
-        .setText(change.text);
+        .setText(change.text || "");
     }
 
     const fallbackText = change.type === "move" ? change.toContext : change.contextBefore;
@@ -758,21 +764,21 @@ export class DocxReviewView extends BaseFeuilletsView {
         const applyBtn = this.iconBtn(header, "check", t("docxReview.applyChange"));
         applyBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          let result;
+          let result: { ok: boolean; reason?: string; newContent?: string; step?: string };
           const fromFile = change.fromPath ? resolveVaultFile(this.app, change.fromPath) || file : file;
           const toFile = change.toPath ? resolveVaultFile(this.app, change.toPath) || file : file;
 
           if (change.type === "move" && fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
             await this.ensureSnapshot(fromFile);
             await this.ensureSnapshot(toFile);
-            result = await planApplyInterFile(this.app.vault, fromFile, toFile, change);
+            result = await planApplyInterFile(this.app.vault, fromFile, toFile, change as unknown as Parameters<typeof planApplyInterFile>[3]);
           } else {
             const targetFile = change.type === "move" && toFile instanceof TFile ? toFile : file;
             const content = await this.app.vault.read(targetFile);
-            result = planApply(content, change);
+            result = planApply(content, change as unknown as Parameters<typeof planApply>[1]);
             if (result.ok) {
               await this.ensureSnapshot(targetFile);
-              await this.app.vault.modify(targetFile, result.newContent);
+              await this.app.vault.modify(targetFile, result.newContent || "");
             }
           }
 
@@ -815,7 +821,7 @@ export class DocxReviewView extends BaseFeuilletsView {
 
   /** Permet d'appliquer ou d'ouvrir un retour depuis ses feuillets candidats
    * (lorsqu'il est tombé dans les éléments non rattachés). */
-  renderNearFilesHints(header, item, row) {
+  renderNearFilesHints(header: HTMLElement, item: ReviewEntry, row?: HTMLElement) {
     const candidatePaths = [
       ...(item.nearFiles || []),
       ...(item.fromPath ? [item.fromPath] : []),
@@ -829,7 +835,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       if (fFirst instanceof TFile) {
         row.addClass("feuillets-clickable");
         row.title = t("docxReview.clickToOpen", { title: this.plugin.titleFor(fFirst) });
-        row.addEventListener("click", () => this.openAndReveal(fFirst, item.anchorText || searchTextForChange(item)));
+        row.addEventListener("click", () => this.openAndReveal(fFirst, item.anchorText || searchTextForChange(item as unknown as Parameters<typeof searchTextForChange>[0])));
       }
     }
 
@@ -842,23 +848,23 @@ export class DocxReviewView extends BaseFeuilletsView {
         const applyBtn = this.iconBtn(header, "check", t("docxReview.applyInto", { title }));
         applyBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          let result;
+          let result: { ok: boolean; reason?: string; newContent?: string; step?: string };
           if (item.type === "move") {
             const fromFile = item.fromPath ? resolveVaultFile(this.app, item.fromPath) || f : f;
             const toFile = item.toPath ? resolveVaultFile(this.app, item.toPath) || f : f;
             if (fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
               await this.ensureSnapshot(fromFile);
               await this.ensureSnapshot(toFile);
-              result = await planApplyInterFile(this.app.vault, fromFile, toFile, item);
+              result = await planApplyInterFile(this.app.vault, fromFile, toFile, item as unknown as Parameters<typeof planApplyInterFile>[3]);
             } else {
               const content = await this.app.vault.read(f);
-              result = planApply(content, item);
-              if (result.ok) { await this.ensureSnapshot(f); await this.app.vault.modify(f, result.newContent); }
+              result = planApply(content, item as unknown as Parameters<typeof planApply>[1]);
+              if (result.ok) { await this.ensureSnapshot(f); await this.app.vault.modify(f, result.newContent || ""); }
             }
           } else {
             const content = await this.app.vault.read(f);
-            result = planApply(content, item);
-            if (result.ok) { await this.ensureSnapshot(f); await this.app.vault.modify(f, result.newContent); }
+            result = planApply(content, item as unknown as Parameters<typeof planApply>[1]);
+            if (result.ok) { await this.ensureSnapshot(f); await this.app.vault.modify(f, result.newContent || ""); }
           }
 
           if (!result.ok) {
@@ -879,7 +885,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
   }
 
-  renderComment(container, file, comment) {
+  renderComment(container: HTMLElement, file: TFile | null, comment: ReviewComment) {
     const row = container.createDiv({ cls: "feuillets-research-item feuillets-docx-review-row" });
     if (comment.dismissed) {
       row.addClass("feuillets-docx-review-applied");
@@ -913,7 +919,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       }
     }
     if (!comment.isFormatting) {
-      name.createDiv({ cls: "feuillets-docx-review-comment-text" }).setText(comment.text);
+      name.createDiv({ cls: "feuillets-docx-review-comment-text" }).setText(comment.text || "");
     }
 
     if (file) {
