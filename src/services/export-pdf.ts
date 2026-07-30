@@ -55,16 +55,20 @@ function footnoteIdRefsIn(el: Element, knownIds: Set<string>): string[] {
   return found;
 }
 
-/** CSS des notes de bas de page en placement "bas de page" (voir
- * FOOTNOTE_BOTTOM_CSS ci-dessous pour la mise en forme) — styles portés
- * par des classes plutôt que par `element.style.*`, ce document PDF
- * n'ayant pas de feuille de style Obsidian à hériter (voir exportPdf,
- * où ce bloc est concaténé au CSS du modèle). */
+/** CSS de la zone de notes de bas de page en placement "bas de page" —
+ * styles portés par des classes plutôt que par `element.style.*`, ce
+ * document PDF n'ayant pas de feuille de style Obsidian à hériter (voir
+ * exportPdf, où ce bloc est concaténé au CSS du modèle). `.pdf-page-content`
+ * en `flex: 1 1 auto` et `.pdf-page-footnotes` en `flex: 0 0 auto` (posés
+ * inline sur la page, voir plus bas) : le contenu principal occupe tout
+ * l'espace restant, ce qui pousse mécaniquement la zone de notes tout en
+ * bas de la page, même si le contenu ne remplit pas la page entière. */
 export const FOOTNOTE_BOTTOM_CSS = `
-.pdf-footnote-divider {
-  margin: 12px 0 4px;
-  border: none;
+.pdf-page-footnotes {
   border-top: 1px solid #cccccc;
+  margin-top: 8px;
+  padding-top: 4px;
+  overflow: hidden;
 }
 .pdf-footnote-entry {
   display: flex;
@@ -76,6 +80,11 @@ export const FOOTNOTE_BOTTOM_CSS = `
   flex-shrink: 0;
 }
 `;
+
+/** Marge fixe pour la bordure/le rembourrage de `.pdf-page-footnotes`
+ * (voir FOOTNOTE_BOTTOM_CSS) — non mesurable via measureHost puisqu'elle
+ * appartient à un conteneur, pas aux entrées mesurées individuellement. */
+const FOOTNOTE_ZONE_OVERHEAD_PX = 16;
 
 /** Un élément "note de bas de page" autonome (placement "bas de page") :
  * numéro explicite (pas de <ol> natif — la numérotation native ne survit
@@ -96,6 +105,183 @@ function buildFootnoteEntry(footnote: PdfFootnote, number: number): HTMLElement 
 
 function isPrintableIframe(iframe: HTMLIFrameElement): iframe is HTMLIFrameElement & { contentDocument: Document; contentWindow: Window } {
   return iframe.contentDocument !== null && iframe.contentWindow !== null;
+}
+
+type PageBuild = { content: Element[]; footnotes: Element[] };
+
+/** Sélectionne, à partir de `startIndex`, la plus longue séquence
+ * contiguë d'éléments de contenu tenant dans `contentMaxH` — reprise
+ * exacte de la logique de saut de page (titres H1/H2, pages Front,
+ * dépassement de hauteur) utilisée par le placement "fin du manuscrit",
+ * appliquée ici à une tranche pour permettre ensuite de réserver de la
+ * place aux notes (voir paginateWithBottomFootnotes). `elements` reste
+ * l'intégralité du tableau : les index sont globaux, pas relatifs à la
+ * tranche, pour que la comparaison avec l'élément précédent (page Front)
+ * reste correcte d'une page à l'autre. */
+function selectPageContent(
+  elements: Element[],
+  startIndex: number,
+  contentMaxH: number,
+  measureHost: HTMLElement
+): { nodes: Element[]; heights: number[]; nextIndex: number } {
+  const nodes: Element[] = [];
+  const heights: number[] = [];
+  let currentH = 0;
+  let i = startIndex;
+  for (; i < elements.length; i++) {
+    const node = elements[i];
+    const tag = node.tagName ? node.tagName.toLowerCase() : "";
+
+    measureHost.appendChild(node);
+    const nodeH = measuredHeight(node);
+    measureHost.removeChild(node);
+
+    const isHeading = ["h1", "h2", "h3", "h4"].includes(tag);
+    const isTitle = tag === "h1" || tag === "h2";
+    const isFrontPage = !!(node.classList && node.classList.contains("feuillets-frontpage"));
+    const prevWasFrontPage = i > 0 && elements[i - 1].classList && elements[i - 1].classList.contains("feuillets-frontpage");
+    const forceNewPage = isTitle || isFrontPage || prevWasFrontPage || (isHeading && currentH + nodeH + 50 > contentMaxH);
+
+    if ((forceNewPage || currentH + nodeH > contentMaxH) && nodes.length > 0) break;
+
+    nodes.push(node);
+    heights.push(nodeH);
+    currentH += nodeH;
+  }
+  return { nodes, heights, nextIndex: i };
+}
+
+/** Pagination avec notes de bas de page ancrées au bas de leur page
+ * d'appel (placement "bas de page"). Contrairement au placement "fin du
+ * manuscrit", les notes ne sont jamais insérées dans le flux des
+ * paragraphes : chaque page se voit attribuer un contenu principal ET,
+ * séparément, la liste des notes appelées par ce contenu — assemblées
+ * plus bas dans une zone dédiée (`.pdf-page-footnotes`).
+ *
+ * Algorithme, par page :
+ *  1. Sélectionne le contenu qui tiendrait sans les notes (selectPageContent).
+ *  2. Détermine les notes nouvellement appelées par ce contenu (+ celles
+ *     reportées depuis la page précédente si elles n'y tenaient pas).
+ *  3. Si contenu + notes dépasse la hauteur disponible, repousse le
+ *     dernier paragraphe vers la page suivante et recalcule (ses notes,
+ *     si elles n'étaient référencées par aucun autre paragraphe déjà
+ *     retenu, repartent avec lui).
+ *  4. Si même une page sans aucun contenu ne suffit pas à faire tenir
+ *     toutes les notes candidates (note très longue), affiche celles qui
+ *     tiennent et reporte le reste à la page suivante — jamais perdues. */
+function paginateWithBottomFootnotes(
+  contentElements: Element[],
+  footnotes: PdfFootnote[],
+  contentMaxH: number,
+  measureHost: HTMLElement
+): PageBuild[] {
+  const knownIds = new Set(footnotes.map((f) => f.id));
+  const footnoteNumberById = new Map(footnotes.map((f, i) => [f.id, i + 1]));
+  const footnoteById = new Map(footnotes.map((f) => [f.id, f]));
+
+  const entryCache = new Map<string, HTMLElement>();
+  const getEntry = (id: string): HTMLElement => {
+    let el = entryCache.get(id);
+    if (!el) {
+      el = buildFootnoteEntry(footnoteById.get(id)!, footnoteNumberById.get(id)!);
+      entryCache.set(id, el);
+    }
+    return el;
+  };
+  const measureEntry = (id: string): number => {
+    const el = getEntry(id);
+    measureHost.appendChild(el);
+    const h = measuredHeight(el);
+    measureHost.removeChild(el);
+    return h;
+  };
+  const blockHeight = (ids: string[]): number =>
+    ids.length === 0 ? 0 : FOOTNOTE_ZONE_OVERHEAD_PX + ids.reduce((sum, id) => sum + measureEntry(id), 0);
+
+  const placedIds = new Set<string>();
+  let carry: string[] = [];
+  const pages: PageBuild[] = [];
+  let index = 0;
+
+  while (index < contentElements.length || carry.length > 0) {
+    const { nodes, heights, nextIndex } = selectPageContent(contentElements, index, contentMaxH, measureHost);
+
+    // IDs nouvellement appelés par chaque paragraphe retenu (une note
+    // n'est attribuée qu'au premier paragraphe de LA PAGE qui l'appelle).
+    const claimed = new Set([...placedIds, ...carry]);
+    const idsPerNode: string[][] = nodes.map((node) => {
+      const refs = footnoteIdRefsIn(node, knownIds).filter((id) => !claimed.has(id));
+      refs.forEach((id) => claimed.add(id));
+      return refs;
+    });
+
+    const workingNodes = nodes.slice();
+    const workingHeights = heights.slice();
+    const workingIdsPerNode = idsPerNode.slice();
+    let contentH = workingHeights.reduce((a, b) => a + b, 0);
+
+    const candidateIds = (): string[] => [...carry, ...workingIdsPerNode.flat()];
+
+    // Repousse le dernier paragraphe vers la page suivante tant que le
+    // contenu retenu + les notes qu'il appelle ne tient pas — jamais en
+    // dessous d'un seul paragraphe (comme la pagination de contenu seul :
+    // une page garde toujours au moins un élément), pour ne pas se
+    // retrouver à évincer indéfiniment la même note avec son paragraphe.
+    while (workingNodes.length > 1 && contentH + blockHeight(candidateIds()) > contentMaxH) {
+      contentH -= workingHeights[workingHeights.length - 1];
+      workingNodes.pop();
+      workingHeights.pop();
+      workingIdsPerNode.pop();
+    }
+
+    let finalIds = candidateIds();
+    let nextCarry: string[] = [];
+    if (contentH + blockHeight(finalIds) > contentMaxH) {
+      // Le contenu retenu (au moins un paragraphe, ou aucun s'il s'agit
+      // d'une page de pure continuation de notes) ne laisse pas assez de
+      // place pour toutes les notes candidates : affiche celles qui
+      // tiennent, reporte le reste à la page suivante — jamais perdu.
+      const fitted: string[] = [];
+      for (const id of finalIds) {
+        const candidate = [...fitted, id];
+        const wouldFit = contentH + blockHeight(candidate) <= contentMaxH;
+        if (!wouldFit) {
+          // Rien du tout ne tient sur une page sans aucun contenu (note
+          // plus haute qu'une page entière) : force au moins une entrée
+          // pour garantir une progression plutôt que de la reporter à
+          // l'infini. Si du contenu est présent, on préfère au contraire
+          // reporter la note en entier sur la page suivante, qui aura
+          // plus de place libre.
+          if (fitted.length === 0 && workingNodes.length === 0) fitted.push(id);
+          break;
+        }
+        fitted.push(id);
+      }
+      nextCarry = finalIds.slice(fitted.length);
+      finalIds = fitted;
+    }
+
+    for (const id of finalIds) placedIds.add(id);
+
+    pages.push({ content: workingNodes, footnotes: finalIds.map((id) => getEntry(id)) });
+
+    carry = nextCarry;
+    index = nextIndex - (nodes.length - workingNodes.length);
+  }
+
+  // Note jamais appelée dans le texte (repli rare, ex. structure HTML
+  // inattendue) : ajoutée à la dernière page plutôt que perdue.
+  const orphans = footnotes.filter((f) => !placedIds.has(f.id));
+  if (orphans.length > 0) {
+    if (pages.length === 0) pages.push({ content: [], footnotes: [] });
+    const last = pages[pages.length - 1];
+    for (const f of orphans) {
+      placedIds.add(f.id);
+      last.footnotes.push(getEntry(f.id));
+    }
+  }
+
+  return pages;
 }
 
 /** Pagine le contenu HTML en boîtes de pages réelles (.pdf-page) pour l'impression PDF et l'aperçu WYSIWYG.
@@ -147,39 +333,21 @@ export function paginateManuscript(
     .filter(isPageElement);
 
   const footnotePlacement = settings.pdfFootnotePlacement === "bottom" ? "bottom" : "end";
-  let elements: Element[];
+
+  let rawPages: PageBuild[];
 
   if (footnotePlacement === "bottom" && footnotes && footnotes.length > 0) {
-    // Une note est insérée juste après l'élément qui l'appelle en premier —
-    // au fil de la boucle de pagination ci-dessous, elle suit donc
-    // naturellement son appel sur la même page (ou, si elle ne tient pas,
-    // déborde sur la suivante, comme n'importe quel autre contenu).
-    const footnoteNumberById = new Map(footnotes.map((f, i) => [f.id, i + 1]));
-    const knownIds = new Set(footnotes.map((f) => f.id));
-    const placedIds = new Set<string>();
-    const interleaved: Element[] = [];
-    for (const el of contentElements) {
-      interleaved.push(el);
-      const ids = footnoteIdRefsIn(el, knownIds).filter((id) => !placedIds.has(id));
-      if (ids.length === 0) continue;
-      interleaved.push(createEl("hr", { cls: "pdf-footnote-divider" }));
-      for (const id of ids) {
-        placedIds.add(id);
-        const footnote = footnotes.find((f) => f.id === id);
-        if (!footnote) continue;
-        interleaved.push(buildFootnoteEntry(footnote, footnoteNumberById.get(id)!));
-      }
-    }
-    // Note jamais appelée dans le texte (repli rare, ex. structure HTML
-    // inattendue) : ajoutée en fin de manuscrit plutôt que perdue.
-    const orphans = footnotes.filter((f) => !placedIds.has(f.id));
-    if (orphans.length > 0) {
-      interleaved.push(createEl("hr", { cls: "pdf-footnote-divider" }));
-      for (const f of orphans) interleaved.push(buildFootnoteEntry(f, footnoteNumberById.get(f.id)!));
-    }
-    elements = interleaved;
+    // Placement "bas de page" : les notes ne rejoignent JAMAIS le flux des
+    // paragraphes — chaque page reçoit son propre contenu et sa propre
+    // liste de notes, assemblés séparément plus bas (voir
+    // paginateWithBottomFootnotes et la zone .pdf-page-footnotes).
+    rawPages = paginateWithBottomFootnotes(contentElements, footnotes, contentMaxH, measureHost);
   } else {
-    elements = contentElements;
+    // Placement "fin du manuscrit" (comportement historique, strictement
+    // inchangé) : toutes les notes regroupées dans un unique bloc ajouté
+    // en tant que dernier élément du flux, paginé comme n'importe quel
+    // autre contenu.
+    const elements = contentElements;
     if (footnotes && footnotes.length > 0) {
       // Détaché tant qu'il n'est pas poussé dans `elements` ci-dessous — élément
       // du document principal Obsidian (ses enfants sont déjà créés via createEl).
@@ -200,41 +368,43 @@ export function paginateManuscript(
       }
       elements.push(fnDiv);
     }
-  }
 
-  const rawPages: Element[][] = [];
-  let currentPageNodes: Element[] = [];
-  let currentH = 0;
+    const rawContentPages: Element[][] = [];
+    let currentPageNodes: Element[] = [];
+    let currentH = 0;
 
-  for (let i = 0; i < elements.length; i++) {
-    const node = elements[i];
-    const tag = node.tagName ? node.tagName.toLowerCase() : "";
+    for (let i = 0; i < elements.length; i++) {
+      const node = elements[i];
+      const tag = node.tagName ? node.tagName.toLowerCase() : "";
 
-    measureHost.appendChild(node);
-    const nodeH = measuredHeight(node);
-    measureHost.removeChild(node);
+      measureHost.appendChild(node);
+      const nodeH = measuredHeight(node);
+      measureHost.removeChild(node);
 
-    const isHeading = ["h1", "h2", "h3", "h4"].includes(tag);
-    // Saut de page systématique pour H1 (partie) et H2 (chapitre)
-    const isTitle = tag === "h1" || tag === "h2";
-    // Page Front (titre/dédicace/épigraphe, voir export-render.js) : sur sa
-    // propre page, jamais partagée avec ce qui précède OU ce qui suit.
-    const isFrontPage = !!(node.classList && node.classList.contains("feuillets-frontpage"));
-    const prevWasFrontPage = i > 0 && elements[i - 1].classList && elements[i - 1].classList.contains("feuillets-frontpage");
-    const forceNewPage = isTitle || isFrontPage || prevWasFrontPage || (isHeading && currentH + nodeH + 50 > contentMaxH);
+      const isHeading = ["h1", "h2", "h3", "h4"].includes(tag);
+      // Saut de page systématique pour H1 (partie) et H2 (chapitre)
+      const isTitle = tag === "h1" || tag === "h2";
+      // Page Front (titre/dédicace/épigraphe, voir export-render.js) : sur sa
+      // propre page, jamais partagée avec ce qui précède OU ce qui suit.
+      const isFrontPage = !!(node.classList && node.classList.contains("feuillets-frontpage"));
+      const prevWasFrontPage = i > 0 && elements[i - 1].classList && elements[i - 1].classList.contains("feuillets-frontpage");
+      const forceNewPage = isTitle || isFrontPage || prevWasFrontPage || (isHeading && currentH + nodeH + 50 > contentMaxH);
 
-    if ((forceNewPage || currentH + nodeH > contentMaxH) && currentPageNodes.length > 0) {
-      rawPages.push(currentPageNodes);
-      currentPageNodes = [];
-      currentH = 0;
+      if ((forceNewPage || currentH + nodeH > contentMaxH) && currentPageNodes.length > 0) {
+        rawContentPages.push(currentPageNodes);
+        currentPageNodes = [];
+        currentH = 0;
+      }
+
+      currentPageNodes.push(node);
+      currentH += nodeH;
     }
 
-    currentPageNodes.push(node);
-    currentH += nodeH;
-  }
+    if (currentPageNodes.length > 0) {
+      rawContentPages.push(currentPageNodes);
+    }
 
-  if (currentPageNodes.length > 0) {
-    rawPages.push(currentPageNodes);
+    rawPages = rawContentPages.map((nodes) => ({ content: nodes, footnotes: [] }));
   }
 
   if (document.body.contains(measureHost)) {
@@ -244,7 +414,8 @@ export function paginateManuscript(
   const totalPages = Math.max(1, rawPages.length);
 
   // Assemblage final des pages avec en-têtes/pieds et numérotation
-  const pagesHtml = rawPages.map((nodes, idx) => {
+  const pagesHtml = rawPages.map((page, idx) => {
+    const nodes = page.content;
     const pageNum = idx + 1;
     const isEven = pageNum % 2 === 0;
     const isFirst = pageNum === 1;
@@ -287,6 +458,7 @@ export function paginateManuscript(
 
     const showHeaderFooter = !(isFirst && hideFirst);
     const nodesHtml = nodes.map((n) => n.outerHTML).join("\n");
+    const footnotesHtml = page.footnotes.map((n) => n.outerHTML).join("\n");
 
     return `
       <div class="pdf-page ${isEven ? "page-even" : "page-odd"}" style="
@@ -300,6 +472,8 @@ export function paginateManuscript(
         page-break-after: always;
         break-after: page;
         position: relative;
+        display: flex;
+        flex-direction: column;
         background: #ffffff;
         color: #111111;
       ">
@@ -325,9 +499,10 @@ export function paginateManuscript(
         `
             : ""
         }
-        <div class="pdf-page-content" style="height: 100%; overflow: hidden;">
+        <div class="pdf-page-content" style="flex: 1 1 auto; overflow: hidden;">
           ${nodesHtml}
         </div>
+        ${footnotesHtml ? `<div class="pdf-page-footnotes">${footnotesHtml}</div>` : ""}
         ${
           showHeaderFooter
             ? `
