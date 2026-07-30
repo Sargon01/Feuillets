@@ -589,7 +589,7 @@ async function exportViaPandoc(app: App, settings: FeuilletsSettings, format = "
         await app.vault.adapter.remove(exportRel);
       } catch { /* suppression du fichier d'export temporaire, au mieux : Pandoc a deja produit sa sortie */ }
       if (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const errMsg = err instanceof Error ? err.message : typeof err === "string" ? err : "";
         new Notice(
           `Échec Pandoc (${format}) : vérifie l'installation et le chemin dans les réglages. ${
             errMsg.slice(0, 200)

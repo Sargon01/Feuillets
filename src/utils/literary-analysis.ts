@@ -18,8 +18,9 @@ function wordTokens(text: string) {
 }
 
 /** Découpe en phrases (terminateurs . ! ? …), fragments non vides. */
-function splitSentences(text: string) {
-  return (text.match(/[^.!?…]+[.!?…]+/g) || []).map((s) => s.trim()).filter(Boolean);
+function splitSentences(text: string): string[] {
+  const matches = text.match(/[^.!?…]+[.!?…]+/g) || [];
+  return matches.map((s: string) => s.trim()).filter(Boolean);
 }
 
 /** Un paragraphe est considéré « dialogue » s'il ouvre par un tiret de

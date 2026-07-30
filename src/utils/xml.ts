@@ -31,7 +31,10 @@ type MatchingClose = {
  * seraient rééchappés en `&amp;lt;`.
  */
 export function escapeXml(s: unknown): string {
-  return String(s ?? "")
+  if (s === null || s === undefined) return "";
+  const text = typeof s === "string" ? s : typeof s === "number" || typeof s === "boolean" || typeof s === "bigint" ? String(s) : "";
+  if (!text) return "";
+  return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -115,8 +118,10 @@ export function getAttr(attrs: string | null | undefined, name: string): string 
 }
 
 export function decodeXmlEntities(str: unknown): string {
-  if (!str) return "";
-  return String(str)
+  if (str === null || str === undefined) return "";
+  const text = typeof str === "string" ? str : typeof str === "number" || typeof str === "boolean" || typeof str === "bigint" ? String(str) : "";
+  if (!text) return "";
+  return text
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')

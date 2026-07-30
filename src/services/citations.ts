@@ -21,6 +21,8 @@
  * dernière, et une forme courte par source (nom + titre abrégé) — hors
  * périmètre pour l'instant. */
 
+import { toValue } from "../utils/scene-fields.js";
+
 type CitationSource = {
   author?: string;
   title?: string;
@@ -36,6 +38,7 @@ export function formatCitation(
   isRepeat?: boolean
 ): string {
   const p = (page || "").trim();
+  const dateStr = toValue(date);
 
   if (isRepeat) {
     if (style === "parenthetical") {
@@ -45,7 +48,7 @@ export function formatCitation(
   }
 
   if (style === "parenthetical") {
-    const base = [author, date].filter(Boolean).join(", ");
+    const base = [author, dateStr].filter(Boolean).join(", ");
     const withPage = p ? [base, `p. ${p}`].filter(Boolean).join(", ") : base;
     return withPage ? `(${withPage})` : "";
   }
@@ -54,7 +57,7 @@ export function formatCitation(
   if (author) parts.push(author);
   if (title) parts.push(`*${title}*`);
   if (publisher) parts.push(publisher);
-  if (date) parts.push(String(date));
+  if (dateStr) parts.push(dateStr);
   if (p) parts.push(`p. ${p}`);
   /* URL en dernier, hors de la liste virgule — une adresse ne se lit pas
      comme un élément bibliographique de plus, et une source web n'a

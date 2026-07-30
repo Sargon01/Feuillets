@@ -1,3 +1,5 @@
+import { toValue } from "./scene-fields.js";
+
 /** Un champ frontmatter donné peut être une string ou une liste YAML à un
  * seul élément selon la façon dont Obsidian l'a enregistré (panneau
  * Propriétés) — les deux formes existent réellement dans un même coffre. */
@@ -7,8 +9,9 @@ type ProjectArcMode = {
   arc?: string;
 };
 
-export function oneOf(val: unknown) {
-  return (Array.isArray(val) ? String(val[0] || "") : String(val || "")).trim();
+export function oneOf(val: unknown): string {
+  if (Array.isArray(val)) return toValue(val[0]).trim();
+  return toValue(val).trim();
 }
 
 /** Arcs d'une scène : `<clé>` (principal) + `<clé>_secondaire` (optionnel),
@@ -27,9 +30,10 @@ export function arcsOf(fm: SceneFrontmatter, mode?: ProjectArcMode | null) {
 }
 
 /** Personnages d'une scène : liste, ou valeur unique tolérée en string. */
-export function personnagesOf(fm: SceneFrontmatter) {
-  if (Array.isArray(fm.characters)) return fm.characters.filter(Boolean).map(String);
-  return fm.characters ? [String(fm.characters)] : [];
+export function personnagesOf(fm: SceneFrontmatter): string[] {
+  if (Array.isArray(fm.characters)) return fm.characters.map(toValue).filter(Boolean);
+  const single = toValue(fm.characters);
+  return single ? [single] : [];
 }
 
 /** Point de vue (narrateur) d'une scène : valeur unique, distincte de

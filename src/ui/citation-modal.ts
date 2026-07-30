@@ -1,6 +1,7 @@
 import { FuzzySuggestModal, type App, type TFile } from "obsidian";
 import { TextInputModal } from "../scenes-editor.js";
 import { t } from "../i18n/index.js";
+import { toValue } from "../utils/scene-fields.js";
 
 type CitationPlugin = {
   fmOf(file: TFile): Record<string, unknown>;
@@ -36,7 +37,8 @@ export class CitationSourceModal extends FuzzySuggestModal<TFile> {
 
   getItemText(file: TFile): string {
     const fm = this.plugin.fmOf(file);
-    const author = fm.author ? ` — ${fm.author}` : "";
+    const authorStr = toValue(fm.author);
+    const author = authorStr ? ` — ${authorStr}` : "";
     return `${this.plugin.titleFor(file)}${author}`;
   }
 
