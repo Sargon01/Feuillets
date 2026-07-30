@@ -66,15 +66,12 @@ type DocxReviewPlugin = Omit<DocxReviewPluginBase, "settings"> & {
   snapshotFile(file: TFile, root: unknown): Promise<unknown>;
   titleFor(file: TFile): string;
 };
-type DocxInputFile = { async(type: "string"): Promise<string> };
-type DocxArchive = { file(path: string): DocxInputFile | null };
 type EditorLike = {
   getValue(): string;
   offsetToPos(offset: number): unknown;
   setSelection(from: unknown, to: unknown): void;
   scrollIntoView(range: { from: unknown; to: unknown }, center: boolean): void;
 };
-type ReviewLeaf = { openFile(file: TFile, state: { active: boolean }): Promise<void>; view?: { editor?: EditorLike } };
 
 function hasEditor(view: object): view is { editor: EditorLike } {
   return "editor" in view;

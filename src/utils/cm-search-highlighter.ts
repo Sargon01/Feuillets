@@ -56,10 +56,10 @@ export interface EditorViewInstance {
   dispatch?: (spec: { effects?: unknown }) => void;
 }
 
-const StateEffectTyped = StateEffect as unknown as StateEffectStatic;
-const StateFieldTyped = StateField as unknown as StateFieldStatic;
-const DecorationTyped = Decoration as unknown as DecorationStatic;
-const EditorViewTyped = EditorView as unknown as EditorViewStatic;
+const StateEffectTyped = StateEffect as StateEffectStatic;
+const StateFieldTyped = StateField as StateFieldStatic;
+const DecorationTyped = Decoration as DecorationStatic;
+const EditorViewTyped = EditorView as EditorViewStatic;
 
 export const setSearchHighlightsEffect = StateEffectTyped.define<DecorationSet>();
 

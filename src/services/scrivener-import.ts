@@ -781,7 +781,7 @@ export function rtfToMarkdown(
           if (hexClean) {
             const bytes = new Uint8Array(hexClean.length / 2);
             for (let b = 0; b < hexClean.length; b += 2) {
-              bytes[b / 2] = parseInt(hexClean.substr(b, 2), 16);
+              bytes[b / 2] = parseInt(hexClean.slice(b, b + 2), 16);
             }
             const imgIndex = extractedImages.length + 1;
             const prefix = options.prefix || (options.uuid ? `img-${options.uuid.slice(0, 8)}` : "scrivener-img");
@@ -874,7 +874,7 @@ export function rtfToMarkdown(
         const next = src[i + 1];
 
         if (next === "'") {
-          const hex = src.substr(i + 2, 2);
+          const hex = src.slice(i + 2, i + 4);
           const codeHex = parseInt(hex, 16);
           if (!isNaN(codeHex)) {
             const unicodeCode = byteToUnicode(codeHex);

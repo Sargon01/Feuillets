@@ -132,12 +132,16 @@ export class ScriveningsManager {
   measureCaretOffsetTop(textarea: HTMLTextAreaElement, offset: number): number {
     const style = getComputedStyle(textarea);
     const mirror = document.createElement("div");
-    const propsToCopy: (keyof CSSStyleDeclaration)[] = [
+    type CopyableStyleProp =
+      | "boxSizing" | "width" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft"
+      | "borderTopWidth" | "borderRightWidth" | "borderBottomWidth" | "borderLeftWidth"
+      | "fontFamily" | "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing";
+    const propsToCopy: CopyableStyleProp[] = [
       "boxSizing", "width", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
       "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth",
       "fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing"
     ];
-    propsToCopy.forEach((p) => { (mirror.style as any)[p] = style[p]; });
+    propsToCopy.forEach((p) => { mirror.style[p] = style[p]; });
     Object.assign(mirror.style, {
       position: "absolute",
       visibility: "hidden",
@@ -178,7 +182,7 @@ export class ScriveningsManager {
     const occurrenceIndex = (renderedTextBefore.match(wordRegex) || []).length;
 
     wordRegex.lastIndex = 0;
-    let match;
+    let match: RegExpExecArray | null;
     let count = 0;
     while ((match = wordRegex.exec(rawBody)) !== null) {
       if (count === occurrenceIndex) return match.index;

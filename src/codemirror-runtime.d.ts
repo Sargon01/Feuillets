@@ -1,9 +1,9 @@
 declare module "@codemirror/state" {
-  export const StateEffect: any;
-  export const StateField: any;
+  export const StateEffect: unknown;
+  export const StateField: unknown;
 }
 
 declare module "@codemirror/view" {
-  export const Decoration: any;
-  export const EditorView: any;
+  export const Decoration: unknown;
+  export const EditorView: unknown;
 }

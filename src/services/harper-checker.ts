@@ -37,7 +37,7 @@ export class HarperChecker {
   ensureLoaded(): void {
     if (this.linter) return;
 
-    const path = require("path");
+    const path = require("path") as typeof import("path");
     const wasmPath = path.join(pluginAbsoluteDir(this.app, this.manifest), "resources", "harper", "harper_wasm_slim_bg.wasm");
     // file:// + process défini (Electron/Node) : la lib lit le binaire via
     // fs.readFile en interne, aucun fetch réseau — voir BinaryModule-*.js
