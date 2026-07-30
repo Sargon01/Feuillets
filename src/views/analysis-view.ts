@@ -236,7 +236,7 @@ export class AnalysisView extends BaseFeuilletsView {
     const re = /[\p{L}][\p{L}\p{N}'’-]*/gu;
     const ordered: string[] = [];
     const freq = new Map<string, number>();
-    let m;
+    let m: RegExpExecArray | null;
     while ((m = re.exec(clean)) !== null) {
       const key = m[0].toLowerCase();
       ordered.push(key);
@@ -702,9 +702,10 @@ export class AnalysisView extends BaseFeuilletsView {
         input.addEventListener("change", async () => {
           const v = Math.max(0, Math.min(RYTHME_MAX, Math.round(Number(input.value) || 0)));
           input.value = String(v);
-          await this.app.fileManager.processFrontMatter(file, (fm) => {
-            fm.pace = fm.pace || fm.rythme || {};
-            fm.pace[d.key] = v;
+          await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+            const pace = (typeof fm.pace === "object" && fm.pace ? fm.pace : typeof fm.rythme === "object" && fm.rythme ? fm.rythme : {}) as Record<string, unknown>;
+            pace[d.key] = v;
+            fm.pace = pace;
             delete fm.rythme;
           });
           this.render();
