@@ -8,6 +8,7 @@ import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { t } from "../i18n/index.js";
 import { Menu, TFile, TFolder, setIcon, Notice, normalizePath } from "obsidian";
+import { toValue } from "../utils/scene-fields.js";
 
 type ProjectNode = TFile | TFolder;
 
@@ -47,6 +48,12 @@ type AppWithSettingTab = {
 export class FeuilletsView extends BaseFeuilletsView {
   declare plugin: FeuilletsViewPlugin;
   declare targetContainer?: HTMLElement;
+  declare iconBtn: (
+    parent: HTMLElement,
+    icon: string,
+    tooltip?: string,
+    onClick?: (e: MouseEvent) => void | Promise<void>
+  ) => HTMLElement;
   _renderGen?: number;
   _binderSearchOpen?: boolean;
   _suppressSearchBlurClose?: boolean;
@@ -414,7 +421,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       : v === "En dessous" ? t("binder.filter.progressUnder")
       : v === "Dépassé" ? t("binder.filter.progressOver")
       : v;
-    filterBtn.addEventListener("click", (e) => {
+    filterBtn.addEventListener("click", (e: MouseEvent) => {
       const menu = new Menu();
 
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
@@ -566,7 +573,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         S.binderSearchContent ? t("binder.search.contentToggle.on") : t("binder.search.contentToggle.off")
       );
       if (S.binderSearchContent) contentToggle.addClass("feuillets-mode-active");
-      contentToggle.addEventListener("mousedown", (e) => e.preventDefault());
+      contentToggle.addEventListener("mousedown", (e: MouseEvent) => e.preventDefault());
       contentToggle.addEventListener("click", async () => {
         this._suppressSearchBlurClose = true;
         S.binderSearchContent = !S.binderSearchContent;
@@ -599,7 +606,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       }
       const sf = S.binderStatusFilter;
       if (sf && sf !== "Tous") {
-        const st = String(this.fm(file).status || "");
+        const st = toValue(this.fm(file).status);
         if (sf === "Sans statut" ? st !== "" : st !== sf) return false;
       }
       const lf = S.binderLabelFilter;
@@ -691,7 +698,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       const nameRow = body.createDiv({ cls: "feuillets-item-name-row" });
 
       if (!hidden && S.binderShowStatus) {
-        const st = String(this.fm(file).status || "");
+        const st = toValue(this.fm(file).status);
         if (st) {
           const dot = nameRow.createSpan({ cls: "feuillets-status-dot" });
           dot.style.background = this.plugin.getStatusColor(st) || "var(--text-faint)";
@@ -738,7 +745,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           if (field === "tags") {
             text = this.plugin.tagsOf(file).map((tg: string) => `#${tg}`).join(" ");
           } else {
-            text = (this.fm(file)[field] || "").toString().trim();
+            text = toValue(this.fm(file)[field]).trim();
           }
           if (text) {
             const prev = body.createDiv({ cls: "feuillets-item-preview" });
