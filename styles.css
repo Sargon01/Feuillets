@@ -2283,6 +2283,21 @@ body.feuillets-text-width .markdown-preview-view {
   height: 13px;
 }
 
+/* ===== recherche + remplacement : surlignage dans l'éditeur =====
+   Classes posées par applyEditorHighlights (cm-search-highlighter.js) sur
+   les décorations CodeMirror 6 — aucune règle n'existait jusqu'ici pour
+   elles, la recherche ne surlignait donc aucune occurrence à l'écran. */
+
+.cm-search-highlight {
+  background: var(--text-highlight-bg);
+  border-radius: 2px;
+}
+
+.cm-search-highlight-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
 /* ===== lisibilité du binder ===== */
 
 /* fichier actif : accent net, pas un simple soulignement */
@@ -4263,8 +4278,20 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   opacity: 0.6;
 }
 
+/* La règle générale ci-dessus (.feuillets-properties-row input) cible tout
+   <input>, y compris cette case à cocher : flex-shrink seul ne suffisait
+   pas à annuler son flex-grow (flex: 1, hérité du raccourci `flex`), et
+   appearance: none la vidait de son rendu natif — d'où un contrôle
+   étiré et vide plutôt qu'une case compacte. */
 .feuillets-properties-row input[type="checkbox"] {
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  min-width: 16px;
+  padding: 0;
+  appearance: auto;
+  -webkit-appearance: auto;
+  -moz-appearance: auto;
 }
 
 .feuillets-properties-delete {
