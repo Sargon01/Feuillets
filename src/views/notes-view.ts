@@ -40,12 +40,14 @@ type NotesViewPlugin = Omit<BaseNotesViewPlugin, "parseStoryDate" | "settings"> 
   parseStoryDate(raw: unknown, file?: TFile | null): StoryDate | null;
 };
 
+const SECTION_ICONS: Partial<Record<NotesSectionKey, string>> = {
+  synopsis: "align-left",
+  summary: "file-text",
+  notes: "sticky-note",
+};
+
 function getNotesSectionIcon(key: NotesSectionKey): string {
-  return {
-    synopsis: "align-left",
-    summary: "file-text",
-    notes: "sticky-note",
-  }[key] || "info";
+  return SECTION_ICONS[key] || "info";
 }
 
 /** Icônes par type de propriété, même esprit que le panneau natif
@@ -107,19 +109,19 @@ export class NotesView extends BaseFeuilletsView {
         if (newFile && (!this.viewedFile || newFile.path !== this.viewedFile.path)) {
           this.viewedFile = null;
         }
-        this.render(true);
+        void this.render(true);
       })
     );
     this.registerEvent(
       this.app.vault.on("modify", (file: TFile) => {
         const targetPath = this.viewedFile ? this.viewedFile.path : this.currentPath;
-        if (file.path === targetPath) this.render();
+        if (file.path === targetPath) void this.render();
       })
     );
     this.registerEvent(
       this.app.metadataCache.on("changed", (file: TFile) => {
         const targetPath = this.viewedFile ? this.viewedFile.path : this.currentPath;
-        if (file.path === targetPath) this.render();
+        if (file.path === targetPath) void this.render();
       })
     );
     await this.render(true);
@@ -166,7 +168,7 @@ export class NotesView extends BaseFeuilletsView {
       backBtn.prepend(iconSpan);
       backBtn.addEventListener("click", () => {
         this.viewedFile = null;
-        this.render();
+        void this.render();
       });
     }
 
@@ -267,18 +269,20 @@ export class NotesView extends BaseFeuilletsView {
       type: "text",
       attr: { placeholder: t("notes.properties.newPropertyPlaceholder") },
     });
-    input.addEventListener("keydown", async (e: KeyboardEvent) => {
+    input.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key !== "Enter") return;
-      const key = input.value.trim();
-      if (!key) return;
-      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
-        if (!(key in data)) data[key] = "";
-      });
-      await this.render(true);
-      const added = section.querySelector(
-        `.feuillets-properties-row[data-key="${CSS.escape(key)}"] .feuillets-properties-value`
-      ) as { focus?: () => void } | null;
-      if (added && typeof added.focus === "function") added.focus();
+      void (async () => {
+        const key = input.value.trim();
+        if (!key) return;
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+          if (!(key in data)) data[key] = "";
+        });
+        await this.render(true);
+        const added = section.querySelector(
+          `.feuillets-properties-row[data-key="${CSS.escape(key)}"] .feuillets-properties-value`
+        ) as { focus?: () => void } | null;
+        if (added && typeof added.focus === "function") added.focus();
+      })();
     });
   }
 
@@ -307,12 +311,14 @@ export class NotesView extends BaseFeuilletsView {
     }
     const current = typeof fm.type === "string" ? fm.type.trim().toLowerCase() : "";
     select.value = FRONT_PAGE_TYPES.includes(current) ? current : "";
-    select.addEventListener("change", async () => {
-      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
-        if (select.value) data.type = select.value;
-        else delete data.type;
-      });
-      await this.render(true);
+    select.addEventListener("change", () => {
+      void (async () => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+          if (select.value) data.type = select.value;
+          else delete data.type;
+        });
+        await this.render(true);
+      })();
     });
   }
 
@@ -327,8 +333,8 @@ export class NotesView extends BaseFeuilletsView {
     if (type === "checkbox" && typeof value === "boolean") {
       const cb = row.createEl("input", { type: "checkbox" });
       cb.checked = value;
-      cb.addEventListener("change", async () => {
-        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+      cb.addEventListener("change", () => {
+        void this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           data[key] = cb.checked;
         });
       });
@@ -340,8 +346,8 @@ export class NotesView extends BaseFeuilletsView {
         cls: "feuillets-properties-value",
       });
       input.value = value;
-      input.addEventListener("change", async () => {
-        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+      input.addEventListener("change", () => {
+        void this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           if (!input.value) delete data[key];
           else data[key] = input.value;
         });
@@ -364,7 +370,7 @@ export class NotesView extends BaseFeuilletsView {
           }
         });
       };
-      input.addEventListener("blur", save);
+      input.addEventListener("blur", () => { void save(); });
       input.addEventListener("keydown", (e: KeyboardEvent) => {
         if (e.key === "Enter") input.blur();
       });
@@ -373,11 +379,13 @@ export class NotesView extends BaseFeuilletsView {
     const delBtn = row.createSpan({ cls: "feuillets-properties-delete" });
     setIcon(delBtn, "x");
     delBtn.setAttr("aria-label", t("notes.properties.deleteAria", { key }));
-    delBtn.addEventListener("click", async () => {
-      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
-        delete data[key];
-      });
-      await this.render(true);
+    delBtn.addEventListener("click", () => {
+      void (async () => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+          delete data[key];
+        });
+        await this.render(true);
+      })();
     });
   }
 
@@ -389,12 +397,14 @@ export class NotesView extends BaseFeuilletsView {
       const chip = wrap.createSpan({ cls: "feuillets-tag-chip" });
       chip.setText(toValue(v));
       chip.setAttr("title", t("notes.properties.removeValueTooltip"));
-      chip.addEventListener("click", async () => {
-        const next = values.filter((_, i) => i !== idx);
-        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
-          if (next.length === 0) delete data[key];
-          else data[key] = next;
-        });
+      chip.addEventListener("click", () => {
+        void (async () => {
+          const next = values.filter((_, i) => i !== idx);
+          await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+            if (next.length === 0) delete data[key];
+            else data[key] = next;
+          });
+        })();
       });
     });
     const input = wrap.createEl("input", {
@@ -402,16 +412,18 @@ export class NotesView extends BaseFeuilletsView {
       type: "text",
       attr: { placeholder: values.length ? "+" : t("notes.properties.newValuePlaceholder") },
     });
-    input.addEventListener("keydown", async (e: KeyboardEvent) => {
+    input.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key !== "Enter") return;
-      const raw = input.value.trim();
-      if (!raw) return;
-      const added = raw.split(",").map((s) => s.trim()).filter(Boolean);
-      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
-        data[key] = [...values, ...added];
-      });
-      input.value = "";
-      input.blur();
+      void (async () => {
+        const raw = input.value.trim();
+        if (!raw) return;
+        const added = raw.split(",").map((s) => s.trim()).filter(Boolean);
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+          data[key] = [...values, ...added];
+        });
+        input.value = "";
+        input.blur();
+      })();
     });
   }
 
@@ -450,13 +462,15 @@ export class NotesView extends BaseFeuilletsView {
       const link = box.createDiv({ cls: "feuillets-notes-folder-link" });
       link.setText(folder.name);
       link.setAttr("title", t("notes.folderNoteTooltip", { name: folder.name }));
-      link.addEventListener("click", async (e: MouseEvent) => {
+      link.addEventListener("click", (e: MouseEvent) => {
         e.preventDefault();
-        const note = await this.plugin.getOrCreateFolderNote(folder);
-        if (note) {
-          this.viewedFile = note;
-          this.render();
-        }
+        void (async () => {
+          const note = await this.plugin.getOrCreateFolderNote(folder);
+          if (note) {
+            this.viewedFile = note;
+            void this.render();
+          }
+        })();
       });
     }
   }
@@ -553,11 +567,13 @@ export class NotesView extends BaseFeuilletsView {
     const sectionTitle = sceneDate ? t("notes.context.titleWithDate", { date: sceneDate.display }) : t("notes.context.title");
     headSection.createSpan({ cls: "feuillets-notes-section-title" }).setText(sectionTitle);
 
-    headSection.addEventListener("click", async () => {
-      if (collapsed) delete S.collapsed[collapseKey];
-      else S.collapsed[collapseKey] = true;
-      await this.plugin.saveSettings();
-      this.render();
+    headSection.addEventListener("click", () => {
+      void (async () => {
+        if (collapsed) delete S.collapsed[collapseKey];
+        else S.collapsed[collapseKey] = true;
+        await this.plugin.saveSettings();
+        void this.render();
+      })();
     });
 
     if (collapsed) return;
@@ -656,11 +672,13 @@ export class NotesView extends BaseFeuilletsView {
 
     head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("shared.footnotes.title"));
 
-    head.addEventListener("click", async () => {
-      if (collapsed) delete S.collapsed[collapseKey];
-      else S.collapsed[collapseKey] = true;
-      await this.plugin.saveSettings();
-      this.render();
+    head.addEventListener("click", () => {
+      void (async () => {
+        if (collapsed) delete S.collapsed[collapseKey];
+        else S.collapsed[collapseKey] = true;
+        await this.plugin.saveSettings();
+        void this.render();
+      })();
     });
 
     if (collapsed) return;
@@ -690,11 +708,13 @@ export class NotesView extends BaseFeuilletsView {
 
     head.createSpan({ cls: "feuillets-notes-section-title" }).setText(label);
 
-    head.addEventListener("click", async () => {
-      if (collapsed) delete S.collapsed[collapseKey];
-      else S.collapsed[collapseKey] = true;
-      await this.plugin.saveSettings();
-      this.render();
+    head.addEventListener("click", () => {
+      void (async () => {
+        if (collapsed) delete S.collapsed[collapseKey];
+        else S.collapsed[collapseKey] = true;
+        await this.plugin.saveSettings();
+        void this.render();
+      })();
     });
 
     if (collapsed) return;
@@ -739,7 +759,7 @@ export class NotesView extends BaseFeuilletsView {
         }
       };
 
-      ta.addEventListener("blur", saveAndExit);
+      ta.addEventListener("blur", () => { void saveAndExit(); });
       ta.addEventListener("keydown", (ev: KeyboardEvent) => {
         if (ev.key === "Escape" || (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey))) {
           ta.blur();

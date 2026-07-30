@@ -397,9 +397,11 @@ export class DocxReviewView extends BaseFeuilletsView {
         name
           .createSpan({ cls: "feuillets-docx-review-file-date" })
           .setText(new Date(f.stat.mtime).toLocaleString(getLocale() === "en" ? "en-US" : "fr-FR"));
-        row.addEventListener("click", async () => {
-          const buf = await this.app.vault.readBinary(f);
-          await this.analyzeBuffer(buf, f.name);
+        row.addEventListener("click", () => {
+          void (async () => {
+            const buf = await this.app.vault.readBinary(f);
+            await this.analyzeBuffer(buf, f.name);
+          })();
         });
       }
     }
@@ -415,7 +417,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       pathInput.addEventListener("dragover", (e) => e.preventDefault());
       pathInput.addEventListener("drop", (e) => {
         e.preventDefault();
-        const f = e.dataTransfer?.files?.[0] as (File & { path?: string }) | undefined;
+        const f = e.dataTransfer?.files?.[0] as { path?: string } | undefined;
         if (f?.path) pathInput.value = f.path;
       });
 
@@ -443,10 +445,10 @@ export class DocxReviewView extends BaseFeuilletsView {
         await this.analyzeBuffer(buf as ArrayBuffer, filename);
       };
       pathInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") analyze();
+        if (e.key === "Enter") void analyze();
       });
       const analyzeBtn = this.iconBtn(row, "search", t("docxReview.analyzeFile"));
-      analyzeBtn.addEventListener("click", analyze);
+      analyzeBtn.addEventListener("click", () => { void analyze(); });
     }
   }
 
@@ -456,7 +458,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     backBtn.addEventListener("click", () => {
       this.mode = "picker";
       this.results = null;
-      this.render();
+      void this.render();
     });
 
     const toggleResolvedBtn = this.iconBtn(
@@ -466,7 +468,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     );
     toggleResolvedBtn.addEventListener("click", () => {
       this.showResolved = !this.showResolved;
-      this.render();
+      void this.render();
     });
 
     if (!this.results) return;
@@ -503,19 +505,21 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     if (totalActive > 0) {
       const dismissAllBtn = this.iconBtn(toolbar, "check-check", t("docxReview.markAllResolved"));
-      dismissAllBtn.addEventListener("click", async () => {
-        for (const path of paths) {
-          for (const c of byPath[path].changes) { c.dismissed = true; await this.saveItemState(c); }
-          for (const c of byPath[path].comments) { c.dismissed = true; await this.saveItemState(c); }
-        }
-        for (const id of unmatchedIds) {
-          for (const c of unmatched[id].changes) { c.dismissed = true; await this.saveItemState(c); }
-          for (const c of unmatched[id].comments) { c.dismissed = true; await this.saveItemState(c); }
-        }
-        for (const c of unclassified.changes) { c.dismissed = true; await this.saveItemState(c); }
-        for (const c of unclassified.comments) { c.dismissed = true; await this.saveItemState(c); }
-        new Notice(t("docxReview.allMarkedResolved"));
-        this.render();
+      dismissAllBtn.addEventListener("click", () => {
+        void (async () => {
+          for (const path of paths) {
+            for (const c of byPath[path].changes) { c.dismissed = true; await this.saveItemState(c); }
+            for (const c of byPath[path].comments) { c.dismissed = true; await this.saveItemState(c); }
+          }
+          for (const id of unmatchedIds) {
+            for (const c of unmatched[id].changes) { c.dismissed = true; await this.saveItemState(c); }
+            for (const c of unmatched[id].comments) { c.dismissed = true; await this.saveItemState(c); }
+          }
+          for (const c of unclassified.changes) { c.dismissed = true; await this.saveItemState(c); }
+          for (const c of unclassified.comments) { c.dismissed = true; await this.saveItemState(c); }
+          new Notice(t("docxReview.allMarkedResolved"));
+          void this.render();
+        })();
       });
     }
 
@@ -535,13 +539,13 @@ export class DocxReviewView extends BaseFeuilletsView {
       const viewResolvedBtn = this.iconBtn(row, "eye", t("docxReview.showResolved"));
       viewResolvedBtn.addEventListener("click", () => {
         this.showResolved = true;
-        this.render();
+        void this.render();
       });
       const pickAnotherBtn = this.iconBtn(row, "arrow-left", t("docxReview.analyzeAnother"));
       pickAnotherBtn.addEventListener("click", () => {
         this.mode = "picker";
         this.results = null;
-        this.render();
+        void this.render();
       });
       return;
     }
@@ -573,7 +577,7 @@ export class DocxReviewView extends BaseFeuilletsView {
         settings: S,
         onToggle: async () => {
           await this.plugin.saveSettings();
-          this.render();
+          void this.render();
         },
       });
 
@@ -619,7 +623,7 @@ export class DocxReviewView extends BaseFeuilletsView {
           settings: S,
           onToggle: async () => {
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           },
         });
         
@@ -758,43 +762,45 @@ export class DocxReviewView extends BaseFeuilletsView {
     if (file) {
       row.addClass("feuillets-clickable");
       row.title = t("docxReview.openAndShowTooltip");
-      row.addEventListener("click", () => this.openAndReveal(file, change, fallbackText));
+      row.addEventListener("click", () => { void this.openAndReveal(file, change, fallbackText); });
 
       if (!change.applied) {
         const applyBtn = this.iconBtn(header, "check", t("docxReview.applyChange"));
-        applyBtn.addEventListener("click", async (e) => {
+        applyBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          let result: { ok: boolean; reason?: string; newContent?: string; step?: string };
-          const fromFile = change.fromPath ? resolveVaultFile(this.app, change.fromPath) || file : file;
-          const toFile = change.toPath ? resolveVaultFile(this.app, change.toPath) || file : file;
+          void (async () => {
+            let result: { ok: boolean; reason?: string; newContent?: string; step?: string };
+            const fromFile = change.fromPath ? resolveVaultFile(this.app, change.fromPath) || file : file;
+            const toFile = change.toPath ? resolveVaultFile(this.app, change.toPath) || file : file;
 
-          if (change.type === "move" && fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
-            await this.ensureSnapshot(fromFile);
-            await this.ensureSnapshot(toFile);
-            result = await planApplyInterFile(this.app.vault, fromFile, toFile, change as unknown as Parameters<typeof planApplyInterFile>[3]);
-          } else {
-            const targetFile = change.type === "move" && toFile instanceof TFile ? toFile : file;
-            const content = await this.app.vault.read(targetFile);
-            result = planApply(content, change as unknown as Parameters<typeof planApply>[1]);
-            if (result.ok) {
-              await this.ensureSnapshot(targetFile);
-              await this.app.vault.modify(targetFile, result.newContent || "");
+            if (change.type === "move" && fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
+              await this.ensureSnapshot(fromFile);
+              await this.ensureSnapshot(toFile);
+              result = await planApplyInterFile(this.app.vault, fromFile, toFile, change as unknown as Parameters<typeof planApplyInterFile>[3]);
+            } else {
+              const targetFile = change.type === "move" && toFile instanceof TFile ? toFile : file;
+              const content = await this.app.vault.read(targetFile);
+              result = planApply(content, change as unknown as Parameters<typeof planApply>[1]);
+              if (result.ok) {
+                await this.ensureSnapshot(targetFile);
+                await this.app.vault.modify(targetFile, result.newContent || "");
+              }
             }
-          }
 
-          if (!result.ok) {
-            new Notice(
-              result.reason === "ambiguous"
-                ? t("docxReview.ambiguousPassage")
-                : t("docxReview.passageNotFound")
-            );
-            return;
-          }
-          change.applied = true;
-          change.dismissed = true;
-          await this.saveItemState(change);
-          new Notice(t("docxReview.changeAppliedNotice"));
-          this.render();
+            if (!result.ok) {
+              new Notice(
+                result.reason === "ambiguous"
+                  ? t("docxReview.ambiguousPassage")
+                  : t("docxReview.passageNotFound")
+              );
+              return;
+            }
+            change.applied = true;
+            change.dismissed = true;
+            await this.saveItemState(change);
+            new Notice(t("docxReview.changeAppliedNotice"));
+            void this.render();
+          })();
         });
       }
     } else {
@@ -806,16 +812,18 @@ export class DocxReviewView extends BaseFeuilletsView {
       change.dismissed ? "rotate-ccw" : "x",
       change.dismissed ? t("docxReview.restoreInStack") : t("docxReview.hideMarkResolved")
     );
-    dismissBtn.addEventListener("click", async (e) => {
+    dismissBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      change.dismissed = !change.dismissed;
-      await this.saveItemState(change);
-      if (change.dismissed) {
-        new Notice(t("docxReview.itemHiddenNotice"));
-      } else {
-        new Notice(t("docxReview.itemRestoredNotice"));
-      }
-      this.render();
+      void (async () => {
+        change.dismissed = !change.dismissed;
+        await this.saveItemState(change);
+        if (change.dismissed) {
+          new Notice(t("docxReview.itemHiddenNotice"));
+        } else {
+          new Notice(t("docxReview.itemRestoredNotice"));
+        }
+        void this.render();
+      })();
     });
   }
 
@@ -835,7 +843,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       if (fFirst instanceof TFile) {
         row.addClass("feuillets-clickable");
         row.title = t("docxReview.clickToOpen", { title: this.plugin.titleFor(fFirst) });
-        row.addEventListener("click", () => this.openAndReveal(fFirst, item.anchorText || searchTextForChange(item as unknown as Parameters<typeof searchTextForChange>[0])));
+        row.addEventListener("click", () => { void this.openAndReveal(fFirst, item.anchorText || searchTextForChange(item as unknown as Parameters<typeof searchTextForChange>[0])); });
       }
     }
 
@@ -846,40 +854,42 @@ export class DocxReviewView extends BaseFeuilletsView {
         const title = this.plugin.titleFor(f);
 
         const applyBtn = this.iconBtn(header, "check", t("docxReview.applyInto", { title }));
-        applyBtn.addEventListener("click", async (e) => {
+        applyBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          let result: { ok: boolean; reason?: string; newContent?: string; step?: string };
-          if (item.type === "move") {
-            const fromFile = item.fromPath ? resolveVaultFile(this.app, item.fromPath) || f : f;
-            const toFile = item.toPath ? resolveVaultFile(this.app, item.toPath) || f : f;
-            if (fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
-              await this.ensureSnapshot(fromFile);
-              await this.ensureSnapshot(toFile);
-              result = await planApplyInterFile(this.app.vault, fromFile, toFile, item as unknown as Parameters<typeof planApplyInterFile>[3]);
+          void (async () => {
+            let result: { ok: boolean; reason?: string; newContent?: string; step?: string };
+            if (item.type === "move") {
+              const fromFile = item.fromPath ? resolveVaultFile(this.app, item.fromPath) || f : f;
+              const toFile = item.toPath ? resolveVaultFile(this.app, item.toPath) || f : f;
+              if (fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
+                await this.ensureSnapshot(fromFile);
+                await this.ensureSnapshot(toFile);
+                result = await planApplyInterFile(this.app.vault, fromFile, toFile, item as unknown as Parameters<typeof planApplyInterFile>[3]);
+              } else {
+                const content = await this.app.vault.read(f);
+                result = planApply(content, item as unknown as Parameters<typeof planApply>[1]);
+                if (result.ok) { await this.ensureSnapshot(f); await this.app.vault.modify(f, result.newContent || ""); }
+              }
             } else {
               const content = await this.app.vault.read(f);
               result = planApply(content, item as unknown as Parameters<typeof planApply>[1]);
               if (result.ok) { await this.ensureSnapshot(f); await this.app.vault.modify(f, result.newContent || ""); }
             }
-          } else {
-            const content = await this.app.vault.read(f);
-            result = planApply(content, item as unknown as Parameters<typeof planApply>[1]);
-            if (result.ok) { await this.ensureSnapshot(f); await this.app.vault.modify(f, result.newContent || ""); }
-          }
 
-          if (!result.ok) {
-            new Notice(
-              result.reason === "ambiguous"
-                ? t("docxReview.ambiguousPassageShort")
-                : t("docxReview.passageNotFoundInSheet")
-            );
-            return;
-          }
-          item.applied = true;
-          item.dismissed = true;
-          await this.saveItemState(item);
-          new Notice(t("docxReview.changeAppliedInto", { title }));
-          this.render();
+            if (!result.ok) {
+              new Notice(
+                result.reason === "ambiguous"
+                  ? t("docxReview.ambiguousPassageShort")
+                  : t("docxReview.passageNotFoundInSheet")
+              );
+              return;
+            }
+            item.applied = true;
+            item.dismissed = true;
+            await this.saveItemState(item);
+            new Notice(t("docxReview.changeAppliedInto", { title }));
+            void this.render();
+          })();
         });
       }
     }
@@ -925,7 +935,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     if (file) {
       row.addClass("feuillets-clickable");
       row.title = t("docxReview.openAndShowTooltip");
-      row.addEventListener("click", () => this.openAndReveal(file, comment.anchorText));
+      row.addEventListener("click", () => { void this.openAndReveal(file, comment.anchorText); });
     } else {
       this.renderNearFilesHints(header, comment, row);
     }
@@ -935,16 +945,18 @@ export class DocxReviewView extends BaseFeuilletsView {
       comment.dismissed ? "rotate-ccw" : "x",
       comment.dismissed ? t("docxReview.showInStack") : t("docxReview.hideMarkResolvedShort")
     );
-    dismissBtn.addEventListener("click", async (e) => {
+    dismissBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      comment.dismissed = !comment.dismissed;
-      await this.saveItemState(comment);
-      if (comment.dismissed) {
-        new Notice(t("docxReview.commentResolvedNotice"));
-      } else {
-        new Notice(t("docxReview.commentRestoredNotice"));
-      }
-      this.render();
+      void (async () => {
+        comment.dismissed = !comment.dismissed;
+        await this.saveItemState(comment);
+        if (comment.dismissed) {
+          new Notice(t("docxReview.commentResolvedNotice"));
+        } else {
+          new Notice(t("docxReview.commentRestoredNotice"));
+        }
+        void this.render();
+      })();
     });
   }
 }

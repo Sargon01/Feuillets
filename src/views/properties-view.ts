@@ -93,10 +93,10 @@ export class PropertiesView extends BaseFeuilletsView {
 
   async onOpen(): Promise<void> {
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => this.render())
+      this.app.workspace.on("active-leaf-change", () => { void this.render(); })
     );
-    this.registerEvent(this.app.workspace.on("file-open", () => this.render()));
-    this.registerEvent(this.app.metadataCache.on("changed", () => this.render()));
+    this.registerEvent(this.app.workspace.on("file-open", () => { void this.render(); }));
+    this.registerEvent(this.app.metadataCache.on("changed", () => { void this.render(); }));
     await this.render();
   }
 
@@ -179,18 +179,20 @@ export class PropertiesView extends BaseFeuilletsView {
       type: "text",
       attr: { placeholder: t("notes.properties.newPropertyPlaceholder") },
     });
-    input.addEventListener("keydown", async (e) => {
+    input.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
-      const key = input.value.trim();
-      if (!key) return;
-      await this.app.fileManager.processFrontMatter(activeFile, (data: Record<string, unknown>) => {
-        if (!(key in data)) data[key] = "";
-      });
-      await this.render();
-      const added = section.querySelector(
-        `.feuillets-properties-row[data-key="${CSS.escape(key)}"] .feuillets-properties-value`
-      );
-      if (added instanceof HTMLElement) added.focus();
+      void (async () => {
+        const key = input.value.trim();
+        if (!key) return;
+        await this.app.fileManager.processFrontMatter(activeFile, (data: Record<string, unknown>) => {
+          if (!(key in data)) data[key] = "";
+        });
+        await this.render();
+        const added = section.querySelector(
+          `.feuillets-properties-row[data-key="${CSS.escape(key)}"] .feuillets-properties-value`
+        );
+        if (added instanceof HTMLElement) added.focus();
+      })();
     });
   }
 
@@ -205,8 +207,8 @@ export class PropertiesView extends BaseFeuilletsView {
     if (type === "checkbox") {
       const cb = row.createEl("input", { type: "checkbox" });
       cb.checked = !!value;
-      cb.addEventListener("change", async () => {
-        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+      cb.addEventListener("change", () => {
+        void this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           data[key] = cb.checked;
         });
       });
@@ -218,8 +220,8 @@ export class PropertiesView extends BaseFeuilletsView {
         cls: "feuillets-properties-value",
       });
       input.value = value as string;
-      input.addEventListener("change", async () => {
-        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+      input.addEventListener("change", () => {
+        void this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           if (!input.value) delete data[key];
           else data[key] = input.value;
         });
@@ -242,7 +244,7 @@ export class PropertiesView extends BaseFeuilletsView {
           }
         });
       };
-      input.addEventListener("blur", save);
+      input.addEventListener("blur", () => { void save(); });
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") input.blur();
       });
@@ -251,11 +253,13 @@ export class PropertiesView extends BaseFeuilletsView {
     const delBtn = row.createSpan({ cls: "feuillets-properties-delete" });
     setIcon(delBtn, "x");
     delBtn.setAttr("aria-label", t("notes.properties.deleteAria", { key }));
-    delBtn.addEventListener("click", async () => {
-      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
-        delete data[key];
-      });
-      await this.render();
+    delBtn.addEventListener("click", () => {
+      void (async () => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+          delete data[key];
+        });
+        await this.render();
+      })();
     });
   }
 
@@ -269,12 +273,14 @@ export class PropertiesView extends BaseFeuilletsView {
       const chip = wrap.createSpan({ cls: "feuillets-tag-chip" });
       chip.setText(toValue(v));
       chip.setAttr("title", t("notes.properties.removeValueTooltip"));
-      chip.addEventListener("click", async () => {
-        const next = values.filter((_, i) => i !== idx);
-        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
-          if (next.length === 0) delete data[key];
-          else data[key] = next;
-        });
+      chip.addEventListener("click", () => {
+        void (async () => {
+          const next = values.filter((_, i) => i !== idx);
+          await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+            if (next.length === 0) delete data[key];
+            else data[key] = next;
+          });
+        })();
       });
     });
     const input = wrap.createEl("input", {
@@ -282,16 +288,18 @@ export class PropertiesView extends BaseFeuilletsView {
       type: "text",
       attr: { placeholder: values.length ? "+" : t("notes.properties.newValuePlaceholder") },
     });
-    input.addEventListener("keydown", async (e) => {
+    input.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
-      const raw = input.value.trim();
-      if (!raw) return;
-      const added = raw.split(",").map((s) => s.trim()).filter(Boolean);
-      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
-        data[key] = [...values, ...added];
-      });
-      input.value = "";
-      input.blur();
+      void (async () => {
+        const raw = input.value.trim();
+        if (!raw) return;
+        const added = raw.split(",").map((s) => s.trim()).filter(Boolean);
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
+          data[key] = [...values, ...added];
+        });
+        input.value = "";
+        input.blur();
+      })();
     });
   }
 
@@ -355,9 +363,9 @@ export class PropertiesView extends BaseFeuilletsView {
         canAdd ? t("properties.project.addToOpenFile", { key }) : t("properties.project.alreadyOnOpenFile")
       );
       if (canAdd) {
-        addBtn.addEventListener("click", async (e) => {
+        addBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          await this.app.fileManager.processFrontMatter(activeFile!, (data: Record<string, unknown>) => {
+          void this.app.fileManager.processFrontMatter(activeFile, (data: Record<string, unknown>) => {
             if (!(key in data)) data[key] = "";
           });
         });
@@ -392,7 +400,7 @@ export class PropertiesView extends BaseFeuilletsView {
       row.addEventListener("click", () => {
         if (this.expandedProps.has(key)) this.expandedProps.delete(key);
         else this.expandedProps.add(key);
-        this.render();
+        void this.render();
       });
       if (!isExpanded) continue;
 
@@ -411,7 +419,7 @@ export class PropertiesView extends BaseFeuilletsView {
           e.stopPropagation();
           if (this.expandedProps.has(valKey)) this.expandedProps.delete(valKey);
           else this.expandedProps.add(valKey);
-          this.render();
+          void this.render();
         });
         if (!isValExpanded) continue;
 
@@ -493,9 +501,9 @@ export class PropertiesView extends BaseFeuilletsView {
         canAdd ? t("properties.tags.addToOpenFile", { tag: node.fullPath }) : t("properties.tags.alreadyOnOpenFile")
       );
       if (canAdd) {
-        addBtn.addEventListener("click", async (e) => {
+        addBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          await this.setFm(activeFile!, "tags", [...activeTags, node.fullPath]);
+          void this.setFm(activeFile, "tags", [...activeTags, node.fullPath]);
         });
       }
       /* Retire ce tag de TOUS les feuillets qui le portent (pas ceux des
@@ -527,7 +535,7 @@ export class PropertiesView extends BaseFeuilletsView {
       row.addEventListener("click", () => {
         if (this.expandedTags.has(key)) this.expandedTags.delete(key);
         else this.expandedTags.add(key);
-        this.render();
+        void this.render();
       });
       if (!isExpanded) return;
 
