@@ -314,14 +314,25 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
      prototypes patchés par Obsidian (pas de createEl/createDiv ici), d'où
      l'API DOM native. open()/close() sont conservés à l'identique de l'ancien
      code (close() aide à déclencher l'évènement "load" de l'iframe, attendu
-     plus bas). */
+     plus bas).
+
+     doc.open() vide le document : il ne recrée PAS de squelette <html>/
+     <head>/<body> (c'était le rôle du parseur HTML déclenché par
+     document.write, qu'on ne fait plus). doc.documentElement/doc.head/
+     doc.body valent donc réellement null juste après — d'où l'ancien crash
+     (« Cannot read properties of null (reading 'setAttribute') »). On
+     construit donc html/head/body nous-mêmes, sur des références locales
+     jamais relues dans le document, puis on insère l'arbre complet d'un
+     coup via replaceChildren. */
   const doc = iframe.contentDocument;
   doc.open();
 
-  const htmlEl = doc.documentElement;
+  const htmlEl = doc.createElement("html");
   htmlEl.setAttribute("lang", settings.epubLanguage || "fr");
-  const headEl = doc.head ?? htmlEl.appendChild(doc.createElement("head"));
-  const bodyEl = doc.body ?? htmlEl.appendChild(doc.createElement("body"));
+  const headEl = doc.createElement("head");
+  const bodyEl = doc.createElement("body");
+  htmlEl.appendChild(headEl);
+  htmlEl.appendChild(bodyEl);
 
   const metaEl = doc.createElement("meta");
   metaEl.setAttribute("charset", "utf-8");
@@ -362,6 +373,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
     bodyEl.appendChild(parsedPages.body.firstChild);
   }
 
+  doc.replaceChildren(htmlEl);
   doc.close();
 
   const cleanup = () => {

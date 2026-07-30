@@ -53,22 +53,30 @@ class FakeElement {
   querySelectorAll() { return []; }
 }
 
-// Document isolé de l'iframe d'impression — reflète la structure minimale
-// (html > head, body) qu'un vrai navigateur fournit après doc.open(),
-// sans document.write (voir export-pdf.js).
+// Document isolé de l'iframe d'impression. Reflète le VRAI comportement du
+// navigateur : doc.open() vide le document sans reconstruire de squelette
+// <html>/<head>/<body> (ça, c'était le rôle du parseur HTML déclenché par
+// document.write, qu'on ne fait plus) — documentElement/head/body valent
+// donc null tant qu'on n'a rien inséré. Une version antérieure de ce fake
+// pré-remplissait ces trois champs, masquant le crash réel d'Obsidian
+// (« Cannot read properties of null (reading 'setAttribute') »).
 function createFakeIframeDocument() {
-  const documentElement = new FakeElement("html");
-  const head = new FakeElement("head");
-  const body = new FakeElement("body");
-  documentElement.appendChild(head);
-  documentElement.appendChild(body);
   return {
-    documentElement,
-    head,
-    body,
+    documentElement: null,
+    head: null,
+    body: null,
     createElement: (tag) => new FakeElement(tag),
-    open() {},
+    open() {
+      this.documentElement = null;
+      this.head = null;
+      this.body = null;
+    },
     close() {},
+    replaceChildren(htmlEl) {
+      this.documentElement = htmlEl;
+      this.head = htmlEl.children.find((child) => child.tagName === "HEAD") || null;
+      this.body = htmlEl.children.find((child) => child.tagName === "BODY") || null;
+    },
   };
 }
 
@@ -195,6 +203,49 @@ test("exportPdf : injecte la page titre, imprime dans une iframe et la nettoie",
     assert.equal(frame.contentWindow.focused, 1);
     assert.equal(frame.contentWindow.printed, 1);
     assert.equal(dom.body.children.length, 0);
+  } finally {
+    Platform.isMobile = previousMobile;
+    MarkdownRenderer.render = previousRender;
+    dom.restore();
+  }
+});
+
+test("exportPdf : ne plante pas quand documentElement/head/body valent null après open() (régression du crash setAttribute sur null)", async () => {
+  // Vérifie d'abord que le fake reproduit bien le vrai comportement du
+  // navigateur avant toute construction — c'est justement l'écart que
+  // masquait l'ancienne version de ce fake (documentElement/head/body
+  // pré-remplis), qui laissait passer un doc.documentElement.setAttribute(...)
+  // sans jamais planter en test, alors qu'Obsidian plantait réellement.
+  const freshDoc = createFakeIframeDocument();
+  freshDoc.open();
+  assert.equal(freshDoc.documentElement, null);
+  assert.equal(freshDoc.head, null);
+  assert.equal(freshDoc.body, null);
+
+  const dom = installDom();
+  const previousMobile = Platform.isMobile;
+  const previousRender = MarkdownRenderer.render;
+  Platform.isMobile = false;
+  MarkdownRenderer.render = async (_app, _markdown, container) => container.appendChild(element("p", "Corps", 50));
+  const app = { vault: { getAbstractFileByPath: () => null } };
+  const settings = { exportTemplate: "classique", pdfHideFirstPageHeader: false, pdfPageNumberPosition: "right" };
+  try {
+    await assert.doesNotReject(() =>
+      exportPdf(app, settings, { markdown: "Texte", title: "Mon titre", author: "Une autrice", sourcePath: "Source.md" })
+    );
+    assert.equal(dom.frames.length, 1);
+    const frame = dom.frames[0];
+    const printDoc = frame.contentDocument;
+    assert.equal(printDoc.documentElement.getAttribute("lang"), "fr");
+    assert.ok(printDoc.head, "head doit être créé");
+    const titleTag = printDoc.head.children.find((child) => child.tagName === "TITLE");
+    assert.equal(titleTag.textContent, "Mon titre");
+    const styleTag = printDoc.head.children.find((child) => child.tagName === "STYLE");
+    assert.ok(styleTag, "style doit être créé");
+    assert.ok(printDoc.body, "body doit être créé");
+    assert.match(printDoc.body.innerHTML, /<h1>Mon titre<\/h1>/);
+    assert.match(printDoc.body.innerHTML, /Corps/);
+    assert.equal(frame.contentWindow.printed, 1);
   } finally {
     Platform.isMobile = previousMobile;
     MarkdownRenderer.render = previousRender;
