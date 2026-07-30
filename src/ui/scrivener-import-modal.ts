@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path pour lire un dossier .scriv sur disque, desktop uniquement */
 /* global require -- défini par environnement */
-import { Modal, Notice, Platform, normalizePath } from "obsidian";
+import { App, Modal, Notice, Platform, normalizePath, TFile, TFolder } from "obsidian";
 
 import { PROJECT_MODES, applyModeDefaults } from "../utils/project-modes.js";
 import {
@@ -20,12 +20,39 @@ import {
 } from "../services/scrivener-import.js";
 import { t } from "../i18n/index.js";
 
-function sanitizeName(title) {
+/* fs/path chargés dynamiquement via require() Node (desktop uniquement,
+   voir Platform.isMobile plus bas) : aucune déclaration de type fiable
+   côté Obsidian/esbuild pour ces modules dans ce contexte, laissés en
+   `any` implicite comme le reste du plugin (compile-export.ts,
+   grammar-assets-manager.ts…). */
+type ScrivxItem = NonNullable<ReturnType<typeof parseScrivx>["draft"]>;
+
+type ScrivenerImportPlugin = {
+  settings: FeuilletsSettings;
+  ensureFolder(path: string): Promise<TFolder>;
+  saveSettings(): Promise<void>;
+  initProjectStructure(): Promise<void>;
+  writeOrder(parent: TFolder, orderedChildren: (TFile | TFolder)[]): Promise<void>;
+  renderAllViews(force?: boolean): void;
+  updateStatusBar(): void;
+};
+
+type ImportContext = {
+  scrivPath: string;
+  parsed: ReturnType<typeof parseScrivx>;
+  parentPath: string;
+  name: string;
+  mode: string;
+  fs: any;
+  pathMod: any;
+};
+
+function sanitizeName(title: string | null | undefined): string {
   const cleaned = (title || "").replace(/[\\/:*?"<>|]/g, "").trim();
   return cleaned || t("modal.scrivenerImport.untitled");
 }
 
-function unusedPath(app, basePath) {
+function unusedPath(app: App, basePath: string): string {
   if (!app.vault.getAbstractFileByPath(basePath)) return basePath;
   const dot = basePath.lastIndexOf(".");
   const stem = dot > 0 ? basePath.slice(0, dot) : basePath;
@@ -40,7 +67,7 @@ function unusedPath(app, basePath) {
 }
 
 /** Recherche récursive d'un fichier image ou pièce jointe par son nom dans le dossier .scriv */
-function findScrivenerFile(dirPath, targetName, fs, pathMod) {
+function findScrivenerFile(dirPath: string, targetName: string, fs: any, pathMod: any): string | null {
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     for (const entry of entries) {
@@ -76,12 +103,14 @@ function findScrivenerFile(dirPath, targetName, fs, pathMod) {
 }
 
 export class ScrivenerImportModal extends Modal {
-  constructor(app, plugin) {
+  plugin: ScrivenerImportPlugin;
+
+  constructor(app: App, plugin: ScrivenerImportPlugin) {
     super(app);
     this.plugin = plugin;
   }
 
-  onOpen() {
+  onOpen(): void {
     if (Platform.isMobile) {
       const { contentEl } = this;
       contentEl.createEl("h3", { text: t("modal.scrivenerImport.title") });
@@ -95,11 +124,11 @@ export class ScrivenerImportModal extends Modal {
     this.showForm();
   }
 
-  onClose() {
+  onClose(): void {
     this.contentEl.empty();
   }
 
-  showForm() {
+  showForm(): void {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
@@ -169,7 +198,10 @@ export class ScrivenerImportModal extends Modal {
       }
       const check = checkScrivenerFormat(entries);
       if (!check.ok) {
-        new Notice(check.error);
+        // checkScrivenerFormat n'utilise pas un type discriminé sur `ok`
+        // (retour non typé côté service) : error est toujours défini ici,
+        // TS ne peut juste pas le prouver par narrowing.
+        new Notice(check.error as string);
         return;
       }
 
@@ -205,7 +237,7 @@ export class ScrivenerImportModal extends Modal {
     btnRow.createEl("button", { text: t("modal.cancel") }).addEventListener("click", () => this.close());
   }
 
-  showPreview(ctx) {
+  showPreview(ctx: ImportContext): void {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
@@ -213,12 +245,12 @@ export class ScrivenerImportModal extends Modal {
 
     const counts = countImportPreview(ctx.parsed);
     const list = contentEl.createEl("ul");
-    list.createEl("li", { text: t("modal.scrivenerImport.countFolders", { count: counts.folders }) });
-    list.createEl("li", { text: t("modal.scrivenerImport.countScenes", { count: counts.scenes }) });
-    list.createEl("li", { text: t("modal.scrivenerImport.countResearch", { count: counts.researchEntries }) });
+    list.createEl("li", { text: t("modal.scrivenerImport.countFolders", { count: String(counts.folders) }) });
+    list.createEl("li", { text: t("modal.scrivenerImport.countScenes", { count: String(counts.scenes) }) });
+    list.createEl("li", { text: t("modal.scrivenerImport.countResearch", { count: String(counts.researchEntries) }) });
     if (counts.unclassifiedRoots > 0) {
       list.createEl("li", {
-        text: t("modal.scrivenerImport.countUnclassified", { count: counts.unclassifiedRoots }),
+        text: t("modal.scrivenerImport.countUnclassified", { count: String(counts.unclassifiedRoots) }),
       });
     }
 
@@ -230,7 +262,7 @@ export class ScrivenerImportModal extends Modal {
       try {
         await this.runImport(ctx);
         this.close();
-      } catch (e) {
+      } catch (e: any) {
         new Notice(t("modal.scrivenerImport.importFailed", { error: e.message || e }));
         confirmBtn.disabled = false;
         confirmBtn.setText(t("modal.scrivenerImport.confirmBtn"));
@@ -239,7 +271,7 @@ export class ScrivenerImportModal extends Modal {
     btnRow.createEl("button", { text: t("modal.back") }).addEventListener("click", () => this.showForm());
   }
 
-  async runImport({ scrivPath, parsed, parentPath, name, mode, fs, pathMod }) {
+  async runImport({ scrivPath, parsed, parentPath, name, mode, fs, pathMod }: ImportContext): Promise<void> {
     const app = this.app;
     const plugin = this.plugin;
     const S = plugin.settings;
@@ -272,7 +304,7 @@ export class ScrivenerImportModal extends Modal {
     const binderItemMap = buildUuidTitleMap(parsed);
     let unreadableCount = 0;
 
-    const readRtf = (uuid) => {
+    const readRtf = (uuid: string): string => {
       for (const candidate of rtfPathCandidates(uuid)) {
         try {
           return fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
@@ -282,7 +314,7 @@ export class ScrivenerImportModal extends Modal {
       return "";
     };
 
-    const readComments = (uuid) => {
+    const readComments = (uuid: string) => {
       try {
         const xml = fs.readFileSync(
           pathMod.join(scrivPath, `Files/Data/${uuid}/content.comments`),
@@ -294,7 +326,7 @@ export class ScrivenerImportModal extends Modal {
       }
     };
 
-    const readNotes = (uuid) => {
+    const readNotes = (uuid: string): string => {
       for (const candidate of [
         `Files/Data/${uuid}/notes.rtf`,
         `Files/Docs/${uuid}_notes.rtf`,
@@ -308,7 +340,7 @@ export class ScrivenerImportModal extends Modal {
       return "";
     };
 
-    const readSynopsis = (uuid) => {
+    const readSynopsis = (uuid: string): string => {
       for (const candidate of [
         `Files/Data/${uuid}/synopsis.txt`,
         `Files/Docs/${uuid}_synopsis.txt`,
@@ -321,7 +353,7 @@ export class ScrivenerImportModal extends Modal {
       return "";
     };
 
-    const toArrayBuffer = (buf) => {
+    const toArrayBuffer = (buf: any): ArrayBuffer => {
       if (!buf) return new ArrayBuffer(0);
       if (buf.buffer instanceof ArrayBuffer) {
         return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
@@ -330,7 +362,7 @@ export class ScrivenerImportModal extends Modal {
     };
 
     // Sauvegarde les images intégrées RTF (\pict) dans Resources/Assets/
-    const saveExtractedImages = async (extractedImages) => {
+    const saveExtractedImages = async (extractedImages: { name: string; bytes: Uint8Array }[]) => {
       for (const img of extractedImages) {
         const imgPath = normalizePath(`${visuelsFolderPath}/${img.name}`);
         if (!app.vault.getAbstractFileByPath(imgPath)) {
@@ -342,7 +374,7 @@ export class ScrivenerImportModal extends Modal {
     };
 
     // Recherche et copie les images Scrivener 3 ($PROJECT://...) trouvées dans le dossier .scriv
-    const processImageLinks = async (imageLinks) => {
+    const processImageLinks = async (imageLinks: { fileName: string }[] | undefined) => {
       if (!imageLinks || imageLinks.length === 0) return;
       for (const link of imageLinks) {
         const targetPath = normalizePath(`${visuelsFolderPath}/${link.fileName}`);
@@ -359,7 +391,7 @@ export class ScrivenerImportModal extends Modal {
     };
 
     // Inspecte le dossier Files/Data/<UUID>/ pour copier toute image d'arrière-plan/jointe
-    const processDataDirImages = async (itemTitle, uuid, currentBody, hasExtractedRtf = false) => {
+    const processDataDirImages = async (itemTitle: string, uuid: string, currentBody: string, hasExtractedRtf = false): Promise<string> => {
       const dataImages = findAttachedDataImages(scrivPath, uuid, fs, pathMod);
       let updatedBody = currentBody || "";
       if (!dataImages || dataImages.length === 0) return updatedBody;
@@ -393,20 +425,20 @@ export class ScrivenerImportModal extends Modal {
       return updatedBody;
     };
 
-    const encounteredLabels = new Set();
+    const encounteredLabels = new Set<string>();
 
     // ============================== Manuscrit ==============================
 
-    const writeSceneFile = async (item, destFolder, baseName) => {
+    const writeSceneFile = async (item: ScrivxItem, destFolder: TFolder, baseName: string) => {
       const path = unusedPath(app, normalizePath(`${destFolder.path}/${baseName}.md`));
-      
+
       let text = "";
-      let footnotes = [];
+      let footnotes: string[] = [];
       let chapterTitle = "";
       let sousTitre = "";
       let hasExtractedRtf = false;
 
-      let rtfRes = null;
+      let rtfRes: ReturnType<typeof rtfToMarkdown> | null = null;
       if (item.isImage) {
         const dataImages = findAttachedDataImages(scrivPath, item.uuid, fs, pathMod);
         if (dataImages.length > 0) {
@@ -430,8 +462,8 @@ export class ScrivenerImportModal extends Modal {
         rtfRes = rtfToMarkdown(rtfContent, readComments(item.uuid), binderItemMap, { uuid: item.uuid });
         text = rtfRes.text;
         footnotes = rtfRes.footnotes || [];
-        chapterTitle = rtfRes.chapterTitle;
-        sousTitre = rtfRes.sousTitre;
+        chapterTitle = rtfRes.chapterTitle || "";
+        sousTitre = rtfRes.sousTitre || "";
 
         if (rtfRes.extractedImages && rtfRes.extractedImages.length > 0) {
           hasExtractedRtf = true;
@@ -477,7 +509,7 @@ export class ScrivenerImportModal extends Modal {
       return app.vault.create(path, fm + body);
     };
 
-    const writeManuscriptNode = async (item, destFolder) => {
+    const writeManuscriptNode = async (item: ScrivxItem, destFolder: TFolder): Promise<TFolder | TFile | undefined> => {
       const safeTitle = sanitizeName(item.title);
       if (item.isFolder) {
         const folder = await plugin.ensureFolder(
@@ -503,7 +535,7 @@ export class ScrivenerImportModal extends Modal {
         }
 
         let folderBody = text;
-        const hasExtractedRtf = extractedImages && extractedImages.length > 0;
+        const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
         folderBody = await processDataDirImages(item.title, item.uuid, folderBody, hasExtractedRtf);
 
         if (folderBody || docSynopsis || item.labelTitle || item.statusTitle || docNotes || (item.keywords && item.keywords.length > 0)) {
@@ -553,8 +585,8 @@ export class ScrivenerImportModal extends Modal {
       return writeSceneFile(item, destFolder, safeTitle);
     };
 
-    const writeManuscriptChildren = async (children, destFolder) => {
-      const created = [];
+    const writeManuscriptChildren = async (children: ScrivxItem[], destFolder: TFolder) => {
+      const created: (TFile | TFolder)[] = [];
       for (const child of children) {
         const node = await writeManuscriptNode(child, destFolder);
         if (node) created.push(node);
@@ -562,12 +594,12 @@ export class ScrivenerImportModal extends Modal {
       if (created.length > 0) await plugin.writeOrder(destFolder, created);
     };
 
-    const manuscritFolder = app.vault.getAbstractFileByPath(manuscritPath);
-    await writeManuscriptChildren(parsed.draft.children, manuscritFolder);
+    const manuscritFolder = app.vault.getAbstractFileByPath(manuscritPath) as TFolder;
+    await writeManuscriptChildren(parsed.draft!.children, manuscritFolder);
 
     // ============================== Recherche ===============================
 
-    const writeResearchNode = async (item, destFolder, structuralTag) => {
+    const writeResearchNode = async (item: ScrivxItem, destFolder: TFolder, structuralTag: string | null): Promise<void> => {
       const safeTitle = sanitizeName(item.title);
       if (item.isFolder) {
         const folder = await plugin.ensureFolder(
@@ -579,10 +611,10 @@ export class ScrivenerImportModal extends Modal {
         return;
       }
       const path = unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}.md`));
-      
+
       let text = "";
       let hasExtractedRtf = false;
-      let rtfRes = null;
+      let rtfRes: ReturnType<typeof rtfToMarkdown> | null = null;
       if (item.isImage) {
         const dataImages = findAttachedDataImages(scrivPath, item.uuid, fs, pathMod);
         if (dataImages.length > 0) {
@@ -635,11 +667,13 @@ export class ScrivenerImportModal extends Modal {
     };
 
     if (parsed.research) {
-      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`));
+      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`)) as TFolder | null;
       if (researchRoot) {
+        const modeKey = mode as keyof typeof PROJECT_MODES;
+        const researchFolders = PROJECT_MODES[modeKey].researchFolders as Record<string, { label: string; tag: string }>;
         for (const child of parsed.research.children) {
           const key = child.isFolder ? classifyResearchFolder(child.title) : null;
-          const folderDef = key ? PROJECT_MODES[mode].researchFolders[key] : null;
+          const folderDef = key ? researchFolders[key] : null;
           if (folderDef) {
             const targetFolder = await plugin.ensureFolder(
               normalizePath(`${researchRoot.path}/${folderDef.label}`)
@@ -659,7 +693,7 @@ export class ScrivenerImportModal extends Modal {
 
     // ============================== Autres éléments racines ==================
     if (parsed.others && parsed.others.length > 0) {
-      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`));
+      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`)) as TFolder | null;
       if (researchRoot) {
         const fallback = await plugin.ensureFolder(
           normalizePath(`${researchRoot.path}/${t("modal.scrivenerImport.unclassifiedFolder")}`)
@@ -677,12 +711,13 @@ export class ScrivenerImportModal extends Modal {
       if (!S.projectMeta[manuscritPath]) S.projectMeta[manuscritPath] = {};
       const currentMeta = S.projectMeta[manuscritPath];
       const palette = ["#e0524f", "#e08f4f", "#d9c04a", "#5aa564", "#5a8fd9", "#9a6dd7"];
-      const existing = (currentMeta.labels || S.labels || []).map((l) => (typeof l === "string" ? l : l.name));
+      const currentLabels = (currentMeta.labels || S.labels || []) as (string | { name: string; color: string })[];
+      const existing = currentLabels.map((l) => (typeof l === "string" ? l : l.name));
       const toAdd = [...encounteredLabels].filter((n) => !existing.includes(n));
       if (toAdd.length > 0) {
-        const merged = [...(currentMeta.labels || S.labels || [])];
+        const merged = [...currentLabels];
         toAdd.forEach((n, idx) => merged.push({ name: n, color: palette[(existing.length + idx) % palette.length] }));
-        currentMeta.labels = merged;
+        currentMeta.labels = merged as FeuilletsSettings["labels"];
       }
     }
 
@@ -690,7 +725,7 @@ export class ScrivenerImportModal extends Modal {
     plugin.renderAllViews(true);
     plugin.updateStatusBar();
     const warning = unreadableCount > 0
-      ? ` ${t("modal.scrivenerImport.unreadableWarning", { count: unreadableCount })}`
+      ? ` ${t("modal.scrivenerImport.unreadableWarning", { count: String(unreadableCount) })}`
       : "";
     new Notice(t("modal.scrivenerImport.importSuccess", { path: volumePath }) + warning, warning ? 10000 : 4000);
   }

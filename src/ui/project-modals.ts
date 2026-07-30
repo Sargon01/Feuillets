@@ -1,4 +1,4 @@
-import { App, Menu, Modal, Notice, normalizePath, setIcon, TFolder } from "obsidian";
+import { App, Menu, Modal, Notice, normalizePath, setIcon, TFile, TFolder } from "obsidian";
 import { PROJECT_MODES, applyModeDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
@@ -16,6 +16,7 @@ type ProjectModalsPlugin = {
   createDemoProject(kind: string): Promise<void>;
   projectDisplayName(path: string): string;
   duplicateProject(path: string, label: string): Promise<string | null>;
+  writeOrder(parent: TFolder, orderedChildren: (TFile | TFolder)[]): Promise<void>;
 };
 
 /** Étiquette de version pour dupliquer un manuscrit (ex. "v1", "premier
