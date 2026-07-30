@@ -7,6 +7,7 @@ import * as Diff from "diff";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { foldAccents } from "../utils/core.js";
+import { setButtonDestructive } from "../utils/obsidian-compat.js";
 import { t } from "../i18n/index.js";
 
 type DiffMode = "split" | "inline";
@@ -440,15 +441,14 @@ export class DiffModal extends Modal {
     // Barre d'actions inférieure
     const footerBar = contentEl.createDiv({ cls: "feuillets-diff-footer-bar" });
     
-    new ButtonComponent(footerBar)
-      .setButtonText(t("modal.diff.restoreSnapshot"))
-      /* setDestructive() (remplacement recommandé) n'existe que depuis
-         Obsidian 1.13.0 ; minAppVersion reste 1.7.2 — y basculer casserait
-         ce bouton sur toute version antérieure. setWarning(), dépréciée
-         mais toujours fonctionnelle, est conservée pour le même rendu
-         visuel (action destructive : restaurer un instantané écrase le
-         contenu actuel). */
-      .setWarning()
+    /* Action destructive : restaurer un instantané écrase le contenu actuel.
+       setDestructive() (remplacement recommandé) n'existe que depuis Obsidian
+       1.13.0 et minAppVersion reste 1.7.2 : setButtonDestructive() choisit à
+       l'exécution la forme fournie par l'hôte au lieu d'en figer une (voir
+       src/utils/obsidian-compat.ts). */
+    setButtonDestructive(
+      new ButtonComponent(footerBar).setButtonText(t("modal.diff.restoreSnapshot"))
+    )
       .onClick(() => {
         if (!this.selectedSnapshot) return;
         /* ConfirmModal plutôt que window.confirm() : cohérence avec le reste
