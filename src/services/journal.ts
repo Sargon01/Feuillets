@@ -64,7 +64,7 @@ export async function ensureDayEntry(app: App, settings: FeuilletsSettings, date
   if (existing instanceof TFile) return existing;
   await ensureJournalFolder(app, settings);
   const lines = ["---", `date: ${dateKey(date)}`, "notes: ", "---", "", ""];
-  return await app.vault.create(path, lines.join("\n")) as TFile;
+  return await app.vault.create(path, lines.join("\n"));
 }
 
 /** Fichiers de notes quotidiennes du dossier journal, triés par date — le

@@ -90,30 +90,32 @@ export class PdfStyleModal extends Modal {
       await this.renderWysiwygPreview(sheetContainer);
     };
 
-    pdfTab.addEventListener("click", () => switchFormat("pdf"));
-    docxTab.addEventListener("click", () => switchFormat("docx"));
-    epubTab.addEventListener("click", () => switchFormat("epub"));
+    pdfTab.addEventListener("click", () => { void switchFormat("pdf"); });
+    docxTab.addEventListener("click", () => { void switchFormat("docx"); });
+    epubTab.addEventListener("click", () => { void switchFormat("epub"); });
 
     // Action d'exportation
-    exportCta.addEventListener("click", async () => {
-      await this.plugin.saveSettings();
-      const root = this.plugin.getProjectFolder();
-      if (!root) {
-        new Notice(t("modal.pdfStyle.selectActiveProject"));
-        return;
-      }
+    exportCta.addEventListener("click", () => {
+      void (async () => {
+        await this.plugin.saveSettings();
+        const root = this.plugin.getProjectFolder();
+        if (!root) {
+          new Notice(t("modal.pdfStyle.selectActiveProject"));
+          return;
+        }
 
-      if (this.activeFormat === "docx" || this.activeFormat === "epub") {
-        await exportFile(this.app, this.settings, this.activeFormat);
-      } else {
-        const result = await compile(this.app, this.plugin.settings);
-        if (!result) return;
-        const title = this.settings.manuscriptTitle || root.name;
-        const author = this.settings.manuscriptAuthor || "";
-        const ctx = { markdown: result.manuscript, title, author, sourcePath: root.path };
-        await exportPdf(this.app, this.settings, ctx);
-      }
-      this.close();
+        if (this.activeFormat === "docx" || this.activeFormat === "epub") {
+          await exportFile(this.app, this.settings, this.activeFormat);
+        } else {
+          const result = await compile(this.app, this.plugin.settings);
+          if (!result) return;
+          const title = this.settings.manuscriptTitle || root.name;
+          const author = this.settings.manuscriptAuthor || "";
+          const ctx = { markdown: result.manuscript, title, author, sourcePath: root.path };
+          await exportPdf(this.app, this.settings, ctx);
+        }
+        this.close();
+      })();
     });
 
     // Rendu initial

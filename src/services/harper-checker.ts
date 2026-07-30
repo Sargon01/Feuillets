@@ -70,6 +70,9 @@ export class HarperChecker {
       const kind = lint.lint_kind();
       const underlined = lint.get_problem_text();
       const issue = {
+        /* eslint signale ce cast comme superflu, mais le retirer élargit
+           `type` en `string` et casse tsc (GrammarIssue["type"] attendu) —
+           faux positif du linter, vérifié avec `tsc` seul. Conservé. */
         type: (SPELLING_KINDS.has(kind) ? "spelling" : "grammar") as GrammarIssue["type"],
         ruleId: kind,
         message: lint.message(),

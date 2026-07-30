@@ -36,7 +36,7 @@ export class NewSheetModal extends Modal {
       const fileName = fileInput.value.trim();
       if (!fileName) return;
       this.close();
-      this.onSubmit(fileName, titleInput.value.trim());
+      void this.onSubmit(fileName, titleInput.value.trim());
     };
     for (const el of [fileInput, titleInput]) {
       el.addEventListener("keydown", (e) => {
@@ -80,7 +80,7 @@ export class ConfirmModal extends Modal {
     });
     confirmBtn.addEventListener("click", () => {
       this.close();
-      this.onConfirm();
+      void this.onConfirm();
     });
     btnRow
       .createEl("button", { text: t("modal.cancel") })
@@ -115,7 +115,7 @@ export class NewFolderModal extends Modal {
       const name = input.value.trim();
       if (!name) return;
       this.close();
-      this.onSubmit(name);
+      void this.onSubmit(name);
     };
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") submit();

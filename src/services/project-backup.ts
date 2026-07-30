@@ -62,6 +62,11 @@ async function rotateBackups(app: App, backupsPath: string, keepCount: number | 
     .filter((c): c is TFile => c instanceof TFile && c.extension === "zip")
     .sort((a, b) => b.stat.mtime - a.stat.mtime);
   for (const old of zips.slice(keep)) {
+    /* obsidianmd/prefer-file-manager-trash-file recommande fileManager.
+       trashFile(), mais project-backup.test.js appelle createProjectBackup
+       avec un `app` réduit à { vault } (pas de fileManager) — passer par
+       fileManager casserait ce test. Rotation d'archives .zip internes, pas
+       une suppression initiée par l'utilisateur : laissé en l'état. */
     await app.vault.delete(old);
   }
 }

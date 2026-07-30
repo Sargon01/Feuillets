@@ -1078,7 +1078,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
             ? `---\n${parts.frontmatter}\n---\n\n${mergedBody}`
             : mergedBody;
         });
-        await plugin.app.vault.delete(source);
+        await plugin.app.fileManager.trashFile(source);
         mergedCount++;
       } catch (e) {
         console.error("Feuillets : échec de la fusion", e);

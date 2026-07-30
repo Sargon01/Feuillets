@@ -881,7 +881,7 @@ export async function createDemoProject(
       if (S.projectMeta) delete (S.projectMeta as Record<string, unknown>)[manuscritPath];
     }
     await plugin.saveSettings();
-    plugin.renderAllViews(true);
+    void plugin.renderAllViews(true);
   }
 
   if (succeeded) {

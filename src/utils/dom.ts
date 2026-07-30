@@ -60,10 +60,12 @@ export function renderCollapsibleHead(container: ObsidianElement, {
     });
   }
 
-  head.addEventListener("click", async () => {
-    if (collapsed) delete settings.collapsed[collapseKey];
-    else settings.collapsed[collapseKey] = true;
-    await onToggle();
+  head.addEventListener("click", () => {
+    void (async () => {
+      if (collapsed) delete settings.collapsed[collapseKey];
+      else settings.collapsed[collapseKey] = true;
+      await onToggle();
+    })();
   });
 
   return { section, head };
@@ -112,7 +114,7 @@ export function isEditing(rootEl: ObsidianElement) {
  * et Progression ainsi que le panneau Propriétés natif d'Obsidian — ne se
  * déclenche pas pour une feuille simplement révélée mais pas "active". */
 export function openFileActivating(app: App, leaf: WorkspaceLeaf, file: TFile) {
-  leaf.openFile(file, { active: true });
+  void leaf.openFile(file, { active: true });
   app.workspace.setActiveLeaf(leaf, { focus: true });
 }
 

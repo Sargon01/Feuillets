@@ -260,7 +260,7 @@ export class ScrivenerImportModal extends Modal {
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
       .createEl("button", { text: t("modal.scrivenerImport.analyzeBtn"), cls: "mod-cta" })
-      .addEventListener("click", analyze);
+      .addEventListener("click", () => { void analyze(); });
     btnRow.createEl("button", { text: t("modal.cancel") }).addEventListener("click", () => this.close());
   }
 
@@ -283,18 +283,20 @@ export class ScrivenerImportModal extends Modal {
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     const confirmBtn = btnRow.createEl("button", { text: t("modal.scrivenerImport.confirmBtn"), cls: "mod-cta" });
-    confirmBtn.addEventListener("click", async () => {
-      confirmBtn.disabled = true;
-      confirmBtn.setText(t("modal.scrivenerImport.importing"));
-      try {
-        await this.runImport(ctx);
-        this.close();
-      } catch (e) {
-        const errMsg = e instanceof Error ? e.message : String(e);
-        new Notice(t("modal.scrivenerImport.importFailed", { error: errMsg }));
-        confirmBtn.disabled = false;
-        confirmBtn.setText(t("modal.scrivenerImport.confirmBtn"));
-      }
+    confirmBtn.addEventListener("click", () => {
+      void (async () => {
+        confirmBtn.disabled = true;
+        confirmBtn.setText(t("modal.scrivenerImport.importing"));
+        try {
+          await this.runImport(ctx);
+          this.close();
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          new Notice(t("modal.scrivenerImport.importFailed", { error: errMsg }));
+          confirmBtn.disabled = false;
+          confirmBtn.setText(t("modal.scrivenerImport.confirmBtn"));
+        }
+      })();
     });
     btnRow.createEl("button", { text: t("modal.back") }).addEventListener("click", () => this.showForm());
   }

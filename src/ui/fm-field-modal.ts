@@ -40,12 +40,12 @@ export class FmFieldModal extends Modal {
         else delete x[this.key];
       });
       this.close();
-      if (this.onSaved) this.onSaved();
+      if (this.onSaved) void this.onSaved();
     };
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
       .createEl("button", { text: t("modal.save") })
-      .addEventListener("click", save);
+      .addEventListener("click", () => { void save(); });
   }
   onClose() {
     this.contentEl.empty();

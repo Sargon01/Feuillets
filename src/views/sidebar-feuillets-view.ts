@@ -16,10 +16,10 @@ type SidebarSubView = {
   render(force?: boolean): Promise<void>;
 };
 type AnalysisSidebarSubView = SidebarSubView & {
-  _chaptersCache: unknown | null;
-  _vocabCache: unknown | null;
-  _dashboardCache: unknown | null;
-  _romanVocabCache: unknown | null;
+  _chaptersCache: unknown;
+  _vocabCache: unknown;
+  _dashboardCache: unknown;
+  _romanVocabCache: unknown;
 };
 type SidebarSubViews = {
   notes: SidebarSubView;

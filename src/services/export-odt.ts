@@ -93,10 +93,10 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
      page Front de type "titre" — voir même choix dans export-docx.js. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));
 
-  const headerText = (settings.pdfHeaderLeft as string || "{title}")
+  const headerText = (settings.pdfHeaderLeft || "{title}")
     .replace(/\{title\}/gi, title)
     .replace(/\{author\}/gi, author);
-  const footerText = (settings.pdfFooterRight as string || "Page {page} sur {pages}")
+  const footerText = (settings.pdfFooterRight || "Page {page} sur {pages}")
     .replace(/\{title\}/gi, title)
     .replace(/\{author\}/gi, author);
 

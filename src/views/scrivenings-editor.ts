@@ -102,20 +102,22 @@ export class ScriveningsManager {
           }
 
           // Enregistrement silencieux à la perte de focus et réapplication du rendu Markdown
-          area.addEventListener("blur", async () => {
-            const currentScroll = scrollContainer.scrollTop;
-            const newText = area.value.trim();
-            if (newText !== body) {
-              body = newText;
-              this.isSaving = true;
-              try {
-                await this.app.vault.modify(file, frontmatter + (frontmatter ? "\n" : "") + body + "\n");
-              } finally {
-                window.setTimeout(() => { this.isSaving = false; }, 400);
+          area.addEventListener("blur", () => {
+            void (async () => {
+              const currentScroll = scrollContainer.scrollTop;
+              const newText = area.value.trim();
+              if (newText !== body) {
+                body = newText;
+                this.isSaving = true;
+                try {
+                  await this.app.vault.modify(file, frontmatter + (frontmatter ? "\n" : "") + body + "\n");
+                } finally {
+                  window.setTimeout(() => { this.isSaving = false; }, 400);
+                }
               }
-            }
-            await renderScene();
-            scrollContainer.scrollTop = currentScroll;
+              await renderScene();
+              scrollContainer.scrollTop = currentScroll;
+            })();
           });
         });
       };

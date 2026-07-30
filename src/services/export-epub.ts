@@ -58,7 +58,7 @@ function footnotesXhtml(footnotes: ExportFootnote[]): string {
  * découpage par chapitre en v1 (portée assumée — voir plan). Utilise
  * jszip (pur JS, aucune dépendance Node) : fonctionne desktop et mobile. */
 export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Uint8Array> {
-  const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate as string);
+  const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
   const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
   const bodyXhtml = serializeXhtmlBody(containerEl);
   const css = templateToCss(tpl) + FRONT_PAGE_CSS;

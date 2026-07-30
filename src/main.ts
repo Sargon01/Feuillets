@@ -2397,7 +2397,8 @@ class FeuilletsPlugin extends Plugin {
       );
       return;
     }
-    new Notice(t("main.notice.moved", { name: this.titleFor(movedNow as TFile) || node.name }));
+    const movedName = movedNow instanceof TFile ? this.titleFor(movedNow) : "";
+    new Notice(t("main.notice.moved", { name: movedName || node.name }));
   }
 
   chapterPattern(): RegExp {
@@ -2669,16 +2670,11 @@ class FeuilletsPlugin extends Plugin {
      qui changerait le comportement actuel. */
   async ensureJournalEntry(date: Date | null): Promise<TFile | null> { return ensureDayEntry(this.app, this.settings, date as Date); }
   async compileJournal() { return compileJournal(this.app, this.settings); }
-  /* activePresetConfig/projectMetaFor (services/compile-export.ts) ne sont
-     pas annotées côté TS mais documentent leur retour en JSDoc — PresetConfig
-     et ProjectMeta sont les mêmes types globaux déjà déclarés dans
-     types.d.ts, d'où ces casts précis plutôt qu'une migration de ce fichier
-     (hors périmètre de cette correction, limitée à main.ts). */
-  activePresetConfig(): PresetConfig { return activePresetConfig(this.settings) as PresetConfig; }
+  activePresetConfig(): PresetConfig { return activePresetConfig(this.settings); }
   async getOutputFolder() { return getOutputFolder(this.app, this.settings); }
   async compile() { return compile(this.app, this.settings); }
   async exportFile(format = "docx") { return exportFile(this.app, this.settings, format); }
-  projectMetaFor(folder: TFolder): ProjectMeta { return projectMetaFor(this.settings, folder) as ProjectMeta; }
+  projectMetaFor(folder: TFolder): ProjectMeta { return projectMetaFor(this.settings, folder); }
 
   insertIntoActiveEditor(text: string): void {
     const editor = this.activeEditorAnywhere();

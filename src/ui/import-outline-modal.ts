@@ -41,14 +41,16 @@ export class ImportOutlineModal extends Modal {
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
       .createEl("button", { text: t("modal.importOutline.createBtn"), cls: "mod-cta" })
-      .addEventListener("click", async () => {
-        const text = ta.value;
-        if (!text.trim()) {
-          new Notice(t("modal.importOutline.pasteFirst"));
-          return;
-        }
-        await this.importOutline(text);
-        this.close();
+      .addEventListener("click", () => {
+        void (async () => {
+          const text = ta.value;
+          if (!text.trim()) {
+            new Notice(t("modal.importOutline.pasteFirst"));
+            return;
+          }
+          await this.importOutline(text);
+          this.close();
+        })();
       });
     btnRow
       .createEl("button", { text: t("modal.cancel") })

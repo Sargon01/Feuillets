@@ -583,20 +583,22 @@ async function exportViaPandoc(app: App, settings: FeuilletsSettings, format = "
 
   new Notice(`Conversion Pandoc (${format}) en cours…`);
   const pandocExecutable = toValue(S.pandocPath) || "pandoc";
-  execFile(pandocExecutable, args, async (err, _stdout, _stderr) => {
-    try {
-      await app.vault.adapter.remove(exportRel);
-    } catch { /* suppression du fichier d'export temporaire, au mieux : Pandoc a deja produit sa sortie */ }
-    if (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      new Notice(
-        `Échec Pandoc (${format}) : vérifie l'installation et le chemin dans les réglages. ${
-          errMsg.slice(0, 200)
-        }`
-      );
-    } else {
-      new Notice(`Export réussi : ${absOut}`);
-    }
+  execFile(pandocExecutable, args, (err, _stdout, _stderr) => {
+    void (async () => {
+      try {
+        await app.vault.adapter.remove(exportRel);
+      } catch { /* suppression du fichier d'export temporaire, au mieux : Pandoc a deja produit sa sortie */ }
+      if (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        new Notice(
+          `Échec Pandoc (${format}) : vérifie l'installation et le chemin dans les réglages. ${
+            errMsg.slice(0, 200)
+          }`
+        );
+      } else {
+        new Notice(`Export réussi : ${absOut}`);
+      }
+    })();
   });
 }
 

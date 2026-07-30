@@ -117,7 +117,7 @@ export class ProjectView extends BaseFeuilletsView {
         new Notice(t("project.compilation.noTemplate"));
         return;
       }
-      new LayoutModal(this.app, this.plugin, currentTpl.key, currentTpl.label, () => this.render()).open();
+      new LayoutModal(this.app, this.plugin, currentTpl.key, currentTpl.label, () => { void this.render(); }).open();
     });
 
     // Ligne "Format" avec sélection du format (accès rapide)
@@ -141,9 +141,9 @@ export class ProjectView extends BaseFeuilletsView {
     exportBtn.addEventListener("click", () => {
       const format = exportFormatFor(settings);
       if (format === "md") {
-        this.plugin.compile();
+        void this.plugin.compile();
       } else {
-        this.plugin.exportFile(format);
+        void this.plugin.exportFile(format);
       }
     });
   }
