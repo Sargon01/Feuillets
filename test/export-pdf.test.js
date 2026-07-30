@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { MarkdownRenderer, Notice, Platform } from "obsidian";
 import { exportPdf, paginateManuscript } from "../src/services/export-pdf.js";
 
+let activeFrames = null;
+
 class FakeElement {
   constructor(tagName, text = "") {
     this.tagName = tagName.toUpperCase();
@@ -13,19 +15,34 @@ class FakeElement {
     this.classes = new Set();
     this.offsetHeight = 30;
     this.classList = { contains: (name) => this.classes.has(name) };
+    this._attributes = new Map();
+    // Une <iframe> (créée via document.createElement OU document.body.createEl,
+    // voir export-pdf.js) porte son propre document/window isolés, comme dans
+    // un vrai navigateur.
+    if (this.tagName === "IFRAME") {
+      this.contentDocument = createFakeIframeDocument();
+      this.contentWindow = { focused: 0, printed: 0, focus() { this.focused++; }, print() { this.printed++; } };
+      if (activeFrames) activeFrames.push(this);
+    }
   }
 
   get textContent() { return this.children.length ? this.children.map((child) => child.textContent).join("") : this._text; }
   set textContent(value) { this.children = []; this._text = value; }
   get className() { return [...this.classes].join(" "); }
   set className(value) { this.classes = new Set(String(value).split(/\s+/).filter(Boolean)); }
+  get innerHTML() { return this._rawHtml !== undefined ? this._rawHtml : (this.children.length ? this.children.map((child) => child.outerHTML).join("") : this._text); }
+  set innerHTML(value) { this._rawHtml = value; this.children = []; }
   get outerHTML() {
     const classAttr = this.classes.size ? ` class="${this.className}"` : "";
-    return `<${this.tagName.toLowerCase()}${classAttr}>${this.children.length ? this.children.map((child) => child.outerHTML).join("") : this._text}</${this.tagName.toLowerCase()}>`;
+    return `<${this.tagName.toLowerCase()}${classAttr}>${this.innerHTML}</${this.tagName.toLowerCase()}>`;
   }
   get firstChild() { return this.children[0] || null; }
   addClass(name) { this.classes.add(name); }
+  setAttribute(name, value) { this._attributes.set(name, String(value)); }
+  getAttribute(name) { return this._attributes.get(name) ?? null; }
   createEl(tag, options = {}) { const child = new FakeElement(tag, options.text || ""); if (options.cls) child.className = options.cls; return this.appendChild(child); }
+  createDiv(options = {}) { return this.createEl("div", options); }
+  createSpan(options = {}) { return this.createEl("span", options); }
   appendChild(child) { child.remove(); child.parentNode = this; this.children.push(child); return child; }
   prepend(child) { child.remove(); child.parentNode = this; this.children.unshift(child); }
   after(child) { const parent = this.parentNode; const index = parent.children.indexOf(this); child.remove(); child.parentNode = parent; parent.children.splice(index + 1, 0, child); }
@@ -34,6 +51,25 @@ class FakeElement {
   cloneNode(deep) { const clone = new FakeElement(this.tagName, this._text); clone.className = this.className; clone.offsetHeight = this.offsetHeight; if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true)); return clone; }
   querySelector() { return null; }
   querySelectorAll() { return []; }
+}
+
+// Document isolé de l'iframe d'impression — reflète la structure minimale
+// (html > head, body) qu'un vrai navigateur fournit après doc.open(),
+// sans document.write (voir export-pdf.js).
+function createFakeIframeDocument() {
+  const documentElement = new FakeElement("html");
+  const head = new FakeElement("head");
+  const body = new FakeElement("body");
+  documentElement.appendChild(head);
+  documentElement.appendChild(body);
+  return {
+    documentElement,
+    head,
+    body,
+    createElement: (tag) => new FakeElement(tag),
+    open() {},
+    close() {},
+  };
 }
 
 class RawNode extends FakeElement {
@@ -46,25 +82,38 @@ function installDom() {
   const previousDocument = globalThis.document;
   const previousParser = globalThis.DOMParser;
   const previousWindow = globalThis.window;
+  const previousCreateEl = globalThis.createEl;
+  const previousCreateDiv = globalThis.createDiv;
+  const previousCreateSpan = globalThis.createSpan;
   const body = new FakeElement("body");
   body.contains = (node) => body.children.includes(node);
   const frames = [];
+  activeFrames = frames;
   const document = {
     body,
-    createElement(tag) {
-      const element = new FakeElement(tag);
-      if (tag === "iframe") {
-        element.contentDocument = { written: "", open() {}, write(value) { this.written += value; }, close() {} };
-        element.contentWindow = { focused: 0, printed: 0, focus() { this.focused++; }, print() { this.printed++; } };
-        frames.push(element);
-      }
-      return element;
-    },
+    createElement(tag) { return new FakeElement(tag); },
   };
   globalThis.document = document;
   globalThis.DOMParser = class { parseFromString(html) { const bodyEl = new FakeElement("body"); bodyEl.appendChild(new RawNode(html)); return { body: bodyEl }; } };
   globalThis.window = { setTimeout(callback) { callback(); return 0; } };
-  return { body, frames, restore() { globalThis.document = previousDocument; globalThis.DOMParser = previousParser; globalThis.window = previousWindow; } };
+  // Fonctions globales autonomes createEl/createDiv/createSpan d'Obsidian
+  // (nœud détaché, non ajouté à un parent) — voir export-pdf.js.
+  globalThis.createEl = (tag, options = {}) => { const el = new FakeElement(tag, options.text || ""); if (options.cls) el.className = options.cls; return el; };
+  globalThis.createDiv = (options = {}) => globalThis.createEl("div", options);
+  globalThis.createSpan = (options = {}) => globalThis.createEl("span", options);
+  return {
+    body,
+    frames,
+    restore() {
+      globalThis.document = previousDocument;
+      globalThis.DOMParser = previousParser;
+      globalThis.window = previousWindow;
+      globalThis.createEl = previousCreateEl;
+      globalThis.createDiv = previousCreateDiv;
+      globalThis.createSpan = previousCreateSpan;
+      activeFrames = null;
+    },
+  };
 }
 
 function element(tag, text, height = 30) { const el = new FakeElement(tag, text); el.offsetHeight = height; return el; }
@@ -135,8 +184,14 @@ test("exportPdf : injecte la page titre, imprime dans une iframe et la nettoie",
     await exportPdf(app, settings, { markdown: "Texte", title: "Mon titre", author: "Une autrice", sourcePath: "Source.md" });
     assert.equal(dom.frames.length, 1);
     const frame = dom.frames[0];
-    assert.match(frame.contentDocument.written, /<h1>Mon titre<\/h1>/);
-    assert.match(frame.contentDocument.written, /Une autrice/);
+    const printDoc = frame.contentDocument;
+    assert.equal(printDoc.documentElement.getAttribute("lang"), "fr");
+    const titleTag = printDoc.head.children.find((child) => child.tagName === "TITLE");
+    assert.equal(titleTag.textContent, "Mon titre");
+    const styleTag = printDoc.head.children.find((child) => child.tagName === "STYLE");
+    assert.match(styleTag.textContent, /@media print/);
+    assert.match(printDoc.body.innerHTML, /<h1>Mon titre<\/h1>/);
+    assert.match(printDoc.body.innerHTML, /Une autrice/);
     assert.equal(frame.contentWindow.focused, 1);
     assert.equal(frame.contentWindow.printed, 1);
     assert.equal(dom.body.children.length, 0);
@@ -164,7 +219,7 @@ test("exportPdf : ne double pas la page titre lorsqu'un segment Front titre exis
       segments: [{ text: "Page Front", frontType: "titre" }],
     });
     assert.equal(dom.frames.length, 1);
-    assert.equal(dom.frames[0].contentDocument.written.includes("<h1>Mon titre</h1>"), false);
+    assert.equal(dom.frames[0].contentDocument.body.innerHTML.includes("<h1>Mon titre</h1>"), false);
   } finally {
     Platform.isMobile = previousMobile;
     MarkdownRenderer.render = previousRender;
