@@ -80,6 +80,9 @@ import {
   type WorkspaceLeaf,
   type Vault,
   type TAbstractFile,
+  type Editor,
+  type WorkspaceSidedock,
+  type WorkspaceMobileDrawer,
 } from "obsidian";
 
 const RIGHT_SIDEBAR_WIDTH = 280;
@@ -122,6 +125,21 @@ type LeafWithPinned = WorkspaceLeaf & { pinned?: boolean };
 /** `updateHeader` : API interne non déclarée dans obsidian.d.ts (voir
  * patchTabTitles / refreshTabHeaderFor / refreshAllTabHeaders). */
 type LeafWithHeaderUpdate = WorkspaceLeaf & { updateHeader?: () => void };
+
+/** `setSize` : API interne non déclarée dans obsidian.d.ts (voir
+ * safeSetSize/adjustSidebarWidth). */
+type SplitWithSetSize = (WorkspaceSidedock | WorkspaceMobileDrawer) & {
+  setSize?: (width: number) => void;
+};
+
+/** `.cm` : instance CodeMirror 6 brute, non déclarée dans l'API `Editor`
+ * publique d'Obsidian (voir updateParagraphFocus). */
+type EditorWithCM = Editor & {
+  cm?: {
+    dom?: HTMLElement;
+    domAtPos?: (offset: number) => { node: Node } | null;
+  };
+};
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
@@ -332,11 +350,11 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  isPanelHidden(key) {
+  isPanelHidden(key: string): boolean {
     return (this.settings.hiddenPanels || []).includes(key);
   }
 
-  async hidePanel(key) {
+  async hidePanel(key: string): Promise<void> {
     const set = new Set(this.settings.hiddenPanels || []);
     set.add(key);
     this.settings.hiddenPanels = [...set];
@@ -759,9 +777,9 @@ class FeuilletsPlugin extends Plugin {
             item.setTitle(f.name).onClick(async () => {
               try {
                 const raw = await this.app.vault.read(f);
-                const data = JSON.parse(raw);
-                if (!data || typeof data !== "object") throw new Error("format");
-                this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+                const parsed: unknown = JSON.parse(raw);
+                if (!isSettingsRecord(parsed)) throw new Error("format");
+                this.settings = Object.assign({}, DEFAULT_SETTINGS, parsed) as unknown as FeuilletsSettings;
                 await this.saveSettings();
                 this.applyIndentClass();
                 this.applyLiveTypoClasses();
@@ -1438,7 +1456,12 @@ class FeuilletsPlugin extends Plugin {
            inonderait la console, et le repli ci-dessous est déjà le
            comportement correct (titre Obsidian par défaut). */
       }
-      return plugin._originalGetDisplayText!.call(this);
+      const fallback: (this: MarkdownView) => string = plugin._originalGetDisplayText ?? MarkdownView.prototype.getDisplayText;
+      /* `.call()` renvoie `any` sans `strictBindCallApply` (non activé ici,
+         changement de portée projet) même sur une fonction typée `(this:
+         MarkdownView) => string` — la véritable signature de `fallback`
+         garantit un `string`, d'où ce cast précis plutôt qu'un `any` réel. */
+      return fallback.call(this) as string;
     };
     MarkdownView.prototype.getDisplayText = this._patchedGetDisplayText;
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.refreshTabHeaderFor(file)));
@@ -1464,9 +1487,9 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  updateParagraphFocus(editor) {
+  updateParagraphFocus(editor: Editor): void {
     if (!this.concentrationActive || this.settings.concentrationUnit === "line") return;
-    const cm = editor && editor.cm;
+    const cm = (editor as EditorWithCM).cm;
     if (!cm || !cm.dom || typeof cm.domAtPos !== "function") return;
     const cur = editor.getCursor().line;
     let start = cur;
@@ -1483,10 +1506,10 @@ class FeuilletsPlugin extends Plugin {
         const offset = editor.posToOffset({ line: ln, ch: 0 });
         const result = cm.domAtPos(offset);
         if (!result) continue;
-        let node = result.node;
+        let node: Node | null = result.node;
         while (node && node.nodeType === 3) node = node.parentNode;
-        const lineEl = node && node.closest ? node.closest(".cm-line") : null;
-        if (lineEl) {
+        const lineEl = node instanceof Element ? node.closest(".cm-line") : null;
+        if (lineEl instanceof HTMLElement) {
           lineEl.classList.add("feuillets-para-active");
           this._paraEls.push(lineEl);
         }
@@ -1494,7 +1517,7 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  async updateConcentrationCounter(editor) {
+  async updateConcentrationCounter(editor: Editor | undefined): Promise<void> {
     if (!this.concentrationActive || !this.settings.concentrationCounter) return;
     const file = this.app.workspace.getActiveFile();
     if (!file) return;
@@ -1652,7 +1675,7 @@ class FeuilletsPlugin extends Plugin {
    * feuillet suivant/précédent dans son volet SANS y déplacer le focus
    * clavier — sinon la 2e pression de flèche irait déplacer le curseur de
    * texte dans l'éditeur au lieu de continuer à naviguer dans le Binder. */
-  async openNeighbor(delta, { focusEditor = true } = {}) {
+  async openNeighbor(delta: number, { focusEditor = true }: { focusEditor?: boolean } = {}): Promise<TFile | null> {
     const root = this.getProjectFolder();
     const current = this.app.workspace.getActiveFile();
     if (!root || !current) return null;
@@ -1716,8 +1739,8 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  compactLineBreaks(text) { return compactLineBreaks(text); }
-  frenchTypography(text, skipFrontmatter) { return frenchTypography(text, skipFrontmatter); }
+  compactLineBreaks(text: string): string { return compactLineBreaks(text); }
+  frenchTypography(text: string, skipFrontmatter: boolean): string { return frenchTypography(text, skipFrontmatter); }
 
   async loadSettings(): Promise<void> {
     /* loadData() est typé `Promise<any>` par l'API Obsidian : la donnée
@@ -1824,7 +1847,7 @@ class FeuilletsPlugin extends Plugin {
     }, delay);
   }
 
-  leafVisible(leaf) {
+  leafVisible(leaf: WorkspaceLeaf): boolean {
     const el = leaf && leaf.view && leaf.view.containerEl;
     if (!el) return false;
     if (typeof el.isShown === "function") return el.isShown();
@@ -1864,7 +1887,7 @@ class FeuilletsPlugin extends Plugin {
     this.adjustSidebarWidth();
   }
 
-  safeSetSize(split, width) {
+  safeSetSize(split: SplitWithSetSize | null | undefined, width: number): void {
     if (!split || typeof split.setSize !== "function") return;
     try { split.setSize(width); } catch { /* setSize peut refuser une largeur : l'ajustement de la barre laterale est cosmetique */ }
   }
@@ -1929,7 +1952,7 @@ class FeuilletsPlugin extends Plugin {
     );
   }
 
-  activeEditorAnywhere() {
+  activeEditorAnywhere(): Editor | null {
     const activeEditor = this.app.workspace.activeEditor;
     const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
     const recentLeaf = this.app.workspace.getMostRecentLeaf();
@@ -1941,7 +1964,7 @@ class FeuilletsPlugin extends Plugin {
       (this._lastMarkdownLeaf && this._lastMarkdownLeaf.view instanceof MarkdownView
         ? this._lastMarkdownLeaf.view.editor
         : null)
-    );
+    ) ?? null;
   }
 
   getCitationFolders() {
@@ -1957,16 +1980,19 @@ class FeuilletsPlugin extends Plugin {
       .filter((f): f is TFolder => f instanceof TFolder);
   }
 
-  async migrateBibliographieIntoSources(bibliographieFolder, sourcesFolder) {
+  async migrateBibliographieIntoSources(bibliographieFolder: TFolder, sourcesFolder: TFolder): Promise<void> {
     const files = bibliographieFolder.children.filter((c): c is TFile => c instanceof TFile && c.extension === "md");
     if (files.length === 0) return;
     let migrated = 0;
     let failed = 0;
     for (const f of files) {
       try {
-        await this.app.fileManager.processFrontMatter(f, (fm) => {
+        await this.app.fileManager.processFrontMatter(f, (fm: SceneFrontmatter) => {
           if (fm.annee !== undefined && fm.date === undefined) {
-            fm.date = fm.annee;
+            /* `annee` (héritage Bibliographie) peut être un nombre ou une
+               chaîne en YAML — copié tel quel, sans coercion, pour ne pas
+               changer la représentation YAML des fiches déjà écrites. */
+            fm.date = fm.annee as string;
             delete fm.annee;
           }
           // edition/editeur (vocabulaire Bibliographie) -> publisher (voir
@@ -2005,9 +2031,9 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  openInsertCitation(editor) {
-    editor = editor || this.activeEditorAnywhere();
-    if (!editor) {
+  openInsertCitation(editor?: Editor | null): void {
+    const resolvedEditor = editor || this.activeEditorAnywhere();
+    if (!resolvedEditor) {
       new Notice(t("main.notice.openSceneBeforeCitation"));
       return;
     }
@@ -2022,11 +2048,11 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
     new CitationSourceModal(this.app, this, files, (file, page) =>
-      this.insertCitationFor(file, page, editor)
+      this.insertCitationFor(file, page, resolvedEditor)
     ).open();
   }
 
-  quickCiteSource(sourceFile) {
+  quickCiteSource(sourceFile: TFile): void {
     const editor = this.activeEditorAnywhere();
     if (!editor) {
       new Notice(t("main.notice.openSceneBeforeCitation"));
@@ -2037,7 +2063,7 @@ class FeuilletsPlugin extends Plugin {
     );
   }
 
-  renumberActiveFootnotes() {
+  renumberActiveFootnotes(): void {
     const editor = this.activeEditorAnywhere();
     if (!editor) {
       new Notice(t("main.notice.openSheetBeforeRenumbering"));
@@ -2055,7 +2081,7 @@ class FeuilletsPlugin extends Plugin {
     new Notice(t("main.notice.footnotesRenumbered"));
   }
 
-  insertCitationFor(sourceFile, page, editor) {
+  insertCitationFor(sourceFile: TFile, page: string, editor: Editor): void {
     const rawFm = this.fmOf(sourceFile);
     const fm = {
       author: asString(rawFm.author),
@@ -2100,16 +2126,16 @@ class FeuilletsPlugin extends Plugin {
      ce qui décide de la présence de la source dans generateBibliographyFile,
      donc un échec silencieux ici se manifeste bien plus tard, sous forme
      d'entrée manquante dans la bibliographie. */
-  markSourceCited(sourceFile) {
-    this.app.fileManager.processFrontMatter(sourceFile, (fm) => {
+  markSourceCited(sourceFile: TFile): void {
+    this.app.fileManager.processFrontMatter(sourceFile, (fm: SceneFrontmatter) => {
       fm.cite_count = (fm.cite_count || 0) + 1;
-    }).catch((e) => {
+    }).catch((e: unknown) => {
       console.error(`Feuillets: compteur de citations non mis à jour (${sourceFile.path})`, e);
       new Notice(t("main.notice.citationInsertedButNotMarked"));
     });
   }
 
-  async generateBibliographyFile() {
+  async generateBibliographyFile(): Promise<void> {
     const root = this.getProjectFolder();
     if (!root) return;
     const folders = this.getCitationFolders();
@@ -2152,22 +2178,22 @@ class FeuilletsPlugin extends Plugin {
   // Nom personnalisé (S.projectMeta[path].name, réglable dans
   // ManageProjectsModal) en priorité, sinon déduit du dossier (voir
   // folder-structure.js — gère la convention <Projet>/Manuscrit/).
-  projectDisplayName(path) {
+  projectDisplayName(path: string): string {
     const custom = (this.settings.projectMeta[path] || {}).name;
     return custom && custom.trim() ? custom.trim() : projectDisplayName(path);
   }
   fmOf(file: TFile | null | undefined): SceneFrontmatter { return fmOf(this.app, file); }
   titleFor(file: TFile): string { return titleFor(this.app, file); }
-  shortTitleFor(file) { return shortTitleFor(this.app, file); }
-  compiledTitleFor(file) { return compiledTitleFor(this.app, file); }
-  folderNoteFor(folder) { return folderNoteFor(this.app, folder); }
-  async getOrCreateFolderNote(folder) { return getOrCreateFolderNote(this.app, folder); }
-  tagsOf(file) { return tagsOf(this.app, file); }
-  labelOf(file) { return labelOf(this.app, file); }
-  labelsOf(file) { return labelsOf(this.app, file); }
-  labelColor(name) { return labelColor(this.settings, name); }
-  getStatusColor(name) { return getStatusColor(this.settings, name); }
-  folderGoal(folder) { return folderGoal(this.settings, folder); }
+  shortTitleFor(file: TFile): string { return shortTitleFor(this.app, file); }
+  compiledTitleFor(file: TFile): string | null { return compiledTitleFor(this.app, file); }
+  folderNoteFor(folder: TFolder): TFile | null { return folderNoteFor(this.app, folder); }
+  async getOrCreateFolderNote(folder: TFolder): Promise<TFile> { return getOrCreateFolderNote(this.app, folder); }
+  tagsOf(file: TFile): string[] { return tagsOf(this.app, file); }
+  labelOf(file: TFile): string { return labelOf(this.app, file); }
+  labelsOf(file: TFile): string[] { return labelsOf(this.app, file); }
+  labelColor(name: string): string | null { return labelColor(this.settings, name); }
+  getStatusColor(name: string): string | null { return getStatusColor(this.settings, name); }
+  folderGoal(folder: TFolder): number { return folderGoal(this.settings, folder); }
   depthOf(node: ProjectNode): number { return depthOf(this.app, this.settings, node); }
   isFrontMatter(node: ProjectNode): boolean { return isFrontMatter(this.app, this.settings, node); }
   roleOfFolder(folder: TFolder): "chapitre" | "partie" { return roleOfFolder(this.app, this.settings, folder); }
@@ -2175,27 +2201,27 @@ class FeuilletsPlugin extends Plugin {
   getOrderedChildren(folder: TFolder | null | undefined, includeHidden = false): ProjectNode[] {
     return getOrderedChildren(this.app, this.settings, folder, includeHidden);
   }
-  flattenFiles(folder) { return flattenFiles(this.app, this.settings, folder); }
-  getManuscriptFiles() {
+  flattenFiles(folder: TFolder | null | undefined): TFile[] { return flattenFiles(this.app, this.settings, folder); }
+  getManuscriptFiles(): TFile[] {
     const root = this.getProjectFolder();
     if (!root) return [];
     return this.flattenFiles(root);
   }
-  chapterCount(root) { return chapterCount(this.app, this.settings, root); }
-  getChapters(root) { return getChapters(this.app, this.settings, root); }
+  chapterCount(root: TFolder | null | undefined): number { return chapterCount(this.app, this.settings, root); }
+  getChapters(root: TFolder | null | undefined): ProjectNode[] { return getChapters(this.app, this.settings, root); }
 
-  async maybeRenameResearchFile(file) { return maybeRenameResearchFile(this.app, this.settings, file); }
-  async handleFilChanged(file) {
+  async maybeRenameResearchFile(file: TFile): Promise<void> { return maybeRenameResearchFile(this.app, this.settings, file); }
+  async handleFilChanged(file: TFile): Promise<void> {
     try { await handleFilChanged(this.app, this.settings, this, file); } catch { /* gestionnaire d'evenement sur changement de fichier : une erreur ici ne doit jamais remonter a l'autrice en pleine ecriture */ }
   }
 
-  entityMatchTags(entityFile) { return entityMatchTags(this.app, entityFile); }
-  entityMatchNames(entityFile) { return entityMatchNames(this.app, entityFile); }
-  async findAppearances(entityFile) { return findAppearances(this.app, this.settings, entityFile); }
+  entityMatchTags(entityFile: TFile) { return entityMatchTags(this.app, entityFile); }
+  entityMatchNames(entityFile: TFile) { return entityMatchNames(this.app, entityFile); }
+  async findAppearances(entityFile: TFile) { return findAppearances(this.app, this.settings, entityFile); }
   getResearchRoot() { return getResearchRoot(this.app, this.settings); }
-  getChronoFolder() { return getChronoFolder(this.app, this.settings); }
+  getChronoFolder(): TFolder | null { return getChronoFolder(this.app, this.settings); }
   listCompiledFilePaths() { return listCompiledFilePaths(this.app, this.settings); }
-  parseStoryDate(raw, file = null) { return parseStoryDate(raw, file); }
+  parseStoryDate(raw: unknown, file: TFile | null = null) { return parseStoryDate(raw, file); }
 
   buildNumbering(root: TFolder): Map<string, string> {
     /* numbering.ts est volontairement pur (testable sans coffre) : son
@@ -2247,7 +2273,7 @@ class FeuilletsPlugin extends Plugin {
     return cache;
   }
 
-  async wordCountOfFolder(folder) {
+  async wordCountOfFolder(folder: TFolder | null | undefined): Promise<number> {
     const files = this.flattenFiles(folder);
     const counts = await this.getWordCounts(files);
     let total = 0;
@@ -2430,9 +2456,9 @@ class FeuilletsPlugin extends Plugin {
     return changed;
   }
 
-  async ensureFolder(path) { return ensureFolder(this.app, path); }
-  async snapshotFile(file, root) { return snapshotFile(this.app, file, root); }
-  async initProjectStructure() { return initProjectStructure(this.app, this.settings); }
+  async ensureFolder(path: string): Promise<TAbstractFile> { return ensureFolder(this.app, path); }
+  async snapshotFile(file: TFile, root: TFolder): Promise<string> { return snapshotFile(this.app, file, root); }
+  async initProjectStructure(): Promise<void> { return initProjectStructure(this.app, this.settings); }
 
   /** Duplique le dossier manuscrit d'un projet existant (identifié par son
    * chemin) en dossier de référence figé — volontairement PAS ajouté à
@@ -2506,10 +2532,10 @@ class FeuilletsPlugin extends Plugin {
     this._searchReplaceBar.toggle();
   }
 
-  newFolder(parent) { return newFolder(this.app, parent, () => this.renderAllViews(true)); }
-  newSheet(folder) { return newSheet(this.app, this.settings, folder); }
+  newFolder(parent: TFolder): void { return newFolder(this.app, parent, () => this.renderAllViews(true)); }
+  newSheet(folder: TFolder): void { return newSheet(this.app, this.settings, folder); }
 
-  newSheetAt(folder, insertIndex) {
+  newSheetAt(folder: TFolder, insertIndex: number): void {
     new NewSheetModal(this.app, folder.name, async (fileName, chapTitle) => {
       const path = normalizePath(`${folder.path}/${fileName}.md`);
       if (this.app.vault.getAbstractFileByPath(path)) {
@@ -2627,15 +2653,25 @@ class FeuilletsPlugin extends Plugin {
   async activateJournal() { return this.activateSidebarView("journal"); }
   async activateProject() { return this.activateSidebarView("project"); }
 
-  async ensureJournalEntry(date) { return ensureDayEntry(this.app, this.settings, date); }
+  /* `date` reste `Date | null` ici : au moins un appelant (journal-view.ts,
+     `viewedDate`) transmet une valeur potentiellement nulle alors que
+     `ensureDayEntry` l'exige non-nulle — écart préexistant, pas introduit
+     ni corrigé par ce passage de types, d'où le cast plutôt qu'une garde
+     qui changerait le comportement actuel. */
+  async ensureJournalEntry(date: Date | null): Promise<TFile | null> { return ensureDayEntry(this.app, this.settings, date as Date); }
   async compileJournal() { return compileJournal(this.app, this.settings); }
-  activePresetConfig() { return activePresetConfig(this.settings); }
+  /* activePresetConfig/projectMetaFor (services/compile-export.ts) ne sont
+     pas annotées côté TS mais documentent leur retour en JSDoc — PresetConfig
+     et ProjectMeta sont les mêmes types globaux déjà déclarés dans
+     types.d.ts, d'où ces casts précis plutôt qu'une migration de ce fichier
+     (hors périmètre de cette correction, limitée à main.ts). */
+  activePresetConfig(): PresetConfig { return activePresetConfig(this.settings) as PresetConfig; }
   async getOutputFolder() { return getOutputFolder(this.app, this.settings); }
   async compile() { return compile(this.app, this.settings); }
   async exportFile(format = "docx") { return exportFile(this.app, this.settings, format); }
-  projectMetaFor(folder) { return projectMetaFor(this.settings, folder); }
+  projectMetaFor(folder: TFolder): ProjectMeta { return projectMetaFor(this.settings, folder) as ProjectMeta; }
 
-  insertIntoActiveEditor(text) {
+  insertIntoActiveEditor(text: string): void {
     const editor = this.activeEditorAnywhere();
     if (!editor) {
       new Notice(t("main.notice.noMarkdownEditor"));
@@ -2698,7 +2734,8 @@ class FeuilletsPlugin extends Plugin {
       this._lastBackupAt = Date.now();
       new Notice(t("main.notice.backupCreated", { path }), 8000);
     } catch (e) {
-      new Notice(t("main.notice.backupFailed", { error: (e.message || String(e)).slice(0, 200) }));
+      const message = e instanceof Error ? e.message : String(e);
+      new Notice(t("main.notice.backupFailed", { error: message.slice(0, 200) }));
     }
   }
 
@@ -2739,7 +2776,7 @@ class FeuilletsPlugin extends Plugin {
        dossiers+fiches). `reveal` : true = déployer davantage, false =
        replier davantage — c'est l'appelant (tactile ou trackpad) qui
        traduit un sens de balayage en reveal/replier, jamais l'inverse ici. */
-    const executeLeftPanel = (reveal) => {
+    const executeLeftPanel = (reveal: boolean) => {
       const leftSplit = getLeftSplit();
       const rightSplit = getRightSplit();
       if (!this.settings.swipeGesturesEnabled) return;
@@ -2762,7 +2799,7 @@ class FeuilletsPlugin extends Plugin {
     /* Volet DROIT (panneau Feuillets — Inspecteur, ou tout autre panneau
        qui y est ancré) : simple bascule replié/déplié, pas de cycle à 3
        états comme à gauche — rien d'équivalent au mode "fiches seules". */
-    const executeRightPanel = (reveal) => {
+    const executeRightPanel = (reveal: boolean) => {
       const rightSplit = getRightSplit();
       if (!this.settings.swipeGesturesEnabled || !rightSplit) return;
       try {
@@ -2778,17 +2815,17 @@ class FeuilletsPlugin extends Plugin {
     let touchStartY = 0;
     let touchStartTime = 0;
 
-    const onTouchStart = (e) => {
+    const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
       const touch = e.touches[0];
-      const target = e.target;
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.closest(".cm-editor")) return;
+      const target = e.target as HTMLElement | null;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target!.closest(".cm-editor")) return;
       touchStartX = touch.clientX;
       touchStartY = touch.clientY;
       touchStartTime = Date.now();
     };
 
-    const onTouchEnd = (e) => {
+    const onTouchEnd = (e: TouchEvent) => {
       if (!this.settings.swipeGesturesEnabled || touchStartTime === 0 || e.changedTouches.length !== 1) return;
       const touch = e.changedTouches[0];
       const deltaX = touch.clientX - touchStartX;
@@ -2825,11 +2862,11 @@ class FeuilletsPlugin extends Plugin {
     let wheelTriggered = false;
     let wheelStartClientX = 0;
 
-    const onWheel = (e) => {
+    const onWheel = (e: WheelEvent) => {
       if (!this.settings.swipeGesturesEnabled) return;
       if (e.ctrlKey) return; // pincer-zoomer envoie aussi des événements wheel
-      const target = e.target;
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.closest(".cm-editor")) return;
+      const target = e.target as HTMLElement | null;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target!.closest(".cm-editor")) return;
 
       const now = Date.now();
       if (now - wheelLastTime > 200) {

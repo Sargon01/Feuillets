@@ -23,8 +23,10 @@ declare type SceneFrontmatter = {
   title?: string;
   /** Sous-titre, compilé un niveau sous `titre` (compiledSubtitleFor). */
   sous_titre?: string;
-  /** Titre court des vues denses ; `titre_court` est l'ancienne clé,
-   *  conservée pour les fiches antérieures au renommage. */
+  /** Titre court des vues denses. `titre_binder`/`titre_court` sont les
+   *  anciennes clés, conservées pour les fiches antérieures au renommage
+   *  et reportées sur `short_title` par withLegacyFieldAliases. */
+  short_title?: string;
   titre_binder?: string;
   titre_court?: string;
   /** Fiches personnage du panneau Recherche : replis du titre (titleFor). */
@@ -273,6 +275,7 @@ declare type FeuilletsSettings = {
 
   journalFolder: string;
   wordGoal: number;
+  chronoFolder: string;
 
   /** Automatisation des fils narratifs, persistée dans les réglages. */
   filPlaceholders: NarrativeThreadState["filPlaceholders"];
