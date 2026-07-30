@@ -3,6 +3,7 @@
 import { PROJECT_MODES } from "../utils/project-modes.js";
 import { extractTag, extractAllTags, getAttr, decodeXmlEntities } from "../utils/xml.js";
 import { t } from "../i18n/index.js";
+import { toValue } from "../utils/scene-fields.js";
 
 export { extractTag, extractAllTags, getAttr, decodeXmlEntities };
 
@@ -43,9 +44,19 @@ type RtfResult = {
   imageLinks?: ScrImageLink[];
 };
 
+type NodeFs = {
+  existsSync(p: string): boolean;
+  readdirSync(p: string): string[];
+};
+
+type NodePath = {
+  join(...paths: string[]): string;
+  extname(p: string): string;
+};
+
 // ============================ Garde-fou de format ==========================
 
-export function checkScrivenerFormat(entries) {
+export function checkScrivenerFormat(entries: string[]) {
   if (entries.includes("binder.scrivproj")) {
     return {
       ok: false,
@@ -59,11 +70,11 @@ export function checkScrivenerFormat(entries) {
   return { ok: true, scrivxName };
 }
 
-export function rtfPathCandidates(uuid) {
+export function rtfPathCandidates(uuid: string): string[] {
   return [`Files/Data/${uuid}/content.rtf`, `Files/Docs/${uuid}.rtf`];
 }
 
-export function findAttachedDataImages(scrivPath, uuid, fs, pathMod) {
+export function findAttachedDataImages(scrivPath: string, uuid: string, fs: NodeFs | null, pathMod: NodePath | null) {
   const images: AttachedImage[] = [];
   if (!uuid || !fs || !pathMod) return images;
   const imgExts = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".pdf"];
@@ -107,12 +118,12 @@ export function findAttachedDataImages(scrivPath, uuid, fs, pathMod) {
 
 // ============================ Parseur du binder =============================
 
-function parseListItems(xml) {
+function parseListItems(xml: string | null | undefined) {
   const map = new Map<string, string>();
   if (!xml) return map;
 
   const reS3 = /<(?:Label|Status)\b([^>]*)>([\s\S]*?)<\/(?:Label|Status)>/g;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = reS3.exec(xml))) {
     const [, attrs, body] = m;
     const idMatch = /\bID="([^"]*)"/.exec(attrs);
@@ -132,7 +143,7 @@ function parseListItems(xml) {
   return map;
 }
 
-function parseKeywordSettings(xmlContent) {
+function parseKeywordSettings(xmlContent: string | null | undefined) {
   const map = new Map<string, string>();
   if (!xmlContent) return map;
   const nonBinderXml = xmlContent.replace(/<Binder\b[\s\S]*?<\/Binder>/gi, "");
@@ -142,7 +153,7 @@ function parseKeywordSettings(xmlContent) {
   const targetXml = kwSettings || extractTag(nonBinderXml, "Keywords") || nonBinderXml;
   if (!targetXml) return map;
 
-  const walk = (xml) => {
+  const walk = (xml: string) => {
     const items = extractAllTags(xml, "Keyword");
     for (const item of items) {
       const id = getAttr(item.attrs, "ID") || getAttr(item.attrs, "id");
@@ -157,7 +168,7 @@ function parseKeywordSettings(xmlContent) {
   return map;
 }
 
-function parseCustomMetaDataSettings(xmlContent) {
+function parseCustomMetaDataSettings(xmlContent: string | null | undefined) {
   const map = new Map<string, string>();
   if (!xmlContent) return map;
   const metaSettings =
@@ -166,7 +177,7 @@ function parseCustomMetaDataSettings(xmlContent) {
     xmlContent;
   if (!metaSettings) return map;
 
-  const walk = (xml) => {
+  const walk = (xml: string) => {
     const items = extractAllTags(xml, "MetaDataField");
     for (const item of items) {
       const id = getAttr(item.attrs, "ID") || getAttr(item.attrs, "id");
@@ -341,7 +352,7 @@ export function parseScrImageLinks(text: string): ScrImageLink[] {
   if (!text) return links;
 
   const reScr = /\{?\$SCRImageLink\[[^\]]*\][:=]+\$PROJECT:\/\/([^}\s]+)\}?/gi;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = reScr.exec(text))) {
     const rawRef = m[1].trim();
     const fileName = rawRef.slice(rawRef.lastIndexOf("/") + 1).trim();
@@ -364,14 +375,14 @@ export function parseScrImageLinks(text: string): ScrImageLink[] {
 
 // ========================= Classification recherche =========================
 
-export function classifyResearchFolder(title) {
+export function classifyResearchFolder(title: string | null | undefined) {
   const t = (title || "").trim().toLowerCase();
   if (t === "characters" || t === "character sketches") return "personnages";
   if (t === "places" || t === "locations" || t === "settings") return "lieux";
   return null;
 }
 
-export function researchTargetLabel(title, mode) {
+export function researchTargetLabel(title: string | null | undefined, mode: keyof typeof PROJECT_MODES) {
   const key = classifyResearchFolder(title);
   if (!key) return null;
   const folders = PROJECT_MODES[mode].researchFolders;
@@ -380,7 +391,7 @@ export function researchTargetLabel(title, mode) {
 
 // ============================ Mapping des statuts ===========================
 
-const STATUS_MAP = {
+const STATUS_MAP: Record<string, string> = {
   "no status": "",
   "sans état": "",
   "s/o": "",
@@ -398,7 +409,7 @@ const STATUS_MAP = {
   "terminé": "Terminé",
 };
 
-export function mapScrivenerStatus(scrivenerStatusTitle) {
+export function mapScrivenerStatus(scrivenerStatusTitle: string | null | undefined) {
   if (!scrivenerStatusTitle) return "";
   const key = scrivenerStatusTitle.trim().toLowerCase();
   if (STATUS_MAP[key] !== undefined) return STATUS_MAP[key];
@@ -407,10 +418,10 @@ export function mapScrivenerStatus(scrivenerStatusTitle) {
 
 // ============================ Aperçu avant écriture ==========================
 
-export function countImportPreview(parsed) {
+export function countImportPreview(parsed: ParsedScrivx) {
   let folders = 0;
   let scenes = 0;
-  const walkManuscript = (item) => {
+  const walkManuscript = (item: ScrivenerNode) => {
     if (item.isFolder) folders++;
     else scenes++;
     for (const c of item.children) walkManuscript(c);
@@ -418,7 +429,7 @@ export function countImportPreview(parsed) {
   if (parsed.draft) for (const c of parsed.draft.children) walkManuscript(c);
 
   let researchEntries = 0;
-  const walkResearch = (item) => {
+  const walkResearch = (item: ScrivenerNode) => {
     if (!item.isFolder) researchEntries++;
     for (const c of item.children) walkResearch(c);
   };
@@ -429,8 +440,8 @@ export function countImportPreview(parsed) {
 
 // ============================ Frontmatter YAML ==============================
 
-function yamlScalar(value) {
-  const v = value == null ? "" : String(value);
+function yamlScalar(value: unknown) {
+  const v = value == null ? "" : toValue(value);
   if (v === "") return "";
   const looksTyped = /^(-?\d+(\.\d+)?|true|false|null|~|yes|no)$/i.test(v);
   if (looksTyped || /[:#[\]{}&*!|>'"%@`]/.test(v) || /^\s|\s$/.test(v) || v.includes("\n")) {
@@ -450,16 +461,31 @@ function yamlScalar(value) {
   return v;
 }
 
-function yamlTagsBlock(tags) {
+function yamlTagsBlock(tags: string[] | null | undefined) {
   const list = (tags || []).filter(Boolean);
   if (list.length === 0) return "tags: ";
   return "tags:\n" + list.map((t) => `  - ${yamlScalar(t)}`).join("\n");
 }
 
-export function extractHeadingTitle(bodyText) {
+export function extractHeadingTitle(bodyText: string | null | undefined) {
   const m = /^#{1,2}[ \t]+(.+)$/m.exec(bodyText || "");
   return m ? m[1].trim() : "";
 }
+
+type SceneFrontmatterOptions = {
+  titre?: string;
+  titreCourt?: string;
+  sousTitre?: string;
+  order: number;
+  isFiction?: boolean;
+  synopsis?: string;
+  statut?: string;
+  label?: string;
+  tags?: string[];
+  notes?: string;
+  includeInCompile?: boolean;
+  wordGoal?: number;
+};
 
 export function buildSceneFrontmatter({
   titre,
@@ -474,7 +500,7 @@ export function buildSceneFrontmatter({
   notes,
   includeInCompile,
   wordGoal,
-}) {
+}: SceneFrontmatterOptions) {
   const binderTitle = sousTitre || titreCourt || titre || "";
   const lines = [
     "---",
@@ -496,7 +522,14 @@ export function buildSceneFrontmatter({
   return lines.join("\n");
 }
 
-export function buildEntityFrontmatter({ title, synopsis, tags, notes }) {
+type EntityFrontmatterOptions = {
+  title?: string;
+  synopsis?: string;
+  tags?: string[];
+  notes?: string;
+};
+
+export function buildEntityFrontmatter({ title, synopsis, tags, notes }: EntityFrontmatterOptions) {
   const lines = [
     "---",
     `title: ${yamlScalar(title)}`,
@@ -517,15 +550,15 @@ const CP1252_HIGH = {
   146: 8217, 147: 8220, 148: 8221, 149: 8226, 150: 8211, 151: 8212, 152: 732,
   153: 8482, 154: 353, 155: 8250, 156: 339, 158: 382, 159: 376,
 };
-function byteToUnicode(code) {
-  return CP1252_HIGH[code] !== undefined ? CP1252_HIGH[code] : code;
+function byteToUnicode(code: number) {
+  return (CP1252_HIGH as Record<number, number>)[code] !== undefined ? (CP1252_HIGH as Record<number, number>)[code] : code;
 }
 
-export function parseScrivenerComments(xml) {
-  const comments = {};
+export function parseScrivenerComments(xml: string | null | undefined) {
+  const comments: Record<string, ScrivenerComment> = {};
   if (!xml) return comments;
   const re = /<Comment\b([^>]*)>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/Comment>/g;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(xml))) {
     const [, attrs, rtf] = m;
     const idMatch = /\bID="([^"]*)"/.exec(attrs);
@@ -535,7 +568,7 @@ export function parseScrivenerComments(xml) {
   return comments;
 }
 
-function scanGroup(src, start) {
+function scanGroup(src: string, start: number) {
   let depth = 1;
   let i = start + 1;
   const len = src.length;
@@ -566,7 +599,7 @@ export function rtfToMarkdown(
   const extractedImages: ExtractedImage[] = [];
   const extractedComments: ExtractedComment[] = [];
 
-  function convert(src, collectFootnotes) {
+  function convert(src: string, collectFootnotes: boolean) {
     const len = src.length;
     let i = 0;
     let out = "";
@@ -581,7 +614,7 @@ export function rtfToMarkdown(
 
     let pendingOpen = "";
 
-    const rawAppend = (s) => {
+    const rawAppend = (s: string) => {
       if (inRow) cellBuf += s;
       else out += s;
     };
@@ -599,7 +632,7 @@ export function rtfToMarkdown(
       return m[0];
     };
 
-    const emit = (s) => {
+    const emit = (s: string) => {
       if (!s) return;
       if (pendingOpen) {
         const leading = /^[ \t]*/.exec(s)?.[0] || "";
@@ -614,11 +647,11 @@ export function rtfToMarkdown(
       rawAppend(s);
     };
 
-    const openSpan = (marker) => {
+    const openSpan = (marker: string) => {
       pendingOpen += marker;
     };
 
-    const closeSpan = (marker) => {
+    const closeSpan = (marker: string) => {
       if (pendingOpen.endsWith(marker)) {
         pendingOpen = pendingOpen.slice(0, -marker.length);
         return;
@@ -1008,7 +1041,7 @@ export function rtfToMarkdown(
   return res;
 }
 
-export function extractChapterTitleMarker(text) {
+export function extractChapterTitleMarker(text: string | null | undefined) {
   if (!text || typeof text !== "string") {
     return { title: "", sousTitre: "", rest: text || "" };
   }
@@ -1036,22 +1069,22 @@ export function extractChapterTitleMarker(text) {
   return { title, sousTitre, rest };
 }
 
-function finalizeConvertedText(raw) {
+function finalizeConvertedText(raw: string) {
   let text = raw;
 
   text = text.replace(/<\$ScrKeepWithNext>/g, "");
 
-  text = text.replace(/\{?\$SCRImageLink\[[^\]]*\][:=]+\$PROJECT:\/\/([^}\s]+)\}?/gi, (match, rawRef) => {
+  text = text.replace(/\{?\$SCRImageLink\[[^\]]*\][:=]+\$PROJECT:\/\/([^}\s]+)\}?/gi, (match: string, rawRef: string) => {
     const fileName = rawRef.slice(rawRef.lastIndexOf("/") + 1).trim();
     return `\n\n![[${fileName}]]\n\n`;
   });
 
-  text = text.replace(/\$PROJECT:\/\/([^\s"'<>})]+)/gi, (match, rawRef) => {
+  text = text.replace(/\$PROJECT:\/\/([^\s"'<>})]+)/gi, (match: string, rawRef: string) => {
     const fileName = rawRef.slice(rawRef.lastIndexOf("/") + 1).trim();
     return `\n\n![[${fileName}]]\n\n`;
   });
 
-  text = text.replace(/<!?\$Scr_[a-zA-Z0-9_]+::\d+>/g, (m, offset, fullStr) => {
+  text = text.replace(/<!?\$Scr_[a-zA-Z0-9_]+::\d+>/g, (m: string, offset: number, fullStr: string) => {
     const before = fullStr[offset - 1] || "";
     const after = fullStr[offset + m.length] || "";
     if (/[a-zA-Z0-9À-ÿ]/.test(before) && /[a-zA-Z0-9À-ÿ]/.test(after)) {
