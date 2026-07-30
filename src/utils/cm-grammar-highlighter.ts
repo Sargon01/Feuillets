@@ -9,11 +9,68 @@ import { StateField, StateEffect } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 /* eslint-enable import/no-extraneous-dependencies -- fin de la zone d'imports fournis par l'hote */
 
-export const setGrammarIssuesEffect = StateEffect.define();
+interface DecorationSet {
+  map(changes: unknown): DecorationSet;
+  readonly [key: string]: unknown;
+}
 
-export const grammarIssuesField = StateField.define({
+interface StateEffectType<T> {
+  of(value: T): unknown;
+  is(effect: unknown): effect is { value: T };
+}
+
+interface StateEffectStatic {
+  define<T = unknown>(): StateEffectType<T>;
+}
+
+interface StateFieldStatic {
+  define<T>(config: {
+    create(): T;
+    update(value: T, tr: { effects: Array<{ is(type: unknown): boolean; value: T }>; docChanged: boolean; changes: unknown }): T;
+    provide?: (field: unknown) => unknown;
+  }): unknown;
+}
+
+interface DecorationRange {
+  from: number;
+  to: number;
+  attributes?: Record<string, string>;
+}
+
+interface DecorationStatic {
+  none: DecorationSet;
+  mark(spec: { class?: string; attributes?: Record<string, string> }): {
+    range(from: number, to: number): DecorationRange;
+  };
+  set(of: DecorationRange[], sort?: boolean): DecorationSet;
+}
+
+interface EditorViewStatic {
+  decorations: {
+    from(field: unknown): unknown;
+  };
+  domEventHandlers(handlers: Record<string, (event: Event) => boolean | void>): unknown;
+}
+
+interface EditorViewInstance {
+  state: {
+    doc: {
+      length: number;
+    };
+  };
+  dispatch(spec: { effects?: unknown }): void;
+}
+
+const StateEffectTyped = StateEffect as unknown as StateEffectStatic;
+const StateFieldTyped = StateField as unknown as StateFieldStatic;
+const DecorationTyped = Decoration as unknown as DecorationStatic;
+const EditorViewTyped = EditorView as unknown as EditorViewStatic;
+
+export const setGrammarIssuesEffect = StateEffectTyped.define<DecorationSet>();
+
+export const grammarIssuesField = StateFieldTyped.define<DecorationSet>({
   create() {
-    return Decoration.none;
+    return DecorationTyped.none;
   },
   update(decorations, tr) {
     for (const e of tr.effects) {
@@ -23,16 +80,20 @@ export const grammarIssuesField = StateField.define({
     }
     return tr.docChanged ? decorations.map(tr.changes) : decorations;
   },
-  provide: (f) => EditorView.decorations.from(f),
+  provide: (f) => EditorViewTyped.decorations.from(f),
 });
 
 /**
  * Souligne les signalements Grammalecte dans l'éditeur CodeMirror 6 actif.
- * @param {object} editorView - L'instance EditorView de CodeMirror 6 (view.editor.cm)
+ * @param {EditorViewInstance} editorView - L'instance EditorView de CodeMirror 6 (view.editor.cm)
  * @param {Array<{start:number, end:number, type:string}>} issues - Signalements, offsets relatifs au corps (sans frontmatter)
  * @param {number} offset - Longueur du frontmatter retiré avant la vérification, à rajouter aux offsets
  */
-export function applyGrammarHighlights(editorView: any, issues: Array<{ start: number; end: number; type: string }> | null | undefined, offset = 0) {
+export function applyGrammarHighlights(
+  editorView: EditorViewInstance,
+  issues: Array<{ start: number; end: number; type: string }> | null | undefined,
+  offset = 0
+) {
   if (!editorView || typeof editorView.dispatch !== "function") return;
 
   if (!issues || issues.length === 0) {
@@ -41,7 +102,7 @@ export function applyGrammarHighlights(editorView: any, issues: Array<{ start: n
   }
 
   const docLength = editorView.state.doc.length;
-  const decos: any[] = [];
+  const decos: DecorationRange[] = [];
 
   issues.forEach((issue, idx) => {
     const from = issue.start + offset;
@@ -56,7 +117,7 @@ export function applyGrammarHighlights(editorView: any, issues: Array<{ start: n
     // idx : index dans le tableau `issues` de GrammarView — permet de
     // retrouver la même ligne dans le panneau au clic (voir grammarClickHandler).
     decos.push(
-      Decoration.mark({ class: cls, attributes: { "data-grammar-idx": String(idx) } }).range(from, to)
+      DecorationTyped.mark({ class: cls, attributes: { "data-grammar-idx": String(idx) } }).range(from, to)
     );
   });
 
@@ -64,17 +125,17 @@ export function applyGrammarHighlights(editorView: any, issues: Array<{ start: n
 
   try {
     editorView.dispatch({
-      effects: setGrammarIssuesEffect.of(Decoration.set(decos, true)),
+      effects: setGrammarIssuesEffect.of(DecorationTyped.set(decos, true)),
     });
   } catch {
     // S'assure de ne jamais interrompre le flux d'édition
   }
 }
 
-export function clearGrammarHighlights(editorView: any) {
+export function clearGrammarHighlights(editorView: EditorViewInstance) {
   if (editorView && typeof editorView.dispatch === "function") {
     try {
-      editorView.dispatch({ effects: setGrammarIssuesEffect.of(Decoration.none) });
+      editorView.dispatch({ effects: setGrammarIssuesEffect.of(DecorationTyped.none) });
     } catch { /* dispatch sur un EditorView deja detruit (onglet ferme entre-temps) : il n'y a plus rien a effacer */ }
   }
 }
@@ -86,12 +147,14 @@ export function clearGrammarHighlights(editorView: any) {
  * plugin._grammarView est posé par le constructeur de GrammarView.
  */
 export function grammarClickHandler(plugin: { _grammarView?: { showIssueMenu(index: number, event: MouseEvent): void } }) {
-  return EditorView.domEventHandlers({
-    click(event) {
-      const target = event.target.closest && event.target.closest("[data-grammar-idx]");
+  return EditorViewTyped.domEventHandlers({
+    click(event: Event) {
+      const mouseEvent = event as MouseEvent;
+      const el = mouseEvent.target instanceof HTMLElement ? mouseEvent.target : null;
+      const target = el ? el.closest("[data-grammar-idx]") : null;
       if (!target) return false;
       const idx = Number(target.getAttribute("data-grammar-idx"));
-      if (plugin._grammarView) plugin._grammarView.showIssueMenu(idx, event);
+      if (plugin._grammarView) plugin._grammarView.showIssueMenu(idx, mouseEvent);
       return false;
     },
   });
