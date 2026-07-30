@@ -470,7 +470,7 @@ export class DiffModal extends Modal {
       .onClick(() => this.close());
   }
 
-  async renderDiffBody(container) {
+  async renderDiffBody(container: HTMLElement) {
     container.empty();
     if (!this.selectedSnapshot) return;
 
