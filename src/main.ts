@@ -2156,8 +2156,8 @@ class FeuilletsPlugin extends Plugin {
     const custom = (this.settings.projectMeta[path] || {}).name;
     return custom && custom.trim() ? custom.trim() : projectDisplayName(path);
   }
-  fmOf(file) { return fmOf(this.app, file); }
-  titleFor(file) { return titleFor(this.app, file); }
+  fmOf(file: TFile | null | undefined): SceneFrontmatter { return fmOf(this.app, file); }
+  titleFor(file: TFile): string { return titleFor(this.app, file); }
   shortTitleFor(file) { return shortTitleFor(this.app, file); }
   compiledTitleFor(file) { return compiledTitleFor(this.app, file); }
   folderNoteFor(folder) { return folderNoteFor(this.app, folder); }
@@ -2168,11 +2168,13 @@ class FeuilletsPlugin extends Plugin {
   labelColor(name) { return labelColor(this.settings, name); }
   getStatusColor(name) { return getStatusColor(this.settings, name); }
   folderGoal(folder) { return folderGoal(this.settings, folder); }
-  depthOf(node) { return depthOf(this.app, this.settings, node); }
-  isFrontMatter(node) { return isFrontMatter(this.app, this.settings, node); }
-  roleOfFolder(folder) { return roleOfFolder(this.app, this.settings, folder); }
-  roleOfFile(file) { return roleOfFile(this.app, this.settings, file); }
-  getOrderedChildren(folder, includeHidden = false) { return getOrderedChildren(this.app, this.settings, folder, includeHidden); }
+  depthOf(node: ProjectNode): number { return depthOf(this.app, this.settings, node); }
+  isFrontMatter(node: ProjectNode): boolean { return isFrontMatter(this.app, this.settings, node); }
+  roleOfFolder(folder: TFolder): "chapitre" | "partie" { return roleOfFolder(this.app, this.settings, folder); }
+  roleOfFile(file: TFile): "chapitre" | "scene" { return roleOfFile(this.app, this.settings, file); }
+  getOrderedChildren(folder: TFolder | null | undefined, includeHidden = false): ProjectNode[] {
+    return getOrderedChildren(this.app, this.settings, folder, includeHidden);
+  }
   flattenFiles(folder) { return flattenFiles(this.app, this.settings, folder); }
   getManuscriptFiles() {
     const root = this.getProjectFolder();
@@ -2270,8 +2272,7 @@ class FeuilletsPlugin extends Plugin {
     return currentTotal - stats[key].start;
   }
 
-  /** @param {MoveHistoryEntry} entry */
-  pushHistory(entry) {
+  pushHistory(entry: MoveHistoryEntry): void {
     if (!this.moveStack) this.moveStack = [];
     this.moveStack.push(entry);
     if (this.moveStack.length > 30) this.moveStack.shift();
@@ -2281,18 +2282,18 @@ class FeuilletsPlugin extends Plugin {
      déplacement (voir pushHistory), pour la commande « Annuler le dernier
      déplacement » — dont les deux branches écrivent ensuite le résultat
      différemment (writeOrder / applySiblingOrder). */
-  orderFromSnapshot(parent, names) {
+  orderFromSnapshot(parent: TFolder, names: string[]): ProjectNode[] {
     return orderFromSnapshot(this.getOrderedChildren(parent), names);
   }
 
-  async writeOrder(parent, orderedChildren) {
+  async writeOrder(parent: TFolder, orderedChildren: ProjectNode[]): Promise<void> {
     this.settings.orders[parent.path] = orderedChildren.map((c) => c.name);
     for (let i = 0; i < orderedChildren.length; i++) {
       const child = orderedChildren[i];
       if (child instanceof TFile) {
         const current = parseInt(String(this.fmOf(child).order), 10);
         if (current !== i + 1) {
-          await this.app.fileManager.processFrontMatter(child, (fm) => { fm.order = i + 1; });
+          await this.app.fileManager.processFrontMatter(child, (fm: SceneFrontmatter) => { fm.order = i + 1; });
         }
       } else {
         this.settings.folderPositions[child.path] = i + 1;
@@ -2301,7 +2302,7 @@ class FeuilletsPlugin extends Plugin {
     await this.saveSettings();
   }
 
-  async applySiblingOrder(parent, orderedChildren, recordHistory = true) {
+  async applySiblingOrder(parent: TFolder, orderedChildren: ProjectNode[], recordHistory = true): Promise<void> {
     if (recordHistory) {
       this.pushHistory({
         type: "reorder",
@@ -2316,7 +2317,7 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  async moveNode(node, srcParent, destFolder, insertIndex) {
+  async moveNode(node: ProjectNode, srcParent: TFolder, destFolder: TFolder, insertIndex: number): Promise<void> {
     if (node.path === destFolder.path) return;
     if (node instanceof TFolder && (destFolder.path === node.path || destFolder.path.startsWith(node.path + "/"))) {
       new Notice(t("main.notice.cannotMoveFolderIntoItself"));
@@ -2361,7 +2362,7 @@ class FeuilletsPlugin extends Plugin {
       );
       return;
     }
-    new Notice(t("main.notice.moved", { name: this.titleFor(movedNow) || node.name }));
+    new Notice(t("main.notice.moved", { name: this.titleFor(movedNow as TFile) || node.name }));
   }
 
   chapterPattern(): RegExp {
@@ -2369,20 +2370,20 @@ class FeuilletsPlugin extends Plugin {
     return new RegExp(`^${prefix}\\s*\\d+$`, "i");
   }
 
-  async renumberTitles(root) {
+  async renumberTitles(root: TFolder): Promise<number> {
     const chapMode = this.settings.chapterNumbering || "continu";
     if (chapMode === "aucune") return 0;
     const pattern = this.chapterPattern();
     const prefix = this.settings.renamePrefix || "chapitre";
     let n = 0;
     let changed = 0;
-    const concernsFile = (f) => {
+    const concernsFile = (f: TFile): boolean => {
       const fm = this.fmOf(f);
       const title = typeof fm.title === "string" ? fm.title.trim() : "";
       if (title) return pattern.test(title);
       return pattern.test(f.basename);
     };
-    const walk = async (f) => {
+    const walk = async (f: TFolder): Promise<void> => {
       if (chapMode === "parPartie" && this.roleOfFolder(f) === "partie") n = 0;
       for (const child of this.getOrderedChildren(f)) {
         if (child instanceof TFolder) {
@@ -2417,7 +2418,7 @@ class FeuilletsPlugin extends Plugin {
           if (concernsFile(child)) {
             const target = `${prefix} ${n}`;
             if (this.titleFor(child) !== target) {
-              await this.app.fileManager.processFrontMatter(child, (fm) => { fm.title = target; });
+              await this.app.fileManager.processFrontMatter(child, (fm: SceneFrontmatter) => { fm.title = target; });
               changed++;
             }
           }
@@ -2438,17 +2439,17 @@ class FeuilletsPlugin extends Plugin {
    * settings.projects : ce n'est pas un projet basculable, juste une copie
    * qu'on consulte au besoin depuis l'explorateur de fichiers d'Obsidian.
    * Le projet actif ne change pas. */
-  async duplicateProject(path, label) {
+  async duplicateProject(path: string, label: string): Promise<string | null> {
     const folder = this.app.vault.getAbstractFileByPath(path);
     if (!(folder instanceof TFolder)) {
       new Notice(t("main.notice.folderNotFound"));
       return null;
     }
-    let destPath;
+    let destPath: string;
     try {
       destPath = await duplicateProjectFolder(this.app, folder, label, this.settings);
     } catch (e) {
-      new Notice(e.message || t("main.notice.duplicationImpossible"));
+      new Notice((e instanceof Error ? e.message : "") || t("main.notice.duplicationImpossible"));
       return null;
     }
     await this.saveSettings();
@@ -2457,14 +2458,14 @@ class FeuilletsPlugin extends Plugin {
     return destPath;
   }
 
-  getVersionsRoot() { return getVersionsRoot(this.app, this.getProjectFolder()); }
+  getVersionsRoot(): TFolder | null { return getVersionsRoot(this.app, this.getProjectFolder()); }
 
   /** Étiquette de version ("v1", "Premier jet"…) si le fichier vit dans
    * _Versions/<manuscrit> (<étiquette>)/… — sert à préfixer le titre
    * d'onglet, sans quoi une scène ouverte depuis une version archivée
    * affiche exactement le même titre que la scène active du manuscrit
    * (même `titre_binder`, copié tel quel à la duplication). */
-  versionLabelForFile(file) {
+  versionLabelForFile(file: TFile): string | null {
     const marker = "/_Versions/";
     const idx = file.path.indexOf(marker);
     if (idx === -1) return null;
