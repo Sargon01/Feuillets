@@ -2,8 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MarkdownRenderer, Notice, Platform } from "obsidian";
 import { exportPdf, paginateManuscript } from "../src/services/export-pdf.js";
+import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 
 let activeFrames = null;
+// Hauteur (offsetHeight) forcée sur la prochaine ".pdf-footnote-entry" créée
+// par buildFootnoteEntry (export-pdf.js) — sert uniquement à simuler une
+// note longue en test (le fake DOM ne calcule pas de vraie mise en page).
+let nextFootnoteEntryHeight = null;
 
 class FakeElement {
   constructor(tagName, text = "") {
@@ -50,7 +55,23 @@ class FakeElement {
   remove() { if (this.parentNode) this.parentNode.removeChild(this); }
   cloneNode(deep) { const clone = new FakeElement(this.tagName, this._text); clone.className = this.className; clone.offsetHeight = this.offsetHeight; if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true)); return clone; }
   querySelector() { return null; }
-  querySelectorAll() { return []; }
+  // Support minimal, volontairement limité au seul motif utilisé par
+  // export-pdf.js : `a[href^="#"]` (recherche des appels de note).
+  querySelectorAll(selector) {
+    const m = /^([a-z0-9]*)\[([a-zA-Z-]+)\^="([^"]*)"\]$/i.exec(selector || "");
+    if (!m) return [];
+    const [, tag, attr, prefix] = m;
+    const results = [];
+    const visit = (node) => {
+      for (const child of node.children) {
+        const tagOk = !tag || child.tagName.toLowerCase() === tag.toLowerCase();
+        if (tagOk && (child.getAttribute(attr) || "").startsWith(prefix)) results.push(child);
+        visit(child);
+      }
+    };
+    visit(this);
+    return results;
+  }
 }
 
 // Document isolé de l'iframe d'impression. Reflète le VRAI comportement du
@@ -106,7 +127,15 @@ function installDom() {
   globalThis.window = { setTimeout(callback) { callback(); return 0; } };
   // Fonctions globales autonomes createEl/createDiv/createSpan d'Obsidian
   // (nœud détaché, non ajouté à un parent) — voir export-pdf.js.
-  globalThis.createEl = (tag, options = {}) => { const el = new FakeElement(tag, options.text || ""); if (options.cls) el.className = options.cls; return el; };
+  globalThis.createEl = (tag, options = {}) => {
+    const el = new FakeElement(tag, options.text || "");
+    if (options.cls) el.className = options.cls;
+    if (options.cls === "pdf-footnote-entry" && nextFootnoteEntryHeight != null) {
+      el.offsetHeight = nextFootnoteEntryHeight;
+      nextFootnoteEntryHeight = null;
+    }
+    return el;
+  };
   globalThis.createDiv = (options = {}) => globalThis.createEl("div", options);
   globalThis.createSpan = (options = {}) => globalThis.createEl("span", options);
   return {
@@ -125,6 +154,16 @@ function installDom() {
 }
 
 function element(tag, text, height = 30) { const el = new FakeElement(tag, text); el.offsetHeight = height; return el; }
+
+// Paragraphe portant un appel de note, dans la même forme que le rendu
+// Markdown natif d'Obsidian : <sup class="footnote-ref"><a href="#id">n</a></sup>.
+function paragraphWithFootnoteRef(footnoteId, height = 30) {
+  const p = element("p", "", height);
+  const sup = p.createEl("sup", { cls: "footnote-ref" });
+  const a = sup.createEl("a", { text: "•" });
+  a.setAttribute("href", `#${footnoteId}`);
+  return p;
+}
 
 const template = { fontFamily: "Serif", fontSizePt: 12, lineHeight: 1.5, pageOrientation: "portrait", key: "classique", label: "Classique" };
 
@@ -159,6 +198,120 @@ test("paginateManuscript : conserve une page minimale sans contenu", () => {
     assert.equal(result.pagesHtml, "");
     assert.equal(dom.body.children.length, 0);
   } finally { dom.restore(); }
+});
+
+test("pdfFootnotePlacement : valeur par défaut = fin du manuscrit", () => {
+  assert.equal(DEFAULT_SETTINGS.pdfFootnotePlacement, "end");
+});
+
+test("paginateManuscript : placement 'end' regroupe toutes les notes en fin de manuscrit (comportement inchangé)", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(paragraphWithFootnoteRef("fn1", 30));
+    container.appendChild(paragraphWithFootnoteRef("fn2", 30));
+    const settings = { pdfFootnotePlacement: "end" };
+    const footnotes = [
+      { id: "fn1", html: "<p>Première note</p>" },
+      { id: "fn2", html: "<p>Deuxième note</p>" },
+    ];
+    const result = paginateManuscript(container, footnotes, settings, template);
+    assert.match(result.pagesHtml, /pdf-footnotes-section/);
+    assert.equal(result.pagesHtml.includes("pdf-footnote-entry"), false);
+    assert.match(result.pagesHtml, /Première note/);
+    assert.match(result.pagesHtml, /Deuxième note/);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : placement 'bottom' insère la note juste après son appel, pas dans une section groupée", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(paragraphWithFootnoteRef("fn1", 30));
+    const settings = { pdfFootnotePlacement: "bottom" };
+    const footnotes = [{ id: "fn1", html: "<p>Texte de la note</p>" }];
+    const result = paginateManuscript(container, footnotes, settings, template);
+    assert.equal(result.totalPages, 1);
+    assert.equal(result.pagesHtml.includes("pdf-footnotes-section"), false);
+    assert.match(result.pagesHtml, /pdf-footnote-divider/);
+    assert.match(result.pagesHtml, /pdf-footnote-entry/);
+    assert.match(result.pagesHtml, /Texte de la note/);
+    const refIndex = result.pagesHtml.indexOf("footnote-ref");
+    const entryIndex = result.pagesHtml.indexOf("pdf-footnote-entry");
+    assert.ok(refIndex >= 0 && entryIndex > refIndex, "la note doit suivre son appel");
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : placement 'bottom' - plusieurs notes sur la même page apparaissent toutes, dans l'ordre et numérotées", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(paragraphWithFootnoteRef("fn1", 30));
+    container.appendChild(paragraphWithFootnoteRef("fn2", 30));
+    const settings = { pdfFootnotePlacement: "bottom" };
+    const footnotes = [
+      { id: "fn1", html: "<p>Première note</p>" },
+      { id: "fn2", html: "<p>Deuxième note</p>" },
+    ];
+    const result = paginateManuscript(container, footnotes, settings, template);
+    assert.equal(result.totalPages, 1);
+    assert.match(result.pagesHtml, /Première note/);
+    assert.match(result.pagesHtml, /Deuxième note/);
+    assert.ok(result.pagesHtml.indexOf("Première note") < result.pagesHtml.indexOf("Deuxième note"));
+    assert.match(result.pagesHtml, /pdf-footnote-num">1\./);
+    assert.match(result.pagesHtml, /pdf-footnote-num">2\./);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : placement 'bottom' - une note longue provoque une repagination sans perte ni duplication", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(paragraphWithFootnoteRef("fn1", 800));
+    container.appendChild(element("p", "Suite du texte", 100));
+    const settings = { pdfFootnotePlacement: "bottom" };
+    const footnotes = [{ id: "fn1", html: "<p>Note très longue</p>" }];
+    nextFootnoteEntryHeight = 300;
+    const result = paginateManuscript(container, footnotes, settings, template);
+    assert.equal(result.totalPages, 2);
+    assert.equal((result.pagesHtml.match(/Note très longue/g) || []).length, 1);
+    assert.equal((result.pagesHtml.match(/pdf-footnote-divider/g) || []).length, 1);
+    assert.match(result.pagesHtml, /Suite du texte/);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : placement 'bottom' - une note jamais appelée n'est pas perdue (repli en fin de manuscrit)", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(element("p", "Texte sans appel", 30));
+    const settings = { pdfFootnotePlacement: "bottom" };
+    const footnotes = [{ id: "fn1", html: "<p>Note orpheline</p>" }];
+    const result = paginateManuscript(container, footnotes, settings, template);
+    assert.match(result.pagesHtml, /Note orpheline/);
+    assert.equal((result.pagesHtml.match(/Note orpheline/g) || []).length, 1);
+  } finally { dom.restore(); }
+});
+
+test("exportPdf : imprime toujours quand le placement des notes est 'bottom'", async () => {
+  const dom = installDom();
+  const previousMobile = Platform.isMobile;
+  const previousRender = MarkdownRenderer.render;
+  Platform.isMobile = false;
+  MarkdownRenderer.render = async (_app, _markdown, container) => container.appendChild(element("p", "Corps", 50));
+  const app = { vault: { getAbstractFileByPath: () => null } };
+  const settings = { exportTemplate: "classique", pdfFootnotePlacement: "bottom" };
+  try {
+    await assert.doesNotReject(() =>
+      exportPdf(app, settings, { markdown: "Texte", title: "Mon titre", author: "Une autrice", sourcePath: "Source.md" })
+    );
+    assert.equal(dom.frames.length, 1);
+    assert.equal(dom.frames[0].contentWindow.printed, 1);
+  } finally {
+    Platform.isMobile = previousMobile;
+    MarkdownRenderer.render = previousRender;
+    dom.restore();
+  }
 });
 
 test("exportPdf : sur mobile notifie sans rendre ni charger le DOM", async () => {

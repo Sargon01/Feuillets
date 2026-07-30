@@ -39,6 +39,61 @@ function measuredHeight(node: Element): number {
   return "offsetHeight" in node && typeof node.offsetHeight === "number" ? node.offsetHeight || 30 : 30;
 }
 
+/** IDs de notes de bas de page effectivement appelées dans cet élément
+ * (placement "bas de page") : les appels sont rendus par Obsidian en
+ * `<sup class="footnote-ref"><a href="#<id>">n</a></sup>` — on cherche
+ * directement l'ancre plutôt que de dépendre de cette classe précise, qui
+ * peut varier selon la version d'Obsidian. */
+function footnoteIdRefsIn(el: Element, knownIds: Set<string>): string[] {
+  if (!("querySelectorAll" in el)) return [];
+  const found: string[] = [];
+  el.querySelectorAll('a[href^="#"]').forEach((a) => {
+    const href = a.getAttribute("href") || "";
+    const id = href.slice(1);
+    if (id && knownIds.has(id) && !found.includes(id)) found.push(id);
+  });
+  return found;
+}
+
+/** CSS des notes de bas de page en placement "bas de page" (voir
+ * FOOTNOTE_BOTTOM_CSS ci-dessous pour la mise en forme) — styles portés
+ * par des classes plutôt que par `element.style.*`, ce document PDF
+ * n'ayant pas de feuille de style Obsidian à hériter (voir exportPdf,
+ * où ce bloc est concaténé au CSS du modèle). */
+export const FOOTNOTE_BOTTOM_CSS = `
+.pdf-footnote-divider {
+  margin: 12px 0 4px;
+  border: none;
+  border-top: 1px solid #cccccc;
+}
+.pdf-footnote-entry {
+  display: flex;
+  gap: 4px;
+  font-size: 0.85em;
+  margin: 2px 0;
+}
+.pdf-footnote-num {
+  flex-shrink: 0;
+}
+`;
+
+/** Un élément "note de bas de page" autonome (placement "bas de page") :
+ * numéro explicite (pas de <ol> natif — la numérotation native ne survit
+ * pas à la coupe des notes entre plusieurs pages) + contenu HTML de la
+ * note. Même méthode d'insertion sûre que pour le placement "fin du
+ * manuscrit" : DOMParser (document inerte, n'exécute ni script ni
+ * gestionnaire d'événement) puis migration des nœuds — jamais
+ * d'affectation à innerHTML sur un élément vivant. */
+function buildFootnoteEntry(footnote: PdfFootnote, number: number): HTMLElement {
+  const entry = createDiv({ cls: "pdf-footnote-entry" });
+  entry.id = footnote.id;
+  entry.createSpan({ cls: "pdf-footnote-num", text: `${number}.` });
+  const body = entry.createSpan({ cls: "pdf-footnote-body" });
+  const parsed = new DOMParser().parseFromString(footnote.html, "text/html");
+  while (parsed.body.firstChild) body.appendChild(parsed.body.firstChild);
+  return entry;
+}
+
 function isPrintableIframe(iframe: HTMLIFrameElement): iframe is HTMLIFrameElement & { contentDocument: Document; contentWindow: Window } {
   return iframe.contentDocument !== null && iframe.contentWindow !== null;
 }
@@ -87,28 +142,64 @@ export function paginateManuscript(
   measureHost.style.fontSize = `${tpl.fontSizePt}pt`;
   measureHost.style.lineHeight = String(tpl.lineHeight);
 
-  const elements = Array.from(containerEl.children)
+  const contentElements = Array.from(containerEl.children)
     .map((el) => el.cloneNode(true))
     .filter(isPageElement);
-  if (footnotes && footnotes.length > 0) {
-    // Détaché tant qu'il n'est pas poussé dans `elements` ci-dessous — élément
-    // du document principal Obsidian (ses enfants sont déjà créés via createEl).
-    const fnDiv = createDiv({ cls: "pdf-footnotes-section" });
-    fnDiv.createEl("hr");
-    const ol = fnDiv.createEl("ol");
-    /* Le contenu d'une note est du HTML issu du rendu Markdown d'Obsidian
-       (voir extractFootnotes dans export-render.js). Il est analysé dans un
-       document inerte via DOMParser — qui n'exécute ni script ni gestionnaire
-       d'événement, et ne touche pas au document courant — puis ses nœuds sont
-       déplacés dans le <li>. Plus sûr, et plus lisible, qu'une affectation à
-       innerHTML sur un élément vivant. */
-    for (const f of footnotes) {
-      const li = ol.createEl("li");
-      li.id = f.id;
-      const parsed = new DOMParser().parseFromString(f.html, "text/html");
-      while (parsed.body.firstChild) li.appendChild(parsed.body.firstChild);
+
+  const footnotePlacement = settings.pdfFootnotePlacement === "bottom" ? "bottom" : "end";
+  let elements: Element[];
+
+  if (footnotePlacement === "bottom" && footnotes && footnotes.length > 0) {
+    // Une note est insérée juste après l'élément qui l'appelle en premier —
+    // au fil de la boucle de pagination ci-dessous, elle suit donc
+    // naturellement son appel sur la même page (ou, si elle ne tient pas,
+    // déborde sur la suivante, comme n'importe quel autre contenu).
+    const footnoteNumberById = new Map(footnotes.map((f, i) => [f.id, i + 1]));
+    const knownIds = new Set(footnotes.map((f) => f.id));
+    const placedIds = new Set<string>();
+    const interleaved: Element[] = [];
+    for (const el of contentElements) {
+      interleaved.push(el);
+      const ids = footnoteIdRefsIn(el, knownIds).filter((id) => !placedIds.has(id));
+      if (ids.length === 0) continue;
+      interleaved.push(createEl("hr", { cls: "pdf-footnote-divider" }));
+      for (const id of ids) {
+        placedIds.add(id);
+        const footnote = footnotes.find((f) => f.id === id);
+        if (!footnote) continue;
+        interleaved.push(buildFootnoteEntry(footnote, footnoteNumberById.get(id)!));
+      }
     }
-    elements.push(fnDiv);
+    // Note jamais appelée dans le texte (repli rare, ex. structure HTML
+    // inattendue) : ajoutée en fin de manuscrit plutôt que perdue.
+    const orphans = footnotes.filter((f) => !placedIds.has(f.id));
+    if (orphans.length > 0) {
+      interleaved.push(createEl("hr", { cls: "pdf-footnote-divider" }));
+      for (const f of orphans) interleaved.push(buildFootnoteEntry(f, footnoteNumberById.get(f.id)!));
+    }
+    elements = interleaved;
+  } else {
+    elements = contentElements;
+    if (footnotes && footnotes.length > 0) {
+      // Détaché tant qu'il n'est pas poussé dans `elements` ci-dessous — élément
+      // du document principal Obsidian (ses enfants sont déjà créés via createEl).
+      const fnDiv = createDiv({ cls: "pdf-footnotes-section" });
+      fnDiv.createEl("hr");
+      const ol = fnDiv.createEl("ol");
+      /* Le contenu d'une note est du HTML issu du rendu Markdown d'Obsidian
+         (voir extractFootnotes dans export-render.js). Il est analysé dans un
+         document inerte via DOMParser — qui n'exécute ni script ni gestionnaire
+         d'événement, et ne touche pas au document courant — puis ses nœuds sont
+         déplacés dans le <li>. Plus sûr, et plus lisible, qu'une affectation à
+         innerHTML sur un élément vivant. */
+      for (const f of footnotes) {
+        const li = ol.createEl("li");
+        li.id = f.id;
+        const parsed = new DOMParser().parseFromString(f.html, "text/html");
+        while (parsed.body.firstChild) li.appendChild(parsed.body.firstChild);
+      }
+      elements.push(fnDiv);
+    }
   }
 
   const rawPages: Element[][] = [];
@@ -297,7 +388,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
 
   const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, title, author);
 
-  const css = templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl);
+  const css = templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl) + "\n" + FOOTNOTE_BOTTOM_CSS;
   const pageSize: PdfPageSize = settings.pdfPageSize || "A4";
   const orientation: PdfOrientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
 

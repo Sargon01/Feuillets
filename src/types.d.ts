@@ -284,6 +284,7 @@ declare type FeuilletsSettings = {
   pdfFooterRight: string;
   pdfPageNumberPosition: "right" | "center" | "left";
   pdfHideFirstPageHeader: boolean;
+  pdfFootnotePlacement: "end" | "bottom";
   pdfOrphans: number;
   pdfWidows: number;
   pdfPreventHeadingOrphans: boolean;
