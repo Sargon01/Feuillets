@@ -5,7 +5,9 @@ import { t } from "../i18n/index.js";
 type GrammarDataKind = "known" | "ignored";
 
 type GrammarUserDataPlugin = {
-  grammarUserData: GrammarUserData;
+  /* Absent sur mobile (require("fs")/require("vm") indisponibles — voir
+     GrammalecteChecker) : reflète le vrai champ optionnel de FeuilletsPlugin. */
+  grammarUserData?: GrammarUserData;
 };
 
 /** Gestion des mots appris / fautes ignorées de la correction grammaticale
@@ -45,13 +47,13 @@ export class GrammarUserDataModal extends Modal {
   }
 
   remove(entry: string): void {
-    const data = this.plugin.grammarUserData;
+    const data = this.plugin.grammarUserData!;
     if (this.kind === "known") data.unlearnWord(entry);
     else data.unignoreSignature(entry);
   }
 
   clearAll(): void {
-    const data = this.plugin.grammarUserData;
+    const data = this.plugin.grammarUserData!;
     if (this.kind === "known") data.clearKnownWords();
     else data.clearIgnoredRules();
   }

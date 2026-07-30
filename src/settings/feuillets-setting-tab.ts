@@ -6,18 +6,84 @@ import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
 import { isEngineInstalled, downloadEngine } from "../services/grammar-assets-manager.js";
 import { GrammarUserDataModal } from "../ui/grammar-user-data-modal.js";
-import { PluginSettingTab, Setting, TFolder, Notice, Menu, Platform } from "obsidian";
+import { getProjectMode } from "../services/project-mode.js";
+import type { DefaultSettings } from "../default-settings.js";
+import { PluginSettingTab, Setting, TFolder, Notice, Menu, Platform, Plugin, type App } from "obsidian";
+import type { GrammarUserData } from "../services/grammar-user-data.js";
+
+/* Union des réglages exhaustifs (default-settings.ts) et de l'interface
+   globale partielle (types.d.ts) : ce panneau touche pratiquement tous
+   les champs de réglages, contrairement aux autres fichiers migrés qui
+   n'en étendent que quelques-uns localement. */
+type SettingTabSettings = FeuilletsSettings & DefaultSettings & {
+  /* Ni dans FeuilletsSettings (types.d.ts) ni dans DEFAULT_SETTINGS
+     (default-settings.ts) : champs sans valeur par défaut, toujours lus
+     avec un repli (|| "..."/|| []) dans ce fichier. */
+  compileFileName?: string;
+  favoriteTags?: string[];
+};
+
+type ProjectMode = ReturnType<typeof getProjectMode>;
+
+/* app.setting (panneau de réglages) est une API interne d'Obsidian, non
+   déclarée dans obsidian.d.ts — déjà utilisée en best-effort (try/catch)
+   dans le code d'origine. */
+type SettingTabComponent = { setValue(v: string): void; onChanged(): void };
+type SettingsModal = {
+  openTabById(id: string): void;
+  activeTab?: { searchComponent?: SettingTabComponent };
+};
+type AppWithSettingTab = { setting: SettingsModal };
+
+/* Toutes ces méthodes sont de vraies méthodes de classe de FeuilletsPlugin
+   (main.js), pas des attachements dynamiques — mais PluginSettingTab type
+   son constructeur en `plugin: Plugin` (classe Obsidian réelle), pas via
+   le JSDoc de main.js comme BaseFeuilletsView : on retrouve donc ici le
+   patron Plugin & {...} déjà utilisé pour ScenesEditorPlugin/BoardViewPlugin
+   plutôt que ConstructorParameters. */
+type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
+  settings: SettingTabSettings;
+  projectMode(): ProjectMode;
+  unitLabel(): string;
+  unitLabelPlural(): string;
+  projectDisplayName(path: string): string;
+  getProjectFolder(): TFolder | null;
+  chapterCount(root: TFolder): number;
+  saveSettings(): Promise<void>;
+  updateStatusBar(): void;
+  renderAllViews(force?: boolean): void;
+  createDemoProject(kind: string): Promise<void>;
+  refreshView(delay?: number): void;
+  refreshRibbonIcons(): void;
+  applyLiveTypoClasses(): void;
+  applyIndentClass(): void;
+  applyLeanInterfaceClasses(): void;
+  removeConcentrationCounter(): void;
+  getVaultConfig(key: string): unknown;
+  setVaultConfig(key: string, value: unknown): void;
+  backupProjectNow(): Promise<void>;
+  hidePanel(key: string): Promise<void>;
+  grammarUserData?: GrammarUserData;
+
+  /* Requis par les modales déjà migrées ouvertes depuis ce panneau
+     (ManageProjectsModal, NewProjectModal, ScrivenerImportModal) — mêmes
+     signatures que ProjectModalsPlugin/ScrivenerImportPlugin. */
+  ensureFolder(path: string): Promise<import("obsidian").TAbstractFile>;
+  initProjectStructure(): Promise<void>;
+  getOutputFolder(): Promise<import("obsidian").TAbstractFile | null>;
+  duplicateProject(path: string, label: string): Promise<string | null>;
+  writeOrder(parent: import("obsidian").TAbstractFile, orderedChildren: import("obsidian").TAbstractFile[]): Promise<void>;
+};
 
 export class FeuilletsSettingTab extends PluginSettingTab {
-  /**
-   * @param {import("obsidian").App} app
-   * @param {import("../main.js").default} plugin
-   */
-  constructor(app, plugin) {
+  plugin: FeuilletsSettingTabPlugin;
+  _activeSettingsTab?: string;
+
+  constructor(app: App, plugin: FeuilletsSettingTabPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
-  display() {
+  display(): void {
     const { containerEl } = this;
     const S = this.plugin.settings;
     const mode = this.plugin.projectMode();
@@ -237,7 +303,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("chapitres", t("settings.level1Role.chapters", { unitPlural }))
           .setValue(S.level1Role)
           .onChange(async (v) => {
-            S.level1Role = v;
+            S.level1Role = v as DefaultSettings["level1Role"];
             await this.plugin.saveSettings();
             refresh();
           })
@@ -253,7 +319,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("aucune", t("settings.chapterNumbering.none"))
           .setValue(S.chapterNumbering)
           .onChange(async (v) => {
-            S.chapterNumbering = v;
+            S.chapterNumbering = v as DefaultSettings["chapterNumbering"];
             await this.plugin.saveSettings();
             refresh();
           })
@@ -269,7 +335,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("aucune", t("settings.chapterNumbering.none"))
           .setValue(S.sceneNumbering)
           .onChange(async (v) => {
-            S.sceneNumbering = v;
+            S.sceneNumbering = v as DefaultSettings["sceneNumbering"];
             await this.plugin.saveSettings();
             refresh();
           })
@@ -303,10 +369,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     if (!Array.isArray(S.statuses)) S.statuses = [];
     S.statuses.forEach((st, i) => {
       new Setting(containerEl)
-        .setName(t("settings.statuses.item", { n: i + 1 }))
+        .setName(t("settings.statuses.item", { n: String(i + 1) }))
         .addText((t2) =>
           t2.setValue(st.name).onChange(async (v) => {
-            st.name = v.trim() || t("settings.statuses.item", { n: i + 1 });
+            st.name = v.trim() || t("settings.statuses.item", { n: String(i + 1) });
             await this.plugin.saveSettings();
             refresh();
           })
@@ -333,7 +399,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     new Setting(containerEl).addButton((b) =>
       b.setButtonText(t("settings.statuses.add")).onClick(async () => {
-        S.statuses.push({ name: t("settings.statuses.item", { n: S.statuses.length + 1 }), color: "#888888" });
+        S.statuses.push({ name: t("settings.statuses.item", { n: String(S.statuses.length + 1) }), color: "#888888" });
         await this.plugin.saveSettings();
         this.display();
       })
@@ -348,10 +414,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     (projectLabels || []).forEach((l, i) => {
       new Setting(containerEl)
-        .setName(t("settings.labels.item", { n: i + 1 }))
+        .setName(t("settings.labels.item", { n: String(i + 1) }))
         .addText((t2) =>
           t2.setValue(l.name).onChange(async (v) => {
-            l.name = v.trim() || t("settings.labels.item", { n: i + 1 });
+            l.name = v.trim() || t("settings.labels.item", { n: String(i + 1) });
             await this.plugin.saveSettings();
             refresh();
           })
@@ -378,7 +444,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     new Setting(containerEl).addButton((b) =>
       b.setButtonText(t("settings.labels.add")).onClick(async () => {
-        projectLabels.push({ name: t("settings.labels.item", { n: projectLabels.length + 1 }), color: "#888888" });
+        projectLabels.push({ name: t("settings.labels.item", { n: String(projectLabels.length + 1) }), color: "#888888" });
         await this.plugin.saveSettings();
         this.display();
       })
@@ -530,7 +596,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("en", "English")
           .setValue(S.language || "auto")
           .onChange(async (v) => {
-            S.language = v;
+            S.language = v as DefaultSettings["language"];
             await this.plugin.saveSettings();
             setLocale(detectLocale(S));
             this.plugin.renderAllViews(true);
@@ -617,7 +683,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       .setName(t("settings.textFontFamily.name"))
       .setDesc(t("settings.textFontFamily.desc"))
       .addText((t2) =>
-        t2.setValue(this.plugin.getVaultConfig("textFontFamily") || "").onChange((v) => {
+        t2.setValue(String(this.plugin.getVaultConfig("textFontFamily") || "")).onChange((v) => {
           this.plugin.setVaultConfig("textFontFamily", v.trim());
         })
       );
@@ -625,7 +691,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName(t("settings.monospaceFontFamily.name"))
       .addText((t2) =>
-        t2.setValue(this.plugin.getVaultConfig("monospaceFontFamily") || "").onChange((v) => {
+        t2.setValue(String(this.plugin.getVaultConfig("monospaceFontFamily") || "")).onChange((v) => {
           this.plugin.setVaultConfig("monospaceFontFamily", v.trim());
         })
       );
@@ -711,7 +777,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("invisible", t("settings.liveEmptyLines.invisible"))
           .setValue(S.liveEmptyLines)
           .onChange(async (v) => {
-            S.liveEmptyLines = v;
+            S.liveEmptyLines = v as DefaultSettings["liveEmptyLines"];
             await this.plugin.saveSettings();
             this.plugin.applyLiveTypoClasses();
           })
@@ -776,7 +842,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("paragraph", t("settings.focusUnit.paragraph"))
           .setValue(S.concentrationUnit)
           .onChange(async (v) => {
-            S.concentrationUnit = v;
+            S.concentrationUnit = v as DefaultSettings["concentrationUnit"];
             await this.plugin.saveSettings();
           })
       );
@@ -979,7 +1045,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         drop.addOption("continuous", t("settings.mergeMode.continuous"));
         drop.setValue(S.mergeModeDefault);
         drop.onChange(async (value) => {
-          S.mergeModeDefault = value;
+          S.mergeModeDefault = value as DefaultSettings["mergeModeDefault"];
           await this.plugin.saveSettings();
         });
       });
@@ -1056,7 +1122,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("synopsis", t("settings.cardContent.synopsis"))
           .setValue(S.cardContent)
           .onChange(async (v) => {
-            S.cardContent = v;
+            S.cardContent = v as DefaultSettings["cardContent"];
             await this.plugin.saveSettings();
             refresh();
           })
@@ -1178,7 +1244,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       t("settings.activeViews.boardModes")
     );
     const meta = root ? S.projectMeta[root.path] : null;
-    const projectHiddenModes = meta ? (meta.hiddenBoardModes || S.hiddenBoardModes || []) : (S.hiddenBoardModes || []);
+    const projectHiddenModes: string[] = meta ? ((meta.hiddenBoardModes as string[]) || S.hiddenBoardModes || []) : (S.hiddenBoardModes || []);
     const hiddenModes = new Set(projectHiddenModes);
     for (const [key] of BOARD_MODES) {
       const label = t(`board.mode.${key}`);
@@ -1202,7 +1268,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       t("settings.activeViews.sidePanels")
     );
     const hiddenPanels = new Set(S.hiddenPanels || []);
-    const panelLabels = {
+    const panelLabels: Record<string, string> = {
       research: t("sidebar.tab.research"),
       notes: t("sidebar.tab.notes"),
       journal: t("sidebar.tab.journal"),
@@ -1344,9 +1410,9 @@ export class FeuilletsSettingTab extends PluginSettingTab {
              n'existent pas en non-fiction) : construit l'exemple à partir
              de ce qui existe réellement plutôt que de suppposer une
              liste fixe. */
-          const rf = mode.researchFolders;
+          const rf = mode.researchFolders as Record<string, { label: string } | undefined>;
           const examples = [rf.personnages, rf.lieux, rf.sources, rf.codex]
-            .filter(Boolean)
+            .filter((r): r is { label: string } => !!r)
             .map((r) => r.label.toLowerCase());
           const list = examples.length ? `${examples.join(", ")}…` : t("settings.notesShowEntities.genericExamples");
           return t("settings.notesShowEntities.desc", { list, unit });
@@ -1419,7 +1485,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         drop.addOption("off", t("settings.grammarEngine.off"));
         drop.setValue(S.grammarEngine || "grammalecte");
         drop.onChange(async (v) => {
-          S.grammarEngine = v;
+          S.grammarEngine = v as DefaultSettings["grammarEngine"];
           await this.plugin.saveSettings();
           refresh();
         });
@@ -1475,7 +1541,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         .setName(t("settings.knownWords.name"))
         .setDesc(t("settings.knownWords.desc"))
         .addButton((btn) =>
-          btn.setButtonText(t("settings.knownWords.manageBtn", { count })).onClick(() => {
+          btn.setButtonText(t("settings.knownWords.manageBtn", { count: String(count) })).onClick(() => {
             new GrammarUserDataModal(this.app, this.plugin, "known").open();
           })
         );
@@ -1487,7 +1553,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         .setName(t("settings.ignoredRules.name"))
         .setDesc(t("settings.ignoredRules.desc"))
         .addButton((btn) =>
-          btn.setButtonText(t("settings.ignoredRules.manageBtn", { count })).onClick(() => {
+          btn.setButtonText(t("settings.ignoredRules.manageBtn", { count: String(count) })).onClick(() => {
             new GrammarUserDataModal(this.app, this.plugin, "ignored").open();
           })
         );
@@ -1499,7 +1565,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       .setName(t("settings.compileFileName.name"))
       .setDesc(t("settings.compileFileName.desc"))
       .addText((t2) =>
-        t2.setValue(S.compileFileName).onChange(async (v) => {
+        t2.setValue(S.compileFileName || "").onChange(async (v) => {
           S.compileFileName = v.trim() || "Manuscrit.md";
           await this.plugin.saveSettings();
         })
@@ -1555,14 +1621,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilePresets"), attr: { "data-cat": "Export", "data-open": "1" } });
 
-    (S.compilePresets || []).forEach((p, i) => {
+    (S.compilePresets as PresetConfig[] || []).forEach((p, i) => {
       // Une carte par preset, une ligne étiquetée par champ : l'ancienne
       // version tassait nom + fichier + 3 interrupteurs sans libellé (juste
       // une infobulle au survol) sur une seule ligne — illisible sans
       // deviner ce que chaque interrupteur faisait.
       const card = containerEl.createDiv({ cls: "feuillets-merge-card" });
       const cardHead = card.createDiv({ cls: "feuillets-preset-card-head" });
-      cardHead.createSpan({ cls: "feuillets-merge-card-title", text: p.name || t("settings.compilePresets.item", { n: i + 1 }) });
+      cardHead.createSpan({ cls: "feuillets-merge-card-title", text: p.name || t("settings.compilePresets.item", { n: String(i + 1) }) });
       const delBtn = cardHead.createEl("button", { cls: "clickable-icon", attr: { "aria-label": t("settings.compilePresets.deleteAria") } });
       delBtn.setText("✕");
       delBtn.addEventListener("click", async () => {
@@ -1617,13 +1683,13 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     new Setting(containerEl).addButton((b) =>
       b.setButtonText(t("settings.compilePresets.add")).onClick(async () => {
-        S.compilePresets.push({
-          name: t("settings.compilePresets.item", { n: S.compilePresets.length + 1 }),
+        (S.compilePresets as PresetConfig[]).push({
+          name: t("settings.compilePresets.item", { n: String(S.compilePresets.length + 1) }),
           fileName: "Sortie.md",
           folderTitles: true,
           chapterTitles: true,
           sceneTitles: false,
-        });
+        } as PresetConfig);
         await this.plugin.saveSettings();
         this.display();
         refresh();
@@ -1644,7 +1710,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         drop.addOption("pandoc", t("settings.exportEngine.pandoc"));
         drop.setValue(S.exportEngine || "natif");
         drop.onChange(async (value) => {
-          S.exportEngine = value;
+          S.exportEngine = value as DefaultSettings["exportEngine"];
           await this.plugin.saveSettings();
         });
       });
@@ -1715,7 +1781,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("left", t("settings.pdfPageNumberPosition.left"))
           .setValue(S.pdfPageNumberPosition || "right")
           .onChange(async (v) => {
-            S.pdfPageNumberPosition = v;
+            S.pdfPageNumberPosition = v as DefaultSettings["pdfPageNumberPosition"];
             await this.plugin.saveSettings();
           })
       );
@@ -1827,9 +1893,9 @@ export class FeuilletsSettingTab extends PluginSettingTab {
    *
    * style.display = "none" plutôt que toggleVisibility() : comportement
    * garanti identique dans toutes les versions d'Obsidian. */
-  organizeSections(containerEl) {
+  organizeSections(containerEl: HTMLElement): void {
     const ORDER = ["Projet", "Écriture", "Interface", "Panneaux latéraux", "Correction", "Export"];
-    const CATEGORY_LABELS = {
+    const CATEGORY_LABELS: Record<string, string> = {
       "Projet": t("settings.category.project"),
       "Écriture": t("settings.category.writing"),
       "Interface": t("settings.category.interface"),
@@ -1839,15 +1905,16 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     };
 
     // --- Passe 1 : classification, sans toucher au DOM ---
-    const byCategory = {};
+    type SubSection = { title: string | null; openByDefault?: boolean; nodes: HTMLElement[] };
+    const byCategory: Record<string, SubSection[]> = {};
     for (const name of ORDER) byCategory[name] = [];
     let currentCategory = "Projet";
-    let currentSub = null;
-    let header = null;
+    let currentSub: SubSection | null = null;
+    let header: HTMLElement | null = null;
 
-    for (const node of Array.from(containerEl.children)) {
+    for (const node of Array.from(containerEl.children) as HTMLElement[]) {
       if (node.classList.contains("feuillets-settings-header")) {
-        header = node; // conservé séparément, réinséré apr\u00e8s empty()
+        header = node; // conservé séparément, réinséré après empty()
         continue;
       }
       if (node.classList.contains("feuillets-settings-section")) {
@@ -1874,7 +1941,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       else byCategory[currentCategory].push({ title: null, nodes: [node] });
     }
 
-    if (!ORDER.includes(this._activeSettingsTab)) {
+    if (!this._activeSettingsTab || !ORDER.includes(this._activeSettingsTab)) {
       this._activeSettingsTab = ORDER[0];
     }
 
@@ -1927,15 +1994,15 @@ export class FeuilletsSettingTab extends PluginSettingTab {
    * cause : un plugin ne doit pas pouvoir en installer un autre à l'insu de
    * l'utilisateur), juste un raccourci vers le navigateur intégré
    * d'Obsidian, recherche pré-remplie si possible. */
-  storeLinkButton(container, label, onClick) {
+  storeLinkButton(container: HTMLElement, label: string, onClick: () => void): void {
     const chip = container.createSpan({ cls: "feuillets-tag-chip", attr: { role: "button", tabindex: "0" } });
     chip.setText(label);
     chip.addEventListener("click", onClick);
   }
 
-  openCommunityPluginsSearch(query) {
+  openCommunityPluginsSearch(query: string): void {
     try {
-      const settingModal = this.app.setting;
+      const settingModal = (this.app as unknown as AppWithSettingTab).setting;
       if (!settingModal || !settingModal.openTabById) return;
       settingModal.openTabById("community-plugins");
       const tab = settingModal.activeTab;
@@ -1946,9 +2013,9 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     } catch { /* app.setting est une API interne : ouvrir l'onglet des plugins communautaires est un confort, pas une fonction */ }
   }
 
-  openAppearanceTab() {
+  openAppearanceTab(): void {
     try {
-      const settingModal = this.app.setting;
+      const settingModal = (this.app as unknown as AppWithSettingTab).setting;
       if (settingModal && settingModal.openTabById) settingModal.openTabById("appearance");
     } catch { /* idem pour l'onglet Apparence */ }
   }
@@ -1957,7 +2024,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
    * installé/absent + bouton de téléchargement à la demande — voir
    * services/grammar-assets-manager.js pour pourquoi ils ne sont pas
    * commités dans Feuillets lui-même. */
-  renderEngineDownloadRow(containerEl, engine, label, refresh) {
+  renderEngineDownloadRow(containerEl: HTMLElement, engine: string, label: string, refresh: () => void): void {
     const setting = new Setting(containerEl).setName(label);
 
     // require("fs")/require("path") indisponibles sur mobile — ni le check
@@ -1979,14 +2046,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       btn.onClick(async () => {
         btn.setDisabled(true);
         try {
-          await downloadEngine(this.app, this.plugin.manifest, engine, (phase) => {
+          await downloadEngine(this.app, this.plugin.manifest, engine, (phase: string) => {
             btn.setButtonText(t(`settings.grammarAssets.${phase}`));
           });
           new Notice(t("settings.grammarAssets.downloadDone", { label }));
           refresh();
         } catch (e) {
           console.error("Feuillets : téléchargement du moteur local", e);
-          new Notice(t("settings.grammarAssets.downloadFailed", { error: e.message }));
+          new Notice(t("settings.grammarAssets.downloadFailed", { error: e instanceof Error ? e.message : String(e) }));
           btn.setDisabled(false);
           btn.setButtonText(t("settings.grammarAssets.downloadBtn"));
         }
@@ -1994,9 +2061,9 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     });
   }
 
-  renderSectionOrderList(container, S, key, defaults, refresh) {
+  renderSectionOrderList(container: HTMLElement, S: SettingTabSettings, key: string, defaults: string[], refresh: () => void): void {
     container.empty();
-    let order = S[key] || defaults;
+    let order: string[] = (S[key] as string[] | undefined) || defaults;
     // Dédoublonner et ne garder que les valeurs présentes dans defaults
     order = Array.from(new Set(order)).filter(item => defaults.includes(item));
     // S'il manque des éléments de defaults, on les rajoute à la fin
@@ -2007,7 +2074,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     });
     S[key] = order;
 
-    const sectionLabel = (name) =>
+    const sectionLabel = (name: string) =>
       name === "Synopsis" ? t("notes.section.synopsis")
       : name === "Résumé" ? t("notes.section.summary")
       : name === "Notes" ? t("notes.section.notes")
