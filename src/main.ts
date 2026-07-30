@@ -283,10 +283,10 @@ class FeuilletsPlugin extends Plugin {
 
   registerRibbonIcons() {
     this._ribbonDefs = [
-      { key: "sidebar", icon: "files", labelKey: "main.ribbon.binder", action: () => this.activateSidebar() },
-      { key: "board", icon: "layout-grid", labelKey: "main.ribbon.board", action: () => this.activateBoard() },
-      { key: "journal", icon: "calendar", labelKey: "main.ribbon.journal", action: () => this.activateJournal(), hideable: true },
-      { key: "project", icon: "folder-cog", labelKey: "main.ribbon.project", action: () => this.activateProject(), hideable: true },
+      { key: "sidebar", icon: "files", labelKey: "main.ribbon.binder", action: () => { void this.activateSidebar(); } },
+      { key: "board", icon: "layout-grid", labelKey: "main.ribbon.board", action: () => { void this.activateBoard(); } },
+      { key: "journal", icon: "calendar", labelKey: "main.ribbon.journal", action: () => { void this.activateJournal(); }, hideable: true },
+      { key: "project", icon: "folder-cog", labelKey: "main.ribbon.project", action: () => { void this.activateProject(); }, hideable: true },
       { key: "concentration", icon: "focus", labelKey: "settings.section.focusMode", action: () => this.toggleConcentration() },
     ];
     this._ribbonEls = {};
@@ -345,7 +345,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.journalPanelHidden"));
           return;
         }
-        this.activateJournal();
+        void this.activateJournal();
       },
     });
     this.addCommand({
@@ -356,7 +356,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.journalPanelHidden"));
           return;
         }
-        this.activateJournal();
+        void this.activateJournal();
       },
     });
     this.addCommand({
@@ -367,7 +367,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.projectPanelHidden"));
           return;
         }
-        this.activateProject();
+        void this.activateProject();
       },
     });
     this.addCommand({
@@ -378,7 +378,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.projectPanelHidden"));
           return;
         }
-        this.activateProject();
+        void this.activateProject();
       },
     });
     this.addCommand({
@@ -409,7 +409,7 @@ class FeuilletsPlugin extends Plugin {
         }
         // Ne nécessite pas d'avoir l'onglet ouvert/actif : lance la
         // vérification et le soulignement dans l'éditeur directement.
-        this._grammarView.runCheck(file);
+        void this._grammarView.runCheck(file);
       },
     });
     this.addCommand({
@@ -555,7 +555,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.reviewPanelHidden"));
           return;
         }
-        this.activateDocxReview();
+        void this.activateDocxReview();
       },
     });
     this.addCommand({
@@ -571,7 +571,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.projectPanelHidden"));
           return;
         }
-        this.activateProject();
+        void this.activateProject();
       },
     });
     this.addCommand({
@@ -602,7 +602,7 @@ class FeuilletsPlugin extends Plugin {
                 this.settings.projectFolder = p;
                 await this.saveSettings();
                 this.renderAllViews(true);
-                this.updateStatusBar();
+                void this.updateStatusBar();
               })
           );
         }
@@ -618,8 +618,8 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("analysis.dashboard.noActiveProject"));
           return;
         }
-        new DuplicateVersionModal(this.app, this.projectDisplayName(root.path), async (label) => {
-          await this.duplicateProject(root.path, label);
+        new DuplicateVersionModal(this.app, this.projectDisplayName(root.path), (label) => {
+          void this.duplicateProject(root.path, label);
         }).open();
       },
     });
@@ -912,8 +912,8 @@ class FeuilletsPlugin extends Plugin {
         const af = this.app.vault.getAbstractFileByPath(this.settings.projectFolder);
         if (!af) {
           this.settings.projectFolder = "";
-          this.saveSettings();
-          this.updateStatusBar();
+          void this.saveSettings();
+          void this.updateStatusBar();
         }
       }
       this.refreshView();
@@ -921,15 +921,15 @@ class FeuilletsPlugin extends Plugin {
 
     this.registerEvent(this.app.vault.on("create", (file) => {
       if (this.isLayoutReady) refresh();
-      this.maybeAutoInitializeResearchFile(file);
+      void this.maybeAutoInitializeResearchFile(file);
     }));
 
     this.registerEvent(this.app.vault.on("delete", (file) => {
       if (this.isLayoutReady) {
         if (this.settings.projectFolder && (file.path === this.settings.projectFolder || this.settings.projectFolder.startsWith(file.path + "/"))) {
           this.settings.projectFolder = "";
-          this.saveSettings();
-          this.updateStatusBar();
+          void this.saveSettings();
+          void this.updateStatusBar();
         }
         this.refreshView();
       }
@@ -937,17 +937,17 @@ class FeuilletsPlugin extends Plugin {
 
     this.registerEvent(this.app.vault.on("rename", (file) => {
       if (this.isLayoutReady) refresh();
-      this.maybeAutoInitializeResearchFile(file);
+      void this.maybeAutoInitializeResearchFile(file);
     }));
     this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.handleFilChanged(file)));
     this.registerEvent(this.app.workspace.on("layout-change", () => {
       this.renderStaleViews();
-      this.syncProjectPanelsVisibility();
+      void this.syncProjectPanelsVisibility();
     }));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
-      this.syncProjectPanelsVisibility();
+      void this.syncProjectPanelsVisibility();
     }));
   }
 
@@ -972,7 +972,7 @@ class FeuilletsPlugin extends Plugin {
         }
         window.clearTimeout(this._concTimer);
         this._concTimer = window.setTimeout(
-          () => this.updateConcentrationCounter(editor),
+          () => { void this.updateConcentrationCounter(editor); },
           250
         );
       })
@@ -1119,7 +1119,7 @@ class FeuilletsPlugin extends Plugin {
     });
     const updateStatus = () => {
       window.clearTimeout(this._statusTimer);
-      this._statusTimer = window.setTimeout(() => this.updateStatusBar(), 300);
+      this._statusTimer = window.setTimeout(() => { void this.updateStatusBar(); }, 300);
     };
     this.registerEvent(this.app.workspace.on("file-open", updateStatus));
     this.registerEvent(this.app.workspace.on("editor-change", updateStatus));
@@ -1206,7 +1206,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.researchPanelHidden"));
           return;
         }
-        this.activateResearch();
+        void this.activateResearch();
       },
     });
     this.addCommand({
@@ -1217,7 +1217,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.notesPanelHidden"));
           return;
         }
-        this.activateNotes();
+        void this.activateNotes();
       },
     });
     this.addCommand({
@@ -1527,7 +1527,7 @@ class FeuilletsPlugin extends Plugin {
           document.addEventListener("keydown", this._escHandler);
         }
         const ed = this.app.workspace.activeEditor?.editor;
-        this.updateConcentrationCounter(ed);
+        void this.updateConcentrationCounter(ed);
         new Notice(t("main.notice.concentrationModeOn"));
       } else {
         document.body.removeClass("feuillets-concentration");
@@ -1653,7 +1653,7 @@ class FeuilletsPlugin extends Plugin {
     const leaf = this.getLeafForOpeningFile();
     if (focusEditor) {
       openFileActivating(this.app, leaf, next);
-      this.app.workspace.revealLeaf(leaf);
+      void this.app.workspace.revealLeaf(leaf);
     } else {
       // Attendu ici (contrairement au cas focusEditor) : l'appelant clavier
       // du Binder (feuillets-view.js) a besoin du fichier réellement ouvert
@@ -1801,7 +1801,7 @@ class FeuilletsPlugin extends Plugin {
         const v = leaf.view as StaleableView;
         if (v && v._stale && typeof v.render === "function" && this.leafVisible(leaf)) {
           v._stale = false;
-          v.render();
+          void v.render();
         }
       }
     }
@@ -1818,9 +1818,9 @@ class FeuilletsPlugin extends Plugin {
           }
           view._stale = false;
           if (typeof view.renderAllSubViews === "function") {
-            view.renderAllSubViews(force);
+            void view.renderAllSubViews(force);
           } else if (typeof view.render === "function") {
-            view.render(force);
+            void view.render(force);
           }
         }
       }
@@ -2459,7 +2459,7 @@ class FeuilletsPlugin extends Plugin {
   }
 
   openPdfStyleModal() {
-    this.activateProject();
+    void this.activateProject();
   }
 
   toggleSearchReplaceBar() {
@@ -2506,7 +2506,7 @@ class FeuilletsPlugin extends Plugin {
       this.renderAllViews(true);
       const leaf = this.getLeafForOpeningFile();
       openFileActivating(this.app, leaf, file);
-      this.app.workspace.revealLeaf(leaf);
+      void this.app.workspace.revealLeaf(leaf);
     }).open();
   }
 
@@ -2515,12 +2515,12 @@ class FeuilletsPlugin extends Plugin {
     const existing = workspace.getLeavesOfType(VIEW_SIDEBAR);
     
     if (existing.length > 0) {
-      workspace.revealLeaf(existing[0]);
+      void workspace.revealLeaf(existing[0]);
     } else {
       const leftLeaf = workspace.getLeftLeaf(false);
       if (leftLeaf) {
         await leftLeaf.setViewState({ type: VIEW_SIDEBAR, active: true });
-        workspace.revealLeaf(leftLeaf);
+        void workspace.revealLeaf(leftLeaf);
       }
     }
     await this.activateProjectPanels();
@@ -2530,12 +2530,12 @@ class FeuilletsPlugin extends Plugin {
   async activateBoard() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_BOARD);
     if (existing.length > 0) {
-      this.app.workspace.revealLeaf(existing[0]);
+      void this.app.workspace.revealLeaf(existing[0]);
       return;
     }
     const leaf = this.app.workspace.getLeaf(true);
     await leaf.setViewState({ type: VIEW_BOARD, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    void this.app.workspace.revealLeaf(leaf);
   }
 
   getLeafForOpeningFile() {
@@ -2571,7 +2571,7 @@ class FeuilletsPlugin extends Plugin {
       }
     }
     if (leaf) {
-      workspace.revealLeaf(leaf);
+      void workspace.revealLeaf(leaf);
       const view = leaf.view as View & { activeTab?: string; render?: () => Promise<void> };
       if (view && tabId) {
         view.activeTab = tabId;
@@ -2622,7 +2622,7 @@ class FeuilletsPlugin extends Plugin {
    * ouvert, comme la sauvegarde périodique de Scrivener. */
   registerAutoBackup() {
     this._lastBackupAt = 0;
-    const tick = async () => {
+    const runTick = async () => {
       if (!this.settings.backupEnabled) return;
       const root = this.getProjectFolder();
       if (!root) return;
@@ -2635,14 +2635,17 @@ class FeuilletsPlugin extends Plugin {
         console.error("Feuillets : sauvegarde automatique", e);
       }
     };
+    /* `tick` reste une fonction synchrone (void this.settings) passée par
+       référence à setInterval — surtout pas `() => runTick()` ni
+       `() => { void runTick(); }` en ligne : la règle obsidianmd/no-sample-code
+       de l'ESLint officiel d'Obsidian plante (TypeError) sur
+       `window.setInterval(() => f(), …)` — elle déréférence
+       `callback.body.callee?.property.type` sans `?.` sur `property`, qui
+       est undefined quand l'appel vise un identifiant simple. Ce plantage
+       faisait échouer toute la revue « Source code » du tableau de bord. */
+    const tick = () => { void runTick(); };
     // Vérifié toutes les minutes ; la vraie cadence des sauvegardes est
-    // imposée par backupIntervalMinutes (comparaison de date dans tick()).
-    // `tick` passé par référence, surtout pas `() => tick()` : la règle
-    // obsidianmd/no-sample-code de l'ESLint officiel d'Obsidian plante
-    // (TypeError) sur `window.setInterval(() => f(), …)` — elle déréférence
-    // `callback.body.callee?.property.type` sans `?.` sur `property`, qui
-    // est undefined quand l'appel vise un identifiant simple. Ce plantage
-    // faisait échouer toute la revue « Source code » du tableau de bord.
+    // imposée par backupIntervalMinutes (comparaison de date dans runTick()).
     this.registerInterval(window.setInterval(tick, 60 * 1000));
   }
 
@@ -2685,13 +2688,13 @@ class FeuilletsPlugin extends Plugin {
 
     const showFichesView = () => {
       this.settings.binderTreeCollapsed = true;
-      this.saveSettings();
+      void this.saveSettings();
       if (!toggleFichesViewLight(true)) this.renderAllViews(true);
     };
 
     const showDossiersView = () => {
       this.settings.binderTreeCollapsed = false;
-      this.saveSettings();
+      void this.saveSettings();
       if (!toggleFichesViewLight(false)) this.renderAllViews(true);
     };
 
