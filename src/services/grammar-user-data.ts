@@ -29,12 +29,12 @@ export class GrammarUserData {
   }
 
   get filePath(): string {
-    const path = require("path");
+    const path = require("path") as typeof import("path");
     return path.join(pluginAbsoluteDir(this.app, this.manifest), "resources", "grammar-user-data.json");
   }
 
   load(): void {
-    const fs = require("fs");
+    const fs = require("fs") as typeof import("fs");
     try {
       const data = JSON.parse(fs.readFileSync(this.filePath, "utf8")) as { knownWords?: unknown; ignoredRules?: unknown };
       this.knownWords = Array.isArray(data.knownWords) ? data.knownWords as string[] : [];
@@ -46,8 +46,8 @@ export class GrammarUserData {
   }
 
   save(): void {
-    const fs = require("fs");
-    const path = require("path");
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     fs.writeFileSync(this.filePath, JSON.stringify({ knownWords: this.knownWords, ignoredRules: this.ignoredRules }, null, 2));
   }
