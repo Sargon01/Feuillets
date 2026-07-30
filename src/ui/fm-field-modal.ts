@@ -3,7 +3,7 @@ import { t } from "../i18n/index.js";
 
 type FrontmatterPlugin = {
   titleFor(file: TFile): string;
-  fmOf(file: TFile): Record<string, string | undefined>;
+  fmOf(file: TFile): SceneFrontmatter;
 };
 
 type SavedHandler = () => void | Promise<void>;
@@ -31,7 +31,7 @@ export class FmFieldModal extends Modal {
     const fm = this.plugin.fmOf(this.file);
     const ta = contentEl.createEl("textarea", { attr: { rows: "8" } });
     ta.addClass("feuillets-input-full");
-    ta.value = fm[this.key] || "";
+    ta.value = String(fm[this.key] || "");
     ta.focus();
     const save = async () => {
       const v = ta.value.trim();

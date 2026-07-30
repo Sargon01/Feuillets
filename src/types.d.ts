@@ -316,6 +316,7 @@ declare type FeuilletsSettings = {
   showCardTags: boolean;
   showProgress: boolean;
   outlineCols: Record<string, boolean>;
+  outlineWidths: Record<string, number>;
 
   readScope: string;
   readSelection: string[];

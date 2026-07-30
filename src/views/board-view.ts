@@ -13,58 +13,98 @@ import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 
-/** @param {HTMLElement} el */
-function isInputFocused(el) {
+type ProjectNode = TFile | TFolder;
+type BoardModeKey = "board" | "outline" | "arcs" | "timeline" | "read";
+
+/* isSceneFile/openMergeModal/duplicateManyScenes/openMoveManyModal sont
+   attachés dynamiquement au plugin par initScenesEditor (scenes-editor.ts),
+   pas déclarés comme méthodes de classe dans main.js — absents du type
+   inféré de FeuilletsPlugin, donc ajoutés ici comme dans ScenesEditorPlugin.
+   _binderMultiSelect : idem, attaché par base-feuillets-view.js.
+   openTagsModal : appelé ici (menu "…" d'une carte) mais n'existe nulle
+   part dans le code actuel — déjà le cas avant cette migration (bouton mort
+   au clic), comportement reproduit tel quel, pas de notre ressort de le
+   corriger dans une migration de typage. */
+type BoardViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
+  _binderMultiSelect?: Set<string>;
+  isSceneFile(file: TFile): boolean;
+  openMergeModal(files: TFile[]): Promise<void>;
+  duplicateManyScenes(files: TFile[]): Promise<void>;
+  openMoveManyModal(files: TFile[]): void;
+  openTagsModal(file: TFile): void;
+};
+
+/* app.commands (exécution de commandes par id) est une API interne
+   d'Obsidian, non déclarée dans obsidian.d.ts. */
+type AppWithCommands = {
+  commands: { executeCommandById(id: string): boolean };
+};
+
+/** @param el */
+function isInputFocused(el: HTMLElement): boolean {
   const active = document.activeElement;
-  return active && el.contains(active) && ["TEXTAREA", "INPUT"].includes(active.tagName);
+  return !!active && el.contains(active) && ["TEXTAREA", "INPUT"].includes(active.tagName);
 }
 
-/** @param {Record<string, unknown>} fm */
-function getFilsList(fm) {
+function getFilsList(fm: Record<string, unknown>): string[] {
   const fils = fm.thread;
   if (Array.isArray(fils)) return fils.filter(Boolean).map((r) => String(r).trim()).filter(Boolean);
   if (typeof fils === "string" && fils.trim()) return fils.split(",").map((r) => r.trim()).filter(Boolean);
   return [];
 }
 
-/** @param {Record<string, unknown>} fm */
-function getPersonnagesList(fm) {
+function getPersonnagesList(fm: Record<string, unknown>): string[] {
   const persos = fm.characters;
   if (Array.isArray(persos)) return persos.filter(Boolean).map((r) => String(r).trim()).filter(Boolean);
   if (typeof persos === "string" && persos.trim()) return persos.split(",").map((r) => r.trim()).filter(Boolean);
   return [];
 }
 
-/** @param {string} name */
-function filColor(name) {
+function filColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return `hsl(${Math.abs(hash) % 360}, 70%, 45%)`;
 }
 
+type ModeOptionsCtx = {
+  S: FeuilletsSettings;
+  meta: ProjectMeta;
+  pType: string;
+  folder: TFolder;
+  wholeManuscript: boolean;
+};
+
 export class BoardView extends BaseFeuilletsView {
-  /**
-   * @param {import("obsidian").WorkspaceLeaf} leaf
-   * @param {import("../main.js").default} plugin
-   */
-  constructor(leaf, plugin) {
+  declare plugin: BoardViewPlugin;
+  focusedFolderPath: string | null;
+  scriveningsManager: ScriveningsManager | null;
+  currentCardContent?: string;
+  selectionModeActive?: boolean;
+  wcMap?: Map<string, number>;
+  selectedLabel?: string;
+  selectedPerso?: string;
+  selectedFil?: string;
+  selectedPov?: string;
+  _renderGen?: number;
+
+  constructor(leaf: import("obsidian").WorkspaceLeaf, plugin: BoardViewPlugin) {
     super(leaf, plugin);
     this.focusedFolderPath = null;
     this.scriveningsManager = null;
   }
 
-  getViewType() {
+  getViewType(): string {
     return VIEW_BOARD;
   }
 
-  getDisplayText() {
+  getDisplayText(): string {
     return t("board.displayText");
   }
 
   /** Libellé affiché d'un mode du panneau Cartes (BOARD_MODES ne fournit
    * qu'une clé + un repli français) — traduit via i18n, jamais le repli
    * brut de constants.js. */
-  boardModeLabel(k) {
+  boardModeLabel(k: string): string {
     return t(`board.mode.${k}`);
   }
 
@@ -72,7 +112,7 @@ export class BoardView extends BaseFeuilletsView {
    * (stockées en français dans les réglages, comme pour le Binder — voir
    * filterSentinelLabel dans feuillets-view.js) ; un statut/label/POV réel
    * choisi par l'utilisateur passe inchangé. */
-  filterSentinelLabel(v) {
+  filterSentinelLabel(v: string): string {
     return v === "Tous" ? t("binder.filter.all")
       : v === "Sans statut" ? t("binder.filter.noStatus")
       : v === "Sans label" ? t("binder.filter.noLabel")
@@ -83,22 +123,22 @@ export class BoardView extends BaseFeuilletsView {
       : v;
   }
 
-  getIcon() {
+  getIcon(): string {
     return "layout-grid";
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.updateActiveHighlight()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.updateActiveHighlight()));
     await this.render();
   }
 
-  updateActiveHighlight() {
+  updateActiveHighlight(): void {
     const active = this.app.workspace.getActiveFile();
     this.highlightActivePath(active ? active.path : null);
   }
 
-  highlightActivePath(path) {
+  highlightActivePath(path: string | null): void {
     if (!this.contentEl) return;
     this.contentEl.querySelectorAll(".is-active, .feuillets-dragover, .feuillets-dragging").forEach((r) => {
       r.removeClass("is-active");
@@ -110,15 +150,15 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  async render(force = false) {
+  async render(force = false): Promise<void> {
     return this._render(force);
   }
 
-  passesFilter(file) {
+  passesFilter(file: TFile): boolean {
     const S = this.plugin.settings;
     const statusFilter = S.statusFilter;
     if (statusFilter && statusFilter !== "Tous") {
-      const currentStatus = this.fm(file).status || "";
+      const currentStatus = String(this.fm(file).status || "");
       if (statusFilter === "Sans statut" ? currentStatus !== "" : currentStatus !== statusFilter) return false;
     }
     const labelFilter = S.labelFilter;
@@ -132,7 +172,7 @@ export class BoardView extends BaseFeuilletsView {
       if (povFilter === "Sans POV" ? currentPov !== "" : currentPov !== povFilter) return false;
     }
     const tagTerm = (S.tagFilter || "").trim().toLowerCase().replace(/^#/, "");
-    if (tagTerm && !this.plugin.tagsOf(file).map((l) => l.toLowerCase()).some((l) => l.includes(tagTerm))) return false;
+    if (tagTerm && !this.plugin.tagsOf(file).map((l: string) => l.toLowerCase()).some((l: string) => l.includes(tagTerm))) return false;
     const progressFilter = S.progressFilter;
     if (progressFilter && progressFilter !== "Tous" && this.wcMap) {
       const wc = this.wcMap.get(file.path);
@@ -147,9 +187,9 @@ export class BoardView extends BaseFeuilletsView {
     return true;
   }
 
-  filterActive() {
+  filterActive(): boolean {
     const S = this.plugin.settings;
-    return (
+    return !!(
       (S.statusFilter && S.statusFilter !== "Tous") ||
       (S.labelFilter && S.labelFilter !== "Tous") ||
       (S.progressFilter && S.progressFilter !== "Tous") ||
@@ -158,13 +198,13 @@ export class BoardView extends BaseFeuilletsView {
     );
   }
 
-  gridStyle(el) {
+  gridStyle(el: HTMLElement): void {
     const S = this.plugin.settings;
     if (S.columns > 0) el.style.gridTemplateColumns = `repeat(${S.columns}, 1fr)`;
     else el.style.gridTemplateColumns = `repeat(auto-fill, minmax(${S.tileSize}px, 1fr))`;
   }
 
-  async _render(force = false) {
+  async _render(force = false): Promise<void> {
     if (this.scriveningsManager && this.scriveningsManager.isSaving) return;
 
     const container = this.contentEl;
@@ -195,17 +235,17 @@ export class BoardView extends BaseFeuilletsView {
     const meta = S.projectMeta[root.path];
     const projectType = resolveType(meta.type);
     const modeConfig = PROJECT_MODES[projectType] || PROJECT_MODES.fiction;
-    let mode = meta.boardMode || modeConfig.defaults.boardMode;
+    let mode: string = meta.boardMode || modeConfig.defaults.boardMode;
     this.currentCardContent = meta.cardContent || modeConfig.defaults.cardContent;
 
-    const hiddenModes = meta.hiddenBoardModes || S.hiddenBoardModes || [];
-    const wholeManuscript = meta.boardWholeManuscript !== undefined ? meta.boardWholeManuscript : !!S.boardWholeManuscript;
+    const hiddenModes: string[] = (meta.hiddenBoardModes as string[]) || S.hiddenBoardModes || [];
+    const wholeManuscript = meta.boardWholeManuscript !== undefined ? !!meta.boardWholeManuscript : !!S.boardWholeManuscript;
     if (mode === "research") mode = "board";
 
     let visibleModes = BOARD_MODES.map(([k]) => k).filter((k) => !hiddenModes.includes(k));
     if (visibleModes.length === 0) visibleModes = BOARD_MODES.map(([k]) => k);
     if (!visibleModes.includes(mode)) mode = visibleModes[0];
-    const activeMode = mode;
+    const activeMode = mode as BoardModeKey;
 
     if (activeMode !== "read" && this.scriveningsManager) {
       this.scriveningsManager.destroy();
@@ -221,7 +261,7 @@ export class BoardView extends BaseFeuilletsView {
     if (this.selectionModeActive === undefined) this.selectionModeActive = false;
 
     const bar = container.createDiv({ cls: "feuillets-board-bar" }).createDiv({ cls: "feuillets-board-bar-right" });
-    this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", t("board.filter.tooltip"), (e) => {
+    this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", t("board.filter.tooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
       for (const st of ["Tous", ...getProjectStatuses(S).filter(Boolean), "Sans statut"]) {
@@ -234,10 +274,10 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.addSeparator();
-      const labels = new Set();
+      const labels = new Set<string>();
       const projectRoot = this.plugin.getProjectFolder();
       if (projectRoot) {
-        const collect = (f) => {
+        const collect = (f: TFolder) => {
           for (const c of this.plugin.getOrderedChildren(f)) {
             if (c instanceof TFile) {
               const l = this.plugin.labelOf(c);
@@ -248,7 +288,7 @@ export class BoardView extends BaseFeuilletsView {
         collect(projectRoot);
       }
       const pMeta = projectRoot ? S.projectMeta[projectRoot.path] : null;
-      (pMeta && pMeta.labels ? pMeta.labels : S.labels || []).forEach((l) => { if (l.name) labels.add(l.name); });
+      ((pMeta && pMeta.labels ? pMeta.labels : S.labels || []) as Label[]).forEach((l) => { if (l.name) labels.add(l.name); });
       const sortedLabels = Array.from(labels).sort((a, b) => a.localeCompare(b, "fr"));
       menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
       for (const lb of ["Tous", ...sortedLabels, "Sans label"]) {
@@ -261,9 +301,9 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.addSeparator();
-      const povs = new Set();
+      const povs = new Set<string>();
       if (projectRoot) {
-        const collectPov = (f) => {
+        const collectPov = (f: TFolder) => {
           for (const c of this.plugin.getOrderedChildren(f)) {
             if (c instanceof TFile) {
               const p = povOf(this.fm(c));
@@ -327,7 +367,7 @@ export class BoardView extends BaseFeuilletsView {
 
     this.barSep(bar);
 
-    const switchMode = (m) => async () => {
+    const switchMode = (m: string) => async () => {
       if (meta) meta.boardMode = m;
       S.boardMode = m;
       await this.plugin.saveSettings();
@@ -335,7 +375,7 @@ export class BoardView extends BaseFeuilletsView {
     };
 
     const modeGroup = bar.createDiv({ cls: "feuillets-mode-group" });
-    const icons = { board: "layout-grid", outline: "list-tree", arcs: "git-branch", timeline: "milestone", read: "book-open-text" };
+    const icons: Record<string, string> = { board: "layout-grid", outline: "list-tree", arcs: "git-branch", timeline: "milestone", read: "book-open-text" };
     for (const [k] of BOARD_MODES) {
       if (!visibleModes.includes(k)) continue;
       const btn = this.iconBtn(modeGroup, icons[k], this.boardModeLabel(k), switchMode(k));
@@ -346,7 +386,7 @@ export class BoardView extends BaseFeuilletsView {
       this.plugin.generateCanvasBoard();
     });
 
-    this.iconBtn(modeGroup, "sliders-horizontal", t("board.viewOptionsTooltip"), (e) => {
+    this.iconBtn(modeGroup, "sliders-horizontal", t("board.viewOptionsTooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("board.visibleModesHeader")).setDisabled(true));
       for (const [k] of BOARD_MODES) {
@@ -370,11 +410,12 @@ export class BoardView extends BaseFeuilletsView {
     this.barSep(bar);
 
     if (activeMode !== "read" && activeMode !== "arcs") {
-      const selSize = this.plugin._binderMultiSelect.size;
-      const getSelectedFiles = () =>
-        [...this.plugin._binderMultiSelect].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f) => f instanceof TFile);
+      const multiSelect = this.plugin._binderMultiSelect!;
+      const selSize = multiSelect.size;
+      const getSelectedFiles = (): TFile[] =>
+        [...multiSelect].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f): f is TFile => f instanceof TFile);
       const clearSel = () => {
-        this.plugin._binderMultiSelect.clear();
+        multiSelect.clear();
         this.selectionModeActive = false;
         this.render(true);
       };
@@ -384,9 +425,9 @@ export class BoardView extends BaseFeuilletsView {
         bar,
         "list-checks",
         this.selectionModeActive
-          ? t("board.selection.actionsTooltip", { unit: unitLabel, count: selSize, s: selSize > 1 ? "s" : "" })
+          ? t("board.selection.actionsTooltip", { unit: unitLabel, count: String(selSize), s: selSize > 1 ? "s" : "" })
           : t("board.selection.selectTooltip", { unitPlural }),
-        (e) => {
+        (e: MouseEvent) => {
           const menu = new Menu();
           if (!this.selectionModeActive) {
             menu.addItem((item) =>
@@ -399,7 +440,7 @@ export class BoardView extends BaseFeuilletsView {
             return;
           }
           menu.addItem((item) =>
-            item.setTitle(t("board.selection.merge", { count: selSize })).setIcon("git-merge").setDisabled(selSize < 2).onClick(() => {
+            item.setTitle(t("board.selection.merge", { count: String(selSize) })).setIcon("git-merge").setDisabled(selSize < 2).onClick(() => {
               const files = getSelectedFiles();
               clearSel();
               if (files.length < 2) {
@@ -410,14 +451,14 @@ export class BoardView extends BaseFeuilletsView {
             })
           );
           menu.addItem((item) =>
-            item.setTitle(t("board.selection.duplicate", { count: selSize })).setIcon("copy").setDisabled(selSize < 1).onClick(async () => {
+            item.setTitle(t("board.selection.duplicate", { count: String(selSize) })).setIcon("copy").setDisabled(selSize < 1).onClick(async () => {
               const files = getSelectedFiles();
               clearSel();
               if (files.length > 0) await this.plugin.duplicateManyScenes(files);
             })
           );
           menu.addItem((item) =>
-            item.setTitle(t("board.selection.move", { count: selSize })).setIcon("move").setDisabled(selSize < 1).onClick(() => {
+            item.setTitle(t("board.selection.move", { count: String(selSize) })).setIcon("move").setDisabled(selSize < 1).onClick(() => {
               const files = getSelectedFiles();
               clearSel();
               if (files.length > 0) this.plugin.openMoveManyModal(files);
@@ -427,7 +468,7 @@ export class BoardView extends BaseFeuilletsView {
 
           for (const st of getProjectStatuses(this.plugin.settings).filter(Boolean)) {
             menu.addItem((item) =>
-              item.setTitle(t("board.selection.statusCount", { status: st, count: selSize })).setDisabled(selSize < 1).onClick(async () => {
+              item.setTitle(t("board.selection.statusCount", { status: st, count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
                 clearSel();
                 await this.applyBulkStatus(files, st);
@@ -438,7 +479,7 @@ export class BoardView extends BaseFeuilletsView {
 
           for (const l of this.getProjectLabels()) {
             menu.addItem((item) =>
-              item.setTitle(t("board.selection.labelCount", { label: l.name, count: selSize })).setDisabled(selSize < 1).onClick(async () => {
+              item.setTitle(t("board.selection.labelCount", { label: l.name, count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
                 clearSel();
                 await this.applyBulkLabel(files, l.name);
@@ -448,7 +489,7 @@ export class BoardView extends BaseFeuilletsView {
           menu.addSeparator();
 
           menu.addItem((item) =>
-            item.setTitle(t("board.selection.addTag", { count: selSize })).setIcon("tag").setDisabled(selSize < 1).onClick(() => {
+            item.setTitle(t("board.selection.addTag", { count: String(selSize) })).setIcon("tag").setDisabled(selSize < 1).onClick(() => {
               const files = getSelectedFiles();
               clearSel();
               this.promptBulkTag(files, () => this.render(true));
@@ -462,7 +503,7 @@ export class BoardView extends BaseFeuilletsView {
       if (this.selectionModeActive) btnSel.addClass("feuillets-mode-active");
     }
 
-    this.iconBtn(bar, "undo-2", t("board.undoMoveTooltip"), () => this.app.commands.executeCommandById("feuillets:undo-move"));
+    this.iconBtn(bar, "undo-2", t("board.undoMoveTooltip"), () => (this.app as unknown as AppWithCommands).commands.executeCommandById("feuillets:undo-move"));
 
     const flattened = this.plugin.flattenFiles(root);
     const wcMapRaw = await this.plugin.getWordCounts(flattened);
@@ -473,8 +514,8 @@ export class BoardView extends BaseFeuilletsView {
       this.wcMap.set(file.path, wcMapRaw.get(file.path)?.wc || 0);
     }
 
-    const bumpTotal = () => {};
-    this.plugin.wordCountOfFolder(root).then((wc) => {
+    const bumpTotal = (_n?: number) => {};
+    this.plugin.wordCountOfFolder(root).then((wc: number) => {
       this.plugin.updateDailyStats(wc);
     });
 
@@ -507,9 +548,9 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  buildModeOptionsMenu(menu, activeMode, ctx) {
+  buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx): void {
     const { S, meta, pType, folder, wholeManuscript } = ctx;
-    const addToggleOption = (key, label) =>
+    const addToggleOption = (key: string, label: string) =>
       menu.addItem((item) =>
         item.setTitle(label).setChecked(!!S[key]).onClick(async () => {
           S[key] = !S[key];
@@ -520,7 +561,7 @@ export class BoardView extends BaseFeuilletsView {
 
     if (activeMode === "board") {
       menu.addItem((item) => item.setTitle(t("board.options.cardsHeader")).setDisabled(true));
-      for (const [val, label] of [[false, t("board.options.folderByFolder")], [true, t("board.options.wholeManuscript")]]) {
+      for (const [val, label] of [[false, t("board.options.folderByFolder")], [true, t("board.options.wholeManuscript")]] as [boolean, string][]) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(wholeManuscript === val).onClick(async () => {
             if (meta) meta.boardWholeManuscript = val;
@@ -549,7 +590,7 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.addSeparator();
-      for (const [val, label] of [[180, t("board.options.tilesSmall")], [240, t("board.options.tilesMedium")], [320, t("board.options.tilesLarge")]]) {
+      for (const [val, label] of [[180, t("board.options.tilesSmall")], [240, t("board.options.tilesMedium")], [320, t("board.options.tilesLarge")]] as [number, string][]) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(S.tileSize === val).onClick(async () => {
             S.tileSize = val;
@@ -614,8 +655,8 @@ export class BoardView extends BaseFeuilletsView {
       );
       const chronoFolder = this.plugin.getChronoFolder();
       if (chronoFolder instanceof TFolder) {
-        const tags = new Set();
-        const collect = (f) => {
+        const tags = new Set<string>();
+        const collect = (f: TFolder) => {
           for (const child of f.children) {
             if (child instanceof TFolder) collect(child);
             else if (child instanceof TFile && child.extension === "md") {
@@ -659,7 +700,7 @@ export class BoardView extends BaseFeuilletsView {
           this.render();
         })
       );
-      const addFolderScopeOptions = (f, depth) => {
+      const addFolderScopeOptions = (f: TFolder, depth: number) => {
         for (const child of this.plugin.getOrderedChildren(f)) {
           if (child instanceof TFolder) {
             menu.addItem((item) =>
@@ -687,7 +728,7 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  makeGoalInput(parent, file) {
+  makeGoalInput(parent: HTMLElement, file: TFile): HTMLInputElement {
     const fm = this.fm(file);
     const input = parent.createEl("input", {
       cls: "feuillets-goal-input",
@@ -702,7 +743,7 @@ export class BoardView extends BaseFeuilletsView {
     return input;
   }
 
-  makeTagsEditor(parent, file) {
+  makeTagsEditor(parent: HTMLElement, file: TFile): void {
     if (!this.plugin.settings.showTags) return;
     const wrap = parent.createDiv({ cls: "feuillets-tags" });
     const tags = this.plugin.tagsOf(file);
@@ -725,15 +766,15 @@ export class BoardView extends BaseFeuilletsView {
     wrap.querySelectorAll(".feuillets-tag-chip").forEach((chip, idx) => {
       chip.setAttr("title", t("shared.tags.removeTooltip"));
       chip.addEventListener("click", async () => {
-        const next = tags.filter((_, i) => i !== idx);
+        const next = tags.filter((_: string, i: number) => i !== idx);
         await this.setFm(file, "tags", next);
       });
     });
   }
 
-  renderBreadcrumbs(container, root, currentFolder) {
-    const chain = [];
-    let cur = currentFolder;
+  renderBreadcrumbs(container: HTMLElement, root: TFolder, currentFolder: TFolder): void {
+    const chain: TFolder[] = [];
+    let cur: TFolder | null = currentFolder;
     while (cur && cur.path !== root.path) {
       chain.push(cur);
       cur = cur.parent;
@@ -754,8 +795,8 @@ export class BoardView extends BaseFeuilletsView {
     });
   }
 
-  renderBoard(container, root, currentFolder, numbering, bumpTotal) {
-    const children = this.plugin.getOrderedChildren(currentFolder).filter((c) => !this.plugin.isFrontMatter(c));
+  renderBoard(container: HTMLElement, root: TFolder, currentFolder: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void): void {
+    const children = this.plugin.getOrderedChildren(currentFolder).filter((c: ProjectNode) => !this.plugin.isFrontMatter(c));
     const grid = container.createDiv({ cls: "feuillets-grid" });
     this.gridStyle(grid);
     for (let i = 0; i < children.length; i++) {
@@ -768,11 +809,11 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  renderBoardWholeManuscript(container, root, numbering, bumpTotal) {
+  renderBoardWholeManuscript(container: HTMLElement, root: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void): void {
     const S = this.plugin.settings;
-    const walk = (folder, depth) => {
-      const children = this.plugin.getOrderedChildren(folder).filter((c) => !this.plugin.isFrontMatter(c));
-      let activeGrid = null;
+    const walk = (folder: TFolder, depth: number) => {
+      const children = this.plugin.getOrderedChildren(folder).filter((c: ProjectNode) => !this.plugin.isFrontMatter(c));
+      let activeGrid: HTMLElement | null = null;
       for (let i = 0; i < children.length; i++) {
         const item = children[i];
         if (item instanceof TFolder) {
@@ -816,9 +857,9 @@ export class BoardView extends BaseFeuilletsView {
     walk(root, 0);
   }
 
-  makeClickToEditFmArea(parent, file, key, placeholder, maxLines = 6) {
+  makeClickToEditFmArea(parent: HTMLElement, file: TFile, key: string, placeholder: string, maxLines = 6): HTMLElement {
     const fm = this.fm(file);
-    const val = fm[key] || "";
+    const val = String(fm[key] || "");
     const cell = parent.createDiv({ cls: "feuillets-flat-text-cell" + (val ? "" : " is-empty"), text: val || placeholder });
     if (maxLines) {
       cell.style.setProperty("--max-lines", String(maxLines));
@@ -828,14 +869,14 @@ export class BoardView extends BaseFeuilletsView {
       e.stopPropagation();
       cell.hide();
       const area = parent.createEl("textarea", { cls: "feuillets-flat-textarea feuillets-autosize" });
-      area.value = fm[key] || "";
+      area.value = String(fm[key] || "");
       area.focus();
       area.style.removeProperty("height");
       area.style.height = `${area.scrollHeight}px`;
       const save = async () => {
         if (area.parentNode) {
           const raw = area.value.trim();
-          if (raw !== (fm[key] || "")) {
+          if (raw !== String(fm[key] || "")) {
             await this.setFm(file, key, raw);
             cell.setText(raw || placeholder);
             if (raw) cell.removeClass("is-empty"); else cell.addClass("is-empty");
@@ -852,7 +893,7 @@ export class BoardView extends BaseFeuilletsView {
     return cell;
   }
 
-  renderFolderCard(container, parentFolder, folder, index, siblings, _numbering, _bumpTotal) {
+  renderFolderCard(container: HTMLElement, parentFolder: TFolder, folder: TFolder, index: number, siblings: ProjectNode[], _numbering: unknown, _bumpTotal: unknown): void {
     const S = this.plugin.settings;
     const card = container.createDiv({ cls: "feuillets-card feuillets-card-folder" });
     card.setAttr("title", t("board.folderCard.doubleClickEnter", { name: folder.name }));
@@ -873,10 +914,15 @@ export class BoardView extends BaseFeuilletsView {
     const head = card.createDiv({ cls: "feuillets-card-head" });
     const icon = head.createDiv({ cls: "feuillets-card-icon" });
     setIcon(icon, "folder");
+    /* `style` n'est pas une clé reconnue de DomElementInfo (cls/text/attr/
+       title seulement) : Obsidian l'ignore silencieusement à l'exécution,
+       ce bloc n'a donc jamais réellement appliqué ce style inline — état
+       préexistant à cette migration, reproduit tel quel. */
     const num = head.createDiv({
       cls: "feuillets-card-num",
       style: "font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 90px; cursor: pointer;",
-    });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- clé "style" non reconnue par DomElementInfo, no-op préexistant conservé tel quel
+    } as any);
     num.setText(folder.name);
     num.setAttr("title", t("board.folderCard.clickToEnter"));
     num.addEventListener("click", (e) => {
@@ -889,13 +935,13 @@ export class BoardView extends BaseFeuilletsView {
     const ring = head.createDiv({ cls: "feuillets-ring" });
     if (!S.showProgress) ring.hide();
 
-    const totalWc = this.plugin.flattenFiles(folder).reduce((acc, f) => acc + (this.wcMap.get(f.path) || 0), 0);
+    const totalWc = this.plugin.flattenFiles(folder).reduce((acc: number, f: TFile) => acc + (this.wcMap!.get(f.path) || 0), 0);
     const goal = this.plugin.folderGoal(folder);
     wcEl.setText(goal > 0 ? `${totalWc} / ${goal}` : String(totalWc));
     if (S.showProgress) this.fillRing(ring, totalWc, goal);
 
     const fieldKey = this.currentCardContent === "synopsis" ? "synopsis" : "summary";
-    const summary = (folderNote && this.plugin.fmOf(folderNote)[fieldKey]) || "";
+    const summary = String((folderNote && this.plugin.fmOf(folderNote)[fieldKey]) || "");
     const excerpt = card.createDiv({ cls: "feuillets-card-excerpt" });
     excerpt.addClass("feuillets-mt-sm");
     excerpt.setText(summary || (fieldKey === "synopsis" ? t("board.folderCard.synopsisPlaceholder") : t("board.folderCard.summaryPlaceholder")));
@@ -903,7 +949,7 @@ export class BoardView extends BaseFeuilletsView {
     if (!this.filterActive()) this.attachDragHandlers(head, card, parentFolder, index, siblings, container);
   }
 
-  renderCard(container, parentFolder, file, index, siblings, numbering, bumpTotal) {
+  renderCard(container: HTMLElement, parentFolder: TFolder, file: TFile, index: number, siblings: ProjectNode[], numbering: Map<string, string>, bumpTotal: (n?: number) => void): void {
     const S = this.plugin.settings;
     const role = this.plugin.roleOfFile(file);
     const goal = this.goalFor(file);
@@ -926,12 +972,12 @@ export class BoardView extends BaseFeuilletsView {
     const head = card.createDiv({ cls: "feuillets-card-head" });
     if (this.selectionModeActive && this.plugin.isSceneFile(file)) {
       const cb = head.createEl("input", { type: "checkbox", cls: "feuillets-scene-select" });
-      cb.checked = this.plugin._binderMultiSelect.has(file.path);
+      cb.checked = this.plugin._binderMultiSelect!.has(file.path);
       cb.setAttr("title", t("board.card.selectThisUnit", { unit: this.plugin.unitLabel() }));
       cb.addEventListener("click", (e) => e.stopPropagation());
       cb.addEventListener("change", () => {
-        if (cb.checked) this.plugin._binderMultiSelect.add(file.path);
-        else this.plugin._binderMultiSelect.delete(file.path);
+        if (cb.checked) this.plugin._binderMultiSelect!.add(file.path);
+        else this.plugin._binderMultiSelect!.delete(file.path);
         this.render(true);
       });
     }
@@ -956,7 +1002,7 @@ export class BoardView extends BaseFeuilletsView {
     more.addEventListener("click", (e) => {
       e.stopPropagation();
       const menu = new Menu();
-      const currentSt = this.fm(file).status || "";
+      const currentSt = String(this.fm(file).status || "");
       const S = this.plugin.settings;
       for (const st of getProjectStatuses(S).filter(Boolean)) {
         menu.addItem((item) =>
@@ -1023,7 +1069,7 @@ export class BoardView extends BaseFeuilletsView {
         /* On tranche un peu large AVANT de nettoyer la syntaxe (le nettoyage
            raccourcit le texte) puis on recoupe à la longueur voulue —
            inutile de dépouiller tout le corps du feuillet pour un aperçu. */
-        const limit = S.excerptLength || 420;
+        const limit = Number(S.excerptLength) || 420;
         const clean = stripMarkdown(body.slice(0, limit + 200)).slice(0, limit);
         excerpt.setText(clean || t("binder.item.emptyPreview"));
       });
@@ -1031,7 +1077,7 @@ export class BoardView extends BaseFeuilletsView {
 
     if (S.showCardTags) this.makeTagsEditor(card, file);
 
-    const wc = this.wcMap.get(file.path) || 0;
+    const wc = this.wcMap!.get(file.path) || 0;
     bumpTotal(wc);
     wcEl.setText(String(wc));
     if (S.showProgress) this.fillRing(ring, wc, goal);
@@ -1039,7 +1085,7 @@ export class BoardView extends BaseFeuilletsView {
     if (!this.filterActive()) this.attachDragHandlers(head, card, parentFolder, index, siblings, container);
   }
 
-  async renderReading(container, rootFolder, _numbering) {
+  async renderReading(container: HTMLElement, rootFolder: TFolder, _numbering: unknown): Promise<void> {
     container.empty();
     const scrollWrap = container.createDiv({ cls: "feuillets-reading-wrapper" });
 
@@ -1052,13 +1098,13 @@ export class BoardView extends BaseFeuilletsView {
       }
     }
 
-    let filesToRead = [];
+    let filesToRead: TFile[] = [];
     if (S.readScope === "__selection__") {
       const selectedPaths = new Set(S.readSelection || []);
-      filesToRead = this.plugin.flattenFiles(rootFolder).filter((f) => selectedPaths.has(f.path));
+      filesToRead = this.plugin.flattenFiles(rootFolder).filter((f: TFile) => selectedPaths.has(f.path));
     } else {
       filesToRead = this.plugin.flattenFiles(targetFolder).filter(
-        (f) => this.passesFilter(f) && !this.plugin.isFrontMatter(f)
+        (f: TFile) => this.passesFilter(f) && !this.plugin.isFrontMatter(f)
       );
     }
 
@@ -1085,9 +1131,10 @@ export class BoardView extends BaseFeuilletsView {
     await this.scriveningsManager.loadScenes(filesToRead, this.plugin, this);
   }
 
-  renderCheminDeFer(container, root, numbering) {
-    const items = [];
-    const collect = (folder) => {
+  renderCheminDeFer(container: HTMLElement, root: TFolder, numbering: Map<string, string>): void {
+    type ChdfItem = { type: "folder"; folder: TFolder; role: string } | { type: "file"; file: TFile };
+    const items: ChdfItem[] = [];
+    const collect = (folder: TFolder) => {
       for (const child of this.plugin.getOrderedChildren(folder)) {
         if (child.name.startsWith("_") || child.path.includes("/_") || this.plugin.isFrontMatter(child)) continue;
         if (child instanceof TFolder) {
@@ -1102,14 +1149,14 @@ export class BoardView extends BaseFeuilletsView {
     };
     collect(root);
 
-    const fileItems = items.filter((i) => i.type === "file");
-    const labelsSet = new Set();
-    const labelMap = new Map();
-    const filsMap = new Map();
-    const personnagesSet = new Set();
-    const personnagesMap = new Map();
-    const povSet = new Set();
-    const povMap = new Map();
+    const fileItems = items.filter((i): i is { type: "file"; file: TFile } => i.type === "file");
+    const labelsSet = new Set<string>();
+    const labelMap = new Map<string, string[]>();
+    const filsMap = new Map<string, string[]>();
+    const personnagesSet = new Set<string>();
+    const personnagesMap = new Map<string, string[]>();
+    const povSet = new Set<string>();
+    const povMap = new Map<string, string>();
 
     for (const item of fileItems) {
       const lbs = this.plugin.labelsOf(item.file);
@@ -1126,7 +1173,7 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     const sortedLabels = Array.from(labelsSet).sort((a, b) => a.localeCompare(b, "fr"));
-    const filsSet = new Set();
+    const filsSet = new Set<string>();
     for (const arr of filsMap.values()) for (const f of arr) filsSet.add(f);
     const sortedFils = Array.from(filsSet).sort((a, b) => a.localeCompare(b, "fr"));
     const sortedPersonnages = Array.from(personnagesSet).sort((a, b) => a.localeCompare(b, "fr"));
@@ -1143,7 +1190,7 @@ export class BoardView extends BaseFeuilletsView {
 
     const filterBar = wrap.createDiv({ cls: "feuillets-arcs-filter-bar" });
 
-    const buildFilterMenuBtn = (icon, name, options, currentValue, onSelect) => {
+    const buildFilterMenuBtn = (icon: string, name: string, options: string[], currentValue: string | undefined, onSelect: (v: string) => void) => {
       const btn = filterBar.createEl("button", { cls: "clickable-icon feuillets-arcs-filter-btn" });
       setIcon(btn.createSpan(), icon);
       btn.createSpan({ cls: "feuillets-arcs-filter-btn-label", text: currentValue || name });
@@ -1203,12 +1250,12 @@ export class BoardView extends BaseFeuilletsView {
     // Étendue (première → dernière apparition) de chaque lieu/fil parmi les scènes
     // effectivement affichées, pour tracer une ligne de continuité entre les points.
     const renderedPaths = items
-      .filter((i) => i.type === "file" && (!matchedSet || matchedSet.has(i.file.path)))
+      .filter((i): i is { type: "file"; file: TFile } => i.type === "file" && (!matchedSet || matchedSet.has(i.file.path)))
       .map((i) => i.file.path);
 
-    const labelFirst = {}, labelLast = {};
+    const labelFirst: Record<string, number> = {}, labelLast: Record<string, number> = {};
     activeLabels.forEach((lb) => { labelFirst[lb] = -1; labelLast[lb] = -1; });
-    const filFirst = {}, filLast = {};
+    const filFirst: Record<string, number> = {}, filLast: Record<string, number> = {};
     activeFils.forEach((f) => { filFirst[f] = -1; filLast[f] = -1; });
 
     renderedPaths.forEach((path, idx) => {
@@ -1258,7 +1305,7 @@ export class BoardView extends BaseFeuilletsView {
         const col = rails.createDiv({ cls: "feuillets-arcs-col" });
         setTooltip(col, lb);
         col.setAttr("title", lb);
-        const color = this.plugin.labelColor(lb);
+        const color = this.plugin.labelColor(lb) || "";
         col.style.setProperty("--arc-color", color);
         const hasLabel = currentLabels.includes(lb);
         if (labelFirst[lb] !== -1 && idx >= labelFirst[lb] && idx <= labelLast[lb]) {
@@ -1277,11 +1324,11 @@ export class BoardView extends BaseFeuilletsView {
       if (numbering) titleRow.createSpan({ cls: "feuillets-row-num", text: numbering.get(file.path) || "" });
       if (fm.status) {
         const dot = titleRow.createSpan({ cls: "feuillets-status-dot" });
-        dot.style.background = this.plugin.getStatusColor(fm.status) || "var(--text-faint)";
+        dot.style.background = this.plugin.getStatusColor(String(fm.status)) || "var(--text-faint)";
       }
       titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
 
-      if (fm.synopsis) info.createDiv({ cls: "feuillets-arcs-file-synopsis", text: fm.synopsis });
+      if (fm.synopsis) info.createDiv({ cls: "feuillets-arcs-file-synopsis", text: String(fm.synopsis) });
 
       const currentPov = povMap.get(file.path) || "";
       if (currentPov) {
@@ -1322,13 +1369,14 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  renderTimeline(container, folder, numbering) {
+  renderTimeline(container: HTMLElement, folder: TFolder, numbering: Map<string, string>): void {
     return this.renderTimelineInner(container, folder, numbering);
   }
 
-  renderTimelineInner(container, folder, _numbering) {
-    const files = this.plugin.flattenFiles(folder).filter((f) => this.passesFilter(f) && !this.plugin.isFrontMatter(f));
-    const items = [];
+  renderTimelineInner(container: HTMLElement, folder: TFolder, _numbering: unknown): void {
+    const files = this.plugin.flattenFiles(folder).filter((f: TFile) => this.passesFilter(f) && !this.plugin.isFrontMatter(f));
+    type TimelineItem = { file: TFile; milestone?: boolean; sort: number; y: number; mo: number; d: number; display: string };
+    const items: TimelineItem[] = [];
     for (const file of files) {
       const dateObj = parseStoryDate(this.fm(file).date, file);
       if (dateObj) items.push({ file, ...dateObj });
@@ -1336,7 +1384,7 @@ export class BoardView extends BaseFeuilletsView {
 
     const chronoFolder = this.plugin.getChronoFolder();
     if (chronoFolder instanceof TFolder) {
-      const collect = (f) => {
+      const collect = (f: TFolder) => {
         for (const child of f.children) {
           if (child instanceof TFolder) collect(child);
           else if (child instanceof TFile && child.extension === "md") {
@@ -1352,7 +1400,7 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     if (this.plugin.settings.timelineOrder === "narratif") {
-      const fileOrder = new Map(files.map((f, i) => [f.path, i]));
+      const fileOrder = new Map(files.map((f: TFile, i: number) => [f.path, i]));
       items.sort((a, b) => (fileOrder.get(a.file.path) ?? 999) - (fileOrder.get(b.file.path) ?? 999));
     } else {
       items.sort((a, b) => a.sort - b.sort);
@@ -1374,11 +1422,11 @@ export class BoardView extends BaseFeuilletsView {
       head.createSpan({ cls: "feuillets-timeline-title", text: this.plugin.shortTitleFor(item.file) }).addEventListener("click", () => {
         openFileActivating(this.app, this.app.workspace.getLeaf(false), item.file);
       });
-      if (this.fm(item.file).synopsis) body.createDiv({ cls: "feuillets-timeline-syn", text: this.fm(item.file).synopsis });
+      if (this.fm(item.file).synopsis) body.createDiv({ cls: "feuillets-timeline-syn", text: String(this.fm(item.file).synopsis) });
     }
   }
 
-  visibleCols() {
+  visibleCols(): { id: string; label: string }[] {
     const cols = this.plugin.settings.outlineCols;
     const res = [{ id: "title", label: t("board.col.title") }];
     if (cols.synopsis) res.push({ id: "synopsis", label: t("board.col.synopsis") });
@@ -1396,12 +1444,12 @@ export class BoardView extends BaseFeuilletsView {
     return res;
   }
 
-  colsTemplate(overrideWidths) {
+  colsTemplate(overrideWidths?: Record<string, number>): string {
     const widths = overrideWidths || this.plugin.settings.outlineWidths;
     return "22px " + this.visibleCols().map((c) => `${Math.max(60, widths[c.id] || 120)}px`).join(" ");
   }
 
-  async renderOutline(container, root, numbering, bumpTotal, gen) {
+  async renderOutline(container: HTMLElement, root: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void, gen: number): Promise<void> {
     const outline = container.createDiv({ cls: "feuillets-outline" });
     outline.style.setProperty("--feuillets-cols", this.colsTemplate());
     const cols = this.visibleCols();
@@ -1425,7 +1473,7 @@ export class BoardView extends BaseFeuilletsView {
    * --feuillets-cols (aucun re-rendu pendant le glissement — juste un
    * recalcul de grid-template-columns, comme colsTemplate() le ferait),
    * et n'est écrite dans les réglages (donc persistée) qu'au relâchement. */
-  attachColumnResize(resizer, colId, outline) {
+  attachColumnResize(resizer: HTMLElement, colId: string, outline: HTMLElement): void {
     resizer.addEventListener("mousedown", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1441,7 +1489,7 @@ export class BoardView extends BaseFeuilletsView {
       resizer.addClass("is-resizing");
       document.body.addClass("feuillets-col-resizing");
 
-      const onMouseMove = (moveEvent) => {
+      const onMouseMove = (moveEvent: MouseEvent) => {
         liveWidth = Math.max(60, startWidth + (moveEvent.clientX - startX));
         outline.style.setProperty(
           "--feuillets-cols",
@@ -1461,7 +1509,7 @@ export class BoardView extends BaseFeuilletsView {
     });
   }
 
-  emptyCells(row, cols, handlers) {
+  emptyCells(row: HTMLElement, cols: { id: string; label: string }[], handlers?: Record<string, (cell: HTMLElement) => void>): void {
     for (const c of cols) {
       if (handlers && handlers[c.id]) {
         handlers[c.id](row.createDiv({ cls: `feuillets-cell feuillets-cell-${c.id}` }));
@@ -1471,9 +1519,9 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  async renderOutlineLevel(table, parentFolder, depth, numbering, bumpTotal, cols, progress, gen) {
+  async renderOutlineLevel(table: HTMLElement, parentFolder: TFolder, depth: number, numbering: Map<string, string>, bumpTotal: (n?: number) => void, cols: { id: string; label: string }[], progress: { count: number }, gen: number): Promise<void> {
     const S = this.plugin.settings;
-    const children = this.plugin.getOrderedChildren(parentFolder).filter((c) => !this.plugin.isFrontMatter(c));
+    const children = this.plugin.getOrderedChildren(parentFolder).filter((c: ProjectNode) => !this.plugin.isFrontMatter(c));
     for (let i = 0; i < children.length; i++) {
       if (this._renderGen !== gen) return;
       const child = children[i];
@@ -1522,7 +1570,7 @@ export class BoardView extends BaseFeuilletsView {
         openFileActivating(this.app, this.app.workspace.getLeaf(false), child);
       });
 
-      const wc = this.wcMap.get(child.path) || 0;
+      const wc = this.wcMap!.get(child.path) || 0;
       bumpTotal(wc);
 
       this.emptyCells(row, cols, {
@@ -1532,7 +1580,7 @@ export class BoardView extends BaseFeuilletsView {
         tags: (cell) => this.makeTagsEditor(cell, child),
         label: (cell) => this.makeLabelSelect(cell, child),
         status: (cell) => this.makeStatusSelect(cell, child),
-        date: (cell) => cell.setText(this.fm(child).date || "—"),
+        date: (cell) => cell.setText(String(this.fm(child).date || "—")),
         compile: (cell) => cell.setText(this.fm(child).compile !== false ? t("shared.yes") : t("shared.no")),
         filename: (cell) => cell.setText(child.basename),
         words: (cell) => cell.setText(String(wc)),
@@ -1545,7 +1593,7 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  async onClose() {
+  async onClose(): Promise<void> {
     if (this.scriveningsManager) {
       this.scriveningsManager.destroy();
       this.scriveningsManager = null;
