@@ -482,11 +482,10 @@ async function writeBinaryFile(app: App, path: string, data: Uint8Array | Blob |
 async function exportViaPandoc(app: App, settings: FeuilletsSettings, format = "docx") {
   /* Pandoc passe par child_process : indisponible sur mobile. On le dit
      clairement plutôt que d'échouer en silence sur une promesse non tenue. */
-  if (Platform.isMobile) {
-    new Notice(
+  if (!Platform.isDesktop) {
+    return void new Notice(
       "L'export via Pandoc n'est pas disponible sur mobile — passe au moteur natif dans les réglages (Export)."
     );
-    return;
   }
   const S = settings;
   const folder = getProjectFolder(app, settings);

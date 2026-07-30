@@ -225,6 +225,26 @@ test("DocxReviewView — analyse DOCX sans écriture et états restaurés", asyn
   Notice.onCreate = null;
 });
 
+test("DocxReviewView — analyse d'un fichier externe refuse proprement hors desktop (aucun accès fs)", async () => {
+  const { view } = createView();
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  const container = new FakeElement();
+  const previousDesktop = Platform.isDesktop;
+  Platform.isDesktop = false;
+  try {
+    await view.renderPickerPanel(container);
+    const analyzeBtn = allElements(container).find((element) => element.tag === "button" && element.icon === "search");
+    assert.ok(analyzeBtn, "bouton d'analyse externe introuvable");
+    await analyzeBtn.events.get("click")();
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /indisponible/i);
+  } finally {
+    Platform.isDesktop = previousDesktop;
+    Notice.onCreate = null;
+  }
+});
+
 test("DocxReviewView — rendu seul sans snapshot ni application", async () => {
   const { view } = createView();
   let snapshots = 0;

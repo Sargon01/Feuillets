@@ -129,11 +129,14 @@ export class SidebarFeuilletsView extends ItemView {
       setIcon(button, tab.icon);
       button.setAttr("title", tab.title);
 
-      button.addEventListener("click", async () => {
+      const handleTabClick = async (): Promise<void> => {
         this.activeTab = tab.id;
         this.plugin.settings.activeRightPanelTab = tab.id;
         await this.plugin.saveSettings();
         await this.render();
+      };
+      button.addEventListener("click", () => {
+        void handleTabClick();
       });
     }
 
