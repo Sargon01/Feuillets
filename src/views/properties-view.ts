@@ -1,4 +1,4 @@
-import { TFile, TFolder, Notice, setIcon } from "obsidian";
+import { TFile, TFolder, Notice, setIcon, type WorkspaceLeaf } from "obsidian";
 
 import { VIEW_PROPERTIES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -12,10 +12,21 @@ const STRUCTURAL_TAGS = new Set([
   "personnage", "lieu", "evenement", "codex", "source", "bibliographie", "glossaire",
 ]);
 
+type PropertyType = "text" | "list" | "number" | "checkbox" | "date" | "datetime";
+type TagNode = ReturnType<typeof sortTagNodes>[number];
+
+type PropertiesViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
+  getResearchRoot(): TFolder | null;
+  getProjectFolder(): TFolder | null;
+  flattenFiles(folder: TFolder): TFile[];
+  shortTitleFor(file: TFile): string;
+  tagsOf(file: TFile): string[];
+};
+
 /** Icônes par type de propriété, même esprit que le panneau natif
  * Propriétés d'Obsidian (texte/liste/nombre/case à cocher/date/date+heure),
  * inféré depuis la forme de la valeur (YAML ne stocke pas le type). */
-const TYPE_ICONS = {
+const TYPE_ICONS: Record<PropertyType, string> = {
   text: "text",
   list: "list",
   number: "hash",
@@ -24,7 +35,7 @@ const TYPE_ICONS = {
   datetime: "calendar-clock",
 };
 
-function inferPropertyType(value) {
+function inferPropertyType(value: unknown): PropertyType {
   if (typeof value === "boolean") return "checkbox";
   if (Array.isArray(value)) return "list";
   if (typeof value === "number") return "number";
@@ -35,7 +46,7 @@ function inferPropertyType(value) {
   return "text";
 }
 
-function nodeMatchesSearch(node, term) {
+function nodeMatchesSearch(node: TagNode, term: string): boolean {
   if (!term) return true;
   if (foldAccents(node.fullPath).includes(term)) return true;
   for (const child of node.children.values()) {
@@ -54,26 +65,32 @@ function nodeMatchesSearch(node, term) {
  * projet (filtre de recherche et "+" pour ajouter un tag existant au
  * fichier ouvert). */
 export class PropertiesView extends BaseFeuilletsView {
-  constructor(leaf, plugin) {
+  declare plugin: PropertiesViewPlugin;
+  declare targetContainer?: HTMLElement;
+  expandedProps: Set<string>;
+  expandedTags: Set<string>;
+  tagSearch: string;
+
+  constructor(leaf: WorkspaceLeaf, plugin: PropertiesViewPlugin) {
     super(leaf, plugin);
     this.expandedProps = new Set();
     this.expandedTags = new Set();
     this.tagSearch = "";
   }
 
-  getViewType() {
+  getViewType(): string {
     return VIEW_PROPERTIES;
   }
 
-  getDisplayText() {
+  getDisplayText(): string {
     return t("properties.displayText");
   }
 
-  getIcon() {
+  getIcon(): string {
     return "list-tree";
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => this.render())
     );
@@ -82,11 +99,11 @@ export class PropertiesView extends BaseFeuilletsView {
     await this.render();
   }
 
-  getResearchFiles() {
+  getResearchFiles(): TFile[] {
     const researchRoot = this.plugin.getResearchRoot();
     if (!(researchRoot instanceof TFolder)) return [];
-    const files = [];
-    const walk = (folder) => {
+    const files: TFile[] = [];
+    const walk = (folder: TFolder) => {
       for (const child of folder.children) {
         if (child instanceof TFolder) walk(child);
         else if (child instanceof TFile && child.extension === "md") files.push(child);
@@ -99,7 +116,7 @@ export class PropertiesView extends BaseFeuilletsView {
   /** Fichier actif s'il appartient au projet, sinon null — sert à la fois
    * pour la section "Fichier ouvert" et pour savoir si les boutons "+"
    * (propriétés/tags du projet) doivent apparaître. */
-  getActiveProjectFile(root) {
+  getActiveProjectFile(root: TFolder): TFile | null {
     const file = this.app.workspace.getActiveFile();
     if (
       file instanceof TFile &&
@@ -111,7 +128,7 @@ export class PropertiesView extends BaseFeuilletsView {
     return null;
   }
 
-  async render() {
+  async render(): Promise<void> {
     const container = this.targetContainer || this.contentEl;
     if (container.querySelector("input:focus")) return; // ne pas couper la saisie en cours
     container.empty();
@@ -132,7 +149,7 @@ export class PropertiesView extends BaseFeuilletsView {
     this.renderProjectTagsSection(wrapper, root, activeFile);
   }
 
-  renderActiveFileSection(wrapper, root, activeFile) {
+  renderActiveFileSection(wrapper: HTMLElement, root: TFolder, activeFile: TFile | null): void {
     const section = wrapper.createDiv({ cls: "feuillets-project-section" });
     const collapsed = this.renderSectionHead(
       section,
@@ -172,11 +189,11 @@ export class PropertiesView extends BaseFeuilletsView {
       const added = section.querySelector(
         `.feuillets-properties-row[data-key="${CSS.escape(key)}"] .feuillets-properties-value`
       );
-      if (added) added.focus();
+      if (added instanceof HTMLElement) added.focus();
     });
   }
 
-  renderPropertyRow(list, file, key, value) {
+  renderPropertyRow(list: HTMLElement, file: TFile, key: string, value: unknown): void {
     const type = inferPropertyType(value);
     const row = list.createDiv({ cls: "feuillets-properties-row" });
     row.setAttr("data-key", key);
@@ -186,20 +203,20 @@ export class PropertiesView extends BaseFeuilletsView {
 
     if (type === "checkbox") {
       const cb = row.createEl("input", { type: "checkbox" });
-      cb.checked = value;
+      cb.checked = !!value;
       cb.addEventListener("change", async () => {
         await this.app.fileManager.processFrontMatter(file, (data) => {
           data[key] = cb.checked;
         });
       });
     } else if (type === "list") {
-      this.renderListEditor(row, file, key, value);
+      this.renderListEditor(row, file, key, value as unknown[]);
     } else if (type === "date" || type === "datetime") {
       const input = row.createEl("input", {
         type: type === "date" ? "date" : "datetime-local",
         cls: "feuillets-properties-value",
       });
-      input.value = value;
+      input.value = value as string;
       input.addEventListener("change", async () => {
         await this.app.fileManager.processFrontMatter(file, (data) => {
           if (!input.value) delete data[key];
@@ -245,7 +262,7 @@ export class PropertiesView extends BaseFeuilletsView {
    * même vocabulaire visuel que l'éditeur de tags natif du plugin
    * (.feuillets-tags/-tag-chip/-tags-input), généralisé à n'importe
    * quelle clé plutôt que réservé à "tags". */
-  renderListEditor(row, file, key, values) {
+  renderListEditor(row: HTMLElement, file: TFile, key: string, values: unknown[]): void {
     const wrap = row.createDiv({ cls: "feuillets-tags feuillets-properties-list-editor" });
     values.forEach((v, idx) => {
       const chip = wrap.createSpan({ cls: "feuillets-tag-chip" });
@@ -277,7 +294,7 @@ export class PropertiesView extends BaseFeuilletsView {
     });
   }
 
-  renderProjectPropertiesSection(wrapper, root, activeFile) {
+  renderProjectPropertiesSection(wrapper: HTMLElement, root: TFolder, activeFile: TFile | null): void {
     const section = wrapper.createDiv({ cls: "feuillets-project-section" });
     const collapsed = this.renderSectionHead(
       section,
@@ -290,19 +307,19 @@ export class PropertiesView extends BaseFeuilletsView {
 
     const files = [...this.plugin.flattenFiles(root), ...this.getResearchFiles()];
     const fileIndex = new Map(files.map((f) => [f.path, f]));
-    const propMap = new Map(); // key -> Map<valueLabel, Set<path>>
+    const propMap = new Map<string, Map<string, Set<string>>>();
     for (const f of files) {
       const fm = this.fm(f);
       for (const [key, value] of Object.entries(fm)) {
         if (key === "tags") continue;
         if (!propMap.has(key)) propMap.set(key, new Map());
-        const valMap = propMap.get(key);
+        const valMap = propMap.get(key)!;
         const values = Array.isArray(value) ? value : [value];
         for (const v of values) {
           const label =
             v === undefined || v === null || v === "" ? t("properties.project.emptyValue") : String(v);
           if (!valMap.has(label)) valMap.set(label, new Set());
-          valMap.get(label).add(f.path);
+          valMap.get(label)!.add(f.path);
         }
       }
     }
@@ -317,12 +334,12 @@ export class PropertiesView extends BaseFeuilletsView {
 
     const list = section.createDiv({ cls: "feuillets-tags-tree" });
     for (const key of keys) {
-      const valMap = propMap.get(key);
+      const valMap = propMap.get(key)!;
       const totalFiles = new Set([...valMap.values()].flatMap((s) => [...s])).size;
       const isExpanded = this.expandedProps.has(key);
       const activeHasKey = activeFile ? key in this.fm(activeFile) : true;
 
-      const canAdd = activeFile && !activeHasKey;
+      const canAdd = !!activeFile && !activeHasKey;
       const row = list.createDiv({ cls: "feuillets-tags-row" });
       row.createSpan({ cls: "feuillets-chevron" }).setText(isExpanded ? "▾" : "▸");
       row.createSpan({ cls: "feuillets-tags-name" }).setText(key);
@@ -339,7 +356,7 @@ export class PropertiesView extends BaseFeuilletsView {
       if (canAdd) {
         addBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          await this.app.fileManager.processFrontMatter(activeFile, (data) => {
+          await this.app.fileManager.processFrontMatter(activeFile!, (data) => {
             if (!(key in data)) data[key] = "";
           });
         });
@@ -356,7 +373,7 @@ export class PropertiesView extends BaseFeuilletsView {
         new ConfirmModal(
           this.app,
           t("properties.project.deleteConfirmTitle", { key }),
-          t("properties.project.deleteConfirmBody", { count: totalFiles, s: totalFiles > 1 ? "s" : "" }),
+          t("properties.project.deleteConfirmBody", { count: String(totalFiles), s: totalFiles > 1 ? "s" : "" }),
           t("properties.project.deleteConfirmBtn"),
           async () => {
             const paths = new Set([...valMap.values()].flatMap((s) => [...s]));
@@ -367,7 +384,7 @@ export class PropertiesView extends BaseFeuilletsView {
                 delete data[key];
               });
             }
-            new Notice(t("properties.project.deletedNotice", { key, count: paths.size, s: paths.size > 1 ? "s" : "" }));
+            new Notice(t("properties.project.deletedNotice", { key, count: String(paths.size), s: paths.size > 1 ? "s" : "" }));
           }
         ).open();
       });
@@ -388,7 +405,7 @@ export class PropertiesView extends BaseFeuilletsView {
         vrow.createSpan({ cls: "feuillets-tags-name" }).setText(val);
         vrow
           .createSpan({ cls: "feuillets-tags-count" })
-          .setText(String(valMap.get(val).size));
+          .setText(String(valMap.get(val)!.size));
         vrow.addEventListener("click", (e) => {
           e.stopPropagation();
           if (this.expandedProps.has(valKey)) this.expandedProps.delete(valKey);
@@ -397,9 +414,9 @@ export class PropertiesView extends BaseFeuilletsView {
         });
         if (!isValExpanded) continue;
 
-        const matching = [...valMap.get(val)]
+        const matching = [...valMap.get(val)!]
           .map((p) => fileIndex.get(p))
-          .filter(Boolean)
+          .filter((f): f is TFile => !!f)
           .sort((a, b) =>
             this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), "fr")
           );
@@ -416,7 +433,7 @@ export class PropertiesView extends BaseFeuilletsView {
     }
   }
 
-  renderProjectTagsSection(wrapper, root, activeFile) {
+  renderProjectTagsSection(wrapper: HTMLElement, root: TFolder, activeFile: TFile | null): void {
     const section = wrapper.createDiv({ cls: "feuillets-project-section" });
     const collapsed = this.renderSectionHead(
       section,
@@ -456,7 +473,7 @@ export class PropertiesView extends BaseFeuilletsView {
        (comme l'ancien panneau Tags) : sinon il faudrait déjà avoir
        déplié manuellement une branche pour que la recherche y trouve
        quelque chose à afficher. */
-    const renderTagNode = (node, depth, term) => {
+    const renderTagNode = (node: TagNode, depth: number, term: string) => {
       const key = node.fullPath;
       const isExpanded = !!term || this.expandedTags.has(key);
       const activeTags = activeFile ? this.plugin.tagsOf(activeFile) : [];
@@ -467,7 +484,7 @@ export class PropertiesView extends BaseFeuilletsView {
       row
         .createSpan({ cls: "feuillets-tags-count" })
         .setText(String(collectFiles(node).size));
-      const canAdd = activeFile && !activeTags.includes(node.fullPath);
+      const canAdd = !!activeFile && !activeTags.includes(node.fullPath);
       const addBtn = row.createSpan({ cls: "feuillets-tags-add" + (canAdd ? "" : " is-disabled") });
       setIcon(addBtn, "plus");
       addBtn.setAttr(
@@ -477,7 +494,7 @@ export class PropertiesView extends BaseFeuilletsView {
       if (canAdd) {
         addBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          await this.setFm(activeFile, "tags", [...activeTags, node.fullPath]);
+          await this.setFm(activeFile!, "tags", [...activeTags, node.fullPath]);
         });
       }
       /* Retire ce tag de TOUS les feuillets qui le portent (pas ceux des
@@ -493,7 +510,7 @@ export class PropertiesView extends BaseFeuilletsView {
         new ConfirmModal(
           this.app,
           t("properties.tags.deleteConfirmTitle", { tag: node.fullPath }),
-          t("properties.project.deleteConfirmBody", { count, s: count > 1 ? "s" : "" }),
+          t("properties.project.deleteConfirmBody", { count: String(count), s: count > 1 ? "s" : "" }),
           t("properties.project.deleteConfirmBtn"),
           async () => {
             for (const p of node.files) {
@@ -502,7 +519,7 @@ export class PropertiesView extends BaseFeuilletsView {
               const current = this.plugin.tagsOf(f);
               await this.setFm(f, "tags", current.filter((tg) => tg !== node.fullPath));
             }
-            new Notice(t("properties.tags.deletedNotice", { tag: node.fullPath, count, s: count > 1 ? "s" : "" }));
+            new Notice(t("properties.tags.deletedNotice", { tag: node.fullPath, count: String(count), s: count > 1 ? "s" : "" }));
           }
         ).open();
       });
@@ -519,7 +536,7 @@ export class PropertiesView extends BaseFeuilletsView {
 
       const filesHere = [...node.files]
         .map((p) => fileIndex.get(p))
-        .filter(Boolean)
+        .filter((f): f is TFile => !!f)
         .sort((a, b) =>
           this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), "fr")
         );
@@ -546,7 +563,7 @@ export class PropertiesView extends BaseFeuilletsView {
     };
     renderList();
 
-    let searchTimer;
+    let searchTimer: number;
     searchInput.addEventListener("input", () => {
       window.clearTimeout(searchTimer);
       searchTimer = window.setTimeout(() => {
