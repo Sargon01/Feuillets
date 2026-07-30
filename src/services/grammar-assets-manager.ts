@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : modules Node (fs/path) et requestUrl, charges seulement cote desktop et seulement au moment du telechargement des moteurs */
 /* global require -- défini par environnement */
+import { Platform } from "obsidian";
 import JSZip from "jszip";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
+import { t } from "../i18n/index.js";
 
 type EngineDefinition = {
   url: string;
@@ -42,11 +44,13 @@ const ENGINES: Record<string, EngineDefinition> = {
 };
 
 function resourcesDir(app: unknown, manifest: unknown): string {
+  if (!Platform.isDesktop) throw new Error(t("grammar.unavailableOnMobile"));
   const path = require("path") as typeof import("path");
   return path.join(pluginAbsoluteDir(app, manifest), "resources");
 }
 
 function versionMarkerPath(app: unknown, manifest: unknown, engine: string): string {
+  if (!Platform.isDesktop) throw new Error(t("grammar.unavailableOnMobile"));
   const path = require("path") as typeof import("path");
   return path.join(resourcesDir(app, manifest), `.${engine}-version.json`);
 }
@@ -55,6 +59,7 @@ function versionMarkerPath(app: unknown, manifest: unknown, engine: string): str
  * et à la bonne version — synchrone, pensé pour un check rapide au rendu
  * des réglages ou avant un checkText(). */
 export function isEngineInstalled(app: unknown, manifest: unknown, engine: string): boolean {
+  if (!Platform.isDesktop) return false;
   const fs = require("fs") as typeof import("fs");
   const path = require("path") as typeof import("path");
   const def = ENGINES[engine];
@@ -76,6 +81,9 @@ export function isEngineInstalled(app: unknown, manifest: unknown, engine: strin
  * avec succès : un échec en cours de route laisse isEngineInstalled() à
  * false plutôt que de faire croire à une installation à moitié faite. */
 export async function downloadEngine(app: unknown, manifest: unknown, engine: string, onProgress?: (phase: "download" | "extract") => void): Promise<void> {
+  if (!Platform.isDesktop) {
+    throw new Error(t("grammar.unavailableOnMobile"));
+  }
   const fs = require("fs") as typeof import("fs");
   const path = require("path") as typeof import("path");
   const def = ENGINES[engine];

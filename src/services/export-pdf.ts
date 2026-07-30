@@ -79,21 +79,21 @@ export function paginateManuscript(
   const bottomPx = Math.round(mBottom * 10 * mmToPx);
   const contentMaxH = pageHpx - topPx - bottomPx;
 
-  // Conteneur de mesure des éléments HTML
-  const measureHost = document.createElement("div");
-  measureHost.addClass("feuillets-pdf-measure-host");
+  // Conteneur de mesure des éléments HTML — élément du document principal
+  // Obsidian (ajouté à document.body ci-dessous).
+  const measureHost = document.body.createDiv({ cls: "feuillets-pdf-measure-host" });
   measureHost.style.width = `${pageWpx - Math.round((mLeft + mRight) * 10 * mmToPx)}px`;
   measureHost.style.fontFamily = tpl.fontFamily;
   measureHost.style.fontSize = `${tpl.fontSizePt}pt`;
   measureHost.style.lineHeight = String(tpl.lineHeight);
-  document.body.appendChild(measureHost);
 
   const elements = Array.from(containerEl.children)
     .map((el) => el.cloneNode(true))
     .filter(isPageElement);
   if (footnotes && footnotes.length > 0) {
-    const fnDiv = document.createElement("div");
-    fnDiv.className = "pdf-footnotes-section";
+    // Détaché tant qu'il n'est pas poussé dans `elements` ci-dessous — élément
+    // du document principal Obsidian (ses enfants sont déjà créés via createEl).
+    const fnDiv = createDiv({ cls: "pdf-footnotes-section" });
     fnDiv.createEl("hr");
     const ol = fnDiv.createEl("ol");
     /* Le contenu d'une note est du HTML issu du rendu Markdown d'Obsidian
@@ -284,14 +284,13 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
      page Front de type "titre" — voir même choix dans export-docx.js. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));
   if (!hasAuthoredTitlePage) {
-    // Titre et auteur au sommet du document
-    const titleEl = document.createElement("h1");
-    titleEl.textContent = title;
+    // Titre et auteur au sommet du document — éléments du document principal
+    // Obsidian, créés détachés puis repositionnés (prepend/after) dans
+    // containerEl plutôt qu'ajoutés en fin d'arbre par createEl.
+    const titleEl = createEl("h1", { text: title });
     containerEl.prepend(titleEl);
     if (author) {
-      const authorEl = document.createElement("p");
-      authorEl.className = "pdf-author-title";
-      authorEl.textContent = author;
+      const authorEl = createEl("p", { cls: "pdf-author-title", text: author });
       titleEl.after(authorEl);
     }
   }
@@ -302,20 +301,49 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   const pageSize: PdfPageSize = settings.pdfPageSize || "A4";
   const orientation: PdfOrientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
 
-  const iframe = document.createElement("iframe");
-  iframe.addClass("feuillets-pdf-print-frame");
-  document.body.appendChild(iframe);
+  // Iframe hôte de l'impression : élément du document principal Obsidian.
+  const iframe = document.body.createEl("iframe", { cls: "feuillets-pdf-print-frame" });
 
   if (!isPrintableIframe(iframe)) {
     throw new Error("Impossible de préparer la fenêtre d'impression PDF.");
   }
 
+  /* Construction explicite du document d'impression, sans document.write
+     (obsolète, ré-analyse tout le document au fil de l'eau). iframe.contentDocument
+     est un DOM détaché du document Obsidian — un realm JS séparé sans les
+     prototypes patchés par Obsidian (pas de createEl/createDiv ici), d'où
+     l'API DOM native. open()/close() sont conservés à l'identique de l'ancien
+     code (close() aide à déclencher l'évènement "load" de l'iframe, attendu
+     plus bas).
+
+     doc.open() vide le document : il ne recrée PAS de squelette <html>/
+     <head>/<body> (c'était le rôle du parseur HTML déclenché par
+     document.write, qu'on ne fait plus). doc.documentElement/doc.head/
+     doc.body valent donc réellement null juste après — d'où l'ancien crash
+     (« Cannot read properties of null (reading 'setAttribute') »). On
+     construit donc html/head/body nous-mêmes, sur des références locales
+     jamais relues dans le document, puis on insère l'arbre complet d'un
+     coup via replaceChildren. */
   const doc = iframe.contentDocument;
   doc.open();
-  doc.write(`<!DOCTYPE html>
-<html lang="${settings.epubLanguage || "fr"}"><head><meta charset="utf-8"><title>${title}</title>
-<style>
-${css}
+
+  const htmlEl = doc.createElement("html");
+  htmlEl.setAttribute("lang", settings.epubLanguage || "fr");
+  const headEl = doc.createElement("head");
+  const bodyEl = doc.createElement("body");
+  htmlEl.appendChild(headEl);
+  htmlEl.appendChild(bodyEl);
+
+  const metaEl = doc.createElement("meta");
+  metaEl.setAttribute("charset", "utf-8");
+  headEl.appendChild(metaEl);
+
+  const titleTag = doc.createElement("title");
+  titleTag.textContent = title;
+  headEl.appendChild(titleTag);
+
+  const styleEl = doc.createElement("style");
+  styleEl.textContent = `${css}
 @page {
   size: ${pageSize}${orientation === "landscape" ? " landscape" : ""};
   margin: 0 !important;
@@ -330,12 +358,22 @@ ${css}
     page-break-after: always !important;
     break-after: page !important;
   }
-}
-</style>
-</head>
-<body>
-${pagesHtml}
-</body></html>`);
+}`;
+  headEl.appendChild(styleEl);
+
+  /* pagesHtml est du HTML déjà produit par paginateManuscript à partir du
+     rendu Markdown natif d'Obsidian (MarkdownRenderer) — jamais de saisie
+     brute non passée par ce pipeline. Même méthode que pour les notes de
+     bas de page plus haut (voir DOMParser dans paginateManuscript) : analysé
+     dans un document inerte (n'exécute ni script ni gestionnaire
+     d'événement), puis ses nœuds sont déplacés dans le corps de la page
+     d'impression — pas d'affectation à innerHTML sur un document vivant. */
+  const parsedPages = new DOMParser().parseFromString(pagesHtml, "text/html");
+  while (parsedPages.body.firstChild) {
+    bodyEl.appendChild(parsedPages.body.firstChild);
+  }
+
+  doc.replaceChildren(htmlEl);
   doc.close();
 
   const cleanup = () => {

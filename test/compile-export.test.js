@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFile, TFolder } from "obsidian";
+import { Notice, Platform, TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { compile, activePresetConfig, getOutputFolder, listCompiledFilePaths, projectMetaFor } from "../src/services/compile-export.js";
+import { compile, activePresetConfig, getOutputFolder, listCompiledFilePaths, projectMetaFor, exportFile } from "../src/services/compile-export.js";
 
 test("compile : respecte l'ordre, les pages Front et compile: false", async () => {
   const volume = new TFolder("Projet");
@@ -225,4 +225,22 @@ test("projectMetaFor : renvoie {} si pas de dossier ou pas de meta", () => {
 
   assert.deepEqual(projectMetaFor(settings, null), {});
   assert.deepEqual(projectMetaFor(settings, { path: "Autre" }), {});
+});
+
+test("exportFile : export Pandoc refuse proprement hors desktop (aucun require Node)", async () => {
+  const { vault } = createFakeVault([]);
+  const app = { vault };
+  const settings = { exportEngine: "pandoc" };
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  const previousDesktop = Platform.isDesktop;
+  Platform.isDesktop = false;
+  try {
+    await exportFile(app, settings, "docx");
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /mobile/i);
+  } finally {
+    Platform.isDesktop = previousDesktop;
+    Notice.onCreate = null;
+  }
 });

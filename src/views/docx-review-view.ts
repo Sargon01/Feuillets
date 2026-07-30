@@ -419,6 +419,9 @@ export class DocxReviewView extends BaseFeuilletsView {
       });
 
       const analyze = async () => {
+        if (!Platform.isDesktop) {
+          return void new Notice(t("docxReview.readUnavailable"));
+        }
         const path = pathInput.value.trim();
         if (!path) {
           new Notice(t("docxReview.enterPath"));
