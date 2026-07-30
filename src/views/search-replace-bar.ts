@@ -249,7 +249,7 @@ export class SearchReplaceBar {
     const popover = this.containerEl.createDiv({ cls: "feuillets-search-popover" });
     this.popoverEl = popover;
 
-    const addItem = (label, checked, onClick) => {
+    const addItem = (label: string, checked: boolean, onClick: () => void) => {
       const item = popover.createDiv({ cls: "feuillets-search-popover-item" });
       const checkSpan = item.createSpan({ cls: "popover-icon" });
       checkSpan.setText(checked ? "✓" : "");
@@ -291,7 +291,7 @@ export class SearchReplaceBar {
     addDivider();
 
     // 3. Caractères spéciaux
-    const addCharItem = (symbol, label, textToInsert) => {
+    const addCharItem = (symbol: string, label: string, textToInsert: string) => {
       const item = popover.createDiv({ cls: "feuillets-search-popover-item" });
       const symbolSpan = item.createSpan({ cls: "popover-icon" });
       symbolSpan.setText(symbol);
@@ -385,7 +385,7 @@ export class SearchReplaceBar {
     if (counterEl) this.updateCounterEl(counterEl);
   }
 
-  updateCounterEl(el) {
+  updateCounterEl(el: Element | null) {
     if (!el) return;
     const total = this.occurrences.length;
     if (total === 0) {
