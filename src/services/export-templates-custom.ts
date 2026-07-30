@@ -208,8 +208,9 @@ export async function updateTemplateTitlePage(app: App, settings: FeuilletsSetti
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return;
   }
-  await app.fileManager.processFrontMatter(file, (fm) => {
-    fm.titlePage = fm.titlePage || {};
-    fm.titlePage.styles = styles;
+  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+    const titlePage = (fm.titlePage && typeof fm.titlePage === "object" ? fm.titlePage : {}) as Record<string, unknown>;
+    titlePage.styles = styles;
+    fm.titlePage = titlePage;
   });
 }
