@@ -389,13 +389,10 @@ export class DiffModal extends Modal {
 
     // Sélecteur de snapshot
     const snapControl = headerBar.createDiv({ cls: "feuillets-diff-controls" });
-    const snapshotLabel = snapControl.createSpan({ text: `${t("modal.diff.snapshotLabel")} ` });
-    /* obsidianmd/no-static-styles-assignment recommande setCssStyles(), mais
-       le mock DOM utilisé par diff-modal.test.js ne l'implémente pas — le
-       remplacer casserait le test. Une classe CSS dédiée résoudrait aussi la
-       règle mais sortirait du périmètre de ce fichier (styles.css). Laissé
-       en l'état, comportement inchangé. */
-    snapshotLabel.style.fontWeight = "500";
+    snapControl.createSpan({
+      cls: "feuillets-diff-snapshot-label",
+      text: `${t("modal.diff.snapshotLabel")} `,
+    });
     const drop = new DropdownComponent(snapControl);
     this.snapshots.forEach((snap, idx) => {
       const dateLabel = snap.basename;

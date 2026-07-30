@@ -84,8 +84,7 @@ export class FileStatsModal extends Modal {
     const estPages = Math.max(1, Math.ceil(wc / 250));
     const readTime = Math.max(1, Math.ceil(wc / 200));
 
-    const list = container.createDiv({ cls: "feuillets-notes-metadata-list" });
-    list.style.marginTop = "8px";
+    const list = container.createDiv({ cls: "feuillets-notes-metadata-list feuillets-stats-metadata-list" });
     const addRow = (rLabel: string, value: string | number): void => {
       const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
       row.createDiv({ cls: "feuillets-notes-metadata-label", text: rLabel });

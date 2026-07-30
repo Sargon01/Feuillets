@@ -2862,6 +2862,10 @@ body.feuillets-concentration .markdown-preview-view {
   padding: var(--size-4-1) var(--size-4-1);
 }
 
+.feuillets-notes-metadata-list.feuillets-stats-metadata-list {
+  margin-top: 8px;
+}
+
 .feuillets-notes-metadata-list-divider {
   margin-top: var(--size-4-3);
   border-top: 1px solid var(--background-modifier-border);
@@ -4867,6 +4871,10 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
+}
+
+.feuillets-diff-snapshot-label {
+  font-weight: 500;
 }
 
 .feuillets-diff-mode-btn {

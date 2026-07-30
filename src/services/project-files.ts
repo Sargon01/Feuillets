@@ -108,7 +108,11 @@ async function copyFolderContents(app: App, folder: TFolder, destPath: string): 
     if (child instanceof TFolder) {
       await copyFolderContents(app, child, target);
     } else if (child instanceof TFile && !app.vault.getAbstractFileByPath(target)) {
-      await app.vault.copy(child, target);
+      /* Vault.copy() exige Obsidian 1.8.7 ; minAppVersion reste 1.7.2 —
+         lecture/écriture binaire reproduit la même copie octet pour octet,
+         texte comme binaire (images, PDF de Recherche…). */
+      const data = await app.vault.readBinary(child);
+      await app.vault.createBinary(target, data);
     }
   }
 }
