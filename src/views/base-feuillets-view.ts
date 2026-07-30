@@ -13,17 +13,19 @@ import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js"
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { t } from "../i18n/index.js";
 
-function getResearchSectionIcon(key) {
-  return {
-    sources: "file-search",
-    bibliographie: "library",
-    codex: "book-marked",
-    personnages: "users",
-    lieux: "map-pin",
-    glossaire: "spell-check",
-    evenements: "calendar",
-    coffre: "archive",
-  }[key] || "info";
+function getResearchSectionIcon(key: string): string {
+  return (
+    {
+      sources: "file-search",
+      bibliographie: "library",
+      codex: "book-marked",
+      personnages: "users",
+      lieux: "map-pin",
+      glossaire: "spell-check",
+      evenements: "calendar",
+      coffre: "archive",
+    } as Record<string, string>
+  )[key] || "info";
 }
 
 import {
@@ -37,11 +39,31 @@ import {
   Menu,
   MarkdownRenderer,
   Keymap,
+  type WorkspaceLeaf,
 } from "obsidian";
+import type FeuilletsPlugin from "../main.js";
 
-function cleanExcerpt(text) {
+type ProjectNode = TFile | TFolder;
+
+/** Sous-ensemble de HTMLElement utilisé par renderCollapsibleHead (voir
+ * utils/dom.ts) — même type local que dans les autres vues déjà migrées
+ * (analysis-view.ts, docx-review-view.ts), pas de contrat partagé. */
+type ObsidianElement = HTMLElement & {
+  createDiv(options: { cls: string }): ObsidianElement;
+  createSpan(options: { cls: string }): ObsidianElement;
+  createEl(tag: string, options: { cls: string }): ObsidianElement;
+  setText(text: string): void;
+  setAttr(name: string, value: string): void;
+  addEventListener(type: string, callback: (event: MouseEvent) => void | Promise<void>): void;
+  querySelectorAll(selector: string): NodeListOf<ObsidianElement>;
+  removeClass(name: string): void;
+  addClass(name: string): void;
+  scrollIntoView(options: ScrollIntoViewOptions): void;
+};
+
+function cleanExcerpt(text: string): string {
   return String(text || "")
-    .replace(/\u00a0/g, " ")
+    .replace(/ /g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .split("\n")
@@ -50,7 +72,7 @@ function cleanExcerpt(text) {
     .trim();
 }
 
-function formatExcerpt(text) {
+function formatExcerpt(text: string): string {
   const cleaned = cleanExcerpt(text);
   if (!cleaned) return "";
   const paragraphCount = cleaned.split(/\n\n+/).filter(Boolean).length;
@@ -58,7 +80,7 @@ function formatExcerpt(text) {
   return isLong ? `\n${cleaned}\n` : cleaned;
 }
 
-function formatSourcedExcerpt(text, filePath) {
+function formatSourcedExcerpt(text: string, filePath: string): string {
   const compact = cleanExcerpt(text);
   if (!compact) return "";
   const paragraphCount = compact.split(/\n\n+/).filter(Boolean).length;
@@ -68,19 +90,29 @@ function formatSourcedExcerpt(text, filePath) {
     : `${compact}\n\nSource : [[${filePath}]]`;
 }
 
-export class BaseFeuilletsView extends ItemView {
-  /** @type {import("../main.js").default} */
-  plugin;
+export abstract class BaseFeuilletsView extends ItemView {
+  plugin!: FeuilletsPlugin;
 
-  getProjectLabels() {
+  /* Propriétés d'instance, jamais initialisées dans un constructeur dédié
+     (sous-classes et méthodes de cette base les posent au fil du rendu) —
+     voir chaque site d'assignation pour le détail. */
+  targetContainer?: HTMLElement;
+  _renderGen?: number;
+  _searchCache?: Map<string, { mtime: number; text: string }>;
+  _selectedTextFile?: string;
+  researchFilterActive?: boolean;
+  selectedText?: string;
+  viewingFile?: TFile | null;
+
+  getProjectLabels(): Label[] {
     const S = this.plugin.settings;
     const root = this.plugin.getProjectFolder();
     const meta = root ? S.projectMeta[root.path] : null;
     return (meta && meta.labels) ? meta.labels : (S.labels || []);
   }
-  async render() {}
+  async render(_force?: boolean): Promise<void> {}
 
-  async createEntity(folder, baseName, template) {
+  async createEntity(folder: TFolder, baseName: string, template: string): Promise<void> {
     await this.plugin.ensureFolder(folder.path);
     let name = baseName;
     let n = 2;
@@ -96,31 +128,31 @@ export class BaseFeuilletsView extends ItemView {
     openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
   }
 
-  makeSynopsisArea(parent, file, rows) {
+  makeSynopsisArea(parent: HTMLElement, file: TFile, rows: number): HTMLTextAreaElement {
     return this.makeFmArea(parent, file, "synopsis", "Synopsis…", rows);
   }
 
-  makeFmArea(parent, file, key, placeholder, rows) {
+  makeFmArea(parent: HTMLElement, file: TFile, key: string, placeholder: string, rows: number): HTMLTextAreaElement {
     const fm = this.fm(file);
     const ta = parent.createEl("textarea", {
       cls: "feuillets-synopsis",
       attr: { placeholder, rows: String(rows || 4) },
     });
-    ta.value = fm[key] || "";
+    ta.value = String(fm[key] || "");
     ta.addEventListener("blur", async () => {
       const v = ta.value.trim();
-      if (v !== (fm[key] || "")) await this.setFm(file, key, v);
+      if (v !== String(fm[key] || "")) await this.setFm(file, key, v);
     });
     return ta;
   }
 
-  splitFrontmatter(content) {
+  splitFrontmatter(content: string): { frontmatter: string | null; body: string } {
     const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
     if (!match) return { frontmatter: null, body: content };
     return { frontmatter: match[1], body: content.slice(match[0].length) };
   }
 
-  async makeBodyEditor(parent, file) {
+  async makeBodyEditor(parent: HTMLElement, file: TFile): Promise<void> {
     const raw = await this.app.vault.read(file);
     const parts = this.splitFrontmatter(raw);
     const bodyText = parts.body.trim();
@@ -128,7 +160,7 @@ export class BaseFeuilletsView extends ItemView {
     const editorWrapper = parent.createDiv({ cls: "feuillets-body-editor-wrapper" });
     const textEl = editorWrapper.createDiv({
       cls: "feuillets-flat-text-cell" + (bodyText ? "" : " is-empty"),
-      style: "cursor: pointer; min-height: 120px; padding: 8px; border-radius: var(--radius-s);"
+      attr: { style: "cursor: pointer; min-height: 120px; padding: 8px; border-radius: var(--radius-s);" },
     });
 
     if (bodyText) {
@@ -144,8 +176,10 @@ export class BaseFeuilletsView extends ItemView {
       const ta = editorWrapper.createEl("textarea", {
         cls: "feuillets-flat-textarea feuillets-autosize",
         attr: { placeholder: t("shared.sheetEditor.placeholder"), rows: "12" },
-        style: "width: 100%; min-height: 180px; font-family: var(--font-monospace);"
       });
+      ta.style.width = "100%";
+      ta.style.minHeight = "180px";
+      ta.style.fontFamily = "var(--font-monospace)";
       ta.value = parts.body;
       ta.focus();
 
@@ -177,7 +211,7 @@ export class BaseFeuilletsView extends ItemView {
     });
   }
 
-  makeLabelSelect(parent, file) {
+  makeLabelSelect(parent: HTMLElement, file: TFile): HTMLSelectElement {
     const current = this.plugin.labelOf(file);
     const sel = parent.createEl("select", { cls: "feuillets-status" });
     const none = sel.createEl("option", { text: "—" });
@@ -198,7 +232,7 @@ export class BaseFeuilletsView extends ItemView {
     return sel;
   }
 
-  makeStatusSelect(parent, file) {
+  makeStatusSelect(parent: HTMLElement, file: TFile): HTMLSelectElement {
     const fm = this.fm(file);
     const statuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
     const sel = parent.createEl("select", { cls: "feuillets-status" });
@@ -206,7 +240,8 @@ export class BaseFeuilletsView extends ItemView {
       const opt = sel.createEl("option", { text: s || "—" });
       opt.value = s;
     }
-    sel.value = statuses.includes(fm.status) ? fm.status : "";
+    const status = typeof fm.status === "string" ? fm.status : "";
+    sel.value = statuses.includes(status) ? status : "";
     sel.setAttr("title", sel.value || t("shared.status.none"));
     sel.addEventListener("change", async () => {
       await this.setFm(file, "status", sel.value);
@@ -216,11 +251,11 @@ export class BaseFeuilletsView extends ItemView {
     return sel;
   }
 
-  makeTagsEditorPlain(parent, file) {
+  makeTagsEditorPlain(parent: HTMLElement, file: TFile): HTMLElement {
     const wrap = parent.createDiv({ cls: "feuillets-tags" });
     const tags = this.plugin.tagsOf(file);
-    for (const t of tags) {
-      wrap.createSpan({ cls: "feuillets-tag-chip" }).setText(`#${t}`);
+    for (const tag of tags) {
+      wrap.createSpan({ cls: "feuillets-tag-chip" }).setText(`#${tag}`);
     }
     const input = wrap.createEl("input", {
       cls: "feuillets-tags-input",
@@ -233,7 +268,7 @@ export class BaseFeuilletsView extends ItemView {
       if (!raw) return;
       const added = raw
         .split(/[,\s]+/)
-        .map((t) => t.replace(/^#/, "").trim())
+        .map((s) => s.replace(/^#/, "").trim())
         .filter(Boolean);
       const merged = [...new Set([...tags, ...added])];
       await this.setFm(file, "tags", merged);
@@ -250,7 +285,7 @@ export class BaseFeuilletsView extends ItemView {
     return wrap;
   }
 
-  async renderResearchBody(container, root, gen) {
+  async renderResearchBody(container: HTMLElement, root: TFolder, gen: number): Promise<void> {
     const S = this.plugin.settings;
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
     const searchInput = toolbar.createEl("input", {
@@ -259,7 +294,7 @@ export class BaseFeuilletsView extends ItemView {
       attr: { placeholder: t("shared.research.searchPlaceholder") },
     });
     searchInput.value = S.researchSearch || "";
-    let researchSearchTimer;
+    let researchSearchTimer: ReturnType<Window["setTimeout"]>;
     searchInput.addEventListener("input", () => {
       window.clearTimeout(researchSearchTimer);
       const caret = searchInput.selectionStart;
@@ -274,7 +309,7 @@ export class BaseFeuilletsView extends ItemView {
            que celui qu'on vient de recréer. Se limiter au conteneur réel
            de CETTE vue lève l'ambiguïté. */
         const scope = this.targetContainer || this.contentEl;
-        const el = scope.querySelector(".feuillets-binder-search");
+        const el = scope.querySelector<HTMLInputElement>(".feuillets-binder-search");
         if (el) {
           el.focus();
           el.setSelectionRange(caret, caret);
@@ -286,7 +321,7 @@ export class BaseFeuilletsView extends ItemView {
     const baseResearch = researchRoot
       ? researchRoot.path
       : `${root.path}/_Recherche`;
-    const baseResearchFolder = await this.plugin.ensureFolder(baseResearch);
+    const baseResearchFolder = (await this.plugin.ensureFolder(baseResearch)) as TFolder;
     if (this._renderGen !== gen) return;
 
     const mode = this.plugin.projectMode();
@@ -322,11 +357,11 @@ export class BaseFeuilletsView extends ItemView {
     });
 
     const sourcesFolder = rf.sources
-      ? await this.plugin.ensureFolder(`${baseResearch}/${rf.sources.label}`)
+      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.sources.label}`)) as TFolder
       : null;
-    const bibliographieFolder = await this.plugin.ensureFolder(
+    const bibliographieFolder = (await this.plugin.ensureFolder(
       `${baseResearch}/${rf.bibliographie.label}`
-    );
+    )) as TFolder;
     /* Rationalisation : en non-fiction, Sources reste la SEULE
        bibliothèque de travail — Bibliographie devient la vue agrégée des
        sources citées (voir plus bas), plus un dossier de fiches
@@ -345,19 +380,19 @@ export class BaseFeuilletsView extends ItemView {
        simplement dans "customFolders" plus bas et reste visible avec son
        contenu — rien n'est supprimé automatiquement. */
     const personnagesFolder = rf.personnages
-      ? await this.plugin.ensureFolder(`${baseResearch}/${rf.personnages.label}`)
+      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.personnages.label}`)) as TFolder
       : null;
     const lieuxFolder = rf.lieux
-      ? await this.plugin.ensureFolder(`${baseResearch}/${rf.lieux.label}`)
+      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.lieux.label}`)) as TFolder
       : null;
     const codexFolder = rf.codex
-      ? await this.plugin.ensureFolder(`${baseResearch}/${rf.codex.label}`)
+      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.codex.label}`)) as TFolder
       : null;
     const glossaireFolder = rf.glossaire
-      ? await this.plugin.ensureFolder(`${baseResearch}/${rf.glossaire.label}`)
+      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.glossaire.label}`)) as TFolder
       : null;
     const chronoFolder = rf.evenements
-      ? this.plugin.getChronoFolder() || (await this.plugin.ensureFolder(`${baseResearch}/Chronologie`))
+      ? this.plugin.getChronoFolder() || ((await this.plugin.ensureFolder(`${baseResearch}/Chronologie`)) as TFolder)
       : this.plugin.getChronoFolder();
 
     const standardPaths = new Set([
@@ -370,7 +405,7 @@ export class BaseFeuilletsView extends ItemView {
       chronoFolder ? chronoFolder.path : "",
     ]);
 
-    const customFolders = [];
+    const customFolders: TFolder[] = [];
     if (researchRoot && researchRoot instanceof TFolder) {
       for (const child of researchRoot.children) {
         if (child instanceof TFolder && !standardPaths.has(child.path)) {
@@ -392,7 +427,7 @@ export class BaseFeuilletsView extends ItemView {
 
     customFolders.sort((a, b) => a.name.localeCompare(b.name, "fr"));
 
-    const tagSet = new Set();
+    const tagSet = new Set<string>();
     const allEntityFiles = [
       sourcesFolder,
       bibliographieFolder,
@@ -403,18 +438,18 @@ export class BaseFeuilletsView extends ItemView {
       chronoFolder,
       ...customFolders,
     ]
-      .filter((f) => f instanceof TFolder)
+      .filter((f): f is TFolder => f instanceof TFolder)
       .flatMap((f) =>
-        f.children.filter((c) => isResearchFile(c))
+        f.children.filter((c): c is TFile => isResearchFile(c))
       );
     for (const f of allEntityFiles) {
-      for (const t of this.plugin.tagsOf(f)) tagSet.add(t);
+      for (const tag of this.plugin.tagsOf(f)) tagSet.add(tag);
     }
     const STRUCTURAL_TAGS = new Set([
       "personnage", "lieu", "evenement", "codex", "source", "bibliographie", "glossaire",
     ]);
     const tagOptions = [...tagSet]
-      .filter((t) => !STRUCTURAL_TAGS.has(foldAccents(t)))
+      .filter((tag) => !STRUCTURAL_TAGS.has(foldAccents(tag)))
       .sort((a, b) => a.localeCompare(b, "fr"));
 
     const tagFilterActive = !!S.researchTagFilter;
@@ -438,13 +473,13 @@ export class BaseFeuilletsView extends ItemView {
             await this.render(true);
           })
       );
-      for (const t of tagOptions) {
+      for (const tag of tagOptions) {
         menu.addItem((item) =>
           item
-            .setTitle(`#${t}`)
-            .setChecked(S.researchTagFilter === t)
+            .setTitle(`#${tag}`)
+            .setChecked(S.researchTagFilter === tag)
             .onClick(async () => {
-              S.researchTagFilter = t;
+              S.researchTagFilter = tag;
               await this.plugin.saveSettings();
               await this.render(true);
             })
@@ -464,7 +499,7 @@ export class BaseFeuilletsView extends ItemView {
       /* Non-fiction : Sources est la SEULE bibliothèque de travail —
          icône "+" par fiche pour la citer directement (voir aussi le
          bouton "citation" de la barre d'outils, qui cherche dedans). */
-      const citeRowAction = (header, file) => {
+      const citeRowAction = (header: HTMLElement, file: TFile) => {
         const citeBtn = this.iconBtn(header, "quote", "Citer cette source…");
         citeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -474,8 +509,8 @@ export class BaseFeuilletsView extends ItemView {
       this.renderSection(body, rf.sources.label, sourcesFolder, async () =>
         this.createEntity(
           sourcesFolder,
-          rf.sources.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "sources", rf.sources.newName)
+          rf.sources!.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "sources", rf.sources!.newName)
         ), "sources", citeRowAction
       );
 
@@ -503,8 +538,8 @@ export class BaseFeuilletsView extends ItemView {
       this.renderSection(body, rf.personnages.label, personnagesFolder, async () =>
         this.createEntity(
           personnagesFolder,
-          rf.personnages.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "personnages", rf.personnages.newName)
+          rf.personnages!.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "personnages", rf.personnages!.newName)
         ), "personnages"
       );
     }
@@ -513,8 +548,8 @@ export class BaseFeuilletsView extends ItemView {
       this.renderSection(body, rf.lieux.label, lieuxFolder, async () =>
         this.createEntity(
           lieuxFolder,
-          rf.lieux.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "lieux", rf.lieux.newName)
+          rf.lieux!.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "lieux", rf.lieux!.newName)
         ), "lieux"
       );
     }
@@ -523,8 +558,8 @@ export class BaseFeuilletsView extends ItemView {
       this.renderSection(body, rf.codex.label, codexFolder, async () =>
         this.createEntity(
           codexFolder,
-          rf.codex.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "codex", rf.codex.newName)
+          rf.codex!.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "codex", rf.codex!.newName)
         ), "codex"
       );
     }
@@ -533,8 +568,8 @@ export class BaseFeuilletsView extends ItemView {
       this.renderSection(body, rf.glossaire.label, glossaireFolder, async () =>
         this.createEntity(
           glossaireFolder,
-          rf.glossaire.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "glossaire", rf.glossaire.newName)
+          rf.glossaire!.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "glossaire", rf.glossaire!.newName)
         ), "glossaire"
       );
     }
@@ -543,8 +578,8 @@ export class BaseFeuilletsView extends ItemView {
       this.renderSection(body, rf.evenements.label, chronoFolder, async () =>
         this.createEntity(
           chronoFolder,
-          rf.evenements.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "evenements", rf.evenements.newName)
+          rf.evenements!.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "evenements", rf.evenements!.newName)
         ), "evenements"
       );
     }
@@ -585,7 +620,7 @@ export class BaseFeuilletsView extends ItemView {
     this.filterEntities();
   }
 
-  async renderFileView(container, file, _root) {
+  async renderFileView(container: HTMLElement, file: TFile, _root: TFolder | null): Promise<void> {
     /* Ne réinitialiser la sélection que si la fiche affichée change
        vraiment — PAS à chaque appel de renderFileView. Ce panneau est
        reconstruit très souvent sans que l'utilisateur ait rien demandé :
@@ -604,7 +639,7 @@ export class BaseFeuilletsView extends ItemView {
     }
     const wrapper = container.createDiv({ cls: "feuillets-fileview" });
     const bar = wrapper.createDiv({ cls: "feuillets-fileview-bar" });
-    
+
     this.iconBtn(bar, "arrow-left", t("shared.fileView.closeTooltip"), () => {
       this.viewingFile = null;
       this.render();
@@ -637,7 +672,7 @@ export class BaseFeuilletsView extends ItemView {
          jamais une référence bibliographique réelle. Toute AUTRE fiche
          (Personnage, Lieu, Codex…) n'a pas de champs de citation : garde
          le renvoi par lien, seul repère qui ait du sens pour elles. */
-      const tags = this.plugin.tagsOf(file).map((t) => foldAccents(t));
+      const tags = this.plugin.tagsOf(file).map((tag) => foldAccents(tag));
       const isCitable = tags.includes("source") || tags.includes("bibliographie");
       if (!isCitable) {
         this.plugin.insertIntoActiveEditor(formatSourcedExcerpt(this.selectedText, file.path));
@@ -666,11 +701,11 @@ export class BaseFeuilletsView extends ItemView {
       const content = await this.app.vault.read(file);
       const copySuffix = t("binder.research.copySuffix");
       let name = `${file.basename} (${copySuffix})`;
-      let dest = normalizePath(`${file.parent.path}/${name}.md`);
+      let dest = normalizePath(`${file.parent!.path}/${name}.md`);
       let k = 2;
       while (this.app.vault.getAbstractFileByPath(dest)) {
         name = `${file.basename} (${copySuffix} ${k++})`;
-        dest = normalizePath(`${file.parent.path}/${name}.md`);
+        dest = normalizePath(`${file.parent!.path}/${name}.md`);
       }
       const copy = await this.app.vault.create(dest, content);
       new Notice(t("shared.duplicated", { name }));
@@ -697,17 +732,24 @@ export class BaseFeuilletsView extends ItemView {
          (sélection native du champ, hors de l'API Selection du navigateur)
          — sans ce cas séparé, sélectionner un extrait pendant l'édition
          de la fiche (plutôt qu'en lecture) ne capturait jamais rien. */
-      if (e.target && e.target.tagName === "TEXTAREA") {
-        const ta = e.target;
-        this.selectedText = ta.value.substring(ta.selectionStart, ta.selectionEnd);
+      const target = e.target;
+      if (target instanceof HTMLTextAreaElement) {
+        this.selectedText = target.value.substring(target.selectionStart, target.selectionEnd);
         return;
       }
-      const selected = window.getSelection() ? window.getSelection().toString() : "";
-      this.selectedText = selected;
+      const selection = window.getSelection();
+      this.selectedText = selection ? selection.toString() : "";
     });
   }
 
-  renderSection(container, title, folderOrFiles, onCreate, iconKey, rowAction) {
+  renderSection(
+    container: HTMLElement,
+    title: string,
+    folderOrFiles: TFolder | TFile[],
+    onCreate?: () => Promise<void>,
+    iconKey?: string,
+    rowAction?: (header: HTMLElement, file: TFile) => void
+  ): void {
     const collapseKey =
       folderOrFiles instanceof TFolder
         ? folderOrFiles.path
@@ -715,7 +757,7 @@ export class BaseFeuilletsView extends ItemView {
     const S = this.plugin.settings;
     const collapsed = !this.researchFilterActive && !!S.collapsed[collapseKey];
 
-    const { section } = renderCollapsibleHead(container, {
+    const { section } = renderCollapsibleHead(container as ObsidianElement, {
       classes: {
         section: "feuillets-notes-section feuillets-research-section",
         head: "feuillets-notes-section-head",
@@ -723,7 +765,7 @@ export class BaseFeuilletsView extends ItemView {
         icon: "feuillets-notes-section-icon",
       },
       title,
-      icon: getResearchSectionIcon(iconKey),
+      icon: getResearchSectionIcon(iconKey || ""),
       collapsed,
       collapseKey,
       settings: S,
@@ -736,18 +778,18 @@ export class BaseFeuilletsView extends ItemView {
 
     if (collapsed) return;
 
-    const list = section.createDiv({ cls: "feuillets-research-list" });
+    const list = (section as HTMLElement).createDiv({ cls: "feuillets-research-list" });
 
     /* Glisser-déposer : une rubrique adossée à un vrai dossier (pas la vue
        agrégée "Coffre") devient une cible de dépôt — on y déplace le fichier
        glissé depuis une autre rubrique. */
     const destFolder = folderOrFiles instanceof TFolder ? folderOrFiles : null;
-    if (destFolder) this.attachResearchDropTarget(section, destFolder);
+    if (destFolder) this.attachResearchDropTarget(section as HTMLElement, destFolder);
 
-    let files = [];
+    let files: (TFile | TFolder)[] = [];
     if (folderOrFiles instanceof TFolder) {
       files = folderOrFiles.children
-        .filter((c) => isResearchFile(c))
+        .filter((c): c is TFile => isResearchFile(c))
         .sort((a, b) =>
           this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), "fr")
         );
@@ -760,7 +802,8 @@ export class BaseFeuilletsView extends ItemView {
       return;
     }
 
-    for (const f of files) {
+    for (const node of files) {
+      const f = node as TFile;
       const isMedia = isImageFile(f) || isPdfFile(f);
       const row = list.createDiv({ cls: "feuillets-research-item" });
       this.attachResearchDragSource(row, f);
@@ -789,9 +832,10 @@ export class BaseFeuilletsView extends ItemView {
         );
         insertLinkBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const link = isImageFile(f) ? `![[${f.name}]]` : `[[${f.name}]]`;
+          const fname = f.name;
+          const link = isImageFile(f) ? `![[${fname}]]` : `[[${fname}]]`;
           this.plugin.insertIntoActiveEditor(link);
-          new Notice(t("shared.research.linkInserted", { name: f.name }));
+          new Notice(t("shared.research.linkInserted", { name: fname }));
         });
 
         const openFileBtn = this.iconBtn(
@@ -846,7 +890,7 @@ export class BaseFeuilletsView extends ItemView {
   /** Bouton "œil" : déclenche l'aperçu natif d'Obsidian (Aperçu de page) au
    * CLIC plutôt qu'au survol — le survol automatique gênait (aperçu qui
    * s'ouvre en passant simplement la souris sur la liste). */
-  addPreviewBtn(header, f) {
+  addPreviewBtn(header: HTMLElement, f: TFile): HTMLElement {
     const btn = this.iconBtn(header, "eye", t("shared.previewTooltip"));
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -865,12 +909,12 @@ export class BaseFeuilletsView extends ItemView {
   /** Rend une fiche de recherche déplaçable : au dragstart, on mémorise son
    * chemin sur le plugin (état partagé entre les rubriques, comme dragState
    * pour le binder). Le vrai déplacement est fait par la cible de dépôt. */
-  attachResearchDragSource(row, file) {
+  attachResearchDragSource(row: HTMLElement, file: TFile): void {
     row.draggable = true;
     row.addEventListener("dragstart", (e) => {
       this.plugin._researchDragPath = file.path;
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", file.path);
+      e.dataTransfer!.effectAllowed = "move";
+      e.dataTransfer!.setData("text/plain", file.path);
       row.addClass("feuillets-dragging");
       e.stopPropagation();
     });
@@ -889,15 +933,15 @@ export class BaseFeuilletsView extends ItemView {
    * lâcher une fiche l'y déplace via fileManager.renameFile (met à jour les
    * liens du coffre). Ignore le dépôt dans la rubrique d'origine, et refuse
    * une collision de nom plutôt que d'écraser. */
-  attachResearchDropTarget(section, destFolder) {
+  attachResearchDropTarget(section: HTMLElement, destFolder: TFolder): void {
     section.addEventListener("dragover", (e) => {
       if (!this.plugin._researchDragPath) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
+      e.dataTransfer!.dropEffect = "move";
       section.addClass("feuillets-dragover");
     });
     section.addEventListener("dragleave", (e) => {
-      if (!section.contains(e.relatedTarget)) section.removeClass("feuillets-dragover");
+      if (!(e.relatedTarget instanceof Node) || !section.contains(e.relatedTarget)) section.removeClass("feuillets-dragover");
     });
     section.addEventListener("drop", async (e) => {
       e.preventDefault();
@@ -924,12 +968,12 @@ export class BaseFeuilletsView extends ItemView {
    * orphelines : un "[^N]" cité dans le texte sans définition
    * correspondante, ou l'inverse (définie mais jamais citée) — souvent le
    * signe d'un texte coupé/collé entre scènes qui a cassé une note. */
-  async renderFootnotesOverviewSection(container, root) {
+  async renderFootnotesOverviewSection(container: HTMLElement, root: TFolder): Promise<void> {
     const S = this.plugin.settings;
     const collapseKey = "research:footnotes-overview";
     const collapsed = !!S.collapsed[collapseKey];
 
-    const { section } = renderCollapsibleHead(container, {
+    const { section } = renderCollapsibleHead(container as ObsidianElement, {
       classes: {
         section: "feuillets-notes-section feuillets-research-section",
         head: "feuillets-notes-section-head",
@@ -948,11 +992,11 @@ export class BaseFeuilletsView extends ItemView {
     });
     if (collapsed) return;
 
-    const list = section.createDiv({ cls: "feuillets-research-list" });
+    const list = (section as HTMLElement).createDiv({ cls: "feuillets-research-list" });
     const numbering = this.plugin.buildNumbering(root);
     const files = this.plugin
       .flattenFiles(root)
-      .sort((a, b) => (numbering.get(a.path) || 0) - (numbering.get(b.path) || 0));
+      .sort((a, b) => (Number(numbering.get(a.path)) || 0) - (Number(numbering.get(b.path)) || 0));
 
     const defRe = /^\[\^([^\]]+)\]:[ \t]*(.+)$/gm;
     const refRe = /\[\^([^\]]+)\](?!:)/g;
@@ -962,12 +1006,12 @@ export class BaseFeuilletsView extends ItemView {
       const raw = await this.app.vault.cachedRead(file);
       const text = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
 
-      const defs = new Map();
+      const defs = new Map<string, string>();
       defRe.lastIndex = 0;
-      let m;
+      let m: RegExpExecArray | null;
       while ((m = defRe.exec(text))) defs.set(m[1], m[2].trim());
 
-      const refs = new Set();
+      const refs = new Set<string>();
       refRe.lastIndex = 0;
       while ((m = refRe.exec(text))) refs.add(m[1]);
 
@@ -1019,12 +1063,12 @@ export class BaseFeuilletsView extends ItemView {
    * sans jamais être mobilisée dans le texte). Le bouton "Générer"
    * écrit le fichier bibliographie final (plugin.generateBibliographyFile),
    * prêt à être collé dans le manuscrit compilé ou fourni à part. */
-  async renderBibliographySection(container, root, candidateFolders) {
+  async renderBibliographySection(container: HTMLElement, root: TFolder, candidateFolders: TFolder[]): Promise<void> {
     const S = this.plugin.settings;
     const collapseKey = "research:cited-sources";
     const collapsed = !!S.collapsed[collapseKey];
 
-    const { section } = renderCollapsibleHead(container, {
+    const { section } = renderCollapsibleHead(container as ObsidianElement, {
       classes: {
         section: "feuillets-notes-section feuillets-research-section",
         head: "feuillets-notes-section-head",
@@ -1042,20 +1086,21 @@ export class BaseFeuilletsView extends ItemView {
       },
     });
     if (collapsed) return;
+    const sectionEl = section as HTMLElement;
 
     const files = candidateFolders.flatMap((f) =>
-      f.children.filter((c) => c instanceof TFile && c.extension === "md")
+      f.children.filter((c): c is TFile => c instanceof TFile && c.extension === "md")
     );
     const cited = files.filter((f) => (this.plugin.fmOf(f).cite_count || 0) > 0);
 
-    const exportRow = section.createDiv({ cls: "feuillets-bibliography-export-row" });
+    const exportRow = sectionEl.createDiv({ cls: "feuillets-bibliography-export-row" });
     exportRow.setAttr("title", t("shared.bibliography.exportTooltip"));
     const exportIcon = exportRow.createSpan({ cls: "feuillets-cell-icon" });
     setIcon(exportIcon, "file-output");
     exportRow.createSpan().setText(t("shared.bibliography.generate"));
     exportRow.addEventListener("click", () => this.plugin.generateBibliographyFile());
 
-    const list = section.createDiv({ cls: "feuillets-research-list" });
+    const list = sectionEl.createDiv({ cls: "feuillets-research-list" });
     if (cited.length === 0) {
       list
         .createDiv({ cls: "feuillets-research-empty" })
@@ -1063,17 +1108,19 @@ export class BaseFeuilletsView extends ItemView {
       return;
     }
 
-    const sorted = [...cited].sort((a, b) =>
-      (this.plugin.fmOf(a).author || "").localeCompare(this.plugin.fmOf(b).author || "", "fr")
-    );
+    const sorted = [...cited].sort((a, b) => {
+      const authorA = this.plugin.fmOf(a).author;
+      const authorB = this.plugin.fmOf(b).author;
+      return (typeof authorA === "string" ? authorA : "").localeCompare(typeof authorB === "string" ? authorB : "", "fr");
+    });
     for (const f of sorted) {
       const fm = this.plugin.fmOf(f);
       const row = list.createDiv({ cls: "feuillets-research-item" });
       const header = row.createDiv({ cls: "feuillets-research-item-header" });
-      const n = fm.cite_count || 0;
+      const n = Number(fm.cite_count) || 0;
       header
         .createDiv({ cls: "feuillets-research-item-name" })
-        .setText(t("shared.bibliography.citationCount", { title: this.plugin.titleFor(f), count: n, s: n > 1 ? "s" : "" }));
+        .setText(t("shared.bibliography.citationCount", { title: this.plugin.titleFor(f), count: String(n), s: n > 1 ? "s" : "" }));
       row.addEventListener("click", () => {
         this.viewingFile = f;
         this.render();
@@ -1087,12 +1134,12 @@ export class BaseFeuilletsView extends ItemView {
    * mémorisée par projet (S.projectMeta[root.path].savedResearchFilters),
    * rejouée sur les mêmes fiches à chaque clic — donc toujours à jour,
    * contrairement à un dossier figé qu'il faudrait retrier à la main. */
-  renderSavedFiltersButton(toolbar, root) {
+  renderSavedFiltersButton(toolbar: HTMLElement, root: TFolder | null): void {
     if (!root) return;
     const S = this.plugin.settings;
     if (!S.projectMeta[root.path]) S.projectMeta[root.path] = {};
     const meta = S.projectMeta[root.path];
-    const filters = meta.savedResearchFilters || [];
+    const filters = (meta.savedResearchFilters as { name: string; search: string; tag: string }[] | undefined) || [];
 
     const btn = this.iconBtn(toolbar, "bookmark", t("shared.savedFilters.tooltip"));
     btn.addEventListener("click", (e) => {
@@ -1106,7 +1153,7 @@ export class BaseFeuilletsView extends ItemView {
           .onClick(() => {
             new SaveResearchFilterModal(this.app, async (name) => {
               if (!meta.savedResearchFilters) meta.savedResearchFilters = [];
-              meta.savedResearchFilters.push({
+              (meta.savedResearchFilters as { name: string; search: string; tag: string }[]).push({
                 name,
                 search: S.researchSearch || "",
                 tag: S.researchTagFilter || "",
@@ -1142,7 +1189,7 @@ export class BaseFeuilletsView extends ItemView {
     });
   }
 
-  filterEntities() {
+  filterEntities(): void {
     /* this.contentEl est la feuille ENTIÈRE quand cette vue est une sous-vue
        de SidebarFeuilletsView (Inspecteur) — voir renderSavedFiltersButton
        et le correctif équivalent sur le focus de la recherche. Chercher
@@ -1158,7 +1205,7 @@ export class BaseFeuilletsView extends ItemView {
       const matchSearch = !term || dataSearch.includes(term) || dataTags.includes(term);
       const tags = dataTags.split(",").filter(Boolean);
       const matchTag = !tagFilter || tags.includes(tagFilter);
-      el.style.display = matchSearch && matchTag ? "" : "none";
+      (el as HTMLElement).style.display = matchSearch && matchTag ? "" : "none";
     });
     const sections = scope.querySelectorAll(
       ".feuillets-research-section"
@@ -1169,22 +1216,22 @@ export class BaseFeuilletsView extends ItemView {
         '.feuillets-research-item:not([style*="display: none"])'
       );
       const empty = sec.querySelector(".feuillets-research-empty");
-      if (filterActive && empty) empty.hide();
-      sec.style.display =
+      if (filterActive && empty) (empty as HTMLElement).hide();
+      (sec as HTMLElement).style.display =
         filterActive && visible.length === 0 && !empty ? "none" : "";
     });
   }
 
-  async buildSearchIndex(files) {
+  async buildSearchIndex(files: TFile[]): Promise<Map<string, { mtime: number; text: string }>> {
     if (!this._searchCache) this._searchCache = new Map();
     return refreshSearchIndex(this._searchCache, files, async (f) => {
-      const raw = await this.app.vault.cachedRead(f);
+      const raw = await this.app.vault.cachedRead(f as TFile);
       const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
       return foldAccents(body);
     });
   }
 
-  iconBtn(parent, icon, tooltip, onClick) {
+  iconBtn(parent: HTMLElement, icon: string, tooltip: string, onClick?: (e: MouseEvent) => void | Promise<void>): HTMLElement {
     const btn = parent.createEl("button", { cls: "clickable-icon" });
     setIcon(btn, icon);
     setTooltip(btn, tooltip);
@@ -1192,7 +1239,7 @@ export class BaseFeuilletsView extends ItemView {
     return btn;
   }
 
-  barSep(parent) {
+  barSep(parent: HTMLElement): HTMLElement {
     return parent.createDiv({ cls: "feuillets-bar-sep" });
   }
 
@@ -1206,7 +1253,14 @@ export class BaseFeuilletsView extends ItemView {
    * qui replie la section (pas besoin de stopPropagation). Retourne true
    * si la section est actuellement repliée — l'appelant ne construit
    * alors pas son corps. */
-  renderSectionHead(section, icon, title, namespace, key, renderActions) {
+  renderSectionHead(
+    section: HTMLElement,
+    icon: string,
+    title: string,
+    namespace: string,
+    key: string,
+    renderActions?: (actions: HTMLElement) => void
+  ): boolean {
     const S = this.plugin.settings;
     const collapseKey = `${namespace}:${key}`;
     const isCollapsed = !!S.collapsed[collapseKey];
@@ -1229,7 +1283,7 @@ export class BaseFeuilletsView extends ItemView {
     return isCollapsed;
   }
 
-  showFileContextMenu(e, file, parent, index, _siblings) {
+  showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[]): void {
     const menu = new Menu();
     const plugin = this.plugin;
 
@@ -1242,11 +1296,11 @@ export class BaseFeuilletsView extends ItemView {
     const groupSel = this.plugin._binderMultiSelect;
     const isGroup = !!(groupSel && groupSel.size > 1 && groupSel.has(file.path));
     const groupFiles = isGroup
-      ? [...groupSel].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f) => f instanceof TFile)
+      ? [...groupSel].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f): f is TFile => f instanceof TFile)
       : [file];
 
     if (isGroup) {
-      menu.addItem((item) => item.setTitle(t("shared.contextMenu.groupSelected", { count: groupFiles.length })).setDisabled(true));
+      menu.addItem((item) => item.setTitle(t("shared.contextMenu.groupSelected", { count: String(groupFiles.length) })).setDisabled(true));
       menu.addSeparator();
     }
 
@@ -1283,7 +1337,7 @@ export class BaseFeuilletsView extends ItemView {
         .setTitle(t("shared.contextMenu.newSheetBefore"))
         .setIcon("corner-left-up")
         .onClick(async () => {
-          await plugin.newSheetAt(parent, index);
+          plugin.newSheetAt(parent as TFolder, index);
         })
     );
     menu.addItem((item) =>
@@ -1291,12 +1345,12 @@ export class BaseFeuilletsView extends ItemView {
         .setTitle(t("shared.contextMenu.newSheetAfter"))
         .setIcon("corner-left-down")
         .onClick(async () => {
-          await plugin.newSheetAt(parent, index + 1);
+          plugin.newSheetAt(parent as TFolder, index + 1);
         })
     );
     menu.addSeparator();
 
-    const currentStatus = this.fm(file).status || "";
+    const currentStatus = (this.fm(file).status as string) || "";
     const allStatuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
     for (const st of allStatuses.filter(Boolean)) {
       menu.addItem((item) =>
@@ -1369,11 +1423,11 @@ export class BaseFeuilletsView extends ItemView {
           const content = await this.app.vault.read(file);
           const copySuffix = t("binder.research.copySuffix");
           let name = `${file.basename} (${copySuffix})`;
-          let dest = normalizePath(`${parent.path}/${name}.md`);
+          let dest = normalizePath(`${(parent as TFolder).path}/${name}.md`);
           let k = 2;
           while (this.app.vault.getAbstractFileByPath(dest)) {
             name = `${file.basename} (${copySuffix} ${k++})`;
-            dest = normalizePath(`${parent.path}/${name}.md`);
+            dest = normalizePath(`${(parent as TFolder).path}/${name}.md`);
           }
           await this.app.vault.create(dest, content);
           plugin.renderAllViews(true);
@@ -1395,7 +1449,7 @@ export class BaseFeuilletsView extends ItemView {
     menu.showAtMouseEvent(e);
   }
 
-  showFolderContextMenu(e, folder, _parent, _index, _siblings) {
+  showFolderContextMenu(e: MouseEvent, folder: TFolder, _parent: ProjectNode, _index: number, _siblings: ProjectNode[]): void {
     const menu = new Menu();
     const plugin = this.plugin;
 
@@ -1404,7 +1458,7 @@ export class BaseFeuilletsView extends ItemView {
         .setTitle(t("shared.contextMenu.newSheetInside"))
         .setIcon("file-plus")
         .onClick(async () => {
-          await plugin.newSheet(folder);
+          plugin.newSheet(folder);
         })
     );
     menu.addItem((item) =>
@@ -1412,7 +1466,7 @@ export class BaseFeuilletsView extends ItemView {
         .setTitle(t("binder.newSubfolder"))
         .setIcon("folder-plus")
         .onClick(async () => {
-          await plugin.newFolder(folder);
+          plugin.newFolder(folder);
         })
     );
     menu.addSeparator();
@@ -1444,7 +1498,7 @@ export class BaseFeuilletsView extends ItemView {
       );
     }
     menu.addSeparator();
-    const currentStatus = note ? this.fm(note).status || "" : "";
+    const currentStatus = note ? ((this.fm(note).status as string) || "") : "";
     const allStatuses = getProjectStatuses(plugin ? plugin.settings : null);
     for (const st of allStatuses.filter(Boolean)) {
       menu.addItem((item) =>
@@ -1519,29 +1573,25 @@ export class BaseFeuilletsView extends ItemView {
     menu.showAtMouseEvent(e);
   }
 
-  /**
-   * @param {import("obsidian").WorkspaceLeaf} leaf
-   * @param {import("../main.js").default} plugin
-   */
-  constructor(leaf, plugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: FeuilletsPlugin) {
     super(leaf);
     this.plugin = plugin;
   }
 
-  getProjectFolder() {
+  getProjectFolder(): TFolder | null {
     return this.plugin.getProjectFolder();
   }
 
-  fm(file) {
+  fm(file: TFile): SceneFrontmatter {
     return this.plugin.fmOf(file);
   }
 
-  titleFor(file) {
+  titleFor(file: TFile): string {
     return this.plugin.titleFor(file);
   }
 
-  async setFm(file, key, value) {
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
+  async setFm(file: TFile, key: string, value: unknown): Promise<void> {
+    await this.app.fileManager.processFrontMatter(file, (fm: SceneFrontmatter) => {
       if (
         value === "" ||
         value === null ||
@@ -1555,20 +1605,20 @@ export class BaseFeuilletsView extends ItemView {
     });
   }
 
-  goalFor(file) {
-    const g = parseInt(this.fm(file).goal, 10);
+  goalFor(file: TFile): number {
+    const g = parseInt(String(this.fm(file).goal), 10);
     return isNaN(g) ? this.plugin.settings.wordGoal : g;
   }
 
-  ringState(wc, goal) {
-    const tol = this.plugin.settings.tolerance;
+  ringState(wc: number, goal: number): "none" | "hit" | "over" | "under" {
+    const tol = Number(this.plugin.settings.tolerance);
     if (goal <= 0) return "none";
     if (wc >= goal - tol && wc <= goal + tol) return "hit";
     if (wc > goal + tol) return "over";
     return "under";
   }
 
-  fillRing(ring, wc, goal) {
+  fillRing(ring: HTMLElement, wc: number, goal: number): void {
     const pct = goal > 0 ? Math.min(100, Math.round((wc / goal) * 100)) : 0;
     ring.style.setProperty("--pct", `${pct}%`);
     ring.removeClass("feuillets-ring-hit");
@@ -1587,7 +1637,7 @@ export class BaseFeuilletsView extends ItemView {
    * glisser-déposer group entraîne réellement toute la sélection).
    * Retourne true si le clic a été consommé par la sélection (l'appelant
    * ne doit alors pas ouvrir le fichier). */
-  handleMultiSelectClick(e, file, parent, index, siblings, scopeEl) {
+  handleMultiSelectClick(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, siblings: ProjectNode[], scopeEl: HTMLElement): boolean {
     if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
     const sel = this.plugin._binderMultiSelect;
 
@@ -1627,11 +1677,11 @@ export class BaseFeuilletsView extends ItemView {
     return false;
   }
 
-  refreshMultiSelectClasses(scopeEl) {
+  refreshMultiSelectClasses(scopeEl: HTMLElement): void {
     const sel = this.plugin._binderMultiSelect;
     scopeEl.querySelectorAll("[data-path]").forEach((el) => {
       const path = el.getAttr("data-path");
-      if (sel && sel.has(path)) el.addClass("feuillets-multiselected");
+      if (sel && path && sel.has(path)) el.addClass("feuillets-multiselected");
       else el.removeClass("feuillets-multiselected");
     });
   }
@@ -1641,20 +1691,20 @@ export class BaseFeuilletsView extends ItemView {
    * Cartes : appliquer un statut, un label, ou ajouter un tag à toute une
    * liste de feuillets d'un coup. Centralisé ici pour ne pas avoir deux
    * copies de la même boucle setFm+Notice à maintenir. */
-  async applyBulkStatus(files, status) {
+  async applyBulkStatus(files: TFile[], status: string): Promise<void> {
     for (const f of files) await this.setFm(f, "statut", status);
-    new Notice(t("shared.bulk.statusApplied", { status, count: files.length, s: files.length > 1 ? "s" : "" }));
+    new Notice(t("shared.bulk.statusApplied", { status, count: String(files.length), s: files.length > 1 ? "s" : "" }));
   }
 
-  async applyBulkLabel(files, labelName) {
+  async applyBulkLabel(files: TFile[], labelName: string): Promise<void> {
     for (const f of files) await this.setFm(f, "label", labelName);
-    new Notice(t("shared.bulk.labelApplied", { label: labelName, count: files.length, s: files.length > 1 ? "s" : "" }));
+    new Notice(t("shared.bulk.labelApplied", { label: labelName, count: String(files.length), s: files.length > 1 ? "s" : "" }));
   }
 
-  promptBulkTag(files, onDone) {
+  promptBulkTag(files: TFile[], onDone?: () => void): void {
     new TextInputModal(
       this.app,
-      t("shared.bulk.addTagTitle", { count: files.length, s: files.length > 1 ? "s" : "" }),
+      t("shared.bulk.addTagTitle", { count: String(files.length), s: files.length > 1 ? "s" : "" }),
       [{ name: "tag", label: t("shared.tags.field"), value: "" }],
       async (values) => {
         const clean = String(values.tag || "").trim().replace(/^#/, "");
@@ -1663,13 +1713,13 @@ export class BaseFeuilletsView extends ItemView {
           const existing = this.plugin.tagsOf(f);
           if (!existing.includes(clean)) await this.setFm(f, "tags", [...existing, clean]);
         }
-        new Notice(t("shared.bulk.tagApplied", { tag: clean, count: files.length, s: files.length > 1 ? "s" : "" }));
+        new Notice(t("shared.bulk.tagApplied", { tag: clean, count: String(files.length), s: files.length > 1 ? "s" : "" }));
         if (onDone) onDone();
       }
     ).open();
   }
 
-  attachDragHandlers(handleEl, dropEl, parent, index, siblings, _scopeEl) {
+  attachDragHandlers(handleEl: HTMLElement, dropEl: HTMLElement, parent: ProjectNode, index: number, siblings: ProjectNode[], _scopeEl: HTMLElement): void {
     handleEl.draggable = true;
     handleEl.addEventListener("dragstart", (e) => {
       /* Poignée d'une scène faisant partie d'une sélection multiple
@@ -1693,7 +1743,7 @@ export class BaseFeuilletsView extends ItemView {
       this.plugin._dragInProgress = true;
       this.plugin._dragRetryCount = 0;
       dropEl.addClass("feuillets-dragging");
-      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer!.effectAllowed = "move";
       e.stopPropagation();
     });
     handleEl.addEventListener("dragend", () => {
@@ -1710,7 +1760,7 @@ export class BaseFeuilletsView extends ItemView {
     dropEl.addEventListener("dragover", (e) => {
       if (!this.plugin.dragState) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
+      e.dataTransfer!.dropEffect = "move";
       dropEl.addClass("feuillets-dragover");
     });
     dropEl.addEventListener("dragleave", () => {
@@ -1726,7 +1776,7 @@ export class BaseFeuilletsView extends ItemView {
       if (drag.multi) {
         if (this.plugin._binderMultiSelect) this.plugin._binderMultiSelect.clear();
         const sameParentTarget = drag.parentPath === parent.path ? siblings[index] : null;
-        const draggedIndices = new Set(drag.items.map((it) => it.index));
+        const draggedIndices = new Set((drag.items || []).map((it) => it.index));
         if (
           sameParentTarget instanceof TFolder &&
           !draggedIndices.has(index)
@@ -1737,37 +1787,37 @@ export class BaseFeuilletsView extends ItemView {
              — sinon glisser un feuillet à la racine vers un dossier vide
              comme Front (même parent) ne faisait jamais rien. */
           const insertIndex = Number.MAX_SAFE_INTEGER;
-          for (const it of drag.items) {
+          for (const it of (drag.items || [])) {
             const node = this.app.vault.getAbstractFileByPath(it.path);
             if (!node) continue;
-            await this.plugin.moveNode(node, parent, sameParentTarget, insertIndex);
+            await this.plugin.moveNode(node as ProjectNode, parent as TFolder, sameParentTarget, insertIndex);
           }
         } else if (drag.parentPath === parent.path) {
           if (draggedIndices.has(index)) return;
-          const movedNodes = drag.items.map((it) => siblings[it.index]).filter(Boolean);
+          const movedNodes = (drag.items || []).map((it) => siblings[it.index]).filter(Boolean);
           const remaining = siblings.filter((_, i) => !draggedIndices.has(i));
           /* Les éléments déplacés situés avant la cible sont déjà retirés
              de `remaining` — décaler l'index cible d'autant pour tomber au
              bon endroit une fois le groupe réinséré. */
-          const removedBefore = drag.items.filter((it) => it.index < index).length;
+          const removedBefore = (drag.items || []).filter((it) => it.index < index).length;
           const targetIndex = Math.max(0, index - removedBefore);
           const reordered = [...remaining];
           reordered.splice(targetIndex, 0, ...movedNodes);
-          await this.plugin.applySiblingOrder(parent, reordered);
+          await this.plugin.applySiblingOrder(parent as TFolder, reordered);
         } else {
           const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
           if (srcParent instanceof TFolder) {
             const target = siblings[index];
-            let destFolder = parent;
+            let destFolder: TFolder = parent as TFolder;
             let insertIndex = index;
             if (target instanceof TFolder) {
               destFolder = target;
               insertIndex = Number.MAX_SAFE_INTEGER;
             }
-            for (const it of drag.items) {
+            for (const it of (drag.items || [])) {
               const node = this.app.vault.getAbstractFileByPath(it.path);
               if (!node) continue;
-              await this.plugin.moveNode(node, srcParent, destFolder, insertIndex);
+              await this.plugin.moveNode(node as ProjectNode, srcParent, destFolder, insertIndex);
               if (insertIndex !== Number.MAX_SAFE_INTEGER) insertIndex++;
             }
           }
@@ -1777,7 +1827,7 @@ export class BaseFeuilletsView extends ItemView {
       }
 
       if (drag.parentPath === parent.path) {
-        const from = drag.index;
+        const from = drag.index!;
         if (from === index) return;
         const target = siblings[index];
         const draggedNode = siblings[from];
@@ -1797,14 +1847,14 @@ export class BaseFeuilletsView extends ItemView {
           !(draggedNode instanceof TFolder)
         ) {
           const moved = this.app.vault.getAbstractFileByPath(drag.path || "");
-          if (moved) await this.plugin.moveNode(moved, parent, target, Number.MAX_SAFE_INTEGER);
+          if (moved) await this.plugin.moveNode(moved as ProjectNode, parent as TFolder, target, Number.MAX_SAFE_INTEGER);
           this.plugin.renderAllViews(true);
           return;
         }
         const reordered = [...siblings];
         const [moved] = reordered.splice(from, 1);
         reordered.splice(index, 0, moved);
-        await this.plugin.applySiblingOrder(parent, reordered);
+        await this.plugin.applySiblingOrder(parent as TFolder, reordered);
         this.plugin.renderAllViews(true);
         return;
       }
@@ -1813,13 +1863,13 @@ export class BaseFeuilletsView extends ItemView {
       const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
       if (!moved || !(srcParent instanceof TFolder)) return;
       const target = siblings[index];
-      let destFolder = parent;
+      let destFolder: TFolder = parent as TFolder;
       let insertIndex = index;
       if (target instanceof TFolder && target.path !== moved.path) {
         destFolder = target;
         insertIndex = Number.MAX_SAFE_INTEGER;
       }
-      await this.plugin.moveNode(moved, srcParent, destFolder, insertIndex);
+      await this.plugin.moveNode(moved as ProjectNode, srcParent, destFolder, insertIndex);
       this.plugin.renderAllViews(true);
     });
   }
@@ -1830,11 +1880,11 @@ export class BaseFeuilletsView extends ItemView {
    * vide n'a alors aucune cible de drop — glisser une scène dedans ne
    * faisait rien. `dropEl` est ici le message "Aucun feuillet…" affiché à
    * la place de la liste ; le dépôt ajoute simplement à la fin de `folder`. */
-  attachEmptyFolderDropHandler(dropEl, folder) {
+  attachEmptyFolderDropHandler(dropEl: HTMLElement, folder: TFolder): void {
     dropEl.addEventListener("dragover", (e) => {
       if (!this.plugin.dragState) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
+      e.dataTransfer!.dropEffect = "move";
       dropEl.addClass("feuillets-dragover");
     });
     dropEl.addEventListener("dragleave", () => {
@@ -1851,10 +1901,10 @@ export class BaseFeuilletsView extends ItemView {
         if (this.plugin._binderMultiSelect) this.plugin._binderMultiSelect.clear();
         const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
         if (srcParent instanceof TFolder) {
-          for (const it of drag.items) {
+          for (const it of (drag.items || [])) {
             const node = this.app.vault.getAbstractFileByPath(it.path);
             if (!node) continue;
-            await this.plugin.moveNode(node, srcParent, folder, Number.MAX_SAFE_INTEGER);
+            await this.plugin.moveNode(node as ProjectNode, srcParent, folder, Number.MAX_SAFE_INTEGER);
           }
         }
         this.plugin.renderAllViews(true);
@@ -1864,7 +1914,7 @@ export class BaseFeuilletsView extends ItemView {
       const moved = this.app.vault.getAbstractFileByPath(drag.path || "");
       const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
       if (!moved || !(srcParent instanceof TFolder)) return;
-      await this.plugin.moveNode(moved, srcParent, folder, Number.MAX_SAFE_INTEGER);
+      await this.plugin.moveNode(moved as ProjectNode, srcParent, folder, Number.MAX_SAFE_INTEGER);
       this.plugin.renderAllViews(true);
     });
   }

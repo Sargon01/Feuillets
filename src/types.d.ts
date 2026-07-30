@@ -98,6 +98,8 @@ declare type ProjectMeta = {
   labels?: Label[];
   /** Style bibliographique — services/citations.js. */
   citationStyle?: string;
+  /** Filtres Recherche sauvegardés — ui/entity-modals.ts ManageSavedFiltersModal. */
+  savedResearchFilters?: SavedResearchFilter[];
 
   /* Réglages globaux surchargés par projet. */
   boardMode?: string;
@@ -106,6 +108,14 @@ declare type ProjectMeta = {
   hiddenBoardModes?: string[];
 
   [key: string]: unknown;
+};
+
+/** Filtre Recherche (texte + tag) sauvegardé sous un nom — voir
+ * ProjectMeta.savedResearchFilters et ui/entity-modals.ts. */
+declare type SavedResearchFilter = {
+  name: string;
+  search?: string;
+  tag?: string;
 };
 
 /** Marges en centimètres, forme normalisée renvoyée par marginsFor(). */
@@ -232,6 +242,9 @@ declare type FeuilletsSettings = {
    *  champ ci-dessous ABSENT de DEFAULT_SETTINGS, donc undefined tant
    *  qu'aucun projet n'a été choisi — d'où le garde de labelColor(). */
   projectFolder?: string;
+  /** Tags favoris (settings/feuillets-setting-tab.ts), toujours lus avec
+   *  un repli `|| []` : absent de DEFAULT_SETTINGS, jamais initialisé. */
+  favoriteTags?: string[];
 
   /* Les champs suivants sont NON optionnels : loadSettings() fait un
      `Object.assign({}, DEFAULT_SETTINGS, data)` (src/main.js), donc toute
@@ -299,6 +312,8 @@ declare type FeuilletsSettings = {
   binderStatusFilter: string;
   binderLabelFilter: string;
   binderProgressFilter: string;
+  researchSearch: string;
+  researchTagFilter: string;
   binderTreeWidth: number;
   binderTreeCollapsed: boolean;
   binderListCollapsed: boolean;

@@ -619,7 +619,11 @@ export class FeuilletsView extends BaseFeuilletsView {
         const wc = wcCache.get(file.path);
         const goal = this.goalFor(file);
         if (wc !== undefined && goal > 0) {
-          const state = this.ringState(wc, goal);
+          /* wc est l'objet {mtime, wc, chars, ...} de getWordCounts(), pas un
+             nombre — écart préexistant à cette migration (ringState n'avait
+             aucun type avant), non corrigé ici pour ne rien changer au
+             comportement. */
+          const state = this.ringState(wc as unknown as number, goal);
           if (pf === "Atteint" && state !== "hit") return false;
           if (pf === "En dessous" && state !== "under") return false;
           if (pf === "Dépassé" && state !== "over") return false;
@@ -1472,6 +1476,9 @@ export class FeuilletsView extends BaseFeuilletsView {
     renderFilesOf(selectedFolder, 0);
 
     if (!any) {
+      /* emptyEl capture le retour de setText() (void dans les types
+         Obsidian), pas l'élément — écart préexistant à cette migration, non
+         corrigé ici pour ne rien changer au comportement actuel. */
       const emptyEl = listBody
         .createDiv({ cls: "feuillets-empty" })
         .setText(
@@ -1479,7 +1486,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             ? t("binder.list.emptyRecursive")
             : t("binder.list.emptyDirect")
         );
-      this.attachEmptyFolderDropHandler(emptyEl, selectedFolder);
+      this.attachEmptyFolderDropHandler(emptyEl as unknown as HTMLElement, selectedFolder);
     }
   }
 }

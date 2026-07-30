@@ -241,12 +241,21 @@ class FeuilletsPlugin extends Plugin {
   declare applyPreset: ScenesEditorPlugin["applyPreset"];
   declare mergeManyScenes: ScenesEditorPlugin["mergeManyScenes"];
 
-  /* Attaché dynamiquement par base-feuillets-view.js (Binder, sélection
-     multiple). openTagsModal : requis par BoardViewPlugin (board-view.ts)
-     mais n'existe nulle part dans le code actuel — bouton mort au clic
-     déjà présent avant cette migration, non corrigé ici (voir commentaire
-     dans board-view.ts). */
+  /* Attachés dynamiquement par base-feuillets-view.ts (Binder, sélection
+     multiple, glisser-déposer, recherche). openTagsModal : requis par
+     BoardViewPlugin (board-view.ts) mais n'existe nulle part dans le code
+     actuel — bouton mort au clic déjà présent avant cette migration, non
+     corrigé ici (voir commentaire dans board-view.ts). */
   _binderMultiSelect?: Set<string>;
+  _binderMultiSelectAnchor?: { parentPath: string; index: number };
+  _researchDragPath?: string | null;
+  dragState?: {
+    parentPath: string;
+    multi?: boolean;
+    items?: { path: string; index: number }[];
+    index?: number;
+    path?: string | null;
+  } | null;
   declare openTagsModal: (file: TFile) => void;
 
   async onload() {
