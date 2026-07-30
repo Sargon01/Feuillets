@@ -2,6 +2,18 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.4.4
+
+### Corrigé et amélioré
+
+- Nettoyage et modernisation progressive pour la revue Obsidian.
+- Réduction des avertissements de typage et d'API.
+- Compatibilité maintenue avec Obsidian 1.7.2.
+- Amélioration des tests automatisés.
+- Restauration et stabilisation de l'export PDF.
+- Nettoyage CSS prudent.
+- Aucun changement volontaire du format des projets existants.
+
 ## 1.4.3
 
 ### Modifié & Corrigé
