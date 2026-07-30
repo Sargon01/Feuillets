@@ -472,11 +472,15 @@ export function paginateManuscript(
   measureHost.style.fontSize = `${tpl.fontSizePt}pt`;
   measureHost.style.lineHeight = String(tpl.lineHeight);
 
+  const footnotePlacement = settings.pdfFootnotePlacement === "bottom" ? "bottom" : "end";
+
+  if (footnotePlacement === "bottom" && containerEl && typeof containerEl.querySelectorAll === "function") {
+    containerEl.querySelectorAll("section.footnotes, .footnotes").forEach((el) => el.remove());
+  }
+
   const contentElements = Array.from(containerEl.children)
     .map((el) => el.cloneNode(true))
     .filter(isPageElement);
-
-  const footnotePlacement = settings.pdfFootnotePlacement === "bottom" ? "bottom" : "end";
 
   let rawPages: PageBuild[];
 
