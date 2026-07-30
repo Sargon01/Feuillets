@@ -39,19 +39,163 @@ function measuredHeight(node: Element): number {
   return "offsetHeight" in node && typeof node.offsetHeight === "number" ? node.offsetHeight || 30 : 30;
 }
 
+/** Normalise un identifiant brut de note (issu de href, id, data-footnote-id, etc.)
+ * en une clé canonique : décodage d'URL, normalisation Unicode NFC,
+ * suppression du '#' initial et des préfixes d'ancre d'Obsidian/Markdown. */
+export function normalizeFootnoteId(raw: string): string {
+  if (!raw) return "";
+  let s = String(raw).trim();
+
+  const hashIdx = s.indexOf("#");
+  if (hashIdx >= 0) {
+    s = s.slice(hashIdx + 1);
+  }
+
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    /* ignore les erreurs de décodage */
+  }
+
+  try {
+    s = s.normalize("NFC");
+  } catch {
+    /* ignore si non supporté */
+  }
+
+  const prefixes = [
+    "user-content-fnref-",
+    "user-content-fn-",
+    "user-content-fnref:",
+    "user-content-fn:",
+    "user-content-",
+    "fnref-",
+    "fn-",
+    "fnref:",
+    "fn:",
+  ];
+  const lower = s.toLowerCase();
+  for (const prefix of prefixes) {
+    if (lower.startsWith(prefix)) {
+      s = s.slice(prefix.length);
+      break;
+    }
+  }
+
+  return s;
+}
+
+/** Clé simplifiée (insensible à la casse et aux caractères spéciaux) pour le
+ * rapprochement tolérant de notes de bas de page. */
+export function simplifyFootnoteId(canonicalId: string): string {
+  if (!canonicalId) return "";
+  return canonicalId
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+export class FootnoteMatcher {
+  private idMap = new Map<string, string>();
+
+  constructor(footnotes: PdfFootnote[]) {
+    for (const f of footnotes) {
+      const raw = f.id;
+      if (!raw) continue;
+      this.idMap.set(raw, raw);
+
+      const canonical = normalizeFootnoteId(raw);
+      if (canonical) {
+        this.idMap.set(canonical, raw);
+        this.idMap.set(`fn-${canonical}`, raw);
+        this.idMap.set(`fnref-${canonical}`, raw);
+        this.idMap.set(`#fn-${canonical}`, raw);
+        this.idMap.set(`#fnref-${canonical}`, raw);
+
+        const simplified = simplifyFootnoteId(canonical);
+        if (simplified) {
+          this.idMap.set(simplified, raw);
+        }
+      }
+    }
+  }
+
+  match(rawRef: string): string | null {
+    if (!rawRef) return null;
+
+    if (this.idMap.has(rawRef)) return this.idMap.get(rawRef)!;
+
+    const canonical = normalizeFootnoteId(rawRef);
+    if (canonical && this.idMap.has(canonical)) {
+      return this.idMap.get(canonical)!;
+    }
+
+    if (canonical) {
+      const trimmed = canonical.replace(/[-:][0-9]+$/, "");
+      if (trimmed && this.idMap.has(trimmed)) {
+        return this.idMap.get(trimmed)!;
+      }
+    }
+
+    if (canonical) {
+      const simplified = simplifyFootnoteId(canonical);
+      if (simplified && this.idMap.has(simplified)) {
+        return this.idMap.get(simplified)!;
+      }
+    }
+
+    return null;
+  }
+}
+
 /** IDs de notes de bas de page effectivement appelées dans cet élément
- * (placement "bas de page") : les appels sont rendus par Obsidian en
- * `<sup class="footnote-ref"><a href="#<id>">n</a></sup>` — on cherche
- * directement l'ancre plutôt que de dépendre de cette classe précise, qui
- * peut varier selon la version d'Obsidian. */
-function footnoteIdRefsIn(el: Element, knownIds: Set<string>): string[] {
-  if (!("querySelectorAll" in el)) return [];
+ * (placement "bas de page") : inspection robuste du DOM pour capturer les
+ * structures Obsidian réelles (a, sup, data-footnote-id, data-footnote-ref,
+ * href encodé/préfixé, etc.). */
+function footnoteIdRefsIn(el: Element, matcher: FootnoteMatcher): string[] {
+  if (!el || typeof el !== "object") return [];
   const found: string[] = [];
-  el.querySelectorAll('a[href^="#"]').forEach((a) => {
-    const href = a.getAttribute("href") || "";
-    const id = href.slice(1);
-    if (id && knownIds.has(id) && !found.includes(id)) found.push(id);
-  });
+
+  const addIfMatched = (raw: string | null | undefined) => {
+    if (!raw) return;
+    const matchedId = matcher.match(raw);
+    if (matchedId && !found.includes(matchedId)) {
+      found.push(matchedId);
+    }
+  };
+
+  const inspectNode = (node: Element) => {
+    if (!node || typeof node.getAttribute !== "function") return;
+
+    const href = node.getAttribute("href");
+    if (href) addIfMatched(href);
+
+    const dataFnId = node.getAttribute("data-footnote-id");
+    if (dataFnId) addIfMatched(dataFnId);
+
+    const dataFnRef = node.getAttribute("data-footnote-ref");
+    if (dataFnRef && dataFnRef !== "true" && dataFnRef !== "") {
+      addIfMatched(dataFnRef);
+    }
+
+    const id = node.getAttribute("id");
+    if (id && (id.startsWith("fnref") || id.startsWith("fn-") || id.startsWith("fn:"))) {
+      addIfMatched(id);
+    }
+  };
+
+  const visit = (node: Element) => {
+    inspectNode(node);
+    if ("children" in node && node.children) {
+      const children = Array.from(node.children);
+      for (const child of children) {
+        visit(child);
+      }
+    }
+  };
+
+  visit(el);
   return found;
 }
 
@@ -175,7 +319,7 @@ function paginateWithBottomFootnotes(
   contentMaxH: number,
   measureHost: HTMLElement
 ): PageBuild[] {
-  const knownIds = new Set(footnotes.map((f) => f.id));
+  const matcher = new FootnoteMatcher(footnotes);
   const footnoteNumberById = new Map(footnotes.map((f, i) => [f.id, i + 1]));
   const footnoteById = new Map(footnotes.map((f) => [f.id, f]));
 
@@ -210,7 +354,7 @@ function paginateWithBottomFootnotes(
     // n'est attribuée qu'au premier paragraphe de LA PAGE qui l'appelle).
     const claimed = new Set([...placedIds, ...carry]);
     const idsPerNode: string[][] = nodes.map((node) => {
-      const refs = footnoteIdRefsIn(node, knownIds).filter((id) => !claimed.has(id));
+      const refs = footnoteIdRefsIn(node, matcher).filter((id) => !claimed.has(id));
       refs.forEach((id) => claimed.add(id));
       return refs;
     });

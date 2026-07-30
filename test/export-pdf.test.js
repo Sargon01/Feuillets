@@ -506,3 +506,54 @@ test("exportPdf : ne double pas la page titre lorsqu'un segment Front titre exis
     dom.restore();
   }
 });
+
+test("paginateManuscript : détection d'un appel de note réel Obsidian avec identifiant long et accents/encodage", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+
+    // Page 1 : Paragraphe 1 avec l'appel de note tel qu'Obsidian le génère dans le DOM
+    const p1 = element("p", "Premier paragraphe page 1", 100);
+    const sup = p1.createEl("sup", { cls: "footnote-ref" });
+    sup.setAttribute("id", "fnref-Nefes-Manuscrit-Subhanallah-Al-Rahman-Le-Tout-Mis-ricordieux-1");
+    const a = sup.createEl("a", { text: "1" });
+    a.className = "footnote-ref";
+    a.setAttribute("href", "#fn-Nefes-Manuscrit-Subhanallah-Al-Rahman-Le-Tout-Mis%C3%A9ricordieux-1");
+    a.setAttribute("role", "doc-noteref");
+    a.setAttribute("data-footnote-ref", "true");
+    container.appendChild(p1);
+
+    // Page 2 : Paragraphe de remplissage pour forcer une deuxième page
+    const p2 = element("p", "Deuxième paragraphe page 2", 800);
+    container.appendChild(p2);
+
+    const settings = { pdfFootnotePlacement: "bottom" };
+    const footnotes = [
+      {
+        id: "fn-Nefes-Manuscrit-Subhanallah-Al-Rahman-Le-Tout-Mis-ricordieux-1",
+        html: "<p>Explication théologique sur le Tout-Miséricordieux.</p>",
+      },
+    ];
+
+    const result = paginateManuscript(container, footnotes, settings, template);
+
+    // 1. Il doit y avoir 2 pages
+    assert.equal(result.totalPages, 2);
+
+    // 2. La note doit apparaître sur la page 1 (la page d'appel)
+    const pages = result.pagesHtml.split('<div class="pdf-page ');
+    const page1Html = pages[1] || "";
+    const page2Html = pages[2] || "";
+
+    assert.match(page1Html, /Explication théologique sur le Tout-Miséricordieux/);
+
+    // 3. La note ne doit PAS apparaître sur la dernière page (page 2)
+    assert.equal(page2Html.includes("Explication théologique"), false);
+
+    // 4. La note doit apparaître exactement 1 fois dans l'ensemble du HTML (ni perdue ni dupliquée)
+    const matches = (result.pagesHtml.match(/Explication théologique sur le Tout-Miséricordieux/g) || []).length;
+    assert.equal(matches, 1);
+  } finally {
+    dom.restore();
+  }
+});
