@@ -130,7 +130,7 @@ export class FeuilletsView extends BaseFeuilletsView {
          "file-open" (qui pose is-active) n'a pas forcément fini avant que
          ce callback continue. */
       window.setTimeout(() => {
-        (this.contentEl.querySelector(".feuillets-item.is-active") as HTMLElement | null)?.focus();
+        this.contentEl.querySelector<HTMLElement>(".feuillets-item.is-active")?.focus();
       }, 60);
     }, { capture: true });
     await this.render();
@@ -400,7 +400,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       } else {
         void this.render(true);
         window.setTimeout(() => {
-          (this.contentEl.querySelector(".feuillets-binder-search") as HTMLElement | null)?.focus();
+          this.contentEl.querySelector<HTMLElement>(".feuillets-binder-search")?.focus();
         }, 50);
       }
     });
@@ -551,7 +551,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             S.binderSearch = searchInput.value;
             await this.plugin.saveSettings();
             await this.render(true);
-            const fresh = this.contentEl.querySelector(".feuillets-binder-search") as HTMLInputElement | null;
+            const fresh = this.contentEl.querySelector<HTMLInputElement>(".feuillets-binder-search");
             if (fresh) {
               fresh.focus();
               fresh.setSelectionRange(caret, caret);
@@ -811,7 +811,7 @@ export class FeuilletsView extends BaseFeuilletsView {
            navigue jamais (le keydown du Binder, sur this.contentEl, ne
            reçoit rien tant que le focus n'y est pas revenu ; voir onOpen). */
         window.setTimeout(() => {
-          (this.contentEl.querySelector(".feuillets-item.is-active") as HTMLElement | null)?.focus();
+          this.contentEl.querySelector<HTMLElement>(".feuillets-item.is-active")?.focus();
         }, 60);
       });
 

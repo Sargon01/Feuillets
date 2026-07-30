@@ -74,12 +74,8 @@ export class HarperChecker {
       const span = lint.span();
       const kind = lint.lint_kind();
       const underlined = lint.get_problem_text();
-      const issue = {
-        /* Faux positif de no-unnecessary-type-assertion : ce cast est
-           signalé comme superflu, mais le retirer élargit `type` en
-           `string` et casse tsc (`GrammarIssue["type"]` attendu) — vérifié
-           en isolant `tsc` seul, sans le linter. Conservé tel quel. */
-        type: (SPELLING_KINDS.has(kind) ? "spelling" : "grammar") as GrammarIssue["type"],
+      const issue: GrammarIssue = {
+        type: SPELLING_KINDS.has(kind) ? "spelling" : "grammar",
         ruleId: kind,
         message: lint.message(),
         start: span.start,
