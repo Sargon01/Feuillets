@@ -5,7 +5,10 @@ import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from
 import { t } from "../i18n/index.js";
 
 type StatsSettings = FeuilletsSettings & {
-  tolerance: number;
+  /* Absent de DEFAULT_SETTINGS (voir default-settings.ts) : réglable via
+     l'onglet réglages sans valeur par défaut déclarée, donc réellement
+     de type inconnu tant qu'aucun projet ne l'a défini. */
+  tolerance?: unknown;
   wordGoal: number;
   projectWordGoal?: number;
   deadlineDate?: string;
@@ -22,7 +25,7 @@ type WordCount = {
 type StatsPlugin = {
   settings: StatsSettings;
   titleFor(file: TFile): string;
-  fmOf(file: TFile): Record<string, string>;
+  fmOf(file: TFile): SceneFrontmatter;
   getProjectFolder(): TFolder | null;
   flattenFiles(folder: TFolder): TFile[];
   getWordCounts(files: TFile[]): Promise<Map<string, WordCount>>;
@@ -72,7 +75,7 @@ export class FileStatsModal extends Modal {
       fill.style.width = `${pct}%`;
       wcLabel.setText(`${label} (${pct}%)`);
 
-      const tol = this.plugin.settings.tolerance;
+      const tol = Number(this.plugin.settings.tolerance);
       if (wc >= goal - tol && wc <= goal + tol) fill.addClass("feuillets-status-hit");
       else if (wc > goal + tol) fill.addClass("feuillets-status-over");
     }
@@ -107,7 +110,7 @@ export class FileStatsModal extends Modal {
 
     const rawText = await app.vault.cachedRead(file);
     const wc = countWords(rawText);
-    const g = parseInt(plugin.fmOf(file).goal, 10);
+    const g = parseInt(String(plugin.fmOf(file).goal), 10);
     const goal = isNaN(g) ? plugin.settings.wordGoal : g;
 
     const cleanText = stripWritingNoise(rawText);

@@ -762,7 +762,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         const wc = wcCache.get(file.path)?.wc || 0;
         if (S.binderShowProgress) this.fillRing(ring, wc, goal);
         if (S.binderShowWords) {
-          body.createDiv({ cls: "feuillets-item-wc" }).setText(t("binder.item.words", { count: wc }));
+          body.createDiv({ cls: "feuillets-item-wc" }).setText(t("binder.item.words", { count: String(wc) }));
         }
       }
 

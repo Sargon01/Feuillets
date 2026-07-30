@@ -113,7 +113,7 @@ type SceneField = { name: string; label: string; description?: string; value: st
  * méthodes de la section 1 d'initScenesEditor (isSceneFile, splitSceneFile…)
  * sont déclarées ici aussi : elles n'existent pas encore sur `plugin` avant
  * l'appel à initScenesEditor, qui les attache dynamiquement. */
-type ScenesEditorPlugin = Omit<Plugin, "settings"> & {
+export type ScenesEditorPlugin = Omit<Plugin, "settings"> & {
   settings: ScenesEditorSettings;
   getProjectFolder(): TFolder | null;
   fmOf(file: TFile): SceneFrontmatter;

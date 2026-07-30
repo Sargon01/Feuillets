@@ -10,6 +10,20 @@
    nouveau nom. */
 const bibliographie = { label: "Bibliography", newName: "Nouvelle référence", tag: "bibliographie" };
 
+type ResearchFolderDef = { label: string; newName: string; tag: string };
+/** Union réelle des deux modes : chaque catégorie n'existe que dans SON
+ * mode (fiction ou non-fiction), jamais dans les deux — d'où l'optionalité
+ * de chaque champ ici plutôt qu'un jeu de clés figé. */
+type ResearchFolders = {
+  bibliographie: ResearchFolderDef;
+  glossaire?: ResearchFolderDef;
+  evenements?: ResearchFolderDef;
+  personnages?: ResearchFolderDef;
+  lieux?: ResearchFolderDef;
+  codex?: ResearchFolderDef;
+  sources?: ResearchFolderDef;
+};
+
 /** Personnages/Lieux/Lore/Glossaire/Événements sont des catégories nées
  * pour la fiction (personnages, lieux d'une histoire) — elles ne
  * généralisent pas à la non-fiction (une thèse de droit n'a pas besoin
@@ -20,7 +34,7 @@ const bibliographie = { label: "Bibliography", newName: "Nouvelle référence", 
  * "Nouvelle rubrique" (dossier de recherche personnalisé, voir
  * renderResearchBody), qui s'adapte à CE sujet précis plutôt qu'à un
  * gabarit générique. */
-const FICTION_RESEARCH = {
+const FICTION_RESEARCH: ResearchFolders = {
   bibliographie,
   glossaire: { label: "Glossary", newName: "Nouveau terme", tag: "glossaire" },
   evenements: { label: "Events", newName: "Nouvel événement", tag: "evenement" },
@@ -29,7 +43,7 @@ const FICTION_RESEARCH = {
   codex: { label: "Lore", newName: "Nouvelle entrée", tag: "codex" },
 };
 
-const NONFICTION_RESEARCH = {
+const NONFICTION_RESEARCH: ResearchFolders = {
   bibliographie,
   sources: { label: "Sources", newName: "Nouvelle source", tag: "source" },
 };

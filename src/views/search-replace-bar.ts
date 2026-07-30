@@ -14,7 +14,7 @@ type SearchOptions = {
   includeYaml: boolean;
 };
 type SearchReplacePlugin = {
-  renderAllViews(force?: boolean): Promise<void>;
+  renderAllViews(force?: boolean): void | Promise<void>;
   getManuscriptFiles?: () => TFile[];
 };
 type SearchEditor = {
