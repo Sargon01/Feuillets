@@ -118,9 +118,9 @@ export class ProjectPropertiesModal extends Modal {
       setIcon(addBtn, "plus");
       addBtn.setAttr("aria-label", canAdd ? t("properties.project.addToOpenFile", { key }) : t("properties.project.alreadyOnOpenFile"));
       if (canAdd) {
-        addBtn.addEventListener("click", async (e) => {
+        addBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          await this.app.fileManager.processFrontMatter(activeFile!, (data) => {
+          void this.app.fileManager.processFrontMatter(activeFile, (data: Record<string, unknown>) => {
             if (!(key in data)) data[key] = "";
           });
         });
@@ -140,7 +140,7 @@ export class ProjectPropertiesModal extends Modal {
             for (const p of paths) {
               const f = fileIndex.get(p);
               if (!f) continue;
-              await this.app.fileManager.processFrontMatter(f, (data) => {
+              await this.app.fileManager.processFrontMatter(f, (data: Record<string, unknown>) => {
                 delete data[key];
               });
             }
@@ -272,10 +272,10 @@ export class ProjectTagsModal extends Modal {
       setIcon(addBtn, "plus");
       addBtn.setAttr("aria-label", canAdd ? t("properties.tags.addToOpenFile", { tag: node.fullPath }) : t("properties.tags.alreadyOnOpenFile"));
       if (canAdd) {
-        addBtn.addEventListener("click", async (e) => {
+        addBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           const merged = [...activeTags, node.fullPath];
-          await this.app.fileManager.processFrontMatter(activeFile!, (data) => {
+          void this.app.fileManager.processFrontMatter(activeFile, (data: Record<string, unknown>) => {
             data.tags = merged;
           });
         });
@@ -298,7 +298,7 @@ export class ProjectTagsModal extends Modal {
               if (!f) continue;
               const current = this.plugin.tagsOf(f);
               const next = current.filter((tg) => tg !== node.fullPath);
-              await this.app.fileManager.processFrontMatter(f, (data) => {
+              await this.app.fileManager.processFrontMatter(f, (data: Record<string, unknown>) => {
                 data.tags = next;
               });
             }

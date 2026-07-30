@@ -190,7 +190,7 @@ export class GrammarView extends BaseFeuilletsView {
       await this.plugin.saveSettings();
       await sidebarView.render();
     }
-    this.app.workspace.revealLeaf(this.leaf);
+    void this.app.workspace.revealLeaf(this.leaf);
 
     const container = this.targetContainer || this.contentEl;
     const row = container.querySelectorAll(".feuillets-grammar-row")[idx];
@@ -267,10 +267,10 @@ export class GrammarView extends BaseFeuilletsView {
     }
 
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
-    const refreshBtn = this.iconBtn(toolbar, "refresh-cw", t("grammar.recheckNowTooltip")) as HTMLElement;
+    const refreshBtn = this.iconBtn(toolbar, "refresh-cw", t("grammar.recheckNowTooltip"));
     refreshBtn.addEventListener("click", () => {
       this.checkedMtime = null; // force une nouvelle vérification même si rien n'a changé
-      this.render();
+      void this.render();
     });
 
     const file = this.app.workspace.getActiveFile();
@@ -302,7 +302,7 @@ export class GrammarView extends BaseFeuilletsView {
       !this.checking &&
       (this.checkedPath !== file.path || this.checkedMtime !== file.stat.mtime)
     ) {
-      this.runCheck(file); // ré-entrant : la fin de runCheck() rappellera render()
+      void this.runCheck(file); // ré-entrant : la fin de runCheck() rappellera render()
       return;
     }
 
@@ -337,16 +337,16 @@ export class GrammarView extends BaseFeuilletsView {
     row.addEventListener("click", () => this.jumpTo(file, issue));
 
     if (issue.type === "spelling" && issue.underlined) {
-      const learnBtn = this.iconBtn(header, "book-plus", t("grammar.learnWordTooltip", { word: issue.underlined })) as HTMLElement;
-      learnBtn.addEventListener("click", async (e: MouseEvent) => {
+      const learnBtn = this.iconBtn(header, "book-plus", t("grammar.learnWordTooltip", { word: issue.underlined }));
+      learnBtn.addEventListener("click", (e: MouseEvent) => {
         e.stopPropagation();
-        await this.learnWord(issue.underlined);
+        void this.learnWord(issue.underlined);
       });
     } else if (issue.type === "grammar") {
-      const ignoreBtn = this.iconBtn(header, "eye-off", t("grammar.ignoreIssueTooltip")) as HTMLElement;
-      ignoreBtn.addEventListener("click", async (e: MouseEvent) => {
+      const ignoreBtn = this.iconBtn(header, "eye-off", t("grammar.ignoreIssueTooltip"));
+      ignoreBtn.addEventListener("click", (e: MouseEvent) => {
         e.stopPropagation();
-        await this.ignoreIssue(issue);
+        void this.ignoreIssue(issue);
       });
     }
   }

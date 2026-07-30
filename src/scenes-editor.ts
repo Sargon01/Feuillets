@@ -271,7 +271,9 @@ class MergeModal extends Modal {
       .setName("Scène cible")
       .setDesc("Fichier qui reçoit la fusion")
       .addDropdown((drop) => {
-        this.files.forEach((file) => drop.addOption(file.path, this.plugin.shortTitleFor(file)));
+        this.files.forEach((file) => {
+          drop.addOption(file.path, this.plugin.shortTitleFor(file));
+        });
         drop.setValue(this.targetPath);
         drop.onChange(async (value) => {
           this.targetPath = value;
@@ -309,8 +311,8 @@ class MergeModal extends Modal {
         YAML_PRESETS[this.plugin.settings.mergeYamlPreset].label
       } · clic pour voir les options`,
     });
-    compact.addEventListener("click", async () => {
-      await this.plugin.openYamlOptions(this);
+    compact.addEventListener("click", () => {
+      void this.plugin.openYamlOptions(this);
     });
 
     const stats = this.contentEl.createDiv({ cls: "feuillets-merge-stats" });
@@ -357,13 +359,13 @@ class MergeModal extends Modal {
       const down = actions.createEl("button", { text: "↓" });
       up.disabled = index === 0;
       down.disabled = index === plan.sources.length - 1;
-      up.addEventListener("click", async () => {
+      up.addEventListener("click", () => {
         this.sourceOrder = moveItem(this.sourceOrder, index, index - 1);
-        await this.refresh();
+        void this.refresh();
       });
-      down.addEventListener("click", async () => {
+      down.addEventListener("click", () => {
         this.sourceOrder = moveItem(this.sourceOrder, index, index + 1);
-        await this.refresh();
+        void this.refresh();
       });
     });
 
@@ -448,9 +450,9 @@ class YamlOptionsModal extends Modal {
       .setName("Préréglage")
       .setDesc("Choix simple pour la fusion")
       .addDropdown((drop) => {
-        Object.entries(YAML_PRESETS).forEach(([key, item]) =>
-          drop.addOption(key, item.label)
-        );
+        Object.entries(YAML_PRESETS).forEach(([key, item]) => {
+          drop.addOption(key, item.label);
+        });
         drop.setValue(this.plugin.settings.mergeYamlPreset);
         drop.onChange(async (value) => {
           await this.plugin.applyPreset(value);
@@ -536,7 +538,7 @@ class MergeSelectModal extends Modal {
           return;
         }
         this.close();
-        this.plugin.openMergeModal([this.targetFile, ...this.selected]);
+        void this.plugin.openMergeModal([this.targetFile, ...this.selected]);
       }))
       .addButton(btn => btn.setButtonText("Annuler").onClick(() => this.close()));
   }
@@ -728,7 +730,10 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
           new Notice("Un fichier avec ce nom existe déjà.");
           return;
         }
-        await plugin.app.vault.copy(file, path);
+        /* Vault.copy() exige Obsidian 1.8.7 ; minAppVersion reste 1.7.2 —
+           lecture + création reproduit la même copie de contenu texte. */
+        const contentToCopy = await plugin.app.vault.read(file);
+        await plugin.app.vault.create(path, contentToCopy);
         const copied = plugin.app.vault.getAbstractFileByPath(path);
         if (!(copied instanceof TFile)) { new Notice("Copie introuvable."); return; }
         await plugin.app.fileManager.processFrontMatter(copied, (fm2: Record<string, unknown>) => {
@@ -811,7 +816,10 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         new Notice(`Ignoré (nom déjà pris) : ${safe}`);
         continue;
       }
-      await plugin.app.vault.copy(file, path);
+      /* Vault.copy() exige Obsidian 1.8.7 ; minAppVersion reste 1.7.2 —
+         lecture + création reproduit la même copie de contenu texte. */
+      const contentToCopy = await plugin.app.vault.read(file);
+      await plugin.app.vault.create(path, contentToCopy);
       const copied = plugin.app.vault.getAbstractFileByPath(path);
       if (!(copied instanceof TFile)) continue;
       await plugin.app.fileManager.processFrontMatter(copied, (fm2: Record<string, unknown>) => {
