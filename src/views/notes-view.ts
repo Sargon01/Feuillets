@@ -9,6 +9,7 @@ import { ProjectPropertiesModal, ProjectTagsModal } from "../ui/project-properti
 import { FRONT_PAGE_TYPES } from "../services/folder-structure.js";
 import { DiffModal } from "../ui/diff-modal.js";
 import { t } from "../i18n/index.js";
+import { toValue } from "../utils/scene-fields.js";
 
 
 type NotesPropertyType = "text" | "list" | "number" | "checkbox" | "date" | "datetime";
@@ -270,14 +271,14 @@ export class NotesView extends BaseFeuilletsView {
       if (e.key !== "Enter") return;
       const key = input.value.trim();
       if (!key) return;
-      await this.app.fileManager.processFrontMatter(file, (data) => {
+      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
         if (!(key in data)) data[key] = "";
       });
       await this.render(true);
       const added = section.querySelector(
         `.feuillets-properties-row[data-key="${CSS.escape(key)}"] .feuillets-properties-value`
-      );
-      if (added && "focus" in added && typeof added.focus === "function") added.focus();
+      ) as { focus?: () => void } | null;
+      if (added && typeof added.focus === "function") added.focus();
     });
   }
 
@@ -307,7 +308,7 @@ export class NotesView extends BaseFeuilletsView {
     const current = typeof fm.type === "string" ? fm.type.trim().toLowerCase() : "";
     select.value = FRONT_PAGE_TYPES.includes(current) ? current : "";
     select.addEventListener("change", async () => {
-      await this.app.fileManager.processFrontMatter(file, (data) => {
+      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
         if (select.value) data.type = select.value;
         else delete data.type;
       });
@@ -327,7 +328,7 @@ export class NotesView extends BaseFeuilletsView {
       const cb = row.createEl("input", { type: "checkbox" });
       cb.checked = value;
       cb.addEventListener("change", async () => {
-        await this.app.fileManager.processFrontMatter(file, (data) => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           data[key] = cb.checked;
         });
       });
@@ -340,17 +341,17 @@ export class NotesView extends BaseFeuilletsView {
       });
       input.value = value;
       input.addEventListener("change", async () => {
-        await this.app.fileManager.processFrontMatter(file, (data) => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           if (!input.value) delete data[key];
           else data[key] = input.value;
         });
       });
     } else {
       const input = row.createEl("input", { type: "text", cls: "feuillets-properties-value" });
-      input.value = value === undefined || value === null ? "" : String(value);
+      input.value = value === undefined || value === null ? "" : toValue(value);
       const save = async () => {
         const raw = input.value;
-        await this.app.fileManager.processFrontMatter(file, (data) => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           if (raw.trim() === "") {
             delete data[key];
             return;
@@ -373,7 +374,7 @@ export class NotesView extends BaseFeuilletsView {
     setIcon(delBtn, "x");
     delBtn.setAttr("aria-label", t("notes.properties.deleteAria", { key }));
     delBtn.addEventListener("click", async () => {
-      await this.app.fileManager.processFrontMatter(file, (data) => {
+      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
         delete data[key];
       });
       await this.render(true);
@@ -386,11 +387,11 @@ export class NotesView extends BaseFeuilletsView {
     const wrap = row.createDiv({ cls: "feuillets-tags feuillets-properties-list-editor" });
     values.forEach((v, idx) => {
       const chip = wrap.createSpan({ cls: "feuillets-tag-chip" });
-      chip.setText(String(v));
+      chip.setText(toValue(v));
       chip.setAttr("title", t("notes.properties.removeValueTooltip"));
       chip.addEventListener("click", async () => {
         const next = values.filter((_, i) => i !== idx);
-        await this.app.fileManager.processFrontMatter(file, (data) => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           if (next.length === 0) delete data[key];
           else data[key] = next;
         });
@@ -406,7 +407,7 @@ export class NotesView extends BaseFeuilletsView {
       const raw = input.value.trim();
       if (!raw) return;
       const added = raw.split(",").map((s) => s.trim()).filter(Boolean);
-      await this.app.fileManager.processFrontMatter(file, (data) => {
+      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
         data[key] = [...values, ...added];
       });
       input.value = "";
@@ -487,9 +488,10 @@ export class NotesView extends BaseFeuilletsView {
     for (const jalon of jalons) citedSet.add(jalon);
 
     const linkRe = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
-    let m;
+    let m: RegExpExecArray | null;
     while ((m = linkRe.exec(body)) !== null) {
-      const linkText = m[1].trim().toLowerCase();
+      const captured = m[1];
+      const linkText = captured.trim().toLowerCase();
       const match = projectEntities.find(
         (ent) =>
           ent.basename.toLowerCase() === linkText ||
@@ -618,7 +620,7 @@ export class NotesView extends BaseFeuilletsView {
         }
       }
       if (!shown && efm.synopsis) {
-        info.setText(String(efm.synopsis).trim());
+        info.setText(toValue(efm.synopsis).trim());
       } else if (!shown && !efm.synopsis) {
         info.remove();
       }
@@ -640,7 +642,7 @@ export class NotesView extends BaseFeuilletsView {
 
     const footnotes: Footnote[] = [];
     const re = /^\[\^([^\]]+)\]:[ \t]*(.+)$/gm;
-    let m;
+    let m: RegExpExecArray | null;
     while ((m = re.exec(body)) !== null) {
       footnotes.push({ label: m[1], text: m[2].trim() });
     }
@@ -698,11 +700,11 @@ export class NotesView extends BaseFeuilletsView {
     if (collapsed) return;
 
     const list = section.createDiv({ cls: "feuillets-notes-field-container" });
-    const value = typeof fm[key] === "string" ? fm[key] : "";
+    const currentVal = typeof fm[key] === "string" ? fm[key] : "";
 
     const textEl = list.createDiv({
-      cls: "feuillets-flat-text-cell" + (value ? "" : " is-empty"),
-      text: value || placeholder,
+      cls: "feuillets-flat-text-cell" + (currentVal ? "" : " is-empty"),
+      text: currentVal || placeholder,
     });
     textEl.setAttr("style", "white-space: pre-wrap; min-height: 24px; cursor: pointer; padding: 4px 8px; border-radius: var(--radius-s);");
 
@@ -714,7 +716,7 @@ export class NotesView extends BaseFeuilletsView {
         cls: "feuillets-flat-textarea feuillets-autosize",
         attr: { placeholder, rows: String(rows) }
       });
-      ta.value = value;
+      ta.value = currentVal;
       ta.focus();
 
       ta.style.removeProperty("height");
@@ -724,7 +726,7 @@ export class NotesView extends BaseFeuilletsView {
         if (ta.parentNode) {
           const newVal = ta.value.trim();
           if (newVal !== (fm[key] || "")) {
-            await this.app.fileManager.processFrontMatter(file, (x) => {
+            await this.app.fileManager.processFrontMatter(file, (x: Record<string, unknown>) => {
               if (newVal) x[key] = newVal;
               else delete x[key];
             });
