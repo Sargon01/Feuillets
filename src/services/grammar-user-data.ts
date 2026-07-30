@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path ne sont pas disponibles sur mobile, ils ne sont charges qu'a l'ecriture des mots appris */
 /* global require -- défini par environnement */
-import type { App, PluginManifest } from "obsidian";
+import { Platform, type App, type PluginManifest } from "obsidian";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
+import { t } from "../i18n/index.js";
 
 type GrammarUserDataSettings = {
   grammalecteKnownWords?: unknown;
@@ -29,11 +30,13 @@ export class GrammarUserData {
   }
 
   get filePath(): string {
+    if (!Platform.isDesktop) throw new Error(t("grammar.unavailableOnMobile"));
     const path = require("path") as typeof import("path");
     return path.join(pluginAbsoluteDir(this.app, this.manifest), "resources", "grammar-user-data.json");
   }
 
   load(): void {
+    if (!Platform.isDesktop) return;
     const fs = require("fs") as typeof import("fs");
     try {
       const data = JSON.parse(fs.readFileSync(this.filePath, "utf8")) as { knownWords?: unknown; ignoredRules?: unknown };
@@ -46,6 +49,7 @@ export class GrammarUserData {
   }
 
   save(): void {
+    if (!Platform.isDesktop) return;
     const fs = require("fs") as typeof import("fs");
     const path = require("path") as typeof import("path");
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });

@@ -61,6 +61,11 @@ const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, ImageMime>> = {
  * le DOCX a besoin des octets bruts pour construire un vrai ImageRun (la
  * légende y est ajoutée comme un paragraphe séparé — voir export-docx.js). */
 export async function renderManuscriptHtml(app: App, markdown: string, sourcePath: string): Promise<RenderedManuscript> {
+  /* API DOM native volontaire (pas de createDiv) : cet arbre reste détaché
+     du document Obsidian du début à la fin de tout le pipeline export
+     (EPUB/DOCX/PDF) — jamais affiché, seulement rendu par MarkdownRenderer
+     puis sérialisé/parcouru nœud par nœud. Aucun des helpers createEl/
+     createDiv/createSpan n'est utilisé nulle part ailleurs dans ce fichier. */
   const container = document.createElement("div");
   const component = new Component();
   component.load();
@@ -196,6 +201,8 @@ function wrapFrontPagesInDom(containerEl: HTMLElement): void {
       i++;
       continue;
     }
+    // API DOM native volontaire : containerEl (voir renderManuscriptHtml
+    // ci-dessus) reste détaché du document Obsidian, wrapper en fait partie.
     const wrapper = document.createElement("div");
     wrapper.className = `feuillets-frontpage feuillets-frontpage-${m[1]}`;
     el.remove();
@@ -327,6 +334,8 @@ async function inlineImages(app: App, container: HTMLElement, sourcePath?: strin
       const { width, height } = await naturalSizeOf(dataUri);
       const caption = realCaption(img.getAttribute("alt"), file);
       if (caption) {
+        // API DOM native volontaire : img appartient à container (voir
+        // renderManuscriptHtml ci-dessus), détaché du document Obsidian.
         const figure = document.createElement("figure");
         img.replaceWith(figure);
         figure.appendChild(img);
