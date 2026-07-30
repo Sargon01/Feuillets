@@ -293,11 +293,11 @@
 }
 
 .feuillets-ring.feuillets-ring-hit::after {
-  background: var(--color-green) !important;
+  background: var(--color-green);
 }
 
 .feuillets-ring.feuillets-ring-over::after {
-  background: var(--color-red) !important;
+  background: var(--color-red);
 }
 
 /* ===== barre du tableau ===== */
@@ -714,7 +714,7 @@
    lieu d'une disparition instantanée, aussi bien au clic sur le bouton
    qu'au balayage tactile/trackpad. */
 .feuillets-tree-pane.is-tree-collapsed {
-  width: 0 !important;
+  width: 0;
   padding: 0;
   border-right-color: transparent;
   overflow: hidden;
@@ -739,8 +739,8 @@
 /* ===== volet unique symétrique (feuillets masqués, dossiers seuls) ===== */
 
 .feuillets-list-pane.is-list-collapsed {
-  flex: 0 1 0 !important;
-  width: 0 !important;
+  flex: 0 1 0;
+  width: 0;
   min-width: 0;
   overflow: hidden;
   transition: width 0.18s ease;
@@ -1474,7 +1474,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
    manuscrit, sans les codes du manuscrit (pas d'anneau, pas de numéro). */
 .feuillets-binder-research-row {
   opacity: 0.7;
-  border-top: none !important;
+  border-top: none;
 }
 
 .feuillets-binder-research-row .feuillets-folder-name,
@@ -1484,9 +1484,9 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
 }
 
 .feuillets-binder-research-root {
-  margin-top: var(--size-4-3) !important;
-  border-top: 1px solid var(--background-modifier-border) !important;
-  padding-top: var(--size-4-2) !important;
+  margin-top: var(--size-4-3);
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: var(--size-4-2);
 }
 
 .feuillets-notes-wc {
@@ -2040,37 +2040,6 @@ body.feuillets-text-width .markdown-preview-view {
   flex-shrink: 0;
 }
 
-/* ===== mode concentration (rétabli) ===== */
-
-body.feuillets-concentration .workspace-ribbon.mod-left,
-body.feuillets-concentration .workspace-tab-header-container,
-body.feuillets-concentration .status-bar {
-  display: none !important;
-}
-
-body.feuillets-concentration .markdown-source-view.mod-cm6 .cm-line {
-  opacity: var(--feuillets-dim-opacity, 0.35);
-  transition: opacity 0.15s ease;
-}
-
-body.feuillets-concentration.feuillets-focus-line
-  .markdown-source-view.mod-cm6
-  .cm-line.cm-active {
-  opacity: 1;
-}
-
-body.feuillets-concentration.feuillets-focus-paragraph
-  .markdown-source-view.mod-cm6
-  .cm-line.feuillets-para-active {
-  opacity: 1;
-}
-
-body.feuillets-concentration .markdown-source-view,
-body.feuillets-concentration .markdown-preview-view {
-  max-width: var(--feuillets-concentration-width, 720px);
-  margin: 0 auto;
-}
-
 /* ===== lecture : édition en place + sélection ===== */
 
 .feuillets-reading-edit {
@@ -2554,8 +2523,9 @@ body.feuillets-concentration .markdown-preview-view {
   opacity: 0.6;
 }
 
-.feuillets-drag-grip:hover {
-  opacity: 1 !important;
+.feuillets-item:hover .feuillets-drag-grip:hover,
+.feuillets-folder-row:hover .feuillets-drag-grip:hover {
+  opacity: 1;
   color: var(--interactive-accent);
 }
 
@@ -2957,7 +2927,7 @@ body.feuillets-concentration .markdown-preview-view {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-top: var(--size-4-1) !important;
+  padding-top: var(--size-4-1);
 }
 
 .feuillets-progression-compact .feuillets-notes-section {
@@ -3008,26 +2978,26 @@ body.feuillets-concentration .markdown-preview-view {
 .feuillets-list-pane,
 .feuillets-tree-pane,
 .feuillets-header {
-  border: none !important;
-  box-shadow: none !important;
+  border: none;
+  box-shadow: none;
 }
 
 /* Onglet fusionné Export & révision : deux sous-vues empilées (voir
    sidebar-feuillets-view.js, renderProjectTab) — séparateur visuel entre
    les deux, pas de bordure sur la première. */
 .feuillets-merged-section + .feuillets-merged-section {
-  border-top: 1px solid var(--background-modifier-border) !important;
+  border-top: 1px solid var(--background-modifier-border);
   margin-top: var(--size-4-3);
   padding-top: var(--size-4-3);
 }
 
 .feuillets-container {
-  background: var(--background-primary) !important;
+  background: var(--background-primary);
 }
 
 .feuillets-list-pane,
 .feuillets-tree-pane {
-  background: var(--background-secondary) !important;
+  background: var(--background-secondary);
 }
 
 .feuillets-sidebar-content,
@@ -3089,11 +3059,11 @@ body.feuillets-dim-tab-actions .workspace-tab-header-container:hover .workspace-
    même traitement, sauf l'onglet actif (déjà mis en avant par sa propre
    couleur/soulignement, pas besoin d'un estompage en plus). */
 body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active) {
-  opacity: 0.4 !important;
-  transition: opacity 0.2s ease !important;
+  opacity: 0.4;
+  transition: opacity 0.2s ease;
 }
 body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
-  opacity: 1 !important;
+  opacity: 1;
 }
 
 /* 2. SÉLECTION DISCRÈTE (STYLE ULYSSES 10% OPACITÉ & 6PX RADIUS) */
@@ -3110,12 +3080,12 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-character-item.is-selected,
 .feuillets-research-item.is-active,
 .feuillets-research-item.is-selected {
-  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent) !important;
-  color: var(--text-normal) !important;
-  font-weight: 600 !important;
-  border-radius: 6px !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  color: var(--text-normal);
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  box-shadow: none;
 }
 
 .feuillets-list-pane .feuillets-item:hover,
@@ -3125,7 +3095,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-doc-item:hover,
 .feuillets-character-item:hover,
 .feuillets-research-item:hover {
-  background: color-mix(in srgb, var(--interactive-accent) 5%, transparent) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 5%, transparent);
 }
 
 /* 3. EFFACEMENT DES COMMANDES (ICÔNES VISIBLES AU SURVOL SEULEMENT) */
@@ -3223,7 +3193,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-list-pane,
 .feuillets-tree-pane,
 .feuillets-sidebar-content {
-  font-family: var(--font-interface) !important;
+  font-family: var(--font-interface);
 }
 
 .feuillets-project-item {
@@ -3338,12 +3308,12 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 
 /* 3. BINDER SEARCH INLINE & CONTENUS */
 .feuillets-binder-search {
-  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  border-radius: var(--radius-m) !important;
-  padding: var(--size-4-1) var(--size-4-2) !important;
-  font-size: 12px !important;
-  color: var(--text-normal) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: var(--size-4-1) var(--size-4-2);
+  font-size: 12px;
+  color: var(--text-normal);
 }
 
 /* 4. BARRE DE RECHERCHE FLOTTANTE (CHERCHER/REMPLACER) ET HAUTE VISIBILITÉ SOMBRE */
@@ -3454,8 +3424,8 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .theme-dark .feuillets-list-pane .feuillets-item.is-active {
-  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent) !important;
-  border-radius: var(--radius-l) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  border-radius: var(--radius-l);
 }
 
 .theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-item-name,
@@ -3463,7 +3433,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-item-meta,
 .theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-item-wc,
 .theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-cell-icon {
-  color: var(--text-normal) !important;
+  color: var(--text-normal);
 }
 
 /* Zone d'édition respirante */
@@ -4818,15 +4788,15 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-rendered-body {
-  width: 100% !important;
+  width: 100%;
   cursor: pointer;
 }
 
 /* Zone d'édition temporaire au double-clic */
 .feuillets-inline-editor {
-  width: 100% !important;
-  border: 1px solid var(--interactive-accent) !important;
-  background: var(--background-primary) !important;
+  width: 100%;
+  border: 1px solid var(--interactive-accent);
+  background: var(--background-primary);
   border-radius: var(--radius-s);
   padding: var(--size-4-3);
   font-family: var(--font-text);
@@ -4834,9 +4804,9 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   line-height: var(--line-height-normal, 1.6);
   color: var(--text-normal);
   resize: vertical;
-  outline: none !important;
-  box-shadow: none !important;
-  box-sizing: border-box !important;
+  outline: none;
+  box-shadow: none;
+  box-sizing: border-box;
 }
 
 /* ===== Modale de Diff Visuel Côte à Côte ===== */
@@ -5025,9 +4995,9 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   margin-top: 6px;
   margin-bottom: 6px;
   padding-left: 2px;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .feuillets-export-cta-btn {
@@ -5077,15 +5047,15 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-ribbon-export-btn {
-  flex-shrink: 0 !important;
-  width: 28px !important;
-  height: 28px !important;
-  min-width: 28px !important;
-  min-height: 28px !important;
-  padding: var(--size-4-1) !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: var(--size-4-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius-s);
   color: var(--interactive-accent);
   cursor: pointer;
@@ -5098,8 +5068,8 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-ribbon-export-btn svg {
-  width: 18px !important;
-  height: 18px !important;
+  width: 18px;
+  height: 18px;
 }
 
 .feuillets-sidebar-export-body {
@@ -5289,7 +5259,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   height: 100%;
   border-right: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
-  overflow-y: auto !important;
+  overflow-y: auto;
   overscroll-behavior: contain;
   padding: var(--size-4-4) 18px;
   box-sizing: border-box;
@@ -5334,7 +5304,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   flex: 1;
   height: calc(100% - 32px);
   padding: var(--size-4-5);
-  overflow-y: auto !important;
+  overflow-y: auto;
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
@@ -5563,13 +5533,12 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
    application. `.feuillets-header` (binder) avait déjà ses bordures
    annulées ; on aligne les deux autres barres dessus. `.feuillets-binder-
    header` volontairement absent : aucune vue ne le crée (classe morte). */
-.feuillets-header,
 .feuillets-board-bar,
 .feuillets-sidebar-tab-bar,
 .feuillets-research-toolbar {
-  border: none !important;
-  border-bottom: none !important;
-  box-shadow: none !important;
+  border: none;
+  border-bottom: none;
+  box-shadow: none;
 }
 
 /* Hauteur et calage vertical identiques sur les trois barres d'outils. */
