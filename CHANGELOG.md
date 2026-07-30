@@ -2,6 +2,17 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.4.3
+
+### Modifié & Corrigé
+
+- **Qualité du code & Revue Obsidian** :
+  - Réduction importante des alertes de typage Obsidian.
+  - Amélioration des types CodeMirror et des données externes.
+  - Corrections sûres autour des sauvegardes, du frontmatter, des citations, du XML, du DOCX et de la recherche.
+  - Remplacement de plusieurs API ou usages dépréciés simples.
+  - Aucun changement fonctionnel intentionnel.
+
 ## 1.4.2
 
 ### Corrigé
