@@ -47,9 +47,10 @@ type SpellToken = {
   sValue: string;
 };
 
-type SpellChecker = {
+export type SpellChecker = {
   parseParagraph(text: string): Iterable<SpellToken>;
   suggest(word: string): Iterator<string[]>;
+  getMorph(word: string): string[];
 };
 
 type GrammalecteContext = {

@@ -6,11 +6,67 @@ import { getChapters, flattenFiles, isFrontMatter, resourcesFolderPath } from ".
 import { findRepetitions } from "../utils/repetitions.js";
 import { ensureFolder } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
+import type { GrammalecteChecker } from "../services/grammalecte-checker.js";
 
-import { TFile, TFolder, Platform, Notice, normalizePath } from "obsidian";
+import { TFile, TFolder, Platform, Notice, normalizePath, type Editor } from "obsidian";
+
+type ObsidianElement = HTMLElement & {
+  createDiv(options: { cls: string }): ObsidianElement;
+};
+
+type AnalysisSettings = FeuilletsSettings & {
+  analysisRepWindow?: number;
+  analysisRepMinLen?: number;
+};
+
+type AnalysisViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
+  settings: AnalysisSettings;
+  grammalecteChecker: GrammalecteChecker | null;
+  folderNoteFor(folder: TFolder): TFile | null;
+  shortTitleFor(file: TFile): string;
+  getProjectFolder(): TFolder | null;
+  activeEditorAnywhere(): Editor | null;
+  saveSettings(): Promise<void>;
+};
+
+type RythmeKey = "action" | "dialogue" | "description" | "introspection";
+type RythmeValues = Record<RythmeKey, number>;
+
+type ChapterStat = { title: string; words: number; dialogueRatio: number };
+
+type VocabEntry = [string, number];
+type VocabData = {
+  passiveCount: number;
+  weakTop: VocabEntry[];
+  weakTotal: number;
+  weakPct: number;
+  richness: number;
+  uniqueLemmas: number;
+  hapaxCount: number;
+  contentTotal: number;
+  verbs: VocabEntry[];
+  adjs: VocabEntry[];
+  advs: VocabEntry[];
+  mentTotal: number;
+  mentPct: number;
+  mentTop: VocabEntry[];
+};
+type VocabResult = VocabData | { error: true };
+
+type DashboardData = {
+  words: number;
+  scenes: number;
+  chapters: number;
+  dialoguePct: number;
+  repZones: number;
+  outliers: number;
+  uniqueSurface: number;
+  tagged: number;
+  taggedPct: number;
+};
 
 /** Extrait le lemme d'une chaîne morphologique Grammalecte (`>lemme …`). */
-function lemmaOfMorph(morph) {
+function lemmaOfMorph(morph: string): string {
   const m = morph.match(/>([0-9a-zà-öø-ÿ-]+)/i);
   return m ? m[1] : "";
 }
@@ -36,7 +92,7 @@ const ETRE_INTRANSITIFS = new Set([
    intensité 0–5 par dimension, sous la clé `rythme`. Tags MANUELS (posés par
    l'autrice) — pas de classification automatique, peu fiable. La courbe du
    roman en est déduite. */
-function rythmeDims() {
+function rythmeDims(): { key: RythmeKey; label: string }[] {
   return [
     { key: "action", label: t("analysis.pace.action") },
     { key: "dialogue", label: t("analysis.pace.dialogue") },
@@ -46,7 +102,7 @@ function rythmeDims() {
 }
 const RYTHME_MAX = 5;
 
-function median(nums) {
+function median(nums: number[]): number {
   if (!nums.length) return 0;
   const s = [...nums].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
@@ -61,15 +117,22 @@ function median(nums) {
  * narrative) s'y ajoutent de la même façon. Sous-vue de SidebarFeuilletsView,
  * rafraîchie au changement de feuillet. */
 export class AnalysisView extends BaseFeuilletsView {
-  getViewType() {
+  declare plugin: AnalysisViewPlugin;
+  declare targetContainer?: HTMLElement;
+  _chaptersCache: ChapterStat[] | null = null;
+  _vocabCache: { path: string; data: VocabResult } | null = null;
+  _romanVocabCache: VocabResult | null = null;
+  _dashboardCache: DashboardData | null = null;
+
+  getViewType(): string {
     return "feuillets-analysis";
   }
 
-  getDisplayText() {
+  getDisplayText(): string {
     return t("analysis.displayText");
   }
 
-  getIcon() {
+  getIcon(): string {
     return "bar-chart-3";
   }
 
@@ -81,7 +144,7 @@ export class AnalysisView extends BaseFeuilletsView {
   /** Une section-outil repliable, avec titre, dont l'état de repli persiste
    * (comme les autres sections du panneau). `renderBody` ne s'exécute que si
    * la section est dépliée. */
-  tool(container, key, icon, title, renderBody) {
+  tool(container: ObsidianElement, key: string, icon: string, title: string, renderBody: (section: ObsidianElement) => void): void {
     const S = this.plugin.settings;
     const collapseKey = `analyse:${key}`;
     const collapsed = !!(S.collapsed && S.collapsed[collapseKey]);
@@ -102,12 +165,12 @@ export class AnalysisView extends BaseFeuilletsView {
         this.render();
       },
     });
-    if (!collapsed) renderBody(section);
+    if (!collapsed) renderBody(section as ObsidianElement);
   }
 
   /** Titre affichable d'un chapitre : note de dossier (si dossier-chapitre),
    * sinon frontmatter (fichier-chapitre), sinon le nom brut. */
-  chapterTitle(ch) {
+  chapterTitle(ch: TFile | TFolder): string {
     if (ch instanceof TFolder) {
       const note = this.plugin.folderNoteFor(ch);
       return (note && this.plugin.shortTitleFor(note)) || ch.name;
@@ -118,7 +181,7 @@ export class AnalysisView extends BaseFeuilletsView {
   /** Données chapitres avec cache : l'agrégation lit tout le manuscrit, donc
    * on ne la refait pas à chaque navigation entre feuillets. Le cache est
    * invalidé par SidebarFeuilletsView sur modification du coffre. */
-  async getChaptersData() {
+  async getChaptersData(): Promise<ChapterStat[]> {
     if (!this._chaptersCache) this._chaptersCache = await this.computeChapters();
     return this._chaptersCache;
   }
@@ -126,11 +189,11 @@ export class AnalysisView extends BaseFeuilletsView {
   /** Agrège chaque chapitre du manuscrit : mots et ratio dialogue. Un chapitre
    * peut être un dossier (somme de ses scènes) ou un fichier unique. Lecture
    * en cache (cachedRead). Calculé seulement à la demande (section dépliée). */
-  async computeChapters() {
+  async computeChapters(): Promise<ChapterStat[]> {
     const root = this.plugin.getProjectFolder();
     if (!root) return [];
     const S = this.plugin.settings;
-    const out = [];
+    const out: ChapterStat[] = [];
     for (const ch of getChapters(this.app, S, root)) {
       let text = "";
       if (ch instanceof TFolder) {
@@ -153,15 +216,15 @@ export class AnalysisView extends BaseFeuilletsView {
    * verbe/nom…) : on compte au plus large, d'où un résultat indicatif. Desktop
    * uniquement (le moteur nécessite fs/vm). Synchrone — d'où le cache et le
    * calcul seulement quand la section est dépliée. */
-  computeVocab(rawText) {
+  computeVocab(rawText: string): VocabData | null {
     const checker = this.plugin.grammalecteChecker;
     if (!checker) return null;
     checker.ensureLoaded();
-    const sc = checker.spellChecker;
+    const sc = checker.spellChecker!;
 
     const clean = stripWritingNoise(rawText || "");
-    const morphCache = new Map();
-    const morphsOf = (w) => {
+    const morphCache = new Map<string, string[]>();
+    const morphsOf = (w: string): string[] => {
       let mm = morphCache.get(w);
       if (mm === undefined) {
         mm = sc.getMorph(w) || [];
@@ -171,8 +234,8 @@ export class AnalysisView extends BaseFeuilletsView {
     };
 
     const re = /[\p{L}][\p{L}\p{N}'’-]*/gu;
-    const ordered = [];
-    const freq = new Map();
+    const ordered: string[] = [];
+    const freq = new Map<string, number>();
     let m;
     while ((m = re.exec(clean)) !== null) {
       const key = m[0].toLowerCase();
@@ -180,13 +243,13 @@ export class AnalysisView extends BaseFeuilletsView {
       freq.set(key, (freq.get(key) || 0) + 1);
     }
 
-    const verbs = new Map();
-    const adjs = new Map();
-    const advs = new Map();
-    const allLemmas = new Map();
-    const ment = new Map();
+    const verbs = new Map<string, number>();
+    const adjs = new Map<string, number>();
+    const advs = new Map<string, number>();
+    const allLemmas = new Map<string, number>();
+    const ment = new Map<string, number>();
     let contentTotal = 0;
-    const bump = (map, lemma, n) => {
+    const bump = (map: Map<string, number>, lemma: string, n: number) => {
       if (lemma) map.set(lemma, (map.get(lemma) || 0) + n);
     };
 
@@ -223,8 +286,8 @@ export class AnalysisView extends BaseFeuilletsView {
 
     // Voix passive : forme d'« être » suivie (1–2 mots) d'un participe passé
     // (tag :Q), hors verbes intransitifs à auxiliaire être. Estimation.
-    const isEtre = (w) => morphsOf(w).some((mo) => /:V/.test(mo) && lemmaOfMorph(mo) === "être");
-    const ppLemma = (w) => {
+    const isEtre = (w: string) => morphsOf(w).some((mo) => /:V/.test(mo) && lemmaOfMorph(mo) === "être");
+    const ppLemma = (w: string): string => {
       for (const mo of morphsOf(w)) {
         if (/:V/.test(mo) && mo.includes(":Q")) return lemmaOfMorph(mo);
       }
@@ -243,7 +306,8 @@ export class AnalysisView extends BaseFeuilletsView {
       }
     }
 
-    const top = (map, k) => [...map.entries()].sort((x, y) => y[1] - x[1]).slice(0, k);
+    const top = (map: Map<string, number>, k: number): VocabEntry[] =>
+      [...map.entries()].sort((x, y) => y[1] - x[1]).slice(0, k);
     const hapaxCount = [...allLemmas.values()].filter((v) => v === 1).length;
     const mentTotal = [...ment.values()].reduce((s, v) => s + v, 0);
 
@@ -275,11 +339,11 @@ export class AnalysisView extends BaseFeuilletsView {
 
   /** Vocabulaire avec cache par fichier (le calcul morphologique bloque
    * brièvement) ; invalidé sur modification du coffre par la barre latérale. */
-  getVocab(file, rawText) {
+  getVocab(file: TFile, rawText: string): VocabResult {
     if (this._vocabCache && this._vocabCache.path === file.path) return this._vocabCache.data;
-    let data;
+    let data: VocabResult;
     try {
-      data = this.computeVocab(rawText);
+      data = this.computeVocab(rawText) || { error: true };
     } catch (e) {
       console.error("Feuillets : analyse lexicale indisponible", e);
       data = { error: true };
@@ -291,14 +355,14 @@ export class AnalysisView extends BaseFeuilletsView {
   /** Vocabulaire du roman entier (Phase « vocab roman ») : concatène toutes
    * les scènes et réutilise computeVocab. Lourd (Grammalecte sur tout le
    * manuscrit), bureau uniquement — mis en cache, invalidé sur modification. */
-  async getRomanVocab() {
+  async getRomanVocab(): Promise<VocabResult> {
     if (this._romanVocabCache) return this._romanVocabCache;
-    let data;
+    let data: VocabResult;
     try {
       const scenes = this.sceneFiles();
       let text = "";
       for (const f of scenes) text += "\n\n" + (await this.app.vault.cachedRead(f));
-      data = this.computeVocab(text);
+      data = this.computeVocab(text) || { error: true };
     } catch (e) {
       console.error("Feuillets : vocabulaire du roman indisponible", e);
       data = { error: true };
@@ -309,24 +373,24 @@ export class AnalysisView extends BaseFeuilletsView {
 
   /** Affiche un résultat de computeVocab dans une section (réutilisé pour le
    * feuillet et pour le roman). */
-  renderVocabInto(section, vocab) {
+  renderVocabInto(section: ObsidianElement, vocab: VocabResult | null): void {
     if (Platform.isMobile) {
       section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.vocab.desktopOnly"));
       return;
     }
-    if (!vocab || vocab.error) {
+    if (!vocab || "error" in vocab) {
       section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.vocab.unavailable"));
       return;
     }
     section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
       t("analysis.vocab.summary", {
-        richness: Math.round(vocab.richness * 100),
+        richness: String(Math.round(vocab.richness * 100)),
         lemmas: formatNumber(vocab.uniqueLemmas),
         content: formatNumber(vocab.contentTotal),
         hapax: formatNumber(vocab.hapaxCount),
       })
     );
-    const group = (label, entries) => {
+    const group = (label: string, entries: VocabEntry[]) => {
       section.createDiv({ cls: "feuillets-analysis-summary feuillets-vocab-group" }).setText(label);
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       if (!entries.length) {
@@ -341,14 +405,14 @@ export class AnalysisView extends BaseFeuilletsView {
     };
     group(t("analysis.vocab.favoriteVerbs"), vocab.verbs);
     group(
-      t("analysis.vocab.weakVerbs", { total: formatNumber(vocab.weakTotal), pct: vocab.weakPct }) +
+      t("analysis.vocab.weakVerbs", { total: formatNumber(vocab.weakTotal), pct: String(vocab.weakPct) }) +
         (vocab.weakPct >= 40 ? t("analysis.vocab.toVary") : ""),
       vocab.weakTop
     );
     group(t("analysis.vocab.favoriteAdjs"), vocab.adjs);
     group(t("analysis.vocab.favoriteAdvs"), vocab.advs);
     group(
-      t("analysis.vocab.mentAdverbs", { total: formatNumber(vocab.mentTotal), pct: vocab.mentPct }) +
+      t("analysis.vocab.mentAdverbs", { total: formatNumber(vocab.mentTotal), pct: String(vocab.mentPct) }) +
         (vocab.mentPct >= 3 ? t("analysis.vocab.toWatch") : ""),
       vocab.mentTop
     );
@@ -363,12 +427,12 @@ export class AnalysisView extends BaseFeuilletsView {
   /** Tableau de bord roman (Phase 6) : agrégats sur tout le manuscrit —
    * indicateurs BRUTS et actionnables (pas de score composite opaque). Lourd
    * (lit tout le manuscrit) : mis en cache, invalidé sur modification. */
-  async computeDashboard() {
+  async computeDashboard(): Promise<DashboardData> {
     const scenes = this.sceneFiles();
     let words = 0;
     let dialogueWeighted = 0;
     let repZones = 0;
-    const uniqueSurface = new Set();
+    const uniqueSurface = new Set<string>();
     for (const f of scenes) {
       const raw = await this.app.vault.cachedRead(f);
       const a = analyzeProse(raw);
@@ -402,13 +466,13 @@ export class AnalysisView extends BaseFeuilletsView {
     };
   }
 
-  async getDashboard() {
+  async getDashboard(): Promise<DashboardData> {
     if (!this._dashboardCache) this._dashboardCache = await this.computeDashboard();
     return this._dashboardCache;
   }
 
   /** Synthèse du tableau de bord en Markdown (export presse-papier). */
-  dashboardMarkdown(dash) {
+  dashboardMarkdown(dash: DashboardData): string {
     const root = this.plugin.getProjectFolder();
     const name = this.plugin.settings.manuscriptTitle || (root ? root.name : t("analysis.dashboard.defaultManuscriptName"));
     return [
@@ -428,7 +492,7 @@ export class AnalysisView extends BaseFeuilletsView {
 
   /** Enregistre la synthèse dans un fichier du coffre (Resources/Tableau de
    * bord.md), le crée ou le remplace, puis l'ouvre. */
-  async exportDashboardFile(dash) {
+  async exportDashboardFile(dash: DashboardData): Promise<void> {
     const root = this.plugin.getProjectFolder();
     if (!root) {
       new Notice(t("analysis.dashboard.noActiveProject"));
@@ -446,13 +510,13 @@ export class AnalysisView extends BaseFeuilletsView {
     else await this.app.vault.create(path, md);
     const file = existing instanceof TFile ? existing : this.app.vault.getAbstractFileByPath(path);
     if (file instanceof TFile) openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
-    new Notice(t("analysis.dashboard.savedNotice", { folder: dir.split("/").pop() }));
+    new Notice(t("analysis.dashboard.savedNotice", { folder: dir.split("/").pop() || "" }));
   }
 
   /** Scènes du manuscrit dans l'ordre (fichiers md, hors Front). Lecture du
    * seul frontmatter (metadataCache) pour la courbe → pas de lecture de corps,
    * donc pas de cache nécessaire ici. */
-  sceneFiles() {
+  sceneFiles(): TFile[] {
     const root = this.plugin.getProjectFolder();
     if (!root) return [];
     const S = this.plugin.settings;
@@ -464,7 +528,7 @@ export class AnalysisView extends BaseFeuilletsView {
   /** Sélectionne TOUTES les occurrences d'une répétition dans l'éditeur du
    * feuillet actif (sélections multiples CodeMirror → les mots répétés sont
    * surlignés dans le texte) et fait défiler jusqu'à la première. */
-  highlightAll(bodyStart, offsets, len) {
+  highlightAll(bodyStart: number, offsets: number[], len: number): void {
     const editor = this.plugin.activeEditorAnywhere();
     if (!editor || !offsets.length) return;
     const ranges = offsets.map((o) => ({
@@ -476,10 +540,10 @@ export class AnalysisView extends BaseFeuilletsView {
   }
 
   /** Intensités `rythme` d'une scène, normalisées 0–RYTHME_MAX (0 si absent). */
-  rythmeOf(file) {
+  rythmeOf(file: TFile): RythmeValues {
     const fm = this.fm(file);
     const r = (fm && fm.pace) || {};
-    const out = {};
+    const out = {} as RythmeValues;
     for (const d of rythmeDims()) {
       const v = Number(r[d.key]);
       out[d.key] = Number.isFinite(v) ? Math.max(0, Math.min(RYTHME_MAX, Math.round(v))) : 0;
@@ -490,7 +554,7 @@ export class AnalysisView extends BaseFeuilletsView {
   /** En-tête de groupe (Ce feuillet / Le roman) : grand, avec icône et
    * repliable (masque tous les outils du groupe). État de repli persistant.
    * Retourne true si le groupe est replié. */
-  group(container, icon, title, key) {
+  group(container: ObsidianElement, icon: string, title: string, key: string): boolean {
     const S = this.plugin.settings;
     const collapseKey = `analyse-group:${key}`;
     const collapsed = !!(S.collapsed && S.collapsed[collapseKey]);
@@ -514,8 +578,8 @@ export class AnalysisView extends BaseFeuilletsView {
     return collapsed;
   }
 
-  async render() {
-    const container = this.targetContainer || this.contentEl;
+  async render(): Promise<void> {
+    const container = (this.targetContainer || this.contentEl) as ObsidianElement;
     container.empty();
     container.addClass("feuillets-notes-container");
 
@@ -535,7 +599,7 @@ export class AnalysisView extends BaseFeuilletsView {
 
     this.tool(gb, "metrics", "bar-chart-3", t("analysis.metrics.title"), (section) => {
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
-      const addRow = (label, value, hint) => {
+      const addRow = (label: string, value: string, hint?: string) => {
         const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
         row.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
         row.createDiv({ cls: "feuillets-notes-metadata-value", text: value });
@@ -568,7 +632,7 @@ export class AnalysisView extends BaseFeuilletsView {
     this.tool(gb, "repetitions", "copy", t("analysis.repetitions.title"), (section) => {
       // Réglages : fenêtre (distance max en mots) et longueur mini d'un mot.
       const ctrl = section.createDiv({ cls: "feuillets-notes-metadata-list" });
-      const numCtrl = (label, value, set, min) => {
+      const numCtrl = (label: string, value: number, set: (v: number) => void, min: number) => {
         const r = ctrl.createDiv({ cls: "feuillets-notes-metadata-row" });
         r.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
         const inp = r.createEl("input", { cls: "feuillets-rythme-input", type: "number" });
@@ -588,7 +652,7 @@ export class AnalysisView extends BaseFeuilletsView {
         return;
       }
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        t("analysis.repetitions.summary", { count: reps.length })
+        t("analysis.repetitions.summary", { count: String(reps.length) })
       );
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const MAXROWS = 40;
@@ -597,7 +661,7 @@ export class AnalysisView extends BaseFeuilletsView {
         row.createDiv({ cls: "feuillets-notes-metadata-label", text: rep.word });
         row.createDiv({
           cls: "feuillets-notes-metadata-value",
-          text: t("analysis.repetitions.countAtGap", { count: rep.count, gap: rep.minGap }),
+          text: t("analysis.repetitions.countAtGap", { count: String(rep.count), gap: String(rep.minGap) }),
         });
         row.setAttr("title", t("analysis.repetitions.rowTooltip"));
         row.addEventListener("click", () => {
@@ -608,7 +672,7 @@ export class AnalysisView extends BaseFeuilletsView {
       }
       if (reps.length > MAXROWS) {
         section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-          t("analysis.repetitions.andMore", { count: reps.length - MAXROWS })
+          t("analysis.repetitions.andMore", { count: String(reps.length - MAXROWS) })
         );
       }
     });
@@ -624,7 +688,7 @@ export class AnalysisView extends BaseFeuilletsView {
     // Rythme du feuillet (tags manuels de la scène active)
     this.tool(gb, "rythme", "sliders-horizontal", t("analysis.pace.sheetTitle"), (section) => {
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        t("analysis.pace.instructions", { max: RYTHME_MAX })
+        t("analysis.pace.instructions", { max: String(RYTHME_MAX) })
       );
       const r = this.rythmeOf(file);
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
@@ -660,7 +724,7 @@ export class AnalysisView extends BaseFeuilletsView {
     this.tool(gb, "dashboard", "layout-dashboard", t("analysis.dashboard.title"), (section) => {
       if (!dash) return;
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
-      const row = (label, value) => {
+      const row = (label: string, value: string) => {
         const r = list.createDiv({ cls: "feuillets-notes-metadata-row" });
         r.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
         r.createDiv({ cls: "feuillets-notes-metadata-value", text: value });
@@ -702,12 +766,12 @@ export class AnalysisView extends BaseFeuilletsView {
       const counts = chapters.map((c) => c.words);
       const med = median(counts);
       const max = Math.max(1, ...counts);
-      const isOutlier = (w) => med > 0 && (w > med * 1.75 || w < med * 0.4);
+      const isOutlier = (w: number) => med > 0 && (w > med * 1.75 || w < med * 0.4);
       const outliers = counts.filter(isOutlier).length;
 
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-        t("analysis.chapters.summary", { count: chapters.length, median: formatNumber(Math.round(med)) }) +
-          (outliers ? t("analysis.chapters.outliersSuffix", { count: outliers }) : "")
+        t("analysis.chapters.summary", { count: String(chapters.length), median: formatNumber(Math.round(med)) }) +
+          (outliers ? t("analysis.chapters.outliersSuffix", { count: String(outliers) }) : "")
       );
 
       for (const c of chapters) {
@@ -720,7 +784,7 @@ export class AnalysisView extends BaseFeuilletsView {
         cHead.createSpan({ cls: "feuillets-analysis-chapter-label", text: c.title });
         cHead.createSpan({
           cls: "feuillets-analysis-chapter-value",
-          text: t("analysis.chapters.wordsAndDialogue", { words: formatNumber(c.words), pct: Math.round(c.dialogueRatio * 100) }),
+          text: t("analysis.chapters.wordsAndDialogue", { words: formatNumber(c.words), pct: String(Math.round(c.dialogueRatio * 100)) }),
         });
         const bar = block.createDiv({ cls: "feuillets-analysis-bar" });
         bar.createDiv({ cls: "feuillets-analysis-bar-fill" }).style.width =
@@ -761,7 +825,7 @@ export class AnalysisView extends BaseFeuilletsView {
           if (r[d.key] <= 0) continue;
           const seg = bar.createDiv({ cls: `feuillets-curve-seg feuillets-curve-seg-${d.key}` });
           seg.style.flexGrow = String(r[d.key]);
-          seg.setAttr("title", t("analysis.curve.segTooltip", { label: d.label, value: r[d.key], max: RYTHME_MAX }));
+          seg.setAttr("title", t("analysis.curve.segTooltip", { label: d.label, value: String(r[d.key]), max: String(RYTHME_MAX) }));
         }
         rowEl.addEventListener("click", () =>
           openFileActivating(this.app, this.app.workspace.getLeaf(false), f)
