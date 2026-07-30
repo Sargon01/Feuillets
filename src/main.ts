@@ -18,6 +18,7 @@ import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, 
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import { nextFootnoteNumber, renumberFootnotes } from "./utils/footnotes.js";
 import { openFileActivating } from "./utils/dom.js";
+import { noticeMessageEl } from "./utils/obsidian-compat.js";
 import { NotesView } from "./views/notes-view.js";
 import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
@@ -2532,11 +2533,13 @@ class FeuilletsPlugin extends Plugin {
     parts.push(result.added > 0 ? t("main.notice.canvasCardsAdded", { count: String(result.added) }) : t("main.notice.canvasCardsUpToDate", { count: String(result.total) }));
     parts.push(result.edgesAdded > 0 ? t("main.notice.canvasLinksDrawn", { count: String(result.edgesAdded) }) : t("main.notice.canvasNoLinks"));
     const notice = new Notice(`${parts.join(" — ")}. ${t("main.notice.clickToOpen")}`, 8000);
-    /* `messageEl` (recommandé) n'existe que depuis Obsidian 1.8.7 ; minAppVersion
-       reste 1.7.2 — y basculer casserait Notice sur toute version antérieure.
-       `noticeEl`, dépréciée mais toujours fonctionnelle, est conservée ici. */
-    notice.noticeEl.addClass("feuillets-clickable");
-    notice.noticeEl.addEventListener("click", () => {
+    /* `messageEl` (recommandé) n'existe que depuis Obsidian 1.8.7 et
+       minAppVersion reste 1.7.2 : noticeMessageEl() choisit à l'exécution la
+       forme fournie par l'hôte au lieu d'en figer une (voir
+       src/utils/obsidian-compat.ts). */
+    const messageEl = noticeMessageEl(notice);
+    messageEl.addClass("feuillets-clickable");
+    messageEl.addEventListener("click", () => {
       openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
     });
   }

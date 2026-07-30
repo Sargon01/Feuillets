@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : path, charge seulement quand le moteur Harper local est sollicite */
 /* global require -- défini par environnement */
+import { Platform } from "obsidian";
 import { createBinaryModuleFromUrl, LocalLinter, Dialect } from "harper.js";
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
+import { t } from "../i18n/index.js";
 
 type GrammarIssue = {
   type: "spelling" | "grammar";
@@ -35,6 +37,9 @@ export class HarperChecker {
   }
 
   ensureLoaded(): void {
+    if (!Platform.isDesktop) {
+      throw new Error(t("grammar.unavailableOnMobile"));
+    }
     if (this.linter) return;
 
     const path = require("path") as typeof import("path");
@@ -69,12 +74,8 @@ export class HarperChecker {
       const span = lint.span();
       const kind = lint.lint_kind();
       const underlined = lint.get_problem_text();
-      const issue = {
-        /* Faux positif de no-unnecessary-type-assertion : ce cast est
-           signalé comme superflu, mais le retirer élargit `type` en
-           `string` et casse tsc (`GrammarIssue["type"]` attendu) — vérifié
-           en isolant `tsc` seul, sans le linter. Conservé tel quel. */
-        type: (SPELLING_KINDS.has(kind) ? "spelling" : "grammar") as GrammarIssue["type"],
+      const issue: GrammarIssue = {
+        type: SPELLING_KINDS.has(kind) ? "spelling" : "grammar",
         ruleId: kind,
         message: lint.message(),
         start: span.start,

@@ -195,6 +195,9 @@ export class ScrivenerImportModal extends Modal {
     }
 
     const analyze = async () => {
+      if (!Platform.isDesktop) {
+        return void new Notice(t("modal.scrivenerImport.importUnavailable"));
+      }
       const scrivPath = scrivInput.value.trim().replace(/[/\\]+$/, "");
       if (!scrivPath) {
         new Notice(t("modal.scrivenerImport.enterScrivPath"));

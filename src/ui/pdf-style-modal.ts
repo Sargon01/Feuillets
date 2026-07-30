@@ -281,7 +281,9 @@ export class PdfStyleModal extends Modal {
     const tpl = await resolveExportTemplate(this.app, this.settings, this.settings.exportTemplate);
     const css = templateToCss(tpl);
 
-    const dummyEl = document.createElement("div");
+    // Détaché tant qu'il n'est pas passé à paginateManuscript — élément du
+    // document principal Obsidian (ses enfants sont déjà créés via createEl).
+    const dummyEl = createDiv();
     dummyEl.createEl("h1", { text: t("modal.preview.dummy.h1") });
     dummyEl.createEl("p", { text: t("modal.preview.dummy.p1") });
     dummyEl.createEl("p", { text: t("modal.pdfStyle.dummyP2") });
