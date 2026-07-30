@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : path, charge seulement quand le moteur Harper local est sollicite */
 /* global require -- défini par environnement */
+import { Platform } from "obsidian";
 import { createBinaryModuleFromUrl, LocalLinter, Dialect } from "harper.js";
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
+import { t } from "../i18n/index.js";
 
 type GrammarIssue = {
   type: "spelling" | "grammar";
@@ -35,6 +37,9 @@ export class HarperChecker {
   }
 
   ensureLoaded(): void {
+    if (!Platform.isDesktop) {
+      throw new Error(t("grammar.unavailableOnMobile"));
+    }
     if (this.linter) return;
 
     const path = require("path") as typeof import("path");
