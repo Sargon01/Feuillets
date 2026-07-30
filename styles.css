@@ -3436,16 +3436,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   color: var(--text-normal);
 }
 
-/* Zone d'édition respirante */
-.markdown-reading-view,
-.markdown-source-view {
-  max-width: 700px !important;
-  margin-left: auto !important;
-  margin-right: auto !important;
-  font-size: 19px;
-  line-height: 1.75 !important;
-}
-
 .feuillets-search-main-row,
 .feuillets-search-replace-row {
   display: flex;
