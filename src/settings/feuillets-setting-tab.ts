@@ -1789,6 +1789,19 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName(t("settings.pdfFootnotePlacement.name"))
+      .addDropdown((d) =>
+        d
+          .addOption("end", t("settings.pdfFootnotePlacement.end"))
+          .addOption("bottom", t("settings.pdfFootnotePlacement.bottom"))
+          .setValue(S.pdfFootnotePlacement || "end")
+          .onChange(async (v) => {
+            S.pdfFootnotePlacement = v as DefaultSettings["pdfFootnotePlacement"];
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
       .setName(t("settings.pdfFooterRight.name"))
       .setDesc(t("settings.pdfFooterRight.desc"))
       .addText((t2) =>
