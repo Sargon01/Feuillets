@@ -15,9 +15,15 @@
    précédente — le fichier créé était donc invalide sous Windows. */
 const FORBIDDEN_IN_FILENAME = /[\\/:*?"<>|#^[\]]/g;
 
+function safeString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+  return "";
+}
+
 /** Découpe une saisie « a, b, c » en liste, sans entrées vides. */
 export function splitCsv(value: unknown): string[] {
-  return String(value || "")
+  return safeString(value)
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
@@ -28,7 +34,7 @@ export function splitCsv(value: unknown): string[] {
 export function normalizeTags(value: unknown): string[] {
   if (!value) return [];
   if (Array.isArray(value)) {
-    return [...new Set(value.map((v) => String(v).trim()).filter(Boolean))];
+    return [...new Set(value.map((v) => safeString(v).trim()).filter(Boolean))];
   }
   if (typeof value === "string") return [...new Set(splitCsv(value))];
   return [];
@@ -37,7 +43,7 @@ export function normalizeTags(value: unknown): string[] {
 /** Aperçu sur une ligne, tronqué. `"—"` si le texte est vide — c'est un
  * affichage, jamais une valeur écrite dans un fichier. */
 export function shortText(value: unknown, max = 180): string {
-  const text = String(value || "")
+  const text = safeString(value)
     .replace(/\s+/g, " ")
     .trim();
   if (!text) return "—";
@@ -47,9 +53,10 @@ export function shortText(value: unknown, max = 180): string {
 /** Sépare le frontmatter du corps. `frontmatter` est `null` s'il n'y en a pas
  * — à distinguer d'un frontmatter vide, qui donne `""`. */
 export function splitFrontmatter(content: unknown): { frontmatter: string | null; body: string } {
-  const match = String(content ?? "").match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!match) return { frontmatter: null, body: String(content ?? "") };
-  return { frontmatter: match[1], body: String(content).slice(match[0].length) };
+  const text = safeString(content);
+  const match = text.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!match) return { frontmatter: null, body: text };
+  return { frontmatter: match[1], body: text.slice(match[0].length) };
 }
 
 /** Corps seul, sans frontmatter ni blancs de bord. */
@@ -69,7 +76,7 @@ export function ensureNumber(value: unknown, fallback = 0): number {
  * « Scene 1.md » suivie d'une espace gardait son extension — et le fichier
  * créé s'appelait « Scene 1.md.md ». */
 export function stripMdExtension(name: unknown): string {
-  return String(name || "")
+  return safeString(name)
     .trim()
     .replace(/\.md$/i, "")
     .trim();
@@ -103,14 +110,14 @@ export function moveItem<T>(array: T[], fromIndex: number, toIndex: number): T[]
 
 /** Valeur d'un champ pour un formulaire : une liste devient « a, b ». */
 export function toValue(value: unknown): string {
-  return Array.isArray(value) ? value.join(", ") : String(value ?? "");
+  return Array.isArray(value) ? value.map(safeString).join(", ") : safeString(value);
 }
 
 /** Corps d'une scène fusionnée dans une autre, selon le mode choisi :
  * `continuous` colle le texte tel quel, `comment` le fait précéder d'une
  * citation, tout autre mode d'un titre de niveau 2. */
 export function buildMergedSection(source: { basename: string }, body: unknown, mode: string): string {
-  const clean = String(body || "").trim();
+  const clean = safeString(body).trim();
   if (!clean) return "";
   if (mode === "continuous") return clean;
   if (mode === "comment") return `> Fusion depuis ${source.basename}\n\n${clean}`;
