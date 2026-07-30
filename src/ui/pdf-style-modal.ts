@@ -1,4 +1,4 @@
-import { Modal, Notice, Setting } from "obsidian";
+import { App, Modal, Notice, Setting, type TFolder } from "obsidian";
 import { exportPdf, paginateManuscript } from "../services/export-pdf.js";
 import { resolveExportTemplate, exportBuiltInTemplates } from "../services/export-templates-custom.js";
 import { templateToCss, EXPORT_TEMPLATES } from "../utils/export-templates.js";
@@ -6,15 +6,33 @@ import { compile, exportFile } from "../services/compile-export.js";
 import { t } from "../i18n/index.js";
 import { appendParagraphWithStrong, mountTemplatePreview } from "./template-preview.js";
 
+type ExportFormat = "pdf" | "docx" | "epub";
+
+type PdfStyleSettings = FeuilletsSettings & {
+  exportFormat: ExportFormat;
+  manuscriptTitle?: string;
+  manuscriptAuthor?: string;
+};
+
+type PdfStyleModalPlugin = {
+  settings: PdfStyleSettings;
+  saveSettings(): Promise<void>;
+  getProjectFolder(): TFolder | null;
+};
+
 export class PdfStyleModal extends Modal {
-  constructor(app, plugin) {
+  plugin: PdfStyleModalPlugin;
+  settings: PdfStyleSettings;
+  activeFormat: ExportFormat;
+
+  constructor(app: App, plugin: PdfStyleModalPlugin) {
     super(app);
     this.plugin = plugin;
     this.settings = plugin.settings;
-    this.activeFormat = this.settings.exportFormat || "pdf"; // "pdf" | "docx" | "epub"
+    this.activeFormat = this.settings.exportFormat || "pdf";
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     const { contentEl, modalEl } = this;
     modalEl.addClass("feuillets-export-studio-modal");
     contentEl.empty();
@@ -62,7 +80,7 @@ export class PdfStyleModal extends Modal {
     const sheetContainer = previewPane.createDiv({ cls: "feuillets-studio-sheet-container" });
 
     // Changement de format
-    const switchFormat = async (fmt) => {
+    const switchFormat = async (fmt: ExportFormat) => {
       this.activeFormat = fmt;
       this.settings.exportFormat = fmt;
       pdfTab.toggleClass("is-active", fmt === "pdf");
@@ -89,6 +107,7 @@ export class PdfStyleModal extends Modal {
         await exportFile(this.app, this.settings, this.activeFormat);
       } else {
         const result = await compile(this.app, this.plugin.settings);
+        if (!result) return;
         const title = this.settings.manuscriptTitle || root.name;
         const author = this.settings.manuscriptAuthor || "";
         const ctx = { markdown: result.manuscript, title, author, sourcePath: root.path };
@@ -102,7 +121,7 @@ export class PdfStyleModal extends Modal {
     await this.renderWysiwygPreview(sheetContainer);
   }
 
-  renderSettingsControls(container, sheetContainer) {
+  renderSettingsControls(container: HTMLElement, sheetContainer: HTMLElement): void {
     container.empty();
 
     // Section 1 : Style Éditorial
@@ -130,7 +149,7 @@ export class PdfStyleModal extends Modal {
           const n = await exportBuiltInTemplates(this.app, this.settings);
           new Notice(
             n > 0
-              ? t("main.notice.templatesExported", { count: n })
+              ? t("main.notice.templatesExported", { count: String(n) })
               : t("main.notice.templatesAlreadyPresent")
           );
         })
@@ -180,7 +199,7 @@ export class PdfStyleModal extends Modal {
             left: t("settings.pdfPageNumberPosition.left"),
           })
           .setValue(this.settings.pdfPageNumberPosition || "right")
-          .onChange(async (v) => {
+          .onChange(async (v: "right" | "center" | "left") => {
             this.settings.pdfPageNumberPosition = v;
             await this.renderWysiwygPreview(sheetContainer);
           })
@@ -250,7 +269,7 @@ export class PdfStyleModal extends Modal {
     }
   }
 
-  async renderWysiwygPreview(container) {
+  async renderWysiwygPreview(container: HTMLElement): Promise<void> {
     container.empty();
 
     const root = this.plugin ? this.plugin.getProjectFolder() : null;
@@ -279,7 +298,7 @@ export class PdfStyleModal extends Modal {
     });
   }
 
-  onClose() {
+  onClose(): void {
     this.contentEl.empty();
   }
 }
