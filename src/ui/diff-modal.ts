@@ -442,6 +442,12 @@ export class DiffModal extends Modal {
     
     new ButtonComponent(footerBar)
       .setButtonText(t("modal.diff.restoreSnapshot"))
+      /* setDestructive() (remplacement recommandé) n'existe que depuis
+         Obsidian 1.13.0 ; minAppVersion reste 1.7.2 — y basculer casserait
+         ce bouton sur toute version antérieure. setWarning(), dépréciée
+         mais toujours fonctionnelle, est conservée pour le même rendu
+         visuel (action destructive : restaurer un instantané écrase le
+         contenu actuel). */
       .setWarning()
       .onClick(() => {
         if (!this.selectedSnapshot) return;

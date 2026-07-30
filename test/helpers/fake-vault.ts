@@ -85,6 +85,9 @@ export function createFakeVault(entries: FakeVaultEntry[] = []) {
       }
       callback(frontmatter);
     },
+    async trashFile(file: FakeTFile): Promise<void> {
+      await vault.delete(file);
+    },
   };
 
   return { vault, fileManager, files, TFolder };

@@ -1446,7 +1446,13 @@ class FeuilletsPlugin extends Plugin {
     if (this._originalGetDisplayText) return;
     /* Référence à une méthode non liée, volontaire : on mémorise
        l'implémentation d'origine pour la restaurer dans onunload et pour
-       l'appeler en repli — elle sera toujours invoquée via .call(this). */
+       l'appeler en repli — elle sera toujours invoquée via .call(this).
+       getDisplayText() utilise réellement `this` (this.file côté vue) : lui
+       annoter `this: void` mentirait sur son comportement. Ni flèche (on
+       n'écrit pas cette fonction, on récupère celle du prototype) ni bind()
+       (il n'y a pas encore d'instance de vue précise à laquelle s'attacher
+       ici) ne s'appliquent sans changer le comportement. */
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- volontaire, voir commentaire ci-dessus : appelée uniquement via .call(this)
     this._originalGetDisplayText = MarkdownView.prototype.getDisplayText;
     this._patchedGetDisplayText = function (this: MarkdownView): string {
       try {
@@ -1465,6 +1471,7 @@ class FeuilletsPlugin extends Plugin {
            inonderait la console, et le repli ci-dessous est déjà le
            comportement correct (titre Obsidian par défaut). */
       }
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- même repli volontaire que ci-dessus : getDisplayText() utilise `this`, appelée uniquement via .call(this) plus bas
       const fallback: (this: MarkdownView) => string = plugin._originalGetDisplayText ?? MarkdownView.prototype.getDisplayText;
       /* `.call()` renvoie `any` sans `strictBindCallApply` (non activé ici,
          changement de portée projet) même sur une fonction typée `(this:
@@ -2525,6 +2532,9 @@ class FeuilletsPlugin extends Plugin {
     parts.push(result.added > 0 ? t("main.notice.canvasCardsAdded", { count: String(result.added) }) : t("main.notice.canvasCardsUpToDate", { count: String(result.total) }));
     parts.push(result.edgesAdded > 0 ? t("main.notice.canvasLinksDrawn", { count: String(result.edgesAdded) }) : t("main.notice.canvasNoLinks"));
     const notice = new Notice(`${parts.join(" — ")}. ${t("main.notice.clickToOpen")}`, 8000);
+    /* `messageEl` (recommandé) n'existe que depuis Obsidian 1.8.7 ; minAppVersion
+       reste 1.7.2 — y basculer casserait Notice sur toute version antérieure.
+       `noticeEl`, dépréciée mais toujours fonctionnelle, est conservée ici. */
     notice.noticeEl.addClass("feuillets-clickable");
     notice.noticeEl.addEventListener("click", () => {
       openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);

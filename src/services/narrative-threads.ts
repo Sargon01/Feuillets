@@ -28,7 +28,7 @@ export function getLastProjectFile(app: App, settings: FeuilletsSettings): TFile
 }
 
 async function setFilList(app: App, file: TFile, fils: string[]): Promise<void> {
-  await app.fileManager.processFrontMatter(file, (fm) => {
+  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
     if (fils.length === 0) delete fm.thread;
     else fm.thread = fils;
     delete fm.fil;

@@ -45,7 +45,7 @@ export function footnotePrefixFor(path: string): string {
  * (`![[…]]`) sont laissés intacts : ce sont des images, pas des liens.
  */
 export function stripWikilinks(str: string): string {
-  return str.replace(WIKILINK_RE, (_, target, alias) =>
+  return str.replace(WIKILINK_RE, (_match: string, target: string, alias?: string) =>
     (alias !== undefined ? alias : target).trim()
   );
 }

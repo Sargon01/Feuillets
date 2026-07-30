@@ -12,7 +12,7 @@ function blankFull(text: string, regex: RegExp) {
 // [texte](url) et ![alt](url) : on garde le texte visible (ce qui doit être
 // vérifié), on masque uniquement la syntaxe et l'URL autour.
 function unwrapLinksAndImages(text: string) {
-  return text.replace(/(!?)\[([^\]\n]*)\]\(([^)\n]*)\)/g, (_whole, bang, label, url) => {
+  return text.replace(/(!?)\[([^\]\n]*)\]\(([^)\n]*)\)/g, (_whole: string, bang: string, label: string, url: string) => {
     const lead = " ".repeat(bang.length + 1); // "!" éventuel + "["
     const trail = " ".repeat(url.length + 3); // "]" + "(" + url + ")"
     return lead + label + trail;

@@ -11,7 +11,7 @@ import type { App, TFile, TFolder } from "obsidian";
  * lire normalement via ce mécanisme, pour toujours. Tout code qui ÉCRIT du
  * frontmatter doit désormais utiliser la clé de droite (nouvelle) partout ;
  * seule la lecture (fmOf) connaît encore l'ancienne. */
-const LEGACY_FIELD_ALIASES = {
+const LEGACY_FIELD_ALIASES: Record<string, string[]> = {
   title: ["titre"],
   short_title: ["titre_binder", "titre_court"],
   summary: ["resume"],

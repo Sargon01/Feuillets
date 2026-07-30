@@ -39,8 +39,10 @@ declare type SceneFrontmatter = {
   statut?: string;
   /** Liste YAML, ou chaîne séparée par virgules/espaces (tagsOf). */
   tags?: string | string[];
-  /** Un feuillet peut porter plusieurs labels (labelsOf). */
+  /** Un feuillet peut porter plusieurs labels (labelsOf). `labels` est un
+   *  alias au pluriel lu en repli quand `label` est absent. */
   label?: string | string[];
+  labels?: string | string[];
   /** Inclusion à la compilation ; `compile` est l'ancienne clé. */
   compiler?: boolean;
   compile?: boolean;

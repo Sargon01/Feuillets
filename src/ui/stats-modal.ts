@@ -33,7 +33,7 @@ type StatsPlugin = {
 
 type StatsBlock = {
   list: HTMLElement;
-  addRow(label: string, value: string | number): void;
+  addRow: (label: string, value: string | number) => void;
 };
 
 /** Statistiques complètes — ouvertes d'un clic sur la barre d'état : le

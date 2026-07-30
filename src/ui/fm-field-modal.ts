@@ -31,11 +31,11 @@ export class FmFieldModal extends Modal {
     const fm = this.plugin.fmOf(this.file);
     const ta = contentEl.createEl("textarea", { attr: { rows: "8" } });
     ta.addClass("feuillets-input-full");
-    ta.value = String(fm[this.key] || "");
+    ta.value = String((fm[this.key] as string | number | boolean | null | undefined) || "");
     ta.focus();
     const save = async () => {
       const v = ta.value.trim();
-      await this.app.fileManager.processFrontMatter(this.file, (x) => {
+      await this.app.fileManager.processFrontMatter(this.file, (x: Record<string, unknown>) => {
         if (v) x[this.key] = v;
         else delete x[this.key];
       });

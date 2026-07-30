@@ -18,8 +18,8 @@ test("project backup : archive le projet et applique la rotation", async () => {
   oldBackup.parent = backups;
   oldBackup.stat = { mtime: 1 };
   backups.children = [oldBackup];
-  const { vault } = createFakeVault([project, manuscript, backups, scene, oldBackup]);
-  const app = { vault };
+  const { vault, fileManager } = createFakeVault([project, manuscript, backups, scene, oldBackup]);
+  const app = { vault, fileManager };
 
   const path = await createProjectBackup(app, manuscript, { backupKeepCount: 1 });
 
