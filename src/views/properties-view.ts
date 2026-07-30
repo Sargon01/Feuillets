@@ -7,6 +7,7 @@ import { openFileActivating } from "../utils/dom.js";
 import { buildTagTree, collectFiles, sortTagNodes } from "../utils/tag-tree.js";
 import { ConfirmModal } from "../ui/basic-modals.js";
 import { t } from "../i18n/index.js";
+import { toValue } from "../utils/scene-fields.js";
 
 const STRUCTURAL_TAGS = new Set([
   "personnage", "lieu", "evenement", "codex", "source", "bibliographie", "glossaire",
@@ -182,7 +183,7 @@ export class PropertiesView extends BaseFeuilletsView {
       if (e.key !== "Enter") return;
       const key = input.value.trim();
       if (!key) return;
-      await this.app.fileManager.processFrontMatter(activeFile, (data) => {
+      await this.app.fileManager.processFrontMatter(activeFile, (data: Record<string, unknown>) => {
         if (!(key in data)) data[key] = "";
       });
       await this.render();
@@ -205,7 +206,7 @@ export class PropertiesView extends BaseFeuilletsView {
       const cb = row.createEl("input", { type: "checkbox" });
       cb.checked = !!value;
       cb.addEventListener("change", async () => {
-        await this.app.fileManager.processFrontMatter(file, (data) => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           data[key] = cb.checked;
         });
       });
@@ -218,17 +219,17 @@ export class PropertiesView extends BaseFeuilletsView {
       });
       input.value = value as string;
       input.addEventListener("change", async () => {
-        await this.app.fileManager.processFrontMatter(file, (data) => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           if (!input.value) delete data[key];
           else data[key] = input.value;
         });
       });
     } else {
       const input = row.createEl("input", { type: "text", cls: "feuillets-properties-value" });
-      input.value = value === undefined || value === null ? "" : String(value);
+      input.value = value === undefined || value === null ? "" : toValue(value);
       const save = async () => {
         const raw = input.value;
-        await this.app.fileManager.processFrontMatter(file, (data) => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           if (raw.trim() === "") {
             delete data[key];
             return;
@@ -251,7 +252,7 @@ export class PropertiesView extends BaseFeuilletsView {
     setIcon(delBtn, "x");
     delBtn.setAttr("aria-label", t("notes.properties.deleteAria", { key }));
     delBtn.addEventListener("click", async () => {
-      await this.app.fileManager.processFrontMatter(file, (data) => {
+      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
         delete data[key];
       });
       await this.render();
@@ -266,11 +267,11 @@ export class PropertiesView extends BaseFeuilletsView {
     const wrap = row.createDiv({ cls: "feuillets-tags feuillets-properties-list-editor" });
     values.forEach((v, idx) => {
       const chip = wrap.createSpan({ cls: "feuillets-tag-chip" });
-      chip.setText(String(v));
+      chip.setText(toValue(v));
       chip.setAttr("title", t("notes.properties.removeValueTooltip"));
       chip.addEventListener("click", async () => {
         const next = values.filter((_, i) => i !== idx);
-        await this.app.fileManager.processFrontMatter(file, (data) => {
+        await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
           if (next.length === 0) delete data[key];
           else data[key] = next;
         });
@@ -286,7 +287,7 @@ export class PropertiesView extends BaseFeuilletsView {
       const raw = input.value.trim();
       if (!raw) return;
       const added = raw.split(",").map((s) => s.trim()).filter(Boolean);
-      await this.app.fileManager.processFrontMatter(file, (data) => {
+      await this.app.fileManager.processFrontMatter(file, (data: Record<string, unknown>) => {
         data[key] = [...values, ...added];
       });
       input.value = "";
@@ -356,7 +357,7 @@ export class PropertiesView extends BaseFeuilletsView {
       if (canAdd) {
         addBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          await this.app.fileManager.processFrontMatter(activeFile!, (data) => {
+          await this.app.fileManager.processFrontMatter(activeFile!, (data: Record<string, unknown>) => {
             if (!(key in data)) data[key] = "";
           });
         });
@@ -380,7 +381,7 @@ export class PropertiesView extends BaseFeuilletsView {
             for (const p of paths) {
               const f = fileIndex.get(p);
               if (!f) continue;
-              await this.app.fileManager.processFrontMatter(f, (data) => {
+              await this.app.fileManager.processFrontMatter(f, (data: Record<string, unknown>) => {
                 delete data[key];
               });
             }
