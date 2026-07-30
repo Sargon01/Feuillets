@@ -1,32 +1,41 @@
-import { MarkdownRenderer } from "obsidian";
+import { App, Component, MarkdownRenderer, TFile } from "obsidian";
 import { t } from "../i18n/index.js";
 
-function escapeRegExp(str) {
+function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+interface ScriveningsPlugin {
+  shortTitleFor(file: TFile): string;
+}
+
 export class ScriveningsManager {
-  constructor(app, containerEl, onOpenFile) {
+  app: App;
+  containerEl: HTMLElement;
+  onOpenFile: (file: TFile) => void;
+  isSaving: boolean;
+
+  constructor(app: App, containerEl: HTMLElement, onOpenFile: (file: TFile) => void) {
     this.app = app;
     this.containerEl = containerEl;
     this.onOpenFile = onOpenFile;
     this.isSaving = false;
   }
 
-  async loadScenes(files, plugin, component) {
+  async loadScenes(files: TFile[], plugin: ScriveningsPlugin, component: Component): Promise<void> {
     this.containerEl.empty();
-    
+
     const wrapper = this.containerEl.createDiv({ cls: "feuillets-scrivenings-wrapper" });
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const rawContent = await this.app.vault.read(file);
-      
+
       // Extraction du YAML et du corps de texte
       const frontmatterMatch = rawContent.match(/^---\n[\s\S]*?\n---\n?/);
       const frontmatter = frontmatterMatch ? frontmatterMatch[0] : "";
       let body = rawContent.slice(frontmatter.length).trim();
-      
+
       const shortTitle = plugin.shortTitleFor(file) || file.basename;
 
       // Bloc conteneur de la scène
@@ -40,8 +49,8 @@ export class ScriveningsManager {
       header.addEventListener("click", () => this.onOpenFile(file));
 
       // Conteneur adoptant les classes de la vue Lecture native d'Obsidian
-      const bodyContainer = sceneBlock.createDiv({ 
-        cls: "feuillets-scrivenings-content markdown-rendered markdown-preview-view" 
+      const bodyContainer = sceneBlock.createDiv({
+        cls: "feuillets-scrivenings-content markdown-rendered markdown-preview-view"
       });
 
       const renderScene = async () => {
@@ -55,9 +64,9 @@ export class ScriveningsManager {
 
         // Double-clic pour passer en mode édition sur cette scène
         renderEl.addEventListener("dblclick", (evt) => {
-          if (evt.target.tagName === "A") return;
+          if ((evt.target as HTMLElement).tagName === "A") return;
 
-          const scrollContainer = this.containerEl.closest(".feuillets-board-scroll") || this.containerEl;
+          const scrollContainer = (this.containerEl.closest(".feuillets-board-scroll") as HTMLElement) || this.containerEl;
           const savedScroll = scrollContainer.scrollTop;
 
           // Capture la position du mot double-cliqué avant que le rendu ne soit détruit
@@ -118,15 +127,15 @@ export class ScriveningsManager {
   // Mesure la position verticale (en pixels, relative au textarea) qu'occupera
   // le curseur à l'offset donné, via un clone invisible du textarea (même police,
   // même largeur, même retour à la ligne) portant un marqueur à cet offset.
-  measureCaretOffsetTop(textarea, offset) {
+  measureCaretOffsetTop(textarea: HTMLTextAreaElement, offset: number): number {
     const style = getComputedStyle(textarea);
     const mirror = document.createElement("div");
-    const propsToCopy = [
+    const propsToCopy: (keyof CSSStyleDeclaration)[] = [
       "boxSizing", "width", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
       "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth",
       "fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing"
     ];
-    propsToCopy.forEach((p) => { mirror.style[p] = style[p]; });
+    propsToCopy.forEach((p) => { (mirror.style as any)[p] = style[p]; });
     Object.assign(mirror.style, {
       position: "absolute",
       visibility: "hidden",
@@ -150,7 +159,7 @@ export class ScriveningsManager {
 
   // Retrouve, dans le texte markdown brut, la position du mot que le double-clic
   // vient de sélectionner nativement dans le rendu HTML (dont la syntaxe markdown est absente).
-  findRawOffsetOfSelection(renderEl, rawBody) {
+  findRawOffsetOfSelection(renderEl: HTMLElement, rawBody: string): number | null {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return null;
 
@@ -176,7 +185,7 @@ export class ScriveningsManager {
     return null;
   }
 
-  destroy() {
+  destroy(): void {
     this.containerEl.empty();
   }
 }
