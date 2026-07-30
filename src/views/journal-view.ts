@@ -103,17 +103,17 @@ export class JournalView extends BaseFeuilletsView {
       this.monthCursor.getMonth() + delta,
       1
     );
-    this.render();
+    void this.render();
   }
 
   openDay(date: Date): void {
     this.viewedDate = date;
-    this.render();
+    void this.render();
   }
 
   async compileCarnet(): Promise<void> {
     await this.plugin.compileJournal();
-    this.render();
+    void this.render();
   }
 
   async render(force = false): Promise<void> {
@@ -154,7 +154,7 @@ export class JournalView extends BaseFeuilletsView {
     const nextBtn = header.createSpan({ cls: "feuillets-journal-nav-btn clickable-icon" });
     setIcon(nextBtn, "chevron-right");
     nextBtn.addEventListener("click", () => this.changeMonth(1));
-    const compileBtn = iconBtn(header, "refresh-cw", t("journal.compileTooltip"), () => this.compileCarnet());
+    const compileBtn = iconBtn(header, "refresh-cw", t("journal.compileTooltip"), () => { void this.compileCarnet(); });
     compileBtn.addClass("feuillets-journal-compile-btn");
 
     const year = this.monthCursor.getFullYear();
@@ -210,7 +210,7 @@ export class JournalView extends BaseFeuilletsView {
       const backBar = section.createDiv({ cls: "feuillets-notes-back-bar" });
       iconBtn(backBar, "arrow-left", t("journal.backToLastEntry"), () => {
         this.viewedDate = null;
-        this.render();
+        void this.render();
       });
     }
 
@@ -255,12 +255,14 @@ export class JournalView extends BaseFeuilletsView {
           text: t("journal.createAndEditEntry")
         });
         createBtn.setAttr("style", "margin-top: 12px; width: 100%; cursor: pointer;");
-        createBtn.addEventListener("click", async () => {
-          const file = await this.plugin.ensureJournalEntry(this.viewedDate);
-          if (file) {
-            openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
-            this.render();
-          }
+        createBtn.addEventListener("click", () => {
+          void (async () => {
+            const file = await this.plugin.ensureJournalEntry(this.viewedDate);
+            if (file) {
+              openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
+              void this.render();
+            }
+          })();
         });
       } else {
         section
@@ -282,11 +284,13 @@ export class JournalView extends BaseFeuilletsView {
     const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
     setIcon(iconSpan, icon);
     head.createSpan({ cls: "feuillets-notes-section-title" }).setText(title);
-    head.addEventListener("click", async () => {
-      if (collapsed) delete settings.collapsed[key];
-      else settings.collapsed[key] = true;
-      await this.plugin.saveSettings();
-      this.render();
+    head.addEventListener("click", () => {
+      void (async () => {
+        if (collapsed) delete settings.collapsed[key];
+        else settings.collapsed[key] = true;
+        await this.plugin.saveSettings();
+        void this.render();
+      })();
     });
     return { section, collapsed };
   }

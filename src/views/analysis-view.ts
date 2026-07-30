@@ -10,10 +10,6 @@ import type { GrammalecteChecker } from "../services/grammalecte-checker.js";
 
 import { TFile, TFolder, Platform, Notice, normalizePath, type Editor } from "obsidian";
 
-type ObsidianElement = HTMLElement & {
-  createDiv(options: { cls: string }): ObsidianElement;
-};
-
 type AnalysisSettings = FeuilletsSettings & {
   analysisRepWindow?: number;
   analysisRepMinLen?: number;
@@ -144,7 +140,7 @@ export class AnalysisView extends BaseFeuilletsView {
   /** Une section-outil repliable, avec titre, dont l'état de repli persiste
    * (comme les autres sections du panneau). `renderBody` ne s'exécute que si
    * la section est dépliée. */
-  tool(container: ObsidianElement, key: string, icon: string, title: string, renderBody: (section: ObsidianElement) => void): void {
+  tool(container: HTMLElement, key: string, icon: string, title: string, renderBody: (section: HTMLElement) => void): void {
     const S = this.plugin.settings;
     const collapseKey = `analyse:${key}`;
     const collapsed = !!(S.collapsed && S.collapsed[collapseKey]);
@@ -162,10 +158,10 @@ export class AnalysisView extends BaseFeuilletsView {
       settings: S,
       onToggle: async () => {
         await this.plugin.saveSettings();
-        this.render();
+        void this.render();
       },
     });
-    if (!collapsed) renderBody(section as ObsidianElement);
+    if (!collapsed) renderBody(section);
   }
 
   /** Titre affichable d'un chapitre : note de dossier (si dossier-chapitre),
@@ -373,7 +369,7 @@ export class AnalysisView extends BaseFeuilletsView {
 
   /** Affiche un résultat de computeVocab dans une section (réutilisé pour le
    * feuillet et pour le roman). */
-  renderVocabInto(section: ObsidianElement, vocab: VocabResult | null): void {
+  renderVocabInto(section: HTMLElement, vocab: VocabResult | null): void {
     if (Platform.isMobile) {
       section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.vocab.desktopOnly"));
       return;
@@ -554,7 +550,7 @@ export class AnalysisView extends BaseFeuilletsView {
   /** En-tête de groupe (Ce feuillet / Le roman) : grand, avec icône et
    * repliable (masque tous les outils du groupe). État de repli persistant.
    * Retourne true si le groupe est replié. */
-  group(container: ObsidianElement, icon: string, title: string, key: string): boolean {
+  group(container: HTMLElement, icon: string, title: string, key: string): boolean {
     const S = this.plugin.settings;
     const collapseKey = `analyse-group:${key}`;
     const collapsed = !!(S.collapsed && S.collapsed[collapseKey]);
@@ -572,14 +568,14 @@ export class AnalysisView extends BaseFeuilletsView {
       settings: S,
       onToggle: async () => {
         await this.plugin.saveSettings();
-        this.render();
+        void this.render();
       },
     });
     return collapsed;
   }
 
   async render(): Promise<void> {
-    const container = (this.targetContainer || this.contentEl) as ObsidianElement;
+    const container = this.targetContainer || this.contentEl;
     container.empty();
     container.addClass("feuillets-notes-container");
 
@@ -638,10 +634,12 @@ export class AnalysisView extends BaseFeuilletsView {
         const inp = r.createEl("input", { cls: "feuillets-rythme-input", type: "number" });
         inp.min = String(min);
         inp.value = String(value);
-        inp.addEventListener("change", async () => {
-          set(Math.max(min, Math.round(Number(inp.value) || min)));
-          await this.plugin.saveSettings();
-          this.render();
+        inp.addEventListener("change", () => {
+          void (async () => {
+            set(Math.max(min, Math.round(Number(inp.value) || min)));
+            await this.plugin.saveSettings();
+            void this.render();
+          })();
         });
       };
       numCtrl(t("analysis.repetitions.window"), repWindow, (v) => (S.analysisRepWindow = v), 5);
@@ -699,16 +697,18 @@ export class AnalysisView extends BaseFeuilletsView {
         input.min = "0";
         input.max = String(RYTHME_MAX);
         input.value = String(r[d.key]);
-        input.addEventListener("change", async () => {
-          const v = Math.max(0, Math.min(RYTHME_MAX, Math.round(Number(input.value) || 0)));
-          input.value = String(v);
-          await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-            const pace = (typeof fm.pace === "object" && fm.pace ? fm.pace : typeof fm.rythme === "object" && fm.rythme ? fm.rythme : {}) as Record<string, unknown>;
-            pace[d.key] = v;
-            fm.pace = pace;
-            delete fm.rythme;
-          });
-          this.render();
+        input.addEventListener("change", () => {
+          void (async () => {
+            const v = Math.max(0, Math.min(RYTHME_MAX, Math.round(Number(input.value) || 0)));
+            input.value = String(v);
+            await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+              const pace = (typeof fm.pace === "object" && fm.pace ? fm.pace : typeof fm.rythme === "object" && fm.rythme ? fm.rythme : {}) as Record<string, unknown>;
+              pace[d.key] = v;
+              fm.pace = pace;
+              delete fm.rythme;
+            });
+            void this.render();
+          })();
         });
       }
     });
@@ -741,16 +741,18 @@ export class AnalysisView extends BaseFeuilletsView {
 
       const bar = section.createDiv({ cls: "feuillets-analysis-export-bar" });
       const copyBtn = bar.createEl("button", { text: t("analysis.dashboard.copySummary") });
-      copyBtn.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(this.dashboardMarkdown(dash));
-          new Notice(t("analysis.dashboard.summaryCopied"));
-        } catch {
-          new Notice(t("analysis.dashboard.copyFailed"));
-        }
+      copyBtn.addEventListener("click", () => {
+        void (async () => {
+          try {
+            await navigator.clipboard.writeText(this.dashboardMarkdown(dash));
+            new Notice(t("analysis.dashboard.summaryCopied"));
+          } catch {
+            new Notice(t("analysis.dashboard.copyFailed"));
+          }
+        })();
       });
       const saveBtn = bar.createEl("button", { text: t("analysis.dashboard.saveMd") });
-      saveBtn.addEventListener("click", () => this.exportDashboardFile(dash));
+      saveBtn.addEventListener("click", () => { void this.exportDashboardFile(dash); });
     });
 
     // ---- Équilibre des chapitres (niveau roman) ----

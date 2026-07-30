@@ -153,8 +153,8 @@ export class SearchReplaceBar {
         this.close();
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (e.shiftKey) this.navigateMatch(-1);
-        else this.navigateMatch(1);
+        if (e.shiftKey) void this.navigateMatch(-1);
+        else void this.navigateMatch(1);
       }
     });
 
@@ -168,7 +168,7 @@ export class SearchReplaceBar {
       attr: { title: t("searchReplace.prevOccurrenceTooltip") },
     });
     setIcon(prevBtn, "chevron-left");
-    prevBtn.addEventListener("click", () => this.navigateMatch(-1));
+    prevBtn.addEventListener("click", () => { void this.navigateMatch(-1); });
 
     // Flèche Suivant (>)
     const nextBtn = searchRow.createDiv({
@@ -176,7 +176,7 @@ export class SearchReplaceBar {
       attr: { title: t("searchReplace.nextOccurrenceTooltip") },
     });
     setIcon(nextBtn, "chevron-right");
-    nextBtn.addEventListener("click", () => this.navigateMatch(1));
+    nextBtn.addEventListener("click", () => { void this.navigateMatch(1); });
 
     // Bouton de bascule Remplacement
     const toggleReplaceBtn = searchRow.createDiv({
@@ -217,7 +217,7 @@ export class SearchReplaceBar {
           this.close();
         } else if (e.key === "Enter") {
           e.preventDefault();
-          this.executeReplaceAll();
+          void this.executeReplaceAll();
         }
       });
 
@@ -226,7 +226,7 @@ export class SearchReplaceBar {
         text: t("searchReplace.replaceAllBtn"),
         cls: "feuillets-btn-replace-all feuillets-replace-all-btn",
       });
-      replaceAllBtn.addEventListener("click", () => this.executeReplaceAll());
+      replaceAllBtn.addEventListener("click", () => { void this.executeReplaceAll(); });
     }
   }
 
@@ -258,7 +258,7 @@ export class SearchReplaceBar {
       item.addEventListener("click", (e) => {
         e.stopPropagation();
         onClick();
-        this.runSearch();
+        void this.runSearch();
         this.renderPopover();
       });
     };
@@ -302,7 +302,7 @@ export class SearchReplaceBar {
         if (input) {
           insertAtCursor(input, textToInsert);
           this.searchQuery = input.value;
-          this.runSearch();
+          void this.runSearch();
         }
       });
     };
@@ -348,7 +348,7 @@ export class SearchReplaceBar {
 
   scheduleSearch() {
     window.clearTimeout(this.searchTimer ?? undefined);
-    this.searchTimer = window.setTimeout(() => this.runSearch(), 200);
+    this.searchTimer = window.setTimeout(() => { void this.runSearch(); }, 200);
   }
 
   async runSearch() {
