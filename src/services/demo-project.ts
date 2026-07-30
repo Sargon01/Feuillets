@@ -1,5 +1,5 @@
 import { Notice, normalizePath, TFile } from "obsidian";
-import type { App, TAbstractFile, TFolder } from "obsidian";
+import type { App, TAbstractFile } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
 import { getResearchRoot, getChronoFolder, researchFolderPath } from "./research.js";
 import { ensureFolder, initProjectStructure } from "./project-files.js";
@@ -824,18 +824,12 @@ export async function createDemoProject(
 
   const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
   const previousProjectFolder = S.projectFolder;
-  const settingsWithOptionalProjectMeta: {
-    projectMeta?: Record<string, ProjectMeta | undefined>;
-  } = S;
-  const hadProjectMeta = Object.prototype.hasOwnProperty.call(
-    settingsWithOptionalProjectMeta,
-    "projectMeta"
-  );
-  const previousProjectMeta = settingsWithOptionalProjectMeta.projectMeta;
+  const hadProjectMeta = "projectMeta" in S && S.projectMeta !== undefined;
+  const previousProjectMeta = S.projectMeta;
   const hadProjectMetaEntry = previousProjectMeta != null
     && typeof previousProjectMeta === "object"
-    && Object.prototype.hasOwnProperty.call(previousProjectMeta, manuscritPath);
-  const previousProjectMetaEntry = hadProjectMetaEntry
+    && manuscritPath in previousProjectMeta;
+  const previousProjectMetaEntry = hadProjectMetaEntry && previousProjectMeta
     ? previousProjectMeta[manuscritPath]
     : undefined;
   /* applyModeDefaults() touche des réglages GLOBAUX au plugin (boardMode,
@@ -861,8 +855,9 @@ export async function createDemoProject(
     succeeded = true;
   } catch (err) {
     console.error("Feuillets: échec de la génération du projet d'exemple :", err);
+    const errMsg = err instanceof Error ? err.message : String(err);
     new Notice(
-      `Échec de la génération du projet d'exemple : ${err && err.message ? err.message : err}. Ouvre la console (Ctrl/Cmd+Maj+I) pour le détail, supprime « ${volumeName} » avant de réessayer.`,
+      `Échec de la génération du projet d'exemple : ${errMsg}. Ouvre la console (Ctrl/Cmd+Maj+I) pour le détail, supprime « ${volumeName} » avant de réessayer.`,
       12000
     );
   } finally {
@@ -876,13 +871,14 @@ export async function createDemoProject(
       if (!S.projects) S.projects = [];
       if (!S.projects.includes(manuscritPath)) S.projects.push(manuscritPath);
     } else if (!hadProjectMeta) {
-      delete settingsWithOptionalProjectMeta.projectMeta;
+      delete (S as Record<string, unknown>).projectMeta;
     } else if (previousProjectMeta == null || typeof previousProjectMeta !== "object") {
-      settingsWithOptionalProjectMeta.projectMeta = previousProjectMeta;
-    } else if (hadProjectMetaEntry) {
-      settingsWithOptionalProjectMeta.projectMeta![manuscritPath] = previousProjectMetaEntry;
+      (S as Record<string, unknown>).projectMeta = previousProjectMeta;
+    } else if (hadProjectMetaEntry && previousProjectMetaEntry) {
+      if (!S.projectMeta) (S as Record<string, unknown>).projectMeta = {};
+      (S.projectMeta as Record<string, unknown>)[manuscritPath] = previousProjectMetaEntry;
     } else {
-      delete settingsWithOptionalProjectMeta.projectMeta![manuscritPath];
+      if (S.projectMeta) delete (S.projectMeta as Record<string, unknown>)[manuscritPath];
     }
     await plugin.saveSettings();
     plugin.renderAllViews(true);
