@@ -23,7 +23,7 @@ export async function getResearchTemplate(
     /* Nom (anglais) du fichier modèle, avec repli sur l'ancien nom français
        si l'utilisateur a personnalisé ce fichier avant ce renommage — voir
        le même principe pour les champs frontmatter (LEGACY_FIELD_ALIASES). */
-    const fileNames = {
+    const fileNames: Record<string, string[]> = {
       sources: ["Sources.md"],
       bibliographie: ["Bibliography.md", "Bibliographie.md"],
       personnages: isFiction ? ["Characters.md", "Personnages.md"] : ["Acteurs.md"],

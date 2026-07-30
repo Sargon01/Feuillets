@@ -89,7 +89,7 @@ export function preserveCase(matchText: string, replacementText: string) {
  * @returns {string}
  */
 export function buildDiacriticsPattern(str: string): string {
-  const diacriticsMap = {
+  const diacriticsMap: Record<string, string> = {
     a: "[aàâäAÀÂÄ]",
     e: "[eéèêëEÉÈÊË]",
     i: "[iîïIÎÏ]",
@@ -172,11 +172,11 @@ export function replaceInText(content: string | null | undefined, searchQuery: s
 
   const processBlock = (text: string): { newText: string; count: number } => {
     let count = 0;
-    const newText = text.replace(regex, (...args) => {
+    const newText = text.replace(regex, (...args: unknown[]) => {
       count++;
-      const matchText = args[0];
+      const matchText = args[0] as string;
       if (options.useRegex) {
-        const captures = args.slice(1, -2);
+        const captures = args.slice(1, -2) as (string | undefined)[];
         let result = replaceStr;
         captures.forEach((cap, idx) => {
           if (cap !== undefined) {

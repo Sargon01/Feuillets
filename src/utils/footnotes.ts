@@ -46,5 +46,5 @@ export function renumberFootnotes(content: string | null | undefined): string | 
     if (!order.has(m[1])) order.set(m[1], next++);
   }
   if (order.size === 0) return content;
-  return content.replace(/\[\^([^\]]+)\]/g, (_, id) => `[^${order.get(id)}]`);
+  return content.replace(/\[\^([^\]]+)\]/g, (_match: string, id: string) => `[^${order.get(id)}]`);
 }

@@ -44,7 +44,7 @@ export function pluginAbsoluteDir(app: unknown, manifest: unknown): string {
     throw new Error("Le chemin du plugin est disponible uniquement sur ordinateur.");
   }
   const basePath = desktopBasePath(app);
-  const path: PathModule = require("path");
+  const path = require("path") as PathModule;
   return path.join(basePath, pluginDirectory(manifest));
 }
 

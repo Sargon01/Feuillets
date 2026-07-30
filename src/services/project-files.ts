@@ -199,7 +199,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     ? (existingResearch.children.find((c) => c instanceof TFolder && (c.name === "Chronology" || c.name === "Chronologie")) || {}).name
     : null;
   const chronoName = existingChronoName || "Chronology";
-  const rf = getProjectMode(app, settings).researchFolders;
+  const rf = getProjectMode(app, settings).researchFolders as Record<string, { label: string } | undefined>;
   const foldersToCreate = [researchName];
   for (const key of ["sources", "bibliographie", "personnages", "lieux", "codex", "glossaire"]) {
     if (rf[key]) {

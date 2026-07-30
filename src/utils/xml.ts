@@ -126,8 +126,8 @@ export function decodeXmlEntities(str: unknown): string {
        une émoji (`&#x1F600;`) devenait un caractère de remplacement. Cas
        réel : les commentaires d'un directeur littéraire dans un .docx
        relu (voir services/docx-review-import.js). */
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => codePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => codePoint(parseInt(d, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_match: string, h: string) => codePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_match: string, d: string) => codePoint(parseInt(d, 10)))
     .replace(/&amp;/g, "&"); // toujours en dernier
 }
 

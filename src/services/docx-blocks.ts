@@ -78,7 +78,7 @@ function isExportDomElement(node: ExportDomNode | ExportDomElement): node is Exp
   return node.nodeType === ELEMENT_NODE;
 }
 
-const HEADING_MAP = {
+const HEADING_MAP: Record<string, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
   H1: HeadingLevel.HEADING_1,
   H2: HeadingLevel.HEADING_2,
   H3: HeadingLevel.HEADING_3,
@@ -256,13 +256,13 @@ export function blockToParagraphs(
   headings: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle } = {},
   images: ExportImages = new Map(),
   frontOverride: { style?: TitlePageStyle | null; isTitleLine?: boolean } | null = null,
-) {
+): Paragraph[] {
   if (!el || el.nodeType !== ELEMENT_NODE) return [];
   const tag = el.tagName;
 
   if (["H1", "H2", "H3", "H4"].includes(tag)) {
     const levelKey = tag.toLowerCase();
-    const h = headings[levelKey];
+    const h = (headings as Record<string, HeadingStyle | undefined>)[levelKey];
     const hasHeadingsConfig = Object.keys(headings).length > 0;
     /* Repli historique quand le modèle ne configure aucun niveau de titre :
        H1 et H2 démarrent une page, H3/H4 non. Dès qu'un modèle définit

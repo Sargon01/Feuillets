@@ -64,8 +64,10 @@ type LanguageToolIssue = {
    `require` paresseux, DANS la fonction : le paquet "obsidian" est
    types-only, il n'a aucun fichier JS. Un import statique rendrait ce module
    impossible à charger hors d'Obsidian, donc intestable. */
+type ObsidianRequestUrlModule = { requestUrl: (params: unknown) => unknown };
+
 function obsidianRequestUrl(params: LanguageToolRequestParams) {
-  const { requestUrl } = require("obsidian");
+  const { requestUrl } = require("obsidian") as ObsidianRequestUrlModule;
   return requestUrl(params) as ReturnType<LanguageToolRequest>;
 }
 

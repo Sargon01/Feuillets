@@ -226,11 +226,11 @@ export class FeuilletsSearchEngine {
         const processBlock = (text: string) => {
           let count = 0;
           regex.lastIndex = 0;
-          const newText = text.replace(regex, (...args) => {
+          const newText = text.replace(regex, (...args: unknown[]) => {
             count++;
-            const matchText = args[0];
+            const matchText = args[0] as string;
             if (options.useRegex) {
-              const captures = args.slice(1, -2);
+              const captures = args.slice(1, -2) as (string | undefined)[];
               let result = replaceStr;
               captures.forEach((cap, idx) => {
                 if (cap !== undefined) {

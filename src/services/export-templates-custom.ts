@@ -108,7 +108,7 @@ export async function loadCustomTemplates(app: App, settings: FeuilletsSettings)
  */
 export async function listExportTemplates(app: App, settings: FeuilletsSettings): Promise<Array<{ key: string; label: string }>> {
   const custom = await loadCustomTemplates(app, settings);
-  const merged = new Map();
+  const merged = new Map<string, { key: string; label: string }>();
   Object.values(EXPORT_TEMPLATES).forEach((t) => merged.set(t.key, { key: t.key, label: t.label }));
   Object.values(custom).forEach((t) => merged.set(t.key, { key: t.key, label: t.label }));
   return Array.from(merged.values());
