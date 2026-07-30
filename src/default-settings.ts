@@ -72,7 +72,6 @@ export type DefaultSettings = {
   pdfFooterRight: string;
   pdfPageNumberPosition: "right" | "center" | "left";
   pdfHideFirstPageHeader: boolean;
-  pdfFootnotePlacement: "end" | "bottom";
   pdfOrphans: number;
   pdfWidows: number;
   pdfPreventHeadingOrphans: boolean;
@@ -242,7 +241,6 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   pdfFooterRight: "Page {page} sur {pages}",
   pdfPageNumberPosition: "right",
   pdfHideFirstPageHeader: true,
-  pdfFootnotePlacement: "end",
   pdfOrphans: 2,
   pdfWidows: 2,
   pdfPreventHeadingOrphans: true,
