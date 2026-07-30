@@ -130,9 +130,12 @@ export class ProjectView extends BaseFeuilletsView {
       formatSelect.createEl("option", { text: ".pdf (PDF)", value: "pdf" });
     }
     formatSelect.value = exportFormatFor(settings);
-    formatSelect.addEventListener("change", async () => {
+    const handleFormatChange = async (): Promise<void> => {
       settings.exportFormat = formatSelect.value;
       await this.plugin.saveSettings();
+    };
+    formatSelect.addEventListener("change", () => {
+      void handleFormatChange();
     });
     this.makePropertyRowWithIcon(section, "file-output", t("project.compilation.formatLabel"), formatSelect);
 
