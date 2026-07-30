@@ -3259,13 +3259,13 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .modal button.mod-cta,
 .modal .feuillets-modal-submit,
 .modal .feuillets-modal-option.is-selected {
-  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
-  color: var(--text-normal) !important;
-  font-weight: 700 !important;
-  font-size: 13px !important;
-  border-radius: var(--radius-l) !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+  color: var(--text-normal);
+  font-weight: 700;
+  font-size: 13px;
+  border-radius: var(--radius-l);
+  border: none;
+  box-shadow: none;
 }
 
 /* Effet survol (Hover) unifié à 30 % */
@@ -3276,7 +3276,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-search-bar button[class*="replace"]:hover,
 .modal .feuillets-btn-primary:hover,
 .modal button.mod-cta:hover {
-  background: color-mix(in srgb, var(--interactive-accent) 30%, transparent) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 30%, transparent);
 }
 
 /* Formatage structurel du bouton Exporter (Pleine largeur) */
@@ -3315,10 +3315,10 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-research-container button:not(.feuillets-btn-primary),
 .feuillets-research-container .clickable-icon,
 .modal button:not(.mod-cta):not(.feuillets-btn-primary):not([type="submit"]):not(.feuillets-modal-submit) {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  color: var(--text-muted) !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--text-muted);
 }
 
 .feuillets-sidebar-tab-bar .feuillets-tab-btn:hover,
@@ -3331,9 +3331,9 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-research-container button:not(.feuillets-btn-primary):hover,
 .feuillets-research-container .clickable-icon:hover,
 .modal button:not(.mod-cta):not(.feuillets-btn-primary):hover {
-  background: transparent !important;
-  color: var(--text-normal) !important;
-  box-shadow: none !important;
+  background: transparent;
+  color: var(--text-normal);
+  box-shadow: none;
 }
 
 /* 3. BINDER SEARCH INLINE & CONTENUS */
@@ -5188,20 +5188,20 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .modal.feuillets-export-studio-modal {
-  margin: auto !important;
-  position: relative !important;
-  width: 820px !important;
-  max-width: 92vw !important;
-  height: 560px !important;
-  max-height: 82vh !important;
-  padding: 0 !important;
-  border-radius: var(--radius-m) !important;
-  background: var(--background-primary) !important;
-  font-family: var(--font-interface) !important;
-  display: flex !important;
-  flex-direction: column !important;
-  box-shadow: var(--shadow-l) !important;
-  overflow: hidden !important;
+  margin: auto;
+  position: relative;
+  width: 820px;
+  max-width: 92vw;
+  height: 560px;
+  max-height: 82vh;
+  padding: 0;
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  font-family: var(--font-interface);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-l);
+  overflow: hidden;
 }
 
 .feuillets-studio-header-bar {
@@ -5342,10 +5342,10 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-pdf-modal {
-  width: 840px !important;
-  max-width: 92vw !important;
-  max-height: 82vh !important;
-  padding: var(--size-4-4) var(--size-4-5) !important;
+  width: 840px;
+  max-width: 92vw;
+  max-height: 82vh;
+  padding: var(--size-4-4) var(--size-4-5);
 }
 
 .feuillets-studio-header {
