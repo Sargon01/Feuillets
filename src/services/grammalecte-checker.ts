@@ -49,7 +49,7 @@ type SpellToken = {
 
 export type SpellChecker = {
   parseParagraph(text: string): Iterable<SpellToken>;
-  suggest(word: string): Iterator<string[]>;
+  suggest(word: string): { next(): { value?: string[] } };
   getMorph(word: string): string[];
 };
 
@@ -85,9 +85,9 @@ export class GrammalecteChecker {
   ensureLoaded(): void {
     if (this.context) return;
 
-    const fs = require("fs");
-    const path = require("path");
-    const vm = require("vm");
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
+    const vm = require("vm") as typeof import("vm");
     const grammalecteDir = path.join(pluginAbsoluteDir(this.app, this.manifest), "resources", "grammalecte");
 
     const context = vm.createContext({ console }) as GrammalecteContext;
@@ -96,10 +96,10 @@ export class GrammalecteChecker {
     // Émulation minimale et synchrone de XMLHttpRequest : helpers.loadFile()
     // s'en sert (branche "navigateur") pour charger le dictionnaire depuis un
     // chemin que nous lui passons nous-mêmes en chemin de fichier absolu.
-    context.XMLHttpRequest = function XMLHttpRequest() {
-      this.open = (_method, sUrl) => { this._path = sUrl; };
+    context.XMLHttpRequest = function XMLHttpRequest(this: { _path?: string; responseText?: string; open?: (m: string, url: string) => void; overrideMimeType?: () => void; send?: () => void }) {
+      this.open = (_method: string, sUrl: string) => { this._path = sUrl; };
       this.overrideMimeType = () => {};
-      this.send = () => { this.responseText = fs.readFileSync(this._path, "utf8"); };
+      this.send = () => { this.responseText = fs.readFileSync(this._path || "", "utf8"); };
     };
 
     const loadScript = (...segments: string[]): void => {
@@ -191,7 +191,7 @@ export class GrammalecteChecker {
         for (const oToken of spellChecker!.parseParagraph(sParagraph)) {
           if (lowerKnown.has(oToken.sValue.toLowerCase())) continue;
           lIssues.push({
-            type: "spelling" as GrammarIssue["type"],
+            type: "spelling",
             start: iParaStart + oToken.nStart,
             end: iParaStart + oToken.nEnd,
             ruleId: "orthographe",
