@@ -325,6 +325,55 @@ declare type FeuilletsSettings = {
   timelineScale: string;
   compilePresets: unknown[];
 
+  /** Panneaux auto-ouverts au démarrage si un projet est actif (voir
+   * registerAutoOpenPanels/loadSettings — autoOpenHub/hubActiveTab sont
+   * d'anciens noms migrés vers ces quatre champs). */
+  autoOpenNotes: boolean;
+  autoOpenProperties: boolean;
+  autoOpenResearch: boolean;
+  autoOpenProject: boolean;
+  autoOpenJournal: boolean;
+
+  /** Préfixe des chapitres auto-renommés (chapterPattern/renumberTitles). */
+  renamePrefix: string;
+  chapterNumbering: "continu" | "parPartie" | "aucune";
+
+  /** Historique quotidien de mots pour la série de jours consécutifs
+   * (currentStreak) et le delta du jour (updateStatusBar/updateDailyStats). */
+  stats: Record<string, { start: number; latest: number }>;
+  /** Absent de DEFAULT_SETTINGS (aucune valeur par défaut définie) mais
+   * réglable depuis l'onglet réglages et lu tel quel — voir
+   * updateStatusBar/updateConcentrationCounter. */
+  tolerance?: unknown;
+
+  /** Typographie en direct (registerLiveTypography/applyLiveTypoClasses). */
+  liveApostrophe: boolean;
+  liveGuillemets: boolean;
+  liveDashes: boolean;
+  liveEmptyLines: "normal" | "reduit" | "invisible";
+  liveHyphenation: boolean;
+  liveTwoEnters: boolean;
+  liveDoubleEnter: boolean;
+  liveJustify: boolean;
+  readingMatchLive: boolean;
+  readingFontSize: number;
+  lineHeight: number;
+  textWidth: number;
+  indentParagraphs: boolean;
+
+  /** Mode concentration (toggleConcentration/updateConcentrationCounter). */
+  concentrationWidth: number;
+  dimOpacity: number;
+  concentrationUnit: "line" | "paragraph";
+  concentrationTypewriter: boolean;
+  concentrationCounter: boolean;
+
+  /** Interface épurée (applyLeanInterfaceClasses). */
+  uiTransparentPanels: boolean;
+  uiTransparentTabBar: boolean;
+  uiHideVaultSwitcher: boolean;
+  uiDimTabActions: boolean;
+
   [key: string]: unknown;
 };
 

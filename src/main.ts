@@ -12,7 +12,7 @@
  * Objectif des chapitres (dossiers) : stocké dans les réglages du plugin.
  */
 
-import { DEFAULT_SETTINGS, type DefaultSettings } from "./default-settings.js";
+import { DEFAULT_SETTINGS } from "./default-settings.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
@@ -125,6 +125,28 @@ type LeafWithHeaderUpdate = WorkspaceLeaf & { updateHeader?: () => void };
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+/** Objet de réglages brut (par ex. la valeur chargée par loadData()) :
+ * distingue un vrai objet-dictionnaire d'un tableau, de `null`, ou d'un
+ * scalaire — sans jamais retomber sur `any` comme le ferait
+ * `Array.isArray`/un cast direct. */
+function isSettingsRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Comme `Array.isArray`, mais garde le type élément en `unknown` plutôt que
+ * de retomber sur `any[]` (signature de la lib standard). */
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
 }
 
 class FeuilletsPlugin extends Plugin {
@@ -1115,7 +1137,7 @@ class FeuilletsPlugin extends Plugin {
       const file = this.app.workspace.getActiveFile();
       const root = this.getProjectFolder();
       if (!file || !root || !file.path.startsWith(root.path + "/")) return;
-      new FileStatsModal(this.app, this as unknown as ConstructorParameters<typeof FileStatsModal>[1], file).open();
+      new FileStatsModal(this.app, this, file).open();
     });
     const updateStatus = () => {
       window.clearTimeout(this._statusTimer);
@@ -1512,7 +1534,7 @@ class FeuilletsPlugin extends Plugin {
           this.app.workspace.leftSplit.collapse();
           this.app.workspace.rightSplit.collapse();
         } catch { /* leftSplit/rightSplit absents sur mobile : la concentration s'active quand meme, sans replier de panneau */ }
-        const S = this.settings as unknown as DefaultSettings;
+        const S = this.settings;
         document.body.style.setProperty("--feuillets-dim-opacity", `${(S.dimOpacity || 35) / 100}`);
         document.body.style.setProperty("--feuillets-concentration-width", `${S.concentrationWidth || 720}px`);
         document.body.toggleClass("feuillets-focus-paragraph", S.concentrationUnit === "paragraph");
@@ -1565,13 +1587,8 @@ class FeuilletsPlugin extends Plugin {
     return file.path.startsWith(root.path + "/");
   }
 
-  applyLiveTypoClasses() {
-    /* readingFontSize/lineHeight/textWidth/liveHyphenation/liveJustify/…
-       existent bien dans DEFAULT_SETTINGS (default-settings.ts) mais pas
-       dans FeuilletsSettings (types.d.ts), volontairement partiel — d'où
-       ce cast local plutôt qu'un élargissement du type de la classe (voir
-       commentaire sur `settings` plus haut). */
-    const S = this.settings as unknown as DefaultSettings;
+  applyLiveTypoClasses(): void {
+    const S = this.settings;
     const inProject = this.isActiveFileInProject();
     document.body.toggleClass("feuillets-lignesvides-invisible", inProject && S.liveEmptyLines === "invisible");
     document.body.toggleClass("feuillets-lignesvides-reduit", inProject && S.liveEmptyLines === "reduit");
@@ -1616,7 +1633,7 @@ class FeuilletsPlugin extends Plugin {
   }
 
   currentStreak(): number {
-    const stats = (this.settings.stats || {}) as Record<string, { start: number; latest: number }>;
+    const stats = this.settings.stats || {};
     let streak = 0;
     const d = new Date();
     for (;;) {
@@ -1702,26 +1719,39 @@ class FeuilletsPlugin extends Plugin {
   compactLineBreaks(text) { return compactLineBreaks(text); }
   frenchTypography(text, skipFrontmatter) { return frenchTypography(text, skipFrontmatter); }
 
-  async loadSettings() {
-    const data = await this.loadData();
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
-    if (data && data.autoOpenHub !== undefined && data.autoOpenNotes === undefined) {
+  async loadSettings(): Promise<void> {
+    /* loadData() est typé `Promise<any>` par l'API Obsidian : la donnée
+       chargée est traitée comme `unknown` puis validée avant tout accès,
+       jamais castée en bloc vers FeuilletsSettings. */
+    const raw: unknown = await this.loadData();
+    const data: Record<string, unknown> = isSettingsRecord(raw) ? raw : {};
+    /* DEFAULT_SETTINGS (default-settings.ts) n'a pas wordGoal / povFilter /
+       listPanePreviewField / listPanePreviewLines — écart préexistant avec
+       FeuilletsSettings (types.d.ts) qui les déclare non optionnels, sans
+       rapport avec cette correction (ces 4 champs n'y figurent pas et n'ont
+       jamais eu de valeur par défaut, avant comme après TypeScript). C'est
+       la seule raison du passage par `unknown` ci-dessous : TypeScript
+       refuse un cast direct tant que ces 4 propriétés manquent. Le reste de
+       la fusion (tout le corps de cette méthode) reste entièrement
+       vérifié — ni `any`, ni cast sur `data`. */
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data) as unknown as FeuilletsSettings;
+    if (data.autoOpenHub !== undefined && data.autoOpenNotes === undefined) {
       const wasOn = !!data.autoOpenHub;
-      const tab = data.hubActiveTab || "properties";
+      const tab = asString(data.hubActiveTab) || "properties";
       this.settings.autoOpenNotes = wasOn && tab === "notes";
       this.settings.autoOpenProperties = wasOn && tab === "properties";
       this.settings.autoOpenResearch = wasOn && tab === "research";
       this.settings.autoOpenJournal = wasOn && (tab === "progression" || tab === "journal");
       this.settings.autoOpenProject = wasOn && (tab === "project" || tab === "export");
     }
-    if (data && (data.autoOpenProgression !== undefined || data.autoOpenExport !== undefined)) {
+    if (data.autoOpenProgression !== undefined || data.autoOpenExport !== undefined) {
       if (data.autoOpenProgression) this.settings.autoOpenJournal = true;
       if (data.autoOpenExport) this.settings.autoOpenProject = true;
     }
     /* Migration : les statuts personnalisés (simples chaînes, ajoutées à une
        liste de base figée) deviennent des entrées {name, color} au même
        titre que les 5 statuts par défaut — voir constants.js. */
-    if (data && Array.isArray(data.customStatuses) && data.customStatuses.length) {
+    if (isUnknownArray(data.customStatuses) && data.customStatuses.length) {
       const existingNames = new Set(this.settings.statuses.map((s) => s.name));
       for (const name of data.customStatuses) {
         const clean = typeof name === "string" ? name.trim() : "";
@@ -1735,20 +1765,26 @@ class FeuilletsPlugin extends Plugin {
     /* Migration : colonnes du Plan renommées (resume->summary,
        compiler->compile, voir default-settings.js) — reprend la valeur
        true/false que l'utilisateur avait choisie sous l'ancien nom. */
-    if (data && data.outlineCols) {
-      if (data.outlineCols.resume !== undefined && data.outlineCols.summary === undefined) {
-        this.settings.outlineCols.summary = data.outlineCols.resume;
+    if (isSettingsRecord(data.outlineCols)) {
+      const cols = data.outlineCols;
+      const resume = asBoolean(cols.resume);
+      if (resume !== undefined && cols.summary === undefined) {
+        this.settings.outlineCols.summary = resume;
       }
-      if (data.outlineCols.compiler !== undefined && data.outlineCols.compile === undefined) {
-        this.settings.outlineCols.compile = data.outlineCols.compiler;
+      const compiler = asBoolean(cols.compiler);
+      if (compiler !== undefined && cols.compile === undefined) {
+        this.settings.outlineCols.compile = compiler;
       }
     }
-    if (data && data.outlineWidths) {
-      if (data.outlineWidths.resume !== undefined && data.outlineWidths.summary === undefined) {
-        this.settings.outlineWidths.summary = data.outlineWidths.resume;
+    if (isSettingsRecord(data.outlineWidths)) {
+      const widths = data.outlineWidths;
+      const resume = asNumber(widths.resume);
+      if (resume !== undefined && widths.summary === undefined) {
+        this.settings.outlineWidths.summary = resume;
       }
-      if (data.outlineWidths.compiler !== undefined && data.outlineWidths.compile === undefined) {
-        this.settings.outlineWidths.compile = data.outlineWidths.compiler;
+      const compiler = asNumber(widths.compiler);
+      if (compiler !== undefined && widths.compile === undefined) {
+        this.settings.outlineWidths.compile = compiler;
       }
     }
     // Migration : valeur d'enum "resume" -> "summary" (cardContent,
@@ -1762,8 +1798,8 @@ class FeuilletsPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  trimStats() {
-    const stats = this.settings.stats as Record<string, unknown> | undefined;
+  trimStats(): void {
+    const stats = this.settings.stats;
     const keep = Number(this.settings.statsRetention);
     if (!stats || !keep || keep <= 0) return;
     const keys = Object.keys(stats);
@@ -2170,7 +2206,7 @@ class FeuilletsPlugin extends Plugin {
       isFolder: (node: unknown) => node instanceof TFolder,
     };
     return buildNumbering(
-      this.settings as unknown as Parameters<typeof buildNumbering>[0],
+      this.settings,
       root as unknown as Parameters<typeof buildNumbering>[1],
       helpers as unknown as Parameters<typeof buildNumbering>[2]
     );
@@ -2217,7 +2253,7 @@ class FeuilletsPlugin extends Plugin {
     return total;
   }
 
-  async updateDailyStats(currentTotal) {
+  async updateDailyStats(currentTotal: number): Promise<number> {
     const key = todayKey();
     const stats = this.settings.stats || {};
     if (!stats[key]) {
