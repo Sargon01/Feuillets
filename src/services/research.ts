@@ -198,7 +198,7 @@ export async function findAppearances(app: App, settings: FeuilletsSettings, ent
 
     if (viaLink) {
       linkRe.lastIndex = 0;
-      let m;
+      let m: RegExpExecArray | null;
       while ((m = linkRe.exec(body)) !== null) {
         const dest = app.metadataCache.getFirstLinkpathDest(
           m[1].trim(),
