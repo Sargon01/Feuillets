@@ -41,14 +41,34 @@ type ScrivenerImportPlugin = {
   updateStatusBar(): void;
 };
 
+type Dirent = {
+  name: string;
+  isDirectory(): boolean;
+  isFile(): boolean;
+};
+
+type NodeFs = {
+  existsSync(p: string): boolean;
+  readdirSync(p: string, options: { withFileTypes: true }): Dirent[];
+  readdirSync(p: string): string[];
+  readFileSync(p: string, encoding: string): string;
+  readFileSync(p: string): ArrayBuffer | Uint8Array;
+};
+
+type NodePath = {
+  join(...paths: string[]): string;
+  extname(p: string): string;
+  basename(p: string, ext?: string): string;
+};
+
 type ImportContext = {
   scrivPath: string;
   parsed: ReturnType<typeof parseScrivx>;
   parentPath: string;
   name: string;
   mode: string;
-  fs: any;
-  pathMod: any;
+  fs: NodeFs | null;
+  pathMod: NodePath | null;
 };
 
 function sanitizeName(title: string | null | undefined): string {
@@ -62,7 +82,7 @@ function unusedPath(app: App, basePath: string): string {
   const stem = dot > 0 ? basePath.slice(0, dot) : basePath;
   const ext = dot > 0 ? basePath.slice(dot) : "";
   let i = 2;
-  let candidate;
+  let candidate = "";
   do {
     candidate = `${stem}-${i}${ext}`;
     i++;
@@ -71,10 +91,12 @@ function unusedPath(app: App, basePath: string): string {
 }
 
 /** Recherche récursive d'un fichier image ou pièce jointe par son nom dans le dossier .scriv */
-function findScrivenerFile(dirPath: string, targetName: string, fs: any, pathMod: any): string | null {
+function findScrivenerFile(dirPath: string, targetName: string, fs: NodeFs | null, pathMod: NodePath | null): string | null {
+  if (!fs || !pathMod) return null;
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     for (const entry of entries) {
+      if (typeof entry === "string") continue;
       const fullPath = pathMod.join(dirPath, entry.name);
       if (entry.isDirectory()) {
         const found = findScrivenerFile(fullPath, targetName, fs, pathMod);
@@ -184,18 +206,19 @@ export class ScrivenerImportModal extends Modal {
         return;
       }
 
-      let fs, pathMod;
+      let fs: NodeFs;
+      let pathMod: NodePath;
       try {
-        fs = require("fs");
-        pathMod = require("path");
+        fs = require("fs") as NodeFs;
+        pathMod = require("path") as NodePath;
       } catch {
         new Notice(t("modal.scrivenerImport.importUnavailable"));
         return;
       }
 
-      let entries;
+      let entries: string[];
       try {
-        entries = fs.readdirSync(scrivPath);
+        entries = (fs.readdirSync(scrivPath) as (string | Dirent)[]).map((e) => typeof e === "string" ? e : e.name);
       } catch {
         new Notice(t("modal.scrivenerImport.folderNotFound", { path: scrivPath }));
         return;
@@ -209,9 +232,9 @@ export class ScrivenerImportModal extends Modal {
         return;
       }
 
-      let xmlContent;
+      let xmlContent: string;
       try {
-        xmlContent = fs.readFileSync(pathMod.join(scrivPath, check.scrivxName), "utf-8");
+        xmlContent = fs.readFileSync(pathMod.join(scrivPath, check.scrivxName!), "utf-8");
       } catch {
         new Notice(t("modal.scrivenerImport.cannotReadScrivx"));
         return;
@@ -266,8 +289,9 @@ export class ScrivenerImportModal extends Modal {
       try {
         await this.runImport(ctx);
         this.close();
-      } catch (e: any) {
-        new Notice(t("modal.scrivenerImport.importFailed", { error: e.message || e }));
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        new Notice(t("modal.scrivenerImport.importFailed", { error: errMsg }));
         confirmBtn.disabled = false;
         confirmBtn.setText(t("modal.scrivenerImport.confirmBtn"));
       }
@@ -309,6 +333,7 @@ export class ScrivenerImportModal extends Modal {
     let unreadableCount = 0;
 
     const readRtf = (uuid: string): string => {
+      if (!fs || !pathMod) return "";
       for (const candidate of rtfPathCandidates(uuid)) {
         try {
           return fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
@@ -319,6 +344,7 @@ export class ScrivenerImportModal extends Modal {
     };
 
     const readComments = (uuid: string) => {
+      if (!fs || !pathMod) return {};
       try {
         const xml = fs.readFileSync(
           pathMod.join(scrivPath, `Files/Data/${uuid}/content.comments`),
@@ -331,6 +357,7 @@ export class ScrivenerImportModal extends Modal {
     };
 
     const readNotes = (uuid: string): string => {
+      if (!fs || !pathMod) return "";
       for (const candidate of [
         `Files/Data/${uuid}/notes.rtf`,
         `Files/Docs/${uuid}_notes.rtf`,
@@ -345,6 +372,7 @@ export class ScrivenerImportModal extends Modal {
     };
 
     const readSynopsis = (uuid: string): string => {
+      if (!fs || !pathMod) return "";
       for (const candidate of [
         `Files/Data/${uuid}/synopsis.txt`,
         `Files/Docs/${uuid}_synopsis.txt`,
@@ -357,12 +385,16 @@ export class ScrivenerImportModal extends Modal {
       return "";
     };
 
-    const toArrayBuffer = (buf: any): ArrayBuffer => {
+    const toArrayBuffer = (buf: unknown): ArrayBuffer => {
       if (!buf) return new ArrayBuffer(0);
-      if (buf.buffer instanceof ArrayBuffer) {
-        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      if (buf instanceof ArrayBuffer) return buf;
+      if (ArrayBuffer.isView(buf)) {
+        const ab = buf.buffer;
+        if (ab instanceof ArrayBuffer) {
+          return ab.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        }
       }
-      return buf;
+      return new ArrayBuffer(0);
     };
 
     // Sauvegarde les images intégrées RTF (\pict) dans Resources/Assets/
@@ -379,7 +411,7 @@ export class ScrivenerImportModal extends Modal {
 
     // Recherche et copie les images Scrivener 3 ($PROJECT://...) trouvées dans le dossier .scriv
     const processImageLinks = async (imageLinks: { fileName: string }[] | undefined) => {
-      if (!imageLinks || imageLinks.length === 0) return;
+      if (!fs || !pathMod || !imageLinks || imageLinks.length === 0) return;
       for (const link of imageLinks) {
         const targetPath = normalizePath(`${visuelsFolderPath}/${link.fileName}`);
         if (!app.vault.getAbstractFileByPath(targetPath)) {
@@ -396,6 +428,7 @@ export class ScrivenerImportModal extends Modal {
 
     // Inspecte le dossier Files/Data/<UUID>/ pour copier toute image d'arrière-plan/jointe
     const processDataDirImages = async (itemTitle: string, uuid: string, currentBody: string, hasExtractedRtf = false): Promise<string> => {
+      if (!fs || !pathMod) return currentBody || "";
       const dataImages = findAttachedDataImages(scrivPath, uuid, fs, pathMod);
       let updatedBody = currentBody || "";
       if (!dataImages || dataImages.length === 0) return updatedBody;
@@ -444,6 +477,7 @@ export class ScrivenerImportModal extends Modal {
 
       let rtfRes: ReturnType<typeof rtfToMarkdown> | null = null;
       if (item.isImage) {
+        if (!fs || !pathMod) return;
         const dataImages = findAttachedDataImages(scrivPath, item.uuid, fs, pathMod);
         if (dataImages.length > 0) {
           const img = dataImages[0];
@@ -598,8 +632,10 @@ export class ScrivenerImportModal extends Modal {
       if (created.length > 0) await plugin.writeOrder(destFolder, created);
     };
 
-    const manuscritFolder = app.vault.getAbstractFileByPath(manuscritPath) as TFolder;
-    await writeManuscriptChildren(parsed.draft!.children, manuscritFolder);
+    const manuscritFolder = app.vault.getAbstractFileByPath(manuscritPath);
+    if (manuscritFolder instanceof TFolder) {
+      await writeManuscriptChildren(parsed.draft!.children, manuscritFolder);
+    }
 
     // ============================== Recherche ===============================
 
@@ -620,6 +656,7 @@ export class ScrivenerImportModal extends Modal {
       let hasExtractedRtf = false;
       let rtfRes: ReturnType<typeof rtfToMarkdown> | null = null;
       if (item.isImage) {
+        if (!fs || !pathMod) return;
         const dataImages = findAttachedDataImages(scrivPath, item.uuid, fs, pathMod);
         if (dataImages.length > 0) {
           const img = dataImages[0];
