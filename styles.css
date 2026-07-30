@@ -3032,7 +3032,7 @@ body.feuillets-concentration .markdown-preview-view {
 
 .feuillets-sidebar-content,
 .feuillets-sidebar-container {
-  background: var(--background-secondary-alt) !important;
+  background: var(--background-secondary-alt);
 }
 
 /* Réglage "Fond transparent pour les panneaux latéraux" (settings.
@@ -3044,7 +3044,7 @@ body.feuillets-transparent-panels .feuillets-list-pane,
 body.feuillets-transparent-panels .feuillets-tree-pane,
 body.feuillets-transparent-panels .feuillets-sidebar-content,
 body.feuillets-transparent-panels .feuillets-sidebar-container {
-  background: transparent !important;
+  background: transparent;
 }
 
 /* Réglage "Fond transparent pour la bande d'onglets" (settings.
@@ -3158,28 +3158,28 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-research-search-input,
 .feuillets-project-add-input,
 .feuillets-import-input {
-  background: transparent !important;
-  border: none !important;
-  border-bottom: 1px solid var(--background-modifier-border) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  padding: var(--size-4-1) 0 !important;
-  font-size: 12px !important;
-  color: var(--text-normal) !important;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--size-4-1) 0;
+  font-size: 12px;
+  color: var(--text-normal);
 }
 
 .feuillets-sidebar-content input[type="text"]::placeholder,
 .feuillets-sidebar-container input[type="text"]::placeholder {
-  color: var(--text-muted) !important;
-  opacity: 0.6 !important;
+  color: var(--text-muted);
+  opacity: 0.6;
 }
 
 .feuillets-sidebar-content input[type="text"]:focus,
 .feuillets-sidebar-container input[type="text"]:focus,
 .feuillets-binder-search:focus,
 .feuillets-binder-search-input:focus {
-  border-bottom-color: var(--interactive-accent) !important;
-  outline: none !important;
+  border-bottom-color: var(--interactive-accent);
+  outline: none;
 }
 
 /* Bouton Exporter minimaliste pilule contour */
@@ -3189,19 +3189,19 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-sidebar-container button.feuillets-export-cta,
 .feuillets-sidebar-container .feuillets-compile-export-btn,
 .feuillets-sidebar-container button[class*="export"] {
-  background: transparent !important;
-  border: 1px solid var(--interactive-accent) !important;
-  color: var(--interactive-accent) !important;
-  border-radius: 20px !important;
-  padding: var(--size-4-2) var(--size-4-4) !important;
-  font-weight: 500 !important;
-  transition: all 0.2s ease !important;
-  box-shadow: none !important;
-  display: block !important;
-  width: 100% !important;
-  margin-top: var(--size-4-4) !important;
-  text-align: center !important;
-  cursor: pointer !important;
+  background: transparent;
+  border: 1px solid var(--interactive-accent);
+  color: var(--interactive-accent);
+  border-radius: 20px;
+  padding: var(--size-4-2) var(--size-4-4);
+  font-weight: 500;
+  transition: all 0.2s ease;
+  box-shadow: none;
+  display: block;
+  width: 100%;
+  margin-top: var(--size-4-4);
+  text-align: center;
+  cursor: pointer;
 }
 
 .feuillets-sidebar-content button.feuillets-export-cta:hover,
@@ -3210,8 +3210,8 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-sidebar-container button.feuillets-export-cta:hover,
 .feuillets-sidebar-container .feuillets-compile-export-btn:hover,
 .feuillets-sidebar-container button[class*="export"]:hover {
-  background: var(--interactive-accent) !important;
-  color: var(--text-on-accent, #ffffff) !important;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent, #ffffff);
 }
 
 /* 5. TYPOGRAPHIE ET RESPIRATION GÉNÉRALE */
@@ -3286,12 +3286,12 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-sidebar-container .feuillets-compile-export-btn,
 .feuillets-sidebar-container button.feuillets-export-cta,
 .feuillets-sidebar-container button[class*="export"] {
-  display: block !important;
-  width: 100% !important;
-  margin-top: var(--size-4-4) !important;
-  padding: 10px var(--size-4-4) !important;
-  text-align: center !important;
-  cursor: pointer !important;
+  display: block;
+  width: 100%;
+  margin-top: var(--size-4-4);
+  padding: 10px var(--size-4-4);
+  text-align: center;
+  cursor: pointer;
 }
 
 /* Formatage structurel du bouton Tout remplacer */
@@ -5166,7 +5166,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-sidebar-preview-box.is-hidden {
-  display: none !important;
+  display: none;
 }
 
 .feuillets-sidebar-preview-title {
@@ -5576,14 +5576,14 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-header,
 .feuillets-board-bar,
 .feuillets-sidebar-tab-bar {
-  height: 40px !important;
-  min-height: 40px !important;
-  max-height: 40px !important;
-  padding: 0 10px !important;
-  margin: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  box-sizing: border-box !important;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  padding: 0 10px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
 }
 
 /* Boutons-icônes centrés et de taille fixe dans chaque barre. Le filtre
