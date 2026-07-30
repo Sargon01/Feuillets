@@ -1,4 +1,4 @@
-import { Modal, Notice, TFile, TFolder, setIcon } from "obsidian";
+import { App, Modal, Notice, TFile, TFolder, setIcon } from "obsidian";
 import { foldAccents } from "../utils/core.js";
 import { openFileActivating } from "../utils/dom.js";
 import { buildTagTree, collectFiles, sortTagNodes } from "../utils/tag-tree.js";
@@ -9,13 +9,22 @@ const STRUCTURAL_TAGS = new Set([
   "personnage", "lieu", "evenement", "codex", "source", "bibliographie", "glossaire",
 ]);
 
+type ProjectPropertiesPlugin = {
+  getProjectFolder(): TFolder | null;
+  getResearchRoot(): TFolder | null;
+  flattenFiles(folder: TFolder): TFile[];
+  fmOf(file: TFile): Record<string, unknown>;
+  shortTitleFor(file: TFile): string;
+  tagsOf(file: TFile): string[];
+};
+
 /* Fichiers du projet + du dossier Recherche — même périmètre que l'ancien
    onglet Propriétés (properties-view.js, dont cette logique est reprise). */
-function projectFiles(app, plugin, root) {
+function projectFiles(app: App, plugin: ProjectPropertiesPlugin, root: TFolder): TFile[] {
   const files = [...plugin.flattenFiles(root)];
   const researchRoot = plugin.getResearchRoot();
   if (researchRoot instanceof TFolder) {
-    const walk = (folder) => {
+    const walk = (folder: TFolder) => {
       for (const child of folder.children) {
         if (child instanceof TFolder) walk(child);
         else if (child instanceof TFile && child.extension === "md") files.push(child);
@@ -26,7 +35,7 @@ function projectFiles(app, plugin, root) {
   return files;
 }
 
-function activeProjectFile(app, root) {
+function activeProjectFile(app: App, root: TFolder): TFile | null {
   const file = app.workspace.getActiveFile();
   if (file instanceof TFile && file.extension === "md" && (file.path === root.path || file.path.startsWith(root.path + "/"))) {
     return file;
@@ -40,22 +49,25 @@ function activeProjectFile(app, root) {
  * part, "Propriétés" ; fusionnée pour éviter l'aller-retour permanent
  * entre les deux onglets). */
 export class ProjectPropertiesModal extends Modal {
-  constructor(app, plugin) {
+  plugin: ProjectPropertiesPlugin;
+  expandedProps: Set<string>;
+
+  constructor(app: App, plugin: ProjectPropertiesPlugin) {
     super(app);
     this.plugin = plugin;
     this.expandedProps = new Set();
   }
 
-  onOpen() {
+  onOpen(): void {
     this.contentEl.addClass("feuillets-project-modal");
     this.render();
   }
 
-  onClose() {
+  onClose(): void {
     this.contentEl.empty();
   }
 
-  render() {
+  render(): void {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.createEl("h3", { text: t("properties.project.title") });
@@ -68,18 +80,18 @@ export class ProjectPropertiesModal extends Modal {
     const activeFile = activeProjectFile(this.app, root);
     const files = projectFiles(this.app, this.plugin, root);
     const fileIndex = new Map(files.map((f) => [f.path, f]));
-    const propMap = new Map(); // key -> Map<valueLabel, Set<path>>
+    const propMap = new Map<string, Map<string, Set<string>>>();
     for (const f of files) {
       const fm = this.plugin.fmOf(f);
       for (const [key, value] of Object.entries(fm)) {
         if (key === "tags") continue;
         if (!propMap.has(key)) propMap.set(key, new Map());
-        const valMap = propMap.get(key);
+        const valMap = propMap.get(key)!;
         const values = Array.isArray(value) ? value : [value];
         for (const v of values) {
           const label = v === undefined || v === null || v === "" ? t("properties.project.emptyValue") : String(v);
           if (!valMap.has(label)) valMap.set(label, new Set());
-          valMap.get(label).add(f.path);
+          valMap.get(label)!.add(f.path);
         }
       }
     }
@@ -92,11 +104,11 @@ export class ProjectPropertiesModal extends Modal {
 
     const list = contentEl.createDiv({ cls: "feuillets-tags-tree" });
     for (const key of keys) {
-      const valMap = propMap.get(key);
+      const valMap = propMap.get(key)!;
       const totalFiles = new Set([...valMap.values()].flatMap((s) => [...s])).size;
       const isExpanded = this.expandedProps.has(key);
       const activeHasKey = activeFile ? key in this.plugin.fmOf(activeFile) : true;
-      const canAdd = activeFile && !activeHasKey;
+      const canAdd = !!activeFile && !activeHasKey;
 
       const row = list.createDiv({ cls: "feuillets-tags-row" });
       row.createSpan({ cls: "feuillets-chevron" }).setText(isExpanded ? "▾" : "▸");
@@ -108,7 +120,7 @@ export class ProjectPropertiesModal extends Modal {
       if (canAdd) {
         addBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          await this.app.fileManager.processFrontMatter(activeFile, (data) => {
+          await this.app.fileManager.processFrontMatter(activeFile!, (data) => {
             if (!(key in data)) data[key] = "";
           });
         });
@@ -121,7 +133,7 @@ export class ProjectPropertiesModal extends Modal {
         new ConfirmModal(
           this.app,
           t("properties.project.deleteConfirmTitle", { key }),
-          t("properties.project.deleteConfirmBody", { count: totalFiles, s: totalFiles > 1 ? "s" : "" }),
+          t("properties.project.deleteConfirmBody", { count: String(totalFiles), s: totalFiles > 1 ? "s" : "" }),
           t("properties.project.deleteConfirmBtn"),
           async () => {
             const paths = new Set([...valMap.values()].flatMap((s) => [...s]));
@@ -132,7 +144,7 @@ export class ProjectPropertiesModal extends Modal {
                 delete data[key];
               });
             }
-            new Notice(t("properties.project.deletedNotice", { key, count: paths.size, s: paths.size > 1 ? "s" : "" }));
+            new Notice(t("properties.project.deletedNotice", { key, count: String(paths.size), s: paths.size > 1 ? "s" : "" }));
             this.render();
           }
         ).open();
@@ -152,7 +164,7 @@ export class ProjectPropertiesModal extends Modal {
         vrow.addClass("feuillets-indent-1");
         vrow.createSpan({ cls: "feuillets-chevron" }).setText(isValExpanded ? "▾" : "▸");
         vrow.createSpan({ cls: "feuillets-tags-name" }).setText(val);
-        vrow.createSpan({ cls: "feuillets-tags-count" }).setText(String(valMap.get(val).size));
+        vrow.createSpan({ cls: "feuillets-tags-count" }).setText(String(valMap.get(val)!.size));
         vrow.addEventListener("click", (e) => {
           e.stopPropagation();
           if (this.expandedProps.has(valKey)) this.expandedProps.delete(valKey);
@@ -161,9 +173,9 @@ export class ProjectPropertiesModal extends Modal {
         });
         if (!isValExpanded) continue;
 
-        const matching = [...valMap.get(val)]
+        const matching = [...valMap.get(val)!]
           .map((p) => fileIndex.get(p))
-          .filter(Boolean)
+          .filter((f): f is TFile => !!f)
           .sort((a, b) => this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), "fr"));
         for (const f of matching) {
           const frow = list.createDiv({ cls: "feuillets-tags-file-row" });
@@ -183,23 +195,27 @@ export class ProjectPropertiesModal extends Modal {
 /** Tags utilisés dans tout le projet, en arbre navigable — même fusion que
  * ProjectPropertiesModal ci-dessus. */
 export class ProjectTagsModal extends Modal {
-  constructor(app, plugin) {
+  plugin: ProjectPropertiesPlugin;
+  expandedTags: Set<string>;
+  tagSearch: string;
+
+  constructor(app: App, plugin: ProjectPropertiesPlugin) {
     super(app);
     this.plugin = plugin;
     this.expandedTags = new Set();
     this.tagSearch = "";
   }
 
-  onOpen() {
+  onOpen(): void {
     this.contentEl.addClass("feuillets-project-modal");
     this.render();
   }
 
-  onClose() {
+  onClose(): void {
     this.contentEl.empty();
   }
 
-  render() {
+  render(): void {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.createEl("h3", { text: t("properties.tags.title") });
@@ -233,7 +249,7 @@ export class ProjectTagsModal extends Modal {
 
     const list = contentEl.createDiv({ cls: "feuillets-tags-tree" });
 
-    const nodeMatchesSearch = (node, term) => {
+    const nodeMatchesSearch = (node: ReturnType<typeof sortTagNodes>[number], term: string): boolean => {
       if (!term) return true;
       if (foldAccents(node.fullPath).includes(term)) return true;
       for (const child of node.children.values()) {
@@ -242,7 +258,7 @@ export class ProjectTagsModal extends Modal {
       return false;
     };
 
-    const renderTagNode = (node, depth, term) => {
+    const renderTagNode = (node: ReturnType<typeof sortTagNodes>[number], depth: number, term: string) => {
       const key = node.fullPath;
       const isExpanded = !!term || this.expandedTags.has(key);
       const activeTags = activeFile ? this.plugin.tagsOf(activeFile) : [];
@@ -251,7 +267,7 @@ export class ProjectTagsModal extends Modal {
       row.createSpan({ cls: "feuillets-chevron" }).setText(isExpanded ? "▾" : "▸");
       row.createSpan({ cls: "feuillets-tags-name" }).setText(`#${node.fullPath}`);
       row.createSpan({ cls: "feuillets-tags-count" }).setText(String(collectFiles(node).size));
-      const canAdd = activeFile && !activeTags.includes(node.fullPath);
+      const canAdd = !!activeFile && !activeTags.includes(node.fullPath);
       const addBtn = row.createSpan({ cls: "feuillets-tags-add" + (canAdd ? "" : " is-disabled") });
       setIcon(addBtn, "plus");
       addBtn.setAttr("aria-label", canAdd ? t("properties.tags.addToOpenFile", { tag: node.fullPath }) : t("properties.tags.alreadyOnOpenFile"));
@@ -259,7 +275,7 @@ export class ProjectTagsModal extends Modal {
         addBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
           const merged = [...activeTags, node.fullPath];
-          await this.app.fileManager.processFrontMatter(activeFile, (data) => {
+          await this.app.fileManager.processFrontMatter(activeFile!, (data) => {
             data.tags = merged;
           });
         });
@@ -274,7 +290,7 @@ export class ProjectTagsModal extends Modal {
         new ConfirmModal(
           this.app,
           t("properties.tags.deleteConfirmTitle", { tag: node.fullPath }),
-          t("properties.project.deleteConfirmBody", { count, s: count > 1 ? "s" : "" }),
+          t("properties.project.deleteConfirmBody", { count: String(count), s: count > 1 ? "s" : "" }),
           t("properties.project.deleteConfirmBtn"),
           async () => {
             for (const p of node.files) {
@@ -286,7 +302,7 @@ export class ProjectTagsModal extends Modal {
                 data.tags = next;
               });
             }
-            new Notice(t("properties.tags.deletedNotice", { tag: node.fullPath, count, s: count > 1 ? "s" : "" }));
+            new Notice(t("properties.tags.deletedNotice", { tag: node.fullPath, count: String(count), s: count > 1 ? "s" : "" }));
             this.render();
           }
         ).open();
@@ -304,7 +320,7 @@ export class ProjectTagsModal extends Modal {
 
       const filesHere = [...node.files]
         .map((p) => fileIndex.get(p))
-        .filter(Boolean)
+        .filter((f): f is TFile => !!f)
         .sort((a, b) => this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), "fr"));
       for (const f of filesHere) {
         const frow = list.createDiv({ cls: "feuillets-tags-file-row" });
@@ -330,7 +346,7 @@ export class ProjectTagsModal extends Modal {
     };
     renderList();
 
-    let searchTimer;
+    let searchTimer: number;
     searchInput.addEventListener("input", () => {
       window.clearTimeout(searchTimer);
       searchTimer = window.setTimeout(() => {
