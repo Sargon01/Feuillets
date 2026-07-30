@@ -7,10 +7,18 @@ import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { t } from "../i18n/index.js";
-import { Menu, TFile, TFolder, setIcon, Notice, normalizePath } from "obsidian";
+import { Menu, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 
 type ProjectNode = TFile | TFolder;
+
+/** Narrowing sans cast direct pour obsidianmd/no-tfile-tfolder-cast — voir
+ * base-feuillets-view.ts pour le même patron. Le throw n'est jamais atteint
+ * ici : `selected` est toujours ramené à un TFolder avant cet appel. */
+function asFolder(af: TAbstractFile | null): TFolder {
+  if (!(af instanceof TFolder)) throw new Error(`Expected a folder: ${af ? af.path : "null"}`);
+  return af;
+}
 
 type RenderFileRowOpts = { showPreview?: boolean; outOfProject?: boolean };
 type RenderFileRow = (
@@ -195,7 +203,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           .onClick(async () => {
             S[key] = !S[key];
             await this.plugin.saveSettings();
-            this.render(true);
+            void this.render(true);
           })
       );
 
@@ -238,7 +246,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     S.binderTreeCollapsed = mode === "files";
     S.binderListCollapsed = mode === "folders";
     await this.plugin.saveSettings();
-    this.render(true);
+    void this.render(true);
     this.plugin.adjustSidebarWidth();
     window.setTimeout(() => this.plugin.adjustSidebarWidth(), 60);
   }
@@ -266,7 +274,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           .onClick(async () => {
             S.listPanePreviewField = key;
             await this.plugin.saveSettings();
-            this.render(true);
+            void this.render(true);
           })
       );
     }
@@ -282,7 +290,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             .onClick(async () => {
               S.listPanePreviewLines = n;
               await this.plugin.saveSettings();
-              this.render(true);
+              void this.render(true);
             })
         );
       }
@@ -357,7 +365,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     const densityBtn = this.iconBtn(actions, "rows-3", t("binder.density.tooltip", { mode: S.binderCompact ? t("binder.density.compact") : t("binder.density.standard") }), async () => {
       S.binderCompact = !S.binderCompact;
       await this.plugin.saveSettings();
-      this.render(true);
+      void this.render(true);
     });
     if (S.binderCompact) densityBtn.addClass("feuillets-mode-active");
     densityBtn.addEventListener("contextmenu", (e) => {
@@ -388,9 +396,9 @@ export class FeuilletsView extends BaseFeuilletsView {
       this._binderSearchOpen = !this._binderSearchOpen;
       if (!this._binderSearchOpen) {
         S.binderSearch = "";
-        this.plugin.saveSettings().then(() => this.render(true));
+        void this.plugin.saveSettings().then(() => { void this.render(true); });
       } else {
-        this.render(true);
+        void this.render(true);
         window.setTimeout(() => {
           (this.contentEl.querySelector(".feuillets-binder-search") as HTMLElement | null)?.focus();
         }, 50);
@@ -433,7 +441,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             .onClick(async () => {
               S.binderStatusFilter = s;
               await this.plugin.saveSettings();
-              this.render(true);
+              void this.render(true);
             })
         );
       }
@@ -467,7 +475,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             .onClick(async () => {
               S.binderLabelFilter = lb;
               await this.plugin.saveSettings();
-              this.render(true);
+              void this.render(true);
             })
         );
       }
@@ -482,7 +490,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             .onClick(async () => {
               S.binderProgressFilter = pr;
               await this.plugin.saveSettings();
-              this.render(true);
+              void this.render(true);
             })
         );
       }
@@ -498,7 +506,7 @@ export class FeuilletsView extends BaseFeuilletsView {
               S.binderLabelFilter = "Tous";
               S.binderProgressFilter = "Tous";
               await this.plugin.saveSettings();
-              this.render(true);
+              void this.render(true);
             })
         );
       }
@@ -511,14 +519,16 @@ export class FeuilletsView extends BaseFeuilletsView {
         "x",
         t("binder.filter.resetSearchAndFilters")
       );
-      resetBtn.addEventListener("click", async () => {
-        S.binderSearch = "";
-        S.binderStatusFilter = "Tous";
-        S.binderLabelFilter = "Tous";
-        S.binderProgressFilter = "Tous";
-        this._binderSearchOpen = false;
-        await this.plugin.saveSettings();
-        this.render(true);
+      resetBtn.addEventListener("click", () => {
+        void (async () => {
+          S.binderSearch = "";
+          S.binderStatusFilter = "Tous";
+          S.binderLabelFilter = "Tous";
+          S.binderProgressFilter = "Tous";
+          this._binderSearchOpen = false;
+          await this.plugin.saveSettings();
+          void this.render(true);
+        })();
       });
     }
 
@@ -536,15 +546,17 @@ export class FeuilletsView extends BaseFeuilletsView {
       searchInput.addEventListener("input", () => {
         window.clearTimeout(searchTimer);
         const caret = searchInput.selectionStart;
-        searchTimer = window.setTimeout(async () => {
-          S.binderSearch = searchInput.value;
-          await this.plugin.saveSettings();
-          await this.render(true);
-          const fresh = this.contentEl.querySelector(".feuillets-binder-search") as HTMLInputElement | null;
-          if (fresh) {
-            fresh.focus();
-            fresh.setSelectionRange(caret, caret);
-          }
+        searchTimer = window.setTimeout(() => {
+          void (async () => {
+            S.binderSearch = searchInput.value;
+            await this.plugin.saveSettings();
+            await this.render(true);
+            const fresh = this.contentEl.querySelector(".feuillets-binder-search") as HTMLInputElement | null;
+            if (fresh) {
+              fresh.focus();
+              fresh.setSelectionRange(caret, caret);
+            }
+          })();
         }, 200);
       });
       searchInput.addEventListener("blur", () => {
@@ -560,7 +572,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
         if (!searchInput.value.trim()) {
           this._binderSearchOpen = false;
-          this.render(true);
+          void this.render(true);
         }
       });
 
@@ -574,11 +586,13 @@ export class FeuilletsView extends BaseFeuilletsView {
       );
       if (S.binderSearchContent) contentToggle.addClass("feuillets-mode-active");
       contentToggle.addEventListener("mousedown", (e: MouseEvent) => e.preventDefault());
-      contentToggle.addEventListener("click", async () => {
-        this._suppressSearchBlurClose = true;
-        S.binderSearchContent = !S.binderSearchContent;
-        await this.plugin.saveSettings();
-        this.render(true);
+      contentToggle.addEventListener("click", () => {
+        void (async () => {
+          this._suppressSearchBlurClose = true;
+          S.binderSearchContent = !S.binderSearchContent;
+          await this.plugin.saveSettings();
+          void this.render(true);
+        })();
       });
     }
 
@@ -738,7 +752,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         if (field === "extrait") {
           const prev = body.createDiv({ cls: "feuillets-item-preview" });
           prev.style.maxHeight = `${lines * 1.3}em`;
-          this.app.vault.cachedRead(file).then((content) => {
+          void this.app.vault.cachedRead(file).then((content) => {
             const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
             const limit = Number(S.excerptLength) || 420;
             const clean = stripMarkdown(body.slice(0, limit + 200)).slice(0, limit);
@@ -791,7 +805,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         highlightActive(this.contentEl, file.path);
         const leaf = this.plugin.getLeafForOpeningFile();
         openFileActivating(this.app, leaf, file);
-        this.app.workspace.revealLeaf(leaf);
+        void this.app.workspace.revealLeaf(leaf);
         /* openFileActivating déplace le focus DOM vers l'éditeur — sans le
            reprendre ici, la 1ère flèche haut/bas après un simple clic ne
            navigue jamais (le keydown du Binder, sur this.contentEl, ne
@@ -867,10 +881,13 @@ export class FeuilletsView extends BaseFeuilletsView {
         S.binderTreeWidth = Math.min(400, Math.max(140, startW + ev.clientX - startX));
         split.style.setProperty("--feuillets-tree-w", `${S.binderTreeWidth}px`);
       };
-      const onUp = async () => {
+      const onUpAsync = async () => {
+        await this.plugin.saveSettings();
+      };
+      const onUp = () => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        await this.plugin.saveSettings();
+        void onUpAsync();
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
@@ -947,20 +964,22 @@ export class FeuilletsView extends BaseFeuilletsView {
           S.projects = (S.projects || []).filter((p) => p !== path);
           if (S.projectFolder === path) S.projectFolder = "";
           delete S.projectMeta[path];
-          this.plugin.saveSettings().then(() => {
+          void this.plugin.saveSettings().then(() => {
             this.plugin.renderAllViews(true);
           });
         });
 
-        row.addEventListener("click", async () => {
+        row.addEventListener("click", () => {
           if (!folderExists) {
             new Notice(t("binder.projectManager.folderGone", { path }));
             return;
           }
-          S.projectFolder = path;
-          await this.plugin.saveSettings();
-          this.plugin.updateStatusBar();
-          this.plugin.renderAllViews(true);
+          void (async () => {
+            S.projectFolder = path;
+            await this.plugin.saveSettings();
+            void this.plugin.updateStatusBar();
+            this.plugin.renderAllViews(true);
+          })();
         });
       }
     }
@@ -973,7 +992,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       attr: { placeholder: t("binder.projectManager.addExisting") },
     });
     addInput.addClass("feuillets-input-full");
-    addInput.addEventListener("keydown", async (e) => {
+    addInput.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
       const p = normalizePath(addInput.value.trim());
       if (!p) return;
@@ -982,12 +1001,14 @@ export class FeuilletsView extends BaseFeuilletsView {
         new Notice(t("binder.projectManager.folderNotFound"));
         return;
       }
-      S.projectFolder = p;
-      if (!S.projects.includes(p)) S.projects.push(p);
-      await this.plugin.saveSettings();
-      addInput.value = "";
-      this.plugin.updateStatusBar();
-      this.plugin.renderAllViews(true);
+      void (async () => {
+        S.projectFolder = p;
+        if (!S.projects.includes(p)) S.projects.push(p);
+        await this.plugin.saveSettings();
+        addInput.value = "";
+        void this.plugin.updateStatusBar();
+        this.plugin.renderAllViews(true);
+      })();
     });
 
     // --- Right Pane: Hub & Cards ---
@@ -1146,7 +1167,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             }
             await this.app.vault.create(dest, content);
             new Notice(t("binder.research.duplicated", { name }));
-            this.render(true);
+            void this.render(true);
           })
       );
       menu.addItem((item) =>
@@ -1154,9 +1175,9 @@ export class FeuilletsView extends BaseFeuilletsView {
           .setTitle(t("binder.research.trash"))
           .setIcon("trash")
           .onClick(async () => {
-            await this.app.vault.trash(file, true);
+            await this.app.fileManager.trashFile(file);
             new Notice(t("binder.research.trashed", { name: this.plugin.titleFor(file) || file.basename }));
-            this.render(true);
+            void this.render(true);
           })
       );
       menu.showAtMouseEvent(e);
@@ -1169,11 +1190,13 @@ export class FeuilletsView extends BaseFeuilletsView {
     // du manuscrit plutôt que d'un accès à part (voir styles.css).
     rootRow.addClass("feuillets-binder-research-root");
     const rootCollapsed = !!S.collapsed[researchRoot.path];
-    rootRow.addEventListener("click", async () => {
-      if (S.collapsed[researchRoot.path]) delete S.collapsed[researchRoot.path];
-      else S.collapsed[researchRoot.path] = true;
-      await this.plugin.saveSettings();
-      this.render(true);
+    rootRow.addEventListener("click", () => {
+      void (async () => {
+        if (S.collapsed[researchRoot.path]) delete S.collapsed[researchRoot.path];
+        else S.collapsed[researchRoot.path] = true;
+        await this.plugin.saveSettings();
+        void this.render(true);
+      })();
     });
     rootRow.addEventListener("contextmenu", (e) => showResearchFolderMenu(e, researchRoot));
     if (rootCollapsed) return;
@@ -1183,11 +1206,13 @@ export class FeuilletsView extends BaseFeuilletsView {
         if (child instanceof TFolder) {
           const row = renderRow(child.name, depth, true);
           const isCollapsed = !!S.collapsed[child.path];
-          row.addEventListener("click", async () => {
-            if (S.collapsed[child.path]) delete S.collapsed[child.path];
-            else S.collapsed[child.path] = true;
-            await this.plugin.saveSettings();
-            this.render(true);
+          row.addEventListener("click", () => {
+            void (async () => {
+              if (S.collapsed[child.path]) delete S.collapsed[child.path];
+              else S.collapsed[child.path] = true;
+              await this.plugin.saveSettings();
+              void this.render(true);
+            })();
           });
           row.addEventListener("contextmenu", (e) => showResearchFolderMenu(e, child));
           if (!isCollapsed) renderChildren(child, depth + 1);
@@ -1239,10 +1264,13 @@ export class FeuilletsView extends BaseFeuilletsView {
         S.binderTreeWidth = Math.min(360, Math.max(120, startW + ev.clientX - startX));
         split.style.setProperty("--feuillets-tree-w", `${S.binderTreeWidth}px`);
       };
-      const onUp = async () => {
+      const onUpAsync = async () => {
+        await this.plugin.saveSettings();
+      };
+      const onUp = () => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        await this.plugin.saveSettings();
+        void onUpAsync();
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
@@ -1257,12 +1285,12 @@ export class FeuilletsView extends BaseFeuilletsView {
     if (!inScope(selected)) {
       selected = treeRoot;
     }
-    const selectedFolder = selected as TFolder;
+    const selectedFolder = asFolder(selected);
 
     const selectFolder = async (f: TFolder) => {
       S.binderSelectedPath = f.path;
       await this.plugin.saveSettings();
-      this.render(true);
+      void this.render(true);
     };
 
     /* Racine du volet dossiers : la gestion des projets (créer/importer/
@@ -1307,7 +1335,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     rootRow.addEventListener("click", (e) => {
       if (e.target === rootAdd || rootAdd.contains(e.target as Node)) return;
-      selectFolder(treeRoot);
+      void selectFolder(treeRoot);
     });
 
     // Filet de sécurité : chaque dossier jamais replié explicitement
@@ -1376,13 +1404,15 @@ export class FeuilletsView extends BaseFeuilletsView {
           menu.showAtMouseEvent(e);
         });
 
-        row.addEventListener("click", async (e) => {
+        row.addEventListener("click", (e) => {
           if (e.target === addBtn || addBtn.contains(e.target as Node)) return;
-          // Toggle collapse
-          if (S.collapsed[child.path]) delete S.collapsed[child.path];
-          else S.collapsed[child.path] = true;
-          await this.plugin.saveSettings();
-          await selectFolder(child);
+          void (async () => {
+            // Toggle collapse
+            if (S.collapsed[child.path]) delete S.collapsed[child.path];
+            else S.collapsed[child.path] = true;
+            await this.plugin.saveSettings();
+            await selectFolder(child);
+          })();
         });
         row.addEventListener("contextmenu", (e) => {
           e.preventDefault();
@@ -1432,11 +1462,13 @@ export class FeuilletsView extends BaseFeuilletsView {
         const heading = listBody.createDiv({ cls: "feuillets-list-subheading" });
         heading.setText(folder.name);
         heading.addClass("feuillets-clickable");
-        heading.addEventListener("click", async () => {
-          if (S.collapsed[folder.path]) delete S.collapsed[folder.path];
-          else S.collapsed[folder.path] = true;
-          await this.plugin.saveSettings();
-          this.render(true);
+        heading.addEventListener("click", () => {
+          void (async () => {
+            if (S.collapsed[folder.path]) delete S.collapsed[folder.path];
+            else S.collapsed[folder.path] = true;
+            await this.plugin.saveSettings();
+            void this.render(true);
+          })();
         });
       }
 

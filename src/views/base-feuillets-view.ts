@@ -40,26 +40,19 @@ import {
   MarkdownRenderer,
   Keymap,
   type WorkspaceLeaf,
+  type TAbstractFile,
 } from "obsidian";
 import type FeuilletsPlugin from "../main.js";
 
-type ProjectNode = TFile | TFolder;
+/** ensureFolder() garantit toujours un dossier (services/project-files.ts) —
+ * ce helper narrowe sans cast direct pour obsidianmd/no-tfile-tfolder-cast ;
+ * le throw n'est jamais atteint en pratique. */
+function asFolder(af: TAbstractFile): TFolder {
+  if (!(af instanceof TFolder)) throw new Error(`Expected a folder: ${af.path}`);
+  return af;
+}
 
-/** Sous-ensemble de HTMLElement utilisé par renderCollapsibleHead (voir
- * utils/dom.ts) — même type local que dans les autres vues déjà migrées
- * (analysis-view.ts, docx-review-view.ts), pas de contrat partagé. */
-type ObsidianElement = HTMLElement & {
-  createDiv(options: { cls: string }): ObsidianElement;
-  createSpan(options: { cls: string }): ObsidianElement;
-  createEl(tag: string, options: { cls: string }): ObsidianElement;
-  setText(text: string): void;
-  setAttr(name: string, value: string): void;
-  addEventListener(type: string, callback: (event: MouseEvent) => void | Promise<void>): void;
-  querySelectorAll(selector: string): NodeListOf<ObsidianElement>;
-  removeClass(name: string): void;
-  addClass(name: string): void;
-  scrollIntoView(options: ScrollIntoViewOptions): void;
-};
+type ProjectNode = TFile | TFolder;
 
 function cleanExcerpt(text: string): string {
   return String(text || "")
@@ -138,10 +131,10 @@ export abstract class BaseFeuilletsView extends ItemView {
       cls: "feuillets-synopsis",
       attr: { placeholder, rows: String(rows || 4) },
     });
-    ta.value = String(fm[key] || "");
-    ta.addEventListener("blur", async () => {
+    ta.value = String((fm[key] as string | number | boolean | null | undefined) || "");
+    ta.addEventListener("blur", () => {
       const v = ta.value.trim();
-      if (v !== String(fm[key] || "")) await this.setFm(file, key, v);
+      if (v !== String((fm[key] as string | number | boolean | null | undefined) || "")) void this.setFm(file, key, v);
     });
     return ta;
   }
@@ -177,9 +170,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         cls: "feuillets-flat-textarea feuillets-autosize",
         attr: { placeholder: t("shared.sheetEditor.placeholder"), rows: "12" },
       });
-      ta.style.width = "100%";
-      ta.style.minHeight = "180px";
-      ta.style.fontFamily = "var(--font-monospace)";
+      ta.setCssStyles({ width: "100%", minHeight: "180px", fontFamily: "var(--font-monospace)" });
       ta.value = parts.body;
       ta.focus();
 
@@ -197,11 +188,11 @@ export abstract class BaseFeuilletsView extends ItemView {
           }
           ta.remove();
           textEl.show();
-          this.render();
+          void this.render();
         }
       };
 
-      ta.addEventListener("blur", saveAndExit);
+      ta.addEventListener("blur", () => { void saveAndExit(); });
       ta.addEventListener("keydown", (e) => {
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
           e.preventDefault();
@@ -224,10 +215,12 @@ export abstract class BaseFeuilletsView extends ItemView {
     sel.setAttr("title", current || t("shared.label.none"));
     const color = current ? this.plugin.labelColor(current) : null;
     if (color) sel.style.borderLeft = `4px solid ${color}`;
-    sel.addEventListener("change", async () => {
-      await this.setFm(file, "label", sel.value);
-      sel.setAttr("title", sel.value || t("shared.label.none"));
-      sel.blur();
+    sel.addEventListener("change", () => {
+      void (async () => {
+        await this.setFm(file, "label", sel.value);
+        sel.setAttr("title", sel.value || t("shared.label.none"));
+        sel.blur();
+      })();
     });
     return sel;
   }
@@ -243,10 +236,12 @@ export abstract class BaseFeuilletsView extends ItemView {
     const status = typeof fm.status === "string" ? fm.status : "";
     sel.value = statuses.includes(status) ? status : "";
     sel.setAttr("title", sel.value || t("shared.status.none"));
-    sel.addEventListener("change", async () => {
-      await this.setFm(file, "status", sel.value);
-      sel.setAttr("title", sel.value || t("shared.status.none"));
-      sel.blur();
+    sel.addEventListener("change", () => {
+      void (async () => {
+        await this.setFm(file, "status", sel.value);
+        sel.setAttr("title", sel.value || t("shared.status.none"));
+        sel.blur();
+      })();
     });
     return sel;
   }
@@ -262,7 +257,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       type: "text",
       attr: { placeholder: tags.length ? "+" : t("shared.tags.placeholder") },
     });
-    input.addEventListener("keydown", async (e) => {
+    input.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
       const raw = input.value.trim();
       if (!raw) return;
@@ -271,15 +266,17 @@ export abstract class BaseFeuilletsView extends ItemView {
         .map((s) => s.replace(/^#/, "").trim())
         .filter(Boolean);
       const merged = [...new Set([...tags, ...added])];
-      await this.setFm(file, "tags", merged);
-      input.value = "";
-      input.blur();
+      void (async () => {
+        await this.setFm(file, "tags", merged);
+        input.value = "";
+        input.blur();
+      })();
     });
     wrap.querySelectorAll(".feuillets-tag-chip").forEach((chip, idx) => {
       chip.setAttr("title", t("shared.tags.removeTooltip"));
-      chip.addEventListener("click", async () => {
+      chip.addEventListener("click", () => {
         const next = tags.filter((_, j) => j !== idx);
-        await this.setFm(file, "tags", next);
+        void this.setFm(file, "tags", next);
       });
     });
     return wrap;
@@ -298,22 +295,24 @@ export abstract class BaseFeuilletsView extends ItemView {
     searchInput.addEventListener("input", () => {
       window.clearTimeout(researchSearchTimer);
       const caret = searchInput.selectionStart;
-      researchSearchTimer = window.setTimeout(async () => {
-        S.researchSearch = searchInput.value;
-        await this.plugin.saveSettings();
-        await this.render(true);
-        /* this.contentEl est la feuille ENTIÈRE (partagée par tous les
-           sous-onglets de l'Inspecteur quand cette vue est une sous-vue de
-           SidebarFeuilletsView — voir son renderXTab()/targetContainer) :
-           y chercher l'input peut retrouver un ancien nœud détaché plutôt
-           que celui qu'on vient de recréer. Se limiter au conteneur réel
-           de CETTE vue lève l'ambiguïté. */
-        const scope = this.targetContainer || this.contentEl;
-        const el = scope.querySelector<HTMLInputElement>(".feuillets-binder-search");
-        if (el) {
-          el.focus();
-          el.setSelectionRange(caret, caret);
-        }
+      researchSearchTimer = window.setTimeout(() => {
+        void (async () => {
+          S.researchSearch = searchInput.value;
+          await this.plugin.saveSettings();
+          await this.render(true);
+          /* this.contentEl est la feuille ENTIÈRE (partagée par tous les
+             sous-onglets de l'Inspecteur quand cette vue est une sous-vue de
+             SidebarFeuilletsView — voir son renderXTab()/targetContainer) :
+             y chercher l'input peut retrouver un ancien nœud détaché plutôt
+             que celui qu'on vient de recréer. Se limiter au conteneur réel
+             de CETTE vue lève l'ambiguïté. */
+          const scope = this.targetContainer || this.contentEl;
+          const el = scope.querySelector<HTMLInputElement>(".feuillets-binder-search");
+          if (el) {
+            el.focus();
+            el.setSelectionRange(caret, caret);
+          }
+        })();
       }, 250);
     });
 
@@ -321,7 +320,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const baseResearch = researchRoot
       ? researchRoot.path
       : `${root.path}/_Recherche`;
-    const baseResearchFolder = (await this.plugin.ensureFolder(baseResearch)) as TFolder;
+    const baseResearchFolder = asFolder(await this.plugin.ensureFolder(baseResearch));
     if (this._renderGen !== gen) return;
 
     const mode = this.plugin.projectMode();
@@ -357,11 +356,11 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
 
     const sourcesFolder = rf.sources
-      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.sources.label}`)) as TFolder
+      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.sources.label}`))
       : null;
-    const bibliographieFolder = (await this.plugin.ensureFolder(
+    const bibliographieFolder = asFolder(await this.plugin.ensureFolder(
       `${baseResearch}/${rf.bibliographie.label}`
-    )) as TFolder;
+    ));
     /* Rationalisation : en non-fiction, Sources reste la SEULE
        bibliothèque de travail — Bibliographie devient la vue agrégée des
        sources citées (voir plus bas), plus un dossier de fiches
@@ -380,19 +379,19 @@ export abstract class BaseFeuilletsView extends ItemView {
        simplement dans "customFolders" plus bas et reste visible avec son
        contenu — rien n'est supprimé automatiquement. */
     const personnagesFolder = rf.personnages
-      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.personnages.label}`)) as TFolder
+      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.personnages.label}`))
       : null;
     const lieuxFolder = rf.lieux
-      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.lieux.label}`)) as TFolder
+      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.lieux.label}`))
       : null;
     const codexFolder = rf.codex
-      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.codex.label}`)) as TFolder
+      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.codex.label}`))
       : null;
     const glossaireFolder = rf.glossaire
-      ? (await this.plugin.ensureFolder(`${baseResearch}/${rf.glossaire.label}`)) as TFolder
+      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.glossaire.label}`))
       : null;
     const chronoFolder = rf.evenements
-      ? this.plugin.getChronoFolder() || ((await this.plugin.ensureFolder(`${baseResearch}/Chronologie`)) as TFolder)
+      ? this.plugin.getChronoFolder() || asFolder(await this.plugin.ensureFolder(`${baseResearch}/Chronologie`))
       : this.plugin.getChronoFolder();
 
     const standardPaths = new Set([
@@ -642,7 +641,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     this.iconBtn(bar, "arrow-left", t("shared.fileView.closeTooltip"), () => {
       this.viewingFile = null;
-      this.render();
+      void this.render();
     });
     this.iconBtn(bar, "external-link", t("shared.openNewTab"), () => {
       openFileActivating(this.app, this.app.workspace.getLeaf(true), file);
@@ -710,13 +709,13 @@ export abstract class BaseFeuilletsView extends ItemView {
       const copy = await this.app.vault.create(dest, content);
       new Notice(t("shared.duplicated", { name }));
       this.viewingFile = copy;
-      this.render();
+      void this.render();
     });
     this.iconBtn(bar, "trash", t("shared.trash"), async () => {
-      await this.app.vault.trash(file, true);
+      await this.app.fileManager.trashFile(file);
       new Notice(t("shared.trashed", { name: this.plugin.titleFor(file) }));
       this.viewingFile = null;
-      this.render();
+      void this.render();
     });
 
     const row = wrapper.createDiv({ cls: "feuillets-fileview-row" });
@@ -757,7 +756,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const S = this.plugin.settings;
     const collapsed = !this.researchFilterActive && !!S.collapsed[collapseKey];
 
-    const { section } = renderCollapsibleHead(container as ObsidianElement, {
+    const { section } = renderCollapsibleHead(container, {
       classes: {
         section: "feuillets-notes-section feuillets-research-section",
         head: "feuillets-notes-section-head",
@@ -771,22 +770,22 @@ export abstract class BaseFeuilletsView extends ItemView {
       settings: S,
       onToggle: async () => {
         await this.plugin.saveSettings();
-        this.render();
+        void this.render();
       },
-      onCreate,
+      onCreate: onCreate ? () => { void onCreate(); } : undefined,
     });
 
     if (collapsed) return;
 
-    const list = (section as HTMLElement).createDiv({ cls: "feuillets-research-list" });
+    const list = section.createDiv({ cls: "feuillets-research-list" });
 
     /* Glisser-déposer : une rubrique adossée à un vrai dossier (pas la vue
        agrégée "Coffre") devient une cible de dépôt — on y déplace le fichier
        glissé depuis une autre rubrique. */
     const destFolder = folderOrFiles instanceof TFolder ? folderOrFiles : null;
-    if (destFolder) this.attachResearchDropTarget(section as HTMLElement, destFolder);
+    if (destFolder) this.attachResearchDropTarget(section, destFolder);
 
-    let files: (TFile | TFolder)[] = [];
+    let files: TFile[] = [];
     if (folderOrFiles instanceof TFolder) {
       files = folderOrFiles.children
         .filter((c): c is TFile => isResearchFile(c))
@@ -802,8 +801,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       return;
     }
 
-    for (const node of files) {
-      const f = node as TFile;
+    for (const f of files) {
       const isMedia = isImageFile(f) || isPdfFile(f);
       const row = list.createDiv({ cls: "feuillets-research-item" });
       this.attachResearchDragSource(row, f);
@@ -882,7 +880,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           return;
         }
         this.viewingFile = f;
-        this.render();
+        void this.render();
       });
     }
   }
@@ -943,7 +941,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     section.addEventListener("dragleave", (e) => {
       if (!(e.relatedTarget instanceof Node) || !section.contains(e.relatedTarget)) section.removeClass("feuillets-dragover");
     });
-    section.addEventListener("drop", async (e) => {
+    section.addEventListener("drop", (e) => {
       e.preventDefault();
       section.removeClass("feuillets-dragover");
       const srcPath = this.plugin._researchDragPath;
@@ -957,8 +955,10 @@ export abstract class BaseFeuilletsView extends ItemView {
         new Notice(t("shared.research.duplicateNameInSection"));
         return;
       }
-      await this.app.fileManager.renameFile(file, dest);
-      this.plugin.renderAllViews(true);
+      void (async () => {
+        await this.app.fileManager.renameFile(file, dest);
+        this.plugin.renderAllViews(true);
+      })();
     });
   }
 
@@ -973,7 +973,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const collapseKey = "research:footnotes-overview";
     const collapsed = !!S.collapsed[collapseKey];
 
-    const { section } = renderCollapsibleHead(container as ObsidianElement, {
+    const { section } = renderCollapsibleHead(container, {
       classes: {
         section: "feuillets-notes-section feuillets-research-section",
         head: "feuillets-notes-section-head",
@@ -987,12 +987,12 @@ export abstract class BaseFeuilletsView extends ItemView {
       settings: S,
       onToggle: async () => {
         await this.plugin.saveSettings();
-        this.render();
+        void this.render();
       },
     });
     if (collapsed) return;
 
-    const list = (section as HTMLElement).createDiv({ cls: "feuillets-research-list" });
+    const list = section.createDiv({ cls: "feuillets-research-list" });
     const numbering = this.plugin.buildNumbering(root);
     const files = this.plugin
       .flattenFiles(root)
@@ -1068,7 +1068,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const collapseKey = "research:cited-sources";
     const collapsed = !!S.collapsed[collapseKey];
 
-    const { section } = renderCollapsibleHead(container as ObsidianElement, {
+    const { section } = renderCollapsibleHead(container, {
       classes: {
         section: "feuillets-notes-section feuillets-research-section",
         head: "feuillets-notes-section-head",
@@ -1082,11 +1082,11 @@ export abstract class BaseFeuilletsView extends ItemView {
       settings: S,
       onToggle: async () => {
         await this.plugin.saveSettings();
-        this.render();
+        void this.render();
       },
     });
     if (collapsed) return;
-    const sectionEl = section as HTMLElement;
+    const sectionEl = section;
 
     const files = candidateFolders.flatMap((f) =>
       f.children.filter((c): c is TFile => c instanceof TFile && c.extension === "md")
@@ -1098,7 +1098,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const exportIcon = exportRow.createSpan({ cls: "feuillets-cell-icon" });
     setIcon(exportIcon, "file-output");
     exportRow.createSpan().setText(t("shared.bibliography.generate"));
-    exportRow.addEventListener("click", () => this.plugin.generateBibliographyFile());
+    exportRow.addEventListener("click", () => { void this.plugin.generateBibliographyFile(); });
 
     const list = sectionEl.createDiv({ cls: "feuillets-research-list" });
     if (cited.length === 0) {
@@ -1123,7 +1123,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setText(t("shared.bibliography.citationCount", { title: this.plugin.titleFor(f), count: String(n), s: n > 1 ? "s" : "" }));
       row.addEventListener("click", () => {
         this.viewingFile = f;
-        this.render();
+        void this.render();
       });
     }
   }
@@ -1159,7 +1159,7 @@ export abstract class BaseFeuilletsView extends ItemView {
                 tag: S.researchTagFilter || "",
               });
               await this.plugin.saveSettings();
-              this.render(true);
+              void this.render(true);
             }).open();
           })
       );
@@ -1171,7 +1171,7 @@ export abstract class BaseFeuilletsView extends ItemView {
               S.researchSearch = f.search || "";
               S.researchTagFilter = f.tag || "";
               await this.plugin.saveSettings();
-              this.render(true);
+              void this.render(true);
             })
           );
         }
@@ -1225,7 +1225,8 @@ export abstract class BaseFeuilletsView extends ItemView {
   async buildSearchIndex(files: TFile[]): Promise<Map<string, { mtime: number; text: string }>> {
     if (!this._searchCache) this._searchCache = new Map();
     return refreshSearchIndex(this._searchCache, files, async (f) => {
-      const raw = await this.app.vault.cachedRead(f as TFile);
+      if (!(f instanceof TFile)) return "";
+      const raw = await this.app.vault.cachedRead(f);
       const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
       return foldAccents(body);
     });
@@ -1235,7 +1236,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const btn = parent.createEl("button", { cls: "clickable-icon" });
     setIcon(btn, icon);
     setTooltip(btn, tooltip);
-    if (onClick) btn.addEventListener("click", onClick);
+    if (onClick) btn.addEventListener("click", (e) => { void onClick(e); });
     return btn;
   }
 
@@ -1270,11 +1271,13 @@ export abstract class BaseFeuilletsView extends ItemView {
     const iconEl = titleEl.createSpan({ cls: "feuillets-section-icon" });
     setIcon(iconEl, icon);
     titleEl.createSpan({ cls: "feuillets-section-title-text" }).setText(title);
-    titleEl.addEventListener("click", async () => {
-      if (isCollapsed) delete S.collapsed[collapseKey];
-      else S.collapsed[collapseKey] = true;
-      await this.plugin.saveSettings();
-      this.render(true);
+    titleEl.addEventListener("click", () => {
+      void (async () => {
+        if (isCollapsed) delete S.collapsed[collapseKey];
+        else S.collapsed[collapseKey] = true;
+        await this.plugin.saveSettings();
+        void this.render(true);
+      })();
     });
     if (renderActions) {
       const actions = head.createDiv({ cls: "feuillets-project-actions" });
@@ -1337,7 +1340,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setTitle(t("shared.contextMenu.newSheetBefore"))
         .setIcon("corner-left-up")
         .onClick(async () => {
-          plugin.newSheetAt(parent as TFolder, index);
+          plugin.newSheetAt(asFolder(parent), index);
         })
     );
     menu.addItem((item) =>
@@ -1345,7 +1348,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setTitle(t("shared.contextMenu.newSheetAfter"))
         .setIcon("corner-left-down")
         .onClick(async () => {
-          plugin.newSheetAt(parent as TFolder, index + 1);
+          plugin.newSheetAt(asFolder(parent), index + 1);
         })
     );
     menu.addSeparator();
@@ -1384,7 +1387,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         item
           .setTitle(t("shared.contextMenu.addTagToGroup"))
           .setIcon("tag")
-          .onClick(() => this.promptBulkTag(groupFiles, () => this.render()))
+          .onClick(() => this.promptBulkTag(groupFiles, () => { void this.render(); }))
       );
       menu.addSeparator();
     }
@@ -1423,11 +1426,11 @@ export abstract class BaseFeuilletsView extends ItemView {
           const content = await this.app.vault.read(file);
           const copySuffix = t("binder.research.copySuffix");
           let name = `${file.basename} (${copySuffix})`;
-          let dest = normalizePath(`${(parent as TFolder).path}/${name}.md`);
+          let dest = normalizePath(`${(asFolder(parent)).path}/${name}.md`);
           let k = 2;
           while (this.app.vault.getAbstractFileByPath(dest)) {
             name = `${file.basename} (${copySuffix} ${k++})`;
-            dest = normalizePath(`${(parent as TFolder).path}/${name}.md`);
+            dest = normalizePath(`${(asFolder(parent)).path}/${name}.md`);
           }
           await this.app.vault.create(dest, content);
           plugin.renderAllViews(true);
@@ -1441,7 +1444,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setTitle(t("shared.trash"))
         .setIcon("trash")
         .onClick(async () => {
-          await this.app.vault.trash(file, true);
+          await this.app.fileManager.trashFile(file);
           plugin.renderAllViews(true);
           new Notice(t("shared.trashed", { name: plugin.titleFor(file) || file.basename }));
         })
@@ -1565,7 +1568,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setTitle(t("shared.contextMenu.trashFolder"))
         .setIcon("trash")
         .onClick(async () => {
-          await this.app.vault.trash(folder, true);
+          await this.app.fileManager.trashFile(folder);
           plugin.renderAllViews(true);
           new Notice(t("shared.contextMenu.folderTrashed", { name: folder.name }));
         })
@@ -1766,7 +1769,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     dropEl.addEventListener("dragleave", () => {
       dropEl.removeClass("feuillets-dragover");
     });
-    dropEl.addEventListener("drop", async (e) => {
+    dropEl.addEventListener("drop", (e) => {
+      void (async () => {
       e.preventDefault();
       dropEl.removeClass("feuillets-dragover");
       if (!this.plugin.dragState) return;
@@ -1790,7 +1794,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           for (const it of (drag.items || [])) {
             const node = this.app.vault.getAbstractFileByPath(it.path);
             if (!node) continue;
-            await this.plugin.moveNode(node as ProjectNode, parent as TFolder, sameParentTarget, insertIndex);
+            await this.plugin.moveNode(node as ProjectNode, asFolder(parent), sameParentTarget, insertIndex);
           }
         } else if (drag.parentPath === parent.path) {
           if (draggedIndices.has(index)) return;
@@ -1803,12 +1807,12 @@ export abstract class BaseFeuilletsView extends ItemView {
           const targetIndex = Math.max(0, index - removedBefore);
           const reordered = [...remaining];
           reordered.splice(targetIndex, 0, ...movedNodes);
-          await this.plugin.applySiblingOrder(parent as TFolder, reordered);
+          await this.plugin.applySiblingOrder(asFolder(parent), reordered);
         } else {
           const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
           if (srcParent instanceof TFolder) {
             const target = siblings[index];
-            let destFolder: TFolder = parent as TFolder;
+            let destFolder: TFolder = asFolder(parent);
             let insertIndex = index;
             if (target instanceof TFolder) {
               destFolder = target;
@@ -1847,14 +1851,14 @@ export abstract class BaseFeuilletsView extends ItemView {
           !(draggedNode instanceof TFolder)
         ) {
           const moved = this.app.vault.getAbstractFileByPath(drag.path || "");
-          if (moved) await this.plugin.moveNode(moved as ProjectNode, parent as TFolder, target, Number.MAX_SAFE_INTEGER);
+          if (moved) await this.plugin.moveNode(moved as ProjectNode, asFolder(parent), target, Number.MAX_SAFE_INTEGER);
           this.plugin.renderAllViews(true);
           return;
         }
         const reordered = [...siblings];
         const [moved] = reordered.splice(from, 1);
         reordered.splice(index, 0, moved);
-        await this.plugin.applySiblingOrder(parent as TFolder, reordered);
+        await this.plugin.applySiblingOrder(asFolder(parent), reordered);
         this.plugin.renderAllViews(true);
         return;
       }
@@ -1863,7 +1867,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
       if (!moved || !(srcParent instanceof TFolder)) return;
       const target = siblings[index];
-      let destFolder: TFolder = parent as TFolder;
+      let destFolder: TFolder = asFolder(parent);
       let insertIndex = index;
       if (target instanceof TFolder && target.path !== moved.path) {
         destFolder = target;
@@ -1871,6 +1875,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       }
       await this.plugin.moveNode(moved as ProjectNode, srcParent, destFolder, insertIndex);
       this.plugin.renderAllViews(true);
+      })();
     });
   }
 
@@ -1890,7 +1895,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     dropEl.addEventListener("dragleave", () => {
       dropEl.removeClass("feuillets-dragover");
     });
-    dropEl.addEventListener("drop", async (e) => {
+    dropEl.addEventListener("drop", (e) => {
+      void (async () => {
       e.preventDefault();
       dropEl.removeClass("feuillets-dragover");
       if (!this.plugin.dragState) return;
@@ -1916,6 +1922,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       if (!moved || !(srcParent instanceof TFolder)) return;
       await this.plugin.moveNode(moved as ProjectNode, srcParent, folder, Number.MAX_SAFE_INTEGER);
       this.plugin.renderAllViews(true);
+      })();
     });
   }
 }

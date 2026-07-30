@@ -165,7 +165,7 @@ export class BoardView extends BaseFeuilletsView {
     const S = this.plugin.settings;
     const statusFilter = S.statusFilter;
     if (statusFilter && statusFilter !== "Tous") {
-      const currentStatus = String(this.fm(file).status || "");
+      const currentStatus = String((this.fm(file).status as string | number | boolean | null | undefined) || "");
       if (statusFilter === "Sans statut" ? currentStatus !== "" : currentStatus !== statusFilter) return false;
     }
     const labelFilter = S.labelFilter;
@@ -276,7 +276,7 @@ export class BoardView extends BaseFeuilletsView {
           item.setTitle(this.filterSentinelLabel(st)).setChecked((S.statusFilter || "Tous") === st).onClick(async () => {
             S.statusFilter = st;
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           })
         );
       }
@@ -295,7 +295,7 @@ export class BoardView extends BaseFeuilletsView {
         collect(projectRoot);
       }
       const pMeta = projectRoot ? S.projectMeta[projectRoot.path] : null;
-      ((pMeta && pMeta.labels ? pMeta.labels : S.labels || []) as Label[]).forEach((l) => { if (l.name) labels.add(l.name); });
+      (pMeta && pMeta.labels ? pMeta.labels : S.labels || []).forEach((l) => { if (l.name) labels.add(l.name); });
       const sortedLabels = Array.from(labels).sort((a, b) => a.localeCompare(b, "fr"));
       menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
       for (const lb of ["Tous", ...sortedLabels, "Sans label"]) {
@@ -303,7 +303,7 @@ export class BoardView extends BaseFeuilletsView {
           item.setTitle(this.filterSentinelLabel(lb)).setChecked((S.labelFilter || "Tous") === lb).onClick(async () => {
             S.labelFilter = lb;
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           })
         );
       }
@@ -328,7 +328,7 @@ export class BoardView extends BaseFeuilletsView {
             item.setTitle(this.filterSentinelLabel(pv)).setChecked((S.povFilter || "Tous") === pv).onClick(async () => {
               S.povFilter = pv;
               await this.plugin.saveSettings();
-              this.render();
+              void this.render();
             })
           );
         }
@@ -340,7 +340,7 @@ export class BoardView extends BaseFeuilletsView {
           item.setTitle(this.filterSentinelLabel(pr)).setChecked((S.progressFilter || "Tous") === pr).onClick(async () => {
             S.progressFilter = pr;
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           })
         );
       }
@@ -354,21 +354,23 @@ export class BoardView extends BaseFeuilletsView {
             S.povFilter = "Tous";
             S.tagFilter = "";
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           })
         );
       }
       menu.showAtMouseEvent(e);
     });
 
-    const tagInput = bar.createEl("input", { cls: "feuillets-tag-filter", type: "text", attr: { placeholder: "#tag…" } });
+    const tagInput = bar.createEl("input", { cls: "feuillets-tag-filter", type: "text", attr: { placeholder: "#Tag…" } });
     tagInput.value = S.tagFilter || "";
-    tagInput.addEventListener("keydown", async (e) => {
+    tagInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        S.tagFilter = tagInput.value.trim();
-        await this.plugin.saveSettings();
-        tagInput.blur();
-        this.render();
+        void (async () => {
+          S.tagFilter = tagInput.value.trim();
+          await this.plugin.saveSettings();
+          tagInput.blur();
+          void this.render();
+        })();
       }
     });
 
@@ -378,7 +380,7 @@ export class BoardView extends BaseFeuilletsView {
       if (meta) meta.boardMode = m;
       S.boardMode = m;
       await this.plugin.saveSettings();
-      this.render();
+      void this.render();
     };
 
     const modeGroup = bar.createDiv({ cls: "feuillets-mode-group" });
@@ -390,7 +392,7 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     this.iconBtn(modeGroup, "layout-dashboard", t("board.canvasTooltip"), () => {
-      this.plugin.generateCanvasBoard();
+      void this.plugin.generateCanvasBoard();
     });
 
     this.iconBtn(modeGroup, "sliders-horizontal", t("board.viewOptionsTooltip"), (e: MouseEvent) => {
@@ -405,7 +407,7 @@ export class BoardView extends BaseFeuilletsView {
             if (meta) meta.hiddenBoardModes = arr;
             S.hiddenBoardModes = arr;
             await this.plugin.saveSettings();
-            this.render(true);
+            void this.render(true);
           })
         );
       }
@@ -417,14 +419,14 @@ export class BoardView extends BaseFeuilletsView {
     this.barSep(bar);
 
     if (activeMode !== "read" && activeMode !== "arcs") {
-      const multiSelect = this.plugin._binderMultiSelect!;
+      const multiSelect = this.plugin._binderMultiSelect;
       const selSize = multiSelect.size;
       const getSelectedFiles = (): TFile[] =>
         [...multiSelect].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f): f is TFile => f instanceof TFile);
       const clearSel = () => {
         multiSelect.clear();
         this.selectionModeActive = false;
-        this.render(true);
+        void this.render(true);
       };
       const unitLabel = this.plugin.unitLabel();
       const unitPlural = this.plugin.unitLabelPlural();
@@ -440,7 +442,7 @@ export class BoardView extends BaseFeuilletsView {
             menu.addItem((item) =>
               item.setTitle(t("board.selection.selectTooltip", { unitPlural })).setIcon("list-checks").onClick(() => {
                 this.selectionModeActive = true;
-                this.render(true);
+                void this.render(true);
               })
             );
             menu.showAtMouseEvent(e);
@@ -454,7 +456,7 @@ export class BoardView extends BaseFeuilletsView {
                 new Notice(t("board.selection.mergeNeedsTwo", { unitPlural }));
                 return;
               }
-              this.plugin.openMergeModal(files);
+              void this.plugin.openMergeModal(files);
             })
           );
           menu.addItem((item) =>
@@ -499,7 +501,7 @@ export class BoardView extends BaseFeuilletsView {
             item.setTitle(t("board.selection.addTag", { count: String(selSize) })).setIcon("tag").setDisabled(selSize < 1).onClick(() => {
               const files = getSelectedFiles();
               clearSel();
-              this.promptBulkTag(files, () => this.render(true));
+              this.promptBulkTag(files, () => { void this.render(true); });
             })
           );
           menu.addSeparator();
@@ -522,8 +524,8 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     const bumpTotal = (_n?: number) => {};
-    this.plugin.wordCountOfFolder(root).then((wc: number) => {
-      this.plugin.updateDailyStats(wc);
+    void this.plugin.wordCountOfFolder(root).then((wc: number) => {
+      void this.plugin.updateDailyStats(wc);
     });
 
     if (this.filterActive()) {
@@ -562,7 +564,7 @@ export class BoardView extends BaseFeuilletsView {
         item.setTitle(label).setChecked(!!S[key]).onClick(async () => {
           S[key] = !S[key];
           await this.plugin.saveSettings();
-          this.render();
+          void this.render();
         })
       );
 
@@ -574,7 +576,7 @@ export class BoardView extends BaseFeuilletsView {
             if (meta) meta.boardWholeManuscript = val;
             S.boardWholeManuscript = val;
             await this.plugin.saveSettings();
-            this.render(true);
+            void this.render(true);
           })
         );
       }
@@ -592,7 +594,7 @@ export class BoardView extends BaseFeuilletsView {
             if (meta) meta.cardContent = val;
             S.cardContent = val;
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           })
         );
       }
@@ -602,7 +604,7 @@ export class BoardView extends BaseFeuilletsView {
           item.setTitle(label).setChecked(S.tileSize === val).onClick(async () => {
             S.tileSize = val;
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           })
         );
       }
@@ -614,7 +616,7 @@ export class BoardView extends BaseFeuilletsView {
         item.setTitle(t("board.options.resetColumnWidths")).onClick(async () => {
           S.outlineWidths = Object.assign({}, DEFAULT_SETTINGS.outlineWidths);
           await this.plugin.saveSettings();
-          this.render();
+          void this.render();
         })
       );
       menu.addSeparator();
@@ -637,7 +639,7 @@ export class BoardView extends BaseFeuilletsView {
           item.setTitle(label).setChecked(!!S.outlineCols[colKey]).onClick(async () => {
             S.outlineCols[colKey] = !S.outlineCols[colKey];
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           })
         );
       }
@@ -648,7 +650,7 @@ export class BoardView extends BaseFeuilletsView {
           item.setTitle(label).setChecked(S.timelineOrder === val).onClick(async () => {
             S.timelineOrder = val;
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           })
         );
       }
@@ -657,7 +659,7 @@ export class BoardView extends BaseFeuilletsView {
         item.setTitle(t("board.options.allMilestones")).setChecked(!S.timelineTagFilter).onClick(async () => {
           S.timelineTagFilter = "";
           await this.plugin.saveSettings();
-          this.render();
+          void this.render();
         })
       );
       const chronoFolder = this.plugin.getChronoFolder();
@@ -677,7 +679,7 @@ export class BoardView extends BaseFeuilletsView {
             item.setTitle(`#${tag}`).setChecked(S.timelineTagFilter === tag).onClick(async () => {
               S.timelineTagFilter = tag;
               await this.plugin.saveSettings();
-              this.render();
+              void this.render();
             })
           );
         }
@@ -694,7 +696,7 @@ export class BoardView extends BaseFeuilletsView {
           item.setTitle(label).setChecked((S.timelineScale || "annee") === val).onClick(async () => {
             S.timelineScale = val;
             await this.plugin.saveSettings();
-            this.render();
+            void this.render();
           })
         );
       }
@@ -704,7 +706,7 @@ export class BoardView extends BaseFeuilletsView {
         item.setTitle(t("board.options.wholeManuscript")).setChecked(!S.readScope).onClick(async () => {
           S.readScope = "";
           await this.plugin.saveSettings();
-          this.render();
+          void this.render();
         })
       );
       const addFolderScopeOptions = (f: TFolder, depth: number) => {
@@ -714,7 +716,7 @@ export class BoardView extends BaseFeuilletsView {
               item.setTitle(`${"— ".repeat(depth)}${child.name}`).setChecked(S.readScope === child.path).onClick(async () => {
                 S.readScope = child.path;
                 await this.plugin.saveSettings();
-                this.render();
+                void this.render();
               })
             );
             addFolderScopeOptions(child, depth + 1);
@@ -728,7 +730,7 @@ export class BoardView extends BaseFeuilletsView {
           .setChecked(S.readScope === "__selection__")
           .onClick(() => {
             new ReadSelectionModal(this.app, this.plugin, () => {
-              this.render(true);
+              void this.render(true);
             }).open();
           })
       );
@@ -743,9 +745,9 @@ export class BoardView extends BaseFeuilletsView {
       attr: { min: "0", placeholder: String(this.plugin.settings.wordGoal) },
     });
     if (fm.goal !== undefined) input.value = toValue(fm.goal);
-    input.addEventListener("change", async () => {
+    input.addEventListener("change", () => {
       const val = parseInt(input.value, 10);
-      await this.setFm(file, "goal", isNaN(val) ? "" : val);
+      void this.setFm(file, "goal", isNaN(val) ? "" : val);
     });
     return input;
   }
@@ -760,21 +762,23 @@ export class BoardView extends BaseFeuilletsView {
       type: "text",
       attr: { placeholder: tags.length ? "+" : t("shared.tags.placeholder") },
     });
-    input.addEventListener("keydown", async (e) => {
+    input.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
       const val = input.value.trim();
       if (!val) return;
       const added = val.split(/[,\s]+/).map((s) => s.replace(/^#/, "").trim()).filter(Boolean);
       const merged = [...new Set([...tags, ...added])];
-      await this.setFm(file, "tags", merged);
-      input.value = "";
-      input.blur();
+      void (async () => {
+        await this.setFm(file, "tags", merged);
+        input.value = "";
+        input.blur();
+      })();
     });
     wrap.querySelectorAll(".feuillets-tag-chip").forEach((chip, idx) => {
       chip.setAttr("title", t("shared.tags.removeTooltip"));
-      chip.addEventListener("click", async () => {
+      chip.addEventListener("click", () => {
         const next = tags.filter((_: string, i: number) => i !== idx);
-        await this.setFm(file, "tags", next);
+        void this.setFm(file, "tags", next);
       });
     });
   }
@@ -797,7 +801,7 @@ export class BoardView extends BaseFeuilletsView {
         .createSpan({ cls: "feuillets-breadcrumb-link" + (isLast ? " is-active" : ""), text: f.path === root.path ? t("board.projectBreadcrumb") : f.name })
         .addEventListener("click", () => {
           this.focusedFolderPath = f.path;
-          this.render(true);
+          void this.render(true);
         });
     });
   }
@@ -841,11 +845,13 @@ export class BoardView extends BaseFeuilletsView {
           const iconEl = titleEl.createSpan({ cls: "feuillets-section-icon" });
           setIcon(iconEl, "folder");
           titleEl.createSpan({ cls: "feuillets-section-title-text" }).setText(item.name);
-          titleEl.addEventListener("click", async () => {
-            if (isCollapsed) delete S.collapsed[collapseKey];
-            else S.collapsed[collapseKey] = true;
-            await this.plugin.saveSettings();
-            this.render(true);
+          titleEl.addEventListener("click", () => {
+            void (async () => {
+              if (isCollapsed) delete S.collapsed[collapseKey];
+              else S.collapsed[collapseKey] = true;
+              await this.plugin.saveSettings();
+              void this.render(true);
+            })();
           });
           if (!this.filterActive()) this.attachDragHandlers(head, sec, folder, i, children, container);
 
@@ -892,7 +898,7 @@ export class BoardView extends BaseFeuilletsView {
           cell.show();
         }
       };
-      area.addEventListener("blur", save);
+      area.addEventListener("blur", () => { void save(); });
       area.addEventListener("keydown", (evt) => {
         if (evt.key === "Escape" || (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey))) area.blur();
       });
@@ -910,7 +916,7 @@ export class BoardView extends BaseFeuilletsView {
     });
     card.addEventListener("dblclick", () => {
       this.focusedFolderPath = folder.path;
-      this.render(true);
+      void this.render(true);
     });
 
     const folderNote = this.plugin.folderNoteFor(folder);
@@ -934,7 +940,7 @@ export class BoardView extends BaseFeuilletsView {
     num.addEventListener("click", (e) => {
       e.stopPropagation();
       this.focusedFolderPath = folder.path;
-      this.render(true);
+      void this.render(true);
     });
 
     const wcEl = head.createDiv({ cls: "feuillets-card-wc" });
@@ -984,7 +990,7 @@ export class BoardView extends BaseFeuilletsView {
       cb.addEventListener("change", () => {
         if (cb.checked) this.plugin._binderMultiSelect!.add(file.path);
         else this.plugin._binderMultiSelect!.delete(file.path);
-        this.render(true);
+        void this.render(true);
       });
     }
 
@@ -1025,12 +1031,12 @@ export class BoardView extends BaseFeuilletsView {
       );
       menu.addItem((item) =>
         item.setTitle(t("shared.contextMenu.editSummary")).onClick(() => {
-          new FmFieldModal(this.app, this.plugin, file, "summary", t("board.card.longSummaryLabel"), () => this.render(true)).open();
+          new FmFieldModal(this.app, this.plugin, file, "summary", t("board.card.longSummaryLabel"), () => { void this.render(true); }).open();
         })
       );
       menu.addItem((item) =>
         item.setTitle(t("board.card.editPov")).onClick(() => {
-          new FmFieldModal(this.app, this.plugin, file, "pov", t("board.card.povFieldLabel"), () => this.render(true)).open();
+          new FmFieldModal(this.app, this.plugin, file, "pov", t("board.card.povFieldLabel"), () => { void this.render(true); }).open();
         })
       );
       menu.addItem((item) =>
@@ -1070,7 +1076,7 @@ export class BoardView extends BaseFeuilletsView {
       excerpt.addEventListener("click", () => {
         openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
-      this.app.vault.cachedRead(file).then((raw) => {
+      void this.app.vault.cachedRead(file).then((raw) => {
         const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
         /* On tranche un peu large AVANT de nettoyer la syntaxe (le nettoyage
            raccourcit le texte) puis on recoupe à la longueur voulue —
@@ -1206,14 +1212,14 @@ export class BoardView extends BaseFeuilletsView {
         const menu = new Menu();
         menu.addItem((item) => item.setTitle(t("binder.filter.all")).setChecked(!currentValue).onClick(() => {
           onSelect("");
-          this.render(true);
+          void this.render(true);
         }));
         menu.addSeparator();
         for (const opt of options) {
           menu.addItem((item) =>
             item.setTitle(opt).setChecked(currentValue === opt).onClick(() => {
               onSelect(opt);
-              this.render(true);
+              void this.render(true);
             })
           );
         }
@@ -1502,13 +1508,16 @@ export class BoardView extends BaseFeuilletsView {
           this.colsTemplate({ ...widths, [colId]: liveWidth })
         );
       };
-      const onMouseUp = async () => {
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
+      const onMouseUpAsync = async () => {
         resizer.removeClass("is-resizing");
         document.body.removeClass("feuillets-col-resizing");
         widths[colId] = liveWidth;
         await this.plugin.saveSettings();
+      };
+      const onMouseUp = () => {
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        void onMouseUpAsync();
       };
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
@@ -1542,11 +1551,13 @@ export class BoardView extends BaseFeuilletsView {
         titleCell.addClass("feuillets-clickable");
         titleCell.createSpan({ cls: "feuillets-chevron" }).setText(isCollapsed ? "▸" : "▾");
         titleCell.createSpan({ cls: "feuillets-folder-name", text: child.name });
-        titleCell.addEventListener("click", async () => {
-          if (isCollapsed) delete S.collapsed[child.path];
-          else S.collapsed[child.path] = true;
-          await this.plugin.saveSettings();
-          this.render(true);
+        titleCell.addEventListener("click", () => {
+          void (async () => {
+            if (isCollapsed) delete S.collapsed[child.path];
+            else S.collapsed[child.path] = true;
+            await this.plugin.saveSettings();
+            void this.render(true);
+          })();
         });
         /* Sans ça, une ligne de dossier n'avait aucun écouteur de
            glisser-déposer (seules les scènes en avaient, plus bas) : les

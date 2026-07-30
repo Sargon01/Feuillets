@@ -331,6 +331,8 @@ declare type FeuilletsSettings = {
   cardContent: string;
   tileSize: number;
   columns: number;
+  fontSize: number;
+  uiScale: number;
   showCardTags: boolean;
   showProgress: boolean;
   outlineCols: Record<string, boolean>;
