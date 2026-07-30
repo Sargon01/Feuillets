@@ -184,19 +184,19 @@ export class TagsModal extends Modal {
             .filter(Boolean)
         ),
       ];
-      await this.app.fileManager.processFrontMatter(this.file, (fm) => {
+      await this.app.fileManager.processFrontMatter(this.file, (fm: Record<string, unknown>) => {
         if (tags.length) fm.tags = tags;
         else delete fm.tags;
       });
       this.close();
     };
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") save();
+      if (e.key === "Enter") void save();
     });
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
       .createEl("button", { text: t("modal.save") })
-      .addEventListener("click", save);
+      .addEventListener("click", () => { void save(); });
   }
   onClose() {
     this.contentEl.empty();
@@ -228,8 +228,7 @@ export class FolderGoalModal extends Modal {
     input.value = String(current);
     input.focus();
 
-    const btnRow = contentEl.createDiv();
-    btnRow.style.cssText = "margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;";
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     const cancel = btnRow.createEl("button", { text: t("modal.cancel") });
     cancel.addEventListener("click", () => this.close());
 
@@ -245,9 +244,9 @@ export class FolderGoalModal extends Modal {
       this.plugin.renderAllViews(true);
       this.close();
     };
-    save.addEventListener("click", doSave);
+    save.addEventListener("click", () => { void doSave(); });
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") doSave();
+      if (e.key === "Enter") void doSave();
     });
   }
   onClose() {
@@ -278,7 +277,7 @@ export class SaveResearchFilterModal extends Modal {
       const name = input.value.trim();
       if (!name) return;
       this.close();
-      this.onSubmit(name);
+      void this.onSubmit(name);
     };
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") submit();
@@ -332,11 +331,13 @@ export class ManageSavedFiltersModal extends Modal {
       const del = row.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
       setIcon(del, "trash-2");
       del.setAttr("aria-label", t("modal.manageSavedFilters.deleteAria"));
-      del.addEventListener("click", async () => {
-        filters.splice(i, 1);
-        await this.plugin.saveSettings();
-        this.render();
-        if (this.onChange) this.onChange();
+      del.addEventListener("click", () => {
+        void (async () => {
+          filters.splice(i, 1);
+          await this.plugin.saveSettings();
+          this.render();
+          if (this.onChange) void this.onChange();
+        })();
       });
     });
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });

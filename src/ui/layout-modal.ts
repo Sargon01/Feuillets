@@ -11,7 +11,7 @@ import type { App } from "obsidian";
 import { t } from "../i18n/index.js";
 
 type ExportFormat = "docx" | "odt" | "epub" | "md" | "pdf";
-type LayoutSelection = "header" | "footer" | string | null;
+type LayoutSelection = string | null;
 type ExportTemplateOption = { key: string; label: string };
 type TitlePageStyles = Record<string, TitlePageStyle>;
 type BlockElements = Record<string, HTMLElement>;
@@ -106,9 +106,12 @@ export class LayoutModal extends Modal {
     );
 
     const presets = S.compilePresets || [];
-    new Setting(bar).setName(t("modal.layout.preset")).addDropdown((d) => {
+    const presetSetting = new Setting(bar).setName(t("modal.layout.preset"));
+    presetSetting.addDropdown((d) => {
       d.addOption("-1", t("modal.layout.defaultSettings"));
-      presets.forEach((preset, index) => d.addOption(String(index), presetLabel(preset, index)));
+      presets.forEach((preset, index) => {
+        d.addOption(String(index), presetLabel(preset, index));
+      });
       const activePreset = S["activePreset"];
       d.setValue(String(typeof activePreset === "number" && activePreset >= 0 ? activePreset : -1));
       d.onChange(async (v) => {
@@ -118,34 +121,34 @@ export class LayoutModal extends Modal {
       });
     });
 
-    new Setting(bar)
-      .setName(t("modal.layout.template"))
-      .addDropdown((d) => {
-        this.templates.forEach((tpl) => d.addOption(tpl.key, tpl.label));
-        d.setValue(this.templateKey);
-        d.onChange(async (v) => {
-          this.templateKey = v;
-          const tpl = this.templates.find((x) => x.key === v);
-          this.templateLabel = tpl ? tpl.label : v;
-          S.exportTemplate = v;
-          await this.plugin.saveSettings();
-          this.notifyChange();
-          await this.renderLayout();
-        });
-      })
-      .addExtraButton((b) =>
-        b
-          .setIcon("copy-plus")
-          .setTooltip(t("modal.layout.exportTemplatesTooltip"))
-          .onClick(async () => {
-            const n = await exportBuiltInTemplates(this.app, S);
-            new Notice(
-              n > 0
-                ? t("main.notice.templatesExported", { count: String(n) })
-                : t("modal.layout.allTemplatesPresent")
-            );
-          })
-      );
+    const templateSetting = new Setting(bar).setName(t("modal.layout.template"));
+    templateSetting.addDropdown((d) => {
+      this.templates.forEach((tpl) => {
+        d.addOption(tpl.key, tpl.label);
+      });
+      d.setValue(this.templateKey);
+      d.onChange(async (v) => {
+        this.templateKey = v;
+        const tpl = this.templates.find((x) => x.key === v);
+        this.templateLabel = tpl ? tpl.label : v;
+        S.exportTemplate = v;
+        await this.plugin.saveSettings();
+        this.notifyChange();
+        await this.renderLayout();
+      });
+    });
+    templateSetting.addExtraButton((b) => {
+      b.setIcon("copy-plus");
+      b.setTooltip(t("modal.layout.exportTemplatesTooltip"));
+      b.onClick(async () => {
+        const n = await exportBuiltInTemplates(this.app, S);
+        new Notice(
+          n > 0
+            ? t("main.notice.templatesExported", { count: String(n) })
+            : t("modal.layout.allTemplatesPresent")
+        );
+      });
+    });
 
     new Setting(bar).setName(t("project.compilation.formatLabel")).addDropdown((d) => {
       d.addOption("docx", ".docx (Word)");
@@ -176,8 +179,8 @@ export class LayoutModal extends Modal {
     const savedFormat = this.plugin.settings["exportFormat"];
     const fmt = typeof savedFormat === "string" && isExportFormat(savedFormat) ? savedFormat : "docx";
     this.close();
-    if (fmt === "md") this.plugin.compile();
-    else this.plugin.exportFile(fmt);
+    if (fmt === "md") void this.plugin.compile();
+    else void this.plugin.exportFile(fmt);
   }
 
   /** (Re)charge les blocs du modèle courant et (re)construit la maquette
@@ -189,7 +192,7 @@ export class LayoutModal extends Modal {
     this.selected = null;
 
     const tpl = await resolveExportTemplate(this.app, this.plugin.settings, this.templateKey);
-    this.styles = tpl.titlePage && tpl.titlePage.styles ? JSON.parse(JSON.stringify(tpl.titlePage.styles)) : {};
+    this.styles = (tpl.titlePage && tpl.titlePage.styles ? JSON.parse(JSON.stringify(tpl.titlePage.styles)) : {}) as TitlePageStyles;
     this.roles = Object.keys(this.styles);
 
     const wrap = c.createDiv({ cls: "feuillets-tp-editor" });
@@ -283,6 +286,12 @@ export class LayoutModal extends Modal {
       this.layout();
       this.syncInspectorValues();
     };
+    /* Reste passé directement à addEventListener malgré no-misused-promises :
+       le test (layout-modal.test.js, "sans écriture prématurée") attend la
+       fin réelle de saveModel() via `await listeners.get("pointerup")()` —
+       un wrapper synchrone (void this.saveModel()) casse cette garantie
+       observable sans rien changer au comportement réel côté DOM (qui
+       ignore de toute façon la valeur de retour d'un listener). */
     const onUp = async (): Promise<void> => {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);

@@ -141,9 +141,9 @@ export class NewProjectModal extends Modal {
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
       .createEl("button", { text: t("modal.newProject.createAndActivate") })
-      .addEventListener("click", create);
+      .addEventListener("click", () => { void create(); });
     nameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") create();
+      if (e.key === "Enter") void create();
     });
   }
   onClose(): void {
@@ -234,25 +234,27 @@ export class ManageProjectsModal extends Modal {
       type: "text",
       attr: { placeholder: t("modal.manageProjects.addExistingPlaceholder") },
     });
-    input.addEventListener("keydown", async (e) => {
+    input.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
-      const p = normalizePath(input.value.trim());
-      if (!p) return;
-      const folder = this.app.vault.getAbstractFileByPath(p);
-      if (!(folder instanceof TFolder)) {
-        new Notice(t("modal.manageProjects.folderNotFound"));
-        return;
-      }
-      if (!S.projectFolder) {
-        S.projectFolder = p;
-      } else if (!S.projects.includes(p) && p !== S.projectFolder) {
-        S.projects.push(p);
-      }
-      await this.plugin.saveSettings();
-      input.value = "";
-      this.plugin.renderAllViews(true);
-      this.plugin.updateStatusBar();
-      this.render();
+      void (async () => {
+        const p = normalizePath(input.value.trim());
+        if (!p) return;
+        const folder = this.app.vault.getAbstractFileByPath(p);
+        if (!(folder instanceof TFolder)) {
+          new Notice(t("modal.manageProjects.folderNotFound"));
+          return;
+        }
+        if (!S.projectFolder) {
+          S.projectFolder = p;
+        } else if (!S.projects.includes(p) && p !== S.projectFolder) {
+          S.projects.push(p);
+        }
+        await this.plugin.saveSettings();
+        input.value = "";
+        this.plugin.renderAllViews(true);
+        this.plugin.updateStatusBar();
+        this.render();
+      })();
     });
   }
 
@@ -291,7 +293,7 @@ export class ManageProjectsModal extends Modal {
     if (!folderExists) {
       name.addClass("feuillets-muted-italic");
     }
-    row.addEventListener("click", activate);
+    row.addEventListener("click", () => { void activate(); });
 
     const actions = row.createDiv({ cls: "feuillets-project-actions" });
     const toggleBtn = actions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
@@ -309,9 +311,11 @@ export class ManageProjectsModal extends Modal {
       dupBtn.setAttr("aria-label", t("modal.manageProjects.duplicateTooltip"));
       dupBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        new DuplicateVersionModal(this.app, this.plugin.projectDisplayName(path), async (label) => {
-          await this.plugin.duplicateProject(path, label);
-          this.render();
+        new DuplicateVersionModal(this.app, this.plugin.projectDisplayName(path), (label) => {
+          void (async () => {
+            await this.plugin.duplicateProject(path, label);
+            this.render();
+          })();
         }).open();
       });
     }
@@ -345,10 +349,12 @@ export class ManageProjectsModal extends Modal {
       detail.createDiv({ cls: "feuillets-notes-label" }).setText(label);
       const fieldInput = detail.createEl("input", { type: "text", attr: { placeholder } });
       fieldInput.value = (meta[key] as string) || "";
-      fieldInput.addEventListener("blur", async () => {
-        if (!S.projectMeta[path]) S.projectMeta[path] = {};
-        S.projectMeta[path][key] = fieldInput.value.trim();
-        await this.plugin.saveSettings();
+      fieldInput.addEventListener("blur", () => {
+        void (async () => {
+          if (!S.projectMeta[path]) S.projectMeta[path] = {};
+          S.projectMeta[path][key] = fieldInput.value.trim();
+          await this.plugin.saveSettings();
+        })();
       });
     };
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.nameField"));
@@ -357,12 +363,14 @@ export class ManageProjectsModal extends Modal {
       attr: { placeholder: this.plugin.projectDisplayName(path) },
     });
     nameInput.value = (meta.name as string) || "";
-    nameInput.addEventListener("blur", async () => {
-      if (!S.projectMeta[path]) S.projectMeta[path] = {};
-      S.projectMeta[path].name = nameInput.value.trim();
-      await this.plugin.saveSettings();
-      this.plugin.renderAllViews(true);
-      this.render();
+    nameInput.addEventListener("blur", () => {
+      void (async () => {
+        if (!S.projectMeta[path]) S.projectMeta[path] = {};
+        S.projectMeta[path].name = nameInput.value.trim();
+        await this.plugin.saveSettings();
+        this.plugin.renderAllViews(true);
+        this.render();
+      })();
     });
 
     mkField(t("modal.manageProjects.authorField"), "author", t("modal.manageProjects.authorPlaceholder"));
@@ -376,12 +384,14 @@ export class ManageProjectsModal extends Modal {
       attr: { placeholder: t("modal.manageProjects.iconPlaceholder") },
     });
     iconInput.value = (meta.icon as string) || "";
-    iconInput.addEventListener("blur", async () => {
-      if (!S.projectMeta[path]) S.projectMeta[path] = {};
-      S.projectMeta[path].icon = iconInput.value.trim();
-      await this.plugin.saveSettings();
-      setIcon(iconPreview, iconInput.value.trim() || "folder");
-      this.plugin.renderAllViews(true);
+    iconInput.addEventListener("blur", () => {
+      void (async () => {
+        if (!S.projectMeta[path]) S.projectMeta[path] = {};
+        S.projectMeta[path].icon = iconInput.value.trim();
+        await this.plugin.saveSettings();
+        setIcon(iconPreview, iconInput.value.trim() || "folder");
+        this.plugin.renderAllViews(true);
+      })();
     });
 
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.typeField"));
@@ -389,21 +399,25 @@ export class ManageProjectsModal extends Modal {
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
       typeSelect.createEl("option", { text: mode.label, value: key });
     }
-    typeSelect.value = resolveType(meta.type as string);
-    typeSelect.addEventListener("change", async () => {
-      if (!S.projectMeta[path]) S.projectMeta[path] = {};
-      S.projectMeta[path].type = typeSelect.value;
-      await this.plugin.saveSettings();
+    typeSelect.value = resolveType(meta.type);
+    typeSelect.addEventListener("change", () => {
+      void (async () => {
+        if (!S.projectMeta[path]) S.projectMeta[path] = {};
+        S.projectMeta[path].type = typeSelect.value;
+        await this.plugin.saveSettings();
+      })();
     });
 
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.descriptionField"));
     const desc = detail.createEl("textarea", { attr: { rows: "2" } });
     desc.addClass("feuillets-grid-full-row");
     desc.value = (meta.description as string) || "";
-    desc.addEventListener("blur", async () => {
-      if (!S.projectMeta[path]) S.projectMeta[path] = {};
-      S.projectMeta[path].description = desc.value.trim();
-      await this.plugin.saveSettings();
+    desc.addEventListener("blur", () => {
+      void (async () => {
+        if (!S.projectMeta[path]) S.projectMeta[path] = {};
+        S.projectMeta[path].description = desc.value.trim();
+        await this.plugin.saveSettings();
+      })();
     });
   }
 }
