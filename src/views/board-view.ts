@@ -12,6 +12,7 @@ import { DiffModal } from "../ui/diff-modal.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
+import { toValue } from "../utils/scene-fields.js";
 
 type ProjectNode = TFile | TFolder;
 type BoardModeKey = "board" | "outline" | "arcs" | "timeline" | "read";
@@ -76,6 +77,12 @@ type ModeOptionsCtx = {
 
 export class BoardView extends BaseFeuilletsView {
   declare plugin: BoardViewPlugin;
+  declare iconBtn: (
+    parent: HTMLElement,
+    icon: string,
+    tooltip?: string,
+    onClick?: (e: MouseEvent) => unknown
+  ) => HTMLElement;
   focusedFolderPath: string | null;
   scriveningsManager: ScriveningsManager | null;
   currentCardContent?: string;
@@ -735,7 +742,7 @@ export class BoardView extends BaseFeuilletsView {
       type: "number",
       attr: { min: "0", placeholder: String(this.plugin.settings.wordGoal) },
     });
-    if (fm.goal !== undefined) input.value = String(fm.goal);
+    if (fm.goal !== undefined) input.value = toValue(fm.goal);
     input.addEventListener("change", async () => {
       const val = parseInt(input.value, 10);
       await this.setFm(file, "goal", isNaN(val) ? "" : val);
@@ -859,7 +866,7 @@ export class BoardView extends BaseFeuilletsView {
 
   makeClickToEditFmArea(parent: HTMLElement, file: TFile, key: string, placeholder: string, maxLines = 6): HTMLElement {
     const fm = this.fm(file);
-    const val = String(fm[key] || "");
+    const val = toValue(fm[key]);
     const cell = parent.createDiv({ cls: "feuillets-flat-text-cell" + (val ? "" : " is-empty"), text: val || placeholder });
     if (maxLines) {
       cell.style.setProperty("--max-lines", String(maxLines));
@@ -869,14 +876,14 @@ export class BoardView extends BaseFeuilletsView {
       e.stopPropagation();
       cell.hide();
       const area = parent.createEl("textarea", { cls: "feuillets-flat-textarea feuillets-autosize" });
-      area.value = String(fm[key] || "");
+      area.value = toValue(fm[key]);
       area.focus();
       area.style.removeProperty("height");
       area.style.height = `${area.scrollHeight}px`;
       const save = async () => {
         if (area.parentNode) {
           const raw = area.value.trim();
-          if (raw !== String(fm[key] || "")) {
+          if (raw !== toValue(fm[key])) {
             await this.setFm(file, key, raw);
             cell.setText(raw || placeholder);
             if (raw) cell.removeClass("is-empty"); else cell.addClass("is-empty");
@@ -920,9 +927,8 @@ export class BoardView extends BaseFeuilletsView {
        préexistant à cette migration, reproduit tel quel. */
     const num = head.createDiv({
       cls: "feuillets-card-num",
-      style: "font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 90px; cursor: pointer;",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- clé "style" non reconnue par DomElementInfo, no-op préexistant conservé tel quel
-    } as any);
+      attr: { style: "font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 90px; cursor: pointer;" },
+    });
     num.setText(folder.name);
     num.setAttr("title", t("board.folderCard.clickToEnter"));
     num.addEventListener("click", (e) => {
@@ -941,7 +947,7 @@ export class BoardView extends BaseFeuilletsView {
     if (S.showProgress) this.fillRing(ring, totalWc, goal);
 
     const fieldKey = this.currentCardContent === "synopsis" ? "synopsis" : "summary";
-    const summary = String((folderNote && this.plugin.fmOf(folderNote)[fieldKey]) || "");
+    const summary = toValue(folderNote && this.plugin.fmOf(folderNote)[fieldKey]);
     const excerpt = card.createDiv({ cls: "feuillets-card-excerpt" });
     excerpt.addClass("feuillets-mt-sm");
     excerpt.setText(summary || (fieldKey === "synopsis" ? t("board.folderCard.synopsisPlaceholder") : t("board.folderCard.summaryPlaceholder")));
@@ -1002,7 +1008,7 @@ export class BoardView extends BaseFeuilletsView {
     more.addEventListener("click", (e) => {
       e.stopPropagation();
       const menu = new Menu();
-      const currentSt = String(this.fm(file).status || "");
+      const currentSt = toValue(this.fm(file).status);
       const S = this.plugin.settings;
       for (const st of getProjectStatuses(S).filter(Boolean)) {
         menu.addItem((item) =>
@@ -1324,7 +1330,7 @@ export class BoardView extends BaseFeuilletsView {
       if (numbering) titleRow.createSpan({ cls: "feuillets-row-num", text: numbering.get(file.path) || "" });
       if (fm.status) {
         const dot = titleRow.createSpan({ cls: "feuillets-status-dot" });
-        dot.style.background = this.plugin.getStatusColor(String(fm.status)) || "var(--text-faint)";
+        dot.style.background = this.plugin.getStatusColor(toValue(fm.status)) || "var(--text-faint)";
       }
       titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
 
