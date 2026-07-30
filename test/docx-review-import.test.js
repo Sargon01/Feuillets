@@ -778,6 +778,99 @@ test("planApplyInterFile", async (t) => {
     assert.equal(modified["F1.md"], "Début ContextA  suite.");
     assert.equal(modified["F2.md"], "Début ContextB texte_deplacefin.");
   });
+
+  await t.test("lit les deux feuillets avant d'écrire l'origine puis la destination", async () => {
+    const files = {
+      "F1.md": "Début ContextA texte_deplace suite.",
+      "F2.md": "Début ContextB fin.",
+    };
+    const order = [];
+    const vault = {
+      async read(file) {
+        order.push(`read:${file.path}`);
+        return files[file.path];
+      },
+      async modify(file, content) {
+        order.push(`modify:${file.path}`);
+        files[file.path] = content;
+      },
+    };
+
+    const result = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, {
+      type: "move",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(order, ["read:F1.md", "read:F2.md", "modify:F1.md", "modify:F2.md"]);
+  });
+
+  await t.test("n'écrit aucun feuillet si l'insertion à destination échoue", async () => {
+    const order = [];
+    const vault = {
+      async read(file) {
+        order.push(`read:${file.path}`);
+        return file.path === "F1.md" ? "ContextA texte_deplace" : "ContextB puis ContextB";
+      },
+      async modify(file) {
+        order.push(`modify:${file.path}`);
+      },
+    };
+
+    const result = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, {
+      type: "move",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB",
+    });
+
+    assert.deepEqual(result, { ok: false, step: "to", reason: "ambiguous" });
+    assert.deepEqual(order, ["read:F1.md", "read:F2.md"]);
+  });
+});
+
+test("parseDocxReview — commentaire étendu et note rattachés au même feuillet", () => {
+  const documentXml = wrapBody(
+    '<w:p><w:bookmarkStart w:id="1" w:name="S"/>' +
+      '<w:commentRangeStart w:id="0"/><w:r><w:t>ancre</w:t></w:r><w:commentRangeEnd w:id="0"/>' +
+      '<w:r><w:footnoteReference w:id="1"/></w:r></w:p>'
+  );
+  const commentsXml =
+    '<w:comments><w:comment w:id="0" w:author="A" w:date="D"><w:p w14:paraId="P1"><w:r><w:t>Remarque.</w:t></w:r></w:p></w:comment></w:comments>';
+  const commentsExtendedXml = '<w15:commentsEx><w15:commentEx w15:paraId="P1" w15:done="1"/></w15:commentsEx>';
+  const footnotesXml =
+    '<w:footnotes><w:footnote w:id="1"><w:p><w:ins w:author="A" w:date="D"><w:r><w:t>note ajoutée</w:t></w:r></w:ins></w:p></w:footnote></w:footnotes>';
+
+  const { scenes } = parseDocxReview({
+    "word/document.xml": documentXml,
+    "word/comments.xml": commentsXml,
+    "word/commentsExtended.xml": commentsExtendedXml,
+    "word/footnotes.xml": footnotesXml,
+  });
+
+  assert.equal(scenes.S.comments[0].resolvedInWord, true);
+  assert.equal(scenes.S.changes[0].text, "note ajoutée");
+  assert.equal(scenes.S.changes[0].inFootnote, true);
+});
+
+test("resolveOrphans conserve un orphelin sans texte retrouvé", async () => {
+  const unclassified = {
+    changes: [{ type: "insertion", contextBefore: "texte absent", text: " ajout", prevScene: "A", nextScene: "B" }],
+    comments: [],
+  };
+  const relocated = await resolveOrphans(
+    unclassified,
+    new Map([["A", "Projet/A.md"], ["B", "Projet/B.md"]]),
+    async () => "contenu sans correspondance"
+  );
+
+  assert.deepEqual(relocated, {});
+  assert.equal(unclassified.changes.length, 1);
+  assert.deepEqual(unclassified.changes[0].nearFiles, ["Projet/A.md", "Projet/B.md"]);
 });
 
 test("planApply — tolérance CRLF (coffres Windows)", async (t) => {

@@ -12,6 +12,7 @@ data.json
 # NOT src/main.js which is the real entry-point source file.
 /main.js
 /main.js.map
+/.test-dist/
 
 # Editor/OS cruft
 *.log

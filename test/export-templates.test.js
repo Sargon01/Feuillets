@@ -7,6 +7,8 @@ import {
   templateToCss,
   templatePrintCss,
   marginsFor,
+  normalizeHeadings,
+  titleRoleCss,
 } from "../src/utils/export-templates.js";
 
 test("templateFor", async (t) => {
@@ -120,4 +122,22 @@ test("marginsFor", async (t) => {
       right: 3.5,
     });
   });
+});
+
+test("normalizeHeadings", () => {
+  assert.deepEqual(normalizeHeadings({ headings: { h2: { bold: true } } }), { h2: { bold: true } });
+  assert.deepEqual(normalizeHeadings({ chapterTitle: { fontSizePt: 24 } }), {
+    h1: { fontSizePt: 24, bold: false, pageBreakBefore: true },
+  });
+  assert.deepEqual(normalizeHeadings({}), {});
+});
+
+test("titleRoleCss", () => {
+  const css = titleRoleCss({
+    titlePage: { styles: { titre: { fontSizePt: 24, bold: true, marginBottomPt: 18 } } },
+  });
+  assert.match(css, /font-size: 24pt/);
+  assert.match(css, /font-weight: 700/);
+  assert.match(css, /margin-bottom: 18pt/);
+  assert.equal(titleRoleCss({ titlePage: { styles: { titre: {} } } }), "");
 });

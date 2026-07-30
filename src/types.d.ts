@@ -23,8 +23,10 @@ declare type SceneFrontmatter = {
   title?: string;
   /** Sous-titre, compilé un niveau sous `titre` (compiledSubtitleFor). */
   sous_titre?: string;
-  /** Titre court des vues denses ; `titre_court` est l'ancienne clé,
-   *  conservée pour les fiches antérieures au renommage. */
+  /** Titre court des vues denses. `titre_binder`/`titre_court` sont les
+   *  anciennes clés, conservées pour les fiches antérieures au renommage
+   *  et reportées sur `short_title` par withLegacyFieldAliases. */
+  short_title?: string;
   titre_binder?: string;
   titre_court?: string;
   /** Fiches personnage du panneau Recherche : replis du titre (titleFor). */
@@ -81,7 +83,7 @@ declare type Label = {
 /** Métadonnées par dossier projet : `settings.projectMeta[cheminDossier]`.
  * À la fois fiche d'identité (nom, icône, type, description) et réglages
  * propres à CE projet, qui priment sur les réglages globaux du même nom.
- * Écrit champ par champ par ui/project-modals.js — TOUT est optionnel,
+ * Écrit champ par champ par ui/project-modals.ts — TOUT est optionnel,
  * `{}` est un état normal (voir `S.projectMeta[path] = {}`). */
 declare type ProjectMeta = {
   /** Nom d'affichage personnalisé ; sinon le nom du dossier. */
@@ -96,6 +98,8 @@ declare type ProjectMeta = {
   labels?: Label[];
   /** Style bibliographique — services/citations.js. */
   citationStyle?: string;
+  /** Filtres Recherche sauvegardés — ui/entity-modals.ts ManageSavedFiltersModal. */
+  savedResearchFilters?: SavedResearchFilter[];
 
   /* Réglages globaux surchargés par projet. */
   boardMode?: string;
@@ -104,6 +108,14 @@ declare type ProjectMeta = {
   hiddenBoardModes?: string[];
 
   [key: string]: unknown;
+};
+
+/** Filtre Recherche (texte + tag) sauvegardé sous un nom — voir
+ * ProjectMeta.savedResearchFilters et ui/entity-modals.ts. */
+declare type SavedResearchFilter = {
+  name: string;
+  search?: string;
+  tag?: string;
 };
 
 /** Marges en centimètres, forme normalisée renvoyée par marginsFor(). */
@@ -195,6 +207,32 @@ declare type ExportTemplate = {
   [key: string]: unknown;
 };
 
+/** Modèle après résolution : les trois valeurs de typographie du corps sont
+ * garanties par les modèles intégrés ou le repli « classique ». */
+declare type ResolvedExportTemplate = ExportTemplate & {
+  fontFamily: string;
+  fontSizePt: number;
+  lineHeight: number;
+};
+
+/** État persistant des fils narratifs. Les clés sont les valeurs de `thread`
+ * du frontmatter ; les valeurs sont les chemins du feuillet qui porte le
+ * marqueur automatique ou de son origine. Voir services/narrative-threads.js. */
+declare type NarrativeThreadState = {
+  filPlaceholders: Record<string, string>;
+  filOrigins: Record<string, string>;
+  filResolved: string[];
+};
+
+/** État mémoire minimal utilisé par l'automatisation des fils narratifs.
+ * Il reste volontairement séparé de FeuilletsSettings : ces collections ne
+ * sont jamais persistées et appartiennent à l'instance du plugin. */
+declare type NarrativeThreadsPluginState = {
+  _filSuppressed?: Set<string>;
+  _filQueues?: Map<string, Promise<void>>;
+  saveSettings(): Promise<void>;
+};
+
 /** Réglages du plugin. Volontairement PARTIEL : seuls les champs consommés
  * par du code déjà vérifié sont déclarés, la signature d'index couvre le
  * reste. DEFAULT_SETTINGS (src/default-settings.js) reste la référence
@@ -204,6 +242,9 @@ declare type FeuilletsSettings = {
    *  champ ci-dessous ABSENT de DEFAULT_SETTINGS, donc undefined tant
    *  qu'aucun projet n'a été choisi — d'où le garde de labelColor(). */
   projectFolder?: string;
+  /** Tags favoris (settings/feuillets-setting-tab.ts), toujours lus avec
+   *  un repli `|| []` : absent de DEFAULT_SETTINGS, jamais initialisé. */
+  favoriteTags?: string[];
 
   /* Les champs suivants sont NON optionnels : loadSettings() fait un
      `Object.assign({}, DEFAULT_SETTINGS, data)` (src/main.js), donc toute
@@ -222,6 +263,38 @@ declare type FeuilletsSettings = {
   folderPositions: Record<string, number>;
   collapsed: Record<string, boolean>;
 
+  /** Valeurs utilisées pour l'initialisation de l'arborescence projet. */
+  manuscriptTitle: string;
+  epubLanguage: string;
+  exportTemplate: string;
+
+  pdfPageSize: string;
+  pdfOrientation: "portrait" | "landscape";
+  pdfMarginTop: number;
+  pdfMarginBottom: number;
+  pdfMarginLeft: number;
+  pdfMarginRight: number;
+  pdfMirrorMargins: boolean;
+  pdfDiffHeaders: boolean;
+  pdfHeaderLeft: string;
+  pdfHeaderRight: string;
+  pdfFooterLeft: string;
+  pdfFooterRight: string;
+  pdfPageNumberPosition: "right" | "center" | "left";
+  pdfHideFirstPageHeader: boolean;
+  pdfOrphans: number;
+  pdfWidows: number;
+  pdfPreventHeadingOrphans: boolean;
+
+  journalFolder: string;
+  wordGoal: number;
+  chronoFolder: string;
+
+  /** Automatisation des fils narratifs, persistée dans les réglages. */
+  filPlaceholders: NarrativeThreadState["filPlaceholders"];
+  filOrigins: NarrativeThreadState["filOrigins"];
+  filResolved: NarrativeThreadState["filResolved"];
+
   statuses: {name: string, color: string}[];
   hiddenPanels: string[];
   hiddenBoardModes: string[];
@@ -239,6 +312,8 @@ declare type FeuilletsSettings = {
   binderStatusFilter: string;
   binderLabelFilter: string;
   binderProgressFilter: string;
+  researchSearch: string;
+  researchTagFilter: string;
   binderTreeWidth: number;
   binderTreeCollapsed: boolean;
   binderListCollapsed: boolean;
@@ -256,9 +331,12 @@ declare type FeuilletsSettings = {
   cardContent: string;
   tileSize: number;
   columns: number;
+  fontSize: number;
+  uiScale: number;
   showCardTags: boolean;
   showProgress: boolean;
   outlineCols: Record<string, boolean>;
+  outlineWidths: Record<string, number>;
 
   readScope: string;
   readSelection: string[];
@@ -267,5 +345,92 @@ declare type FeuilletsSettings = {
   timelineScale: string;
   compilePresets: unknown[];
 
+  /** Panneaux auto-ouverts au démarrage si un projet est actif (voir
+   * registerAutoOpenPanels/loadSettings — autoOpenHub/hubActiveTab sont
+   * d'anciens noms migrés vers ces quatre champs). */
+  autoOpenNotes: boolean;
+  autoOpenProperties: boolean;
+  autoOpenResearch: boolean;
+  autoOpenProject: boolean;
+  autoOpenJournal: boolean;
+
+  /** Préfixe des chapitres auto-renommés (chapterPattern/renumberTitles). */
+  renamePrefix: string;
+  chapterNumbering: "continu" | "parPartie" | "aucune";
+
+  /** Historique quotidien de mots pour la série de jours consécutifs
+   * (currentStreak) et le delta du jour (updateStatusBar/updateDailyStats). */
+  stats: Record<string, { start: number; latest: number }>;
+  /** Absent de DEFAULT_SETTINGS (aucune valeur par défaut définie) mais
+   * réglable depuis l'onglet réglages et lu tel quel — voir
+   * updateStatusBar/updateConcentrationCounter. */
+  tolerance?: unknown;
+
+  /** Typographie en direct (registerLiveTypography/applyLiveTypoClasses). */
+  liveApostrophe: boolean;
+  liveGuillemets: boolean;
+  liveDashes: boolean;
+  liveEmptyLines: "normal" | "reduit" | "invisible";
+  liveHyphenation: boolean;
+  liveTwoEnters: boolean;
+  liveDoubleEnter: boolean;
+  liveJustify: boolean;
+  readingMatchLive: boolean;
+  readingFontSize: number;
+  lineHeight: number;
+  textWidth: number;
+  indentParagraphs: boolean;
+
+  /** Mode concentration (toggleConcentration/updateConcentrationCounter). */
+  concentrationWidth: number;
+  dimOpacity: number;
+  concentrationUnit: "line" | "paragraph";
+  concentrationTypewriter: boolean;
+  concentrationCounter: boolean;
+
+  /** Interface épurée (applyLeanInterfaceClasses). */
+  uiTransparentPanels: boolean;
+  uiTransparentTabBar: boolean;
+  uiHideVaultSwitcher: boolean;
+  uiDimTabActions: boolean;
+
   [key: string]: unknown;
+};
+
+/** Configuration d'un preset de compilation actif (résultat de
+ * activePresetConfig). */
+declare type PresetConfig = {
+  name: string;
+  fileName: string;
+  folderTitles: boolean;
+  chapterTitles: boolean;
+  sceneTitles: boolean;
+  separator: string;
+  [key: string]: unknown;
+};
+
+/** Segment d'un manuscrit compilé — conservé pour les exports natifs
+ * (signets par feuillet, détection des pages Front) mais jamais transmis
+ * à Pandoc. */
+declare type CompileSegment = {
+  path: string | null;
+  text: string;
+  frontType: string | null;
+};
+
+/** Résultat de compile() : chemin du fichier écrit, texte complet et
+ * segments pour les exports natifs. */
+declare type CompileResult = {
+  outPath: string;
+  manuscript: string;
+  segments: CompileSegment[];
+};
+
+/** Contexte d'export partagé par les moteurs natifs (EPUB, DOCX, ODT, PDF). */
+declare type ExportContext = {
+  markdown: string;
+  title: string;
+  author: string;
+  sourcePath: string;
+  segments?: CompileSegment[];
 };
