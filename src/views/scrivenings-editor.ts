@@ -131,7 +131,9 @@ export class ScriveningsManager {
   // même largeur, même retour à la ligne) portant un marqueur à cet offset.
   measureCaretOffsetTop(textarea: HTMLTextAreaElement, offset: number): number {
     const style = getComputedStyle(textarea);
-    const mirror = document.createElement("div");
+    // Détaché tant qu'il n'est pas ajouté à document.body plus bas — élément
+    // du document principal Obsidian (mesure de layout contre la page réelle).
+    const mirror = createDiv();
     type CopyableStyleProp =
       | "boxSizing" | "width" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft"
       | "borderTopWidth" | "borderRightWidth" | "borderBottomWidth" | "borderLeftWidth"
@@ -153,9 +155,7 @@ export class ScriveningsManager {
     });
 
     mirror.appendChild(document.createTextNode(textarea.value.slice(0, offset)));
-    const marker = document.createElement("span");
-    marker.textContent = "​";
-    mirror.appendChild(marker);
+    const marker = mirror.createSpan({ text: "​" });
 
     document.body.appendChild(mirror);
     const top = marker.offsetTop;
