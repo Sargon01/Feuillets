@@ -146,7 +146,8 @@ export class GrammarView extends BaseFeuilletsView {
     if (this.isTabVisible()) await this.render();
     try {
       const raw = await this.app.vault.cachedRead(file);
-      const { body } = this.splitFrontmatter(raw);
+      const split = this.splitFrontmatter(raw);
+      const body = typeof split.body === "string" ? split.body : "";
       this.frontmatterOffset = raw.length - body.length; // le YAML n'est jamais soumis au correcteur
       // sanitizeForGrammarCheck préserve la longueur du texte (masque au lieu
       // de supprimer) : les offsets restent valables tels quels, aucun
@@ -266,7 +267,7 @@ export class GrammarView extends BaseFeuilletsView {
     }
 
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
-    const refreshBtn = this.iconBtn(toolbar, "refresh-cw", t("grammar.recheckNowTooltip"));
+    const refreshBtn = this.iconBtn(toolbar, "refresh-cw", t("grammar.recheckNowTooltip")) as HTMLElement;
     refreshBtn.addEventListener("click", () => {
       this.checkedMtime = null; // force une nouvelle vérification même si rien n'a changé
       this.render();
@@ -336,13 +337,13 @@ export class GrammarView extends BaseFeuilletsView {
     row.addEventListener("click", () => this.jumpTo(file, issue));
 
     if (issue.type === "spelling" && issue.underlined) {
-      const learnBtn = this.iconBtn(header, "book-plus", t("grammar.learnWordTooltip", { word: issue.underlined }));
+      const learnBtn = this.iconBtn(header, "book-plus", t("grammar.learnWordTooltip", { word: issue.underlined })) as HTMLElement;
       learnBtn.addEventListener("click", async (e: MouseEvent) => {
         e.stopPropagation();
         await this.learnWord(issue.underlined);
       });
     } else if (issue.type === "grammar") {
-      const ignoreBtn = this.iconBtn(header, "eye-off", t("grammar.ignoreIssueTooltip"));
+      const ignoreBtn = this.iconBtn(header, "eye-off", t("grammar.ignoreIssueTooltip")) as HTMLElement;
       ignoreBtn.addEventListener("click", async (e: MouseEvent) => {
         e.stopPropagation();
         await this.ignoreIssue(issue);
@@ -372,7 +373,7 @@ export class GrammarView extends BaseFeuilletsView {
     }
 
     const cursorOffset = editor.posToOffset(editor.getCursor()) - this.frontmatterOffset;
-    let target;
+    let target: GrammarIssue | undefined;
     if (direction > 0) {
       target = this.issues.find((i) => i.start > cursorOffset);
       if (!target) {
@@ -387,10 +388,12 @@ export class GrammarView extends BaseFeuilletsView {
       }
     }
 
-    const from = editor.offsetToPos(target.start + this.frontmatterOffset);
-    const to = editor.offsetToPos(target.end + this.frontmatterOffset);
-    editor.setSelection(from, to);
-    editor.scrollIntoView({ from, to }, true);
+    if (target) {
+      const from = editor.offsetToPos(target.start + this.frontmatterOffset);
+      const to = editor.offsetToPos(target.end + this.frontmatterOffset);
+      editor.setSelection(from, to);
+      editor.scrollIntoView({ from, to }, true);
+    }
   }
 
   jumpTo(file: TFile, issue: GrammarIssue): void {
