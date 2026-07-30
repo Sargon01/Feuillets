@@ -61,18 +61,56 @@ class FakeElement {
     if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true));
     return clone;
   }
-  querySelector() { return null; }
-  // Support minimal, volontairement limité au seul motif utilisé par
-  // export-pdf.js : `a[href^="#"]` (recherche des appels de note).
+  querySelector(selector) {
+    const results = this.querySelectorAll(selector);
+    return results[0] || null;
+  }
   querySelectorAll(selector) {
-    const m = /^([a-z0-9]*)\[([a-zA-Z-]+)\^="([^"]*)"\]$/i.exec(selector || "");
-    if (!m) return [];
-    const [, tag, attr, prefix] = m;
     const results = [];
+    const selectors = (selector || "").split(",").map((s) => s.trim()).filter(Boolean);
     const visit = (node) => {
       for (const child of node.children) {
-        const tagOk = !tag || child.tagName.toLowerCase() === tag.toLowerCase();
-        if (tagOk && (child.getAttribute(attr) || "").startsWith(prefix)) results.push(child);
+        const childTag = child.tagName ? child.tagName.toLowerCase() : "";
+        const childClasses = child.classes || new Set();
+        let matched = false;
+
+        for (const sel of selectors) {
+          const attrMatch = /^([a-z0-9]*)\[([a-zA-Z-]+)\^="([^"]*)"\]$/i.exec(sel);
+          if (attrMatch) {
+            const [, tag, attr, prefix] = attrMatch;
+            const tagOk = !tag || childTag === tag.toLowerCase();
+            if (tagOk && (child.getAttribute(attr) || "").startsWith(prefix)) {
+              matched = true;
+              break;
+            }
+          }
+          if (sel.includes(".")) {
+            const [tag, cls] = sel.split(".");
+            const tagOk = !tag || childTag === tag.toLowerCase();
+            if (tagOk && childClasses.has(cls)) {
+              matched = true;
+              break;
+            }
+          }
+          if (sel.includes("[")) {
+            const m = /^([a-z0-9]*)\[([a-zA-Z-]+)\]$/i.exec(sel);
+            if (m) {
+              const [, tag, attr] = m;
+              const tagOk = !tag || childTag === tag.toLowerCase();
+              if (tagOk && child.getAttribute(attr) !== null) {
+                matched = true;
+                break;
+              }
+            }
+          }
+          if (sel && !sel.includes("[") && !sel.includes(".") && !sel.includes("#")) {
+            if (childTag === sel.toLowerCase()) {
+              matched = true;
+              break;
+            }
+          }
+        }
+        if (matched) results.push(child);
         visit(child);
       }
     };
@@ -554,6 +592,78 @@ test("paginateManuscript : détection d'un appel de note réel Obsidian avec ide
     const matches = (result.pagesHtml.match(/Explication théologique sur le Tout-Miséricordieux/g) || []).length;
     assert.equal(matches, 1);
   } finally {
+    dom.restore();
+  }
+});
+
+test("exportPdf : le HTML final de l'iframe place la note dans .pdf-page-footnotes de la page 2 sans section .footnotes globale", async () => {
+  const dom = installDom();
+  const previousMobile = Platform.isMobile;
+  const previousRender = MarkdownRenderer.render;
+  Platform.isMobile = false;
+
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    // Page 1 : Paragraphe sans note (hauteur 800)
+    container.appendChild(element("p", "Contenu page 1", 800));
+
+    // Page 2 : Paragraphe avec appel de note (hauteur 100)
+    const p2 = element("p", "Contenu page 2 ", 100);
+    const sup = p2.createEl("sup", { cls: "footnote-ref" });
+    sup.setAttribute("id", "fnref-1-83d6cd9e356fb52e");
+    const a = sup.createEl("a", { text: "1" });
+    a.setAttribute("href", "#fn-1-83d6cd9e356fb52e");
+    a.setAttribute("role", "doc-noteref");
+    p2.appendChild(sup);
+    container.appendChild(p2);
+
+    // Page 3 : Paragraphe de suite (hauteur 800)
+    container.appendChild(element("p", "Contenu page 3", 800));
+
+    // Section .footnotes nativement ajoutée à la fin par Obsidian
+    const sec = element("section");
+    sec.className = "footnotes";
+    const ol = sec.createEl("ol");
+    const li = ol.createEl("li");
+    li.setAttribute("id", "fn-1-83d6cd9e356fb52e");
+    li.appendChild(element("p", "Texte de la note explicative"));
+    sec.appendChild(ol);
+    container.appendChild(sec);
+  };
+
+  const app = { vault: { getAbstractFileByPath: () => null } };
+  const settings = { exportTemplate: "classique", pdfFootnotePlacement: "bottom" };
+
+  try {
+    await exportPdf(app, settings, { markdown: "Texte", title: "Mon Titre", author: "Auteur", sourcePath: "Source.md" });
+
+    assert.equal(dom.frames.length, 1);
+    const frame = dom.frames[0];
+    const bodyHtml = frame.contentDocument.body.innerHTML;
+
+    // 1. Une seule occurrence du texte de la note dans tout le document final
+    const matches = (bodyHtml.match(/Texte de la note explicative/g) || []).length;
+    assert.equal(matches, 1, "La note doit apparaître exactement 1 fois dans le HTML de l'iframe");
+
+    // 2. Absence totale de la section .footnotes globale à la fin
+    assert.equal(bodyHtml.includes('class="footnotes"'), false, "Aucune section .footnotes globale ne doit subsister");
+    assert.equal(bodyHtml.includes("pdf-footnotes-section"), false, "Aucune section pdf-footnotes-section ne doit exister en mode bottom");
+
+    // 3. Découpage des pages dans l'iframe
+    const pages = bodyHtml.split(/<div class="pdf-page /i);
+    assert.ok(pages.length >= 4, "Le document doit comporter au moins 3 pages");
+
+    const page2Html = pages[2] || "";
+    const page3Html = pages[3] || "";
+
+    // 4. Présence dans .pdf-page-footnotes de la page 2
+    assert.match(page2Html, /pdf-page-footnotes/);
+    assert.match(page2Html, /Texte de la note explicative/);
+
+    // 5. Absence de la note dans la dernière page (page 3)
+    assert.equal(page3Html.includes("Texte de la note explicative"), false, "La note ne doit pas apparaître sur la dernière page");
+  } finally {
+    Platform.isMobile = previousMobile;
+    MarkdownRenderer.render = previousRender;
     dom.restore();
   }
 });

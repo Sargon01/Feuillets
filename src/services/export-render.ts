@@ -234,36 +234,37 @@ function isHtmlElement(node: Node): node is HTMLElement & { textContent: string 
 function extractFootnotes(container: HTMLElement): RenderedFootnote[] {
   const footnotes: RenderedFootnote[] = [];
   try {
-    const section = container.querySelector("section.footnotes, .footnotes");
-    if (!section) return footnotes;
-    const items = section.querySelectorAll("li[id]");
-    items.forEach((li) => {
-      const id = li.getAttribute("id") || "";
-      const clone = li.cloneNode(true);
-      if (!isHtmlElement(clone)) return;
-      clone.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
+    const sections = container.querySelectorAll("section.footnotes, .footnotes");
+    sections.forEach((section) => {
+      const items = section.querySelectorAll("li[id]");
+      items.forEach((li) => {
+        const id = li.getAttribute("id") || "";
+        const clone = li.cloneNode(true);
+        if (!isHtmlElement(clone)) return;
+        clone.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
 
-      let html = clone.innerHTML.trim();
-      let text = clone.textContent.trim();
+        let html = clone.innerHTML.trim();
+        let text = clone.textContent.trim();
 
-      // Clean trailing slashes, backslashes, spaces, and backref markers
-      text = text
-        // eslint-disable-next-line no-misleading-character-class -- voulu : on cible ↩ avec ses variantes de presentation U+FE0E/U+FE0F
-        .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
-        .replace(/[\s/\\]+$/, "")
-        .trim();
+        // Clean trailing slashes, backslashes, spaces, and backref markers
+        text = text
+          // eslint-disable-next-line no-misleading-character-class -- voulu : on cible ↩ avec ses variantes de presentation U+FE0E/U+FE0F
+          .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
+          .replace(/[\s/\\]+$/, "")
+          .trim();
 
-      html = html
-        .replace(/<a[^>]*class=["'](?:footnote-backref|internal-link)["'][^>]*>.*?<\/a>/gi, "")
-        // eslint-disable-next-line no-misleading-character-class -- voulu : on cible ↩ avec ses variantes de presentation U+FE0E/U+FE0F
-        .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
-        .replace(/(?:&nbsp;|\s)*[/\\]+\s*(<\/p>)?$/gi, "$1")
-        .replace(/[\s/\\]+(?=<\/p>|$)/gi, "")
-        .trim();
+        html = html
+          .replace(/<a[^>]*class=["'](?:footnote-backref|internal-link)["'][^>]*>.*?<\/a>/gi, "")
+          // eslint-disable-next-line no-misleading-character-class -- voulu : on cible ↩ avec ses variantes de presentation U+FE0E/U+FE0F
+          .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
+          .replace(/(?:&nbsp;|\s)*[/\\]+\s*(<\/p>)?$/gi, "$1")
+          .replace(/[\s/\\]+(?=<\/p>|$)/gi, "")
+          .trim();
 
-      footnotes.push({ id, html, text });
+        footnotes.push({ id, html, text });
+      });
+      section.remove();
     });
-    section.remove();
   } catch (e) {
     console.error("Feuillets export: extraction des notes de bas de page échouée", e);
   }
