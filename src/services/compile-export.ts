@@ -1,7 +1,8 @@
 // @ts-check
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : child_process/path/fs pour l'export Pandoc, desktop uniquement */
 /* global require -- défini par environnement */
-import { Notice, TFolder, TFile, normalizePath, Platform } from "obsidian";
+import { Notice, TFolder, TFile, normalizePath, Platform, type App } from "obsidian";
+import { toValue } from "../utils/scene-fields.js";
 import { embedHardBreaks } from "../utils/core.js";
 import { footnotePrefixFor, applyCompileTransforms } from "../utils/compile-text.js";
 import { fmOf, compiledTitleFor, compiledSubtitleFor } from "./frontmatter.js";
@@ -45,24 +46,29 @@ type NativeExportContext = {
   segments: NativeExportSegment[];
 };
 
-/**
- * @param {{ activePreset: number; compilePresets: unknown[]; compileFileName: string; insertFolderTitles: boolean; insertTitles: boolean; insertSceneTitles: boolean; separator: string }} settings
- * @returns {PresetConfig}
- */
-export function activePresetConfig(settings) {
+type PresetConfig = {
+  name: string;
+  fileName: string;
+  folderTitles: boolean;
+  chapterTitles: boolean;
+  sceneTitles: boolean;
+  separator: string;
+  [key: string]: unknown;
+};
+
+export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
   const S = settings;
-  /** @type {PresetConfig} */
-  const base = {
+  const base: PresetConfig = {
     name: "Réglages par défaut",
-    fileName: S.compileFileName,
-    folderTitles: S.insertFolderTitles,
-    chapterTitles: S.insertTitles,
-    sceneTitles: S.insertSceneTitles,
-    separator: S.separator,
+    fileName: toValue(S.compileFileName),
+    folderTitles: !!S.insertFolderTitles,
+    chapterTitles: !!S.insertTitles,
+    sceneTitles: !!S.insertSceneTitles,
+    separator: toValue(S.separator),
   };
-  const idx = S.activePreset;
-  if (idx >= 0 && S.compilePresets[idx]) {
-    return Object.assign({}, base, S.compilePresets[idx]);
+  const idx = typeof S.activePreset === "number" ? S.activePreset : -1;
+  if (idx >= 0 && Array.isArray(S.compilePresets) && S.compilePresets[idx]) {
+    return Object.assign({}, base, S.compilePresets[idx] as Record<string, unknown>);
   }
   return base;
 }
@@ -76,7 +82,7 @@ export function activePresetConfig(settings) {
  * @param {import("./types.d.ts").FeuilletsSettings} settings
  * @returns {Promise<TFolder|null>}
  */
-export async function getOutputFolder(app, settings) {
+export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const base = root.parent ? root.parent.path : root.path;
@@ -88,7 +94,7 @@ export async function getOutputFolder(app, settings) {
  * @param {import("./types.d.ts").FeuilletsSettings} settings
  * @returns {Promise<CompileResult|null>}
  */
-export async function compile(app, settings) {
+export async function compile(app: App, settings: FeuilletsSettings) {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
@@ -129,8 +135,8 @@ export async function compile(app, settings) {
          (texte collé d'un traitement externe…). Réglable (Réglages → Export). */
     const footnotePrefix = footnotePrefixFor(file.path);
     /** @param {string} str */
-    const applyTextTransforms = (str) =>
-      applyCompileTransforms(str, footnotePrefix, settings.exportFrenchTypography);
+    const applyTextTransforms = (str: string): string =>
+      applyCompileTransforms(str, footnotePrefix, !!settings.exportFrenchTypography);
 
     /* Page de titre à rôles : chaque ligne `:::rôle: contenu` devient un
        paragraphe-marqueur `FEUILLETS-FPROLE:rôle` suivi de son contenu, que
@@ -196,7 +202,7 @@ export async function compile(app, settings) {
    * @param {string} role
    * @param {number} depth
    */
-  const pushFile = async (file, role, depth) => {
+  const pushFile = async (file: TFile, role: string, depth: number) => {
     const fm = fmOf(app, file);
     if (fm.compile === false) return;
 
@@ -238,7 +244,7 @@ export async function compile(app, settings) {
    * @param {TFolder} f
    * @param {number} depth
    */
-  const walk = async (f, depth) => {
+  const walk = async (f: TFolder, depth: number) => {
     for (const child of getOrderedChildren(app, settings, f)) {
       if (child instanceof TFolder) {
         /* Le dossier Front lui-même n'est jamais un titre de partie/chapitre
@@ -289,7 +295,7 @@ export async function compile(app, settings) {
  * @param {TFolder|null} folder
  * @returns {ProjectMeta}
  */
-export function projectMetaFor(settings, folder) {
+export function projectMetaFor(settings: FeuilletsSettings, folder: TFolder | null) {
   if (!folder) return {};
   return settings.projectMeta[folder.path] || {};
 }
@@ -307,14 +313,14 @@ export function projectMetaFor(settings, folder) {
  * @param {import("./types.d.ts").FeuilletsSettings} settings
  * @returns {string[]}
  */
-export function listCompiledFilePaths(app, settings) {
+export function listCompiledFilePaths(app: App, settings: FeuilletsSettings) {
   const folder = getProjectFolder(app, settings);
   if (!folder) return [];
   const paths: string[] = [];
   /**
    * @param {TFolder} f
    */
-  const visit = (f) => {
+  const visit = (f: TFolder) => {
     for (const child of getOrderedChildren(app, settings, f)) {
       if (child instanceof TFolder) {
         const role = roleOfFolder(app, settings, child);
@@ -347,7 +353,7 @@ export function listCompiledFilePaths(app, settings) {
  * @param {string} format
  * @returns {Promise<void>}
  */
-export async function exportFile(app, settings, format = "docx") {
+export async function exportFile(app: App, settings: FeuilletsSettings, format = "docx") {
   /* Le PDF n'a jamais été un format Pandoc de ce plugin (ça demanderait
      LaTeX, hors périmètre) — il passe toujours par le moteur natif
      (impression), quel que soit exportEngine. */
@@ -368,7 +374,7 @@ export async function exportFile(app, settings, format = "docx") {
  * @param {string} format
  * @returns {Promise<void>}
  */
-async function exportViaNative(app, settings, format) {
+async function exportViaNative(app: App, settings: FeuilletsSettings, format: string) {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
@@ -378,8 +384,8 @@ async function exportViaNative(app, settings, format) {
   if (!result) return;
 
   const meta = projectMetaFor(settings, folder);
-  let title = settings.manuscriptTitle || folder.name;
-  const author = settings.manuscriptAuthor || meta.author || "";
+  let title = toValue(settings.manuscriptTitle) || folder.name;
+  const author = toValue(settings.manuscriptAuthor) || toValue(meta.author);
   /* Le titre affiché en en-tête (et dans les métadonnées du fichier) doit
      rester celui réellement composé sur la page de titre — une seule
      source de vérité — plutôt que le nom du dossier projet ou un titre
@@ -387,11 +393,13 @@ async function exportViaNative(app, settings, format) {
      synchroniser. Repli sur le titre des paramètres si la page de titre
      n'a pas encore de champ `titre` renseigné. */
   const titrePageSeg = result.segments.find((s) => s.frontType === "titre" && s.path);
-  if (titrePageSeg) {
+  if (titrePageSeg && titrePageSeg.path) {
     const titreFile = app.vault.getAbstractFileByPath(titrePageSeg.path);
-    const titreFm = titreFile ? fmOf(app, titreFile) : {};
-    if (typeof titreFm.title === "string" && titreFm.title.trim()) {
-      title = titreFm.title.trim();
+    if (titreFile instanceof TFile) {
+      const titreFm = fmOf(app, titreFile);
+      if (typeof titreFm.title === "string" && titreFm.title.trim()) {
+        title = titreFm.title.trim();
+      }
     }
   }
   /* Le fichier compilé réel (result.outPath) plutôt que le dossier projet :
@@ -431,7 +439,8 @@ async function exportViaNative(app, settings, format) {
     }
   } catch (e) {
     console.error("Feuillets: export natif", e);
-    new Notice(`Échec de l'export ${format} : ${(e.message || String(e)).slice(0, 200)}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    new Notice(`Échec de l'export ${format} : ${msg.slice(0, 200)}`);
   }
 }
 
@@ -441,9 +450,15 @@ async function exportViaNative(app, settings, format) {
  * @param {Uint8Array|Blob|ArrayBuffer} data
  * @returns {Promise<void>}
  */
-async function writeBinaryFile(app, path, data) {
-  let buf = data;
-  if (typeof Blob !== "undefined" && buf instanceof Blob) buf = await buf.arrayBuffer();
+async function writeBinaryFile(app: App, path: string, data: Uint8Array | Blob | ArrayBuffer) {
+  let buf: ArrayBuffer;
+  if (data instanceof ArrayBuffer) {
+    buf = data;
+  } else if (data instanceof Uint8Array) {
+    buf = data.buffer as ArrayBuffer;
+  } else {
+    buf = await data.arrayBuffer();
+  }
   const existing = app.vault.getAbstractFileByPath(path);
   if (existing instanceof TFile) {
     await app.vault.modifyBinary(existing, buf);
@@ -464,7 +479,7 @@ async function writeBinaryFile(app, path, data) {
  * @param {string} format
  * @returns {Promise<void>}
  */
-async function exportViaPandoc(app, settings, format = "docx") {
+async function exportViaPandoc(app: App, settings: FeuilletsSettings, format = "docx") {
   /* Pandoc passe par child_process : indisponible sur mobile. On le dit
      clairement plutôt que d'échouer en silence sur une promesse non tenue. */
   if (Platform.isMobile) {
@@ -479,14 +494,18 @@ async function exportViaPandoc(app, settings, format = "docx") {
   const result = await compile(app, settings);
   if (!result) return;
 
-  let execFile, pathMod, fs, basePath;
+  let execFile: typeof import("child_process").execFile;
+  let pathMod: typeof import("path");
+  let fs: typeof import("fs");
+  let basePath = "";
   try {
-    ({ execFile } = require("child_process"));
-    pathMod = require("path");
-    fs = require("fs");
-    basePath = app.vault.adapter.getBasePath
-      ? app.vault.adapter.getBasePath()
-      : app.vault.adapter.basePath;
+    execFile = (require("child_process") as typeof import("child_process")).execFile;
+    pathMod = require("path") as typeof import("path");
+    fs = require("fs") as typeof import("fs");
+    const adapter = app.vault.adapter as typeof app.vault.adapter & { getBasePath?: () => string; basePath?: string };
+    basePath = adapter.getBasePath
+      ? adapter.getBasePath()
+      : adapter.basePath || "";
   } catch {
     new Notice("Export indisponible sur cette plateforme (mobile ?).");
     return;
@@ -497,8 +516,8 @@ async function exportViaPandoc(app, settings, format = "docx") {
   }
 
   const meta = projectMetaFor(settings, folder);
-  const title = S.manuscriptTitle || folder.name;
-  const author = S.manuscriptAuthor || meta.author || "";
+  const title = toValue(S.manuscriptTitle || folder.name);
+  const author = toValue(S.manuscriptAuthor || meta.author);
   const pageBreak =
     '```{=openxml}\n<w:p><w:r><w:br w:type="page"/></w:r></w:p>\n```';
   const parts = [`::: {custom-style="Title"}\n${title}\n:::`];
@@ -526,7 +545,7 @@ async function exportViaPandoc(app, settings, format = "docx") {
 
   if (format === "docx") {
     args.push("--to", "docx");
-    const refRel = S.pandocReference || "reference-feuillets.docx";
+    const refRel = toValue(S.pandocReference || "reference-feuillets.docx");
     const projBase = folder.parent ? folder.parent.path : folder.path;
     const candidates = [
       normalizePath(`${projBase}/Resources/Export/${refRel}`),
@@ -563,14 +582,16 @@ async function exportViaPandoc(app, settings, format = "docx") {
   }
 
   new Notice(`Conversion Pandoc (${format}) en cours…`);
-  execFile(S.pandocPath || "pandoc", args, async (err, _stdout, _stderr) => {
+  const pandocExecutable = toValue(S.pandocPath) || "pandoc";
+  execFile(pandocExecutable, args, async (err, _stdout, _stderr) => {
     try {
       await app.vault.adapter.remove(exportRel);
     } catch { /* suppression du fichier d'export temporaire, au mieux : Pandoc a deja produit sa sortie */ }
     if (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       new Notice(
         `Échec Pandoc (${format}) : vérifie l'installation et le chemin dans les réglages. ${
-          (err.message || "").slice(0, 200)
+          errMsg.slice(0, 200)
         }`
       );
     } else {
