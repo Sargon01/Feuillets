@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path pour lire un dossier .scriv sur disque, desktop uniquement */
 /* global require -- défini par environnement */
-import { App, Modal, Notice, Platform, normalizePath, TFile, TFolder } from "obsidian";
+import { App, Modal, Notice, Platform, normalizePath, TAbstractFile, TFile, TFolder } from "obsidian";
 
 import { PROJECT_MODES, applyModeDefaults } from "../utils/project-modes.js";
 import {
@@ -29,10 +29,14 @@ type ScrivxItem = NonNullable<ReturnType<typeof parseScrivx>["draft"]>;
 
 type ScrivenerImportPlugin = {
   settings: FeuilletsSettings;
-  ensureFolder(path: string): Promise<TFolder>;
+  /* Reflète le type réel de services/project-files.ts : le chemin visé
+     est en pratique toujours un dossier, mais la signature du service
+     reste TAbstractFile (getAbstractFileByPath peut, en théorie,
+     retourner autre chose). */
+  ensureFolder(path: string): Promise<TAbstractFile>;
   saveSettings(): Promise<void>;
   initProjectStructure(): Promise<void>;
-  writeOrder(parent: TFolder, orderedChildren: (TFile | TFolder)[]): Promise<void>;
+  writeOrder(parent: TAbstractFile, orderedChildren: TAbstractFile[]): Promise<void>;
   renderAllViews(force?: boolean): void;
   updateStatusBar(): void;
 };
@@ -429,7 +433,7 @@ export class ScrivenerImportModal extends Modal {
 
     // ============================== Manuscrit ==============================
 
-    const writeSceneFile = async (item: ScrivxItem, destFolder: TFolder, baseName: string) => {
+    const writeSceneFile = async (item: ScrivxItem, destFolder: TAbstractFile, baseName: string) => {
       const path = unusedPath(app, normalizePath(`${destFolder.path}/${baseName}.md`));
 
       let text = "";
@@ -509,7 +513,7 @@ export class ScrivenerImportModal extends Modal {
       return app.vault.create(path, fm + body);
     };
 
-    const writeManuscriptNode = async (item: ScrivxItem, destFolder: TFolder): Promise<TFolder | TFile | undefined> => {
+    const writeManuscriptNode = async (item: ScrivxItem, destFolder: TAbstractFile): Promise<TAbstractFile | undefined> => {
       const safeTitle = sanitizeName(item.title);
       if (item.isFolder) {
         const folder = await plugin.ensureFolder(
@@ -585,8 +589,8 @@ export class ScrivenerImportModal extends Modal {
       return writeSceneFile(item, destFolder, safeTitle);
     };
 
-    const writeManuscriptChildren = async (children: ScrivxItem[], destFolder: TFolder) => {
-      const created: (TFile | TFolder)[] = [];
+    const writeManuscriptChildren = async (children: ScrivxItem[], destFolder: TAbstractFile) => {
+      const created: TAbstractFile[] = [];
       for (const child of children) {
         const node = await writeManuscriptNode(child, destFolder);
         if (node) created.push(node);
@@ -599,7 +603,7 @@ export class ScrivenerImportModal extends Modal {
 
     // ============================== Recherche ===============================
 
-    const writeResearchNode = async (item: ScrivxItem, destFolder: TFolder, structuralTag: string | null): Promise<void> => {
+    const writeResearchNode = async (item: ScrivxItem, destFolder: TAbstractFile, structuralTag: string | null): Promise<void> => {
       const safeTitle = sanitizeName(item.title);
       if (item.isFolder) {
         const folder = await plugin.ensureFolder(

@@ -1,4 +1,4 @@
-import { App, Menu, Modal, Notice, normalizePath, setIcon, TFile, TFolder } from "obsidian";
+import { App, Menu, Modal, Notice, normalizePath, setIcon, TAbstractFile, TFile, TFolder } from "obsidian";
 import { PROJECT_MODES, applyModeDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
@@ -6,10 +6,14 @@ import { t } from "../i18n/index.js";
 
 type ProjectModalsPlugin = {
   settings: FeuilletsSettings;
-  ensureFolder(path: string): Promise<TFolder>;
+  /* Reflète le type réel de services/project-files.ts : le chemin visé
+     est en pratique toujours un dossier, mais la signature du service
+     reste TAbstractFile (getAbstractFileByPath peut, en théorie,
+     retourner autre chose). */
+  ensureFolder(path: string): Promise<TAbstractFile>;
   saveSettings(): Promise<void>;
   initProjectStructure(): Promise<void>;
-  getOutputFolder(): Promise<TFolder | null>;
+  getOutputFolder(): Promise<TAbstractFile | null>;
   renderAllViews(force?: boolean): void;
   updateStatusBar(): void;
   getProjectFolder(): TFolder | null;
