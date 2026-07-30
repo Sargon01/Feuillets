@@ -3227,12 +3227,12 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-project-item {
-  font-family: inherit !important;
-  font-size: 13px !important;
-  text-transform: none !important;
-  letter-spacing: normal !important;
-  color: var(--text-normal) !important;
-  padding: 6px var(--size-4-2) !important;
+  font-family: inherit;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-normal);
+  padding: 6px var(--size-4-2);
 }
 
 /* =========================================================
@@ -4233,9 +4233,9 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-properties-list-editor .feuillets-tags-input {
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 /* Pas de case/bordure visible : juste le texte, comme .feuillets-synopsis
@@ -4252,24 +4252,24 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-properties-row input[type="text"],
 .feuillets-properties-row .feuillets-properties-value,
 .feuillets-properties-row select {
-  -webkit-appearance: none !important;
-  -moz-appearance: none !important;
-  appearance: none !important;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
   flex: 1;
   min-width: 0;
   font-size: var(--font-ui-small);
-  color: var(--text-normal) !important;
-  height: 24px !important;
-  border: 0 !important;
-  border-width: 0 !important;
-  border-style: none !important;
-  border-color: transparent !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  padding: 2px var(--size-4-1) !important;
+  color: var(--text-normal);
+  height: 24px;
+  border: 0;
+  border-width: 0;
+  border-style: none;
+  border-color: transparent;
+  background: transparent;
+  background-color: transparent;
+  padding: 2px var(--size-4-1);
   border-radius: var(--radius-s);
-  outline: none !important;
-  box-shadow: none !important;
+  outline: none;
+  box-shadow: none;
   cursor: pointer;
 }
 
@@ -4283,10 +4283,10 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-properties-row select:focus,
 .feuillets-properties-row .feuillets-properties-value:hover,
 .feuillets-properties-row .feuillets-properties-value:focus {
-  background: var(--background-modifier-hover) !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  outline: none !important;
+  background: var(--background-modifier-hover);
+  border: 0;
+  box-shadow: none;
+  outline: none;
 }
 
 /* Le champ date natif a besoin d'un peu de place à droite pour son icône
@@ -4294,7 +4294,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
    l'icône se dessinait par-dessus le chiffre de l'année. */
 .feuillets-properties-row input[type="date"].feuillets-properties-value,
 .feuillets-properties-row input[type="datetime-local"].feuillets-properties-value {
-  padding-right: 22px !important;
+  padding-right: 22px;
   min-width: 130px;
 }
 
@@ -5059,21 +5059,21 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-export-controls-wrapper select {
   flex: 1;
   min-width: 0;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  outline: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
   font-size: var(--font-ui-small);
-  color: var(--text-normal) !important;
+  color: var(--text-normal);
   height: 24px;
-  padding: 2px var(--size-4-1) !important;
+  padding: 2px var(--size-4-1);
   border-radius: var(--radius-s);
   cursor: pointer;
 }
 
 .feuillets-export-controls-wrapper select:hover,
 .feuillets-export-controls-wrapper select:focus {
-  background: var(--background-modifier-hover) !important;
+  background: var(--background-modifier-hover);
 }
 
 .feuillets-ribbon-export-btn {
