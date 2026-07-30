@@ -18,8 +18,10 @@
 
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path/vm pour le moteur Grammalecte embarque, desktop uniquement (voir l'en-tete du fichier) */
 /* global require -- défini par environnement */
+import { Platform } from "obsidian";
 import { grammarIssueSignature } from "../utils/grammar-issue-signature.js";
 import { pluginAbsoluteDir } from "../utils/plugin-dir.js";
+import { t } from "../i18n/index.js";
 export { grammarIssueSignature };
 
 type GrammarIssue = {
@@ -83,6 +85,9 @@ export class GrammalecteChecker {
   }
 
   ensureLoaded(): void {
+    if (!Platform.isDesktop) {
+      throw new Error(t("grammar.unavailableOnMobile"));
+    }
     if (this.context) return;
 
     const fs = require("fs") as typeof import("fs");
