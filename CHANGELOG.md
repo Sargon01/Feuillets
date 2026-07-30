@@ -2,6 +2,12 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.4.2
+
+### Corrigé
+
+- **Qualité du code** : reformulation d'un commentaire d'exception dans le correcteur Harper, qui était accidentellement interprété comme une directive ESLint mal formée (règle `eslint-comments/require-description`).
+
 ## 1.3.6
 
 ### Modifié
