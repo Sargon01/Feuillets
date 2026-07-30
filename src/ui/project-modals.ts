@@ -1,18 +1,35 @@
-import { Modal, Notice, normalizePath, setIcon, TFolder, Menu } from "obsidian";
+import { App, Menu, Modal, Notice, normalizePath, setIcon, TFolder } from "obsidian";
 import { PROJECT_MODES, applyModeDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
 import { t } from "../i18n/index.js";
 
+type ProjectModalsPlugin = {
+  settings: FeuilletsSettings;
+  ensureFolder(path: string): Promise<TFolder>;
+  saveSettings(): Promise<void>;
+  initProjectStructure(): Promise<void>;
+  getOutputFolder(): Promise<TFolder | null>;
+  renderAllViews(force?: boolean): void;
+  updateStatusBar(): void;
+  getProjectFolder(): TFolder | null;
+  createDemoProject(kind: string): Promise<void>;
+  projectDisplayName(path: string): string;
+  duplicateProject(path: string, label: string): Promise<string | null>;
+};
+
 /** Étiquette de version pour dupliquer un manuscrit (ex. "v1", "premier
  * jet") — le dossier dupliqué est nommé "<manuscrit> (<étiquette>)". */
 export class DuplicateVersionModal extends Modal {
-  constructor(app, projectName, onSubmit) {
+  projectName: string;
+  onSubmit: (label: string) => void;
+
+  constructor(app: App, projectName: string, onSubmit: (label: string) => void) {
     super(app);
     this.projectName = projectName;
     this.onSubmit = onSubmit;
   }
-  onOpen() {
+  onOpen(): void {
     const { contentEl } = this;
     contentEl.createEl("h3", { text: t("modal.duplicateVersion.title", { name: this.projectName }) });
     contentEl.createEl("p", {
@@ -34,17 +51,19 @@ export class DuplicateVersionModal extends Modal {
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow.createEl("button", { text: t("modal.duplicateVersion.btn") }).addEventListener("click", submit);
   }
-  onClose() {
+  onClose(): void {
     this.contentEl.empty();
   }
 }
 
 export class NewProjectModal extends Modal {
-  constructor(app, plugin) {
+  plugin: ProjectModalsPlugin;
+
+  constructor(app: App, plugin: ProjectModalsPlugin) {
     super(app);
     this.plugin = plugin;
   }
-  onOpen() {
+  onOpen(): void {
     const { contentEl } = this;
     contentEl.addClass("feuillets-project-modal");
     contentEl.createEl("h3", { text: t("modal.newProject.title") });
@@ -122,7 +141,7 @@ export class NewProjectModal extends Modal {
       if (e.key === "Enter") create();
     });
   }
-  onClose() {
+  onClose(): void {
     this.contentEl.empty();
   }
 }
@@ -133,21 +152,24 @@ export class NewProjectModal extends Modal {
  * menu de la racine en double volet) puisqu'on peut déjà basculer de projet
  * directement là. Reprend telle quelle l'ancienne logique de project-view.js. */
 export class ManageProjectsModal extends Modal {
-  constructor(app, plugin) {
+  plugin: ProjectModalsPlugin;
+  expandedProjects: Set<string>;
+
+  constructor(app: App, plugin: ProjectModalsPlugin) {
     super(app);
     this.plugin = plugin;
     this.expandedProjects = new Set();
   }
 
-  onOpen() {
+  onOpen(): void {
     this.render();
   }
 
-  onClose() {
+  onClose(): void {
     this.contentEl.empty();
   }
 
-  iconBtn(parent, icon, tooltip, onClick) {
+  iconBtn(parent: HTMLElement, icon: string, tooltip: string, onClick?: (e: MouseEvent) => void): HTMLButtonElement {
     const btn = parent.createEl("button", { cls: "clickable-icon" });
     setIcon(btn, icon);
     btn.setAttr("aria-label", tooltip);
@@ -155,7 +177,7 @@ export class ManageProjectsModal extends Modal {
     return btn;
   }
 
-  render() {
+  render(): void {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
@@ -192,7 +214,7 @@ export class ManageProjectsModal extends Modal {
     const root = this.plugin.getProjectFolder();
     if (root) {
       const allProjects = [S.projectFolder, ...(S.projects || [])].filter(
-        (p, i, a) => p && a.indexOf(p) === i
+        (p, i, a): p is string => !!p && a.indexOf(p) === i
       );
       const list = contentEl.createDiv({ cls: "feuillets-project-list" });
       for (const p of allProjects) this.renderProjectRow(list, p, S);
@@ -229,7 +251,7 @@ export class ManageProjectsModal extends Modal {
     });
   }
 
-  renderProjectRow(list, path, S) {
+  renderProjectRow(list: HTMLElement, path: string, S: FeuilletsSettings): void {
     const folderObj = this.app.vault.getAbstractFileByPath(path);
     const folderExists = folderObj instanceof TFolder;
     const isActive = folderExists && path === S.projectFolder;
@@ -254,7 +276,7 @@ export class ManageProjectsModal extends Modal {
     const row = list.createDiv({ cls: `feuillets-project-item ${isActive ? "is-active" : ""}` });
     const icon = row.createSpan({ cls: "feuillets-cell-icon" });
     const meta = S.projectMeta[path] || {};
-    setIcon(icon, !folderExists ? "alert-triangle" : meta.icon || (isActive ? "folder-open" : "folder"));
+    setIcon(icon, !folderExists ? "alert-triangle" : (meta.icon as string) || (isActive ? "folder-open" : "folder"));
     const name = row.createSpan({ cls: "feuillets-project-name" });
     name.setText(
       folderExists
@@ -314,10 +336,10 @@ export class ManageProjectsModal extends Modal {
     if (!isExpanded) return;
 
     const detail = list.createDiv({ cls: "feuillets-project-detail feuillets-project-grid" });
-    const mkField = (label, key, placeholder) => {
+    const mkField = (label: string, key: string, placeholder: string) => {
       detail.createDiv({ cls: "feuillets-notes-label" }).setText(label);
       const fieldInput = detail.createEl("input", { type: "text", attr: { placeholder } });
-      fieldInput.value = meta[key] || "";
+      fieldInput.value = (meta[key] as string) || "";
       fieldInput.addEventListener("blur", async () => {
         if (!S.projectMeta[path]) S.projectMeta[path] = {};
         S.projectMeta[path][key] = fieldInput.value.trim();
@@ -329,7 +351,7 @@ export class ManageProjectsModal extends Modal {
       type: "text",
       attr: { placeholder: this.plugin.projectDisplayName(path) },
     });
-    nameInput.value = meta.name || "";
+    nameInput.value = (meta.name as string) || "";
     nameInput.addEventListener("blur", async () => {
       if (!S.projectMeta[path]) S.projectMeta[path] = {};
       S.projectMeta[path].name = nameInput.value.trim();
@@ -343,12 +365,12 @@ export class ManageProjectsModal extends Modal {
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.iconField"));
     const iconWrap = detail.createDiv({ cls: "feuillets-project-icon-row" });
     const iconPreview = iconWrap.createSpan({ cls: "feuillets-cell-icon" });
-    setIcon(iconPreview, meta.icon || "folder");
+    setIcon(iconPreview, (meta.icon as string) || "folder");
     const iconInput = iconWrap.createEl("input", {
       type: "text",
       attr: { placeholder: t("modal.manageProjects.iconPlaceholder") },
     });
-    iconInput.value = meta.icon || "";
+    iconInput.value = (meta.icon as string) || "";
     iconInput.addEventListener("blur", async () => {
       if (!S.projectMeta[path]) S.projectMeta[path] = {};
       S.projectMeta[path].icon = iconInput.value.trim();
@@ -362,7 +384,7 @@ export class ManageProjectsModal extends Modal {
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
       typeSelect.createEl("option", { text: mode.label, value: key });
     }
-    typeSelect.value = resolveType(meta.type);
+    typeSelect.value = resolveType(meta.type as string);
     typeSelect.addEventListener("change", async () => {
       if (!S.projectMeta[path]) S.projectMeta[path] = {};
       S.projectMeta[path].type = typeSelect.value;
@@ -372,7 +394,7 @@ export class ManageProjectsModal extends Modal {
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.descriptionField"));
     const desc = detail.createEl("textarea", { attr: { rows: "2" } });
     desc.addClass("feuillets-grid-full-row");
-    desc.value = meta.description || "";
+    desc.value = (meta.description as string) || "";
     desc.addEventListener("blur", async () => {
       if (!S.projectMeta[path]) S.projectMeta[path] = {};
       S.projectMeta[path].description = desc.value.trim();

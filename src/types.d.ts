@@ -81,7 +81,7 @@ declare type Label = {
 /** Métadonnées par dossier projet : `settings.projectMeta[cheminDossier]`.
  * À la fois fiche d'identité (nom, icône, type, description) et réglages
  * propres à CE projet, qui priment sur les réglages globaux du même nom.
- * Écrit champ par champ par ui/project-modals.js — TOUT est optionnel,
+ * Écrit champ par champ par ui/project-modals.ts — TOUT est optionnel,
  * `{}` est un état normal (voir `S.projectMeta[path] = {}`). */
 declare type ProjectMeta = {
   /** Nom d'affichage personnalisé ; sinon le nom du dossier. */
