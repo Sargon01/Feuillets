@@ -1212,13 +1212,12 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   border: none;
   padding: 0;
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: transparent;
+  text-decoration: none;
 }
 
 .feuillets-journal-open-date:hover {
   color: var(--text-normal);
-  text-decoration-color: currentColor;
+  text-decoration: underline;
 }
 
 .feuillets-journal-last-entry-body {
@@ -4705,19 +4704,16 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
    chez les daltoniens (deutéranomalie/protanomalie) : la couleur seule ne
    suffit pas à distinguer les deux types de signalement. */
 .feuillets-grammar-underline {
-  text-decoration-line: underline;
   text-decoration-thickness: 1.5px;
   text-underline-offset: 3px;
 }
 
 .feuillets-grammar-underline-grammar {
-  text-decoration-style: dashed;
-  text-decoration-color: var(--color-orange, orange);
+  text-decoration: underline dashed var(--color-orange, orange);
 }
 
 .feuillets-grammar-underline-spelling {
-  text-decoration-style: wavy;
-  text-decoration-color: var(--text-error, red);
+  text-decoration: underline wavy var(--text-error, red);
 }
 
 .feuillets-grammar-row-flash {
@@ -4910,8 +4906,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-diff-added {
   background-color: rgba(46, 204, 113, 0.25);
   color: var(--text-normal);
-  text-decoration: underline;
-  text-decoration-color: var(--color-green, #2ecc71);
+  text-decoration: underline var(--color-green, #2ecc71);
   border-radius: 2px;
   padding: 0 2px;
 }
@@ -4919,8 +4914,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-diff-removed {
   background-color: rgba(231, 76, 60, 0.25);
   color: var(--text-muted);
-  text-decoration: line-through;
-  text-decoration-color: var(--color-red, #e74c3c);
+  text-decoration: line-through var(--color-red, #e74c3c);
   border-radius: 2px;
   padding: 0 2px;
 }
