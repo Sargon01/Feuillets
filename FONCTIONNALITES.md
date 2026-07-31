@@ -30,39 +30,25 @@ Typos (réimplémentées, non copiées).
   guillemets/apostrophe/points de suspension/espaces insécables a posteriori
   sur du texte déjà tapé (hors code, jamais touché)
 
-## 2. Correction grammaticale (Grammalecte FR / Harper EN / LanguageTool)
+## 2. Correction grammaticale : greffons dédiés
 
-Vérification grammaticale et orthographique du feuillet actif, intégrée à
-l'éditeur — bureau uniquement.
+Feuillets **n'intègre plus de correcteur grammatical** depuis la 1.4.5, et
+n'en télécharge aucun. Les moteurs Grammalecte, Harper et LanguageTool ont
+été retirés : ils imposaient de télécharger puis d'exécuter du code après
+installation (Grammalecte, Harper) ou d'envoyer le texte du manuscrit à un
+service distant (LanguageTool).
 
-- **Deux moteurs locaux, zéro appel réseau en fonctionnement normal** —
-  Grammalecte pour le français, [Harper](https://writewithharper.com) pour
-  l'anglais (`GrammarCheckerManager`), choisis automatiquement selon la
-  langue active. Un moteur cloud **LanguageTool** reste disponible en option
-  explicite dans les réglages, ou en secours automatique sur mobile (où les
-  moteurs locaux ne peuvent pas tourner).
-- **Téléchargement à la demande** — les ressources de chaque moteur (~8,9 Mo
-  pour Grammalecte, ~17 Mo pour Harper) ne sont pas embarquées dans le
-  plugin ; un bouton dédié par langue dans les réglages les télécharge une
-  seule fois depuis les releases publiques de
-  [`Sargon01/feuillets-assets`](https://github.com/Sargon01/feuillets-assets),
-  mises en cache sur disque ensuite (`grammar-assets-manager.js`).
-- **Vérification à la demande** — commande "Correction grammaticale :
-  vérifier le feuillet actif", nécessite le panneau latéral Feuillets ouvert
-  (n'importe quel onglet) pour initialiser le vérificateur
-- **Navigation entre fautes** — commandes "aller à la faute suivante" /
-  "aller à la faute précédente" (`grammalecte-next-issue`,
-  `grammalecte-prev-issue`), déplacement direct dans l'éditeur
-- **Soulignement dans l'éditeur** — extension CodeMirror dédiée
-  (`grammarIssuesField`), avec gestionnaire de clic sur les fautes signalées
-  (`grammarClickHandler`)
-- **Mots appris / fautes ignorées** — stockés à part (`grammar-user-data.js`,
-  `resources/grammar-user-data.json`, hors `data.json`), gérables via une
-  modale dédiée avec filtre de recherche depuis les réglages
-- **Indisponible sur mobile pour les moteurs locaux** — `GrammalecteChecker`
-  et `HarperChecker` dépendent tous deux de `require("fs")`/`require("vm")`
-  (Node), non chargés si `Platform.isMobile` ; LanguageTool prend le relais
-  automatiquement sur mobile si activé
+Pour relire l'orthographe et la grammaire, installe un greffon dédié depuis
+la galerie communautaire d'Obsidian — par exemple
+[Harper](https://community.obsidian.md/plugins/harper) pour l'anglais, ou un
+greffon LanguageTool. Ces greffons sont indépendants : Feuillets ne les
+détecte pas, ne les configure pas, n'accède pas à leurs données et
+fonctionne à l'identique qu'ils soient installés ou non.
+
+**Feuillets ne dépend d'aucune langue.** Aucun dictionnaire ni moteur
+linguistique n'est embarqué : les outils du panneau Analyse (répétitions,
+équilibre des chapitres, ratio de dialogue, courbe narrative) fonctionnent
+sur n'importe quelle langue en écriture latine.
 
 ## 3. Chercher et remplacer
 
