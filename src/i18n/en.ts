@@ -399,6 +399,7 @@ export const en = {
   "sidebar.tab.journal": "Journal & stats",
   "sidebar.tab.project": "Export & review (.docx)",
   "sidebar.tab.analysis": "Text analysis",
+  "sidebar.tab.proofreading": "Proofreading",
 
   // ---------- Scrivenings (scrivenings-editor.js) ----------
   "scrivenings.openInMainEditorTooltip": "Click to open this file in the main editor",
@@ -431,6 +432,26 @@ export const en = {
 
   // ---------- Analysis (analysis-view.js) ----------
   "analysis.displayText": "Analysis",
+
+  /* Proofreading tab: results provided by a companion language-analysis
+     plugin (see src/api/text-analysis.ts). Feuillets analyses nothing on its
+     own, so these strings name no engine and no language. */
+  "analysisResults.displayText": "Proofreading",
+  "analysisResults.noProvider": "No language analysis module is installed. Add a companion plugin (for example Feuillets Grammalecte) to proofread your sheets.",
+  "analysisResults.notRunYet": "Run \u201cAnalyse the current document\u201d to proofread this sheet.",
+  "analysisResults.running": "Analysing\u2026",
+  "analysisResults.rerunTooltip": "Analyse the active sheet again",
+  "analysisResults.summaryDocument": "{count} issue(s) in \u201c{title}\u201d.",
+  "analysisResults.summarySelection": "{count} issue(s) in the selection of \u201c{title}\u201d.",
+  "analysisResults.stale": "The sheet has changed since this analysis.",
+  "analysisResults.noIssues": "No issues found.",
+  "analysisResults.suggestions": "Suggestions: {list}",
+  "analysisResults.jumpTooltip": "Jump to the passage",
+  "analysisResults.fileGone": "File not found: {path}",
+  "analysisResults.notice.noProvider": "No language analysis module is installed.",
+  "analysisResults.notice.noSelection": "Select a passage to analyse first.",
+  "analysisResults.notice.openSheet": "Open a Markdown sheet to analyse it.",
+  "analysisResults.notice.failed": "Analysis failed: {error}",
   "analysis.openSheetToAnalyze": "Open a sheet to analyze it.",
   "analysis.group.thisSheet": "This sheet",
   "analysis.group.novel": "The novel",
@@ -868,6 +889,9 @@ export const en = {
   "main.cmd.openCompileExportPanel": "Open the Compile & export panel",
   "main.cmd.projectProperties": "Project properties…",
   "main.cmd.projectTags": "Project tags…",
+  "main.cmd.analyzeActiveFile": "Analyse the current document",
+  "main.cmd.analyzeSelection": "Analyse the selection",
+  "main.cmd.openAnalysisResults": "Open analysis results",
   "main.cmd.compileManuscript": "Compile the manuscript",
   "main.cmd.compileJournal": "Compile the writing journal",
   "main.cmd.exportDocx": "Export to .docx",
