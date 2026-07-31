@@ -7,8 +7,9 @@ import { JournalView } from "./journal-view.js";
 import { NotesView } from "./notes-view.js";
 import { ProjectView } from "./project-view.js";
 import { ResearchView } from "./research-view.js";
+import { TextAnalysisView } from "./text-analysis-view.js";
 
-type SidebarTab = "notes" | "research" | "journal" | "project" | "analyse";
+type SidebarTab = "notes" | "research" | "journal" | "project" | "analyse" | "relecture";
 type SidebarPlugin = ConstructorParameters<typeof ProjectView>[1];
 type SidebarSubView = {
   targetContainer?: HTMLElement;
@@ -25,6 +26,7 @@ type SidebarSubViews = {
   docx: SidebarSubView;
   project: SidebarSubView;
   analyse: AnalysisSidebarSubView;
+  relecture: SidebarSubView;
 };
 type SidebarTabDefinition = { id: SidebarTab; icon: string; title: string };
 
@@ -33,7 +35,7 @@ function activeTabFor(value: unknown): SidebarTab {
   if (value === "metadata") return "notes";
   if (
     value === "notes" || value === "research" || value === "journal" ||
-    value === "project" || value === "analyse"
+    value === "project" || value === "analyse" || value === "relecture"
   ) {
     return value;
   }
@@ -56,6 +58,7 @@ export class SidebarFeuilletsView extends ItemView {
       docx: new DocxReviewView(this.leaf, this.plugin),
       project: new ProjectView(this.leaf, this.plugin),
       analyse: new AnalysisView(this.leaf, this.plugin),
+      relecture: new TextAnalysisView(this.leaf, this.plugin),
     };
   }
 
@@ -112,6 +115,7 @@ export class SidebarFeuilletsView extends ItemView {
       { id: "journal", icon: "calendar", title: t("sidebar.tab.journal") },
       { id: "project", icon: "folder-cog", title: t("sidebar.tab.project") },
       { id: "analyse", icon: "bar-chart-3", title: t("sidebar.tab.analysis") },
+      { id: "relecture", icon: "spell-check", title: t("sidebar.tab.proofreading") },
     ];
 
     for (const tab of tabs) {
@@ -151,6 +155,9 @@ export class SidebarFeuilletsView extends ItemView {
       case "analyse":
         await this.renderAnalysisTab(content);
         break;
+      case "relecture":
+        await this.renderProofreadingTab(content);
+        break;
     }
   }
 
@@ -181,6 +188,10 @@ export class SidebarFeuilletsView extends ItemView {
 
   async renderAnalysisTab(element: HTMLElement): Promise<void> {
     await this.renderSubView(this.subViews.analyse, element);
+  }
+
+  async renderProofreadingTab(element: HTMLElement): Promise<void> {
+    await this.renderSubView(this.subViews.relecture, element);
   }
 
   async renderSubView(subView: SidebarSubView, element: HTMLElement): Promise<void> {

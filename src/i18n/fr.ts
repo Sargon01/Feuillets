@@ -398,6 +398,7 @@ export const fr = {
   "sidebar.tab.journal": "Journal & statistiques",
   "sidebar.tab.project": "Export & révision (.docx)",
   "sidebar.tab.analysis": "Analyse du texte",
+  "sidebar.tab.proofreading": "Relecture",
 
   // ---------- Scrivenings (scrivenings-editor.js) ----------
   "scrivenings.openInMainEditorTooltip": "Cliquer pour ouvrir ce fichier dans l'éditeur principal",
@@ -430,6 +431,26 @@ export const fr = {
 
   // ---------- Analyse (analysis-view.js) ----------
   "analysis.displayText": "Analyse",
+
+  /* Onglet Relecture : résultats rendus par un module compagnon d'analyse
+     linguistique (voir src/api/text-analysis.ts). Feuillets n'analyse rien
+     lui-même — ces textes ne nomment donc aucun moteur ni aucune langue. */
+  "analysisResults.displayText": "Relecture",
+  "analysisResults.noProvider": "Aucun module d'analyse linguistique n'est installé. Ajoutez un greffon compagnon (par exemple Feuillets Grammalecte) pour relire vos feuillets.",
+  "analysisResults.notRunYet": "Lancez « Analyser le document courant » pour relire ce feuillet.",
+  "analysisResults.running": "Analyse en cours\u2026",
+  "analysisResults.rerunTooltip": "Relancer l'analyse du feuillet actif",
+  "analysisResults.summaryDocument": "{count} signalement(s) dans « {title} ».",
+  "analysisResults.summarySelection": "{count} signalement(s) dans la sélection de « {title} ».",
+  "analysisResults.stale": "Le feuillet a été modifié depuis cette analyse.",
+  "analysisResults.noIssues": "Aucun signalement.",
+  "analysisResults.suggestions": "Suggestions : {list}",
+  "analysisResults.jumpTooltip": "Aller au passage concerné",
+  "analysisResults.fileGone": "Fichier introuvable : {path}",
+  "analysisResults.notice.noProvider": "Aucun module d'analyse linguistique n'est installé.",
+  "analysisResults.notice.noSelection": "Sélectionnez d'abord un passage à analyser.",
+  "analysisResults.notice.openSheet": "Ouvrez un feuillet Markdown pour l'analyser.",
+  "analysisResults.notice.failed": "Analyse impossible : {error}",
   "analysis.openSheetToAnalyze": "Ouvre un feuillet pour l'analyser.",
   "analysis.group.thisSheet": "Ce feuillet",
   "analysis.group.novel": "Le roman",
@@ -867,6 +888,9 @@ export const fr = {
   "main.cmd.openCompileExportPanel": "Ouvrir le panneau Compilation & export",
   "main.cmd.projectProperties": "Propriétés du projet…",
   "main.cmd.projectTags": "Tags du projet…",
+  "main.cmd.analyzeActiveFile": "Analyser le document courant",
+  "main.cmd.analyzeSelection": "Analyser la sélection",
+  "main.cmd.openAnalysisResults": "Ouvrir les résultats d'analyse",
   "main.cmd.compileManuscript": "Compiler le manuscrit",
   "main.cmd.compileJournal": "Compiler le carnet d'écriture",
   "main.cmd.exportDocx": "Exporter en .docx",
