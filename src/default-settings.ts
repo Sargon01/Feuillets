@@ -6,6 +6,10 @@ export type DefaultSettings = {
   insertFolderTitles: boolean;
   insertTitles: boolean;
   insertSceneTitles: boolean;
+  /** Renumérote 1, 2, 3… en continu les notes de bas de page dans le
+   *  manuscrit COMPILÉ (jamais les fichiers sources) — voir compile-export.ts
+   *  et utils/footnotes.ts, renumberFootnotesAcrossTexts(). */
+  footnoteRenumberOnCompile: boolean;
   separator: string;
   orders: Record<string, string[]>;
   folderPositions: Record<string, number>;
@@ -159,6 +163,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   insertFolderTitles: true,
   insertTitles: true,
   insertSceneTitles: false,
+  footnoteRenumberOnCompile: true,
   separator: "\n\n",
   orders: {},
   folderPositions: {},

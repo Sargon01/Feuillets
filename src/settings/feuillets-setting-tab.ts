@@ -1556,6 +1556,16 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName(t("settings.footnoteRenumberOnCompile.name"))
+      .setDesc(t("settings.footnoteRenumberOnCompile.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.footnoteRenumberOnCompile).onChange(async (v) => {
+          S.footnoteRenumberOnCompile = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
       .setName(t("settings.manuscriptTitle.name"))
       .setDesc(t("settings.manuscriptTitle.desc"))
       .addText((t2) =>

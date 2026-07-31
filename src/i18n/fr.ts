@@ -147,6 +147,17 @@ export const fr = {
   "shared.fileView.openSceneFirst": "Ouvre une scène et place le curseur dedans avant d'insérer un extrait.",
 
   "shared.footnotes.title": "Notes de bas de page (relecture)",
+
+  /* Modale "Vérifier les notes de bas de page du document" (voir
+     ui/footnote-modals.ts). Vocabulaire volontairement neutre : un constat,
+     jamais une accusation d'erreur. */
+  "footnotes.check.title": "Notes de bas de page",
+  "footnotes.check.none": "Aucune anomalie détectée.",
+  "footnotes.check.missing": "Appels sans définition",
+  "footnotes.check.unused": "Définitions sans appel",
+  "footnotes.check.duplicate": "Identifiants définis plusieurs fois",
+  "footnotes.check.empty": "Définitions vides",
+  "footnotes.check.malformed": "Appels mal formés",
   "shared.footnotes.openSceneTooltip": "Ouvrir cette scène",
   "shared.footnotes.definedNeverCited": "Définie mais jamais citée dans le texte de cette scène — à vérifier.",
   "shared.footnotes.citedNeverDefined": "citée dans le texte, mais aucune définition correspondante",
@@ -832,6 +843,8 @@ export const fr = {
   "settings.insertTitles.desc": "Dossiers-chapitres : leur nom. Chapitres-fichiers : la clé `titre` uniquement — jamais le nom du fichier.",
   "settings.insertSceneTitles.name": "Insérer les titres des {unitPlural}",
   "settings.insertSceneTitles.desc": "Clé `titre` uniquement — les {unitPlural} sans titre s'enchaînent.",
+  "settings.footnoteRenumberOnCompile.name": "Renuméroter les notes dans le document compilé",
+  "settings.footnoteRenumberOnCompile.desc": "Continue (1, 2, 3…) dans l'ordre du manuscrit compilé. Ne modifie jamais les fichiers sources.",
   "settings.manuscriptTitle.name": "Titre du manuscrit (page de titre .docx)",
   "settings.manuscriptTitle.desc": "Vide : nom du dossier projet.",
   "settings.manuscriptAuthor.name": "Auteur (page de titre .docx)",
@@ -949,6 +962,9 @@ export const fr = {
   "main.cmd.insertFootnote": "Insérer une note de bas de page",
   "main.cmd.insertCitation": "Insérer une citation",
   "main.cmd.renumberFootnotes": "Renuméroter les notes de bas de page",
+  "main.cmd.gotoFootnoteDefinition": "Aller à la définition de la note",
+  "main.cmd.gotoFootnoteReference": "Revenir à l'appel de note",
+  "main.cmd.checkFootnotes": "Vérifier les notes de bas de page du document",
 
   "main.notice.journalPanelHidden": "Panneau Journal & statistiques masqué — réactive-le dans les réglages.",
   "main.notice.projectPanelHidden": "Panneau Projet & export masqué — réactive-le dans les réglages.",
@@ -996,6 +1012,11 @@ export const fr = {
   "main.notice.footnoteInserted": "Note {n} insérée.",
   "main.notice.nothingToRenumber": "Rien à renuméroter.",
   "main.notice.footnotesRenumbered": "Notes de bas de page renumérotées.",
+  "main.notice.renumberFootnotesConfirm": "Cette action renomme tous les identifiants numériques et met à jour leurs appels et définitions. Les identifiants nommés (ex. [^source]) ne sont pas modifiés.",
+  "main.notice.noFootnoteRefHere": "Aucun appel de note ici.",
+  "main.notice.footnoteDefMissing": "La note [^{id}] n'a pas de définition dans ce fichier.",
+  "main.notice.notInFootnoteDefinition": "Place le curseur dans une définition de note pour revenir à son appel.",
+  "main.notice.footnoteRefMissing": "La note [^{id}] n'est appelée nulle part dans ce fichier.",
   "main.notice.concentrationModeOn": "Mode concentration — Échap pour sortir.",
   "main.notice.concentrationModeError": "Erreur du mode concentration.",
   "main.notice.activeFileNotInProject": "Le fichier actif n'appartient pas au projet.",
