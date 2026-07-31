@@ -61,6 +61,13 @@ import { FileStatsModal } from "./ui/stats-modal.js";
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
 import { stripLegacyGrammarSettings, cleanupLegacyEnginesOnDisk } from "./services/legacy-grammar-cleanup.js";
+import {
+  TextAnalysisRegistry,
+  createPublicApi,
+  type FeuilletsPublicApi,
+  type TextAnalysisProvider,
+} from "./api/text-analysis.js";
+import { runAnalysis, type AnalysisRun } from "./services/text-analysis.js";
 
 import {
   Plugin,
@@ -180,6 +187,20 @@ class FeuilletsPlugin extends Plugin {
   _ribbonDefs?: Array<{ key: string; icon: string; labelKey: string; action: () => void; hideable?: boolean }>;
   _ribbonEls?: Record<string, HTMLElement>;
 
+  /* ---- Analyse linguistique déléguée (voir src/api/text-analysis.ts) ----
+     Feuillets n'embarque aucun moteur : un greffon compagnon enregistre un
+     fournisseur via `plugin.api`, Feuillets se charge du texte, des offsets,
+     de l'affichage et de la navigation. Sans compagnon, tout ceci reste
+     inerte — aucune commande ne plante, le panneau explique simplement
+     qu'il manque un module. */
+  analysisRegistry = new TextAnalysisRegistry();
+  /** Surface publique lue par les greffons compagnons. Nommée `api` par
+   *  convention Obsidian (`app.plugins.plugins["feuillets"].api`). */
+  api: FeuilletsPublicApi = createPublicApi(this.analysisRegistry);
+  /** Dernière analyse effectuée, affichée par l'onglet Relecture. */
+  analysisRun: AnalysisRun | null = null;
+  analysisRunning = false;
+
 
   isLayoutReady?: boolean;
   concentrationActive?: boolean;
@@ -286,6 +307,12 @@ class FeuilletsPlugin extends Plugin {
     this.registerEditorExtension(searchHighlightField);
 
     cleanupLegacyEnginesOnDisk(this.app, this.manifest);
+
+    /* Un compagnon peut s'enregistrer/se retirer à tout moment (installation,
+       rechargement du greffon) : le panneau ouvert doit suivre. `register()`
+       coupe l'abonnement au déchargement de Feuillets — pas de référence
+       retenue vers une vue morte. */
+    this.register(this.analysisRegistry.onChange(() => this.refreshAnalysisPanel()));
 
     initScenesEditor(this as unknown as ScenesEditorPlugin);
   }
@@ -414,6 +441,25 @@ class FeuilletsPlugin extends Plugin {
       id: "open-project-tags",
       name: t("main.cmd.projectTags"),
       callback: () => new ProjectTagsModal(this.app, this).open(),
+    });
+    /* Commandes génériques d'analyse linguistique : toujours présentes, même
+       sans module compagnon installé (elles le disent alors, sans échouer).
+       C'est Feuillets qui les porte, pour que le compagnon n'ait pas à
+       redéclarer les mêmes entrées dans la palette. */
+    this.addCommand({
+      id: "analyze-active-file",
+      name: t("main.cmd.analyzeActiveFile"),
+      callback: () => { void this.analyzeActiveFile(); },
+    });
+    this.addCommand({
+      id: "analyze-selection",
+      name: t("main.cmd.analyzeSelection"),
+      callback: () => { void this.analyzeSelection(); },
+    });
+    this.addCommand({
+      id: "open-analysis-results",
+      name: t("main.cmd.openAnalysisResults"),
+      callback: () => { void this.activateSidebarView("relecture"); },
     });
     this.addCommand({
       id: "compile-manuscript",
@@ -2599,6 +2645,84 @@ class FeuilletsPlugin extends Plugin {
         if (typeof view.render === "function") {
           await view.render();
         }
+      }
+    }
+  }
+
+  /* ---------- Analyse linguistique (déléguée à un compagnon) ---------- */
+
+  getAnalysisProvider(providerId?: string): TextAnalysisProvider | null {
+    return this.analysisRegistry.get(providerId);
+  }
+
+  /** Analyse le feuillet actif ; si une sélection existe dans l'éditeur, ne
+   *  porte que sur cette sélection (les offsets restent ceux du fichier). */
+  async analyzeActiveFile(): Promise<void> {
+    return this.runAnalysisCommand(this.currentSelectionRange());
+  }
+
+  /** Analyse explicitement la sélection : sans sélection, refuse plutôt que
+   *  d'analyser tout le document à l'insu de l'utilisatrice — la commande
+   *  « analyser le document courant » est là pour ça. */
+  async analyzeSelection(): Promise<void> {
+    const selection = this.currentSelectionRange();
+    if (!selection) {
+      new Notice(t("analysisResults.notice.noSelection"));
+      return;
+    }
+    return this.runAnalysisCommand(selection);
+  }
+
+  currentSelectionRange(): { start: number; end: number } | null {
+    const editor = this.activeEditorAnywhere();
+    if (!editor || !editor.somethingSelected()) return null;
+    const from = editor.posToOffset(editor.getCursor("from"));
+    const to = editor.posToOffset(editor.getCursor("to"));
+    return to > from ? { start: from, end: to } : null;
+  }
+
+  async runAnalysisCommand(selection: { start: number; end: number } | null): Promise<void> {
+    if (!this.getAnalysisProvider()) {
+      new Notice(t("analysisResults.notice.noProvider"));
+      void this.activateSidebarView("relecture");
+      return;
+    }
+    const file = this.app.workspace.getActiveFile();
+    if (!file || file.extension !== "md") {
+      new Notice(t("analysisResults.notice.openSheet"));
+      return;
+    }
+
+    this.analysisRunning = true;
+    await this.activateSidebarView("relecture");
+    try {
+      this.analysisRun = await runAnalysis(this.app, this.analysisRegistry, file, {
+        selection,
+        fileTitle: this.titleFor(file),
+      });
+    } catch (error) {
+      this.analysisRun = null;
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(
+        message === "NO_PROVIDER"
+          ? t("analysisResults.notice.noProvider")
+          : t("analysisResults.notice.failed", { error: message })
+      );
+    } finally {
+      this.analysisRunning = false;
+      this.refreshAnalysisPanel();
+    }
+  }
+
+  /** Redessine l'onglet Relecture s'il est ouvert et affiché. Appelé après
+   *  une analyse et à chaque (dés)enregistrement de fournisseur, pour que
+   *  l'installation ou le retrait du compagnon se voie sans rouvrir le
+   *  panneau. */
+  refreshAnalysisPanel(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)) {
+      const view = leaf.view as View & { activeTab?: string; render?: () => Promise<void> };
+      if (view && view.activeTab === "relecture" && typeof view.render === "function") {
+        void view.render();
       }
     }
   }
