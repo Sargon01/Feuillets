@@ -2,6 +2,7 @@ import { TFile, setIcon, Notice, MarkdownView, type Editor, type WorkspaceLeaf }
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import type { ResolvedAnalysisIssue, TextAnalysisProvider } from "../api/text-analysis.js";
 import type { AnalysisRun } from "../services/text-analysis.js";
+import { openIssueContextMenu } from "../services/grammar-context-menu.js";
 import { t } from "../i18n/index.js";
 
 type BaseFeuilletsPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
@@ -49,6 +50,8 @@ export class TextAnalysisView extends BaseFeuilletsView {
 
   async render(): Promise<void> {
     const container = this.targetContainer || this.contentEl;
+    const prevScrollTop = container.scrollTop;
+
     container.empty();
     container.addClass("feuillets-grammar-container");
 
@@ -100,6 +103,8 @@ export class TextAnalysisView extends BaseFeuilletsView {
 
     const list = container.createDiv({ cls: "feuillets-research-list" });
     for (const issue of run.issues) this.renderIssue(list, issue);
+
+    container.scrollTop = prevScrollTop;
   }
 
   renderIssue(container: HTMLElement, issue: ResolvedAnalysisIssue): void {
@@ -116,17 +121,21 @@ export class TextAnalysisView extends BaseFeuilletsView {
     const excerpt = this.excerptFor(issue);
     if (excerpt) name.createDiv({ cls: "feuillets-docx-review-anchor" }).setText(`« ${excerpt} »`);
 
-    if (issue.suggestions && issue.suggestions.length > 0) {
-      name
-        .createDiv({ cls: "feuillets-notes-sub" })
-        .setText(t("analysisResults.suggestions", { list: issue.suggestions.join(" · ") }));
+    // Afficher le chemin de fichier uniquement pour une analyse multi-fichiers / roman
+    const run = this.plugin.analysisRun;
+    const isMultiFile = run && run.scope !== "document" && run.scope !== "selection";
+    if (isMultiFile || (run && issue.filePath !== run.filePath)) {
+      const shortPath = issue.filePath.split("/").slice(-2).join("/");
+      name.createDiv({ cls: "feuillets-docx-review-meta feuillets-mt-xs" }).setText(shortPath);
     }
-
-    name.createDiv({ cls: "feuillets-docx-review-meta" }).setText(issue.filePath);
 
     row.title = t("analysisResults.jumpTooltip");
     row.addEventListener("click", () => {
       void this.revealIssue(issue);
+    });
+
+    row.addEventListener("contextmenu", (evt) => {
+      openIssueContextMenu(this.plugin, issue, evt, issue.filePath);
     });
   }
 

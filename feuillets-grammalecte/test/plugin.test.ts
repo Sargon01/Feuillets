@@ -272,7 +272,7 @@ test("analyse : le fournisseur ignore la sélection — Feuillets lui a déjà d
 /* ----------------------------- réglages ----------------------------- */
 
 test("réglages : valeurs par défaut prudentes", () => {
-  assert.deepEqual(DEFAULT_SETTINGS, { checkSpelling: true, detectRepetitions: false, maxSuggestions: 5 });
+  assert.deepEqual(DEFAULT_SETTINGS, { checkSpelling: true, detectRepetitions: false, maxSuggestions: 5, learnedWords: [] });
 });
 
 test("réglages : un data.json abîmé retombe sur des valeurs valides", () => {

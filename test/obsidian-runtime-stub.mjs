@@ -62,7 +62,27 @@ export class Setting {
 
 export class MarkdownView {}
 
-export class Menu {}
+export class Menu {
+  constructor() {
+    this.items = [];
+  }
+  addItem(cb) {
+    const item = {
+      title: "",
+      icon: "",
+      setTitle(t) { this.title = t; return this; },
+      setIcon(i) { this.icon = i; return this; },
+      onClick(fn) { this.callback = fn; return this; },
+    };
+    cb(item);
+    this.items.push(item);
+    return this;
+  }
+  showAtPosition(pos) {
+    this.position = pos;
+    return this;
+  }
+}
 
 export class Keymap {}
 

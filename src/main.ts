@@ -60,6 +60,11 @@ import { FileStatsModal } from "./ui/stats-modal.js";
 
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
+import {
+  grammarIssuesField,
+  grammarContextMenuExtension,
+  applyGrammarHighlights,
+} from "./utils/cm-grammar-highlighter.js";
 import { stripLegacyGrammarSettings, cleanupLegacyEnginesOnDisk } from "./services/legacy-grammar-cleanup.js";
 import {
   TextAnalysisRegistry,
@@ -200,6 +205,8 @@ class FeuilletsPlugin extends Plugin {
   /** Dernière analyse effectuée, affichée par l'onglet Relecture. */
   analysisRun: AnalysisRun | null = null;
   analysisRunning = false;
+  autoAnalyzeTimer: ReturnType<typeof setTimeout> | null = null;
+  lastAutoAnalyzedContent = "";
 
 
   isLayoutReady?: boolean;
@@ -305,6 +312,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerSwipeGestures();
     this.registerAutoBackup();
     this.registerEditorExtension(searchHighlightField);
+    this.registerEditorExtension([grammarIssuesField, grammarContextMenuExtension(this)]);
 
     cleanupLegacyEnginesOnDisk(this.app, this.manifest);
 
@@ -976,6 +984,42 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       void this.syncProjectPanelsVisibility();
     }));
+
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (editor) => {
+        if (this.settings.autoAnalyzeInRelecture === false) return;
+        if (!this.isRelectureViewActive()) return;
+
+        const file = this.app.workspace.getActiveFile();
+        if (!file || file.extension !== "md") return;
+
+        const content = editor.getValue();
+        if (content === this.lastAutoAnalyzedContent) return;
+
+        if (this.autoAnalyzeTimer) {
+          clearTimeout(this.autoAnalyzeTimer);
+          this.autoAnalyzeTimer = null;
+        }
+
+        this.autoAnalyzeTimer = setTimeout(() => {
+          this.autoAnalyzeTimer = null;
+          if (this.settings.autoAnalyzeInRelecture === false) return;
+          if (!this.isRelectureViewActive()) return;
+
+          const currentFile = this.app.workspace.getActiveFile();
+          if (!currentFile || currentFile.path !== file.path) return;
+
+          const currentContent = editor.getValue();
+          if (currentContent === this.lastAutoAnalyzedContent) return;
+          this.lastAutoAnalyzedContent = currentContent;
+
+          void (async () => {
+            await this.analyzeActiveFile();
+            if (typeof editor.focus === "function") editor.focus();
+          })();
+        }, 1000);
+      })
+    );
   }
 
   async loadDeferredViews() {
@@ -2700,6 +2744,11 @@ class FeuilletsPlugin extends Plugin {
         selection,
         fileTitle: this.titleFor(file),
       });
+      const activeEd = this.activeEditorAnywhere();
+      if (activeEd) {
+        const cm = (activeEd as unknown as Record<string, unknown>).cm as { dispatch(spec: { effects?: unknown }): void } | undefined;
+        if (cm) applyGrammarHighlights(cm, this.analysisRun ? this.analysisRun.issues : [], this, file.path);
+      }
     } catch (error) {
       this.analysisRun = null;
       const message = error instanceof Error ? error.message : String(error);
@@ -2725,6 +2774,16 @@ class FeuilletsPlugin extends Plugin {
         void view.render();
       }
     }
+  }
+
+  isRelectureViewActive(): boolean {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)) {
+      const view = leaf.view as View & { activeTab?: string };
+      if (view && view.activeTab === "relecture") {
+        return true;
+      }
+    }
+    return false;
   }
 
   async activateNotes() { return this.activateSidebarView("notes"); }

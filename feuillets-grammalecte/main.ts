@@ -68,7 +68,7 @@ export default class FeuilletsGrammalectePlugin extends Plugin {
     const api = getFeuilletsApi(this.app);
     if (!api) return false;
 
-    this.provider ??= new GrammalecteProvider(() => this.settings);
+    this.provider ??= new GrammalecteProvider(() => this.settings, () => this.saveSettings());
     api.registerAnalysisProvider(this.provider);
     this.connected = true;
     return true;
