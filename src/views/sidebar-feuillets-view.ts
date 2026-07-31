@@ -3,13 +3,12 @@ import { VIEW_SIDEBAR_FEUILLETS } from "../constants.js";
 import { t } from "../i18n/index.js";
 import { AnalysisView } from "./analysis-view.js";
 import { DocxReviewView } from "./docx-review-view.js";
-import { GrammarView } from "./grammar-view.js";
 import { JournalView } from "./journal-view.js";
 import { NotesView } from "./notes-view.js";
 import { ProjectView } from "./project-view.js";
 import { ResearchView } from "./research-view.js";
 
-type SidebarTab = "notes" | "research" | "journal" | "project" | "grammar" | "analyse";
+type SidebarTab = "notes" | "research" | "journal" | "project" | "analyse";
 type SidebarPlugin = ConstructorParameters<typeof ProjectView>[1];
 type SidebarSubView = {
   targetContainer?: HTMLElement;
@@ -17,9 +16,7 @@ type SidebarSubView = {
 };
 type AnalysisSidebarSubView = SidebarSubView & {
   _chaptersCache: unknown;
-  _vocabCache: unknown;
   _dashboardCache: unknown;
-  _romanVocabCache: unknown;
 };
 type SidebarSubViews = {
   notes: SidebarSubView;
@@ -27,7 +24,6 @@ type SidebarSubViews = {
   journal: SidebarSubView;
   docx: SidebarSubView;
   project: SidebarSubView;
-  grammar: SidebarSubView;
   analyse: AnalysisSidebarSubView;
 };
 type SidebarTabDefinition = { id: SidebarTab; icon: string; title: string };
@@ -37,7 +33,7 @@ function activeTabFor(value: unknown): SidebarTab {
   if (value === "metadata") return "notes";
   if (
     value === "notes" || value === "research" || value === "journal" ||
-    value === "project" || value === "grammar" || value === "analyse"
+    value === "project" || value === "analyse"
   ) {
     return value;
   }
@@ -59,7 +55,6 @@ export class SidebarFeuilletsView extends ItemView {
       journal: new JournalView(this.leaf, this.plugin),
       docx: new DocxReviewView(this.leaf, this.plugin),
       project: new ProjectView(this.leaf, this.plugin),
-      grammar: new GrammarView(this.leaf, this.plugin),
       analyse: new AnalysisView(this.leaf, this.plugin),
     };
   }
@@ -85,7 +80,7 @@ export class SidebarFeuilletsView extends ItemView {
        dépend du feuillet courant (Notes, Correcteur, Analyse — tous lisent
        getActiveFile). Recherche/Projet/Journal ne dépendent pas du feuillet
        et ne sont donc pas re-rendus inutilement. */
-    const feuilletTabs = new Set<SidebarTab>(["notes", "grammar", "analyse"]);
+    const feuilletTabs = new Set<SidebarTab>(["notes", "analyse"]);
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
         if (!feuilletTabs.has(this.activeTab)) return;
@@ -99,9 +94,7 @@ export class SidebarFeuilletsView extends ItemView {
     this.registerEvent(
       this.app.vault.on("modify", () => {
         this.subViews.analyse._chaptersCache = null;
-        this.subViews.analyse._vocabCache = null;
         this.subViews.analyse._dashboardCache = null;
-        this.subViews.analyse._romanVocabCache = null;
       })
     );
   }
@@ -118,7 +111,6 @@ export class SidebarFeuilletsView extends ItemView {
       { id: "research", icon: "book-marked", title: t("sidebar.tab.research") },
       { id: "journal", icon: "calendar", title: t("sidebar.tab.journal") },
       { id: "project", icon: "folder-cog", title: t("sidebar.tab.project") },
-      { id: "grammar", icon: "spell-check", title: t("sidebar.tab.grammar") },
       { id: "analyse", icon: "bar-chart-3", title: t("sidebar.tab.analysis") },
     ];
 
@@ -156,9 +148,6 @@ export class SidebarFeuilletsView extends ItemView {
       case "project":
         await this.renderProjectTab(content);
         break;
-      case "grammar":
-        await this.renderGrammarTab(content);
-        break;
       case "analyse":
         await this.renderAnalysisTab(content);
         break;
@@ -188,10 +177,6 @@ export class SidebarFeuilletsView extends ItemView {
 
     const docxEl = element.createDiv({ cls: "feuillets-merged-section" });
     await this.renderSubView(this.subViews.docx, docxEl);
-  }
-
-  async renderGrammarTab(element: HTMLElement): Promise<void> {
-    await this.renderSubView(this.subViews.grammar, element);
   }
 
   async renderAnalysisTab(element: HTMLElement): Promise<void> {

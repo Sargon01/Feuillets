@@ -315,17 +315,17 @@ async function generate(app: App, S: FeuilletsSettings, plugin: DemoPlugin, manu
     body: "Une scène tout à fait ordinaire, sans label ni fil particulier — pour montrer qu'aucun champ n'est obligatoire en dehors de la structure elle-même (dossier projet → parties → chapitres → scènes).\n\nEssaie ici le mode concentration (icône focus dans le binder ou le ruban) : plein écran d'écriture, texte hors focus estompé, compteur de mots flottant, Échap pour sortir. Ou ouvre la barre « Chercher et remplacer dans le manuscrit… » (commande dédiée, distincte de la recherche native d'Obsidian) pour chercher un mot dans tout le projet.\n\nEssaie aussi de taper directement ici : guillemets droits `\"` → « », tirets `--`/`---` → – / — avec espace insécable, apostrophe `'` → ’, tout automatique (désactivable dans les réglages). La commande « Typographie française (sélection ou document) » applique la même chose *a posteriori* sur du texte déjà tapé ailleurs. Alinéas automatiques en début de paragraphe, césure française en mode lecture, justification en Live Preview — tout ça sans rien configurer.\n\nD'autres commandes ponctuelles existent pour le nettoyage : réparer des séparateurs de scène échappés `\\*\\*\\*` (copiés depuis un autre éditeur) en vrais `***`, compacter des lignes vides multiples, insérer un séparateur de scène, ou extraire/éclater un document de chronologie en fiches datées individuelles. Et sur mobile/tablette (ou trackpad/souris horizontale type Magic Mouse) : balaie le tiers gauche/droit de l'écran pour ouvrir/fermer les barres latérales sans toucher un bouton.",
   }));
 
-  /* Scène volontairement imparfaite : fautes réelles pour Grammalecte,
-     répétitions/verbes passe-partout/voix passive pour le panneau Analyse,
-     et un champ `rythme` par dimension pour la courbe narrative. Les deux
-     outils sont distincts (correction grammaticale vs style), d'où les
-     deux types de défauts assemblés dans le même texte. */
+  /* Scène volontairement imparfaite : répétitions, verbes passe-partout et
+     voix passive pour le panneau Analyse, plus un champ `rythme` par
+     dimension pour la courbe narrative. Feuillets ne corrige plus
+     l'orthographe (voir README) : les défauts assemblés ici sont ceux que
+     l'analyse de style sait montrer. */
   await writeSheet(app, chap2, "2. Brouillon à corriger", [
     "---",
     "title: Brouillon à corriger",
     "short_title: Brouillon à corriger",
     "order: 2",
-    "synopsis: Scène délibérément imparfaite, pour tester la correction grammaticale et le panneau Analyse.",
+    "synopsis: Scène délibérément imparfaite, pour découvrir le panneau Analyse.",
     "status: Brouillon",
     "goal: 800",
     "pace:",
@@ -340,7 +340,7 @@ async function generate(app: App, S: FeuilletsSettings, plugin: DemoPlugin, manu
     "",
     "La décision fut prise par Elira. La route fut prise sans un mot. Le silence fut à peine rompu par le vent.",
     "",
-    "Cette scène contient volontairement : une faute d'accord (« Les chevals », « lu » au lieu de « lue ») pour la **correction grammaticale** (commande « vérifier le feuillet actif », panneau latéral Feuillets ouvert au préalable) ; une répétition serrée (« cette phrase » × 3) et un abus du verbe passe-partout « être » pour le **panneau Analyse** (icône dédiée, à côté de Notes/Recherche/Propriétés) ; trois phrases à la voix passive (« fut prise », « fut prise », « fut rompu ») que ce même panneau signale aussi. Le champ `rythme:` (action/dialogue/description/introspection, 0 à 5) alimente sa courbe narrative — répète-le sur d'autres scènes pour voir la courbe se dessiner sur tout le manuscrit.\n\nSi un jour un directeur littéraire ou un correcteur externe renvoie ses remarques sur CE genre de scène sous forme de fichier `.docx` annoté (suivi des modifications Word, commentaires en marge), c'est le **panneau Révision** (pas Grammalecte, pas Analyse — un troisième outil distinct) qui les intègre sans quitter Obsidian : importe le `.docx` reçu, parcours les commentaires un par un, applique ou ignore chaque suggestion directement dans l'éditeur. Ce projet d'exemple ne fournit pas de `.docx` annoté tout fait (il faudrait un vrai fichier Word avec des pistes de révision, pas juste du Markdown) — mais le panneau accepte n'importe quel `.docx` de ce type, y compris un que tu créerais toi-même dans Word en ajoutant un commentaire sur un paragraphe puis en l'exportant.",
+    "Cette scène contient volontairement : une répétition serrée (« cette phrase » × 3) et un abus du verbe passe-partout « être » pour le **panneau Analyse** (icône dédiée, à côté de Notes/Recherche/Propriétés) ; trois phrases à la voix passive (« fut prise », « fut prise », « fut rompu ») que ce même panneau signale aussi. Le champ `rythme:` (action/dialogue/description/introspection, 0 à 5) alimente sa courbe narrative — répète-le sur d'autres scènes pour voir la courbe se dessiner sur tout le manuscrit.\n\nSi un jour un directeur littéraire ou un correcteur externe renvoie ses remarques sur CE genre de scène sous forme de fichier `.docx` annoté (suivi des modifications Word, commentaires en marge), c'est le **panneau Révision** (un outil distinct du panneau Analyse) qui les intègre sans quitter Obsidian : importe le `.docx` reçu, parcours les commentaires un par un, applique ou ignore chaque suggestion directement dans l'éditeur. Ce projet d'exemple ne fournit pas de `.docx` annoté tout fait (il faudrait un vrai fichier Word avec des pistes de révision, pas juste du Markdown) — mais le panneau accepte n'importe quel `.docx` de ce type, y compris un que tu créerais toi-même dans Word en ajoutant un commentaire sur un paragraphe puis en l'exportant.",
     "",
   ]);
 
@@ -576,7 +576,7 @@ async function generate(app: App, S: FeuilletsSettings, plugin: DemoPlugin, manu
     "",
     "Ouvre **« Brouillon à corriger »** (Partie 1 → Chapitre 2) pour tester les deux outils suivants sur un texte volontairement fautif :",
     "",
-    "- **Correction grammaticale (Grammalecte)** — commande « Correction grammaticale : vérifier le feuillet actif » (le panneau latéral Feuillets doit être ouvert au préalable, n'importe quel onglet). Fautes soulignées directement dans l'éditeur, commandes « faute suivante »/« faute précédente ». Bureau uniquement.",
+    "- **Analyse de style** — panneau Analyse (icône dédiée) : répétitions, équilibre des chapitres, ratio de dialogue, courbe narrative. Feuillets ne corrige pas l'orthographe : pour cela, installe un greffon dédié depuis la galerie communautaire d'Obsidian.",
     "- **Panneau Analyse** (icône dédiée, à côté de Notes/Recherche/Propriétés) — sur cette même scène : répétition de « cette phrase » signalée, verbe passe-partout « être » repéré, trois tournures à la voix passive détectées. Le champ `rythme:` (action/dialogue/description/introspection, posé aussi sur « Ouverture » et « La rencontre ») alimente la courbe narrative du panneau sur l'ensemble du manuscrit.",
     "- **Panneau Révision** — pour intégrer les retours d'un directeur/correcteur reçus en `.docx` annoté ; importe n'importe quel `.docx` avec des commentaires Word pour l'essayer (panneau vide au départ, aucun fichier d'exemple généré ici).",
     "",
