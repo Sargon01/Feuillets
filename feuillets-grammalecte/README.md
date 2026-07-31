@@ -1,132 +1,70 @@
 # Feuillets Grammalecte
 
-Greffon **compagnon** de [Feuillets](../README.md) : il ajoute la correction
-grammaticale et orthographique française **hors ligne** (moteur
-[Grammalecte](https://grammalecte.net/)) au studio d'écriture, sans que
-Feuillets lui-même embarque le moindre moteur linguistique.
+**Feuillets Grammalecte** est le greffon compagnon officiel d'analyse linguistique pour le studio d'écriture [Feuillets](https://github.com/Sargon01/Feuillets). Il embarque localement le moteur de correction grammaticale et orthographique **Grammalecte** pour offrir une relecture fluide et confidentielle directement dans Obsidian.
 
-- Feuillets fournit le texte, l'affichage des signalements et la navigation.
-- Ce greffon fournit uniquement le moteur.
-- Sans ce greffon, Feuillets fonctionne normalement : l'onglet **Relecture**
-  indique simplement qu'aucun module d'analyse n'est installé.
+> **Avertissement** : Ce projet est une intégration indépendante développée pour Obsidian et **n'est pas le projet officiel Grammalecte**.
 
-L'analyse est **entièrement locale** : aucune requête réseau, le texte ne
-quitte jamais l'ordinateur. Elle ne se déclenche que sur commande explicite et
-ne modifie jamais les fichiers analysés.
+---
 
-## Utilisation
+## 🎯 Rôle du compagnon et dépendance
 
-1. Activer Feuillets, puis Feuillets Grammalecte.
-2. Ouvrir un feuillet Markdown.
-3. Palette de commandes → **Analyser le document courant** (ou **Analyser la
-   sélection**). Ces commandes appartiennent à Feuillets : ce greffon n'en
-   ajoute aucune qui les doublerait.
-4. Les signalements s'affichent dans l'onglet **Relecture** du panneau
-   Feuillets. Un clic ouvre le feuillet et sélectionne le passage concerné.
+Ce greffon fournit un moteur de correction linguistique local qui s'enregistre automatiquement auprès du plugin principal **[Feuillets](https://github.com/Sargon01/Feuillets)**.
 
-Le moteur est chargé **à la première analyse**, pas au démarrage d'Obsidian :
-~0,2 s et ~43 Mo de mémoire à ce moment-là seulement, puis ~15 ms par
-feuillet.
+- **Dépendance requise** : Le plugin **Feuillets** (v1.5.0 ou supérieure) doit être installé et activé dans Obsidian.
+- **Fournisseur autonome** : Feuillets Grammalecte fournit l'analyse linguistique sans ajouter de logique grammaticale lourde dans le cœur de Feuillets.
 
-## Installation
+---
 
-Installation Obsidian standard, sans rien de particulier :
+## 🔒 100 % Local et Confidentiel
 
-1. Créer `<coffre>/.obsidian/plugins/feuillets-grammalecte/`.
-2. Y déposer `manifest.json` et `main.js`.
-3. Recharger Obsidian, activer le greffon.
+- **Aucun envoi vers un serveur externe** : Vos manuscrits, romans et notes ne quittent jamais votre ordinateur.
+- **Exécution hors ligne** : Le moteur Grammalecte et son dictionnaire français complet sont entièrement embarqués dans le plugin. Aucune connexion internet n'est requise.
 
-Le moteur Grammalecte est **embarqué dans `main.js`** : aucun dossier
-`resources/` à copier, aucun téléchargement, aucune étape supplémentaire.
-`main.js` pèse donc ~1,9 Mo — 9,3 Mo de règles et de dictionnaire compressés
-en une archive brotli unique (1,45 Mo), encodée en base64.
+---
 
-## Développement
+## ✨ Fonctionnalités
 
-Les sources du moteur ne sont **pas** commitées (9,3 Mo). Elles sont
-nécessaires pour **construire** le greffon (pas pour l'utiliser) et
-s'extraient de l'historique Git de Feuillets, sans réseau :
+- **Correction orthographique et grammaticale** : Détection des fautes d'orthographe, d'accord, de ponctuation, de typographie et des répétitions.
+- **Menu contextuel (clic droit)** :
+  - Suggestions de remplacement directes avec remplacement exact du texte.
+  - *Ignorer cette occurrence* (masque la faute pour la session en cours).
+  - *Apprendre ce mot* (pour les erreurs d'orthographe, avec persistance dans les réglages).
+- **Soulignements dans l'éditeur Markdown** :
+  - Vaguelette **rouge** pour les erreurs d'orthographe.
+  - Vaguelette **bleue** pour les erreurs de grammaire.
+- **Analyse automatique temporisée (Debounce)** :
+  - Relance automatique de la vérification 1 seconde après la fin de la frappe lorsque l'onglet **Relecture** est ouvert.
+  - Ne relance pas l'analyse si le texte n'a pas changé.
+  - Portée strictement limitée au feuillet courant (`document`) pour ne jamais ralentir l'application sur le roman entier.
+- **Section d'analyse linguistique** :
+  - Indicateurs de richesse lexicale, lemmes, adverbes en *-ment*, verbes passifs et longueur moyenne des phrases.
 
-```bash
-npm run resources
-```
+---
 
-Puis :
+## 💻 Installation
 
-```bash
-npm run lint       # eslint + typecheck
-npm test           # node --test, sans étape de compilation
-npm run build      # typecheck + archive + esbuild -> main.js
-```
+### Depuis Obsidian (Recommandé)
+1. Ouvrez **Paramètres** > **Plugins tiers**.
+2. Recherchez **Feuillets Grammalecte** et cliquez sur **Installer**.
+3. Activez le plugin. Assurez-vous que le plugin **Feuillets** est également activé.
 
-Le premier `build` compresse l'archive en brotli qualité 11 (~13 s). Le
-résultat est mis en cache dans `.cache/`, indexé par l'empreinte des sources :
-les builds suivants prennent ~50 ms.
+### Installation manuelle
+1. Téléchargez les fichiers `main.js` et `manifest.json` de la dernière version ([Releases](https://github.com/Sargon01/Feuillets-Grammalecte/releases)).
+2. Créez le dossier `.obsidian/plugins/feuillets-grammalecte/` dans votre coffre.
+3. Copiez-y `main.js` et `manifest.json`.
+4. Rechargez les plugins tiers dans Obsidian et activez **Feuillets Grammalecte**.
 
-`npm test` et `npm run lint` fonctionnent **sans** les sources du moteur : les
-tests qui chargent Grammalecte pour de bon se déclarent `skip` si
-`resources/grammalecte/` est absent.
+---
 
-Les tests s'exécutent directement sur les sources TypeScript (Node ≥ 22 sait
-retirer les types), d'où les imports en `.ts` et l'absence de dossier de
-compilation intermédiaire.
+## ⚠️ Limites connues & Compatibilité
 
-### Structure
+- **Compatibilité Obsidian** : Requièrt Obsidian `v1.7.2` ou supérieure.
+- **Desktop uniquement (`isDesktopOnly: true`)** : En raison de l'utilisation du module `vm` de Node.js pour isoler le moteur Grammalecte des prototypes globaux de l'application, ce greffon ne fonctionne que sur la version de bureau (macOS, Windows, Linux) et n'est pas disponible sur mobiles (iOS/Android).
 
-```
-feuillets-grammalecte/
-├── manifest.json
-├── package.json
-├── tsconfig.json
-├── esbuild.config.mjs
-├── eslint.config.mjs
-├── versions.json
-├── main.ts                                 greffon : (dés)enregistrement
-├── scripts/
-│   ├── restore-grammalecte-resources.mjs   sources <- historique Git (dev)
-│   └── build-grammalecte-archive.mjs       sources -> archive brotli (build)
-├── src/
-│   ├── feuillets-api.ts                    détection + types partagés
-│   ├── grammalecte-archive.ts              placeholder, rempli au build
-│   ├── grammalecte-assets.ts               reconstitution de l'archive
-│   ├── grammalecte-adapter.ts              moteur (vm) + conversion
-│   ├── grammalecte-provider.ts             fournisseur, chargement paresseux
-│   └── settings.ts                         3 réglages
-└── test/
-    ├── grammalecte-adapter.test.ts
-    ├── grammalecte-assets.test.ts
-    ├── plugin.test.ts
-    └── obsidian-stub.mjs                   + hooks de résolution
-```
+---
 
-Pas de `styles.css` : ce greffon n'a aucune interface propre, il réutilise
-l'onglet de résultats de Feuillets.
+## 📜 Licence et Crédits
 
-### Embarquement du moteur
-
-`src/grammalecte-archive.ts` est un placeholder committé qui n'exporte qu'une
-chaîne vide. Au build, un greffon esbuild (`esbuild.config.mjs`) remplace
-intégralement ce module par la même constante remplie avec l'archive.
-Conséquences : rien de généré n'entre dans le dépôt, le typecheck et les tests
-tournent sans les 9 Mo, et le bundle livré est autonome.
-
-L'archive n'est **ni décodée ni décompressée au démarrage** : la chaîne
-base64 reste inerte jusqu'au premier `analyze()`, qui appelle
-`ensureEngine()` → `loadEmbeddedAssets()` → `loadGrammalecteEngine()`. Les
-sources ne sont jamais concaténées dans le scope du greffon : chaque fichier
-est évalué dans un contexte `vm` dédié, dont le realm a ses propres
-`String.prototype` et `RegExp.prototype` — les extensions `gl_*` de
-Grammalecte n'atteignent jamais Obsidian.
-
-### Types partagés
-
-`src/feuillets-api.ts` importe les types de l'API **directement depuis le
-noyau** (`import type ... from "../../src/api/text-analysis.ts"`). L'import
-est effacé à la compilation : aucun octet de Feuillets n'entre dans ce
-bundle, mais le typecheck casse immédiatement si le contrat change. C'est le
-seul point de couplage — si ce dossier était extrait dans son propre dépôt,
-c'est la seule ligne à remplacer (par un `feuillets-api.d.ts` vendu).
-
-## Licence
-
-GPL-3.0, comme Feuillets et comme Grammalecte.
+- **Licence du greffon** : Distribué sous licence **GNU General Public License v3.0** (`GPL-3.0-only`). Voir le fichier [LICENSE](LICENSE).
+- **Crédits Grammalecte** : Moteur linguistique développé par **Olivier R.** ([https://grammalecte.net](https://grammalecte.net)).
+- Consultez le fichier [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) pour le détail des composants tiers embarqués.
