@@ -1,19 +1,26 @@
 import { App, Menu, Modal, Notice, normalizePath, setIcon, TAbstractFile, TFile, TFolder } from "obsidian";
-import { PROJECT_MODES, applyModeDefaults, resolveType } from "../utils/project-modes.js";
+import { PROJECT_MODES, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
+import { FolderSuggest } from "./folder-suggest.js";
+import { createMinimalProject, CreateProjectError } from "../services/project-files.js";
+import { openFileActivatingWithCursor } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
 
 type ProjectModalsPlugin = {
-  settings: FeuilletsSettings;
-  /* Reflète le type réel de services/project-files.ts : le chemin visé
-     est en pratique toujours un dossier, mais la signature du service
-     reste TAbstractFile (getAbstractFileByPath peut, en théorie,
-     retourner autre chose). */
+  /* manuscriptAuthor : absent de l'interface globale FeuilletsSettings
+     (écart préexistant, déjà contourné de la même façon dans
+     preview-modal.ts/pdf-style-modal.ts) — champ bien réel dans
+     default-settings.ts, réutilisé ici pour pré-remplir l'auteur d'un
+     nouveau projet. */
+  settings: FeuilletsSettings & { manuscriptAuthor?: string };
+  /* ensureFolder/initProjectStructure : plus utilisés par NewProjectModal
+     lui-même (voir createMinimalProject, services/project-files.ts), mais
+     requis structurellement par ScrivenerImportPlugin — ManageProjectsModal
+     instancie ScrivenerImportModal avec ce même this.plugin. */
   ensureFolder(path: string): Promise<TAbstractFile>;
-  saveSettings(): Promise<void>;
   initProjectStructure(): Promise<void>;
-  getOutputFolder(): Promise<TAbstractFile | null>;
+  saveSettings(): Promise<void>;
   renderAllViews(force?: boolean): void;
   updateStatusBar(): void;
   getProjectFolder(): TFolder | null;
@@ -76,14 +83,9 @@ export class NewProjectModal extends Modal {
       t("modal.newProject.desc")
     );
 
-    contentEl.createEl("label", { text: t("modal.newProject.parentFolderLabel") });
-    const parentInput = contentEl.createEl("input", {
-      type: "text",
-      attr: { placeholder: t("modal.newProject.parentFolderPlaceholder") },
-    });
-    parentInput.addClass("feuillets-input-full");
-    parentInput.addClass("feuillets-field-spacer");
-
+    /* Ordre : nom (seul champ obligatoire) d'abord, puis les deux facultatifs
+       — plutôt que l'ancien ordre dossier/nom/type, qui faisait taper le nom
+       en second alors que c'est la seule information réellement requise. */
     contentEl.createEl("label", { text: t("modal.newProject.nameLabel") });
     const nameInput = contentEl.createEl("input", {
       type: "text",
@@ -91,6 +93,29 @@ export class NewProjectModal extends Modal {
     });
     nameInput.addClass("feuillets-input-full");
     nameInput.addClass("feuillets-field-spacer");
+    nameInput.focus();
+
+    contentEl.createEl("label", { text: t("modal.newProject.authorLabel") });
+    const authorInput = contentEl.createEl("input", {
+      type: "text",
+      attr: { placeholder: t("modal.newProject.authorPlaceholder") },
+    });
+    authorInput.addClass("feuillets-input-full");
+    authorInput.addClass("feuillets-field-spacer");
+    /* Pré-rempli avec le réglage global (Réglages → Auteur, déjà utilisé par
+       l'export) : évite de retaper son nom à chaque nouveau projet, sans
+       empêcher de le changer pour ce projet précis (stocké alors dans
+       projectMeta, indépendant du réglage global — voir createMinimalProject). */
+    authorInput.value = this.plugin.settings.manuscriptAuthor || "";
+
+    contentEl.createEl("label", { text: t("modal.newProject.parentFolderLabel") });
+    const parentInput = contentEl.createEl("input", {
+      type: "text",
+      attr: { placeholder: t("modal.newProject.parentFolderPlaceholder") },
+    });
+    parentInput.addClass("feuillets-input-full");
+    parentInput.addClass("feuillets-field-spacer");
+    new FolderSuggest(this.app, parentInput);
 
     contentEl.createEl("label", { text: t("modal.newProject.typeLabel") });
     const typeSelect = contentEl.createEl("select");
@@ -100,52 +125,121 @@ export class NewProjectModal extends Modal {
     }
 
     const create = async () => {
-      const name = nameInput.value.trim();
-      if (!name) {
-        new Notice(t("modal.newProject.giveAName"));
-        return;
-      }
-      const parent = parentInput.value.trim().replace(/\/+$/, "");
-      const volumePath = normalizePath(parent ? `${parent}/${name}` : name);
-      if (this.app.vault.getAbstractFileByPath(volumePath)) {
-        new Notice(t("modal.newProject.alreadyExists", { path: volumePath }));
-        return;
-      }
-
       const S = this.plugin.settings;
-      await this.plugin.ensureFolder(volumePath);
-      const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
-      await this.plugin.ensureFolder(manuscritPath);
-
-      if (S.projectFolder && !S.projects.includes(S.projectFolder)) {
-        S.projects.push(S.projectFolder);
+      let result: Awaited<ReturnType<typeof createMinimalProject>>;
+      try {
+        result = await createMinimalProject(this.app, S, {
+          name: nameInput.value,
+          parentFolder: parentInput.value,
+          type: typeSelect.value,
+          author: authorInput.value,
+        });
+      } catch (e) {
+        if (e instanceof CreateProjectError && e.code === "empty-name") {
+          new Notice(t("modal.newProject.giveAName"));
+          return;
+        }
+        if (e instanceof CreateProjectError && e.code === "already-exists") {
+          new Notice(t("modal.newProject.alreadyExists", { path: e.path || "" }));
+          return;
+        }
+        throw e;
       }
-      S.projectFolder = manuscritPath;
-      const type = typeSelect.value;
-      if (!S.projectMeta[manuscritPath]) S.projectMeta[manuscritPath] = {};
-      S.projectMeta[manuscritPath].type = type;
-      applyModeDefaults(S, type);
+
       await this.plugin.saveSettings();
-
-      await this.plugin.initProjectStructure();
-      await this.plugin.getOutputFolder();
-
       this.plugin.renderAllViews(true);
       this.plugin.updateStatusBar();
-      new Notice(
-        t("modal.newProject.created", { path: volumePath })
-      );
+
       this.close();
+      const leaf = this.app.workspace.getLeaf(false);
+      await openFileActivatingWithCursor(this.app, leaf, result.firstFile);
+      new Notice(t("modal.newProject.ready"));
     };
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    /* mod-cta : convention Obsidian pour LE bouton d'action principal d'une
+       modale (déjà utilisée ailleurs dans le plugin, ex. entity-modals.js,
+       scrivener-import-modal.js) — absente ici jusque-là, ce qui laissait ce
+       bouton se fondre visuellement dans le reste. */
     btnRow
-      .createEl("button", { text: t("modal.newProject.createAndActivate") })
+      .createEl("button", { text: t("modal.newProject.createAndActivate"), cls: "mod-cta" })
       .addEventListener("click", () => { void create(); });
     nameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") void create();
     });
   }
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+/** Utilise un dossier déjà présent dans le coffre comme projet — sans rien y
+ * déplacer, renommer, ni modifier : seule la référence dans les réglages
+ * (settings.projectFolder / settings.projects) change. Même comportement que
+ * le champ "Ajouter un dossier existant" du gestionnaire de projets (voir
+ * feuillets-view.js, renderProjectManagerSplitView), mais en modale dédiée
+ * avec un vrai sélecteur de dossier (FolderSuggest) plutôt qu'un champ texte
+ * libre à saisir de mémoire — utile en premier lancement, quand on ne
+ * connaît pas encore les raccourcis du binder. */
+export class OpenExistingFolderModal extends Modal {
+  plugin: ProjectModalsPlugin;
+
+  constructor(app: App, plugin: ProjectModalsPlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.addClass("feuillets-project-modal");
+    contentEl.createEl("h3", { text: t("modal.openFolder.title") });
+    contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(t("modal.openFolder.desc"));
+
+    contentEl.createEl("label", { text: t("modal.openFolder.folderLabel") });
+    const folderInput = contentEl.createEl("input", {
+      type: "text",
+      attr: { placeholder: t("modal.openFolder.placeholder") },
+    });
+    folderInput.addClass("feuillets-input-full");
+    folderInput.addClass("feuillets-field-spacer");
+    new FolderSuggest(this.app, folderInput);
+    folderInput.focus();
+
+    const open = async () => {
+      const path = normalizePath(folderInput.value.trim());
+      if (!path) {
+        new Notice(t("modal.openFolder.noFolderChosen"));
+        return;
+      }
+      const folder = this.app.vault.getAbstractFileByPath(path);
+      if (!(folder instanceof TFolder)) {
+        new Notice(t("modal.openFolder.notAFolder"));
+        return;
+      }
+
+      const S = this.plugin.settings;
+      if (S.projectFolder && S.projectFolder !== path && !S.projects.includes(S.projectFolder)) {
+        S.projects.push(S.projectFolder);
+      }
+      S.projectFolder = path;
+      if (!S.projects.includes(path)) S.projects.push(path);
+      await this.plugin.saveSettings();
+
+      this.plugin.renderAllViews(true);
+      this.plugin.updateStatusBar();
+      new Notice(t("modal.openFolder.opened", { path }));
+      this.close();
+    };
+
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow
+      .createEl("button", { text: t("modal.openFolder.pickBtn"), cls: "mod-cta" })
+      .addEventListener("click", () => { void open(); });
+    folderInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") void open();
+    });
+  }
+
   onClose(): void {
     this.contentEl.empty();
   }
