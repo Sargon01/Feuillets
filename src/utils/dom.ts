@@ -1,4 +1,4 @@
-import { setIcon } from "obsidian";
+import { setIcon, MarkdownView } from "obsidian";
 import type { App, TFile, WorkspaceLeaf } from "obsidian";
 
 type ObsidianElement = HTMLElement & {
@@ -116,6 +116,26 @@ export function isEditing(rootEl: ObsidianElement) {
 export function openFileActivating(app: App, leaf: WorkspaceLeaf, file: TFile) {
   void leaf.openFile(file, { active: true });
   app.workspace.setActiveLeaf(leaf, { focus: true });
+}
+
+/** Comme openFileActivating, mais attend réellement l'ouverture du fichier
+ * pour pouvoir positionner le curseur ensuite — utilisé juste après la
+ * création d'un fichier, quand il faut placer l'autrice directement en
+ * position d'écrire (voir NewProjectModal). `leaf.view` est le MarkdownView
+ * du fichier qu'on vient d'y ouvrir : pas besoin d'une heuristique du genre
+ * activeEditorAnywhere(), l'éditeur voulu est forcément celui-là. Place le
+ * curseur en toute fin de fichier (après le frontmatter et les lignes vides
+ * du corps), pas à la ligne 0 où l'utilisateur retaperait par-dessus
+ * `---`. */
+export async function openFileActivatingWithCursor(app: App, leaf: WorkspaceLeaf, file: TFile): Promise<void> {
+  await leaf.openFile(file, { active: true });
+  app.workspace.setActiveLeaf(leaf, { focus: true });
+  if (leaf.view instanceof MarkdownView) {
+    const editor = leaf.view.editor;
+    const lastLine = editor.lastLine();
+    editor.setCursor({ line: lastLine, ch: editor.getLine(lastLine).length });
+    editor.focus();
+  }
 }
 
 export function getActiveFileSafe(app: App) {

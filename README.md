@@ -84,14 +84,17 @@ search "Feuillets" → Install → Enable.
 
 ## Getting started
 
-Set a **Project folder** in the plugin settings (a folder that directly
-contains your Parts/Chapters — not a parent folder that also holds a
-Research or Snapshots folder alongside the manuscript), and pick a **Fiction**
-or **Non-fiction** project mode. From there, either build the structure by
-hand from the binder, or paste an existing outline via "Import an outline…"
-to generate the whole Parts/Chapters/Scenes tree in one step. Use the ribbon
-icons or command palette to open the Board, Notes, Recherche, and Properties
-panels.
+When no project is active, the binder shows a welcome screen with three
+options: **Create a project** (name, optional author, Fiction or
+Non-fiction type — creates `Manuscrit/` with a title page and a first
+chapter ready to write, plus `Recherche/` and `Ressources/` as siblings),
+**Open an existing folder** (use a folder you already have as a manuscript,
+without moving or renaming anything), or **Discover with a demo project**
+(a filled-in example with a guided 4-step tour). From there, build the rest
+of the structure by hand from the binder, or paste an existing outline via
+"Import an outline…" to generate a whole Parts/Chapters/Scenes tree in one
+step. Use the ribbon icons or command palette to open the Board, Notes,
+Recherche, and Properties panels.
 
 Want a clean, distraction-free look from the start? See
 [`SETUP-INTERFACE.md`](./SETUP-INTERFACE.md) for a reference theme +
