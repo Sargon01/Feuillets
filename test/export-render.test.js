@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Component, MarkdownRenderer } from "obsidian";
+import { Component, MarkdownRenderer, Notice } from "obsidian";
 import {
   preserveBlankLinesForFrontPage,
   renderManuscriptHtml,
@@ -306,14 +306,61 @@ test("renderManuscriptHtml : poursuit l'export lorsqu'une image interne est illi
   });
   const app = fakeApp([{ path: "image.png", name: "image.png", extension: "png", bytes: new ArrayBuffer(0) }]);
   app.vault.readBinary = async () => { throw new Error("lecture impossible"); };
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
   try {
-    const { containerEl, images } = await renderManuscriptHtml(app, "texte", "Source.md");
+    const { containerEl, images, missingResources } = await renderManuscriptHtml(app, "texte", "Source.md");
     assert.equal(images.size, 0);
     assert.equal(containerEl.querySelector("img").getAttribute("src"), "app://vault/image.png");
     assert.equal(errors.length, 1);
+    // Jamais silencieux : signalé à la fois dans la structure retournée...
+    assert.deepEqual(missingResources, ["app://vault/image.png"]);
+    // ...et par une Notice visible, pas seulement dans la console.
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /1 image\(s\) introuvable/);
   } finally {
     restoreRenderer();
     console.error = previousError;
+    Notice.onCreate = null;
+    restoreDom();
+  }
+});
+
+test("renderManuscriptHtml : une image absente du coffre (jamais résolue) est signalée, pas juste ignorée", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("img", "", { src: "app://vault/fantome.png" }));
+  });
+  const app = fakeApp([]); // coffre vide : aucun fichier ne peut résoudre cette image
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    const { images, missingResources } = await renderManuscriptHtml(app, "texte", "Source.md");
+    assert.equal(images.size, 0);
+    assert.deepEqual(missingResources, ["app://vault/fantome.png"]);
+    assert.equal(notices.length, 1);
+  } finally {
+    restoreRenderer();
+    Notice.onCreate = null;
+    restoreDom();
+  }
+});
+
+test("renderManuscriptHtml : aucune Notice quand toutes les images sont résolues", async () => {
+  const restoreDom = installDom();
+  const imageFile = { path: "image.png", name: "image.png", basename: "image", extension: "png", bytes: new Uint8Array([1]).buffer };
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("img", "", { src: "app://vault/image.png" }));
+  });
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    const { missingResources } = await renderManuscriptHtml(fakeApp([imageFile]), "texte", "Source.md");
+    assert.deepEqual(missingResources, []);
+    assert.equal(notices.length, 0);
+  } finally {
+    restoreRenderer();
+    Notice.onCreate = null;
     restoreDom();
   }
 });

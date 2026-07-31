@@ -6,6 +6,7 @@ import { toValue } from "../utils/scene-fields.js";
 import { embedHardBreaks } from "../utils/core.js";
 import { footnotePrefixFor, applyCompileTransforms } from "../utils/compile-text.js";
 import { renumberFootnotesAcrossTexts } from "../utils/footnotes.js";
+import { CompileError, toCompileError } from "./compile-errors.js";
 import { fmOf, compiledTitleFor, compiledSubtitleFor } from "./frontmatter.js";
 import {
   getProjectFolder,
@@ -112,8 +113,22 @@ export async function compile(app: App, settings: FeuilletsSettings) {
    */
   const readBody = async (file: TFile, frontType: string | null | undefined = null): Promise<string> => {
     const isFrontPage = !!frontType;
-    let content = await app.vault.cachedRead(file);
-    content = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+    let content: string;
+    try {
+      content = await app.vault.cachedRead(file);
+    } catch (e) {
+      // Un feuillet manquant/illisible ne doit jamais faire échouer toute
+      // la compilation avec un message vague : celle-ci s'arrête, mais le
+      // message nomme CE feuillet précisément (voir compile(), plus bas,
+      // qui affiche describe() et n'attribue jamais l'erreur au projet entier).
+      throw new CompileError("lecture du feuillet", "Fichier introuvable ou illisible", {
+        filePath: file.path,
+        cause: e,
+      });
+    }
+    // \r?\n : un feuillet aux fins de ligne Windows (import externe) garde
+    // sinon son frontmatter, tel quel, dans le texte compilé.
+    content = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
     /* Page Front : on ne rogne PAS les lignes vides de tête/queue comme pour
        une scène normale — sur une page de titre en composition libre, ces
        lignes-là sont la mise en page elle-même (voir
@@ -268,7 +283,16 @@ export async function compile(app: App, settings: FeuilletsSettings) {
       }
     }
   };
-  await walk(folder, 0);
+  try {
+    await walk(folder, 0);
+  } catch (e) {
+    // Jamais une exception non gérée qui remonterait comme un plantage
+    // générique : un message contextualisé (feuillet + étape), le reste du
+    // projet n'est pas mis en cause — la compilation s'arrête proprement ici.
+    const err = toCompileError(e, "compilation");
+    new Notice(err.describe());
+    return null;
+  }
 
   if (count === 0) {
     new Notice("Aucun feuillet à compiler.");
@@ -463,8 +487,8 @@ async function exportViaNative(app: App, settings: FeuilletsSettings, format: st
     }
   } catch (e) {
     console.error("Feuillets: export natif", e);
-    const msg = e instanceof Error ? e.message : String(e);
-    new Notice(`Échec de l'export ${format} : ${msg.slice(0, 200)}`);
+    const err = toCompileError(e, `export ${format}`, { format });
+    new Notice(err.describe().slice(0, 300));
   }
 }
 

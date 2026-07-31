@@ -1,4 +1,4 @@
-import { Component, MarkdownRenderer } from "obsidian";
+import { Component, MarkdownRenderer, Notice } from "obsidian";
 import type { App, TFile } from "obsidian";
 import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
 
@@ -20,6 +20,9 @@ type RenderedManuscript = {
   containerEl: HTMLDivElement;
   footnotes: RenderedFootnote[];
   images: Map<HTMLImageElement, RenderedImage>;
+  /** URL/chemin de chaque image référencée dans le texte mais introuvable ou
+   *  illisible dans le coffre — jamais silencieux (voir inlineImages). */
+  missingResources: string[];
 };
 
 type ExportRenderSegment = {
@@ -75,11 +78,22 @@ export async function renderManuscriptHtml(app: App, markdown: string, sourcePat
     component.unload();
   }
 
-  const images = await inlineImages(app, container, sourcePath);
+  const { images, missingResources } = await inlineImages(app, container, sourcePath);
   const footnotes = extractFootnotes(container);
   stripObsidianCruft(container);
 
-  return { containerEl: container, footnotes, images };
+  /* Signalé ici, au point unique partagé par les 4 exporteurs natifs
+     (EPUB/DOCX/ODT/PDF appellent tous renderManuscriptHtml*) — plutôt que
+     de faire remonter `missingResources` à travers chaque signature de
+     retour spécifique au format (Uint8Array, Buffer, void…). Une ressource
+     manquante ne doit jamais rester visible seulement dans la console. */
+  if (missingResources.length > 0) {
+    const list = missingResources.slice(0, 5).join(", ");
+    const more = missingResources.length > 5 ? ` (+${missingResources.length - 5})` : "";
+    new Notice(`Export : ${missingResources.length} image(s) introuvable(s) dans le coffre : ${list}${more}`);
+  }
+
+  return { containerEl: container, footnotes, images, missingResources };
 }
 
 /** CSS pour les pages Front (titre/dédicace/épigraphe) une fois isolées par
@@ -333,15 +347,27 @@ function resolveImageFile(app: App, img: HTMLImageElement, src: string, sourcePa
  * — le DOCX en a besoin pour construire un vrai ImageRun + un paragraphe
  * de légende (voir export-docx.js) ; l'EPUB/PDF reçoivent directement un
  * <figure>/<figcaption> dans le DOM. */
-async function inlineImages(app: App, container: HTMLElement, sourcePath?: string): Promise<Map<HTMLImageElement, RenderedImage>> {
+async function inlineImages(
+  app: App,
+  container: HTMLElement,
+  sourcePath?: string
+): Promise<{ images: Map<HTMLImageElement, RenderedImage>; missingResources: string[] }> {
   const images = new Map<HTMLImageElement, RenderedImage>();
+  const missingResources: string[] = [];
   const imgs = Array.from(container.querySelectorAll("img"));
   for (const img of imgs) {
     const src = img.getAttribute("src") || "";
     if (!src || src.startsWith("data:") || /^https?:\/\//.test(src)) continue;
     try {
       const file = resolveImageFile(app, img, src, sourcePath);
-      if (!file) continue;
+      if (!file) {
+        // Une image introuvable dans le coffre n'était auparavant signalée
+        // nulle part : ni Notice, ni même console.error — invisible pour
+        // l'utilisatrice. Voir renderManuscriptHtml, qui remonte cette
+        // liste jusqu'à exportViaNative pour un avertissement explicite.
+        missingResources.push(src);
+        continue;
+      }
       const buf = await app.vault.readBinary(file);
       const b64 = arrayBufferToBase64(buf);
       const ext = (file.extension || "png").toLowerCase();
@@ -363,9 +389,10 @@ async function inlineImages(app: App, container: HTMLElement, sourcePath?: strin
       images.set(img, { bytes: new Uint8Array(buf), ext, width, height, caption });
     } catch (e) {
       console.error("Feuillets export: image non inlinée", src, e);
+      missingResources.push(src);
     }
   }
-  return images;
+  return { images, missingResources };
 }
 
 /** Dimensions réelles d'une image déjà encodée en data: URI — nécessaire
