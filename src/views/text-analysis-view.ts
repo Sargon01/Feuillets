@@ -3,6 +3,7 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import type { ResolvedAnalysisIssue, TextAnalysisProvider } from "../api/text-analysis.js";
 import type { AnalysisRun } from "../services/text-analysis.js";
 import { openIssueContextMenu } from "../services/grammar-context-menu.js";
+import { selectRange } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
 
 type BaseFeuilletsPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
@@ -169,15 +170,4 @@ export class TextAnalysisView extends BaseFeuilletsView {
     if (!editor) return;
     selectRange(editor, issue.start, issue.end);
   }
-}
-
-/** Sélectionne [start, end] et fait défiler jusque-là. Borne sur la longueur
- *  réelle du document ouvert : le fichier a pu changer depuis l'analyse. */
-export function selectRange(editor: Editor, start: number, end: number): void {
-  const max = editor.getValue().length;
-  const from = editor.offsetToPos(Math.max(0, Math.min(max, start)));
-  const to = editor.offsetToPos(Math.max(0, Math.min(max, end)));
-  editor.setSelection(from, to);
-  editor.scrollIntoView({ from, to }, true);
-  editor.focus();
 }

@@ -4,6 +4,13 @@ import {
   renamespaceFootnotes,
   nextFootnoteNumber,
   renumberFootnotes,
+  renumberFootnotesAcrossTexts,
+  parseFootnotes,
+  validateFootnotes,
+  referenceIdAtOffset,
+  definitionIdAtOffset,
+  findDefinition,
+  findReferences,
 } from "../src/utils/footnotes.js";
 
 test("renamespaceFootnotes", async (t) => {
@@ -115,5 +122,227 @@ test("renumberFootnotes", async (t) => {
       result,
       "A[^1] B[^2].\n\n[^1]: Note d'intro.\n[^2]: Note un."
     );
+  });
+});
+
+test("renumberFootnotesAcrossTexts", async (t) => {
+  await t.test("numérotation continue à travers plusieurs segments (collision multi-fichiers)", () => {
+    // Deux feuillets déjà renamespacés (chap1-1, chap2-1) pour éviter la
+    // collision d'identifiants — la renumérotation du document compilé doit
+    // les rendre continus : 1 puis 2, jamais 1 et 1 à nouveau.
+    const segments = [
+      "Fait notable[^chap1-1].\n\n[^chap1-1]: Source du chapitre 1.",
+      "Autre fait[^chap2-1].\n\n[^chap2-1]: Source du chapitre 2.",
+    ];
+    const result = renumberFootnotesAcrossTexts(segments);
+    assert.equal(result[0], "Fait notable[^1].\n\n[^1]: Source du chapitre 1.");
+    assert.equal(result[1], "Autre fait[^2].\n\n[^2]: Source du chapitre 2.");
+  });
+
+  await t.test("un segment sans note reste inchangé", () => {
+    const segments = ["# Partie 1", "Texte[^1].\n\n[^1]: Note.", "# Partie 2"];
+    const result = renumberFootnotesAcrossTexts(segments);
+    assert.equal(result[0], "# Partie 1");
+    assert.equal(result[2], "# Partie 2");
+  });
+
+  await t.test("aucune note dans aucun segment -> tableau inchangé, mais une NOUVELLE référence", () => {
+    // Piège d'aliasing : un appelant qui viderait ensuite le tableau reçu en
+    // le mutant en place (compile-export.ts fait `parts.length = 0`) ne doit
+    // jamais vider aussi le résultat par la même occasion.
+    const segments = ["Texte simple.", "Encore du texte."];
+    const result = renumberFootnotesAcrossTexts(segments);
+    assert.deepEqual(result, segments);
+    assert.notEqual(result, segments);
+    segments.length = 0;
+    assert.equal(result.length, 2);
+  });
+
+  await t.test("ne modifie aucun des textes d'entrée (nouveau tableau)", () => {
+    const segments = ["A[^1].\n\n[^1]: Un.", "B[^1].\n\n[^1]: Deux."];
+    const original = [...segments];
+    renumberFootnotesAcrossTexts(segments);
+    assert.deepEqual(segments, original);
+  });
+});
+
+test("parseFootnotes", async (t) => {
+  await t.test("un appel simple et sa définition", () => {
+    const content = "Une phrase.[^1]\n\n[^1]: Contenu de la note.";
+    const { references, definitions } = parseFootnotes(content);
+    assert.equal(references.length, 1);
+    assert.equal(references[0].id, "1");
+    assert.equal(content.slice(references[0].start, references[0].end), "[^1]");
+    assert.equal(definitions.length, 1);
+    assert.equal(definitions[0].id, "1");
+    assert.equal(definitions[0].content, "Contenu de la note.");
+  });
+
+  await t.test("identifiant nommé", () => {
+    const content = "Une affirmation.[^source-principale]\n\n[^source-principale]: Voir l'ouvrage cité, page 42.";
+    const { references, definitions } = parseFootnotes(content);
+    assert.equal(references[0].id, "source-principale");
+    assert.equal(definitions[0].id, "source-principale");
+  });
+
+  await t.test("plusieurs notes distinctes", () => {
+    const content = "A[^1] et B[^2].\n\n[^1]: Un.\n[^2]: Deux.";
+    const { references, definitions } = parseFootnotes(content);
+    assert.deepEqual(references.map((r) => r.id), ["1", "2"]);
+    assert.deepEqual(definitions.map((d) => d.id), ["1", "2"]);
+  });
+
+  await t.test("définition multiligne (paragraphe indenté)", () => {
+    const content = "Texte[^n].\n\n[^n]: Premier paragraphe.\n\n    Second paragraphe indenté.";
+    const { definitions } = parseFootnotes(content);
+    assert.equal(definitions.length, 1);
+    assert.equal(definitions[0].content, "Premier paragraphe.\n\nSecond paragraphe indenté.");
+  });
+
+  await t.test("appel sans définition — n'apparaît pas dans definitions", () => {
+    const content = "Un appel orphelin[^1].";
+    const { references, definitions } = parseFootnotes(content);
+    assert.equal(references.length, 1);
+    assert.equal(definitions.length, 0);
+  });
+
+  await t.test("définition sans appel — n'apparaît pas dans references", () => {
+    const content = "Aucun appel ici.\n\n[^1]: Une note orpheline.";
+    const { references, definitions } = parseFootnotes(content);
+    assert.equal(references.length, 0);
+    assert.equal(definitions.length, 1);
+  });
+
+  await t.test("définition vide", () => {
+    const content = "Appel[^1].\n\n[^1]: ";
+    const { definitions } = parseFootnotes(content);
+    assert.equal(definitions[0].content, "");
+  });
+
+  await t.test("plusieurs appels vers la même définition", () => {
+    const content = "A[^1] puis, plus loin, encore A[^1].\n\n[^1]: Une seule note, deux appels.";
+    const { references, definitions } = parseFootnotes(content);
+    assert.equal(references.length, 2);
+    assert.equal(definitions.length, 1);
+  });
+
+  await t.test("note contenant du Markdown (gras, lien)", () => {
+    const content = "Texte[^1].\n\n[^1]: Voir **ce livre** et [ce site](https://exemple.test).";
+    const { definitions } = parseFootnotes(content);
+    assert.equal(definitions[0].content, "Voir **ce livre** et [ce site](https://exemple.test).");
+  });
+
+  await t.test("note en fin de fichier", () => {
+    const content = "Paragraphe.\n\nDernier paragraphe[^1].\n\n[^1]: Note finale.";
+    const { definitions } = parseFootnotes(content);
+    assert.equal(definitions[0].id, "1");
+    assert.equal(definitions[0].end, content.length);
+  });
+
+  await t.test("note au milieu du fichier (une seule zone de définitions)", () => {
+    const content = "Début[^1].\n\n[^1]: Note.\n\nSuite du texte après la note.";
+    const { references, definitions } = parseFootnotes(content);
+    assert.equal(references.length, 1);
+    assert.equal(definitions.length, 1);
+  });
+
+  await t.test("un renvoi vers une autre note DANS une définition n'est pas un appel du texte principal", () => {
+    const content = "Texte[^1].\n\n[^1]: Voir aussi[^2].\n[^2]: Note secondaire.";
+    const { references } = parseFootnotes(content);
+    assert.equal(references.length, 1);
+    assert.equal(references[0].id, "1");
+  });
+
+  await t.test("manuscrit vide", () => {
+    assert.deepEqual(parseFootnotes(""), { references: [], definitions: [] });
+    assert.deepEqual(parseFootnotes(null), { references: [], definitions: [] });
+  });
+});
+
+test("validateFootnotes", async (t) => {
+  await t.test("aucune anomalie sur un fichier propre", () => {
+    const content = "A[^1] et B[^2].\n\n[^1]: Un.\n[^2]: Deux.";
+    assert.deepEqual(validateFootnotes(content), {
+      missingDefinitions: [],
+      unusedDefinitions: [],
+      duplicateDefinitions: [],
+      emptyDefinitions: [],
+      malformedReferences: [],
+    });
+  });
+
+  await t.test("appel sans définition", () => {
+    const result = validateFootnotes("Un appel orphelin[^1].");
+    assert.deepEqual(result.missingDefinitions, ["1"]);
+  });
+
+  await t.test("définition sans appel", () => {
+    const result = validateFootnotes("Texte.\n\n[^1]: Orpheline.");
+    assert.deepEqual(result.unusedDefinitions, ["1"]);
+  });
+
+  await t.test("identifiants dupliqués (plusieurs définitions au même id)", () => {
+    const content = "A[^1].\n\n[^1]: Première.\n[^1]: Seconde définition en doublon.";
+    const result = validateFootnotes(content);
+    assert.deepEqual(result.duplicateDefinitions, ["1"]);
+  });
+
+  await t.test("définition vide", () => {
+    const result = validateFootnotes("A[^1].\n\n[^1]: ");
+    assert.deepEqual(result.emptyDefinitions, ["1"]);
+  });
+
+  await t.test("référence mal formée (identifiant vide)", () => {
+    const result = validateFootnotes("Un appel cassé[^].");
+    assert.equal(result.malformedReferences.length, 1);
+    assert.equal(result.malformedReferences[0].id, "");
+  });
+
+  await t.test("plusieurs appels vers la même définition : pas un faux positif", () => {
+    const content = "A[^1] puis B[^1] encore.\n\n[^1]: Une seule note.";
+    const result = validateFootnotes(content);
+    assert.deepEqual(result.missingDefinitions, []);
+    assert.deepEqual(result.unusedDefinitions, []);
+  });
+});
+
+test("referenceIdAtOffset / definitionIdAtOffset", async (t) => {
+  const content = "Une phrase.[^1]\n\n[^1]: Contenu de la note.";
+  const refOffset = content.indexOf("[^1]");
+  const defOffset = content.lastIndexOf("[^1]:");
+
+  await t.test("offset exactement sur l'appel", () => {
+    assert.equal(referenceIdAtOffset(content, refOffset + 1), "1");
+  });
+
+  await t.test("offset juste après l'appel (curseur qui vient de le taper)", () => {
+    assert.equal(referenceIdAtOffset(content, refOffset + 4), "1");
+  });
+
+  await t.test("offset loin de tout appel -> null", () => {
+    assert.equal(referenceIdAtOffset("Une phrase sans aucune note.", 5), null);
+  });
+
+  await t.test("offset dans la définition", () => {
+    assert.equal(definitionIdAtOffset(content, defOffset + 6), "1");
+  });
+
+  await t.test("offset dans le texte principal, hors définition -> null", () => {
+    assert.equal(definitionIdAtOffset(content, 3), null);
+  });
+});
+
+test("findDefinition / findReferences", async (t) => {
+  const content = "A[^1] puis B[^1] encore, et C[^2].\n\n[^1]: Note un.\n[^2]: Note deux.";
+
+  await t.test("findDefinition retrouve la bonne note", () => {
+    assert.equal(findDefinition(content, "1").content, "Note un.");
+    assert.equal(findDefinition(content, "absent"), null);
+  });
+
+  await t.test("findReferences retrouve tous les appels d'un identifiant", () => {
+    assert.equal(findReferences(content, "1").length, 2);
+    assert.equal(findReferences(content, "2").length, 1);
+    assert.deepEqual(findReferences(content, "absent"), []);
   });
 });

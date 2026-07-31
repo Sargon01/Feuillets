@@ -21,6 +21,13 @@ export function stripMarkdown(text: string | null | undefined): string {
   );
   // Liens Markdown [texte](url) -> texte.
   t = t.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  // Définitions de notes de bas de page [^id]: texte -> ligne retirée en
+  // entier (sinon seul le retrait du marqueur [^id] laisse fuiter
+  // « : texte de la note » dans l'aperçu, avec un « : » orphelin en tête —
+  // best-effort sur la ligne de marqueur ; une éventuelle continuation
+  // indentée sur la ligne suivante n'est pas reconnue comme telle ici et
+  // reste traitée comme du texte normal, ce qui reste lisible).
+  t = t.replace(/^[ \t]{0,3}\[\^[^\]]+\]:.*$/gm, "");
   // Appels de note de bas de page [^id] -> retirés.
   t = t.replace(/\[\^[^\]]+\]/g, "");
 

@@ -1,5 +1,5 @@
 import { setIcon, MarkdownView } from "obsidian";
-import type { App, TFile, WorkspaceLeaf } from "obsidian";
+import type { App, Editor, TFile, WorkspaceLeaf } from "obsidian";
 
 type ObsidianElement = HTMLElement & {
   createDiv(options: { cls: string }): ObsidianElement;
@@ -135,6 +135,41 @@ export async function openFileActivatingWithCursor(app: App, leaf: WorkspaceLeaf
     const lastLine = editor.lastLine();
     editor.setCursor({ line: lastLine, ch: editor.getLine(lastLine).length });
     editor.focus();
+  }
+}
+
+/** Sélectionne [start, end] dans `editor` et fait défiler jusque-là. Borne
+ * sur la longueur réelle du document ouvert : le contenu a pu changer depuis
+ * que les offsets ont été calculés (ex. entre un scan et le clic sur un
+ * résultat). Utilitaire générique — pas de dépendance à un domaine
+ * particulier (notes de bas de page, résultats d'analyse…), pour être
+ * réutilisé plutôt que ré-écrit à chaque nouvelle fonctionnalité de
+ * navigation par offset. */
+export function selectRange(editor: Editor, start: number, end: number): void {
+  const max = editor.getValue().length;
+  const from = editor.offsetToPos(Math.max(0, Math.min(max, start)));
+  const to = editor.offsetToPos(Math.max(0, Math.min(max, end)));
+  editor.setSelection(from, to);
+  editor.scrollIntoView({ from, to }, true);
+  editor.focus();
+}
+
+/** Ouvre `file` (dans une feuille existante ou nouvelle), attend
+ * l'ouverture, puis sélectionne [start, end] — combine openFileActivating et
+ * selectRange pour le cas courant "aller à ce passage d'un AUTRE fichier".
+ * L'attente est nécessaire (contrairement à openFileActivating) : sans elle
+ * `leaf.view` est encore la vue précédente au moment de chercher l'éditeur. */
+export async function openFileAndSelectRange(
+  app: App,
+  leaf: WorkspaceLeaf,
+  file: TFile,
+  start: number,
+  end: number
+): Promise<void> {
+  await leaf.openFile(file, { active: true });
+  app.workspace.setActiveLeaf(leaf, { focus: true });
+  if (leaf.view instanceof MarkdownView) {
+    selectRange(leaf.view.editor, start, end);
   }
 }
 

@@ -256,6 +256,14 @@ test("stripMarkdown", async (t) => {
     assert.equal(stripMarkdown("Voir [le site](https://x.com) ici[^1]."), "Voir le site ici.");
   });
 
+  await t.test("une définition de note est retirée en entier, pas seulement son marqueur", () => {
+    // Avant correction : le retrait du seul "[^1]" laissait fuiter
+    // ": Contenu de la note." (avec un « : » orphelin) dans un aperçu.
+    const result = stripMarkdown("Texte principal[^1].\n\n[^1]: Contenu de la note.");
+    assert.equal(result, "Texte principal.");
+    assert.ok(!result.includes(":"));
+  });
+
   await t.test("titres, citations, puces et séparateurs de scène retirés", () => {
     assert.equal(stripMarkdown("## Titre\n> cite\n- item"), "Titre\ncite\nitem");
     assert.equal(stripMarkdown("***\n\nSuite."), "Suite.");

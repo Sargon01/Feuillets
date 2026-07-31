@@ -42,6 +42,12 @@ export type SearchOccurrence = {
   ch: number;
   matchText: string;
   contextSnippet: string;
+  /** "footnote" si l'occurrence tombe sur une ligne de DÉFINITION de note
+   *  (`[^id]: …`) — la recherche ne les exclut jamais, seulement de quoi
+   *  distinguer visuellement ce type de résultat (voir la vue qui affiche
+   *  contextSnippet). "body" pour tout le reste, y compris un simple appel
+   *  `[^id]` dans le texte. */
+  kind: "body" | "footnote";
 };
 
 export class FeuilletsSearchEngine {
@@ -176,6 +182,11 @@ export class FeuilletsSearchEngine {
           const endContext = Math.min(content.length, absIndex + matchText.length + 30);
           const contextSnippet = content.slice(startContext, endContext).replace(/\n/g, " ");
 
+          const lineStart = absIndex - ch;
+          const lineEndIdx = content.indexOf("\n", lineStart);
+          const lineText = content.slice(lineStart, lineEndIdx === -1 ? content.length : lineEndIdx);
+          const kind: "body" | "footnote" = /^[ \t]{0,3}\[\^[^\]]+\]:/.test(lineText) ? "footnote" : "body";
+
           occurrences.push({
             file,
             index: absIndex,
@@ -184,6 +195,7 @@ export class FeuilletsSearchEngine {
             ch,
             matchText,
             contextSnippet,
+            kind,
           });
         }
       }

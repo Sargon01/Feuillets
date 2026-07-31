@@ -148,6 +148,16 @@ export const en = {
   "shared.fileView.openSceneFirst": "Open a scene and place the cursor there before inserting an excerpt.",
 
   "shared.footnotes.title": "Footnotes (proofread)",
+
+  /* "Check document footnotes" modal (see ui/footnote-modals.ts). Deliberately
+     neutral wording: a finding, never an accusation of error. */
+  "footnotes.check.title": "Footnotes",
+  "footnotes.check.none": "No issues found.",
+  "footnotes.check.missing": "References without a definition",
+  "footnotes.check.unused": "Definitions without a reference",
+  "footnotes.check.duplicate": "Ids defined more than once",
+  "footnotes.check.empty": "Empty definitions",
+  "footnotes.check.malformed": "Malformed references",
   "shared.footnotes.openSceneTooltip": "Open this scene",
   "shared.footnotes.definedNeverCited": "Defined but never cited in this scene's text — check it.",
   "shared.footnotes.citedNeverDefined": "cited in the text, but no matching definition",
@@ -833,6 +843,8 @@ export const en = {
   "settings.insertTitles.desc": "Folder-chapters: their name. File-chapters: the `title` key only — never the file name.",
   "settings.insertSceneTitles.name": "Insert {unitPlural} titles",
   "settings.insertSceneTitles.desc": "`title` key only — {unitPlural} without a title run together.",
+  "settings.footnoteRenumberOnCompile.name": "Renumber footnotes in the compiled document",
+  "settings.footnoteRenumberOnCompile.desc": "Continuous (1, 2, 3…) in the order of the compiled manuscript. Never modifies the source files.",
   "settings.manuscriptTitle.name": "Manuscript title (.docx title page)",
   "settings.manuscriptTitle.desc": "Empty: project folder name.",
   "settings.manuscriptAuthor.name": "Author (.docx title page)",
@@ -950,6 +962,9 @@ export const en = {
   "main.cmd.insertFootnote": "Insert a footnote",
   "main.cmd.insertCitation": "Insert a citation",
   "main.cmd.renumberFootnotes": "Renumber footnotes",
+  "main.cmd.gotoFootnoteDefinition": "Go to footnote definition",
+  "main.cmd.gotoFootnoteReference": "Back to footnote reference",
+  "main.cmd.checkFootnotes": "Check document footnotes",
 
   "main.notice.journalPanelHidden": "Journal & stats panel hidden — re-enable it in the settings.",
   "main.notice.projectPanelHidden": "Project & export panel hidden — re-enable it in the settings.",
@@ -997,6 +1012,11 @@ export const en = {
   "main.notice.footnoteInserted": "Note {n} inserted.",
   "main.notice.nothingToRenumber": "Nothing to renumber.",
   "main.notice.footnotesRenumbered": "Footnotes renumbered.",
+  "main.notice.renumberFootnotesConfirm": "This renames every numeric footnote id and updates its references and definition. Named ids (e.g. [^source]) are left untouched.",
+  "main.notice.noFootnoteRefHere": "No footnote reference here.",
+  "main.notice.footnoteDefMissing": "Footnote [^{id}] has no definition in this file.",
+  "main.notice.notInFootnoteDefinition": "Place the cursor inside a footnote definition to jump back to its reference.",
+  "main.notice.footnoteRefMissing": "Footnote [^{id}] is not referenced anywhere in this file.",
   "main.notice.concentrationModeOn": "Focus mode — Esc to exit.",
   "main.notice.concentrationModeError": "Focus mode error.",
   "main.notice.activeFileNotInProject": "The active file doesn't belong to the project.",

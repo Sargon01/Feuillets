@@ -63,6 +63,106 @@ test("compile : respecte l'ordre, les pages Front et compile: false", async () =
   assert.ok(vault.getAbstractFileByPath("Projet/Sortie/Manuscrit.md"));
 });
 
+test("compile : deux feuillets utilisant tous deux [^1] ne collisionnent pas, et sont renumérotés en continu", async () => {
+  const volume = new TFolder("Roman");
+  const manuscript = new TFolder("Roman/Manuscrit");
+  const chap1 = new TFolder("Roman/Manuscrit/Chapitre 1");
+  const chap2 = new TFolder("Roman/Manuscrit/Chapitre 2");
+  const scene1 = new TFile(
+    "Roman/Manuscrit/Chapitre 1/Scène 1.md",
+    "---\ntitle: Départ\n---\nUn fait notable[^1].\n\n[^1]: Source du chapitre 1."
+  );
+  const scene2 = new TFile(
+    "Roman/Manuscrit/Chapitre 2/Scène 1.md",
+    "---\ntitle: Suite\n---\nUn autre fait[^1].\n\n[^1]: Source du chapitre 2."
+  );
+  volume.children = [manuscript];
+  manuscript.parent = volume;
+  manuscript.children = [chap1, chap2];
+  chap1.parent = manuscript;
+  chap2.parent = manuscript;
+  chap1.children = [scene1];
+  chap2.children = [scene2];
+  scene1.parent = chap1;
+  scene2.parent = chap2;
+
+  const { vault } = createFakeVault([volume, manuscript, chap1, chap2, scene1, scene2]);
+  vault.cachedRead = vault.read;
+  const frontmatter = new Map([
+    [scene1.path, { title: "Départ", compile: true }],
+    [scene2.path, { title: "Suite", compile: true }],
+  ]);
+  const app = {
+    vault,
+    metadataCache: { getFileCache: (file) => ({ frontmatter: frontmatter.get(file.path) || {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: [chap1.name, chap2.name] },
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  // Jamais deux définitions [^1] distinctes dans le document compilé : la
+  // collision entre fichiers doit avoir été résolue par le renamespaçage.
+  const defOccurrences = result.manuscript.match(/^\[\^1\]:/gm) || [];
+  assert.equal(defOccurrences.length, 1);
+  // Renumérotées en continu (réglage par défaut) : 1 puis 2, jamais 1 et 1.
+  assert.match(result.manuscript, /notable\[\^1\]/);
+  assert.match(result.manuscript, /autre fait\[\^2\]/);
+  assert.match(result.manuscript, /\[\^1\]: Source du chapitre 1\./);
+  assert.match(result.manuscript, /\[\^2\]: Source du chapitre 2\./);
+});
+
+test("compile : la renumérotation ne modifie jamais les fichiers sources", async () => {
+  const volume = new TFolder("Roman");
+  const manuscript = new TFolder("Roman/Manuscrit");
+  const scene = new TFile(
+    "Roman/Manuscrit/Scène 1.md",
+    "---\ntitle: Scène\n---\nUn fait[^9].\n\n[^9]: Une source."
+  );
+  volume.children = [manuscript];
+  manuscript.parent = volume;
+  manuscript.children = [scene];
+  scene.parent = manuscript;
+
+  const { vault } = createFakeVault([volume, manuscript, scene]);
+  vault.cachedRead = vault.read;
+  const originalContent = scene.content;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: { title: "Scène", compile: true } }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  await compile(app, settings);
+
+  assert.equal(scene.content, originalContent);
+  assert.match(scene.content, /\[\^9\]/);
+});
+
 test("activePresetConfig : renvoie le preset de base quand activePreset = -1", () => {
   const settings = {
     insertFolderTitles: true,

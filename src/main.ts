@@ -16,8 +16,16 @@ import { DEFAULT_SETTINGS } from "./default-settings.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
-import { nextFootnoteNumber, renumberFootnotes } from "./utils/footnotes.js";
-import { openFileActivating } from "./utils/dom.js";
+import {
+  nextFootnoteNumber,
+  renumberFootnotes,
+  validateFootnotes,
+  referenceIdAtOffset,
+  definitionIdAtOffset,
+  findDefinition,
+  findReferences,
+} from "./utils/footnotes.js";
+import { openFileActivating, selectRange } from "./utils/dom.js";
 import { noticeMessageEl } from "./utils/obsidian-compat.js";
 import { NotesView } from "./views/notes-view.js";
 import { PropertiesView } from "./views/properties-view.js";
@@ -55,7 +63,8 @@ import { NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
 import { ScrivenerImportModal } from "./ui/scrivener-import-modal.js";
 import { DocxReviewView } from "./views/docx-review-view.js";
-import { NewSheetModal } from "./ui/basic-modals.js";
+import { NewSheetModal, ConfirmModal } from "./ui/basic-modals.js";
+import { FootnoteCheckModal } from "./ui/footnote-modals.js";
 import { FileStatsModal } from "./ui/stats-modal.js";
 
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
@@ -307,6 +316,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerLiveTypography();
     this.registerStatusBar();
     this.registerTextEditingCommands();
+    this.registerFootnoteContextMenu();
     this.registerVaultEvents();
     this.patchTabTitles();
     this.registerSwipeGestures();
@@ -1359,20 +1369,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "insert-footnote",
       name: t("main.cmd.insertFootnote"),
-      editorCallback: (editor) => {
-        const n = nextFootnoteNumber(editor.getValue());
-        const marker = `[^${n}]`;
-        const at = editor.getCursor("to");
-        editor.replaceRange(marker, at, at);
-        const lastLine = editor.lastLine();
-        const end = { line: lastLine, ch: editor.getLine(lastLine).length };
-        const defLine = `\n\n[^${n}]: `;
-        editor.replaceRange(defLine, end, end);
-        const newLastLine = editor.lastLine();
-        editor.setCursor({ line: newLastLine, ch: editor.getLine(newLastLine).length });
-        editor.focus();
-        new Notice(t("main.notice.footnoteInserted", { n: String(n) }));
-      },
+      editorCallback: (editor) => this.insertFootnote(editor),
     });
     this.addCommand({
       id: "insert-citation",
@@ -1389,12 +1386,83 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.nothingToRenumber"));
           return;
         }
-        const cursor = editor.getCursor();
-        editor.setValue(out);
-        editor.setCursor(cursor);
-        new Notice(t("main.notice.footnotesRenumbered"));
+        /* Renuméroter est une transformation qui touche tout le fichier :
+           demande confirmation avant d'y toucher (voir le chantier notes de
+           bas de page), contrairement à l'insertion d'une seule note. */
+        new ConfirmModal(
+          this.app,
+          t("main.cmd.renumberFootnotes"),
+          t("main.notice.renumberFootnotesConfirm"),
+          t("main.cmd.renumberFootnotes"),
+          () => {
+            const cursor = editor.getCursor();
+            editor.setValue(out);
+            editor.setCursor(cursor);
+            new Notice(t("main.notice.footnotesRenumbered"));
+          }
+        ).open();
       },
     });
+    this.addCommand({
+      id: "goto-footnote-definition",
+      name: t("main.cmd.gotoFootnoteDefinition"),
+      editorCallback: (editor) => this.gotoFootnoteDefinition(editor),
+    });
+    this.addCommand({
+      id: "goto-footnote-reference",
+      name: t("main.cmd.gotoFootnoteReference"),
+      editorCallback: (editor) => this.gotoFootnoteReference(editor),
+    });
+    this.addCommand({
+      id: "check-footnotes",
+      name: t("main.cmd.checkFootnotes"),
+      editorCallback: (editor) => {
+        const result = validateFootnotes(editor.getValue());
+        new FootnoteCheckModal(this.app, editor, result).open();
+      },
+    });
+  }
+
+  /** Menu contextuel de l'éditeur pour les notes de bas de page : n'affiche
+   * chaque action que si elle est pertinente à la position du curseur — pas
+   * de « Aller à la note » si le curseur n'est sur aucun appel, pas de
+   * « Revenir à l'appel » hors d'une définition (voir le chantier notes de
+   * bas de page, section Interface). L'insertion, elle, reste toujours
+   * proposée : jamais hors contexte sur un feuillet Markdown. */
+  registerFootnoteContextMenu() {
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        if (!(view instanceof MarkdownView) || !view.file || view.file.extension !== "md") return;
+        const content = editor.getValue();
+        const offset = editor.posToOffset(editor.getCursor());
+        const refId = referenceIdAtOffset(content, offset);
+        const defId = definitionIdAtOffset(content, offset);
+
+        menu.addSeparator();
+        menu.addItem((item) =>
+          item
+            .setTitle(t("main.cmd.insertFootnote"))
+            .setIcon("list-plus")
+            .onClick(() => this.insertFootnote(editor))
+        );
+        if (refId) {
+          menu.addItem((item) =>
+            item
+              .setTitle(t("main.cmd.gotoFootnoteDefinition"))
+              .setIcon("arrow-down-to-line")
+              .onClick(() => this.gotoFootnoteDefinition(editor))
+          );
+        }
+        if (defId) {
+          menu.addItem((item) =>
+            item
+              .setTitle(t("main.cmd.gotoFootnoteReference"))
+              .setIcon("arrow-up-to-line")
+              .onClick(() => this.gotoFootnoteReference(editor))
+          );
+        }
+      })
+    );
   }
 
   async maybeAutoInitializeResearchFile(file) {
@@ -2117,10 +2185,71 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.nothingToRenumber"));
       return;
     }
-    const cursor = editor.getCursor();
-    editor.setValue(out);
-    editor.setCursor(cursor);
-    new Notice(t("main.notice.footnotesRenumbered"));
+    new ConfirmModal(
+      this.app,
+      t("main.cmd.renumberFootnotes"),
+      t("main.notice.renumberFootnotesConfirm"),
+      t("main.cmd.renumberFootnotes"),
+      () => {
+        const cursor = editor.getCursor();
+        editor.setValue(out);
+        editor.setCursor(cursor);
+        new Notice(t("main.notice.footnotesRenumbered"));
+      }
+    ).open();
+  }
+
+  /** Insère un appel de note à la position du curseur (après la sélection
+   * si une sélection existe — `getCursor("to")` renvoie déjà la borne de
+   * fin), ajoute sa définition en fin de fichier, place le curseur dedans.
+   * Partagé par la commande et le menu contextuel de l'éditeur. */
+  insertFootnote(editor: Editor): void {
+    const n = nextFootnoteNumber(editor.getValue());
+    const marker = `[^${n}]`;
+    const at = editor.getCursor("to");
+    editor.replaceRange(marker, at, at);
+    const lastLine = editor.lastLine();
+    const end = { line: lastLine, ch: editor.getLine(lastLine).length };
+    const defLine = `\n\n[^${n}]: `;
+    editor.replaceRange(defLine, end, end);
+    const newLastLine = editor.lastLine();
+    editor.setCursor({ line: newLastLine, ch: editor.getLine(newLastLine).length });
+    editor.focus();
+    new Notice(t("main.notice.footnoteInserted", { n: String(n) }));
+  }
+
+  /** Depuis un appel `[^id]` (curseur dessus ou à proximité), sélectionne sa
+   * définition. Partagé par la commande et le menu contextuel. */
+  gotoFootnoteDefinition(editor: Editor): void {
+    const content = editor.getValue();
+    const id = referenceIdAtOffset(content, editor.posToOffset(editor.getCursor()));
+    if (!id) {
+      new Notice(t("main.notice.noFootnoteRefHere"));
+      return;
+    }
+    const def = findDefinition(content, id);
+    if (!def) {
+      new Notice(t("main.notice.footnoteDefMissing", { id }));
+      return;
+    }
+    selectRange(editor, def.start, def.end);
+  }
+
+  /** Depuis une définition (curseur dans son texte), sélectionne son premier
+   * appel dans le document. Partagé par la commande et le menu contextuel. */
+  gotoFootnoteReference(editor: Editor): void {
+    const content = editor.getValue();
+    const id = definitionIdAtOffset(content, editor.posToOffset(editor.getCursor()));
+    if (!id) {
+      new Notice(t("main.notice.notInFootnoteDefinition"));
+      return;
+    }
+    const refs = findReferences(content, id);
+    if (refs.length === 0) {
+      new Notice(t("main.notice.footnoteRefMissing", { id }));
+      return;
+    }
+    selectRange(editor, refs[0].start, refs[0].end);
   }
 
   insertCitationFor(sourceFile: TFile, page: string, editor: Editor): void {

@@ -5,6 +5,7 @@ import { Notice, TFolder, TFile, normalizePath, Platform, type App } from "obsid
 import { toValue } from "../utils/scene-fields.js";
 import { embedHardBreaks } from "../utils/core.js";
 import { footnotePrefixFor, applyCompileTransforms } from "../utils/compile-text.js";
+import { renumberFootnotesAcrossTexts } from "../utils/footnotes.js";
 import { fmOf, compiledTitleFor, compiledSubtitleFor } from "./frontmatter.js";
 import {
   getProjectFolder,
@@ -272,6 +273,29 @@ export async function compile(app: App, settings: FeuilletsSettings) {
   if (count === 0) {
     new Notice("Aucun feuillet à compiler.");
     return null;
+  }
+  /* Chaque feuillet source numérote ses propres notes à partir de 1, sans
+     savoir que la compilation les concatène : footnotePrefixFor/
+     renamespaceFootnotes (appliqués plus haut, par feuillet, dans readBody)
+     évitent déjà les collisions d'identifiants entre fichiers. Ceci
+     renumérote ENSUITE le manuscrit compilé en 1, 2, 3… continu dans l'ordre
+     du document — un confort de lecture, jamais une modification des
+     fichiers sources : ni `parts` ni `segments` ne sont relus depuis le
+     disque, seule la copie en mémoire écrite dans Manuscrit.md (et donnée
+     aux exports natifs) est renumérotée.
+     `segments[i].text` DOIT rester synchronisé avec `parts[i]` (même ordre,
+     même longueur, `push()` les alimente ensemble) : certains exports
+     (pages Front, voir renderManuscriptHtmlWithFrontPages) reconstruisent
+     leur propre markdown à partir de `segments`, pas de la chaîne jointe —
+     renuméroter l'un sans l'autre romprait la numérotation vue par
+     l'utilisatrice selon le format exporté. */
+  if (settings.footnoteRenumberOnCompile !== false) {
+    const renumberedParts = renumberFootnotesAcrossTexts(parts);
+    for (let idx = 0; idx < segments.length; idx++) {
+      segments[idx] = { ...segments[idx], text: renumberedParts[idx] };
+    }
+    parts.length = 0;
+    parts.push(...renumberedParts);
   }
   const manuscript = parts.join(P.separator || "\n\n");
   const outputFolder = await getOutputFolder(app, settings);

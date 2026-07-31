@@ -29,7 +29,8 @@ const {
   splitFrontmatter,
 } = await import(modulePath("src/utils/analysis-text.js"));
 const { runAnalysis } = await import(modulePath("src/services/text-analysis.js"));
-const { TextAnalysisView, selectRange } = await import(modulePath("src/views/text-analysis-view.js"));
+const { TextAnalysisView } = await import(modulePath("src/views/text-analysis-view.js"));
+const { selectRange } = await import(modulePath("src/utils/dom.js"));
 
 function makeProvider(id = "grammalecte", issues = []) {
   const calls = [];

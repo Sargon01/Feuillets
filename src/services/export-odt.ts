@@ -20,6 +20,12 @@ type OdtOptions = {
   frontStyle?: string;
 };
 
+type RenderedFootnote = {
+  id: string;
+  html: string;
+  text: string;
+};
+
 /** opts.frontStyle : nom du style de paragraphe à utiliser pour un <p>/
  * <blockquote> à l'intérieur d'une page Front (titre/dédicace/épigraphe,
  * voir export-render.js) — "FrontPageFirst" pour le tout premier bloc de la
@@ -84,11 +90,36 @@ function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
   return childrenXml;
 }
 
+/** Notes de bas de page en ODT : ce générateur XML minimal ne construit pas
+ * de véritable structure `<text:note>` OpenDocument (contrairement à
+ * export-docx.js, qui s'appuie sur la bibliothèque `docx` pour de vraies
+ * notes Word) — une note réelle demanderait d'apparier citation et corps de
+ * note exactement là où l'appel apparaît dans le flux, ce que ce
+ * convertisseur DOM->XML linéaire ne fait pas. Plutôt que de perdre le
+ * contenu silencieusement (comportement précédent : `footnotes` n'était
+ * jamais lu) ou de le confondre avec le corps du texte, les notes sont
+ * ajoutées en NOTES DE FIN clairement identifiées sous un titre "Notes".
+ *
+ * Texte brut (`fn.text`), pas `fn.html` : réinjecter du HTML dans ce
+ * document demanderait de le reconvertir en balisage `text:*` OpenDocument
+ * via `domToOdtContent`, donc de le reparser d'abord — une mise en forme
+ * (gras, italique, lien) au sein d'une note ne survit donc pas dans cet
+ * export ODT, seul le texte. Limite documentée dans FONCTIONNALITES.md. */
+function footnotesEndSectionXml(footnotes: RenderedFootnote[]): string {
+  if (!footnotes.length) return "";
+  const items = footnotes
+    .map((fn, i) => `<text:p text:style-name="Standard">${i + 1}. ${escapeXml(fn.text)}</text:p>`)
+    .join("\n");
+  return `\n<text:h text:style-name="Heading_20_2" text:outline-level="2">Notes</text:h>\n${items}`;
+}
+
 /** Export ODT (OpenDocument Text pour LibreOffice / OpenOffice) natif sans conversion intermédiaire. */
 export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Uint8Array> {
-  const { containerEl } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
+  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
 
-  const bodyXml = Array.from(containerEl.childNodes).map((node) => domToOdtContent(node)).join("\n");
+  const bodyXml =
+    Array.from(containerEl.childNodes).map((node) => domToOdtContent(node)).join("\n") +
+    footnotesEndSectionXml(footnotes);
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre
      page Front de type "titre" — voir même choix dans export-docx.js. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));

@@ -26,6 +26,37 @@ describe("FeuilletsSearchEngine — buildRegex", () => {
   });
 });
 
+describe("FeuilletsSearchEngine — searchInVault, marquage des notes de bas de page", () => {
+  it("distingue une occurrence dans le corps d'une occurrence dans une définition de note", async () => {
+    const file = { path: "Scene1.md", extension: "md" };
+    const content = "Un fait notable[^1].\n\n[^1]: Voir la source citée ici.";
+    const app = { vault: { read: async () => content } };
+    const plugin = { getManuscriptFiles: () => [file] };
+    const { occurrences } = await FeuilletsSearchEngine.searchInVault(app, plugin, "source citée", {});
+    assert.equal(occurrences.length, 1);
+    assert.equal(occurrences[0].kind, "footnote");
+  });
+
+  it("un mot dans le texte principal reste marqué 'body'", async () => {
+    const file = { path: "Scene1.md", extension: "md" };
+    const content = "Un fait notable[^1].\n\n[^1]: Une note sans rapport.";
+    const app = { vault: { read: async () => content } };
+    const plugin = { getManuscriptFiles: () => [file] };
+    const { occurrences } = await FeuilletsSearchEngine.searchInVault(app, plugin, "fait notable", {});
+    assert.equal(occurrences.length, 1);
+    assert.equal(occurrences[0].kind, "body");
+  });
+
+  it("la recherche générale trouve le contenu des notes sans les exclure", async () => {
+    const file = { path: "Scene1.md", extension: "md" };
+    const content = "Texte principal sans le mot cherché.\n\n[^1]: Un indice rarissime.";
+    const app = { vault: { read: async () => content } };
+    const plugin = { getManuscriptFiles: () => [file] };
+    const { totalCount } = await FeuilletsSearchEngine.searchInVault(app, plugin, "rarissime", {});
+    assert.equal(totalCount, 1);
+  });
+});
+
 describe("FeuilletsSearchEngine — getScopedFiles", () => {
   it("filtre strictement le document actif si scope = document", () => {
     const activeFile = { path: "Scene1.md", extension: "md" };

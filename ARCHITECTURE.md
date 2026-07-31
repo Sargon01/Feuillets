@@ -35,7 +35,7 @@ src/
     text-metrics.js              Statistiques de texte (countSentences, formatNumber…)
     dom.js                       Petits utilitaires DOM (dépend de setIcon)
     export-templates.js          Modèles d'export intégrés (EXPORT_TEMPLATES, templateFor — purs, testés)
-    footnotes.js                  Extraction/rendu des notes de bas de page pour l'export
+    footnotes.js                  Analyse, validation, navigation et renumérotation des notes de bas de page (l'extraction pour l'export vit dans export-render.js)
     arc-fields.js                 Champs d'arc narratif (panneau Arcs)
     tag-tree.js                   Construction d'arbre de tags (buildTagTree, collectFiles, sortTagNodes)
     project-modes.js              Vocabulaire et réglages par défaut fiction/non-fiction

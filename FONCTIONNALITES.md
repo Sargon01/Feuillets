@@ -87,17 +87,116 @@ recherche native d'Obsidian.
 ## 4. Citations et notes de bas de page
 
 Outils d'insertion et de gestion des références, pensés pour l'écriture
-académique ou documentée (essais, non-fiction).
+académique ou documentée (essais, non-fiction) autant que pour la fiction
+(sources, digressions, précisions).
 
-- **Insérer une note de bas de page** — commande dédiée, ajoute un marqueur
-  `[^n]` au curseur et sa définition en fin de document, numérotation
-  automatique (`nextFootnoteNumber`)
-- **Renuméroter les notes de bas de page** — commande qui réordonne tous les
-  marqueurs et leurs définitions dans l'ordre du document
-  (`renumberFootnotes`)
+Feuillets utilise la syntaxe Markdown **standard**, la même qu'Obsidian
+reconnaît nativement — aucun format propriétaire :
+
+```markdown
+Une phrase contenant une note.[^1]
+
+[^1]: Contenu de la note.
+```
+
+Les identifiants nommés sont pris en charge au même titre que les
+numériques :
+
+```markdown
+Cette affirmation doit être précisée.[^source-principale]
+
+[^source-principale]: Voir l'ouvrage cité, page 42.
+```
+
+### Commandes
+
+- **Insérer une note de bas de page** — place l'appel après la sélection (ou
+  au curseur, sans sélection), ajoute la définition en fin de fichier avec le
+  premier numéro libre (`nextFootnoteNumber`), et place le curseur dans son
+  contenu. Disponible aussi dans le menu contextuel de l'éditeur.
+- **Aller à la définition de la note** — depuis un appel `[^id]` (curseur
+  dessus ou juste à côté), sélectionne sa définition.
+- **Revenir à l'appel de note** — depuis une définition, sélectionne son
+  (premier) appel dans le document.
+- **Vérifier les notes de bas de page du document** — ouvre une petite liste
+  cliquable des anomalies détectées : appels sans définition, définitions
+  sans appel, identifiants dupliqués, définitions vides, appels malformés
+  (`[^]`). Chaque ligne navigue directement vers le passage concerné.
+- **Renuméroter les notes de bas de page** — remet les identifiants
+  *numériques* à `1, 2, 3…` dans l'ordre d'apparition ; les identifiants
+  nommés (`[^source]`) ne sont jamais touchés. Reste manuelle (jamais
+  automatique à chaque modification) et demande confirmation avant
+  d'appliquer, puisqu'elle réécrit tout le fichier.
 - **Insérer une citation** — modale dédiée (`CitationSourceModal`),
   formatage automatique de la référence (`formatCitation`) à partir d'une
-  fiche Source du panneau Recherche
+  fiche Source du panneau Recherche.
+
+### Emplacement et identifiants
+
+Les définitions restent à la fin du fichier où elles ont été insérées —
+aucune section ni titre n'est requis, aucune section existante n'est
+déplacée. Les identifiants générés automatiquement sont numériques et
+uniques dans le fichier : le premier numéro libre est choisi, pas
+nécessairement `nombre de définitions + 1` (un fichier avec `[^1]` et `[^3]`
+propose `2`, pas `4`).
+
+### Vues et recherche
+
+Le Binder n'affiche jamais une définition de note comme un feuillet séparé.
+Les vues Cartes et Plan retirent les blocs de définition des extraits
+générés (le texte principal, lui, n'est jamais modifié dans le fichier
+source). La recherche générale trouve le contenu des notes comme n'importe
+quel texte — chaque résultat indique s'il provient d'une définition de note.
+
+### Notes et manuscrit compilé (plusieurs fichiers)
+
+Chaque feuillet numérote ses propres notes sans savoir que la compilation
+les concatène : deux scènes utilisant toutes les deux `[^1]` ne collisionnent
+jamais — chaque fichier reçoit un espace de noms interne dérivé de son
+chemin (`chapitre-1-scene-1__1`, `chapitre-2-scene-1__1`…) **uniquement dans
+le document compilé**, jamais dans les fichiers sources. Par défaut, le
+manuscrit compilé est ensuite renuméroté en continu (`1, 2, 3…` dans l'ordre
+du document) — réglage **Renuméroter les notes dans le document compilé**,
+activé par défaut, désactivable dans les réglages de compilation.
+
+Une compilation partielle (un seul chapitre, un preset qui exclut des
+feuillets) ne compile que les notes des fichiers réellement inclus ; un
+fichier marqué `compile: false` n'apporte ni ses appels ni ses définitions.
+
+### Comportement par format d'export
+
+| Format | Notes | Détail |
+| --- | --- | --- |
+| Markdown | ✅ Réelles | Syntaxe standard préservée, identifiants sans collision, ordre de compilation respecté — relisible tel quel dans Obsidian. |
+| HTML | ✅ Réelles | Rendu par `MarkdownRenderer` (le moteur natif d'Obsidian, pas un parseur maison) : appel cliquable, liste de notes en bas, lien de retour vers l'appel. |
+| PDF | ✅ Réelles | Notes de bas de page paginées (une zone dédiée par page, calculée par le moteur de pagination). |
+| DOCX | ✅ Réelles | Vraies notes de bas de page Word, via la bibliothèque `docx` (pas un texte simulé). |
+| EPUB | ✅ Réelles | Section `epub:type="footnotes"` conforme, liens de retour, identifiants uniques. |
+| ODT | ⚠️ Notes de fin, texte brut | Ce générateur ODT est un export XML minimal, sans conversion intermédiaire ; il ne construit pas de vraie structure `<text:note>` OpenDocument (qui demanderait d'apparier citation et corps de note dans le flux). Les notes apparaissent donc en **notes de fin**, sous un titre « Notes », clairement séparées du corps — jamais silencieusement perdues, jamais confondues avec le texte. Une éventuelle mise en forme *à l'intérieur* d'une note (gras, italique, lien) n'est en revanche pas préservée dans cet export précis : seul le texte l'est. |
+
+### Questions fréquentes
+
+- **Où est stockée la note ?** Dans le fichier lui-même, à la suite des
+  autres définitions déjà présentes — jamais dans un fichier séparé.
+- **Puis-je utiliser des noms comme `[^source]` ?** Oui, dès l'écriture
+  manuelle ; la renumérotation automatique ne les modifie jamais.
+- **Que se passe-t-il si deux scènes utilisent `[^1]` ?** Rien de visible :
+  la compilation les distingue automatiquement (voir ci-dessus), les
+  fichiers sources ne changent pas.
+- **Les fichiers sources sont-ils modifiés pendant la compilation ?** Non,
+  jamais — la renumérotation et le renommage d'identifiants n'affectent que
+  la copie en mémoire écrite dans `Manuscrit.md` et les exports.
+- **Pourquoi une note n'apparaît-elle pas dans l'export ?** Le feuillet qui
+  la contient est peut-être marqué `compile: false`, ou hors du chapitre
+  compilé lors d'une compilation partielle.
+- **Comment retrouver une note orpheline ?** « Vérifier les notes de bas de
+  page du document » (par feuillet) ou la section Notes de bas de page du
+  panneau Recherche (vue d'ensemble sur tout le manuscrit).
+- **Notes de fin de chapitre ou de document, en plus des vraies notes de bas
+  de page ?** Pas dans cette version : cela demanderait de restituer chaque
+  chapitre séparément avant rendu (le pipeline actuel rend tout le manuscrit
+  en un seul passage), un chantier distinct plutôt qu'un réglage ajouté sans
+  architecture pour le porter.
 
 ## 5. Outils d'édition de texte
 
