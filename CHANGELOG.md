@@ -2,7 +2,28 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
-## 1.4.5
+## 1.6.0
+
+### Ajouté et amélioré
+
+- **Nouvelle API publique de greffons d'analyse** : Feuillets expose une interface générique (`TextAnalysisRegistry`, accessible via `app.plugins.plugins["feuillets"].api`) permettant aux plugins compagnons tiers d'enregistrer leurs moteurs d'analyse linguistique de façon modulaire.
+- **Compatibilité complète avec Feuillets Grammalecte** : Prise en charge du compagnon local `Feuillets Grammalecte 1.0.0` pour la correction orthographique, grammaticale et l'analyse linguistique avancée.
+- **Amélioration de la vue Relecture** :
+  - Épuration des cartes de signalement (catégorie, règle, extrait, masquage du chemin pour le feuillet courant et affichage discret pour le roman).
+  - Soulignements dans l'éditeur Markdown (rouge pour l'orthographe, bleu pour la grammaire).
+  - Menu contextuel unifié (clic droit sur carte ou dans l'éditeur) proposant les suggestions de remplacement, l'ignorance d'occurrence (session) et l'apprentissage de mots (orthographe).
+- **Analyse automatique temporisée (Debounce)** :
+  - Relance automatique de l'analyse du feuillet courant 1 seconde après l'arrêt de la frappe lorsque l'onglet Relecture est ouvert.
+  - Conservation automatique du focus éditeur et exclusion de l'analyse automatique sur le roman complet pour préserver les performances.
+- **Corrections d'offsets, de remplacement et de focus** :
+  - Remplacement exact des mots fautifs sans concaténation avec l'ancien mot.
+  - Repositionnement automatique du curseur après le mot corrigé.
+  - Conversion stricte des offsets avec compensation du frontmatter et des sélections.
+- **Améliorations du masquage Markdown** :
+  - Masquage des titres, puces, marqueurs d'emphase, code, LaTeX et liens à longueur strictement constante.
+  - Préservation intégrale des apostrophes, tirets de mots composés et caractères accentués.
+
+## 1.5.0
 
 ### Retiré
 
