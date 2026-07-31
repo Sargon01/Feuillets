@@ -1,6 +1,6 @@
 {
   "name": "feuillets-grammalecte",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Grammalecte companion plugin for Feuillets",
   "main": "main.js",
   "type": "module",
@@ -13,7 +13,7 @@
     "build": "npm run typecheck && node esbuild.config.mjs production"
   },
   "author": "Halim Yalcin",
-  "license": "GPL-3.0",
+  "license": "GPL-3.0-only",
   "devDependencies": {
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.1",
