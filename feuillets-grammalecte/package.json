@@ -1,0 +1,24 @@
+{
+  "name": "feuillets-grammalecte",
+  "version": "0.1.0",
+  "description": "Grammalecte companion plugin for Feuillets",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "resources": "node scripts/restore-grammalecte-resources.mjs",
+    "typecheck": "tsc -noEmit -skipLibCheck",
+    "lint": "eslint . && npm run typecheck",
+    "test": "node --import ./test/register-hooks.mjs --test test/*.test.ts",
+    "dev": "node esbuild.config.mjs",
+    "build": "npm run typecheck && node esbuild.config.mjs production"
+  },
+  "author": "Halim Yalcin",
+  "license": "GPL-3.0",
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.8.0",
+    "obsidian": "latest",
+    "typescript": "^5.0.0"
+  }
+}
