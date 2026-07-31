@@ -4,12 +4,9 @@ import { resolveType } from "../utils/project-modes.js";
 import { NewProjectModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
-import { isEngineInstalled, downloadEngine } from "../services/grammar-assets-manager.js";
-import { GrammarUserDataModal } from "../ui/grammar-user-data-modal.js";
 import { getProjectMode } from "../services/project-mode.js";
 import type { DefaultSettings } from "../default-settings.js";
 import { PluginSettingTab, Setting, TFolder, Notice, Menu, Platform, Plugin, type App } from "obsidian";
-import type { GrammarUserData } from "../services/grammar-user-data.js";
 
 /* Union des réglages exhaustifs (default-settings.ts) et de l'interface
    globale partielle (types.d.ts) : ce panneau touche pratiquement tous
@@ -63,7 +60,6 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   setVaultConfig(key: string, value: unknown): void;
   backupProjectNow(): Promise<void>;
   hidePanel(key: string): Promise<void>;
-  grammarUserData?: GrammarUserData;
 
   /* Requis par les modales déjà migrées ouvertes depuis ce panneau
      (ManageProjectsModal, NewProjectModal, ScrivenerImportModal) — mêmes
@@ -1498,89 +1494,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     this.renderSectionOrderList(orderWrapNotes, S, "notesSectionOrder", ["Synopsis", "Résumé", "Notes"], refresh);
 
     containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.grammarCheck"), attr: { "data-cat": "Correction", "data-open": "1" } });
+
+    /* Section volontairement non interactive : Feuillets ne fournit plus de
+       correcteur grammatical (voir README, « Correction grammaticale »). On
+       informe plutot que de laisser croire a une panne, et on ne detecte ni
+       ne configure aucun greffon tiers — aucune API privee n'est appelee. */
     new Setting(containerEl)
-      .setName(t("settings.grammarEngine.name"))
-      .setDesc(t("settings.grammarEngine.desc"))
-      .addDropdown((drop) => {
-        drop.addOption("grammalecte", t("settings.grammarEngine.grammalecte"));
-        drop.addOption("languagetool", t("settings.grammarEngine.languagetool"));
-        drop.addOption("auto", t("settings.grammarEngine.auto"));
-        drop.addOption("off", t("settings.grammarEngine.off"));
-        drop.setValue(S.grammarEngine || "grammalecte");
-        drop.onChange(async (v) => {
-          S.grammarEngine = v as DefaultSettings["grammarEngine"];
-          await this.plugin.saveSettings();
-          refresh();
-        });
-      });
-
-    if (S.grammarEngine === "grammalecte" || S.grammarEngine === "auto") {
-      this.renderEngineDownloadRow(containerEl, "grammalecte", t("settings.grammarAssets.grammalecte"), refresh);
-      this.renderEngineDownloadRow(containerEl, "harper", t("settings.grammarAssets.harper"), refresh);
-    }
-
-    if (S.grammarEngine === "languagetool" || S.grammarEngine === "auto") {
-      new Setting(containerEl)
-        .setName(t("settings.languageToolUrl.name"))
-        .setDesc(t("settings.languageToolUrl.desc"))
-        .addText((t2) =>
-          t2.setValue(S.languageToolUrl || "https://api.languagetool.org/v2/check").onChange(async (v) => {
-            S.languageToolUrl = v.trim() || "https://api.languagetool.org/v2/check";
-            await this.plugin.saveSettings();
-          })
-        );
-
-      new Setting(containerEl)
-        .setName(t("settings.languageToolLanguage.name"))
-        .setDesc(t("settings.languageToolLanguage.desc"))
-        .addDropdown((drop) => {
-          drop.addOption("auto", t("settings.languageToolLanguage.auto"));
-          drop.addOption("en-US", "English (US)");
-          drop.addOption("en-GB", "English (UK)");
-          drop.addOption("fr", "Français");
-          drop.addOption("de", "Deutsch");
-          drop.addOption("es", "Español");
-          drop.setValue(S.languageToolLanguage || "auto");
-          drop.onChange(async (v) => {
-            S.languageToolLanguage = v;
-            await this.plugin.saveSettings();
-          });
-        });
-    }
-
-    new Setting(containerEl)
-      .setName(t("settings.detectRepetitions.name"))
-      .setDesc(t("settings.detectRepetitions.desc"))
-      .addToggle((t2) =>
-        t2.setValue(!!S.grammalecteDetectRepetitions).onChange(async (v) => {
-          S.grammalecteDetectRepetitions = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    {
-      const count = this.plugin.grammarUserData ? this.plugin.grammarUserData.knownWords.length : 0;
-      new Setting(containerEl)
-        .setName(t("settings.knownWords.name"))
-        .setDesc(t("settings.knownWords.desc"))
-        .addButton((btn) =>
-          btn.setButtonText(t("settings.knownWords.manageBtn", { count: String(count) })).onClick(() => {
-            new GrammarUserDataModal(this.app, this.plugin, "known").open();
-          })
-        );
-    }
-
-    {
-      const count = this.plugin.grammarUserData ? this.plugin.grammarUserData.ignoredRules.length : 0;
-      new Setting(containerEl)
-        .setName(t("settings.ignoredRules.name"))
-        .setDesc(t("settings.ignoredRules.desc"))
-        .addButton((btn) =>
-          btn.setButtonText(t("settings.ignoredRules.manageBtn", { count: String(count) })).onClick(() => {
-            new GrammarUserDataModal(this.app, this.plugin, "ignored").open();
-          })
-        );
-    }
+      .setName(t("settings.grammarExternal.name"))
+      .setDesc(t("settings.grammarExternal.desc"));
 
     containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilation"), attr: { "data-cat": "Export", "data-open": "1" } });
 
@@ -2045,46 +1966,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     } catch { /* idem pour l'onglet Apparence */ }
   }
 
-  /** Ligne de réglage pour un moteur local (Grammalecte/Harper) : état
-   * installé/absent + bouton de téléchargement à la demande — voir
-   * services/grammar-assets-manager.js pour pourquoi ils ne sont pas
-   * commités dans Feuillets lui-même. */
-  renderEngineDownloadRow(containerEl: HTMLElement, engine: string, label: string, refresh: () => void): void {
-    const setting = new Setting(containerEl).setName(label);
-
-    // require("fs")/require("path") indisponibles sur mobile — ni le check
-    // d'installation ni le téléchargement ne peuvent y tourner.
-    if (Platform.isMobile) {
-      setting.setDesc(t("grammar.unavailableOnMobile"));
-      return;
-    }
-
-    const installed = isEngineInstalled(this.app, this.plugin.manifest, engine);
-    if (installed) {
-      setting.setDesc(t("settings.grammarAssets.installed"));
-      return;
-    }
-
-    setting.setDesc(t(`settings.grammarAssets.${engine}Size`));
-    setting.addButton((btn) => {
-      btn.setButtonText(t("settings.grammarAssets.downloadBtn"));
-      btn.onClick(async () => {
-        btn.setDisabled(true);
-        try {
-          await downloadEngine(this.app, this.plugin.manifest, engine, (phase: string) => {
-            btn.setButtonText(t(`settings.grammarAssets.${phase}`));
-          });
-          new Notice(t("settings.grammarAssets.downloadDone", { label }));
-          refresh();
-        } catch (e) {
-          console.error("Feuillets : téléchargement du moteur local", e);
-          new Notice(t("settings.grammarAssets.downloadFailed", { error: e instanceof Error ? e.message : String(e) }));
-          btn.setDisabled(false);
-          btn.setButtonText(t("settings.grammarAssets.downloadBtn"));
-        }
-      });
-    });
-  }
 
   renderSectionOrderList(container: HTMLElement, S: SettingTabSettings, key: string, defaults: string[], refresh: () => void): void {
     container.empty();

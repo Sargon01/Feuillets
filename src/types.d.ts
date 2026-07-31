@@ -306,7 +306,6 @@ declare type FeuilletsSettings = {
   progressFilter: string;
   povFilter: string;
   tagFilter: string;
-  grammarEngine: string;
 
   binderSelectedPath: string;
   binderSearch: string;
