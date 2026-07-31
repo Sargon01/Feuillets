@@ -1,8 +1,9 @@
 import { VIEW_SIDEBAR, getProjectStatuses } from "../constants.js";
+import { hasKnownProject } from "../services/folder-structure.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
-import { ManageProjectsModal, NewProjectModal } from "../ui/project-modals.js";
+import { ManageProjectsModal, NewProjectModal, OpenExistingFolderModal, DuplicateVersionModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -382,7 +383,16 @@ export class FeuilletsView extends BaseFeuilletsView {
        renderLevel plus bas). "Importer un plan…" reste accessible via la
        palette de commandes et via le "+" racine du volet dossiers. */
     if (!folder) {
-      this.renderProjectManagerSplitView(container, S);
+      /* Écran d'accueil (titre + 3 actions) seulement au tout premier
+         lancement — aucun projet n'a jamais été créé ni ajouté. Dès qu'un
+         SEUL projet est connu (même si on vient d'en désactiver un), le
+         gestionnaire de projets (liste + hub) reste plus utile : "premier
+         projet" ne voudrait plus rien dire. */
+      if (hasKnownProject(S)) {
+        this.renderProjectManagerSplitView(container, S);
+      } else {
+        this.renderOnboarding(container);
+      }
       return;
     }
 
@@ -1022,29 +1032,8 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     const cardsContainer = hub.createDiv({ cls: "feuillets-hub-cards" });
 
-    const makeHubCard = (icon: string, title: string, desc: string, btnText: string, onClick: () => void) => {
-      const card = cardsContainer.createDiv({ cls: "feuillets-hub-card" });
-
-      const iconEl = card.createDiv({ cls: "feuillets-cell-icon feuillets-hub-card-icon" });
-      setIcon(iconEl, icon);
-
-      const textWrap = card.createDiv({ cls: "feuillets-hub-card-text" });
-      const cardTitle = textWrap.createDiv({ cls: "feuillets-hub-card-title" });
-      cardTitle.setText(title);
-
-      const cardDesc = textWrap.createDiv({ cls: "feuillets-notes-sub" });
-      cardDesc.setText(desc);
-
-      const btn = card.createEl("button", { text: btnText });
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onClick();
-      });
-
-      card.addEventListener("click", onClick);
-    };
-
-    makeHubCard(
+    this.hubCard(
+      cardsContainer,
       "folder-plus",
       t("binder.projectManager.card.new.title"),
       t("binder.projectManager.card.new.desc"),
@@ -1052,7 +1041,8 @@ export class FeuilletsView extends BaseFeuilletsView {
       () => new NewProjectModal(this.app, this.plugin).open()
     );
 
-    makeHubCard(
+    this.hubCard(
+      cardsContainer,
       "import",
       t("binder.projectManager.card.import.title"),
       t("binder.projectManager.card.import.desc"),
@@ -1060,12 +1050,105 @@ export class FeuilletsView extends BaseFeuilletsView {
       () => new ScrivenerImportModal(this.app, this.plugin).open()
     );
 
-    makeHubCard(
+    this.hubCard(
+      cardsContainer,
       "folder-open",
       t("binder.projectManager.card.add.title"),
       t("binder.projectManager.card.add.desc"),
       t("binder.projectManager.card.add.btn"),
       () => addInput.focus()
+    );
+  }
+
+  /** Une carte d'action cliquable (icône + titre + description + bouton) —
+   * même gabarit que les cartes du gestionnaire de projets
+   * (renderProjectManagerSplitView) et de l'écran d'accueil (renderOnboarding),
+   * pour que les deux se ressemblent visuellement. `onClick` reçoit
+   * l'événement (utile pour positionner un Menu au clic, ex. la démo). */
+  hubCard(container: HTMLElement, icon: string, title: string, desc: string, btnText: string, onClick: (e: MouseEvent) => void): HTMLElement {
+    const card = container.createDiv({ cls: "feuillets-hub-card" });
+
+    const iconEl = card.createDiv({ cls: "feuillets-cell-icon feuillets-hub-card-icon" });
+    setIcon(iconEl, icon);
+
+    const textWrap = card.createDiv({ cls: "feuillets-hub-card-text" });
+    const cardTitle = textWrap.createDiv({ cls: "feuillets-hub-card-title" });
+    cardTitle.setText(title);
+
+    const cardDesc = textWrap.createDiv({ cls: "feuillets-notes-sub" });
+    cardDesc.setText(desc);
+
+    const btn = card.createEl("button", { text: btnText });
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      onClick(e);
+    });
+
+    card.addEventListener("click", onClick);
+    return card;
+  }
+
+  /** Véritable écran d'accueil, affiché uniquement au tout premier lancement
+   * (aucun projet actif NI connu — voir render()) : titre, accroche, et les
+   * trois actions qui font vraiment démarrer l'écriture. Distinct de
+   * renderProjectManagerSplitView, qui reste affiché dès qu'AU MOINS un
+   * projet est déjà connu (liste à switcher, pas un premier pas). Réutilise
+   * .feuillets-settings-title/.feuillets-settings-tagline (déjà le rendu du
+   * nom "Feuillets" + accroche dans les réglages) et .feuillets-hub-card
+   * (déjà les cartes du gestionnaire de projets) plutôt que d'inventer un
+   * nouveau langage visuel. */
+  renderOnboarding(container: HTMLElement): void {
+    const wrap = container.createDiv({ cls: "feuillets-onboarding" });
+
+    wrap.createDiv({ cls: "feuillets-settings-title" }).setText(t("binder.onboarding.title"));
+    wrap.createDiv({ cls: "feuillets-settings-tagline" }).setText(t("binder.onboarding.tagline"));
+
+    const cards = wrap.createDiv({ cls: "feuillets-hub-cards" });
+
+    this.hubCard(
+      cards,
+      "folder-plus",
+      t("binder.onboarding.card.create.title"),
+      t("binder.onboarding.card.create.desc"),
+      t("binder.onboarding.card.create.btn"),
+      () => new NewProjectModal(this.app, this.plugin).open()
+    );
+
+    this.hubCard(
+      cards,
+      "folder-open",
+      t("binder.onboarding.card.open.title"),
+      t("binder.onboarding.card.open.desc"),
+      t("binder.onboarding.card.open.btn"),
+      () => new OpenExistingFolderModal(this.app, this.plugin).open()
+    );
+
+    /* Même menu Elira/Candide que le bouton "sparkles" de ManageProjectsModal
+       (voir project-modals.js) — réutilisé tel quel, pas réécrit. */
+    this.hubCard(
+      cards,
+      "sparkles",
+      t("binder.onboarding.card.demo.title"),
+      t("binder.onboarding.card.demo.desc"),
+      t("binder.onboarding.card.demo.btn"),
+      (e) => {
+        const menu = new Menu();
+        menu.addItem((item) =>
+          item.setTitle(t("settings.demoProject.elira")).onClick(() => {
+            void this.plugin.createDemoProject("elira");
+          })
+        );
+        menu.addItem((item) =>
+          item.setTitle(t("settings.demoProject.candide")).onClick(() => {
+            void this.plugin.createDemoProject("candide");
+          })
+        );
+        menu.showAtMouseEvent(e);
+      }
+    );
+
+    wrap.createDiv({ cls: "feuillets-notes-sub feuillets-onboarding-footnote" }).setText(
+      t("binder.onboarding.footnote")
     );
   }
 
@@ -1336,6 +1419,29 @@ export class FeuilletsView extends BaseFeuilletsView {
     rootRow.addEventListener("click", (e) => {
       if (e.target === rootAdd || rootAdd.contains(e.target as Node)) return;
       void selectFolder(treeRoot);
+    });
+
+    /* Clic droit sur la racine du manuscrit : dupliquer comme nouvelle
+       version — même fonction que la commande "duplicate-project" et le
+       bouton "copy-plus" de "Gérer les projets" (voir project-modals.js,
+       DuplicateVersionModal), juste rendue visible ici aussi, sur la seule
+       ligne du binder toujours présente à l'écran quel que soit le mode
+       d'affichage. Rien de nouveau : un troisième accès à la même action,
+       au geste le plus naturel pour "plus d'options sur cet élément". */
+    rootRow.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.duplicateAsVersion"))
+          .setIcon("copy-plus")
+          .onClick(() => {
+            new DuplicateVersionModal(this.app, this.plugin.projectDisplayName(treeRoot.path), (label) => {
+              void this.plugin.duplicateProject(treeRoot.path, label);
+            }).open();
+          })
+      );
+      menu.showAtMouseEvent(e);
     });
 
     // Filet de sécurité : chaque dossier jamais replié explicitement

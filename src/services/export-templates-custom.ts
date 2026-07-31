@@ -22,7 +22,7 @@ function customTemplatesFolderPath(app: App, settings: FeuilletsSettings): strin
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const resPath = resourcesFolderPath(app, root);
-  return resourcesSubfolderPath(app, resPath, "Layouts", "Modèles");
+  return resourcesSubfolderPath(app, resPath, "Layout", "Layouts", "Modèles");
 }
 
 /** Le dossier s'il existe déjà dans le coffre — jamais créé ici.
