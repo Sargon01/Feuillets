@@ -7,6 +7,30 @@ les menus/panneaux par **[Panneau]** ou **[Menu]**.
 
 ---
 
+## Questions fréquentes
+
+- **Comment créer un projet ?** → §24
+- **Quelle est la différence entre le projet et le dossier `Manuscrit` ?** → §24
+- **Comment réorganiser un chapitre ? Comment déplacer une scène ?** → §19
+- **Comment créer une partie ?** → §19, §24
+- **Comment utiliser la vue Cartes ? Comment utiliser la vue Plan ?** → §20
+- **Comment compiler seulement une partie ? Comment exclure un document
+  de la compilation ?** → §21
+- **Comment modifier la page de titre ?** → §24, §21
+- **Où placer mes images ?** → §24 (`Ressources/Images`)
+- **À quoi sert le dossier `Recherche` ?** → §14, §24
+- **Où sont stockés mes snapshots ? Comment restaurer un snapshot ?** → §23
+- **Comment comparer deux versions ? Comment dupliquer un dossier pour
+  créer une V2 ? Comment ouvrir la copie et l'original ?** → §24, §23
+- **Puis-je utiliser Feuillets sans YAML ? Puis-je utiliser mes propres
+  noms de dossiers ? Puis-je ouvrir un dossier Markdown existant ?** → §24
+- **Pourquoi un fichier n'apparaît-il pas dans le Binder ?** → §19
+- **Pourquoi un document n'apparaît-il pas dans la compilation ?** → §21
+- **Où sont générés les exports ? À quoi servent `Template`, `Layout`,
+  `Export` et `Assets` ?** → §21, §24
+
+---
+
 ## 1. Typographie à la frappe
 
 Corrections automatiques pendant la saisie dans l'éditeur, inspirées de French
@@ -214,7 +238,7 @@ selon le mode de projet (voir §19).
 - **Catégories non-fiction** : Sources, Acteurs, Géographie, Concepts,
   Bibliography, Glossary, Events
 - **Dossiers personnalisés** ajoutés par l'utilisateur, détectés
-  automatiquement (tout sous-dossier non standard de Resources/Research)
+  automatiquement (tout sous-dossier non standard de `Recherche`)
 - **Recherche texte** dans les fiches — **[Réglages]** `researchSearch`
 - **Filtre par tag** (icône, menu au lieu d'un menu déroulant) —
   **[Réglages]** `researchTagFilter`
@@ -367,11 +391,24 @@ Panneau central, 5 modes d'affichage, toujours visible.
   ordre/tags/échelle ; lecture : périmètre)
 - Icônes et grille de cartes centrées horizontalement dans le panneau
 
-## 21. Export natif (moteur sans dépendance)
+## 21. Compilation et export natif (moteur sans dépendance)
 
 Cœur de la fonctionnalité d'export — fonctionne sur mobile comme sur bureau,
 sans rien installer.
 
+- **Compiler le manuscrit** — commande "Compiler le manuscrit" : assemble
+  tous les feuillets du projet actif en un seul document, dans l'ordre du
+  Binder. Un **preset de compilation** (nommé, réutilisable) contrôle le
+  séparateur entre scènes et si les titres de parties/chapitres/scènes sont
+  insérés.
+- **Compilation partielle** — sélection manuelle des feuillets à inclure
+  plutôt que la totalité du projet, depuis le mode sélection multiple du
+  Tableau.
+- **Exclure un document en permanence** — le champ `compile: false` dans le
+  frontmatter d'un feuillet le retire de toute compilation (ponctuelle ou
+  partielle), sans le retirer du Binder ni du décompte de mots — utile pour
+  une note personnelle ou un brouillon mis de côté à l'intérieur du
+  manuscrit.
 - **2 moteurs** : natif (par défaut, zéro dépendance) ou Pandoc (avancé,
   bureau uniquement, pour qui l'a déjà installé et configuré) —
   **[Réglages]** `exportEngine`, `pandocPath`, `pandocReference`
@@ -388,8 +425,9 @@ sans rien installer.
   alignement, retrait, styles de titres par niveau, séparateur de scène,
   numérotation des pages, césure
 - **Modèles personnalisés** — fichiers `.md` avec frontmatter YAML dans
-  `Resources/Layouts` (anciennement `Ressources/Modèles`, toujours reconnu),
-  même schéma que les modèles intégrés ; un fichier du
+  `Ressources/Layout` (anciens noms `Resources/Layouts` et
+  `Ressources/Modèles` toujours reconnus), même schéma que les modèles
+  intégrés ; un fichier du
   même nom qu'un modèle intégré le remplace réellement (pas de doublon dans
   le menu) ; action "Exporter les modèles intégrés" pour partir d'un modèle
   existant à personnaliser
@@ -433,18 +471,46 @@ d'Obsidian.
 
 ## 24. Structure de projet et fondations
 
+- **Racine réelle du projet vs racine éditoriale** — un projet vit dans
+  `Nom du projet/`, qui contient `Manuscrit/` (le texte, ce que lisent le
+  Binder, les Cartes/Plan et la compilation), `Recherche/` et `Ressources/`
+  en frères de `Manuscrit`, jamais dedans. `settings.projectFolder` pointe
+  historiquement sur `Manuscrit` (racine éditoriale), pas sur `Nom du
+  projet/` (racine réelle) — voir `services/folder-structure.js`
+  (`getManuscriptRoot`, `getProjectRoot`)
+- **Créer un projet** — "Nouveau projet…" (nom, auteur facultatif, dossier
+  parent facultatif, type) crée en une fois `Manuscrit/Front/Page de
+  titre.md` (préremplie), un premier chapitre prêt à écrire (`Chapitre
+  1/Scène 1.md` en fiction, `Partie 1/Chapitre 1.md` en non-fiction),
+  `Recherche/` et `Ressources/{Images,Template,Layout,Export,Assets}/` —
+  puis ouvre directement le premier feuillet, curseur en position d'écrire.
+  `Snapshots` et `Journal` ne sont pas créés à ce stade : ils apparaissent
+  tout seuls à leur premier usage réel (premier instantané, premier jour de
+  journal), ou immédiatement via "Initialiser la structure du projet"
+  — voir `services/project-files.js` (`createMinimalProject`)
+- **Ouvrir un dossier existant** — utilise n'importe quel dossier du coffre
+  comme manuscrit : aucun fichier n'est déplacé, renommé, ni modifié ; seule
+  la référence dans les réglages change — voir `ui/project-modals.js`
+  (`OpenExistingFolderModal`)
 - **Modes de projet** : Fiction (scènes, parties/chapitres, vocabulaire
   "personnages/lieux/lore") ou Non-fiction (sections, "acteurs/géographie/
   concepts/sources") — appliqué une fois à la création, jamais réécrasé
   automatiquement ensuite
-- **Dossier du projet**, dossier Research (Recherche), dossier Snapshots,
-  dossier Resources (Templates, Export, Assets, Layouts — anciennement
-  Ressources/Visuels/Modèles), dossier Journal — détectés ou créés via
+- **Dossier Recherche**, dossier Snapshots, dossier Ressources (Images,
+  Template, Layout, Export, Assets), dossier Journal — détectés ou créés via
   "Initialiser la structure du projet" ; les anciens noms de dossiers
-  français restent reconnus indéfiniment sur les projets déjà créés,
-  jamais renommés de force sur le disque — voir
-  `services/folder-structure.js` (`getResourcesRoot`) et
-  `services/research.js` (`getResearchRoot`)
+  (`Research`/`Resources` anglais, `Templates`/`Layouts` au pluriel,
+  `Visuels`/`Modèles`) restent reconnus indéfiniment sur les projets déjà
+  créés sous l'un ou l'autre, jamais renommés de force sur le disque — voir
+  `services/folder-structure.js` (`getResourcesRoot`, `resourcesSubfolderPath`)
+  et `services/research.js` (`getResearchRoot`)
+- **Dupliquer comme nouvelle version** — fige une copie datée du manuscrit
+  actif (Recherche reste partagée entre les versions) sous `_Versions/`,
+  accessible par clic droit sur la racine du manuscrit dans le Binder, par
+  l'icône dédiée de "Gérer les projets", ou par la commande "Dupliquer le
+  manuscrit actif (nouvelle version)…" ; la copie s'ouvre et se compare à
+  l'original via "Comparer avec un autre feuillet…" sans jamais le modifier
+  — voir `services/project-files.js` (`duplicateProjectFolder`)
 - **Statuts** — entièrement personnalisables (nom + couleur), comme les
   labels — 5 statuts par défaut (Idée/Brouillon/En cours/Révisé/Terminé),
   renommables/recolorables/supprimables, d'autres ajoutables librement —

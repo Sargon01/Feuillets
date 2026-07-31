@@ -4,27 +4,56 @@ Pas un audit, pas de notes sur 10 : ce document suit un auteur qui démarre un p
 
 ---
 
-## 0. Avant d'écrire une ligne : choisir un dossier et un mode
+## 0. Créer le projet
 
-Dans Réglages → Feuillets, l'auteur pointe un dossier du coffre comme
-"Dossier du projet". Ce dossier peut déjà exister (un manuscrit en cours) ou être vide (nouveau projet).
+Depuis l'écran d'accueil du Binder (aucun projet actif) ou "Gérer les
+projets…", trois voies existent :
 
-Deux **modes de projet** existent, choisis une fois :
+- **"Créer un projet"** — nom du projet, auteur (facultatif), dossier
+  parent (facultatif), type. Un seul clic crée `Nom du projet/` avec :
+  `Manuscrit/Front/Page de titre.md` (préremplie avec le titre et
+  l'auteur), un premier chapitre déjà prêt à écrire, `Recherche/` et
+  `Ressources/` — puis ouvre directement ce premier feuillet, curseur en
+  position d'écrire. `Snapshots` et `Journal` ne sont pas créés tout de
+  suite : ils apparaissent tout seuls dès leur premier usage réel (premier
+  instantané, premier jour de journal).
+- **"Ouvrir un dossier existant"** — pour reprendre un manuscrit déjà
+  commencé ailleurs (avec ou sans frontmatter) : rien n'y est déplacé,
+  renommé ni modifié, seule la référence du projet actif change.
+- **"Découvrir avec un projet de démonstration"** — un projet d'exemple
+  déjà rempli, pour explorer les fonctions sans écrire une ligne.
+
+Deux **types de projet** existent, choisis une fois à la création :
 
 - **Fiction** — vocabulaire "scène/partie/chapitre", bible narrative
-  "Personnages/Lieux/Lore", mode Cartes par défaut.
+  "Personnages/Lieux/Lore", mode Cartes par défaut. Le premier chapitre est
+  créé directement sous `Manuscrit/` (`Chapitre 1/Scène 1.md`).
 - **Non-fiction** — vocabulaire "section/chapitre", bible narrative
-  "Acteurs/Géographie/Concepts/Sources", mode Plan par défaut.
+  "Acteurs/Géographie/Concepts/Sources", mode Plan par défaut. Le premier
+  chapitre est un fichier à l'intérieur d'une partie
+  (`Partie 1/Chapitre 1.md`).
 
-Le mode ne change ni les dossiers ni les champs frontmatter lus — seulement
+Le type ne change ni les dossiers ni les champs frontmatter lus — seulement
 l'habillage affiché et les réglages de départ. Il ne se réapplique jamais
 tout seul ensuite : les réglages ajustés par l'auteur ne sont jamais écrasés.
 
-**"Initialiser la structure du projet"** (commande, ou automatique à la
-première ouverture) crée alors : `Recherche` (avec ses sous-dossiers selon
-le mode), `Snapshots`, `Ressources` (Templates, Export, Visuels, Modèles),
-`Journal`, et des gabarits de fiches prêts à dupliquer dans
-`Ressources/Templates`.
+**Racine du projet et racine du manuscrit.** `Nom du projet/` est la racine
+réelle — elle contient `Manuscrit/`, `Recherche/` et `Ressources/` en
+frères. Le Binder, les Cartes, le Plan et la compilation, eux, ne
+travaillent que dans `Manuscrit/` : Recherche, Ressources, Journal et
+Snapshots n'apparaissent jamais mêlés à la structure narrative, seulement
+via leurs propres sections ou commandes.
+
+**"Initialiser la structure du projet"** (commande) complète à tout moment
+un projet déjà créé avec le reste : sous-dossiers de `Recherche` selon le
+type, `Snapshots`, `Ressources/Template` rempli de gabarits de fiches à
+dupliquer, `Journal`.
+
+**Rien de tout cela n'est obligatoire.** Un dossier Markdown ordinaire,
+avec ou sans frontmatter, fonctionne dans Feuillets — les métadonnées YAML
+et les dossiers conventionnels (`Recherche`, `Ressources`…) sont des
+compléments qui enrichissent le Binder, la recherche de contexte, les
+snapshots et la compilation, jamais des conditions pour écrire.
 
 ### Importer un plan ou un projet déjà commencé ailleurs
 
@@ -126,7 +155,7 @@ Avant, pendant ou après avoir écrit une scène, l'auteur crée des fiches
 dans le panneau Recherche : Personnages, Lieux, Lore, Bibliographie,
 Glossaire, Événements (vocabulaire adapté si le projet est en mode
 non-fiction). Chaque fiche a son propre gabarit de frontmatter, dupliquable
-depuis `Ressources/Templates`.
+depuis `Ressources/Template`.
 
 Une recherche texte et un filtre par tag permettent de retrouver une fiche
 précise sans quitter le panneau. C'est ce panneau qui alimente ensuite la
@@ -246,11 +275,14 @@ Le moment où le manuscrit doit sortir d'Obsidian.
 1. **Compiler** — assemble tous les feuillets du projet en un seul texte,
    dans l'ordre du binder. Un **preset** (nommé, réutilisable) contrôle le séparateur entre scènes et si les titres de parties/chapitres/scènes
    sont insérés. Possibilité de choisir manuellement les feuillets à
-   inclure plutôt que tout le projet.
+   inclure (compilation partielle) plutôt que tout le projet. Pour exclure
+   un feuillet précis en permanence (une note personnelle, un brouillon mis
+   de côté), le champ `compile: false` dans son frontmatter le retire de
+   toute compilation, sans le sortir du Binder ni du décompte de mots.
 2. **Choisir un modèle de mise en page** — 7 modèles intégrés (Classique,
    Moderne, Machine à écrire, Roman simple, Roman français paysage 2
    colonnes, APA, Thèse), ou un modèle personnalisé de l'auteur (fichier
-   `.md` avec frontmatter dans `Ressources/Modèles`, dupliqué depuis un modèle intégré exporté comme point de départ).
+   `.md` avec frontmatter dans `Ressources/Layout`, dupliqué depuis un modèle intégré exporté comme point de départ).
 3. **Exporter** — .docx (Word, avec vraies notes de bas de page, images légendées, tableaux), .epub (EPUB3 valide), ou .pdf (via l'impression, bureau uniquement). Tout ça fonctionne **sans rien installer**, y compris sur mobile. La typographie française (guillemets, espaces insécables) est appliquée automatiquement au texte compilé, même si l'auteur n'a pas tapé avec la typographie assistée activée.
 4. **Pandoc en option avancée** — pour l'auteur qui a déjà Pandoc installé et veut sa propre qualité typographique poussée (bureau uniquement).
 
@@ -268,6 +300,15 @@ Avant une modification importante, ou simplement par prudence régulière :
   Feuillets dans un fichier `.json` horodaté, restaurable plus tard (utile
   en changeant d'ordinateur, ou avant d'expérimenter avec les réglages
   avancés).
+- **Dupliquer comme nouvelle version** — avant une réécriture importante
+  (changer une fin, retravailler tout un arc), plutôt qu'un snapshot par
+  scène : clic droit sur la racine du manuscrit dans le Binder (ou icône
+  dédiée dans "Gérer les projets", ou palette de commandes) → "Dupliquer
+  comme nouvelle version…". Une copie complète du manuscrit (Recherche
+  reste partagée entre les deux) se fige sous un nom clair — v1, "avant
+  réécriture"… L'original continue d'être modifié normalement ; la copie
+  reste consultable et comparable à tout moment via "Comparer avec un autre
+  feuillet…" sur un feuillet donné.
 
 ---
 

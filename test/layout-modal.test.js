@@ -200,7 +200,7 @@ test("LayoutModal exporte les modèles intégrés et signale le résultat", asyn
     await modal.onOpen();
     await controls(modal.contentEl, "extra")[0].click();
     await controls(modal.contentEl, "extra")[0].click();
-    assert.equal([...files.keys()].some((path) => path.endsWith("Resources/Layouts/classique.md")), true);
+    assert.equal([...files.keys()].some((path) => path.endsWith("Ressources/Layout/classique.md")), true);
     assert.equal(notices.length, 2);
   } finally {
     Notice.onCreate = previousNotice;

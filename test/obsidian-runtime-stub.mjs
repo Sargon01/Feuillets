@@ -68,6 +68,32 @@ export class Keymap {}
 
 export class FuzzySuggestModal {}
 
+export class PopoverSuggest {
+  constructor(app) {
+    this.app = app;
+  }
+  open() {}
+  close() {}
+}
+
+export class AbstractInputSuggest extends PopoverSuggest {
+  constructor(app, textInputEl) {
+    super(app);
+    this.textInputEl = textInputEl;
+    this.limit = 100;
+  }
+  setValue(value) {
+    this.textInputEl.value = value;
+  }
+  getValue() {
+    return this.textInputEl.value;
+  }
+  onSelect(callback) {
+    this._onSelect = callback;
+    return this;
+  }
+}
+
 export function setTooltip() {}
 
 export class ButtonComponent {
