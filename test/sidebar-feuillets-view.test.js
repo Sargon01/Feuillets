@@ -62,7 +62,6 @@ function createSidebar(activeRightPanelTab = "notes", order = []) {
     journal: createSubView("journal", calls),
     project: createSubView("project", calls),
     docx: createSubView("docx", calls),
-    grammar: createSubView("grammar", calls),
     analyse: {
       ...createSubView("analyse", calls),
       _chaptersCache: "chapters",
@@ -97,7 +96,7 @@ test("SidebarFeuilletsView sauvegarde l'onglet avant de relancer le rendu", asyn
 
 test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné", async () => {
   const { sidebar, calls } = createSidebar();
-  for (const tab of ["notes", "research", "journal", "grammar", "analyse"]) {
+  for (const tab of ["notes", "research", "journal", "analyse"]) {
     calls.length = 0;
     sidebar.activeTab = tab;
     await sidebar.render();
@@ -122,17 +121,17 @@ test("SidebarFeuilletsView ne rafraîchit au file-open que les onglets liés au 
   sidebar.render = async () => {};
   await sidebar.onOpen();
 
-  for (const tab of ["notes", "research", "journal", "project", "grammar", "analyse"]) {
+  for (const tab of ["notes", "research", "journal", "project", "analyse"]) {
     calls.length = 0;
     sidebar.activeTab = tab;
     listeners.workspace.get("file-open")();
     await Promise.resolve();
-    assert.deepEqual(calls.map((call) => call.name), ["notes", "grammar", "analyse"].includes(tab) ? [tab] : []);
+    assert.deepEqual(calls.map((call) => call.name), ["notes", "analyse"].includes(tab) ? [tab] : []);
   }
   assert.equal(registered.length, 2);
 });
 
-test("SidebarFeuilletsView invalide uniquement les quatre caches Analyse à la modification", async () => {
+test("SidebarFeuilletsView invalide les caches Analyse à la modification", async () => {
   const { sidebar, listeners } = createSidebar();
   sidebar.registerEvent = () => {};
   sidebar.render = async () => {};
@@ -140,9 +139,7 @@ test("SidebarFeuilletsView invalide uniquement les quatre caches Analyse à la m
   listeners.vault.get("modify")();
 
   assert.equal(sidebar.subViews.analyse._chaptersCache, null);
-  assert.equal(sidebar.subViews.analyse._vocabCache, null);
   assert.equal(sidebar.subViews.analyse._dashboardCache, null);
-  assert.equal(sidebar.subViews.analyse._romanVocabCache, null);
   assert.equal(sidebar.subViews.notes.targetContainer, null);
 });
 
