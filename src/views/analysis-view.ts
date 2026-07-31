@@ -1,4 +1,6 @@
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
+import { renderLinguisticAnalysisSection } from "./linguistic-analysis-section.js";
+import type { TextAnalysisProvider } from "../api/text-analysis.js";
 import { analyzeProse } from "../utils/literary-analysis.js";
 import { formatNumber, stripWritingNoise } from "../utils/text-metrics.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
@@ -7,7 +9,7 @@ import { findRepetitions } from "../utils/repetitions.js";
 import { ensureFolder } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 
-import { TFile, TFolder, Platform, Notice, normalizePath, type Editor } from "obsidian";
+import { TFile, TFolder, Notice, normalizePath, type Editor } from "obsidian";
 
 type AnalysisSettings = FeuilletsSettings & {
   analysisRepWindow?: number;
@@ -21,6 +23,7 @@ type AnalysisViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
   getProjectFolder(): TFolder | null;
   activeEditorAnywhere(): Editor | null;
   saveSettings(): Promise<void>;
+  getAnalysisProvider(providerId?: string): TextAnalysisProvider | null;
 };
 
 type RythmeKey = "action" | "dialogue" | "description" | "introspection";
@@ -451,6 +454,16 @@ export class AnalysisView extends BaseFeuilletsView {
       }
     });
 
+    // ---- Analyse linguistique du feuillet (optionnelle via compagnon) ----
+    renderLinguisticAnalysisSection(
+      gb,
+      "vocab-sheet",
+      t("analysis.vocab.sheetTitle"),
+      this.plugin.getAnalysisProvider ? this.plugin.getAnalysisProvider() : null,
+      (parent, k, i, t, r) => this.tool(parent, k, i, t, r),
+      async () => this.app.vault.cachedRead(file)
+    );
+
     } // fin du groupe « Ce feuillet »
 
     // ========================= LE ROMAN =========================
@@ -532,6 +545,21 @@ export class AnalysisView extends BaseFeuilletsView {
           `${Math.round((c.words / max) * 100)}%`;
       }
     });
+
+    // ---- Analyse linguistique du roman (optionnelle via compagnon) ----
+    renderLinguisticAnalysisSection(
+      gb,
+      "vocab-roman",
+      t("analysis.vocab.novelTitle"),
+      this.plugin.getAnalysisProvider ? this.plugin.getAnalysisProvider() : null,
+      (parent, k, i, t, r) => this.tool(parent, k, i, t, r),
+      async () => {
+        const scenes = this.sceneFiles();
+        let fullText = "";
+        for (const f of scenes) fullText += "\n\n" + (await this.app.vault.cachedRead(f));
+        return fullText;
+      }
+    );
 
     // ---- Courbe narrative (déduite des tags de rythme) ----
     this.tool(gb, "curve", "activity", t("analysis.curve.title"), (section) => {

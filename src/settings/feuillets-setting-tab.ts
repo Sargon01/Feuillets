@@ -1070,6 +1070,17 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName(t("settings.autoAnalyzeInRelecture.name"))
+      .setDesc(t("settings.autoAnalyzeInRelecture.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(S.autoAnalyzeInRelecture !== false);
+        toggle.onChange(async (value) => {
+          S.autoAnalyzeInRelecture = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
       .setName(t("settings.mergeKeepSeparator.name"))
       .addToggle((toggle) => {
         toggle.setValue(S.mergeKeepSeparatorDefault);
