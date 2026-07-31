@@ -23,12 +23,62 @@ function splitSentences(text: string): string[] {
   return matches.map((s: string) => s.trim()).filter(Boolean);
 }
 
-/** Un paragraphe est considéré « dialogue » s'il ouvre par un tiret de
- * dialogue (— – -) ou contient des guillemets. Heuristique (pas du NLP) —
- * suffisante pour un ratio indicatif. */
-function isDialogueParagraph(p: string) {
-  const s = p.trimStart();
-  return /^[—–-]/.test(s) || /[«»""]/.test(p);
+/** Lignes de structure Markdown, jamais de la prose ni du dialogue : titre
+ * (dièse), liste à puces (y compris case à cocher « - [ ] »), liste
+ * numérotée, citation (chevron), ou ligne de séparation (trois tirets,
+ * astérisques ou underscores). Vérifiée sur la PREMIÈRE ligne du
+ * paragraphe — un bloc de liste multi-lignes (pas de ligne vide entre les
+ * puces) reste donc entièrement exclu du dialogue par ce seul test, sans
+ * avoir à examiner chaque ligne. */
+const MARKDOWN_STRUCTURAL_RE = /^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s?)/;
+const HORIZONTAL_RULE_RE = /^(-{3,}|\*{3,}|_{3,})$/;
+
+function isStructuralParagraph(p: string): boolean {
+  const firstLine = p.trimStart().split("\n", 1)[0].trim();
+  if (!firstLine) return true;
+  if (HORIZONTAL_RULE_RE.test(firstLine)) return true;
+  return MARKDOWN_STRUCTURAL_RE.test(p.trimStart());
+}
+
+/* Tiret de dialogue : cadratin (—) ou demi-cadratin (–) UNIQUEMENT — jamais
+ * le trait d'union ASCII (-), presque toujours une puce de liste Markdown
+ * dans ce contexte, pas une réplique. Exigé suivi d'un caractère qui n'est
+ * ni un espace ni un autre tiret, pour écarter une ligne de séparation
+ * (— — — ou une suite de tirets) qui ouvrirait sans porter de parole. */
+const DIALOGUE_DASH_RE = /^[—–]\s*[^\s—–]/;
+
+/* Guillemets français « » et doubles guillemets courbes (“ ”/„ ”) : seul le
+ * contenu ENTRE les guillemets compte comme dialogue, jamais le paragraphe
+ * entier qui les entoure (une incise narrative autour d'une réplique courte
+ * ne doit pas gonfler le ratio). Seuil minimal en mots : une citation d'un
+ * titre ou d'un mot isolé (« Il faut cultiver notre jardin », « le journal »)
+ * reste sous ce seuil la plupart du temps et n'est donc pas comptée — une
+ * heuristique, pas une distinction sémantique parfaite entre citation et
+ * réplique. */
+const QUOTE_SPAN_RE = /«([^»]+)»|“([^”]+)”|„([^“”]+)[“”]/g;
+const MIN_QUOTE_DIALOGUE_WORDS = 3;
+
+/** Mots réellement dialogués dans un paragraphe : soit la ligne entière si
+ * elle ouvre par un vrai tiret de dialogue, soit uniquement les mots à
+ * l'intérieur de guillemets assez longs pour être une réplique plutôt qu'une
+ * citation. Jamais la longueur brute du paragraphe pour une simple présence
+ * de guillemets. */
+function dialogueWordsIn(paragraph: string): number {
+  if (isStructuralParagraph(paragraph)) return 0;
+
+  if (DIALOGUE_DASH_RE.test(paragraph.trimStart())) {
+    return wordTokens(paragraph).length;
+  }
+
+  let total = 0;
+  QUOTE_SPAN_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = QUOTE_SPAN_RE.exec(paragraph)) !== null) {
+    const inner = m[1] ?? m[2] ?? m[3] ?? "";
+    const words = wordTokens(inner).length;
+    if (words >= MIN_QUOTE_DIALOGUE_WORDS) total += words;
+  }
+  return total;
 }
 
 /** Métriques d'un texte de prose. Retourne des valeurs BRUTES (pas de score
@@ -59,9 +109,8 @@ export function analyzeProse(rawText: string | null | undefined) {
   let dialogueWords = 0;
   let paraWords = 0;
   for (const p of paras) {
-    const n = wordTokens(p).length;
-    paraWords += n;
-    if (isDialogueParagraph(p)) dialogueWords += n;
+    paraWords += wordTokens(p).length;
+    dialogueWords += dialogueWordsIn(p);
   }
   const dialogueRatio = paraWords ? dialogueWords / paraWords : 0;
 

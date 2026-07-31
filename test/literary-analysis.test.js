@@ -34,6 +34,50 @@ test("analyzeProse : ratio dialogue (tirets et guillemets)", () => {
   assert.ok(r.dialogueRatio > 0 && r.dialogueRatio < 1);
 });
 
+test("analyzeProse : une liste Markdown à tirets n'est jamais du dialogue", () => {
+  const r = analyzeProse("- Premier point important.\n- Deuxième point à considérer ici.\n- Troisième et dernier point.");
+  assert.equal(r.dialogueRatio, 0);
+});
+
+test("analyzeProse : un titre Markdown n'est jamais du dialogue", () => {
+  const r = analyzeProse("# Chapitre premier\n\nLe vent soufflait doucement sur la lande déserte ce soir-là.");
+  assert.equal(r.dialogueRatio, 0);
+});
+
+test("analyzeProse : citation et séparateur ne sont jamais du dialogue", () => {
+  const r = analyzeProse("> Une pensée célèbre à méditer.\n\n---\n\nLe récit reprend son cours normalement ici.");
+  assert.equal(r.dialogueRatio, 0);
+});
+
+test("analyzeProse : une vraie réplique au tiret cadratin est reconnue", () => {
+  const r = analyzeProse("— Je ne partirai pas sans toi, dit-elle fermement.");
+  assert.ok(r.dialogueRatio > 0.5);
+});
+
+test("analyzeProse : un simple trait d'union ASCII n'ouvre jamais une réplique", () => {
+  const r = analyzeProse("- Ceci ressemble à une puce, pas à une réplique de dialogue.");
+  assert.equal(r.dialogueRatio, 0);
+});
+
+test("analyzeProse : une vraie réplique entre guillemets français est reconnue", () => {
+  const r = analyzeProse("Elle s'approcha et dit : « Je ne partirai pas sans toi ce soir. »");
+  assert.ok(r.dialogueRatio > 0);
+});
+
+test("analyzeProse : citer un mot ou un titre court entre guillemets n'est pas du dialogue", () => {
+  const r = analyzeProse("Il referma « le journal » et retourna travailler sans un mot de plus aujourd'hui.");
+  assert.equal(r.dialogueRatio, 0);
+});
+
+test("analyzeProse : le ratio se calcule sur les mots réellement dialogués, pas la ligne entière", () => {
+  // Le paragraphe entier compte une dizaine de mots, mais seule la réplique
+  // de 3 mots entre guillemets est dialoguée — un ratio calculé sur la
+  // longueur brute du paragraphe (11/11 = 100 %) serait bien trop élevé.
+  const r = analyzeProse("Elle hésita un long moment avant de répondre : « Viens avec moi. »");
+  assert.ok(r.dialogueRatio > 0);
+  assert.ok(r.dialogueRatio < 0.5);
+});
+
 test("analyzeProse : texte vide ne plante pas", () => {
   const r = analyzeProse("");
   assert.equal(r.words, 0);
