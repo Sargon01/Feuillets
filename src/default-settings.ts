@@ -147,10 +147,6 @@ export type DefaultSettings = {
   filPlaceholders: NarrativeThreadState["filPlaceholders"];
   filOrigins: NarrativeThreadState["filOrigins"];
   filResolved: NarrativeThreadState["filResolved"];
-  grammarEngine: "grammalecte" | "languagetool" | "auto" | "off";
-  languageToolUrl: string;
-  languageToolLanguage: string;
-  grammalecteDetectRepetitions: boolean;
   backupEnabled: boolean;
   backupIntervalMinutes: number;
   backupKeepCount: number;
@@ -323,10 +319,6 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   filPlaceholders: {},
   filOrigins: {},
   filResolved: [],
-  grammarEngine: "grammalecte",
-  languageToolUrl: "https://api.languagetool.org/v2/check",
-  languageToolLanguage: "auto",
-  grammalecteDetectRepetitions: false,
   backupEnabled: true,
   backupIntervalMinutes: 30,
   backupKeepCount: 5,
