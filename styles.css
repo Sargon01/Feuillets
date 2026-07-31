@@ -5907,6 +5907,25 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-hub-card-text { flex: 1; }
 .feuillets-hub-card-title { font-weight: bold; }
 
+/* --- Écran d'accueil (premier lancement, aucun projet connu) ---
+   Reprend .feuillets-settings-title/-tagline (déjà le rendu "Feuillets" +
+   accroche des réglages) et .feuillets-hub-card (déjà les cartes du
+   gestionnaire de projets) : seul l'habillage (centrage, largeur, marge du
+   pied de page discret) est propre à cet écran. Aucune couleur ni taille en
+   dur : hérite du thème clair/sombre actif via les variables Obsidian, et se
+   redimensionne naturellement sur mobile (colonne, pas de largeur fixe). */
+.feuillets-onboarding {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 32px 20px;
+  max-width: 420px;
+  margin: 0 auto;
+  text-align: center;
+}
+.feuillets-onboarding .feuillets-hub-cards { text-align: left; }
+.feuillets-onboarding-footnote { margin-top: 4px; }
+
 /* --- Liste des projets (Binder) --- */
 .feuillets-project-list { padding: 4px 0; }
 .feuillets-project-row-indent { padding-left: 12px; }
