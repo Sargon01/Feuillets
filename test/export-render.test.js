@@ -231,9 +231,12 @@ test("renderManuscriptHtml : extrait et retire les notes de bas de page", async 
   });
   try {
     const { containerEl, footnotes } = await renderManuscriptHtml(fakeApp(), "texte", "Source.md");
-    assert.deepEqual(footnotes, [{ id: "fn1", html: "<p>Une note</p>", text: "Une note" }]);
+    // `html` garde le lien de retour (aller-retour HTML/EPUB) ; `text`
+    // (utilisé par DOCX) en reste privé — voir extractFootnotes.
+    assert.deepEqual(footnotes, [
+      { id: "fn1", html: '<p>Une note </p><a class="footnote-backref">↩</a>', text: "Une note" },
+    ]);
     assert.equal(footnotes[0].html.includes("$1"), false);
-    assert.doesNotMatch(footnotes[0].html, /\/\s*<\/p>$/);
     assert.equal(containerEl.querySelector("section.footnotes"), null);
   } finally {
     restoreRenderer();
@@ -253,9 +256,11 @@ test("renderManuscriptHtml : retire un slash final des notes sans injecter $1", 
   });
   try {
     const { footnotes } = await renderManuscriptHtml(fakeApp(), "texte", "Source.md");
-    assert.deepEqual(footnotes, [{ id: "fn-slash", html: "<p>Une note</p>", text: "Une note" }]);
+    assert.deepEqual(footnotes, [
+      { id: "fn-slash", html: '<p>Une note</p><a class="footnote-backref">↩</a>', text: "Une note" },
+    ]);
     assert.equal(footnotes[0].html.includes("$1"), false);
-    assert.doesNotMatch(footnotes[0].html, /\/\s*<\/p>$/);
+    assert.doesNotMatch(footnotes[0].html, /\/\s*<\/p>/);
   } finally {
     restoreRenderer();
     restoreDom();

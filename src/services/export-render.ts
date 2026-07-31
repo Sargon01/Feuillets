@@ -241,24 +241,41 @@ function extractFootnotes(container: HTMLElement): RenderedFootnote[] {
       const id = li.getAttribute("id") || "";
       const clone = li.cloneNode(true);
       if (!isHtmlElement(clone)) return;
-      clone.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
+
+      /* `html` GARDE le lien de retour (`a.footnote-backref`) : c'est le
+         "aller-retour" attendu en HTML/EPUB (voir footnotesXhtml,
+         export-epub.js). `text`, lui, en est délibérément privé — DOCX
+         construit une vraie note Word à partir de ce texte brut, où une
+         flèche "↩" ne représenterait plus un lien cliquable, juste un
+         caractère parasite. D'où deux clones distincts plutôt qu'un retrait
+         partagé qui priverait HTML/EPUB de leur lien de retour. */
+      const textOnlyClone = clone.cloneNode(true);
+      if (isHtmlElement(textOnlyClone)) {
+        textOnlyClone.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
+      }
 
       let html = clone.innerHTML.trim();
-      let text = clone.textContent.trim();
+      let text = (isHtmlElement(textOnlyClone) ? textOnlyClone.textContent : clone.textContent).trim();
 
-      // Clean trailing slashes, backslashes, spaces, and backref markers
+      /* Le caractère de la flèche "↩" (U+21A9) porte ses propres sélecteurs
+         de variante de présentation textuelle/emoji U+FE0E/U+FE0F — jamais
+         de plage plus large : une classe de caractères mal formée ici a déjà
+         fait disparaître des chiffres et de la ponctuation ordinaires du
+         contenu d'une note (ex. "note 1" -> "note"), un bug distinct de la
+         présence du lien lui-même. */
       text = text
         // eslint-disable-next-line no-misleading-character-class -- voulu : on cible ↩ avec ses variantes de presentation U+FE0E/U+FE0F
-        .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
+        .replace(/[\u21A9\uFE0E\uFE0F]/g, "")
         .replace(/[\s/\\]+$/, "")
         .trim();
 
       html = html
-        .replace(/<a[^>]*class=["'](?:footnote-backref|internal-link)["'][^>]*>.*?<\/a>/gi, "")
-        // eslint-disable-next-line no-misleading-character-class -- voulu : on cible ↩ avec ses variantes de presentation U+FE0E/U+FE0F
-        .replace(/[\u21A9\u21A9&#8617;\u21A9\uFE0E\u21A9\uFE0F↩↩︎]/g, "")
-        .replace(/(?:&nbsp;|\s)*[/\\]+\s*(<\/p>)?$/gi, "$1")
-        .replace(/[\s/\\]+(?=<\/p>|$)/gi, "")
+        .replace(/<a[^>]*class=["']internal-link["'][^>]*>.*?<\/a>/gi, "")
+        // Débris (slash/espace/&nbsp;) laissé juste avant une fermeture de
+        // paragraphe — PAS ancré en fin de chaîne : le lien de retour, lui,
+        // reste après `</p>` désormais (voir plus haut), donc "la fin de la
+        // note" n'est plus "la fin de la chaîne html".
+        .replace(/(?:&nbsp;|\s)*[/\\]+\s*(<\/p>)/gi, "$1")
         .trim();
 
       footnotes.push({ id, html, text });

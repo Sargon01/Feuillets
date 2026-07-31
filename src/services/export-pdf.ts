@@ -106,6 +106,11 @@ export function paginateManuscript(
       const li = ol.createEl("li");
       li.id = f.id;
       const parsed = new DOMParser().parseFromString(f.html, "text/html");
+      /* `f.html` garde son lien de retour (voir extractFootnotes,
+         export-render.js) — utile pour l'aller-retour cliquable en HTML/EPUB,
+         mais une page PDF imprimée/statique n'a rien à en faire : sans lui,
+         la flèche "↩" resterait un caractère mort, sans lien fonctionnel. */
+      parsed.body.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
       while (parsed.body.firstChild) li.appendChild(parsed.body.firstChild);
     }
     elements.push(fnDiv);
