@@ -227,6 +227,75 @@ Deux règles pour `types.d.ts` :
   (`views/notes-view.js`) et l'approximation de position curseur
   (`views/board-view.js`).
 
+## Compilation et export
+
+### Le pipeline réel
+
+`compile()` (`services/compile-export.ts`) est la SEULE fonction qui parcourt
+le projet. Elle produit un contrat unique :
+
+```ts
+{ outPath: string; manuscript: string; segments: CompileSegment[] }
+```
+
+- `manuscript` : le texte Markdown complet, dans l'ordre du Binder — c'est ce
+  qui est écrit dans `Sortie/Manuscrit.md` et ce que Pandoc reçoit.
+- `segments` : la même succession de blocs, mais un par feuillet source
+  (`{ path, text, frontType }` — `path` vaut `null` pour un simple titre de
+  partie/chapitre, sans fiche propre). C'est ce que les 4 exports natifs
+  utilisent pour poser un signet par feuillet et isoler les pages Front.
+
+**Sélection et ordre** viennent d'une seule primitive, `getOrderedChildren`
+(`services/folder-structure.ts`) — la même que le Binder, le Tableau et la
+modale « Feuillets à compiler » (`ui/selection-modals.ts`). Aucune des trois
+surfaces ne recalcule son propre ordre : diverger entre elles est donc
+structurellement impossible, pas seulement testé. `compile:false`
+(et l'alias hérité `compiler:false`, résolu par `fmOf`) exclut un feuillet
+sans le retirer du Binder.
+
+**Un seul rendu, quatre formats.** `exportViaNative()` compile une fois, puis
+appelle `renderManuscriptHtml*()` (`services/export-render.ts`) — un seul
+passage par `MarkdownRenderer.render()` d'Obsidian — dont EPUB, DOCX, PDF et
+ODT partent tous. Chapitres, texte, titres, images et notes sont donc
+partagés PAR CONSTRUCTION ; ce qui diverge ensuite est la conversion de ce
+DOM commun vers chaque format cible (`docx-blocks.ts`, sérialisation XHTML,
+pagination PDF, XML ODT) — voir la matrice ci-dessous.
+
+**Erreurs.** Une erreur de compilation ou d'export est une `CompileError`
+(`services/compile-errors.ts`) : `{ step, filePath?, format? }`. Un feuillet
+illisible arrête la compilation avec un message qui le nomme précisément
+(`describe()` → `"lecture du feuillet (docx) — Chapitre 2/Scène.md : ..."`),
+jamais un simple « Échec de l'export ». Une image introuvable n'arrête rien
+(best-effort) mais n'est plus seulement logguée en console : une Notice
+récapitule les ressources manquantes.
+
+**Les fichiers sources ne sont jamais modifiés** : `compile()` ne lit qu'en
+`cachedRead`, les transformations (retrait du frontmatter, renumérotation des
+notes, typographie française) n'opèrent que sur la copie en mémoire.
+
+### Matrice de capacités par format
+
+| Capacité | Markdown | HTML (XHTML EPUB) | PDF | DOCX | ODT |
+| --- | --- | --- | --- | --- | --- |
+| Titres, structure de chapitres | ✅ pris en charge | ✅ pris en charge | ✅ pris en charge | ✅ pris en charge | ✅ pris en charge |
+| Gras/italique/citations/listes | ✅ pris en charge | ✅ pris en charge | ✅ pris en charge | ✅ pris en charge | ✅ pris en charge |
+| Images internes | ✅ conservées (embed) | ✅ transformé (data URI inliné) | ✅ transformé (data URI inliné) | ✅ transformé (ImageRun natif) | ✅ transformé (fragment inliné) |
+| Wikiliens `[[...]]` | ⚠️ transformé (converti en texte lisible, jamais un lien) | ⚠️ transformé (idem) | ⚠️ transformé (idem) | ⚠️ transformé (idem) | ⚠️ transformé (idem) |
+| Notes de bas de page | ✅ pris en charge (syntaxe standard) | ✅ pris en charge (appel + lien de retour) | ✅ pris en charge (bloc de notes en fin de page) | ✅ pris en charge (vraie note Word) | ⚠️ transformé (notes de fin, texte brut — pas de vraie structure `<text:note>`) |
+| Lien de retour note→appel | ➖ non pris en charge (Markdown n'a pas cette notion) | ✅ pris en charge | ➖ non pris en charge (page statique) | ➖ non pris en charge (Word gère son propre aller-retour) | ➖ non pris en charge |
+| Renumérotation continue à la compilation | ✅ pris en charge (réglage, désactivable) | hérité du Markdown compilé | hérité | hérité | hérité |
+| Mise en forme *à l'intérieur* d'une note (gras, lien) | ✅ pris en charge | ✅ pris en charge | ✅ pris en charge | ⚠️ transformé (texte brut, mise en forme perdue) | ⚠️ transformé (texte brut) |
+| Pages Front (titre/dédicace/épigraphe) | ✅ pris en charge | ✅ pris en charge (saut de page CSS) | ✅ pris en charge (saut de page) | ✅ pris en charge (section Word dédiée) | ✅ pris en charge (style de paragraphe dédié) |
+| Numérotation par chapitre (pagination avancée) | ➖ non pris en charge | ➖ non pris en charge | ➖ non pris en charge | ➖ non pris en charge | ➖ non pris en charge |
+
+« ✅ pris en charge » : fonctionne comme dans Obsidian. « ⚠️ transformé » :
+fonctionne, mais sous une forme adaptée aux limites du format cible — jamais
+silencieux, toujours documenté ici. « ➖ non pris en charge » : n'existe pas
+dans ce format ou hors périmètre de ce lot — voir « Suites possibles »
+ci-dessous pour ce qui est délibérément reporté (fidélité visuelle
+aperçu/export, profils enregistrables, en-têtes/pieds de page, métadonnées
+avancées, notes PDF repaginées, pagination sophistiquée).
+
 ## Vérification
 
 Chaque étape d'extraction a été suivie de `npm run build && npm test` sans tolérance de régression — et depuis l'introduction du typage opt-in, de `npx tsc -noEmit` (inclus dans `npm run build`). État courant : bundle de production à 951.2kb, 428/428 tests verts (`node:test`, fonctions pures de `utils/` et `services/`). `main.js` a regrandi au fil de l'ajout de panneaux entiers (Propriétés, Projet & export) plutôt que de rétrécir — la modularisation en `services/`/`views/` a absorbé la logique, pas fait disparaître le bootstrap qui les câble.
