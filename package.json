@@ -4,7 +4,7 @@
   "description": "Feuillets plugin development",
   "main": "main.js",
   "scripts": {
-    "postinstall": "node scripts/patch-harper.mjs && node scripts/patch-script-polyfills.mjs",
+    "postinstall": "node scripts/patch-script-polyfills.mjs",
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "lint": "eslint . && tsc -noEmit -skipLibCheck",
@@ -29,7 +29,6 @@
   "dependencies": {
     "diff": "^9.0.0",
     "docx": "^9.7.1",
-    "harper.js": "^2.4.0",
     "jszip": "^3.10.1"
   }
 }
