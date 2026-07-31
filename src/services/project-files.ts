@@ -1,11 +1,22 @@
 import { Notice, TFolder, TFile, normalizePath } from "obsidian";
 import type { App, TAbstractFile } from "obsidian";
 import { NewSheetModal, NewFolderModal } from "../ui/basic-modals.js";
-import { getProjectFolder, getOrderedChildren, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
+import {
+  getProjectFolder,
+  getOrderedChildren,
+  resourcesFolderPath,
+  resourcesSubfolderPath,
+  MANUSCRIPT_FOLDER_NAME,
+  FRONT_FOLDER_NAME,
+  RESEARCH_FOLDER_NAME,
+  RESOURCES_FOLDER_NAME,
+  RESOURCES_SUBFOLDER_NAMES,
+} from "./folder-structure.js";
 import { getResearchRoot } from "./research.js";
 import { ensureJournalFolder } from "./journal.js";
 import { getProjectMode } from "./project-mode.js";
 import { openFileActivating } from "../utils/dom.js";
+import { applyModeDefaults, resolveType } from "../utils/project-modes.js";
 
 export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
   const p = normalizePath(path);
@@ -169,6 +180,200 @@ export async function duplicateProjectFolder(app: App, root: TFolder, label: str
   return destPath;
 }
 
+/** Erreur de validation levée par createMinimalProject — jamais un message
+ * traduit directement (ce module ne connaît pas la langue d'affichage) :
+ * `code` permet à l'appelant (NewProjectModal) de choisir le texte via
+ * t(...), `path` porte le chemin déjà calculé pour l'interpoler. */
+/** Base commune à tout nouveau projet, quelle que soit sa provenance
+ * (createMinimalProject ci-dessous, ou le projet de démonstration —
+ * demo-project.ts) : `Recherche` et `Ressources/{Images,Template,Layout,
+ * Export,Assets}` à la racine réelle (`volumePath`, frères de Manuscrit),
+ * et le dossier `Front` à l'intérieur de Manuscrit. Une seule fonction pour
+ * ne pas dupliquer cette liste de dossiers à deux endroits. Idempotent :
+ * ensureFolder ne recrée jamais un dossier déjà présent. */
+export async function ensureProjectBaseFolders(
+  app: App,
+  volumePath: string,
+  manuscritPath: string
+): Promise<{ frontPath: string }> {
+  await ensureFolder(app, volumePath);
+  await ensureFolder(app, manuscritPath);
+  await ensureFolder(app, normalizePath(`${volumePath}/${RESEARCH_FOLDER_NAME}`));
+  const resourcesPath = normalizePath(`${volumePath}/${RESOURCES_FOLDER_NAME}`);
+  await ensureFolder(app, resourcesPath);
+  for (const sub of Object.values(RESOURCES_SUBFOLDER_NAMES)) {
+    await ensureFolder(app, normalizePath(`${resourcesPath}/${sub}`));
+  }
+  const frontPath = normalizePath(`${manuscritPath}/${FRONT_FOLDER_NAME}`);
+  await ensureFolder(app, frontPath);
+  return { frontPath };
+}
+
+export class CreateProjectError extends Error {
+  code: "empty-name" | "already-exists";
+  path?: string;
+  constructor(code: "empty-name" | "already-exists", path?: string) {
+    super(code);
+    this.code = code;
+    this.path = path;
+  }
+}
+
+/** Contenu minimal d'une page de titre — mêmes rôles `:::` que le reste de
+ * Feuillets (voir title-roles.js), avec en plus un vrai titre H1 et le nom
+ * d'autrice/auteur en Markdown ordinaire tout de suite après : lisible et
+ * complet même pour qui n'exporte jamais et n'a jamais entendu parler du
+ * frontmatter. Le YAML reste un simple ajout de métadonnées, jamais une
+ * condition : un Markdown sans aucun frontmatter continue de fonctionner
+ * partout ailleurs dans Feuillets (compilation, Binder, Cartes, Plan). */
+function titlePageContent(projectTitle: string, author: string): string {
+  const lines = [
+    "---",
+    `title: ${projectTitle}`,
+    `author: ${author}`,
+    "short_title: ",
+    "order: 1",
+    "synopsis: ",
+    "status: ",
+    "label: ",
+    "tags: ",
+    "date: ",
+    "notes: ",
+    "compile: true",
+    "type: titre",
+    "---",
+    `:::titre: ${projectTitle}`,
+    ":::sous-titre: ",
+    ":::mots: ",
+    `:::auteur: ${author}`,
+    ":::adresse: ",
+    ":::coordonnées: ",
+    "",
+    `# ${projectTitle}`,
+    "",
+    author,
+    "",
+  ];
+  return lines.join("\n");
+}
+
+/** Frontmatter d'un feuillet de manuscrit fraîchement créé (chapitre ou
+ * scène) — mêmes champs que newSheet() (voir plus bas), pour qu'un feuillet
+ * posé par createMinimalProject soit en tout point identique à un feuillet
+ * créé ensuite à la main par l'autrice. */
+function manuscriptFileContent(title: string, order: number, isFiction: boolean, wordGoal: number): string {
+  const lines = [
+    "---",
+    `title: ${title}`,
+    "short_title: ",
+    `order: ${order}`,
+    ...(isFiction ? ["synopsis: "] : ["summary: "]),
+    "status: ",
+    "label: ",
+    `goal: ${wordGoal}`,
+    "tags: ",
+    "date: ",
+    "notes: ",
+    ...(!isFiction ? ["sources: "] : []),
+    "compile: true",
+    "---",
+    "",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+/** Crée la structure minimale d'un nouveau projet, à sa VRAIE racine :
+ *
+ *   Nom du projet/                      (racine réelle — voir getProjectRoot)
+ *   ├── Manuscrit/                      (racine éditoriale — voir getManuscriptRoot)
+ *   │   ├── Front/Page de titre.md
+ *   │   └── Chapitre 1/Scène 1.md       (fiction) ou Partie 1/Chapitre 1.md (non-fiction)
+ *   ├── Recherche/
+ *   └── Ressources/{Images,Template,Layout,Export,Assets}/
+ *
+ * `Recherche` et `Ressources` sont frères de `Manuscrit`, jamais dedans, et
+ * jamais préfixés (`_Recherche`) : c'est la RECONNAISSANCE d'un dossier
+ * existant qui tolère l'ancien préfixe et les variantes anglaises
+ * (getResearchRoot, getResourcesRoot), pas la CRÉATION d'un nouveau projet.
+ *
+ * Snapshots et Journal restent volontairement absents : ils se créent tout
+ * seuls au premier usage réel (snapshotFile() au premier instantané,
+ * ensureJournalFolder() à l'ouverture de l'onglet Journal). Qui veut les
+ * poser dès la création peut lancer la commande "Initialiser la structure
+ * du projet" (voir main.js, initProjectStructure) sur le projet actif une
+ * fois créé.
+ *
+ * level1Role est fixé explicitement selon la forme réelle créée plutôt que
+ * de reprendre tel quel le défaut du mode (voir applyModeDefaults) : pour
+ * que roleOfFolder/roleOfFile (folder-structure.js) classent correctement
+ * le premier feuillet, un dossier de premier niveau doit avoir le rôle qui
+ * correspond à CE qu'il contient réellement ici — "Chapitre 1" est un
+ * chapitre en fiction (rôle "chapitres" : le dossier de 1er niveau EST le
+ * chapitre, les fichiers dedans sont des scènes), alors que "Partie 1" est
+ * une partie en non-fiction (rôle "parties" : le fichier posé directement
+ * dedans, "Chapitre 1.md", est alors classé "chapitre" et non "scène"). */
+export async function createMinimalProject(
+  app: App,
+  settings: FeuilletsSettings,
+  { name, parentFolder, type, author }: { name: string; parentFolder?: string; type: string; author?: string }
+): Promise<{ volumePath: string; manuscritPath: string; firstFolderPath: string; firstFile: TFile }> {
+  const trimmedName = (name || "").trim();
+  if (!trimmedName) throw new CreateProjectError("empty-name");
+
+  const parent = (parentFolder || "").trim().replace(/\/+$/, "");
+  const volumePath = normalizePath(parent ? `${parent}/${trimmedName}` : trimmedName);
+  if (app.vault.getAbstractFileByPath(volumePath)) {
+    throw new CreateProjectError("already-exists", volumePath);
+  }
+  const trimmedAuthor = (author || "").trim();
+
+  // --- Racine réelle : Manuscrit, Recherche, Ressources en frères ---
+  const manuscritPath = normalizePath(`${volumePath}/${MANUSCRIPT_FOLDER_NAME}`);
+  const { frontPath } = await ensureProjectBaseFolders(app, volumePath, manuscritPath);
+
+  // --- Page de titre ---
+  await app.vault.create(
+    normalizePath(`${frontPath}/Page de titre.md`),
+    titlePageContent(trimmedName, trimmedAuthor)
+  );
+
+  // --- Corps du manuscrit, selon le type ---
+  const isFiction = resolveType(type) === "fiction";
+  let firstFolderPath: string;
+  let firstFile: TFile;
+  if (isFiction) {
+    firstFolderPath = normalizePath(`${manuscritPath}/Chapitre 1`);
+    await ensureFolder(app, firstFolderPath);
+    firstFile = await app.vault.create(
+      normalizePath(`${firstFolderPath}/Scène 1.md`),
+      manuscriptFileContent("Scène 1", 1, true, settings.wordGoal)
+    );
+  } else {
+    firstFolderPath = normalizePath(`${manuscritPath}/Partie 1`);
+    await ensureFolder(app, firstFolderPath);
+    firstFile = await app.vault.create(
+      normalizePath(`${firstFolderPath}/Chapitre 1.md`),
+      manuscriptFileContent("Chapitre 1", 1, false, settings.wordGoal)
+    );
+  }
+
+  // --- Activation ---
+  if (settings.projectFolder && !settings.projects.includes(settings.projectFolder)) {
+    settings.projects.push(settings.projectFolder);
+  }
+  settings.projectFolder = manuscritPath;
+  if (!settings.projectMeta[manuscritPath]) settings.projectMeta[manuscritPath] = {};
+  settings.projectMeta[manuscritPath].type = type;
+  if (trimmedAuthor) settings.projectMeta[manuscritPath].author = trimmedAuthor;
+  applyModeDefaults(settings, type);
+  /* Voir le commentaire de tête : correspond à la forme réelle créée
+     ci-dessus, pas au défaut générique du mode. */
+  settings.level1Role = isFiction ? "chapitres" : "parties";
+
+  return { volumePath, manuscritPath, firstFolderPath, firstFile };
+}
+
 /** Crée les dossiers _ et les fichiers Bases (personnages, lieux). */
 export async function initProjectStructure(app: App, settings: FeuilletsSettings): Promise<void> {
   const root = getProjectFolder(app, settings);
@@ -191,10 +396,11 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     ? root.parent.path
     : root.path;
   /* Nom réel du dossier de recherche : celui déjà présent sur le disque
-     quel qu'il soit (Recherche, _Recherche, Research…), sinon "Research"
-     pour un tout nouveau projet — jamais un nom en dur qui dupliquerait
-     un dossier existant sous un autre nom. */
-  const researchName = existingResearch ? existingResearch.name : "Research";
+     quel qu'il soit (Recherche, _Recherche, Research…), sinon
+     RESEARCH_FOLDER_NAME ("Recherche") pour un tout nouveau projet —
+     jamais un nom en dur qui dupliquerait un dossier existant sous un
+     autre nom. */
+  const researchName = existingResearch ? existingResearch.name : RESEARCH_FOLDER_NAME;
   const existingChronoName = existingResearch && existingResearch.children
     ? (existingResearch.children.find((c) => c instanceof TFolder && (c.name === "Chronology" || c.name === "Chronologie")) || {}).name
     : null;
@@ -216,10 +422,11 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
   // Initialisation du dossier Ressources (Resources), voisin de root (Manuscrit)
   const resPath = resourcesFolderPath(app, root);
   await ensureFolder(app, resPath);
-  await ensureFolder(app, `${resPath}/Templates`);
-  await ensureFolder(app, `${resPath}/Export`);
-  const assetsPath = resourcesSubfolderPath(app, resPath, "Assets", "Visuels");
-  const layoutsPath = resourcesSubfolderPath(app, resPath, "Layouts", "Modèles");
+  await ensureFolder(app, `${resPath}/${RESOURCES_SUBFOLDER_NAMES.template}`);
+  await ensureFolder(app, `${resPath}/${RESOURCES_SUBFOLDER_NAMES.export}`);
+  await ensureFolder(app, `${resPath}/${RESOURCES_SUBFOLDER_NAMES.images}`);
+  const assetsPath = resourcesSubfolderPath(app, resPath, RESOURCES_SUBFOLDER_NAMES.assets, "Visuels");
+  const layoutsPath = resourcesSubfolderPath(app, resPath, RESOURCES_SUBFOLDER_NAMES.layout, "Layouts", "Modèles");
   await ensureFolder(app, assetsPath);
   await ensureFolder(app, layoutsPath);
 
@@ -264,7 +471,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
 
   if (isFiction) {
     // Templates de fiction
-    await writeTemplate(`${resPath}/Templates/Characters.md`, [
+    await writeTemplate(`${resPath}/Template/Characters.md`, [
       "---",
       "last_name: ",
       "first_name: ",
@@ -277,7 +484,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Places.md`, [
+    await writeTemplate(`${resPath}/Template/Places.md`, [
       "---",
       'title: "Nouveau lieu"',
       "description: ",
@@ -287,7 +494,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Lore.md`, [
+    await writeTemplate(`${resPath}/Template/Lore.md`, [
       "---",
       'title: "Nouvelle entrée"',
       "description: ",
@@ -297,7 +504,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Bibliography.md`, [
+    await writeTemplate(`${resPath}/Template/Bibliography.md`, [
       "---",
       'title: "Nouvelle référence"',
       "author: ",
@@ -310,7 +517,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Glossary.md`, [
+    await writeTemplate(`${resPath}/Template/Glossary.md`, [
       "---",
       'title: "Nouveau terme"',
       "definition: ",
@@ -321,7 +528,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Events.md`, [
+    await writeTemplate(`${resPath}/Template/Events.md`, [
       "---",
       'title: "Nouvel événement"',
       "date: ",
@@ -334,7 +541,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     ].join("\n"));
   } else {
     // Templates de non-fiction
-    await writeTemplate(`${resPath}/Templates/Sources.md`, [
+    await writeTemplate(`${resPath}/Template/Sources.md`, [
       "---",
       'title: "Nouvelle source"',
       "author: ",
@@ -349,7 +556,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Acteurs.md`, [
+    await writeTemplate(`${resPath}/Template/Acteurs.md`, [
       "---",
       "last_name: ",
       "first_name: ",
@@ -361,7 +568,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Geographie.md`, [
+    await writeTemplate(`${resPath}/Template/Geographie.md`, [
       "---",
       'title: "Nouvelle entrée"',
       "description: ",
@@ -371,7 +578,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Concepts.md`, [
+    await writeTemplate(`${resPath}/Template/Concepts.md`, [
       "---",
       'title: "Nouveau concept"',
       "description: ",
@@ -381,7 +588,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Bibliography.md`, [
+    await writeTemplate(`${resPath}/Template/Bibliography.md`, [
       "---",
       'title: "Nouvelle référence"',
       "author: ",
@@ -394,7 +601,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Glossary.md`, [
+    await writeTemplate(`${resPath}/Template/Glossary.md`, [
       "---",
       'title: "Nouveau terme"',
       "definition: ",
@@ -405,7 +612,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Templates/Events.md`, [
+    await writeTemplate(`${resPath}/Template/Events.md`, [
       "---",
       'title: "Nouvel événement"',
       "date: ",
