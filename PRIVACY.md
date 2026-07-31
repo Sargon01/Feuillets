@@ -10,29 +10,23 @@ in the background, never on load.
 **Nothing.** No analytics, no telemetry, no crash reporting, no usage
 statistics, no identifiers.
 
-## Network activity — the only two cases, both opt-in
+## Network activity — none
 
-- **Downloading a local grammar engine's resource files.** Feuillets'
-  French (Grammalecte) and English (Harper) proofreading engines run
-  entirely on your machine and never transmit your text anywhere — but
-  their dictionaries/binaries (~9MB / ~17MB) aren't bundled in the plugin
-  itself (Obsidian's installer only ever fetches three files from a
-  release, so shipping them here wouldn't reach anyone). A labeled button
-  per language in Settings → Feuillets → Panneaux latéraux downloads them,
-  once, from [`Sargon01/feuillets-assets`](https://github.com/Sargon01/feuillets-assets)
-  — a public repository that hosts only these two archives, no code — via
-  Obsidian's own `requestUrl` API, then caches them on disk. Nothing is
-  fetched unless you click that button.
-- **LanguageTool, if you explicitly select it.** The grammar-check engine
-  setting defaults to the local engines above. If you deliberately switch it
-  to LanguageTool (or it's used as an automatic fallback on mobile, where
-  the local engines can't run), the text of the scene you check is sent to
-  whichever LanguageTool endpoint you've configured — the public
-  `api.languagetool.org` by default, or a self-hosted server if you set one.
-  This only happens when a grammar check runs with that engine active.
+Feuillets makes no network request of its own. It contacts no server, loads
+no remote script, font, or image, and sends your text nowhere.
 
-Nothing else in Feuillets makes a network call. `WebSocket` appears nowhere
-in the source; `fetch`/`requestUrl` appear only in the two code paths above.
+Up to 1.4.4 there were two exceptions: downloading the local grammar engines,
+and submitting text to LanguageTool if you selected it. Both are gone in
+1.4.5 — grammar checking was removed from Feuillets entirely (see
+`README.md`). Nothing replaced them: the plugin now works fully offline
+from the moment it is installed.
+
+For spelling and grammar, install a dedicated plugin from Obsidian's
+Community Plugins browser. Those plugins have their own privacy policies;
+Feuillets neither configures them nor reads their data.
+
+Nothing in Feuillets makes a network call. `WebSocket`, `fetch` and
+`requestUrl` appear nowhere in the source.
 
 ## Where your data lives
 

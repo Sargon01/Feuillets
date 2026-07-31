@@ -10,7 +10,6 @@ export const VIEW_JOURNAL = "feuillets-journal";
 export const VIEW_PROJECT = "feuillets-project";
 export const VIEW_DOCX_REVIEW = "feuillets-docx-review";
 export const VIEW_SIDEBAR_FEUILLETS = "feuillets-sidebar-view";
-export const VIEW_GRAMMAR = "feuillets-grammar";
 
 /** Statuts : entièrement personnalisables (nom + couleur), comme les
  * labels — plus de liste figée ni de couleur déterminée par la position.

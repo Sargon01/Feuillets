@@ -6,7 +6,6 @@ import { getChapters, flattenFiles, isFrontMatter, resourcesFolderPath } from ".
 import { findRepetitions } from "../utils/repetitions.js";
 import { ensureFolder } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
-import type { GrammalecteChecker } from "../services/grammalecte-checker.js";
 
 import { TFile, TFolder, Platform, Notice, normalizePath, type Editor } from "obsidian";
 
@@ -17,7 +16,6 @@ type AnalysisSettings = FeuilletsSettings & {
 
 type AnalysisViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
   settings: AnalysisSettings;
-  grammalecteChecker: GrammalecteChecker | null;
   folderNoteFor(folder: TFolder): TFile | null;
   shortTitleFor(file: TFile): string;
   getProjectFolder(): TFolder | null;
@@ -30,24 +28,6 @@ type RythmeValues = Record<RythmeKey, number>;
 
 type ChapterStat = { title: string; words: number; dialogueRatio: number };
 
-type VocabEntry = [string, number];
-type VocabData = {
-  passiveCount: number;
-  weakTop: VocabEntry[];
-  weakTotal: number;
-  weakPct: number;
-  richness: number;
-  uniqueLemmas: number;
-  hapaxCount: number;
-  contentTotal: number;
-  verbs: VocabEntry[];
-  adjs: VocabEntry[];
-  advs: VocabEntry[];
-  mentTotal: number;
-  mentPct: number;
-  mentTop: VocabEntry[];
-};
-type VocabResult = VocabData | { error: true };
 
 type DashboardData = {
   words: number;
@@ -61,28 +41,6 @@ type DashboardData = {
   taggedPct: number;
 };
 
-/** Extrait le lemme d'une chaîne morphologique Grammalecte (`>lemme …`). */
-function lemmaOfMorph(morph: string): string {
-  const m = morph.match(/>([0-9a-zà-öø-ÿ-]+)/i);
-  return m ? m[1] : "";
-}
-
-/** Verbes « passe-partout » (ternes, à forte fréquence) dont l'abus appauvrit
- * le style : on les repère pour inviter à varier. Verbes de contenu banals,
- * pas les auxiliaires modaux (pouvoir/vouloir/devoir, grammaticaux). */
-const VERBES_PASSE_PARTOUT = new Set([
-  "être", "avoir", "faire", "dire", "aller", "voir", "mettre", "prendre",
-  "donner", "trouver", "passer", "rendre", "tenir", "venir",
-]);
-
-/** Verbes intransitifs formant leur passé composé avec « être » : « il est
- * arrivé » n'est PAS une voix passive — à exclure de la détection. */
-const ETRE_INTRANSITIFS = new Set([
-  "aller", "arriver", "décéder", "demeurer", "descendre", "devenir", "entrer",
-  "intervenir", "monter", "mourir", "naître", "partir", "parvenir", "passer",
-  "provenir", "rentrer", "repartir", "rester", "retomber", "retourner",
-  "revenir", "sortir", "survenir", "tomber", "venir",
-]);
 
 /* Courbe narrative (Phase 3) : chaque scène reçoit, DANS SON FRONTMATTER, une
    intensité 0–5 par dimension, sous la clé `rythme`. Tags MANUELS (posés par
@@ -116,8 +74,6 @@ export class AnalysisView extends BaseFeuilletsView {
   declare plugin: AnalysisViewPlugin;
   declare targetContainer?: HTMLElement;
   _chaptersCache: ChapterStat[] | null = null;
-  _vocabCache: { path: string; data: VocabResult } | null = null;
-  _romanVocabCache: VocabResult | null = null;
   _dashboardCache: DashboardData | null = null;
 
   getViewType(): string {
@@ -206,219 +162,9 @@ export class AnalysisView extends BaseFeuilletsView {
     return out;
   }
 
-  /** Analyse morphologique du feuillet (Phase 5, via Grammalecte) : verbes/
-   * adjectifs/adverbes favoris par lemme + richesse lexicale (lemmes uniques /
-   * mots pleins). getMorph renvoie plusieurs analyses par mot (ambiguïté
-   * verbe/nom…) : on compte au plus large, d'où un résultat indicatif. Desktop
-   * uniquement (le moteur nécessite fs/vm). Synchrone — d'où le cache et le
-   * calcul seulement quand la section est dépliée. */
-  computeVocab(rawText: string): VocabData | null {
-    const checker = this.plugin.grammalecteChecker;
-    if (!checker) return null;
-    checker.ensureLoaded();
-    const sc = checker.spellChecker!;
 
-    const clean = stripWritingNoise(rawText || "");
-    const morphCache = new Map<string, string[]>();
-    const morphsOf = (w: string): string[] => {
-      let mm = morphCache.get(w);
-      if (mm === undefined) {
-        mm = sc.getMorph(w) || [];
-        morphCache.set(w, mm);
-      }
-      return mm;
-    };
 
-    const re = /[\p{L}][\p{L}\p{N}'’-]*/gu;
-    const ordered: string[] = [];
-    const freq = new Map<string, number>();
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(clean)) !== null) {
-      const key = m[0].toLowerCase();
-      ordered.push(key);
-      freq.set(key, (freq.get(key) || 0) + 1);
-    }
 
-    const verbs = new Map<string, number>();
-    const adjs = new Map<string, number>();
-    const advs = new Map<string, number>();
-    const allLemmas = new Map<string, number>();
-    const ment = new Map<string, number>();
-    let contentTotal = 0;
-    const bump = (map: Map<string, number>, lemma: string, n: number) => {
-      if (lemma) map.set(lemma, (map.get(lemma) || 0) + n);
-    };
-
-    for (const [word, n] of freq) {
-      const morphs = morphsOf(word);
-      if (!morphs.length) continue;
-      let lv = "";
-      let la = "";
-      let lw = "";
-      let lany = "";
-      let content = false;
-      for (const mo of morphs) {
-        if (/:V/.test(mo)) lv = lv || lemmaOfMorph(mo);
-        if (mo.includes(":A")) la = la || lemmaOfMorph(mo);
-        if (mo.includes(":W")) lw = lw || lemmaOfMorph(mo);
-        if (/:[NAVW]/.test(mo)) {
-          content = true;
-          lany = lany || lemmaOfMorph(mo);
-        }
-      }
-      bump(verbs, lv, n);
-      bump(adjs, la, n);
-      bump(advs, lw, n);
-      if (content) {
-        contentTotal += n;
-        if (lany) allLemmas.set(lany, (allLemmas.get(lany) || 0) + n);
-      }
-      // Adverbes en -ment (surface tagguée adverbe, > 5 lettres) : surveiller
-      // leur profusion, tic de style fréquent.
-      if (lw && word.length > 5 && word.endsWith("ment")) {
-        ment.set(word, (ment.get(word) || 0) + n);
-      }
-    }
-
-    // Voix passive : forme d'« être » suivie (1–2 mots) d'un participe passé
-    // (tag :Q), hors verbes intransitifs à auxiliaire être. Estimation.
-    const isEtre = (w: string) => morphsOf(w).some((mo) => /:V/.test(mo) && lemmaOfMorph(mo) === "être");
-    const ppLemma = (w: string): string => {
-      for (const mo of morphsOf(w)) {
-        if (/:V/.test(mo) && mo.includes(":Q")) return lemmaOfMorph(mo);
-      }
-      return "";
-    };
-    let passiveCount = 0;
-    for (let i = 0; i < ordered.length; i++) {
-      if (!isEtre(ordered[i])) continue;
-      const end = Math.min(i + 2, ordered.length - 1);
-      for (let j = i + 1; j <= end; j++) {
-        const pl = ppLemma(ordered[j]);
-        if (pl && pl !== "être" && !ETRE_INTRANSITIFS.has(pl)) {
-          passiveCount++;
-          break;
-        }
-      }
-    }
-
-    const top = (map: Map<string, number>, k: number): VocabEntry[] =>
-      [...map.entries()].sort((x, y) => y[1] - x[1]).slice(0, k);
-    const hapaxCount = [...allLemmas.values()].filter((v) => v === 1).length;
-    const mentTotal = [...ment.values()].reduce((s, v) => s + v, 0);
-
-    // Verbes passe-partout : part des occurrences verbales portée par les
-    // verbes ternes (voir VERBES_PASSE_PARTOUT).
-    const verbTotal = [...verbs.values()].reduce((s, v) => s + v, 0);
-    const weak = [...verbs.entries()]
-      .filter(([l]) => VERBES_PASSE_PARTOUT.has(l))
-      .sort((x, y) => y[1] - x[1]);
-    const weakTotal = weak.reduce((s, [, v]) => s + v, 0);
-
-    return {
-      passiveCount,
-      weakTop: weak.slice(0, 6),
-      weakTotal,
-      weakPct: verbTotal ? Math.round((weakTotal / verbTotal) * 100) : 0,
-      richness: contentTotal ? allLemmas.size / contentTotal : 0,
-      uniqueLemmas: allLemmas.size,
-      hapaxCount,
-      contentTotal,
-      verbs: top(verbs, 8),
-      adjs: top(adjs, 8),
-      advs: top(advs, 8),
-      mentTotal,
-      mentPct: contentTotal ? Math.round((mentTotal / contentTotal) * 1000) / 10 : 0,
-      mentTop: top(ment, 6),
-    };
-  }
-
-  /** Vocabulaire avec cache par fichier (le calcul morphologique bloque
-   * brièvement) ; invalidé sur modification du coffre par la barre latérale. */
-  getVocab(file: TFile, rawText: string): VocabResult {
-    if (this._vocabCache && this._vocabCache.path === file.path) return this._vocabCache.data;
-    let data: VocabResult;
-    try {
-      data = this.computeVocab(rawText) || { error: true };
-    } catch (e) {
-      console.error("Feuillets : analyse lexicale indisponible", e);
-      data = { error: true };
-    }
-    this._vocabCache = { path: file.path, data };
-    return data;
-  }
-
-  /** Vocabulaire du roman entier (Phase « vocab roman ») : concatène toutes
-   * les scènes et réutilise computeVocab. Lourd (Grammalecte sur tout le
-   * manuscrit), bureau uniquement — mis en cache, invalidé sur modification. */
-  async getRomanVocab(): Promise<VocabResult> {
-    if (this._romanVocabCache) return this._romanVocabCache;
-    let data: VocabResult;
-    try {
-      const scenes = this.sceneFiles();
-      let text = "";
-      for (const f of scenes) text += "\n\n" + (await this.app.vault.cachedRead(f));
-      data = this.computeVocab(text) || { error: true };
-    } catch (e) {
-      console.error("Feuillets : vocabulaire du roman indisponible", e);
-      data = { error: true };
-    }
-    this._romanVocabCache = data;
-    return data;
-  }
-
-  /** Affiche un résultat de computeVocab dans une section (réutilisé pour le
-   * feuillet et pour le roman). */
-  renderVocabInto(section: HTMLElement, vocab: VocabResult | null): void {
-    if (Platform.isMobile) {
-      section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.vocab.desktopOnly"));
-      return;
-    }
-    if (!vocab || "error" in vocab) {
-      section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.vocab.unavailable"));
-      return;
-    }
-    section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-      t("analysis.vocab.summary", {
-        richness: String(Math.round(vocab.richness * 100)),
-        lemmas: formatNumber(vocab.uniqueLemmas),
-        content: formatNumber(vocab.contentTotal),
-        hapax: formatNumber(vocab.hapaxCount),
-      })
-    );
-    const group = (label: string, entries: VocabEntry[]) => {
-      section.createDiv({ cls: "feuillets-analysis-summary feuillets-vocab-group" }).setText(label);
-      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
-      if (!entries.length) {
-        list.createDiv({ cls: "feuillets-empty" }).setText("—");
-        return;
-      }
-      for (const [lemma, n] of entries) {
-        const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
-        row.createDiv({ cls: "feuillets-notes-metadata-label", text: lemma });
-        row.createDiv({ cls: "feuillets-notes-metadata-value", text: `×${n}` });
-      }
-    };
-    group(t("analysis.vocab.favoriteVerbs"), vocab.verbs);
-    group(
-      t("analysis.vocab.weakVerbs", { total: formatNumber(vocab.weakTotal), pct: String(vocab.weakPct) }) +
-        (vocab.weakPct >= 40 ? t("analysis.vocab.toVary") : ""),
-      vocab.weakTop
-    );
-    group(t("analysis.vocab.favoriteAdjs"), vocab.adjs);
-    group(t("analysis.vocab.favoriteAdvs"), vocab.advs);
-    group(
-      t("analysis.vocab.mentAdverbs", { total: formatNumber(vocab.mentTotal), pct: String(vocab.mentPct) }) +
-        (vocab.mentPct >= 3 ? t("analysis.vocab.toWatch") : ""),
-      vocab.mentTop
-    );
-    section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-      t("analysis.vocab.passiveVoice", { count: formatNumber(vocab.passiveCount) })
-    );
-    section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
-      t("analysis.vocab.morphologyNote")
-    );
-  }
 
   /** Tableau de bord roman (Phase 6) : agrégats sur tout le manuscrit —
    * indicateurs BRUTS et actionnables (pas de score composite opaque). Lourd
@@ -675,14 +421,6 @@ export class AnalysisView extends BaseFeuilletsView {
       }
     });
 
-    // ---- Vocabulaire (via Grammalecte, desktop uniquement) ----
-    const vocabCollapsed = !!(S.collapsed && S.collapsed["analyse:vocab"]);
-    const vocab = vocabCollapsed || Platform.isMobile ? null : this.getVocab(file, raw);
-
-    this.tool(gb, "vocab", "book-a", t("analysis.vocab.sheetTitle"), (section) => {
-      this.renderVocabInto(section, vocab);
-    });
-
     // Rythme du feuillet (tags manuels de la scène active)
     this.tool(gb, "rythme", "sliders-horizontal", t("analysis.pace.sheetTitle"), (section) => {
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
@@ -793,14 +531,6 @@ export class AnalysisView extends BaseFeuilletsView {
         bar.createDiv({ cls: "feuillets-analysis-bar-fill" }).style.width =
           `${Math.round((c.words / max) * 100)}%`;
       }
-    });
-
-    // ---- Vocabulaire du roman (Grammalecte, desktop, calcul lourd) ----
-    const romanVocabCollapsed = !!(S.collapsed && S.collapsed["analyse:vocab-roman"]);
-    const romanVocab = romanVocabCollapsed || Platform.isMobile ? null : await this.getRomanVocab();
-
-    this.tool(gb, "vocab-roman", "book-marked", t("analysis.vocab.novelTitle"), (section) => {
-      this.renderVocabInto(section, romanVocab);
     });
 
     // ---- Courbe narrative (déduite des tags de rythme) ----
