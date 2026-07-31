@@ -10,7 +10,7 @@
 
 Ce greffon fournit un moteur de correction linguistique local qui s'enregistre automatiquement auprès du plugin principal **[Feuillets](https://github.com/Sargon01/Feuillets)**.
 
-- **Dépendance requise** : Le plugin **Feuillets** (v1.5.0 ou supérieure) doit être installé et activé dans Obsidian.
+- **Dépendance requise** : Le plugin **Feuillets** (v1.6.0 ou supérieure) doit être installé et activé dans Obsidian.
 - **Fournisseur autonome** : Feuillets Grammalecte fournit l'analyse linguistique sans ajouter de logique grammaticale lourde dans le cœur de Feuillets.
 
 ---
