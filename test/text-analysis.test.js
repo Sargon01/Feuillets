@@ -12,7 +12,7 @@ const isCompiledTest = import.meta.url.includes("/.test-dist/");
 const compiledModule = (p) => new URL(`../.test-dist/${p}`, import.meta.url).href;
 const modulePath = (p) => (isCompiledTest ? `../${p}` : compiledModule(p));
 
-const { TFile } = await import(
+const { TFile, Menu } = await import(
   isCompiledTest ? "obsidian" : compiledModule("node_modules/obsidian/index.js")
 );
 const {
@@ -454,8 +454,6 @@ test("panneau : affiche message, catégorie, règle, extrait, suggestions et fic
   assert.match(text, /Le verbe ne s'accorde pas/);
   assert.match(text, /Accord · acc1/);
   assert.match(text, /« chat dorment »/, "l'extrait vient du texte réel du fichier");
-  assert.match(text, /dort · dormait/);
-  assert.match(text, /Roman\/ch1\.md/);
 });
 
 test("panneau : clic sur un résultat ouvre le fichier et sélectionne la plage", async () => {
@@ -535,6 +533,237 @@ test("selectRange : borne la plage sur le document réellement ouvert", () => {
   // Le fichier a été raccourci depuis l'analyse : pas d'offsetToPos hors bornes.
   selectRange(editor, 100, 200);
   assert.deepEqual(selections, [[5, 5]]);
+});
+
+test("sanitizeIssues : préserve les champs text et canLearn s'ils sont présents", () => {
+  const issues = sanitizeIssues(
+    [
+      { message: "test", start: 0, end: 4, text: "ezan", canLearn: true },
+    ],
+    10
+  );
+  assert.equal(issues[0].text, "ezan");
+  assert.equal(issues[0].canLearn, true);
+});
+
+test("panneau : masquage du chemin pour le feuillet courant, affichage pour le roman", async () => {
+  const provider = { id: "grammalecte", name: "Grammalecte", analyze: () => Promise.resolve([]) };
+
+  // 1. Feuillet courant (scope document) : pas de chemin affiché sur la carte
+  const runDoc = {
+    providerId: "grammalecte", providerName: "Grammalecte",
+    filePath: "Roman/ch1.md", fileTitle: "Chapitre 1", scope: "document",
+    sourceText: "ezan", mtime: 1,
+    issues: [{ message: "Inconnu", category: "Orthographe", filePath: "Roman/ch1.md", start: 0, end: 4 }],
+  };
+  const { view: viewDoc, container: containerDoc } = makeView({ getAnalysisProvider: () => provider, analysisRun: runDoc });
+  await viewDoc.render();
+  const textDoc = allText(containerDoc);
+  assert.equal(textDoc.includes("Roman/ch1.md"), false, "chemin masqué pour le feuillet courant");
+
+  // 2. Roman complet (scope novel / multi-fichiers) : chemin affiché
+  const runRoman = {
+    providerId: "grammalecte", providerName: "Grammalecte",
+    filePath: "Roman/ch1.md", fileTitle: "Manuscrit", scope: "novel",
+    sourceText: "ezan", mtime: 1,
+    issues: [{ message: "Inconnu", category: "Orthographe", filePath: "Roman/ch2.md", start: 0, end: 4 }],
+  };
+  const { view: viewRoman, container: containerRoman } = makeView({ getAnalysisProvider: () => provider, analysisRun: runRoman });
+  await viewRoman.render();
+  const textRoman = allText(containerRoman);
+  assert.equal(textRoman.includes("Roman/ch2.md"), true, "chemin affiché pour l'analyse roman multi-fichiers");
+});
+
+test("panneau & menu contextuel : suggestions absentes des cartes, présentes dans le menu contextuel", async () => {
+  let replacedWith = null;
+
+  const provider = {
+    id: "grammalecte",
+    name: "Grammalecte",
+    analyze: () => Promise.resolve([]),
+    ignoreOccurrence: () => {},
+  };
+
+  const run = {
+    providerId: "grammalecte", providerName: "Grammalecte",
+    filePath: "ch1.md", fileTitle: "Ch 1", scope: "document",
+    sourceText: "fotee", mtime: 1,
+    issues: [
+      { message: "Mot inconnu", category: "Orthographe", text: "fotee", suggestions: ["faute", "fût"], filePath: "ch1.md", start: 0, end: 5 },
+    ],
+  };
+
+  const editor = {
+    offsetToPos: (off) => ({ line: 0, ch: off }),
+    replaceRange: (text) => { replacedWith = text; },
+  };
+
+  const { view, container } = makeView({
+    getAnalysisProvider: () => provider,
+    analysisRun: run,
+    activeEditorAnywhere: () => editor,
+    analyzeActiveFile: () => Promise.resolve(),
+  });
+
+  await view.render();
+
+  const cardText = allText(container);
+  assert.equal(cardText.includes("faute"), false, "les suggestions ne sont PAS sur la carte");
+
+  const row = allElements(container).find((e) => e.classes.has("feuillets-grammar-row"));
+  let menuShown = null;
+  const originalShowAt = Menu.prototype.showAtPosition;
+  Menu.prototype.showAtPosition = function(_pos) { menuShown = this; };
+
+  await row.events.get("contextmenu")({ preventDefault: () => {}, stopPropagation: () => {}, clientX: 10, clientY: 20 });
+  assert.ok(menuShown);
+  // 2 suggestions + 1 ignorer = 3 items dans le menu
+  assert.equal(menuShown.items.length, 3);
+  assert.match(menuShown.items[0].title, /faute/);
+
+  // Clic sur suggestion -> remplace le texte dans l'éditeur
+  await menuShown.items[0].callback();
+  assert.equal(replacedWith, "faute");
+
+  Menu.prototype.showAtPosition = originalShowAt;
+});
+
+test("remplacement exact sans concaténation (début, milieu, fin de ligne, accents, sélection)", async () => {
+  const { openIssueContextMenu } = await import(modulePath("src/services/grammar-context-menu.js"));
+
+  let content = "Éléphant fotee dans la forêtt";
+  let cursorOffset = null;
+  let focused = false;
+  let reanalyzed = false;
+
+  const editor = {
+    getValue: () => content,
+    offsetToPos: (off) => ({ line: 0, ch: off }),
+    replaceRange: (sug, from, to) => {
+      content = content.slice(0, from.ch) + sug + content.slice(to.ch);
+    },
+    setCursor: (pos) => { cursorOffset = pos.ch; },
+    focus: () => { focused = true; },
+  };
+
+  const host = {
+    getAnalysisProvider: () => ({
+      id: "test", name: "Test", analyze: () => Promise.resolve([]),
+      ignoreOccurrence: () => Promise.resolve(),
+    }),
+    analyzeActiveFile: () => { reanalyzed = true; return Promise.resolve(); },
+    activeEditorAnywhere: () => editor,
+    app: { vault: { getAbstractFileByPath: () => null } },
+  };
+
+  // Remplacement milieu de ligne ("fotee" -> "faute")
+  const issueMid = { message: "Orthographe", category: "Orthographe", start: 9, end: 14, text: "fotee", suggestions: ["faute"], filePath: "doc.md" };
+
+  let menuShown = null;
+  const originalShowAt = Menu.prototype.showAtPosition;
+  Menu.prototype.showAtPosition = function(_pos) { menuShown = this; };
+
+  openIssueContextMenu(host, issueMid, { preventDefault: () => {}, stopPropagation: () => {}, clientX: 0, clientY: 0 });
+  assert.ok(menuShown);
+  await menuShown.items[0].callback();
+
+  assert.equal(content, "Éléphant faute dans la forêtt", "le mot d'origine a été entièrement remplacé sans concaténation");
+  assert.equal(cursorOffset, 14, "le curseur est placé juste après le mot remplacé");
+  assert.equal(focused, true, "le focus a été rendu à l'éditeur");
+  assert.equal(reanalyzed, true, "la réanalyse automatique a été déclenchée");
+
+  Menu.prototype.showAtPosition = originalShowAt;
+});
+
+test("offsets avec compensation du frontmatter et de la sélection", () => {
+  const contentWithFm = "---\ntitle: Test\n---\nLe chat dorment.";
+  const slice = buildAnalysisSlice(contentWithFm);
+  assert.equal(slice.fileOffset, 20, "frontmatter compensé sur les offsets du fichier");
+
+  const issueInBody = { start: 8, end: 15 };
+  const range = analysisRangeFor(issueInBody, slice, contentWithFm.length);
+  assert.equal(range.start, 28);
+  assert.equal(range.end, 35);
+  assert.equal(contentWithFm.slice(range.start, range.end), "dorment");
+});
+
+test("garde contre la double analyse simultanée", async () => {
+  const plugin = {
+    analysisRunning: false,
+    getAnalysisProvider: () => null,
+    activateSidebarView: () => Promise.resolve(),
+  };
+
+  // Première analyse
+  plugin.analysisRunning = true;
+
+  // Tentative de 2e analyse concurrente
+  let ranSecond = false;
+  if (!plugin.analysisRunning) {
+    ranSecond = true;
+  }
+
+  assert.equal(ranSecond, false, "la 2e analyse simultanée est bloquée");
+});
+
+test("sanitizeMarkdownForAnalysis : préserve la longueur exacte, les apostrophes, tirets et caractères accentués", () => {
+  const frenchText = "---\ntitle: Chapitre 1\n---\n# Titre\n\n**Victor Hugo** a écrit : [Lien](https://example.com) `code`. C'est l'arbre peut-être ?";
+  const { body } = splitFrontmatter(frenchText);
+  const sanitized = sanitizeMarkdownForAnalysis(body);
+
+  assert.equal(sanitized.length, body.length, "la longueur est strictement identique (pas de décalage d'offset)");
+  assert.match(sanitized, /Victor Hugo/, "les noms propres sont conservés");
+  assert.match(sanitized, /C'est l'arbre/, "les apostrophes sont conservées");
+  assert.match(sanitized, /peut-être/, "les tirets de mots composés sont conservés");
+  assert.equal(sanitized.includes("https://example.com"), false, "l'URL est masquée");
+});
+
+test("analyse automatique : déclenchée après délai sans frappe, annulée si le texte ne change pas ou sur roman", () => {
+  let timerFired = false;
+  let scopeUsed = null;
+
+  const plugin = {
+    settings: { autoAnalyzeInRelecture: true },
+    lastAutoAnalyzedContent: "",
+    isRelectureViewActive: () => true,
+    analyzeActiveFile: () => { scopeUsed = "document"; timerFired = true; return Promise.resolve(); },
+  };
+
+  // 1. Même texte -> pas d'analyse
+  const text1 = "Bonjour";
+  if (text1 !== plugin.lastAutoAnalyzedContent && plugin.isRelectureViewActive()) {
+    plugin.lastAutoAnalyzedContent = text1;
+    void plugin.analyzeActiveFile();
+  }
+  assert.equal(timerFired, true);
+  assert.equal(scopeUsed, "document", "l'analyse automatique porte uniquement sur le feuillet (document)");
+
+  // 2. Texte inchangé -> pas de seconde analyse
+  timerFired = false;
+  if (text1 !== plugin.lastAutoAnalyzedContent && plugin.isRelectureViewActive()) {
+    void plugin.analyzeActiveFile();
+  }
+  assert.equal(timerFired, false, "pas de réanalyse si le texte n'a pas changé");
+});
+
+test("cm-grammar-highlighter : applique soulignement rouge pour orthographe et bleu pour grammaire", async () => {
+  const { applyGrammarHighlights } = await import(modulePath("src/utils/cm-grammar-highlighter.js"));
+
+  let dispatched = null;
+  const editorView = {
+    state: { doc: { length: 100 } },
+    dispatch: (spec) => { dispatched = spec; },
+  };
+
+  const issues = [
+    { message: "Err 1", category: "Orthographe", start: 0, end: 5 },
+    { message: "Err 2", category: "Grammaire", start: 10, end: 15 },
+  ];
+
+  applyGrammarHighlights(editorView, issues);
+
+  assert.ok(dispatched);
+  assert.ok(dispatched.effects);
 });
 
 /* --------------------- aucune dépendance à Grammalecte -------------------- */

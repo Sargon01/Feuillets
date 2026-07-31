@@ -16,12 +16,15 @@ export type GrammalecteSettings = {
   detectRepetitions: boolean;
   /** Suggestions transmises par signalement. 0 = aucune. */
   maxSuggestions: number;
+  /** Mots appris par l'utilisateur (persistant dans data.json). */
+  learnedWords: string[];
 };
 
 export const DEFAULT_SETTINGS: GrammalecteSettings = {
   checkSpelling: true,
   detectRepetitions: false,
   maxSuggestions: 5,
+  learnedWords: [],
 };
 
 /** Normalise ce qui a été relu depuis data.json : un fichier de réglages
@@ -32,11 +35,15 @@ export function normalizeSettings(raw: unknown): GrammalecteSettings {
   const max = typeof data.maxSuggestions === "number" && Number.isFinite(data.maxSuggestions)
     ? Math.min(20, Math.max(0, Math.round(data.maxSuggestions)))
     : DEFAULT_SETTINGS.maxSuggestions;
+  const learned = Array.isArray(data.learnedWords)
+    ? data.learnedWords.filter((w): w is string => typeof w === "string" && w.trim() !== "")
+    : DEFAULT_SETTINGS.learnedWords;
   return {
     checkSpelling: typeof data.checkSpelling === "boolean" ? data.checkSpelling : DEFAULT_SETTINGS.checkSpelling,
     detectRepetitions:
       typeof data.detectRepetitions === "boolean" ? data.detectRepetitions : DEFAULT_SETTINGS.detectRepetitions,
     maxSuggestions: max,
+    learnedWords: learned,
   };
 }
 

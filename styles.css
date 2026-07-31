@@ -4736,7 +4736,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-grammar-underline-grammar {
-  text-decoration: underline dashed var(--color-orange, orange);
+  text-decoration: underline wavy var(--color-blue, #3b82f6);
 }
 
 .feuillets-grammar-underline-spelling {

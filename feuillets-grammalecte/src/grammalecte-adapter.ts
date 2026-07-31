@@ -49,6 +49,7 @@ export type GrammalecteEngine = {
   parse(paragraph: string): Iterable<GrammalecteError>;
   spell(paragraph: string): Iterable<GrammalecteSpellToken>;
   suggest(word: string): string[];
+  getMorph?(word: string): string[];
 };
 
 /* ------------------------- conversion (pure) ------------------------- */
@@ -86,6 +87,7 @@ export function grammarErrorToIssue(
     end: paragraphOffset + error.nEnd,
     suggestions: limit(error.aSuggestions, maxSuggestions),
     ruleId: error.sRuleId,
+    text: error.sUnderlined,
   };
 }
 
@@ -105,6 +107,8 @@ export function spellTokenToIssue(
     end: paragraphOffset + token.nEnd,
     suggestions: limit(suggestions, maxSuggestions),
     ruleId: "orthographe",
+    text: token.sValue,
+    canLearn: true,
   };
 }
 
@@ -163,6 +167,7 @@ export const RESOURCE_MARKER = "graphspell/_dictionaries/fr-classic.json";
 type SpellChecker = {
   parseParagraph(text: string): Iterable<GrammalecteSpellToken>;
   suggest(word: string): { next(): { value?: string[] } };
+  getMorph?(word: string): string[];
 };
 
 type GrammalecteContext = {
@@ -306,6 +311,158 @@ export function loadGrammalecteEngine(assets: AssetMap): GrammalecteEngine {
     parse: (paragraph) => context.gc_engine.parse(paragraph, "FR", false, null, true),
     spell: (paragraph) => spellChecker.parseParagraph(paragraph),
     suggest: (word) => spellChecker.suggest(word).next().value || [],
+    getMorph: (word) => (typeof spellChecker.getMorph === "function" ? spellChecker.getMorph(word) : []),
+  };
+}
+
+function lemmaOfMorph(morph: string): string {
+  const m = morph.match(/>([0-9a-zà-öø-ÿ-]+)/i);
+  return m ? m[1] : "";
+}
+
+const VERBES_PASSE_PARTOUT = new Set([
+  "être", "avoir", "faire", "dire", "aller", "voir", "mettre", "prendre",
+  "donner", "trouver", "passer", "rendre", "tenir", "venir",
+]);
+
+const ETRE_INTRANSITIFS = new Set([
+  "aller", "arriver", "décéder", "demeurer", "descendre", "devenir", "entrer",
+  "intervenir", "monter", "mourir", "naître", "partir", "parvenir", "passer",
+  "provenir", "rentrer", "repartir", "rester", "retomber", "retourner",
+  "revenir", "sortir", "survenir", "tomber", "venir",
+]);
+
+export function analyzeLinguisticsWithEngine(
+  engine: GrammalecteEngine,
+  text: string
+): import("./feuillets-api.ts").LinguisticAnalysisResult | null {
+  if (!text || text.trim() === "" || typeof engine.getMorph !== "function") {
+    return null;
+  }
+
+  const rawWords = text.toLowerCase().match(/[\p{L}][\p{L}'-]{1,}/gu) || [];
+  if (rawWords.length === 0) return null;
+
+  const freq = new Map<string, number>();
+  for (const w of rawWords) {
+    freq.set(w, (freq.get(w) || 0) + 1);
+  }
+
+  const verbs = new Map<string, number>();
+  const adjs = new Map<string, number>();
+  const advs = new Map<string, number>();
+  const allLemmas = new Map<string, number>();
+  const ment = new Map<string, number>();
+  const categories: Record<string, number> = { Verbe: 0, Nom: 0, Adjectif: 0, Adverbe: 0 };
+  let contentTotal = 0;
+
+  const bump = (map: Map<string, number>, lemma: string, n: number) => {
+    if (lemma) map.set(lemma, (map.get(lemma) || 0) + n);
+  };
+
+  const morphCache = new Map<string, string[]>();
+  const morphsOf = (word: string): string[] => {
+    if (!morphCache.has(word)) {
+      morphCache.set(word, engine.getMorph!(word) || []);
+    }
+    return morphCache.get(word)!;
+  };
+
+  for (const [word, n] of freq) {
+    const morphs = morphsOf(word);
+    if (!morphs.length) continue;
+    let lv = "";
+    let la = "";
+    let lw = "";
+    let lany = "";
+    let content = false;
+
+    for (const mo of morphs) {
+      if (/:V/.test(mo)) {
+        lv = lv || lemmaOfMorph(mo);
+        categories.Verbe += n;
+      }
+      if (mo.includes(":N")) {
+        categories.Nom += n;
+      }
+      if (mo.includes(":A")) {
+        la = la || lemmaOfMorph(mo);
+        categories.Adjectif += n;
+      }
+      if (mo.includes(":W")) {
+        lw = lw || lemmaOfMorph(mo);
+        categories.Adverbe += n;
+      }
+      if (/:[NAVW]/.test(mo)) {
+        content = true;
+        lany = lany || lemmaOfMorph(mo);
+      }
+    }
+
+    bump(verbs, lv, n);
+    bump(adjs, la, n);
+    bump(advs, lw, n);
+    if (content) {
+      contentTotal += n;
+      if (lany) allLemmas.set(lany, (allLemmas.get(lany) || 0) + n);
+    }
+    if (lw && word.length > 5 && word.endsWith("ment")) {
+      ment.set(word, (ment.get(word) || 0) + n);
+    }
+  }
+
+  // Voix passive
+  const isEtre = (w: string) => morphsOf(w).some((mo) => /:V/.test(mo) && lemmaOfMorph(mo) === "être");
+  const ppLemma = (w: string): string => {
+    for (const mo of morphsOf(w)) {
+      if (/:V/.test(mo) && mo.includes(":Q")) return lemmaOfMorph(mo);
+    }
+    return "";
+  };
+
+  let passiveCount = 0;
+  for (let i = 0; i < rawWords.length; i++) {
+    if (!isEtre(rawWords[i])) continue;
+    const end = Math.min(i + 2, rawWords.length - 1);
+    for (let j = i + 1; j <= end; j++) {
+      const pl = ppLemma(rawWords[j]);
+      if (pl && pl !== "être" && !ETRE_INTRANSITIFS.has(pl)) {
+        passiveCount++;
+        break;
+      }
+    }
+  }
+
+  const top = (map: Map<string, number>, k: number): [string, number][] =>
+    [...map.entries()].sort((x, y) => y[1] - x[1]).slice(0, k);
+
+  const hapaxCount = [...allLemmas.values()].filter((v) => v === 1).length;
+  const mentTotal = [...ment.values()].reduce((s, v) => s + v, 0);
+
+  const verbTotal = [...verbs.values()].reduce((s, v) => s + v, 0);
+  const weak = [...verbs.entries()]
+    .filter(([l]) => VERBES_PASSE_PARTOUT.has(l))
+    .sort((x, y) => y[1] - x[1]);
+  const weakTotal = weak.reduce((s, v) => s + v[1], 0);
+
+  const richness = contentTotal > 0 ? allLemmas.size / contentTotal : 0;
+
+  return {
+    richness,
+    uniqueLemmas: allLemmas.size,
+    contentTotal,
+    hapaxCount,
+    favoriteVerbs: top(verbs, 5),
+    weakVerbs: weak.slice(0, 5),
+    weakTotal,
+    weakPct: verbTotal > 0 ? Math.round((weakTotal / verbTotal) * 100) : 0,
+    favoriteAdjs: top(adjs, 5),
+    favoriteAdvs: top(advs, 5),
+    mentAdverbs: top(ment, 5),
+    mentTotal,
+    mentPct: contentTotal > 0 ? Math.round((mentTotal / contentTotal) * 100) : 0,
+    passiveCount,
+    grammaticalCategories: categories,
   };
 }
 
