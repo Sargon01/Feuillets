@@ -2,24 +2,25 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
-## Non publié (1.4.5)
+## 1.4.5
 
 ### Retiré
 
 - **Correction grammaticale.** Feuillets n'intègre plus de correcteur et n'en télécharge aucun. Les moteurs Grammalecte et Harper (jusqu'à 26 Mo téléchargés puis exécutés après installation) et LanguageTool (qui envoyait le texte du manuscrit à un service distant) sont supprimés, ainsi que l'onglet Grammaire, le soulignement des fautes, les mots appris et les commandes de vérification. Pour l'orthographe et la grammaire, installe un greffon dédié depuis la galerie communautaire d'Obsidian.
+- **Rubriques « Vocabulaire » du panneau Analyse** (lemmes favoris, richesse lexicale, voix passive, adverbes en -ment). Elles reposaient sur un moteur morphologique exclusivement français ; Feuillets ne dépend plus d'aucune langue en particulier.
 
 ### Sécurité
 
-- **Plus aucun code n'est téléchargé puis exécuté.** Tout ce que Feuillets exécute est désormais contenu dans la release et déterminé au moment du build.
+- **Plus aucune exécution de code dynamique** : ni `eval`, ni `new Function`, ni `vm`, ni WebAssembly.
+- **Plus aucun code téléchargé puis exécuté.** Tout ce que Feuillets exécute est contenu dans la release et déterminé au moment du build.
 - **Plus aucune requête réseau.** Le greffon ne contacte plus aucun serveur.
-- Suppression du téléchargeur d'archives, qui ne vérifiait pas l'intégrité de ce qu'il extrayait.
-
-- **Rubriques « Vocabulaire » du panneau Analyse** (lemmes favoris, richesse lexicale, voix passive, adverbes en -ment). Elles reposaient sur un moteur morphologique exclusivement français ; Feuillets ne dépend plus d'aucune langue en particulier. Les autres outils du panneau — répétitions, équilibre des chapitres, ratio de dialogue, courbe narrative, tableau de bord — sont inchangés et fonctionnent sur toute langue en écriture latine.
-
-### Sécurité (suite)
-
-- **Plus aucune exécution de code dynamique.** `vm`, dernier vecteur restant, disparaît avec le moteur morphologique : plus d'`eval`, de `new Function`, de `vm` ni de WebAssembly nulle part.
+- Suppression du téléchargeur d'archives, qui ne vérifiait pas l'intégrité de ce qu'il extrayait et n'était pas protégé contre le zip-slip.
 - Plus aucun code tiers n'est redistribué dans la release en dehors des bibliothèques npm.
+
+### Conservé
+
+- Le panneau Analyse garde tous les outils indépendants de la langue : répétitions, équilibre des chapitres, ratio de dialogue, courbe narrative, tableau de bord. Ils fonctionnent sur toute langue en écriture latine.
+- `main.js` passe de 2,4 à 2,1 Mo.
 
 ### Migration
 
