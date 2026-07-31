@@ -33,7 +33,6 @@ import { BoardView } from "./views/board-view.js";
 import { SidebarFeuilletsView } from "./views/sidebar-feuillets-view.js";
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
-import type { GrammarView } from "./views/grammar-view.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
 import { fmOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, labelColor, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
@@ -61,11 +60,7 @@ import { FileStatsModal } from "./ui/stats-modal.js";
 
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
-import { grammarIssuesField, grammarClickHandler } from "./utils/cm-grammar-highlighter.js";
-import { GrammalecteChecker } from "./services/grammalecte-checker.js";
-import { HarperChecker } from "./services/harper-checker.js";
-import { GrammarCheckerManager } from "./services/grammar-checker-manager.js";
-import { GrammarUserData } from "./services/grammar-user-data.js";
+import { stripLegacyGrammarSettings, cleanupLegacyEnginesOnDisk } from "./services/legacy-grammar-cleanup.js";
 
 import {
   Plugin,
@@ -181,15 +176,10 @@ class FeuilletsPlugin extends Plugin {
    */
   settings!: FeuilletsSettings;
 
-  _grammarView?: GrammarView;
   moveStack?: MoveHistoryEntry[];
   _ribbonDefs?: Array<{ key: string; icon: string; labelKey: string; action: () => void; hideable?: boolean }>;
   _ribbonEls?: Record<string, HTMLElement>;
 
-  grammalecteChecker?: GrammalecteChecker;
-  harperChecker?: HarperChecker;
-  grammarUserData?: GrammarUserData;
-  grammarCheckerManager?: GrammarCheckerManager;
 
   isLayoutReady?: boolean;
   concentrationActive?: boolean;
@@ -294,27 +284,8 @@ class FeuilletsPlugin extends Plugin {
     this.registerSwipeGestures();
     this.registerAutoBackup();
     this.registerEditorExtension(searchHighlightField);
-    this.registerEditorExtension(grammarIssuesField);
-    this.registerEditorExtension(grammarClickHandler(this));
 
-    // worker_threads = Node : indisponible sur mobile (voir GrammarCheckerManager).
-    if (!Platform.isMobile) {
-      this.grammalecteChecker = new GrammalecteChecker(this.app, this.manifest);
-      this.harperChecker = new HarperChecker(this.app, this.manifest);
-      this.grammarUserData = new GrammarUserData(this.app, this.manifest);
-      const legacyGrammarSettings = this.settings as unknown as {
-        grammalecteKnownWords?: unknown;
-        grammalecteIgnoredRules?: unknown;
-      };
-      if (this.grammarUserData.migrateFromSettings(legacyGrammarSettings)) await this.saveSettings();
-    }
-    this.grammarCheckerManager = new GrammarCheckerManager(
-      this.app,
-      this.manifest,
-      this.grammalecteChecker ?? null,
-      this.harperChecker ?? null,
-      this.grammarUserData ?? null
-    );
+    cleanupLegacyEnginesOnDisk(this.app, this.manifest);
 
     initScenesEditor(this as unknown as ScenesEditorPlugin);
   }
@@ -443,46 +414,6 @@ class FeuilletsPlugin extends Plugin {
       id: "open-project-tags",
       name: t("main.cmd.projectTags"),
       callback: () => new ProjectTagsModal(this.app, this).open(),
-    });
-    this.addCommand({
-      id: "grammalecte-check-active-file",
-      name: t("main.cmd.grammarCheckActiveFile"),
-      callback: () => {
-        if (!this._grammarView) {
-          new Notice(t("main.notice.openSidebarFirst"));
-          return;
-        }
-        const file = this.app.workspace.getActiveFile();
-        if (!file || file.extension !== "md") {
-          new Notice(t("main.notice.openSheetToCheck"));
-          return;
-        }
-        // Ne nécessite pas d'avoir l'onglet ouvert/actif : lance la
-        // vérification et le soulignement dans l'éditeur directement.
-        void this._grammarView.runCheck(file);
-      },
-    });
-    this.addCommand({
-      id: "grammalecte-next-issue",
-      name: t("main.cmd.grammarNextIssue"),
-      callback: () => {
-        if (!this._grammarView) {
-          new Notice(t("main.notice.openGrammarTabFirst"));
-          return;
-        }
-        this._grammarView.jumpToAdjacentIssue(1);
-      },
-    });
-    this.addCommand({
-      id: "grammalecte-prev-issue",
-      name: t("main.cmd.grammarPrevIssue"),
-      callback: () => {
-        if (!this._grammarView) {
-          new Notice(t("main.notice.openGrammarTabFirst"));
-          return;
-        }
-        this._grammarView.jumpToAdjacentIssue(-1);
-      },
     });
     this.addCommand({
       id: "compile-manuscript",
@@ -1404,8 +1335,6 @@ class FeuilletsPlugin extends Plugin {
   }
 
   onunload() {
-    if (this.grammalecteChecker) this.grammalecteChecker.destroy();
-    if (this.harperChecker) this.harperChecker.destroy();
     window.clearTimeout(this._refreshTimer);
     window.clearTimeout(this._statusTimer);
     window.clearTimeout(this._concTimer);
@@ -1765,6 +1694,11 @@ class FeuilletsPlugin extends Plugin {
        jamais castée en bloc vers FeuilletsSettings. */
     const raw: unknown = await this.loadData();
     const data: Record<string, unknown> = isSettingsRecord(raw) ? raw : {};
+    /* Correction grammaticale retirée en 1.4.5 : on purge ses clés avant la
+       fusion, sinon Object.assign les reconduirait indéfiniment dans
+       data.json. Aucune autre clé n'est touchée — voir
+       services/legacy-grammar-cleanup.ts. */
+    const legacyGrammarStripped = stripLegacyGrammarSettings(data);
     /* DEFAULT_SETTINGS (default-settings.ts) n'a pas wordGoal / povFilter /
        listPanePreviewField / listPanePreviewLines — écart préexistant avec
        FeuilletsSettings (types.d.ts) qui les déclare non optionnels, sans
@@ -1831,6 +1765,7 @@ class FeuilletsPlugin extends Plugin {
     // listPanePreviewField — voir default-settings.js/utils/project-modes.js)
     if (this.settings.cardContent === "resume") this.settings.cardContent = "summary";
     if (this.settings.listPanePreviewField === "resume") this.settings.listPanePreviewField = "summary";
+    if (legacyGrammarStripped) await this.saveSettings();
   }
 
   async saveSettings() {
