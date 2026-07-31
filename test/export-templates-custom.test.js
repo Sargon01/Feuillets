@@ -24,6 +24,20 @@ test("export templates custom : lit un modèle et crée un modèle manquant", as
   assert.equal(created?.path, "Projet/Resources/Layouts/classique.md");
 });
 
+test("export templates custom : un nouveau projet sans dossier existant crée dans Layout (nouveau nom)", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  manuscript.parent = project;
+  project.children = [manuscript];
+  const { vault, fileManager } = createFakeVault([project, manuscript]);
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const settings = { projectFolder: manuscript.path };
+
+  const created = await ensureTemplateFile(app, settings, "classique");
+
+  assert.equal(created?.path, "Projet/Ressources/Layout/classique.md");
+});
+
 test("export templates custom : conserve les valeurs valides et ignore les valeurs de police invalides", async () => {
   const project = new TFolder("Projet");
   const manuscript = new TFolder("Projet/Manuscrit");

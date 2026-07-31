@@ -113,20 +113,61 @@ test("createDemoProject conserve les métadonnées créées après une générat
   assert.ok(files.get(ELIRA_MANUSCRIPT) instanceof TFolder);
   expectFile(files, `${ELIRA_MANUSCRIPT}/Front/Dédicace.md`);
   expectFile(files, `${ELIRA_MANUSCRIPT}/Partie 1 - Les commencements/Chapitre 1 - Le départ/1. Ouverture.md`);
-  expectFile(files, `${ELIRA_ROOT}/Research/Characters/Elira Voskan.md`);
-  for (const path of ["Research", "Resources", "Journal", "Snapshots", "Manuscrit/Front"]) {
+  expectFile(files, `${ELIRA_ROOT}/Recherche/Characters/Elira Voskan.md`);
+  for (const path of ["Recherche", "Ressources", "Journal", "Snapshots", "Manuscrit/Front"]) {
     assert.ok(files.get(`${ELIRA_ROOT}/${path}`) instanceof TFolder, `dossier attendu : ${path}`);
   }
   assert.ok([...files.keys()].some((path) => path.startsWith(`${ELIRA_ROOT}/Journal/`)));
   assert.ok([...files.keys()].some((path) => path.startsWith(`${ELIRA_ROOT}/Snapshots/1. Ouverture/`)));
   assert.match(expectFile(files, `${ELIRA_MANUSCRIPT}/Front/Dédicace.md`).content, /^---\ntitle: Dédicace\n/m);
   assert.match(expectFile(files, `${ELIRA_MANUSCRIPT}/Partie 1 - Les commencements/Chapitre 1 - Le départ/1. Ouverture.md`).content, /^---\ntitle: Ouverture\n[\s\S]*?order: 1\n/m);
-  assert.ok(calls.folders.includes(`${ELIRA_ROOT}/Research`));
+  assert.ok(calls.folders.includes(`${ELIRA_ROOT}/Recherche`));
   assert.ok(calls.folders.includes(`${ELIRA_ROOT}/Journal`));
   assert.equal(calls.frontmatters.length, 2);
   assert.ok(calls.save > 0);
   assert.equal(calls.render, 1);
   assert.equal(notices.some((message) => message.startsWith("Projet d'exemple créé")), true);
+});
+
+test("createDemoProject (elira) : structure conforme aux nouveaux projets, avec parcours guidé", async () => {
+  const { app, settings, plugin, files } = createContext();
+  const previousGlobals = setDistinctGlobals(settings);
+  const previousNotice = Notice.onCreate;
+  Notice.onCreate = () => {};
+
+  try {
+    await createDemoProject(app, settings, plugin, "elira");
+  } finally {
+    Notice.onCreate = previousNotice;
+  }
+  void previousGlobals;
+
+  // Racine réelle : Recherche et Ressources en frères de Manuscrit, jamais
+  // sous l'ancien nom anglais, jamais à l'intérieur de Manuscrit.
+  assert.ok(files.get(`${ELIRA_ROOT}/Recherche`) instanceof TFolder);
+  assert.ok(files.get(`${ELIRA_ROOT}/Ressources`) instanceof TFolder);
+  assert.equal(files.has(`${ELIRA_ROOT}/Research`), false);
+  assert.equal(files.has(`${ELIRA_ROOT}/Resources`), false);
+  assert.equal(files.has(`${ELIRA_MANUSCRIPT}/Recherche`), false);
+  assert.equal(files.has(`${ELIRA_MANUSCRIPT}/Ressources`), false);
+
+  // Les 5 sous-dossiers Ressources exacts.
+  for (const sub of ["Images", "Template", "Layout", "Export", "Assets"]) {
+    assert.ok(files.get(`${ELIRA_ROOT}/Ressources/${sub}`) instanceof TFolder, `Ressources/${sub} manquant`);
+  }
+
+  // Page de titre du Front.
+  expectFile(files, `${ELIRA_MANUSCRIPT}/Front/Page de titre.md`);
+
+  // Mini-parcours guidé : présent dans le Lisez-moi, avec les 4 étapes et
+  // les libellés réels de l'interface.
+  const readme = expectFile(files, `${ELIRA_ROOT}/Lisez-moi.md`);
+  assert.match(readme.content, /Parcours guidé en 4 étapes/);
+  assert.match(readme.content, /Créer une scène/);
+  assert.match(readme.content, /Compiler le manuscrit/);
+  assert.match(readme.content, /Dupliquer comme nouvelle version/);
+  assert.match(readme.content, /facultatif/i);
+  assert.match(readme.content, /Ouvrir un dossier existant/);
 });
 
 test("createDemoProject retire les métadonnées créées après un échec", async () => {
@@ -185,14 +226,14 @@ test("createDemoProject génère Candide avec ses chapitres, son Front et sa Rec
   assert.deepEqual(settings.projects, [CANDIDE_MANUSCRIPT]);
   assert.equal(settings.projectFolder, "Projet actif");
   assert.deepEqual(globalSettings(settings), previousGlobals);
-  for (const path of ["Research", "Resources", "Journal", "Snapshots", "Manuscrit/Front"]) {
+  for (const path of ["Recherche", "Ressources", "Journal", "Snapshots", "Manuscrit/Front"]) {
     assert.ok(files.get(`${CANDIDE_ROOT}/${path}`) instanceof TFolder, `dossier attendu : ${path}`);
   }
   expectFile(files, `${CANDIDE_MANUSCRIPT}/Front/00. Note d'édition.md`);
   const chapter = expectFile(files, `${CANDIDE_MANUSCRIPT}/Partie 1 - L'Ancien Monde/01. Chapitre 1 — Éducation de Candide.md`);
   assert.match(chapter.content, /^---\ntitle: "Chapitre 1 — Éducation de Candide"\n/m);
   assert.match(chapter.content, /Il y avait en Vestphalie/);
-  expectFile(files, `${CANDIDE_ROOT}/Research/Characters/Candide.md`);
+  expectFile(files, `${CANDIDE_ROOT}/Recherche/Characters/Candide.md`);
   assert.equal([...files.keys()].filter((path) => path.includes(`${CANDIDE_MANUSCRIPT}/Partie `) && path.endsWith(".md")).length, 30);
 });
 
