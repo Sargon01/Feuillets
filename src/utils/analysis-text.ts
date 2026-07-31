@@ -30,6 +30,14 @@ function unwrapLinksAndImages(text: string): string {
   );
 }
 
+function blankFormattingChars(text: string): string {
+  let out = text.replace(/^(#{1,6}\s+)/gm, (m) => " ".repeat(m.length));
+  out = out.replace(/^(\s*[-*+]\s+)/gm, (m) => " ".repeat(m.length));
+  out = out.replace(/^(\s*\d+\.\s+)/gm, (m) => " ".repeat(m.length));
+  out = out.replace(/(\*\*|\*|__|~~|==)/g, (m) => " ".repeat(m.length));
+  return out;
+}
+
 export function sanitizeMarkdownForAnalysis(text: string): string {
   let out = text;
   out = blankFull(out, /```[\s\S]*?```/g); // blocs de code (```)
@@ -39,6 +47,7 @@ export function sanitizeMarkdownForAnalysis(text: string): string {
   out = blankFull(out, /\$[^$\n]+\$/g); // LaTeX inline
   out = blankFull(out, /<!--[\s\S]*?-->/g); // commentaires HTML
   out = unwrapLinksAndImages(out); // liens et images
+  out = blankFormattingChars(out); // puces, titres, emphase
   return out;
 }
 

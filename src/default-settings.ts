@@ -38,6 +38,7 @@ export type DefaultSettings = {
   binderSplitRecursive: boolean;
   swipeGesturesEnabled: boolean;
   uiScale: number;
+  autoAnalyzeInRelecture: boolean;
   sessionGoal: number;
   projectWordGoal: number;
   deadlineDate: string;
@@ -196,6 +197,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   binderSplitRecursive: true,
   swipeGesturesEnabled: true,
   uiScale: 100,
+  autoAnalyzeInRelecture: true,
   sessionGoal: 0,
   projectWordGoal: 0,
   deadlineDate: "",

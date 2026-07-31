@@ -14,12 +14,21 @@
 import type { App } from "obsidian";
 import type {
   FeuilletsPublicApi,
+  LinguisticAnalysisResult,
+  LinguisticVocabEntry,
   TextAnalysisInput,
   TextAnalysisIssue,
   TextAnalysisProvider,
 } from "../../src/api/text-analysis.ts";
 
-export type { FeuilletsPublicApi, TextAnalysisInput, TextAnalysisIssue, TextAnalysisProvider };
+export type {
+  FeuilletsPublicApi,
+  LinguisticAnalysisResult,
+  LinguisticVocabEntry,
+  TextAnalysisInput,
+  TextAnalysisIssue,
+  TextAnalysisProvider,
+};
 
 /** Identifiant du greffon principal, tel que déclaré dans son manifest.json. */
 export const FEUILLETS_PLUGIN_ID = "feuillets";

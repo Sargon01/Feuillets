@@ -46,6 +46,30 @@ export interface TextAnalysisIssue {
   end: number;
   suggestions?: string[];
   ruleId?: string;
+  /** Texte ou mot directement concerné par le signalement (ex: "ezan"). */
+  text?: string;
+  /** Indique si le signalement porte sur un mot apprenable dans le dictionnaire. */
+  canLearn?: boolean;
+}
+
+export type LinguisticVocabEntry = [string, number];
+
+export interface LinguisticAnalysisResult {
+  richness?: number;
+  uniqueLemmas?: number;
+  contentTotal?: number;
+  hapaxCount?: number;
+  favoriteVerbs?: LinguisticVocabEntry[];
+  weakVerbs?: LinguisticVocabEntry[];
+  weakTotal?: number;
+  weakPct?: number;
+  favoriteAdjs?: LinguisticVocabEntry[];
+  favoriteAdvs?: LinguisticVocabEntry[];
+  mentAdverbs?: LinguisticVocabEntry[];
+  mentTotal?: number;
+  mentPct?: number;
+  passiveCount?: number;
+  grammaticalCategories?: Record<string, number>;
 }
 
 /** Un module d'analyse enregistré par un greffon compagnon. */
@@ -55,6 +79,12 @@ export interface TextAnalysisProvider {
   /** Nom affiché dans l'en-tête du panneau de résultats. */
   name: string;
   analyze(input: TextAnalysisInput): Promise<TextAnalysisIssue[]>;
+  /** Ignore une occurrence particulière d'un signalement. Optionnel. */
+  ignoreOccurrence?(issue: TextAnalysisIssue): Promise<void> | void;
+  /** Apprend un mot pour le dictionnaire de l'utilisateur. Optionnel. */
+  learnWord?(word: string, issue?: TextAnalysisIssue): Promise<void> | void;
+  /** Analyse linguistique complémentaire (vocabulaire, lemmes, etc.). Optionnel. */
+  analyzeLinguistics?(input: TextAnalysisInput): Promise<LinguisticAnalysisResult | null>;
 }
 
 /** Signalement tel que Feuillets le manipule après analyse : offsets
@@ -110,6 +140,8 @@ export function sanitizeIssues(issues: unknown, textLength: number): TextAnalysi
         ? issue.suggestions.filter((s): s is string => typeof s === "string")
         : undefined,
       ruleId: typeof issue.ruleId === "string" ? issue.ruleId : undefined,
+      text: typeof issue.text === "string" ? issue.text : undefined,
+      canLearn: typeof issue.canLearn === "boolean" ? issue.canLearn : undefined,
     });
   }
   clean.sort((a, b) => a.start - b.start || a.end - b.end);
