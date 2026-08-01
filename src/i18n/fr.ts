@@ -106,6 +106,7 @@ export const fr = {
 
   // ---------- Partagé (base-feuillets-view.js) ----------
   "shared.wholeVault": "Coffre entier",
+  "shared.contextMenu.openWithPreview": "Ouvrir avec aperçu",
   "shared.openNewTab": "Ouvrir dans un nouvel onglet",
   "shared.previewTooltip": "Aperçu…",
   "shared.duplicate": "Dupliquer",
@@ -911,6 +912,7 @@ export const fr = {
   "main.statusBar.todayDelta": "{sign}{delta} aujourd'hui",
   "main.untitled": "sans titre",
 
+  "main.cmd.openWithPreview": "Ouvrir le feuillet avec son aperçu",
   "main.cmd.openBinder": "Ouvrir le binder",
   "main.cmd.openBoard": "Ouvrir les cartes / le plan",
   "main.cmd.openStatsPanel": "Ouvrir le panneau Statistiques",

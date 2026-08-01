@@ -1701,16 +1701,340 @@ body.feuillets-concentration .markdown-preview-view {
   transition: box-shadow 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
 }
 
-/* ===== réglages du plugin : en-tête ===== */
+/* Vue d'aperçu du manuscrit en onglet (PreviewView) */
+.feuillets-preview-view {
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background-primary);
+  padding: 0;
+  margin: 0;
+}
 
-/* Aperçu de mise en page (modales « Aperçu visuel » et style PDF) : rendu
-   dans une iframe isolée pour que le CSS du modèle d'export ne déborde pas
-   sur l'interface d'Obsidian (voir ui/template-preview.js). */
-.feuillets-template-preview-frame {
+/* Barre compacte, tout en icônes Lucide (voir PreviewView.iconBtn). Mêmes
+   variables d'espacement et même fond que .feuillets-research-toolbar : la
+   vue ne doit pas se distinguer visuellement des autres vues Feuillets. Le
+   retour à la ligne est autorisé pour rester lisible en colonne étroite. */
+.feuillets-preview-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--size-4-1);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* « Mise à jour… » pendant une recompilation : discret, et surtout SANS
+   remplacer le contenu affiché — le vider ferait perdre la position de
+   lecture (voir PreviewView.refreshPreview). */
+.feuillets-preview-status {
+  font-size: 0.78em;
+  color: var(--text-faint);
+  font-style: italic;
+  margin-left: auto;
+  padding-left: 8px;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.feuillets-preview-status.is-working {
+  color: var(--text-muted);
+}
+
+.feuillets-preview-status.is-error {
+  color: var(--text-error, #e53935);
+  font-style: normal;
+}
+
+.feuillets-preview-zoom-val {
+  font-size: 0.82em;
+  font-weight: 600;
+  color: var(--text-normal);
+  padding: 0 4px;
+  min-width: 44px;
+  text-align: center;
+  user-select: none;
+}
+
+/* Seule source de largeur pour les calculs de zoom automatique (voir
+   PreviewView.recalculateAutoZoom) — jamais window.innerWidth ni la largeur
+   globale de l'espace de travail, qui ne reflètent pas la largeur réelle de
+   CET onglet dans une mise en page en volets. */
+.feuillets-preview-viewport {
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
-  height: 60vh;
+  overflow-y: auto;
+  /* Modes automatiques : le facteur est calculé pour tenir dans la largeur
+     disponible, une barre horizontale n'aurait donc jamais lieu d'être — et
+     si elle apparaissait, elle réduirait clientWidth et relancerait le
+     ResizeObserver en boucle. Le défilement horizontal n'est rouvert qu'en
+     zoom manuel (classe posée par PreviewView.updateOverflowMode). */
+  overflow-x: hidden;
+  box-sizing: border-box;
+  padding: 20px 20px;
+  background: var(--background-secondary, #f0f2f5);
+}
+
+.feuillets-preview-viewport.is-manual-zoom {
+  overflow-x: auto;
+}
+
+.feuillets-preview-loading,
+.feuillets-preview-error {
+  padding: 30px;
+  font-size: 0.95em;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.feuillets-preview-error {
+  color: var(--text-error, #e53935);
+}
+
+/* État vide (mode Scène sans feuillet ouvert) : informatif, pas alarmant. */
+.feuillets-preview-empty {
+  padding: 30px;
+  font-size: 0.95em;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 42ch;
+  line-height: 1.5;
+}
+
+/* Centre l'iframe (dimensionnée en px par PreviewView.applyZoomToFrame) sur
+   la largeur RÉELLE du viewport, pas sur une largeur globale. */
+.feuillets-preview-scaled-container {
+  width: 100%;
+  display: flex;
+  /* `safe center` : centré tant que ça tient, aligné au début dès que le
+     contenu déborde. Un `center` nu ferait déborder symétriquement, et la
+     partie gauche deviendrait inatteignable au défilement — travers connu
+     du centrage flex, visible dès qu'on zoome au-delà de la largeur du
+     volet. `center` reste déclaré avant, comme repli. */
+  justify-content: center;
+  justify-content: safe center;
+  align-items: flex-start;
+  box-sizing: border-box;
+}
+
+/* « Page entière » : la page tient entièrement dans le volet, on la centre
+   donc aussi verticalement. `safe center` de nouveau, pour qu'un contenu
+   plus haut que prévu reste atteignable par le haut plutôt que rogné. */
+.feuillets-preview-scaled-container.is-fit-page {
+  min-height: 100%;
+  align-items: center;
+  align-items: safe center;
+}
+
+.feuillets-preview-frame {
   border: none;
   background: transparent;
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Iframe de remplacement, chargée en coulisse pendant qu'un aperçu est déjà
+   affiché : masquée jusqu'à l'échange, mais l'ANCIENNE reste en place — la
+   hauteur défilable ne s'effondre donc jamais et la position de lecture
+   n'est pas perdue (voir PreviewView.refreshPreview). */
+.feuillets-preview-frame.is-preview-frame-loading {
+  display: none;
+}
+
+/* ===== PreviewView : barre de CONTEXTE =================================
+
+   Trois éléments visibles, dans cet ordre : fil d'Ariane, zoom, « ⋯ ».
+   Les modes, la synchronisation, les réglages et l'export vivent dans le
+   menu afin de ne pas transformer l'aperçu en tableau de commande. */
+.feuillets-preview-toolbar {
+  gap: 12px;
+}
+
+.feuillets-preview-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--font-ui-smaller, 0.8em);
+  margin-right: auto;
+}
+
+.feuillets-preview-breadcrumb-item {
+  min-width: 0;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 0;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.feuillets-preview-breadcrumb-item.is-current,
+.feuillets-preview-breadcrumb-item[aria-current="page"] {
+  color: var(--text-accent);
+  font-weight: var(--font-semibold, 600);
+  opacity: 1;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.feuillets-preview-breadcrumb-separator {
+  color: var(--text-faint);
+  flex: 0 0 auto;
+}
+
+.feuillets-preview-status-hidden {
+  display: none;
+}
+
+/* Bouton TEXTE du zoom : un libellé qui ouvre un menu.
+   Aucun fond, aucune bordure — voir la section de transparence ci-dessous. */
+.feuillets-preview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 0;
+  font-size: var(--font-ui-smaller, 0.8em);
+  font-weight: var(--font-medium, 500);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: none;
+  background: none;
+}
+
+/* Le zoom est le seul contrôle numérique : largeur stable pour que la barre
+   ne tressaute pas entre « 75 % » et « 150 % ». */
+.feuillets-preview-chip.feuillets-preview-zoom-val {
+  min-width: 46px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.feuillets-preview-open-visible {
+  min-width: 0;
+  padding: 2px 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-ui-smaller, 0.8em);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.feuillets-preview-open-visible.is-hidden {
+  display: none;
+}
+
+.feuillets-preview-view {
+  position: relative;
+}
+
+/* ===== PreviewView : boutons SANS aucun arrière-plan, dans TOUS les états
+   =====================================================================
+
+   Exigence explicite : aucune surbrillance, aucun fond, aucune pastille
+   derrière les contrôles de l'aperçu — y compris pour le mode actif. Le
+   thème (et la classe `clickable-icon` d'Obsidian) peint normalement un
+   fond au survol, au focus et à l'état actif : ces règles le neutralisent,
+   et UNIQUEMENT dans la barre de PreviewView — les autres vues Feuillets
+   gardent le comportement du thème.
+
+   `!important` est ici volontaire : un thème tiers peut viser
+   `.clickable-icon` avec une spécificité arbitraire, et l'exigence est
+   absolue. La portée reste strictement limitée aux sélecteurs ci-dessous. */
+.feuillets-preview-toolbar .clickable-icon,
+.feuillets-preview-toolbar .clickable-icon:hover,
+.feuillets-preview-toolbar .clickable-icon:focus,
+.feuillets-preview-toolbar .clickable-icon:focus-visible,
+.feuillets-preview-toolbar .clickable-icon:active,
+.feuillets-preview-toolbar .clickable-icon.feuillets-mode-active,
+.feuillets-preview-toolbar .clickable-icon[aria-pressed="true"],
+.feuillets-preview-view .feuillets-preview-chip,
+.feuillets-preview-view .feuillets-preview-chip:hover,
+.feuillets-preview-view .feuillets-preview-chip:focus,
+.feuillets-preview-view .feuillets-preview-chip:focus-visible,
+.feuillets-preview-view .feuillets-preview-chip:active,
+.feuillets-preview-view .feuillets-preview-chip.feuillets-mode-active,
+.feuillets-preview-view .feuillets-preview-chip[aria-pressed="true"],
+.feuillets-preview-view .feuillets-preview-breadcrumb-item,
+.feuillets-preview-view .feuillets-preview-breadcrumb-item:hover,
+.feuillets-preview-view .feuillets-preview-breadcrumb-item:focus,
+.feuillets-preview-view .feuillets-preview-breadcrumb-item:focus-visible,
+.feuillets-preview-view .feuillets-preview-breadcrumb-item:active,
+.feuillets-preview-view .feuillets-preview-breadcrumb-item.is-current,
+.feuillets-preview-view .feuillets-preview-breadcrumb-item[aria-current="page"] {
+  background: none !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none;
+}
+
+.feuillets-preview-open-visible:hover,
+.feuillets-preview-open-visible:focus,
+.feuillets-preview-open-visible:focus-visible,
+.feuillets-preview-open-visible:active {
+  background: none !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none;
+}
+
+/* Survol : opacité et couleur seulement — jamais de rectangle ni de cercle
+   peint derrière le contrôle. */
+.feuillets-preview-toolbar .clickable-icon:hover,
+.feuillets-preview-toolbar .clickable-icon:focus-visible,
+.feuillets-preview-view .feuillets-preview-chip:hover,
+.feuillets-preview-view .feuillets-preview-chip:focus-visible,
+.feuillets-preview-view .feuillets-preview-breadcrumb-item:hover,
+.feuillets-preview-view .feuillets-preview-breadcrumb-item:focus-visible {
+  opacity: 1;
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+/* État actif/sélectionné : couleur d'accent et pleine opacité. C'est le
+   SEUL marqueur visuel, complété par `aria-pressed` et par l'infobulle —
+   donc identifiable sans fond, y compris pour un lecteur d'écran. */
+.feuillets-preview-toolbar .clickable-icon.feuillets-mode-active,
+.feuillets-preview-toolbar .clickable-icon[aria-pressed="true"],
+.feuillets-preview-view .feuillets-preview-chip.feuillets-mode-active,
+.feuillets-preview-view .feuillets-preview-chip[aria-pressed="true"] {
+  opacity: 1;
+  color: var(--text-accent);
+}
+
+/* Focus clavier : le contour du navigateur est remplacé par la même
+   indication de couleur, pour ne pas dessiner de cadre plein. */
+.feuillets-preview-toolbar .clickable-icon:focus-visible,
+.feuillets-preview-view .feuillets-preview-chip:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .feuillets-settings-header {
@@ -1957,6 +2281,7 @@ body.feuillets-text-width .markdown-preview-view {
    RIEN de tout ça — seul l'alignement dans nos barres nous regarde. */
 .feuillets-board-bar .clickable-icon,
 .feuillets-header .clickable-icon,
+.feuillets-preview-toolbar .clickable-icon,
 .feuillets-binder-filters .clickable-icon {
   display: flex;
   align-items: center;
@@ -1967,9 +2292,12 @@ body.feuillets-text-width .markdown-preview-view {
 
 .feuillets-board-bar .clickable-icon:hover,
 .feuillets-header .clickable-icon:hover,
+.feuillets-preview-toolbar .clickable-icon:hover,
+.feuillets-preview-toolbar .clickable-icon:focus-visible,
 .feuillets-binder-filters .clickable-icon:hover,
 .feuillets-board-bar .clickable-icon.feuillets-mode-active,
 .feuillets-header .clickable-icon.feuillets-mode-active,
+.feuillets-preview-toolbar .clickable-icon.feuillets-mode-active,
 .feuillets-binder-filters .clickable-icon.feuillets-mode-active {
   opacity: 1;
 }

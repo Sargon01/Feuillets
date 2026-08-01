@@ -107,6 +107,7 @@ export const en = {
 
   // ---------- Shared (base-feuillets-view.js) ----------
   "shared.wholeVault": "Whole vault",
+  "shared.contextMenu.openWithPreview": "Open with preview",
   "shared.openNewTab": "Open in new tab",
   "shared.previewTooltip": "Preview…",
   "shared.duplicate": "Duplicate",
@@ -911,6 +912,7 @@ export const en = {
   "main.statusBar.todayDelta": "{sign}{delta} today",
   "main.untitled": "untitled",
 
+  "main.cmd.openWithPreview": "Open sheet with preview",
   "main.cmd.openBinder": "Open the binder",
   "main.cmd.openBoard": "Open the board / outline",
   "main.cmd.openStatsPanel": "Open the stats panel",

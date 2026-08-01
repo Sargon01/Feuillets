@@ -11,6 +11,7 @@ import {
   type App,
 } from "obsidian";
 
+import { addOpenWithPreviewItem } from "./views/preview-view.js";
 import {
   normalizeTags,
   shortText,
@@ -1134,6 +1135,9 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
     plugin.app.workspace.on("file-menu", (menu, file) => {
       if (!(file instanceof TFile) || !plugin.isSceneFile(file)) return;
       menu.addSeparator();
+      /* Même helper que le Binder (BaseFeuilletsView.showFileContextMenu) :
+         une seule condition « est-ce une scène ? », un seul comportement. */
+      addOpenWithPreviewItem(menu, plugin.app, plugin, file);
       menu.addItem((item) =>
         item
           .setTitle("Feuillets: Scinder")

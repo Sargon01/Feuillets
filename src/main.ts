@@ -13,7 +13,7 @@
  */
 
 import { DEFAULT_SETTINGS } from "./default-settings.js";
-import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
+import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import {
@@ -32,6 +32,7 @@ import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
 import { JournalView } from "./views/journal-view.js";
 import { ProjectView } from "./views/project-view.js";
+import { PreviewView, activatePreviewView, openWithPreview } from "./views/preview-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
 import { formatCitation } from "./services/citations.js";
 import { getResearchTemplate } from "./services/research-templates.js";
@@ -345,6 +346,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerView(VIEW_PROJECT, (leaf) => new ProjectView(leaf, this));
     this.registerView(VIEW_DOCX_REVIEW, (leaf) => new DocxReviewView(leaf, this));
     this.registerView(VIEW_SIDEBAR_FEUILLETS, (leaf) => new SidebarFeuilletsView(leaf, this));
+    this.registerView(VIEW_PREVIEW, (leaf) => new PreviewView(leaf, this));
   }
 
   registerRibbonIcons() {
@@ -393,6 +395,20 @@ class FeuilletsPlugin extends Plugin {
   }
 
   registerCoreCommands() {
+    /* « Ouvrir avec aperçu » : le feuillet à gauche, l'aperçu de la scène
+       à droite. Réutilise une PreviewView déjà ouverte plutôt que d'en
+       empiler une seconde, et ne force aucune largeur — l'utilisatrice
+       reste libre de déplacer les feuilles ensuite. */
+    this.addCommand({
+      id: "open-with-preview",
+      name: t("main.cmd.openWithPreview"),
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!(file instanceof TFile) || file.extension !== "md") return false;
+        if (!checking) void openWithPreview(this.app, this, file);
+        return true;
+      },
+    });
     this.addCommand({
       id: "open-binder",
       name: t("main.cmd.openBinder"),

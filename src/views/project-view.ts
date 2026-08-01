@@ -4,6 +4,7 @@ import { listExportTemplates } from "../services/export-templates-custom.js";
 import { t } from "../i18n/index.js";
 import { CompileSelectionModal } from "../ui/selection-modals.js";
 import { LayoutModal } from "../ui/layout-modal.js";
+import { activatePreviewView } from "./preview-view.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 
 type ProjectViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
@@ -101,6 +102,11 @@ export class ProjectView extends BaseFeuilletsView {
         // Bouton de sélection des feuillets à compiler calé dans l'en-tête
         this.iconBtn(actions, "list-checks", t("project.compilation.chooseSheetsTooltip"), () =>
           new CompileSelectionModal(this.app, this.plugin).open()
+        );
+        // Aperçu visuel du manuscrit compilé, avec la mise en page réelle
+        // (ouvre ou révèle la vue onglet PreviewView).
+        this.iconBtn(actions, "eye", t("modal.preview.title"), () =>
+          void activatePreviewView(this.app)
         );
       }
     );
