@@ -2,6 +2,16 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.7.1
+
+### Refonte de sécurité et conformité Obsidian
+
+- **Suppression de l'intégration Pandoc** : Retrait complet du moteur Pandoc et de ses dépendances systèmes (`child_process`, détection de binaires sur disque). Les exports natifs (DOCX, PDF, ODT, EPUB, Markdown) fonctionnent en totale autonomie.
+- **Suppression des accès privilèges sur disque (`fs`)** : Conversion de l'ensemble des lectures de fichiers externes vers des API Web standard (`File`, `FileList`, `JSZip`, `webkitGetAsEntry`).
+- **Import DOCX via API Web File** : Sélection et lecture binaire en mémoire du fichier `.docx` sans écriture intermédiaire ni dépendance Node.js.
+- **Import Scrivener hybride (ZIP & Glisser-déposer)** : Prise en charge des projets Scrivener sous forme d'archives `.zip` et par glisser-déposer direct du paquet `.scriv` via l'API Web `webkitGetAsEntry()`.
+- **Corrections de conformité Obsidian** : Suppression de `localStorage`, remplacement des accès `window` par les API Obsidian dédiées, et éradication des risques d'exécution de code privilégié.
+
 ## 1.7.0
 
 ### Ajouté et amélioré
