@@ -251,3 +251,18 @@ test("DocxReviewView — rendu seul sans snapshot ni application", async () => {
   assert.equal(view._snapshotted, undefined);
   Platform.isMobile = false;
 });
+
+test("DocxReviewView — conservée telle quelle sous le nouvel espace Édition (lot 1 : renommage UI seul)", async () => {
+  // Le lot 1 renomme l'espace « Révision » en « Édition » et y ajoute les
+  // documents éditoriaux, mais ne touche à aucune fonction DOCX : même type
+  // de vue, même icône, et le rendu du panneau de sélection de fichier
+  // reste identique (mode "picker" par défaut, aucun résultat encore chargé).
+  const { view, contentEl } = createView();
+  assert.equal(view.getViewType(), "feuillets-docx-review");
+  assert.equal(view.getIcon(), "file-diff");
+  assert.equal(view.mode, "picker");
+
+  await view.onOpen();
+  const icons = iconsFrom(contentEl);
+  assert.ok(icons.includes("file-diff"), "l'en-tête de section Révision DOCX est toujours rendue");
+});

@@ -402,14 +402,10 @@ export const en = {
   "sidebar.tab.notes": "Sheet notes",
   "sidebar.tab.research": "Research & excerpts",
   "sidebar.tab.journal": "Journal & stats",
-  "sidebar.tab.project": "Review (.docx)",
+  "sidebar.tab.project": "Edition",
   "sidebar.tab.analysis": "Text analysis",
   "sidebar.tab.proofreading": "Proofreading",
 
-  // ---------- Scrivenings (scrivenings-editor.js) ----------
-  "scrivenings.openInMainEditorTooltip": "Click to open this file in the main editor",
-  "scrivenings.doubleClickToEditTooltip": "Double-click to edit this scene",
-  "scrivenings.emptyScene": "*Empty scene*",
 
   // ---------- Search & replace (search-replace-bar.js) ----------
   "searchReplace.openSheetFirst": "First open a sheet in edit mode.",
@@ -539,7 +535,7 @@ export const en = {
   "analysis.vocab.passiveVoice": "Estimated passive voice: {count} occurrence(s)",
 
   // ---------- .docx review (docx-review-view.js) ----------
-  "docxReview.displayText": "Review",
+  "docxReview.displayText": "DOCX review",
   "docxReview.snapshotCreatedNotice": "Sheet snapshot created before the first change — you can go back.",
   "docxReview.unreadableFile": "Unreadable file — check that it is really a .docx.",
   "docxReview.invalidDocx": "This file doesn't look like a valid .docx (word/document.xml missing).",
@@ -601,6 +597,19 @@ export const en = {
   "docxReview.comment.comment": "Comment",
   "docxReview.comment.resolvedInWord": "resolved in Word",
   "docxReview.comment.anchorQuoted": "“{text}”",
+
+  // ---------- Editorial documents (edition-docs-view.js) — subsection of the Edition space ----------
+  "editionDocs.displayText": "Editorial documents",
+  "editionDocs.notCreatedBody": "No Edition folder for this project yet. Create it to prepare a synopsis, note of intent, biography, cover letter, and submission tracking.",
+  "editionDocs.createFolder": "Create the Edition folder",
+  "editionDocs.newDocument": "New document",
+  "editionDocs.newDocumentModalTitle": "New document in Edition",
+  "editionDocs.newDocumentPlaceholder": "Document name",
+  "editionDocs.createDocumentSubmit": "Create",
+  "editionDocs.alreadyExists": "A document with this name already exists.",
+  "editionDocs.revealTooltip": "Reveal in file explorer",
+  "editionDocs.revealUnavailable": "Can't reveal this file: the file explorer isn't available.",
+  "editionDocs.emptyFolder": "This folder is empty.",
 
   // ---------- Settings tab (feuillets-setting-tab.js) ----------
   "settings.tagline": "A writing studio for novelists.",
@@ -804,13 +813,13 @@ export const en = {
   "settings.autoOpenJournal.name": "Automatically open the Journal & stats panel",
   "settings.autoOpenProject.name": "Automatically open the Project & export panel",
   "settings.autoOpenProperties.name": "Automatically open the Properties panel",
-  "settings.autoOpenDocxReview.name": "Automatically open the Review panel",
-  "settings.autoOpenDocxReview.desc": "At Obsidian startup, in the right sidebar — .docx feedback from an editor.",
+  "settings.autoOpenDocxReview.name": "Automatically open the Edition panel",
+  "settings.autoOpenDocxReview.desc": "At Obsidian startup, in the right sidebar — .docx feedback from an editor and editorial documents.",
   "settings.section.activeViews": "Active views",
   "settings.activeViews.intro": "Hides the views you don't use, to lighten the interface — nothing is deleted, you can re-enable them anytime.",
   "settings.activeViews.boardModes": "Board panel modes:",
   "settings.activeViews.sidePanels": "Side panels (ribbon icon and command removed if hidden):",
-  "settings.activeViews.docxReviewPanel": "Review (.docx feedback)",
+  "settings.activeViews.docxReviewPanel": "Edition (.docx review + documents)",
   "settings.previewField.name": "Sheet preview",
   "settings.previewField.desc": "Field shown under each sheet's title, read-only.",
   "settings.previewLines.name": "Number of preview lines",
@@ -919,7 +928,7 @@ export const en = {
   "main.cmd.createProject": "Create a new project…",
   "main.cmd.createDemoProject": "Create a demo project",
   "main.cmd.importScrivener": "Import a Scrivener project…",
-  "main.cmd.openDocxReview": "Open the Review panel (.docx feedback from an editor)",
+  "main.cmd.openDocxReview": "Open the Edition panel (.docx feedback from an editor)",
   "main.cmd.generateCanvasBoard": "Generate/update the canvas board (brainstorming)",
   "main.cmd.manageProjects": "Manage projects…",
   "main.cmd.switchProject": "Switch project…",
@@ -963,7 +972,7 @@ export const en = {
   "main.notice.moveFolderGone": "The folder from the move no longer exists.",
   "main.notice.reorderUndone": "Reorder undone.",
   "main.notice.scrivenerDesktopOnly": "Scrivener import requires file system access, available on desktop only.",
-  "main.notice.reviewPanelHidden": "Review panel hidden — re-enable it in the settings.",
+  "main.notice.reviewPanelHidden": "Edition panel hidden — re-enable it in the settings.",
   "main.notice.addOtherProjects": "Add other projects in the settings (one path per line).",
   "main.notice.noActiveProjectSheet": "No sheet from the active project.",
   "main.notice.snapshotCreated": "Snapshot created: {name}",

@@ -56,5 +56,5 @@ export const HIDEABLE_PANELS = [
   { key: "notes", label: "Notes", view: VIEW_NOTES },
   { key: "journal", label: "Journal & statistiques", view: VIEW_JOURNAL },
   { key: "project", label: "Projet & export", view: VIEW_PROJECT },
-  { key: "docxReview", label: "Révision (retours .docx)", view: VIEW_DOCX_REVIEW },
+  { key: "docxReview", label: "Édition (révisions .docx + documents)", view: VIEW_DOCX_REVIEW },
 ];

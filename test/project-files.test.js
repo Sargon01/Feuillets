@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile } from "../src/services/project-files.js";
-import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile } from "../src/services/folder-structure.js";
+import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile, ensureEditionFolder, EDITION_DOCUMENTS, EDITION_SUBFOLDERS } from "../src/services/project-files.js";
+import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME } from "../src/services/folder-structure.js";
 
 function projectFixture() {
   const volume = new TFolder("Projet");
@@ -18,6 +18,40 @@ function projectFixture() {
   scene.parent = chapter;
   return { volume, manuscript, chapter, scene };
 }
+
+test("ensureEditionFolder : crée le dossier Edition (voisin de Manuscrit), ses sous-dossiers et ses documents conventionnels", async () => {
+  const { volume, manuscript } = projectFixture();
+  const { vault } = createFakeVault([volume, manuscript]);
+  const app = { vault };
+
+  assert.equal(getEditionRoot(app, manuscript), null, "aucun dossier Edition avant création");
+
+  const edition = await ensureEditionFolder(app, manuscript);
+
+  assert.equal(edition.path, `Projet/${EDITION_FOLDER_NAME}`);
+  assert.equal(getEditionRoot(app, manuscript).path, edition.path);
+  for (const sub of EDITION_SUBFOLDERS) {
+    assert.ok(vault.getAbstractFileByPath(`${edition.path}/${sub}`) instanceof TFolder, `${sub} créé`);
+  }
+  for (const doc of EDITION_DOCUMENTS) {
+    assert.ok(vault.getAbstractFileByPath(`${edition.path}/${doc}`) instanceof TFile, `${doc} créé`);
+  }
+});
+
+test("ensureEditionFolder : idempotent — n'écrase pas un document déjà modifié", async () => {
+  const { volume, manuscript } = projectFixture();
+  const { vault } = createFakeVault([volume, manuscript]);
+  const app = { vault };
+
+  await ensureEditionFolder(app, manuscript);
+  const synopsisPath = `Projet/${EDITION_FOLDER_NAME}/Synopsis.md`;
+  const synopsis = vault.getAbstractFileByPath(synopsisPath);
+  await vault.modify(synopsis, "Contenu déjà écrit par l'autrice.");
+
+  await ensureEditionFolder(app, manuscript);
+
+  assert.equal(await vault.read(vault.getAbstractFileByPath(synopsisPath)), "Contenu déjà écrit par l'autrice.");
+});
 
 test("snapshotFile : crée et retrouve un instantané du feuillet", async () => {
   const { volume, manuscript, chapter, scene } = projectFixture();
