@@ -34,6 +34,35 @@ const LEGACY_FIELD_ALIASES: Record<string, string[]> = {
   compile: ["compiler"],
 };
 
+/**
+ * Retire le frontmatter YAML en TÊTE d'un contenu de feuillet — et lui seul.
+ *
+ * Seule définition de ce découpage dans le plugin : la compilation
+ * (`readBody`, compile-export.ts) et l'aperçu (PreviewView) l'utilisent
+ * toutes deux, faute de quoi l'aperçu montrerait un YAML que l'export ne
+ * contient pas (c'était exactement le défaut constaté).
+ *
+ * Le YAML est une MÉTADONNÉE : jamais du corps de manuscrit. Rendu tel quel
+ * en Markdown, `---\ntitle: X\n---` ne produit d'ailleurs pas « du texte
+ * bizarre » mais un `<hr>` suivi d'un TITRE setext `<h2>` — donc, dans
+ * l'aperçu paginé, un saut de page avant le premier mot du feuillet.
+ *
+ * Règles :
+ * - le bloc doit commencer à la PREMIÈRE ligne (un `---` en cours de texte
+ *   est un séparateur horizontal Markdown parfaitement légitime, jamais
+ *   touché) ;
+ * - fins de ligne LF comme CRLF (feuillets importés de Windows) ;
+ * - frontmatter VIDE (`---` suivi immédiatement de `---`) également retiré —
+ *   cas que l'ancienne expression régulière de la compilation laissait
+ *   passer, faisant fuiter deux `---` dans le texte compilé ;
+ * - jamais d'écriture : le fichier source n'est pas modifié.
+ */
+export function stripFrontmatter(content: string): string {
+  if (typeof content !== "string" || !content) return "";
+  // ﻿ : BOM d'un fichier importé — sinon le `---` n'est plus en tête.
+  return content.replace(/^﻿?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/, "");
+}
+
 export function fmOf(app: App, file: TFile | null | undefined): SceneFrontmatter {
   if (!file || !file.path) return {};
   const cache = app.metadataCache.getFileCache(file);

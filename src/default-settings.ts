@@ -61,6 +61,21 @@ export type DefaultSettings = {
   exportEngine: "natif" | "pandoc";
   exportTemplate: "classique" | "moderne" | "tapuscrit";
   exportFormat: "docx" | "epub" | "pdf";
+  /* Aperçu (PreviewView) : quoi afficher. "scene" (défaut) n'affiche que
+     le feuillet actif et ne compile jamais ; "chapter" assemble le
+     chapitre courant ; "manuscript" passe par compile() et ne
+     s'actualise qu'à la demande. */
+  previewMode: "scene" | "chapter" | "part" | "manuscript";
+  /* Modes Chapitre/Manuscrit : faire défiler l'aperçu jusqu'au feuillet
+     qui devient actif. Sans effet en mode Scène (l'aperçu EST déjà le
+     feuillet actif) et ne recompile jamais. */
+  previewFollowScene: boolean;
+  /* Défilement synchronisé entre la feuille Markdown active et l'aperçu,
+     dans les DEUX sens. Purement visuel : ne rend rien, ne compile rien. */
+  previewSyncScroll: boolean;
+  /* Barre de PreviewView repliée : l'aperçu occupe alors toute la place.
+     Purement visuel, mémorisé d'une session à l'autre. */
+  previewBarCollapsed: boolean;
   docxReviewResolved: Record<string, Record<string, { applied: boolean; dismissed: boolean }>>;
   exportFrenchTypography: boolean;
   pdfPageSize: string;
@@ -228,6 +243,10 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   exportEngine: "natif",
   exportTemplate: "classique",
   exportFormat: "docx",
+  previewMode: "scene",
+  previewFollowScene: true,
+  previewSyncScroll: true,
+  previewBarCollapsed: false,
   docxReviewResolved: {},
   exportFrenchTypography: true,
   pdfPageSize: "A4",

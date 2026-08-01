@@ -11,6 +11,7 @@ import { DiffModal, CompareFilesModal, PickFileModal } from "../ui/diff-modal.js
 import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
+import { addOpenWithPreviewItem } from "./preview-view.js";
 import { t } from "../i18n/index.js";
 
 function getResearchSectionIcon(key: string): string {
@@ -1315,6 +1316,14 @@ export abstract class BaseFeuilletsView extends ItemView {
           openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
         })
     );
+    /* « Ouvrir avec aperçu » vit ICI et pas seulement dans le hook
+       `workspace.on("file-menu")` : le Binder construit son propre Menu et
+       ne passe jamais par ce hook — l'entrée y était donc invisible.
+       Réservée aux vraies scènes (roleOfFile), pas aux feuillets-chapitres
+       ni aux fiches hors manuscrit. */
+    if (!isGroup) {
+      addOpenWithPreviewItem(menu, this.app, plugin, file);
+    }
     menu.addItem((item) =>
       item
         .setTitle(t("binder.research.openSplit"))

@@ -7,7 +7,7 @@ import { embedHardBreaks } from "../utils/core.js";
 import { footnotePrefixFor, applyCompileTransforms } from "../utils/compile-text.js";
 import { renumberFootnotesAcrossTexts } from "../utils/footnotes.js";
 import { CompileError, toCompileError } from "./compile-errors.js";
-import { fmOf, compiledTitleFor, compiledSubtitleFor } from "./frontmatter.js";
+import { fmOf, compiledTitleFor, compiledSubtitleFor, stripFrontmatter } from "./frontmatter.js";
 import {
   getProjectFolder,
   getOrderedChildren,
@@ -57,6 +57,31 @@ type PresetConfig = {
   separator: string;
   [key: string]: unknown;
 };
+
+/** Résolution unique des titres de feuillet : Markdown existant, puis YAML,
+ * puis (pour les vues contextuelles seulement) un dernier repli Binder. */
+export function resolvedFileTitleMarkdown(
+  app: App,
+  file: TFile,
+  body: string,
+  wantTitle: boolean,
+  level: number,
+  binderFallback: string | null = null
+): string | null {
+  if (!wantTitle) return null;
+  const headings = Array.from(body.matchAll(/^(#{1,6})\s+\S.*$/gm));
+  const markdownTitleLevel = headings[0]?.[1]?.length || 0;
+  const titleLevel = markdownTitleLevel || Math.min(level, 6);
+  const subtitleLevel = Math.min(titleLevel + 1, 6);
+  const hasTitle = markdownTitleLevel > 0;
+  const hasSubtitle = headings.slice(1).some((match) => match[1].length === subtitleLevel);
+  const title = hasTitle ? null : (compiledTitleFor(app, file) || binderFallback);
+  const subtitle = hasSubtitle ? null : compiledSubtitleFor(app, file);
+  const lines: string[] = [];
+  if (title) lines.push(`${"#".repeat(titleLevel)} ${title}`);
+  if (subtitle) lines.push(`${"#".repeat(subtitleLevel)} ${subtitle}`);
+  return lines.length ? lines.join("\n\n") : null;
+}
 
 export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
   const S = settings;
@@ -126,9 +151,12 @@ export async function compile(app: App, settings: FeuilletsSettings) {
         cause: e,
       });
     }
-    // \r?\n : un feuillet aux fins de ligne Windows (import externe) garde
-    // sinon son frontmatter, tel quel, dans le texte compilé.
-    content = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+    /* Découpage du frontmatter : helper CENTRAL (services/frontmatter.ts),
+       partagé avec l'aperçu — deux expressions régulières concurrentes,
+       c'était le défaut où l'aperçu affichait un YAML absent de l'export.
+       Il corrige au passage le frontmatter VIDE (`---` suivi de `---`), que
+       l'expression locale précédente laissait fuir dans le texte compilé. */
+    content = stripFrontmatter(content);
     /* Page Front : on ne rogne PAS les lignes vides de tête/queue comme pour
        une scène normale — sur une page de titre en composition libre, ces
        lignes-là sont la mise en page elle-même (voir
@@ -236,20 +264,9 @@ export async function compile(app: App, settings: FeuilletsSettings) {
     }
 
     const wantTitle = role === "scene" ? P.sceneTitles : P.chapterTitles;
-    const t = compiledTitleFor(app, file);
-    if (wantTitle && t) {
-      const level = "#".repeat(Math.min(depth + 1, 6));
-      /* titre sur deux lignes (ex. import Scrivener, "Titre chapitre" +
-         sous-titre) : la seconde ligne devient un titre un niveau en
-         dessous — pas juste un second paragraphe — pour que le modèle
-         d'export puisse le styler distinctement (voir "classique" dans
-         utils/export-templates.js : même taille que le titre, mais en
-         italique et sans saut de page). */
-      const subtitle = compiledSubtitleFor(app, file);
-      const subtitleLine = subtitle
-        ? `\n\n${"#".repeat(Math.min(depth + 2, 6))} ${subtitle}`
-        : "";
-      push(`${level} ${t}${subtitleLine}\n\n${body}`, file.path, null);
+    const title = resolvedFileTitleMarkdown(app, file, body, wantTitle, depth + 1);
+    if (title) {
+      push(`${title}\n\n${body}`, file.path, null);
     } else {
       push(body, file.path, null);
     }
