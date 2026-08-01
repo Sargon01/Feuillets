@@ -26,7 +26,7 @@ export const PROVIDER_NAME = "Grammalecte";
 
 /** Fabrique du moteur, injectable pour les tests : ils vérifient le
  *  chargement paresseux sans jamais lire les 9 Mo de règles réelles. */
-export type EngineLoader = () => GrammalecteEngine;
+export type EngineLoader = () => GrammalecteEngine | Promise<GrammalecteEngine>;
 
 export class GrammalecteProvider implements TextAnalysisProvider {
   readonly id = PROVIDER_ID;

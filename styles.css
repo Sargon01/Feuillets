@@ -1794,8 +1794,7 @@ body.feuillets-concentration .markdown-preview-view {
      contenu déborde. Un `center` nu ferait déborder symétriquement, et la
      partie gauche deviendrait inatteignable au défilement — travers connu
      du centrage flex, visible dès qu'on zoome au-delà de la largeur du
-     volet. `center` reste déclaré avant, comme repli. */
-  justify-content: center;
+     volet. */
   justify-content: safe center;
   align-items: flex-start;
   box-sizing: border-box;
@@ -1806,7 +1805,6 @@ body.feuillets-concentration .markdown-preview-view {
    plus haut que prévu reste atteignable par le haut plutôt que rogné. */
 .feuillets-preview-scaled-container.is-fit-page {
   min-height: 100%;
-  align-items: center;
   align-items: safe center;
 }
 
