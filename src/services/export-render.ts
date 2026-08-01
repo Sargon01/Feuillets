@@ -181,7 +181,7 @@ export function preserveBlankLinesForFrontPage(text: string): string {
  * (saut de page, centrage) — même principe que le marqueur textuel utilisé
  * par l'export .docx natif (voir export-docx.js), mais restructuré en DOM
  * plutôt qu'en bookmarks Word, puisque ces trois formats travaillent
- * directement sur le HTML rendu. Sans `segments` (pandoc, ou aucun
+ * directement sur le HTML rendu. Sans `segments` (aucun
  * feuillet Front dans ce projet), se comporte exactement comme
  * renderManuscriptHtml. */
 export async function renderManuscriptHtmlWithFrontPages(

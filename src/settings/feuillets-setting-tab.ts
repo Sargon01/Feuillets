@@ -1848,22 +1848,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    container.createDiv({ cls: "setting-item-description" }).setText(
-      t("settings.export.engineIntro")
-    );
 
-    new Setting(container)
-      .setName(t("settings.exportEngine.name"))
-      .setDesc(t("settings.exportEngine.desc"))
-      .addDropdown((drop) => {
-        drop.addOption("natif", t("settings.exportEngine.native"));
-        drop.addOption("pandoc", t("settings.exportEngine.pandoc"));
-        drop.setValue(S.exportEngine || "natif");
-        drop.onChange(async (value) => {
-          S.exportEngine = value as DefaultSettings["exportEngine"];
-          await this.plugin.saveSettings();
-        });
-      });
 
     container.createDiv({ cls: "setting-item-description" }).setText(
       t("settings.export.layoutModelNote")
@@ -2040,32 +2025,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
 
     }
 
-    if (selectedExportFormat === "docx" || selectedExportFormat === "odt") {
-      container.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      t("settings.export.pandocOnlyHeader")
-      );
 
-    new Setting(container)
-      .setName(t("settings.pandocReference.name"))
-      .setDesc(t("settings.pandocReference.desc"))
-      .addText((t2) =>
-        t2.setValue(S.pandocReference).onChange(async (v) => {
-          S.pandocReference = v.trim();
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.pandocPath.name"))
-      .setDesc(t("settings.pandocPath.desc"))
-      .addText((t2) =>
-        t2.setValue(S.pandocPath).onChange(async (v) => {
-          S.pandocPath = v.trim() || "pandoc";
-          await this.plugin.saveSettings();
-        })
-      );
-
-    }
 
   }
 

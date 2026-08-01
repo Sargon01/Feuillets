@@ -5,10 +5,9 @@
  * Nécessaire parce que chaque scène/section est un fichier indépendant : un
  * auteur numérote naturellement ses notes `[^1]`, `[^2]`… dans chaque
  * fichier, sans savoir que la compilation les concatène tous en un seul
- * document avant de passer à Pandoc. Sans ce renommage, deux fichiers
+ * document. Sans ce renommage, deux fichiers
  * utilisant tous les deux `[^1]` se retrouveraient à pointer vers la même
- * note dans le document final — Pandoc ne voit alors qu'un identifiant
- * global, pas un identifiant par fichier. */
+ * note dans le document final. */
 export function renamespaceFootnotes(content: string, prefix: string): string;
 export function renamespaceFootnotes(content: null, prefix: string): null;
 export function renamespaceFootnotes(content: undefined, prefix: string): undefined;
