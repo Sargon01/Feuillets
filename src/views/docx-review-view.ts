@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs, desktop uniquement */
-/* global require -- défini par environnement */
 import { setIcon, Notice, Platform, TFile, TAbstractFile, type App, type WorkspaceLeaf } from "obsidian";
 import JSZip from "jszip";
 import { VIEW_DOCX_REVIEW } from "../constants.js";
@@ -407,44 +405,40 @@ export class DocxReviewView extends BaseFeuilletsView {
       const extSection = container.createDiv({ cls: "feuillets-research-section" });
       extSection.createDiv({ cls: "feuillets-docx-review-group-label" }).setText(t("docxReview.orOtherFile"));
       const row = extSection.createDiv({ cls: "feuillets-docx-review-path-row" });
-      const pathInput = row.createEl("input", {
-        type: "text",
-        attr: { placeholder: t("docxReview.pathPlaceholder") },
+      const fileInput = row.createEl("input", {
+        type: "file",
+        attr: { accept: ".docx" },
       });
-      pathInput.addEventListener("dragover", (e) => e.preventDefault());
-      pathInput.addEventListener("drop", (e) => {
+
+      let droppedFile: File | null = null;
+
+      row.addEventListener("dragover", (e) => e.preventDefault());
+      row.addEventListener("drop", (e) => {
         e.preventDefault();
-        const f = e.dataTransfer?.files?.[0] as { path?: string } | undefined;
-        if (f?.path) pathInput.value = f.path;
+        const f = e.dataTransfer?.files?.[0];
+        if (f) {
+          droppedFile = f;
+          void analyze();
+        }
       });
 
       const analyze = async () => {
-        if (!Platform.isDesktop) {
-          return void new Notice(t("docxReview.readUnavailable"));
-        }
-        const path = pathInput.value.trim();
-        if (!path) {
+        const file = droppedFile || fileInput.files?.[0];
+        if (!file) {
           new Notice(t("docxReview.enterPath"));
           return;
         }
-        let fs: typeof import("fs");
+        let buf: ArrayBuffer;
         try {
-          fs = require("fs") as typeof import("fs");
+          buf = await file.arrayBuffer();
         } catch {
-          new Notice(t("docxReview.readUnavailable"));
+          new Notice(t("docxReview.fileNotFound", { path: file.name }));
           return;
         }
-        let buf: unknown;
-        try {
-          buf = fs.readFileSync(path);
-        } catch {
-          new Notice(t("docxReview.fileNotFound", { path }));
-          return;
-        }
-        const filename = path.split("/").pop() || "docx-review";
-        await this.analyzeBuffer(buf as ArrayBuffer, filename);
+        const filename = file.name || "docx-review";
+        await this.analyzeBuffer(buf, filename);
       };
-      pathInput.addEventListener("keydown", (e) => {
+      fileInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") void analyze();
       });
       const analyzeBtn = this.iconBtn(row, "search", t("docxReview.analyzeFile"));
@@ -960,5 +954,3 @@ export class DocxReviewView extends BaseFeuilletsView {
     });
   }
 }
-
-/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

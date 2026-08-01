@@ -1,6 +1,5 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : fs/path pour lire un dossier .scriv sur disque, desktop uniquement */
-/* global require -- défini par environnement */
 import { App, Modal, Notice, Platform, normalizePath, TAbstractFile, TFolder } from "obsidian";
+import JSZip from "jszip";
 
 import { PROJECT_MODES, applyModeDefaults } from "../utils/project-modes.js";
 import {
@@ -9,7 +8,6 @@ import {
   countImportPreview,
   rtfToMarkdown,
   rtfPathCandidates,
-  findAttachedDataImages,
   mapScrivenerStatus,
   classifyResearchFolder,
   buildSceneFrontmatter,
@@ -20,19 +18,10 @@ import {
 } from "../services/scrivener-import.js";
 import { t } from "../i18n/index.js";
 
-/* fs/path chargés dynamiquement via require() Node (desktop uniquement,
-   voir Platform.isMobile plus bas) : aucune déclaration de type fiable
-   côté Obsidian/esbuild pour ces modules dans ce contexte, laissés en
-   `any` implicite comme le reste du plugin (compile-export.ts,
-   grammar-assets-manager.ts…). */
 type ScrivxItem = NonNullable<ReturnType<typeof parseScrivx>["draft"]>;
 
 type ScrivenerImportPlugin = {
   settings: FeuilletsSettings;
-  /* Reflète le type réel de services/project-files.ts : le chemin visé
-     est en pratique toujours un dossier, mais la signature du service
-     reste TAbstractFile (getAbstractFileByPath peut, en théorie,
-     retourner autre chose). */
   ensureFolder(path: string): Promise<TAbstractFile>;
   saveSettings(): Promise<void>;
   initProjectStructure(): Promise<void>;
@@ -41,34 +30,225 @@ type ScrivenerImportPlugin = {
   updateStatusBar(): void;
 };
 
-type Dirent = {
+export type FileSystemEntry = {
   name: string;
-  isDirectory(): boolean;
-  isFile(): boolean;
+  isDirectory: boolean;
+  isFile: boolean;
 };
 
-type NodeFs = {
-  existsSync(p: string): boolean;
-  readdirSync(p: string, options: { withFileTypes: true }): Dirent[];
-  readdirSync(p: string): string[];
-  readFileSync(p: string, encoding: string): string;
-  readFileSync(p: string): ArrayBuffer | Uint8Array;
+export type FileSystemFileEntry = FileSystemEntry & {
+  isFile: true;
+  isDirectory: false;
+  file(successCallback: (file: File) => void, errorCallback?: (error: unknown) => void): void;
 };
 
-type NodePath = {
-  join(...paths: string[]): string;
-  extname(p: string): string;
-  basename(p: string, ext?: string): string;
+export type FileSystemDirectoryReader = {
+  readEntries(
+    successCallback: (entries: FileSystemEntry[]) => void,
+    errorCallback?: (error: unknown) => void
+  ): void;
 };
 
-type ImportContext = {
-  scrivPath: string;
+export type FileSystemDirectoryEntry = FileSystemEntry & {
+  isFile: false;
+  isDirectory: true;
+  createReader(): FileSystemDirectoryReader;
+};
+
+export async function readAllEntriesFromDirectory(dirEntry: FileSystemDirectoryEntry): Promise<{ relativePath: string; file: File }[]> {
+  const results: { relativePath: string; file: File }[] = [];
+
+  async function readDir(directory: FileSystemDirectoryEntry, currentPath: string): Promise<void> {
+    const reader = directory.createReader();
+    let entriesBatch: FileSystemEntry[] = [];
+    do {
+      entriesBatch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
+        reader.readEntries(resolve, (err) => reject(err instanceof Error ? err : new Error(String(err))));
+      });
+      for (const entry of entriesBatch) {
+        const entryPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+        if (entry.isFile) {
+          const fileEntry = entry as FileSystemFileEntry;
+          const file = await new Promise<File>((resolve, reject) => {
+            fileEntry.file(resolve, (err) => reject(err instanceof Error ? err : new Error(String(err))));
+          });
+          results.push({ relativePath: entryPath, file });
+        } else if (entry.isDirectory) {
+          const subDirEntry = entry as FileSystemDirectoryEntry;
+          await readDir(subDirEntry, entryPath);
+        }
+      }
+    } while (entriesBatch.length > 0);
+  }
+
+  await readDir(dirEntry, "");
+  return results;
+}
+
+type FileMapItem = {
+  rawPath: string;
+} & (
+  | { kind: "file"; file: File }
+  | { kind: "zip"; zipObject: JSZip.JSZipObject }
+);
+
+export class ScrivenerFileMap {
+  private map = new Map<string, FileMapItem>();
+  private prefix = "";
+  topLevelEntries: string[] = [];
+  scrivxName: string | null = null;
+
+  static async fromZip(buffer: ArrayBuffer): Promise<ScrivenerFileMap> {
+    let zip: JSZip;
+    try {
+      zip = await JSZip.loadAsync(buffer);
+    } catch {
+      throw new Error("InvalidZip");
+    }
+
+    const instance = new ScrivenerFileMap();
+    for (const [p, file] of Object.entries(zip.files)) {
+      if (!file.dir) {
+        const normPath = p.replace(/\\/g, "/").replace(/^\//, "");
+        instance.map.set(normPath.toLowerCase(), { rawPath: normPath, kind: "zip", zipObject: file });
+      }
+    }
+    instance.initStructure();
+    return instance;
+  }
+
+  static fromEntries(entries: { relativePath: string; file: File }[]): ScrivenerFileMap {
+    const instance = new ScrivenerFileMap();
+    for (const item of entries) {
+      const normPath = item.relativePath.replace(/\\/g, "/").replace(/^\//, "");
+      instance.map.set(normPath.toLowerCase(), { rawPath: normPath, kind: "file", file: item.file });
+    }
+    instance.initStructure();
+    return instance;
+  }
+
+  private initStructure(): void {
+    const items = Array.from(this.map.values());
+    const scrivxItem = items.find((it) => it.rawPath.toLowerCase().endsWith(".scrivx"));
+
+    if (!scrivxItem) {
+      this.topLevelEntries = [];
+      return;
+    }
+
+    const normScrivx = scrivxItem.rawPath.replace(/\\/g, "/").replace(/^\//, "");
+    const parts = normScrivx.split("/");
+    if (parts.length > 1) {
+      this.prefix = parts.slice(0, parts.length - 1).join("/") + "/";
+      this.scrivxName = parts[parts.length - 1];
+    } else {
+      this.prefix = "";
+      this.scrivxName = normScrivx;
+    }
+
+    const prefixLower = this.prefix.toLowerCase();
+    const topSet = new Set<string>();
+    for (const it of items) {
+      const norm = it.rawPath.replace(/\\/g, "/").replace(/^\//, "");
+      if (prefixLower && !norm.toLowerCase().startsWith(prefixLower)) continue;
+      const rel = prefixLower ? norm.slice(prefixLower.length) : norm;
+      const relParts = rel.split("/").filter(Boolean);
+      if (relParts.length > 0) {
+        topSet.add(relParts[0]);
+      }
+    }
+    this.topLevelEntries = Array.from(topSet);
+  }
+
+  getItem(relativePath: string): FileMapItem | undefined {
+    const norm = relativePath.replace(/\\/g, "/").replace(/^\//, "");
+    const targetKey = (this.prefix + norm).toLowerCase();
+    return this.map.get(targetKey);
+  }
+
+  async readText(relativePath: string): Promise<string | null> {
+    const item = this.getItem(relativePath);
+    if (!item) return null;
+    try {
+      if (item.kind === "file") {
+        return await item.file.text();
+      } else {
+        return await item.zipObject.async("string");
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  async readArrayBuffer(relativePath: string): Promise<ArrayBuffer | null> {
+    const item = this.getItem(relativePath);
+    if (!item) return null;
+    try {
+      if (item.kind === "file") {
+        return await item.file.arrayBuffer();
+      } else {
+        return await item.zipObject.async("arraybuffer");
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  findAttachedDataImages(uuid: string): { fileName: string; readArrayBuffer(): Promise<ArrayBuffer | null> }[] {
+    const uuidLower = uuid.toLowerCase();
+    const targetPrefix = (this.prefix + `files/data/${uuidLower}/`).toLowerCase();
+    const imgExts = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".pdf"];
+    const results: { fileName: string; readArrayBuffer(): Promise<ArrayBuffer | null> }[] = [];
+
+    for (const [p, item] of this.map.entries()) {
+      if (p.startsWith(targetPrefix)) {
+        const extIndex = p.lastIndexOf(".");
+        const ext = extIndex >= 0 ? p.slice(extIndex) : "";
+        if (imgExts.includes(ext)) {
+          const fileName = p.split("/").pop() || "";
+          results.push({
+            fileName,
+            readArrayBuffer: async () => {
+              try {
+                return item.kind === "file" ? await item.file.arrayBuffer() : await item.zipObject.async("arraybuffer");
+              } catch {
+                return null;
+              }
+            },
+          });
+        }
+      }
+    }
+    return results;
+  }
+
+  findScrivenerFile(targetName: string): { fileName: string; readArrayBuffer(): Promise<ArrayBuffer | null> } | null {
+    const targetLower = targetName.toLowerCase();
+    for (const [p, item] of this.map.entries()) {
+      const baseName = p.split("/").pop() || "";
+      if (baseName.toLowerCase() === targetLower) {
+        return {
+          fileName: baseName,
+          readArrayBuffer: async () => {
+            try {
+              return item.kind === "file" ? await item.file.arrayBuffer() : await item.zipObject.async("arraybuffer");
+            } catch {
+              return null;
+            }
+          },
+        };
+      }
+    }
+    return null;
+  }
+}
+
+export type ImportContext = {
+  fileMap: ScrivenerFileMap;
   parsed: ReturnType<typeof parseScrivx>;
   parentPath: string;
   name: string;
   mode: string;
-  fs: NodeFs | null;
-  pathMod: NodePath | null;
 };
 
 function sanitizeName(title: string | null | undefined): string {
@@ -90,44 +270,6 @@ function unusedPath(app: App, basePath: string): string {
   return candidate;
 }
 
-/** Recherche récursive d'un fichier image ou pièce jointe par son nom dans le dossier .scriv */
-function findScrivenerFile(dirPath: string, targetName: string, fs: NodeFs | null, pathMod: NodePath | null): string | null {
-  if (!fs || !pathMod) return null;
-  try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-      if (typeof entry === "string") continue;
-      const fullPath = pathMod.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        const found = findScrivenerFile(fullPath, targetName, fs, pathMod);
-        if (found) return found;
-      } else if (entry.isFile() && entry.name.toLowerCase() === targetName.toLowerCase()) {
-        return fullPath;
-      }
-    }
-  } catch { /* dossier illisible pendant le parcours disque : traite comme fichier non trouve */ }
-
-  const uuidMatch =
-    /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/i.exec(targetName) ||
-    /[0-9A-Fa-f]{8}/i.exec(targetName);
-  if (uuidMatch) {
-    const uuid = uuidMatch[0];
-    const dataDir = pathMod.join(dirPath, "Files/Data", uuid);
-    try {
-      if (fs.existsSync(dataDir)) {
-        const files = fs.readdirSync(dataDir);
-        const imgExts = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".pdf"];
-        for (const f of files) {
-          if (imgExts.includes(pathMod.extname(f).toLowerCase())) {
-            return pathMod.join(dataDir, f);
-          }
-        }
-      }
-    } catch { /* idem : pas de visuel trouve dans ce dossier de donnees */ }
-  }
-  return null;
-}
-
 export class ScrivenerImportModal extends Modal {
   plugin: ScrivenerImportPlugin;
 
@@ -142,9 +284,7 @@ export class ScrivenerImportModal extends Modal {
       contentEl.createEl("h3", { text: t("modal.scrivenerImport.title") });
       contentEl
         .createEl("p", { cls: "setting-item-description" })
-        .setText(
-          t("modal.scrivenerImport.desktopOnly")
-        );
+        .setText(t("modal.scrivenerImport.desktopOnly"));
       return;
     }
     this.showForm();
@@ -163,13 +303,87 @@ export class ScrivenerImportModal extends Modal {
       t("modal.scrivenerImport.desc")
     );
 
+    let droppedFileMap: ScrivenerFileMap | null = null;
+
     contentEl.createEl("label", { text: t("modal.scrivenerImport.scrivFolderLabel") });
-    const scrivInput = contentEl.createEl("input", {
-      type: "text",
-      attr: { placeholder: "/Users/toi/Documents/Mon Roman.scriv" },
+    const dropArea = contentEl.createDiv({ cls: "feuillets-drop-target feuillets-field-spacer" });
+    dropArea.setText("Glissez-déposez votre dossier .scriv ou sélectionnez une archive ZIP ci-dessous.");
+
+    dropArea.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropArea.addClass("is-active");
     });
-    scrivInput.addClass("feuillets-input-full");
-    scrivInput.addClass("feuillets-field-spacer");
+    dropArea.addEventListener("dragleave", () => {
+      dropArea.removeClass("is-active");
+    });
+    dropArea.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropArea.removeClass("is-active");
+
+      void (async () => {
+        const items = e.dataTransfer?.items;
+        if (items && items.length > 0) {
+          const rawItem = items[0] as unknown as { webkitGetAsEntry?: () => FileSystemEntry | null };
+          const entry: FileSystemEntry | null = typeof rawItem.webkitGetAsEntry === "function" ? rawItem.webkitGetAsEntry() : null;
+
+          if (entry && entry.isDirectory) {
+            try {
+              const dirEntry = entry as FileSystemDirectoryEntry;
+              const fileEntries = await readAllEntriesFromDirectory(dirEntry);
+              const map = ScrivenerFileMap.fromEntries(fileEntries);
+              if (!map.scrivxName) {
+                new Notice(t("modal.scrivenerImport.noScrivxFound"));
+                return;
+              }
+              droppedFileMap = map;
+              const entryName = dirEntry.name;
+              const folderName = entryName.replace(/\.scriv$/i, "");
+              if (folderName && !nameInput.value) {
+                nameInput.value = folderName;
+              }
+              dropArea.setText(`Projet prêt : ${entryName}`);
+              new Notice(`Projet .scriv prêt à l'analyse : ${entryName}`);
+              return;
+            } catch {
+              new Notice(t("modal.scrivenerImport.cannotReadScrivx"));
+              return;
+            }
+          }
+        }
+
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0) {
+          const file = files[0];
+          if (file.name.toLowerCase().endsWith(".zip")) {
+            try {
+              const buf = await file.arrayBuffer();
+              droppedFileMap = await ScrivenerFileMap.fromZip(buf);
+              const baseName = file.name.replace(/\.scriv\.zip$/i, "").replace(/\.zip$/i, "");
+              if (baseName && !nameInput.value) {
+                nameInput.value = baseName;
+              }
+              dropArea.setText(`Archive prête : ${file.name}`);
+              new Notice(`Archive ZIP prête à l'analyse : ${file.name}`);
+            } catch {
+              new Notice(t("modal.scrivenerImport.cannotReadScrivx"));
+            }
+          } else {
+            new Notice("Veuillez glisser-déposer un dossier .scriv ou sélectionner une archive .zip.");
+          }
+        }
+      })();
+    });
+
+    const zipInput = contentEl.createEl("input", {
+      type: "file",
+      attr: { accept: ".zip,.scriv.zip" },
+    });
+    zipInput.addClass("feuillets-input-full");
+    zipInput.addClass("feuillets-field-spacer");
+
+    contentEl.createDiv({ cls: "feuillets-notes-sub feuillets-field-spacer" }).setText(
+      "Sur macOS : vous pouvez glisser-déposer directement votre projet .scriv ci-dessus, ou le compresser en .zip pour le sélectionner."
+    );
 
     contentEl.createEl("label", { text: t("modal.newProject.parentFolderLabel") });
     const parentInput = contentEl.createEl("input", {
@@ -187,6 +401,17 @@ export class ScrivenerImportModal extends Modal {
     nameInput.addClass("feuillets-input-full");
     nameInput.addClass("feuillets-field-spacer");
 
+    zipInput.addEventListener("change", () => {
+      if (zipInput.files && zipInput.files.length > 0) {
+        droppedFileMap = null;
+        const file = zipInput.files[0];
+        const baseName = file.name.replace(/\.scriv\.zip$/i, "").replace(/\.zip$/i, "");
+        if (baseName && !nameInput.value) {
+          nameInput.value = baseName;
+        }
+      }
+    });
+
     contentEl.createEl("label", { text: t("modal.newProject.typeLabel") });
     const typeSelect = contentEl.createEl("select");
     typeSelect.addClass("feuillets-input-full");
@@ -195,50 +420,44 @@ export class ScrivenerImportModal extends Modal {
     }
 
     const analyze = async () => {
-      if (!Platform.isDesktop) {
-        return void new Notice(t("modal.scrivenerImport.importUnavailable"));
+      let fileMap: ScrivenerFileMap | null = droppedFileMap;
+
+      if (!fileMap) {
+        const files = zipInput.files;
+        if (!files || files.length === 0) {
+          new Notice(t("modal.scrivenerImport.enterScrivPath"));
+          return;
+        }
+        const file = files[0];
+        try {
+          const buf = await file.arrayBuffer();
+          fileMap = await ScrivenerFileMap.fromZip(buf);
+        } catch {
+          new Notice(t("modal.scrivenerImport.cannotReadScrivx"));
+          return;
+        }
       }
-      const scrivPath = scrivInput.value.trim().replace(/[/\\]+$/, "");
-      if (!scrivPath) {
-        new Notice(t("modal.scrivenerImport.enterScrivPath"));
-        return;
-      }
+
       const name = nameInput.value.trim();
       if (!name) {
         new Notice(t("modal.newProject.giveAName"));
         return;
       }
 
-      let fs: NodeFs;
-      let pathMod: NodePath;
-      try {
-        fs = require("fs") as NodeFs;
-        pathMod = require("path") as NodePath;
-      } catch {
-        new Notice(t("modal.scrivenerImport.importUnavailable"));
-        return;
-      }
-
-      let entries: string[];
-      try {
-        entries = (fs.readdirSync(scrivPath) as (string | Dirent)[]).map((e) => typeof e === "string" ? e : e.name);
-      } catch {
-        new Notice(t("modal.scrivenerImport.folderNotFound", { path: scrivPath }));
-        return;
-      }
-      const check = checkScrivenerFormat(entries);
+      const check = checkScrivenerFormat(fileMap.topLevelEntries);
       if (!check.ok) {
-        // checkScrivenerFormat n'utilise pas un type discriminé sur `ok`
-        // (retour non typé côté service) : error est toujours défini ici,
-        // TS ne peut juste pas le prouver par narrowing.
         new Notice(check.error as string);
         return;
       }
 
-      let xmlContent: string;
-      try {
-        xmlContent = fs.readFileSync(pathMod.join(scrivPath, check.scrivxName!), "utf-8");
-      } catch {
+      const scrivxName = check.scrivxName || fileMap.scrivxName;
+      if (!scrivxName) {
+        new Notice(t("modal.scrivenerImport.noScrivxFound"));
+        return;
+      }
+
+      const xmlContent = await fileMap.readText(scrivxName);
+      if (!xmlContent) {
         new Notice(t("modal.scrivenerImport.cannotReadScrivx"));
         return;
       }
@@ -250,13 +469,11 @@ export class ScrivenerImportModal extends Modal {
       }
 
       this.showPreview({
-        scrivPath,
+        fileMap,
         parsed,
         parentPath: parentInput.value.trim().replace(/\/+$/, ""),
         name,
         mode: typeSelect.value,
-        fs,
-        pathMod,
       });
     };
 
@@ -304,7 +521,7 @@ export class ScrivenerImportModal extends Modal {
     btnRow.createEl("button", { text: t("modal.back") }).addEventListener("click", () => this.showForm());
   }
 
-  async runImport({ scrivPath, parsed, parentPath, name, mode, fs, pathMod }: ImportContext): Promise<void> {
+  async runImport({ fileMap, parsed, parentPath, name, mode }: ImportContext): Promise<void> {
     const app = this.app;
     const plugin = this.plugin;
     const S = plugin.settings;
@@ -319,7 +536,6 @@ export class ScrivenerImportModal extends Modal {
     const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
     await plugin.ensureFolder(manuscritPath);
 
-    // Dossier d'images du projet (Resources/Assets)
     const visuelsFolderPath = normalizePath(`${volumePath}/Resources/Assets`);
     await plugin.ensureFolder(visuelsFolderPath);
 
@@ -337,110 +553,82 @@ export class ScrivenerImportModal extends Modal {
     const binderItemMap = buildUuidTitleMap(parsed);
     let unreadableCount = 0;
 
-    const readRtf = (uuid: string): string => {
-      if (!fs || !pathMod) return "";
+    const readRtf = async (uuid: string): Promise<string> => {
       for (const candidate of rtfPathCandidates(uuid)) {
-        try {
-          return fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
-        } catch { /* on essaie plusieurs emplacements de RTF : l'absence est le cas NORMAL, on passe au candidat suivant */ }
+        const content = await fileMap.readText(candidate);
+        if (content !== null) return content;
       }
       unreadableCount++;
       return "";
     };
 
-    const readComments = (uuid: string) => {
-      if (!fs || !pathMod) return {};
-      try {
-        const xml = fs.readFileSync(
-          pathMod.join(scrivPath, `Files/Data/${uuid}/content.comments`),
-          "utf-8"
-        );
-        return parseScrivenerComments(xml);
-      } catch {
-        return {};
-      }
+    const readComments = async (uuid: string) => {
+      const xml = await fileMap.readText(`Files/Data/${uuid}/content.comments`);
+      return xml ? parseScrivenerComments(xml) : {};
     };
 
-    const readNotes = (uuid: string): string => {
-      if (!fs || !pathMod) return "";
+    const readNotes = async (uuid: string): Promise<string> => {
       for (const candidate of [
         `Files/Data/${uuid}/notes.rtf`,
         `Files/Docs/${uuid}_notes.rtf`,
       ]) {
-        try {
-          const rtf = fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
+        const rtf = await fileMap.readText(candidate);
+        if (rtf !== null) {
           const { text } = rtfToMarkdown(rtf, {}, binderItemMap);
           if (text) return text.trim();
-        } catch { /* idem pour notes.rtf : candidat absent, on tente le suivant */ }
+        }
       }
       return "";
     };
 
-    const readSynopsis = (uuid: string): string => {
-      if (!fs || !pathMod) return "";
+    const readSynopsis = async (uuid: string): Promise<string> => {
       for (const candidate of [
         `Files/Data/${uuid}/synopsis.txt`,
         `Files/Docs/${uuid}_synopsis.txt`,
       ]) {
-        try {
-          const txt = fs.readFileSync(pathMod.join(scrivPath, candidate), "utf-8");
-          if (txt) return txt.trim();
-        } catch { /* idem pour synopsis.txt */ }
+        const txt = await fileMap.readText(candidate);
+        if (txt !== null) return txt.trim();
       }
       return "";
     };
 
-    const toArrayBuffer = (buf: unknown): ArrayBuffer => {
-      if (!buf) return new ArrayBuffer(0);
-      if (buf instanceof ArrayBuffer) return buf;
-      if (ArrayBuffer.isView(buf)) {
-        const ab = buf.buffer;
-        if (ab instanceof ArrayBuffer) {
-          return ab.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-        }
-      }
-      return new ArrayBuffer(0);
-    };
-
-    // Sauvegarde les images intégrées RTF (\pict) dans Resources/Assets/
     const saveExtractedImages = async (extractedImages: { name: string; bytes: Uint8Array }[]) => {
       for (const img of extractedImages) {
         const imgPath = normalizePath(`${visuelsFolderPath}/${img.name}`);
         if (!app.vault.getAbstractFileByPath(imgPath)) {
           try {
-            await app.vault.createBinary(imgPath, toArrayBuffer(img.bytes));
-          } catch { /* une image integree qui resiste ne doit pas faire echouer l'import de tout le manuscrit */ }
+            const buf = img.bytes.buffer.slice(img.bytes.byteOffset, img.bytes.byteOffset + img.bytes.byteLength) as ArrayBuffer;
+            await app.vault.createBinary(imgPath, buf);
+          } catch { /* ignore */ }
         }
       }
     };
 
-    // Recherche et copie les images Scrivener 3 ($PROJECT://...) trouvées dans le dossier .scriv
     const processImageLinks = async (imageLinks: { fileName: string }[] | undefined) => {
-      if (!fs || !pathMod || !imageLinks || imageLinks.length === 0) return;
+      if (!imageLinks || imageLinks.length === 0) return;
       for (const link of imageLinks) {
         const targetPath = normalizePath(`${visuelsFolderPath}/${link.fileName}`);
         if (!app.vault.getAbstractFileByPath(targetPath)) {
-          const diskPath = findScrivenerFile(scrivPath, link.fileName, fs, pathMod);
-          if (diskPath) {
+          const found = fileMap.findScrivenerFile(link.fileName);
+          if (found) {
             try {
-              const bytes = fs.readFileSync(diskPath);
-              await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
-            } catch { /* idem : image liee introuvable ou illisible sur disque */ }
+              const bytes = await found.readArrayBuffer();
+              if (bytes) await app.vault.createBinary(targetPath, bytes);
+            } catch { /* ignore */ }
           }
         }
       }
     };
 
-    // Inspecte le dossier Files/Data/<UUID>/ pour copier toute image d'arrière-plan/jointe
     const processDataDirImages = async (itemTitle: string, uuid: string, currentBody: string, hasExtractedRtf = false): Promise<string> => {
-      if (!fs || !pathMod) return currentBody || "";
-      const dataImages = findAttachedDataImages(scrivPath, uuid, fs, pathMod);
+      const dataImages = fileMap.findAttachedDataImages(uuid);
       let updatedBody = currentBody || "";
       if (!dataImages || dataImages.length === 0) return updatedBody;
 
       for (const img of dataImages) {
-        const ext = pathMod.extname(img.fileName);
-        const base = pathMod.basename(img.fileName, ext);
+        const extIndex = img.fileName.lastIndexOf(".");
+        const ext = extIndex >= 0 ? img.fileName.slice(extIndex) : "";
+        const base = extIndex >= 0 ? img.fileName.slice(0, extIndex) : img.fileName;
         const uniqueFileName = (base.toLowerCase() === "content" || base.toLowerCase() === "notes")
           ? `${uuid}${ext}`
           : img.fileName;
@@ -448,9 +636,9 @@ export class ScrivenerImportModal extends Modal {
 
         if (!app.vault.getAbstractFileByPath(targetPath)) {
           try {
-            const bytes = fs.readFileSync(img.fullPath);
-            await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
-          } catch { /* idem */ }
+            const bytes = await img.readArrayBuffer();
+            if (bytes) await app.vault.createBinary(targetPath, bytes);
+          } catch { /* ignore */ }
         }
 
         const hasImageEmbed = /!\[\[[^\]]+\]\]/.test(updatedBody);
@@ -469,8 +657,6 @@ export class ScrivenerImportModal extends Modal {
 
     const encounteredLabels = new Set<string>();
 
-    // ============================== Manuscrit ==============================
-
     const writeSceneFile = async (item: ScrivxItem, destFolder: TAbstractFile, baseName: string) => {
       const path = unusedPath(app, normalizePath(`${destFolder.path}/${baseName}.md`));
 
@@ -482,27 +668,28 @@ export class ScrivenerImportModal extends Modal {
 
       let rtfRes: ReturnType<typeof rtfToMarkdown> | null = null;
       if (item.isImage) {
-        if (!fs || !pathMod) return;
-        const dataImages = findAttachedDataImages(scrivPath, item.uuid, fs, pathMod);
+        const dataImages = fileMap.findAttachedDataImages(item.uuid);
         if (dataImages.length > 0) {
           const img = dataImages[0];
-          const ext = pathMod.extname(img.fileName);
-          const base = pathMod.basename(img.fileName, ext);
+          const extIndex = img.fileName.lastIndexOf(".");
+          const ext = extIndex >= 0 ? img.fileName.slice(extIndex) : "";
+          const base = extIndex >= 0 ? img.fileName.slice(0, extIndex) : img.fileName;
           const uniqueFileName = (base.toLowerCase() === "content" || base.toLowerCase() === "notes")
             ? `${item.uuid}${ext}`
             : img.fileName;
           const targetPath = normalizePath(`${visuelsFolderPath}/${uniqueFileName}`);
           if (!app.vault.getAbstractFileByPath(targetPath)) {
             try {
-              const bytes = fs.readFileSync(img.fullPath);
-              await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
-            } catch { /* idem */ }
+              const bytes = await img.readArrayBuffer();
+              if (bytes) await app.vault.createBinary(targetPath, bytes);
+            } catch { /* ignore */ }
           }
           text = `![[${uniqueFileName}]]`;
         }
       } else {
-        const rtfContent = readRtf(item.uuid);
-        rtfRes = rtfToMarkdown(rtfContent, readComments(item.uuid), binderItemMap, { uuid: item.uuid });
+        const rtfContent = await readRtf(item.uuid);
+        const comments = await readComments(item.uuid);
+        rtfRes = rtfToMarkdown(rtfContent, comments, binderItemMap, { uuid: item.uuid });
         text = rtfRes.text;
         footnotes = rtfRes.footnotes || [];
         chapterTitle = rtfRes.chapterTitle || "";
@@ -525,14 +712,14 @@ export class ScrivenerImportModal extends Modal {
       }
       if (item.labelTitle) encounteredLabels.add(item.labelTitle);
 
-      let docNotes = readNotes(item.uuid);
+      let docNotes = await readNotes(item.uuid);
       if (rtfRes && rtfRes.extractedComments && rtfRes.extractedComments.length > 0) {
         const commentLines = rtfRes.extractedComments.map((c) =>
           c.word ? t("modal.scrivenerImport.commentOn", { word: c.word, text: c.text }) : c.text
         );
         docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
       }
-      const docSynopsis = item.synopsis || readSynopsis(item.uuid);
+      const docSynopsis = item.synopsis || (await readSynopsis(item.uuid));
 
       const actualFileName = path.slice(path.lastIndexOf("/") + 1, -".md".length);
       const fm = buildSceneFrontmatter({
@@ -559,13 +746,14 @@ export class ScrivenerImportModal extends Modal {
           unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}`))
         );
 
-        const folderRtf = readRtf(item.uuid);
-        let docNotes = readNotes(item.uuid);
-        const docSynopsis = item.synopsis || readSynopsis(item.uuid);
+        const folderRtf = await readRtf(item.uuid);
+        const folderComments = await readComments(item.uuid);
+        let docNotes = await readNotes(item.uuid);
+        const docSynopsis = item.synopsis || (await readSynopsis(item.uuid));
 
         const { text, footnotes, extractedImages, imageLinks, extractedComments, chapterTitle, sousTitre } = rtfToMarkdown(
           folderRtf,
-          readComments(item.uuid),
+          folderComments,
           binderItemMap,
           { uuid: item.uuid }
         );
@@ -642,8 +830,6 @@ export class ScrivenerImportModal extends Modal {
       await writeManuscriptChildren(parsed.draft!.children, manuscritFolder);
     }
 
-    // ============================== Recherche ===============================
-
     const writeResearchNode = async (item: ScrivxItem, destFolder: TAbstractFile, structuralTag: string | null): Promise<void> => {
       const safeTitle = sanitizeName(item.title);
       if (item.isFolder) {
@@ -661,26 +847,28 @@ export class ScrivenerImportModal extends Modal {
       let hasExtractedRtf = false;
       let rtfRes: ReturnType<typeof rtfToMarkdown> | null = null;
       if (item.isImage) {
-        if (!fs || !pathMod) return;
-        const dataImages = findAttachedDataImages(scrivPath, item.uuid, fs, pathMod);
+        const dataImages = fileMap.findAttachedDataImages(item.uuid);
         if (dataImages.length > 0) {
           const img = dataImages[0];
-          const ext = pathMod.extname(img.fileName);
-          const base = pathMod.basename(img.fileName, ext);
+          const extIndex = img.fileName.lastIndexOf(".");
+          const ext = extIndex >= 0 ? img.fileName.slice(extIndex) : "";
+          const base = extIndex >= 0 ? img.fileName.slice(0, extIndex) : img.fileName;
           const uniqueFileName = (base.toLowerCase() === "content" || base.toLowerCase() === "notes")
             ? `${item.uuid}${ext}`
             : img.fileName;
           const targetPath = normalizePath(`${visuelsFolderPath}/${uniqueFileName}`);
           if (!app.vault.getAbstractFileByPath(targetPath)) {
             try {
-              const bytes = fs.readFileSync(img.fullPath);
-              await app.vault.createBinary(targetPath, toArrayBuffer(bytes));
-            } catch { /* idem */ }
+              const bytes = await img.readArrayBuffer();
+              if (bytes) await app.vault.createBinary(targetPath, bytes);
+            } catch { /* ignore */ }
           }
           text = `![[${uniqueFileName}]]`;
         }
       } else {
-        rtfRes = rtfToMarkdown(readRtf(item.uuid), readComments(item.uuid), binderItemMap, { uuid: item.uuid });
+        const rtfContent = await readRtf(item.uuid);
+        const comments = await readComments(item.uuid);
+        rtfRes = rtfToMarkdown(rtfContent, comments, binderItemMap, { uuid: item.uuid });
         text = rtfRes.text;
         if (rtfRes.extractedImages && rtfRes.extractedImages.length > 0) {
           hasExtractedRtf = true;
@@ -693,7 +881,7 @@ export class ScrivenerImportModal extends Modal {
 
       text = await processDataDirImages(item.title, item.uuid, text, hasExtractedRtf);
 
-      let docNotes = readNotes(item.uuid);
+      let docNotes = await readNotes(item.uuid);
       if (rtfRes && rtfRes.extractedComments && rtfRes.extractedComments.length > 0) {
         const commentLines = rtfRes.extractedComments.map((c) =>
           c.word ? t("modal.scrivenerImport.commentOn", { word: c.word, text: c.text }) : c.text
@@ -705,7 +893,7 @@ export class ScrivenerImportModal extends Modal {
       if (structuralTag) tags.push(structuralTag);
       const fm = buildEntityFrontmatter({
         title: item.title,
-        synopsis: item.synopsis || readSynopsis(item.uuid),
+        synopsis: item.synopsis || (await readSynopsis(item.uuid)),
         tags,
         notes: docNotes,
       });
@@ -737,7 +925,6 @@ export class ScrivenerImportModal extends Modal {
       }
     }
 
-    // ============================== Autres éléments racines ==================
     if (parsed.others && parsed.others.length > 0) {
       const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`)) as TFolder | null;
       if (researchRoot) {
@@ -749,8 +936,6 @@ export class ScrivenerImportModal extends Modal {
         }
       }
     }
-
-    // ============================== Labels ==================================
 
     if (encounteredLabels.size > 0) {
       if (!S.projectMeta) S.projectMeta = {};
@@ -776,5 +961,3 @@ export class ScrivenerImportModal extends Modal {
     new Notice(t("modal.scrivenerImport.importSuccess", { path: volumePath }) + warning, warning ? 10000 : 4000);
   }
 }
-
-/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */
