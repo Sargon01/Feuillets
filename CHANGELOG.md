@@ -2,6 +2,13 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.7.2
+
+### Maintenance
+
+- **Publication indépendante de Feuillets-Grammalecte** : le compagnon est désormais maintenu dans son propre dépôt, sans modification du runtime ni de l'API de Feuillets.
+- **Validation de release** : typecheck, lint, revue Obsidian, tests et build vérifiés avant publication.
+
 ## 1.7.1
 
 ### Refonte de sécurité et conformité Obsidian
