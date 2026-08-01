@@ -1,14 +1,18 @@
 import { ItemView, MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
-import { VIEW_BOARD, VIEW_PREVIEW, VIEW_PROJECT } from "../constants.js";
-import { resolveExportTemplate } from "../services/export-templates-custom.js";
+import { VIEW_BOARD, VIEW_PREVIEW } from "../constants.js";
+import { openFeuilletsExportSettings } from "../settings/open-export-settings.js";
+import { listExportTemplates, resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
 import { paginateManuscript } from "../services/export-pdf.js";
 import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, exportFile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
 import { compiledTitleFor, fmOf, shortTitleFor, stripFrontmatter } from "../services/frontmatter.js";
+import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
 import { t } from "../i18n/index.js";
 import { mountTemplatePreview } from "../ui/template-preview.js";
+import { CompileSelectionModal } from "../ui/selection-modals.js";
+import { LayoutModal } from "../ui/layout-modal.js";
 import { applySourceMarkers, markManuscript, markSegments, SOURCE_PATH_ATTR } from "./preview-source-map.js";
 import {
   findScriveningsScroller,
@@ -39,6 +43,10 @@ type PreviewCompileResult = {
 
 type PreviewViewSettings = FeuilletsSettings & {
   exportTemplate: string;
+  exportFormat?: string;
+  compileFileName?: string;
+  activePreset?: number;
+  compilePresets?: unknown[];
   manuscriptTitle?: string;
   manuscriptAuthor?: string;
 };
@@ -105,6 +113,8 @@ const REFRESH_DELAY_MS: Record<PreviewMode, number> = { scene: 400, chapter: 850
 export type PreviewStatus = "fresh" | "stale" | "rendering" | "error";
 
 const OPEN_VISIBLE_SHEET_LABEL = "Ouvrir ce feuillet";
+const EXPORT_SETTINGS_LABEL = "Réglages d’export";
+const AUTO_OPEN_VISIBLE_DELAY_MS = 300;
 const ZOOM_TOOLTIP = "Zoom : cliquer pour choisir, double-cliquer pour revenir à 100 %";
 const COLLAPSE_LABEL = "Masquer la barre";
 const EXPAND_LABEL = "Afficher la barre";
@@ -142,16 +152,17 @@ const MODE_LABELS: Record<PreviewMode, string> = {
 };
 
 const MODE_ORDER: PreviewMode[] = ["scene", "chapter", "part", "manuscript"];
-/** Portées proposées dans l'interface. `scene` reste seulement une valeur
- * héritée, afin que les anciens réglages ne cassent pas. */
-const BREADCRUMB_SCOPE_MODES: PreviewMode[] = ["chapter", "part", "manuscript"];
 
-const MODE_ICONS: Record<PreviewMode, string> = {
-  scene: "file-text",
-  chapter: "folder-open",
-  part: "library",
-  manuscript: "book",
-};
+/** Champs de la première page réellement pris en charge, dans l'ordre où ils
+ * apparaissent sur la page. Chacun est un RÔLE du feuillet Front (voir
+ * utils/title-roles.ts) : aucun champ n'a de stockage propre à PreviewView. */
+const FIRST_PAGE_FIELDS: Array<{ label: string; role: string }> = [
+  { label: "Titre", role: "titre" },
+  { label: "Sous-titre", role: "sous-titre" },
+  { label: "Auteur", role: "auteur" },
+  { label: "Mention complémentaire", role: "mots" },
+  { label: "Image ou logo", role: "image" },
+];
 
 /** Libellé de statut dépendant du mode : « à actualiser » n'a de sens que
  * là où l'actualisation est manuelle. */
@@ -253,8 +264,8 @@ function escapeAttr(value: string): string {
  *
  * AUCUN réglage de compilation ne vit ici : format, gabarit, sélection de
  * contenu, pages de titre et notes restent la propriété exclusive du
- * panneau Projet (ProjectView) — l'icône « Réglages du manuscrit » ne fait
- * que l'ouvrir. Une seule source de vérité.
+ * onglet Export des paramètres Feuillets — l'action « Réglages du manuscrit »
+ * ne fait que l'ouvrir. Une seule source de vérité.
  */
 export class PreviewView extends ItemView {
   plugin: PreviewViewPlugin;
@@ -270,12 +281,27 @@ export class PreviewView extends ItemView {
   previewViewport: HTMLElement | null = null;
   scaledContainer: HTMLElement | null = null;
   viewEl: HTMLElement | null = null;
-  /** Barre volontairement réduite au fil d'Ariane, au zoom et à « ⋯ ». */
+  /** Barre volontairement réduite au fil d'Ariane, au zoom et à deux icônes. */
   breadcrumbEl: HTMLElement | null = null;
   zoomLabelEl: HTMLElement | null = null;
-  btnMore: HTMLElement | null = null;
+  btnExport: HTMLElement | null = null;
+  btnSettings: HTMLElement | null = null;
   openVisibleEl: HTMLElement | null = null;
   btnBarToggle: HTMLElement | null = null;
+  exportPanelEl: HTMLElement | null = null;
+  /** État d'interface de session uniquement ; aucun réglage d'export n'est
+   * dupliqué dans PreviewView. */
+  private exportPanelCollapsed = true;
+  /** Corps de la sous-section « Première page », gardé en référence pour
+   * pouvoir la réactualiser SEULE : inclure/exclure ou changer de fichier
+   * Front ne doit pas reconstruire tout le panneau Export (portée, format,
+   * gabarit…), ce qui refermerait la sous-section et déplacerait le focus
+   * hors de tout contrôle. */
+  private firstPageBodyEl: HTMLElement | null = null;
+  private firstPageTemplates: Array<{ key: string; label: string }> = [];
+  /** État repliée/dépliée de « Première page », conservé même à travers un
+   * réel rebuild complet du panneau (bouton Actualiser, réouverture). */
+  private firstPageOpen = false;
   statusEl: HTMLElement | null = null;
   followedEl: HTMLElement | null = null;
   /** Dernier menu ouvert — pour le refermer sur un double-clic de zoom. */
@@ -307,6 +333,12 @@ export class PreviewView extends ItemView {
   private releaseHandles: Array<{ id: number; kind: "frame" | "timeout" }> = [];
   visibleFeuilletPath: string | null = null;
   private visibleFeuilletHandle: { id: number; kind: "frame" | "timeout" } | null = null;
+  private autoOpenVisibleTimer: number | null = null;
+  private openVisibleRequestId = 0;
+  /** Reçoit l'identifiant de l'ouverture automatique qui initialise
+   * l'éditeur. Son premier scroll (toujours vers le haut) ne doit surtout
+   * pas être renvoyé vers l'aperçu. */
+  private preservingPreviewScrollRequestId: number | null = null;
 
   status: PreviewStatus = "fresh";
   /** Feuillet réellement affiché (modes Scène/Chapitre) — sert d'en-tête
@@ -354,6 +386,11 @@ export class PreviewView extends ItemView {
 
   async setMode(mode: PreviewMode): Promise<void> {
     if (this.mode === mode) return;
+    this.openVisibleRequestId++;
+    if (this.autoOpenVisibleTimer !== null && typeof window !== "undefined") {
+      window.clearTimeout(this.autoOpenVisibleTimer);
+      this.autoOpenVisibleTimer = null;
+    }
     const wasSheetMode = this.mode === "scene";
     this.plugin.settings.previewMode = mode;
     await this.plugin.saveSettings?.();
@@ -362,6 +399,7 @@ export class PreviewView extends ItemView {
     if (!wasSheetMode && mode === "scene") this.bindSourcePane();
     this.cancelSceneRefresh();
     this.updateUI();
+    await this.renderExportPanel();
     await this.refreshPreview();
   }
 
@@ -407,14 +445,14 @@ export class PreviewView extends ItemView {
     const view = container.createDiv({ cls: "feuillets-preview-view" });
     this.viewEl = view;
 
-    /* Barre de contexte : le chemin du feuillet ouvert, le zoom et « ⋯ ».
-       Tous les réglages et actions restent dans le menu. */
+    /* Barre de contexte, réduite à cinq éléments : fil d'Ariane, « Ouvrir ce
+       feuillet », zoom, Export et Réglages. Aucun menu « ⋯ » : ce qui n'est
+       pas du contexte de lecture vit dans le panneau Export ou dans l'onglet
+       Export des paramètres Feuillets. */
     const toolbar = view.createDiv({ cls: "feuillets-preview-toolbar" });
     this.breadcrumbEl = toolbar.createSpan({ cls: "feuillets-preview-breadcrumb" });
-    this.openVisibleEl = toolbar.createEl("button", { cls: "feuillets-preview-open-visible", text: OPEN_VISIBLE_SHEET_LABEL });
-    this.openVisibleEl.setAttribute("aria-label", OPEN_VISIBLE_SHEET_LABEL);
-    this.openVisibleEl.setAttribute("title", OPEN_VISIBLE_SHEET_LABEL);
-    this.openVisibleEl.addEventListener("click", () => void this.openVisibleFeuillet());
+    this.openVisibleEl = this.iconBtn(toolbar, "file-edit", OPEN_VISIBLE_SHEET_LABEL, () => void this.openVisibleFeuillet());
+    this.openVisibleEl.addClass("feuillets-preview-open-visible");
     this.statusEl = view.createSpan({ cls: "feuillets-preview-status feuillets-preview-status-hidden" });
     this.followedEl = view.createSpan({ cls: "feuillets-preview-status-hidden" });
 
@@ -424,7 +462,11 @@ export class PreviewView extends ItemView {
     this.zoomLabelEl.addClass("feuillets-preview-zoom-val");
     this.zoomLabelEl.addEventListener("dblclick", () => this.resetZoom());
 
-    this.btnMore = this.iconBtn(toolbar, "more-horizontal", "Autres actions de l'aperçu", (e) => this.openMoreMenu(e));
+    this.btnExport = this.iconBtn(toolbar, "download", "Exporter", () => this.toggleExportPanel());
+    this.btnSettings = this.iconBtn(toolbar, "settings", EXPORT_SETTINGS_LABEL, () => void this.openManuscriptSettings());
+
+    this.exportPanelEl = view.createDiv({ cls: "feuillets-preview-export is-hidden" });
+    await this.renderExportPanel();
 
     this.previewViewport = view.createDiv({ cls: "feuillets-preview-viewport" });
     this.scaledContainer = this.previewViewport.createDiv({ cls: "feuillets-preview-scaled-container" });
@@ -815,7 +857,50 @@ export class PreviewView extends ItemView {
     const author = settings.manuscriptAuthor || "";
     const tpl = await resolveExportTemplate(this.app, settings, settings.exportTemplate);
     // Même CSS de gabarit pour Scène, Chapitre et Manuscrit (voir helper).
-    const css = previewTemplateCss(tpl);
+    const css = previewTemplateCss(tpl) + (this.mode === "manuscript" ? `
+.feuillets-preview-title-editable {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: outline-color 120ms ease;
+}
+.feuillets-preview-title-editable:hover,
+.feuillets-preview-title-editable:focus-visible,
+.feuillets-preview-title-editable.is-title-selected {
+  outline: 1px dashed color-mix(in srgb, currentColor 35%, transparent);
+  outline-offset: 4px;
+}
+.feuillets-preview-title-controls {
+  position: absolute;
+  z-index: 4;
+  display: none;
+  gap: 2px;
+  opacity: .82;
+}
+.feuillets-preview-title-editable.is-title-selected + .feuillets-preview-title-controls,
+.feuillets-preview-title-controls:hover,
+.feuillets-preview-title-controls:focus-within { display: inline-flex; }
+.feuillets-preview-title-controls button,
+.feuillets-preview-title-controls button:hover,
+.feuillets-preview-title-controls button:focus {
+  width: 22px; height: 22px; padding: 3px;
+  color: inherit; background: transparent; border: 0; box-shadow: none;
+}
+.feuillets-preview-title-controls .is-dragging { cursor: grabbing; }
+.feuillets-preview-title-page-controls {
+  position: absolute; top: 10px; right: 10px; z-index: 3;
+  display: flex; gap: 3px; opacity: 0;
+  transition: opacity 120ms ease;
+}
+.feuillets-frontpage-titre { position: relative; }
+.feuillets-frontpage-titre:hover .feuillets-preview-title-page-controls,
+.feuillets-preview-title-page-controls:focus-within { opacity: .72; }
+.feuillets-preview-title-page-controls button,
+.feuillets-preview-title-page-controls button:hover,
+.feuillets-preview-title-page-controls button:focus {
+  width: 24px; height: 24px; padding: 3px;
+  color: inherit; background: transparent; border: 0; box-shadow: none;
+}
+` : "");
 
     /* Repères de source (voir preview-source-map.ts) : utiles seulement là
        où plusieurs feuillets coexistent dans le rendu — en mode Scène il
@@ -846,13 +931,18 @@ export class PreviewView extends ItemView {
        chapitre n'ont pas à recevoir le titre du livre. */
     if (this.mode === "manuscript") {
       const hasAuthoredTitlePage = !!source.segments?.some((s) => s.frontType === "titre");
-      if (!hasAuthoredTitlePage) {
-        const titleEl = createEl("h1", { text: source.title });
-        containerEl.prepend(titleEl);
+      /* Une page de titre EXCLUE ne doit pas être remplacée par une page
+         générée : l'exclusion serait sans effet visible. Le repli générique
+         ne sert donc qu'aux projets qui n'ont aucun feuillet Front de titre. */
+      if (!hasAuthoredTitlePage && !this.frontTitleCandidates().length) {
+        const titlePage = createDiv({ cls: "feuillets-frontpage feuillets-frontpage-titre feuillets-frontpage-generated" });
+        const titleEl = titlePage.createEl("h1", { text: source.title });
+        titleEl.setAttribute("data-fp-role", "titre");
         if (author) {
-          const authorEl = createEl("p", { cls: "pdf-author-title", text: author });
-          titleEl.after(authorEl);
+          const authorEl = titlePage.createEl("p", { cls: "pdf-author-title", text: author });
+          authorEl.setAttribute("data-fp-role", "auteur");
         }
+        containerEl.prepend(titlePage);
       }
     }
 
@@ -863,16 +953,22 @@ export class PreviewView extends ItemView {
     this.updateUI();
 
     this.pendingFrame?.remove();
-    const frame = mountTemplatePreview(this.scaledContainer, css, pagesHtml, this.zoomScale, this.mode);
+    const frame = mountTemplatePreview(
+      this.scaledContainer,
+      css,
+      pagesHtml,
+      this.zoomScale,
+      this.mode,
+      (loadedFrame) => {
+        this.onFrameLoad(generation, loadedFrame, anchor);
+        finish("fresh");
+      }
+    );
     // Masquée le temps du chargement UNIQUEMENT s'il y a déjà une iframe
     // affichée à ne pas perturber (classe plutôt que style en dur —
     // règle obsidianmd/no-static-styles-assignment).
     if (this.previewFrame) frame.addClass("is-preview-frame-loading");
     this.pendingFrame = frame;
-    frame.addEventListener("load", () => {
-      this.onFrameLoad(generation, frame, anchor);
-      finish("fresh");
-    });
   }
 
   private onFrameLoad(generation: number, frame: HTMLIFrameElement, anchor: ScrollAnchor | null): void {
@@ -905,12 +1001,299 @@ export class PreviewView extends ItemView {
     }
 
     this.restoreScrollAnchor(anchor);
+    this.bindInteractiveTitlePage();
     if (this.syncScrollEnabled) {
       this.bindSourcePane();
       this.applySourceToPreview();
     } else {
       this.updateVisibleFeuillet();
     }
+  }
+
+  /** Rend les champs déjà présents sur la page de titre cliquables. Le DOM
+   * ne sert que de déclencheur : la valeur affichée n'est jamais modifiée
+   * directement ; elle est écrite dans le fichier Front puis rerendue. */
+  private bindInteractiveTitlePage(): void {
+    if (this.mode !== "manuscript") return;
+    const doc = this.previewFrame?.contentDocument;
+    if (!doc) return;
+    const titlePage = doc.querySelector<HTMLElement>(".feuillets-frontpage-titre");
+    if (titlePage) {
+      const source = titlePage.querySelector<HTMLElement>(`[${SOURCE_PATH_ATTR}]`);
+      const path = titlePage.getAttribute(SOURCE_PATH_ATTR)
+        || source?.getAttribute(SOURCE_PATH_ATTR)
+        || null;
+      const roleElements = Array.from(titlePage.querySelectorAll<HTMLElement>("[data-fp-role]"));
+      for (const element of roleElements) {
+        const role = element.getAttribute("data-fp-role");
+        if (!role) continue;
+        if (path) {
+          this.makeTitleElementEditable(element, role, path);
+        } else if (role === "titre") {
+          this.makeFallbackTitleElementEditable(element, "manuscriptTitle", "Titre", role);
+        } else if (role === "auteur") {
+          this.makeFallbackTitleElementEditable(element, "manuscriptAuthor", "Auteur", role);
+        }
+      }
+      this.addTitlePageControls(titlePage);
+      if (roleElements.length) return;
+    }
+
+    // Repli des anciens projets sans feuillet Front à rôles : les deux
+    // champs génériques existants restent éditables via leurs clés historiques.
+    const title = doc.querySelector<HTMLElement>(".feuillets-preview-pages h1");
+    const author = doc.querySelector<HTMLElement>(".pdf-author-title");
+    if (title) this.makeFallbackTitleElementEditable(title, "manuscriptTitle", "Titre", "titre");
+    if (author) this.makeFallbackTitleElementEditable(author, "manuscriptAuthor", "Auteur", "auteur");
+  }
+
+  private makeTitleElementEditable(element: HTMLElement, role: string, path: string): void {
+    element.addClass("feuillets-preview-title-editable");
+    element.setAttribute("tabindex", "0");
+    element.setAttribute("title", `Modifier ${role}`);
+    element.setAttribute("aria-label", `Modifier ${role}`);
+    element.addEventListener("click", () => this.selectTitleElement(element));
+    element.addEventListener("dblclick", () => void this.editTitleRole(path, role));
+    element.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      if (event.key === "Enter") void this.editTitleRole(path, role);
+      else this.selectTitleElement(element);
+    });
+    this.addTitleRoleControls(element, role, path);
+  }
+
+  private selectTitleElement(element: HTMLElement): void {
+    const doc = element.ownerDocument;
+    for (const selected of Array.from(doc?.querySelectorAll<HTMLElement>(".is-title-selected") || [])) {
+      selected.removeClass("is-title-selected");
+    }
+    element.addClass("is-title-selected");
+    const controls = element.nextElementSibling as HTMLElement | null;
+    if (controls?.hasClass("feuillets-preview-title-controls")) {
+      controls.style.top = `${Number(element.offsetTop) || 0}px`;
+      controls.style.left = `${(Number(element.offsetLeft) || 0) + (Number(element.offsetWidth) || 0) + 8}px`;
+    }
+  }
+
+  /** Petite poignée contextuelle, injectée seulement dans l'iframe affichée.
+   * Elle ne modifie jamais le HTML rendu : chaque action persiste d'abord
+   * dans le feuillet Front ou dans le gabarit, puis déclenche un nouveau rendu. */
+  private addTitleRoleControls(element: HTMLElement, role: string, path: string): void {
+    const doc = element.ownerDocument;
+    if (!doc?.createElement) return;
+    const controls = doc.createElement("span");
+    controls.className = "feuillets-preview-title-controls";
+    controls.setAttribute("data-title-controls", role);
+    const action = (icon: string, label: string, run: () => void): void => {
+      const button = doc.createElement("button");
+      button.type = "button";
+      button.className = "clickable-icon";
+      setIcon(button, icon);
+      button.setAttribute("aria-label", label);
+      button.setAttribute("title", label);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        run();
+      });
+      controls.appendChild(button);
+    };
+    action("pencil", `Modifier ${role}`, () => void this.editTitleRole(path, role));
+    const drag = doc.createElement("button");
+    drag.type = "button";
+    drag.className = "clickable-icon";
+    setIcon(drag, "grip-vertical");
+    drag.setAttribute("aria-label", "Déplacer verticalement");
+    drag.setAttribute("title", "Déplacer verticalement");
+    drag.addEventListener("pointerdown", (event: PointerEvent) => this.startTitleRoleDrag(event, element, role, drag));
+    controls.appendChild(drag);
+    action("arrow-up", "Monter cet élément", () => void this.moveTitleRole(path, role, -1));
+    action("arrow-down", "Descendre cet élément", () => void this.moveTitleRole(path, role, 1));
+    action("minus", "Réduire l’espace avant", () => void this.adjustTitleRoleSpacing(role, -6));
+    action("plus", "Augmenter l’espace avant", () => void this.adjustTitleRoleSpacing(role, 6));
+    action("align-center", "Changer l’alignement", () => void this.cycleTitleRoleAlignment(role));
+    element.after(controls);
+  }
+
+  private startTitleRoleDrag(event: PointerEvent, element: HTMLElement, role: string, handle: HTMLElement): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const doc = element.ownerDocument;
+    const startY = event.clientY;
+    handle.addClass("is-dragging");
+    const move = (next: PointerEvent): void => {
+      const delta = (next.clientY - startY) / Math.max(this.zoomScale, 0.1);
+      element.style.transform = `translateY(${delta}px)`;
+    };
+    const up = (next: PointerEvent): void => {
+      doc.removeEventListener("pointermove", move);
+      doc.removeEventListener("pointerup", up);
+      handle.removeClass("is-dragging");
+      element.style.removeProperty("transform");
+      const deltaPt = Math.round(((next.clientY - startY) / Math.max(this.zoomScale, 0.1)) * 0.75);
+      if (deltaPt) void this.adjustTitleRoleSpacing(role, deltaPt);
+    };
+    doc.addEventListener("pointermove", move);
+    doc.addEventListener("pointerup", up);
+  }
+
+  /** Commandes globales placées DANS la page : déplacement de la composition
+   * et marges internes, sans panneau permanent ni réglage parallèle. */
+  private addTitlePageControls(titlePage: HTMLElement): void {
+    const doc = titlePage.ownerDocument;
+    if (!doc?.createElement) return;
+    const controls = doc.createElement("span");
+    controls.className = "feuillets-preview-title-page-controls";
+    const action = (icon: string, label: string, run: () => void): void => {
+      const button = doc.createElement("button");
+      button.type = "button";
+      button.className = "clickable-icon";
+      setIcon(button, icon);
+      button.setAttribute("aria-label", label);
+      button.setAttribute("title", label);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        run();
+      });
+      controls.appendChild(button);
+    };
+    action("move-up", "Monter la composition", () => void this.adjustTitlePageVertical(-12));
+    action("move-down", "Descendre la composition", () => void this.adjustTitlePageVertical(12));
+    action("shrink", "Réduire les marges internes", () => void this.adjustTitlePageHorizontalMargins(-6));
+    action("expand", "Augmenter les marges internes", () => void this.adjustTitlePageHorizontalMargins(6));
+    titlePage.appendChild(controls);
+  }
+
+  private async adjustTitlePageVertical(delta: number): Promise<void> {
+    await this.updateTitlePageStyles((styles) => {
+      const first = Object.keys(styles)[0];
+      if (!first) return;
+      styles[first].marginTopPt = Math.max(0, (styles[first].marginTopPt || 0) + delta);
+    });
+  }
+
+  private async adjustTitlePageHorizontalMargins(delta: number): Promise<void> {
+    await this.updateTitlePageStyles((styles) => {
+      for (const style of Object.values(styles)) {
+        style.marginLeftPt = Math.max(0, (style.marginLeftPt || 0) + delta);
+        style.marginRightPt = Math.max(0, (style.marginRightPt || 0) + delta);
+      }
+    });
+  }
+
+  private async adjustTitleRoleSpacing(role: string, delta: number): Promise<void> {
+    await this.updateTitlePageStyles((styles) => {
+      const style = styles[role] || (styles[role] = {});
+      style.marginTopPt = Math.max(0, (style.marginTopPt || 0) + delta);
+    });
+  }
+
+  private async cycleTitleRoleAlignment(role: string): Promise<void> {
+    await this.updateTitlePageStyles((styles) => {
+      const style = styles[role] || (styles[role] = {});
+      const order = ["left", "center", "right"];
+      style.align = order[(order.indexOf(style.align || "center") + 1) % order.length];
+    });
+  }
+
+  private async moveTitleRole(path: string, role: string, direction: -1 | 1): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return;
+    const lines = (await this.app.vault.cachedRead(file)).split(/\r?\n/);
+    const roleLines = lines.map((line, index) => ({
+      index,
+      role: line.trim().match(/^:::\s*(.+?)\s*:\s?(.*)$/)?.[1]?.trim().toLocaleLowerCase("fr") || null,
+    })).filter((entry) => entry.role !== null);
+    const current = roleLines.findIndex((entry) => entry.role === role.trim().toLocaleLowerCase("fr"));
+    const target = current + direction;
+    if (current < 0 || target < 0 || target >= roleLines.length) return;
+    const a = roleLines[current].index;
+    const b = roleLines[target].index;
+    [lines[a], lines[b]] = [lines[b], lines[a]];
+    await this.app.vault.modify(file, lines.join("\n"));
+    await this.refreshPreview();
+  }
+
+  private makeFallbackTitleElementEditable(
+    element: HTMLElement,
+    key: "manuscriptTitle" | "manuscriptAuthor",
+    label: string,
+    role: string
+  ): void {
+    element.addClass("feuillets-preview-title-editable");
+    element.setAttribute("tabindex", "0");
+    element.setAttribute("title", `Modifier ${label.toLowerCase()}`);
+    const edit = (): void => {
+      const current = String(this.plugin.settings[key] || element.textContent || "");
+      const next = typeof window !== "undefined" && typeof window.prompt === "function"
+        ? window.prompt(label, current)
+        : null;
+      if (next === null) return;
+      this.plugin.settings[key] = next.trim();
+      void this.plugin.saveSettings?.().then(() => this.refreshPreview());
+    };
+    element.addEventListener("click", () => this.selectTitleElement(element));
+    element.addEventListener("dblclick", edit);
+    element.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      if (event.key === "Enter") edit();
+      else this.selectTitleElement(element);
+    });
+    this.addGeneratedTitleRoleControls(element, role, edit);
+  }
+
+  private addGeneratedTitleRoleControls(element: HTMLElement, role: string, edit: () => void): void {
+    const doc = element.ownerDocument;
+    if (!doc?.createElement) return;
+    const controls = doc.createElement("span");
+    controls.className = "feuillets-preview-title-controls";
+    const action = (icon: string, label: string, run: () => void): HTMLElement => {
+      const button = doc.createElement("button");
+      button.type = "button";
+      button.className = "clickable-icon";
+      setIcon(button, icon);
+      button.setAttribute("aria-label", label);
+      button.setAttribute("title", label);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        run();
+      });
+      controls.appendChild(button);
+      return button;
+    };
+    action("pencil", `Modifier ${role}`, edit);
+    const drag = action("grip-vertical", "Déplacer verticalement", () => undefined);
+    drag.addEventListener("pointerdown", (event: PointerEvent) => this.startTitleRoleDrag(event, element, role, drag));
+    action("minus", "Réduire l’espace avant", () => void this.adjustTitleRoleSpacing(role, -6));
+    action("plus", "Augmenter l’espace avant", () => void this.adjustTitleRoleSpacing(role, 6));
+    action("align-center", "Changer l’alignement", () => void this.cycleTitleRoleAlignment(role));
+    element.after(controls);
+  }
+
+  private async editTitleRole(path: string, role: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return;
+    const content = await this.app.vault.cachedRead(file);
+    const normalizedRole = role.trim().toLocaleLowerCase("fr");
+    const current = readTitleRoleValue(content, role);
+    const next = typeof window !== "undefined" && typeof window.prompt === "function"
+      ? window.prompt(`Modifier ${role}`, current)
+      : null;
+    if (next === null) return;
+    await this.app.vault.modify(file, setTitleRoleValue(content, role, next));
+
+    if (normalizedRole === "titre") {
+      this.plugin.settings.manuscriptTitle = next.trim();
+      await this.app.fileManager?.processFrontMatter?.(file, (data: Record<string, unknown>) => { data.title = next.trim(); });
+    } else if (normalizedRole === "auteur") {
+      this.plugin.settings.manuscriptAuthor = next.trim();
+    }
+    await this.plugin.saveSettings?.();
+    await this.refreshPreview();
   }
 
   /** Remplace le contenu par un message — seul cas où la zone défilable est
@@ -974,25 +1357,10 @@ export class PreviewView extends ItemView {
     viewport.scrollTop = Math.max(0, targetTop - SCROLL_TARGET_MARGIN_PX);
   }
 
-  /* ========================== Menus de la barre =======================
-     Tout ce qui n'est pas « contexte courant » vit dans un menu. Aucun de
-     ces menus n'introduit de réglage propre à l'aperçu : format et gabarit
-     écrivent dans `settings.exportFormat` / `settings.exportTemplate`, les
-     deux mêmes clés que le panneau Projet (ProjectView) et l'éditeur de
-     mise en page. Le détail (presets, page de titre, en-têtes, marges…)
-     reste là-bas : « Réglages du manuscrit » ne fait que l'ouvrir. */
-
-  /** Menu des quatre usages, uniquement accessible depuis « ⋯ ». */
-  private fillModeItems(menu: MenuLike): void {
-    for (const mode of BREADCRUMB_SCOPE_MODES) {
-      menu.addItem((item) => {
-        item.setTitle(MODE_LABELS[mode]);
-        item.setIcon(MODE_ICONS[mode]);
-        item.setChecked?.(this.mode === mode);
-        item.onClick(() => void this.setMode(mode));
-      });
-    }
-  }
+  /* ========================== Menu de la barre ========================
+     Le zoom est le SEUL menu restant. La portée se choisit au fil d'Ariane
+     ou dans le panneau Export ; les réglages détaillés vivent dans l'onglet
+     Export des paramètres Feuillets, ouvert par l'icône Réglages. */
 
   /** UN seul contrôle de zoom : ce menu remplace les cinq boutons séparés
    * (−, +, largeur, page entière, 100 %) qui encombraient la barre. */
@@ -1018,25 +1386,6 @@ export class PreviewView extends ItemView {
         item.onClick(() => this.setZoom(percent / 100, "manual"));
       });
     }
-    this.showMenu(menu, e);
-  }
-
-  /** « ⋯ » : portée, accès aux réglages centraux et export. */
-  openMoreMenu(e: MouseEvent): void {
-    const menu = new Menu();
-    this.fillModeItems(menu);
-    menu.addSeparator?.();
-
-    menu.addItem((item) => {
-      item.setTitle("Réglages du manuscrit");
-      item.setIcon("settings-2");
-      item.onClick(() => void this.openManuscriptSettings());
-    });
-    menu.addItem((item) => {
-      item.setTitle("Exporter le manuscrit");
-      item.setIcon("download");
-      item.onClick(() => void this.doExport());
-    });
     this.showMenu(menu, e);
   }
 
@@ -1178,6 +1527,7 @@ export class PreviewView extends ItemView {
 
   private onSourceScroll(): void {
     if (this.closed || !this.syncScrollEnabled) return;
+    if (this.preservingPreviewScrollRequestId !== null) return;
     // Écho de NOTRE propre correction : surtout ne pas le prendre pour un
     // geste de l'utilisatrice, sinon les deux panneaux se poursuivent.
     if (this.syncingFromPreview) return;
@@ -1193,6 +1543,7 @@ export class PreviewView extends ItemView {
     const programmatic = this.syncingFromEditor;
     if (!programmatic) this.lastPreviewScrollAt = Date.now();
     if (this.mode === "chapter" || this.mode === "part" || this.mode === "manuscript") this.scheduleVisibleFeuilletUpdate();
+    if (!programmatic && (this.mode === "part" || this.mode === "manuscript")) this.scheduleAutoOpenVisibleFeuillet();
     if (!this.syncScrollEnabled) return;
     if (programmatic) return;
     this.scheduleSync(() => this.applyPreviewToSource());
@@ -1231,6 +1582,21 @@ export class PreviewView extends ItemView {
       this.visibleFeuilletHandle = null;
       this.updateVisibleFeuillet();
     });
+  }
+
+  /** Après l'arrêt du geste, ouvre uniquement le dernier feuillet atteint.
+   * Le délai évite de faire défiler l'éditeur à travers toutes les scènes
+   * croisées pendant une inertie de trackpad. */
+  private scheduleAutoOpenVisibleFeuillet(): void {
+    if (typeof window === "undefined") return;
+    if (this.autoOpenVisibleTimer !== null) window.clearTimeout(this.autoOpenVisibleTimer);
+    this.autoOpenVisibleTimer = window.setTimeout(() => {
+      this.autoOpenVisibleTimer = null;
+      if (this.closed || (this.mode !== "part" && this.mode !== "manuscript")) return;
+      const path = this.visibleFeuilletPathAtViewport();
+      if (!path || path === this.synchronizedFeuilletPath) return;
+      void this.openVisibleFeuillet({ focusEditor: false, alignFromPreview: true });
+    }, AUTO_OPEN_VISIBLE_DELAY_MS);
   }
 
   /** Détermine le feuillet lu au tiers supérieur du viewport, sans rendu. */
@@ -1402,18 +1768,336 @@ export class PreviewView extends ItemView {
   }
 
   /* ======================= Réglages & export ==========================
-     Aucun réglage de compilation n'est défini ici : le panneau Projet
-     (ProjectView) reste la source unique. L'export appelle le point
+     Aucun réglage de compilation n'est défini ici : l'onglet Export des
+     paramètres Feuillets reste la source unique. L'export appelle le point
      d'entrée existant `exportFile()`, qui gère routage pandoc/natif, titre
      repris de la page de titre, dossier de sortie et notices. */
 
   async openManuscriptSettings(): Promise<void> {
-    const { workspace } = this.app;
-    const existing = workspace.getLeavesOfType(VIEW_PROJECT);
-    const leaf = existing[0] || workspace.getRightLeaf(false);
+    openFeuilletsExportSettings(this.app);
+  }
+
+  /** Panneau contextuel compact : aucune valeur propre à PreviewView. Tous
+   * les contrôles lisent et écrivent les réglages déjà consommés par
+   * compile()/exportFile(), tandis que la portée est le mode courant. */
+  private async renderExportPanel(): Promise<void> {
+    const panel = this.exportPanelEl;
+    if (!panel) return;
+    panel.empty();
+    panel.toggleClass("is-hidden", this.exportPanelCollapsed);
+
+    const header = panel.createDiv({ cls: "feuillets-preview-export-header" });
+    header.createSpan({ cls: "feuillets-preview-export-title", text: "Exporter" });
+    /* Resynchronise TOUT le panneau — y compris les champs de la première
+       page, relus dans le feuillet Front — avec l'aperçu. Utile si le
+       fichier a été modifié ailleurs (éditeur, autre onglet) pendant que ce
+       panneau restait ouvert. */
+    this.iconBtn(header, "refresh-cw", "Actualiser l’aperçu", () => void this.reloadExportPanel());
+    this.iconBtn(header, "x", "Replier le panneau Export", () => this.toggleExportPanel(true));
+
+    const main = panel.createDiv({ cls: "feuillets-preview-export-main" });
+    const field = (label: string, control: HTMLElement): HTMLElement => {
+      const wrap = main.createDiv({ cls: "feuillets-preview-export-field" });
+      wrap.createSpan({ cls: "feuillets-preview-export-label", text: label });
+      wrap.appendChild(control);
+      return control;
+    };
+
+    const scope = document.createElement("select");
+    scope.className = "feuillets-preview-export-control";
+    for (const [value, label] of [["scene", "Feuillet"], ["chapter", "Chapitre"], ["part", "Partie"], ["manuscript", "Manuscrit"]]) {
+      scope.createEl("option", { value, text: label });
+    }
+    scope.value = this.mode;
+    scope.setAttribute("aria-label", "Portée de l’export");
+    scope.addEventListener("change", () => void this.setMode(scope.value as PreviewMode));
+    field("Portée", scope);
+
+    const included = document.createElement("button");
+    included.className = "clickable-icon feuillets-preview-export-action";
+    setIcon(included, "list-checks");
+    included.createSpan({ text: "Éléments inclus" });
+    included.setAttribute("aria-label", "Choisir les éléments inclus");
+    included.addEventListener("click", () => {
+      new CompileSelectionModal(
+        this.app,
+        this.plugin as unknown as ConstructorParameters<typeof CompileSelectionModal>[1]
+      ).open();
+    });
+    field("Contenu", included);
+
+    const format = document.createElement("select");
+    format.className = "feuillets-preview-export-control";
+    for (const [value, label] of [["docx", "DOCX"], ["pdf", "PDF"], ["epub", "EPUB"], ["odt", "ODT"]]) {
+      format.createEl("option", { value, text: label });
+    }
+    format.value = this.exportFormat === "md" ? "docx" : this.exportFormat;
+    format.setAttribute("aria-label", "Format de sortie");
+    format.addEventListener("change", () => {
+      this.plugin.settings.exportFormat = format.value;
+      void this.plugin.saveSettings?.();
+    });
+    field("Format", format);
+
+    const template = document.createElement("select");
+    template.className = "feuillets-preview-export-control";
+    const templates = await listExportTemplates(this.app, this.plugin.settings);
+    for (const tpl of templates) template.createEl("option", { value: tpl.key, text: tpl.label });
+    template.value = this.plugin.settings.exportTemplate;
+    template.setAttribute("aria-label", "Gabarit d’export");
+    template.addEventListener("change", () => {
+      this.plugin.settings.exportTemplate = template.value;
+      void this.plugin.saveSettings?.();
+      void this.refreshPreview();
+    });
+    field("Gabarit", template);
+
+    await this.renderFirstPageSection(panel, templates);
+
+    const name = document.createElement("input");
+    name.className = "feuillets-preview-export-control";
+    name.type = "text";
+    name.value = this.exportFileName().replace(/\.md$/i, "");
+    name.setAttribute("aria-label", "Nom du fichier exporté");
+    name.setAttribute("placeholder", "Manuscrit");
+    name.addEventListener("change", () => {
+      const fileName = `${name.value.trim() || "Manuscrit"}.md`;
+      const index = typeof this.plugin.settings.activePreset === "number" ? this.plugin.settings.activePreset : -1;
+      const candidate = index >= 0 ? this.plugin.settings.compilePresets?.[index] : null;
+      const preset = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : null;
+      if (preset) preset.fileName = fileName;
+      else this.plugin.settings.compileFileName = fileName;
+      void this.plugin.saveSettings?.();
+    });
+    field("Nom du fichier", name);
+
+    const launch = panel.createEl("button", { cls: "clickable-icon feuillets-preview-export-launch" });
+    setIcon(launch, "download");
+    launch.createSpan({ text: "Exporter" });
+    launch.setAttribute("aria-label", "Lancer l’export");
+    launch.addEventListener("click", () => void this.doExport());
+  }
+
+  /* ======================== Première page =============================
+     CONTENU et INCLUSION de la page de titre, jamais sa mise en page fine :
+     marges, distances, typographie, en-têtes et pieds appartiennent au modal
+     « Mise en page visuelle » (et à l'onglet Export des paramètres), qui
+     écrit dans le gabarit et les réglages centraux lus à l'identique par
+     l'aperçu et par les exports.
+
+     Source de vérité unique : le feuillet Front lui-même. Les champs
+     ci-dessous LISENT ce fichier et y RÉÉCRIVENT — aucune copie locale, donc
+     aucun état concurrent possible entre l'aperçu et l'export. */
+
+  /** Feuillets Front pouvant servir de première page : les pages Front de
+   * type « titre ». `compile: false` n'exclut pas de cette liste — un
+   * feuillet exclu reste choisissable, c'est justement l'intérêt. */
+  private frontTitleCandidates(): TFile[] {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return [];
+    const out: TFile[] = [];
+    const walk = (folder: TFolder): void => {
+      for (const child of folder.children || []) {
+        if (child instanceof TFolder) walk(child);
+        else if (child instanceof TFile && child.extension === "md" && isFrontMatter(this.app, this.plugin.settings, child)) {
+          const type = fmOf(this.app, child).type;
+          if (typeof type === "string" && type.trim().toLowerCase() === "titre") out.push(child);
+        }
+      }
+    };
+    walk(root);
+    return out;
+  }
+
+  /** État de la première page, lu à chaque rendu du panneau : le feuillet
+   * retenu par la compilation est le premier Front « titre » non exclu —
+   * exactement la règle qu'applique `compile()`. */
+  private frontTitleState(): { files: TFile[]; selected: TFile | null; included: boolean } {
+    const files = this.frontTitleCandidates();
+    const included = files.find((file) => fmOf(this.app, file).compile !== false) || null;
+    return { files, selected: included || files[0] || null, included: !!included };
+  }
+
+  /** Inclut ou exclut la page de titre. Le fichier Front et ses métadonnées
+   * restent intacts : seul l'indicateur `compile` du frontmatter change,
+   * celui-là même que lisent `compile()` et « Éléments inclus ». */
+  private async setFirstPageIncluded(included: boolean): Promise<void> {
+    const { selected } = this.frontTitleState();
+    if (!selected) return;
+    await this.app.fileManager?.processFrontMatter?.(selected, (data: Record<string, unknown>) => {
+      data.compile = included;
+    });
+    await this.reloadFirstPageSection();
+  }
+
+  /** Choisit un autre feuillet Front. Les autres candidats sont exclus, pas
+   * supprimés : revenir en arrière ne coûte qu'un second choix. */
+  private async chooseFrontTitleFile(path: string): Promise<void> {
+    for (const file of this.frontTitleCandidates()) {
+      const wanted = file.path === path;
+      if ((fmOf(this.app, file).compile !== false) === wanted) continue;
+      await this.app.fileManager?.processFrontMatter?.(file, (data: Record<string, unknown>) => {
+        data.compile = wanted;
+      });
+    }
+    await this.reloadFirstPageSection();
+  }
+
+  /** Ouvre le feuillet Front dans l'éditeur, comme n'importe quel feuillet du
+   * Binder — et le sélectionne au passage dans le Binder. */
+  private async openFrontFile(path: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return;
+    const leaf = this.plugin.getLeafForOpeningFile?.() || this.app.workspace.getLeaf(false);
     if (!leaf) return;
-    if (!existing.length) await leaf.setViewState({ type: VIEW_PROJECT, active: true });
-    void workspace.revealLeaf(leaf);
+    await leaf.openFile(file, { active: true });
+    if (file.parent) this.plugin.settings.binderSelectedPath = file.parent.path;
+    await this.plugin.saveSettings?.();
+  }
+
+  /** Écrit un champ dans le feuillet Front puis réactualise l'aperçu. Le HTML
+   * rendu n'est jamais retouché à la main : c'est le fichier qui change, et
+   * le rendu qui en découle (zoom et position de lecture conservés par
+   * refreshPreview). */
+  private async setFirstPageField(path: string, role: string, value: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return;
+    const content = await this.app.vault.cachedRead(file);
+    const next = setTitleRoleValue(content, role, value);
+    if (next !== content) await this.app.vault.modify(file, next);
+    if (role === "titre") this.plugin.settings.manuscriptTitle = value.trim();
+    if (role === "auteur") this.plugin.settings.manuscriptAuthor = value.trim();
+    await this.plugin.saveSettings?.();
+    await this.refreshPreview();
+  }
+
+  /** Reconstruit le panneau ENTIER (les valeurs affichées viennent du
+   * fichier) puis l'aperçu, sans toucher au zoom ni à la position de
+   * lecture. Réservé aux actions qui justifient de tout redessiner —
+   * ouverture du panneau, bouton « Actualiser » — jamais déclenché en
+   * silence par un simple changement de champ : reconstruire le <details>
+   * de la première page le refermerait et en chasserait le focus. */
+  private async reloadExportPanel(): Promise<void> {
+    await this.renderExportPanel();
+    await this.refreshPreview();
+  }
+
+  /** Réactualise SEULEMENT le contenu de « Première page », sans toucher au
+   * reste du panneau ni recréer son <details> : l'inclusion/exclusion et le
+   * choix d'un autre fichier Front ne doivent ni refermer la sous-section ni
+   * faire sauter le focus ailleurs dans l'écran. */
+  private async reloadFirstPageSection(): Promise<void> {
+    if (this.firstPageBodyEl) await this.renderFirstPageFields(this.firstPageBodyEl, this.firstPageTemplates);
+    else await this.renderExportPanel();
+    await this.refreshPreview();
+  }
+
+  private async renderFirstPageSection(panel: HTMLElement, templates: Array<{ key: string; label: string }>): Promise<void> {
+    const details = panel.createEl("details", { cls: "feuillets-preview-export-details" });
+    details.open = this.firstPageOpen;
+    details.addEventListener("toggle", () => { this.firstPageOpen = details.open; });
+    details.createEl("summary", { text: "Première page" });
+    const body = details.createDiv({ cls: "feuillets-preview-export-details-body" });
+    this.firstPageBodyEl = body;
+    this.firstPageTemplates = templates;
+    await this.renderFirstPageFields(body, templates);
+  }
+
+  /** Contenu de « Première page » — jamais le <details>/<summary> qui
+   * l'enveloppe : appelée seule pour un rafraîchissement ciblé
+   * (`reloadFirstPageSection`), ou depuis `renderFirstPageSection` lors
+   * d'un rebuild complet du panneau. */
+  private async renderFirstPageFields(body: HTMLElement, templates: Array<{ key: string; label: string }>): Promise<void> {
+    body.empty();
+    const { files, selected, included } = this.frontTitleState();
+
+    const includeRow = body.createEl("label", { cls: "feuillets-preview-export-inline-field" });
+    includeRow.createSpan({ text: "Inclure la page de titre" });
+    const includeInput = includeRow.createEl("input", { type: "checkbox" });
+    includeInput.checked = included;
+    includeInput.setAttribute("aria-label", "Inclure la page de titre");
+    includeInput.addEventListener("change", () => void this.setFirstPageIncluded(includeInput.checked));
+
+    if (selected) {
+      /* Un <div>, pas un <label> : le bouton « ouvrir » qui suit ne doit pas
+         être avalé par le libellé (un clic dedans activerait la liste). */
+      const fileRow = body.createDiv({ cls: "feuillets-preview-export-inline-field" });
+      fileRow.createSpan({ text: "Fichier Front" });
+      const picker = fileRow.createEl("select", { cls: "feuillets-preview-export-control" });
+      for (const file of files) picker.createEl("option", { value: file.path, text: file.basename });
+      picker.value = selected.path;
+      picker.setAttribute("aria-label", "Fichier Front utilisé");
+      picker.addEventListener("change", () => void this.chooseFrontTitleFile(picker.value));
+      this.iconBtn(fileRow, "pencil", "Ouvrir le fichier Front", () => void this.openFrontFile(selected.path));
+
+      const content = await this.app.vault.cachedRead(selected);
+      for (const { label, role } of FIRST_PAGE_FIELDS) {
+        const row = body.createEl("label", { cls: "feuillets-preview-export-inline-field" });
+        row.createSpan({ text: label });
+        const input = row.createEl("input", { type: "text" });
+        input.value = readTitleRoleValue(content, role);
+        input.setAttribute("aria-label", label);
+        input.addEventListener("change", () => void this.setFirstPageField(selected.path, role, input.value));
+      }
+    } else {
+      body.createDiv({
+        cls: "setting-item-description",
+        text: "Aucun feuillet Front de type « titre » : l'aperçu compose alors une page de titre à partir du projet.",
+      });
+    }
+
+    /* Le réglage visuel n'est pas une seconde configuration : LayoutModal
+     * modifie le même gabarit actif que le rendu et les exports, et c'est le
+     * seul endroit où se règlent en-têtes, pieds, numéros de page, distances
+     * aux bords et positionnement. */
+    const visualLayout = body.createEl("button", { cls: "clickable-icon feuillets-preview-export-action" });
+    setIcon(visualLayout, "panel-top");
+    visualLayout.createSpan({ text: "Mise en page visuelle" });
+    visualLayout.setAttribute("aria-label", "Régler visuellement la page de titre");
+    visualLayout.addEventListener("click", () => {
+      // La valeur persistée est la référence : le panneau peut être en train
+      // de se reconstruire après un changement de gabarit.
+      const activeKey = this.plugin.settings.exportTemplate;
+      const activeLabel = templates.find((item) => item.key === activeKey)?.label || activeKey;
+      new LayoutModal(
+        this.app,
+        this.plugin as unknown as ConstructorParameters<typeof LayoutModal>[1],
+        activeKey,
+        activeLabel,
+        () => { void this.refreshPreview(); }
+      ).open();
+    });
+  }
+
+  private async updateTitlePageStyles(change: (styles: Record<string, TitlePageStyle>) => void): Promise<void> {
+    const tpl = await resolveExportTemplate(this.app, this.plugin.settings, this.plugin.settings.exportTemplate);
+    const styles = JSON.parse(JSON.stringify(tpl.titlePage?.styles || {})) as Record<string, TitlePageStyle>;
+    change(styles);
+    await updateTemplateTitlePage(this.app, this.plugin.settings, this.plugin.settings.exportTemplate, styles);
+    await this.refreshPreview();
+  }
+
+  private toggleExportPanel(collapsed?: boolean): void {
+    this.exportPanelCollapsed = collapsed ?? !this.exportPanelCollapsed;
+    this.exportPanelEl?.toggleClass("is-hidden", this.exportPanelCollapsed);
+    /* À l'ouverture, les champs de la première page sont relus dans le
+       feuillet Front : il a pu être modifié dans l'éditeur entre-temps, et
+       l'écran ne doit jamais montrer une valeur que le fichier n'a plus. */
+    if (!this.exportPanelCollapsed) void this.renderExportPanel();
+  }
+
+  private exportFileName(): string {
+    return activePresetConfig(this.plugin.settings).fileName || "Manuscrit.md";
+  }
+
+  private exportScopePath(): string | null {
+    if (this.mode === "manuscript") return null;
+    const active = this.visibleFeuilletPath
+      ? this.app.vault.getAbstractFileByPath(this.visibleFeuilletPath)
+      : this.app.workspace.getActiveFile();
+    if (!(active instanceof TFile)) return null;
+    if (this.mode === "scene") return active.path;
+    return this.scopeForMode(this.mode, active)?.path || null;
   }
 
   get exportFormat(): string {
@@ -1423,11 +2107,12 @@ export class PreviewView extends ItemView {
 
   async doExport(): Promise<void> {
     const format = this.exportFormat;
+    const scopePath = this.exportScopePath();
     if (format === "md") {
-      await compile(this.app, this.plugin.settings);
+      await compile(this.app, this.plugin.settings, scopePath);
       return;
     }
-    await exportFile(this.app, this.plugin.settings, format);
+    await exportFile(this.app, this.plugin.settings, format, scopePath);
   }
 
   /* ========================== Barre d'outils ========================== */
@@ -1503,7 +2188,9 @@ export class PreviewView extends ItemView {
   /** Ouvre le feuillet actuellement lu sans changer ni l'étendue, ni la
    * position, ni le zoom de l'aperçu. Le Binder suit le dossier parent et
    * son écoute de `file-open` sélectionne ensuite le fichier actif. */
-  private async openVisibleFeuillet(): Promise<void> {
+  private async openVisibleFeuillet(
+    { focusEditor = true, alignFromPreview = false }: { focusEditor?: boolean; alignFromPreview?: boolean } = {}
+  ): Promise<void> {
     if (this.mode !== "chapter" && this.mode !== "part" && this.mode !== "manuscript") return;
     // Ne jamais réemployer l'état affiché : la cible est relue depuis la
     // section `data-source-path` effectivement sous les yeux au clic.
@@ -1515,21 +2202,58 @@ export class PreviewView extends ItemView {
     }
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return;
+    const requestId = ++this.openVisibleRequestId;
+    // Toute nouvelle demande annule la protection transitoire de la
+    // précédente : une ancienne ouverture ne peut pas bloquer le suivi.
+    this.preservingPreviewScrollRequestId = null;
+    const keptPreviewScrollTop = alignFromPreview
+      ? (Number(this.previewViewport?.scrollTop) || 0)
+      : null;
+    if (alignFromPreview) {
+      this.preservingPreviewScrollRequestId = requestId;
+      // Le temps que l'éditeur monte son nouveau document, tout scroll
+      // source tardif reste sans effet sur la lecture en cours dans l'aperçu.
+      this.lastPreviewScrollAt = Date.now();
+    }
     const leaf = this.plugin.getLeafForOpeningFile?.() || this.app.workspace.getLeaf(false);
-    if (!leaf) return;
+    if (!leaf) {
+      if (this.preservingPreviewScrollRequestId === requestId) this.preservingPreviewScrollRequestId = null;
+      return;
+    }
+    await leaf.openFile(file, { active: focusEditor });
+    /* Une ouverture peut encore être en vol lorsque le scroll atteint un
+       autre feuillet ou qu'un clic explicite choisit une nouvelle cible.
+       Seule la requête la plus récente a le droit d'établir le contexte de
+       synchronisation : une ancienne promesse ne peut ainsi jamais remettre
+       en place le feuillet qu'elle avait capturé. */
+    if (this.closed || requestId !== this.openVisibleRequestId) return;
     if (file.parent) this.plugin.settings.binderSelectedPath = file.parent.path;
     // La portée affichée ne change PAS : seul ce feuillet devient la source
     // de synchronisation avec sa section déjà rendue dans l'aperçu.
     this.synchronizedFeuilletPath = file.path;
-    await leaf.openFile(file, { active: true });
     await this.plugin.saveSettings?.();
-    this.app.workspace.setActiveLeaf(leaf, { focus: true });
+    if (this.closed || requestId !== this.openVisibleRequestId) return;
+    if (focusEditor) this.app.workspace.setActiveLeaf(leaf, { focus: true });
     const openedView = (leaf as unknown as { view?: { file?: unknown; contentEl?: HTMLElement } }).view;
     this.bindSourcePane({
       file: openedView?.file instanceof TFile ? openedView.file : file,
       contentEl: openedView?.contentEl || null,
     });
-    this.applySourceToPreview();
+    if (!alignFromPreview) {
+      this.applySourceToPreview();
+      return;
+    }
+
+    this.applyPreviewToSource();
+    /* `openFile()` peut faire émettre un dernier scroll du panneau Markdown
+       après la résolution de sa promesse. On restaure donc la position
+       capturée puis on enlève le garde-fou à la frame suivante. */
+    if (this.previewViewport && keptPreviewScrollTop !== null) this.previewViewport.scrollTop = keptPreviewScrollTop;
+    this.releaseAfterFrame(() => {
+      if (this.preservingPreviewScrollRequestId !== requestId) return;
+      this.preservingPreviewScrollRequestId = null;
+      if (this.previewViewport && keptPreviewScrollTop !== null) this.previewViewport.scrollTop = keptPreviewScrollTop;
+    });
   }
 
   private binderProjectTitle(root: TFolder): string {
@@ -1793,7 +2517,12 @@ export class PreviewView extends ItemView {
 
   async onClose(): Promise<void> {
     this.closed = true;
+    this.openVisibleRequestId++;
     this.rerunRequested = false;
+    if (this.autoOpenVisibleTimer !== null && typeof window !== "undefined") {
+      window.clearTimeout(this.autoOpenVisibleTimer);
+      this.autoOpenVisibleTimer = null;
+    }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
@@ -1822,8 +2551,12 @@ export class PreviewView extends ItemView {
     this.statusEl = null;
     this.viewEl = null;
     this.breadcrumbEl = null;
-    this.btnMore = null;
+    this.btnExport = null;
+    this.btnSettings = null;
+    this.openVisibleEl = null;
     this.btnBarToggle = null;
+    this.exportPanelEl = null;
+    this.firstPageBodyEl = null;
     this.openMenu = null;
     this.contentEl.empty();
   }

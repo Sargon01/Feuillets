@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FeuilletsView } from "../src/views/feuillets-view.js";
+import { FeuilletsView, addBinderPreviewButton } from "../src/views/feuillets-view.js";
 import { hasKnownProject } from "../src/services/folder-structure.js";
 
 /* La décision "écran d'accueil vs gestionnaire de projets" repose sur
@@ -19,6 +19,31 @@ test("hasKnownProject : un projet actif compte, même si la liste projects est v
 
 test("hasKnownProject : un projet connu mais inactif compte aussi", () => {
   assert.equal(hasKnownProject({ projectFolder: "", projects: ["Ancien/Manuscrit"] }), true);
+});
+
+test("Binder : le bouton œil ouvre PreviewView", async () => {
+  const parent = {};
+  const app = {};
+  let definition = null;
+  let openedWith = null;
+  const button = {};
+  const result = addBinderPreviewButton(
+    parent,
+    app,
+    (target, icon, label, onClick) => {
+      definition = { target, icon, label, onClick };
+      return button;
+    },
+    async (targetApp) => { openedWith = targetApp; }
+  );
+  assert.equal(result, button);
+  assert.deepEqual({ target: definition.target, icon: definition.icon, label: definition.label }, {
+    target: parent,
+    icon: "eye",
+    label: "Ouvrir la prévisualisation",
+  });
+  await definition.onClick();
+  assert.equal(openedWith, app);
 });
 
 class FakeElement {

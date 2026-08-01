@@ -1,5 +1,6 @@
-/* eslint-disable import/no-extraneous-dependencies -- @codemirror/* fourni par Obsidian a l'execution */
+// eslint-disable-next-line import/no-extraneous-dependencies -- @codemirror/* fourni par Obsidian a l'execution
 import { StateField, StateEffect } from "@codemirror/state";
+// eslint-disable-next-line import/no-extraneous-dependencies -- @codemirror/* fourni par Obsidian a l'execution
 import { Decoration, EditorView } from "@codemirror/view";
 import type { TextAnalysisIssue } from "../api/text-analysis.js";
 import { openIssueContextMenu, type ContextMenuHost } from "../services/grammar-context-menu.js";

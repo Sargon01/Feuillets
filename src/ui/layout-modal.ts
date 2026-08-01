@@ -2,39 +2,22 @@ import {
   listExportTemplates,
   resolveExportTemplate,
   updateTemplateTitlePage,
-  exportBuiltInTemplates,
 } from "../services/export-templates-custom.js";
-import { CompileSelectionModal } from "./selection-modals.js";
 
-import { Modal, Setting, Notice, Platform } from "obsidian";
+import { Modal, Setting } from "obsidian";
 import type { App } from "obsidian";
 import { t } from "../i18n/index.js";
 
-type ExportFormat = "docx" | "odt" | "epub" | "md" | "pdf";
 type LayoutSelection = string | null;
 type ExportTemplateOption = { key: string; label: string };
 type TitlePageStyles = Record<string, TitlePageStyle>;
 type BlockElements = Record<string, HTMLElement>;
 type OnLayoutChange = () => void;
 type NumberFieldSetter = (value: number | undefined) => void;
-type SelectionPlugin = ConstructorParameters<typeof CompileSelectionModal>[1];
-type LayoutPlugin = SelectionPlugin & {
+type LayoutPlugin = {
   settings: FeuilletsSettings;
   saveSettings(): Promise<void>;
-  compile(): Promise<CompileResult | null>;
-  exportFile(format: ExportFormat): Promise<void>;
 };
-
-function presetLabel(preset: unknown, index: number): string {
-  if (typeof preset === "object" && preset !== null && "name" in preset && typeof preset.name === "string") {
-    return preset.name;
-  }
-  return t("settings.compilePresets.item", { n: String(index + 1) });
-}
-
-function isExportFormat(value: string): value is ExportFormat {
-  return value === "docx" || value === "odt" || value === "epub" || value === "md" || value === "pdf";
-}
 
 /* Échelle de la maquette : la zone de contenu (entre bande en-tête et bande
    pied de page) représente la hauteur utile d'une A4 (≈700pt). Aperçu, pas
@@ -97,90 +80,8 @@ export class LayoutModal extends Modal {
       this.templateKey = this.templates[0].key;
     }
 
-    // Barre de config : feuillets, preset, modèle, format — tout le réglage
-    // de compilation réuni ici, réglable sans quitter le modal.
-    const bar = contentEl.createDiv({ cls: "feuillets-tp-configbar" });
-
-    new Setting(bar).setName(t("modal.layout.sheets")).addButton((b) =>
-      b.setButtonText(t("modal.layout.chooseBtn")).onClick(() => new CompileSelectionModal(this.app, this.plugin).open())
-    );
-
-    const presets = S.compilePresets || [];
-    const presetSetting = new Setting(bar).setName(t("modal.layout.preset"));
-    presetSetting.addDropdown((d) => {
-      d.addOption("-1", t("modal.layout.defaultSettings"));
-      presets.forEach((preset, index) => {
-        d.addOption(String(index), presetLabel(preset, index));
-      });
-      const activePreset = S["activePreset"];
-      d.setValue(String(typeof activePreset === "number" && activePreset >= 0 ? activePreset : -1));
-      d.onChange(async (v) => {
-        S["activePreset"] = parseInt(v, 10);
-        await this.plugin.saveSettings();
-        this.notifyChange();
-      });
-    });
-
-    const templateSetting = new Setting(bar).setName(t("modal.layout.template"));
-    templateSetting.addDropdown((d) => {
-      this.templates.forEach((tpl) => {
-        d.addOption(tpl.key, tpl.label);
-      });
-      d.setValue(this.templateKey);
-      d.onChange(async (v) => {
-        this.templateKey = v;
-        const tpl = this.templates.find((x) => x.key === v);
-        this.templateLabel = tpl ? tpl.label : v;
-        S.exportTemplate = v;
-        await this.plugin.saveSettings();
-        this.notifyChange();
-        await this.renderLayout();
-      });
-    });
-    templateSetting.addExtraButton((b) => {
-      b.setIcon("copy-plus");
-      b.setTooltip(t("modal.layout.exportTemplatesTooltip"));
-      b.onClick(async () => {
-        const n = await exportBuiltInTemplates(this.app, S);
-        new Notice(
-          n > 0
-            ? t("main.notice.templatesExported", { count: String(n) })
-            : t("modal.layout.allTemplatesPresent")
-        );
-      });
-    });
-
-    new Setting(bar).setName(t("project.compilation.formatLabel")).addDropdown((d) => {
-      d.addOption("docx", ".docx (Word)");
-      d.addOption("odt", ".odt (LibreOffice)");
-      d.addOption("epub", ".epub (Ebook)");
-      d.addOption("md", ".md (Markdown)");
-      if (!Platform.isMobile) d.addOption("pdf", ".pdf (PDF)");
-      const exportFormat = S["exportFormat"];
-      d.setValue(typeof exportFormat === "string" ? exportFormat : "docx");
-      d.onChange(async (v) => {
-        if (!isExportFormat(v)) return;
-        S["exportFormat"] = v;
-        await this.plugin.saveSettings();
-        this.notifyChange();
-      });
-    });
-
     this.layoutContainer = contentEl.createDiv();
     await this.renderLayout();
-
-    const footer = contentEl.createDiv({ cls: "feuillets-tp-footer" });
-    new Setting(footer).addButton((b) =>
-      b.setButtonText(t("project.compilation.exportBtn")).setCta().onClick(() => this.doExport())
-    );
-  }
-
-  doExport(): void {
-    const savedFormat = this.plugin.settings["exportFormat"];
-    const fmt = typeof savedFormat === "string" && isExportFormat(savedFormat) ? savedFormat : "docx";
-    this.close();
-    if (fmt === "md") void this.plugin.compile();
-    else void this.plugin.exportFile(fmt);
   }
 
   /** (Re)charge les blocs du modèle courant et (re)construit la maquette
@@ -327,12 +228,35 @@ export class LayoutModal extends Modal {
     );
   }
 
+  /** Champ numérique d'un réglage de bande (distances, espacements). Les
+   * clés écrites sont celles que lisent PDF, DOCX, ODT et la pagination de
+   * l'aperçu : ce modal est leur unique interface visuelle. */
+  private bandNumber(
+    insp: HTMLElement,
+    name: string,
+    key: "pdfHeaderDistanceCm" | "pdfHeaderBodyGapPt" | "pdfFooterDistanceCm" | "pdfFooterBodyGapPt",
+    fallback: number,
+    save: () => Promise<void>
+  ): void {
+    const S = this.plugin.settings;
+    new Setting(insp).setName(name).addText((t2) => {
+      t2.inputEl.type = "number";
+      t2.setValue(String(S[key] ?? fallback)).onChange(async (v) => {
+        const n = parseFloat(v);
+        if (!Number.isFinite(n)) return;
+        S[key] = Math.max(0, n);
+        await save();
+      });
+    });
+  }
+
   renderHeaderInspector(insp: HTMLElement): void {
     const S = this.plugin.settings;
     insp.createEl("h4", { text: t("modal.layout.headerAllPages") });
     const saveBands = async () => {
       await this.plugin.saveSettings();
       this.renderBands();
+      this.notifyChange();
     };
     new Setting(insp).setName(t("modal.layout.enableHeader")).addToggle((t2) =>
       t2.setValue(S["pdfEnableHeaders"] !== false).onChange(async (v) => {
@@ -346,12 +270,20 @@ export class LayoutModal extends Modal {
         await saveBands();
       })
     );
+    new Setting(insp).setName(t("modal.layout.headerCenter")).addText((t2) =>
+      t2.setValue(S.pdfHeaderCenter || "").onChange(async (v) => {
+        S.pdfHeaderCenter = v;
+        await saveBands();
+      })
+    );
     new Setting(insp).setName(t("settings.pdfHeaderRight.name")).addText((t2) =>
       t2.setValue(S.pdfHeaderRight || "{author}").onChange(async (v) => {
         S.pdfHeaderRight = v;
         await saveBands();
       })
     );
+    this.bandNumber(insp, t("modal.layout.distanceToEdge"), "pdfHeaderDistanceCm", 0.75, saveBands);
+    this.bandNumber(insp, t("modal.layout.headerBodyGap"), "pdfHeaderBodyGapPt", 3, saveBands);
     new Setting(insp).setName(t("modal.layout.alternating")).addToggle((t2) =>
       t2.setValue(!!S.pdfDiffHeaders).onChange(async (v) => {
         S.pdfDiffHeaders = v;
@@ -364,6 +296,7 @@ export class LayoutModal extends Modal {
         await saveBands();
       })
     );
+    insp.createDiv({ cls: "setting-item-description", text: t("modal.layout.variables") });
   }
 
   renderFooterInspector(insp: HTMLElement): void {
@@ -372,7 +305,14 @@ export class LayoutModal extends Modal {
     const saveBands = async () => {
       await this.plugin.saveSettings();
       this.renderBands();
+      this.notifyChange();
     };
+    new Setting(insp).setName(t("modal.layout.enableFooter")).addToggle((t2) =>
+      t2.setValue(S.pdfEnableFooters !== false).onChange(async (v) => {
+        S.pdfEnableFooters = v;
+        await saveBands();
+      })
+    );
     new Setting(insp).setName(t("modal.pdfStyle.numberPosition")).addDropdown((d) =>
       d
         .addOption("right", t("settings.pdfPageNumberPosition.right"))
@@ -391,6 +331,21 @@ export class LayoutModal extends Modal {
         await saveBands();
       })
     );
+    new Setting(insp).setName(t("modal.layout.footerLeft")).addText((t2) =>
+      t2.setValue(S.pdfFooterLeft || "").onChange(async (v) => {
+        S.pdfFooterLeft = v;
+        await saveBands();
+      })
+    );
+    new Setting(insp).setName(t("modal.layout.footerCenter")).addText((t2) =>
+      t2.setValue(S.pdfFooterCenter || "").onChange(async (v) => {
+        S.pdfFooterCenter = v;
+        await saveBands();
+      })
+    );
+    this.bandNumber(insp, t("modal.layout.distanceToEdge"), "pdfFooterDistanceCm", 0.75, saveBands);
+    this.bandNumber(insp, t("modal.layout.footerBodyGap"), "pdfFooterBodyGapPt", 3, saveBands);
+    insp.createDiv({ cls: "setting-item-description", text: t("modal.layout.variables") });
   }
 
   renderBlockInspector(insp: HTMLElement, role: string): void {
@@ -438,8 +393,9 @@ export class LayoutModal extends Modal {
     if (inputs[1]) inputs[1].value = st.marginTopPt != null ? String(st.marginTopPt) : "";
   }
 
-  saveModel(): Promise<void> {
-    return updateTemplateTitlePage(this.app, this.plugin.settings, this.templateKey, this.styles);
+  async saveModel(): Promise<void> {
+    await updateTemplateTitlePage(this.app, this.plugin.settings, this.templateKey, this.styles);
+    this.notifyChange();
   }
 
   onClose(): void {

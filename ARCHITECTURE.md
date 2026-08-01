@@ -292,9 +292,191 @@ notes, typographie française) n'opèrent que sur la copie en mémoire.
 fonctionne, mais sous une forme adaptée aux limites du format cible — jamais
 silencieux, toujours documenté ici. « ➖ non pris en charge » : n'existe pas
 dans ce format ou hors périmètre de ce lot — voir « Suites possibles »
-ci-dessous pour ce qui est délibérément reporté (fidélité visuelle
-aperçu/export, profils enregistrables, en-têtes/pieds de page, métadonnées
-avancées, notes PDF repaginées, pagination sophistiquée).
+ci-dessous pour ce qui est délibérément reporté (profils enregistrables,
+en-têtes/pieds de page avancés, métadonnées complètes, notes PDF repaginées
+en bas de page, pagination sophistiquée, moteur de PAO externe).
+
+### Fidélité visuelle aperçu/export (Lot 2)
+
+**Une seule source de mise en page.** `templateToCss()` (`utils/export-templates.ts`)
+traduit un modèle (`EXPORT_TEMPLATES` — Classique, Moderne, Machine à écrire,
+Roman simple, Roman français, APA, Thèse) en une feuille de style : police,
+taille, interligne, alignement, marges, retrait de première ligne,
+espacement de paragraphe, titres (h1/h2/h3 : taille, graisse, italique,
+marges, saut de page), citation, séparateur de scène, contrainte de largeur
+des images. C'est la SEULE définition de ces règles — chaque format la
+traduit dans son propre langage plutôt que de la redéfinir :
+
+| Format | Consomme `templateToCss`/le modèle | Traduction |
+| --- | --- | --- |
+| Aperçu (`ui/preview-modal.ts`) | ✅ intégralement | CSS injecté tel quel dans une `<iframe sandbox>` isolée du thème Obsidian — même pagination que PDF (`paginateManuscript`) |
+| PDF (`services/export-pdf.ts`) | ✅ intégralement | CSS injecté dans la fenêtre d'impression + pagination JS (mesure réelle des éléments, sauts avant partie/chapitre) |
+| EPUB (`services/export-epub.ts`) | ✅ tout sauf `pageOrientation`/`columns` | CSS injecté tel quel dans le XHTML — orientation/colonnes n'ont pas de sens pour un flux reflowable |
+| DOCX (`services/export-docx.ts`, `export-docx-style.ts`) | ✅ intégralement | traduit en **styles Word nommés réels** (`heading1`/`heading2`/`heading3` dans `Document({ styles: ... })`) plutôt qu'en formatage direct — reste éditable dans Word |
+| ODT (`services/export-odt.ts`) | ✅ intégralement (depuis ce lot) | traduit en styles ODF (`style:default-style`, `Heading_20_1/2/3`, `Quotations`, `Horizontal_20_Line`) — **avant ce lot, l'ODT ignorait le modèle choisi et gardait toujours Times 12pt/2,5cm** |
+
+**L'aperçu affiche désormais le manuscrit RÉELLEMENT compilé.** Avant ce
+lot, `PreviewModal` (`ui/preview-modal.ts`) n'était même pas branché à
+l'interface (code mort, jamais instancié) et affichait 5 chaînes de
+démonstration factices quand on l'appelait directement — jamais le contenu
+d'un projet. Il est maintenant ouvert depuis l'icône « œil » du panneau
+Compilation (`views/project-view.ts`) et suit exactement le même pipeline
+que l'export PDF : `compile()` → `renderManuscriptHtmlWithFrontPages()` →
+`paginateManuscript()`. Les sauts de page, titres, séparateurs, images et
+notes affichés sont donc ceux que produirait un export PDF sur le même
+projet — pas une approximation. `PdfStyleModal`, un doublon de cette même
+maquette également jamais branché, a été supprimé.
+
+**Divergences assumées (pas des bugs) :**
+- *EPUB* reste un flux XHTML continu en une colonne, quel que soit
+  `pageOrientation`/`columns` du modèle — une liseuse reflowable n'a pas de
+  page physique.
+- *ODT* n'a pas de vraie structure `<text:note>` : les notes sont des notes
+  de fin en texte brut (mise en forme interne perdue) — limite déjà
+  documentée avant ce lot, non résolue ici (hors périmètre : « notes PDF en
+  bas de page » et équivalents restent pour un lot ultérieur).
+- *PDF* garde ses notes en fin de document pour ce lot (pas de note en bas
+  de page réelle — explicitement hors périmètre).
+- Le séparateur de scène par défaut (`"* * *"`) est désormais identique
+  entre DOCX (déjà en place), PDF, EPUB et ODT quand le modèle n'en définit
+  pas un explicitement (Roman simple/Roman français gardent leurs valeurs
+  propres, `"* * *"`/`"***"`).
+
+### Les quatre usages de l'aperçu (PreviewView)
+
+Chaque mode a un rôle strict, et aucun n'empiète sur le suivant :
+
+| Mode | Contenu | Pages liminaires | Compile ? |
+| --- | --- | --- | --- |
+| **Scène** | le feuillet actif seul | non | non (lecture directe) |
+| **Chapitre** | les scènes du chapitre, ordre du Binder | non | non (assemblage direct) |
+| **Partie** | les chapitres et scènes de la partie | non | non (même code que Chapitre) |
+| **Manuscrit** | le livre entier | oui | oui, à la demande |
+
+Chapitre et Partie partagent **un seul** code d'assemblage
+(`assembleFolder`) : seul le dossier de départ change. Il applique les
+règles de présentation de `compile()` (ordre du Binder, titres de dossier
+selon le preset, niveau de titre = profondeur du nœud, feuillets
+`compile: false` ignorés) restreintes à un sous-arbre, sans rien compiler ni
+écrire, et exclut explicitement le dossier `Front` — les pages liminaires
+n'appartiennent à aucun chapitre.
+
+**Le YAML n'atteint jamais le rendu.** `stripFrontmatter()`
+(`services/frontmatter.ts`) est la définition unique de ce découpage,
+partagée par la compilation et l'aperçu, appliquée **feuillet par feuillet
+avant assemblage**. Ce n'était pas cosmétique : rendu en Markdown,
+`---\ntitle: X\n---` produit un `<hr>` suivi d'un **titre setext `<h2>`**, et
+`paginateManuscript()` force un saut de page avant tout `h1`/`h2` — le
+premier mot du feuillet se retrouvait donc page 2 pendant que l'éditeur
+était ligne 1. C'était la cause réelle du décalage de synchronisation, pas
+une page de titre.
+
+**Un seul CSS, des classes de mode.** Le gabarit reste produit par
+`templateToCss()` pour les quatre modes ; seules quelques sections
+conditionnelles distinguent les usages, via la classe posée sur le `<body>`
+de l'iframe (`is-preview-mode-scene`…). En mode Scène, en-têtes et folios
+(titre courant, « Page 3 sur 47 ») sont masqués : ce sont des éléments de
+livre, pas de feuillet. Le HTML paginé reste exactement celui de l'export —
+`paginateManuscript()` n'est pas touché.
+
+### Barre et panneau Export de l'aperçu
+
+La barre ne porte que du **contexte** : fil d'Ariane, « Ouvrir ce feuillet »
+(icône, affichée seulement quand un feuillet est réellement lisible sous les
+yeux), zoom, Export, Réglages. Pas de menu « ⋯ » : l'icône Réglages ouvre
+directement l'onglet **Export** des paramètres Feuillets
+(`settings/open-export-settings.ts` sélectionne `_activeSettingsTab` sur
+l'instance de réglages déjà ouverte — ni modal ni vue intermédiaire).
+
+Le panneau Export tient en six lignes — portée, éléments inclus, format,
+gabarit, **Première page**, nom du fichier — plus l'action Exporter.
+
+- **Première page** ne règle que le *contenu* et l'*inclusion* de la page de
+  titre. Sa source de vérité est le **feuillet Front** lui-même : inclure ou
+  exclure écrit `compile` dans son frontmatter (le fichier et ses métadonnées
+  sont conservés), et chaque champ (titre, sous-titre, auteur, mention,
+  image) réécrit sa ligne `:::rôle:` via `utils/title-roles.ts`. Aucune copie
+  locale dans PreviewView, donc aucun état concurrent : l'aperçu se réactualise
+  à partir du fichier, en conservant scroll et zoom.
+- **Toute la mise en page** — en-têtes, pieds, numéros de page, première page
+  différente, distances aux bords, marges, espacements, typographie — vit dans
+  le modal `Mise en page visuelle` (`ui/layout-modal.ts`), qui écrit dans le
+  gabarit actif et dans les réglages centraux lus **à l'identique** par
+  l'aperçu et par les exports PDF/DOCX/ODT/EPUB.
+
+### Défilement synchronisé Markdown ↔ aperçu (PreviewView)
+
+`views/preview-scroll-sync.ts` contient toute la géométrie de
+synchronisation (progression bornée, sections, repérage du panneau source),
+sans aucun accès à Obsidian — donc testable seule
+(`test/preview-scroll-sync.test.js`). `views/preview-view.ts` ne fait que
+brancher les événements et écrire des `scrollTop`.
+
+Hiérarchie appliquée, dans cet ordre :
+
+1. **scène active** — quand un `data-source-path` existe pour le feuillet
+   suivi (modes Chapitre, Partie, Manuscrit, repères posés par
+   `preview-source-map.ts`), la progression est appliquée à SA section :
+   scènes précédentes et pages liminaires ne comptent pas ;
+2. **progression relative dans cette scène** ;
+3. **progression globale** en dernier recours — c'est le cas du mode Scène,
+   où elle est exacte puisque l'aperçu EST le feuillet.
+
+Les deux extrémités sont toujours de vrais éléments défilables
+(`.cm-scroller` côté éditeur, `.feuillets-preview-viewport` côté aperçu),
+jamais la fenêtre.
+
+**Limite assumée — pas de synchronisation par blocs ni par lignes.** Audit :
+côté aperçu, `MarkdownRenderer` n'émet aucune information de ligne et
+`stripObsidianCruft()` efface les `data-*` ; le seul mécanisme disponible
+(paragraphe-marqueur, cf. `preview-source-map.ts`) casserait listes et blocs
+de code s'il était posé par bloc. Côté éditeur, les `.cm-line` présents dans
+le DOM ne portent pas leur numéro de ligne : seul `editor.cm`, API interne
+non documentée, le donnerait. Ce qui débloquerait ce niveau : un repère de
+ligne officiel dans l'API de rendu d'Obsidian. Une vue Scrivening est calée
+sur ses blocs `data-path` dans le sens Scrivening → aperçu, et sur la
+progression relative dans l'autre sens.
+
+Aucune de ces routines ne rend ni ne compile quoi que ce soit : défiler et
+zoomer ne déclenchent jamais `compile()`.
+
+### Checklist manuelle de validation visuelle
+
+Pas de moteur fiable de comparaison d'images dans ce dépôt : la fidélité
+visuelle est vérifiée par des **tests structurels** (présence des bonnes
+classes CSS, styles Word/ODF nommés, règles `page-break`, séparateur de
+scène, contenu réellement compilé dans l'aperçu — voir
+`test/export-templates.test.js`, `test/export-odt.test.js`,
+`test/export-epub.test.js`, `test/export-pdf.test.js`,
+`test/preview-modal.test.js`) et, pour le rendu proprement dit, par une
+**inspection humaine**. Manuscrit de référence pour cette inspection (un
+petit projet à créer une fois, réutilisable à chaque vérification) :
+
+- une page de titre (rôles `:::rôle:`) ;
+- une partie (dossier de niveau 1) contenant deux chapitres ;
+- plusieurs scènes par chapitre, dont un paragraphe court et un paragraphe
+  long (plusieurs lignes, pour juger l'interligne/justification) ;
+- une citation (`> ...`) ;
+- une liste à puces ;
+- un séparateur de scène (`***`) ;
+- une image portrait et une image paysage (juger le recadrage/la
+  contrainte de taille) ;
+- des caractères français et Unicode (guillemets « », apostrophes
+  typographiques, tirets cadratins, accents, emoji) ;
+- trois notes de bas de page (au moins une avec une mise en forme interne —
+  gras/lien — pour juger ce qui survit par format) ;
+- un saut de page explicite.
+
+Pour chaque export (PDF, DOCX, EPUB, ODT) et l'aperçu, vérifier à l'œil :
+titre/parties/chapitres/scènes visuellement cohérents entre eux ; retrait de
+première ligne et espacement conformes au modèle choisi ; séparateur de
+scène lisible (jamais un `<hr>` nu) ; images ni étirées ni débordantes ;
+sauts de page aux bons endroits (partie/chapitre, jamais un titre seul en
+bas de page) ; notes accessibles et, quand le format le permet, le lien de
+retour fonctionnel ; caractères français/Unicode rendus sans mojibake.
+Ouvrir le DOCX dans Word (pas seulement LibreOffice) pour confirmer que les
+styles de titre apparaissent bien comme styles nommés dans le panneau
+Styles, pas comme du formatage figé.
 
 ## Vérification
 

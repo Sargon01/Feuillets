@@ -3,10 +3,23 @@ import { BOARD_MODES, HIDEABLE_PANELS } from "../constants.js";
 import { resolveType } from "../utils/project-modes.js";
 import { NewProjectModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
+import { LayoutModal } from "../ui/layout-modal.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
 import { getProjectMode } from "../services/project-mode.js";
+import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
 import type { DefaultSettings } from "../default-settings.js";
-import { PluginSettingTab, Setting, TFolder, Notice, Menu, Platform, Plugin, type App } from "obsidian";
+import { renderCategoryTabBar } from "./settings-category-tabs.js";
+import {
+  PluginSettingTab,
+  Setting,
+  TFolder,
+  Notice,
+  Menu,
+  Platform,
+  Plugin,
+  type App,
+  type SettingDefinitionItem,
+} from "obsidian";
 
 /* Union des réglages exhaustifs (default-settings.ts) et de l'interface
    globale partielle (types.d.ts) : ce panneau touche pratiquement tous
@@ -71,29 +84,21 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   writeOrder(parent: import("obsidian").TAbstractFile, orderedChildren: import("obsidian").TAbstractFile[]): Promise<void>;
 };
 
-/* Deux recommandations d'Obsidian restent volontairement non suivies ici.
-   Ce ne sont pas des oublis, et il n'y a aucune règle désactivée : les
-   avertissements sont laissés visibles.
+/* Migré vers l'API déclarative `getSettingDefinitions()` (Obsidian ≥ 1.13.0,
+   voir manifest.json). La barre d'onglets persistante par catégorie
+   (Projet/Écriture/Interface/Panneaux latéraux/Correction/Export) est
+   reconstruite « à la main » dans un item `render()` (composant isolé
+   `settings-category-tabs.ts`) plutôt qu'avec la navigation native en
+   profondeur (`SettingDefinitionPage`) : cette dernière n'offre aucun moyen
+   documenté d'ouvrir une page précise par programme, ce qui aurait cassé
+   l'ouverture directe sur « Export » depuis PreviewView/ProjectView (voir
+   open-export-settings.ts). `_activeSettingsTab` reste la seule source de
+   vérité, `this.update()` remplace tous les anciens `this.display()`.
 
-   1. `getSettingDefinitions()` / dépréciation de `display()` — API déclarative
-      apparue en 1.13.0, alors que minAppVersion vaut 1.7.2 : l'adopter seule
-      priverait de réglages tous les utilisateurs sous 1.13. S'y ajoute un
-      obstacle indépendant de la version : ce panneau construit une barre
-      d'onglets par catégories (marqueurs data-cat, panneaux, re-rendus
-      conditionnels via this.display()) que la forme déclarative ne sait pas
-      exprimer. La migration coûterait cette navigation. `display()` reste
-      déprécié mais pleinement fonctionnel. Contrepartie assumée : les
-      réglages n'apparaissent pas dans la recherche de réglages sur 1.13+.
-
-   2. `setDynamicTooltip()` — déprécié parce que, depuis 1.13.0, la valeur du
-      curseur est toujours affichée. En dessous, elle ne l'est pas : retirer
-      ces appels supprimerait le retour de valeur pendant le glissement sur
-      toute la moitié basse de la plage supportée. L'appel est conservé, sans
-      effet sur 1.13+ et utile en deçà.
-
-   À revoir le jour où minAppVersion passera à 1.13.0. Les dépréciations
-   réellement contournables (Notice.noticeEl, ButtonComponent.setWarning) le
-   sont par détection à l'exécution — voir src/utils/obsidian-compat.ts. */
+   `setDynamicTooltip()` (sliders) reste appelé : minAppVersion valant
+   désormais 1.13.0, ces appels sont devenus sans effet (la valeur du
+   curseur est toujours affichée) mais inoffensifs — suppression possible
+   séparément, non faite ici pour rester au périmètre de cette migration. */
 export class FeuilletsSettingTab extends PluginSettingTab {
   plugin: FeuilletsSettingTabPlugin;
   _activeSettingsTab?: string;
@@ -102,15 +107,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
   }
-  display(): void {
-    const { containerEl } = this;
-    const S = this.plugin.settings;
-    const mode = this.plugin.projectMode();
-    const unit = this.plugin.unitLabel();
-    const unitPlural = this.plugin.unitLabelPlural();
-    containerEl.empty();
-
-    const header = containerEl.createDiv({ cls: "feuillets-settings-header" });
+  /** En-tête du panneau (titre, accroche, liens) — affiché une seule fois,
+   * indépendamment de la catégorie active. */
+  private renderHeader(container: HTMLElement): void {
+    const header = container.createDiv({ cls: "feuillets-settings-header" });
     /* Un div, pas un h2 : l'apparence est entièrement définie par
        .feuillets-settings-title (taille, graisse, marges, couleur), rien
        n'y dépend des styles par défaut d'un titre — et l'ESLint officiel
@@ -123,10 +123,98 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     links.createEl("a", { text: t("settings.links.github"), href: REPO, attr: { target: "_blank", rel: "noopener" } });
     links.createEl("a", { text: t("settings.links.readme"), href: `${REPO}/blob/main/README.md`, attr: { target: "_blank", rel: "noopener" } });
     links.createEl("a", { text: t("settings.links.features"), href: `${REPO}/blob/main/FONCTIONNALITES.md`, attr: { target: "_blank", rel: "noopener" } });
+  }
 
+  /** API déclarative (Obsidian ≥ 1.13.0) : un tableau non vide fait qu'Obsidian
+   * n'appelle plus jamais `display()` lui-même (voir le compatibilité shim
+   * plus bas, seul point qui en dépend encore). Structure : en-tête, barre
+   * d'onglets (composant isolé `settings-category-tabs.ts`), puis six groupes
+   * — un par catégorie — dont la visibilité suit `_activeSettingsTab`, seule
+   * source de vérité. Chaque groupe délègue à une méthode `renderXCategory`
+   * qui reprend, quasiment inchangé, le code de contrôle historique. */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    const ORDER = ["Projet", "Écriture", "Interface", "Panneaux latéraux", "Correction", "Export"];
+    const CATEGORY_LABELS: Record<string, string> = {
+      "Projet": t("settings.category.project"),
+      "Écriture": t("settings.category.writing"),
+      "Interface": t("settings.category.interface"),
+      "Panneaux latéraux": t("settings.category.sidePanels"),
+      "Correction": t("settings.category.grammar"),
+      "Export": t("settings.category.export"),
+    };
+    if (!this._activeSettingsTab || !ORDER.includes(this._activeSettingsTab)) {
+      this._activeSettingsTab = ORDER[0];
+    }
+
+    const categoryRenderers: Record<string, (container: HTMLElement) => void> = {
+      "Projet": (c) => this.renderProjetCategory(c),
+      "Écriture": (c) => this.renderEcritureCategory(c),
+      "Interface": (c) => this.renderInterfaceCategory(c),
+      "Panneaux latéraux": (c) => this.renderPanneauxCategory(c),
+      "Correction": (c) => this.renderCorrectionCategory(c),
+      "Export": (c) => this.renderExportCategory(c),
+    };
+
+    const items: SettingDefinitionItem[] = [
+      { name: "", render: (setting) => {
+        setting.settingEl.empty();
+        setting.settingEl.removeClass("setting-item");
+        this.renderHeader(setting.settingEl);
+      } },
+      { name: "", render: (setting) => {
+        try {
+          setting.settingEl.empty();
+          setting.settingEl.removeClass("setting-item");
+          renderCategoryTabBar(setting.settingEl, {
+            categories: ORDER,
+            labels: CATEGORY_LABELS,
+            active: this._activeSettingsTab || ORDER[0],
+            onSelect: (name) => {
+              if (this._activeSettingsTab === name) return;
+              this._activeSettingsTab = name;
+              this.update();
+            },
+          });
+        } catch (e) {
+          // Repli : jamais bloquer l'accès aux réglages pour un problème de
+          // rendu de la barre — les groupes ci-dessous restent fonctionnels
+          // quel que soit _activeSettingsTab (par défaut "Projet").
+          console.error("Feuillets : échec du rendu de la barre d'onglets", e);
+          setting.settingEl.empty();
+          setting.settingEl.createDiv({
+            cls: "setting-item-description",
+            text: "Barre d'onglets indisponible — les réglages restent accessibles ci-dessous.",
+          });
+        }
+      } },
+    ];
+
+    for (const name of ORDER) {
+      items.push({
+        type: "group",
+        heading: CATEGORY_LABELS[name],
+        visible: () => this._activeSettingsTab === name,
+        items: [
+          { name: "", render: (setting) => {
+            setting.settingEl.empty();
+            setting.settingEl.removeClass("setting-item");
+            categoryRenderers[name](setting.settingEl);
+          } },
+        ],
+      });
+    }
+
+    return items;
+  }
+
+  private renderProjetCategory(container: HTMLElement): void {
+    const S = this.plugin.settings;
+    const unit = this.plugin.unitLabel();
+    const unitPlural = this.plugin.unitLabelPlural();
     const refresh = () => this.plugin.refreshView();
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.projectFolder"), attr: { "data-cat": "Projet", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.projectFolder") });
+
 
     const allProjects = (S.projects || []).concat(S.projectFolder ? [S.projectFolder] : [])
       .filter((p, i, a) => p && a.indexOf(p) === i)
@@ -137,7 +225,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     // Dropdown pour choisir le projet actif
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.activeProject.name"))
       .setDesc(t("settings.activeProject.desc"))
       .addDropdown((d) => {
@@ -163,12 +251,12 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           this.plugin.updateStatusBar();
           this.plugin.renderAllViews(true);
-          this.display();
+          this.update();
         });
       });
 
     // Champ texte pour saisir / éditer le chemin directement
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.projectPath.name"))
       .setDesc(t("settings.projectPath.desc"))
       .addText((tx) => {
@@ -188,7 +276,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       });
 
     // Boutons d'actions rapides (Créer, Importer Scrivener, Gérer la liste)
-    const btnSetting = new Setting(containerEl)
+    const btnSetting = new Setting(container)
       .setName(t("settings.projectActions.name"))
       .setDesc(t("settings.projectActions.desc"));
 
@@ -221,7 +309,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     if (root) {
       const count = this.plugin.chapterCount(root);
       if (count === 0) {
-        const warn = containerEl.createDiv({ cls: "feuillets-empty" });
+        const warn = container.createDiv({ cls: "feuillets-empty" });
         warn.addClass("feuillets-settings-warning");
         warn.setText(t("settings.emptyProjectWarning", { name: root.name }));
       }
@@ -234,7 +322,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         meta.labels = JSON.parse(JSON.stringify(S.labels || [])) as Label[];
       }
 
-      new Setting(containerEl)
+      new Setting(container)
         .setName(t("settings.projectType.name"))
         .setDesc(t("settings.projectType.desc"))
         .addDropdown((d) => {
@@ -244,14 +332,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
            .onChange(async (v) => {
              meta.type = v;
              await this.plugin.saveSettings();
-             this.display(); // Recharger le panneau
+             this.update(); // Recharger le panneau
              this.plugin.renderAllViews(true);
              refresh();
            });
         });
 
       if (resolveType(meta.type) === "nonfiction") {
-        new Setting(containerEl)
+        new Setting(container)
           .setName(t("settings.citationStyle.name"))
           .setDesc(t("settings.citationStyle.desc"))
           .addDropdown((d) =>
@@ -267,7 +355,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       }
     }
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.chronoFolder.name"))
       .setDesc(t("settings.chronoFolder.desc"))
       .addText((t2) =>
@@ -277,7 +365,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.journalFolder.name"))
       .setDesc(t("settings.journalFolder.desc"))
       .addText((t2) =>
@@ -287,7 +375,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.demoProject.name"))
       .setDesc(t("settings.demoProject.desc"))
       .addButton((b) =>
@@ -296,7 +384,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           menu.addItem((item) =>
             item.setTitle(t("settings.demoProject.elira")).onClick(async () => {
               await this.plugin.createDemoProject("elira");
-              this.display();
+              this.update();
             })
           );
           menu.addItem((item) =>
@@ -304,16 +392,17 @@ export class FeuilletsSettingTab extends PluginSettingTab {
               .setTitle(t("settings.demoProject.candide"))
               .onClick(async () => {
                 await this.plugin.createDemoProject("candide");
-                this.display();
+                this.update();
               })
           );
           menu.showAtMouseEvent(e);
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.numbering"), attr: { "data-cat": "Projet", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.numbering") });
 
-    new Setting(containerEl)
+
+    new Setting(container)
       .setName(t("settings.level1Role.name"))
       .setDesc(t("settings.level1Role.desc"))
       .addDropdown((d) =>
@@ -328,7 +417,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.chapterNumbering.name"))
       .setDesc(t("settings.chapterNumbering.desc"))
       .addDropdown((d) =>
@@ -344,7 +433,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.sceneNumbering.name", { unitPlural }))
       .setDesc(t("settings.sceneNumbering.desc"))
       .addDropdown((d) =>
@@ -360,7 +449,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.autoRename.name"))
       .setDesc(t("settings.autoRename.desc"))
       .addToggle((t2) =>
@@ -370,24 +459,25 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl).setName(t("settings.renamePrefix.name")).addText((t2) =>
+    new Setting(container).setName(t("settings.renamePrefix.name")).addText((t2) =>
       t2.setValue(S.renamePrefix).onChange(async (v) => {
         S.renamePrefix = v.trim() || "chapitre";
         await this.plugin.saveSettings();
       })
     );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.statusesLabels"), attr: { "data-cat": "Projet", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.statusesLabels") });
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.statusesLabels.intro")
     );
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.statuses.title"));
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.statuses.title"));
 
     if (!Array.isArray(S.statuses)) S.statuses = [];
     S.statuses.forEach((st, i) => {
-      new Setting(containerEl)
+      new Setting(container)
         .setName(t("settings.statuses.item", { n: String(i + 1) }))
         .addText((t2) =>
           t2.setValue(st.name).onChange(async (v) => {
@@ -410,17 +500,17 @@ export class FeuilletsSettingTab extends PluginSettingTab {
             .onClick(async () => {
               S.statuses.splice(i, 1);
               await this.plugin.saveSettings();
-              this.display();
+              this.update();
               refresh();
             })
         );
     });
 
-    new Setting(containerEl).addButton((b) =>
+    new Setting(container).addButton((b) =>
       b.setButtonText(t("settings.statuses.add")).onClick(async () => {
         S.statuses.push({ name: t("settings.statuses.item", { n: String(S.statuses.length + 1) }), color: "#888888" });
         await this.plugin.saveSettings();
-        this.display();
+        this.update();
       })
     );
 
@@ -428,11 +518,11 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const projectLabels = currentMeta && currentMeta.labels ? currentMeta.labels : S.labels;
 
     if (root) {
-      containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.labels.titleForProject", { name: root.name }));
+      container.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.labels.titleForProject", { name: root.name }));
     }
 
     (projectLabels || []).forEach((l, i) => {
-      new Setting(containerEl)
+      new Setting(container)
         .setName(t("settings.labels.item", { n: String(i + 1) }))
         .addText((t2) =>
           t2.setValue(l.name).onChange(async (v) => {
@@ -455,21 +545,21 @@ export class FeuilletsSettingTab extends PluginSettingTab {
             .onClick(async () => {
               projectLabels.splice(i, 1);
               await this.plugin.saveSettings();
-              this.display();
+              this.update();
               refresh();
             })
         );
     });
 
-    new Setting(containerEl).addButton((b) =>
+    new Setting(container).addButton((b) =>
       b.setButtonText(t("settings.labels.add")).onClick(async () => {
         projectLabels.push({ name: t("settings.labels.item", { n: String(projectLabels.length + 1) }), color: "#888888" });
         await this.plugin.saveSettings();
-        this.display();
+        this.update();
       })
     );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.favoriteTags.name"))
       .setDesc(t("settings.favoriteTags.desc"))
       .addTextArea((t2) =>
@@ -488,9 +578,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.goals"), attr: { "data-cat": "Projet", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.goals") });
 
-    new Setting(containerEl)
+
+    new Setting(container)
       .setName(t("settings.wordGoal.name", { unit }))
       .addText((t2) =>
         t2.setValue(String(S.wordGoal)).onChange(async (v) => {
@@ -501,7 +592,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl).setName(t("settings.tolerance.name")).addText((t2) =>
+    new Setting(container).setName(t("settings.tolerance.name")).addText((t2) =>
       t2.setValue(String(S.tolerance)).onChange(async (v) => {
         const n = parseInt(v, 10);
         S.tolerance = isNaN(n) ? 0 : Math.max(0, n);
@@ -510,7 +601,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       })
     );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.projectWordGoal.name"))
       .setDesc(t("settings.projectWordGoal.desc"))
       .addText((t2) =>
@@ -522,7 +613,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.deadline.name"))
       .setDesc(t("settings.deadline.desc"))
       .addText((t2) =>
@@ -536,7 +627,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.sessionGoal.name"))
       .setDesc(t("settings.sessionGoal.desc"))
       .addText((t2) =>
@@ -548,9 +639,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.history"), attr: { "data-cat": "Projet", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.history") });
 
-    new Setting(containerEl)
+
+    new Setting(container)
       .setName(t("settings.statsRetention.name"))
       .setDesc(t("settings.statsRetention.desc"))
       .addText((t2) =>
@@ -561,21 +653,22 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.backup"), attr: { "data-cat": "Projet", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.backup") });
 
-    new Setting(containerEl)
+
+    new Setting(container)
       .setName(t("settings.backupEnabled.name"))
       .setDesc(t("settings.backupEnabled.desc"))
       .addToggle((t2) =>
         t2.setValue(S.backupEnabled).onChange(async (v) => {
           S.backupEnabled = v;
           await this.plugin.saveSettings();
-          this.display();
+          this.update();
         })
       );
 
     if (S.backupEnabled) {
-      new Setting(containerEl)
+      new Setting(container)
         .setName(t("settings.backupInterval.name"))
         .addText((t2) =>
           t2.setValue(String(S.backupIntervalMinutes)).onChange(async (v) => {
@@ -585,7 +678,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
         );
 
-      new Setting(containerEl)
+      new Setting(container)
         .setName(t("settings.backupKeepCount.name"))
         .setDesc(t("settings.backupKeepCount.desc"))
         .addText((t2) =>
@@ -596,16 +689,223 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
         );
 
-      new Setting(containerEl)
+      new Setting(container)
         .setName(t("settings.backupNow.name"))
         .addButton((b) =>
           b.setButtonText(t("settings.backupNow.btn")).onClick(() => this.plugin.backupProjectNow())
         );
     }
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.appearance"), attr: { "data-cat": "Interface", "data-open": "1" } });
+  }
+  private renderEcritureCategory(container: HTMLElement): void {
+    const S = this.plugin.settings;
 
-    new Setting(containerEl)
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.liveTypography") });
+
+
+    new Setting(container)
+      .setName(t("settings.indentParagraphs.name"))
+      .setDesc(t("settings.indentParagraphs.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.indentParagraphs).onChange(async (v) => {
+          S.indentParagraphs = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyIndentClass();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.liveApostrophe.name"))
+      .setDesc(t("settings.liveApostrophe.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.liveApostrophe).onChange(async (v) => {
+          S.liveApostrophe = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.liveGuillemets.name"))
+      .setDesc(t("settings.liveGuillemets.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.liveGuillemets).onChange(async (v) => {
+          S.liveGuillemets = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.liveDashes.name"))
+      .setDesc(t("settings.liveDashes.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.liveDashes).onChange(async (v) => {
+          S.liveDashes = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.liveTwoEnters.name"))
+      .setDesc(t("settings.liveTwoEnters.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.liveTwoEnters).onChange(async (v) => {
+          S.liveTwoEnters = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.liveDoubleEnter.name"))
+      .setDesc(t("settings.liveDoubleEnter.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.liveDoubleEnter).onChange(async (v) => {
+          S.liveDoubleEnter = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.liveEmptyLines.name"))
+      .setDesc(t("settings.liveEmptyLines.desc"))
+      .addDropdown((d) =>
+        d
+          .addOption("normal", t("settings.liveEmptyLines.normal"))
+          .addOption("reduit", t("settings.liveEmptyLines.reduced"))
+          .addOption("invisible", t("settings.liveEmptyLines.invisible"))
+          .setValue(S.liveEmptyLines)
+          .onChange(async (v) => {
+            S.liveEmptyLines = v as DefaultSettings["liveEmptyLines"];
+            await this.plugin.saveSettings();
+            this.plugin.applyLiveTypoClasses();
+          })
+      );
+
+    new Setting(container)
+      .setName(t("settings.liveHyphenation.name"))
+      .setDesc(t("settings.liveHyphenation.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.liveHyphenation).onChange(async (v) => {
+          S.liveHyphenation = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyLiveTypoClasses();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.liveJustify.name"))
+      .setDesc(t("settings.liveJustify.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.liveJustify).onChange(async (v) => {
+          S.liveJustify = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyLiveTypoClasses();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.readingMatchLive.name"))
+      .setDesc(t("settings.readingMatchLive.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.readingMatchLive !== false).onChange(async (v) => {
+          S.readingMatchLive = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyLiveTypoClasses();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.readingFontSize.name"))
+      .setDesc(t("settings.readingFontSize.desc"))
+      .addSlider((s) =>
+        s
+          .setLimits(0, 28, 1)
+          .setValue(S.readingFontSize)
+          .setDynamicTooltip()
+          .onChange(async (v) => {
+            S.readingFontSize = v;
+            await this.plugin.saveSettings();
+            this.plugin.applyLiveTypoClasses();
+          })
+      );
+
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.sceneMerge") });
+
+
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(
+      t("settings.sceneMerge.intro")
+    );
+
+    new Setting(container)
+      .setName(t("settings.mergeYamlPreset.name"))
+      .setDesc(t("settings.mergeYamlPreset.desc"))
+      .addDropdown((drop) => {
+        Object.entries(YAML_PRESETS).forEach(([key, item]) => {
+          drop.addOption(key, item.label);
+        });
+        drop.setValue(S.mergeYamlPreset);
+        drop.onChange(async (value) => {
+          S.mergeYamlPreset = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(container)
+      .setName(t("settings.mergeMode.name"))
+      .setDesc(t("settings.mergeMode.desc"))
+      .addDropdown((drop) => {
+        drop.addOption("heading", t("settings.mergeMode.heading"));
+        drop.addOption("comment", t("settings.mergeMode.comment"));
+        drop.addOption("continuous", t("settings.mergeMode.continuous"));
+        drop.setValue(S.mergeModeDefault);
+        drop.onChange(async (value) => {
+          S.mergeModeDefault = value as DefaultSettings["mergeModeDefault"];
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(container)
+      .setName(t("settings.autoAnalyzeInRelecture.name"))
+      .setDesc(t("settings.autoAnalyzeInRelecture.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(S.autoAnalyzeInRelecture !== false);
+        toggle.onChange(async (value) => {
+          S.autoAnalyzeInRelecture = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(container)
+      .setName(t("settings.mergeKeepSeparator.name"))
+      .addToggle((toggle) => {
+        toggle.setValue(S.mergeKeepSeparatorDefault);
+        toggle.onChange(async (value) => {
+          S.mergeKeepSeparatorDefault = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(container)
+      .setName(t("settings.mergeSeparator.name"))
+      .setDesc(t("settings.mergeSeparator.desc"))
+      .addTextArea((area) => {
+        area.setValue(S.mergeNotesSeparator);
+        area.inputEl.rows = 3;
+        area.inputEl.addClass("feuillets-input-full");
+        area.onChange(async (value) => {
+          S.mergeNotesSeparator = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+  }
+  private renderInterfaceCategory(container: HTMLElement): void {
+    const S = this.plugin.settings;
+    const refresh = () => this.plugin.refreshView();
+
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.appearance") });
+
+
+    new Setting(container)
       .setName(t("settings.language.name"))
       .setDesc(t("settings.language.desc"))
       .addDropdown((d) =>
@@ -620,11 +920,11 @@ export class FeuilletsSettingTab extends PluginSettingTab {
             setLocale(detectLocale(S));
             this.plugin.renderAllViews(true);
             this.plugin.refreshRibbonIcons();
-            this.display();
+            this.update();
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.fontSize.name"))
       .addSlider((s) =>
         s
@@ -638,7 +938,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.uiScale.name"))
       .addSlider((s) =>
         s
@@ -652,7 +952,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.lineHeight.name"))
       .setDesc(t("settings.lineHeight.desc"))
       .addText((t2) => {
@@ -670,7 +970,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.textWidth.name"))
       .setDesc(t("settings.textWidth.desc"))
       .addText((t2) => {
@@ -688,7 +988,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.baseFontSize.name"))
       .addSlider((sl) => {
         const current = this.plugin.getVaultConfig("baseFontSize");
@@ -698,7 +998,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .onChange((v) => this.plugin.setVaultConfig("baseFontSize", v));
       });
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.textFontFamily.name"))
       .setDesc(t("settings.textFontFamily.desc"))
       .addText((t2) =>
@@ -707,7 +1007,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.monospaceFontFamily.name"))
       .addText((t2) =>
         t2.setValue(String((this.plugin.getVaultConfig("monospaceFontFamily") as string | number | boolean | null | undefined) || "")).onChange((v) => {
@@ -715,7 +1015,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.accentColor.name"))
       .addColorPicker((cp) => {
         const current = this.plugin.getVaultConfig("accentColor");
@@ -723,136 +1023,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         cp.onChange((v) => this.plugin.setVaultConfig("accentColor", v));
       });
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.liveTypography"), attr: { "data-cat": "Écriture", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.focusMode") });
 
-    new Setting(containerEl)
-      .setName(t("settings.indentParagraphs.name"))
-      .setDesc(t("settings.indentParagraphs.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.indentParagraphs).onChange(async (v) => {
-          S.indentParagraphs = v;
-          await this.plugin.saveSettings();
-          this.plugin.applyIndentClass();
-        })
-      );
 
-    new Setting(containerEl)
-      .setName(t("settings.liveApostrophe.name"))
-      .setDesc(t("settings.liveApostrophe.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.liveApostrophe).onChange(async (v) => {
-          S.liveApostrophe = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.liveGuillemets.name"))
-      .setDesc(t("settings.liveGuillemets.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.liveGuillemets).onChange(async (v) => {
-          S.liveGuillemets = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.liveDashes.name"))
-      .setDesc(t("settings.liveDashes.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.liveDashes).onChange(async (v) => {
-          S.liveDashes = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.liveTwoEnters.name"))
-      .setDesc(t("settings.liveTwoEnters.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.liveTwoEnters).onChange(async (v) => {
-          S.liveTwoEnters = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.liveDoubleEnter.name"))
-      .setDesc(t("settings.liveDoubleEnter.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.liveDoubleEnter).onChange(async (v) => {
-          S.liveDoubleEnter = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.liveEmptyLines.name"))
-      .setDesc(t("settings.liveEmptyLines.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("normal", t("settings.liveEmptyLines.normal"))
-          .addOption("reduit", t("settings.liveEmptyLines.reduced"))
-          .addOption("invisible", t("settings.liveEmptyLines.invisible"))
-          .setValue(S.liveEmptyLines)
-          .onChange(async (v) => {
-            S.liveEmptyLines = v as DefaultSettings["liveEmptyLines"];
-            await this.plugin.saveSettings();
-            this.plugin.applyLiveTypoClasses();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.liveHyphenation.name"))
-      .setDesc(t("settings.liveHyphenation.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.liveHyphenation).onChange(async (v) => {
-          S.liveHyphenation = v;
-          await this.plugin.saveSettings();
-          this.plugin.applyLiveTypoClasses();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.liveJustify.name"))
-      .setDesc(t("settings.liveJustify.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.liveJustify).onChange(async (v) => {
-          S.liveJustify = v;
-          await this.plugin.saveSettings();
-          this.plugin.applyLiveTypoClasses();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.readingMatchLive.name"))
-      .setDesc(t("settings.readingMatchLive.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.readingMatchLive !== false).onChange(async (v) => {
-          S.readingMatchLive = v;
-          await this.plugin.saveSettings();
-          this.plugin.applyLiveTypoClasses();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.readingFontSize.name"))
-      .setDesc(t("settings.readingFontSize.desc"))
-      .addSlider((s) =>
-        s
-          .setLimits(0, 28, 1)
-          .setValue(S.readingFontSize)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            S.readingFontSize = v;
-            await this.plugin.saveSettings();
-            this.plugin.applyLiveTypoClasses();
-          })
-      );
-
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.focusMode"), attr: { "data-cat": "Interface", "data-open": "1" } });
-
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("settings.focusUnit.name"))
       .setDesc(t("settings.focusUnit.desc"))
       .addDropdown((d) =>
@@ -866,7 +1040,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("settings.typewriterScroll.name"))
       .setDesc(t("settings.typewriterScroll.desc"))
       .addToggle((t2) =>
@@ -876,7 +1050,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("settings.floatingCounter.name"))
       .setDesc(t("settings.floatingCounter.desc"))
       .addToggle((t2) =>
@@ -887,7 +1061,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("settings.dimOpacity.name"))
       .addSlider((sl) =>
         sl
@@ -904,7 +1078,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("settings.concentrationWidth.name"))
       .addSlider((sl) =>
         sl
@@ -921,10 +1095,11 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.leanInterface"), attr: { "data-cat": "Interface", "data-open": "1" } });
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.leanInterface.desc"));
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.leanInterface") });
 
-    new Setting(containerEl)
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.leanInterface.desc"));
+
+    new Setting(container)
       .setName(t("settings.leanInterface.suggestedValues.name"))
       .setDesc(t("settings.leanInterface.suggestedValues.desc"))
       .addButton((btn) =>
@@ -941,11 +1116,11 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           this.plugin.applyLeanInterfaceClasses();
           new Notice(t("settings.leanInterface.suggestedValues.applied"));
-          this.display();
+          this.update();
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.hideProperties.name"))
       .setDesc(t("settings.hideProperties.desc"))
       .addToggle((t2) =>
@@ -954,7 +1129,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.hideInlineTitle.name"))
       .setDesc(t("settings.hideInlineTitle.desc"))
       .addToggle((t2) =>
@@ -963,7 +1138,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.hideTabHeader.name"))
       .setDesc(t("settings.hideTabHeader.desc"))
       .addToggle((t2) =>
@@ -973,7 +1148,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.hideRibbon.name"))
       .setDesc(t("settings.hideRibbon.desc"))
       .addToggle((t2) =>
@@ -983,7 +1158,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.transparentPanels.name"))
       .setDesc(t("settings.transparentPanels.desc"))
       .addToggle((t2) =>
@@ -994,7 +1169,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.transparentTabBar.name"))
       .setDesc(t("settings.transparentTabBar.desc"))
       .addToggle((t2) =>
@@ -1005,7 +1180,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.hideVaultSwitcher.name"))
       .setDesc(t("settings.hideVaultSwitcher.desc"))
       .addToggle((t2) =>
@@ -1016,7 +1191,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.dimTabActions.name"))
       .setDesc(t("settings.dimTabActions.desc"))
       .addToggle((t2) =>
@@ -1028,92 +1203,33 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.leanInterface.goFurther"));
-    const goFurther = containerEl.createDiv({ cls: "feuillets-tags" });
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.leanInterface.goFurther"));
+    const goFurther = container.createDiv({ cls: "feuillets-tags" });
     this.storeLinkButton(goFurther, t("settings.leanInterface.themeMinimal"), () => this.openAppearanceTab());
     this.storeLinkButton(goFurther, t("settings.leanInterface.pluginHider"), () => this.openCommunityPluginsSearch("Hider"));
     this.storeLinkButton(goFurther, t("settings.leanInterface.pluginStyleSettings"), () => this.openCommunityPluginsSearch("Style Settings"));
     this.storeLinkButton(goFurther, t("settings.leanInterface.pluginMinimalSettings"), () => this.openCommunityPluginsSearch("Minimal Theme Settings"));
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.sceneMerge"), attr: { "data-cat": "Écriture", "data-open": "1" } });
+  }
+  private renderPanneauxCategory(container: HTMLElement): void {
+    const S = this.plugin.settings;
+    const mode = this.plugin.projectMode();
+    const unit = this.plugin.unitLabel();
+    const refresh = () => this.plugin.refreshView();
+    const root = this.plugin.getProjectFolder();
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      t("settings.sceneMerge.intro")
-    );
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.boardPanel") });
 
-    new Setting(containerEl)
-      .setName(t("settings.mergeYamlPreset.name"))
-      .setDesc(t("settings.mergeYamlPreset.desc"))
-      .addDropdown((drop) => {
-        Object.entries(YAML_PRESETS).forEach(([key, item]) => {
-          drop.addOption(key, item.label);
-        });
-        drop.setValue(S.mergeYamlPreset);
-        drop.onChange(async (value) => {
-          S.mergeYamlPreset = value;
-          await this.plugin.saveSettings();
-        });
-      });
 
-    new Setting(containerEl)
-      .setName(t("settings.mergeMode.name"))
-      .setDesc(t("settings.mergeMode.desc"))
-      .addDropdown((drop) => {
-        drop.addOption("heading", t("settings.mergeMode.heading"));
-        drop.addOption("comment", t("settings.mergeMode.comment"));
-        drop.addOption("continuous", t("settings.mergeMode.continuous"));
-        drop.setValue(S.mergeModeDefault);
-        drop.onChange(async (value) => {
-          S.mergeModeDefault = value as DefaultSettings["mergeModeDefault"];
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.autoAnalyzeInRelecture.name"))
-      .setDesc(t("settings.autoAnalyzeInRelecture.desc"))
-      .addToggle((toggle) => {
-        toggle.setValue(S.autoAnalyzeInRelecture !== false);
-        toggle.onChange(async (value) => {
-          S.autoAnalyzeInRelecture = value;
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.mergeKeepSeparator.name"))
-      .addToggle((toggle) => {
-        toggle.setValue(S.mergeKeepSeparatorDefault);
-        toggle.onChange(async (value) => {
-          S.mergeKeepSeparatorDefault = value;
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.mergeSeparator.name"))
-      .setDesc(t("settings.mergeSeparator.desc"))
-      .addTextArea((area) => {
-        area.setValue(S.mergeNotesSeparator);
-        area.inputEl.rows = 3;
-        area.inputEl.addClass("feuillets-input-full");
-        area.onChange(async (value) => {
-          S.mergeNotesSeparator = value;
-          await this.plugin.saveSettings();
-        });
-      });
-
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.boardPanel"), attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
-
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.boardPanel.intro")
     );
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.boardPanel.arcsIntro", { unit })
     );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.tileSize.name"))
       .setDesc(t("settings.tileSize.desc"))
       .addSlider((s) =>
@@ -1128,7 +1244,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.columns.name"))
       .setDesc(t("settings.columns.desc"))
       .addSlider((s) =>
@@ -1143,7 +1259,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.cardContent.name"))
       .setDesc(t("settings.cardContent.desc"))
       .addDropdown((d) =>
@@ -1158,7 +1274,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.showCardTags.name"))
       .setDesc(t("settings.showCardTags.desc"))
       .addToggle((t2) =>
@@ -1169,7 +1285,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.excerptLength.name"))
       .addText((t2) =>
         t2.setValue(String(S.excerptLength)).onChange(async (v) => {
@@ -1180,7 +1296,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.showProgress.name"))
       .setDesc(t("settings.showProgress.desc"))
       .addToggle((t2) =>
@@ -1191,9 +1307,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.startupPanels"), attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.startupPanels") });
 
-    new Setting(containerEl)
+
+    new Setting(container)
       .setName(t("settings.autoOpenBinder.name"))
       .setDesc(t("settings.autoOpen.leftSidebar"))
       .addToggle((t2) =>
@@ -1203,7 +1320,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.autoOpenResearch.name"))
       .setDesc(t("settings.autoOpen.rightSidebar"))
       .addToggle((t2) =>
@@ -1213,7 +1330,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.autoOpenNotes.name"))
       .setDesc(t("settings.autoOpen.rightSidebar"))
       .addToggle((t2) =>
@@ -1223,7 +1340,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.autoOpenJournal.name"))
       .setDesc(t("settings.autoOpen.rightSidebar"))
       .addToggle((t2) =>
@@ -1233,7 +1350,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.autoOpenProject.name"))
       .setDesc(t("settings.autoOpen.rightSidebar"))
       .addToggle((t2) =>
@@ -1243,7 +1360,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.autoOpenProperties.name"))
       .setDesc(t("settings.autoOpen.rightSidebar"))
       .addToggle((t2) =>
@@ -1253,7 +1370,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.autoOpenDocxReview.name"))
       .setDesc(t("settings.autoOpenDocxReview.desc"))
       .addToggle((t2) =>
@@ -1263,14 +1380,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.activeViews") });
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.activeViews"), attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.activeViews.intro")
     );
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.activeViews.boardModes")
     );
     const meta = root ? S.projectMeta[root.path] : null;
@@ -1278,7 +1395,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const hiddenModes = new Set(projectHiddenModes);
     for (const [key] of BOARD_MODES) {
       const label = t(`board.mode.${key}`);
-      new Setting(containerEl).setName(label).addToggle((t2) =>
+      new Setting(container).setName(label).addToggle((t2) =>
         t2.setValue(!hiddenModes.has(key)).onChange(async (v) => {
           const set = new Set(projectHiddenModes);
           if (v) set.delete(key);
@@ -1294,7 +1411,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
     }
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.activeViews.sidePanels")
     );
     const hiddenPanels = new Set(S.hiddenPanels || []);
@@ -1306,7 +1423,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       docxReview: t("settings.activeViews.docxReviewPanel"),
     };
     for (const { key } of HIDEABLE_PANELS) {
-      new Setting(containerEl).setName(panelLabels[key] || key).addToggle((t2) =>
+      new Setting(container).setName(panelLabels[key] || key).addToggle((t2) =>
         t2.setValue(!hiddenPanels.has(key)).onChange(async (v) => {
           if (!v) {
             await this.plugin.hidePanel(key);
@@ -1321,9 +1438,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
     }
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: "Binder", attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: "Binder" });
 
-     new Setting(containerEl)
+
+     new Setting(container)
       .setName(t("binder.display.labelStripes"))
       .addToggle((t2) =>
         t2.setValue(S.binderShowLabels).onChange(async (v) => {
@@ -1333,7 +1451,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("binder.display.tagChips"))
       .addToggle((t2) =>
         t2.setValue(S.binderShowTags).onChange(async (v) => {
@@ -1343,7 +1461,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("binder.display.statusDot"))
       .addToggle((t2) =>
         t2.setValue(S.binderShowStatus).onChange(async (v) => {
@@ -1353,7 +1471,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("binder.display.progressBars"))
       .addToggle((t2) =>
         t2.setValue(S.binderShowProgress).onChange(async (v) => {
@@ -1363,7 +1481,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("binder.display.wordCountNumbers"))
       .addToggle((t2) =>
         t2.setValue(S.binderShowWords).onChange(async (v) => {
@@ -1373,7 +1491,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("settings.previewField.name"))
       .setDesc(t("settings.previewField.desc"))
       .addDropdown((d) =>
@@ -1392,7 +1510,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("settings.previewLines.name"))
       .addSlider((s) =>
         s
@@ -1406,7 +1524,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("settings.splitRecursive.name"))
       .setDesc(t("settings.splitRecursive.desc"))
       .addToggle((t2) =>
@@ -1419,7 +1537,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-     new Setting(containerEl)
+     new Setting(container)
       .setName(t("settings.swipeGestures.name"))
       .setDesc(t("settings.swipeGestures.desc"))
       .addToggle((t2) =>
@@ -1429,9 +1547,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.notesPanel"), attr: { "data-cat": "Panneaux latéraux", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.notesPanel") });
 
-    new Setting(containerEl)
+
+    new Setting(container)
       .setName(t("settings.notesShowEntities.name"))
       .setDesc(
         (() => {
@@ -1456,7 +1575,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.notesShowFootnotes.name"))
       .setDesc(t("settings.notesShowFootnotes.desc", { unit }))
       .addToggle((t2) =>
@@ -1467,7 +1586,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.notesShowSynopsis.name"))
       .addToggle((t2) =>
         t2.setValue(S.notesShowSynopsis).onChange(async (v) => {
@@ -1477,7 +1596,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.notesShowResume.name"))
       .addToggle((t2) =>
         t2.setValue(S.notesShowResume).onChange(async (v) => {
@@ -1487,7 +1606,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.notesShowNotes.name"))
       .addToggle((t2) =>
         t2.setValue(S.notesShowNotes).onChange(async (v) => {
@@ -1497,26 +1616,36 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.notesSectionOrder.name"))
       .setDesc(t("settings.notesSectionOrder.desc"));
 
-    const orderWrapNotes = containerEl.createDiv({ cls: "feuillets-notes-order-wrap" });
+    const orderWrapNotes = container.createDiv({ cls: "feuillets-notes-order-wrap" });
     this.renderSectionOrderList(orderWrapNotes, S, "notesSectionOrder", ["Synopsis", "Résumé", "Notes"], refresh);
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.grammarCheck"), attr: { "data-cat": "Correction", "data-open": "1" } });
+  }
+  private renderCorrectionCategory(container: HTMLElement): void {
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.grammarCheck") });
+
 
     /* Section volontairement non interactive : Feuillets ne fournit plus de
        correcteur grammatical (voir README, « Correction grammaticale »). On
        informe plutot que de laisser croire a une panne, et on ne detecte ni
        ne configure aucun greffon tiers — aucune API privee n'est appelee. */
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.grammarExternal.name"))
       .setDesc(t("settings.grammarExternal.desc"));
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilation"), attr: { "data-cat": "Export", "data-open": "1" } });
+  }
+  private renderExportCategory(container: HTMLElement): void {
+    const S = this.plugin.settings;
+    const unitPlural = this.plugin.unitLabelPlural();
+    const refresh = () => this.plugin.refreshView();
 
-    new Setting(containerEl)
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.compilation") });
+
+
+    new Setting(container)
       .setName(t("settings.compileFileName.name"))
       .setDesc(t("settings.compileFileName.desc"))
       .addText((t2) =>
@@ -1526,7 +1655,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
     );
 
-    new Setting(containerEl)
+    container.createDiv({ cls: "feuillets-settings-subhead", text: "Structure" });
+
+
+    new Setting(container)
       .setName(t("settings.insertFolderTitles.name"))
       .addToggle((t2) =>
         t2.setValue(S.insertFolderTitles).onChange(async (v) => {
@@ -1535,7 +1667,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.insertTitles.name"))
       .setDesc(t("settings.insertTitles.desc"))
       .addToggle((t2) =>
@@ -1545,7 +1677,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.insertSceneTitles.name", { unitPlural }))
       .setDesc(t("settings.insertSceneTitles.desc", { unitPlural }))
       .addToggle((t2) =>
@@ -1555,7 +1687,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    container.createDiv({ cls: "feuillets-settings-subhead", text: "Notes" });
+
+
+    new Setting(container)
       .setName(t("settings.footnoteRenumberOnCompile.name"))
       .setDesc(t("settings.footnoteRenumberOnCompile.desc"))
       .addToggle((t2) =>
@@ -1565,7 +1700,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    container.createDiv({ cls: "feuillets-settings-subhead", text: "Pages liminaires" });
+
+
+    new Setting(container)
       .setName(t("settings.manuscriptTitle.name"))
       .setDesc(t("settings.manuscriptTitle.desc"))
       .addText((t2) =>
@@ -1575,7 +1713,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.manuscriptAuthor.name"))
       .addText((t2) =>
         t2.setValue(S.manuscriptAuthor).onChange(async (v) => {
@@ -1584,14 +1722,36 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.compilePresets"), attr: { "data-cat": "Export", "data-open": "1" } });
+    /* La maquette reste un outil d'édition visuelle, mais son seul point
+       d'entrée est désormais le centre Export. Elle modifie directement le
+       gabarit actif (marges et espacements des blocs), sans état local ni
+       seconde copie de réglages. */
+    new Setting(container)
+      .setName("Mise en page visuelle")
+      .setDesc("Ajuster visuellement les marges et les espacements de la page de titre du gabarit actif.")
+      .addButton((button) =>
+        button.setButtonText("Modifier la page de titre").onClick(() => {
+          const key = S.exportTemplate;
+          const label = EXPORT_TEMPLATES[key]?.label || key;
+          new LayoutModal(
+            this.app,
+            this.plugin,
+            key,
+            label,
+            () => this.update()
+          ).open();
+        })
+      );
+
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.compilePresets") });
+
 
     (S.compilePresets as PresetConfig[] || []).forEach((p, i) => {
       // Une carte par preset, une ligne étiquetée par champ : l'ancienne
       // version tassait nom + fichier + 3 interrupteurs sans libellé (juste
       // une infobulle au survol) sur une seule ligne — illisible sans
       // deviner ce que chaque interrupteur faisait.
-      const card = containerEl.createDiv({ cls: "feuillets-merge-card" });
+      const card = container.createDiv({ cls: "feuillets-merge-card" });
       const cardHead = card.createDiv({ cls: "feuillets-preset-card-head" });
       cardHead.createSpan({ cls: "feuillets-merge-card-title", text: p.name || t("settings.compilePresets.item", { n: String(i + 1) }) });
       const delBtn = cardHead.createEl("button", { cls: "clickable-icon", attr: { "aria-label": t("settings.compilePresets.deleteAria") } });
@@ -1601,7 +1761,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           S.compilePresets.splice(i, 1);
           if (S.activePreset >= S.compilePresets.length) S.activePreset = -1;
           await this.plugin.saveSettings();
-          this.display();
+          this.update();
           refresh();
         })();
       });
@@ -1648,7 +1808,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         );
     });
 
-    new Setting(containerEl).addButton((b) =>
+    new Setting(container).addButton((b) =>
       b.setButtonText(t("settings.compilePresets.add")).onClick(async () => {
         (S.compilePresets as PresetConfig[]).push({
           name: t("settings.compilePresets.item", { n: String(S.compilePresets.length + 1) }),
@@ -1658,18 +1818,41 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           sceneTitles: false,
         } as PresetConfig);
         await this.plugin.saveSettings();
-        this.display();
+        this.update();
         refresh();
       })
     );
 
-    containerEl.createDiv({ cls: "feuillets-settings-section", text: t("settings.section.export"), attr: { "data-cat": "Export", "data-open": "1" } });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: "Apparence" });
 
-    containerEl.createDiv({ cls: "setting-item-description" }).setText(
+
+    new Setting(container)
+      .setName("Gabarit")
+      .addDropdown((drop) => {
+        const keys = new Set([...Object.keys(EXPORT_TEMPLATES), S.exportTemplate]);
+        for (const key of keys) drop.addOption(key, EXPORT_TEMPLATES[key]?.label || key);
+        drop.setValue(S.exportTemplate);
+        drop.onChange(async (value) => {
+          S.exportTemplate = value as DefaultSettings["exportTemplate"];
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(container)
+      .setName("Séparateur")
+      .setDesc("Texte inséré entre les feuillets compilés.")
+      .addText((input) =>
+        input.setValue(S.separator).onChange(async (value) => {
+          S.separator = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    container.createDiv({ cls: "setting-item-description" }).setText(
       t("settings.export.engineIntro")
     );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.exportEngine.name"))
       .setDesc(t("settings.exportEngine.desc"))
       .addDropdown((drop) => {
@@ -1682,11 +1865,11 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createDiv({ cls: "setting-item-description" }).setText(
+    container.createDiv({ cls: "setting-item-description" }).setText(
       t("settings.export.layoutModelNote")
     );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.exportFrenchTypography.name"))
       .setDesc(t("settings.exportFrenchTypography.desc"))
       .addToggle((t2) =>
@@ -1696,11 +1879,43 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+    container.createDiv({ cls: "feuillets-settings-subhead", text: "Images" });
+
+    container.createDiv({ cls: "setting-item-description" }).setText(
+      "Les images référencées dans les feuillets sont reprises par la compilation et l'export."
+    );
+
+    container.createDiv({ cls: "feuillets-settings-subhead", text: "Formats d’export" });
+
+    new Setting(container)
+      .setName(t("project.compilation.formatLabel"))
+      .addDropdown((drop) => {
+        drop.addOption("docx", ".docx (Word)");
+        drop.addOption("odt", ".odt (LibreOffice)");
+        drop.addOption("epub", ".epub (Ebook)");
+        drop.addOption("md", ".md (Markdown)");
+        if (!Platform.isMobile) drop.addOption("pdf", ".pdf (PDF)");
+        const format = typeof S.exportFormat === "string" ? S.exportFormat : "docx";
+        drop.setValue(format);
+        drop.onChange(async (value) => {
+          S.exportFormat = value as DefaultSettings["exportFormat"];
+          await this.plugin.saveSettings();
+          this.update();
+        });
+      });
+
+    const selectedExportFormat: string = typeof S.exportFormat === "string" ? S.exportFormat : "docx";
+
+    if (selectedExportFormat === "pdf") {
+
+    container.createDiv({ cls: "feuillets-settings-subhead", text: "Page" });
+
+
+    container.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.export.pdfOnlyHeader")
     );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfHeaderLeft.name"))
       .setDesc(t("settings.pdfHeaderLeft.desc"))
       .addText((t2) =>
@@ -1710,7 +1925,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfHeaderRight.name"))
       .setDesc(t("settings.pdfHeaderRight.desc"))
       .addText((t2) =>
@@ -1720,7 +1935,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfDiffHeaders.name"))
       .setDesc(t("settings.pdfDiffHeaders.desc"))
       .addToggle((t2) =>
@@ -1730,7 +1945,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfHideFirstPageHeader.name"))
       .addToggle((t2) =>
         t2.setValue(S.pdfHideFirstPageHeader ?? true).onChange(async (v) => {
@@ -1739,7 +1954,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfPageNumberPosition.name"))
       .addDropdown((d) =>
         d
@@ -1753,7 +1968,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfFooterRight.name"))
       .setDesc(t("settings.pdfFooterRight.desc"))
       .addText((t2) =>
@@ -1763,7 +1978,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfPageSize.name"))
       .addDropdown((d) =>
         d
@@ -1778,7 +1993,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfMarginTop.name"))
       .addText((t2) =>
         t2.setValue(String(S.pdfMarginTop ?? 2.5)).onChange(async (v) => {
@@ -1788,7 +2003,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfMarginLeft.name"))
       .addText((t2) =>
         t2.setValue(String(S.pdfMarginLeft ?? 2.5)).onChange(async (v) => {
@@ -1797,7 +2012,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pdfMirrorMargins.name"))
       .addToggle((t2) =>
         t2.setValue(!!S.pdfMirrorMargins).onChange(async (v) => {
@@ -1806,11 +2021,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      t("settings.export.epubOnlyHeader")
-    );
+    }
 
-    new Setting(containerEl)
+    if (selectedExportFormat === "epub") {
+      container.createDiv({ cls: "feuillets-notes-sub" }).setText(
+      t("settings.export.epubOnlyHeader")
+      );
+
+    new Setting(container)
       .setName(t("settings.epubLanguage.name"))
       .setDesc(t("settings.epubLanguage.desc"))
       .addText((t2) =>
@@ -1820,11 +2038,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      t("settings.export.pandocOnlyHeader")
-    );
+    }
 
-    new Setting(containerEl)
+    if (selectedExportFormat === "docx" || selectedExportFormat === "odt") {
+      container.createDiv({ cls: "feuillets-notes-sub" }).setText(
+      t("settings.export.pandocOnlyHeader")
+      );
+
+    new Setting(container)
       .setName(t("settings.pandocReference.name"))
       .setDesc(t("settings.pandocReference.desc"))
       .addText((t2) =>
@@ -1834,7 +2055,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
+    new Setting(container)
       .setName(t("settings.pandocPath.name"))
       .setDesc(t("settings.pandocPath.desc"))
       .addText((t2) =>
@@ -1844,115 +2065,19 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    this.organizeSections(containerEl);
+    }
+
   }
 
-  /** Regroupe les réglages en onglets (Projet, Écriture, Interface,
-   * Panneaux latéraux, Correction, Export) avec sous-sections repliables.
-   *
-   * Stratégie en deux temps :
-   *   1. Classifier — parcourir containerEl.children, lire les marqueurs
-   *      .feuillets-settings-section pour savoir où va chaque nœud.
-   *      Aucune modification du DOM à ce stade.
-   *   2. Reconstruire — containerEl.empty(), puis réinsérer l'en-tête,
-   *      la barre d'onglets et les panneaux. Les nœuds détachés lors du
-   *      empty() sont réassignés à leur <details> via appendChild.
-   *
-   * style.display = "none" plutôt que toggleVisibility() : comportement
-   * garanti identique dans toutes les versions d'Obsidian. */
-  organizeSections(containerEl: HTMLElement): void {
-    const ORDER = ["Projet", "Écriture", "Interface", "Panneaux latéraux", "Correction", "Export"];
-    const CATEGORY_LABELS: Record<string, string> = {
-      "Projet": t("settings.category.project"),
-      "Écriture": t("settings.category.writing"),
-      "Interface": t("settings.category.interface"),
-      "Panneaux latéraux": t("settings.category.sidePanels"),
-      "Correction": t("settings.category.grammar"),
-      "Export": t("settings.category.export"),
-    };
-
-    // --- Passe 1 : classification, sans toucher au DOM ---
-    type SubSection = { title: string | null; openByDefault?: boolean; nodes: HTMLElement[] };
-    const byCategory: Record<string, SubSection[]> = {};
-    for (const name of ORDER) byCategory[name] = [];
-    let currentCategory = "Projet";
-    let currentSub: SubSection | null = null;
-    let header: HTMLElement | null = null;
-
-    for (const node of Array.from(containerEl.children) as HTMLElement[]) {
-      if (node.classList.contains("feuillets-settings-header")) {
-        header = node; // conservé séparément, réinséré après empty()
-        continue;
-      }
-      if (node.classList.contains("feuillets-settings-section")) {
-        /* La catégorie est portée par l'attribut data-cat du marqueur,
-           posé à la création — voir les createDiv({ attr: { "data-cat": … }})
-           dans display(). Un marqueur sans data-cat valide avertit en console
-           et tombe dans "Projet" plutôt que de disparaître silencieusement. */
-        const cat = node.getAttr("data-cat");
-        if (!cat || !ORDER.includes(cat)) {
-          console.warn(`Feuillets : section "${node.textContent}" sans data-cat valide — Projet par défaut.`);
-        }
-        currentCategory = (cat && ORDER.includes(cat)) ? cat : "Projet";
-        /* data-open sur le marqueur plutôt qu'une comparaison avec le titre
-           traduit : la comparaison casserait silencieusement en anglais. */
-        currentSub = {
-          title: node.textContent,
-          openByDefault: node.getAttr("data-open") === "1",
-          nodes: [],
-        };
-        byCategory[currentCategory].push(currentSub);
-        continue; // le marqueur lui-même ne sera pas réinséré
-      }
-      if (currentSub) currentSub.nodes.push(node);
-      else byCategory[currentCategory].push({ title: null, nodes: [node] });
-    }
-
-    if (!this._activeSettingsTab || !ORDER.includes(this._activeSettingsTab)) {
-      this._activeSettingsTab = ORDER[0];
-    }
-
-    // --- Reconstruction : table rase puis réinsertion ---
-    // containerEl.empty() détache tous les nœuds mais leurs références JS
-    // (stockées dans byCategory) restent valides — on peut les réappendre.
-    containerEl.empty();
-    if (header) containerEl.appendChild(header);
-
-    // Passe 2 : barre d'onglets
-    const tabBar = containerEl.createDiv({ cls: "feuillets-settings-tabs" });
-    for (const name of ORDER) {
-      const btn = tabBar.createEl("button", {
-        cls: "feuillets-settings-tab-btn",
-        text: CATEGORY_LABELS[name] || name,
-      });
-      if (name === this._activeSettingsTab) btn.addClass("is-active");
-      btn.addEventListener("click", () => {
-        if (this._activeSettingsTab === name) return;
-        this._activeSettingsTab = name;
-        this.display();
-      });
-    }
-
-    // Passe 3 : panneaux — un seul visible, les autres cachés.
-    // style.display plutôt que toggleVisibility() : comportement garanti
-    // identique dans toutes les versions d'Obsidian.
-    for (const name of ORDER) {
-      const panel = containerEl.createDiv({ cls: "feuillets-settings-panel" });
-      if (name !== this._activeSettingsTab) panel.setCssProps({ display: "none" });
-
-      for (const sub of byCategory[name]) {
-        if (!sub.title) {
-          for (const n of sub.nodes) panel.appendChild(n);
-          continue;
-        }
-        // createEl() Obsidian plutôt que document.createElement() :
-        // les méthodes Obsidian (addClass, setText…) sont disponibles sur l'élément.
-        const subDet = panel.createEl("details", { cls: "feuillets-settings-subsection" });
-        if (sub.openByDefault) subDet.setAttribute("open", "");
-        subDet.createEl("summary", { cls: "feuillets-settings-subhead", text: sub.title });
-        for (const n of sub.nodes) subDet.appendChild(n);
-      }
-    }
+  /** Compatibilité : `open-export-settings.ts` appelle ce nom sur l'instance
+   * active pour sauter directement sur « Export ». Pas `display()` : une fois
+   * `getSettingDefinitions()` non vide, Obsidian considère toute méthode
+   * `display()` comme un reliquat de l'API dépréciée et le signale — même
+   * si son corps ne fait qu'appeler `update()`. Ce nom neutre évite
+   * l'avertissement tout en gardant le même contrat (voir aussi
+   * project-view.ts, preview-view.ts et leurs tests). */
+  refreshForExternalCallers(): void {
+    this.update();
   }
 
 

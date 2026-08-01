@@ -119,12 +119,19 @@ export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
 /**
  * @param {import("obsidian").App} app
  * @param {import("./types.d.ts").FeuilletsSettings} settings
+ * @param {string|null} [scopePath] fichier ou dossier à compiler ; repli sur
+ * le manuscrit complet pour préserver tous les anciens appels.
  * @returns {Promise<CompileResult|null>}
  */
-export async function compile(app: App, settings: FeuilletsSettings) {
+export async function compile(app: App, settings: FeuilletsSettings, scopePath: string | null = null) {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    return null;
+  }
+  const scoped = scopePath ? app.vault.getAbstractFileByPath(normalizePath(scopePath)) : folder;
+  if (!(scoped instanceof TFolder) && !(scoped instanceof TFile)) {
+    new Notice("Portée d’export introuvable.");
     return null;
   }
   const P = activePresetConfig(settings);
@@ -301,7 +308,8 @@ export async function compile(app: App, settings: FeuilletsSettings) {
     }
   };
   try {
-    await walk(folder, 0);
+    if (scoped instanceof TFile) await pushFile(scoped, roleOfFile(app, settings, scoped), 0);
+    else await walk(scoped, 0);
   } catch (e) {
     // Jamais une exception non gérée qui remonterait comme un plantage
     // générique : un message contextualisé (feuillet + étape), le reste du
@@ -416,16 +424,17 @@ export function listCompiledFilePaths(app: App, settings: FeuilletsSettings) {
  * @param {import("obsidian").App} app
  * @param {import("./types.d.ts").FeuilletsSettings} settings
  * @param {string} format
+ * @param {string|null} [scopePath]
  * @returns {Promise<void>}
  */
-export async function exportFile(app: App, settings: FeuilletsSettings, format = "docx") {
+export async function exportFile(app: App, settings: FeuilletsSettings, format = "docx", scopePath: string | null = null) {
   /* Le PDF n'a jamais été un format Pandoc de ce plugin (ça demanderait
      LaTeX, hors périmètre) — il passe toujours par le moteur natif
      (impression), quel que soit exportEngine. */
   if (settings.exportEngine === "pandoc" && format !== "pdf") {
-    return exportViaPandoc(app, settings, format);
+    return exportViaPandoc(app, settings, format, scopePath);
   }
-  return exportViaNative(app, settings, format);
+  return exportViaNative(app, settings, format, scopePath);
 }
 
 /** Compile puis rend via le moteur natif (MarkdownRenderer d'Obsidian +
@@ -439,13 +448,13 @@ export async function exportFile(app: App, settings: FeuilletsSettings, format =
  * @param {string} format
  * @returns {Promise<void>}
  */
-async function exportViaNative(app: App, settings: FeuilletsSettings, format: string) {
+async function exportViaNative(app: App, settings: FeuilletsSettings, format: string, scopePath: string | null = null) {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return;
   }
-  const result = await compile(app, settings);
+  const result = await compile(app, settings, scopePath);
   if (!result) return;
 
   const meta = projectMetaFor(settings, folder);
@@ -544,7 +553,7 @@ async function writeBinaryFile(app: App, path: string, data: Uint8Array | Blob |
  * @param {string} format
  * @returns {Promise<void>}
  */
-async function exportViaPandoc(app: App, settings: FeuilletsSettings, format = "docx") {
+async function exportViaPandoc(app: App, settings: FeuilletsSettings, format = "docx", scopePath: string | null = null) {
   /* Pandoc passe par child_process : indisponible sur mobile. On le dit
      clairement plutôt que d'échouer en silence sur une promesse non tenue. */
   if (!Platform.isDesktop) {
@@ -555,7 +564,7 @@ async function exportViaPandoc(app: App, settings: FeuilletsSettings, format = "
   const S = settings;
   const folder = getProjectFolder(app, settings);
   if (!folder) return;
-  const result = await compile(app, settings);
+  const result = await compile(app, settings, scopePath);
   if (!result) return;
 
   let execFile: typeof import("child_process").execFile;

@@ -127,7 +127,8 @@ type MeasurableElement = ScrollLike &
  * Obsidian lui-même. */
 const SOURCE_SCROLLER_SELECTORS = [".cm-scroller", ".markdown-preview-view", ".markdown-source-view"];
 
-/** Classe du conteneur d'une vue Scrivening (voir views/scrivenings-editor.ts). */
+/** Sélecteur hérité des anciennes vues Scrivening, conservé pour reconnaître
+ * un éditeur déjà ouvert pendant une mise à jour du plugin. */
 export const SCRIVENINGS_WRAPPER_SELECTOR = ".feuillets-scrivenings-wrapper";
 /** Bloc d'une scène dans une vue Scrivening, porteur de son chemin source. */
 export const SCRIVENINGS_SCENE_SELECTOR = ".feuillets-scrivenings-scene";

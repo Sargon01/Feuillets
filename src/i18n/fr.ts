@@ -209,7 +209,6 @@ export const fr = {
   "board.mode.outline": "Plan",
   "board.mode.arcs": "Chemin de fer",
   "board.mode.timeline": "Chronologie",
-  "board.mode.read": "Lecture",
   "board.filter.noPov": "Sans POV",
   "board.filter.povHeader": "— POV —",
   "board.filter.tooltip": "Filtres (statut, label, POV, progression)",
@@ -254,9 +253,6 @@ export const fr = {
   "board.options.scaleMonth": "Échelle : mois",
   "board.options.scaleDay": "Échelle : jour",
   "board.options.scaleNone": "Échelle : sans en-têtes",
-  "board.options.readingHeader": "— Lecture —",
-  "board.options.editManualSelection": "Modifier la sélection manuelle…",
-  "board.options.manualSelection": "Sélection manuelle…",
 
   "board.col.title": "Feuillet",
   "board.col.synopsis": "Synopsis",
@@ -288,8 +284,6 @@ export const fr = {
 
   "board.outline.notesPlaceholder": "Notes…",
 
-  "board.reading.noSelection": "Aucun feuillet sélectionné — choisis « Sélection manuelle… » dans le menu.",
-  "board.reading.noneMatchFilters": "Aucun feuillet ne passe les filtres actifs.",
 
   "board.arcs.empty": "Aucun label, fil ni POV détecté. Ajoute label: Nom, thread: indice ou pov: Nom dans le YAML pour construire le chemin de fer.",
   "board.arcs.filterByTooltip": "Filtrer par {name}",
@@ -408,7 +402,7 @@ export const fr = {
   "sidebar.tab.notes": "Notes du feuillet",
   "sidebar.tab.research": "Recherche & extraits",
   "sidebar.tab.journal": "Journal & statistiques",
-  "sidebar.tab.project": "Export & révision (.docx)",
+  "sidebar.tab.project": "Révision (.docx)",
   "sidebar.tab.analysis": "Analyse du texte",
   "sidebar.tab.proofreading": "Relecture",
 
@@ -706,7 +700,7 @@ export const fr = {
   "settings.readingMatchLive.name": "Mode lecture : même interligne qu'en Live Preview",
   "settings.readingMatchLive.desc": "Aligne l'interligne et l'espacement des paragraphes du mode lecture sur ceux de l'éditeur.",
   "settings.readingFontSize.name": "Taille du texte en mode lecture",
-  "settings.readingFontSize.desc": "Couvre le mode lecture natif d'Obsidian ET le mode Lecture du tableau/plan (Feuillets). Obsidian lie normalement cette taille à celle du Live Preview. 0 = taille par défaut d'Obsidian (partagée) ; toute autre valeur ne change que la lecture.",
+  "settings.readingFontSize.desc": "Règle le mode lecture natif d'Obsidian. Obsidian lie normalement cette taille à celle du Live Preview. 0 = taille par défaut d'Obsidian (partagée) ; toute autre valeur ne change que la lecture.",
   "settings.lineHeight.name": "Hauteur de ligne",
   "settings.lineHeight.desc": "Multiplicateur (ex. 1.75) appliqué à l'édition et à la lecture du feuillet actif. Aucun réglage natif équivalent dans Obsidian. Vide/0 = valeur du thème.",
   "settings.lineHeight.placeholder": "1.75",
@@ -1088,9 +1082,6 @@ export const fr = {
   "modal.compileSelection.title": "Feuillets à compiler",
   "modal.compileSelection.desc": "Décocher un feuillet écrit compile: false dans son frontmatter — il reste visible et numéroté, mais saute à l'export.",
 
-  "modal.readSelection.title": "Sélection de feuillets à lire",
-  "modal.readSelection.readBtn": "Lire la sélection",
-
   "modal.stats.characters": "Caractères",
   "modal.stats.withoutSpaces": "Sans espaces",
   "modal.stats.wordsPerSentence": "Mots/phrase",
@@ -1177,6 +1168,14 @@ export const fr = {
   "modal.layout.enableHeader": "Activer l'en-tête",
   "modal.layout.alternating": "Alternés (paires/impaires)",
   "modal.layout.hideOnTitlePage": "Masquer sur la page de titre",
+  "modal.layout.headerCenter": "En-tête centre",
+  "modal.layout.distanceToEdge": "Distance au bord (cm)",
+  "modal.layout.headerBodyGap": "Espace en-tête / corps (pt)",
+  "modal.layout.footerBodyGap": "Espace corps / pied (pt)",
+  "modal.layout.enableFooter": "Activer le pied de page",
+  "modal.layout.footerLeft": "Pied gauche",
+  "modal.layout.footerCenter": "Pied centre",
+  "modal.layout.variables": "Variables : {page}, {pages}, {title}, {author}, {part}, {chapter}.",
   "modal.layout.footerNumber": "Pied de page (numéro)",
   "modal.layout.formatWithVars": "Format ({page}, {pages})",
   "modal.layout.sizePt": "Taille (pt)",

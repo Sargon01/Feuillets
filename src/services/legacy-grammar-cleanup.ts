@@ -83,7 +83,14 @@ type PathModule = { join(...parts: string[]): string };
  * modules Node) et sans effet si rien ne traîne. */
 export function cleanupLegacyEnginesOnDisk(app: unknown, manifest: unknown): string[] {
   if (!Platform.isDesktop) return [];
-  const loader = (globalThis as { require?: NodeModuleLoader }).require;
+  /* `window`, pas `activeWindow` : ce nettoyage se lance une seule fois au
+     démarrage du greffon (onload), avant qu'aucune fenêtre détachée existe,
+     et ne cherche que le chargeur Node (`require`) — jamais un document ou
+     une minuterie propres à la fenêtre affichée. `activeWindow` viserait la
+     fenêtre qui a le focus, ce qui n'a aucun rapport ici et pourrait même
+     pointer sur une fenêtre détachée par erreur si l'utilisatrice en a une
+     au premier plan au redémarrage. */
+  const loader = (window as unknown as { require?: NodeModuleLoader }).require;
   if (typeof loader !== "function") return [];
   try {
     const fs = loader("fs") as FsLike;

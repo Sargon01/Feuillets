@@ -13,6 +13,7 @@ import {
   BookmarkEnd,
   bookmarkUniqueNumericIdGen,
   SectionType,
+  SimpleField,
   VerticalAlignSection,
 } from "docx";
 import type { App } from "obsidian";
@@ -75,13 +76,15 @@ type HeadingDefaults = {
   heading2?: NonNullable<IStylesOptions["default"]>["heading2"];
   heading3?: NonNullable<IStylesOptions["default"]>["heading3"];
 };
-type AlignmentValue = typeof AlignmentType[keyof typeof AlignmentType];
 type HeaderGroup = { default: Header; first?: Header };
 type FooterGroup = { default: Footer; first?: Footer };
 type ExportDocxSettings = FeuilletsSettings & {
   exportTemplate: string;
   pdfHeaderLeft?: string | null;
+  pdfHeaderCenter?: string | null;
   pdfHeaderRight?: string | null;
+  pdfFooterLeft?: string | null;
+  pdfFooterCenter?: string | null;
   pdfFooterRight?: string | null;
   pdfPageNumberPosition?: string | null;
   pdfHideFirstPageHeader?: boolean | null;
@@ -267,9 +270,9 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   }
 
   // Construction dynamique des en-têtes et pieds de page pour Word (.docx)
-  const parseHeaderFooterText = (str: string): TextRun[] => {
+  const parseHeaderFooterText = (str: string): Array<TextRun | SimpleField> => {
     if (!str) return [];
-    const parts = str.split(/(\{page\}|\{pages\})/gi);
+    const parts = str.split(/(\{page\}|\{pages\}|\{part\}|\{chapter\})/gi);
     return parts.map((part) => {
       if (part.toLowerCase() === "{page}") {
         return new TextRun({ children: [PageNumber.CURRENT] });
@@ -277,39 +280,45 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
       if (part.toLowerCase() === "{pages}") {
         return new TextRun({ children: [PageNumber.TOTAL_PAGES] });
       }
+      if (part.toLowerCase() === "{part}") return new SimpleField('STYLEREF "Heading 1"');
+      if (part.toLowerCase() === "{chapter}") return new SimpleField('STYLEREF "Heading 2"');
       const text = part.replace(/\{title\}/gi, title).replace(/\{author\}/gi, author);
       return new TextRun({ text, color: "888888", size: 18 });
     });
   };
 
   const headerLeftStr = docxSettings.pdfHeaderLeft ?? "{title}";
+  const headerCenterStr = docxSettings.pdfHeaderCenter ?? "";
   const headerRightStr = docxSettings.pdfHeaderRight ?? "{author}";
+  const footerLeftStr = docxSettings.pdfFooterLeft ?? "";
+  const footerCenterStr = docxSettings.pdfFooterCenter ?? "";
   const footerRightStr = docxSettings.pdfFooterRight ?? "Page {page} sur {pages}";
-  const pageNumPos = docxSettings.pdfPageNumberPosition || "right"; // "right" | "center" | "left"
-
-  const alignMap: Record<string, AlignmentValue> = {
-    right: AlignmentType.RIGHT,
-    center: AlignmentType.CENTER,
-    left: AlignmentType.LEFT,
-  };
-
   const headerParagraph = new Paragraph({
     alignment: AlignmentType.LEFT,
-    tabStops: [{ type: "right", position: 9000 }],
+    tabStops: [{ type: "center", position: 4500 }, { type: "right", position: 9000 }],
     children: [
       ...parseHeaderFooterText(headerLeftStr),
+      new TextRun("\t"),
+      ...parseHeaderFooterText(headerCenterStr),
       new TextRun("\t"),
       ...parseHeaderFooterText(headerRightStr),
     ],
   });
 
   const footerParagraph = new Paragraph({
-    alignment: alignMap[pageNumPos] || AlignmentType.RIGHT,
-    children: parseHeaderFooterText(footerRightStr),
+    alignment: AlignmentType.LEFT,
+    tabStops: [{ type: "center", position: 4500 }, { type: "right", position: 9000 }],
+    children: [
+      ...parseHeaderFooterText(footerLeftStr),
+      new TextRun("\t"),
+      ...parseHeaderFooterText(footerCenterStr),
+      new TextRun("\t"),
+      ...parseHeaderFooterText(footerRightStr),
+    ],
   });
 
-  const docHeaders: HeaderGroup = { default: new Header({ children: [headerParagraph] }) };
-  const docFooters: FooterGroup = { default: new Footer({ children: [footerParagraph] }) };
+  const docHeaders: HeaderGroup = { default: new Header({ children: docxSettings.pdfEnableHeaders === false ? [] : [headerParagraph] }) };
+  const docFooters: FooterGroup = { default: new Footer({ children: docxSettings.pdfEnableFooters === false ? [] : [footerParagraph] }) };
 
   if (docxSettings.pdfHideFirstPageHeader ?? true) {
     docHeaders.first = new Header({ children: [] });

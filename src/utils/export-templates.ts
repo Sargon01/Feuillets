@@ -321,9 +321,7 @@ export function templateToCss(tpl: ExportTemplate) {
     tpl.blockquote
       ? `blockquote { font-style: ${tpl.blockquote.italic ? "italic" : "normal"}; color: ${tpl.blockquote.colorHex || "inherit"}; }`
       : "",
-    tpl.sceneDivider
-      ? `hr { border: none; text-align: center; margin: 2em 0; } hr::before { content: "${tpl.sceneDivider}"; }`
-      : "",
+    `hr { border: none; text-align: center; margin: 2em 0; } hr::before { content: "${tpl.sceneDivider || "* * *"}"; }`,
     "figure { margin: 1em auto; text-align: center; max-width: 100%; }",
     "figure img { max-width: 100%; }",
     "figcaption { font-size: 0.85em; font-style: italic; color: #666; margin-top: 0.4em; }",
@@ -355,6 +353,8 @@ export function titleRoleCss(tpl: ExportTemplate) {
       if (st.align) decl.push(`text-align: ${st.align}`);
       if (st.marginTopPt != null) decl.push(`margin-top: ${st.marginTopPt}pt`);
       if (st.marginBottomPt != null) decl.push(`margin-bottom: ${st.marginBottomPt}pt`);
+      if (st.marginLeftPt != null) decl.push(`margin-left: ${st.marginLeftPt}pt`);
+      if (st.marginRightPt != null) decl.push(`margin-right: ${st.marginRightPt}pt`);
       if (!decl.length) return "";
       return `.feuillets-frontpage [data-fp-role="${role}"] { ${decl.join("; ")}; }`;
     })

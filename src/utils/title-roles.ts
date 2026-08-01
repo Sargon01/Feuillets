@@ -51,3 +51,43 @@ export function parseTitleRoles(text: string): TitleRoleBlock[] {
 export function hasTitleRoleLines(text: string) {
   return text.split("\n").some((l) => TITLE_ROLE_LINE_RE.test(l.trim()));
 }
+
+/** Normalisation d'un nom de rôle : la casse et les espaces autour ne
+ * distinguent pas deux rôles (`:::Titre :` et `:::titre:` sont le même). */
+function normalizeRole(role: string): string {
+  return role.trim().toLocaleLowerCase("fr");
+}
+
+/** Index de la ligne portant `role`, ou -1. Sert aux lectures comme aux
+ * écritures : une seule définition de « où vit ce rôle ». */
+function titleRoleLineIndex(lines: string[], role: string): number {
+  const wanted = normalizeRole(role);
+  return lines.findIndex((line) => {
+    const match = line.trim().match(TITLE_ROLE_LINE_RE);
+    return !!match && normalizeRole(match[1]) === wanted;
+  });
+}
+
+/** Valeur actuellement écrite pour un rôle, chaîne vide si le rôle est
+ * absent ou vide. Lecture PURE du fichier Front : aucune copie locale de ces
+ * champs n'existe ailleurs. */
+export function readTitleRoleValue(text: string, role: string): string {
+  const lines = String(text || "").split(/\r?\n/);
+  const index = titleRoleLineIndex(lines, role);
+  if (index < 0) return "";
+  return (lines[index].trim().match(TITLE_ROLE_LINE_RE)?.[2] || "").trim();
+}
+
+/** Réécrit (ou ajoute) la ligne `:::rôle: valeur` et renvoie le texte
+ * complet. Le reste du fichier — frontmatter compris — est laissé intact :
+ * c'est la structure existante du feuillet Front qui est modifiée, jamais
+ * remplacée. Un rôle absent dont la valeur est vide n'est pas créé. */
+export function setTitleRoleValue(text: string, role: string, value: string): string {
+  const lines = String(text || "").split(/\r?\n/);
+  const index = titleRoleLineIndex(lines, role);
+  const replacement = `:::${role.trim()}: ${String(value ?? "").trim()}`;
+  if (index >= 0) lines[index] = replacement;
+  else if (String(value ?? "").trim()) lines.push(replacement);
+  else return String(text || "");
+  return lines.join("\n");
+}

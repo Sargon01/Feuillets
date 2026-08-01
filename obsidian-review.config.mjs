@@ -52,6 +52,28 @@ export default [
     rules: {
       "obsidianmd/no-unsupported-api": "error",
 
+      /* `no-undef` (règle JS de base, PAS une règle obsidianmd) : désactivée
+         ici pour les fichiers TypeScript, et nulle part ailleurs. Cause
+         vérifiée avec `eslint --print-config` : le preset `recommended` du
+         plugin la remet lui-même à "warn" pour .ts (son bloc "off" cible un
+         motif `files` en tableau imbriqué qui ne matche jamais un .ts seul ;
+         un bloc plus tardif, à motif simple, la réarme). Conséquence dans ce
+         dépôt : 150+ faux positifs sur des interfaces globales de
+         `src/types.d.ts` (FeuilletsSettings, ExportTemplate, TitlePageStyle…)
+         — le scope-manager de @typescript-eslint analyse chaque fichier
+         isolément et ignore les déclarations globales portées par un AUTRE
+         fichier .d.ts, contrairement au compilateur TypeScript. Ce n'est pas
+         un trou de couverture : `tsc -noEmit` (déjà lancé par `npm run lint`
+         ET `npm run build`) vérifie exhaustivement les identifiants non
+         définis — valeurs ET types, tous fichiers confondus — ce que
+         `no-undef` ne fait qu'approximer sans cette vue d'ensemble. Lister
+         les types un par un dans `languageOptions.globals` marcherait pour
+         l'état actuel de types.d.ts, mais redeviendrait incomplet au premier
+         type global ajouté : ce n'est pas centralisé, juste reporté.
+         Aucun fichier .js ne vit sous src/ (tout est .ts) : rien n'est perdu
+         côté JavaScript non typé par cette désactivation. */
+      "no-undef": "off",
+
       /* Calibrage des sévérités sur ce que le tableau de bord considère
          réellement comme bloquant. Sans ça, ces règles-là remontent en
          « error » ici alors qu'Obsidian les classe en « Warning » — on

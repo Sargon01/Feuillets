@@ -156,8 +156,17 @@ export function paginateManuscript(
   }
 
   const totalPages = Math.max(1, rawPages.length);
+  const replaceBandVars = (value: string, pageNum: number, part: string, chapter: string): string => value
+    .replace(/\{title\}/gi, title)
+    .replace(/\{author\}/gi, author)
+    .replace(/\{part\}/gi, part)
+    .replace(/\{chapter\}/gi, chapter)
+    .replace(/\{page\}/gi, String(pageNum))
+    .replace(/\{pages\}/gi, String(totalPages));
 
   // Assemblage final des pages avec en-têtes/pieds et numérotation
+  let currentPart = "";
+  let currentChapter = "";
   const pagesHtml = rawPages.map((nodes, idx) => {
     const pageNum = idx + 1;
     const isEven = pageNum % 2 === 0;
@@ -165,41 +174,40 @@ export function paginateManuscript(
 
     const currentLeftM = mirror ? (isEven ? mRight : mLeft) : mLeft;
     const currentRightM = mirror ? (isEven ? mLeft : mRight) : mRight;
+    for (const node of nodes) {
+      const tag = node.tagName?.toLowerCase();
+      if (tag === "h1") currentPart = node.textContent?.trim() || currentPart;
+      if (tag === "h2") currentChapter = node.textContent?.trim() || currentChapter;
+    }
 
-    let hLeftText = (settings.pdfHeaderLeft ?? "{title}").replace(/\{title\}/gi, title).replace(/\{author\}/gi, author);
-    let hRightText = (settings.pdfHeaderRight ?? "{author}").replace(/\{title\}/gi, title).replace(/\{author\}/gi, author);
+    let hLeftText = replaceBandVars(settings.pdfHeaderLeft ?? "{title}", pageNum, currentPart, currentChapter);
+    const hCenterText = replaceBandVars(settings.pdfHeaderCenter ?? "", pageNum, currentPart, currentChapter);
+    let hRightText = replaceBandVars(settings.pdfHeaderRight ?? "{author}", pageNum, currentPart, currentChapter);
 
-    const numStr = (settings.pdfFooterRight ?? "Page {page} sur {pages}")
-      .replace(/\{title\}/gi, title)
-      .replace(/\{author\}/gi, author)
-      .replace(/\{page\}/gi, String(pageNum))
-      .replace(/\{pages\}/gi, String(totalPages));
+    let fLeftText = replaceBandVars(settings.pdfFooterLeft ?? "", pageNum, currentPart, currentChapter);
+    let fCenterText = replaceBandVars(settings.pdfFooterCenter ?? "", pageNum, currentPart, currentChapter);
+    let fRightText = replaceBandVars(settings.pdfFooterRight ?? "Page {page} sur {pages}", pageNum, currentPart, currentChapter);
 
-    let fLeftText = (settings.pdfFooterLeft ?? "").replace(/\{title\}/gi, title).replace(/\{author\}/gi, author);
-    let fCenterText = "";
-    let fRightText = "";
-
-    if (pageNumPos === "center") {
-      fCenterText = numStr;
-    } else if (pageNumPos === "left") {
-      fLeftText = numStr;
-    } else {
-      fRightText = numStr;
+    // Migration transparente : les anciens projets stockaient toujours le
+    // modèle de numéro dans `pdfFooterRight` et sa position séparément.
+    if (!settings.pdfFooterCenter && !settings.pdfFooterLeft && pageNumPos !== "right") {
+      if (pageNumPos === "center") fCenterText = fRightText;
+      else fLeftText = fRightText;
+      fRightText = "";
     }
 
     if (diffHeaders && isEven) {
       // Inversion pour les pages paires (gauches)
       [hLeftText, hRightText] = [hRightText, hLeftText];
       if (pageNumPos === "right") {
-        fLeftText = numStr;
-        fRightText = "";
+        [fLeftText, fRightText] = [fRightText, fLeftText];
       } else if (pageNumPos === "left") {
-        fRightText = numStr;
-        fLeftText = "";
+        [fLeftText, fRightText] = [fRightText, fLeftText];
       }
     }
 
-    const showHeaderFooter = !(isFirst && hideFirst);
+    const showHeader = settings.pdfEnableHeaders !== false && !(isFirst && hideFirst);
+    const showFooter = settings.pdfEnableFooters !== false && !(isFirst && hideFirst);
     const nodesHtml = nodes.map((n) => n.outerHTML).join("\n");
 
     return `
@@ -218,23 +226,24 @@ export function paginateManuscript(
         color: #111111;
       ">
         ${
-          showHeaderFooter
+          showHeader
             ? `
           <div class="pdf-page-header" style="
             position: absolute;
-            top: ${mTop * 0.3}cm;
+            top: ${settings.pdfHeaderDistanceCm ?? 0.75}cm;
             left: ${currentLeftM}cm;
             right: ${currentRightM}cm;
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
             font-size: 8pt;
             color: #aaaaaa;
             border-bottom: 0.5pt solid #f0f0f0;
-            padding-bottom: 3px;
+            padding-bottom: ${settings.pdfHeaderBodyGapPt ?? 3}pt;
             font-family: ${tpl.fontFamily};
           ">
-            <span>${hLeftText}</span>
-            <span>${hRightText}</span>
+            <span style="text-align: left;">${hLeftText}</span>
+            <span style="text-align: center;">${hCenterText}</span>
+            <span style="text-align: right;">${hRightText}</span>
           </div>
         `
             : ""
@@ -243,11 +252,11 @@ export function paginateManuscript(
           ${nodesHtml}
         </div>
         ${
-          showHeaderFooter
+          showFooter
             ? `
           <div class="pdf-page-footer" style="
             position: absolute;
-            bottom: ${mBottom * 0.3}cm;
+            bottom: ${settings.pdfFooterDistanceCm ?? 0.75}cm;
             left: ${currentLeftM}cm;
             right: ${currentRightM}cm;
             display: grid;
@@ -256,7 +265,7 @@ export function paginateManuscript(
             font-size: 8pt;
             color: #aaaaaa;
             border-top: 0.5pt solid #f0f0f0;
-            padding-top: 3px;
+            padding-top: ${settings.pdfFooterBodyGapPt ?? 3}pt;
             font-family: ${tpl.fontFamily};
           ">
             <div style="text-align: left;">${fLeftText}</div>
@@ -363,6 +372,14 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
     page-break-after: always !important;
     break-after: page !important;
   }
+}
+/* Empêche une image trop haute de déborder de sa page imprimée — relatif à
+   la hauteur du contenu (.pdf-page-content, déjà limité à 100% de la page
+   par paginateManuscript), pas une hauteur fixe : reste correct quel que
+   soit le format/l'orientation de page choisi. */
+.pdf-page-content figure img, .pdf-page-content img {
+  max-height: 100%;
+  object-fit: contain;
 }`;
   headEl.appendChild(styleEl);
 

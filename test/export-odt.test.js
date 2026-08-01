@@ -181,3 +181,110 @@ test("exportOdt : aucune section Notes si le manuscrit n'a aucune note", async (
     restoreDom();
   }
 });
+
+/* Chantier « Compilation professionnelle — Lot 2 » (fidélité visuelle
+ * aperçu/export) : avant ce lot, l'ODT ignorait complètement le modèle
+ * d'export choisi (font/taille/interligne/marges toujours Times 12pt,
+ * 2.5cm, quel que soit le gabarit) — voir l'audit du chantier. Ces tests
+ * vérifient que le modèle sélectionné (même source que PDF/EPUB/DOCX,
+ * voir export-templates.js) pilote désormais réellement le style ODT. */
+test("exportOdt : la police/taille/interligne du gabarit choisi pilotent le style par défaut", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("p", "Texte."));
+  });
+  try {
+    const bytes = await exportOdt({}, { exportTemplate: "romanSimple" }, {
+      markdown: "Texte.",
+      title: "Mon livre",
+      author: "Autrice",
+      sourcePath: "Manuscrit.md",
+      segments: [],
+    });
+    const zip = await JSZip.loadAsync(bytes);
+    const stylesXml = await zip.file("styles.xml").async("string");
+    // romanSimple : Baskerville 14pt, interligne 24/14 (~171%), marges
+    // asymétriques (top/bottom 2.5cm, left 3cm, right 3.5cm).
+    assert.match(stylesXml, /fo:font-name="Baskerville"/);
+    assert.match(stylesXml, /fo:font-size="14pt"/);
+    assert.match(stylesXml, /fo:line-height="171%"/);
+    assert.match(stylesXml, /fo:margin-left="3cm"/);
+    assert.match(stylesXml, /fo:margin-right="3\.5cm"/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
+test("exportOdt : les titres (h1/h2/h3) reprennent taille/graisse/saut de page du gabarit", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("h1", "Partie I"));
+    container.appendChild(element("h2", "Chapitre 1"));
+  });
+  try {
+    const bytes = await exportOdt({}, { exportTemplate: "these" }, {
+      markdown: "# Partie I\n\n## Chapitre 1",
+      title: "Mon livre",
+      author: "Autrice",
+      sourcePath: "Manuscrit.md",
+      segments: [],
+    });
+    const zip = await JSZip.loadAsync(bytes);
+    const contentXml = await zip.file("content.xml").async("string");
+    // "these" : h1 20pt gras avec saut de page, h2 16pt gras sans saut.
+    assert.match(contentXml, /style:name="Heading_20_1"[\s\S]*?fo:font-size="20pt" fo:font-weight="bold"/);
+    assert.match(contentXml, /style:name="Heading_20_1"[\s\S]*?fo:break-before="page"/);
+    assert.match(contentXml, /style:name="Heading_20_2"[\s\S]*?fo:font-size="16pt" fo:font-weight="bold"/);
+    assert.doesNotMatch(contentXml.match(/<style:style style:name="Heading_20_2"[\s\S]*?<\/style:style>/)[0], /fo:break-before/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
+test("exportOdt : le séparateur de scène du gabarit apparaît dans le texte du <hr>", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("p", "Avant."));
+    container.appendChild(element("hr"));
+    container.appendChild(element("p", "Après."));
+  });
+  try {
+    const bytes = await exportOdt({}, { exportTemplate: "romanFrancais" }, {
+      markdown: "Avant.\n\n***\n\nAprès.",
+      title: "Mon livre",
+      author: "Autrice",
+      sourcePath: "Manuscrit.md",
+      segments: [],
+    });
+    const zip = await JSZip.loadAsync(bytes);
+    const contentXml = await zip.file("content.xml").async("string");
+    assert.match(contentXml, /text:style-name="Horizontal_20_Line">\*\*\*</);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
+test("exportOdt : sans séparateur défini par le gabarit, repli \"* * *\" (même repli que DOCX)", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("hr"));
+  });
+  try {
+    const bytes = await exportOdt({}, { exportTemplate: "classique" }, {
+      markdown: "***",
+      title: "Mon livre",
+      author: "Autrice",
+      sourcePath: "Manuscrit.md",
+      segments: [],
+    });
+    const zip = await JSZip.loadAsync(bytes);
+    const contentXml = await zip.file("content.xml").async("string");
+    assert.match(contentXml, /text:style-name="Horizontal_20_Line">\* \* \*</);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});

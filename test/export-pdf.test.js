@@ -161,6 +161,30 @@ test("paginateManuscript : conserve une page minimale sans contenu", () => {
   } finally { dom.restore(); }
 });
 
+test("paginateManuscript : mêmes réglages centraux pour zones centrales, distances et activation", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(element("p", "Corps", 100));
+    const settings = {
+      pdfHideFirstPageHeader: false,
+      pdfEnableHeaders: true,
+      pdfEnableFooters: false,
+      pdfHeaderLeft: "Gauche",
+      pdfHeaderCenter: "{title}",
+      pdfHeaderRight: "{author}",
+      pdfHeaderDistanceCm: 1.1,
+      pdfHeaderBodyGapPt: 7,
+      pdfFooterRight: "Page {page}",
+    };
+    const result = paginateManuscript(container, [], settings, template, "Roman", "Autrice");
+    assert.match(result.pagesHtml, /text-align: center;">Roman/);
+    assert.match(result.pagesHtml, /top: 1.1cm/);
+    assert.match(result.pagesHtml, /padding-bottom: 7pt/);
+    assert.doesNotMatch(result.pagesHtml, /pdf-page-footer/);
+  } finally { dom.restore(); }
+});
+
 test("exportPdf : sur mobile notifie sans rendre ni charger le DOM", async () => {
   const previousMobile = Platform.isMobile;
   const previousNotice = Notice.onCreate;
@@ -198,6 +222,10 @@ test("exportPdf : injecte la page titre, imprime dans une iframe et la nettoie",
     assert.equal(titleTag.textContent, "Mon titre");
     const styleTag = printDoc.head.children.find((child) => child.tagName === "STYLE");
     assert.match(styleTag.textContent, /@media print/);
+    // Chantier « Compilation professionnelle — Lot 2 » : une image ne doit
+    // jamais déborder de sa page imprimée (voir l'audit du chantier —
+    // avant ce lot, aucune contrainte de hauteur n'existait).
+    assert.match(styleTag.textContent, /\.pdf-page-content figure img, \.pdf-page-content img \{\s*max-height: 100%;/);
     assert.match(printDoc.body.innerHTML, /<h1>Mon titre<\/h1>/);
     assert.match(printDoc.body.innerHTML, /Une autrice/);
     assert.equal(frame.contentWindow.focused, 1);

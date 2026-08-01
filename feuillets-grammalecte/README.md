@@ -66,5 +66,5 @@ Ce greffon fournit un moteur de correction linguistique local qui s'enregistre a
 ## 📜 Licence et Crédits
 
 - **Licence du greffon** : Distribué sous licence **GNU General Public License v3.0** (`GPL-3.0-only`). Voir le fichier [LICENSE](LICENSE).
-- **Crédits Grammalecte** : Moteur linguistique développé par **Olivier R.** ([https://grammalecte.net](https://grammalecte.net)).
+- **Crédits Grammalecte** : Moteur linguistique développé par **Olivier R.** ([https://grammalecte.net](https://grammalecte.net)), projet maintenu par **Algoo SAS** ([https://algoo.fr](https://algoo.fr)). Le greffon embarque le moteur Grammalecte v2.2.0 (la version officielle amont actuelle est la 2.3.0).
 - Consultez le fichier [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) pour le détail des composants tiers embarqués.

@@ -5,13 +5,12 @@ const isCompiledTest = import.meta.url.includes("/.test-dist/");
 const compiledModule = (path) => new URL(`../.test-dist/${path}`, import.meta.url).href;
 const modulePath = (path) => isCompiledTest ? `../${path}` : compiledModule(path);
 
-const { Notice, Platform, Setting, TFolder } = await import(
+const { Setting, TFolder } = await import(
   isCompiledTest ? "obsidian" : compiledModule("node_modules/obsidian/index.js")
 );
 const { createFakeVault } = await import(modulePath("test/helpers/fake-vault.js"));
 const { DEFAULT_SETTINGS } = await import(modulePath("src/default-settings.js"));
 const { LayoutModal } = await import(modulePath("src/ui/layout-modal.js"));
-const { CompileSelectionModal } = await import(modulePath("src/ui/selection-modals.js"));
 
 class FakeElement {
   constructor(tag = "div", options = {}) {
@@ -144,77 +143,20 @@ test("LayoutModal initialise son état local", () => {
   assert.deepEqual(modal.blockEls, {});
 });
 
-test("LayoutModal ouvre les contrôles, rétablit un modèle absent et masque PDF sur mobile", async () => {
+test("LayoutModal reste un éditeur visuel sans réglages d'export dupliqués", async () => {
   const restoreSetting = installSettingStub();
-  const previousMobile = Platform.isMobile;
-  const previousOpen = CompileSelectionModal.prototype.open;
-  let selectionOpened = 0;
-  Platform.isMobile = true;
-  CompileSelectionModal.prototype.open = () => { selectionOpened += 1; };
   try {
     const { modal } = createModal({ templateKey: "supprime" });
     const { contentEl } = modal;
     await modal.onOpen();
-    const dropdowns = controls(contentEl, "dropdown");
     assert.equal(modal.templates.length > 0, true);
     assert.equal(modal.templateKey, modal.templates[0].key);
-    assert.equal(dropdowns.length, 3);
-    assert.equal(dropdowns[2].options.some((option) => option.value === "pdf"), false);
-    assert.equal(controls(contentEl, "button").length, 2);
-    controls(contentEl, "button")[0].click();
-    assert.equal(selectionOpened, 1);
-  } finally {
-    Platform.isMobile = previousMobile;
-    CompileSelectionModal.prototype.open = previousOpen;
-    restoreSetting();
-  }
-});
-
-test("LayoutModal sauvegarde et notifie les changements de preset, modèle et format", async () => {
-  const restoreSetting = installSettingStub();
-  try {
-    const { modal, settings, calls } = createModal();
-    await modal.onOpen();
-    const dropdowns = controls(modal.contentEl, "dropdown");
-    await dropdowns[0].change("0");
-    await dropdowns[1].change("moderne");
-    await dropdowns[2].change("epub");
-    assert.equal(settings.activePreset, 0);
-    assert.equal(settings.exportTemplate, "moderne");
-    assert.equal(modal.templateLabel, modal.templates.find((item) => item.key === "moderne").label);
-    assert.equal(settings.exportFormat, "epub");
-    assert.equal(calls.save, 3);
-    assert.equal(calls.notify, 3);
+    assert.equal(allElements(contentEl).some((el) => el.classes.has("feuillets-tp-configbar")), false);
+    assert.equal(allElements(contentEl).some((el) => el.classes.has("feuillets-tp-footer")), false);
+    assert.equal(controls(contentEl, "dropdown").length, 0);
+    assert.equal(typeof modal.doExport, "undefined");
   } finally {
     restoreSetting();
-  }
-});
-
-test("LayoutModal exporte les modèles intégrés et signale le résultat", async () => {
-  const restoreSetting = installSettingStub();
-  const notices = [];
-  const previousNotice = Notice.onCreate;
-  Notice.onCreate = (message) => notices.push(message);
-  try {
-    const { modal, files } = createModal();
-    await modal.onOpen();
-    await controls(modal.contentEl, "extra")[0].click();
-    await controls(modal.contentEl, "extra")[0].click();
-    assert.equal([...files.keys()].some((path) => path.endsWith("Ressources/Layout/classique.md")), true);
-    assert.equal(notices.length, 2);
-  } finally {
-    Notice.onCreate = previousNotice;
-    restoreSetting();
-  }
-});
-
-test("LayoutModal compile Markdown et délègue les autres exports après fermeture", () => {
-  for (const format of ["md", "docx", "odt", "epub", "pdf"]) {
-    const { modal, calls } = createModal({ exportFormat: format });
-    modal.doExport();
-    assert.equal(calls.close, 1);
-    assert.equal(calls.compile, format === "md" ? 1 : 0);
-    assert.deepEqual(calls.export, format === "md" ? [] : [format]);
   }
 });
 
@@ -261,19 +203,71 @@ test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs sans 
       await listeners.get("pointerup")();
       assert.equal(listeners.size, 0);
       assert.equal(calls.frontmatter.length, 1);
+      assert.equal(calls.notify, 1, "la sauvegarde du gabarit avertit l’aperçu qui l’a ouvert");
       assert.equal(modal.styles[role].marginTopPt <= initialMargin, true);
 
       modal.select("header");
       const headerToggle = controls(modal.inspectorEl, "toggle")[0];
       await headerToggle.change(true);
       assert.equal(calls.save > 0, true);
+      assert.equal(calls.notify, 2, "les bandes en-tête/pied avertissent aussi l’aperçu");
 
       modal.select(role);
       const sizeInput = controls(modal.inspectorEl, "text")[0];
       await sizeInput.change("18");
       assert.equal(modal.styles[role].fontSizePt, 18);
       assert.equal(calls.frontmatter.length, 2);
+      assert.equal(calls.notify, 3);
     });
+  } finally {
+    restoreSetting();
+  }
+});
+
+/* Ces réglages vivaient dans le panneau Export de l'aperçu, qui n'en garde
+   plus aucun : le modal visuel est désormais leur unique interface. Ils
+   écrivent les MÊMES clés que celles lues par l'aperçu et par les exports
+   PDF/DOCX/ODT — aucune valeur n'a été perdue au déménagement. */
+test("LayoutModal — en-têtes, pieds, distances et espacements sont réglables ici et nulle part ailleurs", async () => {
+  const restoreSetting = installSettingStub();
+  try {
+    const { modal, settings, calls } = createModal();
+    await modal.onOpen();
+
+    modal.select("header");
+    const headerTexts = controls(modal.inspectorEl, "text");
+    // gauche, centre, droite, distance au bord, espace en-tête/corps
+    assert.equal(headerTexts.length, 5, "les cinq champs d'en-tête sont présents");
+    await headerTexts[1].change("{title} — {author}");
+    assert.equal(settings.pdfHeaderCenter, "{title} — {author}");
+    await headerTexts[3].change("1.2");
+    assert.equal(settings.pdfHeaderDistanceCm, 1.2);
+    await headerTexts[4].change("6");
+    assert.equal(settings.pdfHeaderBodyGapPt, 6);
+
+    modal.select("footer");
+    const footerToggle = controls(modal.inspectorEl, "toggle")[0];
+    await footerToggle.change(false);
+    assert.equal(settings.pdfEnableFooters, false);
+    const footerTexts = controls(modal.inspectorEl, "text");
+    // format du numéro, pied gauche, pied centre, distance, espace corps/pied
+    assert.equal(footerTexts.length, 5);
+    await footerTexts[1].change("Brouillon");
+    assert.equal(settings.pdfFooterLeft, "Brouillon");
+    await footerTexts[2].change("{chapter}");
+    assert.equal(settings.pdfFooterCenter, "{chapter}");
+    await footerTexts[3].change("1.5");
+    assert.equal(settings.pdfFooterDistanceCm, 1.5);
+    await footerTexts[4].change("9");
+    assert.equal(settings.pdfFooterBodyGapPt, 9);
+
+    // Première page différente : le même unique réglage, côté en-tête.
+    modal.select("header");
+    const headerToggles = controls(modal.inspectorEl, "toggle");
+    await headerToggles.at(-1).change(false);
+    assert.equal(settings.pdfHideFirstPageHeader, false);
+    assert.equal(calls.save > 0, true, "chaque changement est persisté dans les réglages centraux");
+    assert.equal(calls.notify > 0, true, "et l'aperçu ouvert est prévenu");
   } finally {
     restoreSetting();
   }
