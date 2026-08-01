@@ -1,4 +1,5 @@
 // @ts-check
+import { getLanguage } from "obsidian";
 import { fr } from "./fr.js";
 import { en } from "./en.js";
 
@@ -23,6 +24,8 @@ export function getLocale(): Locale {
   return currentLocale;
 }
 
+
+
 /** Détecte la langue : réglage explicite > langue Obsidian > "fr". */
 export function detectLocale(settings?: { language?: string }): Locale {
   const forced = settings?.language;
@@ -30,23 +33,12 @@ export function detectLocale(settings?: { language?: string }): Locale {
     return forced as Locale;
   }
   try {
-    /* getLanguage() d'Obsidian serait plus propre, mais il est `@since 1.8.7`
-       alors que manifest.json déclare minAppVersion 1.7.2 : l'appeler ferait
-       échouer le plugin sur 1.7.2–1.8.6 et déclencherait no-unsupported-api,
-       qui est classée "Error" par la revue. On garde donc la lecture du
-       localStorage, qui est ce que getLanguage() fait en interne.
-
-       La revue laisse un avertissement `obsidianmd/prefer-get-language` sur
-       la ligne suivante : il est ASSUMÉ, pas oublié. Le désactiver n'est pas
-       possible (eslint-comments/no-restricted-disable interdit de faire taire
-       les règles obsidianmd). À basculer sur getLanguage() le jour où
-       minAppVersion passera à 1.8.7 ou plus. */
-    const obsidianLang = window.localStorage.getItem("language");
+    const obsidianLang = getLanguage();
     if (obsidianLang && (LOCALES as Record<string, LocaleDict>)[obsidianLang]) {
       return obsidianLang as Locale;
     }
   } catch {
-    /* localStorage indisponible (contexte de test) : repli silencieux */
+    /* getLanguage indisponible (contexte de test) : repli silencieux */
   }
   return "fr";
 }

@@ -420,9 +420,8 @@ declare type PresetConfig = {
   [key: string]: unknown;
 };
 
-/** Segment d'un manuscrit compilé — conservé pour les exports natifs
- * (signets par feuillet, détection des pages Front) mais jamais transmis
- * à Pandoc. */
+/** Segment d'un manuscrit compilé — utilisé par les exports natifs
+ * (signets par feuillet, détection des pages Front). */
 declare type CompileSegment = {
   path: string | null;
   text: string;

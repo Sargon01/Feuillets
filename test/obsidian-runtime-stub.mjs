@@ -1,3 +1,7 @@
+export function getLanguage() {
+  return "fr";
+}
+
 export function setIcon(element, icon) {
   if (element && typeof element === "object") element.icon = icon;
 }

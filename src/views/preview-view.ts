@@ -1770,8 +1770,8 @@ export class PreviewView extends ItemView {
   /* ======================= Réglages & export ==========================
      Aucun réglage de compilation n'est défini ici : l'onglet Export des
      paramètres Feuillets reste la source unique. L'export appelle le point
-     d'entrée existant `exportFile()`, qui gère routage pandoc/natif, titre
-     repris de la page de titre, dossier de sortie et notices. */
+     d'entrée existant `exportFile()`, qui gère le titre
+     repris de la page de titre, le dossier de sortie et les notices. */
 
   async openManuscriptSettings(): Promise<void> {
     openFeuilletsExportSettings(this.app);

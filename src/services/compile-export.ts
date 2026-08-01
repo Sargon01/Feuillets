@@ -1,7 +1,5 @@
 // @ts-check
-/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : child_process/path/fs pour l'export Pandoc, desktop uniquement */
-/* global require -- défini par environnement */
-import { Notice, TFolder, TFile, normalizePath, Platform, type App } from "obsidian";
+import { Notice, TFolder, TFile, normalizePath, type App } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import { embedHardBreaks } from "../utils/core.js";
 import { footnotePrefixFor, applyCompileTransforms } from "../utils/compile-text.js";
@@ -417,23 +415,9 @@ export function listCompiledFilePaths(app: App, settings: FeuilletsSettings) {
   return paths;
 }
 
-/** Point d'entrée de l'export : route vers le moteur natif (par défaut,
- * zéro dépendance, fonctionne partout dont mobile) ou vers Pandoc (option
- * avancée, réglage `exportEngine`, pour qui l'a déjà configuré). */
-/**
- * @param {import("obsidian").App} app
- * @param {import("./types.d.ts").FeuilletsSettings} settings
- * @param {string} format
- * @param {string|null} [scopePath]
- * @returns {Promise<void>}
- */
+/** Point d'entrée de l'export : route vers le moteur natif (zéro dépendance,
+ * fonctionne partout dont mobile). */
 export async function exportFile(app: App, settings: FeuilletsSettings, format = "docx", scopePath: string | null = null) {
-  /* Le PDF n'a jamais été un format Pandoc de ce plugin (ça demanderait
-     LaTeX, hors périmètre) — il passe toujours par le moteur natif
-     (impression), quel que soit exportEngine. */
-  if (settings.exportEngine === "pandoc" && format !== "pdf") {
-    return exportViaPandoc(app, settings, format, scopePath);
-  }
   return exportViaNative(app, settings, format, scopePath);
 }
 
@@ -541,138 +525,4 @@ async function writeBinaryFile(app: App, path: string, data: Uint8Array | Blob |
   }
 }
 
-/** Compile puis convertit via Pandoc vers .docx ou .epub, avec page de
- * titre. Le .docx utilise le document de référence (Times 12, interligne
- * double, marges 2,5 cm, numéros de page, saut de page par chapitre).
- * Pour un PDF : exporter en .docx puis imprimer/exporter depuis Word.
- * Réglage avancé — le moteur natif (exportViaNative) est le chemin par
- * défaut, celui qui ne nécessite rien d'installé. */
-/**
- * @param {import("obsidian").App} app
- * @param {import("./types.d.ts").FeuilletsSettings} settings
- * @param {string} format
- * @returns {Promise<void>}
- */
-async function exportViaPandoc(app: App, settings: FeuilletsSettings, format = "docx", scopePath: string | null = null) {
-  /* Pandoc passe par child_process : indisponible sur mobile. On le dit
-     clairement plutôt que d'échouer en silence sur une promesse non tenue. */
-  if (!Platform.isDesktop) {
-    return void new Notice(
-      "L'export via Pandoc n'est pas disponible sur mobile — passe au moteur natif dans les réglages (Export)."
-    );
-  }
-  const S = settings;
-  const folder = getProjectFolder(app, settings);
-  if (!folder) return;
-  const result = await compile(app, settings, scopePath);
-  if (!result) return;
 
-  let execFile: typeof import("child_process").execFile;
-  let pathMod: typeof import("path");
-  let fs: typeof import("fs");
-  let basePath = "";
-  try {
-    execFile = (require("child_process") as typeof import("child_process")).execFile;
-    pathMod = require("path") as typeof import("path");
-    fs = require("fs") as typeof import("fs");
-    const adapter = app.vault.adapter as typeof app.vault.adapter & { getBasePath?: () => string; basePath?: string };
-    basePath = adapter.getBasePath
-      ? adapter.getBasePath()
-      : adapter.basePath || "";
-  } catch {
-    new Notice("Export indisponible sur cette plateforme (mobile ?).");
-    return;
-  }
-  if (!basePath) {
-    new Notice("Impossible de localiser le coffre sur le disque.");
-    return;
-  }
-
-  const meta = projectMetaFor(settings, folder);
-  const title = toValue(S.manuscriptTitle || folder.name);
-  const author = toValue(S.manuscriptAuthor || meta.author);
-  const pageBreak =
-    '```{=openxml}\n<w:p><w:r><w:br w:type="page"/></w:r></w:p>\n```';
-  const parts = [`::: {custom-style="Title"}\n${title}\n:::`];
-  if (author) parts.push(`::: {custom-style="Subtitle"}\n${author}\n:::`);
-  if (format === "docx") parts.push(pageBreak);
-  parts.push(result.manuscript);
-  const exportMd = parts.join("\n\n");
-
-  const outputFolder = await getOutputFolder(app, settings);
-  const outBase = outputFolder ? outputFolder.path : folder.path;
-
-  const exportRel = normalizePath(`${outBase}/.feuillets-export.md`);
-  await app.vault.adapter.write(exportRel, exportMd);
-  const absMd = pathMod.join(basePath, exportRel);
-
-  const P = activePresetConfig(settings);
-  const baseOut = pathMod.join(
-    basePath,
-    normalizePath(`${outBase}/${P.fileName || "Manuscrit.md"}`)
-  );
-  const absOut = baseOut.replace(/\.md$/i, `.${format}`);
-
-  /** @type {string[]} */
-  const args = [absMd, "-o", absOut, "--from", "markdown+raw_attribute+hard_line_breaks"];
-
-  if (format === "docx") {
-    args.push("--to", "docx");
-    const refRel = toValue(S.pandocReference || "reference-feuillets.docx");
-    const projBase = folder.parent ? folder.parent.path : folder.path;
-    const candidates = [
-      normalizePath(`${projBase}/Resources/Export/${refRel}`),
-      normalizePath(`${projBase}/Ressources/Export/${refRel}`),
-      normalizePath(`${projBase}/Resources/Export/reference-feuillets.docx`),
-      normalizePath(`${projBase}/Ressources/Export/reference-feuillets.docx`),
-      normalizePath(refRel),
-    ];
-
-    const resolvedRel = candidates.find((c) => app.vault.getAbstractFileByPath(c)) || "";
-
-    if (resolvedRel) {
-      const absRef = pathMod.resolve(pathMod.join(basePath, resolvedRel));
-      const absBase = pathMod.resolve(basePath);
-      if (!absRef.startsWith(absBase + pathMod.sep) && absRef !== absBase) {
-        new Notice(
-          `Document de référence refusé : chemin hors du coffre (${resolvedRel}). Export avec le style Pandoc par défaut.`
-        );
-      } else if (fs.existsSync(absRef)) {
-        args.push("--reference-doc", absRef);
-      } else {
-        new Notice(
-          `Document de référence introuvable (${resolvedRel}) : export avec le style Pandoc par défaut.`
-        );
-      }
-    }
-  } else if (format === "epub") {
-    args.push(
-      "--to", "epub",
-      "--metadata", `title=${title}`,
-      "--metadata", `lang=${S.epubLanguage || "fr"}`
-    );
-    if (author) args.push("--metadata", `author=${author}`);
-  }
-
-  new Notice(`Conversion Pandoc (${format}) en cours…`);
-  const pandocExecutable = toValue(S.pandocPath) || "pandoc";
-  execFile(pandocExecutable, args, (err, _stdout, _stderr) => {
-    void (async () => {
-      try {
-        await app.vault.adapter.remove(exportRel);
-      } catch { /* suppression du fichier d'export temporaire, au mieux : Pandoc a deja produit sa sortie */ }
-      if (err) {
-        const errMsg = err instanceof Error ? err.message : typeof err === "string" ? err : "";
-        new Notice(
-          `Échec Pandoc (${format}) : vérifie l'installation et le chemin dans les réglages. ${
-            errMsg.slice(0, 200)
-          }`
-        );
-      } else {
-        new Notice(`Export réussi : ${absOut}`);
-      }
-    })();
-  });
-}
-
-/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

@@ -47,7 +47,6 @@ export type DefaultSettings = {
   projectWordGoal: number;
   deadlineDate: string;
   stats: Record<string, { start: number; latest: number }>;
-  pandocPath: string;
   cardContent: "extrait" | "synopsis";
   indentParagraphs: boolean;
   outlineCols: Record<string, boolean>;
@@ -56,9 +55,7 @@ export type DefaultSettings = {
   projects: string[];
   manuscriptTitle: string;
   manuscriptAuthor: string;
-  pandocReference: string;
   epubLanguage: string;
-  exportEngine: "natif" | "pandoc";
   exportTemplate: "classique" | "moderne" | "tapuscrit";
   exportFormat: "docx" | "epub" | "pdf";
   /* Aperçu (PreviewView) : quoi afficher. "scene" (défaut) n'affiche que
@@ -230,7 +227,6 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   projectWordGoal: 0,
   deadlineDate: "",
   stats: {},
-  pandocPath: "pandoc",
   cardContent: "extrait",
   indentParagraphs: true,
   outlineCols: {
@@ -246,9 +242,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   projects: [],
   manuscriptTitle: "",
   manuscriptAuthor: "",
-  pandocReference: "reference-feuillets.docx",
   epubLanguage: "fr",
-  exportEngine: "natif",
   exportTemplate: "classique",
   exportFormat: "docx",
   previewMode: "scene",
