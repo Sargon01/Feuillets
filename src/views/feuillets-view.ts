@@ -7,10 +7,11 @@ import { ManageProjectsModal, NewProjectModal, OpenExistingFolderModal, Duplicat
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { activatePreviewView } from "./preview-view.js";
+import { openWithPreview } from "./preview-view.js";
 import { t } from "../i18n/index.js";
 import { Menu, TFile, TFolder, setIcon, Notice, normalizePath, type App, type TAbstractFile } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
+import type FeuilletsPlugin from "../main.js";
 
 type ProjectNode = TFile | TFolder;
 type BinderIconButton = (
@@ -20,16 +21,37 @@ type BinderIconButton = (
   onClick?: (event: MouseEvent) => void | Promise<void>
 ) => HTMLElement;
 
+/** Le feuillet actif s'il appartient bien au projet — jamais un fichier
+ * ouvert par ailleurs, ni un dossier. Même règle que
+ * PreviewView.isPreviewableFile, dupliquée ici faute d'accès à une instance
+ * de PreviewView depuis le Binder (les deux vues sont indépendantes). */
+function activeProjectFile(app: App, plugin: FeuilletsPlugin): TFile | null {
+  const file = app.workspace.getActiveFile();
+  if (!(file instanceof TFile) || file.extension !== "md") return null;
+  const root = plugin.getProjectFolder();
+  if (!root) return null;
+  return file.path === root.path || file.path.startsWith(`${root.path}/`) ? file : null;
+}
+
 /** Action autonome pour que le bouton permanent du Binder et son test
- * utilisent exactement le même chemin d'ouverture de PreviewView. */
+ * utilisent exactement le même chemin d'ouverture de PreviewView : le même
+ * « Ouvrir avec aperçu » que le clic droit sur un feuillet
+ * (addOpenWithPreviewItem) et la commande de palette homonyme — un seul
+ * comportement, trois façons d'y accéder. */
 export function addBinderPreviewButton(
   parent: HTMLElement,
   app: App,
   iconButton: BinderIconButton,
-  openPreview: (targetApp: App) => Promise<unknown> = activatePreviewView
+  plugin: FeuilletsPlugin,
+  openPreview: (targetApp: App, targetPlugin: FeuilletsPlugin, file: TFile) => Promise<unknown> = openWithPreview
 ): HTMLElement {
-  return iconButton(parent, "eye", "Ouvrir la prévisualisation", async () => {
-    await openPreview(app);
+  return iconButton(parent, "eye", t("shared.contextMenu.openWithPreview"), async () => {
+    const file = activeProjectFile(app, plugin);
+    if (!file) {
+      new Notice("Ouvre d’abord un feuillet du projet pour lancer son aperçu.");
+      return;
+    }
+    await openPreview(app, plugin, file);
   });
 }
 
@@ -348,7 +370,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     });
     this.barSep(actions);
     addBinderPreviewButton(actions, this.app, (parent, icon, tooltip, onClick) =>
-      this.iconBtn(parent, icon, tooltip, onClick)
+      this.iconBtn(parent, icon, tooltip, onClick), this.plugin
     );
     this.barSep(actions);
     this.iconBtn(actions, "layout-grid", t("binder.boardPlan"), () =>
