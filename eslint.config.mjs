@@ -71,10 +71,6 @@ export default [
       "node_modules/",
       ".test-dist/",
       "resources/",
-      // Sous-projet autonome (greffon compagnon Grammalecte) : il a sa propre
-      // config eslint, son propre tsconfig et ses propres scripts — le glob
-      // "scripts/**" ci-dessous l'attraperait sinon, à sa profondeur.
-      "feuillets-grammalecte/",
       "_cleanup-backups/",
       "Candide - Voltaire/",
       "coverage/",
