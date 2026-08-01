@@ -33,6 +33,15 @@ export const RESOURCES_SUBFOLDER_NAMES = {
   assets: "Assets",
 } as const;
 
+/** Dossier "Edition" (synopsis, note d'intention, biographie, lettre
+ * d'accompagnement, soumissions, versions envoyées…) : facultatif, voisin
+ * de Manuscrit — exactement comme Recherche/Ressources — jamais dedans.
+ * N'étant jamais un descendant du dossier projet (getProjectFolder), il est
+ * automatiquement hors de portée du Binder, de la compilation et des
+ * exports natifs, qui ne parcourent tous que ce sous-arbre (voir
+ * getOrderedChildren) : aucune exclusion explicite à écrire ailleurs. */
+export const EDITION_FOLDER_NAME = "Edition";
+
 /** Racine éditoriale du projet : le dossier Manuscrit — ce que le Binder,
  * les vues Cartes/Plan et la compilation utilisent, et ce que
  * `settings.projectFolder` pointe historiquement (jamais la racine réelle
@@ -55,6 +64,25 @@ export function getProjectRoot(app: App, settings: FeuilletsSettings | null | un
   const manuscrit = getManuscriptRoot(app, settings);
   if (!manuscrit) return null;
   return manuscrit.parent instanceof TFolder ? manuscrit.parent : manuscrit;
+}
+
+/** Chemin du dossier Edition à utiliser pour une ÉCRITURE (création) :
+ * toujours voisin du dossier projet réel, jamais dedans — même convention
+ * que Recherche/Ressources (voir getProjectRoot ci-dessus). */
+export function editionFolderPath(app: App, root: TFolder): string {
+  const base = root.parent instanceof TFolder ? root.parent.path : root.path;
+  return normalizePath(`${base}/${EDITION_FOLDER_NAME}`);
+}
+
+/** Dossier Edition déjà présent sur le disque, ou null s'il n'a jamais été
+ * créé pour ce projet — reconnaissance seule, jamais de création implicite
+ * (voir ensureEditionFolder, project-files.ts, pour la création à la
+ * demande). Sans impact sur les projets créés avant cette fonctionnalité :
+ * un projet sans dossier Edition renvoie simplement null partout. */
+export function getEditionRoot(app: App, root: TFolder | null | undefined): TFolder | null {
+  if (!root) return null;
+  const f = app.vault.getAbstractFileByPath(editionFolderPath(app, root));
+  return f instanceof TFolder ? f : null;
 }
 
 /** Un SEUL projet a-t-il jamais été créé ou ajouté, actif ou non — décide

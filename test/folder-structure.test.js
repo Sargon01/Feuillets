@@ -8,6 +8,9 @@ import {
   getProjectRoot,
   getOrderedChildren,
   hasKnownProject,
+  getEditionRoot,
+  editionFolderPath,
+  EDITION_FOLDER_NAME,
   RESEARCH_FOLDER_NAME,
   RESOURCES_FOLDER_NAME,
 } from "../src/services/folder-structure.js";
@@ -86,4 +89,50 @@ test("Binder/Cartes/Plan : getOrderedChildren(Manuscrit) ne montre jamais Recher
 
 test("hasKnownProject : un ancien projet (Manuscrit à la racine du coffre) est bien reconnu", () => {
   assert.equal(hasKnownProject({ projectFolder: "Manuscrit", projects: [] }), true);
+});
+
+test("getEditionRoot : un projet sans dossier Edition renvoie null sans lever — compatible avec les anciens projets", () => {
+  const { volume, manuscrit } = newProjectFixture();
+  const { vault } = createFakeVault([volume, manuscrit]);
+  const app = { vault };
+
+  assert.equal(getEditionRoot(app, manuscrit), null);
+  assert.equal(editionFolderPath(app, manuscrit), `Roman1/${EDITION_FOLDER_NAME}`);
+});
+
+test("getEditionRoot : reconnaît le dossier Edition une fois créé, voisin de Manuscrit", () => {
+  const { volume, manuscrit } = newProjectFixture();
+  const edition = new TFolder(`Roman1/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  volume.children.push(edition);
+  const { vault } = createFakeVault([volume, manuscrit, edition]);
+  const app = { vault };
+
+  const found = getEditionRoot(app, manuscrit);
+  assert.ok(found);
+  assert.equal(found.path, `Roman1/${EDITION_FOLDER_NAME}`);
+});
+
+test("Binder/compilation : getOrderedChildren(Manuscrit) exclut le dossier Edition comme Recherche/Ressources", () => {
+  const { volume, manuscrit, chapter } = newProjectFixture();
+  const edition = new TFolder(`Roman1/${EDITION_FOLDER_NAME}`);
+  const synopsis = new TFile(`Roman1/${EDITION_FOLDER_NAME}/Synopsis.md`);
+  edition.parent = volume;
+  edition.children = [synopsis];
+  synopsis.parent = edition;
+  volume.children.push(edition);
+  const { vault } = createFakeVault([volume, manuscrit, chapter, edition, synopsis]);
+  const app = { vault };
+  const settings = { projectFolder: "Roman1/Manuscrit", orders: {}, folderPositions: {}, compileFileName: "Manuscrit.md" };
+
+  // Le Binder (et donc la compilation/l'export, qui partagent le même
+  // parcours — voir compile-export.js) ne voit que Chapitre 1 : Edition,
+  // voisin de Manuscrit, n'est jamais atteint par ce parcours.
+  const children = getOrderedChildren(app, settings, manuscrit);
+  assert.deepEqual(children.map((c) => c.path), ["Roman1/Manuscrit/Chapitre 1"]);
+
+  // Depuis la racine réelle, Edition apparaît bien comme un frère de
+  // Manuscrit — au même titre que Recherche/Ressources — jamais dedans.
+  const volumeChildNames = getOrderedChildren(app, settings, volume).map((c) => c.name).sort();
+  assert.deepEqual(volumeChildNames, ["Manuscrit", EDITION_FOLDER_NAME, RESEARCH_FOLDER_NAME, RESOURCES_FOLDER_NAME].sort());
 });

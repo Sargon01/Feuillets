@@ -402,14 +402,10 @@ export const fr = {
   "sidebar.tab.notes": "Notes du feuillet",
   "sidebar.tab.research": "Recherche & extraits",
   "sidebar.tab.journal": "Journal & statistiques",
-  "sidebar.tab.project": "Révision (.docx)",
+  "sidebar.tab.project": "Édition",
   "sidebar.tab.analysis": "Analyse du texte",
   "sidebar.tab.proofreading": "Relecture",
 
-  // ---------- Scrivenings (scrivenings-editor.js) ----------
-  "scrivenings.openInMainEditorTooltip": "Cliquer pour ouvrir ce fichier dans l'éditeur principal",
-  "scrivenings.doubleClickToEditTooltip": "Double-cliquer pour éditer cette scène",
-  "scrivenings.emptyScene": "*Scène vide*",
 
   // ---------- Recherche & remplacement (search-replace-bar.js) ----------
   "searchReplace.openSheetFirst": "Ouvrez d'abord un feuillet en mode édition.",
@@ -538,8 +534,8 @@ export const fr = {
   "analysis.vocab.toWatch": " — à surveiller",
   "analysis.vocab.passiveVoice": "Voix passive estimée : {count} occurrence(s)",
 
-  // ---------- Révision .docx (docx-review-view.js) ----------
-  "docxReview.displayText": "Révision",
+  // ---------- Révision .docx (docx-review-view.js) — sous-section de l'espace Édition ----------
+  "docxReview.displayText": "Révision DOCX",
   "docxReview.snapshotCreatedNotice": "Snapshot du feuillet créé avant la première modification — tu peux revenir en arrière.",
   "docxReview.unreadableFile": "Fichier illisible — vérifie que c'est bien un .docx.",
   "docxReview.invalidDocx": "Ce fichier ne ressemble pas à un .docx valide (word/document.xml absent).",
@@ -601,6 +597,19 @@ export const fr = {
   "docxReview.comment.comment": "Commentaire",
   "docxReview.comment.resolvedInWord": "résolu dans Word",
   "docxReview.comment.anchorQuoted": "« {text} »",
+
+  // ---------- Documents éditoriaux (edition-docs-view.js) — sous-section de l'espace Édition ----------
+  "editionDocs.displayText": "Documents éditoriaux",
+  "editionDocs.notCreatedBody": "Aucun dossier Edition pour ce projet. Crée-le pour préparer synopsis, note d'intention, biographie, lettre d'accompagnement et suivi des envois.",
+  "editionDocs.createFolder": "Créer le dossier Edition",
+  "editionDocs.newDocument": "Nouveau document",
+  "editionDocs.newDocumentModalTitle": "Nouveau document dans Edition",
+  "editionDocs.newDocumentPlaceholder": "Nom du document",
+  "editionDocs.createDocumentSubmit": "Créer",
+  "editionDocs.alreadyExists": "Un document portant ce nom existe déjà.",
+  "editionDocs.revealTooltip": "Révéler dans l'explorateur",
+  "editionDocs.revealUnavailable": "Impossible de révéler ce fichier : l'explorateur de fichiers n'est pas disponible.",
+  "editionDocs.emptyFolder": "Ce dossier est vide.",
 
   // ---------- Onglet Réglages (feuillets-setting-tab.js) ----------
   "settings.tagline": "Studio d'écriture pour romanciers.",
@@ -804,13 +813,13 @@ export const fr = {
   "settings.autoOpenJournal.name": "Ouvrir automatiquement le panneau Journal & statistiques",
   "settings.autoOpenProject.name": "Ouvrir automatiquement le panneau Projet & export",
   "settings.autoOpenProperties.name": "Ouvrir automatiquement le panneau Propriétés",
-  "settings.autoOpenDocxReview.name": "Ouvrir automatiquement le panneau Révision",
-  "settings.autoOpenDocxReview.desc": "Au démarrage d'Obsidian, dans la barre latérale droite — retours .docx d'un directeur/éditeur.",
+  "settings.autoOpenDocxReview.name": "Ouvrir automatiquement le panneau Édition",
+  "settings.autoOpenDocxReview.desc": "Au démarrage d'Obsidian, dans la barre latérale droite — révisions .docx d'un directeur/éditeur et documents éditoriaux.",
   "settings.section.activeViews": "Vues actives",
   "settings.activeViews.intro": "Masque les vues que tu n'utilises pas, pour alléger l'interface — sans rien supprimer, tu peux les réactiver à tout moment.",
   "settings.activeViews.boardModes": "Modes du panneau Cartes :",
   "settings.activeViews.sidePanels": "Panneaux latéraux (icône du ruban et commande retirées si masqué) :",
-  "settings.activeViews.docxReviewPanel": "Révision (retours .docx)",
+  "settings.activeViews.docxReviewPanel": "Édition (révisions .docx + documents)",
   "settings.previewField.name": "Aperçu de la fiche",
   "settings.previewField.desc": "Champ affiché sous le titre de chaque feuillet, en lecture seule.",
   "settings.previewLines.name": "Nombre de lignes de l'aperçu",
@@ -919,7 +928,7 @@ export const fr = {
   "main.cmd.createProject": "Créer un nouveau projet…",
   "main.cmd.createDemoProject": "Créer un projet d'exemple (démonstration)",
   "main.cmd.importScrivener": "Importer un projet Scrivener…",
-  "main.cmd.openDocxReview": "Ouvrir le panneau Révision (retours .docx d'un directeur/éditeur)",
+  "main.cmd.openDocxReview": "Ouvrir le panneau Édition (retours .docx d'un directeur/éditeur)",
   "main.cmd.generateCanvasBoard": "Générer/mettre à jour le tableau canvas (brainstorming)",
   "main.cmd.manageProjects": "Gestion des projets…",
   "main.cmd.switchProject": "Changer de projet…",
@@ -963,7 +972,7 @@ export const fr = {
   "main.notice.moveFolderGone": "Le dossier du déplacement n'existe plus.",
   "main.notice.reorderUndone": "Réorganisation annulée.",
   "main.notice.scrivenerDesktopOnly": "L'import Scrivener nécessite un accès au système de fichiers, disponible uniquement sur ordinateur.",
-  "main.notice.reviewPanelHidden": "Panneau Révision masqué — réactive-le dans les réglages.",
+  "main.notice.reviewPanelHidden": "Panneau Édition masqué — réactive-le dans les réglages.",
   "main.notice.addOtherProjects": "Ajoute d'autres projets dans les réglages (un chemin par ligne).",
   "main.notice.noActiveProjectSheet": "Aucun feuillet du projet actif.",
   "main.notice.snapshotCreated": "Snapshot créé : {name}",

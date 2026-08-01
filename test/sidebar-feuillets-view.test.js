@@ -62,6 +62,7 @@ function createSidebar(activeRightPanelTab = "notes", order = []) {
     journal: createSubView("journal", calls),
     project: createSubView("project", calls),
     docx: createSubView("docx", calls),
+    editionDocs: createSubView("editionDocs", calls),
     analyse: {
       ...createSubView("analyse", calls),
       _chaptersCache: "chapters",
@@ -104,13 +105,13 @@ test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné
   }
 });
 
-test("SidebarFeuilletsView ne conserve que Révision dans l'ancien onglet Export / Révision", async () => {
+test("SidebarFeuilletsView rend Révision DOCX et les documents éditoriaux dans le nouvel onglet Édition", async () => {
   const { sidebar, calls } = createSidebar("project");
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
 
-  assert.deepEqual(calls.map((call) => call.name), ["docx"]);
-  assert.equal(container.children.length, 1);
+  assert.deepEqual(calls.map((call) => call.name), ["docx", "editionDocs"]);
+  assert.equal(container.children.length, 2);
 });
 
 test("SidebarFeuilletsView ne rafraîchit au file-open que les onglets liés au feuillet", async () => {
@@ -142,10 +143,10 @@ test("SidebarFeuilletsView invalide les caches Analyse à la modification", asyn
   assert.equal(sidebar.subViews.notes.targetContainer, null);
 });
 
-test("SidebarFeuilletsView rend une seule sous-vue pour Révision comme pour les autres onglets", async () => {
+test("SidebarFeuilletsView rend Révision DOCX et documents éditoriaux pour l'onglet Édition, une seule sous-vue pour les autres", async () => {
   const { sidebar, calls } = createSidebar("project");
   await sidebar.renderAllSubViews(true);
-  assert.deepEqual(calls.map((call) => call.name), ["docx"]);
+  assert.deepEqual(calls.map((call) => call.name), ["docx", "editionDocs"]);
 
   calls.length = 0;
   sidebar.activeTab = "research";
@@ -153,10 +154,10 @@ test("SidebarFeuilletsView rend une seule sous-vue pour Révision comme pour les
   assert.deepEqual(calls.map((call) => call.name), ["research"]);
 });
 
-test("SidebarFeuilletsView utilise le rendu Révision pour un onglet invalide sans écrire les réglages", async () => {
+test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide sans écrire les réglages", async () => {
   const { sidebar, settings, calls } = createSidebar("invalide");
   await sidebar.render();
 
   assert.equal(settings.activeRightPanelTab, "invalide");
-  assert.deepEqual(calls.map((call) => call.name), ["docx"]);
+  assert.deepEqual(calls.map((call) => call.name), ["docx", "editionDocs"]);
 });

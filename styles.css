@@ -4886,6 +4886,28 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   padding: var(--size-4-2) 10px 10px;
 }
 
+/* Documents éditoriaux (edition-docs-view.js) — même padding que
+   .feuillets-docx-review-container juste au-dessus, dans le même onglet
+   "Édition" (voir renderProjectTab, sidebar-feuillets-view.js). */
+.feuillets-edition-docs-container {
+  padding: var(--size-4-2) 10px 10px;
+}
+
+.feuillets-edition-docs-empty {
+  padding: 0 var(--size-4-3) var(--size-4-2);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+}
+
+.feuillets-edition-docs-empty p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+}
+
 .feuillets-docx-review-intro {
   padding: 0 var(--size-4-3) 10px;
 }

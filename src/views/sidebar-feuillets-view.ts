@@ -3,6 +3,7 @@ import { VIEW_SIDEBAR_FEUILLETS } from "../constants.js";
 import { t } from "../i18n/index.js";
 import { AnalysisView } from "./analysis-view.js";
 import { DocxReviewView } from "./docx-review-view.js";
+import { EditionDocsView } from "./edition-docs-view.js";
 import { JournalView } from "./journal-view.js";
 import { NotesView } from "./notes-view.js";
 import type { ProjectView } from "./project-view.js";
@@ -24,6 +25,7 @@ type SidebarSubViews = {
   research: SidebarSubView;
   journal: SidebarSubView;
   docx: SidebarSubView;
+  editionDocs: SidebarSubView;
   analyse: AnalysisSidebarSubView;
   relecture: SidebarSubView;
 };
@@ -55,6 +57,7 @@ export class SidebarFeuilletsView extends ItemView {
       research: new ResearchView(this.leaf, this.plugin),
       journal: new JournalView(this.leaf, this.plugin),
       docx: new DocxReviewView(this.leaf, this.plugin),
+      editionDocs: new EditionDocsView(this.leaf, this.plugin),
       analyse: new AnalysisView(this.leaf, this.plugin),
       relecture: new TextAnalysisView(this.leaf, this.plugin),
     };
@@ -111,7 +114,7 @@ export class SidebarFeuilletsView extends ItemView {
       { id: "notes", icon: "file-text", title: t("sidebar.tab.notes") },
       { id: "research", icon: "book-marked", title: t("sidebar.tab.research") },
       { id: "journal", icon: "calendar", title: t("sidebar.tab.journal") },
-      { id: "project", icon: "file-diff", title: t("sidebar.tab.project") },
+      { id: "project", icon: "file-edit", title: t("sidebar.tab.project") },
       { id: "analyse", icon: "bar-chart-3", title: t("sidebar.tab.analysis") },
       { id: "relecture", icon: "spell-check", title: t("sidebar.tab.proofreading") },
     ];
@@ -171,12 +174,17 @@ export class SidebarFeuilletsView extends ItemView {
     await this.renderSubView(this.subViews.journal, element);
   }
 
-  /* L'ancien onglet fusionné Export / Révision ne conserve que la révision
-     DOCX. L'export vit désormais exclusivement dans PreviewView. L'identifiant
-     `project` est gardé pour migrer sans casser les préférences existantes. */
+  /* Ancien onglet fusionné Export / Révision, devenu l'espace "Édition"
+     (lot 1) : regroupe les révisions/commentaires DOCX (inchangées) et les
+     documents éditoriaux du dossier Edition/ (synopsis, note d'intention,
+     biographie, lettre d'accompagnement, soumissions…). L'export vit
+     toujours exclusivement dans PreviewView. L'identifiant `project` est
+     gardé pour migrer sans casser les préférences existantes. */
   async renderProjectTab(element: HTMLElement): Promise<void> {
     const docxEl = element.createDiv({ cls: "feuillets-merged-section" });
     await this.renderSubView(this.subViews.docx, docxEl);
+    const editionEl = element.createDiv({ cls: "feuillets-merged-section" });
+    await this.renderSubView(this.subViews.editionDocs, editionEl);
   }
 
   async renderAnalysisTab(element: HTMLElement): Promise<void> {
@@ -195,6 +203,7 @@ export class SidebarFeuilletsView extends ItemView {
   async renderAllSubViews(force = false): Promise<void> {
     if (this.activeTab === "project") {
       await this.subViews.docx.render(force);
+      await this.subViews.editionDocs.render(force);
       return;
     }
     await this.subViews[this.activeTab].render(force);
