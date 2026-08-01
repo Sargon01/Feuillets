@@ -1,4 +1,4 @@
-import { ItemView, MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownView, Menu, Notice, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_BOARD, VIEW_PREVIEW } from "../constants.js";
 import { openFeuilletsExportSettings } from "../settings/open-export-settings.js";
 import { listExportTemplates, resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
@@ -836,23 +836,56 @@ export class PreviewView extends ItemView {
       }
     };
 
-    let source: PreviewSource | null = null;
+    /* Toute la suite (résolution du gabarit, rendu Markdown, pagination,
+       montage de l'iframe) était auparavant HORS de tout try/catch : une
+       exception à n'importe laquelle de ces étapes (gabarit personnalisé
+       invalide, image cassée, note de bas de page malformée…) sortait de
+       refreshPreview() sans jamais appeler finish() — refreshInFlight
+       restait bloqué à true pour de bon. Conséquence observée : le bouton
+       Actualiser (et tout rafraîchissement automatique) ne faisait plus
+       rien du tout jusqu'à fermer puis rouvrir l'onglet, la seule façon de
+       réinitialiser une nouvelle instance de la vue. Ce bloc englobant
+       garantit que finish() est TOUJOURS appelé, quoi qu'il arrive. */
     try {
-      source = await this.collectSource(generation);
+      let source: PreviewSource | null = null;
+      try {
+        source = await this.collectSource(generation);
+      } catch (e: unknown) {
+        if (generation !== this.refreshGeneration) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        this.showMessage("feuillets-preview-error", `Erreur lors du rendu : ${msg}`);
+        finish("error");
+        return;
+      }
+
+      if (generation !== this.refreshGeneration) return;
+      if (!source) {
+        finish("error");
+        return;
+      }
+
+      await this.renderPreviewSource(source, generation, anchor, finish);
     } catch (e: unknown) {
       if (generation !== this.refreshGeneration) return;
       const msg = e instanceof Error ? e.message : String(e);
+      console.error("Feuillets : échec du rendu de l'aperçu", e);
       this.showMessage("feuillets-preview-error", `Erreur lors du rendu : ${msg}`);
       finish("error");
-      return;
     }
+  }
 
-    if (generation !== this.refreshGeneration) return;
-    if (!source) {
-      finish("error");
-      return;
-    }
-
+  /** Cœur du rendu, isolé pour que `refreshPreview()` puisse l'englober
+   * entièrement dans un seul try/catch (voir son commentaire) — aucune
+   * étape d'ici, si elle échoue, ne doit pouvoir laisser refreshInFlight
+   * bloqué. `finish("fresh")` reste appelé depuis le callback `onLoad` de
+   * l'iframe, pas ici : le rendu n'est vraiment terminé qu'une fois l'iframe
+   * chargée. */
+  private async renderPreviewSource(
+    source: PreviewSource,
+    generation: number,
+    anchor: ScrollAnchor | null,
+    finish: (status: PreviewStatus) => void
+  ): Promise<void> {
     const settings = this.plugin.settings;
     const author = settings.manuscriptAuthor || "";
     const tpl = await resolveExportTemplate(this.app, settings, settings.exportTemplate);
@@ -952,6 +985,10 @@ export class PreviewView extends ItemView {
     this.displayedPath = this.mode === "manuscript" ? null : source.subtitle;
     this.updateUI();
 
+    // `this.scaledContainer` peut en théorie devenir null entre-temps (fermeture
+    // de l'onglet pendant un rendu en vol) — la vérification faite au tout début
+    // de refreshPreview() ne se propage plus ici, méthode séparée oblige.
+    if (!this.scaledContainer) return;
     this.pendingFrame?.remove();
     const frame = mountTemplatePreview(
       this.scaledContainer,
@@ -1078,7 +1115,14 @@ export class PreviewView extends ItemView {
 
   /** Petite poignée contextuelle, injectée seulement dans l'iframe affichée.
    * Elle ne modifie jamais le HTML rendu : chaque action persiste d'abord
-   * dans le feuillet Front ou dans le gabarit, puis déclenche un nouveau rendu. */
+   * dans le feuillet Front ou dans le gabarit, puis déclenche un nouveau rendu.
+   *
+   * `doc.createElement` volontaire (pas createEl/createDiv, ni doc.win.createEl) :
+   * `element.ownerDocument` est le document de l'iframe d'aperçu, un realm JS
+   * séparé sans les prototypes patchés par Obsidian — même raison que
+   * export-pdf.ts (iframe.contentDocument). `.win` reste typé `Window` mais
+   * pointe vers la fenêtre de CE realm, elle aussi non patchée : y appeler
+   * `.createEl` planterait exactement pareil. */
   private addTitleRoleControls(element: HTMLElement, role: string, path: string): void {
     const doc = element.ownerDocument;
     if (!doc?.createElement) return;
@@ -1139,7 +1183,8 @@ export class PreviewView extends ItemView {
   }
 
   /** Commandes globales placées DANS la page : déplacement de la composition
-   * et marges internes, sans panneau permanent ni réglage parallèle. */
+   * et marges internes, sans panneau permanent ni réglage parallèle.
+   * `doc.createElement` volontaire — voir addTitleRoleControls ci-dessus. */
   private addTitlePageControls(titlePage: HTMLElement): void {
     const doc = titlePage.ownerDocument;
     if (!doc?.createElement) return;
@@ -1245,6 +1290,7 @@ export class PreviewView extends ItemView {
     this.addGeneratedTitleRoleControls(element, role, edit);
   }
 
+  /** `doc.createElement` volontaire — voir addTitleRoleControls plus haut. */
   private addGeneratedTitleRoleControls(element: HTMLElement, role: string, edit: () => void): void {
     const doc = element.ownerDocument;
     if (!doc?.createElement) return;
@@ -1978,17 +2024,35 @@ export class PreviewView extends ItemView {
    * silence par un simple changement de champ : reconstruire le <details>
    * de la première page le refermerait et en chasserait le focus. */
   private async reloadExportPanel(): Promise<void> {
-    await this.renderExportPanel();
+    /* Un échec pendant la reconstruction du panneau (lecture d'un fichier
+       Front supprimé entre-temps, gabarit personnalisé invalide…) ne doit
+       jamais faire disparaître le bouton « Actualiser » en silence : sans
+       ce filet, une exception ici empêchait même l'appel à
+       refreshPreview() qui suit — vu de l'utilisatrice, un clic qui ne fait
+       plus jamais rien tant que l'onglet n'est pas rouvert. */
+    try {
+      await this.renderExportPanel();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      new Notice(`Feuillets : le panneau Export n'a pas pu se reconstruire (${msg}).`);
+      console.error("Feuillets : échec de renderExportPanel", e);
+    }
     await this.refreshPreview();
   }
 
   /** Réactualise SEULEMENT le contenu de « Première page », sans toucher au
    * reste du panneau ni recréer son <details> : l'inclusion/exclusion et le
    * choix d'un autre fichier Front ne doivent ni refermer la sous-section ni
-   * faire sauter le focus ailleurs dans l'écran. */
+   * faire sauter le focus ailleurs dans l'écran. Même filet qu'au-dessus. */
   private async reloadFirstPageSection(): Promise<void> {
-    if (this.firstPageBodyEl) await this.renderFirstPageFields(this.firstPageBodyEl, this.firstPageTemplates);
-    else await this.renderExportPanel();
+    try {
+      if (this.firstPageBodyEl) await this.renderFirstPageFields(this.firstPageBodyEl, this.firstPageTemplates);
+      else await this.renderExportPanel();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      new Notice(`Feuillets : la section « Première page » n'a pas pu se reconstruire (${msg}).`);
+      console.error("Feuillets : échec de renderFirstPageFields", e);
+    }
     await this.refreshPreview();
   }
 

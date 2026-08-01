@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Notice, TFile, TFolder } from "obsidian";
 import { FeuilletsView, addBinderPreviewButton } from "../src/views/feuillets-view.js";
 import { hasKnownProject } from "../src/services/folder-structure.js";
 
@@ -21,29 +22,72 @@ test("hasKnownProject : un projet connu mais inactif compte aussi", () => {
   assert.equal(hasKnownProject({ projectFolder: "", projects: ["Ancien/Manuscrit"] }), true);
 });
 
-test("Binder : le bouton œil ouvre PreviewView", async () => {
-  const parent = {};
-  const app = {};
+function buildProjectAndPlugin() {
+  const root = new TFolder("Manuscrit");
+  root.name = "Manuscrit";
+  root.path = "Manuscrit";
+  const scene = new TFile("Manuscrit/01-scene.md", "Texte.");
+  scene.path = "Manuscrit/01-scene.md";
+  scene.extension = "md";
+  const outside = new TFile("Ailleurs/notes.md", "Notes.");
+  outside.path = "Ailleurs/notes.md";
+  outside.extension = "md";
+
+  let activeFile = null;
+  const app = {
+    workspace: { getActiveFile: () => activeFile },
+    setActive: (file) => { activeFile = file; },
+  };
+  const plugin = { getProjectFolder: () => root };
+  return { app, plugin, root, scene, outside };
+}
+
+test("Binder : le bouton œil ouvre le même « Ouvrir avec aperçu » que le clic droit — feuillet actif du projet", async () => {
+  const { app, plugin, scene } = buildProjectAndPlugin();
+  app.setActive(scene);
   let definition = null;
   let openedWith = null;
   const button = {};
   const result = addBinderPreviewButton(
-    parent,
+    {},
     app,
     (target, icon, label, onClick) => {
       definition = { target, icon, label, onClick };
       return button;
     },
-    async (targetApp) => { openedWith = targetApp; }
+    plugin,
+    async (targetApp, targetPlugin, file) => { openedWith = { targetApp, targetPlugin, file }; }
   );
   assert.equal(result, button);
-  assert.deepEqual({ target: definition.target, icon: definition.icon, label: definition.label }, {
-    target: parent,
-    icon: "eye",
-    label: "Ouvrir la prévisualisation",
-  });
+  assert.equal(definition.icon, "eye");
+  assert.equal(definition.label, "Ouvrir avec aperçu");
   await definition.onClick();
-  assert.equal(openedWith, app);
+  assert.deepEqual(openedWith, { targetApp: app, targetPlugin: plugin, file: scene });
+});
+
+test("Binder : le bouton œil sans feuillet actif du projet avertit plutôt que d'échouer en silence", async () => {
+  const { app, plugin, outside } = buildProjectAndPlugin();
+  app.setActive(outside); // fichier réel, mais hors du projet
+  const notices = [];
+  const previousNotice = Notice.onCreate;
+  Notice.onCreate = (m) => notices.push(m);
+  try {
+    let openCalled = false;
+    let definition = null;
+    addBinderPreviewButton(
+      {},
+      app,
+      (target, icon, label, onClick) => { definition = { onClick }; return {}; },
+      plugin,
+      async () => { openCalled = true; }
+    );
+    await definition.onClick();
+    assert.equal(openCalled, false, "n'ouvre rien pour un fichier hors projet");
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /feuillet/i);
+  } finally {
+    Notice.onCreate = previousNotice;
+  }
 });
 
 class FakeElement {

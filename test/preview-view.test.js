@@ -926,6 +926,31 @@ function flush() {
   return new Promise((resolve) => { globalThis.setTimeout(resolve, 0); });
 }
 
+test("PreviewView : une exception après collectSource() ne bloque plus refreshInFlight — un nouveau rafraîchissement reste possible", withRender(async () => {
+  const { view, scaledContainer, viewport } = await openLoadedView("manuscript");
+
+  // Simule un échec plus tard dans le pipeline (gabarit, pagination, montage
+  // de l'iframe…) — tout ce qui n'était PAS déjà protégé par le try/catch
+  // autour de collectSource(). Avant le correctif, une telle exception
+  // sortait de refreshPreview() sans jamais appeler finish() : refreshInFlight
+  // restait bloqué à true et plus aucun rafraîchissement, bouton compris,
+  // ne pouvait plus jamais rien faire tant que la vue n'était pas rouverte.
+  const originalRender = view.renderPreviewSource.bind(view);
+  view.renderPreviewSource = async () => { throw new Error("échec simulé du pipeline de rendu"); };
+
+  await view.refreshPreview();
+  assert.equal(view.statusEl.textContent, "Erreur", "l'échec est signalé, pas silencieux");
+  assert.equal(view["refreshInFlight"], false, "refreshInFlight ne doit jamais rester bloqué après une exception");
+
+  // Rétablit un pipeline fonctionnel et vérifie qu'un nouveau rafraîchissement
+  // — celui que ferait le bouton Actualiser — produit bien un rendu, au lieu
+  // d'être avalé silencieusement par un refreshInFlight resté coincé.
+  view.renderPreviewSource = originalRender;
+  await view.refreshPreview();
+  fireLoad(placeFrame(latestFrame(scaledContainer), viewport));
+  assert.equal(view.statusEl.textContent, "Manuscrit à jour", "le rafraîchissement suivant fonctionne de nouveau");
+}));
+
 test("PreviewView : un rendu obsolète ne remplace jamais un rendu plus récent", async () => {
   const dom = installDom();
   const previousRender = MarkdownRenderer.render;
