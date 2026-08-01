@@ -6,6 +6,8 @@ import {
   getOrderedChildren,
   resourcesFolderPath,
   resourcesSubfolderPath,
+  editionFolderPath,
+  getEditionRoot,
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
   RESEARCH_FOLDER_NAME,
@@ -156,6 +158,47 @@ export function getVersionsRoot(app: App, root: TFolder | null | undefined): TFo
   const base = root.parent ? root.parent.path : root.path;
   const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/_Versions`));
   return f instanceof TFolder ? f : null;
+}
+
+/** Documents conventionnels du dossier Edition — créés vides (un simple
+ * titre H1) à la création du dossier, jamais recréés s'ils existent déjà
+ * (writeTemplate plus bas suit la même règle d'idempotence). L'autrice
+ * reste libre de les renommer, supprimer ou d'en ajouter d'autres : cette
+ * liste ne sert qu'à amorcer un dossier tout neuf. */
+export const EDITION_DOCUMENTS = [
+  "Synopsis.md",
+  "Note d’intention.md",
+  "Biographie.md",
+  "Lettre d’accompagnement.md",
+];
+
+/** Sous-dossiers conventionnels du dossier Edition — suivi des envois aux
+ * éditeurs/agents (Soumissions) et archivage de chaque version transmise
+ * (Versions envoyées), créés vides en même temps que le dossier. */
+export const EDITION_SUBFOLDERS = ["Soumissions", "Versions envoyées"];
+
+/** Crée le dossier Edition (voisin du dossier projet, voir
+ * editionFolderPath) avec ses sous-dossiers et documents conventionnels —
+ * à la demande seulement, jamais à la création d'un projet ni à
+ * l'ouverture d'un projet existant (même principe que ensureJournalFolder :
+ * un projet ancien sans dossier Edition n'en a jamais un imposé). Idempotent :
+ * ne recrée ni n'écrase rien de déjà présent. */
+export async function ensureEditionFolder(app: App, root: TFolder): Promise<TFolder> {
+  const path = editionFolderPath(app, root);
+  await ensureFolder(app, path);
+  for (const sub of EDITION_SUBFOLDERS) {
+    await ensureFolder(app, normalizePath(`${path}/${sub}`));
+  }
+  for (const doc of EDITION_DOCUMENTS) {
+    const docPath = normalizePath(`${path}/${doc}`);
+    if (!app.vault.getAbstractFileByPath(docPath)) {
+      const title = doc.replace(/\.md$/, "");
+      await app.vault.create(docPath, `# ${title}\n\n`);
+    }
+  }
+  const folder = getEditionRoot(app, root);
+  if (!folder) throw new Error(`« ${path} » n'a pas pu être créé.`);
+  return folder;
 }
 
 /** Duplique le dossier manuscrit d'un projet (chapitres/parties/scènes,
