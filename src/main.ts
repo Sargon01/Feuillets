@@ -32,7 +32,7 @@ import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
 import { JournalView } from "./views/journal-view.js";
 import { ProjectView } from "./views/project-view.js";
-import { PreviewView, activatePreviewView, openWithPreview } from "./views/preview-view.js";
+import { PreviewView, openWithPreview } from "./views/preview-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
 import { formatCitation } from "./services/citations.js";
 import { getResearchTemplate } from "./services/research-templates.js";
@@ -215,7 +215,7 @@ class FeuilletsPlugin extends Plugin {
   /** Dernière analyse effectuée, affichée par l'onglet Relecture. */
   analysisRun: AnalysisRun | null = null;
   analysisRunning = false;
-  autoAnalyzeTimer: ReturnType<typeof setTimeout> | null = null;
+  autoAnalyzeTimer: number | ReturnType<typeof setTimeout> | null = null;
   lastAutoAnalyzedContent = "";
 
 
@@ -1023,11 +1023,11 @@ class FeuilletsPlugin extends Plugin {
         if (content === this.lastAutoAnalyzedContent) return;
 
         if (this.autoAnalyzeTimer) {
-          clearTimeout(this.autoAnalyzeTimer);
+          window.clearTimeout(this.autoAnalyzeTimer);
           this.autoAnalyzeTimer = null;
         }
 
-        this.autoAnalyzeTimer = setTimeout(() => {
+        this.autoAnalyzeTimer = window.setTimeout(() => {
           this.autoAnalyzeTimer = null;
           if (this.settings.autoAnalyzeInRelecture === false) return;
           if (!this.isRelectureViewActive()) return;

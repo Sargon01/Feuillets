@@ -59,8 +59,8 @@ const LEGACY_FIELD_ALIASES: Record<string, string[]> = {
  */
 export function stripFrontmatter(content: string): string {
   if (typeof content !== "string" || !content) return "";
-  // ﻿ : BOM d'un fichier importé — sinon le `---` n'est plus en tête.
-  return content.replace(/^﻿?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/, "");
+  // \uFEFF : BOM d'un fichier importé — sinon le `---` n'est plus en tête.
+  return content.replace(/^\uFEFF?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/, "");
 }
 
 export function fmOf(app: App, file: TFile | null | undefined): SceneFrontmatter {

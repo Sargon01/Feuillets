@@ -55,7 +55,7 @@ export default class FeuilletsGrammalectePlugin extends Plugin {
        commande, qui n'a pas d'équivalent côté Feuillets. */
     this.addCommand({
       id: "reconnect",
-      name: "Reconnecter le correcteur à Feuillets",
+      name: "Reconnecter le correcteur",
       callback: () => {
         if (this.connect()) new Notice("Grammalecte est de nouveau enregistré auprès de Feuillets.");
         else this.warnMissingFeuillets();

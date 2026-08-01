@@ -1803,7 +1803,7 @@ export class PreviewView extends ItemView {
       return control;
     };
 
-    const scope = document.createElement("select");
+    const scope = createEl("select");
     scope.className = "feuillets-preview-export-control";
     for (const [value, label] of [["scene", "Feuillet"], ["chapter", "Chapitre"], ["part", "Partie"], ["manuscript", "Manuscrit"]]) {
       scope.createEl("option", { value, text: label });
@@ -1813,7 +1813,7 @@ export class PreviewView extends ItemView {
     scope.addEventListener("change", () => void this.setMode(scope.value as PreviewMode));
     field("Portée", scope);
 
-    const included = document.createElement("button");
+    const included = createEl("button");
     included.className = "clickable-icon feuillets-preview-export-action";
     setIcon(included, "list-checks");
     included.createSpan({ text: "Éléments inclus" });
@@ -1826,7 +1826,7 @@ export class PreviewView extends ItemView {
     });
     field("Contenu", included);
 
-    const format = document.createElement("select");
+    const format = createEl("select");
     format.className = "feuillets-preview-export-control";
     for (const [value, label] of [["docx", "DOCX"], ["pdf", "PDF"], ["epub", "EPUB"], ["odt", "ODT"]]) {
       format.createEl("option", { value, text: label });
@@ -1839,7 +1839,7 @@ export class PreviewView extends ItemView {
     });
     field("Format", format);
 
-    const template = document.createElement("select");
+    const template = createEl("select");
     template.className = "feuillets-preview-export-control";
     const templates = await listExportTemplates(this.app, this.plugin.settings);
     for (const tpl of templates) template.createEl("option", { value: tpl.key, text: tpl.label });
@@ -1854,7 +1854,7 @@ export class PreviewView extends ItemView {
 
     await this.renderFirstPageSection(panel, templates);
 
-    const name = document.createElement("input");
+    const name = createEl("input");
     name.className = "feuillets-preview-export-control";
     name.type = "text";
     name.value = this.exportFileName().replace(/\.md$/i, "");
