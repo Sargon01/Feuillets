@@ -196,4 +196,4 @@ report a vulnerability.
 
 [GPL-3.0](./LICENSE) — Copyright (c) 2026 Halim.
 
-Passé de MIT à GPL-3.0 en son temps pour intégrer du code [Grammalecte](https://github.com/algoo/grammalecte) (GPL-3.0). Depuis la 1.4.5, plus aucun code Grammalecte n'est distribué avec Feuillets. La licence reste GPL-3.0. Voir `THIRD_PARTY_NOTICES.md`.
+Passé de MIT à GPL-3.0 en son temps pour intégrer du code [Grammalecte](https://github.com/algoo/grammalecte) (GPL-3.0). Depuis la 1.4.5, plus aucun code Grammalecte n'est distribué avec Feuillets. La licence reste GPL-3.0. Le greffon compagnon est désormais maintenu dans le dépôt autonome [Feuillets Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte). Voir `THIRD_PARTY_NOTICES.md`.

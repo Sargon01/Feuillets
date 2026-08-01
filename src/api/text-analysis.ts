@@ -8,7 +8,8 @@
  * suggestions.
  *
  * Ce fichier est le contrat partagé avec les greffons compagnons (voir
- * feuillets-grammalecte/src/feuillets-api.ts, qui en importe les types).
+ * [Feuillets Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte),
+ * qui en importe les types).
  * Toute modification est une rupture d'API : n'ajouter que ce qu'un
  * compagnon réel a besoin d'appeler. */
 
