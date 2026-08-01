@@ -9,6 +9,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : zlib, seulement au premier usage */
 /* global require -- fourni par l'environnement Electron */
 
+import { Platform } from "obsidian";
 import { GRAMMALECTE_ARCHIVE_BASE64 } from "./grammalecte-archive.ts";
 
 /** Ressources reconstituées : chemin POSIX ("fr/conj.js") -> contenu texte. */
@@ -33,6 +34,16 @@ export function decodeArchive(base64: string): AssetMap {
     );
   }
 
+  /* isDesktopOnly (manifest.json) doit empêcher Obsidian de charger ce
+     greffon sur mobile — ce garde-fou n'est donc jamais censé se déclencher
+     en usage normal. Il évite malgré tout un `ReferenceError: require is
+     not defined` opaque si ce point était atteint autrement (test, refactor
+     futur) : un message qui nomme la vraie cause plutôt qu'un plantage nu. */
+  if (!Platform.isDesktop) {
+    throw new GrammalecteArchiveError(
+      "Le moteur Grammalecte nécessite Obsidian de bureau (module Node `zlib`) — indisponible sur cet appareil."
+    );
+  }
   const zlib = require("zlib") as typeof import("zlib");
   let raw: Buffer;
   try {

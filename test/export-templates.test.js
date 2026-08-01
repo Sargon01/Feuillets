@@ -90,6 +90,19 @@ test("templateToCss", async (t) => {
     assert.ok(css.includes("h1 { font-family: 'Times New Roman', Times, serif; page-break-before: always; font-size: 20pt"));
     assert.ok(css.includes("h2 { font-family: 'Times New Roman', Times, serif; page-break-before: avoid; font-size: 16pt"));
   });
+
+  /* Chantier « Compilation professionnelle — Lot 2 » : avant ce lot, un
+   * modèle sans `sceneDivider` (classique/moderne/tapuscrit/apa/these)
+   * n'émettait AUCUNE règle `hr::before` — un séparateur de scène
+   * s'affichait alors comme un `<hr>` nu, sans le texte "* * *" que DOCX,
+   * lui, insère toujours en repli (voir docx-blocks.ts). Vérifie que PDF/
+   * EPUB (les deux consommateurs de templateToCss) ont désormais le même
+   * repli visuel que DOCX. */
+  await t.test("classique (sans sceneDivider défini) : repli \"* * *\" comme DOCX, pas un <hr> nu", () => {
+    const css = templateToCss(EXPORT_TEMPLATES.classique);
+    assert.ok(!EXPORT_TEMPLATES.classique.sceneDivider, "classique ne doit pas définir sceneDivider (prérequis du test)");
+    assert.ok(css.includes('hr::before { content: "* * *"; }'));
+  });
 });
 
 test("templatePrintCss", async (t) => {

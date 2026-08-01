@@ -290,7 +290,9 @@ export function blockToParagraphs(
       new Paragraph({
         alignment: frontOverride ? frontAlignment(frontOverride) : alignmentFor(tpl),
         indent: frontOverride
-          ? undefined
+          ? frontOverride.style && (frontOverride.style.marginLeftPt != null || frontOverride.style.marginRightPt != null)
+            ? { left: frontOverride.style.marginLeftPt != null ? `${frontOverride.style.marginLeftPt}pt` : undefined, right: frontOverride.style.marginRightPt != null ? `${frontOverride.style.marginRightPt}pt` : undefined }
+            : undefined
           : tpl.indent
           ? { firstLine: tpl.indentPt ? `${tpl.indentPt}pt` : "1.25cm" }
           : undefined,

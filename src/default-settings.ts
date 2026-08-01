@@ -15,7 +15,7 @@ export type DefaultSettings = {
   folderPositions: Record<string, number>;
   folderGoals: Record<string, number>;
   collapsed: Record<string, boolean>;
-  boardMode: "board" | "outline" | "arcs" | "timeline" | "read";
+  boardMode: "board" | "outline" | "arcs" | "timeline";
   boardWholeManuscript: boolean;
   statusFilter: string;
   statuses: Label[];
@@ -86,10 +86,18 @@ export type DefaultSettings = {
   pdfMarginRight: number;
   pdfMirrorMargins: boolean;
   pdfDiffHeaders: boolean;
+  pdfEnableHeaders: boolean;
+  pdfEnableFooters: boolean;
   pdfHeaderLeft: string;
+  pdfHeaderCenter: string;
   pdfHeaderRight: string;
   pdfFooterLeft: string;
+  pdfFooterCenter: string;
   pdfFooterRight: string;
+  pdfHeaderDistanceCm: number;
+  pdfFooterDistanceCm: number;
+  pdfHeaderBodyGapPt: number;
+  pdfFooterBodyGapPt: number;
   pdfPageNumberPosition: "right" | "center" | "left";
   pdfHideFirstPageHeader: boolean;
   pdfOrphans: number;
@@ -257,10 +265,18 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   pdfMarginRight: 2.5,
   pdfMirrorMargins: true,
   pdfDiffHeaders: true,
+  pdfEnableHeaders: true,
+  pdfEnableFooters: true,
   pdfHeaderLeft: "{title}",
+  pdfHeaderCenter: "",
   pdfHeaderRight: "{author}",
   pdfFooterLeft: "",
+  pdfFooterCenter: "",
   pdfFooterRight: "Page {page} sur {pages}",
+  pdfHeaderDistanceCm: 0.75,
+  pdfFooterDistanceCm: 0.75,
+  pdfHeaderBodyGapPt: 3,
+  pdfFooterBodyGapPt: 3,
   pdfPageNumberPosition: "right",
   pdfHideFirstPageHeader: true,
   pdfOrphans: 2,

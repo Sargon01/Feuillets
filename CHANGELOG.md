@@ -2,6 +2,17 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 1.7.0
+
+### Ajouté et amélioré
+
+- **Modernisation des réglages** : Nouvelle interface de paramètres structurée par catégories et onglets pour une navigation plus fluide et intuitive.
+- **Amélioration de la vue Aperçu (PreviewView) et synchronisation** : Expérience de relecture enrichie, suivi et synchronisation du défilement optimisés entre l'éditeur et l'aperçu.
+- **Stabilisation des exports natifs** : Prise en charge fiabilisée et harmonisée des exports manuscrits en formats DOCX, PDF, ODT, EPUB et Markdown.
+- **Amélioration de la compatibilité desktop/mobile** : Isolation stricte et chargement paresseux des modules Node (`vm`, `zlib`) pour une exécution sans erreur sur les appareils mobiles.
+- **Mise à jour du compagnon Feuillets-Grammalecte** : Améliorations de l'adaptateur Grammalecte 2.2.0 et des garde-fous de plateforme.
+- **Corrections et couverture de tests** : Ajout de nombreuses suites de tests automatisées (export EPUB, onglets de réglages, synchronisation) et corrections d'incompatibilités d'API.
+
 ## 1.6.0
 
 ### Ajouté et amélioré

@@ -46,7 +46,6 @@ export const BOARD_MODES = [
   ["outline", "Plan"],
   ["arcs", "Chemin de fer"],
   ["timeline", "Chronologie"],
-  ["read", "Lecture"],
 ];
 
 /** Panneaux latéraux qu'on peut masquer entièrement (icône du ruban et

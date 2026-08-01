@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import { MarkdownRenderer, Menu, TFolder, TFile } from "obsidian";
 import { VIEW_PREVIEW } from "../src/constants.js";
 import { PreviewView, activatePreviewView } from "../src/views/preview-view.js";
+import { CompileSelectionModal } from "../src/ui/selection-modals.js";
+import { LayoutModal } from "../src/ui/layout-modal.js";
+import { mountTemplatePreview } from "../src/ui/template-preview.js";
+import { setTitleRoleValue } from "../src/utils/title-roles.js";
 
 /* Chantier « PreviewView : zoom et centrage » — deux bugs confirmés
  * manuellement : les boutons de zoom ne pilotaient rien de réel (l'iframe
@@ -125,6 +129,17 @@ class FakeElement {
   createDiv(options = {}) { return this.createEl("div", options); }
   createSpan(options = {}) { return this.createEl("span", options); }
   appendChild(child) { child.remove(); child.parentNode = this; this.children.push(child); return child; }
+  /* Nécessaire au regroupement des pages Front en <div> dédiés (voir
+     export-render.wrapFrontPagesInDom) : sans lui, un projet doté d'une vraie
+     page de titre échouait silencieusement au rendu. */
+  insertBefore(child, reference) {
+    child.remove();
+    child.parentNode = this;
+    const index = reference ? this.children.indexOf(reference) : -1;
+    if (index >= 0) this.children.splice(index, 0, child);
+    else this.children.push(child);
+    return child;
+  }
   prepend(child) { child.remove(); child.parentNode = this; this.children.unshift(child); }
   after(child) { const parent = this.parentNode; const index = parent.children.indexOf(this); child.remove(); child.parentNode = parent; parent.children.splice(index + 1, 0, child); }
   remove() { if (this.parentNode) { const i = this.parentNode.children.indexOf(this); if (i >= 0) this.parentNode.children.splice(i, 1); this.parentNode = null; } }
@@ -234,6 +249,34 @@ Object.defineProperty(FakeElement.prototype, "contentDocument", {
 });
 
 function element(tag, text, height = 30) { const el = new FakeElement(tag, text); el.offsetHeight = height; return el; }
+
+test("iframe d’aperçu — l’écouteur de chargement est branché avant l’insertion", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    const append = container.appendChild.bind(container);
+    container.appendChild = (frame) => {
+      const result = append(frame);
+      // Reproduit le cas Electron rapide : `load` part immédiatement dès
+      // l'insertion. Un écouteur ajouté après mountTemplatePreview le rate.
+      frame.dispatch("load");
+      return result;
+    };
+    let loaded = null;
+    const frame = mountTemplatePreview(
+      container,
+      "body { color: black; }",
+      '<div class="pdf-page"></div>',
+      1,
+      "manuscript",
+      (readyFrame) => { loaded = readyFrame; }
+    );
+    assert.equal(loaded, frame);
+    assert.equal(container.children[0], frame);
+  } finally {
+    dom.restore();
+  }
+});
 
 class FakeResizeObserver {
   constructor(callback) { this.callback = callback; this.observed = []; }
@@ -377,21 +420,40 @@ function buildProject() {
       cachedRead: async (f) => (f && typeof f.content === "string" ? f.content : "---\ntitre: Scene 1\n---\nTexte réel de la scène."),
       createFolder: async () => {},
       create: async (path, content) => new TFile(path, content),
-      modify: async () => {},
+      // Écriture RÉELLE dans le fixture : les tests de première page doivent
+      // pouvoir relire ce qui a été persisté, pas seulement compter les appels.
+      modify: async (file, content) => { if (file && typeof content === "string") file.content = content; },
       on: (event, handler) => {
         if (!vaultListeners.has(event)) vaultListeners.set(event, []);
         vaultListeners.get(event).push(handler);
         return { event, handler };
       },
+      /* Parcours réel de l'arbre plutôt qu'une liste figée : les tests de
+         première page ajoutent un dossier Front au projet, il doit être
+         résolu comme n'importe quel autre nœud. */
       getAbstractFileByPath: (p) => {
-        if (p === "Manuscrit") return manuscript;
-        if (p === "Manuscrit/Chapitre 1") return chapterDir;
-        if (p === "Manuscrit/Chapitre 1/01-scene.md") return sceneFile;
-        if (p === "Manuscrit/Chapitre 1/02-scene.md") return sceneFile2;
-        return null;
+        const walk = (node) => {
+          if (node.path === p) return node;
+          for (const child of node.children || []) {
+            const found = walk(child);
+            if (found) return found;
+          }
+          return null;
+        };
+        return walk(manuscript);
       },
     },
-    metadataCache: { getFileCache: () => ({ frontmatter: { titre: "Scene 1" } }) },
+    /* Frontmatter PAR FICHIER dès qu'un test en pose un (`_fm`) : la page de
+       titre Front se distingue d'une scène par son `type: titre` et par son
+       indicateur `compile`, exactement comme dans un vrai coffre. Les
+       feuillets ordinaires gardent l'ancien frontmatter commun. */
+    metadataCache: { getFileCache: (f) => ({ frontmatter: f && f._fm ? f._fm : { titre: "Scene 1" } }) },
+    fileManager: {
+      processFrontMatter: async (file, mutate) => {
+        file._fm = { ...(file._fm || {}) };
+        mutate(file._fm);
+      },
+    },
     workspace: {
       on: (event, handler) => {
         if (!workspaceListeners.has(event)) workspaceListeners.set(event, []);
@@ -492,7 +554,7 @@ async function openView(mode = "manuscript") {
     viewport._paddingX = VIEWPORT_PADDING;
     viewport._paddingY = VIEWPORT_PADDING;
   }
-  return { view, plugin, toolbar, viewport, scaledContainer, app, chapterDir, sceneFile, sceneFile2, frame: latestFrame(scaledContainer) };
+  return { view, plugin, toolbar, viewport, scaledContainer, app, manuscript, chapterDir, sceneFile, sceneFile2, frame: latestFrame(scaledContainer) };
 }
 
 /** Dernière iframe montée dans le conteneur — pendant un échange, l'ancienne
@@ -1038,16 +1100,13 @@ test("PreviewView : la fermeture nettoie les rafraîchissements différés", asy
     assert.equal(app.workspaceListenerCount("active-leaf-change"), 1);
     assert.equal(view._registeredEvents.length, 3);
 
-    const titles = menuTitles(openMenuVia(view.btnMore));
-    assert.equal(titles.includes("Actualiser l'aperçu"), false);
-    assert.equal(titles.includes("Recentrer sur le feuillet ouvert"), false);
-
     await view.onClose();
     assert.equal(dom.observers[0].observed.length, 0, "le ResizeObserver doit être déconnecté");
     assert.equal(dom.pendingTimers(), 0, "aucun rafraîchissement différé ne doit survivre à la fermeture");
     assert.equal(view.previewFrame, null);
     assert.equal(view.previewViewport, null);
-    assert.equal(view.btnMore, null);
+    assert.equal(view.btnSettings, null);
+    assert.equal(view.openVisibleEl, null);
     assert.equal(view.btnBarToggle, null);
   } finally {
     MarkdownRenderer.render = previousRender;
@@ -1072,16 +1131,29 @@ function countCompiles(app) {
   return () => n;
 }
 
-test("barre — fil d'Ariane, un zoom et ⋯ seulement", withRender(async () => {
+test("barre — fil d'Ariane, Ouvrir ce feuillet, zoom, Export et Réglages seulement", withRender(async () => {
   const { view, toolbar } = await openLoadedView("manuscript");
 
   const chips = toolbar.children.filter((c) => c.classes.has("feuillets-preview-chip"));
   assert.equal(chips.length, 1, "un seul contrôle de zoom");
   const icons = toolbar.children.filter((c) => c.classes.has("clickable-icon"));
-  assert.equal(icons.length, 1, "et une SEULE icône dans la barre : « ⋯ »");
-  assert.equal(icons[0].icon, "more-horizontal");
-  assert.equal(toolbar.children.filter((c) => c.tagName === "BUTTON").length, 3, "le bouton contextuel est présent mais masqué hors Chapitre/Partie");
+  assert.deepEqual(
+    icons.map((icon) => icon.icon),
+    ["file-edit", "download", "settings"],
+    "trois icônes Obsidian : Ouvrir ce feuillet, Export, Réglages — et aucun « ⋯ »"
+  );
+  assert.equal(view.btnMore, undefined, "le menu ⋯ n'existe plus");
+  assert.equal(typeof view.openMoreMenu, "undefined", "son code a disparu avec lui");
+  assert.equal(
+    icons.some((icon) => icon.icon === "more-horizontal"),
+    false,
+    "aucune icône ⋯ ne subsiste dans la barre"
+  );
+  assert.equal(toolbar.children.filter((c) => c.tagName === "BUTTON").length, 4, "le bouton contextuel est présent mais masqué hors Chapitre/Partie");
   assert.equal(view.openVisibleEl.classes.has("is-hidden"), true, "aucun bouton visible en mode Manuscrit");
+  assert.equal(view.openVisibleEl.getAttribute("aria-label"), "Ouvrir ce feuillet");
+  assert.equal(view.openVisibleEl.textContent, "", "une icône, plus un bouton texte");
+  assert.equal(view.btnSettings.getAttribute("aria-label"), "Réglages d’export");
 
   assert.ok(toolbar.children.some((c) => c.classes.has("feuillets-preview-breadcrumb")));
   assert.equal(view.zoomLabelEl.textContent, `${Math.round(view.zoomScale * 100)} %`);
@@ -1102,7 +1174,7 @@ test("barre — fil d'Ariane, un zoom et ⋯ seulement", withRender(async () => 
   assert.equal(view.btnBarToggle, null, "aucun ancien bouton séparé");
 }));
 
-test("réglages — aucun panneau dupliqué ; le menu ouvre la vue Projet centrale", withRender(async () => {
+test("réglages — aucun panneau dupliqué ; l'icône ouvre directement l'onglet Export central", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
 
   // Le panneau local a disparu, avec sa seconde source de vérité.
@@ -1110,15 +1182,24 @@ test("réglages — aucun panneau dupliqué ; le menu ouvre la vue Projet centra
   assert.equal(typeof view.renderSettingsPanel, "undefined");
   assert.equal(typeof view.settingsPanel, "undefined");
 
-  let revealed = null;
-  let created = null;
-  view.app.workspace.getLeavesOfType = () => [];
-  view.app.workspace.getRightLeaf = () => ({ setViewState: async (st) => { created = st; } });
-  view.app.workspace.revealLeaf = (l) => { revealed = l; };
-  runMenuItem(view.btnMore, "Réglages du manuscrit");
+  let settingsOpened = 0;
+  let selectedTab = null;
+  let rendered = 0;
+  const settingsTab = { _activeSettingsTab: "Projet", refreshForExternalCallers: () => { rendered++; } };
+  view.app.setting = {
+    open: () => { settingsOpened++; },
+    openTabById: (id) => { selectedTab = id; },
+    activeTab: settingsTab,
+  };
+  assert.equal(view.btnSettings.icon, "settings");
+  view.btnSettings.click();
   await flush();
-  assert.equal(created.type, "feuillets-project", "doit ouvrir la vue Projet, pas un panneau local");
-  assert.ok(revealed);
+  assert.equal(settingsOpened, 1);
+  assert.equal(selectedTab, "feuillets", "doit ouvrir les paramètres Feuillets, pas une vue locale");
+  assert.equal(settingsTab._activeSettingsTab, "Export", "l'onglet Export est sélectionné sans étape intermédiaire");
+  assert.equal(rendered, 1, "l'instance déjà ouverte est réaffichée, jamais dupliquée");
+  assert.equal(typeof view.app.workspace.getRightLeaf, "function", "aucune feuille latérale n'est créée");
+  assert.equal(view.contentEl.querySelectorAll("dialog").length, 0, "aucun modal intermédiaire");
 }));
 
 test("mode Scène — rend le feuillet actif SANS jamais appeler compile()", async () => {
@@ -1251,19 +1332,21 @@ test("mode Manuscrit — la frappe déclenche une seule compilation différée",
   assert.equal(view.statusEl.textContent, "Manuscrit à jour");
 }));
 
-test("modes — seules les portées de lecture sont proposées depuis ⋯", withRender(async () => {
+test("modes — la portée se choisit au fil d'Ariane et dans Export, sans menu ⋯", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
 
-  const menu = openMenuVia(view.btnMore);
-  assert.deepEqual(menuTitles(menu).slice(0, 3), ["Chapitre", "Partie", "Manuscrit"]);
-  assert.equal(menuItem(menu, "Manuscrit").checked, true);
-  assert.equal(menuTitles(menu).includes("Feuillet"), false);
+  view.btnExport.click();
+  await flush();
+  const scope = view.exportPanelEl.querySelectorAll("select")[0];
+  assert.deepEqual(scope.children.map((option) => option.value), ["scene", "chapter", "part", "manuscript"]);
+  assert.equal(scope.value, "manuscript");
 
-  menuItem(menu, "Chapitre").callback();
+  scope.value = "chapter";
+  scope.dispatch("change");
+  await flush();
   await flush();
   assert.equal(view.mode, "chapter");
   assert.equal(view.plugin.settings.previewMode, "chapter", "la portée est persistée, pas gardée en local");
-  assert.deepEqual(menuTitles(openMenuVia(view.btnMore)).slice(0, 3), ["Chapitre", "Partie", "Manuscrit"]);
 }));
 
 test("suivi de scène — défile vers le feuillet actif en mode Manuscrit, sans bouger si déjà visible", async () => {
@@ -1293,7 +1376,7 @@ test("suivi de scène — défile vers le feuillet actif en mode Manuscrit, sans
     assert.equal(viewport.scrollTop, settled);
 
     // Le recentrage manuel a été retiré : la lecture reste libre.
-    assert.equal(menuTitles(openMenuVia(view.btnMore)).includes(CENTER_LABEL), false);
+    assert.equal(view.contentEl.querySelectorAll(`[aria-label="${CENTER_LABEL}"]`).length, 0);
   } finally {
     MarkdownRenderer.render = previousRender;
     dom.restore();
@@ -1456,14 +1539,22 @@ test("chapitre — les scènes sont assemblées dans l'ordre du Binder", () => {
   assert.deepEqual(scenes.map((f) => f.path), [s1a.path, s1b.path]);
 });
 
-test("menu — ni recentrage ni actualisation manuelle", withRender(async () => {
-  const { view } = await openLoadedView("manuscript");
-  assert.equal(menuTitles(openMenuVia(view.btnMore)).includes(CENTER_LABEL), false);
-  assert.equal(menuTitles(openMenuVia(view.btnMore)).includes("Actualiser l'aperçu"), false);
-  await view.setMode("scene");
-  const titles = menuTitles(openMenuVia(view.btnMore));
+test("menu — le zoom est le seul menu restant de la barre", withRender(async () => {
+  const { view, toolbar } = await openLoadedView("manuscript");
+  const titles = menuTitles(openMenuVia(view.zoomLabelEl));
+  assert.deepEqual(titles.slice(0, 2), ["Ajuster à la largeur", "Afficher la page entière"]);
   assert.equal(titles.includes(CENTER_LABEL), false);
   assert.equal(titles.includes(SYNC_LABEL), false, "la synchronisation découle désormais de la portée Feuillet");
+  assert.equal(titles.includes("Réglages du manuscrit"), false, "les réglages ont leur propre icône");
+
+  // Aucun autre contrôle de la barre n'ouvre de menu.
+  for (const btn of [view.btnExport, view.btnSettings, view.openVisibleEl]) {
+    Menu.lastShown = null;
+    btn.click();
+    await flush();
+    assert.equal(Menu.lastShown, null, `${btn.getAttribute("aria-label")} agit directement, sans menu`);
+  }
+  assert.equal(toolbar.children.some((c) => c.icon === "more-horizontal"), false);
 }));
 
 test("centrage — chemins avec espaces, accents et sous-dossiers", async () => {
@@ -2067,22 +2158,78 @@ test("barre — les réglages de format et de gabarit restent exclusivement cent
   assert.equal(toolbar.children.some((child) => child.tagName === "SELECT"), false);
   assert.equal(view.templateSelectEl, undefined);
   assert.equal(view.formatNoteEl, undefined);
-  assert.equal(menuTitles(openMenuVia(view.btnMore)).some((title) => title.startsWith("Format :")), false);
   assert.equal(typeof view.setExportFormat, "undefined");
   assert.equal(view.exportFormat, "docx");
   assert.equal(plugin.settings.exportTemplate, "classique");
 }));
 
 
-test("barre — Exporter passe par le point d'entrée unique existant", withRender(async () => {
+test("export contextuel — portée, inclusions, format, gabarit et nom partagent les réglages centraux", withRender(async () => {
   const { view, app, plugin } = await openLoadedView("scene");
+
+  view.btnExport.click();
+  await flush();
+  assert.equal(view.exportPanelEl.hasClass("is-hidden"), false);
+  const selects = view.exportPanelEl.querySelectorAll("select");
+  const [scope, format, template] = selects;
+  assert.deepEqual(scope.children.map((option) => option.value), ["scene", "chapter", "part", "manuscript"]);
+
+  scope.value = "chapter";
+  scope.dispatch("change");
+  await flush();
+  await flush();
+  assert.equal(view.mode, "chapter");
+  assert.equal(plugin.settings.previewMode, "chapter", "la portée réutilise le mode central existant");
+
+  format.value = "epub";
+  format.dispatch("change");
+  await flush();
+  assert.equal(plugin.settings.exportFormat, "epub");
+
+  template.value = "moderne";
+  template.dispatch("change");
+  await flush();
+  assert.equal(plugin.settings.exportTemplate, "moderne");
+
+  const previousLayoutOpen = LayoutModal.prototype.open;
+  let openedLayout = null;
+  LayoutModal.prototype.open = function openLayout() { openedLayout = this; };
+  try {
+    const visualLayout = view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]');
+    assert.ok(visualLayout, "le réglage visuel doit être directement disponible dans Export");
+    visualLayout.click();
+  } finally {
+    LayoutModal.prototype.open = previousLayoutOpen;
+  }
+  assert.equal(openedLayout.templateKey, "moderne");
+  let layoutRefreshes = 0;
+  view.refreshPreview = async () => { layoutRefreshes++; };
+  openedLayout.onChange();
+  await flush();
+  assert.equal(layoutRefreshes, 1, "une modification dans le modal actualise l’aperçu ouvert");
+
+  const name = view.exportPanelEl.querySelector('[aria-label="Nom du fichier exporté"]');
+  name.value = "Mon chapitre";
+  name.dispatch("change");
+  await flush();
+  assert.equal(plugin.settings.compileFileName, "Mon chapitre.md");
+
+  const previousOpen = CompileSelectionModal.prototype.open;
+  let selectionOpened = 0;
+  CompileSelectionModal.prototype.open = () => { selectionOpened++; };
+  try {
+    view.exportPanelEl.querySelectorAll("button").find((el) => el.textContent === "Éléments inclus").click();
+  } finally {
+    CompileSelectionModal.prototype.open = previousOpen;
+  }
+  assert.equal(selectionOpened, 1, "la sélection existante des feuillets est réutilisée");
 
   let calls = 0;
   const realExport = view.doExport.bind(view);
   view.doExport = async () => { calls++; };
-  runMenuItem(view.btnMore, "Exporter le manuscrit");
+  view.exportPanelEl.querySelectorAll("button").find((el) => el.textContent === "Exporter").click();
   await flush();
-  assert.equal(calls, 1, "le menu doit appeler doExport, pas une logique d'export locale");
+  assert.equal(calls, 1, "le bloc doit appeler doExport, pas une logique d'export locale");
 
   // Et doExport atteint réellement le service central : en Markdown, il
   // passe par compile(), qui écrit le manuscrit.
@@ -2092,18 +2239,354 @@ test("barre — Exporter passe par le point d'entrée unique existant", withRend
   assert.ok(compiles() > 0, "compile() doit avoir été appelé");
 }));
 
+test("panneau Export — repli et réouverture de session ne perdent aucun choix", withRender(async () => {
+  const { view, plugin } = await openLoadedView("manuscript");
+  view.btnExport.click();
+  await flush();
+  assert.equal(view.exportPanelEl.hasClass("is-hidden"), false);
+
+  const format = view.exportPanelEl.querySelectorAll("select")[1];
+  format.value = "odt";
+  format.dispatch("change");
+  await flush();
+  const close = view.exportPanelEl.querySelector('[aria-label="Replier le panneau Export"]');
+  close.click();
+  assert.equal(view.exportPanelEl.hasClass("is-hidden"), true);
+
+  view.btnExport.click();
+  await flush();
+  assert.equal(view.exportPanelEl.hasClass("is-hidden"), false);
+  assert.equal(plugin.settings.exportFormat, "odt");
+  assert.equal(view.exportPanelEl.querySelectorAll("select")[1].value, "odt");
+  assert.equal(
+    view.exportPanelEl.querySelectorAll("summary").some((summary) => summary.textContent === "Page de titre"),
+    false,
+    "la mise en page de titre se règle sur la page, pas dans Export"
+  );
+  assert.equal(view.contentEl.querySelector(".feuillets-preview-settings"), null, "aucune vue de réglages supplémentaire");
+}));
+
+test("panneau Export — plus aucun réglage d'en-tête ni de pied de page", withRender(async () => {
+  const { view } = await openLoadedView("manuscript");
+  view.btnExport.click();
+  await flush();
+
+  const summaries = view.exportPanelEl.querySelectorAll("summary").map((s) => s.textContent);
+  assert.deepEqual(summaries, ["Première page"], "une seule sous-section repliable subsiste");
+
+  const labels = view.exportPanelEl.querySelectorAll("label").map((row) => row.textContent);
+  for (const gone of [
+    "En-tête", "Pied", "Distance", "Espace", "Pages paires", "Première page différente",
+  ]) {
+    assert.equal(
+      labels.some((text) => text.includes(gone)),
+      false,
+      `« ${gone} » ne doit plus être réglable depuis l'aperçu : c'est le rôle du modal Mise en page visuelle`
+    );
+  }
+  // Ces réglages restent bel et bien accessibles — dans le modal visuel.
+  assert.ok(view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]'));
+}));
+
+test("panneau Export — le bouton d’actualisation force un rendu", withRender(async () => {
+  const { view } = await openLoadedView("manuscript");
+  view.btnExport.click();
+  await flush();
+  let refreshes = 0;
+  view.refreshPreview = async () => { refreshes++; };
+
+  const refresh = view.exportPanelEl.querySelector('[aria-label="Actualiser l’aperçu"]');
+  assert.ok(refresh, "le bouton de secours doit être visible dans l'en-tête Export");
+  refresh.click();
+  await flush();
+  await flush();
+  assert.equal(refreshes, 1);
+}));
+
+/* ---------------------- Première page (feuillet Front) ------------------ */
+
+/** Contenu réel d'une page de titre à rôles, tel que createMinimalProject
+ *  l'écrit (voir services/project-files.ts) — frontmatter compris. */
+function frontTitleContent(title = "Grand Roman", author = "Auteur Test") {
+  return [
+    "---", `title: ${title}`, "type: titre", "compile: true", "---",
+    `:::titre: ${title}`,
+    ":::sous-titre: ",
+    ":::mots: ",
+    `:::auteur: ${author}`,
+    "",
+  ].join("\n");
+}
+
+/** Ajoute un dossier Front et ses pages de titre au projet du fixture, comme
+ *  un vrai coffre les présenterait. Renvoie les fichiers créés. */
+function addFrontPages(manuscript, specs) {
+  const front = new TFolder("Manuscrit/Front");
+  front.name = "Front";
+  front.path = "Manuscrit/Front";
+  front.parent = manuscript;
+  front.children = specs.map((spec) => {
+    const file = new TFile(`Manuscrit/Front/${spec.name}.md`, spec.content ?? frontTitleContent());
+    file.name = `${spec.name}.md`;
+    file.basename = spec.name;
+    file.extension = "md";
+    file.path = `Manuscrit/Front/${spec.name}.md`;
+    file.parent = front;
+    file._fm = { type: "titre", compile: spec.compile !== false, ...(spec.fm || {}) };
+    return file;
+  });
+  manuscript.children = [front, ...manuscript.children];
+  return front.children;
+}
+
+/** Ouvre la vue avec un dossier Front peuplé et le panneau Export déplié. */
+async function openWithFrontPages(specs = [{ name: "Page de titre" }]) {
+  const ctx = await openLoadedView("manuscript");
+  const files = addFrontPages(ctx.manuscript, specs);
+  ctx.view.btnExport.click();
+  await flush();
+  await flush();
+  return { ...ctx, files };
+}
+
+/** Champ « Première page » repéré par son libellé accessible. */
+function firstPageField(view, label) {
+  return view.exportPanelEl.querySelector(`[aria-label="${label}"]`);
+}
+
+test("première page — inclusion, exclusion et conservation du fichier Front", withRender(async () => {
+  const { view, files } = await openWithFrontPages();
+  const [titlePage] = files;
+
+  const include = firstPageField(view, "Inclure la page de titre");
+  assert.equal(include.checked, true, "une page Front de type titre est incluse par défaut");
+
+  include.checked = false;
+  include.dispatch("change");
+  await flush();
+  await flush();
+  assert.equal(titlePage._fm.compile, false, "l'exclusion passe par l'indicateur compile du frontmatter");
+  assert.equal(titlePage._fm.type, "titre", "le type et les métadonnées sont conservés");
+  assert.match(titlePage.content, /:::titre: Grand Roman/, "le contenu de la page est conservé");
+  assert.ok(view.app.vault.getAbstractFileByPath(titlePage.path), "le fichier Front n'est jamais supprimé");
+
+  // Aucune page de titre générée ne vient remplacer celle qu'on exclut.
+  assert.equal(view.frontTitleCandidates().length, 1);
+  assert.equal(firstPageField(view, "Inclure la page de titre").checked, false);
+
+  firstPageField(view, "Inclure la page de titre").checked = true;
+  firstPageField(view, "Inclure la page de titre").dispatch("change");
+  await flush();
+  await flush();
+  assert.equal(titlePage._fm.compile, true, "la réinclusion rétablit exactement la même page");
+}));
+
+test("première page — inclure/exclure ne referme pas la sous-section ni ne reconstruit le reste du panneau", withRender(async () => {
+  const { view } = await openWithFrontPages();
+
+  const details = view.exportPanelEl.querySelector("details");
+  details.open = true;
+  const scopeBefore = view.exportPanelEl.querySelectorAll("select")[0];
+  const bodyBefore = view.firstPageBodyEl;
+
+  const include = firstPageField(view, "Inclure la page de titre");
+  include.checked = false;
+  include.dispatch("change");
+  await flush();
+  await flush();
+
+  assert.equal(view.exportPanelEl.querySelector("details"), details, "le même <details> reste en place");
+  assert.equal(details.open, true, "la sous-section ne se referme pas toute seule");
+  assert.equal(view.exportPanelEl.querySelectorAll("select")[0], scopeBefore, "le reste du panneau n'est pas reconstruit");
+  assert.equal(view.firstPageBodyEl, bodyBefore, "seul le contenu de la sous-section est rafraîchi, pas son conteneur");
+}));
+
+test("première page — le bouton Actualiser resynchronise les champs depuis le fichier Front", withRender(async () => {
+  const { view, files } = await openWithFrontPages();
+  const [titlePage] = files;
+
+  // Le fichier est modifié AILLEURS (éditeur) pendant que le panneau reste ouvert.
+  titlePage.content = setTitleRoleValue(titlePage.content, "titre", "Modifié dans l’éditeur");
+  assert.equal(firstPageField(view, "Titre").value, "Grand Roman", "le panneau affiche encore l'ancienne valeur");
+
+  const refresh = view.exportPanelEl.querySelector('[aria-label="Actualiser l’aperçu"]');
+  refresh.click();
+  await flush();
+  await flush();
+
+  assert.equal(firstPageField(view, "Titre").value, "Modifié dans l’éditeur", "le clic relit bien le fichier Front");
+}));
+
+test("première page — le fichier Front affiché est le fichier réellement utilisé, et peut changer", withRender(async () => {
+  const { view, files } = await openWithFrontPages([
+    { name: "Page de titre" },
+    { name: "Page de titre — variante", compile: false, content: frontTitleContent("Variante") },
+  ]);
+  const [main, variant] = files;
+
+  const picker = firstPageField(view, "Fichier Front utilisé");
+  assert.deepEqual(picker.children.map((o) => o.value), [main.path, variant.path]);
+  assert.equal(picker.value, main.path, "le fichier montré est celui que la compilation retient");
+
+  picker.value = variant.path;
+  picker.dispatch("change");
+  await flush();
+  await flush();
+  assert.equal(variant._fm.compile, true);
+  assert.equal(main._fm.compile, false, "un seul fichier Front sert de première page");
+  assert.equal(firstPageField(view, "Fichier Front utilisé").value, variant.path);
+  assert.equal(firstPageField(view, "Titre").value, "Variante", "les champs suivent le fichier choisi");
+}));
+
+test("première page — ouverture du fichier Front dans l'éditeur et sélection dans le Binder", withRender(async () => {
+  const { view, plugin, files } = await openWithFrontPages();
+  let opened = null;
+  const leaf = { openFile: async (file) => { opened = file; } };
+  plugin.getLeafForOpeningFile = () => leaf;
+
+  const open = view.exportPanelEl.querySelector('[aria-label="Ouvrir le fichier Front"]');
+  assert.ok(open, "une icône plate ouvre le fichier Front");
+  assert.equal(open.hasClass("clickable-icon"), true);
+  open.click();
+  await flush();
+  await flush();
+  assert.equal(opened, files[0]);
+  assert.equal(plugin.settings.binderSelectedPath, "Manuscrit/Front", "le Binder suit le fichier ouvert");
+}));
+
+test("première page — titre, sous-titre et auteur sont écrits dans le fichier Front, sans état concurrent", withRender(async () => {
+  const { view, plugin, viewport, files } = await openWithFrontPages();
+  const [titlePage] = files;
+  viewport.scrollTop = 640;
+  view.zoomScale = 1.3;
+  let refreshes = 0;
+  view.refreshPreview = async () => { refreshes++; };
+
+  for (const [label, expected] of [["Titre", "NEFES"], ["Sous-titre", "Roman"], ["Auteur", "Halim"]]) {
+    const input = firstPageField(view, label);
+    input.value = expected;
+    input.dispatch("change");
+    await flush();
+    await flush();
+  }
+
+  assert.match(titlePage.content, /:::titre: NEFES/);
+  assert.match(titlePage.content, /:::sous-titre: Roman/);
+  assert.match(titlePage.content, /:::auteur: Halim/);
+  assert.match(titlePage.content, /^---\ntitle: Grand Roman/, "le frontmatter existant est laissé intact");
+  assert.equal(refreshes, 3, "chaque champ actualise immédiatement l'aperçu");
+  assert.equal(viewport.scrollTop, 640, "le scroll est conservé");
+  assert.equal(view.zoomScale, 1.3, "le zoom est conservé");
+  // Le titre et l'auteur du manuscrit restent alignés sur le fichier Front.
+  assert.equal(plugin.settings.manuscriptTitle, "NEFES");
+  assert.equal(plugin.settings.manuscriptAuthor, "Halim");
+}));
+
+test("première page — mention complémentaire et image passent par les mêmes rôles Front", withRender(async () => {
+  const { view, files } = await openWithFrontPages();
+  const [titlePage] = files;
+
+  const mention = firstPageField(view, "Mention complémentaire");
+  mention.value = "71 800 mots";
+  mention.dispatch("change");
+  await flush();
+  await flush();
+  const image = firstPageField(view, "Image ou logo");
+  image.value = "![[logo.png]]";
+  image.dispatch("change");
+  await flush();
+  await flush();
+
+  assert.match(titlePage.content, /:::mots: 71 800 mots/);
+  assert.match(titlePage.content, /:::image: !\[\[logo\.png\]\]/);
+}));
+
+test("première page — sans feuillet Front, la section reste utilisable et le repli générique subsiste", withRender(async () => {
+  const { view } = await openLoadedView("manuscript");
+  view.btnExport.click();
+  await flush();
+  assert.equal(view.frontTitleCandidates().length, 0);
+  assert.ok(firstPageField(view, "Inclure la page de titre"), "l'inclusion reste affichée");
+  assert.equal(firstPageField(view, "Fichier Front utilisé"), null, "aucun fichier à choisir");
+  assert.ok(
+    view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]'),
+    "la mise en page visuelle reste accessible"
+  );
+}));
+
+test("première page — exclue, elle disparaît de l'aperçu ET de l'export, sans page générée de remplacement", withCapture(async (dom, rendered) => {
+  const ctx = await openView("manuscript");
+  ctx.viewport._rectTop = VIEWPORT_SCREEN_TOP;
+  placeFrame(ctx.frame, ctx.viewport);
+  fireLoad(ctx.frame);
+  const { view, scaledContainer, viewport } = ctx;
+  const [titlePage] = addFrontPages(ctx.manuscript, [{ name: "Page de titre" }]);
+
+  /* Un rendu complet : la vue ne libère sa file qu'au `load` de l'iframe —
+     sans lui, tout rafraîchissement suivant serait simplement mis en attente. */
+  const renderOnce = async () => {
+    await view.refreshPreview();
+    const frame = latestFrame(scaledContainer);
+    if (frame) fireLoad(placeFrame(frame, viewport));
+    await flush();
+  };
+
+  view.btnExport.click();
+  await flush();
+  await flush();
+  await renderOnce();
+  assert.match(
+    rendered.at(-1),
+    /FEUILLETS-FRONT:titre[\s\S]*Manuscrit\/Front\/Page de titre\.md/,
+    "la page de titre incluse fait bien partie du manuscrit rendu"
+  );
+
+  const include = firstPageField(view, "Inclure la page de titre");
+  include.checked = false;
+  include.dispatch("change");
+  for (let i = 0; i < 8; i++) await flush();
+  await renderOnce();
+
+  assert.equal(titlePage._fm.compile, false);
+  assert.equal(
+    rendered.at(-1).includes("Manuscrit/Front/Page de titre.md"),
+    false,
+    "le manuscrit rendu — donc aussi l'export, qui passe par le même compile() — n'inclut plus la page de titre"
+  );
+  assert.equal(
+    String(latestFrame(scaledContainer)?.srcdoc || "").includes("feuillets-frontpage-generated"),
+    false,
+    "aucune page de titre générée ne vient remplacer celle qu'on exclut"
+  );
+  assert.match(titlePage.content, /:::titre: Grand Roman/, "le contenu du feuillet Front est conservé");
+}));
+
+test("première page — le modal visuel écrit les mêmes valeurs que celles lues par l'aperçu et l'export", withRender(async () => {
+  const { view, plugin } = await openWithFrontPages();
+  const previousLayoutOpen = LayoutModal.prototype.open;
+  let layout = null;
+  LayoutModal.prototype.open = function openLayout() { layout = this; };
+  try {
+    view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]').click();
+  } finally {
+    LayoutModal.prototype.open = previousLayoutOpen;
+  }
+  assert.ok(layout, "le bouton ouvre bien le modal de mise en page");
+  assert.equal(layout.templateKey, plugin.settings.exportTemplate, "le modal règle le gabarit actif, pas une copie");
+}));
+
 test("barre — l'indicateur de fichier suivi reflète la synchronisation de portée", withRender(async () => {
   const { view } = await openWithEditor("scene");
   assert.match(view.followedEl.textContent, /01-scene\.md$/);
 
   assert.equal(view.syncScrollEnabled, true);
-  assert.equal(menuTitles(openMenuVia(view.btnMore)).includes("Synchroniser le défilement"), false);
+  assert.equal(view.contentEl.querySelectorAll(`[aria-label="${SYNC_LABEL}"]`).length, 0);
 }));
 
 /* ---------------- Sous-lot H — transparence absolue -------------------- */
 
 test("boutons — aucun style de fond en ligne, aucune classe maison, état lisible sans pastille", withRender(async () => {
-  const { toolbar } = await openLoadedView("manuscript");
+  const { view, toolbar } = await openLoadedView("manuscript");
 
   /* Il n'y a plus d'état « actif » à peindre dans la barre : le mode et le
      zoom AFFICHENT leur valeur en toutes lettres, et les états cochés
@@ -2112,14 +2595,20 @@ test("boutons — aucun style de fond en ligne, aucune classe maison, état lisi
   const controls = [...toolbar.children].filter(
     (el) => el && (el.hasClass?.("clickable-icon") || el.hasClass?.("feuillets-preview-chip"))
   );
-  assert.equal(controls.length, 2, "zoom et ⋯ seulement");
+  assert.equal(controls.length, 4, "Ouvrir ce feuillet, zoom, Export et Réglages");
 
   for (const el of controls) {
     for (const prop of ["background", "background-color", "box-shadow", "border"]) {
       assert.equal(el.style.getPropertyValue(prop), "", `${prop} ne doit jamais être posé en ligne`);
     }
     const extra = [...el.classes].filter(
-      (c) => !["clickable-icon", "feuillets-preview-chip", "feuillets-preview-zoom-val"].includes(c)
+      (c) => ![
+        "clickable-icon",
+        "feuillets-preview-chip",
+        "feuillets-preview-zoom-val",
+        "feuillets-preview-open-visible",
+        "is-hidden",
+      ].includes(c)
     );
     assert.deepEqual(extra, [], "aucune classe de style maison ni classe d'état colorée");
     // Chaque contrôle reste explicite pour un lecteur d'écran.
@@ -2128,6 +2617,19 @@ test("boutons — aucun style de fond en ligne, aucune classe maison, état lisi
   }
 
   assert.equal(toolbar.children.some((el) => el.hasClass?.("feuillets-preview-breadcrumb")), true);
+
+  /* Le panneau Export applique la même règle : icônes plates, croix plate,
+     aucun fond posé depuis le TypeScript. */
+  view.btnExport.click();
+  await flush();
+  await flush();
+  for (const el of view.exportPanelEl.querySelectorAll("button")) {
+    for (const prop of ["background", "background-color", "box-shadow", "border"]) {
+      assert.equal(el.style.getPropertyValue(prop), "", `${prop} ne doit jamais être posé en ligne`);
+    }
+    assert.ok(el.hasClass("clickable-icon"), "tout bouton du panneau reste un bouton Obsidian plat");
+  }
+  assert.ok(view.exportPanelEl.querySelector('[aria-label="Replier le panneau Export"]'));
 }));
 
 test("sync — l'éditeur suivi n'est pas oublié quand l'aperçu prend le focus, ni pour un fichier hors projet", withRender(async (dom) => {
@@ -2314,8 +2816,210 @@ test("mode Manuscrit — lui SEUL porte les éléments liminaires du livre", wit
   const html = pagesHtmlOf(view.previewFrame);
   assert.ok(html.includes("Grand Roman"), "le titre du livre appartient au manuscrit complet");
   assert.ok(html.includes("Auteur Test"));
+  assert.ok(html.includes("feuillets-frontpage-generated"), "la page générée doit être reconnue comme page de titre interactive");
+  assert.ok(html.includes('data-fp-role="titre"'), "le titre généré expose le même rôle visuel qu'une page Front");
+  assert.ok(html.includes('data-fp-role="auteur"'), "l'auteur généré expose le même rôle visuel qu'une page Front");
   assertNoYaml(html, "mode Manuscrit");
 }));
+
+test("page de titre interactive — titre, sous-titre et auteur persistent sans perdre scroll ni zoom", async () => {
+  const dom = installDom();
+  try {
+    const file = new TFile(
+      "Roman/Manuscrit/Front/Titre.md",
+      "---\ntitle: Ancien titre\ntype: titre\n---\n:::titre: Ancien titre\n:::sous-titre: Ancien sous-titre\n:::auteur: Ancienne autrice"
+    );
+    file.path = "Roman/Manuscrit/Front/Titre.md";
+    file.extension = "md";
+    const settings = {
+      previewMode: "manuscript",
+      exportTemplate: "classique",
+      manuscriptTitle: "Ancien titre",
+      manuscriptAuthor: "Ancienne autrice",
+    };
+    let frontmatterTitle = null;
+    const app = {
+      vault: {
+        getAbstractFileByPath: (path) => path === file.path ? file : null,
+        cachedRead: async () => file.content,
+        modify: async (_file, content) => { file.content = content; },
+      },
+      fileManager: {
+        processFrontMatter: async (_file, change) => {
+          const data = {};
+          change(data);
+          frontmatterTitle = data.title;
+        },
+      },
+    };
+    let saves = 0;
+    let refreshes = 0;
+    const view = new PreviewView({ contentEl: element("div") }, {
+      settings,
+      getProjectFolder: () => null,
+      saveSettings: async () => { saves++; },
+    });
+    view.app = app;
+    view.previewViewport = element("div");
+    view.previewViewport.scrollTop = 730;
+    view.zoomScale = 1.35;
+    view.zoomMode = "manual";
+    view.refreshPreview = async () => { refreshes++; };
+
+    const answers = ["Nouveau titre", "Nouveau sous-titre", "Nouvelle autrice"];
+    window.prompt = () => answers.shift();
+    await view.editTitleRole(file.path, "titre");
+    await view.editTitleRole(file.path, "sous-titre");
+    await view.editTitleRole(file.path, "auteur");
+
+    assert.match(file.content, /:::titre: Nouveau titre/);
+    assert.match(file.content, /:::sous-titre: Nouveau sous-titre/);
+    assert.match(file.content, /:::auteur: Nouvelle autrice/);
+    assert.equal(settings.manuscriptTitle, "Nouveau titre");
+    assert.equal(settings.manuscriptAuthor, "Nouvelle autrice");
+    assert.equal(frontmatterTitle, "Nouveau titre");
+    assert.equal(saves, 3);
+    assert.equal(refreshes, 3);
+    assert.equal(view.previewViewport.scrollTop, 730);
+    assert.equal(view.zoomScale, 1.35);
+    assert.equal(view.zoomMode, "manual");
+  } finally {
+    dom.restore();
+  }
+});
+
+test("page de titre interactive — ordre, espacement et alignement passent par les sources centrales", async () => {
+  const dom = installDom();
+  try {
+    const file = new TFile("Roman/Front/Titre.md", ":::titre: Titre\n:::sous-titre: Sous-titre\n:::auteur: Autrice");
+    file.path = "Roman/Front/Titre.md";
+    const app = {
+      vault: {
+        getAbstractFileByPath: (path) => path === file.path ? file : null,
+        cachedRead: async () => file.content,
+        modify: async (_file, content) => { file.content = content; },
+      },
+    };
+    const view = new PreviewView({ contentEl: element("div") }, {
+      settings: { previewMode: "manuscript", exportTemplate: "classique" },
+      getProjectFolder: () => null,
+    });
+    view.app = app;
+    view.previewViewport = element("div");
+    view.previewViewport.scrollTop = 415;
+    view.zoomScale = 1.2;
+    view.zoomMode = "manual";
+    let refreshes = 0;
+    view.refreshPreview = async () => { refreshes++; };
+
+    await view.moveTitleRole(file.path, "auteur", -1);
+    assert.equal(file.content, ":::titre: Titre\n:::auteur: Autrice\n:::sous-titre: Sous-titre");
+
+    const styles = { auteur: { marginTopPt: 12, align: "center" } };
+    view.updateTitlePageStyles = async (change) => { change(styles); refreshes++; };
+    await view.adjustTitleRoleSpacing("auteur", 6);
+    await view.cycleTitleRoleAlignment("auteur");
+    assert.equal(styles.auteur.marginTopPt, 18);
+    assert.equal(styles.auteur.align, "right");
+    assert.equal(view.previewViewport.scrollTop, 415);
+    assert.equal(view.zoomScale, 1.2);
+    assert.equal(refreshes, 3);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("page de titre interactive — clic sélectionne sur la page et révèle une barre visuelle compacte", () => {
+  const dom = installDom();
+  try {
+    const root = element("div");
+    const doc = {
+      createElement(tag) {
+        const created = element(tag);
+        created.ownerDocument = doc;
+        return created;
+      },
+      querySelectorAll: (selector) => root.querySelectorAll(selector),
+      addEventListener() {},
+      removeEventListener() {},
+    };
+    root.ownerDocument = doc;
+    const title = element("p", "Mon titre");
+    title.ownerDocument = doc;
+    root.appendChild(title);
+    const view = new PreviewView({ contentEl: element("div") }, {
+      settings: { previewMode: "manuscript", exportTemplate: "classique" },
+      getProjectFolder: () => null,
+    });
+    let prompts = 0;
+    window.prompt = () => { prompts++; return null; };
+
+    view.makeTitleElementEditable(title, "titre", "Roman/Front/Titre.md");
+    title.click();
+
+    assert.equal(title.hasClass("is-title-selected"), true);
+    assert.equal(prompts, 0, "un simple clic sélectionne sans ouvrir de formulaire");
+    const controls = title.nextElementSibling;
+    assert.equal(controls.hasClass("feuillets-preview-title-controls"), true);
+    assert.deepEqual(
+      controls.children.map((button) => button.getAttribute("aria-label")),
+      ["Modifier titre", "Déplacer verticalement", "Monter cet élément", "Descendre cet élément", "Réduire l’espace avant", "Augmenter l’espace avant", "Changer l’alignement"]
+    );
+
+    const titlePage = element("div");
+    titlePage.ownerDocument = doc;
+    root.appendChild(titlePage);
+    view.addTitlePageControls(titlePage);
+    const pageControls = titlePage.children.at(-1);
+    assert.equal(pageControls.hasClass("feuillets-preview-title-page-controls"), true);
+    assert.deepEqual(
+      pageControls.children.map((button) => button.getAttribute("aria-label")),
+      ["Monter la composition", "Descendre la composition", "Réduire les marges internes", "Augmenter les marges internes"]
+    );
+  } finally {
+    dom.restore();
+  }
+});
+
+test("page de titre générée — un simple clic révèle aussi les commandes visuelles", () => {
+  const dom = installDom();
+  try {
+    const root = element("div");
+    const doc = {
+      createElement(tag) {
+        const created = element(tag);
+        created.ownerDocument = doc;
+        return created;
+      },
+      querySelectorAll: (selector) => root.querySelectorAll(selector),
+      addEventListener() {},
+      removeEventListener() {},
+    };
+    root.ownerDocument = doc;
+    const title = element("h1", "Titre généré");
+    title.ownerDocument = doc;
+    root.appendChild(title);
+    const view = new PreviewView({ contentEl: element("div") }, {
+      settings: { previewMode: "manuscript", exportTemplate: "classique", manuscriptTitle: "Titre généré" },
+      getProjectFolder: () => null,
+      saveSettings: async () => {},
+    });
+    let prompts = 0;
+    window.prompt = () => { prompts++; return null; };
+
+    view.makeFallbackTitleElementEditable(title, "manuscriptTitle", "Titre", "titre");
+    title.click();
+
+    assert.equal(title.hasClass("is-title-selected"), true);
+    assert.equal(prompts, 0, "le clic sélectionne la zone sans ouvrir immédiatement une boîte de dialogue");
+    assert.deepEqual(
+      title.nextElementSibling.children.map((button) => button.getAttribute("aria-label")),
+      ["Modifier titre", "Déplacer verticalement", "Réduire l’espace avant", "Augmenter l’espace avant", "Changer l’alignement"]
+    );
+  } finally {
+    dom.restore();
+  }
+});
 
 test("mode Manuscrit — titres Markdown et YAML se complètent sans doublon", withCapture(async (_dom, rendered) => {
   const ctx = await openLoadedView("manuscript");
@@ -2486,6 +3190,7 @@ test("lecture Partie — chaque section visible ouvre son propre feuillet, sans 
   assert.equal(view.refreshGeneration, generation, "l'ouverture n'altère pas le rendu de la Partie");
   assert.equal(view.syncScroller, editor, "le scroller de la feuille qui vient d'être ouverte est relié immédiatement");
   assert.equal(view.syncSourcePath, s1c.path);
+  dom.runTimers(); // libère le drapeau du positionnement initial
   const previewBefore = viewport.scrollTop;
   view.lastPreviewScrollAt = 0;
   editor.scrollTop = 700;
@@ -2521,7 +3226,86 @@ test("lecture Manuscrit — Ouvrir ce feuillet relit data-source-path et conserv
   assert.equal(view.plugin.settings.binderSelectedPath, opened.at(-1).parent.path);
   assert.equal(view.zoomScale, zoom);
   assert.equal(view.refreshGeneration, generation);
+
+  /* Même comportement depuis l'ICÔNE de la barre, qui a remplacé le bouton
+     texte : elle relit elle aussi le repère réellement sous les yeux. */
+  viewport.scrollTop = 1000;
+  const secondPath = view.visibleFeuilletPathAtViewport();
+  assert.notEqual(secondPath, expectedPath, "la lecture a bien changé de feuillet");
+  assert.equal(view.openVisibleEl.hasClass("is-hidden"), false, "l'action est pertinente ici");
+  view.openVisibleEl.click();
+  await flush();
+  assert.equal(opened.at(-1).path, secondPath, "l'icône ouvre exactement le feuillet visible");
+  assert.equal(view.plugin.settings.binderSelectedPath, opened.at(-1).parent.path, "et le sélectionne dans le Binder");
+  assert.equal(view.zoomScale, zoom, "sans toucher au zoom");
+  assert.equal(view.refreshGeneration, generation, "ni au rendu en cours");
 }));
+
+for (const mode of ["part", "manuscript"]) {
+  test(`lecture ${mode} — le feuillet visible s'ouvre automatiquement après le scroll`, withBlockRender(async (dom) => {
+    const ctx = await openNestedView(mode, null);
+    const { view, app, viewport, s1a } = ctx;
+    if (mode === "part") {
+      app.setActiveFile(s1a);
+      await view.refreshPreview();
+      fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+    }
+    const marks = view.previewFrame.contentDocument.querySelectorAll("[data-source-path]");
+    marks.forEach((mark, index) => {
+      mark.offsetTop = 0;
+      mark._rectTop = index * 1000;
+    });
+    view.naturalPagesHeight = marks.length * 1000;
+    viewport.clientHeight = 700;
+    view.setZoom(1.3, "manual");
+
+    const opened = [];
+    const editorHost = element("div");
+    const editor = editorHost.createDiv({ cls: "cm-scroller" });
+    editor.scrollHeight = 2000;
+    editor.clientHeight = 600;
+    const leaf = {
+      view: { file: null, contentEl: editorHost },
+      openFile: async (file, options) => {
+        opened.push({ file, options });
+        leaf.view.file = file;
+      },
+    };
+    app.workspace.getLeaf = () => leaf;
+    let focused = 0;
+    app.workspace.setActiveLeaf = () => { focused++; };
+
+    viewport.scrollTop = 1500;
+    const expectedPath = view.visibleFeuilletPathAtViewport();
+    viewport.dispatch("scroll");
+    dom.runTimers();
+    await flush();
+
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].file.path, expectedPath);
+    assert.deepEqual(opened[0].options, { active: false });
+    assert.equal(view.mode, mode, "la portée ne change pas");
+    assert.equal(view.synchronizedFeuilletPath, expectedPath);
+    assert.equal(view.syncScroller, editor);
+    assert.equal(view.zoomScale, 1.3);
+    assert.equal(focused, 0, "le scroll de l'aperçu ne vole pas le focus");
+
+    /* L'éditeur neuf se place brièvement au début du fichier. Cet
+       événement ne doit jamais faire remonter l'aperçu au début de sa
+       section (ni du manuscrit) pendant l'ouverture automatique. */
+    const previewPosition = viewport.scrollTop;
+    view.lastPreviewScrollAt = 0;
+    editor.scrollTop = 0;
+    editor.dispatch("scroll");
+    dom.runTimers();
+    assert.equal(viewport.scrollTop, previewPosition, "l'initialisation de l'éditeur conserve la lecture de l'aperçu");
+
+    viewport.dispatch("scroll");
+    dom.runTimers();
+    await flush();
+    assert.equal(opened.length, 1, "la même section n'est pas rouverte inutilement");
+  }));
+}
 
 test("mode Chapitre — dans une Partie, seul le chapitre de la scène active est montré", withCapture(async (_dom, rendered) => {
   const { s1a } = await openNestedView("chapter", null);
@@ -2644,5 +3428,6 @@ test("zoom — double-clic sur le pourcentage : retour à 100 %", withRender(asy
 test("barre — aucun bouton de repli séparé", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
   assert.equal(view.btnBarToggle, null);
-  assert.equal(menuTitles(openMenuVia(view.btnMore)).includes("Masquer la barre"), false);
+  assert.equal(view.contentEl.querySelectorAll('[aria-label="Masquer la barre"]').length, 0);
+  assert.equal(menuTitles(openMenuVia(view.zoomLabelEl)).includes("Masquer la barre"), false);
 }));

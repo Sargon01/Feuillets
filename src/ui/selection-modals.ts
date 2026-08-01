@@ -1,17 +1,12 @@
 import { Modal, type App, type TFile, type TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
 
-type SelectionSettings = FeuilletsSettings & {
-  readSelection: string[];
-  readScope: string;
-};
-
 type CompileFrontmatter = {
   compile?: boolean;
 };
 
 type SelectionPlugin = {
-  settings: SelectionSettings;
+  settings: FeuilletsSettings;
   getProjectFolder(): TFolder | null;
   buildNumbering(folder: TFolder): Map<string, string>;
   flattenFiles(folder: TFolder): TFile[];
@@ -20,8 +15,6 @@ type SelectionPlugin = {
   renderAllViews(force: boolean): void;
   saveSettings(): Promise<void>;
 };
-
-type SelectionDoneHandler = () => void | Promise<void>;
 
 export class CompileSelectionModal extends Modal {
   plugin: SelectionPlugin;
@@ -84,68 +77,6 @@ export class CompileSelectionModal extends Modal {
         }
         this.close();
         this.plugin.renderAllViews(true);
-      })();
-    });
-  }
-
-  onClose() {
-    this.contentEl.empty();
-  }
-}
-
-export class ReadSelectionModal extends Modal {
-  plugin: SelectionPlugin;
-  onDone?: SelectionDoneHandler;
-
-  constructor(app: App, plugin: SelectionPlugin, onDone?: SelectionDoneHandler) {
-    super(app);
-    this.plugin = plugin;
-    this.onDone = onDone;
-  }
-
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.createEl("h3", { text: t("modal.readSelection.title") });
-
-    const root = this.plugin.getProjectFolder();
-    if (!root) {
-      contentEl.setText(t("main.notice.projectFolderNotFound"));
-      return;
-    }
-
-    const currentSelection = new Set(this.plugin.settings.readSelection || []);
-    const numbering = this.plugin.buildNumbering(root);
-    const listEl = contentEl.createDiv({ cls: "feuillets-read-selection" });
-    const checkboxes: Array<[HTMLInputElement, string]> = [];
-
-    for (const file of this.plugin.flattenFiles(root)) {
-      const row = listEl.createDiv({ cls: "feuillets-read-selection-row" });
-      const cb = row.createEl("input", { type: "checkbox" });
-      cb.checked = currentSelection.has(file.path);
-      checkboxes.push([cb, file.path]);
-
-      const label = row.createSpan();
-      // Utilisation explicite du titre court
-      label.setText(`${numbering.get(file.path) || ""} ${this.plugin.shortTitleFor(file)}`.trim());
-      label.addEventListener("click", () => {
-        cb.checked = !cb.checked;
-      });
-    }
-
-    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
-    btnRow.createEl("button", { text: t("modal.selectAll") }).addEventListener("click", () => {
-      checkboxes.forEach(([cb]) => (cb.checked = true));
-    });
-    btnRow.createEl("button", { text: t("modal.selectNone") }).addEventListener("click", () => {
-      checkboxes.forEach(([cb]) => (cb.checked = false));
-    });
-    btnRow.createEl("button", { text: t("modal.readSelection.readBtn"), cls: "mod-cta" }).addEventListener("click", () => {
-      void (async () => {
-        this.plugin.settings.readSelection = checkboxes.filter(([cb]) => cb.checked).map(([, path]) => path);
-        this.plugin.settings.readScope = "__selection__";
-        await this.plugin.saveSettings();
-        this.close();
-        if (this.onDone) void this.onDone();
       })();
     });
   }

@@ -10,9 +10,8 @@ import { t } from "../i18n/index.js";
 type ProjectModalsPlugin = {
   /* manuscriptAuthor : absent de l'interface globale FeuilletsSettings
      (écart préexistant, déjà contourné de la même façon dans
-     preview-modal.ts/pdf-style-modal.ts) — champ bien réel dans
-     default-settings.ts, réutilisé ici pour pré-remplir l'auteur d'un
-     nouveau projet. */
+     preview-modal.ts) — champ bien réel dans default-settings.ts, réutilisé
+     ici pour pré-remplir l'auteur d'un nouveau projet. */
   settings: FeuilletsSettings & { manuscriptAuthor?: string };
   /* ensureFolder/initProjectStructure : plus utilisés par NewProjectModal
      lui-même (voir createMinimalProject, services/project-files.ts), mais

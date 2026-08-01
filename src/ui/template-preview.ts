@@ -55,9 +55,15 @@ export function mountTemplatePreview(
   pagesHtml: string,
   initialScale: number,
   mode = "manuscript",
+  onLoad?: (frame: HTMLIFrameElement) => void,
 ): HTMLIFrameElement {
-  const frame = container.createEl("iframe", { cls: "feuillets-preview-frame" });
+  /* L'iframe est préparée DÉTACHÉE. Une iframe `srcdoc` minuscule peut
+     terminer son chargement dès son insertion dans Electron ; installer
+     l'écouteur seulement après `container.createEl()` laissait alors la
+     page visible, mais sans zoom ni interactions de page de titre. */
+  const frame = createEl("iframe", { cls: "feuillets-preview-frame" });
   frame.setAttr("sandbox", "allow-same-origin");
+  if (onLoad) frame.addEventListener("load", () => onLoad(frame), { once: true });
 
   frame.srcdoc = [
     "<!doctype html><html><head><meta charset=\"utf-8\"><style>",
@@ -117,5 +123,6 @@ export function mountTemplatePreview(
     `<div class="feuillets-preview-pages-wrapper"><div class="feuillets-preview-pages">${pagesHtml}</div></div>`,
     "</body></html>",
   ].join("\n");
+  container.appendChild(frame);
   return frame;
 }

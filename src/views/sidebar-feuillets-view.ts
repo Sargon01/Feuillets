@@ -5,7 +5,7 @@ import { AnalysisView } from "./analysis-view.js";
 import { DocxReviewView } from "./docx-review-view.js";
 import { JournalView } from "./journal-view.js";
 import { NotesView } from "./notes-view.js";
-import { ProjectView } from "./project-view.js";
+import type { ProjectView } from "./project-view.js";
 import { ResearchView } from "./research-view.js";
 import { TextAnalysisView } from "./text-analysis-view.js";
 
@@ -24,7 +24,6 @@ type SidebarSubViews = {
   research: SidebarSubView;
   journal: SidebarSubView;
   docx: SidebarSubView;
-  project: SidebarSubView;
   analyse: AnalysisSidebarSubView;
   relecture: SidebarSubView;
 };
@@ -56,7 +55,6 @@ export class SidebarFeuilletsView extends ItemView {
       research: new ResearchView(this.leaf, this.plugin),
       journal: new JournalView(this.leaf, this.plugin),
       docx: new DocxReviewView(this.leaf, this.plugin),
-      project: new ProjectView(this.leaf, this.plugin),
       analyse: new AnalysisView(this.leaf, this.plugin),
       relecture: new TextAnalysisView(this.leaf, this.plugin),
     };
@@ -87,8 +85,8 @@ export class SidebarFeuilletsView extends ItemView {
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
         if (!feuilletTabs.has(this.activeTab)) return;
-        const subView = this.subViews[this.activeTab];
-        awaitRender(subView, true);
+        if (this.activeTab === "notes") awaitRender(this.subViews.notes, true);
+        else if (this.activeTab === "analyse") awaitRender(this.subViews.analyse, true);
       })
     );
     /* L'agrégation « équilibre des chapitres » (onglet Analyse) lit tout le
@@ -113,7 +111,7 @@ export class SidebarFeuilletsView extends ItemView {
       { id: "notes", icon: "file-text", title: t("sidebar.tab.notes") },
       { id: "research", icon: "book-marked", title: t("sidebar.tab.research") },
       { id: "journal", icon: "calendar", title: t("sidebar.tab.journal") },
-      { id: "project", icon: "folder-cog", title: t("sidebar.tab.project") },
+      { id: "project", icon: "file-diff", title: t("sidebar.tab.project") },
       { id: "analyse", icon: "bar-chart-3", title: t("sidebar.tab.analysis") },
       { id: "relecture", icon: "spell-check", title: t("sidebar.tab.proofreading") },
     ];
@@ -173,15 +171,10 @@ export class SidebarFeuilletsView extends ItemView {
     await this.renderSubView(this.subViews.journal, element);
   }
 
-  /* Onglet fusionné : Compilation/export (ProjectView) puis Révision .docx
-     (DocxReviewView) l'un sous l'autre — chacun dans son propre conteneur
-     pour que le container.empty() de l'un n'efface pas le rendu de l'autre.
-     La gestion des projets a quitté cet onglet (voir ManageProjectsModal,
-     ouverte depuis le binder), ce qui a libéré la place pour la révision. */
+  /* L'ancien onglet fusionné Export / Révision ne conserve que la révision
+     DOCX. L'export vit désormais exclusivement dans PreviewView. L'identifiant
+     `project` est gardé pour migrer sans casser les préférences existantes. */
   async renderProjectTab(element: HTMLElement): Promise<void> {
-    const projectEl = element.createDiv({ cls: "feuillets-merged-section" });
-    await this.renderSubView(this.subViews.project, projectEl);
-
     const docxEl = element.createDiv({ cls: "feuillets-merged-section" });
     await this.renderSubView(this.subViews.docx, docxEl);
   }
@@ -201,7 +194,6 @@ export class SidebarFeuilletsView extends ItemView {
 
   async renderAllSubViews(force = false): Promise<void> {
     if (this.activeTab === "project") {
-      await this.subViews.project.render(force);
       await this.subViews.docx.render(force);
       return;
     }

@@ -1,8 +1,8 @@
 {
   "id": "feuillets",
   "name": "Feuillets",
-  "version": "1.6.0",
-  "minAppVersion": "1.7.2",
+  "version": "1.7.0",
+  "minAppVersion": "1.13.0",
   "description": "Writing studio for novelists: manuscript structure, character sheets, compilation and export to .docx, EPUB, ODT and PDF.",
   "author": "Halim Yalcin",
   "authorUrl": "https://github.com/Sargon01",

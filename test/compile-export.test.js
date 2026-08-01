@@ -63,6 +63,43 @@ test("compile : respecte l'ordre, les pages Front et compile: false", async () =
   assert.ok(vault.getAbstractFileByPath("Projet/Sortie/Manuscrit.md"));
 });
 
+test("compile contextuelle : une portée Feuillet n'exporte que le fichier demandé", async () => {
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre");
+  const first = new TFile("Projet/Manuscrit/Chapitre/Un.md", "Premier.");
+  const second = new TFile("Projet/Manuscrit/Chapitre/Deux.md", "Deuxième.");
+  manuscript.children = [chapter];
+  chapter.parent = manuscript;
+  chapter.children = [first, second];
+  first.parent = chapter;
+  second.parent = chapter;
+
+  const { vault } = createFakeVault([manuscript, chapter, first, second]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: {},
+    compileFileName: "Portée.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  const result = await compile(app, settings, second.path);
+  assert.ok(result);
+  assert.equal(result.manuscript, "Deuxième.");
+  assert.deepEqual(result.segments.map((segment) => segment.path), [second.path]);
+});
+
 test("compile : deux feuillets utilisant tous deux [^1] ne collisionnent pas, et sont renumérotés en continu", async () => {
   const volume = new TFolder("Roman");
   const manuscript = new TFolder("Roman/Manuscrit");

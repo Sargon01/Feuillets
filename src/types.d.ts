@@ -150,6 +150,8 @@ declare type TitlePageStyle = {
   italic?: boolean;
   marginTopPt?: number;
   marginBottomPt?: number;
+  marginLeftPt?: number;
+  marginRightPt?: number;
 };
 
 /** Modèle de mise en page pour l'export natif EPUB/DOCX/PDF — source de
@@ -278,10 +280,18 @@ declare type FeuilletsSettings = {
   pdfMarginRight: number;
   pdfMirrorMargins: boolean;
   pdfDiffHeaders: boolean;
+  pdfEnableHeaders: boolean;
+  pdfEnableFooters: boolean;
   pdfHeaderLeft: string;
+  pdfHeaderCenter: string;
   pdfHeaderRight: string;
   pdfFooterLeft: string;
+  pdfFooterCenter: string;
   pdfFooterRight: string;
+  pdfHeaderDistanceCm: number;
+  pdfFooterDistanceCm: number;
+  pdfHeaderBodyGapPt: number;
+  pdfFooterBodyGapPt: number;
   pdfPageNumberPosition: "right" | "center" | "left";
   pdfHideFirstPageHeader: boolean;
   pdfOrphans: number;

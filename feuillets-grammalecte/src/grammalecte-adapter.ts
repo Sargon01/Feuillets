@@ -23,6 +23,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : vm, desktop uniquement (voir l'en-tête du fichier) */
 /* global require -- fourni par l'environnement Electron */
 
+import { Platform } from "obsidian";
 import type { TextAnalysisIssue } from "./feuillets-api.ts";
 import type { AssetMap } from "./grammalecte-assets.ts";
 
@@ -178,8 +179,14 @@ type GrammalecteContext = {
   phonet: { init(data: string): void };
   mfsp: { init(data: string): void };
   text: { getParagraph(text: string): Iterable<string> };
+  gc_functions: { load(context: string, spellChecker: unknown): void };
+  SpellChecker: new (lang: string, path: string, mainDic: string, userDic: string, extDic: string) => {
+    activateStorage(): void;
+    getTokenizer(): unknown;
+    bMainDic?: boolean;
+  };
   gc_engine: {
-    load(language: string, country: string, dictionariesPath: string, dictionaryName: string): void;
+    load(language: string, country: string, dictionariesPath: string, dictionaryName?: string): void;
     setOption(name: string, value: boolean): void;
     parse(
       text: string,
@@ -189,6 +196,8 @@ type GrammalecteContext = {
       fullInfo: boolean
     ): Iterable<GrammalecteError>;
     getSpellChecker(): SpellChecker;
+    oSpellChecker: { activateStorage(): void; getTokenizer(): unknown; bMainDic?: boolean } | null;
+    oTokenizer: unknown;
   };
 };
 
@@ -252,6 +261,16 @@ function assetOrThrow(assets: AssetMap, name: string): string {
  *  qu'à la première analyse, jamais au démarrage d'Obsidian — voir
  *  GrammalecteProvider.ensureEngine(). */
 export function loadGrammalecteEngine(assets: AssetMap): GrammalecteEngine {
+  /* isDesktopOnly (manifest.json) doit empêcher Obsidian de charger ce
+     greffon sur mobile — ce garde-fou n'est donc jamais censé se déclencher
+     en usage normal. Il évite malgré tout un `ReferenceError: require is
+     not defined` opaque si ce point était atteint autrement (test, refactor
+     futur) : un message qui nomme la vraie cause plutôt qu'un plantage nu. */
+  if (!Platform.isDesktop) {
+    throw new GrammalecteEngineError(
+      "Le correcteur Grammalecte nécessite Obsidian de bureau (module Node `vm`) — indisponible sur cet appareil."
+    );
+  }
   const vm = require("vm") as typeof import("vm");
 
   /* Contexte neuf : son realm a ses propres String.prototype et
@@ -272,7 +291,11 @@ export function loadGrammalecteEngine(assets: AssetMap): GrammalecteEngine {
     send?: () => void;
   }) {
     this.open = (_method: string, url: string) => {
-      this._name = url.startsWith(ASSET_URL_PREFIX) ? url.slice(ASSET_URL_PREFIX.length) : url;
+      let name = url.startsWith(ASSET_URL_PREFIX) ? url.slice(ASSET_URL_PREFIX.length) : url;
+      if (name.endsWith("/fr-allvars.json") || name.endsWith("/fr-reform.json")) {
+        name = `${DICTIONARY_DIR}/${DICTIONARY_FILE}`;
+      }
+      this._name = name;
     };
     this.overrideMimeType = () => {};
     this.send = () => {
@@ -289,7 +312,7 @@ export function loadGrammalecteEngine(assets: AssetMap): GrammalecteEngine {
     context.conj.init(assetOrThrow(assets, DATA_FILES.conj));
     context.phonet.init(assetOrThrow(assets, DATA_FILES.phonet));
     context.mfsp.init(assetOrThrow(assets, DATA_FILES.mfsp));
-    context.gc_engine.load("JavaScript", "aHSL", `${ASSET_URL_PREFIX}${DICTIONARY_DIR}`, DICTIONARY_FILE);
+    context.gc_engine.load("JavaScript", "aHSL", `${ASSET_URL_PREFIX}${DICTIONARY_DIR}`);
   } catch (error) {
     if (error instanceof GrammalecteEngineError) throw error;
     throw new GrammalecteEngineError(

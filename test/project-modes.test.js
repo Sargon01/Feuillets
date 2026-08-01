@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PROJECT_MODES, resolveType, applyModeDefaults } from "../src/utils/project-modes.js";
+import { BOARD_MODES } from "../src/constants.js";
+
+test("la vue centrale Carte/Plan ne propose plus le mode Lecture/Scrivening", () => {
+  assert.deepEqual(
+    BOARD_MODES.map(([key]) => key),
+    ["board", "outline", "arcs", "timeline"]
+  );
+});
 
 test("PROJECT_MODES", async (t) => {
   await t.test("les 2 modes attendus existent", () => {

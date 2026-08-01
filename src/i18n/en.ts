@@ -209,7 +209,6 @@ export const en = {
   "board.mode.outline": "Outline",
   "board.mode.arcs": "Story arcs",
   "board.mode.timeline": "Timeline",
-  "board.mode.read": "Read",
   "board.filter.noPov": "No POV",
   "board.filter.povHeader": "— POV —",
   "board.filter.tooltip": "Filters (status, label, POV, progress)",
@@ -254,9 +253,6 @@ export const en = {
   "board.options.scaleMonth": "Scale: month",
   "board.options.scaleDay": "Scale: day",
   "board.options.scaleNone": "Scale: no headers",
-  "board.options.readingHeader": "— Reading —",
-  "board.options.editManualSelection": "Edit manual selection…",
-  "board.options.manualSelection": "Manual selection…",
 
   "board.col.title": "Sheet",
   "board.col.synopsis": "Synopsis",
@@ -288,8 +284,6 @@ export const en = {
 
   "board.outline.notesPlaceholder": "Notes…",
 
-  "board.reading.noSelection": "No sheet selected — choose “Manual selection…” from the menu.",
-  "board.reading.noneMatchFilters": "No sheet passes the active filters.",
 
   "board.arcs.empty": "No label, thread, or POV detected. Add label: Name, thread: hint, or pov: Name in the YAML to build the story arcs view.",
   "board.arcs.filterByTooltip": "Filter by {name}",
@@ -408,7 +402,7 @@ export const en = {
   "sidebar.tab.notes": "Sheet notes",
   "sidebar.tab.research": "Research & excerpts",
   "sidebar.tab.journal": "Journal & stats",
-  "sidebar.tab.project": "Export & review (.docx)",
+  "sidebar.tab.project": "Review (.docx)",
   "sidebar.tab.analysis": "Text analysis",
   "sidebar.tab.proofreading": "Proofreading",
 
@@ -706,7 +700,7 @@ export const en = {
   "settings.readingMatchLive.name": "Reading mode: same line spacing as Live Preview",
   "settings.readingMatchLive.desc": "Aligns reading mode's line spacing and paragraph spacing with the editor's.",
   "settings.readingFontSize.name": "Reading mode text size",
-  "settings.readingFontSize.desc": "Covers Obsidian's native reading mode AND the Feuillets board/outline Read mode. Obsidian normally ties this size to Live Preview's. 0 = Obsidian's default size (shared); any other value only changes reading.",
+  "settings.readingFontSize.desc": "Controls Obsidian's native reading mode. Obsidian normally ties this size to Live Preview's. 0 = Obsidian's default size (shared); any other value only changes reading.",
   "settings.lineHeight.name": "Line height",
   "settings.lineHeight.desc": "Multiplier (e.g. 1.75) applied to both editing and reading of the active sheet. No equivalent native Obsidian setting. Empty/0 = theme's value.",
   "settings.lineHeight.placeholder": "1.75",
@@ -1088,9 +1082,6 @@ export const en = {
   "modal.compileSelection.title": "Sheets to compile",
   "modal.compileSelection.desc": "Uncheck a sheet with compile: false written in its frontmatter — it stays visible and numbered, but is skipped on export.",
 
-  "modal.readSelection.title": "Select sheets to read",
-  "modal.readSelection.readBtn": "Read the selection",
-
   "modal.stats.characters": "Characters",
   "modal.stats.withoutSpaces": "Without spaces",
   "modal.stats.wordsPerSentence": "Words/sentence",
@@ -1177,6 +1168,14 @@ export const en = {
   "modal.layout.enableHeader": "Enable the header",
   "modal.layout.alternating": "Alternating (even/odd)",
   "modal.layout.hideOnTitlePage": "Hide on the title page",
+  "modal.layout.headerCenter": "Header centre",
+  "modal.layout.distanceToEdge": "Distance from edge (cm)",
+  "modal.layout.headerBodyGap": "Header / body gap (pt)",
+  "modal.layout.footerBodyGap": "Body / footer gap (pt)",
+  "modal.layout.enableFooter": "Enable footer",
+  "modal.layout.footerLeft": "Footer left",
+  "modal.layout.footerCenter": "Footer centre",
+  "modal.layout.variables": "Variables: {page}, {pages}, {title}, {author}, {part}, {chapter}.",
   "modal.layout.footerNumber": "Footer (page number)",
   "modal.layout.formatWithVars": "Format ({page}, {pages})",
   "modal.layout.sizePt": "Size (pt)",

@@ -1532,29 +1532,7 @@ body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   margin-bottom: var(--size-4-1);
 }
 
-/* ===== lecture continue + chronologie v2 ===== */
-
-.feuillets-reading {
-  max-width: 72ch;
-  margin: 0 auto;
-  padding: var(--size-4-3) 0 60px;
-}
-
-.feuillets-reading-title {
-  font-weight: var(--font-semibold, 600);
-  font-size: 1.15em;
-  text-align: center;
-  margin: 34px 0 18px;
-  cursor: pointer;
-}
-
-.feuillets-reading-title:hover {
-  color: var(--interactive-accent);
-}
-
-.feuillets-reading-body p {
-  line-height: 1.7;
-}
+/* ===== chronologie v2 ===== */
 
 .feuillets-timeline-year {
   font-weight: 700;
@@ -1849,11 +1827,134 @@ body.feuillets-concentration .markdown-preview-view {
 
 /* ===== PreviewView : barre de CONTEXTE =================================
 
-   Trois éléments visibles, dans cet ordre : fil d'Ariane, zoom, « ⋯ ».
-   Les modes, la synchronisation, les réglages et l'export vivent dans le
-   menu afin de ne pas transformer l'aperçu en tableau de commande. */
+   Cinq éléments au plus, dans cet ordre : fil d'Ariane, « Ouvrir ce
+   feuillet » (contextuel), zoom, Export, Réglages. Tout le reste vit dans le
+   panneau Export ou dans l'onglet Export des paramètres Feuillets, pour ne
+   pas transformer l'aperçu en tableau de commande. */
 .feuillets-preview-toolbar {
   gap: 12px;
+}
+
+.feuillets-preview-export {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  flex: 0 0 auto;
+}
+
+.feuillets-preview-export-header,
+.feuillets-preview-export-main {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.feuillets-preview-export-header .clickable-icon {
+  margin-left: auto;
+}
+
+.feuillets-preview-export-main {
+  flex-wrap: wrap;
+}
+
+.feuillets-preview-export-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.feuillets-preview-export-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-preview-export.is-hidden {
+  display: none;
+}
+
+.feuillets-preview-export-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold, 600);
+  margin-right: var(--size-4-1);
+}
+
+.feuillets-preview-export-control {
+  min-height: 28px;
+  max-width: 180px;
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-preview-export-launch {
+  min-height: 28px;
+  margin-left: auto;
+}
+
+.feuillets-preview-export-action,
+.feuillets-preview-export-launch {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  gap: var(--size-4-1);
+}
+
+.feuillets-preview-export-details {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: var(--size-4-1);
+}
+
+.feuillets-preview-export-details > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-preview-export-details-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--size-4-2) var(--size-4-4);
+  padding: var(--size-4-2) 0;
+}
+
+.feuillets-preview-export-inline-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-preview-export-inline-field input,
+.feuillets-preview-export-inline-field select {
+  max-width: 130px;
+}
+
+/* « Première page » : la commande de mise en page visuelle prend sa propre
+   ligne sous les champs, alignée à gauche — jamais une colonne coincée au
+   milieu des libellés. */
+.feuillets-preview-export-details-body > .feuillets-preview-export-action {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
+/* Icônes du panneau : mêmes boutons Obsidian plats que la barre. */
+.feuillets-preview-export .clickable-icon,
+.feuillets-preview-export .clickable-icon:hover,
+.feuillets-preview-export .clickable-icon:focus,
+.feuillets-preview-export .clickable-icon:active {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: 0;
+}
+
+.feuillets-preview-export .clickable-icon:hover,
+.feuillets-preview-export .clickable-icon:focus-visible {
+  color: var(--text-normal);
+  opacity: 1;
 }
 
 .feuillets-preview-breadcrumb {
@@ -1928,22 +2029,9 @@ body.feuillets-concentration .markdown-preview-view {
   font-variant-numeric: tabular-nums;
 }
 
-.feuillets-preview-open-visible {
-  min-width: 0;
-  padding: 2px 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--font-ui-smaller, 0.8em);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  background: none;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-}
-
+/* « Ouvrir ce feuillet » : une icône Obsidian plate de plus dans la barre —
+   sa transparence vient des règles communes ci-dessous, comme pour Export et
+   Réglages. Seule sa disparition contextuelle lui est propre. */
 .feuillets-preview-open-visible.is-hidden {
   display: none;
 }
@@ -2249,8 +2337,7 @@ body.feuillets-lecture-comme-live .markdown-rendered p {
 /* taille de texte du mode lecture, indépendante du Live Preview — la
    variable est posée sur body par applyLiveTypoClasses(), ce qui la fait
    descendre à travers .markdown-preview-view sans toucher .cm-content */
-body.feuillets-reading-fs .markdown-preview-view,
-body.feuillets-reading-fs .feuillets-reading {
+body.feuillets-reading-fs .markdown-preview-view {
   font-size: var(--feuillets-reading-fs) !important;
 }
 
@@ -2259,8 +2346,7 @@ body.feuillets-reading-fs .feuillets-reading {
    Obsidian n'existe pour ça, contrairement à la police/taille/couleur
    d'accent gérées via vault.setConfig. */
 body.feuillets-line-height .markdown-source-view .cm-content,
-body.feuillets-line-height .markdown-preview-view,
-body.feuillets-line-height .feuillets-reading {
+body.feuillets-line-height .markdown-preview-view {
   line-height: var(--feuillets-line-height) !important;
 }
 
@@ -2365,26 +2451,6 @@ body.feuillets-text-width .markdown-preview-view {
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
-}
-
-/* ===== lecture : édition en place + sélection ===== */
-
-.feuillets-reading-edit {
-  width: 100%;
-  min-height: 8em;
-  font-family: inherit;
-  font-size: 1em;
-  line-height: 1.7;
-  background: var(--background-primary);
-  border: 1px solid var(--interactive-accent);
-  border-radius: var(--radius-s);
-  padding: 10px;
-  resize: vertical;
-  overflow-y: hidden;
-}
-
-.feuillets-reading-body {
-  cursor: text;
 }
 
 .feuillets-read-selection {
@@ -5078,54 +5144,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 @keyframes feuillets-grammar-flash {
   0% { background: var(--text-accent); }
   100% { background: transparent; }
-}
-
-/* ===== Mode Scrivenings (Rendu Roman / Lecture Native) ===== */
-
-.feuillets-scrivenings-wrapper {
-  max-width: var(--feuillets-concentration-width, 720px);
-  width: 100%;
-  margin: 0 auto;
-  padding: var(--size-4-5) 0 100px 0;
-  box-sizing: border-box;
-}
-
-.feuillets-scrivenings-scene {
-  width: 100%;
-  margin-bottom: var(--size-4-8);
-  box-sizing: border-box;
-}
-
-/* Séparateur discret entre scènes */
-.feuillets-scrivenings-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px var(--size-4-4);
-  margin: 28px 0 var(--size-4-5) 0;
-  background: var(--background-primary-alt);
-  border-top: 1px dashed var(--background-modifier-border);
-  border-bottom: 1px dashed var(--background-modifier-border);
-  user-select: none;
-}
-
-.feuillets-scrivenings-title {
-  font-size: var(--font-ui-small);
-  font-weight: var(--font-semibold, 600);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.feuillets-scrivenings-title:hover {
-  color: var(--interactive-accent);
-  text-decoration: underline;
-}
-
-/* Laisse le thème du coffre styliser les <p>, <em>, <strong> */
-.feuillets-scrivenings-content {
-  width: 100% !important;
-  background: transparent !important;
-  padding: 0 !important;
 }
 
 .feuillets-rendered-body {

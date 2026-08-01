@@ -7,11 +7,31 @@ import { ManageProjectsModal, NewProjectModal, OpenExistingFolderModal, Duplicat
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
+import { activatePreviewView } from "./preview-view.js";
 import { t } from "../i18n/index.js";
-import { Menu, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile } from "obsidian";
+import { Menu, TFile, TFolder, setIcon, Notice, normalizePath, type App, type TAbstractFile } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 
 type ProjectNode = TFile | TFolder;
+type BinderIconButton = (
+  parent: HTMLElement,
+  icon: string,
+  tooltip?: string,
+  onClick?: (event: MouseEvent) => void | Promise<void>
+) => HTMLElement;
+
+/** Action autonome pour que le bouton permanent du Binder et son test
+ * utilisent exactement le même chemin d'ouverture de PreviewView. */
+export function addBinderPreviewButton(
+  parent: HTMLElement,
+  app: App,
+  iconButton: BinderIconButton,
+  openPreview: (targetApp: App) => Promise<unknown> = activatePreviewView
+): HTMLElement {
+  return iconButton(parent, "eye", "Ouvrir la prévisualisation", async () => {
+    await openPreview(app);
+  });
+}
 
 /** Narrowing sans cast direct pour obsidianmd/no-tfile-tfolder-cast — voir
  * base-feuillets-view.ts pour le même patron. Le throw n'est jamais atteint
@@ -326,6 +346,10 @@ export class FeuilletsView extends BaseFeuilletsView {
     this.iconBtn(actions, "folder-cog", t("binder.manageProjects"), () => {
       new ManageProjectsModal(this.app, this.plugin).open();
     });
+    this.barSep(actions);
+    addBinderPreviewButton(actions, this.app, (parent, icon, tooltip, onClick) =>
+      this.iconBtn(parent, icon, tooltip, onClick)
+    );
     this.barSep(actions);
     this.iconBtn(actions, "layout-grid", t("binder.boardPlan"), () =>
       this.plugin.activateBoard()

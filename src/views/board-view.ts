@@ -6,8 +6,6 @@ import { parseStoryDate, stripMarkdown } from "../utils/core.js";
 import { PROJECT_MODES, resolveType } from "../utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
 import { povOf } from "../utils/arc-fields.js";
-import { ScriveningsManager } from "./scrivenings-editor.js";
-import { ReadSelectionModal } from "../ui/selection-modals.js";
 import { DiffModal } from "../ui/diff-modal.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
@@ -15,7 +13,7 @@ import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 
 type ProjectNode = TFile | TFolder;
-type BoardModeKey = "board" | "outline" | "arcs" | "timeline" | "read";
+type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
 
 /* isSceneFile/openMergeModal/duplicateManyScenes/openMoveManyModal sont
    attachés dynamiquement au plugin par initScenesEditor (scenes-editor.ts),
@@ -71,7 +69,6 @@ type ModeOptionsCtx = {
   S: FeuilletsSettings;
   meta: ProjectMeta;
   pType: string;
-  folder: TFolder;
   wholeManuscript: boolean;
 };
 
@@ -84,7 +81,6 @@ export class BoardView extends BaseFeuilletsView {
     onClick?: (e: MouseEvent) => unknown
   ) => HTMLElement;
   focusedFolderPath: string | null;
-  scriveningsManager: ScriveningsManager | null;
   currentCardContent?: string;
   selectionModeActive?: boolean;
   wcMap?: Map<string, number>;
@@ -97,7 +93,6 @@ export class BoardView extends BaseFeuilletsView {
   constructor(leaf: import("obsidian").WorkspaceLeaf, plugin: BoardViewPlugin) {
     super(leaf, plugin);
     this.focusedFolderPath = null;
-    this.scriveningsManager = null;
   }
 
   getViewType(): string {
@@ -212,8 +207,6 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   async _render(force = false): Promise<void> {
-    if (this.scriveningsManager && this.scriveningsManager.isSaving) return;
-
     const container = this.contentEl;
     if (!force && isInputFocused(container)) return;
     const gen = (this._renderGen = (this._renderGen || 0) + 1);
@@ -253,11 +246,6 @@ export class BoardView extends BaseFeuilletsView {
     if (visibleModes.length === 0) visibleModes = BOARD_MODES.map(([k]) => k);
     if (!visibleModes.includes(mode)) mode = visibleModes[0];
     const activeMode = mode as BoardModeKey;
-
-    if (activeMode !== "read" && this.scriveningsManager) {
-      this.scriveningsManager.destroy();
-      this.scriveningsManager = null;
-    }
 
     /* Même Set que le Binder/Plan (this.plugin._binderMultiSelect) — un
        seul mécanisme de sélection multiple dans tout le plugin, pas deux
@@ -412,13 +400,13 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.addSeparator();
-      this.buildModeOptionsMenu(menu, activeMode, { S, meta, pType: projectType, folder: root, wholeManuscript });
+      this.buildModeOptionsMenu(menu, activeMode, { S, meta, pType: projectType, wholeManuscript });
       menu.showAtMouseEvent(e);
     });
 
     this.barSep(bar);
 
-    if (activeMode !== "read" && activeMode !== "arcs") {
+    if (activeMode !== "arcs") {
       const multiSelect = this.plugin._binderMultiSelect;
       const selSize = multiSelect.size;
       const getSelectedFiles = (): TFile[] =>
@@ -549,16 +537,11 @@ export class BoardView extends BaseFeuilletsView {
         if (this.passesFilter(file)) bumpTotal(this.wcMap.get(file.path) || 0);
       }
       this.renderTimeline(scrollArea, root, numbering);
-    } else {
-      for (const file of this.plugin.flattenFiles(root)) {
-        if (this.passesFilter(file)) bumpTotal(this.wcMap.get(file.path) || 0);
-      }
-      await this.renderReading(scrollArea, root, numbering);
     }
   }
 
   buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx): void {
-    const { S, meta, pType, folder, wholeManuscript } = ctx;
+    const { S, meta, pType, wholeManuscript } = ctx;
     const addToggleOption = (key: string, label: string) =>
       menu.addItem((item) =>
         item.setTitle(label).setChecked(!!S[key]).onClick(async () => {
@@ -700,40 +683,6 @@ export class BoardView extends BaseFeuilletsView {
           })
         );
       }
-    } else if (activeMode === "read" && folder) {
-      menu.addItem((item) => item.setTitle(t("board.options.readingHeader")).setDisabled(true));
-      menu.addItem((item) =>
-        item.setTitle(t("board.options.wholeManuscript")).setChecked(!S.readScope).onClick(async () => {
-          S.readScope = "";
-          await this.plugin.saveSettings();
-          void this.render();
-        })
-      );
-      const addFolderScopeOptions = (f: TFolder, depth: number) => {
-        for (const child of this.plugin.getOrderedChildren(f)) {
-          if (child instanceof TFolder) {
-            menu.addItem((item) =>
-              item.setTitle(`${"— ".repeat(depth)}${child.name}`).setChecked(S.readScope === child.path).onClick(async () => {
-                S.readScope = child.path;
-                await this.plugin.saveSettings();
-                void this.render();
-              })
-            );
-            addFolderScopeOptions(child, depth + 1);
-          }
-        }
-      };
-      addFolderScopeOptions(folder, 0);
-      menu.addItem((item) =>
-        item
-          .setTitle(S.readScope === "__selection__" ? t("board.options.editManualSelection") : t("board.options.manualSelection"))
-          .setChecked(S.readScope === "__selection__")
-          .onClick(() => {
-            new ReadSelectionModal(this.app, this.plugin, () => {
-              void this.render(true);
-            }).open();
-          })
-      );
     }
   }
 
@@ -1095,52 +1044,6 @@ export class BoardView extends BaseFeuilletsView {
     if (S.showProgress) this.fillRing(ring, wc, goal);
 
     if (!this.filterActive()) this.attachDragHandlers(head, card, parentFolder, index, siblings, container);
-  }
-
-  async renderReading(container: HTMLElement, rootFolder: TFolder, _numbering: unknown): Promise<void> {
-    container.empty();
-    const scrollWrap = container.createDiv({ cls: "feuillets-reading-wrapper" });
-
-    const S = this.plugin.settings;
-    let targetFolder = rootFolder;
-    if (S.readScope && S.readScope !== "__selection__") {
-      const folder = this.app.vault.getAbstractFileByPath(S.readScope);
-      if (folder instanceof TFolder && folder.path.startsWith(rootFolder.path)) {
-        targetFolder = folder;
-      }
-    }
-
-    let filesToRead: TFile[] = [];
-    if (S.readScope === "__selection__") {
-      const selectedPaths = new Set(S.readSelection || []);
-      filesToRead = this.plugin.flattenFiles(rootFolder).filter((f: TFile) => selectedPaths.has(f.path));
-    } else {
-      filesToRead = this.plugin.flattenFiles(targetFolder).filter(
-        (f: TFile) => this.passesFilter(f) && !this.plugin.isFrontMatter(f)
-      );
-    }
-
-    if (filesToRead.length === 0) {
-      scrollWrap.createDiv({
-        cls: "feuillets-empty",
-        text: S.readScope === "__selection__"
-          ? t("board.reading.noSelection")
-          : t("board.reading.noneMatchFilters"),
-      });
-      return;
-    }
-
-    if (this.scriveningsManager) {
-      this.scriveningsManager.destroy();
-    }
-
-    this.scriveningsManager = new ScriveningsManager(
-      this.app,
-      scrollWrap,
-      (file) => openFileActivating(this.app, this.app.workspace.getLeaf(false), file)
-    );
-
-    await this.scriveningsManager.loadScenes(filesToRead, this.plugin, this);
   }
 
   renderCheminDeFer(container: HTMLElement, root: TFolder, numbering: Map<string, string>): void {
@@ -1610,11 +1513,4 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  async onClose(): Promise<void> {
-    if (this.scriveningsManager) {
-      this.scriveningsManager.destroy();
-      this.scriveningsManager = null;
-    }
-    await super.onClose();
-  }
 }
