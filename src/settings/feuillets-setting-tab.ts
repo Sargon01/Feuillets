@@ -122,7 +122,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const REPO = "https://github.com/Sargon01/Feuillets";
     links.createEl("a", { text: t("settings.links.github"), href: REPO, attr: { target: "_blank", rel: "noopener" } });
     links.createEl("a", { text: t("settings.links.readme"), href: `${REPO}/blob/main/README.md`, attr: { target: "_blank", rel: "noopener" } });
-    links.createEl("a", { text: t("settings.links.features"), href: `${REPO}/blob/main/FONCTIONNALITES.md`, attr: { target: "_blank", rel: "noopener" } });
+    links.createEl("a", { text: t("settings.links.features"), href: `${REPO}/blob/main/docs/FONCTIONNALITES.md`, attr: { target: "_blank", rel: "noopener" } });
   }
 
   /** API déclarative (Obsidian ≥ 1.13.0) : un tableau non vide fait qu'Obsidian
