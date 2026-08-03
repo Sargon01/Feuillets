@@ -191,6 +191,26 @@ Des modules spécialisés peuvent prolonger l’atelier :
 
 *Écrire, corriger, soumettre : un atelier, des modules spécialisés.*
 
+## Sécurité, confidentialité et assurance qualité
+
+Feuillets fonctionne localement dans votre coffre Obsidian. Il ne contient aucune télémétrie, ne dépend d’aucun service cloud et n’effectue aucune requête réseau suspecte.
+
+Le plugin est couvert par des tests automatisés et des contrôles d’intégration continue. Son code source, sa version de production, ses dépendances et ses fichiers de publication sont vérifiés avant chaque mise à disposition.
+
+### À propos de l’analyse automatisée
+
+Feuillets est un environnement d’écriture complet qui nécessite légitimement l’accès à plusieurs fonctionnalités d’Obsidian et du système de fichiers, notamment pour lire, créer et modifier des fichiers dans le coffre.
+
+En raison de cette richesse fonctionnelle, l’analyse automatisée peut classer certains comportements attendus et certains choix d’architecture comme des points de vigilance. Ces résultats n’indiquent pas nécessairement l’existence de vulnérabilités de sécurité.
+
+La version publiée :
+
+- passe l’ensemble des tests automatisés du projet ;
+- ne comporte aucune dépendance connue comme vulnérable ;
+- ne présente aucune activité réseau suspecte ;
+- inclut des attestations GitHub vérifiées pour les fichiers publiés ;
+- peut être reproduite à l’identique à partir du code source.
+
 ## Installation
 
 ### Depuis les modules communautaires d’Obsidian
