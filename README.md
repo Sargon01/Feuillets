@@ -12,7 +12,7 @@ Feuillets ne vous impose ni méthode unique ni interface chargée. Vous pouvez c
 
 **Conçu par un écrivain, pour le travail réel des écrivains.**
 
-![Feuillets — Classeur, écriture et aperçu paginé]([docs/feuillets-ecriture-apercu.png))
+![Feuillets — Classeur, écriture et aperçu paginé](docs/feuillets-ecriture-apercu.png)
 
 *Écrivez dans le feuillet. Relisez le livre.*
 
