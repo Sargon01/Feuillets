@@ -52,11 +52,8 @@ Le mode Concentration réduit l’atelier à l’essentiel :
 - défilement machine à écrire ;
 - estompage du texte hors attention ;
 - compteur de mots discret.
-
-<!-- CAPTURE CONCENTRATION
-Montrer le texte seul ou presque, avec une largeur confortable et le compteur discret.
-Légende : « Quand il faut écrire, tout le reste disparaît. »
--->
+ 
+![Quand il faut écrire, tout le reste disparaît.](docs/feuillets-concentration-apercu.png)
 
 ### 5. Ouvrez l’Aperçu
 
