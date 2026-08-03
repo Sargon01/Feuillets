@@ -232,13 +232,13 @@ To install Feuillets from Obsidian Community Plugins:
 
 ## Documentation
 
-- [Discover Feuillets](docs/DISCOVER.md)
-- [An author's journey](docs/AUTHOR-WORKFLOW.md)
-- [Features by use](docs/FEATURES.md)
-- [Creating a clean writing interface](docs/WRITING-INTERFACE.md)
-- [Compilation and export](docs/COMPOSITION-AND-EXPORT.md)
-- [Rewriting, backups and versions](docs/REWRITING-BACKUPS-AND-VERSIONS.md)
-- [Import a Scrivener project](docs/IMPORT-SCRIVENER-EN.md)
-- [Philosophy](docs/PHILOSOPHY.md)
+- [Discover Feuillets](https://github.com/Sargon01/Feuillets/blob/main/docs/DISCOVER.md)
+- [An author's journey](https://github.com/Sargon01/Feuillets/blob/main/docs/AUTHOR-WORKFLOW.md)
+- [Features by use](https://github.com/Sargon01/Feuillets/blob/main/docs/FEATURES.md)
+- [Creating a clean writing interface](https://github.com/Sargon01/Feuillets/blob/main/docs/WRITING-INTERFACE.md)
+- [Compilation and export](https://github.com/Sargon01/Feuillets/blob/main/docs/COMPOSITION-AND-EXPORT.md)
+- [Rewriting, backups and versions](https://github.com/Sargon01/Feuillets/blob/main/docs/REWRITING-BACKUPS-AND-VERSIONS.md)
+- [Import a Scrivener project](https://github.com/Sargon01/Feuillets/blob/main/docs/IMPORT-SCRIVENER-EN.md)
+- [Philosophy](https://github.com/Sargon01/Feuillets/blob/main/docs/PHILOSOPHY.md)
 
 > **Feuillets — the free manuscript studio.**
