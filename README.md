@@ -217,7 +217,7 @@ The published release:
 
 ### From Obsidian Community Plugins
 
-Once accepted into the directory:
+To install Feuillets from Obsidian Community Plugins:
 
 1. open **Settings → Community plugins**;
 2. search for **Feuillets**;
@@ -232,14 +232,13 @@ Once accepted into the directory:
 
 ## Documentation
 
-- [Discover Feuillets](docs/DECOUVRIR.md)
-- [The writer's workflow](docs/PARCOURS-AUTEUR.md)
-- [Features by use case](docs/FONCTIONNALITES.md)
-- [Create a clean writing interface](docs/SETUP-INTERFACE.md)
-- [Composition and export](docs/COMPOSITION-ET-EXPORT.md)
-- [Rewriting, backups, and versions](docs/VERSIONNAGE-ET-SECURITE.md)
-- [Import a Scrivener project](docs/IMPORT-SCRIVENER.md)
-- [Philosophy](docs/PHILOSOPHIE.md)
-- [Technical architecture](docs/ARCHITECTURE.md)
+- [Discover Feuillets](docs/DISCOVER.md)
+- [An author's journey](docs/AUTHOR-WORKFLOW.md)
+- [Features by use](docs/FEATURES.md)
+- [Creating a clean writing interface](docs/WRITING-INTERFACE.md)
+- [Compilation and export](docs/COMPOSITION-AND-EXPORT.md)
+- [Rewriting, backups and versions](docs/REWRITING-BACKUPS-AND-VERSIONS.md)
+- [Import a Scrivener project](docs/IMPORT-SCRIVENER-EN.md)
+- [Philosophy](docs/PHILOSOPHY.md)
 
 > **Feuillets — the free manuscript studio.**

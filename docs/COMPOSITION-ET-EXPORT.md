@@ -1,5 +1,7 @@
 # Composition et export
 
+> **Français** · [English](COMPOSITION-AND-EXPORT.md)
+
 ## Deux apparences pour deux besoins
 
 Feuillets distingue clairement :

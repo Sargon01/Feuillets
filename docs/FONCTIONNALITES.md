@@ -1,5 +1,7 @@
 # Feuillets — fonctionnalités par usage
 
+> **Français** · [English](FEATURES.md)
+
 Ce document sert de référence fonctionnelle. Les noms internes de réglages sont volontairement laissés à la documentation technique et au code.
 
 ## Écrire

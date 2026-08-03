@@ -1,5 +1,7 @@
 # Importer un projet Scrivener
 
+> **Français** · [English](IMPORT-SCRIVENER-EN.md)
+
 ## Changer d’atelier sans reconstruire le manuscrit
 
 L’import Scrivener ne cherche pas seulement à récupérer un long texte.
