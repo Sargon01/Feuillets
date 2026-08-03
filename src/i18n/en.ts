@@ -368,6 +368,18 @@ export const en = {
   // ---------- Project & export panel (project-view.js) ----------
   "project.displayText": "Project & export",
   "project.noActiveProject": "No active project — manage your projects from the binder (root menu, split pane).",
+
+  /* Integration with the companion plugin Courrier (Lot 14B, see
+     services/courrier-integration.ts) — no hard dependency. */
+  "courrier.notice.noProject": "Open a writing project first before preparing a submission.",
+  "courrier.notice.missingPlugin": "The \"Courrier\" plugin is required to prepare a submission — install or enable it in Settings → Community plugins.",
+  "courrier.notice.failed": "Could not prepare the submission.",
+  "courrier.attachments.title": "Documents to attach to the submission",
+  "courrier.attachments.desc": "Check the documents to hand off to Courrier as planned attachments — nothing is sent, only the paths are transmitted.",
+  "courrier.attachments.none": "No editorial documents detected (Synopsis, Biography, Cover letter, Statement of intent, or a DOCX export) — the submission will open without any planned attachment.",
+  "courrier.attachments.confirm": "Continue",
+  "courrier.attachments.manuscrit": "Manuscript (latest DOCX export)",
+  "courrier.attachments.submitButton": "Submit",
   "project.compilation.title": "Compilation / export",
   "project.compilation.chooseSheetsTooltip": "Choose the sheets to compile…",
   "project.compilation.layoutRow": "Compilation & layout…",
@@ -912,6 +924,7 @@ export const en = {
   "main.cmd.openJournal": "Open the writing journal",
   "main.cmd.openProjectPanel": "Open the Project panel",
   "main.cmd.openCompileExportPanel": "Open the Compile & export panel",
+  "main.cmd.prepareSubmission": "Prepare a submission",
   "main.cmd.projectProperties": "Project properties…",
   "main.cmd.projectTags": "Project tags…",
   "main.cmd.analyzeActiveFile": "Analyse the current document",
