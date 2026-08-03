@@ -28,6 +28,10 @@ Depuis l’accueil du Classeur, vous pouvez :
 
 Un nouveau projet ouvre directement un premier feuillet prêt à écrire.
 
+![Écriture](docs/gifs/ecriture.gif)
+
+*Écrivez scène par scène dans un atelier conçu pour les manuscrits.*
+
 ### 2. Construisez le manuscrit dans le Classeur
 
 Le Classeur présente le livre sous sa forme naturelle :
