@@ -368,6 +368,18 @@ export const fr = {
   // ---------- Panneau Projet & export (project-view.js) ----------
   "project.displayText": "Projet & export",
   "project.noActiveProject": "Aucun projet actif — gère tes projets depuis le binder (menu de la racine, double volet).",
+
+  /* Intégration avec le plugin compagnon Courrier (Lot 14B, voir
+     services/courrier-integration.ts) — sans dépendance obligatoire. */
+  "courrier.notice.noProject": "Ouvre d'abord un projet d'écriture avant de préparer une soumission.",
+  "courrier.notice.missingPlugin": "Le plugin « Courrier » est requis pour préparer une soumission — installe-le ou active-le dans Réglages → Plugins communautaires.",
+  "courrier.notice.failed": "Impossible de préparer la soumission.",
+  "courrier.attachments.title": "Documents à joindre à la soumission",
+  "courrier.attachments.desc": "Coche les documents à transmettre à Courrier comme pièces jointes prévues — rien n'est envoyé, seuls les chemins sont transmis.",
+  "courrier.attachments.none": "Aucun document éditorial détecté (Synopsis, Biographie, Lettre d'accompagnement, Note d'intention ou export DOCX) — la soumission s'ouvrira sans pièce jointe prévue.",
+  "courrier.attachments.confirm": "Continuer",
+  "courrier.attachments.manuscrit": "Manuscrit (dernier export DOCX)",
+  "courrier.attachments.submitButton": "Soumettre",
   "project.compilation.title": "Compilation / export",
   "project.compilation.chooseSheetsTooltip": "Choisir les feuillets à compiler…",
   "project.compilation.layoutRow": "Compilation & mise en page…",
@@ -912,6 +924,7 @@ export const fr = {
   "main.cmd.openJournal": "Ouvrir le journal d'écriture",
   "main.cmd.openProjectPanel": "Ouvrir le panneau Projet",
   "main.cmd.openCompileExportPanel": "Ouvrir le panneau Compilation & export",
+  "main.cmd.prepareSubmission": "Préparer une soumission",
   "main.cmd.projectProperties": "Propriétés du projet…",
   "main.cmd.projectTags": "Tags du projet…",
   "main.cmd.analyzeActiveFile": "Analyser le document courant",
