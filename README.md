@@ -14,6 +14,8 @@ Feuillets ne vous impose ni méthode unique ni interface chargée. Vous pouvez c
 
 ![Feuillets — Classeur, écriture et aperçu paginé](docs/feuillets-ecriture-apercu.png)
 
+*Écrivez dans le feuillet. Relisez le livre.*
+
 ## Commencer en cinq minutes
 
 ### 1. Créez ou ouvrez un projet d’écriture
@@ -52,8 +54,10 @@ Le mode Concentration réduit l’atelier à l’essentiel :
 - défilement machine à écrire ;
 - estompage du texte hors attention ;
 - compteur de mots discret.
- 
-![Quand il faut écrire, tout le reste disparaît.](docs/feuillets-concentration-apercu.png)
+
+![Mode Concentration de Feuillets](docs/feuillets-concentration.png)
+
+*Quand il faut écrire, tout le reste disparaît.*
 
 ### 5. Ouvrez l’Aperçu
 
@@ -66,10 +70,9 @@ L’Aperçu peut afficher :
 
 Il repose sur la même composition que les exports. Une correction effectuée dans le feuillet apparaît dans le rendu, et la navigation peut suivre la scène correspondante.
 
-<!-- CAPTURE APERÇU
-Montrer l’éditeur et l’Aperçu côte à côte, avec la même scène visible.
-Légende : « Corrigez la scène. Jugez le livre. »
--->
+![Aperçu paginé du manuscrit](docs/feuillets-apercu.png)
+
+*Corrigez la scène. Jugez le livre.*
 
 ## Un outil simple qui grandit avec le manuscrit
 
@@ -103,9 +106,17 @@ Feuillets permet de déplacer, scinder, fusionner et dupliquer les scènes sans 
 
 Le Classeur conserve l’architecture du manuscrit sous les yeux. L’Aperçu permet de lire le texte dans le mouvement réel du chapitre ou du livre.
 
+![Classeur du manuscrit dans Feuillets](docs/feuillets-classeur.png)
+
+*Le livre reste visible pendant que vous écrivez.*
+
 ### La réécriture reste réversible
 
 Sauvegardes automatiques, instantanés, comparaison et duplication en nouvelle version permettent d’explorer une autre direction sans sacrifier l’état précédent.
+
+![Comparaison de deux versions d’un feuillet](docs/feuillets-comparaison.png)
+
+*Réécrivez sans perdre ce que vous aviez écrit.*
 
 ### La composition n’est pas découverte après coup
 
@@ -113,14 +124,9 @@ La même logique de composition alimente l’Aperçu et les exports. Les titres,
 
 ## Plusieurs manières de comprendre le même manuscrit
 
-<!-- CAPTURE MOSAÏQUE
-Créer une image avec le même projet dans :
-- Cartes ;
-- Plan ;
-- Chemin de fer ;
-- Chronologie.
-Légende : « Un même manuscrit, plusieurs angles de lecture. »
--->
+![Cartes, Plan, Chemin de fer et Chronologie](docs/feuillets-mosaique-narrative.png)
+
+*Un même manuscrit, plusieurs angles de lecture.*
 
 | Besoin | Vue |
 |---|---|
@@ -152,6 +158,10 @@ Feuillets peut :
 - transformer un plan structuré en parties, chapitres et scènes ;
 - importer un projet Scrivener sur ordinateur afin d’en reprendre la structure, les textes et les éléments compatibles.
 
+![Import d’un projet Scrivener dans Feuillets](docs/feuillets-import-scrivener.png)
+
+*Changez d’atelier, pas de manuscrit.*
+
 ## Composer et exporter
 
 Feuillets assemble les feuillets selon l’ordre du Classeur et les règles choisies.
@@ -173,6 +183,10 @@ Des modules spécialisés peuvent prolonger l’atelier :
 - **Feuillets-Grammalecte** : correction linguistique séparée du noyau ;
 - **Courrier** : contacts, correspondance, soumissions, réponses et relances.
 
+![Écosystème Feuillets, Feuillets-Grammalecte et Courrier](docs/feuillets-ecosysteme.png)
+
+*Écrire, corriger, soumettre : un atelier, des modules spécialisés.*
+
 ## Installation
 
 ### Depuis les modules communautaires d’Obsidian
@@ -192,14 +206,14 @@ Après acceptation dans le catalogue :
 
 ## Documentation
 
-- [Découvrir Feuillets](DECOUVRIR.md)
-- [Le parcours d’un auteur](PARCOURS-AUTEUR.md)
-- [Fonctionnalités par usage](FONCTIONNALITES.md)
-- [Créer une interface d’écriture épurée](SETUP-INTERFACE.md)
-- [Composition et export](COMPOSITION-ET-EXPORT.md)
-- [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md)
-- [Importer un projet Scrivener](IMPORT-SCRIVENER.md)
-- [Philosophie](PHILOSOPHIE.md)
-- [Architecture technique](ARCHITECTURE.md)
+- [Découvrir Feuillets](docs/DECOUVRIR.md)
+- [Le parcours d’un auteur](docs/PARCOURS-AUTEUR.md)
+- [Fonctionnalités par usage](docs/FONCTIONNALITES.md)
+- [Créer une interface d’écriture épurée](docs/SETUP-INTERFACE.md)
+- [Composition et export](docs/COMPOSITION-ET-EXPORT.md)
+- [Réécriture, sauvegardes et versions](docs/VERSIONNAGE-ET-SECURITE.md)
+- [Importer un projet Scrivener](docs/IMPORT-SCRIVENER.md)
+- [Philosophie](docs/PHILOSOPHIE.md)
+- [Architecture technique](docs/ARCHITECTURE.md)
 
 > **Feuillets — l’atelier libre du manuscrit.**
