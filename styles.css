@@ -4908,6 +4908,137 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   line-height: 1.5;
 }
 
+.feuillets-edition-folder-row .feuillets-project-row-label {
+  font-weight: var(--font-semibold);
+}
+
+.feuillets-edition-file-row {
+  gap: var(--size-4-1);
+}
+
+.feuillets-edition-file-kind {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+}
+
+.feuillets-submission-workflow {
+  margin: var(--size-4-2) var(--size-4-2) var(--size-4-3);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  text-align: center;
+}
+
+.feuillets-submission-summary,
+.feuillets-submission-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.feuillets-submission-summary {
+  padding: 0 var(--size-4-2) var(--size-4-3);
+}
+
+.feuillets-submission-summary-title,
+.feuillets-edition-tree-title {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.feuillets-edition-tree-title {
+  padding: 0 var(--size-4-2) var(--size-4-1);
+}
+
+.feuillets-submission-card {
+  padding: var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary-alt);
+}
+
+.feuillets-submission-card-head,
+.feuillets-submission-dates,
+.feuillets-submission-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.feuillets-submission-recipient {
+  min-width: 0;
+  flex: 1;
+  font-weight: var(--font-semibold);
+}
+
+.feuillets-submission-status,
+.feuillets-submission-reminder {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-submission-reminder.mod-due {
+  color: var(--text-warning);
+  background: rgba(var(--color-orange-rgb), 0.12);
+}
+
+.feuillets-submission-reminder.mod-late,
+.feuillets-submission-docs.mod-missing {
+  color: var(--text-error);
+}
+
+.feuillets-submission-docs,
+.feuillets-submission-dates {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-submission-docs.mod-ready {
+  color: var(--text-success);
+}
+
+.feuillets-submission-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  padding: 3px 7px;
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-submission-action-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+
+.feuillets-submission-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-4);
+}
+
+.feuillets-submission-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  margin-top: var(--size-4-3);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
 .feuillets-docx-review-intro {
   padding: 0 var(--size-4-3) 10px;
 }

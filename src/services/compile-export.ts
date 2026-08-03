@@ -421,6 +421,18 @@ export async function exportFile(app: App, settings: FeuilletsSettings, format =
   return exportViaNative(app, settings, format, scopePath);
 }
 
+/** Export DOCX de soumission : même compilation et même moteur que
+ * l'export ordinaire, mais écrit directement dans le paquet transmis par
+ * Courrier et ne remplace jamais un fichier existant. */
+export async function exportDocxToFolder(
+  app: App,
+  settings: FeuilletsSettings,
+  destinationFolderPath: string,
+  suggestedBaseName: string
+): Promise<string | undefined> {
+  return exportViaNative(app, settings, "docx", null, destinationFolderPath, suggestedBaseName, true);
+}
+
 /** Compile puis rend via le moteur natif (MarkdownRenderer d'Obsidian +
  * bibliothèques JS pures `docx`/`jszip`) — aucune dépendance externe,
  * fonctionne desktop et mobile (sauf PDF, desktop uniquement — voir
@@ -432,7 +444,15 @@ export async function exportFile(app: App, settings: FeuilletsSettings, format =
  * @param {string} format
  * @returns {Promise<void>}
  */
-async function exportViaNative(app: App, settings: FeuilletsSettings, format: string, scopePath: string | null = null) {
+async function exportViaNative(
+  app: App,
+  settings: FeuilletsSettings,
+  format: string,
+  scopePath: string | null = null,
+  destinationFolderPath?: string,
+  baseNameOverride?: string,
+  nonDestructive = false
+): Promise<string | undefined> {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
@@ -466,9 +486,9 @@ async function exportViaNative(app: App, settings: FeuilletsSettings, format: st
      dossier peut fausser la résolution des liens relatifs. */
   const sourcePath = result.outPath;
   const outputFolder = await getOutputFolder(app, settings);
-  const outBase = outputFolder ? outputFolder.path : folder.path;
+  const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
   const P = activePresetConfig(settings);
-  const baseName = (P.fileName || "Manuscrit.md").replace(/\.md$/i, "");
+  const baseName = baseNameOverride || (P.fileName || "Manuscrit.md").replace(/\.md$/i, "");
   const segments: NativeExportSegment[] = result.segments.map(({ path, text, frontType }) =>
     frontType === null ? { path, text } : { path, text, frontType }
   );
@@ -477,19 +497,22 @@ async function exportViaNative(app: App, settings: FeuilletsSettings, format: st
   try {
     if (format === "epub") {
       const data = await exportEpub(app, settings, ctx);
-      const outPath = normalizePath(`${outBase}/${baseName}.epub`);
+      const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "epub") : normalizePath(`${outBase}/${baseName}.epub`);
       await writeBinaryFile(app, outPath, data);
       new Notice(`Export réussi : ${outPath}`);
+      return outPath;
     } else if (format === "docx") {
       const data = await exportDocx(app, settings, ctx);
-      const outPath = normalizePath(`${outBase}/${baseName}.docx`);
+      const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "docx") : normalizePath(`${outBase}/${baseName}.docx`);
       await writeBinaryFile(app, outPath, data);
       new Notice(`Export réussi : ${outPath}`);
+      return outPath;
     } else if (format === "odt") {
       const data = await exportOdt(app, settings, ctx);
-      const outPath = normalizePath(`${outBase}/${baseName}.odt`);
+      const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "odt") : normalizePath(`${outBase}/${baseName}.odt`);
       await writeBinaryFile(app, outPath, data);
       new Notice(`Export réussi : ${outPath}`);
+      return outPath;
     } else if (format === "pdf") {
       await exportPdf(app, settings, ctx);
     } else {
@@ -500,6 +523,19 @@ async function exportViaNative(app: App, settings: FeuilletsSettings, format: st
     const err = toCompileError(e, `export ${format}`, { format });
     new Notice(err.describe().slice(0, 300));
   }
+  return undefined;
+}
+
+function uniqueBinaryPath(app: App, folderPath: string, baseName: string, extension: string): string {
+  const safeBase = baseName.replace(/[\\/:*?"<>|]/g, "-").trim() || "Manuscrit";
+  let counter = 0;
+  let path = "";
+  do {
+    const suffix = counter === 0 ? "" : `-${counter}`;
+    path = normalizePath(`${folderPath}/${safeBase}${suffix}.${extension}`);
+    counter++;
+  } while (app.vault.getAbstractFileByPath(path));
+  return path;
 }
 
 /**
@@ -524,5 +560,4 @@ async function writeBinaryFile(app: App, path: string, data: Uint8Array | Blob |
     await app.vault.createBinary(path, buf);
   }
 }
-
 

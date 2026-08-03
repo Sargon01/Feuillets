@@ -45,6 +45,7 @@ import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
 import { fmOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, labelColor, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
+import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode } from "./services/project-mode.js";
 import { getChronoFolder, getResearchRoot, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
 import { buildNumbering } from "./services/numbering.js";
@@ -461,6 +462,20 @@ class FeuilletsPlugin extends Plugin {
           return;
         }
         void this.activateProject();
+      },
+    });
+    /* Intégration Courrier (Lot 14B) : n'apparaît utilisable que si un
+       projet d'écriture est ouvert (même garde que les autres commandes
+       de cette section) — Courrier lui-même reste facultatif, absent ou
+       désactivé donne juste une notice claire (voir prepareSubmission). */
+    this.addCommand({
+      id: "prepare-submission",
+      name: t("main.cmd.prepareSubmission"),
+      checkCallback: (checking) => {
+        const root = getProjectFolder(this.app, this.settings);
+        if (!root) return false;
+        if (!checking) void prepareSubmission(this);
+        return true;
       },
     });
     this.addCommand({
