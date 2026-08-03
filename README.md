@@ -180,7 +180,7 @@ La documentation de la version installée reste la référence exacte pour les f
 
 Des modules spécialisés peuvent prolonger l’atelier :
 
-- **[Feuillets-Grammalecte](LIEN_DU_DEPOT)** : correction linguistique séparée du noyau ;
+- **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** : correction linguistique séparée du noyau ;
 - **[Courrier](https://github.com/Sargon01/Courrier)** : contacts, correspondance, soumissions, réponses et relances.
 
 ![Écosystème Feuillets, Feuillets-Grammalecte et Courrier](docs/feuillets-ecosysteme.png)
