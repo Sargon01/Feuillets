@@ -1,199 +1,216 @@
 # Feuillets
 
-Feuillets brings a long-form writer's workflow to Obsidian: your manuscript
-as a living structure — from first outline to final export — rather than a
-folder of disconnected Markdown files.
+## Écrivez un livre, pas une collection de notes
 
-> **Note on language**: the plugin's interface is bilingual (French/English).
-> It follows Obsidian's own display language by default ("Automatic"), or can
-> be forced to French or English in Settings → Feuillets → Langue de
-> l'interface, independently of Obsidian's language.
+**Feuillets transforme Obsidian en atelier d’écriture longue, libre, local et gratuit.**
 
-## Features
+Organisez votre manuscrit dans le **Classeur**, écrivez **feuillet par feuillet**, passez en mode **Concentration**, relisez une scène, un chapitre, une partie ou le manuscrit entier dans l’**Aperçu**, puis composez et exportez votre œuvre.
 
-- **Bilingual interface** (French/English) — follows Obsidian's own display
-  language by default, or can be set explicitly in the plugin settings.
-- **Board** (Cards / Outline / Corkboard [Canvas] / Timeline / Reading modes)
-  for the whole manuscript, filterable by status, label, tag, and progress.
-- **Sidebar binder** (Ulysses-style split-pane, files-only, or classic tree),
-  drag-and-drop reordering, and one-paste **outline import** (pasted Markdown
-  headings/bullets become the Parts/Chapters/Scenes folder structure), plus
-  **Scrivener project import** (desktop only).
-- **Notes panel**: synopsis/summary/working notes/sources per scene, an
-  auto-populated "context" section for every character/place cited in the
-  text (including their age and their latest dated state, if their sheet
-  contains an in-body chronology), folder notes for Parts/Chapters, and an
-  outline of the open scene's own headings.
-- **Recherche panel**: a project-scoped story bible (characters, places,
-  lore, bibliography, glossary, events), with one-click insertion of a
-  selected excerpt — plain, quoted, or quoted-with-source — into the scene
-  you're writing.
-- **Properties panel**: an editable, project-scoped view of frontmatter
-  properties and tags (typed fields: text/list/date/checkbox), complementing
-  or replacing Obsidian's native "All Properties" view.
-- **Project & Export panel**: switch between multiple manuscripts, manage
-  compilation presets, and export.
-- **Progression and Journal panels**: word-count goals and detailed text
-  stats, plus a monthly writing calendar with one journal entry per day.
-- **Grammar checking: use a dedicated plugin.** Feuillets does not bundle,
-  download, or run a grammar checker. For spelling and grammar, install a
-  dedicated plugin from Obsidian's Community Plugins browser — for example
-  [Harper](https://community.obsidian.md/plugins/harper) for English, or a
-  LanguageTool plugin. Those plugins are independent: Feuillets does not
-  configure them, read their settings, or call their APIs, and works
-  normally whether or not they are installed.
-- **Docx review panel**: a dedicated panel to work through an editor's or
-  proofreader's feedback received as an annotated `.docx` file.
-- **Find and replace bar**: a manuscript-wide search/replace tool, separate
-  from Obsidian's native search, with in-editor match highlighting.
-- **Citations and footnotes**: insert/renumber footnotes, and insert a
-  formatted citation sourced from a Recherche sheet.
-- **Scene tools**: split, duplicate, move, and merge multiple scenes with
-  configurable YAML-merge presets (per-field: keep target / aggregate / keep
-  first / ignore).
-- **Distraction-free "concentration" mode** with typewriter scrolling and a
-  floating word counter.
-- **French typing aids**: curly quotes, French guillemets with non-breaking
-  spaces, typographic dashes — reimplemented in the spirit of the *French
-  Typos* plugin by Thierry Crouzet, not copied from it. Also includes
-  standalone cleanup commands (fixing escaped scene breaks, compacting blank
-  lines, splitting a chronology document into individual dated sheets).
-- **Snapshots**: dated backup copies of the active scene or the entire
-  project, with a quick-restore menu.
-- **Settings backup/restore**: export the plugin's full settings to a
-  timestamped `.json` file, and restore from any previous backup found in
-  the vault.
-- **Compilation and export — native engine, zero dependency**: `.docx` (real
-  OOXML with footnotes and captioned images), `.epub` (valid EPUB3), and
-  `.pdf` (desktop, via print), all built in pure JavaScript — no Pandoc
-  required, works on mobile. 7 built-in layout templates plus
-  frontmatter-based **custom templates**. An optional Pandoc engine remains
-  available for desktop users who want it (see **System access** below).
+> **Aussi simple qu’une page. Aussi riche qu’un projet de roman.**
+
+Feuillets ne vous impose ni méthode unique ni interface chargée. Vous pouvez commencer avec un Classeur, un feuillet et le mode Concentration. Les outils avancés restent disponibles lorsque votre projet en a besoin.
+
+**Conçu par un écrivain, pour le travail réel des écrivains.**
+
+<!-- CAPTURE PRINCIPALE
+Montrer en mode sombre :
+- le Classeur à gauche ;
+- un feuillet en cours d’écriture au centre ;
+- l’Aperçu paginé à droite ;
+- peu d’éléments natifs d’Obsidian ;
+- un texte littéraire réel.
+Légende : « Écrivez dans le feuillet. Relisez le livre. »
+-->
+
+## Commencer en cinq minutes
+
+### 1. Créez ou ouvrez un projet d’écriture
+
+Depuis l’accueil du Classeur, vous pouvez :
+
+- créer un projet de fiction ou de non-fiction ;
+- reprendre un manuscrit existant ;
+- découvrir Feuillets avec un projet de démonstration.
+
+Un nouveau projet ouvre directement un premier feuillet prêt à écrire.
+
+### 2. Construisez le manuscrit dans le Classeur
+
+Le Classeur présente le livre sous sa forme naturelle :
+
+- parties ;
+- chapitres ;
+- scènes ;
+- feuillets.
+
+Le glisser-déposer permet de déplacer et réordonner le manuscrit. Un plan déjà préparé peut être importé en une seule fois.
+
+### 3. Ouvrez un feuillet et écrivez
+
+Le **feuillet** est l’unité de base de Feuillets. Il peut contenir une scène, une section ou tout fragment que vous souhaitez écrire, déplacer, comparer ou exclure indépendamment.
+
+La vue Écriture rend la syntaxe discrète et applique au manuscrit une présentation littéraire : largeur maîtrisée, alinéas, paragraphes resserrés et typographie personnalisable.
+
+### 4. Activez Concentration
+
+Le mode Concentration réduit l’atelier à l’essentiel :
+
+- texte centré ;
+- largeur réglable ;
+- défilement machine à écrire ;
+- estompage du texte hors attention ;
+- compteur de mots discret.
+
+<!-- CAPTURE CONCENTRATION
+Montrer le texte seul ou presque, avec une largeur confortable et le compteur discret.
+Légende : « Quand il faut écrire, tout le reste disparaît. »
+-->
+
+### 5. Ouvrez l’Aperçu
+
+L’Aperçu peut afficher :
+
+- la scène active ;
+- un chapitre ;
+- une partie ;
+- le manuscrit entier.
+
+Il repose sur la même composition que les exports. Une correction effectuée dans le feuillet apparaît dans le rendu, et la navigation peut suivre la scène correspondante.
+
+<!-- CAPTURE APERÇU
+Montrer l’éditeur et l’Aperçu côte à côte, avec la même scène visible.
+Légende : « Corrigez la scène. Jugez le livre. »
+-->
+
+## Un outil simple qui grandit avec le manuscrit
+
+Le parcours essentiel suffit pour écrire un livre :
+
+> Classeur → feuillet → Concentration → Aperçu → export
+
+Lorsque le projet grandit, Feuillets ajoute :
+
+- Cartes pour déplacer et équilibrer les scènes ;
+- Plan pour examiner les informations du manuscrit ;
+- Chemin de fer pour suivre les fils narratifs ;
+- Chronologie pour distinguer ordre du récit et ordre des événements ;
+- Recherche pour construire la bible du projet ;
+- Notes pour garder synopsis, résumé, sources et contexte à côté du texte ;
+- Journal et Statistiques pour suivre le travail ;
+- Révision, instantanés, sauvegardes et versions ;
+- composition, modèles et exports.
+
+La puissance de l’atelier n’oblige jamais à tout afficher.
+
+## Pourquoi un écrivain expérimenté choisit Feuillets
+
+### Le texte et la structure restent liés
+
+Une scène n’est pas seulement du texte. Elle possède une place, un statut, un synopsis, des liens, des dates, des fils narratifs et parfois un objectif.
+
+Feuillets permet de déplacer, scinder, fusionner et dupliquer les scènes sans perdre silencieusement les informations qui leur sont associées.
+
+### Le livre reste visible pendant l’écriture
+
+Le Classeur conserve l’architecture du manuscrit sous les yeux. L’Aperçu permet de lire le texte dans le mouvement réel du chapitre ou du livre.
+
+### La réécriture reste réversible
+
+Sauvegardes automatiques, instantanés, comparaison et duplication en nouvelle version permettent d’explorer une autre direction sans sacrifier l’état précédent.
+
+### La composition n’est pas découverte après coup
+
+La même logique de composition alimente l’Aperçu et les exports. Les titres, séparateurs, marges, polices, espacements et éléments liminaires peuvent être vérifiés avant la production du document final.
+
+## Plusieurs manières de comprendre le même manuscrit
+
+<!-- CAPTURE MOSAÏQUE
+Créer une image avec le même projet dans :
+- Cartes ;
+- Plan ;
+- Chemin de fer ;
+- Chronologie.
+Légende : « Un même manuscrit, plusieurs angles de lecture. »
+-->
+
+| Besoin | Vue |
+|---|---|
+| Naviguer entre parties, chapitres et scènes | Classeur |
+| Réorganiser visuellement le récit | Cartes |
+| Contrôler les informations et la progression | Plan |
+| Observer les fils narratifs | Chemin de fer |
+| Vérifier le temps du récit | Chronologie |
+| Lire comme un livre continu | Aperçu |
+| Explorer librement | Canvas |
+
+## Vos textes restent les vôtres
+
+Feuillets fonctionne localement dans Obsidian et ne nécessite aucun service en ligne pour son usage normal.
+
+- aucun abonnement Feuillets ;
+- aucune télémétrie ;
+- aucun serveur imposé ;
+- textes conservés en Markdown ;
+- code publié sous licence GNU GPLv3.
+
+Un projet peut être sauvegardé, synchronisé et repris avec d’autres outils. Feuillets n’enferme pas le manuscrit dans une base opaque.
+
+## Importer un projet existant
+
+Feuillets peut :
+
+- ouvrir un manuscrit Markdown existant sans le déplacer ni le renommer ;
+- transformer un plan structuré en parties, chapitres et scènes ;
+- importer un projet Scrivener sur ordinateur afin d’en reprendre la structure, les textes et les éléments compatibles.
+
+## Composer et exporter
+
+Feuillets assemble les feuillets selon l’ordre du Classeur et les règles choisies.
+
+Selon la version et l’environnement, la composition peut être produite en :
+
+- DOCX ;
+- EPUB ;
+- ODT ;
+- PDF par l’impression du système ;
+- Markdown compilé.
+
+La documentation de la version installée reste la référence exacte pour les formats et leurs limites.
+
+## Écosystème
+
+Des modules spécialisés peuvent prolonger l’atelier :
+
+- **Feuillets-Grammalecte** : correction linguistique séparée du noyau ;
+- **Courrier** : contacts, correspondance, soumissions, réponses et relances.
 
 ## Installation
 
-### From the Community Plugins list
-Once accepted into the directory: Settings → Community plugins → Browse →
-search "Feuillets" → Install → Enable.
+### Depuis les modules communautaires d’Obsidian
 
-### Manual install
-1. Download `main.js`, `manifest.json`, and `styles.css` from the
-   [latest release](<REPO_URL>/releases/latest).
-2. Copy them into `<your vault>/.obsidian/plugins/feuillets/`.
-3. Reload Obsidian and enable "Feuillets" in Community plugins.
+Après acceptation dans le catalogue :
 
-## Getting started
+1. ouvrez **Réglages → Modules communautaires** ;
+2. recherchez **Feuillets** ;
+3. installez puis activez le module.
 
-When no project is active, the binder shows a welcome screen with three
-options: **Create a project** (name, optional author, Fiction or
-Non-fiction type — creates `Manuscrit/` with a title page and a first
-chapter ready to write, plus `Recherche/` and `Ressources/` as siblings),
-**Open an existing folder** (use a folder you already have as a manuscript,
-without moving or renaming anything), or **Discover with a demo project**
-(a filled-in example with a guided 4-step tour). From there, build the rest
-of the structure by hand from the binder, or paste an existing outline via
-"Import an outline…" to generate a whole Parts/Chapters/Scenes tree in one
-step. Use the ribbon icons or command palette to open the Board, Notes,
-Recherche, and Properties panels.
+### Installation manuelle
 
-Want a clean, distraction-free look from the start? See
-[`SETUP-INTERFACE.md`](./SETUP-INTERFACE.md) for a reference theme +
-companion-plugin combination (not required — Feuillets works with any
-theme). To carry your settings to a new vault, use the **"Export
-settings"**/**"Import settings"** commands from the command palette (they
-save/load a `feuillets-reglages-*.json` file in the vault).
+1. téléchargez `main.js`, `manifest.json` et `styles.css` depuis la dernière version publiée ;
+2. placez-les dans `.obsidian/plugins/feuillets/` ;
+3. rechargez Obsidian ;
+4. activez Feuillets.
 
-## System access — what this plugin does and does not do
+## Documentation
 
-This section exists so both reviewers and users know exactly what Feuillets
-touches outside of normal Obsidian note editing.
+- [Découvrir Feuillets](DECOUVRIR.md)
+- [Le parcours d’un auteur](PARCOURS-AUTEUR.md)
+- [Fonctionnalités par usage](FONCTIONNALITES.md)
+- [Créer une interface d’écriture épurée](SETUP-INTERFACE.md)
+- [Composition et export](COMPOSITION-ET-EXPORT.md)
+- [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md)
+- [Importer un projet Scrivener](IMPORT-SCRIVENER.md)
+- [Philosophie](PHILOSOPHIE.md)
+- [Architecture technique](ARCHITECTURE.md)
 
-- **No network activity by default, and never silently.** Feuillets loads no
-  remote scripts, fonts, or images, and contacts no server on its own. The
-  plugin makes **no HTTP request at all** on its own: there is nothing to
-  download after installation and no remote service to call. Everything
-  works fully offline. (See `PRIVACY.md`.)
-- **No telemetry, analytics, or usage tracking** of any kind.
-- **No auto-update mechanism** of its own — plugin updates are handled
-  entirely by Obsidian's Community Plugins system.
-- **Native export (default, desktop and mobile):** compiling and exporting
-  to `.docx`/`.epub`/`.pdf` uses only Obsidian's own vault APIs and
-  in-memory JavaScript (the `docx` and `jszip` libraries, bundled — no
-  network fetch). No external process, no filesystem access outside the
-  vault, no platform difference beyond `.pdf` requiring desktop (uses
-  Obsidian's built-in print-to-PDF; unavailable in mobile WebViews).
-- **No dynamic code execution.** Feuillets contains no `eval`, no
-  `new Function`, no `vm`, and no WebAssembly. Everything it runs is plain
-  JavaScript shipped in `main.js` and reviewable line by line (the bundle is
-  deliberately not minified).
-- **Language-neutral.** Feuillets bundles no dictionary and no
-  language-specific engine. Its analysis tools work on any language written
-  in the Latin script.
-- **Pandoc export (desktop only, opt-in, off by default):** switching the
-  export engine setting to Pandoc shells out to a locally installed
-  **Pandoc** binary via Node's `child_process.execFile` (no shell
-  interpolation — arguments are passed as an array, not a concatenated
-  string). This only runs when you explicitly trigger an export command with
-  that engine selected; it never runs on load or in the background, and is
-  unavailable on mobile (the plugin detects this and shows a clear notice
-  instead of failing silently). The path to the Pandoc binary is a
-  plain-text setting (default: `pandoc`, resolved via your system PATH).
-- **Local filesystem access (desktop only, Pandoc export path only):** to
-  hand a file to Pandoc, the plugin briefly writes a temporary compiled
-  manuscript file inside your vault (via Obsidian's own vault adapter,
-  removed immediately after conversion) and reads/writes the final
-  `.docx`/`.epub` inside your vault or its configured output folder. The
-  optional "Pandoc reference document" setting is validated to resolve to a
-  path **inside the vault** — paths that would escape the vault (e.g. via
-  `../..`) are rejected with a notice rather than silently followed.
-- **Everything else stays inside Obsidian's vault APIs** (`app.vault`,
-  `app.metadataCache`, `app.fileManager`, `app.workspace`) — no other direct
-  filesystem or system access exists anywhere in the codebase. The one
-  exception is two documented uses of an undocumented Obsidian internal
-  method (`WorkspaceSplit.setSize`, to fix sidebar widths) — both guarded
-  with a feature-detection check and a `try/catch`, so a future Obsidian
-  release that removes or changes it degrades to a no-op instead of an
-  error.
-
-## Data & Privacy
-
-Feuillets stores all of its settings and your manuscript data locally, using
-Obsidian's own plugin data storage (`data.json` inside the plugin folder)
-and your vault's own files. Nothing is ever transmitted anywhere. See
-[`PRIVACY.md`](./PRIVACY.md) for the full statement.
-
-## Development
-
-```bash
-npm install
-npm run dev     # esbuild watch mode
-npm run build   # TypeScript type-check + production bundle
-npm test        # node:test — pure-function unit tests (utils/core.ts)
-npm run lint    # eslint + type-check
-```
-
-Before submitting a release to the Obsidian community catalogue, run the
-same automated review their developer dashboard performs — it uses the
-public [`eslint-plugin-obsidianmd`](https://github.com/obsidianmd/eslint-plugin),
-so it can be reproduced locally instead of waiting for the dashboard's
-(often file-less) error messages:
-
-```bash
-npm run lint:obsidian   # must report 0 errors; warnings are informational
-```
-
-See `obsidian-review.config.mjs` for what counts as an error and why.
-
-Source is TypeScript, living in `src/`; `main.js` at the repository root is a
-**build artifact** (gitignored) — never edit it directly.
-
-## Security
-
-See [`SECURITY.md`](./SECURITY.md) for the threat model summary and how to
-report a vulnerability.
-
-## License
-
-[GPL-3.0](./LICENSE) — Copyright (c) 2026 Halim.
-
-Passé de MIT à GPL-3.0 en son temps pour intégrer du code [Grammalecte](https://github.com/algoo/grammalecte) (GPL-3.0). Depuis la 1.4.5, plus aucun code Grammalecte n'est distribué avec Feuillets. La licence reste GPL-3.0. Le greffon compagnon est désormais maintenu dans le dépôt autonome [Feuillets Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte). Voir `THIRD_PARTY_NOTICES.md`.
+> **Feuillets — l’atelier libre du manuscrit.**

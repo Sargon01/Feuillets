@@ -1,106 +1,139 @@
 # Découvrir Feuillets
 
-## Qu'est-ce que Feuillets ?
+## Un atelier pour conduire un livre
 
-Feuillets transforme Obsidian en studio d'écriture longue : un manuscrit
-n'y est plus un simple dossier de fichiers Markdown dispersés, mais une
-structure vivante — organiser, rédiger, réviser et compiler, sans quitter
-Obsidian et sans jamais changer le format de vos fichiers.
+Feuillets transforme Obsidian en environnement d’écriture longue.
 
-## À qui s'adresse Feuillets ?
+Vous pouvez commencer simplement : ouvrir le Classeur, choisir une scène et écrire. À mesure que le manuscrit grandit, d’autres outils apparaissent pour organiser, documenter, relire, réviser, composer et exporter.
 
-À qui écrit un texte long dans Obsidian et veut plus qu'un dossier plat de
-notes : romancières et romanciers (parties, chapitres, scènes, fiches
-personnages/lieux), autrices et auteurs de non-fiction (sections,
-chapitres, sources, bibliographie), et plus largement quiconque doit
-organiser, réviser et exporter un document structuré de plusieurs dizaines
-de milliers de mots.
+> **Feuillets peut se réduire à un Classeur et une page, puis grandir avec le manuscrit.**
 
-## Les fonctions principales, en un coup d'œil
+## Le feuillet
 
-- **Binder** — la navigation du manuscrit : parties, chapitres, scènes,
-  glisser-déposer pour réorganiser, recherche et filtres.
-- **Cartes / Plan** — vue d'ensemble du manuscrit en cartes (par label,
-  personnage ou fil narratif) ou en plan linéaire, selon ce qui convient au
-  texte du moment.
-- **Recherche** — la bible narrative du projet : personnages, lieux, lore,
-  bibliographie, glossaire, avec insertion directe dans le texte.
-- **Notes, Propriétés, Journal, Statistiques** — un panneau par besoin :
-  notes de travail, métadonnées, calendrier d'écriture, progression.
-- **Snapshots et versions** — sauvegardes automatiques et duplication
-  complète du manuscrit avant une réécriture importante, comparables entre
-  elles à tout moment.
-- **Compilation et export** — assemblage du manuscrit dans l'ordre du
-  Binder, puis export en .docx, .epub ou .pdf, sans dépendance externe.
+Le feuillet est l’unité de base.
 
-*(Emplacement réservé pour une capture d'écran du Binder en double volet —
-à ajouter une fois disponible. Aucune capture fictive n'est incluse ici.)*
+Il peut représenter :
 
-## Qu'est-ce qu'un "projet" dans Feuillets ?
+- une scène ;
+- une section ;
+- un fragment ;
+- une page liminaire ;
+- tout élément que l’auteur souhaite déplacer ou travailler indépendamment.
 
-Un projet, c'est un dossier de votre coffre Obsidian, structuré ainsi :
+Les feuillets s’organisent en chapitres et en parties.
 
-```
-Nom du projet/
-├── Manuscrit/      ← le texte : parties, chapitres, scènes
-├── Recherche/      ← bible narrative (personnages, lieux…)
-└── Ressources/     ← images, modèles de mise en page, exports
-```
+## Le Classeur
 
-**La distinction importante : racine du projet vs `Manuscrit`.**
-`Nom du projet/` est la racine réelle — tout y vit, y compris `Recherche`
-et `Ressources`, en frères de `Manuscrit`. Mais le **Binder**, les vues
-**Cartes**/**Plan** et la **compilation**, eux, ne travaillent que dans
-`Manuscrit/` : c'est la racine éditoriale, celle qui ne contient que le
-texte du manuscrit lui-même — jamais mêlée à la recherche, aux images ou
-aux sauvegardes.
+Le Classeur est la colonne vertébrale du manuscrit.
 
-## Le rôle du Binder
+Il permet de :
 
-Le Binder (barre latérale) est la colonne vertébrale du manuscrit : il
-affiche l'arborescence Parties → Chapitres → Scènes, permet de glisser-
-déposer pour réorganiser, et donne accès aux fonctions dédiées de
-Recherche, Journal et Snapshots sans jamais les mélanger à cette
-arborescence narrative.
+- créer parties, chapitres, scènes et feuillets ;
+- ouvrir immédiatement le texte à travailler ;
+- déplacer les éléments par glisser-déposer ;
+- rechercher dans le titre ou le contenu ;
+- filtrer selon le statut, l’étiquette ou la progression ;
+- choisir plusieurs présentations de la structure.
 
-## Le rôle des vues Cartes et Plan
+<!-- CAPTURE CLASSEUR
+Utiliser un projet propre avec deux parties, plusieurs chapitres et des titres de scènes évocateurs.
+Légende : « Le livre reste visible pendant que vous écrivez. »
+-->
 
-Deux façons de voir le même manuscrit, au choix selon la tâche : les
-**Cartes** donnent une vue d'ensemble façon tableau de liège (utile pour
-visualiser des fils narratifs ou des labels sur toute l'intrigue), le
-**Plan** donne une vue linéaire façon sommaire (utile pour suivre l'ordre
-et la progression). Les deux se limitent toujours au contenu de
-`Manuscrit/`.
+## La vue Écriture
 
-## Feuillets fonctionne avec du Markdown, point.
+Dans le manuscrit, Feuillets applique une présentation littéraire :
 
-Aucun format propriétaire : vos feuillets restent des fichiers `.md`
-ordinaires, lisibles et modifiables avec n'importe quel éditeur de texte,
-avec ou sans Feuillets. Un dossier Markdown déjà existant, avec ou sans
-métadonnées, s'ouvre directement dans Feuillets via "Ouvrir un dossier
-existant" — rien n'y est déplacé, renommé ni modifié.
+- syntaxe Markdown discrète ;
+- titres rendus ;
+- alinéas ;
+- paragraphes continus ou resserrés ;
+- largeur de texte réglable ;
+- typographie personnalisable ;
+- aides typographiques françaises.
 
-## Les métadonnées YAML et les dossiers conventionnels sont facultatifs
+En dehors du manuscrit, les notes gardent une apparence plus documentaire. Cette distinction visuelle permet de savoir immédiatement si l’on écrit l’œuvre ou si l’on travaille autour d’elle.
 
-`Recherche`, `Ressources`, les champs YAML comme `statut` ou `label` : rien
-de tout cela n'est obligatoire pour écrire. Ce sont des compléments qui
-activent des fonctions en plus — Binder enrichi (statuts, labels,
-progression), recherche de contexte automatique, historique de versions,
-compilation avec préréglages — jamais des conditions préalables.
+## Le mode Concentration
 
-## Comment démarrer
+Le mode Concentration ne change pas le texte : il efface l’environnement autour de lui.
 
-Trois façons, depuis l'écran d'accueil du Binder :
+Il peut masquer les barres latérales, centrer la ligne active, estomper le texte hors attention et afficher un compteur discret.
 
-1. **Créer un projet** — nom, auteur facultatif, type ; la structure
-   minimale et un premier chapitre prêt à écrire se créent en un clic.
-2. **Ouvrir un dossier existant** — reprendre un manuscrit déjà commencé.
-3. **Découvrir avec un projet de démonstration** — un exemple déjà rempli,
-   pour explorer sans écrire une ligne, avec un parcours guidé en 4 étapes
-   inclus dans son `Lisez-moi.md`.
+## L’Aperçu
 
-## Aller plus loin
+L’Aperçu n’est pas une simple image figée du document.
 
-- **`PARCOURS-AUTEUR.md`** — le tutoriel complet, environ 15 minutes, du
-  premier mot à l'export.
-- **`FONCTIONNALITES.md`** — le manuel de référence, fonction par fonction.
+Il permet de lire :
+
+- la scène ;
+- le chapitre ;
+- la partie ;
+- le manuscrit.
+
+Le feuillet et le rendu peuvent avancer ensemble. L’auteur corrige localement tout en observant le rythme du texte composé.
+
+## Les ateliers autour du texte
+
+### Notes
+
+Pour conserver à côté de la scène :
+
+- synopsis ;
+- résumé ;
+- notes de travail ;
+- sources ;
+- plan interne ;
+- contexte des personnages ou lieux cités.
+
+### Recherche
+
+Pour construire la bible du projet :
+
+- personnages ;
+- lieux ;
+- événements ;
+- concepts ;
+- univers ;
+- sources ;
+- bibliographie ;
+- glossaire.
+
+### Cartes, Plan, Chemin de fer et Chronologie
+
+Chaque vue répond à une question :
+
+| Question | Vue |
+|---|---|
+| Où se trouve cette scène ? | Classeur |
+| Comment équilibrer et déplacer les scènes ? | Cartes |
+| Quelles informations manquent ? | Plan |
+| Où passent les fils narratifs ? | Chemin de fer |
+| Les événements sont-ils cohérents ? | Chronologie |
+| Comment le livre se lit-il ? | Aperçu |
+
+## Trois façons de commencer
+
+### Créer un projet
+
+Feuillets prépare une structure minimale et ouvre un premier feuillet prêt à écrire.
+
+### Reprendre un manuscrit
+
+Un manuscrit Markdown existant peut être ouvert sans déplacement ni renommage.
+
+### Explorer le projet de démonstration
+
+Le projet de démonstration permet de découvrir les vues et commandes avant de commencer sa propre œuvre.
+
+## Les propriétés restent facultatives
+
+Les propriétés, statuts, étiquettes et conventions de projet enrichissent Feuillets, mais ne sont pas obligatoires pour écrire.
+
+Vous pouvez ignorer le YAML et utiliser uniquement :
+
+> Classeur → feuillet → Concentration → Aperçu → export
+
+## Les textes restent ouverts
+
+Techniquement, les feuillets sont des documents Markdown ordinaires. Cette réalité est importante pour la liberté du manuscrit, mais elle n’a pas besoin d’occuper l’expérience quotidienne de l’auteur.
