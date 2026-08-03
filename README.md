@@ -1,6 +1,6 @@
 # Feuillets
 
-🇫🇷 **French version:** [README.fr.md](README-fr.md)
+🇫🇷 **French version:** [README.fr](README-fr.md)
 
 ## Write a book, not a collection of notes
 
