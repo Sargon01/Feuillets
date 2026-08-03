@@ -1,5 +1,7 @@
 # Découvrir Feuillets
 
+> **Français** · [English](DISCOVER.md)
+
 ## Un atelier pour conduire un livre
 
 Feuillets transforme Obsidian en environnement d’écriture longue.

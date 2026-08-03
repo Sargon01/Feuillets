@@ -1,5 +1,7 @@
 # Philosophie de Feuillets
 
+> **Français** · [English](PHILOSOPHY.md)
+
 ## Conçu à partir du travail réel
 
 Feuillets est né des difficultés rencontrées pendant l’écriture de romans :

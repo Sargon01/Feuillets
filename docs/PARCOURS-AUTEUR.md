@@ -1,5 +1,7 @@
 # Le parcours d’un auteur, du premier mot à l’export
 
+> **Français** · [English](AUTHOR-WORKFLOW.md)
+
 Ce guide suit le travail dans son ordre naturel. Il ne cherche pas à présenter chaque réglage.
 
 ## 1. Faire naître le projet

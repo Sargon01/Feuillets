@@ -1,5 +1,7 @@
 # Réécriture, sauvegardes et versions
 
+> **Français** · [English](REWRITING-BACKUPS-AND-VERSIONS.md)
+
 Un manuscrit n’évolue pas en ligne droite.
 
 Feuillets distingue plusieurs outils afin de ne pas confondre protection automatique, jalon volontaire et nouvelle direction narrative.

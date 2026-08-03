@@ -1,5 +1,7 @@
 # Créer une interface d’écriture épurée
 
+> **Français** · [English](WRITING-INTERFACE.md)
+
 Feuillets peut donner à Obsidian l’apparence calme d’une application d’écriture dédiée sans imposer un thème ni verrouiller les choix de l’utilisateur.
 
 ## 1. Commencer par les valeurs suggérées
