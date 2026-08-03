@@ -1,6 +1,6 @@
 # Feuillets
 
-🇫🇷 **French version:** [README.fr](README-fr.md)
+🇫🇷 **French version:** [README.fr](https://github.com/Sargon01/Feuillets/blob/main/README-fr.md)
 
 ## Write a book, not a collection of notes
 
