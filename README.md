@@ -193,6 +193,26 @@ Specialized companion plugins can extend the studio:
 
 *Write, correct, submit: one studio, specialized modules.*
 
+## Security, privacy and quality assurance
+
+Feuillets works locally within your Obsidian vault. It contains no telemetry, does not rely on a cloud service, and makes no suspicious network requests.
+
+The plugin is covered by automated tests and continuous integration checks. Its source code, production build, dependencies, and release artifacts are verified before publication.
+
+### About the automated review
+
+Feuillets is a comprehensive writing environment that legitimately requires access to several Obsidian and filesystem capabilities, including reading, creating, and modifying files in the vault.
+
+Because of this broad feature set, the automated review may classify some expected behaviors and architectural choices as cautions. These findings do not necessarily indicate security vulnerabilities.
+
+The published release:
+
+- passes the project’s automated test suite;
+- has no known vulnerable dependencies;
+- shows no suspicious network activity;
+- includes verified GitHub artifact attestations;
+- can be reproduced byte-for-byte from the source code.
+
 ## Installation
 
 ### From Obsidian Community Plugins
