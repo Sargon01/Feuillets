@@ -28,7 +28,7 @@ Depuis l’accueil du Classeur, vous pouvez :
 
 Un nouveau projet ouvre directement un premier feuillet prêt à écrire.
 
-![Écriture](docs/gifs/ecriture.gif)
+![Écriture](docs/creer-premier-projet.gif)
 
 *Écrivez scène par scène dans un atelier conçu pour les manuscrits.*
 
