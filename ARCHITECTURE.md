@@ -1,4 +1,11 @@
-# Architecture — Feuillets
+# Architecture technique — Feuillets
+
+> **Document interne de maintenance.**
+>
+> Cette page emploie volontairement les noms du code, les chemins, les types et
+> les termes techniques exacts. Elle n’est pas destinée au parcours public des
+> écrivains et n’est pas soumise au vocabulaire simplifié de la documentation
+> utilisateur.
 
 Note technique décrivant la structure du code après la modularisation progressive de `main.js`. Aucun comportement visible n'a changé : ce document explique *où* vit désormais chaque responsabilité, pas ce que le plugin fait.
 
