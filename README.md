@@ -199,7 +199,7 @@ Après acceptation dans le catalogue :
 
 ### Installation manuelle
 
-1. téléchargez `main.js`, `manifest.json` et `styles.css` depuis la dernière version publiée ;
+1. téléchargez `main.js`, `manifest.json` et `styles.css` depuis la [dernière version publiée](https://github.com/Sargon01/Feuillets/releases/latest)
 2. placez-les dans `.obsidian/plugins/feuillets/` ;
 3. rechargez Obsidian ;
 4. activez Feuillets.
