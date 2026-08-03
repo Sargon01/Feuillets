@@ -28,9 +28,9 @@ Depuis l’accueil du Classeur, vous pouvez :
 
 Un nouveau projet ouvre directement un premier feuillet prêt à écrire.
 
-![Écriture](docs/creer-premier-projet.gif)
+![Créer un premier projet dans Feuillets](docs/creer-premier-projet.gif)
 
-*Écrivez scène par scène dans un atelier conçu pour les manuscrits.*
+*Créez un projet d’écriture et commencez à écrire en quelques secondes.*
 
 ### 2. Construisez le manuscrit dans le Classeur
 
@@ -203,7 +203,7 @@ Après acceptation dans le catalogue :
 
 ### Installation manuelle
 
-1. téléchargez `main.js`, `manifest.json` et `styles.css` depuis la [dernière version publiée](https://github.com/Sargon01/Feuillets/releases/latest)
+1. téléchargez `main.js`, `manifest.json` et `styles.css` depuis la [dernière version publiée](https://github.com/Sargon01/Feuillets/releases/latest) ;
 2. placez-les dans `.obsidian/plugins/feuillets/` ;
 3. rechargez Obsidian ;
 4. activez Feuillets.
