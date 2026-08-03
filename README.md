@@ -12,15 +12,7 @@ Feuillets ne vous impose ni méthode unique ni interface chargée. Vous pouvez c
 
 **Conçu par un écrivain, pour le travail réel des écrivains.**
 
-<!-- CAPTURE PRINCIPALE
-Montrer en mode sombre :
-- le Classeur à gauche ;
-- un feuillet en cours d’écriture au centre ;
-- l’Aperçu paginé à droite ;
-- peu d’éléments natifs d’Obsidian ;
-- un texte littéraire réel.
-Légende : « Écrivez dans le feuillet. Relisez le livre. »
--->
+![Feuillets — Classeur, écriture et aperçu paginé](docs/feuillets-ecriture-apercu.png)
 
 ## Commencer en cinq minutes
 
