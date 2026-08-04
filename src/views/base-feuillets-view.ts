@@ -806,7 +806,7 @@ export abstract class BaseFeuilletsView extends ItemView {
          le fichier final (voir renderBibliographySection). Créer une
          nouvelle référence se fait dans Sources, jamais ici. */
       await this.renderBibliographySection(body, root, [sourcesFolder, ...(bibliographieFolder ? [bibliographieFolder] : [])]);
-    } else if (bibliographieFolder) {
+    } else if (rf.bibliographie && bibliographieFolder) {
       /* Fiction (pas de Sources, pas de système de citation) :
          Bibliographie garde son sens d'origine — un dossier de fiches
          manuelles pour des lectures complémentaires, sans lien avec le
@@ -814,8 +814,8 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
         this.promptCreateResearchFile(
           bibliographieFolder,
-          rf.bibliographie.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "bibliographie", rf.bibliographie.newName)
+          rf.bibliographie!.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "bibliographie", rf.bibliographie!.newName)
         ), "bibliographie"
       );
     }

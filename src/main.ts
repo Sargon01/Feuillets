@@ -2128,7 +2128,9 @@ class FeuilletsPlugin extends Plugin {
     const root = this.getProjectFolder();
     const baseResearch = researchRoot ? researchRoot.path : root ? `${root.path}/_Recherche` : null;
     if (!baseResearch) return [];
-    return [rf.sources.label, rf.bibliographie.label]
+    const labels = [rf.sources.label];
+    if (rf.bibliographie) labels.push(rf.bibliographie.label);
+    return labels
       .map((label) => this.app.vault.getAbstractFileByPath(normalizePath(`${baseResearch}/${label}`)))
       .filter((f): f is TFolder => f instanceof TFolder);
   }
@@ -2781,14 +2783,9 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
 
-    // Ajouter le dossier à la liste des projets
-    if (!this.settings.projects) this.settings.projects = [];
-    this.settings.projects.push(path);
-    await this.saveSettings();
-
-    this.renderAllViews(true);
-    this.updateStatusBar();
-    new Notice(t("main.notice.transformedToProject", { name: folder.name }));
+    // Afficher la modale de sélection du mode
+    const { TransformToProjectModal } = await import("./ui/project-modals.js");
+    new TransformToProjectModal(this.app, this, path).open();
   }
 
   getVersionsRoot(): TFolder | null { return getVersionsRoot(this.app, this.getProjectFolder()); }

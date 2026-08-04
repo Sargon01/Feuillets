@@ -3,9 +3,10 @@ import { PROJECT_MODES, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
 import { FolderSuggest } from "./folder-suggest.js";
-import { createMinimalProject, CreateProjectError } from "../services/project-files.js";
+import { createMinimalProject, CreateProjectError, initResearchSubfolders } from "../services/project-files.js";
+import { getFeuilletsFolderNames } from "../services/folder-structure.js";
 import { openFileActivatingWithCursor } from "../utils/dom.js";
-import { t } from "../i18n/index.js";
+import { getLocale, t } from "../i18n/index.js";
 
 type ProjectModalsPlugin = {
   /* manuscriptAuthor : absent de l'interface globale FeuilletsSettings
@@ -236,6 +237,80 @@ export class OpenExistingFolderModal extends Modal {
       .addEventListener("click", () => { void open(); });
     folderInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") void open();
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+/** Modale de transformation d'un dossier existant en projet Feuillets avec
+ * sélection du mode (Fiction, Non-fiction, Projet libre). */
+export class TransformToProjectModal extends Modal {
+  plugin: ProjectModalsPlugin;
+  folderPath: string;
+
+  constructor(app: App, plugin: ProjectModalsPlugin, folderPath: string) {
+    super(app);
+    this.plugin = plugin;
+    this.folderPath = folderPath;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.addClass("feuillets-project-modal");
+    contentEl.createEl("h3", { text: t("modal.transformProject.title") });
+    contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+      t("modal.transformProject.desc")
+    );
+
+    contentEl.createEl("label", { text: t("modal.newProject.typeLabel") });
+    const typeSelect = contentEl.createEl("select");
+    typeSelect.addClass("feuillets-input-full");
+    typeSelect.addClass("feuillets-field-spacer");
+    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
+      typeSelect.createEl("option", { text: mode.label, value: key });
+    }
+    // Pas de défaut forcé : l'utilisateur doit choisir explicitement
+
+    const transform = async () => {
+      const S = this.plugin.settings;
+      const folder = this.app.vault.getAbstractFileByPath(this.folderPath);
+      if (!(folder instanceof TFolder)) {
+        new Notice(t("modal.openFolder.notAFolder"));
+        return;
+      }
+
+      // Enregistrer le mode dans projectMeta
+      const chosenMode = typeSelect.value;
+      if (!S.projectMeta[this.folderPath]) S.projectMeta[this.folderPath] = {};
+      S.projectMeta[this.folderPath].type = chosenMode;
+
+      // Ajouter le dossier à la liste des projets
+      if (!S.projects) S.projects = [];
+      if (!S.projects.includes(this.folderPath)) {
+        S.projects.push(this.folderPath);
+      }
+      await this.plugin.saveSettings();
+
+      // Créer les sous-dossiers de Recherche selon le mode choisi
+      const names = getFeuilletsFolderNames(getLocale());
+      const researchPath = normalizePath(`${this.folderPath}/${names.research}`);
+      await initResearchSubfolders(this.app, researchPath, chosenMode);
+
+      this.plugin.renderAllViews(true);
+      this.plugin.updateStatusBar();
+      new Notice(t("modal.transformProject.ready", { name: folder.name }));
+      this.close();
+    };
+
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow
+      .createEl("button", { text: t("modal.transformProject.transform"), cls: "mod-cta" })
+      .addEventListener("click", () => { void transform(); });
+    typeSelect.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") void transform();
     });
   }
 

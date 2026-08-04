@@ -17,13 +17,14 @@ type ResearchFolderDef = { label: string; newName: string; tag: string };
  * mode (fiction ou non-fiction), jamais dans les deux — d'où l'optionalité
  * de chaque champ ici plutôt qu'un jeu de clés figé. */
 type ResearchFolders = {
-  bibliographie: ResearchFolderDef;
+  bibliographie?: ResearchFolderDef;
   glossaire?: ResearchFolderDef;
   evenements?: ResearchFolderDef;
   personnages?: ResearchFolderDef;
   lieux?: ResearchFolderDef;
   codex?: ResearchFolderDef;
   sources?: ResearchFolderDef;
+  notes?: ResearchFolderDef;
 };
 
 /** Personnages/Lieux/Lore/Glossaire/Événements sont des catégories nées
@@ -47,8 +48,11 @@ const FICTION_RESEARCH: ResearchFolders = {
 
 const NONFICTION_RESEARCH: ResearchFolders = {
   bibliographie,
+  notes: { label: "Notes", newName: "Nouvelle note", tag: "notes" },
   sources: { label: "Sources", newName: "Nouvelle source", tag: "source" },
 };
+
+const FREE_RESEARCH: ResearchFolders = {};
 
 /** Ancien nom français de chaque catégorie (dossiers déjà créés avant ce
  * renommage) — jamais renommés de force sur le disque, toujours reconnus
@@ -59,6 +63,7 @@ export const LEGACY_RESEARCH_LABELS = {
   evenements: "Événements",
   personnages: "Personnages",
   lieux: "Lieux",
+  notes: "Notes",
 };
 
 /** Libellé affiché d'une catégorie de recherche selon la langue active :
@@ -136,6 +141,21 @@ export const PROJECT_MODES = {
       cardContent: "summary",
     },
   },
+  free: {
+    label: "Libre",
+    yamlPreset: "minimal",
+    unit: "section",
+    unitPlural: "sections",
+    hasSources: false,
+    researchFolders: FREE_RESEARCH,
+    defaults: {
+      level1Role: "chapitres",
+      chapterNumbering: "continu",
+      sceneNumbering: "continue",
+      boardMode: "outline",
+      cardContent: "summary",
+    },
+  },
 };
 
 /** Ramène une valeur de type quelconque (absente, ou ancien texte libre
@@ -148,6 +168,9 @@ export function resolveType(type: string | null | undefined) {
   }
   if (rawType === "nonfiction" || rawType === "non-fiction" || rawType === "essai" || rawType === "these" || rawType === "thèse" || rawType === "article") {
     return "nonfiction";
+  }
+  if (rawType === "free" || rawType === "libre") {
+    return "free";
   }
   return "fiction";
 }
