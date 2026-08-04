@@ -201,18 +201,30 @@ async function renderResearchBody(harness) {
   return { sections };
 }
 
-test("renderResearchBody crée les dossiers en français quand la locale est française", async () => {
+test("renderResearchBody affiche les dossiers existants en français quand la locale est française", async () => {
   const previous = getLocale();
   setLocale("fr");
   try {
-    const harness = createResearchHarness();
+    const chronoFolder = new TFolder("Projet/_Recherche/Chronologie");
+    const harness = createResearchHarness({
+      preexisting: [
+        "Projet/_Recherche",
+        "Projet/_Recherche/Bibliographie",
+        "Projet/_Recherche/Personnages",
+        "Projet/_Recherche/Lieux",
+        "Projet/_Recherche/Lore",
+        "Projet/_Recherche/Glossaire",
+        "Projet/_Recherche/Chronologie",
+      ]
+    });
+    // Configurer getChronoFolder pour retourner le dossier
+    harness.plugin.getChronoFolder = () => chronoFolder;
     const { sections } = await renderResearchBody(harness);
 
+    // Ne doit créer aucun dossier supplémentaire
     const strip = (p) => p.replace(/^Projet\/_Recherche\/?/, "");
-    assert.deepEqual(
-      harness.created.map(strip),
-      ["", "Bibliographie", "Personnages", "Lieux", "Lore", "Glossaire", "Chronologie"]
-    );
+    assert.deepEqual(harness.created.length, 0, "Aucun dossier créé");
+
     assert.deepEqual(
       sections.map((s) => s.title),
       ["Bibliographie", "Personnages", "Lieux", "Lore", "Glossaire", "Événements"]
@@ -223,17 +235,28 @@ test("renderResearchBody crée les dossiers en français quand la locale est fra
   }
 });
 
-test("renderResearchBody conserve les labels anglais quand la locale est anglaise", async () => {
+test("renderResearchBody affiche les labels anglais quand la locale est anglaise", async () => {
   const previous = getLocale();
   setLocale("en");
   try {
-    const harness = createResearchHarness();
+    const chronoFolder = new TFolder("Projet/_Recherche/Chronologie");
+    const harness = createResearchHarness({
+      preexisting: [
+        "Projet/_Recherche",
+        "Projet/_Recherche/Bibliography",
+        "Projet/_Recherche/Characters",
+        "Projet/_Recherche/Places",
+        "Projet/_Recherche/Lore",
+        "Projet/_Recherche/Glossary",
+        "Projet/_Recherche/Chronologie",
+      ]
+    });
+    // Configurer getChronoFolder pour retourner le dossier
+    harness.plugin.getChronoFolder = () => chronoFolder;
     const { sections } = await renderResearchBody(harness);
 
-    assert.deepEqual(
-      harness.created.map((p) => p.replace(/^Projet\/_Recherche\/?/, "")),
-      ["", "Bibliography", "Characters", "Places", "Lore", "Glossary", "Chronologie"]
-    );
+    // Ne doit créer aucun dossier supplémentaire
+    assert.deepEqual(harness.created.length, 0, "Aucun dossier créé");
     assert.deepEqual(
       sections.map((s) => s.title),
       ["Bibliography", "Characters", "Places", "Lore", "Glossary", "Events"]
@@ -279,23 +302,17 @@ test("renderResearchBody ne crée aucun doublon lors d'une seconde ouverture", a
   }
 });
 
-test("renderResearchBody ne crée des dossiers que sous _Recherche du projet actif", async () => {
+test("renderResearchBody ne crée aucun dossier si _Recherche n'existe pas", async () => {
   const previous = getLocale();
   setLocale("fr");
   try {
     const harness = createResearchHarness();
-    await renderResearchBody(harness);
+    const { sections } = await renderResearchBody(harness);
 
-    for (const path of harness.created) {
-      assert.ok(
-        path.startsWith("Projet/_Recherche"),
-        `dossier créé hors de _Recherche : ${path}`
-      );
-    }
-    assert.deepEqual(
-      harness.created.map((p) => p.replace(/^Projet\/_Recherche\/?/, "")).filter(Boolean),
-      ["Bibliographie", "Personnages", "Lieux", "Lore", "Glossaire", "Chronologie"]
-    );
+    // Ne doit créer AUCUN dossier lors d'un simple rendu
+    assert.deepEqual(harness.created.length, 0, "Aucun dossier créé lors du rendu");
+    // Aucune section n'est affichée car les dossiers n'existent pas
+    assert.deepEqual(sections.length, 0, "Aucune section affichée");
   } finally {
     setLocale(previous);
   }
@@ -1019,4 +1036,62 @@ test("un déplacement vers un nom déjà pris est refusé", async () => {
   } finally {
     harness.cleanup();
   }
+});
+
+/* --- Rendu sans création automatique de dossiers --- */
+
+test("renderResearchBody affiche un dossier présent", async () => {
+  const harness = createResearchHarness({
+    preexisting: ["Projet/_Recherche/Personnages"]
+  });
+  const { sections } = await renderResearchBody(harness);
+
+  assert.ok(sections.some((s) => s.title === "Personnages"), "dossier présent est affiché");
+  assert.deepEqual(harness.created.length, 0, "aucun dossier créé");
+});
+
+test("renderResearchBody ne crée pas un dossier absent", async () => {
+  const harness = createResearchHarness();
+  const { sections } = await renderResearchBody(harness);
+
+  assert.equal(sections.filter((s) => s.title === "Personnages").length, 0, "dossier absent n'est pas affiché");
+  assert.deepEqual(harness.created.length, 0, "aucun dossier créé");
+});
+
+test("renderResearchBody ne crée rien lors de deux rendus successifs", async () => {
+  const harness = createResearchHarness();
+
+  await renderResearchBody(harness);
+  const firstCount = harness.created.length;
+
+  await renderResearchBody(harness);
+  const secondCount = harness.created.length;
+
+  assert.deepEqual(firstCount, 0, "premier rendu : aucun dossier créé");
+  assert.deepEqual(secondCount, 0, "second rendu : aucun dossier créé");
+});
+
+test("renderResearchBody ne crée pas un dossier supprimé après rendu", async () => {
+  const harness = createResearchHarness({
+    preexisting: ["Projet/_Recherche/Personnages"]
+  });
+
+  // Affiche le dossier
+  let { sections } = await renderResearchBody(harness);
+  assert.ok(sections.some((s) => s.title === "Personnages"), "dossier présent avant suppression");
+
+  // Supprime le dossier de la collection
+  const vault = harness.vault;
+  const origGetAbstractFileByPath = vault.getAbstractFileByPath;
+  vault.getAbstractFileByPath = (path) => {
+    if (path === "Projet/_Recherche/Personnages") return null; // Dossier supprimé
+    return origGetAbstractFileByPath(path);
+  };
+
+  // Rerendu : dossier supprimé reste absent
+  ({ sections } = await renderResearchBody(harness));
+  assert.equal(sections.filter((s) => s.title === "Personnages").length, 0, "dossier supprimé n'est pas recréé");
+
+  // Compte total des dossiers créés : toujours 0
+  assert.deepEqual(harness.created.length, 0, "aucun dossier créé au total");
 });
