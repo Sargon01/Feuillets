@@ -22,6 +22,12 @@ import { exportEpub } from "./export-epub.js";
 import { exportDocx } from "./export-docx.js";
 import { exportPdf } from "./export-pdf.js";
 import { exportOdt } from "./export-odt.js";
+import { type CompileScope, resolveCompileScopeFiles, createProjectScope } from "./compile-scope.js";
+
+/** Formats d'export réellement implémentés dans Feuillets.
+ * À maintenir en synchro avec les branches de exportViaNative(). */
+export type ExportFormat = "md" | "epub" | "docx" | "odt" | "pdf";
+export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = ["epub", "docx", "odt", "pdf", "md"];
 
 /** @typedef {{ name: string; color: string }} Label */
 /** @typedef {{ [key: string]: unknown }} ProjectMeta */
@@ -110,31 +116,63 @@ export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
 export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
-  const base = root.parent ? root.parent.path : root.path;
-  return await ensureFolder(app, `${base}/Sortie`);
+  // Créer _Sortie directement dans la racine du projet, pas à côté
+  return await ensureFolder(app, normalizePath(`${root.path}/_Sortie`));
 }
 
 /**
+ * Compile le manuscrit selon une portée (fichier, dossier, sélection ou projet complet).
  * @param {import("obsidian").App} app
  * @param {import("./types.d.ts").FeuilletsSettings} settings
- * @param {string|null} [scopePath] fichier ou dossier à compiler ; repli sur
- * le manuscrit complet pour préserver tous les anciens appels.
+ * @param {string|null} [scopePath] (deprecated) fichier ou dossier à compiler
+ * @param {CompileScope|null} [scope] portée de compilation explicite
+ * @param {string|null} [outputFileName] nom du fichier de sortie (sans extension)
  * @returns {Promise<CompileResult|null>}
  */
-export async function compile(app: App, settings: FeuilletsSettings, scopePath: string | null = null) {
+export async function compile(
+  app: App,
+  settings: FeuilletsSettings,
+  scopePath: string | null = null,
+  scope?: CompileScope | null,
+  outputFileName?: string | null
+) {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return null;
   }
-  const scoped = scopePath ? app.vault.getAbstractFileByPath(normalizePath(scopePath)) : folder;
-  if (!(scoped instanceof TFolder) && !(scoped instanceof TFile)) {
-    new Notice("Portée d’export introuvable.");
+
+  // Déterminer la portée à utiliser
+  let compilationScope: CompileScope;
+  if (scope) {
+    compilationScope = scope;
+  } else if (scopePath) {
+    // Comportement legacy: convertir scopePath en portée
+    const scoped = app.vault.getAbstractFileByPath(normalizePath(scopePath));
+    if (scoped instanceof TFile && scoped.extension === "md") {
+      compilationScope = { type: "file", projectRoot: folder.path, path: scoped.path };
+    } else if (scoped instanceof TFolder) {
+      compilationScope = { type: "folder", projectRoot: folder.path, path: scoped.path };
+    } else {
+      new Notice("Portée d’export introuvable.");
+      return null;
+    }
+  } else {
+    // Portée par défaut: projet complet
+    compilationScope = createProjectScope(folder.path);
+  }
+
+  // Résoudre la portée en liste de fichiers
+  const filesToCompile = resolveCompileScopeFiles(app, settings, compilationScope);
+  if (filesToCompile.length === 0) {
+    new Notice("Aucun feuillet à compiler.");
     return null;
   }
+
   const P = activePresetConfig(settings);
   const parts: string[] = [];
   let count = 0;
+  const fileSet = new Set(filesToCompile.map((f) => f.path));
 
   /**
    * @param {TFile} file
@@ -255,6 +293,9 @@ export async function compile(app: App, settings: FeuilletsSettings, scopePath: 
     const fm = fmOf(app, file);
     if (fm.compile === false) return;
 
+    // Respecter la portée: ignorer les fichiers hors de la liste résolue
+    if (!fileSet.has(file.path)) return;
+
     /* Page Front spéciale (titre/dédicace/épigraphe) : jamais de titre de
        chapitre ni de numérotation — juste le corps, avec sa propre mise en
        forme dédiée appliquée par chaque export-*.js à partir de frontType. */
@@ -278,6 +319,56 @@ export async function compile(app: App, settings: FeuilletsSettings, scopePath: 
     count++;
   };
 
+  /* Ensemble des dossiers autorisés à produire un titre, selon la portée.
+     - file       : ensemble vide — aucun titre de dossier.
+     - folder     : le dossier cible et ses sous-dossiers qui contiennent
+                    au moins un fichier retenu.
+     - selection  : pour chaque fichier retenu, ses ancêtres depuis la
+                    racine du projet jusqu'au dossier parent direct.
+     - project    : null = pas de restriction (comportement actuel complet).
+     Un dossier sans aucun fichier retenu dans fileSet n'est jamais ajouté. */
+  let allowedTitleFolders: Set<string> | null = null;
+
+  if (compilationScope.type === "file") {
+    allowedTitleFolders = new Set();
+  } else if (compilationScope.type === "folder") {
+    allowedTitleFolders = new Set();
+    const folderRoot = app.vault.getAbstractFileByPath(compilationScope.path);
+    if (folderRoot instanceof TFolder) {
+      /* Parcours du sous-arbre : un dossier est autorisé ssi au moins
+         un de ses descendants directs ou indirects est dans fileSet. */
+      const markAllowed = (f: TFolder): boolean => {
+        let hasRetained = false;
+        for (const child of getOrderedChildren(app, settings, f)) {
+          if (child instanceof TFile) {
+            if (fileSet.has(child.path)) hasRetained = true;
+          } else if (child instanceof TFolder) {
+            if (markAllowed(child)) {
+              hasRetained = true;
+            }
+          }
+        }
+        if (hasRetained) allowedTitleFolders!.add(f.path);
+        return hasRetained;
+      };
+      markAllowed(folderRoot);
+    }
+  } else if (compilationScope.type === "selection") {
+    allowedTitleFolders = new Set();
+    for (const filePath of fileSet) {
+      /* Remonter chaque fichier retenu jusqu'à la racine du projet,
+         en ajoutant chaque dossier intermédiaire (sauf la racine elle-même
+         du projet, qui n'est pas un titre de partie/chapitre narratif). */
+      const parts = filePath.split("/");
+      for (let i = parts.length - 1; i > 0; i--) {
+        const ancestorPath = parts.slice(0, i).join("/");
+        if (ancestorPath === compilationScope.projectRoot) break;
+        allowedTitleFolders.add(ancestorPath);
+      }
+    }
+  }
+  // project : allowedTitleFolders reste null → comportement inchangé.
+
   /**
    * @param {TFolder} f
    * @param {number} depth
@@ -291,11 +382,15 @@ export async function compile(app: App, settings: FeuilletsSettings, scopePath: 
         const isFrontFolder = isFrontMatter(app, settings, child);
         const role = roleOfFolder(app, settings, child);
         const level = "#".repeat(Math.min(depth + 1, 6));
+        /* N'émettre le titre du dossier que si :
+           - la portée ne restreint pas les titres (allowedTitleFolders === null), OU
+           - ce dossier fait explicitement partie de l'ensemble autorisé. */
+        const titleAllowed = allowedTitleFolders === null || allowedTitleFolders.has(child.path);
         if (role === "partie") {
-          if (P.folderTitles && !isFrontFolder) push(`${level} ${child.name}`, null, null);
+          if (P.folderTitles && !isFrontFolder && titleAllowed) push(`${level} ${child.name}`, null, null);
           await walk(child, depth + 1);
         } else {
-          if (P.chapterTitles && !isFrontFolder) push(`${level} ${child.name}`, null, null);
+          if (P.chapterTitles && !isFrontFolder && titleAllowed) push(`${level} ${child.name}`, null, null);
           for (const sc of flattenFiles(app, settings, child)) {
             await pushFile(sc, "scene", depth + 1);
           }
@@ -306,19 +401,15 @@ export async function compile(app: App, settings: FeuilletsSettings, scopePath: 
     }
   };
   try {
-    if (scoped instanceof TFile) await pushFile(scoped, roleOfFile(app, settings, scoped), 0);
-    else await walk(scoped, 0);
+    // Compiler en respectant la structure du projet
+    // La vérification fileSet dans pushFile() respectera la portée résolue
+    await walk(folder, 0);
   } catch (e) {
     // Jamais une exception non gérée qui remonterait comme un plantage
     // générique : un message contextualisé (feuillet + étape), le reste du
     // projet n'est pas mis en cause — la compilation s'arrête proprement ici.
     const err = toCompileError(e, "compilation");
     new Notice(err.describe());
-    return null;
-  }
-
-  if (count === 0) {
-    new Notice("Aucun feuillet à compiler.");
     return null;
   }
   /* Chaque feuillet source numérote ses propres notes à partir de 1, sans
@@ -347,7 +438,9 @@ export async function compile(app: App, settings: FeuilletsSettings, scopePath: 
   const manuscript = parts.join(P.separator || "\n\n");
   const outputFolder = await getOutputFolder(app, settings);
   const outBase = outputFolder ? outputFolder.path : folder.path;
-  const outPath = normalizePath(`${outBase}/${P.fileName || "Manuscrit.md"}`);
+  // Utiliser le nom fourni, sinon le nom du fichier du preset (sans extension), sinon "Manuscrit"
+  const fileName = outputFileName || (P.fileName ? P.fileName.replace(/\.md$/i, "") : null) || "Manuscrit";
+  const outPath = normalizePath(`${outBase}/${fileName}.md`);
   const existing = app.vault.getAbstractFileByPath(outPath);
   if (existing instanceof TFile) {
     await app.vault.modify(existing, manuscript);
@@ -355,7 +448,7 @@ export async function compile(app: App, settings: FeuilletsSettings, scopePath: 
     await app.vault.create(outPath, manuscript);
   }
   new Notice(
-    `Manuscrit compilé (${P.name}) : ${count} feuillets → ${P.fileName || "Manuscrit.md"}`
+    `Compilé (${P.name}) : ${count} feuillets → ${fileName}.md`
   );
   /** @type {CompileResult} */
   return { outPath, manuscript, segments };
@@ -421,6 +514,40 @@ export async function exportFile(app: App, settings: FeuilletsSettings, format =
   return exportViaNative(app, settings, format, scopePath);
 }
 
+/**
+ * Point d'entrée universel de l'export depuis une portée CompileScope.
+ *
+ * - `md`   : compile en Markdown et écrit dans _Sortie/<baseName>.md
+ * - `epub` : compile puis exporte en EPUB
+ * - `docx` : compile puis exporte en DOCX
+ * - `odt`  : compile puis exporte en ODT
+ * - `pdf`  : compile puis exporte en PDF
+ *
+ * La même portée (scope) est transmise à compile() pour tous les formats :
+ * aucun format ne retombe silencieusement sur Markdown si un autre est
+ * demandé. L'extension du fichier de sortie correspond toujours au format.
+ *
+ * @param baseName nom de base SANS extension (l'extension est ajoutée ici)
+ */
+export async function exportWithScope(
+  app: App,
+  settings: FeuilletsSettings,
+  scope: CompileScope,
+  format: ExportFormat,
+  baseName: string
+): Promise<string | undefined> {
+  if (format === "md") {
+    /* Format Markdown : compile() écrit déjà le .md dans _Sortie et renvoie
+       le chemin ; on réutilise le paramètre outputFileName pour forcer le nom. */
+    const result = await compile(app, settings, null, scope, baseName);
+    return result?.outPath;
+  }
+  /* Formats binaires : on passe par exportViaNative en fournissant la portée
+     et le baseName directement — l'extension est ajoutée par exportViaNative
+     selon le format. */
+  return exportViaNative(app, settings, format, null, undefined, baseName, false, scope);
+}
+
 /** Export DOCX de soumission : même compilation et même moteur que
  * l'export ordinaire, mais écrit directement dans le paquet transmis par
  * Courrier et ne remplace jamais un fichier existant. */
@@ -451,14 +578,16 @@ async function exportViaNative(
   scopePath: string | null = null,
   destinationFolderPath?: string,
   baseNameOverride?: string,
-  nonDestructive = false
+  nonDestructive = false,
+  scope?: CompileScope
 ): Promise<string | undefined> {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return;
   }
-  const result = await compile(app, settings, scopePath);
+  /* Utiliser la portée explicite si fournie, sinon le chemin legacy. */
+  const result = await compile(app, settings, scopePath, scope ?? null);
   if (!result) return;
 
   const meta = projectMetaFor(settings, folder);
