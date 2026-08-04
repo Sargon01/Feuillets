@@ -1490,6 +1490,59 @@ export class FeuilletsView extends BaseFeuilletsView {
       menu.showAtMouseEvent(e);
     });
 
+    /* Accepter le dépôt d'un dossier imbriqué sur la racine du projet :
+       glisser Documentation/Chapitre 5 sur la racine déplace Chapitre 5 à
+       la racine, avec vérifications pour éviter les pièges courants
+       (déplacement de la racine elle-même, dossier déjà à la racine,
+       conflits de nom, rejets de fichiers). */
+    rootRow.addEventListener("dragover", (e) => {
+      if (!this.plugin.dragState) return;
+      const draggedPath = this.plugin.dragState.path;
+      if (!draggedPath) return;
+      const dragged = this.app.vault.getAbstractFileByPath(draggedPath);
+      // Accepter seulement les dossiers, pas les fichiers
+      if (!(dragged instanceof TFolder)) return;
+      // Ne pas accepter la racine elle-même
+      if (dragged.path === treeRoot.path) return;
+      // Ne pas accepter un dossier qui est déjà à la racine
+      if (dragged.parent?.path === treeRoot.path) return;
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = "move";
+      rootRow.addClass("feuillets-dragover");
+    });
+
+    rootRow.addEventListener("dragleave", () => {
+      rootRow.removeClass("feuillets-dragover");
+    });
+
+    rootRow.addEventListener("drop", (e) => {
+      void (async () => {
+        e.preventDefault();
+        rootRow.removeClass("feuillets-dragover");
+        if (!this.plugin.dragState) return;
+        const drag = this.plugin.dragState;
+        this.plugin.dragState = null;
+
+        const draggedPath = drag.multi ? null : drag.path;
+        if (!draggedPath) return;
+
+        const dragged = this.app.vault.getAbstractFileByPath(draggedPath);
+        // Accepter seulement les dossiers
+        if (!(dragged instanceof TFolder)) return;
+        // Ne pas accepter la racine
+        if (dragged.path === treeRoot.path) return;
+        // Ne pas accepter un dossier qui est déjà à la racine
+        if (dragged.parent?.path === treeRoot.path) return;
+
+        const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
+        if (!(srcParent instanceof TFolder)) return;
+
+        // Déplacer le dossier à la racine
+        await this.plugin.moveNode(dragged, srcParent, treeRoot, Number.MAX_SAFE_INTEGER);
+        this.plugin.renderAllViews(true);
+      })();
+    });
+
     // Filet de sécurité : chaque dossier jamais replié explicitement
     // (S.collapsed) se déplie par défaut — sur un dossier de projet
     // contenant des milliers de fichiers, ça pouvait construire un DOM
