@@ -11,8 +11,8 @@ test("la vue centrale Carte/Plan ne propose plus le mode Lecture/Scrivening", ()
 });
 
 test("PROJECT_MODES", async (t) => {
-  await t.test("les 2 modes attendus existent", () => {
-    assert.deepEqual(Object.keys(PROJECT_MODES).sort(), ["fiction", "nonfiction"]);
+  await t.test("les 3 modes attendus existent", () => {
+    assert.deepEqual(Object.keys(PROJECT_MODES).sort(), ["fiction", "free", "nonfiction"]);
   });
 
   await t.test("chaque mode a un vocabulaire et des réglages complets", () => {
@@ -23,17 +23,16 @@ test("PROJECT_MODES", async (t) => {
       assert.equal(typeof mode.hasSources, "boolean", `${key}.hasSources`);
       assert.ok(mode.defaults, `${key}.defaults`);
       assert.ok(mode.researchFolders, `${key}.researchFolders`);
-      /* rf.bibliographie est le seul rôle garanti dans les deux modes —
-         personnages/lieux/codex/glossaire/evenements n'existent qu'en
-         fiction, sources n'existe qu'en non-fiction (voir le test dédié
-         ci-dessous : ces rubriques ne sont plus imposées d'avance en
-         non-fiction, l'utilisateur crée les siennes via le bouton
-         "Nouvelle rubrique"). */
-      const entry = mode.researchFolders.bibliographie;
-      assert.ok(entry, `${key}.researchFolders.bibliographie`);
-      assert.ok(entry.label, `${key}.researchFolders.bibliographie.label`);
-      assert.ok(entry.newName, `${key}.researchFolders.bibliographie.newName`);
-      assert.ok(entry.tag, `${key}.researchFolders.bibliographie.tag`);
+      /* rf.bibliographie existe en fiction et non-fiction uniquement —
+         en libre, aucun dossier n'est imposé, l'utilisateur les crée
+         via le bouton "Nouvelle rubrique". */
+      if (key !== "free") {
+        const entry = mode.researchFolders.bibliographie;
+        assert.ok(entry, `${key}.researchFolders.bibliographie`);
+        assert.ok(entry.label, `${key}.researchFolders.bibliographie.label`);
+        assert.ok(entry.newName, `${key}.researchFolders.bibliographie.newName`);
+        assert.ok(entry.tag, `${key}.researchFolders.bibliographie.tag`);
+      }
     }
   });
 
@@ -47,8 +46,9 @@ test("PROJECT_MODES", async (t) => {
     assert.equal(rf.sources, undefined);
   });
 
-  await t.test("non-fiction ne garde que Sources + Bibliographie, aucune rubrique imposée", () => {
+  await t.test("non-fiction ne garde que Notes + Sources + Bibliographie, aucune rubrique imposée", () => {
     const rf = PROJECT_MODES.nonfiction.researchFolders;
+    assert.equal(rf.notes.label, "Notes");
     assert.equal(rf.sources.label, "Sources");
     assert.equal(rf.bibliographie.label, "Bibliography");
     assert.equal(rf.personnages, undefined);
@@ -58,17 +58,19 @@ test("PROJECT_MODES", async (t) => {
     assert.equal(rf.evenements, undefined);
   });
 
-  await t.test("Bibliographie identique dans les deux modes (seul rôle partagé)", () => {
-    for (const mode of Object.values(PROJECT_MODES)) {
-      assert.equal(mode.researchFolders.bibliographie.label, "Bibliography");
-    }
+  await t.test("Bibliographie identique dans fiction et non-fiction (seul rôle partagé)", () => {
+    assert.equal(PROJECT_MODES.fiction.researchFolders.bibliographie?.label, "Bibliography");
+    assert.equal(PROJECT_MODES.nonfiction.researchFolders.bibliographie?.label, "Bibliography");
+    assert.equal(PROJECT_MODES.free.researchFolders.bibliographie, undefined, "pas de bibliographie en mode libre");
   });
 });
 
 test("resolveType", async (t) => {
-  await t.test("reconnaît fiction/nonfiction directement", () => {
+  await t.test("reconnaît fiction/nonfiction/free directement", () => {
     assert.equal(resolveType("fiction"), "fiction");
     assert.equal(resolveType("nonfiction"), "nonfiction");
+    assert.equal(resolveType("free"), "free");
+    assert.equal(resolveType("libre"), "free");
   });
 
   await t.test("ramène les anciennes valeurs de type sur la bonne famille", () => {

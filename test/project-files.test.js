@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, EDITION_DOCUMENTS, EDITION_SUBFOLDERS } from "../src/services/project-files.js";
+import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, EDITION_DOCUMENTS, EDITION_SUBFOLDERS } from "../src/services/project-files.js";
 import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
 import { setLocale } from "../src/i18n/index.js";
 
@@ -567,4 +567,82 @@ test("initProjectStructure (FR) : variantes historiques Templates/Layouts/Export
   assert.equal(vault.getAbstractFileByPath("Projets/Legacy/Ressources/Template"), null, "pas de doublon Template");
   assert.equal(vault.getAbstractFileByPath("Projets/Legacy/Ressources/Layout"), null, "pas de doublon Layout");
   assert.equal(vault.getAbstractFileByPath("Projets/Legacy/Ressources/Export"), null, "pas de doublon Export");
+});
+
+// =========================================================================
+// Tests — Transformer un dossier existant en projet Feuillets
+// =========================================================================
+
+test("initResearchSubfolders (FR, mode fiction) : dossier transformé crée catégories fiction", async () => {
+  setLocale("fr");
+  const existingFolder = new TFolder("Existant");
+  const research = new TFolder("Existant/_Recherche");
+  research.parent = existingFolder;
+  existingFolder.children = [research];
+  const { vault } = createFakeVault([existingFolder, research]);
+  const app = { vault };
+  const names = getFeuilletsFolderNames("fr");
+  const researchPath = `Existant/${names.research}`;
+
+  // Appeler initResearchSubfolders avec le mode fiction
+  await initResearchSubfolders(app, researchPath, "fiction");
+
+  // Vérifier les catégories fiction
+  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}`) instanceof TFolder, "_Recherche existe");
+  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Bibliographie`) instanceof TFolder, "Bibliographie");
+  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Personnages`) instanceof TFolder, "Personnages");
+  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Lieux`) instanceof TFolder, "Lieux");
+  // Pas de catégories non-fiction
+  assert.equal(vault.getAbstractFileByPath(`Existant/${names.research}/Notes`), null, "pas de Notes en fiction");
+});
+
+test("initResearchSubfolders (FR, mode non-fiction) : dossier transformé crée catégories non-fiction", async () => {
+  setLocale("fr");
+  const existingFolder = new TFolder("Essai");
+  const research = new TFolder("Essai/_Recherche");
+  research.parent = existingFolder;
+  existingFolder.children = [research];
+  const { vault } = createFakeVault([existingFolder, research]);
+  const app = { vault };
+  const names = getFeuilletsFolderNames("fr");
+  const researchPath = `Essai/${names.research}`;
+
+  // Appeler initResearchSubfolders avec le mode non-fiction
+  await initResearchSubfolders(app, researchPath, "nonfiction");
+
+  // Vérifier les catégories non-fiction uniquement
+  assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}`) instanceof TFolder, "_Recherche existe");
+  assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}/Bibliographie`) instanceof TFolder, "Bibliographie");
+  assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}/Notes`) instanceof TFolder, "Notes");
+  assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}/Sources`) instanceof TFolder, "Sources");
+  // Pas de catégories fiction
+  assert.equal(vault.getAbstractFileByPath(`Essai/${names.research}/Personnages`), null, "pas de Personnages en non-fiction");
+  assert.equal(vault.getAbstractFileByPath(`Essai/${names.research}/Lieux`), null, "pas de Lieux en non-fiction");
+  assert.equal(vault.getAbstractFileByPath(`Essai/${names.research}/Glossaire`), null, "pas de Glossaire en non-fiction");
+});
+
+test("initResearchSubfolders (FR, mode libre) : dossier transformé crée seulement _Recherche", async () => {
+  setLocale("fr");
+  const existingFolder = new TFolder("Libre");
+  const research = new TFolder("Libre/_Recherche");
+  research.parent = existingFolder;
+  existingFolder.children = [research];
+  const { vault } = createFakeVault([existingFolder, research]);
+  const app = { vault };
+  const names = getFeuilletsFolderNames("fr");
+  const researchPath = `Libre/${names.research}`;
+
+  // Appeler initResearchSubfolders avec le mode libre
+  await initResearchSubfolders(app, researchPath, "free");
+
+  // Vérifier que _Recherche existe mais aucun sous-dossier automatique
+  assert.ok(vault.getAbstractFileByPath(`Libre/${names.research}`) instanceof TFolder, "_Recherche existe");
+  // Aucune catégorie créée automatiquement
+  assert.equal(vault.getAbstractFileByPath(`Libre/${names.research}/Personnages`), null, "pas de Personnages");
+  assert.equal(vault.getAbstractFileByPath(`Libre/${names.research}/Lieux`), null, "pas de Lieux");
+  assert.equal(vault.getAbstractFileByPath(`Libre/${names.research}/Lore`), null, "pas de Lore");
+  assert.equal(vault.getAbstractFileByPath(`Libre/${names.research}/Glossaire`), null, "pas de Glossaire");
+  assert.equal(vault.getAbstractFileByPath(`Libre/${names.research}/Notes`), null, "pas de Notes");
+  assert.equal(vault.getAbstractFileByPath(`Libre/${names.research}/Bibliographie`), null, "pas de Bibliographie");
+  assert.equal(vault.getAbstractFileByPath(`Libre/${names.research}/Sources`), null, "pas de Sources");
 });
