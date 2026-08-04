@@ -4,6 +4,7 @@ import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
 import { TextInputModal } from "../scenes-editor.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
+import { RenameFolderModal } from "../ui/basic-modals.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
 import { promptForPage } from "../ui/citation-modal.js";
@@ -1481,6 +1482,34 @@ export abstract class BaseFeuilletsView extends ItemView {
           plugin.newFolder(folder);
         })
     );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.contextMenu.renameFolder"))
+        .setIcon("pencil")
+        .onClick(async () => {
+          const root = plugin.getProjectFolder();
+          if (root && folder.path === root.path) {
+            new Notice(t("shared.contextMenu.cannotRenameProjectRoot") || "Cannot rename the project root.");
+            return;
+          }
+          new RenameFolderModal(this.app, folder.name, async (newName) => {
+            const parent = folder.parent;
+            if (!parent) return;
+            const newPath = normalizePath(`${parent.path}/${newName}`);
+            if (this.app.vault.getAbstractFileByPath(newPath)) {
+              new Notice(t("shared.contextMenu.folderNameExists") || `A folder or file named "${newName}" already exists.`);
+              return;
+            }
+            try {
+              await this.app.fileManager.renameFile(folder, newPath);
+              plugin.renderAllViews(true);
+              new Notice(t("shared.contextMenu.folderRenamed", { name: newName }) || `Folder renamed to "${newName}".`);
+            } catch (e) {
+              new Notice(t("shared.contextMenu.renameFolderFailed") || "Failed to rename folder.");
+            }
+          }).open();
+        })
+    );
     menu.addSeparator();
 
     menu.addItem((item) =>
@@ -1894,7 +1923,8 @@ export abstract class BaseFeuilletsView extends ItemView {
    * vide n'a alors aucune cible de drop — glisser une scène dedans ne
    * faisait rien. `dropEl` est ici le message "Aucun feuillet…" affiché à
    * la place de la liste ; le dépôt ajoute simplement à la fin de `folder`. */
-  attachEmptyFolderDropHandler(dropEl: HTMLElement, folder: TFolder): void {
+  attachEmptyFolderDropHandler(dropEl: HTMLElement | null | undefined, folder: TFolder): void {
+    if (!dropEl) return;
     dropEl.addEventListener("dragover", (e) => {
       if (!this.plugin.dragState) return;
       e.preventDefault();
