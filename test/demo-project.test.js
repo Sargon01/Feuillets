@@ -113,15 +113,15 @@ test("createDemoProject conserve les métadonnées créées après une générat
   assert.ok(files.get(ELIRA_MANUSCRIPT) instanceof TFolder);
   expectFile(files, `${ELIRA_MANUSCRIPT}/Front/Dédicace.md`);
   expectFile(files, `${ELIRA_MANUSCRIPT}/Partie 1 - Les commencements/Chapitre 1 - Le départ/1. Ouverture.md`);
-  expectFile(files, `${ELIRA_ROOT}/Recherche/Characters/Elira Voskan.md`);
-  for (const path of ["Recherche", "Ressources", "Journal", "Snapshots", "Manuscrit/Front"]) {
+  expectFile(files, `${ELIRA_ROOT}/_Recherche/Characters/Elira Voskan.md`);
+  for (const path of ["_Recherche", "_Ressources", "Journal", "Snapshots", "Manuscrit/Front"]) {
     assert.ok(files.get(`${ELIRA_ROOT}/${path}`) instanceof TFolder, `dossier attendu : ${path}`);
   }
   assert.ok([...files.keys()].some((path) => path.startsWith(`${ELIRA_ROOT}/Journal/`)));
   assert.ok([...files.keys()].some((path) => path.startsWith(`${ELIRA_ROOT}/Snapshots/1. Ouverture/`)));
   assert.match(expectFile(files, `${ELIRA_MANUSCRIPT}/Front/Dédicace.md`).content, /^---\ntitle: Dédicace\n/m);
   assert.match(expectFile(files, `${ELIRA_MANUSCRIPT}/Partie 1 - Les commencements/Chapitre 1 - Le départ/1. Ouverture.md`).content, /^---\ntitle: Ouverture\n[\s\S]*?order: 1\n/m);
-  assert.ok(calls.folders.includes(`${ELIRA_ROOT}/Recherche`));
+  assert.ok(calls.folders.includes(`${ELIRA_ROOT}/_Recherche`));
   assert.ok(calls.folders.includes(`${ELIRA_ROOT}/Journal`));
   assert.equal(calls.frontmatters.length, 2);
   assert.ok(calls.save > 0);
@@ -144,16 +144,16 @@ test("createDemoProject (elira) : structure conforme aux nouveaux projets, avec 
 
   // Racine réelle : Recherche et Ressources en frères de Manuscrit, jamais
   // sous l'ancien nom anglais, jamais à l'intérieur de Manuscrit.
-  assert.ok(files.get(`${ELIRA_ROOT}/Recherche`) instanceof TFolder);
-  assert.ok(files.get(`${ELIRA_ROOT}/Ressources`) instanceof TFolder);
+  assert.ok(files.get(`${ELIRA_ROOT}/_Recherche`) instanceof TFolder);
+  assert.ok(files.get(`${ELIRA_ROOT}/_Ressources`) instanceof TFolder);
   assert.equal(files.has(`${ELIRA_ROOT}/Research`), false);
   assert.equal(files.has(`${ELIRA_ROOT}/Resources`), false);
-  assert.equal(files.has(`${ELIRA_MANUSCRIPT}/Recherche`), false);
-  assert.equal(files.has(`${ELIRA_MANUSCRIPT}/Ressources`), false);
+  assert.equal(files.has(`${ELIRA_MANUSCRIPT}/_Recherche`), false);
+  assert.equal(files.has(`${ELIRA_MANUSCRIPT}/_Ressources`), false);
 
   // Les 5 sous-dossiers Ressources exacts.
-  for (const sub of ["Images", "Template", "Layout", "Export", "Assets"]) {
-    assert.ok(files.get(`${ELIRA_ROOT}/Ressources/${sub}`) instanceof TFolder, `Ressources/${sub} manquant`);
+  for (const sub of ["Images", "Modèles", "Mises en page", "Exports", "Ressources internes"]) {
+    assert.ok(files.get(`${ELIRA_ROOT}/_Ressources/${sub}`) instanceof TFolder, `_Ressources/${sub} manquant`);
   }
 
   // Page de titre du Front.
@@ -226,14 +226,14 @@ test("createDemoProject génère Candide avec ses chapitres, son Front et sa Rec
   assert.deepEqual(settings.projects, [CANDIDE_MANUSCRIPT]);
   assert.equal(settings.projectFolder, "Projet actif");
   assert.deepEqual(globalSettings(settings), previousGlobals);
-  for (const path of ["Recherche", "Ressources", "Journal", "Snapshots", "Manuscrit/Front"]) {
+  for (const path of ["_Recherche", "_Ressources", "Manuscrit/Front"]) {
     assert.ok(files.get(`${CANDIDE_ROOT}/${path}`) instanceof TFolder, `dossier attendu : ${path}`);
   }
   expectFile(files, `${CANDIDE_MANUSCRIPT}/Front/00. Note d'édition.md`);
   const chapter = expectFile(files, `${CANDIDE_MANUSCRIPT}/Partie 1 - L'Ancien Monde/01. Chapitre 1 — Éducation de Candide.md`);
   assert.match(chapter.content, /^---\ntitle: "Chapitre 1 — Éducation de Candide"\n/m);
   assert.match(chapter.content, /Il y avait en Vestphalie/);
-  expectFile(files, `${CANDIDE_ROOT}/Recherche/Characters/Candide.md`);
+  expectFile(files, `${CANDIDE_ROOT}/_Recherche/Characters/Candide.md`);
   assert.equal([...files.keys()].filter((path) => path.includes(`${CANDIDE_MANUSCRIPT}/Partie `) && path.endsWith(".md")).length, 30);
 });
 

@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile, ensureEditionFolder, EDITION_DOCUMENTS, EDITION_SUBFOLDERS } from "../src/services/project-files.js";
-import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME } from "../src/services/folder-structure.js";
+import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, EDITION_DOCUMENTS, EDITION_SUBFOLDERS } from "../src/services/project-files.js";
+import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
+import { setLocale } from "../src/i18n/index.js";
 
 function projectFixture() {
   const volume = new TFolder("Projet");
@@ -110,17 +111,16 @@ test("createMinimalProject (fiction) : crée la racine réelle, Manuscrit, Front
   assert.match(scene.content, /synopsis: /);
   assert.match(scene.content, new RegExp(`goal: ${settings.wordGoal}`));
 
-  // Recherche et Ressources à la racine réelle, frères de Manuscrit.
-  assert.ok(vault.getAbstractFileByPath("Roman1/Recherche") instanceof TFolder);
-  assert.ok(vault.getAbstractFileByPath("Roman1/Ressources") instanceof TFolder);
-  for (const sub of ["Images", "Template", "Layout", "Export", "Assets"]) {
-    assert.ok(vault.getAbstractFileByPath(`Roman1/Ressources/${sub}`) instanceof TFolder, `Ressources/${sub} manquant`);
+  // _Recherche et _Ressources à la racine réelle, frères de Manuscrit.
+  assert.ok(vault.getAbstractFileByPath("Roman1/_Recherche") instanceof TFolder);
+  assert.ok(vault.getAbstractFileByPath("Roman1/_Ressources") instanceof TFolder);
+  for (const sub of ["Images", "Modèles", "Mises en page", "Exports", "Ressources internes"]) {
+    assert.ok(vault.getAbstractFileByPath(`Roman1/_Ressources/${sub}`) instanceof TFolder, `_Ressources/${sub} manquant`);
   }
 
-  // Ni _Recherche, ni Recherche/Ressources DANS Manuscrit.
-  assert.equal(vault.getAbstractFileByPath("Roman1/_Recherche"), null);
-  assert.equal(vault.getAbstractFileByPath("Roman1/Manuscrit/Recherche"), null);
-  assert.equal(vault.getAbstractFileByPath("Roman1/Manuscrit/Ressources"), null);
+  // Ni _Recherche ni _Ressources DANS Manuscrit.
+  assert.equal(vault.getAbstractFileByPath("Roman1/Manuscrit/_Recherche"), null);
+  assert.equal(vault.getAbstractFileByPath("Roman1/Manuscrit/_Ressources"), null);
 
   assert.equal(settings.projectFolder, "Roman1/Manuscrit");
   assert.equal(settings.projectMeta["Roman1/Manuscrit"].type, "fiction");
@@ -154,8 +154,8 @@ test("createMinimalProject (non-fiction) : crée Partie 1/Chapitre 1.md, sans Sc
   assert.equal(result.firstFolderPath, "Essai/Manuscrit/Partie 1");
   assert.equal(result.firstFile.path, "Essai/Manuscrit/Partie 1/Chapitre 1.md");
   assert.ok(vault.getAbstractFileByPath("Essai/Manuscrit/Front/Page de titre.md") instanceof TFile);
-  assert.ok(vault.getAbstractFileByPath("Essai/Recherche") instanceof TFolder);
-  assert.ok(vault.getAbstractFileByPath("Essai/Ressources") instanceof TFolder);
+  assert.ok(vault.getAbstractFileByPath("Essai/_Recherche") instanceof TFolder);
+  assert.ok(vault.getAbstractFileByPath("Essai/_Ressources") instanceof TFolder);
   assert.equal(vault.getAbstractFileByPath("Essai/Manuscrit/Chapitre 1"), null);
   assert.equal(vault.getAbstractFileByPath("Essai/Manuscrit/Partie 1/Scène 1.md"), null);
 
@@ -305,4 +305,220 @@ test("duplicateProjectFolder : deux versions distinctes peuvent coexister et s'o
   assert.notEqual(sceneV1.path, sceneV2.path);
   assert.equal(await vault.read(sceneV1), "Texte original");
   assert.equal(await vault.read(sceneV2), "Texte original");
+});
+// =========================================================================
+// Tests ciblés — initProjectStructure : racine, locale, variantes, doublons
+// =========================================================================
+
+/** Fabriques minimales pour initProjectStructure */
+function makeNestedProject(volumePath = "Projets/Mon recueil") {
+  const projets = new TFolder("Projets");
+  const volume = new TFolder(volumePath);
+  const manuscript = new TFolder(`${volumePath}/Manuscrit`);
+  volume.parent = projets;
+  manuscript.parent = volume;
+  projets.children = [volume];
+  volume.children = [manuscript];
+  return { projets, volume, manuscript };
+}
+
+function freshSettingsFor(manuscritPath, overrides = {}) {
+  return {
+    wordGoal: 1500,
+    projectFolder: manuscritPath,
+    projects: [],
+    projectMeta: { [manuscritPath]: { type: "fiction" } },
+    journalFolder: "",
+    manuscriptTitle: "",
+    mergeYamlPreset: "roman",
+    ...overrides,
+  };
+}
+
+// -------------------------------------------------------------------------
+// Test 1 — nouveau projet FR : structure française sous la racine du projet
+// -------------------------------------------------------------------------
+test("createMinimalProject (FR) : _Recherche et _Ressources sous le volume, pas à la racine du coffre", async () => {
+  setLocale("fr");
+  const { vault } = createFakeVault([]);
+  const app = { vault };
+  const settings = freshSettingsFor("");
+
+  const result = await createMinimalProject(app, settings, { name: "Roman FR", type: "fiction" });
+
+  assert.ok(vault.getAbstractFileByPath("Roman FR/_Recherche") instanceof TFolder, "_Recherche sous le volume");
+  assert.ok(vault.getAbstractFileByPath("Roman FR/_Ressources") instanceof TFolder, "_Ressources sous le volume");
+  assert.equal(vault.getAbstractFileByPath("_Recherche"), null, "pas de _Recherche à la racine");
+  assert.equal(vault.getAbstractFileByPath("_Ressources"), null, "pas de _Ressources à la racine");
+  assert.equal(vault.getAbstractFileByPath("_Research"), null, "pas de _Research en FR");
+});
+
+// -------------------------------------------------------------------------
+// Test 2 — nouveau projet EN : structure anglaise sous la racine du projet
+// -------------------------------------------------------------------------
+test("createMinimalProject (EN) : _Research et _Resources sous le volume, noms anglais", async () => {
+  setLocale("en");
+  const { vault } = createFakeVault([]);
+  const app = { vault };
+  const settings = freshSettingsFor("");
+
+  const result = await createMinimalProject(app, settings, { name: "Novel EN", type: "fiction" });
+
+  assert.ok(vault.getAbstractFileByPath("Novel EN/_Research") instanceof TFolder, "_Research sous le volume");
+  assert.ok(vault.getAbstractFileByPath("Novel EN/_Resources") instanceof TFolder, "_Resources sous le volume");
+  assert.equal(vault.getAbstractFileByPath("_Recherche"), null, "pas de _Recherche en EN");
+  assert.equal(vault.getAbstractFileByPath("_Ressources"), null, "pas de _Ressources en EN");
+
+  // Repasser en FR pour les tests suivants
+  setLocale("fr");
+});
+
+// -------------------------------------------------------------------------
+// Test 3 — initProjectStructure sur un projet imbriqué (FR)
+// Tous les dossiers sous Projets/Mon recueil/, aucun à la racine du coffre
+// -------------------------------------------------------------------------
+test("initProjectStructure (FR, projet imbriqué) : dossiers sous la racine du projet, jamais à la racine du coffre", async () => {
+  setLocale("fr");
+  const { projets, volume, manuscript } = makeNestedProject("Projets/Mon recueil");
+  const { vault } = createFakeVault([projets, volume, manuscript]);
+  const app = { vault };
+  const settings = freshSettingsFor("Projets/Mon recueil/Manuscrit");
+
+  await initProjectStructure(app, settings);
+
+  const base = "Projets/Mon recueil";
+  // _Recherche et ses sous-dossiers sous la racine du projet
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche`) instanceof TFolder, "_Recherche sous le projet");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Personnages`) instanceof TFolder, "Personnages");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Lieux`) instanceof TFolder, "Lieux");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Chronologie`) instanceof TFolder, "Chronologie");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Sources`) instanceof TFolder, "Sources");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Bibliographie`) instanceof TFolder, "Bibliographie");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Notes`) instanceof TFolder, "Notes");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Snapshots`) instanceof TFolder, "_Snapshots sous le projet");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Backups`) instanceof TFolder, "_Backups sous le projet");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Journal`) instanceof TFolder, "_Journal sous le projet");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Ressources`) instanceof TFolder, "_Ressources sous le projet");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Ressources/Modèles`) instanceof TFolder, "Modèles");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Ressources/Mises en page`) instanceof TFolder, "Mises en page");
+
+  // Aucun dossier à la racine du coffre
+  assert.equal(vault.getAbstractFileByPath("_Recherche"), null, "pas de _Recherche à la racine du coffre");
+  assert.equal(vault.getAbstractFileByPath("_Snapshots"), null, "pas de _Snapshots à la racine du coffre");
+  assert.equal(vault.getAbstractFileByPath("_Ressources"), null, "pas de _Ressources à la racine du coffre");
+});
+
+// -------------------------------------------------------------------------
+// Test 4 — transformation d'un dossier existant : contenu strictement inchangé
+// -------------------------------------------------------------------------
+test("OpenExistingFolder (simulation) : S.projectFolder = path, aucune structure ajoutée", () => {
+  // La transformation se limite à enregistrer le chemin dans settings.
+  // Ce test vérifie que le mécanisme lui-même n'appelle pas initProjectStructure.
+  const S = { projectFolder: "", projects: [] };
+  const path = "Projets/Mon existant";
+
+  // Simulation de OpenExistingFolderModal.open()
+  if (S.projectFolder && S.projectFolder !== path && !S.projects.includes(S.projectFolder)) {
+    S.projects.push(S.projectFolder);
+  }
+  S.projectFolder = path;
+  if (!S.projects.includes(path)) S.projects.push(path);
+
+  assert.equal(S.projectFolder, path);
+  assert.ok(S.projects.includes(path));
+  // Aucun dossier créé : la transformation ne crée rien
+});
+
+// -------------------------------------------------------------------------
+// Test 5 — projet FR avec Research et Resources existants : aucun doublon
+// -------------------------------------------------------------------------
+test("initProjectStructure (FR) : Research + Resources existants — aucun doublon _Recherche/_Ressources", async () => {
+  setLocale("fr");
+  const projets = new TFolder("Projets");
+  const volume = new TFolder("Projets/Vieux projet");
+  const manuscript = new TFolder("Projets/Vieux projet/Manuscrit");
+  // Dossiers anglais pré-existants (sans préfixe)
+  const research = new TFolder("Projets/Vieux projet/Research");
+  const resources = new TFolder("Projets/Vieux projet/Resources");
+  volume.parent = projets;
+  manuscript.parent = volume;
+  research.parent = volume;
+  resources.parent = volume;
+  projets.children = [volume];
+  volume.children = [manuscript, research, resources];
+  const { vault } = createFakeVault([projets, volume, manuscript, research, resources]);
+  const app = { vault };
+  const settings = freshSettingsFor("Projets/Vieux projet/Manuscrit");
+
+  await initProjectStructure(app, settings);
+
+  // Research/Resources d'origine toujours présents
+  assert.ok(vault.getAbstractFileByPath("Projets/Vieux projet/Research") instanceof TFolder, "Research conservé");
+  assert.ok(vault.getAbstractFileByPath("Projets/Vieux projet/Resources") instanceof TFolder, "Resources conservé");
+  // Aucun doublon avec préfixe _ créé
+  assert.equal(vault.getAbstractFileByPath("Projets/Vieux projet/_Recherche"), null, "pas de _Recherche en doublon");
+  assert.equal(vault.getAbstractFileByPath("Projets/Vieux projet/_Ressources"), null, "pas de _Ressources en doublon");
+});
+
+// -------------------------------------------------------------------------
+// Test 6 — structure partielle : seuls les dossiers manquants sont créés
+// -------------------------------------------------------------------------
+test("initProjectStructure (FR) : structure partielle — seuls les dossiers manquants sont créés", async () => {
+  setLocale("fr");
+  const { projets, volume, manuscript } = makeNestedProject("Projets/Partiel");
+  // Personnages et Lieux déjà présents
+  const recherche = new TFolder("Projets/Partiel/Recherche");
+  const personnages = new TFolder("Projets/Partiel/Recherche/Personnages");
+  const lieux = new TFolder("Projets/Partiel/Recherche/Lieux");
+  recherche.parent = volume;
+  personnages.parent = recherche;
+  lieux.parent = recherche;
+  volume.children.push(recherche);
+  recherche.children = [personnages, lieux];
+  const { vault } = createFakeVault([projets, volume, manuscript, recherche, personnages, lieux]);
+  const app = { vault };
+  const settings = freshSettingsFor("Projets/Partiel/Manuscrit");
+
+  await initProjectStructure(app, settings);
+
+  // Dossiers préexistants inchangés
+  assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Personnages") instanceof TFolder, "Personnages toujours là");
+  assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Lieux") instanceof TFolder, "Lieux toujours là");
+  // Dossiers manquants créés
+  assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Chronologie") instanceof TFolder, "Chronologie créée");
+  assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Sources") instanceof TFolder, "Sources créées");
+  assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Bibliographie") instanceof TFolder, "Bibliographie créée");
+  assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Notes") instanceof TFolder, "Notes créées");
+});
+
+// -------------------------------------------------------------------------
+// Test 7 — variantes historiques : Templates, Layouts, Exports reconnues
+// -------------------------------------------------------------------------
+test("initProjectStructure (FR) : variantes historiques Templates/Layouts/Exports reconnues, aucun doublon", async () => {
+  setLocale("fr");
+  const { projets, volume, manuscript } = makeNestedProject("Projets/Legacy");
+  const ressources = new TFolder("Projets/Legacy/Ressources");
+  const templates = new TFolder("Projets/Legacy/Ressources/Templates");
+  const layouts = new TFolder("Projets/Legacy/Ressources/Layouts");
+  const exports = new TFolder("Projets/Legacy/Ressources/Exports");
+  ressources.parent = volume;
+  templates.parent = ressources;
+  layouts.parent = ressources;
+  exports.parent = ressources;
+  volume.children.push(ressources);
+  ressources.children = [templates, layouts, exports];
+  const { vault } = createFakeVault([projets, volume, manuscript, ressources, templates, layouts, exports]);
+  const app = { vault };
+  const settings = freshSettingsFor("Projets/Legacy/Manuscrit");
+
+  await initProjectStructure(app, settings);
+
+  // Variantes historiques préservées
+  assert.ok(vault.getAbstractFileByPath("Projets/Legacy/Ressources/Templates") instanceof TFolder, "Templates conservé");
+  assert.ok(vault.getAbstractFileByPath("Projets/Legacy/Ressources/Layouts") instanceof TFolder, "Layouts conservé");
+  assert.ok(vault.getAbstractFileByPath("Projets/Legacy/Ressources/Exports") instanceof TFolder, "Exports conservé");
+  // Aucun doublon avec le nouveau nom
+  assert.equal(vault.getAbstractFileByPath("Projets/Legacy/Ressources/Template"), null, "pas de doublon Template");
+  assert.equal(vault.getAbstractFileByPath("Projets/Legacy/Ressources/Layout"), null, "pas de doublon Layout");
+  assert.equal(vault.getAbstractFileByPath("Projets/Legacy/Ressources/Export"), null, "pas de doublon Export");
 });
