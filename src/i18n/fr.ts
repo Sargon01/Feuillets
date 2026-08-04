@@ -1328,6 +1328,21 @@ export const fr = {
   "modal.scrivenerImport.importSuccess": "Import Scrivener réussi : {path}.",
   "modal.scrivenerImport.legacyFormat": "Ce projet utilise l'ancien format Scrivener 1.x (Mac), non pris en charge. Ouvre-le dans Scrivener 3 pour le convertir, puis réessaie.",
   "modal.scrivenerImport.noScrivxFound": "Aucun fichier .scrivx trouvé dans ce dossier.",
+
+  "modal.export.title": "Exporter / Compiler",
+  "modal.export.format": "Format d'export",
+  "modal.export.outputName": "Nom du fichier de sortie",
+  "modal.export.outputNameDesc": "Nom du fichier de sortie, sans extension",
+  "modal.export.exportAction": "Exporter / Compiler",
+  "modal.export.emptyName": "Le nom du fichier ne peut pas être vide",
+  "modal.export.error": "Erreur lors de l'export.",
+  "modal.export.fileCount": "{count} fichier{s} inclus",
+  "modal.export.scope.file": "Fichier seul",
+  "modal.export.scope.folder": "Dossier {name}",
+  "modal.export.scope.selection": "Sélection multiple",
+  "modal.export.scope.project": "Projet complet",
+  "shared.cancel": "Annuler",
+
   "settings.grammarExternal.name": "Correcteur grammatical",
   "settings.grammarExternal.desc": "Feuillets n'inclut plus de correcteur grammatical et n'en télécharge aucun. Pour relire l'orthographe et la grammaire, installe un greffon dédié depuis la galerie communautaire d'Obsidian — par exemple Harper pour l'anglais, ou LanguageTool. Ces greffons sont indépendants : Feuillets ne les configure pas et n'accède pas à leurs données.",
 } as const;
