@@ -38,6 +38,7 @@ import { formatCitation } from "./services/citations.js";
 import { getResearchTemplate } from "./services/research-templates.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
+import { remapResearchFolderLinks } from "./views/base-feuillets-view.js";
 import { BoardView } from "./views/board-view.js";
 import { SidebarFeuilletsView } from "./views/sidebar-feuillets-view.js";
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
@@ -1011,9 +1012,15 @@ class FeuilletsPlugin extends Plugin {
       }
     }));
 
-    this.registerEvent(this.app.vault.on("rename", (file) => {
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
       if (this.isLayoutReady) refresh();
       void this.maybeAutoInitializeResearchFile(file);
+      /* Un renommage/déplacement dans le coffre rend obsolètes les chemins
+         mémorisés des associations Binder→Recherche : on les remappe pour
+         suivre le dossier déplacé, sans toucher aux chemins voisins. */
+      if (oldPath && file.path && oldPath !== file.path) {
+        this.remapResearchFolderLinks(oldPath, file.path);
+      }
     }));
     this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
@@ -2427,6 +2434,71 @@ class FeuilletsPlugin extends Plugin {
   async findAppearances(entityFile: TFile) { return findAppearances(this.app, this.settings, entityFile); }
   getResearchRoot() { return getResearchRoot(this.app, this.settings); }
   getChronoFolder(): TFolder | null { return getChronoFolder(this.app, this.settings); }
+
+  /* ---- Association Binder ↔ Recherche ----
+     Stockée par projet dans S.projectMeta[racine].researchFolderLinks :
+     clé = chemin du dossier Binder (manuscrit), valeur = chemin du dossier
+     Recherche associé. Le stockage est une simple map de chaînes ; aucun
+     dossier physique n'est créé ni supprimé par ces méthodes. */
+
+  /** Dossier Recherche associé à un dossier Binder du projet actif, s'il
+   * existe toujours sur le disque. */
+  getLinkedResearchFolder(binderNode: TAbstractFile): TFolder | null {
+    const root = this.getProjectFolder();
+    if (!root) return null;
+    const meta = this.settings.projectMeta[root.path];
+    const linked = meta && meta.researchFolderLinks
+      ? meta.researchFolderLinks[binderNode.path]
+      : null;
+    if (!linked) return null;
+    const f = this.app.vault.getAbstractFileByPath(linked);
+    return f instanceof TFolder ? f : null;
+  }
+
+  /** Associe (ou remplace) le dossier Recherche d'un nœud Binder
+   * (dossier ou fichier Markdown). */
+  async setLinkedResearchFolder(
+    binderNode: TAbstractFile,
+    researchFolder: TFolder
+  ): Promise<void> {
+    const root = this.getProjectFolder();
+    if (!root) return;
+    const S = this.settings;
+    if (!S.projectMeta[root.path]) S.projectMeta[root.path] = {};
+    const meta = S.projectMeta[root.path];
+    if (!meta.researchFolderLinks) meta.researchFolderLinks = {};
+    meta.researchFolderLinks[binderNode.path] = researchFolder.path;
+    await this.saveSettings();
+  }
+
+  /** Détache le dossier Recherche associé : supprime SEULEMENT l'entrée de
+   * la map — aucun dossier physique n'est supprimé ni déplacé. */
+  async removeLinkedResearchFolder(binderNode: TAbstractFile): Promise<void> {
+    const root = this.getProjectFolder();
+    if (!root) return;
+    const meta = this.settings.projectMeta[root.path];
+    if (!meta || !meta.researchFolderLinks) return;
+    if (delete meta.researchFolderLinks[binderNode.path]) {
+      await this.saveSettings();
+    }
+  }
+
+  /** Remappe les liens Binder→Recherche de TOUS les projets connus (pas
+   * seulement le projet actif) après un renommage/déplacement. */
+  remapResearchFolderLinks(oldPath: string, newPath: string): void {
+    const S = this.settings;
+    let changed = false;
+    for (const projectPath of Object.keys(S.projectMeta)) {
+      const meta = S.projectMeta[projectPath];
+      if (!meta || !meta.researchFolderLinks) continue;
+      const next = remapResearchFolderLinks(meta.researchFolderLinks, oldPath, newPath);
+      if (next !== meta.researchFolderLinks) {
+        meta.researchFolderLinks = next;
+        changed = true;
+      }
+    }
+    if (changed) void this.saveSettings();
+  }
   listCompiledFilePaths() { return listCompiledFilePaths(this.app, this.settings); }
   parseStoryDate(raw: unknown, file: TFile | null = null) { return parseStoryDate(raw, file); }
 
