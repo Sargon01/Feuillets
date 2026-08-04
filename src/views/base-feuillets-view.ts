@@ -1064,20 +1064,58 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
   }
 
-  /** Affiche récursivement un sous-dossier de recherche avec son menu
-   *  d'actions et son contenu (sous-dossiers d'abord, puis fichiers). */
+  /** Affiche récursivement un sous-dossier de recherche avec son chevron,
+   *  son icône, son menu d'actions et son contenu (sous-dossiers d'abord,
+   *  puis fichiers). La ligne entière est cliquable pour replier/déplier le
+   *  contenu ; l'état est persisté dans S.collapsed sous la clé
+   *  `research-folder:${folder.path}` (même mécanique que les rubriques). */
   private renderResearchSubfolder(
     parentList: HTMLElement,
     folder: TFolder
   ): void {
+    const S = this.plugin.settings;
+    const collapseKey = `research-folder:${folder.path}`;
+    const collapsed = !this.researchFilterActive && !!S.collapsed[collapseKey];
+
     const subItem = parentList.createDiv({
       cls: "feuillets-research-item feuillets-research-subfolder",
     });
     const header = subItem.createDiv({
       cls: "feuillets-research-item-header",
     });
+
+    /* Chevron d'état + icône dossier + nom : toute la ligne bascule
+       l'état replié/déplié du contenu. */
+    const chevron = header.createSpan({
+      cls: "feuillets-research-subfolder-chevron",
+    });
+    setIcon(chevron, collapsed ? "chevron-right" : "chevron-down");
+
+    const folderIcon = header.createSpan({
+      cls: "feuillets-research-item-icon",
+    });
+    setIcon(folderIcon, "folder");
+
     const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
     nameEl.setText(folder.name);
+
+    header.addEventListener("click", () => {
+      void (async () => {
+        if (collapsed) delete S.collapsed[collapseKey];
+        else S.collapsed[collapseKey] = true;
+        await this.plugin.saveSettings();
+        void this.render();
+      })();
+    });
+
+    /* Le sous-dossier est à la fois source et cible de drag & drop : on
+       réutilise exactement les mêmes fonctions que les fichiers, ce qui
+       permet de le déplacer vers une rubrique principale, vers un autre
+       sous-dossier, ou vers son dossier parent (les cas interdits — dans
+       lui-même, dans un descendant, conflit de nom, sortie de _Recherche —
+       sont refusés par attachResearchDropTarget). */
+    this.attachResearchDragSource(subItem, folder);
+    this.attachResearchDropTarget(subItem, folder);
 
     /* Menu d'actions (⋮) identique à celui des dossiers racines. */
     const actions = this.iconBtn(
@@ -1090,11 +1128,11 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.showResearchFolderContextMenu(e, folder);
     });
 
+    if (collapsed) return;
+
     const nestedList = subItem.createDiv({
       cls: "feuillets-research-list feuillets-research-nested",
     });
-
-    this.attachResearchDropTarget(subItem, folder);
 
     /* Rendu récursif : sous-dossiers d'abord, puis fichiers. */
     const subfolders = folder.children
@@ -1216,10 +1254,11 @@ export abstract class BaseFeuilletsView extends ItemView {
     return btn;
   }
 
-  /** Rend une fiche de recherche déplaçable : au dragstart, on mémorise son
-   * chemin sur le plugin (état partagé entre les rubriques, comme dragState
-   * pour le binder). Le vrai déplacement est fait par la cible de dépôt. */
-  attachResearchDragSource(row: HTMLElement, file: TFile): void {
+  /** Rend une fiche — ou un sous-dossier — de recherche déplaçable : au
+   * dragstart, on mémorise son chemin sur le plugin (état partagé entre les
+   * rubriques, comme dragState pour le binder). Le vrai déplacement est
+   * fait par la cible de dépôt. */
+  attachResearchDragSource(row: HTMLElement, file: TAbstractFile): void {
     row.draggable = true;
     row.addEventListener("dragstart", (e) => {
       this.plugin._researchDragPath = file.path;
@@ -1239,10 +1278,12 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
   }
 
-  /** Fait d'une rubrique (section adossée à un dossier) une cible de dépôt :
-   * lâcher une fiche l'y déplace via fileManager.renameFile (met à jour les
-   * liens du coffre). Ignore le dépôt dans la rubrique d'origine, et refuse
-   * une collision de nom plutôt que d'écraser. */
+  /** Fait d'une rubrique ou d'un sous-dossier (section adossée à un vrai
+   * dossier) une cible de dépôt : lâcher une fiche OU un sous-dossier l'y
+   * déplace via fileManager.renameFile (met à jour les liens du coffre).
+   * Ignore le dépôt dans le dossier d'origine, refuse une collision de nom
+   * plutôt que d'écraser, refuse de ranger un dossier dans lui-même ou dans
+   * l'un de ses descendants, et ne laisse jamais rien sortir de _Recherche. */
   attachResearchDropTarget(section: HTMLElement, destFolder: TFolder): void {
     section.addEventListener("dragover", (e) => {
       if (!this.plugin._researchDragPath) return;
@@ -1255,20 +1296,52 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
     section.addEventListener("drop", (e) => {
       e.preventDefault();
+      /* Un sous-dossier est lui-même une cible de dépôt DANS une rubrique
+         qui en est aussi une : sans stopPropagation, le même drop serait
+         traité deux fois (vers le sous-dossier puis vers la rubrique). */
+      e.stopPropagation();
       section.removeClass("feuillets-dragover");
       const srcPath = this.plugin._researchDragPath;
       this.plugin._researchDragPath = null;
       if (!srcPath) return;
-      const file = this.app.vault.getAbstractFileByPath(srcPath);
-      if (!(file instanceof TFile)) return;
-      if (file.parent && file.parent.path === destFolder.path) return;
-      const dest = normalizePath(`${destFolder.path}/${file.name}`);
+      const source = this.app.vault.getAbstractFileByPath(srcPath);
+      if (!source) return;
+
+      /* Refus : un dossier déposé dans lui-même ou dans un de ses
+         descendants (boucle impossible à construire). */
+      if (
+        source instanceof TFolder &&
+        (destFolder.path === source.path || destFolder.path.startsWith(`${source.path}/`))
+      ) {
+        new Notice(t("shared.research.cannotPasteIntoItself"));
+        return;
+      }
+
+      /* Refus (défensif) : sortir de l'espace _Recherche du projet actif.
+         Toutes les cibles rendues sont déjà sous _Recherche, mais on ne
+         déplace jamais un dossier de recherche hors de cet espace. */
+      const researchRoot = this.plugin.getResearchRoot();
+      const projectRoot = this.plugin.getProjectFolder();
+      const baseResearch = researchRoot instanceof TFolder
+        ? researchRoot.path
+        : projectRoot
+          ? `${projectRoot.path}/_Recherche`
+          : "_Recherche";
+      if (destFolder.path !== baseResearch && !destFolder.path.startsWith(`${baseResearch}/`)) {
+        new Notice(t("shared.research.cannotPasteIntoItself"));
+        return;
+      }
+
+      /* Déposer dans le dossier parent direct : rien à déplacer. */
+      if (source.parent && source.parent.path === destFolder.path) return;
+
+      const dest = normalizePath(`${destFolder.path}/${source.name}`);
       if (this.app.vault.getAbstractFileByPath(dest)) {
         new Notice(t("shared.research.duplicateNameInSection"));
         return;
       }
       void (async () => {
-        await this.app.fileManager.renameFile(file, dest);
+        await this.app.fileManager.renameFile(source, dest);
         this.plugin.renderAllViews(true);
       })();
     });

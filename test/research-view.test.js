@@ -311,11 +311,11 @@ FakeElement.prototype.createSpan = function(options = {}) {
   return this.createEl("span", options);
 };
 
-function createRenderHarness(vault = {}) {
+function createRenderHarness(vault = {}, collapseState = {}) {
   const settings = {
     researchSearch: "",
     researchTagFilter: "",
-    collapsed: {},
+    collapsed: collapseState,
     projectMeta: {},
     labels: [],
   };
@@ -729,4 +729,294 @@ test("le collage d'un dossier Recherche recopie son arborescence et ses fichiers
     "Projet/_Recherche/Personnages/Histoire/Archives/carte.png",
   ]);
   assert.equal(refreshes, 1);
+});
+
+/* --- Sous-dossiers : repliage, icônes et déplacement --- */
+
+test("cliquer sur l'en-tête d'un sous-dossier replie son contenu et stocke l'état", () => {
+  const main = new TFolder("Projet/_Recherche/Personnages");
+  const sub = new TFolder("Projet/_Recherche/Personnages/Principaux");
+  main.children = [sub];
+
+  const { view, contentEl } = createRenderHarness();
+  view.renderSection(contentEl, "Personnages", main);
+
+  const list = findResearchList(contentEl);
+  const subItem = list.children.find(
+    (c) => c.classes.has("feuillets-research-subfolder")
+  );
+  assert.ok(subItem, "le sous-dossier doit être rendu");
+  const nested = subItem.children.find(
+    (c) => c.classes.has("feuillets-research-nested")
+  );
+  assert.ok(nested, "le contenu doit être visible avant le repliage");
+
+  const header = subItem.children.find(
+    (h) => h.classes.has("feuillets-research-item-header")
+  );
+  assert.ok(header);
+  /* Le handler appelle void this.render() — stubé ici pour éviter que le
+     rendu réel touche à document, absent de ce contexte de test. */
+  view.render = async () => {};
+  header.events.get("click")({});
+
+  const collapseKey = "research-folder:Projet/_Recherche/Personnages/Principaux";
+  assert.equal(
+    view.plugin.settings.collapsed[collapseKey],
+    true,
+    "la clé de repliage doit être research-folder:<folder.path>"
+  );
+});
+
+test("un sous-dossier replié n'affiche pas son contenu et se déplie au clic", () => {
+  const collapseKey = "research-folder:Projet/_Recherche/Personnages/Principaux";
+  const main = new TFolder("Projet/_Recherche/Personnages");
+  const sub = new TFolder("Projet/_Recherche/Personnages/Principaux");
+  main.children = [sub];
+
+  const { view, contentEl } = createRenderHarness({}, { [collapseKey]: true });
+  view.renderSection(contentEl, "Personnages", main);
+
+  const list = findResearchList(contentEl);
+  const subItem = list.children.find(
+    (c) => c.classes.has("feuillets-research-subfolder")
+  );
+  assert.ok(subItem, "le sous-dossier doit rester rendu même replié");
+  const nested = subItem.children.find(
+    (c) => c.classes.has("feuillets-research-nested")
+  );
+  assert.equal(
+    nested,
+    undefined,
+    "le contenu ne doit pas être rendu quand le sous-dossier est replié"
+  );
+
+  const header = subItem.children.find(
+    (h) => h.classes.has("feuillets-research-item-header")
+  );
+  assert.ok(header);
+  /* Le handler appelle void this.render() — stubé ici pour éviter que le
+     rendu réel touche à document, absent de ce contexte de test. */
+  view.render = async () => {};
+  header.events.get("click")({});
+
+  assert.equal(
+    view.plugin.settings.collapsed[collapseKey],
+    undefined,
+    "le clic sur un sous-dossier replié doit supprimer l'état replié"
+  );
+});
+
+test("un sous-dossier affiche un chevron et une icône de dossier", () => {
+  const main = new TFolder("Projet/_Recherche/Personnages");
+  const sub = new TFolder("Projet/_Recherche/Personnages/Principaux");
+  main.children = [sub];
+
+  const { view, contentEl } = createRenderHarness();
+  view.renderSection(contentEl, "Personnages", main);
+
+  const list = findResearchList(contentEl);
+  const subItem = list.children.find(
+    (c) => c.classes.has("feuillets-research-subfolder")
+  );
+  assert.ok(subItem);
+  const header = subItem.children.find(
+    (h) => h.classes.has("feuillets-research-item-header")
+  );
+  assert.ok(header);
+
+  const chevron = header.children.find(
+    (c) => c.classes.has("feuillets-research-subfolder-chevron")
+  );
+  assert.ok(chevron, "le chevron doit être présent");
+  assert.equal(
+    chevron.icon,
+    "chevron-down",
+    "le chevron indique que le contenu est déplié par défaut"
+  );
+
+  const folderIcon = header.children.find(
+    (c) => c.classes.has("feuillets-research-item-icon")
+  );
+  assert.ok(folderIcon, "l'icône dossier doit être présente");
+  assert.equal(folderIcon.icon, "folder");
+});
+
+/* Harness avec les VRAIES fonctions de drag & drop (les tests de rendu les
+   stubent en no-op) : un vault qui connaît les dossiers, un fileManager qui
+   enregistre les déplacements, et Notice.onCreate pour capturer les refus. */
+function createDropHarness({ vault = {} } = {}) {
+  const settings = {
+    researchSearch: "",
+    researchTagFilter: "",
+    collapsed: {},
+    projectMeta: {},
+    labels: [],
+  };
+  const plugin = {
+    settings,
+    getProjectFolder: () => new TFolder("Projet"),
+    getResearchRoot: () => null,
+    getChronoFolder: () => null,
+    async ensureFolder() {},
+    projectMode: () => PROJECT_MODES.fiction,
+    async migrateBibliographieIntoSources() {},
+    async saveSettings() {},
+    tagsOf: () => [],
+    titleFor: (f) => f.basename.replace(/\.md$/, ""),
+    fmOf: () => ({}),
+    labelOf: () => "",
+    labelColor: () => null,
+    newFolder() {},
+    renderAllViews() {},
+  };
+  const renamed = [];
+  const notices = [];
+  const previousOnCreate = Notice.onCreate;
+  Notice.onCreate = (message) => notices.push(message);
+  const contentEl = new FakeElement();
+  const leaf = {
+    app: {
+      vault,
+      fileManager: {
+        async renameFile(file, dest) {
+          renamed.push({ from: file.path, to: dest });
+        },
+      },
+    },
+    contentEl,
+  };
+  const view = new ResearchView(leaf, plugin);
+  view.iconBtn = (parent, _icon, _tooltip, onClick) => {
+    const btn = parent.createEl("button", { cls: "clickable-icon" });
+    if (onClick) btn.addEventListener("click", onClick);
+    return btn;
+  };
+  view.attachResearchDropTarget = BaseFeuilletsView.prototype.attachResearchDropTarget;
+  view.attachResearchDragSource = BaseFeuilletsView.prototype.attachResearchDragSource;
+  return {
+    view,
+    contentEl,
+    plugin,
+    renamed,
+    notices,
+    cleanup() {
+      Notice.onCreate = previousOnCreate;
+    },
+  };
+}
+
+const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("un sous-dossier peut être déplacé vers une autre rubrique", async () => {
+  const source = new TFolder("Projet/_Recherche/Personnages/Principaux");
+  source.parent = new TFolder("Projet/_Recherche/Personnages");
+  const dest = new TFolder("Projet/_Recherche/Lieux");
+  const vault = {
+    getAbstractFileByPath: (path) => {
+      if (path === source.path) return source;
+      if (path === dest.path) return dest;
+      return null;
+    },
+  };
+  const harness = createDropHarness({ vault });
+  try {
+    const destSection = new FakeElement();
+    harness.view.attachResearchDropTarget(destSection, dest);
+    harness.plugin._researchDragPath = source.path;
+    destSection.events.get("drop")({
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    await flushPromises();
+    assert.deepEqual(harness.renamed, [
+      { from: source.path, to: "Projet/_Recherche/Lieux/Principaux" },
+    ]);
+    assert.equal(harness.notices.length, 0);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("un sous-dossier ne peut pas être déplacé dans lui-même", async () => {
+  const source = new TFolder("Projet/_Recherche/Personnages/Principaux");
+  source.parent = new TFolder("Projet/_Recherche/Personnages");
+  const vault = {
+    getAbstractFileByPath: (path) => (path === source.path ? source : null),
+  };
+  const harness = createDropHarness({ vault });
+  try {
+    const destSection = new FakeElement();
+    harness.view.attachResearchDropTarget(destSection, source);
+    harness.plugin._researchDragPath = source.path;
+    destSection.events.get("drop")({
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    await flushPromises();
+    assert.equal(harness.renamed.length, 0, "aucun déplacement ne doit avoir lieu");
+    assert.ok(harness.notices.length > 0, "le refus doit être signalé");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("un sous-dossier ne peut pas être déplacé dans un de ses descendants", async () => {
+  const source = new TFolder("Projet/_Recherche/Personnages/Principaux");
+  const descendant = new TFolder("Projet/_Recherche/Personnages/Principaux/Héros");
+  source.children = [descendant];
+  descendant.parent = source;
+  const vault = {
+    getAbstractFileByPath: (path) => {
+      if (path === source.path) return source;
+      if (path === descendant.path) return descendant;
+      return null;
+    },
+  };
+  const harness = createDropHarness({ vault });
+  try {
+    const destSection = new FakeElement();
+    harness.view.attachResearchDropTarget(destSection, descendant);
+    harness.plugin._researchDragPath = source.path;
+    destSection.events.get("drop")({
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    await flushPromises();
+    assert.equal(harness.renamed.length, 0, "aucun déplacement ne doit avoir lieu");
+    assert.ok(harness.notices.length > 0, "le refus doit être signalé");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("un déplacement vers un nom déjà pris est refusé", async () => {
+  const source = new TFolder("Projet/_Recherche/Personnages/Principaux");
+  source.parent = new TFolder("Projet/_Recherche/Personnages");
+  const dest = new TFolder("Projet/_Recherche/Lieux");
+  const vault = {
+    getAbstractFileByPath: (path) => {
+      if (path === source.path) return source;
+      if (path === dest.path) return dest;
+      if (path === "Projet/_Recherche/Lieux/Principaux") {
+        return new TFolder("Projet/_Recherche/Lieux/Principaux");
+      }
+      return null;
+    },
+  };
+  const harness = createDropHarness({ vault });
+  try {
+    const destSection = new FakeElement();
+    harness.view.attachResearchDropTarget(destSection, dest);
+    harness.plugin._researchDragPath = source.path;
+    destSection.events.get("drop")({
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    await flushPromises();
+    assert.equal(harness.renamed.length, 0, "aucun déplacement ne doit avoir lieu");
+    assert.ok(harness.notices.length > 0, "le conflit de nom doit être signalé");
+  } finally {
+    harness.cleanup();
+  }
 });

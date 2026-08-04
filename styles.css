@@ -2830,6 +2830,51 @@ body.feuillets-text-width .markdown-preview-view {
   color: var(--interactive-accent);
 }
 
+/* Icône dossier des lignes de recherche (fiches média ET sous-dossiers) —
+   même gabarit que .feuillets-cell-icon svg du binder. */
+.feuillets-research-item-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.feuillets-research-item-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Sous-dossiers de recherche : ligne repliable (chevron + icône dossier,
+   renderResearchSubfolder, base-feuillets-view.js) et à la fois source et
+   cible de glisser-déposer (attachResearchDragSource / attachResearchDropTarget).
+   Les règles génériques de drag ciblent .feuillets-item, pas
+   .feuillets-research-item : sans ces règles, un sous-dossier glissé ne
+   donnait aucun retour visuel. */
+.feuillets-research-subfolder {
+  cursor: grab;
+}
+
+.feuillets-research-subfolder-chevron {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.feuillets-research-subfolder-chevron svg {
+  width: 12px;
+  height: 12px;
+}
+
+.feuillets-research-subfolder.feuillets-dragging {
+  opacity: 0.4;
+}
+
+.feuillets-research-subfolder.feuillets-dragover {
+  box-shadow: inset 0 2px 0 var(--interactive-accent);
+}
+
 .feuillets-research-item-path {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
