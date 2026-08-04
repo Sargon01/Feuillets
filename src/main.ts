@@ -2692,6 +2692,33 @@ class FeuilletsPlugin extends Plugin {
     return destPath;
   }
 
+  /** Enregistre un dossier existant (n'importe quel dossier du vault) comme
+   * projet Feuillets, sans le déplacer ni le modifier. Le dossier est ajouté
+   * à la liste des projets — il peut ensuite être ouvert normalement. Refuse
+   * un dossier déjà enregistré pour éviter les doublons. */
+  async registerExistingProjectFolder(path: string): Promise<void> {
+    const folder = this.app.vault.getAbstractFileByPath(path);
+    if (!(folder instanceof TFolder)) {
+      new Notice(t("main.notice.folderNotFound"));
+      return;
+    }
+
+    // Vérifier que le dossier n'est pas déjà un projet
+    if (this.settings.projects.includes(path)) {
+      new Notice(t("main.notice.alreadyAProject", { name: folder.name }));
+      return;
+    }
+
+    // Ajouter le dossier à la liste des projets
+    if (!this.settings.projects) this.settings.projects = [];
+    this.settings.projects.push(path);
+    await this.saveSettings();
+
+    this.renderAllViews(true);
+    this.updateStatusBar();
+    new Notice(t("main.notice.transformedToProject", { name: folder.name }));
+  }
+
   getVersionsRoot(): TFolder | null { return getVersionsRoot(this.app, this.getProjectFolder()); }
 
   /** Étiquette de version ("v1", "Premier jet"…) si le fichier vit dans

@@ -105,6 +105,9 @@ export const en = {
   "binder.onboarding.card.demo.desc": "An already-filled example project, to discover Feuillets without writing a line.",
   "binder.onboarding.card.demo.btn": "Discover",
 
+  // ---------- Obsidian Explorer context menu (scenes-editor.js) ----------
+  "explorer.transformToProject": "Transform as Feuillets project",
+
   // ---------- Shared (base-feuillets-view.js) ----------
   "shared.wholeVault": "Whole vault",
   "shared.contextMenu.openWithPreview": "Open with preview",
@@ -1051,6 +1054,8 @@ export const en = {
   "main.notice.folderNotFound": "Folder not found.",
   "main.notice.duplicationImpossible": "Duplication failed.",
   "main.notice.versionDuplicated": "Version duplicated into “{path}”.",
+  "main.notice.alreadyAProject": "{name} is already registered as a Feuillets project.",
+  "main.notice.transformedToProject": "{name} is now a Feuillets project",
   "main.notice.canvasCardsAdded": "{count} card(s) added",
   "main.notice.canvasCardsUpToDate": "{count} card(s), up to date",
   "main.notice.canvasLinksDrawn": "{count} link(s) drawn",
