@@ -531,11 +531,16 @@ export abstract class BaseFeuilletsView extends ItemView {
    * un dossier déjà existant sous son nom français OU anglais (jamais de
    * doublon, même quand le projet a été créé dans l'autre langue), sinon
    * le crée sous le libellé de la langue active. */
-  private async ensureResearchCategoryFolder(
+  /** Cherche le dossier d'une catégorie de recherche pour la langue active :
+   * réutilise un dossier déjà existant sous son nom français OU anglais
+   * (jamais de doublon, même quand le projet a été créé dans l'autre
+   * langue), sinon null. Ne crée JAMAIS de dossier : le rendu reste
+   * purement descriptif. */
+  private findResearchCategoryFolder(
     baseResearch: string,
     researchFolders: Record<string, { label: string }>,
     key: string
-  ): Promise<TFolder> {
+  ): TFolder | null {
     const names = researchFolderNames(researchFolders, key);
     for (const name of names) {
       const existing = this.app.vault.getAbstractFileByPath(
@@ -543,6 +548,21 @@ export abstract class BaseFeuilletsView extends ItemView {
       );
       if (existing instanceof TFolder) return existing;
     }
+    return null;
+  }
+
+  /** Variante d'ÉCRITURE : garantit le dossier d'une catégorie (création
+   * explicite déclenchée par le bouton "+" de la rubrique, jamais par le
+   * rendu). Réutilise un dossier existant sous son nom français OU anglais,
+   * sinon le crée sous le libellé de la langue active. */
+  private async ensureResearchCategoryFolder(
+    baseResearch: string,
+    researchFolders: Record<string, { label: string }>,
+    key: string
+  ): Promise<TFolder> {
+    const existing = this.findResearchCategoryFolder(baseResearch, researchFolders, key);
+    if (existing) return existing;
+    const names = researchFolderNames(researchFolders, key);
     return asFolder(await this.plugin.ensureFolder(`${baseResearch}/${names[0]}`));
   }
 
@@ -584,7 +604,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     const baseResearch = researchRoot
       ? researchRoot.path
       : `${root.path}/_Recherche`;
-    const baseResearchFolder = asFolder(await this.plugin.ensureFolder(baseResearch));
+    const baseResearchFile = this.app.vault.getAbstractFileByPath(baseResearch);
+    const baseResearchFolder = baseResearchFile instanceof TFolder ? baseResearchFile : null;
     if (this._renderGen !== gen) return;
 
     const mode = this.plugin.projectMode();
@@ -620,9 +641,9 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
 
     const sourcesFolder = rf.sources
-      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "sources")
+      ? this.findResearchCategoryFolder(baseResearch, rf, "sources")
       : null;
-    const bibliographieFolder = await this.ensureResearchCategoryFolder(
+    const bibliographieFolder = this.findResearchCategoryFolder(
       baseResearch,
       rf,
       "bibliographie"
@@ -633,7 +654,7 @@ export abstract class BaseFeuilletsView extends ItemView {
        manuelles. Migration automatique, idempotente (ne fait rien une
        fois les fiches déjà déplacées) : ne s'exécute jamais en fiction,
        où Bibliographie garde son sens d'origine. */
-    if (rf.sources && sourcesFolder) {
+    if (rf.sources && sourcesFolder && bibliographieFolder) {
       await this.plugin.migrateBibliographieIntoSources(bibliographieFolder, sourcesFolder);
     }
     /* rf.personnages/lieux/codex/glossaire/evenements n'existent plus en
@@ -645,24 +666,24 @@ export abstract class BaseFeuilletsView extends ItemView {
        simplement dans "customFolders" plus bas et reste visible avec son
        contenu — rien n'est supprimé automatiquement. */
     const personnagesFolder = rf.personnages
-      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "personnages")
+      ? this.findResearchCategoryFolder(baseResearch, rf, "personnages")
       : null;
     const lieuxFolder = rf.lieux
-      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "lieux")
+      ? this.findResearchCategoryFolder(baseResearch, rf, "lieux")
       : null;
     const codexFolder = rf.codex
-      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "codex")
+      ? this.findResearchCategoryFolder(baseResearch, rf, "codex")
       : null;
     const glossaireFolder = rf.glossaire
-      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "glossaire")
+      ? this.findResearchCategoryFolder(baseResearch, rf, "glossaire")
       : null;
     const chronoFolder = rf.evenements
-      ? this.plugin.getChronoFolder() || asFolder(await this.plugin.ensureFolder(`${baseResearch}/Chronologie`))
-      : this.plugin.getChronoFolder();
+      ? this.plugin.getChronoFolder()
+      : null;
 
     const standardPaths = new Set([
       sourcesFolder ? sourcesFolder.path : "",
-      bibliographieFolder.path,
+      bibliographieFolder ? bibliographieFolder.path : "",
       personnagesFolder ? personnagesFolder.path : "",
       lieuxFolder ? lieuxFolder.path : "",
       codexFolder ? codexFolder.path : "",
@@ -784,8 +805,8 @@ export abstract class BaseFeuilletsView extends ItemView {
          c'est la vue agrégée des sources citées + le bouton pour générer
          le fichier final (voir renderBibliographySection). Créer une
          nouvelle référence se fait dans Sources, jamais ici. */
-      await this.renderBibliographySection(body, root, [sourcesFolder, bibliographieFolder]);
-    } else {
+      await this.renderBibliographySection(body, root, [sourcesFolder, ...(bibliographieFolder ? [bibliographieFolder] : [])]);
+    } else if (bibliographieFolder) {
       /* Fiction (pas de Sources, pas de système de citation) :
          Bibliographie garde son sens d'origine — un dossier de fiches
          manuelles pour des lectures complémentaires, sans lien avec le
