@@ -40,34 +40,47 @@ export async function ensureFolder(app: App, path: string): Promise<TAbstractFil
  * existants sont respectés ; à défaut, créé en voisin. */
 export async function snapshotFile(app: App, file: TFile, root: TFolder): Promise<string> {
   const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
+  const p = (n: number) => String(n).padStart(2, "0");
   const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(
     d.getDate()
   )} ${p(d.getHours())}h${p(d.getMinutes())}${p(d.getSeconds())}`;
-  const candidates = [root.path, root.parent ? root.parent.path : null].filter(
-    Boolean
-  );
-  /* "Snapshots" sans underscore : reconnu UNIQUEMENT voisin du dossier
-     projet, jamais dedans — même restriction que "Recherche", pour ne
-     jamais apparaître comme une fausse Partie dans le binder. */
-  let base = root.parent && app.vault.getAbstractFileByPath(
-    normalizePath(`${root.parent.path}/Snapshots`)
-  ) instanceof TFolder
-    ? root.parent.path
-    : null;
-  let folderName = "Snapshots";
+  /* Base possible : le dossier voisin (racine du projet réel) quand il
+     existe et n'est pas la racine du coffre, sinon le dossier projet
+     lui-même — jamais la racine du coffre (règle : aucun dossier technique
+     créé hors du projet actif). */
+  const neighbor =
+    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+      ? root.parent.path
+      : null;
+  const candidates = neighbor ? [root.path, neighbor] : [root.path];
+  /* "Snapshots" sans underscore : variante HISTORIQUE reconnue uniquement
+     voisine du dossier projet, jamais dedans — même restriction que
+     "Recherche", pour ne jamais apparaître comme une fausse Partie dans le
+     binder. "_Snapshots" (legacy) reste reconnu voisin OU enfant du
+     dossier projet. À défaut, création en "_Snapshots" via la source
+     centrale (getFeuilletsFolderNames) — jamais "Snapshots" sans préfixe. */
+  const names = getFeuilletsFolderNames(getLocale());
+  let base: string | null = null;
+  let folderName = names.snapshots;
+  if (neighbor) {
+    const snap = app.vault.getAbstractFileByPath(normalizePath(`${neighbor}/Snapshots`));
+    if (snap instanceof TFolder) {
+      base = neighbor;
+      folderName = "Snapshots";
+    }
+  }
   if (!base) {
     /* legacy : anciens projets créés avant l'abandon du préfixe _,
        où _Snapshots pouvait être voisin ou enfant du dossier projet */
     const legacyBase = candidates.find((b) =>
-      app.vault.getAbstractFileByPath(normalizePath(`${b}/_Snapshots`))
+      app.vault.getAbstractFileByPath(normalizePath(`${b}/${names.snapshots}`))
     );
     if (legacyBase) {
       base = legacyBase;
-      folderName = "_Snapshots";
+      folderName = names.snapshots;
     }
   }
-  if (!base) base = root.parent ? root.parent.path : root.path;
+  if (!base) base = root.path;
   const dir = normalizePath(`${base}/${folderName}/${file.basename}`);
   await ensureFolder(app, normalizePath(`${base}/${folderName}`));
   await ensureFolder(app, dir);
@@ -159,7 +172,13 @@ function copyOrderSettings(settings: FeuilletsSettings, origFolder: TFolder, des
  * mais accessible via sa propre section dans le volet dossiers du binder. */
 export function getVersionsRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
-  const base = root.parent ? root.parent.path : root.path;
+  /* Même base que duplicateProjectFolder : le voisin (racine du projet
+     réel) quand il existe et n'est pas la racine du coffre, sinon le
+     dossier projet lui-même — jamais la racine du coffre. */
+  const base =
+    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+      ? root.parent.path
+      : root.path;
   const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/_Versions`));
   return f instanceof TFolder ? f : null;
 }
@@ -181,14 +200,20 @@ export const EDITION_DOCUMENTS = [
  * (Versions envoyées), créés vides en même temps que le dossier. */
 export const EDITION_SUBFOLDERS = ["Soumissions", "Versions envoyées"];
 
-/** Crée le dossier Edition (voisin du dossier projet, voir
- * editionFolderPath) avec ses sous-dossiers et documents conventionnels —
- * à la demande seulement, jamais à la création d'un projet ni à
- * l'ouverture d'un projet existant (même principe que ensureJournalFolder :
- * un projet ancien sans dossier Edition n'en a jamais un imposé). Idempotent :
- * ne recrée ni n'écrase rien de déjà présent. */
+/** Crée le dossier d'édition (racine du projet actif, nom "_Edition" de la
+ * source centrale, voir editionFolderPath) avec ses sous-dossiers et
+ * documents conventionnels — à la demande seulement, jamais à la création
+ * d'un projet ni à l'ouverture d'un projet existant (même principe que
+ * ensureJournalFolder : un projet ancien sans dossier d'édition n'en a
+ * jamais un imposé). Idempotent : réutilise un dossier d'édition déjà
+ * présent sur le disque — "_Edition" comme "Edition" (variante historique
+ * sans préfixe) — et ne recrée ni n'écrase rien de déjà présent. Si
+ * "Edition" existe déjà, "_Edition" n'est pas créé. */
 export async function ensureEditionFolder(app: App, root: TFolder): Promise<TFolder> {
-  const path = editionFolderPath(app, root);
+  /* getEditionRoot reconnaît "_Edition" puis "Edition" (variante
+     historique) : tout dossier déjà présent est réutilisé tel quel. */
+  const existing = getEditionRoot(app, root);
+  const path = existing ? existing.path : editionFolderPath(app, root);
   await ensureFolder(app, path);
   for (const sub of EDITION_SUBFOLDERS) {
     await ensureFolder(app, normalizePath(`${path}/${sub}`));
@@ -215,7 +240,14 @@ export async function ensureEditionFolder(app: App, root: TFolder): Promise<TFol
  * l'original. Retourne le chemin du dossier créé, ou lève une erreur si le
  * nom est déjà pris. */
 export async function duplicateProjectFolder(app: App, root: TFolder, label: string, settings?: FeuilletsSettings | null): Promise<string> {
-  const base = root.parent ? root.parent.path : root.path;
+  /* Base : le voisin (racine du projet réel) quand il existe et n'est pas
+     la racine du coffre, sinon le dossier projet lui-même — jamais la
+     racine du coffre (règle : aucun dossier technique créé hors du projet
+     actif). */
+  const base =
+    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+      ? root.parent.path
+      : root.path;
   const safeLabel = String(label || "").trim().replace(/[\\/:*?"<>|]/g, "-");
   const destName = `${root.name} (${safeLabel || "copie"})`;
   const destPath = normalizePath(`${base}/_Versions/${destName}`);

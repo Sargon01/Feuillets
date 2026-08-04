@@ -35,7 +35,7 @@ test("export templates custom : un nouveau projet sans dossier existant crée da
 
   const created = await ensureTemplateFile(app, settings, "classique");
 
-  assert.equal(created?.path, "Projet/Ressources/Layout/classique.md");
+  assert.equal(created?.path, "Projet/_Ressources/Layout/classique.md");
 });
 
 test("export templates custom : conserve les valeurs valides et ignore les valeurs de police invalides", async () => {
