@@ -97,6 +97,10 @@ export abstract class BaseFeuilletsView extends ItemView {
   _searchCache?: Map<string, { mtime: number; text: string }>;
   _selectedTextFile?: string;
   researchFilterActive?: boolean;
+  /** Dossier Recherche copié par l'utilisateur. Le presse-papiers reste
+   * volontairement interne au panneau : il ne détourne pas le presse-papiers
+   * système et ne permet de coller que dans une autre rubrique Recherche. */
+  researchFolderClipboardPath?: string;
   selectedText?: string;
   viewingFile?: TFile | null;
 
@@ -780,7 +784,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const S = this.plugin.settings;
     const collapsed = !this.researchFilterActive && !!S.collapsed[collapseKey];
 
-    const { section } = renderCollapsibleHead(container, {
+    const { section, head } = renderCollapsibleHead(container, {
       classes: {
         section: "feuillets-notes-section feuillets-research-section",
         head: "feuillets-notes-section-head",
@@ -799,6 +803,18 @@ export abstract class BaseFeuilletsView extends ItemView {
       onCreate: onCreate ? () => { void onCreate(); } : undefined,
     });
 
+    /* Chaque rubrique Recherche correspond à un vrai dossier. Le menu rend
+       donc accessibles les mêmes opérations d'arborescence que dans le
+       Binder, y compris les sous-dossiers utiles à une future association
+       entre une partie du Binder et sa documentation. */
+    if (folderOrFiles instanceof TFolder) {
+      const actions = this.iconBtn(head, "more-horizontal", t("shared.research.folderActions"));
+      actions.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showResearchFolderContextMenu(e, folderOrFiles);
+      });
+    }
+
     if (collapsed) return;
 
     const list = section.createDiv({ cls: "feuillets-research-list" });
@@ -808,6 +824,17 @@ export abstract class BaseFeuilletsView extends ItemView {
        glissé depuis une autre rubrique. */
     const destFolder = folderOrFiles instanceof TFolder ? folderOrFiles : null;
     if (destFolder) this.attachResearchDropTarget(section, destFolder);
+
+    if (folderOrFiles instanceof TFolder) {
+      /* Afficher les sous-dossiers avant les fichiers (ordre
+         alphabétique conservé à chaque niveau). */
+      const subfolders = folderOrFiles.children
+        .filter((c): c is TFolder => c instanceof TFolder)
+        .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+      for (const sf of subfolders) {
+        this.renderResearchSubfolder(list, sf);
+      }
+    }
 
     let files: TFile[] = [];
     if (folderOrFiles instanceof TFolder) {
@@ -820,93 +847,242 @@ export abstract class BaseFeuilletsView extends ItemView {
       files = folderOrFiles;
     }
 
+    /* N'afficher "vide" que s'il n'y a ni fichier ni sous-dossier. */
     if (files.length === 0) {
-      list.createDiv({ cls: "feuillets-research-empty" }).setText(t("shared.research.empty"));
+      const hasSubfolders =
+        folderOrFiles instanceof TFolder &&
+        folderOrFiles.children.some((c): c is TFolder => c instanceof TFolder);
+      if (!hasSubfolders) {
+        list.createDiv({ cls: "feuillets-research-empty" }).setText(t("shared.research.empty"));
+      }
       return;
     }
 
     for (const f of files) {
-      const isMedia = isImageFile(f) || isPdfFile(f);
-      const row = list.createDiv({ cls: "feuillets-research-item" });
-      this.attachResearchDragSource(row, f);
-      const header = row.createDiv({ cls: "feuillets-research-item-header" });
-
-      if (isImageFile(f)) {
-        const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
-        setIcon(iconSpan, "image");
-      } else if (isPdfFile(f)) {
-        const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
-        setIcon(iconSpan, "file-text");
-      }
-
-      const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
-      nameEl.setText(this.plugin.titleFor(f));
-
-      this.addPreviewBtn(header, f);
-
-      if (isMedia) {
-        const insertLinkBtn = this.iconBtn(
-          header,
-          "link",
-          isImageFile(f)
-            ? t("shared.research.insertImageTooltip")
-            : t("shared.research.insertPdfLinkTooltip")
-        );
-        insertLinkBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const fname = f.name;
-          const link = isImageFile(f) ? `![[${fname}]]` : `[[${fname}]]`;
-          this.plugin.insertIntoActiveEditor(link);
-          new Notice(t("shared.research.linkInserted", { name: fname }));
-        });
-
-        const openFileBtn = this.iconBtn(
-          header,
-          "external-link",
-          t("shared.research.openFile")
-        );
-        openFileBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
-        });
-      } else if (Array.isArray(folderOrFiles)) {
-        const openFileBtn = this.iconBtn(
-          header,
-          "external-link",
-          t("shared.openNewTab")
-        );
-        openFileBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
-        });
-      } else {
-        const appearBtn = this.iconBtn(
-          header,
-          "list",
-          t("shared.research.appearancesTooltip")
-        );
-        appearBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          new AppearancesModal(this.app, this.plugin, f).open();
-        });
-        if (rowAction) rowAction(header, f);
-      }
-
-      row.addClass("internal-link");
-      row.setAttr("data-href", f.path);
-      row.setAttr("data-path", f.path);
-      row.setAttr("data-search", foldAccents(this.plugin.titleFor(f)));
-      row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
-
-      row.addEventListener("click", (e) => {
-        if (isMedia || Keymap.isModEvent(e)) {
-          openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
-          return;
-        }
-        this.viewingFile = f;
-        void this.render();
-      });
+      this.renderResearchFileRow(list, f, folderOrFiles, rowAction);
     }
+  }
+
+  /** Affiche une ligne de fichier dans une rubrique de recherche. */
+  private renderResearchFileRow(
+    list: HTMLElement,
+    f: TFile,
+    folderOrFiles: TFolder | TFile[],
+    rowAction?: (header: HTMLElement, file: TFile) => void
+  ): void {
+    const isMedia = isImageFile(f) || isPdfFile(f);
+    const row = list.createDiv({ cls: "feuillets-research-item" });
+    this.attachResearchDragSource(row, f);
+    const header = row.createDiv({ cls: "feuillets-research-item-header" });
+
+    if (isImageFile(f)) {
+      const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
+      setIcon(iconSpan, "image");
+    } else if (isPdfFile(f)) {
+      const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
+      setIcon(iconSpan, "file-text");
+    }
+
+    const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
+    nameEl.setText(this.plugin.titleFor(f));
+
+    this.addPreviewBtn(header, f);
+
+    if (isMedia) {
+      const insertLinkBtn = this.iconBtn(
+        header,
+        "link",
+        isImageFile(f)
+          ? t("shared.research.insertImageTooltip")
+          : t("shared.research.insertPdfLinkTooltip")
+      );
+      insertLinkBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const fname = f.name;
+        const link = isImageFile(f) ? `![[${fname}]]` : `[[${fname}]]`;
+        this.plugin.insertIntoActiveEditor(link);
+        new Notice(t("shared.research.linkInserted", { name: fname }));
+      });
+
+      const openFileBtn = this.iconBtn(
+        header,
+        "external-link",
+        t("shared.research.openFile")
+      );
+      openFileBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
+      });
+    } else if (Array.isArray(folderOrFiles)) {
+      const openFileBtn = this.iconBtn(
+        header,
+        "external-link",
+        t("shared.openNewTab")
+      );
+      openFileBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
+      });
+    } else {
+      const appearBtn = this.iconBtn(
+        header,
+        "list",
+        t("shared.research.appearancesTooltip")
+      );
+      appearBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        new AppearancesModal(this.app, this.plugin, f).open();
+      });
+      if (rowAction) rowAction(header, f);
+    }
+
+    row.addClass("internal-link");
+    row.setAttr("data-href", f.path);
+    row.setAttr("data-path", f.path);
+    row.setAttr("data-search", foldAccents(this.plugin.titleFor(f)));
+    row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
+
+    row.addEventListener("click", (e) => {
+      if (isMedia || Keymap.isModEvent(e)) {
+        openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
+        return;
+      }
+      this.viewingFile = f;
+      void this.render();
+    });
+  }
+
+  /** Affiche récursivement un sous-dossier de recherche avec son menu
+   *  d'actions et son contenu (sous-dossiers d'abord, puis fichiers). */
+  private renderResearchSubfolder(
+    parentList: HTMLElement,
+    folder: TFolder
+  ): void {
+    const subItem = parentList.createDiv({
+      cls: "feuillets-research-item feuillets-research-subfolder",
+    });
+    const header = subItem.createDiv({
+      cls: "feuillets-research-item-header",
+    });
+    const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
+    nameEl.setText(folder.name);
+
+    /* Menu d'actions (⋮) identique à celui des dossiers racines. */
+    const actions = this.iconBtn(
+      header,
+      "more-horizontal",
+      t("shared.research.folderActions")
+    );
+    actions.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.showResearchFolderContextMenu(e, folder);
+    });
+
+    const nestedList = subItem.createDiv({
+      cls: "feuillets-research-list feuillets-research-nested",
+    });
+
+    this.attachResearchDropTarget(subItem, folder);
+
+    /* Rendu récursif : sous-dossiers d'abord, puis fichiers. */
+    const subfolders = folder.children
+      .filter((c): c is TFolder => c instanceof TFolder)
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    for (const sf of subfolders) {
+      this.renderResearchSubfolder(nestedList, sf);
+    }
+
+    const files = folder.children
+      .filter((c): c is TFile => isResearchFile(c))
+      .sort((a, b) =>
+        this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), "fr")
+      );
+    for (const f of files) {
+      this.renderResearchFileRow(nestedList, f, folder);
+    }
+
+    if (subfolders.length === 0 && files.length === 0) {
+      nestedList
+        .createDiv({ cls: "feuillets-research-empty" })
+        .setText(t("shared.research.empty"));
+    }
+  }
+
+  /** Copie récursivement un dossier de Recherche. `readBinary`/`createBinary`
+   * préservent aussi les images et PDF déposés dans les sous-dossiers. */
+  private async copyResearchFolderContents(source: TFolder, destination: string): Promise<void> {
+    await this.app.vault.createFolder(destination);
+    for (const child of source.children) {
+      const target = normalizePath(`${destination}/${child.name}`);
+      if (child instanceof TFolder) {
+        await this.copyResearchFolderContents(child, target);
+      } else if (child instanceof TFile) {
+        const data = await this.app.vault.readBinary(child);
+        await this.app.vault.createBinary(target, data);
+      }
+    }
+  }
+
+  private async pasteResearchFolder(destination: TFolder): Promise<void> {
+    const sourcePath = this.researchFolderClipboardPath;
+    const source = sourcePath && this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(source instanceof TFolder)) {
+      this.researchFolderClipboardPath = undefined;
+      new Notice(t("shared.research.nothingToPaste"));
+      return;
+    }
+    if (destination.path === source.path || destination.path.startsWith(`${source.path}/`)) {
+      new Notice(t("shared.research.cannotPasteIntoItself"));
+      return;
+    }
+
+    const copySuffix = t("binder.research.copySuffix");
+    let name = source.name;
+    let target = normalizePath(`${destination.path}/${name}`);
+    let index = 2;
+    while (this.app.vault.getAbstractFileByPath(target)) {
+      name = `${source.name} (${copySuffix} ${index++})`;
+      target = normalizePath(`${destination.path}/${name}`);
+    }
+    await this.copyResearchFolderContents(source, target);
+    this.plugin.renderAllViews(true);
+    new Notice(t("shared.research.folderPasted", { name }));
+  }
+
+  private showResearchFolderContextMenu(e: MouseEvent, folder: TFolder): void {
+    const menu = new Menu();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.newSubfolder"))
+        .setIcon("folder-plus")
+        .onClick(() => this.plugin.newFolder(folder))
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.research.copyFolder"))
+        .setIcon("copy")
+        .onClick(() => {
+          this.researchFolderClipboardPath = folder.path;
+          new Notice(t("shared.research.folderCopied", { name: folder.name }));
+        })
+    );
+    menu.addItem((item) => {
+      item.setTitle(t("shared.research.pasteFolder")).setIcon("clipboard-paste");
+      if (!this.researchFolderClipboardPath) item.setDisabled(true);
+      else item.onClick(() => void this.pasteResearchFolder(folder));
+    });
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.contextMenu.trashFolder"))
+        .setIcon("trash")
+        .onClick(async () => {
+          await this.app.fileManager.trashFile(folder);
+          this.plugin.renderAllViews(true);
+          new Notice(t("shared.contextMenu.folderTrashed", { name: folder.name }));
+        })
+    );
+    menu.showAtMouseEvent(e);
   }
 
   /** Bouton "œil" : déclenche l'aperçu natif d'Obsidian (Aperçu de page) au
