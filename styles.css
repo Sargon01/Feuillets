@@ -176,6 +176,19 @@
   outline: 2px solid var(--interactive-accent);
 }
 
+/* Dépôt ENTRE les éléments : ligne d'insertion fine et nette */
+.feuillets-item.feuillets-dragover-between,
+.feuillets-folder-row.feuillets-dragover-between,
+.feuillets-row.feuillets-dragover-between {
+  box-shadow: inset 0 2px 0 var(--interactive-accent);
+}
+
+/* Dépôt SUR un dossier : surbrillance du dossier sans gros bloc */
+.feuillets-folder-row.feuillets-dragover-folder {
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  outline: 1px solid var(--interactive-accent);
+}
+
 .feuillets-item-body {
   min-width: 0;
   flex: 1;
@@ -838,14 +851,20 @@
   user-select: text;
 }
 
-.feuillets-tree-pane .feuillets-folder-row.is-selected {
+.feuillets-tree-pane .feuillets-folder-row.is-active {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
 }
 
-.feuillets-tree-pane .feuillets-folder-row.is-selected .feuillets-cell-icon,
-.feuillets-tree-pane .feuillets-folder-row.is-selected .feuillets-folder-name {
+.feuillets-tree-pane .feuillets-folder-row.is-active .feuillets-cell-icon,
+.feuillets-tree-pane .feuillets-folder-row.is-active .feuillets-folder-name {
   color: var(--text-on-accent);
+}
+
+/* Sélection multiple des dossiers — même style que les fichiers */
+.feuillets-folder-row.is-selected {
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--interactive-accent);
 }
 
 /* volet gauche : hiérarchie lisible. Tout était en gras (hérité de
@@ -902,9 +921,8 @@
   background: var(--background-modifier-hover);
 }
 
-/* Sélection multiple (mode Plan) — même langage que .feuillets-item
-   .feuillets-multiselected du Binder. */
-.feuillets-row.feuillets-multiselected {
+/* Sélection multiple (mode Plan et Binder) — même langage pour les deux */
+.feuillets-row.is-selected {
   background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
   border-left: 3px solid var(--interactive-accent);
 }
@@ -2719,7 +2737,7 @@ body.feuillets-text-width .markdown-preview-view {
 /* Sélection multiple (Cmd/Ctrl+clic, Maj+clic) pour un déplacement groupé —
    teinte translucide distincte de is-active (fichier actif), pour ne pas
    les confondre si les deux se superposent. */
-.feuillets-item.feuillets-multiselected {
+.feuillets-item.is-selected {
   background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
   box-shadow: inset 2px 0 0 var(--interactive-accent);
 }
@@ -6509,3 +6527,15 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-project-list { padding: 4px 0; }
 .feuillets-project-row-indent { padding-left: 12px; }
 .feuillets-add-row { padding: 8px 10px; }
+
+/* --- Surlignage temporaire du dossier Recherche ouvert --- */
+.feuillets-highlight-research-folder {
+  background-color: var(--background-modifier-hover);
+  animation: feuillets-highlight-pulse 2s ease-in-out;
+}
+
+@keyframes feuillets-highlight-pulse {
+  0% { background-color: var(--text-accent); opacity: 0.3; }
+  50% { background-color: var(--text-accent); opacity: 0.2; }
+  100% { background-color: transparent; opacity: 0; }
+}

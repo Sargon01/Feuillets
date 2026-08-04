@@ -126,6 +126,9 @@ export const en = {
   "binder.onboarding.card.demo.title": "Discover with a demo project",
   "binder.onboarding.card.demo.desc": "An already-filled example project, to discover Feuillets without writing a line.",
   "binder.onboarding.card.demo.btn": "Discover",
+  "binder.compileFile": "Compile this file",
+  "binder.compileFolder": "Compile this folder",
+  "binder.compileSelection": "Compile the selection",
 
   // ---------- Obsidian Explorer context menu (scenes-editor.js) ----------
   "explorer.transformToProject": "Transform as Feuillets project",

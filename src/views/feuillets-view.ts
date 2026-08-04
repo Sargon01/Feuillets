@@ -847,8 +847,10 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       }
 
+      item.setAttr("data-path", file.path);
+
       if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(file.path)) {
-        item.addClass("feuillets-multiselected");
+        item.addClass("is-selected");
       }
 
       item.addEventListener("click", (e) => {
@@ -875,6 +877,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         this.attachDragHandlers(grip, item, parent, i, siblings, dragScopeEl);
         item.addEventListener("contextmenu", (e) => {
           e.preventDefault();
+          this.ensureSelectionForContextMenu(file.path, dragScopeEl);
           this.showFileContextMenu(e, file, parent, i, siblings);
         });
       }
@@ -1575,7 +1578,13 @@ export class FeuilletsView extends BaseFeuilletsView {
         const row = treePane.createDiv({ cls: "feuillets-folder-row" });
         if (depth === 0) row.addClass("is-depth-0");
         row.style.paddingLeft = `${6 + depth * 14}px`;
-        if (selectedFolder.path === child.path) row.addClass("is-selected");
+        if (selectedFolder.path === child.path) row.addClass("is-active");
+
+        row.setAttr("data-path", child.path);
+
+        if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(child.path)) {
+          row.addClass("is-selected");
+        }
 
         const grip = row.createSpan({ cls: "feuillets-drag-grip" });
         setIcon(grip, "grip-vertical");
@@ -1611,6 +1620,9 @@ export class FeuilletsView extends BaseFeuilletsView {
 
         row.addEventListener("click", (e) => {
           if (e.target === addBtn || addBtn.contains(e.target as Node)) return;
+          if (this.handleMultiSelectClick(e, child, parent, i, siblings, split)) {
+            return;
+          }
           void (async () => {
             // Toggle collapse
             if (S.collapsed[child.path]) delete S.collapsed[child.path];
@@ -1621,6 +1633,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         });
         row.addEventListener("contextmenu", (e) => {
           e.preventDefault();
+          this.ensureSelectionForContextMenu(child.path, split);
           this.showFolderContextMenu(e, child, parent, i, siblings);
         });
 
@@ -1721,5 +1734,21 @@ export class FeuilletsView extends BaseFeuilletsView {
       );
       this.attachEmptyFolderDropHandler(emptyEl, selectedFolder);
     }
+
+    // Vider la sélection quand on clique dans une zone vide du Binder
+    split.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      // Ne vider que si le clic est dans la zone vide ou pas sur un élément avec data-path
+      if (
+        !target.closest("[data-path]") &&
+        !target.closest(".feuillets-folder-add") &&
+        !target.closest(".feuillets-drag-grip")
+      ) {
+        if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.size > 0) {
+          this.plugin._binderMultiSelect.clear();
+          this.refreshMultiSelectClasses(split);
+        }
+      }
+    });
   }
 }

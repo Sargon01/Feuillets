@@ -2202,6 +2202,28 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
+    // Compilation libre
+    const compilationTitle = isGroup
+      ? t("binder.compileSelection")
+      : t("binder.compileFile");
+    menu.addItem((item) =>
+      item
+        .setTitle(compilationTitle)
+        .setIcon("download")
+        .onClick(async () => {
+          const { compile } = await import("../services/compile-export.js");
+          if (isGroup) {
+            // Compiler la sélection (tous les fichiers sélectionnés)
+            await compile(this.app, plugin.settings, null);
+          } else {
+            // Compiler ce fichier
+            await compile(this.app, plugin.settings, file.path);
+          }
+        })
+    );
+
+    menu.addSeparator();
+
     menu.addItem((item) =>
       item
         .setTitle(t("shared.trash"))
@@ -2357,6 +2379,18 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
+    // Compilation libre
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.compileFolder"))
+        .setIcon("download")
+        .onClick(async () => {
+          const { compile } = await import("../services/compile-export.js");
+          await compile(this.app, plugin.settings, folder.path);
+        })
+    );
+    menu.addSeparator();
+
     menu.addItem((item) =>
       item
         .setTitle(t("shared.contextMenu.trashFolder"))
@@ -2434,7 +2468,7 @@ export abstract class BaseFeuilletsView extends ItemView {
    * glisser-déposer group entraîne réellement toute la sélection).
    * Retourne true si le clic a été consommé par la sélection (l'appelant
    * ne doit alors pas ouvrir le fichier). */
-  handleMultiSelectClick(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, siblings: ProjectNode[], scopeEl: HTMLElement): boolean {
+  handleMultiSelectClick(e: MouseEvent, node: TAbstractFile, parent: ProjectNode, index: number, siblings: ProjectNode[], scopeEl: HTMLElement): boolean {
     if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
     const sel = this.plugin._binderMultiSelect;
 
@@ -2450,7 +2484,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         }
       } else {
         sel.clear();
-        sel.add(file.path);
+        sel.add(node.path);
         this.plugin._binderMultiSelectAnchor = { parentPath: parent.path, index };
       }
       this.refreshMultiSelectClasses(scopeEl);
@@ -2459,8 +2493,8 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
-      if (sel.has(file.path)) sel.delete(file.path);
-      else sel.add(file.path);
+      if (sel.has(node.path)) sel.delete(node.path);
+      else sel.add(node.path);
       this.plugin._binderMultiSelectAnchor = { parentPath: parent.path, index };
       this.refreshMultiSelectClasses(scopeEl);
       return true;
@@ -2478,9 +2512,22 @@ export abstract class BaseFeuilletsView extends ItemView {
     const sel = this.plugin._binderMultiSelect;
     scopeEl.querySelectorAll("[data-path]").forEach((el) => {
       const path = el.getAttr("data-path");
-      if (sel && path && sel.has(path)) el.addClass("feuillets-multiselected");
-      else el.removeClass("feuillets-multiselected");
+      if (sel && path && sel.has(path)) el.addClass("is-selected");
+      else el.removeClass("is-selected");
     });
+  }
+
+  ensureSelectionForContextMenu(nodePath: string, scopeEl: HTMLElement): void {
+    if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
+    const sel = this.plugin._binderMultiSelect;
+
+    // Si le nœud cliqué n'est pas sélectionné, sélectionner uniquement celui-ci
+    if (!sel.has(nodePath)) {
+      sel.clear();
+      sel.add(nodePath);
+      this.refreshMultiSelectClasses(scopeEl);
+    }
+    // Sinon, garder la sélection existante (aucune action)
   }
 
   /** Actions groupées — mêmes trois gestes partagés entre le clic droit du
@@ -2516,6 +2563,27 @@ export abstract class BaseFeuilletsView extends ItemView {
     ).open();
   }
 
+  /** Filtre une liste de chemins sélectionnés pour éliminer les descendants
+   * d'autres éléments sélectionnés. Cela évite de déplacer un élément deux
+   * fois si son parent est également sélectionné. */
+  filterOutDescendants(selectedPaths: Set<string>): Set<string> {
+    const result = new Set<string>();
+    for (const path of selectedPaths) {
+      // Vérifier si ce chemin est un descendant d'un autre chemin sélectionné
+      let isDescendant = false;
+      for (const otherPath of selectedPaths) {
+        if (otherPath !== path && path.startsWith(otherPath + "/")) {
+          isDescendant = true;
+          break;
+        }
+      }
+      if (!isDescendant) {
+        result.add(path);
+      }
+    }
+    return result;
+  }
+
   attachDragHandlers(handleEl: HTMLElement, dropEl: HTMLElement, parent: ProjectNode, index: number, siblings: ProjectNode[], _scopeEl: HTMLElement): void {
     handleEl.draggable = true;
     handleEl.addEventListener("dragstart", (e) => {
@@ -2523,12 +2591,22 @@ export abstract class BaseFeuilletsView extends ItemView {
          (Cmd/Ctrl+clic ou Maj+clic, voir renderFileRow) : on entraîne tout
          le groupe, pas juste celle qu'on a saisie — sinon la sélection ne
          servirait à rien pour un vrai déplacement groupé. */
-      const sel = this.plugin._binderMultiSelect;
       const draggedPath = siblings[index] ? siblings[index].path : null;
+      const draggedNode = siblings[index];
+
+      // Interdire le drag des dossiers techniques (qui commencent par _)
+      if (draggedNode instanceof TFolder && draggedNode.name.startsWith("_")) {
+        e.preventDefault();
+        return;
+      }
+
+      const sel = this.plugin._binderMultiSelect;
       if (sel && sel.size > 1 && draggedPath && sel.has(draggedPath)) {
+        // Filtrer les descendants pour éviter de déplacer un élément deux fois
+        const filteredSel = this.filterOutDescendants(sel);
         const items = siblings
           .map((s, i) => ({ path: s.path, index: i }))
-          .filter((it) => sel.has(it.path));
+          .filter((it) => filteredSel.has(it.path));
         this.plugin.dragState = { parentPath: parent.path, multi: true, items };
       } else {
         this.plugin.dragState = {
@@ -2548,31 +2626,58 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.plugin.dragState = null;
       dropEl.removeClass("feuillets-dragging");
       this.contentEl
-        .querySelectorAll(".feuillets-dragover, .feuillets-dragging")
+        .querySelectorAll(".feuillets-dragover, .feuillets-dragging, .feuillets-dragover-folder, .feuillets-dragover-between")
         .forEach((el) => {
           el.removeClass("feuillets-dragover");
           el.removeClass("feuillets-dragging");
+          el.removeClass("feuillets-dragover-folder");
+          el.removeClass("feuillets-dragover-between");
         });
     });
     dropEl.addEventListener("dragover", (e) => {
       if (!this.plugin.dragState) return;
       e.preventDefault();
       e.dataTransfer!.dropEffect = "move";
-      dropEl.addClass("feuillets-dragover");
+
+      // Distinguer le dépôt SUR un dossier (le mettre dedans) vs ENTRE les éléments (réordonner)
+      const rect = dropEl.getBoundingClientRect();
+      const middleY = rect.top + rect.height / 2;
+      const isNearBottom = e.clientY > middleY;
+
+      // Déterminer si on dépose sur un dossier ou entre les éléments
+      const dropNode = siblings[index];
+      const isFolder = dropNode instanceof TFolder;
+
+      if (isFolder && !isNearBottom) {
+        // Au-dessus d'un dossier : indiquer un dépôt DANS le dossier
+        dropEl.addClass("feuillets-dragover-folder");
+        dropEl.removeClass("feuillets-dragover-between");
+      } else {
+        // En bas d'un élément ou d'un fichier : indiquer insertion APRÈS
+        dropEl.addClass("feuillets-dragover-between");
+        dropEl.removeClass("feuillets-dragover-folder");
+      }
     });
     dropEl.addEventListener("dragleave", () => {
       dropEl.removeClass("feuillets-dragover");
+      dropEl.removeClass("feuillets-dragover-folder");
+      dropEl.removeClass("feuillets-dragover-between");
     });
     dropEl.addEventListener("drop", (e) => {
       void (async () => {
       e.preventDefault();
       dropEl.removeClass("feuillets-dragover");
+      dropEl.removeClass("feuillets-dragover-folder");
+      dropEl.removeClass("feuillets-dragover-between");
       if (!this.plugin.dragState) return;
       const drag = this.plugin.dragState;
       this.plugin.dragState = null;
 
       if (drag.multi) {
-        if (this.plugin._binderMultiSelect) this.plugin._binderMultiSelect.clear();
+        // Conserver les chemins des éléments déplacés pour restaurer la sélection après
+        const movedPaths = (drag.items || []).map((it) => it.path);
+        const newSelection = new Set<string>();
+
         const sameParentTarget = drag.parentPath === parent.path ? siblings[index] : null;
         const draggedIndices = new Set((drag.items || []).map((it) => it.index));
         if (
@@ -2620,6 +2725,16 @@ export abstract class BaseFeuilletsView extends ItemView {
             }
           }
         }
+
+        // Restaurer la sélection avec les nouveaux chemins
+        for (const oldPath of movedPaths) {
+          const node = this.app.vault.getAbstractFileByPath(oldPath);
+          if (node) {
+            newSelection.add(node.path);
+          }
+        }
+        this.plugin._binderMultiSelect = newSelection;
+
         this.plugin.renderAllViews(true);
         return;
       }
@@ -2685,21 +2800,29 @@ export abstract class BaseFeuilletsView extends ItemView {
       if (!this.plugin.dragState) return;
       e.preventDefault();
       e.dataTransfer!.dropEffect = "move";
-      dropEl.addClass("feuillets-dragover");
+      // Pour le dossier vide, c'est toujours un dépôt DANS le dossier
+      dropEl.addClass("feuillets-dragover-folder");
     });
     dropEl.addEventListener("dragleave", () => {
       dropEl.removeClass("feuillets-dragover");
+      dropEl.removeClass("feuillets-dragover-folder");
+      dropEl.removeClass("feuillets-dragover-between");
     });
     dropEl.addEventListener("drop", (e) => {
       void (async () => {
       e.preventDefault();
       dropEl.removeClass("feuillets-dragover");
+      dropEl.removeClass("feuillets-dragover-folder");
+      dropEl.removeClass("feuillets-dragover-between");
       if (!this.plugin.dragState) return;
       const drag = this.plugin.dragState;
       this.plugin.dragState = null;
 
       if (drag.multi) {
-        if (this.plugin._binderMultiSelect) this.plugin._binderMultiSelect.clear();
+        // Conserver les chemins des éléments déplacés pour restaurer la sélection après
+        const movedPaths = (drag.items || []).map((it) => it.path);
+        const newSelection = new Set<string>();
+
         const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
         if (srcParent instanceof TFolder) {
           for (const it of (drag.items || [])) {
@@ -2708,6 +2831,16 @@ export abstract class BaseFeuilletsView extends ItemView {
             await this.plugin.moveNode(node as ProjectNode, srcParent, folder, Number.MAX_SAFE_INTEGER);
           }
         }
+
+        // Restaurer la sélection avec les nouveaux chemins
+        for (const oldPath of movedPaths) {
+          const node = this.app.vault.getAbstractFileByPath(oldPath);
+          if (node) {
+            newSelection.add(node.path);
+          }
+        }
+        this.plugin._binderMultiSelect = newSelection;
+
         this.plugin.renderAllViews(true);
         return;
       }
