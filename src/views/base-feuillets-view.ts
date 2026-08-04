@@ -1,4 +1,4 @@
-import { getProjectStatuses } from "../constants.js";
+import { getProjectStatuses, VIEW_RESEARCH } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
@@ -1064,6 +1064,12 @@ export abstract class BaseFeuilletsView extends ItemView {
       onCreate: onCreate ? () => { void onCreate(); } : undefined,
     });
 
+    // Ajouter l'attribut data pour identifier le dossier
+    if (folderOrFiles instanceof TFolder && typeof head.setAttribute === "function") {
+      head.setAttribute("data-research-folder-path", folderOrFiles.path);
+      head.setAttribute("data-research-folder-name", folderOrFiles.name);
+    }
+
     /* Chaque rubrique Recherche correspond à un vrai dossier. Le menu rend
        donc accessibles les mêmes opérations d'arborescence que dans le
        Binder, y compris les sous-dossiers utiles à une future association
@@ -1851,26 +1857,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           .setTitle(t("binder.research.openLinkedFolder"))
           .setIcon("search")
           .onClick(() => {
-            /* Révéler dans l'explorateur de fichiers : API interne
-               d'Obsidian (internalPlugins.getPluginById, non déclarée dans
-               obsidian.d.ts — d'où le type local), absente sur mobile — un
-               simple repli par notice, jamais un échec silencieux. */
-            const appWithInternal = this.app as App & {
-              internalPlugins?: { getPluginById?: (id: string) => unknown };
-            };
-            const rawExplorer = appWithInternal.internalPlugins?.getPluginById?.("file-explorer");
-            const instance =
-              rawExplorer &&
-              typeof rawExplorer === "object" &&
-              "instance" in rawExplorer
-                ? (rawExplorer as { instance?: unknown }).instance
-                : null;
-            const reveal = instance as { revealInFolder?: (f: TFolder) => void } | null;
-            if (reveal && typeof reveal.revealInFolder === "function") {
-              reveal.revealInFolder(linkedResearch);
-            } else {
-              new Notice(t("binder.research.openLinkedFolderUnavailable"));
-            }
+            this.openResearchFolderInTab(linkedResearch);
           })
       );
       menu.addItem((item) =>
@@ -1937,6 +1924,112 @@ export abstract class BaseFeuilletsView extends ItemView {
           .onClick(() => new LinkResearchFolderModal(this.app, plugin, keyNode, displayName).open())
       );
     }
+  }
+
+  private async openResearchFolderInTab(folder: TFolder): Promise<void> {
+    /* Ouvrir la vue Recherche de la sidebar Feuillets (pas une nouvelle
+       feuille centrale) et révéler le dossier lié. */
+    const { VIEW_SIDEBAR_FEUILLETS } = await import("../constants.js");
+    const app = this.app;
+
+    // Chercher la sidebar Feuillets existante
+    const sidebarLeaves = app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS);
+    let sidebarLeaf = sidebarLeaves.length > 0 ? sidebarLeaves[0] : null;
+
+    // Si pas de sidebar, l'ouvrir à droite
+    if (!sidebarLeaf) {
+      const rightLeaf = (app.workspace as unknown as { getRightLeaf?: (create: boolean) => unknown }).getRightLeaf?.(true);
+      sidebarLeaf = rightLeaf as unknown as WorkspaceLeaf | null;
+      if (sidebarLeaf && typeof (sidebarLeaf as unknown as { setViewState?: (state: unknown) => Promise<void> }).setViewState === "function") {
+        await (sidebarLeaf as unknown as { setViewState: (state: unknown) => Promise<void> }).setViewState({ type: VIEW_SIDEBAR_FEUILLETS, state: {} });
+      }
+    }
+
+    if (!sidebarLeaf) {
+      new Notice(t("binder.research.folderNoLongerExists"));
+      return;
+    }
+
+    // Activer la leaf de la sidebar
+    app.workspace.revealLeaf(sidebarLeaf);
+
+    // Obtenir la view sidebar et basculer vers l'onglet Recherche
+    const sidebarView = sidebarLeaf.view as unknown as {
+      activeTab?: string;
+      subViews?: Record<string, unknown & { revealLinkedResearchFolder?: (folder: TFolder) => Promise<void> }>;
+      render?: (force?: boolean) => Promise<void>;
+    } | null;
+
+    if (sidebarView) {
+      // Basculer vers l'onglet Recherche
+      if (sidebarView.activeTab !== "research") {
+        sidebarView.activeTab = "research";
+        if (typeof sidebarView.render === "function") {
+          await sidebarView.render(true);
+        }
+      }
+
+      // Révéler le dossier lié dans la vue Recherche de la sidebar
+      const researchSubView = sidebarView.subViews?.["research"];
+      if (researchSubView && typeof researchSubView.revealLinkedResearchFolder === "function") {
+        await researchSubView.revealLinkedResearchFolder(folder);
+      }
+    }
+  }
+
+  async revealLinkedResearchFolder(folder: TFolder): Promise<void> {
+    /* Méthode publique pour révéler et surligner un dossier Recherche lié.
+       Utilisée par openResearchFolderInTab et depuis les views sidebar. */
+    // Vérifier que le dossier existe toujours
+    const stillExists = this.app.vault.getAbstractFileByPath(folder.path);
+    if (!(stillExists instanceof TFolder)) {
+      new Notice(t("binder.research.folderNoLongerExists"));
+      return;
+    }
+
+    // Forcer le rendu de la view pour s'assurer que le DOM est à jour
+    if (typeof (this as unknown as { render?: (force?: boolean) => Promise<void> }).render === "function") {
+      await (this as unknown as { render?: (force?: boolean) => Promise<void> }).render?.(true);
+    }
+
+    // Surligner le dossier après un court délai
+    setTimeout(() => {
+      this.highlightResearchFolderInTab(folder);
+    }, 100);
+  }
+
+  private highlightResearchFolderInTab(folder: TFolder): void {
+    /* Chercher le dossier dans le DOM de la view Recherche et ajouter
+       un surlignage temporaire. Utilise le targetContainer (sidebar) ou
+       contentEl (centrale) selon la context. */
+    // Utiliser le conteneur de cette vue si disponible
+    const container = (this as unknown as { targetContainer?: HTMLElement; contentEl?: HTMLElement }).targetContainer ||
+                      (this as unknown as { contentEl?: HTMLElement }).contentEl;
+    if (!container) return;
+
+    // Chercher le dossier par son chemin ou son nom
+    const folderElements = container.querySelectorAll<HTMLElement>(
+      `[data-research-folder-path="${folder.path}"],
+       [data-research-folder-name="${folder.name}"]`
+    );
+
+    if (folderElements.length === 0) {
+      // Le dossier n'est pas visible (probablement un parent replié)
+      // On pourrait ici déplier les parents, mais pour l'instant on quitte silencieusement
+      return;
+    }
+
+    // Surligner le premier élément trouvé
+    const element = folderElements[0];
+    element.classList.add("feuillets-highlight-research-folder");
+
+    // Faire défiler jusqu'à l'élément
+    element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    // Retirer le surlignage après 2 secondes
+    setTimeout(() => {
+      element.classList.remove("feuillets-highlight-research-folder");
+    }, 2000);
   }
 
   showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[]): void {
