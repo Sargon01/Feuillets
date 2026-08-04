@@ -4,7 +4,7 @@ import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
 import { TextInputModal } from "../scenes-editor.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
-import { RenameFolderModal } from "../ui/basic-modals.js";
+import { RenameFolderModal, NewResearchFileModal, RenameFileModal } from "../ui/basic-modals.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
 import { promptForPage } from "../ui/citation-modal.js";
@@ -126,6 +126,107 @@ export abstract class BaseFeuilletsView extends ItemView {
     const path = normalizePath(`${folder.path}/${name}.md`);
     const file = await this.app.vault.create(path, template);
     openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+  }
+
+  /** Valide un nom de fichier (sans extension) : refuse les noms vides, / et \\. */
+  private isFileNameInvalid(name: string): boolean {
+    if (!name || !name.trim()) return true;
+    if (name.includes("/") || name.includes("\\")) return true;
+    return false;
+  }
+
+  /** Ouvre une modale de saisie puis crée le fichier nommé dans le dossier cible. */
+  promptCreateResearchFile(folder: TFolder, defaultName: string, template: string): void {
+    new NewResearchFileModal(this.app, folder.name, defaultName, async (rawName) => {
+      const cleanName = rawName.trim();
+      if (this.isFileNameInvalid(cleanName)) {
+        new Notice(t("binder.research.invalidName"));
+        return;
+      }
+      const fileName = cleanName.endsWith(".md") ? cleanName : `${cleanName}.md`;
+      const destPath = normalizePath(`${folder.path}/${fileName}`);
+      if (this.app.vault.getAbstractFileByPath(destPath)) {
+        new Notice(t("binder.research.renameAlreadyExists", { name: cleanName }));
+        return;
+      }
+      await this.plugin.ensureFolder(folder.path);
+      const file = await this.app.vault.create(destPath, template);
+      openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+      void this.render(true);
+    }).open();
+  }
+
+  /** Ouvre une modale de renommage préremplie avec le basename du fichier. */
+  promptRenameResearchFile(file: TFile): void {
+    const currentBasename = file.basename;
+    new RenameFileModal(this.app, currentBasename, async (rawName) => {
+      const cleanName = rawName.trim();
+      if (this.isFileNameInvalid(cleanName)) {
+        new Notice(t("binder.research.invalidName"));
+        return;
+      }
+      const fileName = cleanName.endsWith(".md") ? cleanName : `${cleanName}.md`;
+      const parentPath = file.parent?.path;
+      if (!parentPath) return;
+      const destPath = normalizePath(`${parentPath}/${fileName}`);
+      if (destPath === file.path) return; // nom inchangé
+      if (this.app.vault.getAbstractFileByPath(destPath)) {
+        new Notice(t("binder.research.renameAlreadyExists", { name: cleanName }));
+        return;
+      }
+      await this.app.fileManager.renameFile(file, destPath);
+      new Notice(t("binder.research.renamed", { name: cleanName }));
+      void this.render(true);
+    }).open();
+  }
+
+  /** Menu contextuel d'un fichier de recherche : Renommer, Dupliquer, Corbeille. */
+  showResearchFileContextMenu(e: MouseEvent, file: TFile): void {
+    const menu = new Menu();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.research.openNewTab"))
+        .setIcon("file-plus")
+        .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file))
+    );
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.research.renameFile"))
+        .setIcon("pencil")
+        .onClick(() => this.promptRenameResearchFile(file))
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.duplicate"))
+        .setIcon("copy")
+        .onClick(async () => {
+          const content = await this.app.vault.read(file);
+          const copySuffix = t("binder.research.copySuffix");
+          let name = `${file.basename} (${copySuffix})`;
+          let dest = normalizePath(`${file.parent!.path}/${name}.md`);
+          let k = 2;
+          while (this.app.vault.getAbstractFileByPath(dest)) {
+            name = `${file.basename} (${copySuffix} ${k++})`;
+            dest = normalizePath(`${file.parent!.path}/${name}.md`);
+          }
+          await this.app.vault.create(dest, content);
+          new Notice(t("shared.duplicated", { name }));
+          void this.render(true);
+        })
+    );
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.trash"))
+        .setIcon("trash")
+        .onClick(async () => {
+          await this.app.fileManager.trashFile(file);
+          new Notice(t("shared.trashed", { name: this.plugin.titleFor(file) || file.basename }));
+          void this.render(true);
+        })
+    );
+    menu.showAtMouseEvent(e);
   }
 
   makeSynopsisArea(parent: HTMLElement, file: TFile, rows: number): HTMLTextAreaElement {
@@ -534,7 +635,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         });
       };
       this.renderSection(body, researchFolderLabel(rf, "sources"), sourcesFolder, async () =>
-        this.createEntity(
+        this.promptCreateResearchFile(
           sourcesFolder,
           rf.sources!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "sources", rf.sources!.newName)
@@ -553,7 +654,7 @@ export abstract class BaseFeuilletsView extends ItemView {
          manuelles pour des lectures complémentaires, sans lien avec le
          texte. */
       this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
-        this.createEntity(
+        this.promptCreateResearchFile(
           bibliographieFolder,
           rf.bibliographie.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "bibliographie", rf.bibliographie.newName)
@@ -563,7 +664,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     if (rf.personnages && personnagesFolder) {
       this.renderSection(body, researchFolderLabel(rf, "personnages"), personnagesFolder, async () =>
-        this.createEntity(
+        this.promptCreateResearchFile(
           personnagesFolder,
           rf.personnages!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "personnages", rf.personnages!.newName)
@@ -573,7 +674,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     if (rf.lieux && lieuxFolder) {
       this.renderSection(body, researchFolderLabel(rf, "lieux"), lieuxFolder, async () =>
-        this.createEntity(
+        this.promptCreateResearchFile(
           lieuxFolder,
           rf.lieux!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "lieux", rf.lieux!.newName)
@@ -583,7 +684,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     if (rf.codex && codexFolder) {
       this.renderSection(body, researchFolderLabel(rf, "codex"), codexFolder, async () =>
-        this.createEntity(
+        this.promptCreateResearchFile(
           codexFolder,
           rf.codex!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "codex", rf.codex!.newName)
@@ -593,7 +694,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     if (rf.glossaire && glossaireFolder) {
       this.renderSection(body, researchFolderLabel(rf, "glossaire"), glossaireFolder, async () =>
-        this.createEntity(
+        this.promptCreateResearchFile(
           glossaireFolder,
           rf.glossaire!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "glossaire", rf.glossaire!.newName)
@@ -603,7 +704,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     if (rf.evenements && chronoFolder) {
       this.renderSection(body, researchFolderLabel(rf, "evenements"), chronoFolder, async () =>
-        this.createEntity(
+        this.promptCreateResearchFile(
           chronoFolder,
           rf.evenements!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "evenements", rf.evenements!.newName)
@@ -614,20 +715,22 @@ export abstract class BaseFeuilletsView extends ItemView {
     // Rendu des dossiers de recherche personnalisés
     for (const folder of customFolders) {
       const folderTag = foldAccents(folder.name.toLowerCase().replace(/\s+/g, "-"));
-      this.renderSection(body, folder.name, folder, () =>
-        this.createEntity(
+      this.renderSection(body, folder.name, folder, async () => {
+        const defaultName = `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`;
+        this.promptCreateResearchFile(
           folder,
-          `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`,
+          defaultName,
           [
             "---",
-            `title: "Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}"`,
+            `title: "${defaultName}"`,
             "synopsis: ",
             "tags:",
             `  - ${folderTag}`,
             "---",
             ""
           ].join("\n")
-        ), folderTag
+        );
+      }, folderTag
       );
     }
 
@@ -887,6 +990,15 @@ export abstract class BaseFeuilletsView extends ItemView {
     nameEl.setText(this.plugin.titleFor(f));
 
     this.addPreviewBtn(header, f);
+
+    /* Menu contextuel ⋯ sur chaque fichier : Renommer, Dupliquer, Corbeille. */
+    if (!isMedia) {
+      const fileActionsBtn = this.iconBtn(header, "more-horizontal", t("shared.research.folderActions"));
+      fileActionsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showResearchFileContextMenu(e, f);
+      });
+    }
 
     if (isMedia) {
       const insertLinkBtn = this.iconBtn(

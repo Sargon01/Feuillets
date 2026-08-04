@@ -59,6 +59,10 @@ export const fr = {
 
   "binder.research.newFolder": "Nouveau dossier…",
   "binder.research.newFile": "Nouveau fichier…",
+  "binder.research.renameFile": "Renommer…",
+  "binder.research.renameAlreadyExists": "Un fichier nommé « {name} » existe déjà.",
+  "binder.research.invalidName": "Nom de fichier invalide. Évite les caractères / et \\.",
+  "binder.research.renamed": "Fichier renommé en « {name} ».",
   "binder.research.newFileDefaultName": "Nouveau fichier",
   "binder.research.openNewTab": "Ouvrir dans un nouvel onglet",
   "binder.research.openSplit": "Ouvrir en vue côte à côte",
@@ -177,6 +181,14 @@ export const fr = {
   "shared.savedFilters.tooltip": "Dossiers de recherche sauvegardés…",
   "shared.savedFilters.save": "Enregistrer le filtre actif…",
   "shared.savedFilters.manage": "Gérer les dossiers sauvegardés…",
+
+  "shared.research.folderActions": "Actions du dossier",
+  "shared.research.copyFolder": "Copier le dossier",
+  "shared.research.pasteFolder": "Coller dans ce dossier",
+  "shared.research.folderCopied": "Dossier « {name} » copié. Ouvre le menu d'un dossier Recherche pour le coller.",
+  "shared.research.folderPasted": "Dossier « {name} » collé.",
+  "shared.research.nothingToPaste": "Aucun dossier Recherche à coller.",
+  "shared.research.cannotPasteIntoItself": "Impossible de coller un dossier dans lui-même.",
 
   "shared.contextMenu.groupSelected": "{count} feuillets sélectionnés",
   "shared.contextMenu.newSheetBefore": "Nouveau feuillet avant",
@@ -1086,6 +1098,10 @@ export const fr = {
 
   "modal.create": "Créer",
   "modal.cancel": "Annuler",
+  "modal.rename": "Renommer",
+  "modal.newResearchFile.title": "Nouveau fichier dans « {folder} »",
+  "modal.renameFile.title": "Renommer le fichier",
+  "modal.renameFile.label": "Nouveau nom (sans .md)",
   "modal.selectAll": "Tout",
   "modal.selectNone": "Aucun",
 
