@@ -22,7 +22,7 @@ import { ensureJournalFolder } from "./journal.js";
 import { getProjectMode } from "./project-mode.js";
 import { getLocale } from "../i18n/index.js";
 import { openFileActivating } from "../utils/dom.js";
-import { applyModeDefaults, resolveType } from "../utils/project-modes.js";
+import { applyModeDefaults, resolveType, PROJECT_MODES, researchFolderNames } from "../utils/project-modes.js";
 
 export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
   const p = normalizePath(path);
@@ -456,10 +456,59 @@ export async function createMinimalProject(
      ci-dessus, pas au défaut générique du mode. */
   settings.level1Role = isFiction ? "chapitres" : "parties";
 
+  // --- Sous-dossiers de Recherche selon le mode ---
+  const names = getFeuilletsFolderNames(getLocale());
+  const researchPath = normalizePath(`${volumePath}/${names.research}`);
+  await initResearchSubfolders(app, researchPath, type);
+
   return { volumePath, manuscritPath, firstFolderPath, firstFile };
 }
 
 /** Crée les dossiers _ et les fichiers Bases (personnages, lieux). */
+/** Crée les sous-dossiers Recherche selon le mode du projet.
+ *
+ * - Fiction : crée toutes les catégories de FICTION_RESEARCH
+ * - Non-fiction : crée Notes, Bibliographie, Sources uniquement
+ * - Libre : ne crée aucun sous-dossier métier (l'utilisateur les crée via le bouton "Nouvelle rubrique")
+ *
+ * Cette fonction ne crée JAMAIS les dossiers existants — elle reconnaît les variantes
+ * historiques et les réutilise, jamais elle ne les renomme ou les duplique. */
+export async function initResearchSubfolders(
+  app: App,
+  researchPath: string,
+  mode: string | null | undefined
+): Promise<void> {
+  const resolvedMode = resolveType(mode);
+  const projectMode = PROJECT_MODES[resolvedMode];
+  if (!projectMode) return;
+
+  // Récupérer les catégories à créer selon le mode
+  const researchFolders = projectMode.researchFolders;
+
+  // Créer uniquement les catégories présentes dans ce mode
+  for (const [key] of Object.entries(researchFolders)) {
+    // Utiliser les noms reconnus selon la locale (nouveau + ancien)
+    const names = researchFolderNames(researchFolders, key);
+
+    // Chercher si le dossier existe déjà sous un des noms possibles
+    let exists = false;
+    for (const name of names) {
+      const path = normalizePath(`${researchPath}/${name}`);
+      const existing = app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFolder) {
+        exists = true;
+        break;
+      }
+    }
+
+    // Si le dossier n'existe pas, le créer avec le nom préféré (selon locale)
+    if (!exists && names.length > 0) {
+      const newFolderPath = normalizePath(`${researchPath}/${names[0]}`);
+      await ensureFolder(app, newFolderPath);
+    }
+  }
+}
+
 export async function initProjectStructure(app: App, settings: FeuilletsSettings): Promise<void> {
   /* Racine réelle = dossier qui contient Manuscrit (ex. Projets/Mon recueil).
      getProjectRoot exclut la racine du coffre (path vide) : les dossiers ne
@@ -485,12 +534,11 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     : normalizePath(`${base}/${names.research}`);
   await ensureFolder(app, researchPath);
 
-  /* Sous-dossiers de Recherche — variantes historiques reconnues avant
-     toute création pour éviter les doublons. */
-  for (const { name, variants } of names.researchSubs) {
-    const subPath = resourcesSubfolderPath(app, researchPath, name, ...variants);
-    await ensureFolder(app, subPath);
-  }
+  /* Sous-dossiers de Recherche selon le mode du projet — variantes historiques
+     reconnues avant toute création pour éviter les doublons. */
+  const manuscritRoot = getProjectFolder(app, settings);
+  const projectMode = manuscritRoot ? settings.projectMeta[manuscritRoot.path]?.type : null;
+  await initResearchSubfolders(app, researchPath, projectMode);
 
   /* === Snapshots, Backups, Journal ===
      Chacun est créé sous la racine réelle avec son préfixe `_`.
@@ -512,8 +560,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
      Sous-dossiers créés avec les nouveaux noms FR/EN, variantes historiques
      reconnues pour éviter les doublons (Templates→Modèles, Layout→Mises en
      page, Assets→Ressources internes…). */
-  const manuscritRoot = getProjectFolder(app, settings)!;
-  const existingRes = getResourcesRoot(app, manuscritRoot);
+  const existingRes = manuscritRoot ? getResourcesRoot(app, manuscritRoot) : null;
   const resPath = existingRes
     ? existingRes.path
     : normalizePath(`${base}/${names.resources}`);
