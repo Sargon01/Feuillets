@@ -2820,14 +2820,30 @@ body.feuillets-text-width .markdown-preview-view {
 
 .feuillets-research-item {
   padding: var(--size-4-1) 6px;
-  border-radius: var(--radius-s);
   cursor: pointer;
   font-size: var(--font-ui-small);
 }
 
-.feuillets-research-item:hover {
-  background: var(--background-modifier-hover);
+/* Lignes de l'onglet Recherche : aucun fond, aucune bordure, aucun
+   encadré. L'imbrication des sous-dossiers et fichiers n'est visible
+   que par l'indentation. */
+.feuillets-research-container .feuillets-research-item {
+  padding: 0 6px;
+}
+
+.feuillets-research-container .feuillets-research-item .feuillets-research-item-header {
+  padding: 2px 6px;
+}
+
+.feuillets-research-container .feuillets-research-item-header:hover {
   color: var(--interactive-accent);
+}
+
+/* Vues Révision / Grammaire : les lignes .feuillets-research-item
+   conservent leur survol historique sur la ligne entière. */
+.feuillets-docx-review-container .feuillets-research-item:hover,
+.feuillets-grammar-container .feuillets-research-item:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 5%, transparent);
 }
 
 /* Icône dossier des lignes de recherche (fiches média ET sous-dossiers) —
@@ -2842,6 +2858,12 @@ body.feuillets-text-width .markdown-preview-view {
 .feuillets-research-item-icon svg {
   width: 14px;
   height: 14px;
+}
+
+/* Au survol du header exact sous la souris uniquement : l'icône passe en
+   couleur d'accent, sans remonter aux lignes parentes imbriquées. */
+.feuillets-research-item-header:hover .feuillets-research-item-icon {
+  color: var(--interactive-accent);
 }
 
 /* Sous-dossiers de recherche : ligne repliable (chevron + icône dossier,
@@ -2865,6 +2887,11 @@ body.feuillets-text-width .markdown-preview-view {
 .feuillets-research-subfolder-chevron svg {
   width: 12px;
   height: 12px;
+}
+
+/* Chevron : même survol direct, uniquement sur la ligne exacte. */
+.feuillets-research-item-header:hover .feuillets-research-subfolder-chevron {
+  color: var(--interactive-accent);
 }
 
 .feuillets-research-subfolder.feuillets-dragging {
@@ -2991,23 +3018,21 @@ body.feuillets-text-width .markdown-preview-view {
 
 /* ===== aperçu en ligne dans le panneau Recherche ===== */
 
-.feuillets-research-item {
-  border-radius: var(--radius-s);
-}
-
 .feuillets-research-item-name {
   padding: var(--size-4-1) 6px;
   cursor: pointer;
   font-size: var(--font-ui-small);
 }
 
-.feuillets-research-item:hover .feuillets-research-item-name {
-  background: var(--background-modifier-hover);
+.feuillets-research-container .feuillets-research-item-name {
+  padding: 2px 0;
+}
+
+.feuillets-research-item-header:hover .feuillets-research-item-name {
   color: var(--interactive-accent);
 }
 
 .feuillets-research-item-expanded {
-  background: var(--background-secondary);
   margin: 2px 0;
 }
 
@@ -3043,6 +3068,19 @@ body.feuillets-text-width .markdown-preview-view {
 .feuillets-research-item-header .feuillets-research-item-name {
   flex: 1;
   min-width: 0;
+}
+
+/* Bouton ⋯ : discret hors survol, pleinement visible au survol du header
+   exact sous la souris (pas des lignes parentes imbriquées). */
+.feuillets-research-container .feuillets-research-item .clickable-icon {
+  opacity: 0.35;
+  transition: opacity 0.15s ease;
+}
+
+.feuillets-research-container .feuillets-research-item-header:hover .clickable-icon,
+.feuillets-research-container .feuillets-research-item .clickable-icon:hover,
+.feuillets-research-container .feuillets-research-item .clickable-icon:focus-visible {
+  opacity: 1;
 }
 
 /* ===== modale des apparitions ===== */
@@ -3544,8 +3582,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-tree-pane .feuillets-file-row:hover,
 .feuillets-project-item:hover,
 .feuillets-doc-item:hover,
-.feuillets-character-item:hover,
-.feuillets-research-item:hover {
+.feuillets-character-item:hover {
   background: color-mix(in srgb, var(--interactive-accent) 5%, transparent);
 }
 
