@@ -2211,13 +2211,47 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setTitle(compilationTitle)
         .setIcon("download")
         .onClick(async () => {
-          const { compile } = await import("../services/compile-export.js");
+          const mod = await import("../ui/export-modal.js");
+          const ExportModal = mod.ExportModal as any;
+          const { exportWithScope } = await import("../services/compile-export.js");
+
           if (isGroup) {
             // Compiler la sélection (tous les fichiers sélectionnés)
-            await compile(this.app, plugin.settings, null);
+            const selectedFiles = Array.from(plugin._binderMultiSelect || new Set())
+              .map((path: string) => this.app.vault.getAbstractFileByPath(path))
+              .filter((f): f is TFile => f instanceof TFile);
+            const projectRoot = plugin.getProjectFolder();
+            if (!projectRoot) {
+              new Notice("Dossier projet introuvable.");
+              return;
+            }
+            const { createSelectionScope } = await import("../services/compile-scope.js");
+            const modal = new ExportModal(this.app, plugin, {
+              type: "selection",
+              files: selectedFiles,
+            });
+            modal.setOnSubmit(async (format: string, name: string) => {
+              const scope = createSelectionScope(projectRoot.path, selectedFiles.map((f) => f.path));
+              await (exportWithScope as any)(this.app, plugin.settings, scope, format, name);
+            });
+            modal.open();
           } else {
             // Compiler ce fichier
-            await compile(this.app, plugin.settings, file.path);
+            const projectRoot = plugin.getProjectFolder();
+            if (!projectRoot) {
+              new Notice("Dossier projet introuvable.");
+              return;
+            }
+            const { createFileScope } = await import("../services/compile-scope.js");
+            const modal = new ExportModal(this.app, plugin, {
+              type: "file",
+              files: [file],
+            });
+            modal.setOnSubmit(async (format: string, name: string) => {
+              const scope = createFileScope(projectRoot.path, file.path);
+              await (exportWithScope as any)(this.app, plugin.settings, scope, format, name);
+            });
+            modal.open();
           }
         })
     );
@@ -2385,8 +2419,25 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setTitle(t("binder.compileFolder"))
         .setIcon("download")
         .onClick(async () => {
-          const { compile } = await import("../services/compile-export.js");
-          await compile(this.app, plugin.settings, folder.path);
+          const mod = await import("../ui/export-modal.js");
+          const ExportModal = mod.ExportModal as any;
+          const { exportWithScope } = await import("../services/compile-export.js");
+          const { createFolderScope } = await import("../services/compile-scope.js");
+          const projectRoot = plugin.getProjectFolder();
+          if (!projectRoot) {
+            new Notice("Dossier projet introuvable.");
+            return;
+          }
+          const modal = new ExportModal(this.app, plugin, {
+            type: "folder",
+            name: folder.name,
+            folderPath: folder.path,
+          });
+          modal.setOnSubmit(async (format: string, name: string) => {
+            const scope = createFolderScope(projectRoot.path, folder.path);
+            await (exportWithScope as any)(this.app, plugin.settings, scope, format, name);
+          });
+          modal.open();
         })
     );
     menu.addSeparator();

@@ -60,7 +60,7 @@ test("compile : respecte l'ordre, les pages Front et compile: false", async () =
   assert.match(result.manuscript, /Premier texte\./);
   assert.doesNotMatch(result.manuscript, /Texte exclu/);
   assert.equal(result.segments.length, 3);
-  assert.ok(vault.getAbstractFileByPath("Projet/Sortie/Manuscrit.md"));
+  assert.ok(vault.getAbstractFileByPath("Projet/Manuscrit/_Sortie/Manuscrit.md"));
 });
 
 test("compile contextuelle : une portée Feuillet n'exporte que le fichier demandé", async () => {
@@ -280,8 +280,8 @@ test("getOutputFolder : crée et renvoie le dossier Sortie à côté du projet",
   const folder = await getOutputFolder(app, settings);
 
   assert.ok(folder);
-  assert.equal(folder.path, "Projet/Sortie");
-  assert.ok(vault.getAbstractFileByPath("Projet/Sortie"));
+  assert.equal(folder.path, "Projet/Manuscrit/_Sortie");
+  assert.ok(vault.getAbstractFileByPath("Projet/Manuscrit/_Sortie"));
 });
 
 test("getOutputFolder : renvoie null si pas de dossier projet", async () => {
@@ -362,4 +362,549 @@ test("projectMetaFor : renvoie {} si pas de dossier ou pas de meta", () => {
 
   assert.deepEqual(projectMetaFor(settings, null), {});
   assert.deepEqual(projectMetaFor(settings, { path: "Autre" }), {});
+});
+
+// ─── Tests d'émission de titres de dossiers selon la portée ──────────────────
+
+test("compile portée file : aucun titre de dossier n'est émis", async () => {
+  const manuscript = new TFolder("R/Manuscrit");
+  const chap = new TFolder("R/Manuscrit/Chapitre");
+  const sceneA = new TFile("R/Manuscrit/Chapitre/A.md", "Texte A.");
+  const sceneB = new TFile("R/Manuscrit/Chapitre/B.md", "Texte B.");
+  manuscript.children = [chap];
+  chap.parent = manuscript;
+  chap.children = [sceneA, sceneB];
+  sceneA.parent = chap;
+  sceneB.parent = chap;
+
+  const { vault } = createFakeVault([manuscript, chap, sceneA, sceneB]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: {},
+    compileFileName: "Out.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  const result = await compile(app, settings, sceneA.path);
+  assert.ok(result);
+  // Aucun titre markdown de niveau dossier (# Chapitre) ne doit apparaître
+  assert.doesNotMatch(result.manuscript, /^#+\s+Chapitre/m);
+});
+
+test("compile portée folder : aucun dossier frère n'émet de titre", async () => {
+  const manuscript = new TFolder("R/Manuscrit");
+  const chapA = new TFolder("R/Manuscrit/ChapA");
+  const chapB = new TFolder("R/Manuscrit/ChapB");
+  const sceneA = new TFile("R/Manuscrit/ChapA/S1.md", "Texte A.");
+  const sceneB = new TFile("R/Manuscrit/ChapB/S2.md", "Texte B.");
+  manuscript.children = [chapA, chapB];
+  chapA.parent = manuscript;
+  chapB.parent = manuscript;
+  chapA.children = [sceneA];
+  chapB.children = [sceneB];
+  sceneA.parent = chapA;
+  sceneB.parent = chapB;
+
+  const { vault } = createFakeVault([manuscript, chapA, chapB, sceneA, sceneB]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: ["ChapA", "ChapB"] },
+    compileFileName: "Out.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  // Compiler uniquement ChapA
+  const result = await compile(app, settings, chapA.path);
+  assert.ok(result);
+  // Le titre de ChapA doit apparaître (dossier cible retenu)
+  assert.match(result.manuscript, /^#+\s+ChapA/m);
+  // Le titre de ChapB (dossier frère) ne doit PAS apparaître
+  assert.doesNotMatch(result.manuscript, /^#+\s+ChapB/m);
+});
+
+test("compile portée selection : aucun dossier hors sélection n'émet de titre", async () => {
+  const manuscript = new TFolder("R/Manuscrit");
+  const chapA = new TFolder("R/Manuscrit/ChapA");
+  const chapB = new TFolder("R/Manuscrit/ChapB");
+  const sceneA = new TFile("R/Manuscrit/ChapA/S1.md", "Texte A.");
+  const sceneB = new TFile("R/Manuscrit/ChapB/S2.md", "Texte B.");
+  manuscript.children = [chapA, chapB];
+  chapA.parent = manuscript;
+  chapB.parent = manuscript;
+  chapA.children = [sceneA];
+  chapB.children = [sceneB];
+  sceneA.parent = chapA;
+  sceneB.parent = chapB;
+
+  const { vault } = createFakeVault([manuscript, chapA, chapB, sceneA, sceneB]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+  // On importe compile-scope pour créer la portée sélection
+  const { createSelectionScope } = await import("../src/services/compile-scope.js");
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: ["ChapA", "ChapB"] },
+    compileFileName: "Out.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  const scope = createSelectionScope(manuscript.path, [sceneA.path]);
+  const result = await compile(app, settings, null, scope);
+  assert.ok(result);
+  // ChapA doit apparaître (ancêtre du fichier retenu)
+  assert.match(result.manuscript, /^#+\s+ChapA/m);
+  // ChapB ne doit PAS apparaître (hors sélection)
+  assert.doesNotMatch(result.manuscript, /^#+\s+ChapB/m);
+});
+
+test("compile : dossier sans fichier retenu dans fileSet n'émet aucun titre (portée folder)", async () => {
+  // Ce test vérifie que lorsque la portée est folder=ChapA, ChapB (dossier
+  // frère) n'est pas dans fileSet et ne produit donc aucun titre.
+  const manuscript = new TFolder("R/Manuscrit");
+  const chapA = new TFolder("R/Manuscrit/ChapA");
+  const chapB = new TFolder("R/Manuscrit/ChapB");
+  const sceneA = new TFile("R/Manuscrit/ChapA/S1.md", "Texte A.");
+  const sceneB = new TFile("R/Manuscrit/ChapB/S2.md", "Texte B.");
+  manuscript.children = [chapA, chapB];
+  chapA.parent = manuscript;
+  chapB.parent = manuscript;
+  chapA.children = [sceneA];
+  chapB.children = [sceneB];
+  sceneA.parent = chapA;
+  sceneB.parent = chapB;
+
+  const { vault } = createFakeVault([manuscript, chapA, chapB, sceneA, sceneB]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: ["ChapA", "ChapB"] },
+    compileFileName: "Out.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  // Portée folder=ChapA : ChapB est absent du fileSet
+  const result = await compile(app, settings, chapA.path);
+  assert.ok(result);
+  // ChapA est dans la portée : son titre doit apparaître
+  assert.match(result.manuscript, /^#+\s+ChapA/m);
+  // ChapB n'est pas dans la portée : son titre NE DOIT PAS apparaître
+  assert.doesNotMatch(result.manuscript, /^#+\s+ChapB/m);
+});
+
+test("compile portée project : tous les dossiers émettent leurs titres (comportement inchangé)", async () => {
+  const manuscript = new TFolder("R/Manuscrit");
+  const chapA = new TFolder("R/Manuscrit/ChapA");
+  const chapB = new TFolder("R/Manuscrit/ChapB");
+  const sceneA = new TFile("R/Manuscrit/ChapA/S1.md", "Texte A.");
+  const sceneB = new TFile("R/Manuscrit/ChapB/S2.md", "Texte B.");
+  manuscript.children = [chapA, chapB];
+  chapA.parent = manuscript;
+  chapB.parent = manuscript;
+  chapA.children = [sceneA];
+  chapB.children = [sceneB];
+  sceneA.parent = chapA;
+  sceneB.parent = chapB;
+
+  const { vault } = createFakeVault([manuscript, chapA, chapB, sceneA, sceneB]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: ["ChapA", "ChapB"] },
+    compileFileName: "Out.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  // Portée projet par défaut (scopePath = null)
+  const result = await compile(app, settings);
+  assert.ok(result);
+  // Les deux dossiers doivent émettre leurs titres
+  assert.match(result.manuscript, /^#+\s+ChapA/m);
+  assert.match(result.manuscript, /^#+\s+ChapB/m);
+});
+
+test("compile : le fichier de sortie est écrit dans <projectRoot>/_Sortie", async () => {
+  const manuscript = new TFolder("R/Manuscrit");
+  const scene = new TFile("R/Manuscrit/S.md", "Bonjour.");
+  manuscript.children = [scene];
+  scene.parent = manuscript;
+
+  const { vault } = createFakeVault([manuscript, scene]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  const result = await compile(app, settings);
+  assert.ok(result);
+  // Le chemin de sortie doit être dans <projectRoot>/_Sortie
+  assert.equal(result.outPath, "R/Manuscrit/_Sortie/Manuscrit.md");
+  assert.ok(vault.getAbstractFileByPath("R/Manuscrit/_Sortie/Manuscrit.md"));
+});
+
+// ─── Tests exportWithScope ────────────────────────────────────────────────────
+// DOM minimal partagé par les tests des formats binaires (epub/docx/odt).
+// Reproduit ici conformément à la convention du dépôt (pas de helper partagé).
+// Les tests PDF vérifient uniquement que la branche pdf est atteinte sans
+// créer un faux .md — exportPdf est desktop-only et ne crée pas de fichier
+// via vault, donc aucune assertion sur le binaire.
+
+function makeEl(tag, textContent = "") {
+  const el = {
+    tagName: tag.toUpperCase(),
+    _text: textContent,
+    _attrs: new Map(),
+    parentElement: null,
+    children: [],
+    get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join("") : this._text; },
+    set textContent(v) { this.children = []; this._text = v; },
+    get childNodes() {
+      if (this.children.length) return this.children;
+      if (this._text) return [{ nodeType: 3, nodeValue: this._text, textContent: this._text }];
+      return [];
+    },
+    get nodeType() { return 1; },
+    get attributes() { return Array.from(this._attrs, ([name, value]) => ({ name, value })); },
+    get className() { return this._attrs.get("class") || ""; },
+    get classList() {
+      const self = this;
+      return { contains: (name) => (self._attrs.get("class") || "").split(/\s+/).includes(name) };
+    },
+    get innerHTML() { return this.children.length ? this.children.map((c) => c.outerHTML).join("") : this._text; },
+    get outerHTML() {
+      const attrs = Array.from(this._attrs, ([k, v]) => ` ${k}="${v}"`).join("");
+      return `<${tag.toLowerCase()}${attrs}>${this.innerHTML}</${tag.toLowerCase()}>`;
+    },
+    setAttribute(name, value) { this._attrs.set(name, String(value)); },
+    getAttribute(name) { return this._attrs.get(name) ?? null; },
+    appendChild(child) { if (child.remove) child.remove(); child.parentElement = this; this.children.push(child); return child; },
+    prepend(child) { if (child.remove) child.remove(); child.parentElement = this; this.children.unshift(child); },
+    after(sibling) {
+      if (!this.parentElement) return;
+      const i = this.parentElement.children.indexOf(this);
+      this.parentElement.children.splice(i + 1, 0, sibling);
+      sibling.parentElement = this.parentElement;
+    },
+    remove() {
+      if (!this.parentElement) return;
+      const i = this.parentElement.children.indexOf(this);
+      if (i >= 0) this.parentElement.children.splice(i, 1);
+      this.parentElement = null;
+    },
+    cloneNode(deep) {
+      const c = makeEl(tag, this._text);
+      for (const [k, v] of this._attrs) c.setAttribute(k, v);
+      if (deep) for (const child of this.children) c.appendChild(child.cloneNode(true));
+      return c;
+    },
+    querySelectorAll(sel) {
+      const found = [];
+      const visit = (node) => {
+        if (node === el) { for (const child of node.children || []) visit(child); return; }
+        const t = node.tagName?.toLowerCase() || "";
+        const cls = node.getAttribute?.("class") || "";
+        if (sel.startsWith(".") && cls.split(/\s+/).includes(sel.slice(1))) found.push(node);
+        else if (t === sel.toLowerCase()) found.push(node);
+        for (const child of node.children || []) visit(child);
+      };
+      visit(el);
+      return found;
+    },
+    querySelector(sel) { return el.querySelectorAll(sel)[0] || null; },
+  };
+  return el;
+}
+
+function installMinimalDom() {
+  const prev = { document: globalThis.document, Node: globalThis.Node, XMLSerializer: globalThis.XMLSerializer };
+  globalThis.document = {
+    createElement: (tag) => makeEl(tag),
+    createTextNode: (t) => ({ nodeType: 3, nodeValue: t, textContent: t, get outerHTML() { return t; }, cloneNode() { return this; }, remove() {} }),
+    createElementNS: (_ns, tag) => makeEl(tag),
+  };
+  globalThis.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+  globalThis.XMLSerializer = class { serializeToString(n) { return n?.outerHTML ?? String(n?.textContent ?? ""); } };
+  return () => Object.assign(globalThis, prev);
+}
+
+function makeExportFixture() {
+  const manuscript = new TFolder("EW/Manuscrit");
+  const chap = new TFolder("EW/Manuscrit/Chapitre");
+  const scene = new TFile("EW/Manuscrit/Chapitre/Scene.md", "---\ntitle: Scene\n---\nContenu de test.");
+  manuscript.children = [chap];
+  chap.parent = manuscript;
+  chap.children = [scene];
+  scene.parent = chap;
+
+  const { vault } = createFakeVault([manuscript, chap, scene]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: { title: "Scene", compile: true } }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    manuscriptTitle: "Test",
+    manuscriptAuthor: "Auteur",
+    projectMeta: {},
+  };
+  return { app, vault, settings, manuscript };
+}
+
+test("SUPPORTED_EXPORT_FORMATS : contient exactement les formats implementes", async () => {
+  const { SUPPORTED_EXPORT_FORMATS } = await import("../src/services/compile-export.js");
+  // Les 5 formats reellement implementes : epub, docx, odt, pdf, md
+  assert.deepEqual([...SUPPORTED_EXPORT_FORMATS].sort(), ["docx", "epub", "md", "odt", "pdf"]);
+  // Aucun format fictif (html n'est pas implemente dans Feuillets)
+  assert.ok(!SUPPORTED_EXPORT_FORMATS.includes("html"), "html ne doit pas etre dans SUPPORTED_EXPORT_FORMATS");
+});
+
+test("exportWithScope format md : produit un fichier .md dans _Sortie", async () => {
+  const { exportWithScope } = await import("../src/services/compile-export.js");
+  const { createProjectScope } = await import("../src/services/compile-scope.js");
+  const { app, vault, settings, manuscript } = makeExportFixture();
+
+  const scope = createProjectScope(manuscript.path);
+  const outPath = await exportWithScope(app, settings, scope, "md", "MonRoman");
+
+  assert.ok(outPath, "exportWithScope doit renvoyer un chemin");
+  assert.match(outPath, /\.md$/, "le chemin de sortie doit se terminer par .md");
+  assert.ok(vault.getAbstractFileByPath(outPath), "le fichier .md doit exister dans le vault");
+  assert.doesNotMatch(outPath, /\.md\.md$/, "aucune double extension .md.md");
+});
+
+test("exportWithScope format md : la portee file est respectee", async () => {
+  const { exportWithScope } = await import("../src/services/compile-export.js");
+  const { createFileScope } = await import("../src/services/compile-scope.js");
+
+  const manuscript = new TFolder("FS/Manuscrit");
+  const sceneA = new TFile("FS/Manuscrit/A.md", "Texte A.");
+  const sceneB = new TFile("FS/Manuscrit/B.md", "Texte B.");
+  manuscript.children = [sceneA, sceneB];
+  sceneA.parent = manuscript;
+  sceneB.parent = manuscript;
+
+  const { vault } = createFakeVault([manuscript, sceneA, sceneB]);
+  vault.cachedRead = vault.read;
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: {},
+    compileFileName: "Out.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  const scope = createFileScope(manuscript.path, sceneA.path);
+  const outPath = await exportWithScope(app, settings, scope, "md", "FileOnly");
+  assert.ok(outPath);
+  const file = vault.getAbstractFileByPath(outPath);
+  assert.ok(file, "le fichier de sortie doit exister");
+  assert.match(file.content, /Texte A/, "le contenu doit inclure sceneA");
+  assert.doesNotMatch(file.content, /Texte B/, "le contenu ne doit pas inclure sceneB");
+});
+
+test("exportWithScope format docx : produit un fichier .docx (pas .md)", async () => {
+  const { exportWithScope } = await import("../src/services/compile-export.js");
+  const { createProjectScope } = await import("../src/services/compile-scope.js");
+  const { app, vault, settings, manuscript } = makeExportFixture();
+  const restoreDom = installMinimalDom();
+  try {
+    const scope = createProjectScope(manuscript.path);
+    const outPath = await exportWithScope(app, settings, scope, "docx", "MonRoman");
+    assert.ok(outPath, "exportWithScope docx doit renvoyer un chemin");
+    assert.match(outPath, /\.docx$/, "le chemin de sortie doit se terminer par .docx");
+    assert.doesNotMatch(outPath, /\.md$/, "docx ne doit pas produire un .md");
+    assert.doesNotMatch(outPath, /\.docx\.docx$/, "aucune double extension .docx.docx");
+    assert.ok(vault.getAbstractFileByPath(outPath), "le fichier .docx doit exister dans le vault");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("exportWithScope format epub : produit un fichier .epub (pas .md)", async () => {
+  const { exportWithScope } = await import("../src/services/compile-export.js");
+  const { createProjectScope } = await import("../src/services/compile-scope.js");
+  const { app, vault, settings, manuscript } = makeExportFixture();
+  const restoreDom = installMinimalDom();
+  try {
+    const scope = createProjectScope(manuscript.path);
+    const outPath = await exportWithScope(app, settings, scope, "epub", "MonRoman");
+    assert.ok(outPath, "exportWithScope epub doit renvoyer un chemin");
+    assert.match(outPath, /\.epub$/, "le chemin de sortie doit se terminer par .epub");
+    assert.doesNotMatch(outPath, /\.md$/, "epub ne doit pas produire un .md");
+    assert.doesNotMatch(outPath, /\.epub\.epub$/, "aucune double extension");
+    assert.ok(vault.getAbstractFileByPath(outPath), "le fichier .epub doit exister dans le vault");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("exportWithScope format odt : produit un fichier .odt (pas .md)", async () => {
+  const { exportWithScope } = await import("../src/services/compile-export.js");
+  const { createProjectScope } = await import("../src/services/compile-scope.js");
+  const { app, vault, settings, manuscript } = makeExportFixture();
+  const restoreDom = installMinimalDom();
+  try {
+    const scope = createProjectScope(manuscript.path);
+    const outPath = await exportWithScope(app, settings, scope, "odt", "MonRoman");
+    assert.ok(outPath, "exportWithScope odt doit renvoyer un chemin");
+    assert.match(outPath, /\.odt$/, "le chemin de sortie doit se terminer par .odt");
+    assert.doesNotMatch(outPath, /\.md$/, "odt ne doit pas produire un .md");
+    assert.doesNotMatch(outPath, /\.odt\.odt$/, "aucune double extension");
+    assert.ok(vault.getAbstractFileByPath(outPath), "le fichier .odt doit exister dans le vault");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("exportWithScope : nom base sans extension + format docx -> .docx sans double extension", async () => {
+  // La modale appelle sanitizeFileName qui retire l'extension avant de
+  // transmettre le baseName. Ce test simule ce comportement : on passe
+  // "Recueil" (sans .md) et on verifie qu'on obtient "Recueil.docx".
+  const { exportWithScope } = await import("../src/services/compile-export.js");
+  const { createProjectScope } = await import("../src/services/compile-scope.js");
+  const { app, vault, settings, manuscript } = makeExportFixture();
+  const restoreDom = installMinimalDom();
+  try {
+    const scope = createProjectScope(manuscript.path);
+    const outPath = await exportWithScope(app, settings, scope, "docx", "Recueil");
+    assert.ok(outPath);
+    assert.match(outPath, /Recueil\.docx$/, "doit se terminer par Recueil.docx");
+    assert.doesNotMatch(outPath, /Recueil\.md\.docx$/, "ne doit pas produire de double extension");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("exportWithScope : la meme portee folder est transmise pour chaque format", async () => {
+  // Verifie que le scope folder est bien respecte pour le format md :
+  // seuls les fichiers du dossier cible sont inclus.
+  const { exportWithScope } = await import("../src/services/compile-export.js");
+  const { createFolderScope } = await import("../src/services/compile-scope.js");
+
+  const manuscript = new TFolder("SC/Manuscrit");
+  const chapA = new TFolder("SC/Manuscrit/ChapA");
+  const chapB = new TFolder("SC/Manuscrit/ChapB");
+  const sceneA = new TFile("SC/Manuscrit/ChapA/A.md", "Texte A.");
+  const sceneB = new TFile("SC/Manuscrit/ChapB/B.md", "Texte B.");
+  manuscript.children = [chapA, chapB];
+  chapA.parent = manuscript;
+  chapB.parent = manuscript;
+  chapA.children = [sceneA];
+  chapB.children = [sceneB];
+  sceneA.parent = chapA;
+  sceneB.parent = chapB;
+
+  const { vault } = createFakeVault([manuscript, chapA, chapB, sceneA, sceneB]);
+  vault.cachedRead = vault.read;
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Out.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  // Portee folder = ChapA seulement
+  const scope = createFolderScope(manuscript.path, chapA.path);
+  const outPath = await exportWithScope(app, settings, scope, "md", "ChapAOnly");
+  assert.ok(outPath);
+  const file = vault.getAbstractFileByPath(outPath);
+  assert.ok(file);
+  assert.match(file.content, /Texte A/, "la portee folder doit inclure sceneA");
+  assert.doesNotMatch(file.content, /Texte B/, "la portee folder ne doit pas inclure sceneB");
 });
