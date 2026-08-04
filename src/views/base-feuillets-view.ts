@@ -13,6 +13,7 @@ import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { addOpenWithPreviewItem } from "./preview-view.js";
+import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { t } from "../i18n/index.js";
 
 function getResearchSectionIcon(key: string): string {
@@ -284,6 +285,25 @@ export abstract class BaseFeuilletsView extends ItemView {
     return wrap;
   }
 
+  /** Dossier d'une catégorie de recherche pour la langue active : réutilise
+   * un dossier déjà existant sous son nom français OU anglais (jamais de
+   * doublon, même quand le projet a été créé dans l'autre langue), sinon
+   * le crée sous le libellé de la langue active. */
+  private async ensureResearchCategoryFolder(
+    baseResearch: string,
+    researchFolders: Record<string, { label: string }>,
+    key: string
+  ): Promise<TFolder> {
+    const names = researchFolderNames(researchFolders, key);
+    for (const name of names) {
+      const existing = this.app.vault.getAbstractFileByPath(
+        normalizePath(`${baseResearch}/${name}`)
+      );
+      if (existing instanceof TFolder) return existing;
+    }
+    return asFolder(await this.plugin.ensureFolder(`${baseResearch}/${names[0]}`));
+  }
+
   async renderResearchBody(container: HTMLElement, root: TFolder, gen: number): Promise<void> {
     const S = this.plugin.settings;
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
@@ -358,11 +378,13 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
 
     const sourcesFolder = rf.sources
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.sources.label}`))
+      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "sources")
       : null;
-    const bibliographieFolder = asFolder(await this.plugin.ensureFolder(
-      `${baseResearch}/${rf.bibliographie.label}`
-    ));
+    const bibliographieFolder = await this.ensureResearchCategoryFolder(
+      baseResearch,
+      rf,
+      "bibliographie"
+    );
     /* Rationalisation : en non-fiction, Sources reste la SEULE
        bibliothèque de travail — Bibliographie devient la vue agrégée des
        sources citées (voir plus bas), plus un dossier de fiches
@@ -381,16 +403,16 @@ export abstract class BaseFeuilletsView extends ItemView {
        simplement dans "customFolders" plus bas et reste visible avec son
        contenu — rien n'est supprimé automatiquement. */
     const personnagesFolder = rf.personnages
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.personnages.label}`))
+      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "personnages")
       : null;
     const lieuxFolder = rf.lieux
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.lieux.label}`))
+      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "lieux")
       : null;
     const codexFolder = rf.codex
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.codex.label}`))
+      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "codex")
       : null;
     const glossaireFolder = rf.glossaire
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.glossaire.label}`))
+      ? await this.ensureResearchCategoryFolder(baseResearch, rf, "glossaire")
       : null;
     const chronoFolder = rf.evenements
       ? this.plugin.getChronoFolder() || asFolder(await this.plugin.ensureFolder(`${baseResearch}/Chronologie`))
@@ -507,7 +529,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           this.plugin.quickCiteSource(file);
         });
       };
-      this.renderSection(body, rf.sources.label, sourcesFolder, async () =>
+      this.renderSection(body, researchFolderLabel(rf, "sources"), sourcesFolder, async () =>
         this.createEntity(
           sourcesFolder,
           rf.sources!.newName,
@@ -526,7 +548,7 @@ export abstract class BaseFeuilletsView extends ItemView {
          Bibliographie garde son sens d'origine — un dossier de fiches
          manuelles pour des lectures complémentaires, sans lien avec le
          texte. */
-      this.renderSection(body, rf.bibliographie.label, bibliographieFolder, async () =>
+      this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
         this.createEntity(
           bibliographieFolder,
           rf.bibliographie.newName,
@@ -536,7 +558,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (rf.personnages && personnagesFolder) {
-      this.renderSection(body, rf.personnages.label, personnagesFolder, async () =>
+      this.renderSection(body, researchFolderLabel(rf, "personnages"), personnagesFolder, async () =>
         this.createEntity(
           personnagesFolder,
           rf.personnages!.newName,
@@ -546,7 +568,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (rf.lieux && lieuxFolder) {
-      this.renderSection(body, rf.lieux.label, lieuxFolder, async () =>
+      this.renderSection(body, researchFolderLabel(rf, "lieux"), lieuxFolder, async () =>
         this.createEntity(
           lieuxFolder,
           rf.lieux!.newName,
@@ -556,7 +578,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (rf.codex && codexFolder) {
-      this.renderSection(body, rf.codex.label, codexFolder, async () =>
+      this.renderSection(body, researchFolderLabel(rf, "codex"), codexFolder, async () =>
         this.createEntity(
           codexFolder,
           rf.codex!.newName,
@@ -566,7 +588,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (rf.glossaire && glossaireFolder) {
-      this.renderSection(body, rf.glossaire.label, glossaireFolder, async () =>
+      this.renderSection(body, researchFolderLabel(rf, "glossaire"), glossaireFolder, async () =>
         this.createEntity(
           glossaireFolder,
           rf.glossaire!.newName,
@@ -576,7 +598,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (rf.evenements && chronoFolder) {
-      this.renderSection(body, rf.evenements.label, chronoFolder, async () =>
+      this.renderSection(body, researchFolderLabel(rf, "evenements"), chronoFolder, async () =>
         this.createEntity(
           chronoFolder,
           rf.evenements!.newName,

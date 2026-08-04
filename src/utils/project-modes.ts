@@ -1,3 +1,5 @@
+import { getLocale } from "../i18n/index.js";
+
 /** Un mode = un type de document. Ne change ni la structure de dossiers
  * ni les champs de frontmatter lus — seulement le vocabulaire affiché et
  * les réglages de départ appliqués une fois à la création du projet. */
@@ -58,6 +60,42 @@ export const LEGACY_RESEARCH_LABELS = {
   personnages: "Personnages",
   lieux: "Lieux",
 };
+
+/** Libellé affiché d'une catégorie de recherche selon la langue active :
+ * en interface française, l'ancien libellé français s'il existe dans
+ * LEGACY_RESEARCH_LABELS (source de traduction unique, jamais une seconde
+ * liste codée en dur), sinon le libellé anglais actuel. En anglais, le
+ * libellé actuel est conservé tel quel. */
+export function researchFolderLabel(
+  researchFolders: Record<string, { label: string }>,
+  key: string
+): string {
+  const entry = researchFolders[key];
+  if (!entry) return "";
+  if (getLocale() === "fr") {
+    const legacy = LEGACY_RESEARCH_LABELS[key as keyof typeof LEGACY_RESEARCH_LABELS];
+    if (legacy) return legacy;
+  }
+  return entry.label;
+}
+
+/** Noms sous lesquels le dossier d'une catégorie de recherche peut déjà
+ * exister, libellé de la langue active en premier : le nom actuel (anglais)
+ * et l'ancien nom français — permet de réutiliser un dossier existant créé
+ * dans l'autre langue au lieu d'en créer un doublon. */
+export function researchFolderNames(
+  researchFolders: Record<string, { label: string }>,
+  key: string
+): string[] {
+  const entry = researchFolders[key];
+  if (!entry) return [];
+  const preferred = researchFolderLabel(researchFolders, key);
+  const legacy = LEGACY_RESEARCH_LABELS[key as keyof typeof LEGACY_RESEARCH_LABELS];
+  const other = preferred === entry.label ? legacy : entry.label;
+  const names = [preferred];
+  if (other && !names.includes(other)) names.push(other);
+  return names;
+}
 
 /** `name` correspond-il à la catégorie `key` de `researchFolders`, sous
  * son nom actuel (anglais) OU son ancien nom (français) ? */
