@@ -1328,6 +1328,21 @@ export const en = {
   "modal.scrivenerImport.importSuccess": "Scrivener import successful: {path}.",
   "modal.scrivenerImport.legacyFormat": "This project uses the old Scrivener 1.x (Mac) format, which is not supported. Open it in Scrivener 3 to convert it, then try again.",
   "modal.scrivenerImport.noScrivxFound": "No .scrivx file found in this folder.",
+
+  "modal.export.title": "Export / Compile",
+  "modal.export.format": "Export format",
+  "modal.export.outputName": "Output file name",
+  "modal.export.outputNameDesc": "Output file name, without extension",
+  "modal.export.exportAction": "Export / Compile",
+  "modal.export.emptyName": "Output file name cannot be empty",
+  "modal.export.error": "Export error occurred.",
+  "modal.export.fileCount": "{count} file{s} included",
+  "modal.export.scope.file": "Single file",
+  "modal.export.scope.folder": "Folder {name}",
+  "modal.export.scope.selection": "Multiple selection",
+  "modal.export.scope.project": "Entire project",
+  "shared.cancel": "Cancel",
+
   "settings.grammarExternal.name": "Grammar checker",
   "settings.grammarExternal.desc": "Feuillets no longer bundles or downloads a grammar checker. For spelling and grammar, install a dedicated plugin from Obsidian's Community Plugins browser — for example Harper for English, or LanguageTool. Those plugins are independent: Feuillets does not configure them or access their data.",
 } satisfies Record<keyof typeof fr, string>;
