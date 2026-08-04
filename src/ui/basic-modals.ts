@@ -3,6 +3,7 @@ import { t } from "../i18n/index.js";
 
 type NewSheetHandler = (fileName: string, title: string) => void | Promise<void>;
 type NewFolderHandler = (name: string) => void | Promise<void>;
+type RenameFolderHandler = (name: string) => void | Promise<void>;
 type ConfirmHandler = () => void | Promise<void>;
 
 export class NewSheetModal extends Modal {
@@ -123,6 +124,47 @@ export class NewFolderModal extends Modal {
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     btnRow
       .createEl("button", { text: t("modal.create") })
+      .addEventListener("click", submit);
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+export class RenameFolderModal extends Modal {
+  currentName: string;
+  onSubmit: RenameFolderHandler;
+
+  constructor(app: App, currentName: string, onSubmit: RenameFolderHandler) {
+    super(app);
+    this.currentName = currentName;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", {
+      text: t("modal.renameFolder.title"),
+    });
+    contentEl.createEl("label", { text: t("modal.renameFolder.label") });
+    const input = contentEl.createEl("input", {
+      type: "text",
+      value: this.currentName,
+    });
+    input.addClass("feuillets-input-full");
+    input.focus();
+    input.select();
+    const submit = () => {
+      const name = input.value.trim();
+      if (!name) return;
+      this.close();
+      void this.onSubmit(name);
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+    });
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow
+      .createEl("button", { text: t("modal.save") })
       .addEventListener("click", submit);
   }
   onClose() {

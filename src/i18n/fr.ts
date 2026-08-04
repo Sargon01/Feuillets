@@ -186,6 +186,7 @@ export const fr = {
   "shared.contextMenu.compareWithSnapshot": "Comparer avec le snapshot",
   "shared.contextMenu.noSnapshotFound": "Aucun snapshot trouvé pour : {name}",
   "shared.contextMenu.newSheetInside": "Nouveau feuillet à l'intérieur",
+  "shared.contextMenu.renameFolder": "Renommer…",
   "shared.contextMenu.openFolderNote": "Ouvrir la note de dossier",
   "shared.contextMenu.editTags": "Modifier les tags…",
   "shared.contextMenu.editSynopsis": "Modifier le synopsis…",

@@ -1660,17 +1660,13 @@ export class FeuilletsView extends BaseFeuilletsView {
     renderFilesOf(selectedFolder, 0);
 
     if (!any) {
-      /* emptyEl capture le retour de setText() (void dans les types
-         Obsidian), pas l'élément — écart préexistant à cette migration, non
-         corrigé ici pour ne rien changer au comportement actuel. */
-      const emptyEl = listBody
-        .createDiv({ cls: "feuillets-empty" })
-        .setText(
-          S.binderSplitRecursive !== false
-            ? t("binder.list.emptyRecursive")
-            : t("binder.list.emptyDirect")
-        );
-      this.attachEmptyFolderDropHandler(emptyEl as unknown as HTMLElement, selectedFolder);
+      const emptyEl = listBody.createDiv({ cls: "feuillets-empty" });
+      emptyEl.setText(
+        S.binderSplitRecursive !== false
+          ? t("binder.list.emptyRecursive")
+          : t("binder.list.emptyDirect")
+      );
+      this.attachEmptyFolderDropHandler(emptyEl, selectedFolder);
     }
   }
 }
