@@ -1401,7 +1401,9 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   /** Bouton "œil" : déclenche l'aperçu natif d'Obsidian (Aperçu de page) au
    * CLIC plutôt qu'au survol — le survol automatique gênait (aperçu qui
-   * s'ouvre en passant simplement la souris sur la liste). */
+   * s'ouvre en passant simplement la souris sur la liste). Encore utilisé
+   * par le panneau Notes (notes-view.ts) et par les fiches de Recherche —
+   * plus par le Binder. */
   addPreviewBtn(header: HTMLElement, f: TFile): HTMLElement {
     const btn = this.iconBtn(header, "eye", t("shared.previewTooltip"));
     btn.addEventListener("click", (e) => {
