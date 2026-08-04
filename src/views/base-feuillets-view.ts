@@ -4,7 +4,7 @@ import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
 import { TextInputModal } from "../scenes-editor.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
-import { RenameFolderModal, NewResearchFileModal, RenameFileModal } from "../ui/basic-modals.js";
+import { NewFolderModal, RenameFolderModal, NewResearchFileModal, RenameFileModal } from "../ui/basic-modals.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
 import { promptForPage } from "../ui/citation-modal.js";
@@ -14,6 +14,7 @@ import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js"
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { addOpenWithPreviewItem } from "./preview-view.js";
 import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
+import { FolderSuggest } from "../ui/folder-suggest.js";
 import { t } from "../i18n/index.js";
 
 function getResearchSectionIcon(key: string): string {
@@ -42,8 +43,10 @@ import {
   Menu,
   MarkdownRenderer,
   Keymap,
+  Modal,
   type WorkspaceLeaf,
   type TAbstractFile,
+  type App,
 } from "obsidian";
 import type FeuilletsPlugin from "../main.js";
 
@@ -53,6 +56,140 @@ import type FeuilletsPlugin from "../main.js";
 function asFolder(af: TAbstractFile): TFolder {
   if (!(af instanceof TFolder)) throw new Error(`Expected a folder: ${af.path}`);
   return af;
+}
+
+/** Dossier Binder : soit un dossier (partie/chapitre), soit un fichier
+ * Markdown du manuscrit — les deux peuvent être associés à un dossier
+ * Recherche. */
+type BinderNode = TFolder | TFile;
+
+/** Remappe les chemins d'une map de liens Binder→Recherche après un
+ * renommage/déplacement dans le coffre (vault.on("rename"), main.ts). Règle :
+ * égalité exacte, ou préfixe `oldPath/` — un chemin « voisin » (ex.
+ * `oldPath-suite`) n'est jamais modifié. Fonction pure, exportée ici pour
+ * les tests (le stub Obsidian n'exporte pas la classe Plugin). */
+export function remapResearchFolderLinks(
+  links: Record<string, string> | undefined,
+  oldPath: string,
+  newPath: string
+): Record<string, string> | undefined {
+  if (!links) return links;
+  const remap = (p: string): string => {
+    if (p === oldPath) return newPath;
+    if (p.startsWith(oldPath + "/")) return newPath + p.slice(oldPath.length);
+    return p;
+  };
+  const out: Record<string, string> = {};
+  let changed = false;
+  for (const [key, value] of Object.entries(links)) {
+    const nextKey = remap(key);
+    const nextValue = remap(value);
+    if (nextKey !== key || nextValue !== value) changed = true;
+    out[nextKey] = nextValue;
+  }
+  return changed ? out : links;
+}
+
+/** Vrai si `folderPath` est un dossier STRICTEMENT sous l'espace Recherche
+ * du projet actif (`basePath` = chemin du dossier _Recherche) — jamais
+ * _Recherche lui-même, jamais un dossier extérieur (autre projet, racine
+ * du coffre). Fonction pure, exportée pour les tests. */
+export function isInsideResearchSpace(folderPath: string, basePath: string): boolean {
+  return folderPath !== basePath && folderPath.startsWith(`${basePath}/`);
+}
+
+/** Autocomplétion limitée à l'espace Recherche du projet actif : seuls les
+ * dossiers STRICTEMENT sous `basePath` (jamais _Recherche lui-même) sont
+ * proposés — le sélecteur d'association ne doit jamais laisser choisir un
+ * dossier extérieur (autre projet, racine du coffre…). */
+class ResearchFolderSuggest extends FolderSuggest {
+  basePath: string;
+
+  constructor(app: App, inputEl: HTMLInputElement, basePath: string) {
+    super(app, inputEl);
+    this.basePath = basePath;
+  }
+
+  getSuggestions(query: string): TFolder[] {
+    return super
+      .getSuggestions(query)
+      .filter((f) => isInsideResearchSpace(f.path, this.basePath));
+  }
+}
+
+/** Modale de choix d'un dossier Recherche EXISTANT à associer à un dossier
+ * ou un fichier Binder (associer ou changer). N'accepte que des dossiers
+ * sous _Recherche du même projet — ni _Recherche lui-même, ni un dossier
+ * extérieur (autre projet, racine du coffre). Ne crée jamais de dossier :
+ * on ne fait que mémoriser le chemin dans researchFolderLinks. */
+class LinkResearchFolderModal extends Modal {
+  plugin: FeuilletsPlugin;
+  binderNode: BinderNode;
+  displayName: string;
+
+  constructor(app: App, plugin: FeuilletsPlugin, binderNode: BinderNode, displayName: string) {
+    super(app);
+    this.plugin = plugin;
+    this.binderNode = binderNode;
+    this.displayName = displayName;
+  }
+
+  /** Chemin de l'espace Recherche du projet actif, ou null. */
+  private researchBasePath(): string | null {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return null;
+    const researchRoot = this.plugin.getResearchRoot();
+    return researchRoot instanceof TFolder ? researchRoot.path : `${root.path}/_Recherche`;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", {
+      text: t("binder.research.linkModalTitle", { name: this.displayName }),
+    });
+    const input = contentEl.createEl("input", {
+      type: "text",
+      attr: { placeholder: t("binder.research.linkModalPlaceholder") },
+    });
+    input.addClass("feuillets-input-full");
+    const basePath = this.researchBasePath();
+    if (basePath) new ResearchFolderSuggest(this.app, input, basePath);
+    input.focus();
+    const submit = async () => {
+      const path = normalizePath(input.value.trim());
+      if (!path) return;
+      if (!basePath) {
+        new Notice(t("binder.research.noResearchRoot"));
+        return;
+      }
+      const folder = this.app.vault.getAbstractFileByPath(path);
+      if (!(folder instanceof TFolder)) {
+        new Notice(t("binder.research.linkFolderNotFound"));
+        return;
+      }
+      /* Refus de toute saisie manuelle extérieure : on n'associe JAMAIS un
+         dossier hors de _Recherche du même projet. */
+      if (!isInsideResearchSpace(folder.path, basePath)) {
+        new Notice(t("binder.research.linkFolderOutside"));
+        return;
+      }
+      this.close();
+      await this.plugin.setLinkedResearchFolder(this.binderNode, folder);
+      this.plugin.renderAllViews(true);
+      new Notice(t("binder.research.folderLinked", { name: folder.name }));
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") void submit();
+    });
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow
+      .createEl("button", { text: t("modal.create") })
+      .addEventListener("click", () => { void submit(); });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
 }
 
 type ProjectNode = TFile | TFolder;
@@ -1671,9 +1808,128 @@ export abstract class BaseFeuilletsView extends ItemView {
     return isCollapsed;
   }
 
+  /** Actions Binder ↔ Recherche partagées entre le menu d'un DOSSIER et
+   * celui d'un FICHIER Markdown du Binder. Clé de la map
+   * researchFolderLinks : `keyNode` lui-même — dossier du Binder ou
+   * fichier du Binder directement. `displayName` est le nom affiché dans
+   * la modale (titre ou basename du fichier, nom du dossier). La création
+   * suit la règle du parent associé : pour un fichier, c'est `keyNode.parent`
+   * qui sert à trouver le dossier Recherche du parent lié s'il existe,
+   * sinon _Recherche. */
+  private addBinderResearchActions(
+    menu: Menu,
+    keyNode: TFile | TFolder,
+    displayName: string
+  ): void {
+    const plugin = this.plugin;
+
+    const linkedResearch = plugin.getLinkedResearchFolder(keyNode);
+    if (linkedResearch) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.openLinkedFolder"))
+          .setIcon("search")
+          .onClick(() => {
+            /* Révéler dans l'explorateur de fichiers : API interne
+               d'Obsidian (internalPlugins.getPluginById, non déclarée dans
+               obsidian.d.ts — d'où le type local), absente sur mobile — un
+               simple repli par notice, jamais un échec silencieux. */
+            const appWithInternal = this.app as App & {
+              internalPlugins?: { getPluginById?: (id: string) => unknown };
+            };
+            const rawExplorer = appWithInternal.internalPlugins?.getPluginById?.("file-explorer");
+            const instance =
+              rawExplorer &&
+              typeof rawExplorer === "object" &&
+              "instance" in rawExplorer
+                ? (rawExplorer as { instance?: unknown }).instance
+                : null;
+            const reveal = instance as { revealInFolder?: (f: TFolder) => void } | null;
+            if (reveal && typeof reveal.revealInFolder === "function") {
+              reveal.revealInFolder(linkedResearch);
+            } else {
+              new Notice(t("binder.research.openLinkedFolderUnavailable"));
+            }
+          })
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.changeLinkedFolder"))
+          .setIcon("pencil")
+          .onClick(() => new LinkResearchFolderModal(this.app, plugin, keyNode, displayName).open())
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.detachLinkedFolder"))
+          .setIcon("unlink")
+          .onClick(async () => {
+            await plugin.removeLinkedResearchFolder(keyNode);
+            plugin.renderAllViews(true);
+            new Notice(t("binder.research.folderDetached"));
+          })
+      );
+    } else {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.createLinkedFolder"))
+          .setIcon("folder-plus")
+          .onClick(() => {
+            /* Règle du parent associé : la création d'un dossier Recherche
+               lié se fait DANS le dossier Recherche associé du parent Binder
+               (clé `keyNode` elle-même pour un dossier, son parent pour un
+               fichier) s'il en a un — la documentation suit ainsi la
+               structure du manuscrit. Sinon, repli sur _Recherche du projet
+               actif. */
+            const parentFolder = keyNode.parent instanceof TFolder ? keyNode.parent : null;
+            const parentLinked = parentFolder ? plugin.getLinkedResearchFolder(parentFolder) : null;
+            const root = plugin.getProjectFolder();
+            let basePath: string | null = null;
+            if (parentLinked) basePath = parentLinked.path;
+            else if (root) {
+              const researchRoot = plugin.getResearchRoot();
+              basePath = researchRoot ? researchRoot.path : `${root.path}/_Recherche`;
+            }
+            if (!basePath) {
+              new Notice(t("binder.research.noResearchRoot"));
+              return;
+            }
+            new NewFolderModal(this.app, displayName, async (name) => {
+              const target = normalizePath(`${basePath}/${name}`);
+              const existing = this.app.vault.getAbstractFileByPath(target);
+              if (existing) {
+                new Notice(t("binder.research.linkAlreadyExists", { name }));
+                return;
+              }
+              const created = await this.app.vault.createFolder(target);
+              const createdFolder = this.app.vault.getAbstractFileByPath(target);
+              if (!(createdFolder instanceof TFolder)) return;
+              await plugin.setLinkedResearchFolder(keyNode, createdFolder);
+              plugin.renderAllViews(true);
+              new Notice(t("binder.research.linkedFolderCreated", { name: created.name }));
+            }).open();
+          })
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.linkExistingFolder"))
+          .setIcon("link")
+          .onClick(() => new LinkResearchFolderModal(this.app, plugin, keyNode, displayName).open())
+      );
+    }
+  }
+
   showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[]): void {
     const menu = new Menu();
     const plugin = this.plugin;
+
+    this.addBinderResearchActions(
+      menu,
+      file,
+      this.plugin.shortTitleFor?.(file) ||
+        this.plugin.titleFor?.(file) ||
+        file.basename
+    );
+    menu.addSeparator();
 
     /* Feuillet cliqué faisant partie d'une sélection multiple (voir
        handleMultiSelectClick) : Statut/Label/Tags s'appliquent alors à
@@ -1904,6 +2160,9 @@ export abstract class BaseFeuilletsView extends ItemView {
           openFileActivating(this.app, this.app.workspace.getLeaf(false), note);
         })
     );
+    menu.addSeparator();
+
+    this.addBinderResearchActions(menu, folder, folder.name);
     menu.addSeparator();
 
     const note = plugin.folderNoteFor(folder);

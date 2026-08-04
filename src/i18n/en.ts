@@ -74,6 +74,24 @@ export const en = {
   "binder.research.trash": "Move to trash",
   "binder.research.trashed": "“{name}” moved to trash.",
 
+  /* Binder ↔ Research link (context menu of a manuscript folder — see
+     base-feuillets-view.ts, showFolderContextMenu). */
+  "binder.research.createLinkedFolder": "Create a linked Research folder",
+  "binder.research.linkExistingFolder": "Link an existing Research folder…",
+  "binder.research.openLinkedFolder": "Open the linked Research folder",
+  "binder.research.changeLinkedFolder": "Change the linked Research folder…",
+  "binder.research.detachLinkedFolder": "Detach the Research folder",
+  "binder.research.openLinkedFolderUnavailable": "Can't reveal the folder in the file explorer on this platform.",
+  "binder.research.noResearchRoot": "No Research folder available for this project.",
+  "binder.research.linkAlreadyExists": "A folder named “{name}” already exists at this location.",
+  "binder.research.linkedFolderCreated": "Research folder “{name}” created and linked.",
+  "binder.research.linkModalTitle": "Link a Research folder to “{name}”",
+  "binder.research.linkModalPlaceholder": "Search for a folder…",
+  "binder.research.linkFolderNotFound": "This path doesn't match any folder in the vault.",
+  "binder.research.folderLinked": "Research folder “{name}” linked.",
+  "binder.research.linkFolderOutside": "This folder does not belong to the project's Research space.",
+  "binder.research.folderDetached": "Research folder detached (the physical folder is intact).",
+
   "binder.projectManager.title": "Manage projects",
   "binder.projectManager.newProject": "Create a new project…",
   "binder.projectManager.importScrivener": "Import a Scrivener project…",

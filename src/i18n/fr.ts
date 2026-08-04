@@ -73,6 +73,24 @@ export const fr = {
   "binder.research.trash": "Mettre à la corbeille",
   "binder.research.trashed": "« {name} » mis à la corbeille.",
 
+  /* Association Binder ↔ Recherche (menu contextuel d'un dossier du
+     manuscrit — voir base-feuillets-view.ts, showFolderContextMenu). */
+  "binder.research.createLinkedFolder": "Créer un dossier Recherche associé",
+  "binder.research.linkExistingFolder": "Associer un dossier Recherche existant…",
+  "binder.research.openLinkedFolder": "Ouvrir le dossier Recherche associé",
+  "binder.research.changeLinkedFolder": "Changer le dossier Recherche associé…",
+  "binder.research.detachLinkedFolder": "Détacher le dossier Recherche",
+  "binder.research.openLinkedFolderUnavailable": "Impossible de révéler le dossier dans l'explorateur sur cette plateforme.",
+  "binder.research.noResearchRoot": "Aucun dossier Recherche disponible pour ce projet.",
+  "binder.research.linkAlreadyExists": "Un dossier nommé « {name} » existe déjà à cet emplacement.",
+  "binder.research.linkedFolderCreated": "Dossier Recherche « {name} » créé et associé.",
+  "binder.research.linkModalTitle": "Associer un dossier Recherche à « {name} »",
+  "binder.research.linkModalPlaceholder": "Rechercher un dossier…",
+  "binder.research.linkFolderNotFound": "Ce chemin ne correspond à aucun dossier du coffre.",
+  "binder.research.folderLinked": "Dossier Recherche « {name} » associé.",
+  "binder.research.linkFolderOutside": "Ce dossier n'appartient pas à l'espace Recherche du projet.",
+  "binder.research.folderDetached": "Dossier Recherche détaché (le dossier physique est intact).",
+
   "binder.projectManager.title": "Gérer les projets",
   "binder.projectManager.newProject": "Créer un nouveau projet…",
   "binder.projectManager.importScrivener": "Importer un projet Scrivener…",

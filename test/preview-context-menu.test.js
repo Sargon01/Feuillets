@@ -236,6 +236,12 @@ function buildBinder(project) {
     snapshotFile: async () => "",
     folderNoteFor: () => null,
     getOrCreateFolderNote: async () => null,
+    /* Association Binder ↔ Recherche : le menu de dossier appelle
+       getLinkedResearchFolder dès sa construction (voir
+       base-feuillets-view.ts, showFolderContextMenu) — sans stub, le clic
+       droit d'un dossier lève une erreur. */
+    getLinkedResearchFolder: () => null,
+    getResearchRoot: () => null,
   };
   return { view: new TestBinderView(app, plugin), opened, project };
 }
