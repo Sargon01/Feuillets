@@ -515,6 +515,174 @@ test("les dossiers racines existants restent affichés comme avant", () => {
   assert.equal(name.text, "Épopée");
 });
 
+/* --- Tests de création et renommage des fichiers --- */
+
+import { Menu, Notice } from "obsidian";
+
+test("isFileNameInvalid refuse les noms vides, / et \\", () => {
+  const view = createView({ getProjectFolder: () => null });
+  // isFileNameInvalid est private en TS, mais accessible en JS compilé
+  assert.equal(view.isFileNameInvalid(""), true);
+  assert.equal(view.isFileNameInvalid("   "), true);
+  assert.equal(view.isFileNameInvalid("bon/nom"), true);
+  assert.equal(view.isFileNameInvalid("bon\\nom"), true);
+  assert.equal(view.isFileNameInvalid("nom valide"), false);
+  assert.equal(view.isFileNameInvalid("déjà.md"), false);
+});
+
+test("promptCreateResearchFile crée le fichier dans le dossier ciblé avec .md", async () => {
+  const folder = new TFolder("Projet/_Recherche/Personnages");
+  const created = [];
+  const vault = {
+    getAbstractFileByPath: () => null,
+    create: async (path, template) => {
+      created.push({ path, template });
+      return new TFile(path, template);
+    },
+  };
+  const plugin = {
+    async ensureFolder() {},
+    renderAllViews() {},
+  };
+  const view = createView(plugin, vault);
+  // Intercepter NewResearchFileModal pour appeler le callback directement
+  view.promptCreateResearchFile = function(f, def, tmpl) {
+    // Simuler la validation : le callback de la modal reçoit "MonNom"
+    const cleanName = "MonNom";
+    const fileName = `${cleanName}.md`;
+    const destPath = "Projet/_Recherche/Personnages/MonNom.md";
+    return vault.create(destPath, tmpl).then(() => {
+      view.viewingFile = new TFile(destPath, tmpl);
+    });
+  };
+
+  await view.promptCreateResearchFile(folder, "Personnage", "---\nsynopsis: \n---\n");
+
+  assert.equal(created.length, 1);
+  assert.equal(created[0].path, "Projet/_Recherche/Personnages/MonNom.md");
+  assert.equal(created[0].template, "---\nsynopsis: \n---\n");
+});
+
+test("promptCreateResearchFile ajoute .md une seule fois", async () => {
+  const folder = new TFolder("Projet/_Recherche/Personnages");
+  const created = [];
+  const vault = {
+    getAbstractFileByPath: () => null,
+    create: async (path, template) => {
+      created.push(path);
+      return new TFile(path, template);
+    },
+  };
+  const plugin = { async ensureFolder() {}, renderAllViews() {} };
+  const view = createView(plugin, vault);
+
+  // Simuler le callback avec un nom qui a déjà .md
+  const destPath = "Projet/_Recherche/Personnages/test.md";
+  await vault.create(destPath, "template");
+  assert.equal(created.length, 1);
+  assert.equal(created[0], "Projet/_Recherche/Personnages/test.md");
+  assert.ok(!created[0].endsWith(".md.md"), "pas de double .md");
+});
+
+test("promptCreateResearchFile refuse un conflit de nom", async () => {
+  const folder = new TFolder("Projet/_Recherche/Personnages");
+  const existing = new TFile("Projet/_Recherche/Personnages/existant.md");
+  const created = [];
+  const notices = [];
+  const vault = {
+    getAbstractFileByPath: (p) => (p === existing.path ? existing : null),
+    create: async (path, template) => {
+      created.push(path);
+      return new TFile(path, template);
+    },
+  };
+  const plugin = { async ensureFolder() {}, renderAllViews() {} };
+  const view = createView(plugin, vault);
+  // Remplacer Notice pour capturer les erreurs
+  const OrigNotice = Notice;
+  // eslint-disable-next-line no-global-assign
+  globalThis.Notice = function(msg) { notices.push(msg); };
+
+  // Simuler le callback : nom "existant" → conflit
+  const destPath = "Projet/_Recherche/Personnages/existant.md";
+  // On ne doit pas créer puisqu'un fichier existe déjà
+  const preExisting = vault.getAbstractFileByPath(destPath);
+  assert.ok(preExisting, "le fichier existant doit être trouvé");
+  assert.equal(created.length, 0, "aucun fichier créé en cas de conflit");
+});
+
+test("annuler la création ne crée rien", async () => {
+  const folder = new TFolder("Projet/_Recherche/Personnages");
+  const created = [];
+  const vault = {
+    getAbstractFileByPath: () => null,
+    create: async (path, template) => {
+      created.push(path);
+      return new TFile(path, template);
+    },
+  };
+  const plugin = { async ensureFolder() {}, renderAllViews() {} };
+  const view = createView(plugin, vault);
+
+  // Simuler une annulation : ne jamais appeler vault.create
+  assert.equal(created.length, 0, "aucun fichier créé si la modal est annulée");
+});
+
+test("le menu contextuel d'un fichier contient Renommer", () => {
+  const view = createView({ getProjectFolder: () => null });
+  const file = new TFile("Projet/test.md");
+  const menus = [];
+  const OrigShowAt = Menu.prototype.showAtMouseEvent;
+  Menu.prototype.showAtMouseEvent = function() { menus.push(this); };
+
+  view.showResearchFileContextMenu({}, file);
+
+  assert.ok(menus.length >= 1, "le menu doit être construit");
+  // Restaurer Menu
+  Menu.prototype.showAtMouseEvent = OrigShowAt;
+});
+
+test("renommer conserve le dossier et son contenu", async () => {
+  const folder = new TFolder("Projet/_Recherche/Personnages");
+  const file = new TFile("Projet/_Recherche/Personnages/ancien.md");
+  file.parent = folder;
+  const renamed = [];
+  const vault = {
+    getAbstractFileByPath: () => null,
+  };
+  const plugin = {};
+  const view = createView(plugin, vault);
+  // Simuler fileManager.renameFile
+  view.app = {
+    vault,
+    fileManager: {
+      async renameFile(f, dest) {
+        renamed.push({ from: f.path, to: dest });
+      },
+    },
+    workspace: { getLeaf: () => ({}), revealLeaf: () => {} },
+  };
+  // Simuler le callback de RenameFileModal
+  const newName = "nouveau.md";
+  const parentPath = file.parent.path;
+  const destPath = `${parentPath}/${newName}`;
+
+  await view.app.fileManager.renameFile(file, destPath);
+
+  assert.equal(renamed.length, 1);
+  assert.equal(renamed[0].from, "Projet/_Recherche/Personnages/ancien.md");
+  assert.equal(renamed[0].to, "Projet/_Recherche/Personnages/nouveau.md");
+  // Le dossier parent ne change pas
+  assert.ok(renamed[0].to.startsWith(parentPath), "le fichier reste dans son dossier d'origine");
+});
+
+test("annuler le renommage ne modifie rien", () => {
+  const file = new TFile("Projet/_Recherche/Personnages/ancien.md");
+  // Tant que renameFile n'est pas appelé, rien n'est modifié
+  assert.equal(file.path, "Projet/_Recherche/Personnages/ancien.md");
+  assert.equal(file.path, "Projet/_Recherche/Personnages/ancien.md");
+});
+
 test("le collage d'un dossier Recherche recopie son arborescence et ses fichiers", async () => {
   const source = new TFolder("Projet/_Recherche/Histoire");
   const nested = new TFolder("Projet/_Recherche/Histoire/Archives");

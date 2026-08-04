@@ -60,6 +60,10 @@ export const en = {
 
   "binder.research.newFolder": "New folder…",
   "binder.research.newFile": "New file…",
+  "binder.research.renameFile": "Rename…",
+  "binder.research.renameAlreadyExists": "A file named “{name}” already exists.",
+  "binder.research.invalidName": "Invalid file name. Avoid / and \\ characters.",
+  "binder.research.renamed": "File renamed to “{name}”.",
   "binder.research.newFileDefaultName": "New file",
   "binder.research.openNewTab": "Open in new tab",
   "binder.research.openSplit": "Open side by side",
@@ -177,6 +181,14 @@ export const en = {
   "shared.savedFilters.tooltip": "Saved research filters…",
   "shared.savedFilters.save": "Save the active filter…",
   "shared.savedFilters.manage": "Manage saved filters…",
+
+  "shared.research.folderActions": "Folder actions",
+  "shared.research.copyFolder": "Copy folder",
+  "shared.research.pasteFolder": "Paste into this folder",
+  "shared.research.folderCopied": "Folder “{name}” copied. Open a Research folder menu to paste it.",
+  "shared.research.folderPasted": "Folder “{name}” pasted.",
+  "shared.research.nothingToPaste": "No Research folder to paste.",
+  "shared.research.cannotPasteIntoItself": "A folder cannot be pasted into itself.",
 
   "shared.contextMenu.groupSelected": "{count} sheets selected",
   "shared.contextMenu.newSheetBefore": "New sheet before",
@@ -1086,6 +1098,10 @@ export const en = {
 
   "modal.create": "Create",
   "modal.cancel": "Cancel",
+  "modal.rename": "Rename",
+  "modal.newResearchFile.title": "New file in “{folder}”",
+  "modal.renameFile.title": "Rename the file",
+  "modal.renameFile.label": "New name (without .md)",
   "modal.selectAll": "All",
   "modal.selectNone": "None",
 
