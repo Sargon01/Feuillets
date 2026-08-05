@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MarkdownRenderer, Menu, TFolder, TFile } from "obsidian";
 import { VIEW_PREVIEW } from "../src/constants.js";
-import { PreviewView, activatePreviewView } from "../src/views/preview-view.js";
+import { PreviewView, activatePreviewView, openScopeWithPreview } from "../src/views/preview-view.js";
+import { resolveCompileScopeFiles } from "../src/services/compile-scope.js";
 import { CompileSelectionModal } from "../src/ui/selection-modals.js";
 import { LayoutModal } from "../src/ui/layout-modal.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
@@ -416,7 +417,7 @@ function buildProject() {
   let activeFile = sceneFile;
   const app = {
     vault: {
-      read: async () => "---\ntitre: Scene 1\n---\nTexte réel de la scène.",
+      read: async (f) => (f && typeof f.content === "string" ? f.content : "---\ntitre: Scene 1\n---\nTexte réel de la scène."),
       cachedRead: async (f) => (f && typeof f.content === "string" ? f.content : "---\ntitre: Scene 1\n---\nTexte réel de la scène."),
       createFolder: async () => {},
       create: async (path, content) => new TFile(path, content),
@@ -3397,7 +3398,9 @@ test("fil d'Ariane — titres du Binder, niveaux réels et clics de portée", wi
     const frame = latestFrame(view.scaledContainer);
     if (frame) fireLoad(placeFrame(frame, view.previewViewport));
   };
-  await click(0, "manuscript");
+  buttons()[0].click();
+  await flush();
+  assert.deepEqual(view.compileScope, { type: "project", projectRoot: view.plugin.getProjectFolder().path });
   await click(1, "part");
   await click(2, "chapter");
   // Ce rendu synthétique ne comporte pas de repère source : sans
@@ -3456,3 +3459,264 @@ test("barre — aucun bouton de repli séparé", withRender(async () => {
   assert.equal(view.contentEl.querySelectorAll('[aria-label="Masquer la barre"]').length, 0);
   assert.equal(menuTitles(openMenuVia(view.zoomLabelEl)).includes("Masquer la barre"), false);
 }));
+
+test("compileScope — affichage d'une portée file explicite sans écriture ni export", withCapture(async (_dom, rendered) => {
+  const { view, sceneFile, sceneFile2 } = await openLoadedView("manuscript");
+  let writeCalled = false;
+  view.app.vault.modify = async () => { writeCalled = true; };
+  view.app.vault.create = async () => { writeCalled = true; };
+
+  await view.setCompileScope({ type: "file", projectRoot: "Manuscrit", path: sceneFile.path });
+  await flush();
+
+  assert.equal(writeCalled, false, "aucun fichier ne doit être écrit ni créé");
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."));
+  assert.equal(markdown.includes("Seconde scène du chapitre."), false, "seul le fichier ciblé par la portée file doit être affiché");
+}));
+
+test("compileScope — affichage d'une portée folder récursive sans doublons et selon l'ordre du Binder", withCapture(async (_dom, rendered) => {
+  const { view, chapterDir } = await openLoadedView("manuscript");
+
+  await view.setCompileScope({ type: "folder", projectRoot: "Manuscrit", path: chapterDir.path });
+  await flush();
+
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."));
+  assert.ok(markdown.includes("Seconde scène du chapitre."));
+  const idx1 = markdown.indexOf("Texte réel de la scène.");
+  const idx2 = markdown.indexOf("Seconde scène du chapitre.");
+  assert.ok(idx1 < idx2, "l'ordre du Binder doit être conservé");
+}));
+
+test("compileScope — affichage d'une portée selection explicite sans doublons et avec ordre conservé", withCapture(async (_dom, rendered) => {
+  const { view, sceneFile, sceneFile2, chapterDir } = await openLoadedView("manuscript");
+
+  // On sélectionne à la fois le dossier et un fichier enfant pour tester l'absence de doublons
+  await view.setCompileScope({ type: "selection", projectRoot: "Manuscrit", paths: [sceneFile2.path, chapterDir.path, sceneFile.path] });
+  await flush();
+
+  const markdown = rendered.at(-1);
+  const count1 = (markdown.match(/Texte réel de la scène\./g) || []).length;
+  const count2 = (markdown.match(/Seconde scène du chapitre\./g) || []).length;
+  assert.equal(count1, 1, "aucun doublon pour scene1");
+  assert.equal(count2, 1, "aucun doublon pour scene2");
+
+  const idx1 = markdown.indexOf("Texte réel de la scène.");
+  const idx2 = markdown.indexOf("Seconde scène du chapitre.");
+  assert.ok(idx1 < idx2, "l'ordre du Binder doit être conservé");
+}));
+
+test("compileScope — affichage d'une portée project explicite assemblée en mémoire sans écriture ni export", withCapture(async (_dom, rendered) => {
+  const { view } = await openLoadedView("manuscript");
+  let writeCalled = false;
+  view.app.vault.modify = async () => { writeCalled = true; };
+  view.app.vault.create = async () => { writeCalled = true; };
+
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+
+  assert.equal(writeCalled, false, "aucun appel à vault.create ni vault.modify ne doit avoir lieu");
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."));
+  assert.ok(markdown.includes("Seconde scène du chapitre."));
+  const idx1 = markdown.indexOf("Texte réel de la scène.");
+  const idx2 = markdown.indexOf("Seconde scène du chapitre.");
+  assert.ok(idx1 < idx2, "l'ordre du Binder doit être conservé");
+}));
+
+test("compileScope — sélection multiple non contiguë dans des dossiers différents (un.md et trois.md)", withCapture(async (_dom, rendered) => {
+  const { view } = await openLoadedView("manuscript");
+  let writeCalled = false;
+  view.app.vault.modify = async () => { writeCalled = true; };
+  view.app.vault.create = async () => { writeCalled = true; };
+
+  const projectRoot = new TFolder("Projet");
+  projectRoot.name = "Projet";
+  projectRoot.path = "Projet";
+
+  const chap1 = new TFolder("Projet/Chapitre 1");
+  chap1.name = "Chapitre 1";
+  chap1.path = "Projet/Chapitre 1";
+  chap1.parent = projectRoot;
+
+  const chap3 = new TFolder("Projet/Chapitre 3");
+  chap3.name = "Chapitre 3";
+  chap3.path = "Projet/Chapitre 3";
+  chap3.parent = projectRoot;
+
+  const unFile = new TFile("Projet/Chapitre 1/un.md", "Contenu de un.md");
+  unFile.name = "un.md";
+  unFile.basename = "un";
+  unFile.extension = "md";
+  unFile.path = "Projet/Chapitre 1/un.md";
+  unFile.parent = chap1;
+  unFile.content = "Contenu de un.md";
+
+  const troisFile = new TFile("Projet/Chapitre 3/trois.md", "Contenu de trois.md");
+  troisFile.name = "trois.md";
+  troisFile.basename = "trois";
+  troisFile.extension = "md";
+  troisFile.path = "Projet/Chapitre 3/trois.md";
+  troisFile.parent = chap3;
+  troisFile.content = "Contenu de trois.md";
+
+  chap1.children = [unFile];
+  chap3.children = [troisFile];
+  projectRoot.children = [chap1, chap3];
+
+  const filesMap = new Map([
+    ["Projet", projectRoot],
+    ["Projet/Chapitre 1", chap1],
+    ["Projet/Chapitre 3", chap3],
+    ["Projet/Chapitre 1/un.md", unFile],
+    ["Projet/Chapitre 3/trois.md", troisFile],
+  ]);
+
+  view.app.vault.getAbstractFileByPath = (path) => filesMap.get(path) || null;
+  view.app.vault.read = async (f) => (f && typeof f.content === "string" ? f.content : "");
+
+  const scope = {
+    type: "selection",
+    projectRoot: "Projet",
+    paths: ["Projet/Chapitre 1/un.md", "Projet/Chapitre 3/trois.md"],
+  };
+
+  const resolved = resolveCompileScopeFiles(view.app, view.plugin.settings, scope);
+  assert.equal(resolved.length, 2, "resolveCompileScopeFiles renvoie 2 fichiers");
+  assert.equal(resolved[0].path, "Projet/Chapitre 1/un.md");
+  assert.equal(resolved[1].path, "Projet/Chapitre 3/trois.md");
+
+  await view.setCompileScope(scope);
+  await flush();
+
+  assert.equal(writeCalled, false, "aucune écriture ni export n'a lieu");
+
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Contenu de un.md"), "contient le contenu de un.md");
+  assert.ok(markdown.includes("Contenu de trois.md"), "contient le contenu de trois.md");
+
+  const idxUn = markdown.indexOf("Contenu de un.md");
+  const idxTrois = markdown.indexOf("Contenu de trois.md");
+}));
+
+test("fil d'Ariane — le clic sur la racine utilise setCompileScope({ type: 'project' }) sans écriture ni export", withCapture(async (_dom, rendered) => {
+  const { view } = await openLoadedView("scene");
+  let writeCalled = false;
+  view.app.vault.create = async () => { writeCalled = true; };
+  view.app.vault.modify = async () => { writeCalled = true; };
+
+  let scopePassed = null;
+  const originalSetCompileScope = view.setCompileScope.bind(view);
+  view.setCompileScope = async (scope) => {
+    scopePassed = scope;
+    return originalSetCompileScope(scope);
+  };
+
+  const buttons = view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+  const rootButton = buttons[0];
+  assert.ok(rootButton, "le bouton racine du fil d'Ariane doit exister");
+
+  const modeBefore = view.mode;
+  rootButton.click();
+  await flush();
+
+  assert.ok(scopePassed, "setCompileScope a été appelé");
+  assert.deepEqual(scopePassed, {
+    type: "project",
+    projectRoot: "Manuscrit",
+  }, "la portée transmise est { type: 'project', projectRoot: 'Manuscrit' }");
+
+  assert.equal(view.mode, modeBefore, "ne bascule pas vers le mode historique manuscript");
+  assert.equal(writeCalled, false, "vault.create et vault.modify ne sont jamais appelés");
+
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."), "les fichiers du projet sont rendus en mémoire");
+  assert.ok(markdown.includes("Seconde scène du chapitre."), "plusieurs fichiers du projet sont rendus en mémoire");
+}));
+
+test("fil d'Ariane — état actif visuel après setCompileScope(project) et passage au chapitre", withCapture(async (_dom, _rendered) => {
+  const { view } = await openLoadedView("scene");
+  let writeCalled = false;
+  view.app.vault.create = async () => { writeCalled = true; };
+  view.app.vault.modify = async () => { writeCalled = true; };
+
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+
+  const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+  const rootBtn = buttons()[0];
+  const otherBtns = buttons().slice(1);
+
+  // 1. Après setCompileScope(project) :
+  assert.equal(rootBtn.hasClass("is-current"), true, "le bouton racine possède is-current");
+  assert.equal(rootBtn.getAttribute("aria-current"), "page", "aria-current vaut page sur le bouton racine");
+  for (const btn of otherBtns) {
+    assert.equal(btn.hasClass("is-current"), false, "les autres boutons ne possèdent pas is-current");
+  }
+
+  // 2. Après une portée project, cliquer sur chapitre :
+  const chapBtn = buttons().find((b) => b.textContent.includes("Chapitre"));
+  assert.ok(chapBtn, "bouton chapitre présent dans le fil d'Ariane");
+
+  chapBtn.click();
+  await flush();
+
+  assert.equal(view.compileScope, null, "compileScope devient null");
+  const freshChapBtn = buttons().find((b) => b.textContent.includes("Chapitre"));
+  const freshRootBtn = buttons()[0];
+  assert.equal(freshChapBtn.hasClass("is-current"), true, "le chapitre devient actif");
+  assert.equal(freshRootBtn.hasClass("is-current"), false, "la racine perd is-current");
+
+  // 3. Le clic sur la racine ne déclenche ni vault.create ni vault.modify :
+  freshRootBtn.click();
+  await flush();
+  assert.equal(writeCalled, false, "le clic racine ne déclenche ni vault.create ni vault.modify");
+}));
+
+test("compileScope — le fonctionnement du mode scene reste inchangé sans portée explicite", withCapture(async (_dom, rendered) => {
+  const { view } = await openLoadedView("scene");
+  await view.refreshPreview();
+  await flush();
+
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."));
+}));
+
+test("openScopeWithPreview — ouvre/active la vue Preview et applique setCompileScope sans recréer de vue", async () => {
+  const dom = installDom();
+  try {
+    const app = {
+      workspace: {
+        getLeavesOfType: () => [],
+        getLeaf: () => ({
+          setViewState: async () => {},
+        }),
+        revealLeaf: () => {},
+      },
+    };
+    let activeLeafCount = 0;
+    let scopePassed = null;
+
+    const mockPreviewView = {
+      setCompileScope: async (scope) => { scopePassed = scope; },
+    };
+
+    const existingLeaf = {
+      view: mockPreviewView,
+      setViewState: async () => {},
+    };
+
+    app.workspace.getLeavesOfType = (type) => (type === VIEW_PREVIEW ? [existingLeaf] : []);
+    app.workspace.revealLeaf = () => { activeLeafCount++; };
+
+    await openScopeWithPreview(app, { type: "file", projectRoot: "Manuscrit", path: "Manuscrit/scene.md" });
+
+    assert.equal(activeLeafCount, 1, "la vue existante est révélée");
+    assert.deepEqual(scopePassed, { type: "file", projectRoot: "Manuscrit", path: "Manuscrit/scene.md" });
+  } finally {
+    dom.restore();
+  }
+});
+
+

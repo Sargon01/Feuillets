@@ -8,6 +8,8 @@ import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { t } from "../i18n/index.js";
+import { openScopeWithPreview } from "./preview-view.js";
+import { createProjectScope } from "../services/compile-scope.js";
 import { Menu, TFile, TFolder, setIcon, Notice, normalizePath, type App, type TAbstractFile } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import type FeuilletsPlugin from "../main.js";
@@ -1435,6 +1437,17 @@ export class FeuilletsView extends BaseFeuilletsView {
     rootRow.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       const menu = new Menu();
+      const menuTitle = t("shared.contextMenu.openWithPreview");
+      menu.addItem((item) =>
+        item
+          .setTitle(menuTitle)
+          .setIcon("eye")
+          .onClick(async () => {
+            const scope = createProjectScope(treeRoot.path);
+            await openScopeWithPreview(this.app, scope);
+          })
+      );
+      menu.addSeparator();
       menu.addItem((item) =>
         item
           .setTitle(t("binder.duplicateAsVersion"))

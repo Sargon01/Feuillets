@@ -1,3 +1,4 @@
+import { createProjectScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { ItemView, MarkdownView, Menu, Notice, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_BOARD, VIEW_PREVIEW } from "../constants.js";
 import { openFeuilletsExportSettings } from "../settings/open-export-settings.js";
@@ -349,6 +350,8 @@ export class PreviewView extends ItemView {
   private pendingZoom: { scale: number; mode: ZoomMode } | null = null;
   private resizeObserver: ResizeObserver | null = null;
 
+  private compileScope: CompileScope | null = null;
+
   /* Jeton de génération : seul le rendu le plus récent a le droit
      d'aboutir — un résultat obsolète ne remplace jamais l'affichage. */
   private refreshGeneration = 0;
@@ -361,6 +364,12 @@ export class PreviewView extends ItemView {
   constructor(leaf: WorkspaceLeaf, plugin: PreviewViewPlugin) {
     super(leaf);
     this.plugin = plugin;
+  }
+
+  async setCompileScope(scope: CompileScope): Promise<void> {
+    this.compileScope = scope;
+    this.updateUI();
+    await this.refreshPreview();
   }
 
   getViewType(): string {
@@ -385,7 +394,9 @@ export class PreviewView extends ItemView {
   }
 
   async setMode(mode: PreviewMode): Promise<void> {
-    if (this.mode === mode) return;
+    const hadCompileScope = this.compileScope !== null;
+    this.compileScope = null;
+    if (this.mode === mode && !hadCompileScope) return;
     this.openVisibleRequestId++;
     if (this.autoOpenVisibleTimer !== null && typeof window !== "undefined") {
       window.clearTimeout(this.autoOpenVisibleTimer);
@@ -516,6 +527,7 @@ export class PreviewView extends ItemView {
        suivre le bon éditeur. */
     this.bindSourcePane();
     this.updateUI();
+    if (this.compileScope) return;
     if (this.mode === "scene") {
       const file = this.app.workspace.getActiveFile();
       const path = file instanceof TFile ? file.path : null;
@@ -601,6 +613,38 @@ export class PreviewView extends ItemView {
     if (!root) {
       this.showMessage("feuillets-preview-error", t("modal.pdfStyle.selectActiveProject") || "Veuillez sélectionner un projet actif.");
       return null;
+    }
+
+    if (this.compileScope) {
+      const files = resolveCompileScopeFiles(this.app, settings, this.compileScope);
+      if (!files.length) {
+        this.showMessage("feuillets-preview-empty", "La portée sélectionnée ne contient aucun feuillet à afficher.");
+        return null;
+      }
+      const segments: PreviewCompileSegment[] = [];
+      const preset = activePresetConfig(settings);
+      for (const file of files) {
+        const body = stripFrontmatter(await this.app.vault.read(file)).trim();
+        if (!body) continue;
+        const level = headingLevelOf(depthOf(this.app, settings, file));
+        const title = this.mode === "part"
+          ? this.partFileTitleMarkdown(file, body, level)
+          : this.sceneTitleMarkdown(file, level);
+        segments.push({ text: title ? `${title}\n\n${body}` : body, path: file.path, frontType: null });
+      }
+      if (!segments.length) {
+        this.showMessage("feuillets-preview-empty", "La portée sélectionnée ne contient aucun feuillet avec du contenu à afficher.");
+        return null;
+      }
+      const separator = preset.separator || "\n\n";
+      const firstScene = segments.find((seg) => seg.path)?.path;
+      return {
+        markdown: segments.map((seg) => seg.text).join(separator),
+        segments,
+        sourcePath: firstScene || root.path,
+        title: settings.manuscriptTitle || root.name,
+        subtitle: `Portée ${this.compileScope.type}`,
+      };
     }
 
     if (this.mode === "manuscript") {
@@ -2356,12 +2400,20 @@ export class PreviewView extends ItemView {
     levels.forEach((level, index) => {
       if (index) host.createSpan({ cls: "feuillets-preview-breadcrumb-separator", text: "›" });
       const button = host.createEl("button", { cls: "feuillets-preview-breadcrumb-item", text: level.title });
-      const active = this.mode === level.mode;
+      const active = this.compileScope
+        ? (this.compileScope.type === "project" && level.mode === "manuscript")
+        : (this.mode === level.mode);
       button.setAttribute("title", level.title);
       button.setAttribute("aria-label", `Afficher ${level.title}`);
       button.setAttribute("aria-current", active ? "page" : "false");
       button.toggleClass("is-current", active);
       const activate = (): void => {
+        if (index === 0) {
+          const projectRoot = this.plugin.getProjectFolder();
+          if (!projectRoot) return;
+          void this.setCompileScope(createProjectScope(projectRoot.path));
+          return;
+        }
         if (this.mode === "manuscript" && level.mode !== "manuscript") {
           if (level.mode === "scene") {
             void this.openVisibleFeuillet();
@@ -2644,6 +2696,17 @@ export async function activatePreviewView(app: App): Promise<WorkspaceLeaf | nul
 
   if (leaf) void workspace.revealLeaf(leaf);
   return leaf;
+}
+
+/**
+ * Helper unique pour récupérer ou créer la vue Preview, l'activer et lui transmettre une portée explicite CompileScope.
+ */
+export async function openScopeWithPreview(app: App, scope: CompileScope): Promise<void> {
+  const leaf = await activatePreviewView(app);
+  const view = leaf?.view as any;
+  if (view && typeof view.setCompileScope === "function") {
+    await view.setCompileScope(scope);
+  }
 }
 
 /**
