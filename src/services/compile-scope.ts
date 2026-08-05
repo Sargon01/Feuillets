@@ -114,6 +114,10 @@ export function resolveCompileScopeFiles(
       };
       collectInOrder(projectRoot);
 
+      for (const file of finalFiles.values()) {
+        result.push(file);
+      }
+
       return result;
     }
 

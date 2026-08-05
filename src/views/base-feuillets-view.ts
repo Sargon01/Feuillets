@@ -12,7 +12,8 @@ import { DiffModal, CompareFilesModal, PickFileModal } from "../ui/diff-modal.js
 import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
-import { addOpenWithPreviewItem } from "./preview-view.js";
+import { addOpenWithPreviewItem, openScopeWithPreview } from "./preview-view.js";
+import { createFileScope, createFolderScope, createSelectionScope, createProjectScope } from "../services/compile-scope.js";
 import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
 import { t } from "../i18n/index.js";
@@ -2077,7 +2078,19 @@ export abstract class BaseFeuilletsView extends ItemView {
        ne passe jamais par ce hook — l'entrée y était donc invisible.
        Réservée aux vraies scènes (roleOfFile), pas aux feuillets-chapitres
        ni aux fiches hors manuscrit. */
-    if (!isGroup) {
+    if (isGroup) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.contextMenu.openWithPreview"))
+          .setIcon("eye")
+          .onClick(async () => {
+            const projectRoot = plugin.getProjectFolder();
+            if (!projectRoot) return;
+            const scope = createSelectionScope(projectRoot.path, Array.from(groupSel || []));
+            await openScopeWithPreview(this.app, scope);
+          })
+      );
+    } else {
       addOpenWithPreviewItem(menu, this.app, plugin, file);
     }
     menu.addItem((item) =>
@@ -2276,6 +2289,19 @@ export abstract class BaseFeuilletsView extends ItemView {
   showFolderContextMenu(e: MouseEvent, folder: TFolder, _parent: ProjectNode, _index: number, _siblings: ProjectNode[]): void {
     const menu = new Menu();
     const plugin = this.plugin;
+
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.contextMenu.openWithPreview"))
+        .setIcon("eye")
+        .onClick(async () => {
+          const projectRoot = plugin.getProjectFolder();
+          if (!projectRoot) return;
+          const scope = createFolderScope(projectRoot.path, folder.path);
+          await openScopeWithPreview(this.app, scope);
+        })
+    );
+    menu.addSeparator();
 
     menu.addItem((item) =>
       item
