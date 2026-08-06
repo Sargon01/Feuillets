@@ -1,5 +1,7 @@
 # Feuillets
 
+**English version: [English](https://github.com/Sargon01/Feuillets/blob/main/README.md)**
+
 ## Écrivez un livre, pas une collection de notes
 
 **Feuillets transforme Obsidian en atelier d’écriture longue, libre, local et gratuit.**
@@ -230,14 +232,14 @@ Après acceptation dans le catalogue :
 
 ## Documentation
 
-- [Découvrir Feuillets](docs/DECOUVRIR.md)
-- [Le parcours d’un auteur](docs/PARCOURS-AUTEUR.md)
-- [Fonctionnalités par usage](docs/FONCTIONNALITES.md)
-- [Créer une interface d’écriture épurée](docs/SETUP-INTERFACE.md)
-- [Composition et export](docs/COMPOSITION-ET-EXPORT.md)
-- [Réécriture, sauvegardes et versions](docs/VERSIONNAGE-ET-SECURITE.md)
-- [Importer un projet Scrivener](docs/IMPORT-SCRIVENER.md)
-- [Philosophie](docs/PHILOSOPHIE.md)
-- [Architecture technique](docs/ARCHITECTURE.md)
+- [Découvrir Feuillets](https://github.com/Sargon01/Feuillets/blob/main/docs/DECOUVRIR.md)
+- [Le parcours d’un auteur](https://github.com/Sargon01/Feuillets/blob/main/docs/PARCOURS-AUTEUR.md)
+- [Fonctionnalités par usage](https://github.com/Sargon01/Feuillets/blob/main/docs/FONCTIONNALITES.md)
+- [Créer une interface d’écriture épurée](https://github.com/Sargon01/Feuillets/blob/main/docs/SETUP-INTERFACE.md)
+- [Composition et export](https://github.com/Sargon01/Feuillets/blob/main/docs/COMPOSITION-ET-EXPORT.md)
+- [Réécriture, sauvegardes et versions](https://github.com/Sargon01/Feuillets/blob/main/docs/VERSIONNAGE-ET-SECURITE.md)
+- [Importer un projet Scrivener](https://github.com/Sargon01/Feuillets/blob/main/docs/IMPORT-SCRIVENER.md)
+- [Philosophie](https://github.com/Sargon01/Feuillets/blob/main/docs/PHILOSOPHIE.md)
+- [Architecture technique](https://github.com/Sargon01/Feuillets/blob/main/docs/ARCHITECTURE.md)
 
 > **Feuillets — l’atelier libre du manuscrit.**
