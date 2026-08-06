@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MarkdownRenderer, Menu, TFolder, TFile } from "obsidian";
 import { VIEW_PREVIEW } from "../src/constants.js";
-import { PreviewView, activatePreviewView } from "../src/views/preview-view.js";
+import { PreviewView, activatePreviewView, openScopeWithPreview, openWithPreview } from "../src/views/preview-view.js";
+import { resolveCompileScopeFiles } from "../src/services/compile-scope.js";
 import { CompileSelectionModal } from "../src/ui/selection-modals.js";
 import { LayoutModal } from "../src/ui/layout-modal.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
@@ -416,7 +417,7 @@ function buildProject() {
   let activeFile = sceneFile;
   const app = {
     vault: {
-      read: async () => "---\ntitre: Scene 1\n---\nTexte réel de la scène.",
+      read: async (f) => (f && typeof f.content === "string" ? f.content : "---\ntitre: Scene 1\n---\nTexte réel de la scène."),
       cachedRead: async (f) => (f && typeof f.content === "string" ? f.content : "---\ntitre: Scene 1\n---\nTexte réel de la scène."),
       createFolder: async () => {},
       create: async (path, content) => new TFile(path, content),
@@ -1343,7 +1344,17 @@ test("mode Chapitre — assemble les scènes dans l'ordre du Binder, sans compil
 
 test("mode Manuscrit — la frappe déclenche une seule compilation différée", withRender(async (dom) => {
   const { view, app, scaledContainer, viewport } = await openLoadedView("manuscript");
-  const compiles = countCompiles(app);
+  /* Depuis que l'Aperçu compile en mémoire ({ writeOutput: false }), le
+     manuscrit ne passe plus par vault.create/modify — compter ces appels ne
+     détecterait plus la compilation. On compte donc les RENDUS, la vraie
+     trace d'une recompilation effective. */
+  const originalRender = view.renderPreviewSource.bind(view);
+  let renders = 0;
+  view.renderPreviewSource = async (source, gen, anchor, finish) => {
+    renders++;
+    return originalRender(source, gen, anchor, finish);
+  };
+  const rendersBefore = renders;
 
   // Les frappes successives sont regroupées.
   app.emitWorkspace("editor-change");
@@ -1352,26 +1363,25 @@ test("mode Manuscrit — la frappe déclenche une seule compilation différée",
   assert.equal(dom.pendingTimers(), 1, "une seule compilation est programmée");
   dom.runTimers();
   await flush();
-  assert.ok(compiles() > 0, "le manuscrit est recompilé après le délai");
+  assert.ok(renders > rendersBefore, "le manuscrit est recompilé après le délai");
   fireLoad(placeFrame(latestFrame(scaledContainer), viewport));
   assert.equal(view.statusEl.textContent, "Manuscrit à jour");
 }));
 
-test("modes — la portée se choisit au fil d'Ariane et dans Export, sans menu ⋯", withRender(async () => {
+test("modes — la portée s'AFFICHE dans Export mais ne s'y change plus (seul le fil d'Ariane la modifie)", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
 
   view.btnExport.click();
   await flush();
-  const scope = view.exportPanelEl.querySelectorAll("select")[0];
-  assert.deepEqual(scope.children.map((option) => option.value), ["scene", "chapter", "part", "manuscript"]);
-  assert.equal(scope.value, "manuscript");
-
-  scope.value = "chapter";
-  scope.dispatch("change");
-  await flush();
-  await flush();
-  assert.equal(view.mode, "chapter");
-  assert.equal(view.plugin.settings.previewMode, "chapter", "la portée est persistée, pas gardée en local");
+  const label = view.exportPanelEl.querySelector('[aria-label="Portée de l’export"]');
+  assert.ok(label, "le libellé de portée est affiché");
+  assert.equal(label.textContent, "Manuscrit");
+  /* Plus aucun select capable de changer la portée depuis le panneau */
+  assert.equal(
+    view.exportPanelEl.querySelectorAll('select[aria-label="Portée de l’export"]').length,
+    0,
+    "la portée n'est pas un select dans Export"
+  );
 }));
 
 test("suivi de scène — défile vers le feuillet actif en mode Manuscrit, sans bouger si déjà visible", async () => {
@@ -2189,22 +2199,18 @@ test("barre — les réglages de format et de gabarit restent exclusivement cent
 }));
 
 
-test("export contextuel — portée, inclusions, format, gabarit et nom partagent les réglages centraux", withRender(async () => {
+test("export contextuel — portée (affichée), inclusions, format, gabarit et nom partagent les réglages centraux", withRender(async () => {
   const { view, app, plugin } = await openLoadedView("scene");
 
   view.btnExport.click();
   await flush();
   assert.equal(view.exportPanelEl.hasClass("is-hidden"), false);
   const selects = view.exportPanelEl.querySelectorAll("select");
-  const [scope, format, template] = selects;
-  assert.deepEqual(scope.children.map((option) => option.value), ["scene", "chapter", "part", "manuscript"]);
-
-  scope.value = "chapter";
-  scope.dispatch("change");
-  await flush();
-  await flush();
-  assert.equal(view.mode, "chapter");
-  assert.equal(plugin.settings.previewMode, "chapter", "la portée réutilise le mode central existant");
+  const [format, template] = selects;
+  /* La portée n'est plus un select : elle s'affiche et ne se change pas
+     depuis le panneau (règle 4 du chantier CompileScope). */
+  const scopeLabel = view.exportPanelEl.querySelector('[aria-label="Portée de l’export"]');
+  assert.equal(scopeLabel.textContent, "Feuillet");
 
   format.value = "epub";
   format.dispatch("change");
@@ -2270,7 +2276,7 @@ test("panneau Export — repli et réouverture de session ne perdent aucun choix
   await flush();
   assert.equal(view.exportPanelEl.hasClass("is-hidden"), false);
 
-  const format = view.exportPanelEl.querySelectorAll("select")[1];
+  const format = view.exportPanelEl.querySelectorAll("select")[0];
   format.value = "odt";
   format.dispatch("change");
   await flush();
@@ -2282,7 +2288,7 @@ test("panneau Export — repli et réouverture de session ne perdent aucun choix
   await flush();
   assert.equal(view.exportPanelEl.hasClass("is-hidden"), false);
   assert.equal(plugin.settings.exportFormat, "odt");
-  assert.equal(view.exportPanelEl.querySelectorAll("select")[1].value, "odt");
+  assert.equal(view.exportPanelEl.querySelectorAll("select")[0].value, "odt");
   assert.equal(
     view.exportPanelEl.querySelectorAll("summary").some((summary) => summary.textContent === "Page de titre"),
     false,
@@ -3205,7 +3211,7 @@ test("lecture Partie — chaque section visible ouvre son propre feuillet, sans 
   app.workspace.getLeaf = () => editorLeaf;
   view.plugin.settings.previewSyncScroll = false;
   const zoom = view.zoomScale;
-  view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON").at(-1).click();
+  view.openVisibleEl.click();
   await flush();
   assert.equal(opened.at(-1), s1c);
   assert.equal(view.mode, "part", "la portée Partie reste visible dans le fil d'Ariane");
@@ -3243,7 +3249,7 @@ test("lecture Manuscrit — Ouvrir ce feuillet relit data-source-path et conserv
   app.workspace.getLeaf = () => ({ openFile: async (file) => { opened.push(file); app.setActiveFile(file); } });
   view.plugin.settings.previewSyncScroll = false;
   const zoom = view.zoomScale;
-  view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON").at(-1).click();
+  view.openVisibleEl.click();
   await flush();
   assert.equal(opened.at(-1).path, expectedPath, "le fil d'Ariane relit le repère actuellement visible");
   assert.equal(view.mode, "manuscript", "la portée Manuscrit reste visible dans le fil d'Ariane");
@@ -3390,19 +3396,47 @@ test("fil d'Ariane — titres du Binder, niveaux réels et clics de portée", wi
 
   view.setZoom(1.25, "manual");
   const zoomBefore = view.zoomScale;
-  const click = async (index, mode) => {
-    buttons()[index].click();
-    await flush();
-    assert.equal(view.mode, mode);
-    const frame = latestFrame(view.scaledContainer);
-    if (frame) fireLoad(placeFrame(frame, view.previewViewport));
-  };
-  await click(0, "manuscript");
-  await click(1, "part");
-  await click(2, "chapter");
-  // Ce rendu synthétique ne comporte pas de repère source : sans
-  // `data-source-path`, aucune cible ne doit être devinée.
-  await click(3, "chapter");
+
+  /* Une fois une portée explicite posée, le fil d'Ariane est DÉRIVÉ de la
+     portée (jamais du fichier actif) et chaque niveau cliquable applique
+     setCompileScope() avec la portée correspondante. */
+  const projectRoot = view.plugin.getProjectFolder().path;
+
+  // 1. La racine → portée projet.
+  buttons()[0].click();
+  await flush();
+  assert.deepEqual(view.compileScope, { type: "project", projectRoot });
+  assert.deepEqual(buttons().map((el) => el.textContent), ["Roman"], "portée projet : un seul niveau (la racine)");
+  assert.equal(buttons()[0].getAttribute("aria-current"), "page");
+
+  // 2. Portée dossier → Projet > Dossier, le dossier est actif.
+  await view.setCompileScope({ type: "folder", projectRoot, path: ctx.p1.path });
+  await flush();
+  assert.deepEqual(buttons().map((el) => el.textContent), ["Roman", "Première partie"]);
+  assert.equal(buttons().at(-1).getAttribute("aria-current"), "page");
+
+  // 3. Portée fichier → Projet > Dossier > Fichier, le fichier est actif.
+  app.metadataCache.getFileCache = (file) => ({ frontmatter: file === ctx.s1a ? { short_title: "Titre Binder" } : {} });
+  view.updateUI();
+  await view.setCompileScope({ type: "file", projectRoot, path: ctx.s1a.path });
+  await flush();
+  assert.deepEqual(
+    buttons().map((el) => el.textContent),
+    ["Roman", "Première partie", "Chapitre premier", "Titre Binder"],
+    "c portée fichier reproduit la hiérarchie réelle"
+  );
+  assert.equal(buttons().at(-1).getAttribute("aria-current"), "page");
+
+  // 4. Clic sur un niveau dossier → setCompileScope(folder) pour CE niveau.
+  const partButton = buttons().find((b) => b.textContent === "Première partie");
+  partButton.click();
+  await flush();
+  assert.deepEqual(view.compileScope, { type: "folder", projectRoot, path: ctx.p1.path });
+
+  // 5. Clic sur la racine → retour à la portée projet, zoom conservé.
+  buttons()[0].click();
+  await flush();
+  assert.deepEqual(view.compileScope, { type: "project", projectRoot });
   assert.equal(view.zoomScale, zoomBefore, "les clics de portée conservent le zoom");
 }));
 
@@ -3456,3 +3490,612 @@ test("barre — aucun bouton de repli séparé", withRender(async () => {
   assert.equal(view.contentEl.querySelectorAll('[aria-label="Masquer la barre"]').length, 0);
   assert.equal(menuTitles(openMenuVia(view.zoomLabelEl)).includes("Masquer la barre"), false);
 }));
+
+test("compileScope — affichage d'une portée file explicite sans écriture ni export", withCapture(async (_dom, rendered) => {
+  const { view, sceneFile, sceneFile2 } = await openLoadedView("manuscript");
+  let writeCalled = false;
+  view.app.vault.modify = async () => { writeCalled = true; };
+  view.app.vault.create = async () => { writeCalled = true; };
+
+  await view.setCompileScope({ type: "file", projectRoot: "Manuscrit", path: sceneFile.path });
+  await flush();
+
+  assert.equal(writeCalled, false, "aucun fichier ne doit être écrit ni créé");
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."));
+  assert.equal(markdown.includes("Seconde scène du chapitre."), false, "seul le fichier ciblé par la portée file doit être affiché");
+}));
+
+test("compileScope — affichage d'une portée folder récursive sans doublons et selon l'ordre du Binder", withCapture(async (_dom, rendered) => {
+  const { view, chapterDir } = await openLoadedView("manuscript");
+
+  await view.setCompileScope({ type: "folder", projectRoot: "Manuscrit", path: chapterDir.path });
+  await flush();
+
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."));
+  assert.ok(markdown.includes("Seconde scène du chapitre."));
+  const idx1 = markdown.indexOf("Texte réel de la scène.");
+  const idx2 = markdown.indexOf("Seconde scène du chapitre.");
+  assert.ok(idx1 < idx2, "l'ordre du Binder doit être conservé");
+}));
+
+test("compileScope — affichage d'une portée selection explicite sans doublons et avec ordre conservé", withCapture(async (_dom, rendered) => {
+  const { view, sceneFile, sceneFile2, chapterDir } = await openLoadedView("manuscript");
+
+  // On sélectionne à la fois le dossier et un fichier enfant pour tester l'absence de doublons
+  await view.setCompileScope({ type: "selection", projectRoot: "Manuscrit", paths: [sceneFile2.path, chapterDir.path, sceneFile.path] });
+  await flush();
+
+  const markdown = rendered.at(-1);
+  const count1 = (markdown.match(/Texte réel de la scène\./g) || []).length;
+  const count2 = (markdown.match(/Seconde scène du chapitre\./g) || []).length;
+  assert.equal(count1, 1, "aucun doublon pour scene1");
+  assert.equal(count2, 1, "aucun doublon pour scene2");
+
+  const idx1 = markdown.indexOf("Texte réel de la scène.");
+  const idx2 = markdown.indexOf("Seconde scène du chapitre.");
+  assert.ok(idx1 < idx2, "l'ordre du Binder doit être conservé");
+}));
+
+test("compileScope — affichage d'une portée project explicite assemblée en mémoire sans écriture ni export", withCapture(async (_dom, rendered) => {
+  const { view } = await openLoadedView("manuscript");
+  let writeCalled = false;
+  view.app.vault.modify = async () => { writeCalled = true; };
+  view.app.vault.create = async () => { writeCalled = true; };
+
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+
+  assert.equal(writeCalled, false, "aucun appel à vault.create ni vault.modify ne doit avoir lieu");
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."));
+  assert.ok(markdown.includes("Seconde scène du chapitre."));
+  const idx1 = markdown.indexOf("Texte réel de la scène.");
+  const idx2 = markdown.indexOf("Seconde scène du chapitre.");
+  assert.ok(idx1 < idx2, "l'ordre du Binder doit être conservé");
+}));
+
+test("compileScope — sélection multiple non contiguë dans des dossiers différents (un.md et trois.md)", withCapture(async (_dom, rendered) => {
+  const { view } = await openLoadedView("manuscript");
+  let writeCalled = false;
+  view.app.vault.modify = async () => { writeCalled = true; };
+  view.app.vault.create = async () => { writeCalled = true; };
+
+  const projectRoot = new TFolder("Projet");
+  projectRoot.name = "Projet";
+  projectRoot.path = "Projet";
+
+  const chap1 = new TFolder("Projet/Chapitre 1");
+  chap1.name = "Chapitre 1";
+  chap1.path = "Projet/Chapitre 1";
+  chap1.parent = projectRoot;
+
+  const chap3 = new TFolder("Projet/Chapitre 3");
+  chap3.name = "Chapitre 3";
+  chap3.path = "Projet/Chapitre 3";
+  chap3.parent = projectRoot;
+
+  const unFile = new TFile("Projet/Chapitre 1/un.md", "Contenu de un.md");
+  unFile.name = "un.md";
+  unFile.basename = "un";
+  unFile.extension = "md";
+  unFile.path = "Projet/Chapitre 1/un.md";
+  unFile.parent = chap1;
+  unFile.content = "Contenu de un.md";
+
+  const troisFile = new TFile("Projet/Chapitre 3/trois.md", "Contenu de trois.md");
+  troisFile.name = "trois.md";
+  troisFile.basename = "trois";
+  troisFile.extension = "md";
+  troisFile.path = "Projet/Chapitre 3/trois.md";
+  troisFile.parent = chap3;
+  troisFile.content = "Contenu de trois.md";
+
+  chap1.children = [unFile];
+  chap3.children = [troisFile];
+  projectRoot.children = [chap1, chap3];
+
+  const filesMap = new Map([
+    ["Projet", projectRoot],
+    ["Projet/Chapitre 1", chap1],
+    ["Projet/Chapitre 3", chap3],
+    ["Projet/Chapitre 1/un.md", unFile],
+    ["Projet/Chapitre 3/trois.md", troisFile],
+  ]);
+
+  view.app.vault.getAbstractFileByPath = (path) => filesMap.get(path) || null;
+  view.app.vault.read = async (f) => (f && typeof f.content === "string" ? f.content : "");
+
+  /* La compilation passe par getProjectFolder(app, settings) : on aligne le
+     projet actif sur l'arbre « Projet » construit par ce test, sinon la
+     racine « Manuscrit » du fixture (absente de filesMap) renverrait null. */
+  view.plugin.settings.projectFolder = "Projet";
+
+  const scope = {
+    type: "selection",
+    projectRoot: "Projet",
+    paths: ["Projet/Chapitre 1/un.md", "Projet/Chapitre 3/trois.md"],
+  };
+
+  const resolved = resolveCompileScopeFiles(view.app, view.plugin.settings, scope);
+  assert.equal(resolved.length, 2, "resolveCompileScopeFiles renvoie 2 fichiers");
+  assert.equal(resolved[0].path, "Projet/Chapitre 1/un.md");
+  assert.equal(resolved[1].path, "Projet/Chapitre 3/trois.md");
+
+  await view.setCompileScope(scope);
+  await flush();
+
+  assert.equal(writeCalled, false, "aucune écriture ni export n'a lieu");
+
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Contenu de un.md"), "contient le contenu de un.md");
+  assert.ok(markdown.includes("Contenu de trois.md"), "contient le contenu de trois.md");
+
+  const idxUn = markdown.indexOf("Contenu de un.md");
+  const idxTrois = markdown.indexOf("Contenu de trois.md");
+}));
+
+test("fil d'Ariane — le clic sur la racine utilise setCompileScope({ type: 'project' }) sans écriture ni export", withCapture(async (_dom, rendered) => {
+  const { view } = await openLoadedView("scene");
+  let writeCalled = false;
+  view.app.vault.create = async () => { writeCalled = true; };
+  view.app.vault.modify = async () => { writeCalled = true; };
+
+  let scopePassed = null;
+  const originalSetCompileScope = view.setCompileScope.bind(view);
+  view.setCompileScope = async (scope) => {
+    scopePassed = scope;
+    return originalSetCompileScope(scope);
+  };
+
+  const buttons = view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+  const rootButton = buttons[0];
+  assert.ok(rootButton, "le bouton racine du fil d'Ariane doit exister");
+
+  const modeBefore = view.mode;
+  rootButton.click();
+  await flush();
+
+  assert.ok(scopePassed, "setCompileScope a été appelé");
+  assert.deepEqual(scopePassed, {
+    type: "project",
+    projectRoot: "Manuscrit",
+  }, "la portée transmise est { type: 'project', projectRoot: 'Manuscrit' }");
+
+  assert.equal(view.mode, modeBefore, "ne bascule pas vers le mode historique manuscript");
+  assert.equal(writeCalled, false, "vault.create et vault.modify ne sont jamais appelés");
+
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."), "les fichiers du projet sont rendus en mémoire");
+  assert.ok(markdown.includes("Seconde scène du chapitre."), "plusieurs fichiers du projet sont rendus en mémoire");
+}));
+
+test("fil d'Ariane — état actif visuel dérivé de la portée CompileScope", withCapture(async (_dom, _rendered) => {
+  const { view, chapterDir } = await openLoadedView("scene");
+  let writeCalled = false;
+  view.app.vault.create = async () => { writeCalled = true; };
+  view.app.vault.modify = async () => { writeCalled = true; };
+
+  const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+
+  // 1. Portée projet : un seul niveau, la racine active.
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+  const rootBtn = buttons()[0];
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit"], "une portée projet n'a qu'un niveau");
+  assert.equal(rootBtn.hasClass("is-current"), true, "le bouton racine possède is-current");
+  assert.equal(rootBtn.getAttribute("aria-current"), "page", "aria-current vaut page sur le bouton racine");
+
+  // 2. Portée dossier : Projet > Dossier, le dossier actif, la racine non.
+  await view.setCompileScope({ type: "folder", projectRoot: "Manuscrit", path: chapterDir.path });
+  await flush();
+  const chapBtn = buttons().find((b) => b.textContent.includes("Chapitre"));
+  assert.ok(chapBtn, "le bouton dossier apparaît dans le fil d'Ariane");
+  assert.equal(chapBtn.getAttribute("aria-current"), "page", "le dossier devient actif");
+  assert.equal(buttons()[0].hasClass("is-current"), false, "la racine perd is-current");
+  assert.equal(view.compileScope.type, "folder");
+
+  // 3. Le clic sur la racine revient à la portée projet, sans écriture.
+  buttons()[0].click();
+  await flush();
+  assert.equal(view.compileScope.type, "project", "le clic racine applique setCompileScope(project)");
+  assert.equal(writeCalled, false, "les clics de portée ne déclenchent ni vault.create ni vault.modify");
+}));
+
+test("compileScope — le fonctionnement du mode scene reste inchangé sans portée explicite", withCapture(async (_dom, rendered) => {
+  const { view } = await openLoadedView("scene");
+  await view.refreshPreview();
+  await flush();
+
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Texte réel de la scène."));
+}));
+
+test("fil d'Ariane — portée project : le dernier chemin est conservé en navigation cliquable, Projet actif", withCapture(async (_dom, _rendered) => {
+  const { view, chapterDir, sceneFile } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+  view.app.metadataCache.getFileCache = (file) => ({ frontmatter: file === sceneFile ? { short_title: "Titre Conservé" } : {} });
+  view.updateUI();
+  const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+
+  // Ouverture directe au niveau Projet SANS historique : uniquement la racine.
+  await view.setCompileScope({ type: "project", projectRoot });
+  await flush();
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit"], "sans historique, une portée project n'affiche que la racine");
+  assert.equal(buttons()[0].getAttribute("aria-current"), "page", "la racine est le niveau actif");
+
+  // On ouvre ensuite un feuillet : la navigation déroule Projet › Dossier › Feuillet.
+  await view.setCompileScope({ type: "file", projectRoot, path: sceneFile.path });
+  await flush();
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit", "Chapitre 1", "Titre Conservé"]);
+  assert.equal(buttons().at(-1).getAttribute("aria-current"), "page", "le feuillet ouvert est actif");
+
+  // Retour au niveau Projet : le chemin concret est CONSERVÉ et reste cliquable.
+  await view.setCompileScope({ type: "project", projectRoot });
+  await flush();
+  assert.deepEqual(
+    buttons().map((b) => b.textContent),
+    ["Manuscrit", "Chapitre 1", "Titre Conservé"],
+    "le dernier chemin dossier/feuillet est conservé dans la navigation"
+  );
+  assert.equal(buttons()[0].getAttribute("aria-current"), "page", "Projet reste visuellement le niveau actif");
+  assert.equal(buttons()[0].hasClass("is-current"), true);
+  assert.equal(buttons().at(-1).getAttribute("aria-current"), "false", "le feuillet conservé n'est pas actif");
+
+  // Clic sur le dossier conservé → scope folder.
+  buttons().find((b) => b.textContent === "Chapitre 1").click();
+  await flush();
+  assert.deepEqual(view.compileScope, { type: "folder", projectRoot, path: chapterDir.path });
+
+  // On réaffiche le feuillet dans la navigation (rapporter la portée file),
+  // puis on repasse à la racine : le feuillet reste cliquable.
+  await view.setCompileScope({ type: "file", projectRoot, path: sceneFile.path });
+  await flush();
+  await view.setCompileScope({ type: "project", projectRoot });
+  await flush();
+  assert.deepEqual(
+    buttons().map((b) => b.textContent),
+    ["Manuscrit", "Chapitre 1", "Titre Conservé"],
+    "après réaffichage du feuillet, le chemin complet reparaît"
+  );
+  buttons().find((b) => b.textContent === "Titre Conservé").click();
+  await flush();
+  assert.deepEqual(view.compileScope, { type: "file", projectRoot, path: sceneFile.path });
+}));
+
+test("fil d'Ariane — portée selection n'invente aucun descendant", withCapture(async (_dom, _rendered) => {
+  const { view } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+  const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+
+  await view.setCompileScope({ type: "selection", projectRoot, paths: [`${projectRoot}/Chapitre 1/02-scene.md`] });
+  await flush();
+
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit"], "une sélection ne montre que la racine, sans inventer de niveau");
+  assert.equal(view.compileScope.type, "selection", "CompileScope selection reste la source de vérité");
+}));
+
+test("fil d'Ariane — parcours réel Feuillet → Projet → Dossier → Projet → Feuillet", withCapture(async (_dom, _rendered) => {
+  const { view, chapterDir, sceneFile } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+  view.app.metadataCache.getFileCache = (file) => ({ frontmatter: file === sceneFile ? { short_title: "Feuillet Écrit" } : {} });
+  view.updateUI();
+  const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+
+  // 1. Le Binder ouvre le feuillet (scope file).
+  await view.setCompileScope({ type: "file", projectRoot, path: sceneFile.path });
+  await flush();
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit", "Chapitre 1", "Feuillet Écrit"], "la ligne initiale est Projet › Dossier › Feuillet");
+
+  // 3. Clic sur le premier libellé (Projet).
+  buttons()[0].click();
+  await flush();
+  assert.equal(view.compileScope.type, "project", "le clic Projet passe en portée project");
+
+  // 4. La ligne GARDE Projet › Dossier › Feuillet, avec Projet actif.
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit", "Chapitre 1", "Feuillet Écrit"]);
+  assert.equal(buttons()[0].getAttribute("aria-current"), "page", "Projet est visuellement la portée active");
+  assert.equal(buttons()[1].getAttribute("aria-current"), "false");
+  assert.equal(buttons()[2].getAttribute("aria-current"), "false");
+
+  // 7. Clic sur Dossier → portée folder.
+  buttons().find((b) => b.textContent === "Chapitre 1").click();
+  await flush();
+  assert.deepEqual(view.compileScope, { type: "folder", projectRoot, path: chapterDir.path });
+
+  // 9. Nouveau clic Projet → Dossier et Feuillet toujours présents.
+  buttons()[0].click();
+  await flush();
+  assert.deepEqual(view.compileScope.type, "project");
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit", "Chapitre 1", "Feuillet Écrit"], "Dossier et Feuillet sont conservés");
+
+  // 11. Clic Feuillet → portée file.
+  buttons().find((b) => b.textContent === "Feuillet Écrit").click();
+  await flush();
+  assert.deepEqual(view.compileScope, { type: "file", projectRoot, path: sceneFile.path });
+}));
+
+test("fil d'Ariane — ouverture initiale par dossier", withCapture(async () => {
+  const { view, chapterDir } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+  const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+
+  // 1. Le Binder ouvre d'abord le dossier (scope folder).
+  await view.setCompileScope({ type: "folder", projectRoot, path: chapterDir.path });
+  await flush();
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit", "Chapitre 1"], "Projet › Dossier");
+
+  // 3. Clic Projet → la ligne RESTE Projet › Dossier.
+  buttons()[0].click();
+  await flush();
+  assert.equal(view.compileScope.type, "project");
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit", "Chapitre 1"], "le dossier est conservé");
+
+  // 5. Clic Dossier → à nouveau une portée folder.
+  buttons().find((b) => b.textContent === "Chapitre 1").click();
+  await flush();
+  assert.deepEqual(view.compileScope, { type: "folder", projectRoot, path: chapterDir.path });
+}));
+
+test("fil d'Ariane — Projet sans historique", withCapture(async () => {
+  const { view } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+  const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+
+  // Ouverture directement en portée project, sans historique.
+  await view.setCompileScope({ type: "project", projectRoot });
+  await flush();
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit"], "sans historique, la ligne ne contient que Projet");
+  assert.equal(buttons().length, 1);
+}));
+
+test("fil d'Ariane — sélection n'invente aucune descente même avec un historique", withCapture(async () => {
+  const { view, sceneFile } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+  const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+
+  // Même si lastScopedNav contient d'abord un fichier…
+  await view.setCompileScope({ type: "file", projectRoot, path: sceneFile.path });
+  await flush();
+  assert.equal(view["lastScopedNav"]?.path, sceneFile.path, "un feuillet a d'abord été mémorisé");
+  // …une sélection ne montre que la racine.
+  await view.setCompileScope({ type: "selection", projectRoot, paths: [`${projectRoot}/Chapitre 1/${sceneFile.name}`] });
+  await flush();
+  assert.deepEqual(buttons().map((b) => b.textContent), ["Manuscrit"], "une sélection doit montrer uniquement Projet");
+  assert.equal(buttons().length, 1, "aucun niveau dossier ni feuillet n'est créé pour une sélection");
+}));
+
+test("fil d'Ariane — changement de projet : les dossiers/feuillets du projet A ne fuient pas dans le projet B", withCapture(async () => {
+  const { view, sceneFile } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+  const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+
+  // 1. Mémorise un fichier dans le projet A ("Manuscrit").
+  await view.setCompileScope({ type: "file", projectRoot, path: sceneFile.path });
+  await flush();
+  assert.equal(
+    view["lastScopedNav"].path,
+    sceneFile.path,
+    "le chemin est mémorisé dans le projet A"
+  );
+
+  // 2. Passage explicitement à un scope du projet B.
+  await view.setCompileScope({ type: "project", projectRoot: "ZuneB" });
+  await flush();
+  const titles = buttons().map((b) => b.textContent);
+  assert.deepEqual(titles, ["Manuscrit"], "le projet B n'affiche que sa racine");
+  assert.equal(titles.includes("Chapitre 1"), false, "le dossier du projet A n'apparaît pas dans le projet B");
+}));
+
+test("openScopeWithPreview — l'initialisation RÉELLE du Binder alimente lastScopedNav", async () => {
+  const dom = installDom();
+  try {
+    const { app, settings, manuscript, sceneFile } = buildProject();
+    settings.previewMode = "scene";
+    const plugin = { settings, getProjectFolder: () => manuscript, saveSettings: async () => {} };
+    const leaf = { contentEl: element("div") };
+    const view = new PreviewView(leaf, plugin);
+    view.app = app;
+    await view.onOpen();
+    view.updateUI();
+    // Titre de feuillet déterministe via short_title dans le frontmatter.
+    app.metadataCache.getFileCache = (f) => ({ frontmatter: f === sceneFile ? { short_title: "Feuillet Binder" } : {} });
+    // La vue RÉELLE est déjà dans le workspace : openScopeWithPreview la
+    // RÉUTILISE et lui transmet la portée par setCompileScope — exactement le
+    // parcours employé par le Binder, sans appel artificiel à la mémoire.
+    app.workspace.getLeavesOfType = (type) => (type === VIEW_PREVIEW ? [{ view, setViewState: async () => {} }] : []);
+
+    await openScopeWithPreview(app, { type: "file", projectRoot: "Manuscrit", path: "Manuscrit/Chapitre 1/01-scene.md" });
+    await flush();
+
+    assert.deepEqual(view["lastScopedNav"], { type: "file", projectRoot: "Manuscrit", path: sceneFile.path }, "l'ouverture réelle nourrit lastScopedNav");
+    const buttons = () => view.breadcrumbEl.children.filter((el) => el.tagName === "BUTTON");
+    assert.deepEqual(
+      buttons().map((b) => b.textContent),
+      ["Manuscrit", "Chapitre 1", "Feuillet Binder"],
+      "la ligne réellement construite via le Binder est Projet › Dossier › Feuillet"
+    );
+  } finally {
+    dom.restore();
+  }
+});
+
+test("compileScope — l'Aperçu project ne pose AUCUN fichier sous _Sortie", withCapture(async (_dom, _rendered) => {
+  const { view } = await openLoadedView("manuscript");
+  const written = [];
+  view.app.vault.createFolder = async (p) => { written.push(p); };
+  view.app.vault.create = async (p) => { written.push(p); };
+  view.app.vault.modify = async () => {};
+  const projectRoot = view.plugin.getProjectFolder().path;
+
+  await view.setCompileScope({ type: "project", projectRoot });
+  await flush();
+
+  assert.deepEqual(written, [], "aucun dossier ni fichier ne doit être écrit pendant l'Aperçu");
+  assert.ok(!view.app.vault.getAbstractFileByPath(`${projectRoot}/_Sortie`), "_Sortie n'existe pas après l'Aperçu");
+}));
+
+test("page de titre — en portée project, elle est isolée en page Front, pas rendue en Markdown brut", withCapture(async (_dom, _rendered) => {
+  const { view, manuscript } = await openLoadedView("manuscript");
+  addFrontPages(manuscript, [{ name: "Page de titre" }]);
+  const projectRoot = view.plugin.getProjectFolder().path;
+
+  await view.setCompileScope({ type: "project", projectRoot });
+  await flush();
+
+  const srcdoc = String(view.previewFrame?.srcdoc || "");
+  assert.ok(srcdoc.includes("feuillets-frontpage-titre"), "la page de titre doit être isolée comme une page Front dans l'Aperçu");
+  assert.ok(srcdoc.includes("Grand Roman"), "le titre de la page Front est présent dans le rendu");
+  assert.equal(srcdoc.includes("FEUILLETS-FPROLE:"), false, "aucun marqueur de rôle ne doit fuir");
+  assert.equal(srcdoc.includes(":::"), false, "aucune syntaxe de rôle brute ne doit être rendue");
+}));
+
+test("openScopeWithPreview — ouvre/active la vue Preview et applique setCompileScope sans recréer de vue", async () => {
+  const dom = installDom();
+  try {
+    const app = {
+      workspace: {
+        getLeavesOfType: () => [],
+        getLeaf: () => ({
+          setViewState: async () => {},
+        }),
+        revealLeaf: () => {},
+      },
+    };
+    let activeLeafCount = 0;
+    let scopePassed = null;
+
+    const mockPreviewView = {
+      setCompileScope: async (scope) => { scopePassed = scope; },
+    };
+
+    const existingLeaf = {
+      view: mockPreviewView,
+      setViewState: async () => {},
+    };
+
+    app.workspace.getLeavesOfType = (type) => (type === VIEW_PREVIEW ? [existingLeaf] : []);
+    app.workspace.revealLeaf = () => { activeLeafCount++; };
+
+    await openScopeWithPreview(app, { type: "file", projectRoot: "Manuscrit", path: "Manuscrit/scene.md" });
+
+    assert.equal(activeLeafCount, 1, "la vue existante est révélée");
+    assert.deepEqual(scopePassed, { type: "file", projectRoot: "Manuscrit", path: "Manuscrit/scene.md" });
+  } finally {
+    dom.restore();
+  }
+});
+
+test("openWithPreview — initialise CompileScope file, alimente lastScopedNav et préserve les boutons frères après clic sur Projet", withRender(async () => {
+  const { view, app, plugin, s1a } = await openNestedView("scene", null);
+  view.plugin.shortTitleFor = () => null;
+  app.metadataCache.getFileCache = () => ({ frontmatter: {} });
+
+  // 1 & 2. Appel réel à openWithPreview(app, plugin, s1a)
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_PREVIEW ? [{ view }] : []);
+  app.workspace.getLeaf = () => ({ openFile: async () => {} });
+  app.workspace.setActiveLeaf = () => {};
+
+  await openWithPreview(app, plugin, s1a);
+  await flush();
+
+  // 4. compileScope est de type file
+  assert.ok(view.compileScope !== null, "compileScope n'est pas null");
+  assert.equal(view.compileScope.type, "file");
+  assert.equal(view.compileScope.path, s1a.path);
+
+  // 5. lastScopedNav contient le fichier
+  assert.ok(view.lastScopedNav !== null, "lastScopedNav n'est pas null");
+  assert.equal(view.lastScopedNav.type, "file");
+  assert.equal(view.lastScopedNav.path, s1a.path);
+
+  const getButtons = () =>
+    Array.from(view.breadcrumbEl.querySelectorAll(".feuillets-preview-breadcrumb-item"));
+
+  const getButtonLabels = () => getButtons().map((b) => b.textContent.trim());
+
+  // 6. Fil d'Ariane affiche Projet › Dossier › Feuillet
+  assert.deepEqual(getButtonLabels(), ["Manuscrit", "Première partie", "Chapitre premier", "01 Été"]);
+
+  // 7. Clic sur Projet
+  const projectBtn = getButtons().find((b) => b.textContent.trim() === "Manuscrit");
+  assert.ok(projectBtn, "bouton Projet trouvé");
+  projectBtn.click();
+  await flush();
+
+  // 8. compileScope devient project
+  assert.equal(view.compileScope.type, "project");
+
+  // 9. La ligne affiche toujours Projet › Dossier › Feuillet
+  assert.deepEqual(getButtonLabels(), ["Manuscrit", "Première partie", "Chapitre premier", "01 Été"]);
+
+  // 10. Dossier et Feuillet restent cliquables
+  const folderBtn = getButtons().find((b) => b.textContent.trim() === "Chapitre premier");
+  assert.ok(folderBtn, "bouton Dossier trouvé");
+  folderBtn.click();
+  await flush();
+  assert.equal(view.compileScope.type, "folder");
+  assert.equal(view.compileScope.path, s1a.parent.path);
+
+  const fileBtn = getButtons().find((b) => b.textContent.trim() === "01 Été");
+  assert.ok(fileBtn, "bouton Feuillet trouvé");
+  fileBtn.click();
+  await flush();
+  assert.equal(view.compileScope.type, "file");
+  assert.equal(view.compileScope.path, s1a.path);
+}));
+
+test("openWithPreview — une feuille d'aperçu réutilisée mais DIFFÉRÉE (Obsidian ≥ 1.7) reçoit quand même setCompileScope", withRender(async () => {
+  const { view, app, plugin, s1a } = await openNestedView("scene", null);
+  view.plugin.shortTitleFor = () => null;
+  app.metadataCache.getFileCache = () => ({ frontmatter: {} });
+
+  /* Reproduit une feuille d'aperçu déjà ouverte dans le workspace mais
+     encore DIFFÉRÉE : `.view` est un simple placeholder sans setCompileScope
+     tant que `loadIfDeferred()` n'a pas été appelé — exactement ce que fait
+     Obsidian pour une feuille restaurée par la mise en page et pas encore
+     visible. Avant le correctif, openWithPreview() lisait `.view` avant tout
+     chargement et abandonnait silencieusement (garde de type), laissant
+     `compileScope`/`lastScopedNav` intacts (nuls) : le clic sur « Projet »
+     s'appuyait alors pour la première fois sur une mémoire vide. */
+  const placeholderView = {};
+  const deferredLeaf = {
+    isDeferred: true,
+    loadIfDeferred: async () => {
+      deferredLeaf.isDeferred = false;
+      deferredLeaf.view = view;
+    },
+    view: placeholderView,
+  };
+
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_PREVIEW ? [deferredLeaf] : []);
+  app.workspace.getLeaf = () => ({ openFile: async () => {} });
+  app.workspace.setActiveLeaf = () => {};
+
+  await openWithPreview(app, plugin, s1a);
+  await flush();
+
+  assert.ok(view.compileScope !== null, "la portée file doit atteindre la VRAIE vue malgré le report de chargement");
+  assert.equal(view.compileScope.type, "file");
+  assert.equal(view.compileScope.path, s1a.path);
+  assert.equal(view.lastScopedNav?.path, s1a.path, "lastScopedNav doit être nourri dès la première ouverture");
+
+  const getButtons = () =>
+    Array.from(view.breadcrumbEl.querySelectorAll(".feuillets-preview-breadcrumb-item"));
+  const getButtonLabels = () => getButtons().map((b) => b.textContent.trim());
+  assert.deepEqual(getButtonLabels(), ["Manuscrit", "Première partie", "Chapitre premier", "01 Été"]);
+
+  const projectBtn = getButtons().find((b) => b.textContent.trim() === "Manuscrit");
+  projectBtn.click();
+  await flush();
+
+  assert.equal(view.compileScope.type, "project");
+  assert.deepEqual(
+    getButtonLabels(),
+    ["Manuscrit", "Première partie", "Chapitre premier", "01 Été"],
+    "Dossier et Feuillet doivent rester dans le fil d'Ariane après le passage à Projet"
+  );
+}));
+
+

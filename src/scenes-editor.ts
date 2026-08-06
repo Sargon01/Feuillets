@@ -12,6 +12,7 @@ import {
 } from "obsidian";
 
 import { addOpenWithPreviewItem } from "./views/preview-view.js";
+import { t } from "./i18n/index.js";
 import {
   normalizeTags,
   shortText,
@@ -162,6 +163,7 @@ export type ScenesEditorPlugin = Omit<Plugin, "settings"> & {
     keepSeparator?: boolean,
     localRules?: Record<string, string>
   ): Promise<void>;
+  registerExistingProjectFolder(path: string): Promise<void>;
 };
 
 /* Le frontmatter est sérialisé par `stringifyYaml` (Obsidian), comme dans
@@ -1133,29 +1135,43 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
   // 4. Register Event Hooks
   plugin.registerEvent(
     plugin.app.workspace.on("file-menu", (menu, file) => {
-      if (!(file instanceof TFile) || !plugin.isSceneFile(file)) return;
-      menu.addSeparator();
-      /* Même helper que le Binder (BaseFeuilletsView.showFileContextMenu) :
-         une seule condition « est-ce une scène ? », un seul comportement. */
-      addOpenWithPreviewItem(menu, plugin.app, plugin, file);
-      menu.addItem((item) =>
-        item
-          .setTitle("Feuillets: Scinder")
-          .setIcon("scissors")
-          .onClick(async () => plugin.splitSceneFile(file))
-      );
-      menu.addItem((item) =>
-        item
-          .setTitle("Feuillets: Dupliquer")
-          .setIcon("copy")
-          .onClick(async () => plugin.duplicateSceneFile(file))
-      );
-      menu.addItem((item) =>
-        item
-          .setTitle("Feuillets: Déplacer")
-          .setIcon("move")
-          .onClick(async () => plugin.moveSceneFile(file))
-      );
+      // Cas 1 : fichier scène du projet
+      if (file instanceof TFile && plugin.isSceneFile(file)) {
+        menu.addSeparator();
+        /* Même helper que le Binder (BaseFeuilletsView.showFileContextMenu) :
+           une seule condition « est-ce une scène ? », un seul comportement. */
+        addOpenWithPreviewItem(menu, plugin.app, plugin, file);
+        menu.addItem((item) =>
+          item
+            .setTitle("Feuillets: Scinder")
+            .setIcon("scissors")
+            .onClick(async () => plugin.splitSceneFile(file))
+        );
+        menu.addItem((item) =>
+          item
+            .setTitle("Feuillets: Dupliquer")
+            .setIcon("copy")
+            .onClick(async () => plugin.duplicateSceneFile(file))
+        );
+        menu.addItem((item) =>
+          item
+            .setTitle("Feuillets: Déplacer")
+            .setIcon("move")
+            .onClick(async () => plugin.moveSceneFile(file))
+        );
+        return;
+      }
+
+      // Cas 2 : dossier quelconque — proposer de le transformer en projet Feuillets
+      if (file instanceof TFolder) {
+        menu.addSeparator();
+        menu.addItem((item) =>
+          item
+            .setTitle(t("explorer.transformToProject"))
+            .setIcon("folder-plus")
+            .onClick(async () => plugin.registerExistingProjectFolder(file.path))
+        );
+      }
     })
   );
 

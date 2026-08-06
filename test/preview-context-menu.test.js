@@ -236,6 +236,12 @@ function buildBinder(project) {
     snapshotFile: async () => "",
     folderNoteFor: () => null,
     getOrCreateFolderNote: async () => null,
+    /* Association Binder ↔ Recherche : le menu de dossier appelle
+       getLinkedResearchFolder dès sa construction (voir
+       base-feuillets-view.ts, showFolderContextMenu) — sans stub, le clic
+       droit d'un dossier lève une erreur. */
+    getLinkedResearchFolder: () => null,
+    getResearchRoot: () => null,
   };
   return { view: new TestBinderView(app, plugin), opened, project };
 }
@@ -266,12 +272,90 @@ test("Binder — le menu contextuel RÉEL propose « Ouvrir avec aperçu » sur 
   assert.equal(opened.viewStates.length, 1, "aucun second aperçu");
 });
 
-test("Binder — le menu contextuel d'un DOSSIER ne propose pas l'aperçu", () => {
+test("Binder — le menu contextuel d'un DOSSIER propose l'aperçu avec une portée folder", () => {
   const project = buildProject();
   const { view } = buildBinder(project);
 
   view.showFolderContextMenu({ preventDefault() {} }, project.chapter, project.root, 0, []);
   const menu = Menu.lastShown;
   assert.ok(menu);
-  assert.equal(entryOf(menu), undefined, "un dossier (partie/chapitre) n'est pas ouvrable dans l'aperçu");
+  const entry = entryOf(menu);
+  assert.ok(entry, "un dossier (partie/chapitre) doit être ouvrable dans l'aperçu");
+  assert.equal(entry.title, "Ouvrir avec aperçu");
 });
+
+test("Binder — sélection multiple non contiguë transmise intégralement et sans altérer _binderMultiSelect", async () => {
+  const project = buildProject();
+  const { view, project: proj } = buildBinder(project);
+
+  // Fichiers non contigus
+  const f1 = proj.scene.path; // Projet/Chapitre 1/01 Été.md
+  const f2 = proj.chapterFile.path; // Projet/Prologue.md
+  const nonContiguousPaths = new Set([f1, f2]);
+  view.plugin._binderMultiSelect = new Set(nonContiguousPaths);
+
+  let scopePassed = null;
+  let activeLeafCount = 0;
+
+  view.app.workspace.getLeavesOfType = (type) => [
+    {
+      view: {
+        setCompileScope: async (scope) => { scopePassed = scope; },
+      },
+    },
+  ];
+  view.app.workspace.revealLeaf = () => { activeLeafCount++; };
+
+  view.showFileContextMenu({ preventDefault() {} }, proj.scene, proj.chapter, 0, []);
+  const menu = Menu.lastShown;
+  assert.ok(menu);
+
+  const entry = menu.items.find((i) => i.title === "Ouvrir avec aperçu");
+  assert.ok(entry, "entrée 'Ouvrir avec aperçu' présente pour le groupe");
+
+  await entry.callback();
+
+  assert.equal(activeLeafCount, 1, "vue aperçu activée");
+  assert.ok(scopePassed);
+  assert.equal(scopePassed.type, "selection");
+  assert.equal(scopePassed.paths.length, 2, "les 2 chemins non contigus sont transmis");
+  assert.ok(scopePassed.paths.includes(f1));
+  assert.ok(scopePassed.paths.includes(f2));
+
+  // Vérification que _binderMultiSelect n'a pas été altéré
+  assert.equal(view.plugin._binderMultiSelect.size, 2);
+  assert.ok(view.plugin._binderMultiSelect.has(f1));
+  assert.ok(view.plugin._binderMultiSelect.has(f2));
+});
+
+test("Binder — clic droit racine transmets une portée project sans appeler vault.create/modify ni export", async () => {
+  const project = buildProject();
+  const { view, project: proj } = buildBinder(project);
+
+  let writeCalled = false;
+  view.app.vault.create = async () => { writeCalled = true; };
+  view.app.vault.modify = async () => { writeCalled = true; };
+
+  let scopePassed = null;
+  view.app.workspace.getLeavesOfType = () => [
+    {
+      view: {
+        setCompileScope: async (scope) => { scopePassed = scope; },
+      },
+    },
+  ];
+
+  // Simuler le clic droit sur la racine (similaire au handler contextmenu sur rootRow dans feuillets-view.ts)
+  const { createProjectScope } = await import("../src/services/compile-scope.js");
+  const { openScopeWithPreview } = await import("../src/views/preview-view.js");
+
+  const scope = createProjectScope(proj.root.path);
+  await openScopeWithPreview(view.app, scope);
+
+  assert.equal(writeCalled, false, "aucun appel à vault.create/modify");
+  assert.deepEqual(scopePassed, {
+    type: "project",
+    projectRoot: proj.root.path,
+  });
+});
+

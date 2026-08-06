@@ -148,6 +148,8 @@ export class Menu {
       setTitle(t) { this.title = t; return this; },
       setIcon(i) { this.icon = i; return this; },
       setChecked(v) { this.checked = v; return this; },
+      setDisabled(v) { this.disabled = v; return this; },
+      setWarning(v) { this.warning = v; return this; },
       onClick(fn) { this.callback = fn; return this; },
     };
     cb(item);
