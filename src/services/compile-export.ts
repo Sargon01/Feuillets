@@ -120,13 +120,19 @@ export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
   return await ensureFolder(app, normalizePath(`${root.path}/_Sortie`));
 }
 
+export type CompileOptions = {
+  writeOutput?: boolean;
+};
+
 /**
- * Compile le manuscrit selon une portée (fichier, dossier, sélection ou projet complet).
- * @param {import("obsidian").App} app
- * @param {import("./types.d.ts").FeuilletsSettings} settings
- * @param {string|null} [scopePath] (deprecated) fichier ou dossier à compiler
- * @param {CompileScope|null} [scope] portée de compilation explicite
- * @param {string|null} [outputFileName] nom du fichier de sortie (sans extension)
+ * Compile l'ensemble des feuillets d'un projet selon le preset actif.
+ *
+ * @param {App} app
+ * @param {FeuilletsSettings} settings
+ * @param {string|null} [scopePath]
+ * @param {CompileScope|null} [scope]
+ * @param {string|null} [outputFileName]
+ * @param {CompileOptions} [options]
  * @returns {Promise<CompileResult|null>}
  */
 export async function compile(
@@ -134,7 +140,8 @@ export async function compile(
   settings: FeuilletsSettings,
   scopePath: string | null = null,
   scope?: CompileScope | null,
-  outputFileName?: string | null
+  outputFileName?: string | null,
+  options?: CompileOptions
 ) {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
@@ -436,22 +443,24 @@ export async function compile(
     parts.push(...renumberedParts);
   }
   const manuscript = parts.join(P.separator || "\n\n");
-  const outputFolder = await getOutputFolder(app, settings);
-  const outBase = outputFolder ? outputFolder.path : folder.path;
-  // Utiliser le nom fourni, sinon le nom du fichier du preset (sans extension), sinon "Manuscrit"
+  if (options?.writeOutput === false) {
+    return { outPath: "", manuscript, segments };
+  }
   const fileName = outputFileName || (P.fileName ? P.fileName.replace(/\.md$/i, "") : null) || "Manuscrit";
-  const outPath = normalizePath(`${outBase}/${fileName}.md`);
-  const existing = app.vault.getAbstractFileByPath(outPath);
+  const outputFolder = await getOutputFolder(app, settings);
+  const realOutBase = outputFolder ? outputFolder.path : folder.path;
+  const realOutPath = normalizePath(`${realOutBase}/${fileName}.md`);
+  const existing = app.vault.getAbstractFileByPath(realOutPath);
   if (existing instanceof TFile) {
     await app.vault.modify(existing, manuscript);
   } else {
-    await app.vault.create(outPath, manuscript);
+    await app.vault.create(realOutPath, manuscript);
   }
   new Notice(
     `Compilé (${P.name}) : ${count} feuillets → ${fileName}.md`
   );
   /** @type {CompileResult} */
-  return { outPath, manuscript, segments };
+  return { outPath: realOutPath, manuscript, segments };
 }
 
 /**

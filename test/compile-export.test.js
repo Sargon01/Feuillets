@@ -611,6 +611,73 @@ test("compile : le fichier de sortie est écrit dans <projectRoot>/_Sortie", asy
   assert.ok(vault.getAbstractFileByPath("R/Manuscrit/_Sortie/Manuscrit.md"));
 });
 
+test("compile : { writeOutput: false } ne pose aucun fichier et garde la page de titre en segments", async () => {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const front = new TFolder("Projet/Manuscrit/Front");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const titlePage = new TFile("Projet/Manuscrit/Front/Page de titre.md", "---\ntype: titre\n---\n:::titre: Mon livre\n");
+  const first = new TFile("Projet/Manuscrit/Chapitre 1/Scène 1.md", "Premier texte.");
+  volume.children = [manuscript];
+  manuscript.parent = volume;
+  manuscript.children = [front, chapter];
+  front.parent = manuscript;
+  chapter.parent = manuscript;
+  front.children = [titlePage];
+  chapter.children = [first];
+  titlePage.parent = front;
+  first.parent = chapter;
+
+  const { vault } = createFakeVault([volume, manuscript, front, chapter, titlePage, first]);
+  vault.cachedRead = vault.read;
+
+  /* La compilation doit être réalisée EN MÉMOIRE : aucun create, modify ni
+     createFolder ne peut avoir lieu, donc _Sortie n'est jamais posé. */
+  let writes = 0;
+  const origCreate = vault.create.bind(vault);
+  const origModify = vault.modify.bind(vault);
+  const origCreateFolder = vault.createFolder.bind(vault);
+  vault.create = async (...args) => { writes++; return origCreate(...args); };
+  vault.modify = async (...args) => { writes++; return origModify(...args); };
+  vault.createFolder = async (...args) => { writes++; return origCreateFolder(...args); };
+
+  const app = {
+    vault,
+    metadataCache: {
+      getFileCache(file) {
+        return { frontmatter: file === titlePage ? { type: "titre", compile: true } : {} };
+      },
+    },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  const result = await compile(app, settings, null, null, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.equal(writes, 0, "aucune écriture (create/modify/createFolder) ne doit avoir lieu");
+  assert.equal(result.outPath, "", "sans écriture, le chemin de sortie reste vide");
+  assert.ok(vault.getAbstractFileByPath("Projet/Manuscrit/_Sortie") === null, "_Sortie n'est jamais créé");
+  /* La page de titre doit rester un segment Front — c'est ce segment qui
+     permet à l'Aperçu et à l'export de la styler comme une vraie page, au
+     lieu de la laisser en Markdown brut. */
+  const titreSeg = result.segments.find((s) => s.frontType === "titre");
+  assert.ok(titreSeg, "la page de titre reste un segment Front dans la compilation en mémoire");
+  assert.match(result.manuscript, /Mon livre/);
+});
+
 // ─── Tests exportWithScope ────────────────────────────────────────────────────
 // DOM minimal partagé par les tests des formats binaires (epub/docx/odt).
 // Reproduit ici conformément à la convention du dépôt (pas de helper partagé).
