@@ -370,6 +370,7 @@ export const fr = {
   "notes.context.approxAge": "~{age} ans",
   "notes.context.stateAsOf": "État renseigné en {year}",
   "notes.context.since": " (depuis {year})",
+  "notes.context.relatedDocsTitle": "Documents associés",
 
   // ---------- Panneau Propriétés (properties-view.js, legacy) ----------
   "properties.displayText": "Propriétés",

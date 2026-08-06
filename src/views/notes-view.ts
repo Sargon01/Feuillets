@@ -13,6 +13,13 @@ import { toValue } from "../utils/scene-fields.js";
 import { buildContextIndex, type ContextDocument, type ContextSource } from "../services/context-index.js";
 import { matchContext } from "../services/context-matcher.js";
 import { extractContextWindow } from "../services/context-window.js";
+import { matchContent, type ContentCandidate, type ContentMatch } from "../services/context-content-matcher.js";
+import {
+  refreshContentCache,
+  type ContentCacheEntry,
+  type ContentCacheableFile,
+  type ContentSourceKind,
+} from "../services/context-content-cache.js";
 
 /** Délai de latence avant de recalculer la section « Contexte » après un
  * déplacement du curseur ou une frappe dans l'éditeur suivi — voir
@@ -115,6 +122,13 @@ export class NotesView extends BaseFeuilletsView {
    * le curseur bouge sans changer de paragraphe (règle 5 du chantier). */
   private lastCursorContextText: string | null = null;
   private closed = false;
+
+  /** Cache Lot 5 (recherche dans le contenu des documents associés) — voir
+   * context-content-cache.ts. Volontairement SÉPARÉ de `_searchCache`
+   * (base-feuillets-view.ts) qui appartient à la Recherche générale du
+   * projet : jamais partagé, jamais alimenté par elle. Une instance par vue,
+   * comme `_searchCache`. */
+  private _contentCache: Map<string, ContentCacheEntry> = new Map();
 
   constructor(leaf: WorkspaceLeaf, plugin: BaseNotesViewPlugin) {
     super(leaf, plugin);
@@ -333,10 +347,16 @@ export class NotesView extends BaseFeuilletsView {
     const linkedToFile = this.plugin.getLinkedResearchFolder(file);
     if (linkedToFile) candidates.push({ path: linkedToFile.path, kind: "feuillet" });
 
-    const chapterFolder = this.chapterFolderOf(file);
-    if (chapterFolder) {
-      const linkedToChapter = this.plugin.getLinkedResearchFolder(chapterFolder);
-      if (linkedToChapter) candidates.push({ path: linkedToChapter.path, kind: "chapter" });
+    const root = this.plugin.getProjectFolder();
+    if (root) {
+      let folder: TFolder | null = file.parent;
+      while (folder && folder.path !== root.path) {
+        const linkedToFolder = this.plugin.getLinkedResearchFolder(folder);
+        if (linkedToFolder) {
+          candidates.push({ path: linkedToFolder.path, kind: "chapter" });
+        }
+        folder = folder.parent;
+      }
     }
 
     const researchRoot = this.plugin.getResearchRoot();
@@ -350,6 +370,108 @@ export class NotesView extends BaseFeuilletsView {
       }
     }
     return Array.from(byPath.values());
+  }
+
+  /** Sources autorisées pour le Lot 5 (recherche dans le CONTENU des
+   * documents associés) — strict sous-ensemble de contextSourcesFor() :
+   * feuillet et chapitre UNIQUEMENT, jamais "project-research". Le moteur
+   * fiable (Lot 3/4) ajoute toujours la recherche générale du projet à ses
+   * sources ; le Lot 5 ne doit jamais l'hériter telle quelle, sous peine de
+   * transformer la section « Documents associés » en recherche plein texte
+   * du projet entier — exactement ce que ce chantier interdit. Ordre
+   * conservé (feuillet avant chapitre s'il y en a deux) : c'est cet ordre
+   * qui fixe la priorité de source et la stabilité du tri dans
+   * matchContent(). */
+  private contentSourcesFor(file: TFile): ContextSource[] {
+    return this.contextSourcesFor(file).filter(
+      (s): s is ContextSource & { kind: ContentSourceKind } => s.kind === "feuillet" || s.kind === "chapter"
+    );
+  }
+
+  /** Documents candidats du Lot 5 pour `sources` (déjà filtrées à
+   * feuillet/chapitre par contentSourcesFor) — corps Markdown nettoyé et mis
+   * en cache via context-content-cache.ts (relecture disque uniquement pour
+   * un fichier nouveau ou dont la mtime a changé). Jamais le corps
+   * Markdown brut, jamais ContextDocument (voir context-index.ts,
+   * inchangé) : un type et un cache entièrement séparés du moteur fiable. */
+  private async collectContentCandidates(sources: ContextSource[]): Promise<ContentCandidate[]> {
+    const byPath = new Map<string, TFile>();
+    /* Un même fichier peut être atteint par PLUSIEURS sources imbriquées
+       (le dossier lié au feuillet est lui-même sous le dossier lié au
+       chapitre, ou l'inverse) : ne garder que la source la plus précise
+       (priorité la plus basse), départagée par l'ordre des sources —
+       exactement la règle déjà appliquée par buildContextIndex() côté
+       moteur fiable (context-index.ts, inchangé), reproduite ici pour le
+       Lot 5 puisqu'aucun des deux modules Lot 5 n'a la liste des sources
+       sous la main pour le faire à sa place. */
+    const bestSourceByPath = new Map<
+      string,
+      { sourceKind: ContentSourceKind; sourcePriority: number; sourceIndex: number }
+    >();
+
+    const walk = (
+      folder: TFolder,
+      sourceKind: ContentSourceKind,
+      sourcePriority: number,
+      sourceIndex: number
+    ): void => {
+      for (const child of folder.children) {
+        if (child instanceof TFolder) {
+          walk(child, sourceKind, sourcePriority, sourceIndex);
+        } else if (child instanceof TFile && child.extension === "md") {
+          byPath.set(child.path, child);
+          const existing = bestSourceByPath.get(child.path);
+          if (
+            !existing ||
+            sourcePriority < existing.sourcePriority ||
+            (sourcePriority === existing.sourcePriority && sourceIndex < existing.sourceIndex)
+          ) {
+            bestSourceByPath.set(child.path, { sourceKind, sourcePriority, sourceIndex });
+          }
+        }
+      }
+    };
+
+    sources.forEach((source, sourceIndex) => {
+      const kind = source.kind as ContentSourceKind;
+      const folder = this.app.vault.getAbstractFileByPath(source.path);
+      if (folder instanceof TFolder) {
+        walk(folder, kind, source.priority ?? CONTEXT_SOURCE_PRIORITY[kind], sourceIndex);
+      }
+    });
+
+    const entries: ContentCacheableFile[] = [];
+    for (const [path, tf] of byPath) {
+      const best = bestSourceByPath.get(path);
+      if (!best) continue;
+      entries.push({
+        path,
+        basename: tf.basename,
+        title: this.plugin.titleFor(tf),
+        sourceKind: best.sourceKind,
+        sourcePriority: best.sourcePriority,
+        stat: { mtime: tf.stat?.mtime ?? 0 },
+      });
+    }
+    // Ordre stable : priorité de source croissante (feuillet avant
+    // chapitre), l'ordre de rencontre départage le reste — repris tel quel
+    // par matchContent() pour son propre départage stable.
+    entries.sort((a, b) => a.sourcePriority - b.sourcePriority);
+
+    const cached = await refreshContentCache(this._contentCache, entries, async (f) => {
+      const tf = byPath.get(f.path);
+      if (!(tf instanceof TFile)) return "";
+      return this.app.vault.cachedRead(tf);
+    });
+
+    return cached.map((e) => ({
+      path: e.path,
+      title: e.title,
+      basename: e.basename,
+      cleanedBody: e.cleanedBody,
+      sourceKind: e.sourceKind,
+      sourcePriority: e.sourcePriority,
+    }));
   }
 
   /** Alias de frontmatter (`aliases`) d'un fichier, déjà disponibles dans le
@@ -787,101 +909,172 @@ export class NotesView extends BaseFeuilletsView {
     }
 
     const entities = [...citedSet];
-    if (entities.length === 0) return;
 
-    /* Regroupées par nature (personnage/lieu/événement/codex) sans le
-       préciser visuellement : inutile de l'expliciter, la nature de
-       chaque fiche est déjà évidente au premier coup d'œil (nom, âge
-       éventuel...). */
-    const ORDER: Array<EntityKind | null> = ["personnage", "lieu", "evenement", "codex", null];
-    entities.sort(
-      (a, b) => ORDER.indexOf(this.entityKind(a)) - ORDER.indexOf(this.entityKind(b))
+    /* Lot 5 — second niveau, distinct des correspondances fiables
+       ci-dessus : recherche dans le CONTENU des documents associés au
+       feuillet/chapitre UNIQUEMENT (contentSourcesFor exclut
+       project-research, voir sa documentation), sur le MÊME contextText
+       que le moteur fiable (jamais un retour au feuillet entier). Toute
+       fiche déjà remontée par matchContext() ci-dessus est exclue par path
+       (excludePaths) : jamais de doublon entre les deux niveaux. */
+    const contentSources = this.contentSourcesFor(file);
+    let contentMatches: ContentMatch[] = [];
+    if (contentSources.length > 0) {
+      const reliablePaths = new Set(matches.map((m) => m.candidate.path));
+      const contentCandidates = await this.collectContentCandidates(contentSources);
+      contentMatches = matchContent(contextText, contentCandidates, {
+        limit: 5,
+        excludePaths: reliablePaths,
+      });
+      console.log("[Feuillets Lot5] 8. matchContent result:", contentMatches);
+    }
+
+    if (entities.length === 0 && contentMatches.length === 0) return;
+
+    if (entities.length > 0) {
+      /* Regroupées par nature (personnage/lieu/événement/codex) sans le
+         préciser visuellement : inutile de l'expliciter, la nature de
+         chaque fiche est déjà évidente au premier coup d'œil (nom, âge
+         éventuel...). */
+      const ORDER: Array<EntityKind | null> = ["personnage", "lieu", "evenement", "codex", null];
+      entities.sort(
+        (a, b) => ORDER.indexOf(this.entityKind(a)) - ORDER.indexOf(this.entityKind(b))
+      );
+
+      // Collapsible header matching the others
+      const section = container.createDiv({ cls: "feuillets-notes-section" });
+      const headSection = section.createDiv({ cls: "feuillets-notes-section-head" });
+
+      const iconSpan = headSection.createSpan({ cls: "feuillets-notes-section-icon" });
+      setIcon(iconSpan, "book-open");
+
+      const sectionTitle = sceneDate ? t("notes.context.titleWithDate", { date: sceneDate.display }) : t("notes.context.title");
+      headSection.createSpan({ cls: "feuillets-notes-section-title" }).setText(sectionTitle);
+
+      headSection.addEventListener("click", () => {
+        void (async () => {
+          if (collapsed) delete S.collapsed[collapseKey];
+          else S.collapsed[collapseKey] = true;
+          await this.plugin.saveSettings();
+          void this.render();
+        })();
+      });
+
+      if (!collapsed) {
+        const box = section.createDiv({ cls: "feuillets-notes-entities-body" });
+        box.setAttr("style", "margin-top: 6px;");
+
+        for (const ent of entities) {
+          const efm: NotesFrontmatter = this.fm(ent);
+          const kind = this.entityKind(ent);
+
+          const row = box.createDiv({ cls: "feuillets-entity-row" });
+          const head = row.createDiv({ cls: "feuillets-entity-head" });
+          const nameEl = head.createSpan({ cls: "feuillets-entity-name" });
+          nameEl.setText(`• ${this.plugin.titleFor(ent)}`);
+          nameEl.addEventListener("click", () => {
+            openFileActivating(this.app, this.app.workspace.getLeaf(false), ent);
+          });
+          /* Bouton aperçu (popover natif au clic) juste à côté : consulter la
+             fiche (âge, couleur des yeux…) sans remplacer la scène en cours
+             dans l'éditeur — cliquer le nom, lui, navigue toujours (utile pour
+             éditer la fiche elle-même), les deux usages coexistent. */
+          this.addPreviewBtn(head, ent);
+
+          // Système historique (personnage) : écart d'âge / mort.
+          if (kind === "personnage" && sceneDate) {
+            const birth = this.plugin.parseStoryDate(efm.birth);
+            const death = this.plugin.parseStoryDate(efm.death);
+            if (death && sceneDate.sort > death.sort) {
+              const diff = sceneDate.y - death.y;
+              const text = diff > 0
+                ? t("notes.context.deadSince", { count: String(diff), s: diff > 1 ? "s" : "", year: String(death.y) })
+                : t("notes.context.deadIn", { year: String(death.y) });
+              head
+                .createSpan({ cls: "feuillets-entity-age" })
+                .setText(text);
+            } else if (birth) {
+              const age = sceneDate.y - birth.y;
+              if (age >= 0) {
+                head
+                  .createSpan({ cls: "feuillets-entity-age" })
+                  .setText(t("notes.context.approxAge", { age: String(age) }));
+              }
+            }
+          }
+
+          const info = row.createDiv({ cls: "feuillets-entity-info" });
+          let shown = false;
+          if (sceneDate && kind !== "codex") {
+            const content = await this.app.vault.cachedRead(ent);
+            const state = latestStateBefore(content, sceneDate.y);
+            if (state) {
+              info.setText(state.text);
+              info.setAttr("title", t("notes.context.stateAsOf", { year: String(state.y) }));
+              if (state.y !== sceneDate.y) {
+                info
+                  .createSpan({ cls: "feuillets-entity-since" })
+                  .setText(t("notes.context.since", { year: String(state.y) }));
+              }
+              shown = true;
+            }
+          }
+          if (!shown && efm.synopsis) {
+            info.setText(toValue(efm.synopsis).trim());
+          } else if (!shown && !efm.synopsis) {
+            info.remove();
+          }
+        }
+      }
+    }
+
+    if (contentMatches.length > 0) {
+      this.renderRelatedDocumentsSection(container, contentMatches);
+    }
+  }
+
+  /** Section secondaire « Documents associés » (Lot 5) — TOUJOURS distincte
+   * de la section « Contexte » ci-dessus (jamais fusionnée dans citedSet) :
+   * une fiche retrouvée par son CONTENU n'est ni un personnage/lieu/
+   * événement cité, ni traitée comme tel (pas d'âge, pas d'état historique,
+   * juste titre + extrait). Repliable comme les autres sections du panneau
+   * (renderSectionHead, même mécanique que renderFilePropertiesSection).
+   * Pas d'épinglage ni de « Afficher davantage » — Lot 6. */
+  private renderRelatedDocumentsSection(container: HTMLElement, contentMatches: ContentMatch[]): void {
+    // Classe supplémentaire (en plus de feuillets-notes-section, même
+    // langage visuel) : sert de point d'ancrage stable pour distinguer
+    // cette section secondaire de la section « Contexte » — utile aux
+    // tests, sans rien changer au rendu visuel.
+    const section = container.createDiv({ cls: "feuillets-notes-section feuillets-related-docs-section" });
+    const collapsed = this.renderSectionHead(
+      section,
+      "search",
+      t("notes.context.relatedDocsTitle"),
+      "notes",
+      "documents-associes"
     );
-
-    // Collapsible header matching the others
-    const section = container.createDiv({ cls: "feuillets-notes-section" });
-    const headSection = section.createDiv({ cls: "feuillets-notes-section-head" });
-
-    const iconSpan = headSection.createSpan({ cls: "feuillets-notes-section-icon" });
-    setIcon(iconSpan, "book-open");
-
-    const sectionTitle = sceneDate ? t("notes.context.titleWithDate", { date: sceneDate.display }) : t("notes.context.title");
-    headSection.createSpan({ cls: "feuillets-notes-section-title" }).setText(sectionTitle);
-
-    headSection.addEventListener("click", () => {
-      void (async () => {
-        if (collapsed) delete S.collapsed[collapseKey];
-        else S.collapsed[collapseKey] = true;
-        await this.plugin.saveSettings();
-        void this.render();
-      })();
-    });
-
     if (collapsed) return;
 
     const box = section.createDiv({ cls: "feuillets-notes-entities-body" });
     box.setAttr("style", "margin-top: 6px;");
 
-    for (const ent of entities) {
-      const efm: NotesFrontmatter = this.fm(ent);
-      const kind = this.entityKind(ent);
-
+    for (const match of contentMatches) {
       const row = box.createDiv({ cls: "feuillets-entity-row" });
       const head = row.createDiv({ cls: "feuillets-entity-head" });
-      const nameEl = head.createSpan({ cls: "feuillets-entity-name" });
-      nameEl.setText(`• ${this.plugin.titleFor(ent)}`);
+      // feuillets-entity-name : même langage visuel que les entités citées
+      // (Lot 3/4). feuillets-related-doc-name : classe propre au Lot 5, pour
+      // ne jamais confondre les deux listes (côté tests notamment).
+      const nameEl = head.createSpan({ cls: "feuillets-entity-name feuillets-related-doc-name" });
+      nameEl.setText(`• ${match.title}`);
       nameEl.addEventListener("click", () => {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), ent);
-      });
-      /* Bouton aperçu (popover natif au clic) juste à côté : consulter la
-         fiche (âge, couleur des yeux…) sans remplacer la scène en cours
-         dans l'éditeur — cliquer le nom, lui, navigue toujours (utile pour
-         éditer la fiche elle-même), les deux usages coexistent. */
-      this.addPreviewBtn(head, ent);
-
-      // Système historique (personnage) : écart d'âge / mort.
-      if (kind === "personnage" && sceneDate) {
-        const birth = this.plugin.parseStoryDate(efm.birth);
-        const death = this.plugin.parseStoryDate(efm.death);
-        if (death && sceneDate.sort > death.sort) {
-          const diff = sceneDate.y - death.y;
-          const text = diff > 0
-            ? t("notes.context.deadSince", { count: String(diff), s: diff > 1 ? "s" : "", year: String(death.y) })
-            : t("notes.context.deadIn", { year: String(death.y) });
-          head
-            .createSpan({ cls: "feuillets-entity-age" })
-            .setText(text);
-        } else if (birth) {
-          const age = sceneDate.y - birth.y;
-          if (age >= 0) {
-            head
-              .createSpan({ cls: "feuillets-entity-age" })
-              .setText(t("notes.context.approxAge", { age: String(age) }));
-          }
+        const found = this.app.vault.getAbstractFileByPath(match.path);
+        if (found instanceof TFile) {
+          openFileActivating(this.app, this.app.workspace.getLeaf(false), found);
         }
-      }
+      });
 
       const info = row.createDiv({ cls: "feuillets-entity-info" });
-      let shown = false;
-      if (sceneDate && kind !== "codex") {
-        const content = await this.app.vault.cachedRead(ent);
-        const state = latestStateBefore(content, sceneDate.y);
-        if (state) {
-          info.setText(state.text);
-          info.setAttr("title", t("notes.context.stateAsOf", { year: String(state.y) }));
-          if (state.y !== sceneDate.y) {
-            info
-              .createSpan({ cls: "feuillets-entity-since" })
-              .setText(t("notes.context.since", { year: String(state.y) }));
-          }
-          shown = true;
-        }
-      }
-      if (!shown && efm.synopsis) {
-        info.setText(toValue(efm.synopsis).trim());
-      } else if (!shown && !efm.synopsis) {
-        info.remove();
-      }
+      info.setText(match.excerpt);
     }
   }
 
