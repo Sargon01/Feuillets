@@ -1,4 +1,4 @@
-import { TFile, TFolder, setIcon, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, TFile, TFolder, setIcon, type Editor, type WorkspaceLeaf } from "obsidian";
 
 import { VIEW_NOTES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -12,6 +12,12 @@ import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 import { buildContextIndex, type ContextDocument, type ContextSource } from "../services/context-index.js";
 import { matchContext } from "../services/context-matcher.js";
+import { extractContextWindow } from "../services/context-window.js";
+
+/** Délai de latence avant de recalculer la section « Contexte » après un
+ * déplacement du curseur ou une frappe dans l'éditeur suivi — voir
+ * scheduleContextWindowRefresh(). */
+const CONTEXT_WINDOW_DEBOUNCE_MS = 300;
 
 
 type NotesPropertyType = "text" | "list" | "number" | "checkbox" | "date" | "datetime";
@@ -93,6 +99,23 @@ export class NotesView extends BaseFeuilletsView {
   viewedFile: TFile | null;
   currentPath: string | null;
 
+  /* ===== Fenêtre de contexte autour du curseur (section « Contexte ») =====
+     Élément DOM actuellement écouté (keyup/mouseup) pour détecter un
+     déplacement du curseur ou une frappe dans l'éditeur Markdown du
+     feuillet affiché — et sa fonction de nettoyage, exactement le même
+     schéma que PreviewView.bindSourcePane/syncScrollerCleanup (rebranchement
+     idempotent, écouteurs posés/retirés à la main car la cible change au
+     fil des feuillets, ce que `registerDomEvent` seul ne permettrait pas de
+     réévaluer). */
+  private cursorTrackedEl: HTMLElement | null = null;
+  private cursorTrackedCleanup: (() => void) | null = null;
+  private contextWindowTimer: number | null = null;
+  /** Dernière fenêtre de contexte (ou corps complet de repli) effectivement
+   * envoyée à matchContext() — permet de ne PAS redéclencher un rendu quand
+   * le curseur bouge sans changer de paragraphe (règle 5 du chantier). */
+  private lastCursorContextText: string | null = null;
+  private closed = false;
+
   constructor(leaf: WorkspaceLeaf, plugin: BaseNotesViewPlugin) {
     super(leaf, plugin);
     this.viewedFile = null; // note de dossier consultée
@@ -139,6 +162,23 @@ export class NotesView extends BaseFeuilletsView {
       })
     );
     await this.render(true);
+  }
+
+  /** Nettoyage à la fermeture — registerEvent()/registerDomEvent() se
+   * chargent déjà de tout ce qui passe par eux (voir onOpen), mais le
+   * suivi de curseur est rebranché à la main (cible dynamique, voir
+   * bindCursorTracking) et doit donc être détaché à la main aussi, comme
+   * PreviewView le fait pour syncScrollerCleanup. Un timer de debounce en
+   * vol ne doit jamais déclencher un rendu après fermeture de la vue. */
+  async onClose(): Promise<void> {
+    this.closed = true;
+    this.cursorTrackedCleanup?.();
+    this.cursorTrackedCleanup = null;
+    this.cursorTrackedEl = null;
+    if (this.contextWindowTimer !== null && typeof window !== "undefined") {
+      window.clearTimeout(this.contextWindowTimer);
+      this.contextWindowTimer = null;
+    }
   }
 
   async render(force = false): Promise<void> {
@@ -347,6 +387,95 @@ export class NotesView extends BaseFeuilletsView {
       if (folder instanceof TFolder) walk(folder);
     }
     return documents;
+  }
+
+  /** Éditeur Markdown actif correspondant EXACTEMENT à `file` — jamais un
+   * éditeur ouvert sur un autre fichier, jamais en mode Lecture. Réutilise
+   * getActiveViewOfType(MarkdownView), déjà le mécanisme employé ailleurs
+   * dans le plugin (FeuilletsPlugin.activeEditorAnywhere,
+   * PreviewView.activeMarkdownView) plutôt qu'un second système de
+   * détection. `null` dans tous les cas de repli (pas d'éditeur, autre
+   * fichier, mode Lecture, erreur) — à l'appelant de retomber sur le corps
+   * complet du feuillet. */
+  private activeSourceEditorFor(file: TFile): { editor: Editor; contentEl: HTMLElement } | null {
+    try {
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (!view) return null;
+      if (!(view.file instanceof TFile) || view.file.path !== file.path) return null;
+      if (typeof view.getMode === "function" && view.getMode() !== "source") return null;
+      if (!view.editor || !view.contentEl) return null;
+      return { editor: view.editor, contentEl: view.contentEl };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fenêtre de contexte (paragraphe précédent/courant/suivant) autour du
+   * curseur RÉEL de l'éditeur actif de `file` — `null` dès qu'aucun éditeur
+   * utilisable n'est trouvé (repli obligatoire sur le corps complet, voir
+   * renderCitedEntities). Le texte ET l'offset viennent tous deux de
+   * l'éditeur lui-même (editor.getValue()/getCursor()) : jamais mélangés
+   * avec le contenu lu sur disque (vault.cachedRead), qui peut différer
+   * d'une frappe non encore sauvegardée. */
+  private cursorContextWindow(file: TFile): string | null {
+    const source = this.activeSourceEditorFor(file);
+    if (!source) return null;
+    try {
+      const text = source.editor.getValue();
+      const offset = source.editor.posToOffset(source.editor.getCursor());
+      return extractContextWindow(text, offset);
+    } catch {
+      return null;
+    }
+  }
+
+  /** (Ré)accroche l'écoute clavier/souris sur l'éditeur Markdown actif du
+   * feuillet affiché — seul moyen de détecter un déplacement du curseur
+   * SANS frappe (clic, flèches) : l'API Obsidian n'expose aucun événement
+   * dédié au déplacement du curseur (seulement "editor-change", sur le
+   * CONTENU) ; "keyup"/"mouseup" sur le conteneur de l'éditeur couvrent à la
+   * fois la frappe et le déplacement pur, avec la même conséquence
+   * (planifier un rafraîchissement, voir scheduleContextWindowRefresh).
+   * Idempotent, sur le même schéma que PreviewView.bindSourcePane :
+   * rebrancher sur le même élément ne pose jamais un second écouteur, et le
+   * précédent est toujours détaché avant d'en poser un nouveau. */
+  private bindCursorTracking(file: TFile): void {
+    if (this.closed) return;
+    const source = this.activeSourceEditorFor(file);
+    const nextEl = source?.contentEl || null;
+
+    if (nextEl === this.cursorTrackedEl) return;
+
+    this.cursorTrackedCleanup?.();
+    this.cursorTrackedCleanup = null;
+    this.cursorTrackedEl = nextEl;
+
+    if (nextEl) {
+      const handler = (): void => this.scheduleContextWindowRefresh(file);
+      nextEl.addEventListener("keyup", handler);
+      nextEl.addEventListener("mouseup", handler);
+      this.cursorTrackedCleanup = () => {
+        nextEl.removeEventListener("keyup", handler);
+        nextEl.removeEventListener("mouseup", handler);
+      };
+    }
+  }
+
+  /** Débounce (~300 ms) avant de recalculer la section « Contexte » — et,
+   * règle 5 du chantier, un rafraîchissement complet (render(), avec tout
+   * ce qu'il recalcule) n'est déclenché que si la fenêtre de contexte a
+   * RÉELLEMENT changé depuis la dernière fois : un simple déplacement du
+   * curseur qui reste dans le même paragraphe ne provoque aucun rendu. */
+  private scheduleContextWindowRefresh(file: TFile): void {
+    if (this.closed || typeof window === "undefined") return;
+    if (this.contextWindowTimer !== null) window.clearTimeout(this.contextWindowTimer);
+    this.contextWindowTimer = window.setTimeout(() => {
+      this.contextWindowTimer = null;
+      if (this.closed) return;
+      const nextText = this.cursorContextWindow(file);
+      if (nextText !== null && nextText === this.lastCursorContextText) return;
+      void this.render();
+    }, CONTEXT_WINDOW_DEBOUNCE_MS);
   }
 
   /** Propriétés du fichier ouvert — reprise de l'ancien onglet Propriétés
@@ -603,6 +732,13 @@ export class NotesView extends BaseFeuilletsView {
     const collapseKey = "notes:field:contexte";
     const collapsed = !!S.collapsed[collapseKey];
 
+    // Rebranche l'écoute clavier/souris sur l'éditeur actif de CE feuillet
+    // (ou la détache s'il n'y en a plus) à chaque rendu — voir
+    // bindCursorTracking. Fait AVANT tout retour anticipé plus bas : le
+    // suivi doit rester synchrone avec le feuillet réellement affiché même
+    // quand la section ne produit finalement aucun résultat.
+    this.bindCursorTracking(file);
+
     /* Sources autorisées — moteur de contexte indépendant (context-index.js
        / context-matcher.js), branché sur l'association Binder ↔ Recherche
        DÉJÀ existante (plugin.getLinkedResearchFolder), jamais sur un second
@@ -614,12 +750,27 @@ export class NotesView extends BaseFeuilletsView {
     const documents = this.collectContextDocuments(sources);
     const index = buildContextIndex(documents, sources);
 
-    const raw = await this.app.vault.cachedRead(file);
-    const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+    /* Fenêtre de contexte autour du curseur RÉEL de l'éditeur actif —
+       repli OBLIGATOIRE sur le corps complet du feuillet (comme avant ce
+       chantier) dès qu'aucun éditeur utilisable n'est trouvé : autre
+       fichier affiché, mode Lecture, aucune vue Markdown, ou toute erreur
+       (voir cursorContextWindow/activeSourceEditorFor). Le frontmatter est
+       déjà exclu par extractContextWindow() dans le cas fenêtré ; il est
+       retiré ici à la main dans le cas de repli, comme précédemment. */
+    const cursorWindow = this.cursorContextWindow(file);
+    const contextText = cursorWindow !== null
+      ? cursorWindow
+      : (await this.app.vault.cachedRead(file)).replace(/^---\n[\s\S]*?\n---\n?/, "");
 
-    // Le texte du feuillet actif (frontmatter exclu) est envoyé tel quel au
-    // moteur — buildContextIndex() puis matchContext(), rien d'autre.
-    const matches = matchContext(body, index);
+    // Mémorisé pour scheduleContextWindowRefresh (règle 5 : pas de nouveau
+    // rendu si la fenêtre de contexte n'a pas changé) — mis à jour à CHAQUE
+    // rendu, quel que soit son déclencheur, pour rester une référence fiable.
+    this.lastCursorContextText = contextText;
+
+    // Le texte retenu (fenêtre autour du curseur, ou corps complet en
+    // repli) est envoyé tel quel au moteur — buildContextIndex() puis
+    // matchContext(), rien d'autre.
+    const matches = matchContext(contextText, index);
 
     const citedSet = new Set<TFile>();
     for (const jalon of jalons) citedSet.add(jalon);
