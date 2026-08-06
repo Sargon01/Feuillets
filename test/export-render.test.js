@@ -365,6 +365,113 @@ test("renderManuscriptHtml : aucune Notice quand toutes les images sont résolue
   }
 });
 
+test("renderManuscriptHtml : une image locale EXISTANTE est inlinée en data: (comportement inchangé)", async () => {
+  const restoreDom = installDom();
+  const imageFile = { path: "image.png", name: "image.png", basename: "image", extension: "png", bytes: new Uint8Array([9, 9]).buffer };
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("img", "", { src: "app://vault/image.png" }));
+  });
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    const { containerEl, images, missingResources } = await renderManuscriptHtml(fakeApp([imageFile]), "texte", "Source.md");
+    assert.match(containerEl.querySelector("img").getAttribute("src"), /^data:image\/png;base64,/);
+    assert.equal(images.size, 1);
+    assert.deepEqual(missingResources, []);
+    assert.equal(notices.length, 0);
+  } finally {
+    restoreRenderer();
+    Notice.onCreate = null;
+    restoreDom();
+  }
+});
+
+test("renderManuscriptHtml : une URL distante (http/https) n'est JAMAIS traitée comme un fichier du coffre introuvable", async () => {
+  const restoreDom = installDom();
+  const remoteUrl = "https://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png";
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("img", "", { src: remoteUrl }));
+  });
+  const app = fakeApp([]);
+  // L'URL distante ne doit JAMAIS atteindre les méthodes de résolution
+  // locale d'Obsidian — si elle le fait, le test échoue immédiatement.
+  app.metadataCache.getFirstLinkpathDest = (linkpath) => {
+    throw new Error(`getFirstLinkpathDest ne doit jamais recevoir une URL distante : ${linkpath}`);
+  };
+  app.vault.readBinary = async () => {
+    throw new Error("readBinary ne doit jamais être appelé pour une URL distante");
+  };
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    const { containerEl, images, missingResources } = await renderManuscriptHtml(app, "texte", "Source.md");
+    assert.equal(containerEl.querySelector("img").getAttribute("src"), remoteUrl, "l'URL distante est conservée telle quelle dans l'export");
+    assert.equal(images.size, 0, "une image distante n'est pas inlinée en data:");
+    assert.deepEqual(missingResources, [], "aucune URL distante ne doit apparaître parmi les ressources introuvables");
+    assert.equal(notices.length, 0, "aucune Notice « introuvable dans le coffre » pour une URL distante");
+  } finally {
+    restoreRenderer();
+    Notice.onCreate = null;
+    restoreDom();
+  }
+});
+
+test("renderManuscriptHtml : une URL distante portée par le wrapper .internal-embed (casse/espace compris) est aussi reconnue", async () => {
+  const restoreDom = installDom();
+  const remoteUrl = "  HTTPS://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png  ";
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    // Reproduit un embed externe ![[…]] : le wrapper .internal-embed porte
+    // le lien ORIGINAL (ici une URL distante, avec casse et espace parasite),
+    // tandis que l'<img> rendu peut porter un placeholder tout différent.
+    const embed = element("span", "", { class: "internal-embed", src: remoteUrl });
+    embed.appendChild(element("img", "", { src: "app://local-placeholder/inconnu" }));
+    container.appendChild(embed);
+  });
+  const app = fakeApp([]);
+  app.metadataCache.getFirstLinkpathDest = (linkpath) => {
+    throw new Error(`getFirstLinkpathDest ne doit jamais recevoir une URL distante : ${linkpath}`);
+  };
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    const { containerEl, images, missingResources } = await renderManuscriptHtml(app, "texte", "Source.md");
+    assert.equal(
+      containerEl.querySelector("img").getAttribute("src"),
+      remoteUrl.trim(),
+      "l'<img> reprend l'URL réelle du wrapper plutôt que son placeholder local"
+    );
+    assert.equal(images.size, 0);
+    assert.deepEqual(missingResources, []);
+    assert.equal(notices.length, 0);
+  } finally {
+    restoreRenderer();
+    Notice.onCreate = null;
+    restoreDom();
+  }
+});
+
+test("renderManuscriptHtml : une image locale ABSENTE répétée plusieurs fois ne produit qu'UN seul avertissement (dédupliqué)", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    for (let i = 0; i < 5; i++) {
+      container.appendChild(element("img", "", { src: "app://vault/fantome.png" }));
+    }
+  });
+  const app = fakeApp([]);
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    const { missingResources } = await renderManuscriptHtml(app, "texte", "Source.md");
+    assert.deepEqual(missingResources, ["app://vault/fantome.png"], "une seule entrée malgré 5 occurrences identiques");
+    assert.equal(notices.length, 1, "une seule Notice, jamais une par occurrence");
+    assert.match(notices[0], /1 image\(s\) introuvable/, "le compte reflète les sources UNIQUES, pas les occurrences");
+  } finally {
+    restoreRenderer();
+    Notice.onCreate = null;
+    restoreDom();
+  }
+});
+
 test("renderManuscriptHtmlWithFrontPages : isole les pages Front et étiquette leurs rôles", async () => {
   const restoreDom = installDom();
   const restoreRenderer = setRenderer(async (_app, markdown, container) => {
