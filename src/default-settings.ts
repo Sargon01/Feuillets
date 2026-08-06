@@ -165,6 +165,11 @@ export type DefaultSettings = {
   notesShowResume: boolean;
   notesShowNotes: boolean;
   notesSectionOrder: string[];
+  /** Fiches épinglées dans la section « Épinglées » du panneau Contexte
+   *  (Lot 6) — { cheminDuFeuillet: [cheminsDesFichesÉpinglées] }, jamais
+   *  global : un épinglage ne vaut que pour le feuillet depuis lequel il a
+   *  été posé (voir NotesView.pinnedPathsFor/togglePinned). */
+  notesPinned: Record<string, string[]>;
   autoOpenJournal: boolean;
   structureSectionOrder: string[];
   hiddenBoardModes: string[];
@@ -348,6 +353,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   notesShowResume: true,
   notesShowNotes: true,
   notesSectionOrder: ["Synopsis", "Résumé", "Notes"],
+  notesPinned: {},
   autoOpenJournal: false,
   structureSectionOrder: ["Progression", "Compteurs"],
   hiddenBoardModes: [],

@@ -49,6 +49,7 @@ type NotesSettings = FeuilletsSettings & {
   notesShowNotes: boolean;
   notesShowResume: boolean;
   notesShowSynopsis: boolean;
+  notesPinned: Record<string, string[]>;
 };
 type NotesViewPlugin = Omit<BaseNotesViewPlugin, "parseStoryDate" | "settings"> & {
   settings: NotesSettings;
@@ -100,6 +101,37 @@ function inferPropertyType(value: unknown): NotesPropertyType {
   return "text";
 }
 
+/** Retire, en tête d'un extrait « Documents associés » (Lot 5), la
+ * répétition du TITRE de la fiche quand il correspond au premier titre
+ * Markdown du document — Lot 6, RENDU UNIQUEMENT : l'extrait mémorisé par
+ * matchContent() (context-content-matcher.ts) n'est jamais réécrit, ce
+ * n'est qu'un ajustement d'affichage appliqué à une COPIE.
+ *
+ * Heuristique délibérément simple et déterministe : cleanMarkdownBody()
+ * retire déjà les `#` des titres Markdown en ne laissant que leur texte, et
+ * buildExcerpt() ne préfixe l'extrait d'un « … » QUE si la correspondance
+ * n'est pas au tout début du document nettoyé — donc un extrait SANS « … »
+ * en tête dont le texte commence par le titre (insensible à la casse) est,
+ * par construction, un extrait qui reprend le premier titre Markdown du
+ * document. Un extrait commençant par « … » n'est jamais touché : la
+ * correspondance n'est alors pas au début du document, le titre n'y est
+ * donc pas répété par construction. */
+export function stripLeadingTitleFromExcerpt(excerpt: string, title: string): string {
+  if (!excerpt || !title) return excerpt;
+  if (excerpt.startsWith("…")) return excerpt;
+
+  const normTitle = title.trim().toLowerCase();
+  if (!normTitle) return excerpt;
+
+  const trimmedExcerpt = excerpt.trimStart();
+  if (!trimmedExcerpt.toLowerCase().startsWith(normTitle)) return excerpt;
+
+  const rest = trimmedExcerpt
+    .slice(title.trim().length)
+    .replace(/^[\s:.\-–—]+/, "");
+  return rest || excerpt;
+}
+
 export class NotesView extends BaseFeuilletsView {
   declare plugin: NotesViewPlugin;
   declare targetContainer?: HTMLElement;
@@ -129,6 +161,16 @@ export class NotesView extends BaseFeuilletsView {
    * projet : jamais partagé, jamais alimenté par elle. Une instance par vue,
    * comme `_searchCache`. */
   private _contentCache: Map<string, ContentCacheEntry> = new Map();
+
+  /** Sections « afficher davantage » actuellement dépliées au-delà de la
+   * limite par défaut (5) — Lot 6. Clé = `${chemin du feuillet}:${section}`,
+   * état PUREMENT en mémoire (jamais persisté, jamais lu par render()) :
+   * cliquer « Afficher davantage » ne relance ni recherche ni rendu complet,
+   * seule la visibilité DOM des lignes déjà construites cette passe change
+   * (voir renderLimitedSection). Perdu à la fermeture de la vue, ce qui est
+   * acceptable — rien dans la mission n'exige de le faire survivre à un
+   * redémarrage. */
+  private expandedSections: Set<string> = new Set();
 
   constructor(leaf: WorkspaceLeaf, plugin: BaseNotesViewPlugin) {
     super(leaf, plugin);
@@ -472,6 +514,343 @@ export class NotesView extends BaseFeuilletsView {
       sourceKind: e.sourceKind,
       sourcePriority: e.sourcePriority,
     }));
+  }
+
+  /** Chemins épinglés pour `file` (Lot 6) — stockés PAR FEUILLET
+   * (S.notesPinned[file.path]), jamais globalement : un épinglage posé
+   * depuis un feuillet ne doit jamais apparaître sur un autre. Nettoie au
+   * passage les chemins devenus invalides (fiche supprimée ou déplacée —
+   * un déplacement change le chemin, donc l'ancien devient introuvable au
+   * même titre qu'une suppression) : `vault.getAbstractFileByPath` sert de
+   * seule source de vérité, aucun second système de suivi. La persistance
+   * de ce nettoyage est fire-and-forget (comme togglePinned) — un prochain
+   * appel relit de toute façon `S.notesPinned` en premier lieu, jamais un
+   * état mémorisé ici. Renvoie les chemins dans leur ORDRE DE STOCKAGE
+   * (ordre d'épinglage), jamais retrié. */
+  private pinnedPathsFor(file: TFile): string[] {
+    const S = this.plugin.settings;
+    const stored = S.notesPinned[file.path] || [];
+    const valid = stored.filter((p) => this.app.vault.getAbstractFileByPath(p) instanceof TFile);
+    if (valid.length !== stored.length) {
+      if (valid.length === 0) delete S.notesPinned[file.path];
+      else S.notesPinned[file.path] = valid;
+      void this.plugin.saveSettings();
+    }
+    return valid;
+  }
+
+  private isPinned(file: TFile, path: string): boolean {
+    return (this.plugin.settings.notesPinned[file.path] || []).includes(path);
+  }
+
+  /** Épingle/désépingle `path` pour `file` — TOUJOURS un rendu complet
+   * (contrairement à « Afficher davantage », voir renderLimitedSection) :
+   * épingler ou désépingler change la déduplication entre les trois
+   * sections, pas seulement le nombre de lignes visibles. */
+  private async togglePinned(file: TFile, path: string): Promise<void> {
+    const S = this.plugin.settings;
+    const list = S.notesPinned[file.path] ? [...S.notesPinned[file.path]] : [];
+    const idx = list.indexOf(path);
+    if (idx === -1) list.push(path);
+    else list.splice(idx, 1);
+
+    if (list.length === 0) delete S.notesPinned[file.path];
+    else S.notesPinned[file.path] = list;
+
+    await this.plugin.saveSettings();
+    void this.render(true);
+  }
+
+  /** Bouton discret d'épinglage/désépinglage — icône seule (pin/pin-off,
+   * même mécanique que les autres icônes du panneau, voir iconBtn), posé à
+   * côté du bouton aperçu de chaque ligne de résultat des trois sections du
+   * bloc Contexte. */
+  private renderPinButton(head: HTMLElement, file: TFile, path: string): void {
+    const pinned = this.isPinned(file, path);
+    const btn = this.iconBtn(
+      head,
+      pinned ? "pin-off" : "pin",
+      t(pinned ? "notes.context.unpinTooltip" : "notes.context.pinTooltip"),
+      () => { void this.togglePinned(file, path); }
+    );
+    btn.addClass("feuillets-pin-btn");
+    if (pinned) btn.addClass("is-active");
+  }
+
+  /** Provenance affichable d'un chemin (Lot 6) — « Feuillet »/« Chapitre »/
+   * « Projet », déterminée en cherchant, parmi les sources déjà résolues
+   * par contextSourcesFor() (jamais un second système), celle qui contient
+   * `path` avec la priorité la plus précise (même règle que buildContextIndex
+   * côté moteur fiable). `null` si `path` n'appartient à aucune source
+   * connue (ex. fiche épinglée puis son dossier délié depuis) — la ligne
+   * concernée n'affiche alors simplement aucune pastille de provenance,
+   * jamais un chemin technique brut. */
+  private provenanceLabelFor(sources: ContextSource[], path: string): string | null {
+    let best: { kind: string; priority: number } | null = null;
+    for (const s of sources) {
+      if (path === s.path || path.startsWith(s.path + "/")) {
+        const priority = s.priority ?? CONTEXT_SOURCE_PRIORITY[s.kind as keyof typeof CONTEXT_SOURCE_PRIORITY] ?? 100;
+        if (!best || priority < best.priority) best = { kind: s.kind, priority };
+      }
+    }
+    if (!best) return null;
+    if (best.kind === "feuillet") return t("notes.context.provenanceFeuillet");
+    if (best.kind === "chapter") return t("notes.context.provenanceChapitre");
+    if (best.kind === "project-research") return t("notes.context.provenanceProjet");
+    return null;
+  }
+
+  /** Évalue si une entité présente une alerte chronologique (personnage mort,
+   * pas encore né, anachronisme ou incohérence de date face au feuillet) —
+   * renvoie { isAlert: true, alertText: string } ou null si compatible/neutre. */
+  private getChronologicalAlert(
+    ent: TFile,
+    sceneDate: StoryDate | null
+  ): { isAlert: boolean; alertText?: string } | null {
+    if (!sceneDate) return null;
+    const efm: NotesFrontmatter = this.fm(ent);
+    const kind = this.entityKind(ent);
+
+    // 1. Mort d'un personnage
+    if (kind === "personnage") {
+      const death = this.plugin.parseStoryDate(efm.death);
+      if (death && sceneDate.sort > death.sort) {
+        const diff = sceneDate.y - death.y;
+        const text = diff > 0
+          ? t("notes.context.deadSince", { count: String(diff), s: diff > 1 ? "s" : "", year: String(death.y) })
+          : t("notes.context.deadIn", { year: String(death.y) });
+        return { isAlert: true, alertText: text };
+      }
+
+      // 2. Personnage pas encore né
+      const birth = this.plugin.parseStoryDate(efm.birth);
+      if (birth && sceneDate.sort < birth.sort) {
+        const text = t("notes.context.notBornYet", { year: String(birth.y) });
+        return { isAlert: true, alertText: text };
+      }
+    }
+
+    // 3. Anachronismes (champ anachronisme explicite ou date de création / validFrom postérieure à la scène)
+    if (efm.anachronisme) {
+      const text = typeof efm.anachronisme === "string" && efm.anachronisme.trim()
+        ? efm.anachronisme.trim()
+        : t("notes.context.anachronismDefault");
+      return { isAlert: true, alertText: text };
+    }
+
+    const creationRaw = efm.validFrom ?? efm.valid_from ?? efm.date_creation ?? efm.date_anachronisme;
+    if (creationRaw) {
+      const creationDate = this.plugin.parseStoryDate(creationRaw);
+      if (creationDate && sceneDate.sort < creationDate.sort) {
+        const text = t("notes.context.anachronismAfterDate");
+        return { isAlert: true, alertText: text };
+      }
+    }
+
+    return null;
+  }
+
+  /** Ligne d'une fiche « entité » (personnage/lieu/événement/codex/jalon ou
+   * simple fiche épinglée sans tag reconnu) — factorisée pour être partagée
+   * TELLE QUELLE entre « Épinglées » et « Références du passage » (Lot 6). */
+  private renderEntityRow(
+    box: HTMLElement,
+    ent: TFile,
+    sceneDate: StoryDate | null,
+    file: TFile,
+    provenanceLabel: string | null,
+    historyState: { text: string; year: number } | null
+  ): HTMLElement {
+    const efm: NotesFrontmatter = this.fm(ent);
+    const kind = this.entityKind(ent);
+    const alert = this.getChronologicalAlert(ent, sceneDate);
+
+    const row = box.createDiv({ cls: "feuillets-entity-row" + (alert?.isAlert ? " is-alert" : "") });
+    if (provenanceLabel) {
+      row.setAttr("data-provenance", provenanceLabel);
+      row.setAttr("title", provenanceLabel);
+    }
+
+    const main = row.createDiv({ cls: "feuillets-entity-main" });
+    const head = main.createDiv({ cls: "feuillets-entity-head" });
+
+    if (alert?.isAlert) {
+      const alertIcon = head.createSpan({ cls: "feuillets-entity-alert-icon" });
+      setIcon(alertIcon, "alert-triangle");
+      alertIcon.setAttr("title", t("notes.context.alertTooltip"));
+    }
+
+    const nameEl = head.createSpan({ cls: "feuillets-entity-name" });
+    nameEl.setText(this.plugin.titleFor(ent));
+    nameEl.addEventListener("click", () => {
+      openFileActivating(this.app, this.app.workspace.getLeaf(false), ent);
+    });
+
+    if (kind === "personnage" && sceneDate) {
+      const death = this.plugin.parseStoryDate(efm.death);
+      const birth = this.plugin.parseStoryDate(efm.birth);
+      if (death && sceneDate.sort > death.sort) {
+        const diff = sceneDate.y - death.y;
+        const text = diff > 0
+          ? t("notes.context.deadSince", { count: String(diff), s: diff > 1 ? "s" : "", year: String(death.y) })
+          : t("notes.context.deadIn", { year: String(death.y) });
+        head
+          .createSpan({ cls: "feuillets-entity-age" + (alert?.isAlert ? " is-alert" : "") })
+          .setText(text);
+      } else if (birth) {
+        const age = sceneDate.y - birth.y;
+        if (age >= 0) {
+          head
+            .createSpan({ cls: "feuillets-entity-age" })
+            .setText(t("notes.context.approxAge", { age: String(age) }));
+        }
+      }
+    }
+
+    const info = main.createDiv({ cls: "feuillets-entity-info" + (alert?.isAlert ? " is-alert" : "") });
+    let shown = false;
+    if (alert?.isAlert && alert.alertText && !(kind === "personnage" && efm.death)) {
+      info.setText(alert.alertText);
+      shown = true;
+    }
+    if (!shown && sceneDate && kind !== "codex" && historyState) {
+      info.setText(historyState.text);
+      info.setAttr("title", t("notes.context.stateAsOf", { year: String(historyState.year) }));
+      if (historyState.year !== sceneDate.y) {
+        info
+          .createSpan({ cls: "feuillets-entity-since" })
+          .setText(t("notes.context.since", { year: String(historyState.year) }));
+      }
+      shown = true;
+    }
+    if (!shown && efm.synopsis) {
+      info.setText(toValue(efm.synopsis).trim());
+    } else if (!shown && !efm.synopsis) {
+      info.remove();
+    }
+
+    const actions = row.createDiv({ cls: "feuillets-entity-actions" });
+    /* Bouton aperçu (popover natif au clic) puis bouton épingle dans la colonne d'actions à droite */
+    this.addPreviewBtn(actions, ent);
+    this.renderPinButton(actions, file, ent.path);
+
+    return row;
+  }
+
+  /** Ligne d'un document associé (Lot 5) — titre + extrait. */
+  private renderContentMatchRow(
+    box: HTMLElement,
+    match: ContentMatch,
+    file: TFile,
+    provenanceLabel: string | null
+  ): HTMLElement {
+    const row = box.createDiv({ cls: "feuillets-entity-row" });
+    if (provenanceLabel) {
+      row.setAttr("data-provenance", provenanceLabel);
+      row.setAttr("title", provenanceLabel);
+    }
+
+    const main = row.createDiv({ cls: "feuillets-entity-main" });
+
+    const head = main.createDiv({ cls: "feuillets-entity-head" });
+    const nameEl = head.createSpan({ cls: "feuillets-entity-name feuillets-related-doc-name" });
+    nameEl.setText(match.title);
+    nameEl.addEventListener("click", () => {
+      const found = this.app.vault.getAbstractFileByPath(match.path);
+      if (found instanceof TFile) {
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), found);
+      }
+    });
+
+    const info = main.createDiv({ cls: "feuillets-entity-info" });
+    info.setText(stripLeadingTitleFromExcerpt(match.excerpt, match.title));
+
+    const actions = row.createDiv({ cls: "feuillets-entity-actions" });
+    const found = this.app.vault.getAbstractFileByPath(match.path);
+    if (found instanceof TFile) {
+      this.addPreviewBtn(actions, found);
+    }
+    this.renderPinButton(actions, file, match.path);
+
+    return row;
+  }
+
+  /** Section repliable générique du bloc Contexte (Lot 6) — factorise ce
+   * que les trois sections (Épinglées, Correspondances fiables, Documents
+   * associés) partagent : en-tête repliable (renderSectionHead, même
+   * mécanique que le reste du panneau), disparition si `items` est vide,
+   * et — seulement si `limit` est fini — troncature à `limit` résultats
+   * avec un lien « Afficher davantage ». Ce lien ne fait JAMAIS que
+   * basculer une classe CSS sur des lignes DÉJÀ construites par
+   * `renderItem` : aucun nouveau rendu, aucun nouvel appel aux moteurs de
+   * correspondance (règle explicite du chantier). `sectionKey` doit être
+   * unique par feuillet ET par section (voir son usage dans
+   * renderCitedEntities) pour que l'état déplié ne fuie jamais d'un
+   * feuillet ou d'une section à l'autre. */
+  private renderLimitedSection<T>(
+    container: HTMLElement,
+    opts: {
+      icon: string;
+      title: string;
+      subtitle?: string;
+      collapseKey: string;
+      extraClass?: string;
+      items: T[];
+      limit: number;
+      sectionKey: string;
+      renderItem: (box: HTMLElement, item: T) => HTMLElement;
+    }
+  ): void {
+    if (opts.items.length === 0) return;
+
+    const section = container.createDiv({
+      cls: `feuillets-notes-section${opts.extraClass ? " " + opts.extraClass : ""}`
+    });
+    const collapsed = this.renderSectionHead(section, opts.icon, opts.title, "notes", opts.collapseKey);
+    if (collapsed) return;
+
+    if (opts.subtitle) {
+      const dateEl = section.createDiv({ cls: "feuillets-context-date-line" });
+      dateEl.setText(opts.subtitle);
+    }
+
+    const box = section.createDiv({ cls: "feuillets-notes-entities-body" });
+    box.setAttr("style", "margin-top: 6px;");
+
+    const total = opts.items.length;
+    const limit = Number.isFinite(opts.limit) ? opts.limit : total;
+    const alreadyExpanded = this.expandedSections.has(opts.sectionKey);
+
+    const rowEls: HTMLElement[] = [];
+    opts.items.forEach((item, idx) => {
+      const rowEl = opts.renderItem(box, item);
+      if (idx >= limit && !alreadyExpanded) rowEl.addClass("feuillets-result-hidden");
+      rowEls.push(rowEl);
+    });
+
+    if (total > limit) {
+      const moreBtn = box.createDiv({ cls: "feuillets-show-more" });
+      const updateLabel = (): void => {
+        const expanded = this.expandedSections.has(opts.sectionKey);
+        moreBtn.setText(
+          expanded
+            ? t("notes.context.showLess")
+            : t("notes.context.showMore", { count: String(total - limit) })
+        );
+      };
+      updateLabel();
+      moreBtn.addEventListener("click", () => {
+        const expandedNow = this.expandedSections.has(opts.sectionKey);
+        if (expandedNow) {
+          this.expandedSections.delete(opts.sectionKey);
+          rowEls.slice(limit).forEach((el) => el.addClass("feuillets-result-hidden"));
+        } else {
+          this.expandedSections.add(opts.sectionKey);
+          rowEls.slice(limit).forEach((el) => el.removeClass("feuillets-result-hidden"));
+        }
+        updateLabel();
+      });
+    }
   }
 
   /** Alias de frontmatter (`aliases`) d'un fichier, déjà disponibles dans le
@@ -856,25 +1235,37 @@ export class NotesView extends BaseFeuilletsView {
     }
   }
 
+  /** Bloc Contexte du panneau Notes — trois sections distinctes et
+   * repliables (Lot 6) : Épinglées, Correspondances fiables (Lot 3/4),
+   * Documents associés (Lot 5). Les algorithmes des Lots 3/4/5 eux-mêmes
+   * (buildContextIndex/matchContext/extractContextWindow/matchContent) ne
+   * sont PAS modifiés ici — seules leurs entrées (exclusion des chemins
+   * épinglés, limite relevée pour alimenter « Afficher davantage ») et leur
+   * mise en forme changent. */
   async renderCitedEntities(container: HTMLElement, file: TFile, sceneDate: StoryDate | null, jalons: TFile[] = []): Promise<void> {
-    const S = this.plugin.settings;
-    const collapseKey = "notes:field:contexte";
-    const collapsed = !!S.collapsed[collapseKey];
-
     // Rebranche l'écoute clavier/souris sur l'éditeur actif de CE feuillet
     // (ou la détache s'il n'y en a plus) à chaque rendu — voir
     // bindCursorTracking. Fait AVANT tout retour anticipé plus bas : le
     // suivi doit rester synchrone avec le feuillet réellement affiché même
-    // quand la section ne produit finalement aucun résultat.
+    // quand aucune section ne produit finalement de résultat.
     this.bindCursorTracking(file);
+
+    // Chemins épinglés pour CE feuillet (Lot 6) — nettoyés au passage des
+    // chemins devenus invalides (voir pinnedPathsFor). Calculé AVANT tout
+    // retour anticipé : une fiche épinglée doit rester visible même quand
+    // aucune source Recherche n'est associée au feuillet (sources vides ne
+    // doivent jamais faire disparaître Épinglées).
+    const pinnedPaths = this.pinnedPathsFor(file);
+    const pinnedPathSet = new Set(pinnedPaths);
 
     /* Sources autorisées — moteur de contexte indépendant (context-index.js
        / context-matcher.js), branché sur l'association Binder ↔ Recherche
        DÉJÀ existante (plugin.getLinkedResearchFolder), jamais sur un second
        système : feuillet actif → son chapitre → recherche générale du
-       projet (sous-dossiers compris), voir contextSourcesFor(). */
+       projet (sous-dossiers compris), voir contextSourcesFor(). Réutilisée
+       aussi pour la pastille de provenance (Lot 6, provenanceLabelFor). */
     const sources = this.contextSourcesFor(file);
-    if (sources.length === 0 && jalons.length === 0) return;
+    if (sources.length === 0 && jalons.length === 0 && pinnedPaths.length === 0) return;
 
     const documents = this.collectContextDocuments(sources);
     const index = buildContextIndex(documents, sources);
@@ -898,7 +1289,7 @@ export class NotesView extends BaseFeuilletsView {
 
     // Le texte retenu (fenêtre autour du curseur, ou corps complet en
     // repli) est envoyé tel quel au moteur — buildContextIndex() puis
-    // matchContext(), rien d'autre.
+    // matchContext(), rien d'autre. Algorithme Lot 3/4 inchangé.
     const matches = matchContext(contextText, index);
 
     const citedSet = new Set<TFile>();
@@ -908,174 +1299,124 @@ export class NotesView extends BaseFeuilletsView {
       if (found instanceof TFile) citedSet.add(found);
     }
 
-    const entities = [...citedSet];
+    // Une fiche épinglée ne doit JAMAIS être répétée dans « Correspondances
+    // fiables » — elle vit désormais exclusivement dans « Épinglées ».
+    const entities = [...citedSet].filter((ent) => !pinnedPathSet.has(ent.path));
 
     /* Lot 5 — second niveau, distinct des correspondances fiables
        ci-dessus : recherche dans le CONTENU des documents associés au
        feuillet/chapitre UNIQUEMENT (contentSourcesFor exclut
        project-research, voir sa documentation), sur le MÊME contextText
        que le moteur fiable (jamais un retour au feuillet entier). Toute
-       fiche déjà remontée par matchContext() ci-dessus est exclue par path
-       (excludePaths) : jamais de doublon entre les deux niveaux. */
+       fiche déjà remontée par matchContext() ci-dessus OU déjà épinglée est
+       exclue par path (excludePaths) : jamais de doublon entre les trois
+       sections. Limite relevée à 10 (au lieu de 5) : SEULE adaptation de
+       l'appel Lot 5 pour ce chantier, afin d'alimenter un vivier pour
+       « Afficher davantage » — l'algorithme de matchContent() lui-même
+       (context-content-matcher.ts) n'est pas modifié. */
     const contentSources = this.contentSourcesFor(file);
     let contentMatches: ContentMatch[] = [];
     if (contentSources.length > 0) {
-      const reliablePaths = new Set(matches.map((m) => m.candidate.path));
+      const excludePaths = new Set(matches.map((m) => m.candidate.path));
+      for (const p of pinnedPathSet) excludePaths.add(p);
       const contentCandidates = await this.collectContentCandidates(contentSources);
       contentMatches = matchContent(contextText, contentCandidates, {
-        limit: 5,
-        excludePaths: reliablePaths,
+        limit: 10,
+        excludePaths,
       });
-      console.log("[Feuillets Lot5] 8. matchContent result:", contentMatches);
     }
 
-    if (entities.length === 0 && contentMatches.length === 0) return;
+    // Fiches épinglées résolues en TFile, dans leur ORDRE D'ÉPINGLAGE —
+    // jamais retrié (contrairement aux deux autres sections).
+    const pinnedFiles: TFile[] = [];
+    for (const p of pinnedPaths) {
+      const found = this.app.vault.getAbstractFileByPath(p);
+      if (found instanceof TFile) pinnedFiles.push(found);
+    }
 
-    if (entities.length > 0) {
-      /* Regroupées par nature (personnage/lieu/événement/codex) sans le
-         préciser visuellement : inutile de l'expliciter, la nature de
-         chaque fiche est déjà évidente au premier coup d'œil (nom, âge
-         éventuel...). */
-      const ORDER: Array<EntityKind | null> = ["personnage", "lieu", "evenement", "codex", null];
-      entities.sort(
-        (a, b) => ORDER.indexOf(this.entityKind(a)) - ORDER.indexOf(this.entityKind(b))
-      );
+    if (pinnedFiles.length === 0 && entities.length === 0 && contentMatches.length === 0) return;
 
-      // Collapsible header matching the others
-      const section = container.createDiv({ cls: "feuillets-notes-section" });
-      const headSection = section.createDiv({ cls: "feuillets-notes-section-head" });
+    const jalonSet = new Set(jalons);
+    const getRank = (ent: TFile): number => {
+      const isJalon = jalonSet.has(ent);
+      const kind = this.entityKind(ent);
+      const alert = this.getChronologicalAlert(ent, sceneDate);
+      if (isJalon || kind === "evenement") return 1;
+      if (alert?.isAlert) return 2;
+      return 3;
+    };
 
-      const iconSpan = headSection.createSpan({ cls: "feuillets-notes-section-icon" });
-      setIcon(iconSpan, "book-open");
+    const ORDER: Array<EntityKind | null> = ["personnage", "lieu", "evenement", "codex", null];
+    entities.sort((a, b) => {
+      const rA = getRank(a);
+      const rB = getRank(b);
+      if (rA !== rB) return rA - rB;
+      return ORDER.indexOf(this.entityKind(a)) - ORDER.indexOf(this.entityKind(b));
+    });
 
-      const sectionTitle = sceneDate ? t("notes.context.titleWithDate", { date: sceneDate.display }) : t("notes.context.title");
-      headSection.createSpan({ cls: "feuillets-notes-section-title" }).setText(sectionTitle);
-
-      headSection.addEventListener("click", () => {
-        void (async () => {
-          if (collapsed) delete S.collapsed[collapseKey];
-          else S.collapsed[collapseKey] = true;
-          await this.plugin.saveSettings();
-          void this.render();
-        })();
-      });
-
-      if (!collapsed) {
-        const box = section.createDiv({ cls: "feuillets-notes-entities-body" });
-        box.setAttr("style", "margin-top: 6px;");
-
-        for (const ent of entities) {
-          const efm: NotesFrontmatter = this.fm(ent);
-          const kind = this.entityKind(ent);
-
-          const row = box.createDiv({ cls: "feuillets-entity-row" });
-          const head = row.createDiv({ cls: "feuillets-entity-head" });
-          const nameEl = head.createSpan({ cls: "feuillets-entity-name" });
-          nameEl.setText(`• ${this.plugin.titleFor(ent)}`);
-          nameEl.addEventListener("click", () => {
-            openFileActivating(this.app, this.app.workspace.getLeaf(false), ent);
-          });
-          /* Bouton aperçu (popover natif au clic) juste à côté : consulter la
-             fiche (âge, couleur des yeux…) sans remplacer la scène en cours
-             dans l'éditeur — cliquer le nom, lui, navigue toujours (utile pour
-             éditer la fiche elle-même), les deux usages coexistent. */
-          this.addPreviewBtn(head, ent);
-
-          // Système historique (personnage) : écart d'âge / mort.
-          if (kind === "personnage" && sceneDate) {
-            const birth = this.plugin.parseStoryDate(efm.birth);
-            const death = this.plugin.parseStoryDate(efm.death);
-            if (death && sceneDate.sort > death.sort) {
-              const diff = sceneDate.y - death.y;
-              const text = diff > 0
-                ? t("notes.context.deadSince", { count: String(diff), s: diff > 1 ? "s" : "", year: String(death.y) })
-                : t("notes.context.deadIn", { year: String(death.y) });
-              head
-                .createSpan({ cls: "feuillets-entity-age" })
-                .setText(text);
-            } else if (birth) {
-              const age = sceneDate.y - birth.y;
-              if (age >= 0) {
-                head
-                  .createSpan({ cls: "feuillets-entity-age" })
-                  .setText(t("notes.context.approxAge", { age: String(age) }));
-              }
-            }
-          }
-
-          const info = row.createDiv({ cls: "feuillets-entity-info" });
-          let shown = false;
-          if (sceneDate && kind !== "codex") {
-            const content = await this.app.vault.cachedRead(ent);
-            const state = latestStateBefore(content, sceneDate.y);
-            if (state) {
-              info.setText(state.text);
-              info.setAttr("title", t("notes.context.stateAsOf", { year: String(state.y) }));
-              if (state.y !== sceneDate.y) {
-                info
-                  .createSpan({ cls: "feuillets-entity-since" })
-                  .setText(t("notes.context.since", { year: String(state.y) }));
-              }
-              shown = true;
-            }
-          }
-          if (!shown && efm.synopsis) {
-            info.setText(toValue(efm.synopsis).trim());
-          } else if (!shown && !efm.synopsis) {
-            info.remove();
-          }
-        }
+    /* État historique (lieu/événement, système « évolution ») pré-résolu
+       AVANT le rendu synchrone des lignes (renderEntityRow) : cachedRead
+       est asynchrone, renderLimitedSection/renderItem ne le sont pas (voir
+       leur documentation). Même calcul EXACT qu'avant ce chantier
+       (latestStateBefore), simplement déplacé en amont — pour Épinglées
+       ET Correspondances fiables, les deux utilisant renderEntityRow. */
+    const historyStates = new Map<string, { text: string; year: number } | null>();
+    if (sceneDate) {
+      for (const ent of [...pinnedFiles, ...entities]) {
+        if (this.entityKind(ent) === "codex") continue;
+        if (historyStates.has(ent.path)) continue;
+        const content = await this.app.vault.cachedRead(ent);
+        const state = latestStateBefore(content, sceneDate.y);
+        historyStates.set(ent.path, state ? { text: state.text, year: state.y } : null);
       }
     }
 
-    if (contentMatches.length > 0) {
-      this.renderRelatedDocumentsSection(container, contentMatches);
-    }
-  }
+    // Épinglées — jamais de limite/« Afficher davantage » (liste courte,
+    // entièrement composée par l'utilisateur), toujours dans l'ordre
+    // d'épinglage.
+    this.renderLimitedSection(container, {
+      icon: "pin",
+      title: t("notes.context.pinnedTitle"),
+      collapseKey: "epingles",
+      extraClass: "feuillets-pinned-section",
+      items: pinnedFiles,
+      limit: Infinity,
+      sectionKey: `${file.path}:epingles`,
+      renderItem: (box, ent) =>
+        this.renderEntityRow(box, ent, sceneDate, file, this.provenanceLabelFor(sources, ent.path), historyStates.get(ent.path) ?? null),
+    });
 
-  /** Section secondaire « Documents associés » (Lot 5) — TOUJOURS distincte
-   * de la section « Contexte » ci-dessus (jamais fusionnée dans citedSet) :
-   * une fiche retrouvée par son CONTENU n'est ni un personnage/lieu/
-   * événement cité, ni traitée comme tel (pas d'âge, pas d'état historique,
-   * juste titre + extrait). Repliable comme les autres sections du panneau
-   * (renderSectionHead, même mécanique que renderFilePropertiesSection).
-   * Pas d'épinglage ni de « Afficher davantage » — Lot 6. */
-  private renderRelatedDocumentsSection(container: HTMLElement, contentMatches: ContentMatch[]): void {
-    // Classe supplémentaire (en plus de feuillets-notes-section, même
-    // langage visuel) : sert de point d'ancrage stable pour distinguer
-    // cette section secondaire de la section « Contexte » — utile aux
-    // tests, sans rien changer au rendu visuel.
-    const section = container.createDiv({ cls: "feuillets-notes-section feuillets-related-docs-section" });
-    const collapsed = this.renderSectionHead(
-      section,
-      "search",
-      t("notes.context.relatedDocsTitle"),
-      "notes",
-      "documents-associes"
-    );
-    if (collapsed) return;
+    // Références du passage (Lot 3/4) — 5 par défaut, « Afficher
+    // 5 autres » jusqu'à matchContext().
+    this.renderLimitedSection(container, {
+      icon: "book-open",
+      title: t("notes.context.title"),
+      subtitle: sceneDate ? sceneDate.display : undefined,
+      // "field:contexte" (et non "contexte") : reprend EXACTEMENT la clé
+      // d'origine ("notes:field:contexte", avant ce chantier) pour ne pas
+      // réinitialiser l'état replié/déplié déjà enregistré par un
+      // utilisateur existant.
+      collapseKey: "field:contexte",
+      items: entities,
+      limit: 5,
+      sectionKey: `${file.path}:fiables`,
+      renderItem: (box, ent) =>
+        this.renderEntityRow(box, ent, sceneDate, file, this.provenanceLabelFor(sources, ent.path), historyStates.get(ent.path) ?? null),
+    });
 
-    const box = section.createDiv({ cls: "feuillets-notes-entities-body" });
-    box.setAttr("style", "margin-top: 6px;");
-
-    for (const match of contentMatches) {
-      const row = box.createDiv({ cls: "feuillets-entity-row" });
-      const head = row.createDiv({ cls: "feuillets-entity-head" });
-      // feuillets-entity-name : même langage visuel que les entités citées
-      // (Lot 3/4). feuillets-related-doc-name : classe propre au Lot 5, pour
-      // ne jamais confondre les deux listes (côté tests notamment).
-      const nameEl = head.createSpan({ cls: "feuillets-entity-name feuillets-related-doc-name" });
-      nameEl.setText(`• ${match.title}`);
-      nameEl.addEventListener("click", () => {
-        const found = this.app.vault.getAbstractFileByPath(match.path);
-        if (found instanceof TFile) {
-          openFileActivating(this.app, this.app.workspace.getLeaf(false), found);
-        }
-      });
-
-      const info = row.createDiv({ cls: "feuillets-entity-info" });
-      info.setText(match.excerpt);
-    }
+    // Documents associés (Lot 5) — 5 par défaut, « Afficher davantage »
+    // jusqu'au vivier de 10 déjà calculé plus haut.
+    this.renderLimitedSection(container, {
+      icon: "search",
+      title: t("notes.context.relatedDocsTitle"),
+      collapseKey: "documents-associes",
+      extraClass: "feuillets-related-docs-section",
+      items: contentMatches,
+      limit: 5,
+      sectionKey: `${file.path}:documents`,
+      renderItem: (box, match) =>
+        this.renderContentMatchRow(box, match, file, this.provenanceLabelFor(sources, match.path)),
+    });
   }
 
   /** Notes de bas de page (`[^label]: texte`) définies dans le corps du
