@@ -370,6 +370,7 @@ export const en = {
   "notes.context.approxAge": "~{age} years old",
   "notes.context.stateAsOf": "State as of {year}",
   "notes.context.since": " (since {year})",
+  "notes.context.relatedDocsTitle": "Related documents",
 
   // ---------- Properties panel (properties-view.js, legacy) ----------
   "properties.displayText": "Properties",

@@ -956,3 +956,472 @@ test("Jalon de chronologie SANS propriété `type`, daté en français naturel, 
 
   assert.deepEqual(citedNames(contentEl), ["Départ de la caravane dans le Hedjaz"]);
 });
+
+/* ===================== Lot 5 : recherche dans le contenu des documents
+ * associés — second niveau, distinct des correspondances fiables ci-dessus
+ * (Lot 3/4). Scopé feuillet + chapitre UNIQUEMENT : contentSourcesFor()
+ * exclut explicitement "project-research" (voir notes-view.ts), jamais la
+ * Recherche générale du projet ni le reste du coffre. ===================== */
+
+/** Éléments de la section « Documents associés » (Lot 5) — TOUJOURS
+ * distincte de la section « Contexte » (feuillets-entity-name), scopée via
+ * sa classe propre feuillets-related-docs-section pour ne jamais confondre
+ * les deux listes, même si elles réutilisent le même langage visuel. */
+function relatedDocsSection(contentEl) {
+  return allElements(contentEl).find((el) => el.classes.has("feuillets-related-docs-section"));
+}
+
+function relatedDocNames(contentEl) {
+  const section = relatedDocsSection(contentEl);
+  if (!section) return [];
+  return allElements(section)
+    .filter((el) => el.classes.has("feuillets-related-doc-name"))
+    .map((el) => el.text.replace(/^•\s*/, ""));
+}
+
+function relatedDocExcerpt(contentEl, title) {
+  const section = relatedDocsSection(contentEl);
+  if (!section) return undefined;
+  const rows = allElements(section).filter((el) => el.classes.has("feuillets-entity-row"));
+  const row = rows.find((r) =>
+    allElements(r).some((el) => el.classes.has("feuillets-related-doc-name") && el.text === `• ${title}`)
+  );
+  if (!row) return undefined;
+  const info = allElements(row).find((el) => el.classes.has("feuillets-entity-info"));
+  return info ? info.text : null;
+}
+
+/** Noms cités dans la section « Contexte » (Lot 3/4) SEULE — exclut
+ * délibérément la section « Documents associés » (Lot 5), qui réutilise la
+ * même classe .feuillets-entity-name pour son langage visuel (voir
+ * renderRelatedDocumentsSection) : citedNames() seul confondrait les deux
+ * listes, ce que ces tests doivent justement distinguer. */
+function contextEntityNames(contentEl) {
+  return allElements(contentEl)
+    .filter((el) => el.classes.has("feuillets-entity-name") && !el.classes.has("feuillets-related-doc-name"))
+    .map((el) => el.text.replace(/^•\s*/, ""));
+}
+
+/** `view.app.vault.cachedRead` instrumenté : compte les lectures RÉELLES
+ * par chemin, sans changer le comportement (renvoie toujours `file.content`
+ * comme createView()). Sert aux tests de cache (Lot 5). */
+function spyOnReads(view) {
+  const reads = [];
+  const original = view.app.vault.cachedRead.bind(view.app.vault);
+  view.app.vault.cachedRead = async (file) => {
+    reads.push(file.path);
+    return original(file);
+  };
+  return reads;
+}
+
+test("Lot 5 — document associé au FEUILLET retrouvé par son contenu (jamais par son titre)", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.equal(contextEntityNames(contentEl).includes("Carte Secrète"), false, "aucune correspondance par titre ici");
+  assert.deepEqual(relatedDocNames(contentEl), ["Carte Secrète"]);
+});
+
+test("Lot 5 — document associé au CHAPITRE retrouvé par son contenu", async () => {
+  const project = buildProject();
+  // DucB vit dans le dossier lié au CHAPITRE seul (pas sous feuilletResearch).
+  project.ducB.stat = { mtime: 1 };
+  project.ducB.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.equal(contextEntityNames(contentEl).includes("Bragance Seul"), false, "aucune correspondance par titre ici");
+  assert.deepEqual(relatedDocNames(contentEl), ["Bragance Seul"]);
+});
+
+test("Lot 5 — document NON associé (hors Binder/Recherche) jamais retrouvé par son contenu", async () => {
+  const project = buildProject();
+  project.etranger.stat = { mtime: 1 };
+  project.etranger.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.deepEqual(relatedDocNames(contentEl), []);
+});
+
+test("Lot 5 — document de la Recherche générale du projet (project-research) jamais retrouvé par le contenu", async () => {
+  const project = buildProject();
+  // DucC ne vit QUE sous researchRoot (project-research), hors de tout
+  // dossier lié au feuillet/chapitre — contentSourcesFor() doit l'exclure.
+  project.ducC.stat = { mtime: 1 };
+  project.ducC.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  // Ni par titre (Lot 3, hors sujet ici), ni par contenu (Lot 5) : DucC
+  // n'apparaît nulle part.
+  assert.equal(citedNames(contentEl).includes("Bibliotheque Royale"), false);
+  assert.deepEqual(relatedDocNames(contentEl), []);
+});
+
+test("Lot 5 — sous-dossier de la Recherche générale (Sub/Paris.md) jamais retrouvé par le contenu", async () => {
+  const project = buildProject();
+  project.parisFile.stat = { mtime: 1 };
+  project.parisFile.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.deepEqual(relatedDocNames(contentEl), []);
+});
+
+test("Lot 5 — une fiche déjà remontée par son titre (Lot 3) n'est jamais dupliquée dans « Documents associés »", async () => {
+  const project = buildProject();
+  // DucA est retrouvé par son TITRE (Lot 3, correspondance fiable) ET son
+  // contenu partage aussi des termes avec le passage courant : il ne doit
+  // apparaître qu'une fois, dans la section « Contexte », jamais en plus
+  // dans « Documents associés ».
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "La carte secrète mentionne aussi un cartographe et un meridien oublié.";
+  project.activeFile.content = "La carte secrète refait surface : cartographe et meridien y sont cités.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.deepEqual(citedNames(contentEl), ["Carte Secrète"]);
+  assert.deepEqual(relatedDocNames(contentEl), []);
+});
+
+test("Lot 5 — limite stricte à cinq résultats", async () => {
+  const project = buildCumulativeSourcesProject();
+  const extra = [];
+  for (let i = 0; i < 7; i++) {
+    const file = new TFile(`Projet/LiensFeuillet/Fiche${i}.md`);
+    file.parent = project.feuilletLinked;
+    file.stat = { mtime: 1 };
+    file.content = `Document numéro ${i} : le cartographe traça le meridien avant l'aube.`;
+    project.titles[file.path] = `Sans Rapport ${i}`;
+    project.filesByPath.set(file.path, file);
+    extra.push(file);
+  }
+  project.feuilletLinked.children = [project.ficheFeuillet, ...extra];
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createCumulativeSourcesView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.equal(relatedDocNames(contentEl).length, 5);
+});
+
+test("Lot 5 — extrait lisible centré sur la correspondance", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content =
+    "Avant-propos sans intérêt. ".repeat(10) +
+    "Le cartographe traça le meridien avant l'aube, loin de tout port connu. " +
+    "Suite du document sans intérêt particulier. ".repeat(10);
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  const excerpt = relatedDocExcerpt(contentEl, "Carte Secrète");
+  assert.ok(excerpt);
+  assert.ok(excerpt.includes("cartographe"));
+  assert.ok(excerpt.includes("meridien"));
+});
+
+test("Lot 5 — le frontmatter YAML n'influence jamais la correspondance ni l'extrait", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content =
+    "---\ntitre: Fiche\ntags: [cartographe, meridien, secret]\n---\n" +
+    "Texte réel sans rapport avec la scène.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  // Les mots "cartographe"/"meridien" ne vivent QUE dans le YAML retiré :
+  // aucune correspondance ne doit en sortir.
+  assert.deepEqual(relatedDocNames(contentEl), []);
+});
+
+test("Lot 5 — un mot générique isolé ne suffit jamais à faire remonter une fiche", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  // Un seul terme partagé ("meridien") : jamais assez, même significatif.
+  project.ducA.content = "Le meridien traverse plusieurs pays et océans du globe entier.";
+  project.activeFile.content = "Il évoque un meridien sans autre précision dans cette phrase.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.deepEqual(relatedDocNames(contentEl), []);
+});
+
+test("Lot 5 — cache réutilisé si la mtime n'a pas changé (pas de relecture disque)", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl: firstEl } = createView(project);
+  const reads = spyOnReads(view);
+
+  await view.renderCitedEntities(firstEl, project.activeFile, null, []);
+  assert.ok(reads.includes(project.ducA.path), "première lecture attendue");
+
+  reads.length = 0;
+  const secondEl = new FakeElement();
+  await view.renderCitedEntities(secondEl, project.activeFile, null, []);
+
+  assert.equal(reads.includes(project.ducA.path), false, "aucune relecture disque si la mtime n'a pas bougé");
+  assert.deepEqual(relatedDocNames(secondEl), ["Carte Secrète"]);
+});
+
+test("Lot 5 — mise à jour après modification du contenu d'une fiche (mtime changée)", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Contenu initial sans rapport avec la scène évoquée ici.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl: firstEl } = createView(project);
+
+  await view.renderCitedEntities(firstEl, project.activeFile, null, []);
+  assert.deepEqual(relatedDocNames(firstEl), []);
+
+  project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.ducA.stat = { mtime: 2 };
+  const secondEl = new FakeElement();
+  await view.renderCitedEntities(secondEl, project.activeFile, null, []);
+
+  assert.deepEqual(relatedDocNames(secondEl), ["Carte Secrète"]);
+});
+
+test("Lot 5 — suppression d'une fiche : elle disparaît du résultat suivant", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl: firstEl } = createView(project);
+
+  await view.renderCitedEntities(firstEl, project.activeFile, null, []);
+  assert.deepEqual(relatedDocNames(firstEl), ["Carte Secrète"]);
+
+  // Suppression : retirée du dossier et du vault.
+  project.feuilletResearch.children = project.feuilletResearch.children.filter((c) => c !== project.ducA);
+  project.filesByPath.delete(project.ducA.path);
+
+  const secondEl = new FakeElement();
+  await view.renderCitedEntities(secondEl, project.activeFile, null, []);
+
+  assert.deepEqual(relatedDocNames(secondEl), []);
+});
+
+test("Lot 5 — renommage/déplacement d'une fiche : plus d'ancien chemin, retrouvée sous le nouveau", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl: firstEl } = createView(project);
+  await view.renderCitedEntities(firstEl, project.activeFile, null, []);
+  assert.deepEqual(relatedDocNames(firstEl), ["Carte Secrète"]);
+
+  // Renommage : nouveau TFile (nouveau path), même dossier, même contenu.
+  const renamed = new TFile("Projet/_Recherche/Chapitre1/Feuillet/DucA-renomme.md");
+  renamed.parent = project.feuilletResearch;
+  renamed.stat = { mtime: 1 };
+  renamed.content = project.ducA.content;
+  project.titles[renamed.path] = "Carte Secrète";
+  project.feuilletResearch.children = [renamed];
+  project.filesByPath.delete(project.ducA.path);
+  project.filesByPath.set(renamed.path, renamed);
+
+  const secondEl = new FakeElement();
+  await view.renderCitedEntities(secondEl, project.activeFile, null, []);
+
+  assert.deepEqual(relatedDocNames(secondEl), ["Carte Secrète"]);
+});
+
+test("Lot 5 — changement d'association Binder ↔ Recherche : plus retrouvée une fois le lien retiré", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl: firstEl, plugin } = createView(project);
+  await view.renderCitedEntities(firstEl, project.activeFile, null, []);
+  assert.deepEqual(relatedDocNames(firstEl), ["Carte Secrète"]);
+
+  // Le lien Binder ↔ Recherche est retiré pour le feuillet, et
+  // feuilletResearch (qui contient DucA) est détaché de chapterResearch —
+  // sans quoi le lien restant sur le chapitre continuerait à le retrouver
+  // par récursion. Isole proprement "plus aucune source ne mène à DucA".
+  project.chapterResearch.children = project.chapterResearch.children.filter(
+    (c) => c !== project.feuilletResearch
+  );
+  plugin.getLinkedResearchFolder = (node) => (node.path === project.chapterFolder.path ? project.chapterResearch : null);
+
+  const secondEl = new FakeElement();
+  await view.renderCitedEntities(secondEl, project.activeFile, null, []);
+
+  assert.deepEqual(relatedDocNames(secondEl), []);
+});
+
+test("Lot 5 — changement de paragraphe : aucun résidu de l'ancien passage", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.ducB.stat = { mtime: 1 };
+  // Volontairement sans "Bragance"/"Seul" (titre de ducB) : un mot du titre
+  // seul déclencherait une correspondance FIABLE (Lot 3, distinctive-term)
+  // qui masquerait ducB de « Documents associés » par déduplication — hors
+  // sujet ici, qui teste uniquement le Lot 5 en isolation.
+  project.ducB.content = "Les corsaires embarquèrent une cargaison discrète au large des côtes.";
+  const { view } = createView(project);
+
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const firstEl = new FakeElement();
+  await view.renderCitedEntities(firstEl, project.activeFile, null, []);
+  assert.deepEqual(relatedDocNames(firstEl), ["Carte Secrète"]);
+
+  project.activeFile.content = "Les corsaires avaient chargé une cargaison bien discrète cette nuit-là.";
+  const secondEl = new FakeElement();
+  await view.renderCitedEntities(secondEl, project.activeFile, null, []);
+
+  assert.deepEqual(relatedDocNames(secondEl), ["Bragance Seul"]);
+});
+
+test("Lot 5 — fiche vide n'est jamais proposée", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.deepEqual(relatedDocNames(contentEl), []);
+});
+
+test("Lot 5 — aucune section « Documents associés » quand rien ne remonte", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Contenu sans le moindre rapport avec la scène.";
+  project.activeFile.content = "Rien de pertinent ici non plus.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.equal(relatedDocsSection(contentEl), undefined);
+});
+
+/* ===================== Régression signalée en test manuel : « Commerce
+ * caravanier » (dossier associé « Arabie ») invisible malgré deux termes
+ * communs bien présents à l'œil dans les deux textes. Cause : le texte de
+ * la fiche était encodé en Unicode décomposé (NFD — accent combinant séparé
+ * de sa lettre, ex. clavier français macOS/certains copier-coller), ce qui
+ * cassait "épices" en deux jetons dans context-content-matcher.ts avant
+ * correction. Reproduit ici à l'identique (mêmes deux phrases que le
+ * rapport de bug), fiche en NFD pour reproduire fidèlement les conditions
+ * du test manuel. ===================== */
+test("Régression — « Commerce caravanier » (dossier associé « Arabie ») retrouvé malgré un encodage NFD/NFC différent", async () => {
+  const project = buildCumulativeSourcesProject();
+  // Réutilise le dossier déjà lié au FEUILLET (voir buildCumulativeSourcesProject)
+  // comme "Arabie", et sa fiche comme "Commerce caravanier" — même montage
+  // que le rapport de bug (dossier associé directement au feuillet actif).
+  project.titles[project.ficheFeuillet.path] = "Commerce caravanier";
+  project.ficheFeuillet.stat = { mtime: 1 };
+  // NFD : reproduit fidèlement l'encodage constaté en test manuel.
+  project.ficheFeuillet.content =
+    "Les caravanes transportent des épices et des tissus précieux entre les villes.".normalize("NFD");
+  project.activeFile.content =
+    "Les marchands déchargèrent leurs tissus et leurs épices avant la tombée de la nuit.";
+  const { view, contentEl } = createCumulativeSourcesView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.ok(relatedDocsSection(contentEl), "la section « Documents associés » doit apparaître");
+  assert.deepEqual(relatedDocNames(contentEl), ["Commerce caravanier"]);
+  const excerpt = relatedDocExcerpt(contentEl, "Commerce caravanier");
+  assert.ok(excerpt.includes("épices") || excerpt.normalize("NFC").includes("épices"));
+  assert.ok(excerpt.includes("tissus"));
+});
+
+test("Diagnostic [Feuillets Lot5] — Reproduction dossier Recherche « Arabie » lié au dossier du feuillet", async () => {
+  const root = new TFolder("Projet");
+  const manuscrit = new TFolder("Projet/Manuscrit");
+  manuscrit.parent = root;
+  const chapterFolder = new TFolder("Projet/Manuscrit/Chapitre 1");
+  chapterFolder.parent = manuscrit;
+
+  const activeFile = new TFile("Projet/Manuscrit/Chapitre 1/Feuillet.md", "Les marchands déchargèrent leurs tissus et leurs épices avant la tombée de la nuit.");
+  activeFile.parent = chapterFolder;
+  chapterFolder.children = [activeFile];
+
+  const researchRoot = new TFolder("Projet/_Recherche");
+  researchRoot.parent = root;
+  const arabieFolder = new TFolder("Projet/_Recherche/Arabie");
+  arabieFolder.parent = researchRoot;
+
+  const commerceFile = new TFile("Projet/_Recherche/Arabie/Commerce caravanier.md", "Les caravanes transportent des épices et des tissus précieux entre les villes.");
+  commerceFile.parent = arabieFolder;
+  commerceFile.stat = { mtime: 1 };
+  arabieFolder.children = [commerceFile];
+  researchRoot.children = [arabieFolder];
+
+  root.children = [manuscrit, researchRoot];
+
+  const filesByPath = new Map([
+    [root.path, root],
+    [manuscrit.path, manuscrit],
+    [chapterFolder.path, chapterFolder],
+    [activeFile.path, activeFile],
+    [researchRoot.path, researchRoot],
+    [arabieFolder.path, arabieFolder],
+    [commerceFile.path, commerceFile],
+  ]);
+
+  const app = {
+    vault: {
+      getAbstractFileByPath: (path) => filesByPath.get(path) ?? null,
+      cachedRead: async (file) => file.content || "",
+    },
+    workspace: {
+      getActiveFile: () => activeFile,
+    },
+    metadataCache: {},
+  };
+
+  const plugin = {
+    settings: { collapsed: {}, level1Role: "parties" },
+    getProjectFolder: () => root,
+    getResearchRoot: () => researchRoot,
+    getLinkedResearchFolder: (node) => {
+      // Le dossier Arabie est lié au dossier Chapitre 1
+      if (node.path === chapterFolder.path) return arabieFolder;
+      return null;
+    },
+    roleOfFolder: (folder) => (folder.path === chapterFolder.path ? "partie" : "partie"),
+    tagsOf: () => [],
+    titleFor: (file) => file.basename,
+    parseStoryDate: () => null,
+    getChronoFolder: () => null,
+    async saveSettings() {},
+  };
+
+  const contentEl = new FakeElement();
+  const view = new NotesView({ app, contentEl }, plugin);
+  view.fm = () => ({});
+
+  await view.renderCitedEntities(contentEl, activeFile, null, []);
+
+  assert.ok(relatedDocsSection(contentEl), "la section « Documents associés » doit apparaître pour Commerce caravanier");
+  assert.deepEqual(relatedDocNames(contentEl), ["Commerce caravanier"]);
+});
