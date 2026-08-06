@@ -226,7 +226,7 @@ function createView(project) {
     metadataCache: {},
   };
   const plugin = {
-    settings: { collapsed: {} },
+    settings: { collapsed: {}, notesPinned: {} },
     getProjectFolder: () => project.root,
     getResearchRoot: () => project.researchRoot,
     // Réutilise EXACTEMENT la forme de l'association déjà existante :
@@ -242,6 +242,12 @@ function createView(project) {
     titleFor: (file) => project.titles[file.path] || file.basename,
     parseStoryDate: (raw, file) => parseStoryDate(raw, file ?? null),
     getChronoFolder: () => null,
+    // Nécessaires uniquement parce que togglePinned() (Lot 6) déclenche un
+    // render(true) COMPLET (même mécanique que toute autre action du
+    // panneau, ex. renderPropertyRow) — pas seulement renderCitedEntities,
+    // qui seul était exercé par ce harnais jusqu'ici.
+    isFrontMatter: () => false,
+    hasSources: () => false,
     async saveSettings() {},
   };
   const view = new NotesView({ app, contentEl }, plugin);
@@ -264,7 +270,7 @@ function citedNames(contentEl) {
 function rowFor(contentEl, title) {
   const rows = allElements(contentEl).filter((el) => el.classes.has("feuillets-entity-row"));
   return rows.find((row) =>
-    allElements(row).some((el) => el.classes.has("feuillets-entity-name") && el.text === `• ${title}`)
+    allElements(row).some((el) => el.classes.has("feuillets-entity-name") && (el.text === title || el.text === `• ${title}`))
   );
 }
 
@@ -425,7 +431,11 @@ test("10ter. section repliée : structure inchangée (en-tête rendu, corps abse
   plugin.settings.collapsed["notes:field:contexte"] = true;
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
   const all = allElements(contentEl);
-  assert.equal(all.some((el) => el.classes.has("feuillets-notes-section-head")), true);
+  // Lot 6 : la section « Correspondances fiables » utilise désormais
+  // renderSectionHead() (même mécanique que Documents associés et
+  // Propriétés, voir renderLimitedSection) — classe "feuillets-section-head"
+  // et non plus l'ancien en-tête bricolé "feuillets-notes-section-head".
+  assert.equal(all.some((el) => el.classes.has("feuillets-section-head")), true);
   assert.equal(all.some((el) => el.classes.has("feuillets-notes-entities-body")), false);
 });
 
@@ -508,7 +518,7 @@ function createCumulativeSourcesView(project) {
     metadataCache: {},
   };
   const plugin = {
-    settings: { collapsed: {} },
+    settings: { collapsed: {}, notesPinned: {} },
     getProjectFolder: () => project.root,
     getResearchRoot: () => project.researchRoot,
     getLinkedResearchFolder: (node) => {
@@ -971,7 +981,39 @@ function relatedDocsSection(contentEl) {
   return allElements(contentEl).find((el) => el.classes.has("feuillets-related-docs-section"));
 }
 
+/** Ligne (.feuillets-entity-row) portant `nameEl` — remonte jusqu'à trouver
+ * l'ancêtre marqué comme ligne de résultat. Sert à savoir si une ligne est
+ * masquée par « Afficher davantage » (Lot 6, feuillets-result-hidden posée
+ * sur la ligne elle-même, jamais sur le nom). */
+function rowElementFor(nameEl) {
+  let cur = nameEl;
+  while (cur && !(cur.classes && cur.classes.has("feuillets-entity-row"))) cur = cur.parentEl;
+  return cur;
+}
+
+function isHiddenByShowMore(nameEl) {
+  const row = rowElementFor(nameEl);
+  return !!(row && row.classes.has("feuillets-result-hidden"));
+}
+
+/** Noms VISIBLES de « Documents associés » — exclut les lignes au-delà de
+ * la limite par défaut tant que « Afficher davantage » n'a pas été
+ * actionné (Lot 6). C'est le sens le plus utile par défaut : la plupart
+ * des tests Lot 5 pré-existants attendent le rendu effectivement visible.
+ * Voir relatedDocNamesAll() pour le vivier complet (pool "afficher
+ * davantage"), utilisé par les tests Lot 6 dédiés. */
 function relatedDocNames(contentEl) {
+  const section = relatedDocsSection(contentEl);
+  if (!section) return [];
+  return allElements(section)
+    .filter((el) => el.classes.has("feuillets-related-doc-name"))
+    .filter((el) => !isHiddenByShowMore(el))
+    .map((el) => el.text.replace(/^•\s*/, ""));
+}
+
+/** Tous les noms de « Documents associés », visibles ou masqués par
+ * « Afficher davantage » (Lot 6) — le vivier complet déjà calculé. */
+function relatedDocNamesAll(contentEl) {
   const section = relatedDocsSection(contentEl);
   if (!section) return [];
   return allElements(section)
@@ -984,7 +1026,7 @@ function relatedDocExcerpt(contentEl, title) {
   if (!section) return undefined;
   const rows = allElements(section).filter((el) => el.classes.has("feuillets-entity-row"));
   const row = rows.find((r) =>
-    allElements(r).some((el) => el.classes.has("feuillets-related-doc-name") && el.text === `• ${title}`)
+    allElements(r).some((el) => el.classes.has("feuillets-related-doc-name") && (el.text === title || el.text === `• ${title}`))
   );
   if (!row) return undefined;
   const info = allElements(row).find((el) => el.classes.has("feuillets-entity-info"));
@@ -1014,6 +1056,347 @@ function spyOnReads(view) {
   };
   return reads;
 }
+
+/* ===================== Lot 6 : Épinglées / Références du passage /
+ * Documents associés, épinglage, limites + « Afficher davantage »,
+ * provenance — trois sections distinctes du même bloc Contexte. Aucun des
+ * trois moteurs (context-index.ts/context-matcher.ts/context-window.ts/
+ * context-content-matcher.ts/context-content-cache.ts) n'est modifié : la
+ * suite déjà verte des tests Lot 3/4/5 ci-dessus (et des tests dédiés à
+ * chaque moteur, context-*.test.js) EST la preuve qu'ils restent inchangés
+ * — ce chantier ne fait que réorganiser leur consommation et leur
+ * affichage dans NotesView. ===================== */
+
+/** Une section .feuillets-notes-section dont le titre (feuillets-section-
+ * title-text, posé par renderSectionHead — voir renderLimitedSection)
+ * commence par `prefix` — utilisé plutôt qu'une classe dédiée pour
+ * Références du passage, qui n'en porte aucune (seules Épinglées et
+ * Documents associés ont une classe supplémentaire). */
+function sectionByTitlePrefix(contentEl, prefix) {
+  const sections = allElements(contentEl).filter((el) => el.classes.has("feuillets-notes-section"));
+  return sections.find((sec) =>
+    allElements(sec).some((c) => c.classes.has("feuillets-section-title-text") && c.text.startsWith(prefix))
+  );
+}
+
+function pinnedSection(contentEl) {
+  return sectionByTitlePrefix(contentEl, "Épinglées");
+}
+
+function reliableSection(contentEl) {
+  return sectionByTitlePrefix(contentEl, "Références du passage") || sectionByTitlePrefix(contentEl, "Correspondances fiables");
+}
+
+function namesIn(section, { visibleOnly = false } = {}) {
+  if (!section) return [];
+  return allElements(section)
+    .filter((el) => el.classes.has("feuillets-entity-name"))
+    .filter((el) => !visibleOnly || !isHiddenByShowMore(el))
+    .map((el) => el.text.replace(/^•\s*/, ""));
+}
+
+function pinBtnFor(contentEl, title) {
+  const row = rowFor(contentEl, title);
+  if (!row) return undefined;
+  return allElements(row).find((el) => el.classes.has("feuillets-pin-btn"));
+}
+
+function provenanceFor(contentEl, title) {
+  const row = rowFor(contentEl, title);
+  if (!row) return undefined;
+  const badge = allElements(row).find((el) => el.classes.has("feuillets-entity-provenance"));
+  return badge ? badge.text : (row.attributes?.["data-provenance"] || row.attributes?.["title"] || null);
+}
+
+function showMoreBtnIn(section) {
+  if (!section) return undefined;
+  return allElements(section).find((el) => el.classes.has("feuillets-show-more"));
+}
+
+test("Lot 6 — épingler une fiche la fait apparaître dans « Épinglées »", async () => {
+  const project = buildProject();
+  project.activeFile.content = "Rien de pertinent ici.";
+  const { view, contentEl, plugin } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.equal(pinnedSection(contentEl), undefined, "pas encore d'épinglées");
+
+  await view.togglePinned(project.activeFile, project.ducA.path);
+  assert.deepEqual(plugin.settings.notesPinned[project.activeFile.path], [project.ducA.path]);
+
+  const el2 = new FakeElement();
+  await view.renderCitedEntities(el2, project.activeFile, null, []);
+  assert.deepEqual(namesIn(pinnedSection(el2)), ["Carte Secrète"]);
+});
+
+test("Lot 6 — désépingler retire la fiche de « Épinglées »", async () => {
+  const project = buildProject();
+  project.activeFile.content = "Rien de pertinent ici.";
+  const { view, contentEl, plugin } = createView(project);
+
+  await view.togglePinned(project.activeFile, project.ducA.path);
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(namesIn(pinnedSection(contentEl)), ["Carte Secrète"]);
+
+  await view.togglePinned(project.activeFile, project.ducA.path);
+  assert.equal(plugin.settings.notesPinned[project.activeFile.path], undefined);
+
+  const el2 = new FakeElement();
+  await view.renderCitedEntities(el2, project.activeFile, null, []);
+  assert.equal(pinnedSection(el2), undefined);
+});
+
+test("Lot 6 — le bouton d'épinglage bascule réellement l'état au clic", async () => {
+  const project = buildProject();
+  project.activeFile.content = "Rien de pertinent ici.";
+  const { view, contentEl, plugin } = createView(project);
+
+  await view.togglePinned(project.activeFile, project.ducA.path);
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  const btn = pinBtnFor(contentEl, "Carte Secrète");
+  assert.ok(btn, "le bouton d'épinglage doit être présent sur une ligne épinglée");
+  assert.equal(btn.classes.has("is-active"), true);
+  assert.equal(btn.icon, "pin-off");
+
+  // Simule le clic réel sur le bouton (même mécanisme que le reste de la
+  // suite, voir activeView.contentEl.events.get("keyup") plus haut) :
+  // togglePinned() mute S.notesPinned de façon SYNCHRONE avant son premier
+  // await, donc l'effet est déjà visible juste après l'appel.
+  btn.events.get("click")();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(plugin.settings.notesPinned[project.activeFile.path], undefined);
+});
+
+test("Lot 6 — stockage par FEUILLET : un épinglage sur un feuillet n'apparaît jamais sur un autre", async () => {
+  const project = buildProject();
+  const otherFile = new TFile("Projet/Manuscrit/Chapitre1/autre.md");
+  otherFile.parent = project.chapterFolder;
+  otherFile.content = "Rien de pertinent ici non plus.";
+  project.chapterFolder.children.push(otherFile);
+  project.filesByPath.set(otherFile.path, otherFile);
+  project.titles[otherFile.path] = "Autre Feuillet";
+
+  project.activeFile.content = "Rien de pertinent ici.";
+  const { view, plugin } = createView(project);
+
+  await view.togglePinned(project.activeFile, project.ducA.path);
+
+  const elActive = new FakeElement();
+  await view.renderCitedEntities(elActive, project.activeFile, null, []);
+  assert.deepEqual(namesIn(pinnedSection(elActive)), ["Carte Secrète"]);
+
+  const elOther = new FakeElement();
+  await view.renderCitedEntities(elOther, otherFile, null, []);
+  assert.equal(pinnedSection(elOther), undefined, "l'épinglage ne doit jamais fuiter vers un autre feuillet");
+
+  assert.deepEqual(Object.keys(plugin.settings.notesPinned), [project.activeFile.path]);
+});
+
+test("Lot 6 — une fiche épinglée reste visible après un changement de paragraphe", async () => {
+  const project = buildProject();
+  project.activeFile.content = "Premier paragraphe, sans rapport.\n\nDeuxième paragraphe, sans rapport non plus.";
+  const { view, contentEl } = createView(project);
+
+  await view.togglePinned(project.activeFile, project.ducA.path);
+
+  // Premier rendu : curseur/texte de repli correspond au feuillet entier
+  // (pas d'éditeur actif dans ce harnais) — l'épinglée est déjà là.
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(namesIn(pinnedSection(contentEl)), ["Carte Secrète"]);
+
+  // "Changement de paragraphe" simulé : le contenu change complètement
+  // (nouveau texte sans aucun rapport avec DucA), sur un nouveau rendu —
+  // l'épinglée doit rester, alors qu'aucune correspondance fiable/contenu
+  // ne la retrouverait plus.
+  project.activeFile.content = "Tout autre chose, un troisième paragraphe distinct.";
+  const el2 = new FakeElement();
+  await view.renderCitedEntities(el2, project.activeFile, null, []);
+  assert.deepEqual(namesIn(pinnedSection(el2)), ["Carte Secrète"]);
+});
+
+test("Lot 6 — aucun doublon : une fiche épinglée qui matcherait aussi Correspondances fiables n'apparaît que dans Épinglées", async () => {
+  const project = buildProject();
+  // Séisme de Lisbonne (lisbonne.md) matche par TITRE (Lot 3).
+  project.activeFile.content = "Un séisme frappe Lisbonne cette nuit-là.";
+  const { view, contentEl } = createView(project);
+
+  await view.togglePinned(project.activeFile, project.lisbonne.path);
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.deepEqual(namesIn(pinnedSection(contentEl)), ["Séisme de Lisbonne"]);
+  // Jamais répétée dans Correspondances fiables.
+  assert.equal(namesIn(reliableSection(contentEl)).includes("Séisme de Lisbonne"), false);
+});
+
+test("Lot 6 — aucun doublon : une fiche épinglée qui matcherait aussi Documents associés n'apparaît que dans Épinglées", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.togglePinned(project.activeFile, project.ducA.path);
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.deepEqual(namesIn(pinnedSection(contentEl)), ["Carte Secrète"]);
+  assert.deepEqual(relatedDocNamesAll(contentEl), []);
+});
+
+test("Lot 6 — suppression d'une fiche épinglée : elle disparaît et le chemin invalide est nettoyé du stockage", async () => {
+  const project = buildProject();
+  project.activeFile.content = "Rien de pertinent ici.";
+  const { view, plugin } = createView(project);
+
+  await view.togglePinned(project.activeFile, project.ducA.path);
+  assert.deepEqual(plugin.settings.notesPinned[project.activeFile.path], [project.ducA.path]);
+
+  // Suppression : retirée du vault (comme les tests Lot 5 déjà existants).
+  project.feuilletResearch.children = project.feuilletResearch.children.filter((c) => c !== project.ducA);
+  project.filesByPath.delete(project.ducA.path);
+
+  const el2 = new FakeElement();
+  await view.renderCitedEntities(el2, project.activeFile, null, []);
+
+  assert.equal(pinnedSection(el2), undefined, "plus rien à épingler, la section disparaît");
+  assert.equal(plugin.settings.notesPinned[project.activeFile.path], undefined, "le chemin invalide est nettoyé");
+});
+
+test("Lot 6 — Correspondances fiables : limite initiale à cinq, « Afficher davantage » puis retour réduit", async () => {
+  const project = buildProject();
+  project.titles[project.ducA.path] = "Alpha Distinctif";
+  project.titles[project.ducB.path] = "Beta Distinctif";
+  project.titles[project.ducC.path] = "Gamma Distinctif";
+  project.titles[project.lisbonne.path] = "Delta Distinctif";
+  project.titles[project.parisFile.path] = "Epsilon Distinctif";
+  project.titles[project.tagFile.path] = "Zeta Distinctif";
+  project.titles[project.aliasFile.path] = "Eta Distinctif";
+  project.activeFile.content =
+    "Alpha Distinctif, Beta Distinctif, Gamma Distinctif, Delta Distinctif, " +
+    "Epsilon Distinctif, Zeta Distinctif et Eta Distinctif se rencontrent tous.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  const section = reliableSection(contentEl);
+  assert.ok(section);
+  assert.equal(namesIn(section, { visibleOnly: true }).length, 5, "cinq résultats visibles par défaut");
+  assert.equal(namesIn(section).length, 7, "le vivier complet est déjà dans le DOM, juste masqué");
+
+  const moreBtn = showMoreBtnIn(section);
+  assert.ok(moreBtn, "« Afficher davantage » doit apparaître au-delà de cinq résultats");
+
+  const reads = spyOnReads(view);
+  moreBtn.events.get("click")();
+  assert.deepEqual(reads, [], "aucune relecture disque : les résultats déjà calculés sont réutilisés");
+  assert.equal(namesIn(section, { visibleOnly: true }).length, 7, "tout le vivier est maintenant visible");
+
+  moreBtn.events.get("click")();
+  assert.equal(namesIn(section, { visibleOnly: true }).length, 5, "retour à l'affichage réduit");
+});
+
+test("Lot 6 — Documents associés : « Afficher davantage » sans relancer la recherche", async () => {
+  const project = buildCumulativeSourcesProject();
+  const extra = [];
+  for (let i = 0; i < 7; i++) {
+    const f = new TFile(`Projet/LiensFeuillet/Fiche${i}.md`);
+    f.parent = project.feuilletLinked;
+    f.stat = { mtime: 1 };
+    f.content = `Document numéro ${i} : le cartographe traça le meridien avant l'aube.`;
+    project.titles[f.path] = `Sans Rapport ${i}`;
+    project.filesByPath.set(f.path, f);
+    extra.push(f);
+  }
+  project.feuilletLinked.children = [project.ficheFeuillet, ...extra];
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createCumulativeSourcesView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.equal(relatedDocNames(contentEl).length, 5);
+  assert.equal(relatedDocNamesAll(contentEl).length, 7);
+
+  const section = relatedDocsSection(contentEl);
+  const moreBtn = showMoreBtnIn(section);
+  assert.ok(moreBtn);
+
+  const reads = spyOnReads(view);
+  moreBtn.events.get("click")();
+  assert.deepEqual(reads, [], "« Afficher davantage » ne relit rien et ne relance aucune recherche");
+  assert.equal(relatedDocNames(contentEl).length, 7);
+});
+
+test("Lot 6 — provenance : Feuillet, Chapitre et Projet affichés correctement", async () => {
+  const project = buildProject();
+  project.titles[project.ducA.path] = "Alpha Distinctif";
+  project.titles[project.ducB.path] = "Beta Distinctif";
+  project.titles[project.ducC.path] = "Gamma Distinctif";
+  project.activeFile.content = "Alpha Distinctif, Beta Distinctif et Gamma Distinctif se rencontrent.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.equal(provenanceFor(contentEl, "Alpha Distinctif"), "Feuillet");
+  assert.equal(provenanceFor(contentEl, "Beta Distinctif"), "Chapitre");
+  assert.equal(provenanceFor(contentEl, "Gamma Distinctif"), "Projet");
+});
+
+test("Lot 6 — provenance des documents associés : jamais autre chose que Feuillet ou Chapitre", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.ducB.stat = { mtime: 1 };
+  project.ducB.content = "Les corsaires embarquèrent une cargaison discrète au large des côtes.";
+  project.activeFile.content =
+    "Le cartographe hésitait devant le meridien tracé la veille. " +
+    "Les corsaires avaient chargé une cargaison bien discrète cette nuit-là.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  const provenances = relatedDocNamesAll(contentEl).map((name) => provenanceFor(contentEl, name));
+  for (const p of provenances) {
+    assert.ok(p === "Feuillet" || p === "Chapitre", `provenance inattendue : ${p}`);
+  }
+  assert.ok(provenances.length >= 1);
+});
+
+test("Lot 6 — section « Épinglées » absente quand rien n'est épinglé", async () => {
+  const project = buildProject();
+  project.activeFile.content = "Un séisme frappe Lisbonne cette nuit-là.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  assert.equal(pinnedSection(contentEl), undefined);
+  // Les deux autres sections, elles, sont bien présentes puisqu'il y a une
+  // correspondance fiable — la disparition n'est donc pas un effet de bord
+  // global, seule Épinglées est concernée par son absence de contenu.
+  assert.ok(reliableSection(contentEl));
+});
+
+test("Lot 6 — le titre n'est jamais répété en tête de l'extrait quand il reprend le premier titre Markdown", async () => {
+  const project = buildProject();
+  project.ducA.stat = { mtime: 1 };
+  // Le document commence PAR son propre titre en H1 — cleanMarkdownBody()
+  // (Lot 5, inchangé) retire déjà le "#", laissant le texte du titre en
+  // tête du corps nettoyé ; c'est CE cas précis que le Lot 6 doit détecter
+  // à l'affichage (stripLeadingTitleFromExcerpt), sans toucher à l'extrait
+  // mémorisé par matchContent() lui-même.
+  project.ducA.content =
+    "# Carte Secrète\n\nLe cartographe traça le meridien avant l'aube, loin de tout port connu.";
+  project.titles[project.ducA.path] = "Carte Secrète";
+  project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+  const excerpt = relatedDocExcerpt(contentEl, "Carte Secrète");
+  assert.ok(excerpt);
+  assert.equal(excerpt.toLowerCase().startsWith("carte secrète"), false, "le titre ne doit pas être répété en tête");
+  assert.ok(excerpt.includes("cartographe"));
+});
 
 test("Lot 5 — document associé au FEUILLET retrouvé par son contenu (jamais par son titre)", async () => {
   const project = buildProject();
@@ -1354,74 +1737,64 @@ test("Régression — « Commerce caravanier » (dossier associé « Arabie ») 
   assert.ok(excerpt.includes("tissus"));
 });
 
-test("Diagnostic [Feuillets Lot5] — Reproduction dossier Recherche « Arabie » lié au dossier du feuillet", async () => {
-  const root = new TFolder("Projet");
-  const manuscrit = new TFolder("Projet/Manuscrit");
-  manuscrit.parent = root;
-  const chapterFolder = new TFolder("Projet/Manuscrit/Chapitre 1");
-  chapterFolder.parent = manuscrit;
+test("Lot 6 — Hiérarchie Références du passage : date sous l'en-tête, événement avant alertes et références ordinaires", async () => {
+  const project = buildProject();
+  project.frontmatter = {};
+  project.titles[project.ducA.path] = "Élimination des janissaires";
+  project.tags[project.ducA.path] = ["evenement"];
 
-  const activeFile = new TFile("Projet/Manuscrit/Chapitre 1/Feuillet.md", "Les marchands déchargèrent leurs tissus et leurs épices avant la tombée de la nuit.");
-  activeFile.parent = chapterFolder;
-  chapterFolder.children = [activeFile];
+  project.titles[project.ducB.path] = "Deli";
+  project.tags[project.ducB.path] = ["personnage"];
+  project.frontmatter[project.ducB.path] = { death: "1815" };
 
-  const researchRoot = new TFolder("Projet/_Recherche");
-  researchRoot.parent = root;
-  const arabieFolder = new TFolder("Projet/_Recherche/Arabie");
-  arabieFolder.parent = researchRoot;
+  project.titles[project.ducC.path] = "Montre-bracelet";
+  project.frontmatter[project.ducC.path] = { anachronisme: "Objet anachronique pour cette date." };
 
-  const commerceFile = new TFile("Projet/_Recherche/Arabie/Commerce caravanier.md", "Les caravanes transportent des épices et des tissus précieux entre les villes.");
-  commerceFile.parent = arabieFolder;
-  commerceFile.stat = { mtime: 1 };
-  arabieFolder.children = [commerceFile];
-  researchRoot.children = [arabieFolder];
+  project.titles[project.lisbonne.path] = "Futuriste";
+  project.tags[project.lisbonne.path] = ["personnage"];
+  project.frontmatter[project.lisbonne.path] = { birth: "1850" };
 
-  root.children = [manuscrit, researchRoot];
+  project.titles[project.parisFile.path] = "Café du Hedjaz";
 
-  const filesByPath = new Map([
-    [root.path, root],
-    [manuscrit.path, manuscrit],
-    [chapterFolder.path, chapterFolder],
-    [activeFile.path, activeFile],
-    [researchRoot.path, researchRoot],
-    [arabieFolder.path, arabieFolder],
-    [commerceFile.path, commerceFile],
-  ]);
+  project.activeFile.content =
+    "Élimination des janissaires, Deli, Montre-bracelet, Futuriste et Café du Hedjaz.";
 
-  const app = {
-    vault: {
-      getAbstractFileByPath: (path) => filesByPath.get(path) ?? null,
-      cachedRead: async (file) => file.content || "",
-    },
-    workspace: {
-      getActiveFile: () => activeFile,
-    },
-    metadataCache: {},
-  };
+  const { view, contentEl } = createView(project);
+  const sceneDate = storyDate(1826);
 
-  const plugin = {
-    settings: { collapsed: {}, level1Role: "parties" },
-    getProjectFolder: () => root,
-    getResearchRoot: () => researchRoot,
-    getLinkedResearchFolder: (node) => {
-      // Le dossier Arabie est lié au dossier Chapitre 1
-      if (node.path === chapterFolder.path) return arabieFolder;
-      return null;
-    },
-    roleOfFolder: (folder) => (folder.path === chapterFolder.path ? "partie" : "partie"),
-    tagsOf: () => [],
-    titleFor: (file) => file.basename,
-    parseStoryDate: () => null,
-    getChronoFolder: () => null,
-    async saveSettings() {},
-  };
+  await view.renderCitedEntities(contentEl, project.activeFile, sceneDate, []);
 
-  const contentEl = new FakeElement();
-  const view = new NotesView({ app, contentEl }, plugin);
-  view.fm = () => ({});
+  const section = reliableSection(contentEl);
+  assert.ok(section, "la section Références du passage doit exister");
 
-  await view.renderCitedEntities(contentEl, activeFile, null, []);
+  // Date affichée sous l'en-tête de section
+  const dateLine = allElements(section).find((el) => el.classes.has("feuillets-context-date-line"));
+  assert.ok(dateLine, "la date doit être présente sous l'en-tête Références du passage");
+  assert.equal(dateLine.text, "1826");
 
-  assert.ok(relatedDocsSection(contentEl), "la section « Documents associés » doit apparaître pour Commerce caravanier");
-  assert.deepEqual(relatedDocNames(contentEl), ["Commerce caravanier"]);
+  // Ordre strict : 1. Événement, 2. Alertes (Deli, Montre-bracelet, Futuriste), 3. Référence ordinaire
+  const names = namesIn(section);
+  assert.equal(names[0], "Élimination des janissaires", "1. Contexte chronologique (événement)");
+  assert.ok(names.slice(1, 4).includes("Deli"), "2. Alertes chronologiques (Deli mort)");
+  assert.ok(names.slice(1, 4).includes("Montre-bracelet"), "2. Alertes chronologiques (anachronisme)");
+  assert.ok(names.slice(1, 4).includes("Futuriste"), "2. Alertes chronologiques (pas encore né)");
+  assert.equal(names[4], "Café du Hedjaz", "3. Références ordinaires");
+
+  // Icône d'alerte présente sur Deli, Montre-bracelet et Futuriste, absente sur Café du Hedjaz
+  const deliRow = rowFor(section, "Deli");
+  assert.ok(allElements(deliRow).some((el) => el.classes.has("feuillets-entity-alert-icon")), "icône d'alerte ⚠ sur Deli");
+  assert.ok(ageFor(section, "Deli").includes("1815"), "mention de mort sur Deli");
+
+  const montreRow = rowFor(section, "Montre-bracelet");
+  assert.ok(allElements(montreRow).some((el) => el.classes.has("feuillets-entity-alert-icon")), "icône d'alerte ⚠ sur Montre-bracelet");
+
+  const futuristeRow = rowFor(section, "Futuriste");
+  assert.ok(allElements(futuristeRow).some((el) => el.classes.has("feuillets-entity-alert-icon")), "icône d'alerte ⚠ sur personnage pas encore né");
+
+  const cafeRow = rowFor(section, "Café du Hedjaz");
+  assert.equal(allElements(cafeRow).some((el) => el.classes.has("feuillets-entity-alert-icon")), false, "pas d'alerte sur référence ordinaire");
+
+  // Provenance absente du texte visible mais conservée dans l'attribut
+  assert.equal(allElements(cafeRow).some((el) => el.classes.has("feuillets-entity-provenance")), false, "provenance absente du texte visible");
+  assert.ok(cafeRow.attributes["data-provenance"], "provenance présente dans data-provenance");
 });

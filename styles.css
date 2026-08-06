@@ -2751,22 +2751,28 @@ body.feuillets-text-width .markdown-preview-view {
 }
 
 .feuillets-entity-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 8px;
+  padding: 2px 0 2px var(--size-4-2);
+  margin-bottom: 6px;
+}
+
+.feuillets-entity-main {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--size-4-1) 0 var(--size-4-1) var(--size-4-2);
+  min-width: 0;
 }
 
 .feuillets-entity-head {
   display: flex;
   align-items: baseline;
-  gap: var(--size-4-1);
+  gap: 6px;
+  min-width: 0;
 }
 
-/* Même langage typographique que .feuillets-notes-section-title (petites
-   majuscules espacées, muet) : un même type d'information — ici "quel
-   groupe d'entité" — se reconnaît au même traitement partout dans le
-   panneau plutôt qu'à sa propre taille ad hoc. */
 .feuillets-entity-group {
   margin-top: var(--size-4-2);
   margin-bottom: var(--size-4-1);
@@ -2779,13 +2785,19 @@ body.feuillets-text-width .markdown-preview-view {
   padding-bottom: 2px;
 }
 
-/* line-height 1.5 plutôt que 1.3 : lisibilité façon iA Writer/Ulysses sur
-   ces quelques lignes de contexte narratif, qui sont du texte à LIRE, pas
-   juste un libellé d'interface. */
 .feuillets-entity-info {
   font-size: var(--font-ui-small);
   color: var(--text-muted);
-  line-height: 1.5;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: normal;
+  margin-top: 1px;
 }
 
 .feuillets-entity-since {
@@ -2808,6 +2820,112 @@ body.feuillets-text-width .markdown-preview-view {
 .feuillets-entity-age {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
+}
+
+/* ===== bloc Contexte (Lot 6) : épinglage, provenance, "afficher
+   davantage" — panneau Notes ===== */
+
+.feuillets-entity-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.feuillets-entity-actions .feuillets-icon-btn,
+.feuillets-entity-actions .feuillets-pin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-s, 4px);
+  color: var(--text-muted);
+  opacity: 0.4;
+  transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+  cursor: pointer;
+}
+
+.feuillets-entity-actions .feuillets-icon-btn svg,
+.feuillets-entity-actions .feuillets-icon-btn svg.svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.feuillets-entity-actions .feuillets-icon-btn:hover,
+.feuillets-entity-row:hover .feuillets-entity-actions .feuillets-icon-btn {
+  opacity: 0.85;
+}
+
+.feuillets-entity-actions .feuillets-icon-btn:hover {
+  opacity: 1;
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.feuillets-entity-actions .feuillets-pin-btn.is-active {
+  opacity: 1;
+  color: var(--interactive-accent);
+}
+
+/* Icône d'alerte chronologique (⚠) */
+.feuillets-entity-alert-icon {
+  color: var(--text-warning, #e5a50a);
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+}
+
+.feuillets-entity-alert-icon svg,
+.feuillets-entity-alert-icon svg.svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.feuillets-entity-info.is-alert {
+  color: var(--text-warning, #e5a50a);
+  font-weight: 500;
+}
+
+/* Ligne de date sous l'en-tête « Références du passage » */
+.feuillets-context-date-line {
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-top: 4px;
+  margin-bottom: 6px;
+  padding-left: var(--size-4-2);
+}
+
+/* Pastille de provenance (Feuillet/Chapitre/Projet) — style discret, casse normale */
+.feuillets-entity-provenance {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: normal;
+  margin-top: 2px;
+}
+
+/* Lignes au-delà de la limite par défaut (5), repliées par "Afficher
+   davantage" — voir NotesView.renderLimitedSection : bascule pure de classe,
+   aucun nouveau rendu. */
+.feuillets-result-hidden {
+  display: none;
+}
+
+.feuillets-show-more {
+  margin-top: 4px;
+  padding: 2px 0 2px var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.feuillets-show-more:hover {
+  color: var(--interactive-accent);
+  text-decoration: underline;
 }
 
 /* ===== panneau Recherche ===== */
