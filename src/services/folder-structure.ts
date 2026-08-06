@@ -1,6 +1,7 @@
 import { TFolder, TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { fmOf } from "./frontmatter.js";
+import { getLocale } from "../i18n/index.js";
 
 type ProjectNode = TFile | TFolder;
 
@@ -39,7 +40,11 @@ export const RESOURCES_SUBFOLDER_NAMES = {
  * N'étant jamais un descendant du dossier projet (getProjectFolder), il est
  * automatiquement hors de portée du Binder, de la compilation et des
  * exports natifs, qui ne parcourent tous que ce sous-arbre (voir
- * getOrderedChildren) : aucune exclusion explicite à écrire ailleurs. */
+ * getOrderedChildren) : aucune exclusion explicite à écrire ailleurs.
+ *
+ * "Edition" (sans préfixe) est la VARIANTE HISTORIQUE : reconnue à la
+ * lecture (getEditionRoot) mais jamais recréée — les nouveaux dossiers
+ * s'appellent "_Edition" (voir getFeuilletsFolderNames). */
 export const EDITION_FOLDER_NAME = "Edition";
 
 /** Racine éditoriale du projet : le dossier Manuscrit — ce que le Binder,
@@ -59,19 +64,36 @@ export const getManuscriptRoot = getProjectFolder;
  * (createMinimalProject). Pour un ancien projet sans dossier de volume
  * distinct (Manuscrit directement à la racine du coffre), il n'y a pas de
  * racine "réelle" différente à trouver : le parent de Manuscrit est renvoyé
- * tel quel, sans rien déplacer ni renommer sur le disque. */
+ * tel quel, sans rien déplacer ni renommer sur le disque.
+ *
+ * Important : on exclut explicitement la racine du coffre (path vide ou "/")
+ * pour éviter que `base` vaille "" et que les dossiers soient créés à la
+ * racine du coffre — notamment dans initProjectStructure. */
 export function getProjectRoot(app: App, settings: FeuilletsSettings | null | undefined): TFolder | null {
   const manuscrit = getManuscriptRoot(app, settings);
   if (!manuscrit) return null;
-  return manuscrit.parent instanceof TFolder ? manuscrit.parent : manuscrit;
+  const parent = manuscrit.parent;
+  return (parent instanceof TFolder && parent.path !== "" && parent.path !== "/")
+    ? parent
+    : manuscrit;
 }
 
-/** Chemin du dossier Edition à utiliser pour une ÉCRITURE (création) :
- * toujours voisin du dossier projet réel, jamais dedans — même convention
- * que Recherche/Ressources (voir getProjectRoot ci-dessus). */
+/** Chemin du dossier d'édition à utiliser : reprend le dossier déjà présent
+ * sur le disque quel que soit son nom ("_Edition" ou "Edition" — variante
+ * historique, voir getEditionRoot), sinon "_Edition" via la source centrale
+ * (getFeuilletsFolderNames) pour une création. Même convention que
+ * resourcesFolderPath : jamais un chemin recalculé qui créerait un second
+ * dossier concurrent, et jamais "Edition" sans préfixe pour une création.
+ * La base exclut la racine du coffre : aucune création à la racine (voir
+ * getProjectRoot). */
 export function editionFolderPath(app: App, root: TFolder): string {
-  const base = root.parent instanceof TFolder ? root.parent.path : root.path;
-  return normalizePath(`${base}/${EDITION_FOLDER_NAME}`);
+  const existing = getEditionRoot(app, root);
+  if (existing) return existing.path;
+  const base =
+    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+      ? root.parent.path
+      : root.path;
+  return normalizePath(`${base}/${getFeuilletsFolderNames().edition}`);
 }
 
 /** Dossier Edition déjà présent sur le disque, ou null s'il n'a jamais été
@@ -81,8 +103,16 @@ export function editionFolderPath(app: App, root: TFolder): string {
  * un projet sans dossier Edition renvoie simplement null partout. */
 export function getEditionRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
-  const f = app.vault.getAbstractFileByPath(editionFolderPath(app, root));
-  return f instanceof TFolder ? f : null;
+  const base = root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+    ? root.parent.path
+    : root.path;
+  /* "_Edition" (nouveau nom, source centrale) puis "Edition" (variante
+     historique sans préfixe) : jamais renommé, jamais dupliqué. */
+  for (const name of [getFeuilletsFolderNames().edition, EDITION_FOLDER_NAME]) {
+    const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/${name}`));
+    if (f instanceof TFolder) return f;
+  }
+  return null;
 }
 
 /** Un SEUL projet a-t-il jamais été créé ou ajouté, actif ou non — décide
@@ -119,25 +149,116 @@ export function projectDisplayName(path: string): string {
  * appliqué ici à un vrai dossier : jamais renommé de force sur le disque). */
 export function getResourcesRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
-  const base = root.parent ? root.parent.path : root.path;
-  const en = app.vault.getAbstractFileByPath(normalizePath(`${base}/Resources`));
-  if (en instanceof TFolder) return en;
-  const fr = app.vault.getAbstractFileByPath(normalizePath(`${base}/${RESOURCES_FOLDER_NAME}`));
-  if (fr instanceof TFolder) return fr;
+  const base = root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+    ? root.parent.path
+    : root.path;
+  for (const name of ["_Resources", "_Ressources", "Resources", RESOURCES_FOLDER_NAME]) {
+    const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/${name}`));
+    if (f instanceof TFolder) return f;
+  }
   return null;
+}
+
+/** Source de vérité unique pour les noms de dossiers Feuillets selon la
+ * langue active. Utilisée par ensureProjectBaseFolders (createMinimalProject)
+ * et initProjectStructure — jamais trois listes différentes.
+ *
+ * Préfixe `_` : les dossiers auxiliaires (Recherche, Ressources, Snapshots…)
+ * commencent par `_` pour être exclus du Binder sans configuration
+ * supplémentaire (getOrderedChildren filtre !name.startsWith("_")).
+ *
+ * Règle d'invariance historique : les champs `variants` listent les noms
+ * reconnus à la LECTURE — variantes sans préfixe, variantes en anglais ou
+ * en français, anciens noms courts — jamais re-créés, seulement reconnus
+ * pour éviter les doublons sur les projets déjà créés. */
+export function getFeuilletsFolderNames(locale?: "fr" | "en"): {
+  research: string;
+  researchSubs: Array<{ name: string; variants: string[] }>;
+  resources: string;
+  resourcesSubs: Array<{ name: string; variants: string[] }>;
+  snapshots: string;
+  backups: string;
+  journal: string;
+  edition: string;
+} {
+  const lang = locale ?? getLocale();
+  const isFr = lang === "fr";
+  return {
+    research: isFr ? "_Recherche" : "_Research",
+    researchSubs: [
+      {
+        name: isFr ? "Personnages" : "Characters",
+        variants: isFr ? ["Characters", "Personnages"] : ["Personnages", "Characters"],
+      },
+      {
+        name: isFr ? "Lieux" : "Locations",
+        variants: isFr ? ["Locations", "Lieux"] : ["Lieux", "Locations"],
+      },
+      {
+        name: isFr ? "Chronologie" : "Timeline",
+        variants: isFr ? ["Timeline", "Chronology", "Chronologie"] : ["Chronologie", "Chronology", "Timeline"],
+      },
+      {
+        name: "Sources",
+        variants: [],
+      },
+      {
+        name: isFr ? "Bibliographie" : "Bibliography",
+        variants: isFr ? ["Bibliography"] : ["Bibliographie"],
+      },
+      {
+        name: "Notes",
+        variants: [],
+      },
+    ],
+    resources: isFr ? "_Ressources" : "_Resources",
+    resourcesSubs: [
+      {
+        name: "Images",
+        variants: [],
+      },
+      {
+        // index 1 — utilisé pour le chemin des templates dans initProjectStructure
+        name: isFr ? "Modèles" : "Templates",
+        variants: isFr ? ["Templates", "Template"] : ["Modèles", "Template"],
+      },
+      {
+        // index 2 — utilisé pour le chemin des mises en page (layouts)
+        name: isFr ? "Mises en page" : "Layouts",
+        variants: isFr ? ["Layouts", "Layout"] : ["Mises en page", "Layout"],
+      },
+      {
+        name: "Exports",
+        variants: ["Export"],
+      },
+      {
+        name: isFr ? "Ressources internes" : "Internal resources",
+        variants: isFr
+          ? ["Assets", "Visuels", "Internal resources"]
+          : ["Assets", "Visuels", "Ressources internes"],
+      },
+    ],
+    snapshots: "_Snapshots",
+    backups: "_Backups",
+    journal: "_Journal",
+    edition: "_Edition",
+  };
 }
 
 export function resourcesFolderPath(app: App, root: TFolder): string;
 export function resourcesFolderPath(app: App, root: null | undefined): null;
 /** Chemin du dossier Ressources à utiliser pour une ÉCRITURE (création
  * d'un fichier/sous-dossier dedans) : reprend le dossier déjà présent sur
- * le disque quel que soit son nom, sinon RESOURCES_FOLDER_NAME ("Ressources",
- * nouveaux projets). */
+ * le disque quel que soit son nom, sinon le nom de la source centrale
+ * ("_Ressources"/"_Resources" via getFeuilletsFolderNames). */
 export function resourcesFolderPath(app: App, root: TFolder | null | undefined): string | null {
   if (!root) return null;
-  const base = root.parent ? root.parent.path : root.path;
+  const base =
+    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+      ? root.parent.path
+      : root.path;
   const existing = getResourcesRoot(app, root);
-  return existing ? existing.path : normalizePath(`${base}/${RESOURCES_FOLDER_NAME}`);
+  return existing ? existing.path : normalizePath(`${base}/${getFeuilletsFolderNames().resources}`);
 }
 
 /** Sous-dossier de Ressources dont le nom a changé (Visuels->Assets,

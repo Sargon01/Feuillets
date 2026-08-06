@@ -1,3 +1,5 @@
+import { getLocale } from "../i18n/index.js";
+
 /** Un mode = un type de document. Ne change ni la structure de dossiers
  * ni les champs de frontmatter lus — seulement le vocabulaire affiché et
  * les réglages de départ appliqués une fois à la création du projet. */
@@ -15,13 +17,14 @@ type ResearchFolderDef = { label: string; newName: string; tag: string };
  * mode (fiction ou non-fiction), jamais dans les deux — d'où l'optionalité
  * de chaque champ ici plutôt qu'un jeu de clés figé. */
 type ResearchFolders = {
-  bibliographie: ResearchFolderDef;
+  bibliographie?: ResearchFolderDef;
   glossaire?: ResearchFolderDef;
   evenements?: ResearchFolderDef;
   personnages?: ResearchFolderDef;
   lieux?: ResearchFolderDef;
   codex?: ResearchFolderDef;
   sources?: ResearchFolderDef;
+  notes?: ResearchFolderDef;
 };
 
 /** Personnages/Lieux/Lore/Glossaire/Événements sont des catégories nées
@@ -45,8 +48,11 @@ const FICTION_RESEARCH: ResearchFolders = {
 
 const NONFICTION_RESEARCH: ResearchFolders = {
   bibliographie,
+  notes: { label: "Notes", newName: "Nouvelle note", tag: "notes" },
   sources: { label: "Sources", newName: "Nouvelle source", tag: "source" },
 };
+
+const FREE_RESEARCH: ResearchFolders = {};
 
 /** Ancien nom français de chaque catégorie (dossiers déjà créés avant ce
  * renommage) — jamais renommés de force sur le disque, toujours reconnus
@@ -57,7 +63,44 @@ export const LEGACY_RESEARCH_LABELS = {
   evenements: "Événements",
   personnages: "Personnages",
   lieux: "Lieux",
+  notes: "Notes",
 };
+
+/** Libellé affiché d'une catégorie de recherche selon la langue active :
+ * en interface française, l'ancien libellé français s'il existe dans
+ * LEGACY_RESEARCH_LABELS (source de traduction unique, jamais une seconde
+ * liste codée en dur), sinon le libellé anglais actuel. En anglais, le
+ * libellé actuel est conservé tel quel. */
+export function researchFolderLabel(
+  researchFolders: Record<string, { label: string }>,
+  key: string
+): string {
+  const entry = researchFolders[key];
+  if (!entry) return "";
+  if (getLocale() === "fr") {
+    const legacy = LEGACY_RESEARCH_LABELS[key as keyof typeof LEGACY_RESEARCH_LABELS];
+    if (legacy) return legacy;
+  }
+  return entry.label;
+}
+
+/** Noms sous lesquels le dossier d'une catégorie de recherche peut déjà
+ * exister, libellé de la langue active en premier : le nom actuel (anglais)
+ * et l'ancien nom français — permet de réutiliser un dossier existant créé
+ * dans l'autre langue au lieu d'en créer un doublon. */
+export function researchFolderNames(
+  researchFolders: Record<string, { label: string }>,
+  key: string
+): string[] {
+  const entry = researchFolders[key];
+  if (!entry) return [];
+  const preferred = researchFolderLabel(researchFolders, key);
+  const legacy = LEGACY_RESEARCH_LABELS[key as keyof typeof LEGACY_RESEARCH_LABELS];
+  const other = preferred === entry.label ? legacy : entry.label;
+  const names = [preferred];
+  if (other && !names.includes(other)) names.push(other);
+  return names;
+}
 
 /** `name` correspond-il à la catégorie `key` de `researchFolders`, sous
  * son nom actuel (anglais) OU son ancien nom (français) ? */
@@ -98,6 +141,21 @@ export const PROJECT_MODES = {
       cardContent: "summary",
     },
   },
+  free: {
+    label: "Libre",
+    yamlPreset: "minimal",
+    unit: "section",
+    unitPlural: "sections",
+    hasSources: false,
+    researchFolders: FREE_RESEARCH,
+    defaults: {
+      level1Role: "chapitres",
+      chapterNumbering: "continu",
+      sceneNumbering: "continue",
+      boardMode: "outline",
+      cardContent: "summary",
+    },
+  },
 };
 
 /** Ramène une valeur de type quelconque (absente, ou ancien texte libre
@@ -110,6 +168,9 @@ export function resolveType(type: string | null | undefined) {
   }
   if (rawType === "nonfiction" || rawType === "non-fiction" || rawType === "essai" || rawType === "these" || rawType === "thèse" || rawType === "article") {
     return "nonfiction";
+  }
+  if (rawType === "free" || rawType === "libre") {
+    return "free";
   }
   return "fiction";
 }

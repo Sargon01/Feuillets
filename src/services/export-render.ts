@@ -315,6 +315,20 @@ function realCaption(alt: string | null, file: TFile): string {
   return a;
 }
 
+/** Garde centralisée : une source d'image DISTANTE (http/https) n'est
+ * JAMAIS résolue via les méthodes de fichiers locaux d'Obsidian
+ * (metadataCache.getFirstLinkpathDest, vault.getFiles…) et ne doit jamais
+ * compter parmi les images « introuvables dans le coffre » — elle n'a
+ * simplement rien à y faire. Un seul point de vérité pour les deux endroits
+ * qui examinent une source d'image (le src de l'<img> et celui de son
+ * wrapper .internal-embed, voir resolveImageFile ci-dessous) : un embed
+ * externe `![[https://…]]` peut porter l'URL d'origine sur le wrapper sans
+ * que l'<img> rendu la reprenne à l'identique. trim() absorbe un espace
+ * parasite éventuel (copier-coller), `i` la casse du schéma. */
+function isRemoteImageSource(source: string): boolean {
+  return /^https?:\/\//i.test(source.trim());
+}
+
 /** Résout l'image réellement visée par un `<img>` rendu par Obsidian.
  * Méthode fiable en priorité : Obsidian pose le chemin ORIGINAL du lien
  * (tel qu'écrit dans le markdown — donc correct même dans un sous-
@@ -329,7 +343,11 @@ function realCaption(alt: string | null, file: TFile): string {
 function resolveImageFile(app: App, img: HTMLImageElement, src: string, sourcePath?: string): TFile | null {
   const embedEl = img.closest(".internal-embed");
   const linkpath = embedEl?.getAttribute("src") || "";
-  if (linkpath) {
+  // Une URL distante n'est jamais un linkpath du coffre : getFirstLinkpathDest
+  // est une résolution LOCALE et ne doit jamais la recevoir (voir
+  // isRemoteImageSource). L'appelant (inlineImages) filtre déjà ce cas avant
+  // d'atteindre resolveImageFile ; la garde reste ici en défense en profondeur.
+  if (linkpath && !isRemoteImageSource(linkpath)) {
     const file = app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath || "");
     if (file) return file;
   }
@@ -340,24 +358,45 @@ function resolveImageFile(app: App, img: HTMLImageElement, src: string, sourcePa
 /** Images internes au coffre (embeds `![[fichier.png]]` ou `![alt](fichier.png)`)
  * : Obsidian les rend en `<img src="app://…">`, une URL qui n'a de sens
  * qu'à l'intérieur de l'app — inlinée en data: URI pour que l'export
- * survive une fois sorti du coffre. Les images déjà externes (http/https)
- * ou déjà en data: sont laissées telles quelles. Best-effort : une image
- * non résolue reste avec son URL d'origine plutôt que de faire échouer
- * tout l'export. Retourne une Map<img, {bytes,ext,width,height,caption}>
- * — le DOCX en a besoin pour construire un vrai ImageRun + un paragraphe
- * de légende (voir export-docx.js) ; l'EPUB/PDF reçoivent directement un
- * <figure>/<figcaption> dans le DOM. */
+ * survive une fois sorti du coffre. Les images DISTANTES (http/https, voir
+ * isRemoteImageSource) ou déjà en data: sont laissées telles quelles —
+ * jamais résolues via les chemins du coffre, jamais comptées parmi les
+ * ressources introuvables. Best-effort : une image locale non résolue reste
+ * avec son URL d'origine plutôt que de faire échouer tout l'export. Retourne
+ * une Map<img, {bytes,ext,width,height,caption}> — le DOCX en a besoin pour
+ * construire un vrai ImageRun + un paragraphe de légende (voir
+ * export-docx.js) ; l'EPUB/PDF reçoivent directement un <figure>/<figcaption>
+ * dans le DOM. */
 async function inlineImages(
   app: App,
   container: HTMLElement,
   sourcePath?: string
 ): Promise<{ images: Map<HTMLImageElement, RenderedImage>; missingResources: string[] }> {
   const images = new Map<HTMLImageElement, RenderedImage>();
-  const missingResources: string[] = [];
+  // Set plutôt que tableau : la même image (locale manquante ou distante mal
+  // formée) peut apparaître dans plusieurs scènes/segments du manuscrit —
+  // un seul avertissement par source, jamais un doublon par occurrence.
+  const missingResources = new Set<string>();
   const imgs = Array.from(container.querySelectorAll("img"));
   for (const img of imgs) {
     const src = img.getAttribute("src") || "";
-    if (!src || src.startsWith("data:") || /^https?:\/\//.test(src)) continue;
+    if (!src || src.startsWith("data:")) continue;
+    // Une image distante (http/https) n'est JAMAIS résolue via les chemins
+    // du coffre : ni comptée parmi les « introuvables », ni passée aux API
+    // locales (getFirstLinkpathDest, vault.getFiles…). Le wrapper
+    // .internal-embed d'un embed externe `![[https://…]]` peut porter l'URL
+    // d'origine même quand l'<img> rendu ne la reprend pas telle quelle —
+    // les deux sources sont donc examinées, pas seulement celle de l'<img>.
+    const embedSrc = img.closest(".internal-embed")?.getAttribute("src") || "";
+    const remoteSource = isRemoteImageSource(src)
+      ? src.trim()
+      : (embedSrc && isRemoteImageSource(embedSrc) ? embedSrc.trim() : null);
+    if (remoteSource) {
+      // Conserve l'URL réelle dans le HTML/export — jamais inlinée en
+      // data:, jamais réécrite en placeholder local.
+      if (src !== remoteSource) img.setAttribute("src", remoteSource);
+      continue;
+    }
     try {
       const file = resolveImageFile(app, img, src, sourcePath);
       if (!file) {
@@ -365,7 +404,7 @@ async function inlineImages(
         // nulle part : ni Notice, ni même console.error — invisible pour
         // l'utilisatrice. Voir renderManuscriptHtml, qui remonte cette
         // liste jusqu'à exportViaNative pour un avertissement explicite.
-        missingResources.push(src);
+        missingResources.add(src);
         continue;
       }
       const buf = await app.vault.readBinary(file);
@@ -389,10 +428,10 @@ async function inlineImages(
       images.set(img, { bytes: new Uint8Array(buf), ext, width, height, caption });
     } catch (e) {
       console.error("Feuillets export: image non inlinée", src, e);
-      missingResources.push(src);
+      missingResources.add(src);
     }
   }
-  return { images, missingResources };
+  return { images, missingResources: Array.from(missingResources) };
 }
 
 /** Dimensions réelles d'une image déjà encodée en data: URI — nécessaire

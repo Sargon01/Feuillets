@@ -38,6 +38,7 @@ import { formatCitation } from "./services/citations.js";
 import { getResearchTemplate } from "./services/research-templates.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
+import { remapResearchFolderLinks } from "./views/base-feuillets-view.js";
 import { BoardView } from "./views/board-view.js";
 import { SidebarFeuilletsView } from "./views/sidebar-feuillets-view.js";
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
@@ -48,6 +49,7 @@ import { getProjectFolder, projectDisplayName, depthOf, isFrontMatter, roleOfFol
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode } from "./services/project-mode.js";
 import { getChronoFolder, getResearchRoot, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
+import { parseChronologyImport } from "./services/chronology-import.js";
 import { buildNumbering } from "./services/numbering.js";
 import { orderFromSnapshot } from "./utils/sibling-order.js";
 import { handleFilChanged } from "./services/narrative-threads.js";
@@ -1011,9 +1013,15 @@ class FeuilletsPlugin extends Plugin {
       }
     }));
 
-    this.registerEvent(this.app.vault.on("rename", (file) => {
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
       if (this.isLayoutReady) refresh();
       void this.maybeAutoInitializeResearchFile(file);
+      /* Un renommage/déplacement dans le coffre rend obsolètes les chemins
+         mémorisés des associations Binder→Recherche : on les remappe pour
+         suivre le dossier déplacé, sans toucher aux chemins voisins. */
+      if (oldPath && file.path && oldPath !== file.path) {
+        this.remapResearchFolderLinks(oldPath, file.path);
+      }
     }));
     this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
@@ -1251,21 +1259,23 @@ class FeuilletsPlugin extends Plugin {
         }
         const raw = await this.app.vault.read(file);
         const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
-        const headRe = /^(#{2,3})\s+(\d{1,4}(?:-\d{1,2}(?:-\d{1,2})?)?)\s*[-–—:]?\s*(.*)$/gm;
-        type ChronologyBlock = { date: string; title: string; start: number; end: number };
-        const blocks: ChronologyBlock[] = [];
-        let m: RegExpExecArray | null;
-        let last: ChronologyBlock | null = null;
-        while ((m = headRe.exec(body)) !== null) {
-          if (last) last.end = m.index;
-          last = {
-            date: m[2],
-            title: m[3].trim() || m[2],
-            start: headRe.lastIndex,
-            end: body.length,
-          };
-          blocks.push(last);
+        // Moteur pur (services/chronology-import.ts, testable sous Node) :
+        // essaie d'abord "## titre" + "### date" (nouveau format), retombe
+        // ENTIÈREMENT sur l'ancien format à un seul niveau
+        // ("## AAAA[-MM[-JJ]] - Titre") si le document en porte la
+        // signature, jamais mélangé. Jamais de propriété `type` déduite ou
+        // ajoutée dans les deux cas. Un document mal formé (bloc sans date,
+        // ou date non reconnue) fait échouer l'import ENTIER — jamais de
+        // création partielle.
+        const result = parseChronologyImport(body);
+        if (!result.ok) {
+          const key = result.error.reason === "missing-date"
+            ? "main.notice.chronologyImportMissingDate"
+            : "main.notice.chronologyImportInvalidDate";
+          new Notice(t(key, { title: result.error.title }));
+          return;
         }
+        const blocks = result.blocks;
         if (blocks.length === 0) {
           new Notice(t("main.notice.noDatedTitleFound"));
           return;
@@ -1279,25 +1289,28 @@ class FeuilletsPlugin extends Plugin {
         let created = 0;
         let skipped = 0;
         for (const b of blocks) {
-          const text = body.slice(b.start, b.end).trim();
           const safeTitle = b.title.replace(/[\\/:*?"<>|]/g, "-").slice(0, 80);
-          const fileName = `${b.date} - ${safeTitle || t("main.untitled")}`;
+          const safeDate = b.date.replace(/[\\/:*?"<>|]/g, "-");
+          const fileName = `${safeDate} - ${safeTitle || t("main.untitled")}`;
           const path = normalizePath(`${chronoFolder.path}/${fileName}.md`);
           if (this.app.vault.getAbstractFileByPath(path)) {
             skipped++;
             continue;
           }
-          const synopsis = text.replace(/\n+/g, " ").slice(0, 160).trim();
+          const synopsis = b.text.replace(/\n+/g, " ").slice(0, 160).trim();
+          // Tag historique automatique — ajouté par l'importateur lui-même,
+          // jamais demandé à l'auteur, et ce n'est pas une propriété `type` :
+          // même résultat homogène pour l'ancien et le nouveau format.
           const content = [
             "---",
-            `title: ${b.title || b.date}`,
-            `date: ${b.date}`,
-            `synopsis: ${synopsis.replace(/"/g, "'")}`,
+            `title: "${(b.title || b.date).replace(/"/g, "'")}"`,
+            `date: "${b.date.replace(/"/g, "'")}"`,
+            `synopsis: "${synopsis.replace(/"/g, "'")}"`,
             "tags:",
             "  - evenement",
             "---",
             "",
-            text,
+            b.text,
             "",
           ].join("\n");
           await this.app.vault.create(path, content);
@@ -2121,7 +2134,9 @@ class FeuilletsPlugin extends Plugin {
     const root = this.getProjectFolder();
     const baseResearch = researchRoot ? researchRoot.path : root ? `${root.path}/_Recherche` : null;
     if (!baseResearch) return [];
-    return [rf.sources.label, rf.bibliographie.label]
+    const labels = [rf.sources.label];
+    if (rf.bibliographie) labels.push(rf.bibliographie.label);
+    return labels
       .map((label) => this.app.vault.getAbstractFileByPath(normalizePath(`${baseResearch}/${label}`)))
       .filter((f): f is TFolder => f instanceof TFolder);
   }
@@ -2427,6 +2442,71 @@ class FeuilletsPlugin extends Plugin {
   async findAppearances(entityFile: TFile) { return findAppearances(this.app, this.settings, entityFile); }
   getResearchRoot() { return getResearchRoot(this.app, this.settings); }
   getChronoFolder(): TFolder | null { return getChronoFolder(this.app, this.settings); }
+
+  /* ---- Association Binder ↔ Recherche ----
+     Stockée par projet dans S.projectMeta[racine].researchFolderLinks :
+     clé = chemin du dossier Binder (manuscrit), valeur = chemin du dossier
+     Recherche associé. Le stockage est une simple map de chaînes ; aucun
+     dossier physique n'est créé ni supprimé par ces méthodes. */
+
+  /** Dossier Recherche associé à un dossier Binder du projet actif, s'il
+   * existe toujours sur le disque. */
+  getLinkedResearchFolder(binderNode: TAbstractFile): TFolder | null {
+    const root = this.getProjectFolder();
+    if (!root) return null;
+    const meta = this.settings.projectMeta[root.path];
+    const linked = meta && meta.researchFolderLinks
+      ? meta.researchFolderLinks[binderNode.path]
+      : null;
+    if (!linked) return null;
+    const f = this.app.vault.getAbstractFileByPath(linked);
+    return f instanceof TFolder ? f : null;
+  }
+
+  /** Associe (ou remplace) le dossier Recherche d'un nœud Binder
+   * (dossier ou fichier Markdown). */
+  async setLinkedResearchFolder(
+    binderNode: TAbstractFile,
+    researchFolder: TFolder
+  ): Promise<void> {
+    const root = this.getProjectFolder();
+    if (!root) return;
+    const S = this.settings;
+    if (!S.projectMeta[root.path]) S.projectMeta[root.path] = {};
+    const meta = S.projectMeta[root.path];
+    if (!meta.researchFolderLinks) meta.researchFolderLinks = {};
+    meta.researchFolderLinks[binderNode.path] = researchFolder.path;
+    await this.saveSettings();
+  }
+
+  /** Détache le dossier Recherche associé : supprime SEULEMENT l'entrée de
+   * la map — aucun dossier physique n'est supprimé ni déplacé. */
+  async removeLinkedResearchFolder(binderNode: TAbstractFile): Promise<void> {
+    const root = this.getProjectFolder();
+    if (!root) return;
+    const meta = this.settings.projectMeta[root.path];
+    if (!meta || !meta.researchFolderLinks) return;
+    if (delete meta.researchFolderLinks[binderNode.path]) {
+      await this.saveSettings();
+    }
+  }
+
+  /** Remappe les liens Binder→Recherche de TOUS les projets connus (pas
+   * seulement le projet actif) après un renommage/déplacement. */
+  remapResearchFolderLinks(oldPath: string, newPath: string): void {
+    const S = this.settings;
+    let changed = false;
+    for (const projectPath of Object.keys(S.projectMeta)) {
+      const meta = S.projectMeta[projectPath];
+      if (!meta || !meta.researchFolderLinks) continue;
+      const next = remapResearchFolderLinks(meta.researchFolderLinks, oldPath, newPath);
+      if (next !== meta.researchFolderLinks) {
+        meta.researchFolderLinks = next;
+        changed = true;
+      }
+    }
+    if (changed) void this.saveSettings();
+  }
   listCompiledFilePaths() { return listCompiledFilePaths(this.app, this.settings); }
   parseStoryDate(raw: unknown, file: TFile | null = null) { return parseStoryDate(raw, file); }
 
@@ -2690,6 +2770,28 @@ class FeuilletsPlugin extends Plugin {
     new Notice(t("main.notice.versionDuplicated", { path: destPath }), 8000);
     this.renderAllViews(true);
     return destPath;
+  }
+
+  /** Enregistre un dossier existant (n'importe quel dossier du vault) comme
+   * projet Feuillets, sans le déplacer ni le modifier. Le dossier est ajouté
+   * à la liste des projets — il peut ensuite être ouvert normalement. Refuse
+   * un dossier déjà enregistré pour éviter les doublons. */
+  async registerExistingProjectFolder(path: string): Promise<void> {
+    const folder = this.app.vault.getAbstractFileByPath(path);
+    if (!(folder instanceof TFolder)) {
+      new Notice(t("main.notice.folderNotFound"));
+      return;
+    }
+
+    // Vérifier que le dossier n'est pas déjà un projet
+    if (this.settings.projects.includes(path)) {
+      new Notice(t("main.notice.alreadyAProject", { name: folder.name }));
+      return;
+    }
+
+    // Afficher la modale de sélection du mode
+    const { TransformToProjectModal } = await import("./ui/project-modals.js");
+    new TransformToProjectModal(this.app, this, path).open();
   }
 
   getVersionsRoot(): TFolder | null { return getVersionsRoot(this.app, this.getProjectFolder()); }

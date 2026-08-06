@@ -3,11 +3,14 @@ import type { App, TAbstractFile } from "obsidian";
 import { NewSheetModal, NewFolderModal } from "../ui/basic-modals.js";
 import {
   getProjectFolder,
+  getProjectRoot,
   getOrderedChildren,
+  getResourcesRoot,
   resourcesFolderPath,
   resourcesSubfolderPath,
   editionFolderPath,
   getEditionRoot,
+  getFeuilletsFolderNames,
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
   RESEARCH_FOLDER_NAME,
@@ -17,8 +20,9 @@ import {
 import { getResearchRoot } from "./research.js";
 import { ensureJournalFolder } from "./journal.js";
 import { getProjectMode } from "./project-mode.js";
+import { getLocale } from "../i18n/index.js";
 import { openFileActivating } from "../utils/dom.js";
-import { applyModeDefaults, resolveType } from "../utils/project-modes.js";
+import { applyModeDefaults, resolveType, PROJECT_MODES, researchFolderNames } from "../utils/project-modes.js";
 
 export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
   const p = normalizePath(path);
@@ -36,34 +40,47 @@ export async function ensureFolder(app: App, path: string): Promise<TAbstractFil
  * existants sont respectés ; à défaut, créé en voisin. */
 export async function snapshotFile(app: App, file: TFile, root: TFolder): Promise<string> {
   const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
+  const p = (n: number) => String(n).padStart(2, "0");
   const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(
     d.getDate()
   )} ${p(d.getHours())}h${p(d.getMinutes())}${p(d.getSeconds())}`;
-  const candidates = [root.path, root.parent ? root.parent.path : null].filter(
-    Boolean
-  );
-  /* "Snapshots" sans underscore : reconnu UNIQUEMENT voisin du dossier
-     projet, jamais dedans — même restriction que "Recherche", pour ne
-     jamais apparaître comme une fausse Partie dans le binder. */
-  let base = root.parent && app.vault.getAbstractFileByPath(
-    normalizePath(`${root.parent.path}/Snapshots`)
-  ) instanceof TFolder
-    ? root.parent.path
-    : null;
-  let folderName = "Snapshots";
+  /* Base possible : le dossier voisin (racine du projet réel) quand il
+     existe et n'est pas la racine du coffre, sinon le dossier projet
+     lui-même — jamais la racine du coffre (règle : aucun dossier technique
+     créé hors du projet actif). */
+  const neighbor =
+    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+      ? root.parent.path
+      : null;
+  const candidates = neighbor ? [root.path, neighbor] : [root.path];
+  /* "Snapshots" sans underscore : variante HISTORIQUE reconnue uniquement
+     voisine du dossier projet, jamais dedans — même restriction que
+     "Recherche", pour ne jamais apparaître comme une fausse Partie dans le
+     binder. "_Snapshots" (legacy) reste reconnu voisin OU enfant du
+     dossier projet. À défaut, création en "_Snapshots" via la source
+     centrale (getFeuilletsFolderNames) — jamais "Snapshots" sans préfixe. */
+  const names = getFeuilletsFolderNames(getLocale());
+  let base: string | null = null;
+  let folderName = names.snapshots;
+  if (neighbor) {
+    const snap = app.vault.getAbstractFileByPath(normalizePath(`${neighbor}/Snapshots`));
+    if (snap instanceof TFolder) {
+      base = neighbor;
+      folderName = "Snapshots";
+    }
+  }
   if (!base) {
     /* legacy : anciens projets créés avant l'abandon du préfixe _,
        où _Snapshots pouvait être voisin ou enfant du dossier projet */
     const legacyBase = candidates.find((b) =>
-      app.vault.getAbstractFileByPath(normalizePath(`${b}/_Snapshots`))
+      app.vault.getAbstractFileByPath(normalizePath(`${b}/${names.snapshots}`))
     );
     if (legacyBase) {
       base = legacyBase;
-      folderName = "_Snapshots";
+      folderName = names.snapshots;
     }
   }
-  if (!base) base = root.parent ? root.parent.path : root.path;
+  if (!base) base = root.path;
   const dir = normalizePath(`${base}/${folderName}/${file.basename}`);
   await ensureFolder(app, normalizePath(`${base}/${folderName}`));
   await ensureFolder(app, dir);
@@ -155,7 +172,13 @@ function copyOrderSettings(settings: FeuilletsSettings, origFolder: TFolder, des
  * mais accessible via sa propre section dans le volet dossiers du binder. */
 export function getVersionsRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
-  const base = root.parent ? root.parent.path : root.path;
+  /* Même base que duplicateProjectFolder : le voisin (racine du projet
+     réel) quand il existe et n'est pas la racine du coffre, sinon le
+     dossier projet lui-même — jamais la racine du coffre. */
+  const base =
+    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+      ? root.parent.path
+      : root.path;
   const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/_Versions`));
   return f instanceof TFolder ? f : null;
 }
@@ -177,14 +200,20 @@ export const EDITION_DOCUMENTS = [
  * (Versions envoyées), créés vides en même temps que le dossier. */
 export const EDITION_SUBFOLDERS = ["Soumissions", "Versions envoyées"];
 
-/** Crée le dossier Edition (voisin du dossier projet, voir
- * editionFolderPath) avec ses sous-dossiers et documents conventionnels —
- * à la demande seulement, jamais à la création d'un projet ni à
- * l'ouverture d'un projet existant (même principe que ensureJournalFolder :
- * un projet ancien sans dossier Edition n'en a jamais un imposé). Idempotent :
- * ne recrée ni n'écrase rien de déjà présent. */
+/** Crée le dossier d'édition (racine du projet actif, nom "_Edition" de la
+ * source centrale, voir editionFolderPath) avec ses sous-dossiers et
+ * documents conventionnels — à la demande seulement, jamais à la création
+ * d'un projet ni à l'ouverture d'un projet existant (même principe que
+ * ensureJournalFolder : un projet ancien sans dossier d'édition n'en a
+ * jamais un imposé). Idempotent : réutilise un dossier d'édition déjà
+ * présent sur le disque — "_Edition" comme "Edition" (variante historique
+ * sans préfixe) — et ne recrée ni n'écrase rien de déjà présent. Si
+ * "Edition" existe déjà, "_Edition" n'est pas créé. */
 export async function ensureEditionFolder(app: App, root: TFolder): Promise<TFolder> {
-  const path = editionFolderPath(app, root);
+  /* getEditionRoot reconnaît "_Edition" puis "Edition" (variante
+     historique) : tout dossier déjà présent est réutilisé tel quel. */
+  const existing = getEditionRoot(app, root);
+  const path = existing ? existing.path : editionFolderPath(app, root);
   await ensureFolder(app, path);
   for (const sub of EDITION_SUBFOLDERS) {
     await ensureFolder(app, normalizePath(`${path}/${sub}`));
@@ -211,7 +240,14 @@ export async function ensureEditionFolder(app: App, root: TFolder): Promise<TFol
  * l'original. Retourne le chemin du dossier créé, ou lève une erreur si le
  * nom est déjà pris. */
 export async function duplicateProjectFolder(app: App, root: TFolder, label: string, settings?: FeuilletsSettings | null): Promise<string> {
-  const base = root.parent ? root.parent.path : root.path;
+  /* Base : le voisin (racine du projet réel) quand il existe et n'est pas
+     la racine du coffre, sinon le dossier projet lui-même — jamais la
+     racine du coffre (règle : aucun dossier technique créé hors du projet
+     actif). */
+  const base =
+    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+      ? root.parent.path
+      : root.path;
   const safeLabel = String(label || "").trim().replace(/[\\/:*?"<>|]/g, "-");
   const destName = `${root.name} (${safeLabel || "copie"})`;
   const destPath = normalizePath(`${base}/_Versions/${destName}`);
@@ -233,19 +269,25 @@ export async function duplicateProjectFolder(app: App, root: TFolder, label: str
  * Export,Assets}` à la racine réelle (`volumePath`, frères de Manuscrit),
  * et le dossier `Front` à l'intérieur de Manuscrit. Une seule fonction pour
  * ne pas dupliquer cette liste de dossiers à deux endroits. Idempotent :
- * ensureFolder ne recrée jamais un dossier déjà présent. */
+ * ensureFolder ne recrée jamais un dossier déjà présent.
+ *
+ * Les noms de Recherche et Ressources sont déterminés par la locale active
+ * via getFeuilletsFolderNames — seuls les trois dossiers de base sont créés
+ * ici, jamais les sous-dossiers de Recherche (Personnages, Lieux…) : c'est
+ * le rôle d'initProjectStructure (commande « Initialiser la structure »). */
 export async function ensureProjectBaseFolders(
   app: App,
   volumePath: string,
   manuscritPath: string
 ): Promise<{ frontPath: string }> {
+  const names = getFeuilletsFolderNames(getLocale());
   await ensureFolder(app, volumePath);
   await ensureFolder(app, manuscritPath);
-  await ensureFolder(app, normalizePath(`${volumePath}/${RESEARCH_FOLDER_NAME}`));
-  const resourcesPath = normalizePath(`${volumePath}/${RESOURCES_FOLDER_NAME}`);
+  await ensureFolder(app, normalizePath(`${volumePath}/${names.research}`));
+  const resourcesPath = normalizePath(`${volumePath}/${names.resources}`);
   await ensureFolder(app, resourcesPath);
-  for (const sub of Object.values(RESOURCES_SUBFOLDER_NAMES)) {
-    await ensureFolder(app, normalizePath(`${resourcesPath}/${sub}`));
+  for (const { name } of names.resourcesSubs) {
+    await ensureFolder(app, normalizePath(`${resourcesPath}/${name}`));
   }
   const frontPath = normalizePath(`${manuscritPath}/${FRONT_FOLDER_NAME}`);
   await ensureFolder(app, frontPath);
@@ -414,64 +456,125 @@ export async function createMinimalProject(
      ci-dessus, pas au défaut générique du mode. */
   settings.level1Role = isFiction ? "chapitres" : "parties";
 
+  // --- Sous-dossiers de Recherche selon le mode ---
+  const names = getFeuilletsFolderNames(getLocale());
+  const researchPath = normalizePath(`${volumePath}/${names.research}`);
+  await initResearchSubfolders(app, researchPath, type);
+
   return { volumePath, manuscritPath, firstFolderPath, firstFile };
 }
 
 /** Crée les dossiers _ et les fichiers Bases (personnages, lieux). */
+/** Crée les sous-dossiers Recherche selon le mode du projet.
+ *
+ * - Fiction : crée toutes les catégories de FICTION_RESEARCH
+ * - Non-fiction : crée Notes, Bibliographie, Sources uniquement
+ * - Libre : ne crée aucun sous-dossier métier (l'utilisateur les crée via le bouton "Nouvelle rubrique")
+ *
+ * Cette fonction ne crée JAMAIS les dossiers existants — elle reconnaît les variantes
+ * historiques et les réutilise, jamais elle ne les renomme ou les duplique. */
+export async function initResearchSubfolders(
+  app: App,
+  researchPath: string,
+  mode: string | null | undefined
+): Promise<void> {
+  const resolvedMode = resolveType(mode);
+  const projectMode = PROJECT_MODES[resolvedMode];
+  if (!projectMode) return;
+
+  // Récupérer les catégories à créer selon le mode
+  const researchFolders = projectMode.researchFolders;
+
+  // Créer uniquement les catégories présentes dans ce mode
+  for (const [key] of Object.entries(researchFolders)) {
+    // Utiliser les noms reconnus selon la locale (nouveau + ancien)
+    const names = researchFolderNames(researchFolders, key);
+
+    // Chercher si le dossier existe déjà sous un des noms possibles
+    let exists = false;
+    for (const name of names) {
+      const path = normalizePath(`${researchPath}/${name}`);
+      const existing = app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFolder) {
+        exists = true;
+        break;
+      }
+    }
+
+    // Si le dossier n'existe pas, le créer avec le nom préféré (selon locale)
+    if (!exists && names.length > 0) {
+      const newFolderPath = normalizePath(`${researchPath}/${names[0]}`);
+      await ensureFolder(app, newFolderPath);
+    }
+  }
+}
+
 export async function initProjectStructure(app: App, settings: FeuilletsSettings): Promise<void> {
-  const root = getProjectFolder(app, settings);
-  if (!root) {
+  /* Racine réelle = dossier qui contient Manuscrit (ex. Projets/Mon recueil).
+     getProjectRoot exclut la racine du coffre (path vide) : les dossiers ne
+     sont jamais créés à la racine du coffre, toujours sous le projet actif. */
+  const projectRoot = getProjectRoot(app, settings);
+  if (!projectRoot) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return;
   }
-  /* base de la recherche : reprend l'emplacement existant s'il y en a
-     déjà un (voisin ou enfant du dossier projet), sinon la crée à côté
-     du dossier projet plutôt qu'à l'intérieur — c'est la convention
-     correcte quand "Dossier projet" pointe directement sur le
-     sous-dossier des parties/chapitres (Manuscrit), avec _Recherche et
-     _Snapshots comme voisins, pas comme enfants. */
-  const existingResearch = getResearchRoot(app, settings);
-  const base = existingResearch
-    ? existingResearch.parent
-      ? existingResearch.parent.path
-      : root.path
-    : root.parent
-    ? root.parent.path
-    : root.path;
-  /* Nom réel du dossier de recherche : celui déjà présent sur le disque
-     quel qu'il soit (Recherche, _Recherche, Research…), sinon
-     RESEARCH_FOLDER_NAME ("Recherche") pour un tout nouveau projet —
-     jamais un nom en dur qui dupliquerait un dossier existant sous un
-     autre nom. */
-  const researchName = existingResearch ? existingResearch.name : RESEARCH_FOLDER_NAME;
-  const existingChronoName = existingResearch && existingResearch.children
-    ? (existingResearch.children.find((c) => c instanceof TFolder && (c.name === "Chronology" || c.name === "Chronologie")) || {}).name
-    : null;
-  const chronoName = existingChronoName || "Chronology";
-  const rf = getProjectMode(app, settings).researchFolders as Record<string, { label: string } | undefined>;
-  const foldersToCreate = [researchName];
-  for (const key of ["sources", "bibliographie", "personnages", "lieux", "codex", "glossaire"]) {
-    if (rf[key]) {
-      foldersToCreate.push(`${researchName}/${rf[key].label}`);
+  const base = projectRoot.path;
+  const names = getFeuilletsFolderNames(getLocale());
+
+  /* === Recherche ===
+     getResearchRoot reconnaît _Recherche, Recherche, Research ; on vérifie
+     aussi _Research (EN avec préfixe) non couvert par getResearchRoot. */
+  let existingResearch = getResearchRoot(app, settings);
+  if (!existingResearch) {
+    const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/_Research`));
+    if (f instanceof TFolder) existingResearch = f;
+  }
+  const researchPath = existingResearch
+    ? existingResearch.path
+    : normalizePath(`${base}/${names.research}`);
+  await ensureFolder(app, researchPath);
+
+  /* Sous-dossiers de Recherche selon le mode du projet — variantes historiques
+     reconnues avant toute création pour éviter les doublons. */
+  const manuscritRoot = getProjectFolder(app, settings);
+  const projectMode = manuscritRoot ? settings.projectMeta[manuscritRoot.path]?.type : null;
+  await initResearchSubfolders(app, researchPath, projectMode);
+
+  /* === Snapshots, Backups, Journal ===
+     Chacun est créé sous la racine réelle avec son préfixe `_`.
+     Si une variante sans préfixe existe déjà (projet legacy), elle est
+     reconnue et réutilisée — jamais renommée, jamais dupliquée. */
+  const pickOrCreate = (preferred: string, ...legacyNames: string[]): string => {
+    for (const v of [preferred, ...legacyNames]) {
+      const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/${v}`));
+      if (f instanceof TFolder) return f.path;
     }
-  }
-  foldersToCreate.push(`${researchName}/${chronoName}`);
-  foldersToCreate.push("Snapshots");
+    return normalizePath(`${base}/${preferred}`);
+  };
+  await ensureFolder(app, pickOrCreate(names.snapshots, "Snapshots"));
+  await ensureFolder(app, pickOrCreate(names.backups, "Backups"));
+  await ensureFolder(app, pickOrCreate(names.journal, "Journal"));
 
-  for (const d of foldersToCreate) {
-    await ensureFolder(app, `${base}/${d}`);
-  }
-
-  // Initialisation du dossier Ressources (Resources), voisin de root (Manuscrit)
-  const resPath = resourcesFolderPath(app, root);
+  /* === Ressources ===
+     getResourcesRoot reconnaît _Ressources, _Resources, Ressources, Resources.
+     Sous-dossiers créés avec les nouveaux noms FR/EN, variantes historiques
+     reconnues pour éviter les doublons (Templates→Modèles, Layout→Mises en
+     page, Assets→Ressources internes…). */
+  const existingRes = manuscritRoot ? getResourcesRoot(app, manuscritRoot) : null;
+  const resPath = existingRes
+    ? existingRes.path
+    : normalizePath(`${base}/${names.resources}`);
   await ensureFolder(app, resPath);
-  await ensureFolder(app, `${resPath}/${RESOURCES_SUBFOLDER_NAMES.template}`);
-  await ensureFolder(app, `${resPath}/${RESOURCES_SUBFOLDER_NAMES.export}`);
-  await ensureFolder(app, `${resPath}/${RESOURCES_SUBFOLDER_NAMES.images}`);
-  const assetsPath = resourcesSubfolderPath(app, resPath, RESOURCES_SUBFOLDER_NAMES.assets, "Visuels");
-  const layoutsPath = resourcesSubfolderPath(app, resPath, RESOURCES_SUBFOLDER_NAMES.layout, "Layouts", "Modèles");
-  await ensureFolder(app, assetsPath);
-  await ensureFolder(app, layoutsPath);
+  for (const { name, variants } of names.resourcesSubs) {
+    await ensureFolder(app, resourcesSubfolderPath(app, resPath, name, ...variants));
+  }
+  /* Paths stables pour les writeTemplate ci-dessous. */
+  const templateFolderPath = resourcesSubfolderPath(
+    app, resPath, names.resourcesSubs[1].name, ...names.resourcesSubs[1].variants
+  );
+  const layoutsPath = resourcesSubfolderPath(
+    app, resPath, names.resourcesSubs[2].name, ...names.resourcesSubs[2].variants
+  );
 
   const writeTemplate = async (path: string, content: string): Promise<void> => {
     const norm = normalizePath(path);
@@ -514,7 +617,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
 
   if (isFiction) {
     // Templates de fiction
-    await writeTemplate(`${resPath}/Template/Characters.md`, [
+    await writeTemplate(`${templateFolderPath}/Characters.md`, [
       "---",
       "last_name: ",
       "first_name: ",
@@ -527,7 +630,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Places.md`, [
+    await writeTemplate(`${templateFolderPath}/Places.md`, [
       "---",
       'title: "Nouveau lieu"',
       "description: ",
@@ -537,7 +640,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Lore.md`, [
+    await writeTemplate(`${templateFolderPath}/Lore.md`, [
       "---",
       'title: "Nouvelle entrée"',
       "description: ",
@@ -547,7 +650,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Bibliography.md`, [
+    await writeTemplate(`${templateFolderPath}/Bibliography.md`, [
       "---",
       'title: "Nouvelle référence"',
       "author: ",
@@ -560,7 +663,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Glossary.md`, [
+    await writeTemplate(`${templateFolderPath}/Glossary.md`, [
       "---",
       'title: "Nouveau terme"',
       "definition: ",
@@ -571,7 +674,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Events.md`, [
+    await writeTemplate(`${templateFolderPath}/Events.md`, [
       "---",
       'title: "Nouvel événement"',
       "date: ",
@@ -584,7 +687,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     ].join("\n"));
   } else {
     // Templates de non-fiction
-    await writeTemplate(`${resPath}/Template/Sources.md`, [
+    await writeTemplate(`${templateFolderPath}/Sources.md`, [
       "---",
       'title: "Nouvelle source"',
       "author: ",
@@ -599,7 +702,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Acteurs.md`, [
+    await writeTemplate(`${templateFolderPath}/Acteurs.md`, [
       "---",
       "last_name: ",
       "first_name: ",
@@ -611,7 +714,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Geographie.md`, [
+    await writeTemplate(`${templateFolderPath}/Geographie.md`, [
       "---",
       'title: "Nouvelle entrée"',
       "description: ",
@@ -621,7 +724,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Concepts.md`, [
+    await writeTemplate(`${templateFolderPath}/Concepts.md`, [
       "---",
       'title: "Nouveau concept"',
       "description: ",
@@ -631,7 +734,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Bibliography.md`, [
+    await writeTemplate(`${templateFolderPath}/Bibliography.md`, [
       "---",
       'title: "Nouvelle référence"',
       "author: ",
@@ -644,7 +747,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Glossary.md`, [
+    await writeTemplate(`${templateFolderPath}/Glossary.md`, [
       "---",
       'title: "Nouveau terme"',
       "definition: ",
@@ -655,7 +758,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ""
     ].join("\n"));
 
-    await writeTemplate(`${resPath}/Template/Events.md`, [
+    await writeTemplate(`${templateFolderPath}/Events.md`, [
       "---",
       'title: "Nouvel événement"',
       "date: ",
@@ -668,11 +771,10 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     ].join("\n"));
   }
 
-  await ensureJournalFolder(app, settings);
-  /* Front, lui, est un enfant direct du dossier projet — pas un voisin
-     comme Recherche/Snapshots — puisqu'il doit apparaître dans le
-     binder au même niveau que les Parties, juste avant elles. */
-  await ensureFolder(app, `${root.path}/Front`);
+  /* Front — enfant direct de Manuscrit (pas un voisin), paraît dans le
+     Binder au même niveau que les Parties, juste avant elles. */
+  const manuscritForFront = getProjectFolder(app, settings)!;
+  await ensureFolder(app, normalizePath(`${manuscritForFront.path}/Front`));
 
   /* Page de titre pré-remplie : structure à rôles (:::titre:, :::sous-titre:…
      — voir utils/title-roles.js) prête à compléter, seul le titre étant
@@ -680,8 +782,8 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
      manuscrit, settings.manuscriptTitle sinon le nom du dossier). Écrite via
      writeTemplate : idempotent, ne réécrit jamais une page de titre déjà
      composée. */
-  const projectTitle = settings.manuscriptTitle || root.name;
-  await writeTemplate(`${root.path}/Front/Page de titre.md`, [
+  const projectTitle = settings.manuscriptTitle || manuscritForFront.name;
+  await writeTemplate(`${manuscritForFront.path}/Front/Page de titre.md`, [
     "---",
     `title: ${projectTitle}`,
     "short_title: ",
@@ -706,14 +808,13 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
 
   const listParts = [
     "Front",
-    researchName,
-    "Snapshots",
+    researchPath.split("/").pop(),
+    names.snapshots,
+    names.backups,
+    names.journal,
     resPath.split("/").pop(),
-    settings.journalFolder || "Journal",
   ].join(", ");
-  new Notice(
-    `Structure initialisée : ${listParts}.`
-  );
+  new Notice(`Structure initialisée : ${listParts}.`);
 }
 
 /** `onDone` : appelé après création réussie (le plugin y branche son

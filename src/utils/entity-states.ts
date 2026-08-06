@@ -14,12 +14,22 @@
    3 à 4 chiffres : en dessous, trop de faux positifs (un « 12 : » d'une liste
    numérotée), au-dessus ce n'est plus une année.
 
+   `(?:-\d{2}(?:-\d{2})?)?` juste après l'année : absorbe un mois, puis un
+   jour, écrits en toutes lettres ISO (« 1755-11-01 : … ») — SANS ce groupe,
+   comme le séparateur accepte lui-même le tiret simple, c'est le PREMIER
+   tiret de la date (celui entre l'année et le mois) qui était pris pour le
+   séparateur, et « 11-01 » (mois-jour) fuyait tel quel dans le texte affiché
+   (bug confirmé : « 11-01 » brut sous une fiche datée en jour précis). Le
+   groupe n'a besoin que d'exister, jamais d'être exploité : latestStateBefore
+   ne trie que par année, la précision mois/jour d'une ligne d'état n'a jamais
+   été un besoin exprimé.
+
    `[-*+]\s+` et non `[-*+]\s*` : l'espace après la puce est obligatoire, sinon
    le tiret d'une année négative en début de ligne (« -753 : … ») est consommé
    comme une puce et l'année est lue positive — donc jamais retenue, puisque
    753 est postérieur à toute année négative demandée. Markdown exige de toute
    façon cette espace, donc rien de légitime n'est perdu. */
-const STATE_LINE = /^\s*(?:[-*+]\s+)?\**\s*(-?\d{3,4})\s*\**\s*[:：–—-]\s*(.+)$/;
+const STATE_LINE = /^\s*(?:[-*+]\s+)?\**\s*(-?\d{3,4})(?:-\d{2}(?:-\d{2})?)?\s*\**\s*[:：–—-]\s*(.+)$/;
 
 /**
  * Dernier état renseigné à une année donnée (incluse).

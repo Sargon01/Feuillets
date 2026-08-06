@@ -1,9 +1,10 @@
-import { getProjectStatuses } from "../constants.js";
+import { getProjectStatuses, VIEW_RESEARCH } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
 import { TextInputModal } from "../scenes-editor.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
+import { NewFolderModal, RenameFolderModal, NewResearchFileModal, RenameFileModal } from "../ui/basic-modals.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
 import { promptForPage } from "../ui/citation-modal.js";
@@ -11,7 +12,10 @@ import { DiffModal, CompareFilesModal, PickFileModal } from "../ui/diff-modal.js
 import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
-import { addOpenWithPreviewItem } from "./preview-view.js";
+import { addOpenWithPreviewItem, openScopeWithPreview } from "./preview-view.js";
+import { createFileScope, createFolderScope, createSelectionScope, createProjectScope } from "../services/compile-scope.js";
+import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
+import { FolderSuggest } from "../ui/folder-suggest.js";
 import { t } from "../i18n/index.js";
 
 function getResearchSectionIcon(key: string): string {
@@ -40,8 +44,10 @@ import {
   Menu,
   MarkdownRenderer,
   Keymap,
+  Modal,
   type WorkspaceLeaf,
   type TAbstractFile,
+  type App,
 } from "obsidian";
 import type FeuilletsPlugin from "../main.js";
 
@@ -51,6 +57,140 @@ import type FeuilletsPlugin from "../main.js";
 function asFolder(af: TAbstractFile): TFolder {
   if (!(af instanceof TFolder)) throw new Error(`Expected a folder: ${af.path}`);
   return af;
+}
+
+/** Dossier Binder : soit un dossier (partie/chapitre), soit un fichier
+ * Markdown du manuscrit — les deux peuvent être associés à un dossier
+ * Recherche. */
+type BinderNode = TFolder | TFile;
+
+/** Remappe les chemins d'une map de liens Binder→Recherche après un
+ * renommage/déplacement dans le coffre (vault.on("rename"), main.ts). Règle :
+ * égalité exacte, ou préfixe `oldPath/` — un chemin « voisin » (ex.
+ * `oldPath-suite`) n'est jamais modifié. Fonction pure, exportée ici pour
+ * les tests (le stub Obsidian n'exporte pas la classe Plugin). */
+export function remapResearchFolderLinks(
+  links: Record<string, string> | undefined,
+  oldPath: string,
+  newPath: string
+): Record<string, string> | undefined {
+  if (!links) return links;
+  const remap = (p: string): string => {
+    if (p === oldPath) return newPath;
+    if (p.startsWith(oldPath + "/")) return newPath + p.slice(oldPath.length);
+    return p;
+  };
+  const out: Record<string, string> = {};
+  let changed = false;
+  for (const [key, value] of Object.entries(links)) {
+    const nextKey = remap(key);
+    const nextValue = remap(value);
+    if (nextKey !== key || nextValue !== value) changed = true;
+    out[nextKey] = nextValue;
+  }
+  return changed ? out : links;
+}
+
+/** Vrai si `folderPath` est un dossier STRICTEMENT sous l'espace Recherche
+ * du projet actif (`basePath` = chemin du dossier _Recherche) — jamais
+ * _Recherche lui-même, jamais un dossier extérieur (autre projet, racine
+ * du coffre). Fonction pure, exportée pour les tests. */
+export function isInsideResearchSpace(folderPath: string, basePath: string): boolean {
+  return folderPath !== basePath && folderPath.startsWith(`${basePath}/`);
+}
+
+/** Autocomplétion limitée à l'espace Recherche du projet actif : seuls les
+ * dossiers STRICTEMENT sous `basePath` (jamais _Recherche lui-même) sont
+ * proposés — le sélecteur d'association ne doit jamais laisser choisir un
+ * dossier extérieur (autre projet, racine du coffre…). */
+class ResearchFolderSuggest extends FolderSuggest {
+  basePath: string;
+
+  constructor(app: App, inputEl: HTMLInputElement, basePath: string) {
+    super(app, inputEl);
+    this.basePath = basePath;
+  }
+
+  getSuggestions(query: string): TFolder[] {
+    return super
+      .getSuggestions(query)
+      .filter((f) => isInsideResearchSpace(f.path, this.basePath));
+  }
+}
+
+/** Modale de choix d'un dossier Recherche EXISTANT à associer à un dossier
+ * ou un fichier Binder (associer ou changer). N'accepte que des dossiers
+ * sous _Recherche du même projet — ni _Recherche lui-même, ni un dossier
+ * extérieur (autre projet, racine du coffre). Ne crée jamais de dossier :
+ * on ne fait que mémoriser le chemin dans researchFolderLinks. */
+class LinkResearchFolderModal extends Modal {
+  plugin: FeuilletsPlugin;
+  binderNode: BinderNode;
+  displayName: string;
+
+  constructor(app: App, plugin: FeuilletsPlugin, binderNode: BinderNode, displayName: string) {
+    super(app);
+    this.plugin = plugin;
+    this.binderNode = binderNode;
+    this.displayName = displayName;
+  }
+
+  /** Chemin de l'espace Recherche du projet actif, ou null. */
+  private researchBasePath(): string | null {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return null;
+    const researchRoot = this.plugin.getResearchRoot();
+    return researchRoot instanceof TFolder ? researchRoot.path : `${root.path}/_Recherche`;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", {
+      text: t("binder.research.linkModalTitle", { name: this.displayName }),
+    });
+    const input = contentEl.createEl("input", {
+      type: "text",
+      attr: { placeholder: t("binder.research.linkModalPlaceholder") },
+    });
+    input.addClass("feuillets-input-full");
+    const basePath = this.researchBasePath();
+    if (basePath) new ResearchFolderSuggest(this.app, input, basePath);
+    input.focus();
+    const submit = async () => {
+      const path = normalizePath(input.value.trim());
+      if (!path) return;
+      if (!basePath) {
+        new Notice(t("binder.research.noResearchRoot"));
+        return;
+      }
+      const folder = this.app.vault.getAbstractFileByPath(path);
+      if (!(folder instanceof TFolder)) {
+        new Notice(t("binder.research.linkFolderNotFound"));
+        return;
+      }
+      /* Refus de toute saisie manuelle extérieure : on n'associe JAMAIS un
+         dossier hors de _Recherche du même projet. */
+      if (!isInsideResearchSpace(folder.path, basePath)) {
+        new Notice(t("binder.research.linkFolderOutside"));
+        return;
+      }
+      this.close();
+      await this.plugin.setLinkedResearchFolder(this.binderNode, folder);
+      this.plugin.renderAllViews(true);
+      new Notice(t("binder.research.folderLinked", { name: folder.name }));
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") void submit();
+    });
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow
+      .createEl("button", { text: t("modal.create") })
+      .addEventListener("click", () => { void submit(); });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
 }
 
 type ProjectNode = TFile | TFolder;
@@ -95,6 +235,10 @@ export abstract class BaseFeuilletsView extends ItemView {
   _searchCache?: Map<string, { mtime: number; text: string }>;
   _selectedTextFile?: string;
   researchFilterActive?: boolean;
+  /** Dossier Recherche copié par l'utilisateur. Le presse-papiers reste
+   * volontairement interne au panneau : il ne détourne pas le presse-papiers
+   * système et ne permet de coller que dans une autre rubrique Recherche. */
+  researchFolderClipboardPath?: string;
   selectedText?: string;
   viewingFile?: TFile | null;
 
@@ -120,6 +264,107 @@ export abstract class BaseFeuilletsView extends ItemView {
     const path = normalizePath(`${folder.path}/${name}.md`);
     const file = await this.app.vault.create(path, template);
     openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+  }
+
+  /** Valide un nom de fichier (sans extension) : refuse les noms vides, / et \\. */
+  private isFileNameInvalid(name: string): boolean {
+    if (!name || !name.trim()) return true;
+    if (name.includes("/") || name.includes("\\")) return true;
+    return false;
+  }
+
+  /** Ouvre une modale de saisie puis crée le fichier nommé dans le dossier cible. */
+  promptCreateResearchFile(folder: TFolder, defaultName: string, template: string): void {
+    new NewResearchFileModal(this.app, folder.name, defaultName, async (rawName) => {
+      const cleanName = rawName.trim();
+      if (this.isFileNameInvalid(cleanName)) {
+        new Notice(t("binder.research.invalidName"));
+        return;
+      }
+      const fileName = cleanName.endsWith(".md") ? cleanName : `${cleanName}.md`;
+      const destPath = normalizePath(`${folder.path}/${fileName}`);
+      if (this.app.vault.getAbstractFileByPath(destPath)) {
+        new Notice(t("binder.research.renameAlreadyExists", { name: cleanName }));
+        return;
+      }
+      await this.plugin.ensureFolder(folder.path);
+      const file = await this.app.vault.create(destPath, template);
+      openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+      void this.render(true);
+    }).open();
+  }
+
+  /** Ouvre une modale de renommage préremplie avec le basename du fichier. */
+  promptRenameResearchFile(file: TFile): void {
+    const currentBasename = file.basename;
+    new RenameFileModal(this.app, currentBasename, async (rawName) => {
+      const cleanName = rawName.trim();
+      if (this.isFileNameInvalid(cleanName)) {
+        new Notice(t("binder.research.invalidName"));
+        return;
+      }
+      const fileName = cleanName.endsWith(".md") ? cleanName : `${cleanName}.md`;
+      const parentPath = file.parent?.path;
+      if (!parentPath) return;
+      const destPath = normalizePath(`${parentPath}/${fileName}`);
+      if (destPath === file.path) return; // nom inchangé
+      if (this.app.vault.getAbstractFileByPath(destPath)) {
+        new Notice(t("binder.research.renameAlreadyExists", { name: cleanName }));
+        return;
+      }
+      await this.app.fileManager.renameFile(file, destPath);
+      new Notice(t("binder.research.renamed", { name: cleanName }));
+      void this.render(true);
+    }).open();
+  }
+
+  /** Menu contextuel d'un fichier de recherche : Renommer, Dupliquer, Corbeille. */
+  showResearchFileContextMenu(e: MouseEvent, file: TFile): void {
+    const menu = new Menu();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.research.openNewTab"))
+        .setIcon("file-plus")
+        .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file))
+    );
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.research.renameFile"))
+        .setIcon("pencil")
+        .onClick(() => this.promptRenameResearchFile(file))
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.duplicate"))
+        .setIcon("copy")
+        .onClick(async () => {
+          const content = await this.app.vault.read(file);
+          const copySuffix = t("binder.research.copySuffix");
+          let name = `${file.basename} (${copySuffix})`;
+          let dest = normalizePath(`${file.parent!.path}/${name}.md`);
+          let k = 2;
+          while (this.app.vault.getAbstractFileByPath(dest)) {
+            name = `${file.basename} (${copySuffix} ${k++})`;
+            dest = normalizePath(`${file.parent!.path}/${name}.md`);
+          }
+          await this.app.vault.create(dest, content);
+          new Notice(t("shared.duplicated", { name }));
+          void this.render(true);
+        })
+    );
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.trash"))
+        .setIcon("trash")
+        .onClick(async () => {
+          await this.app.fileManager.trashFile(file);
+          new Notice(t("shared.trashed", { name: this.plugin.titleFor(file) || file.basename }));
+          void this.render(true);
+        })
+    );
+    menu.showAtMouseEvent(e);
   }
 
   makeSynopsisArea(parent: HTMLElement, file: TFile, rows: number): HTMLTextAreaElement {
@@ -283,6 +528,45 @@ export abstract class BaseFeuilletsView extends ItemView {
     return wrap;
   }
 
+  /** Dossier d'une catégorie de recherche pour la langue active : réutilise
+   * un dossier déjà existant sous son nom français OU anglais (jamais de
+   * doublon, même quand le projet a été créé dans l'autre langue), sinon
+   * le crée sous le libellé de la langue active. */
+  /** Cherche le dossier d'une catégorie de recherche pour la langue active :
+   * réutilise un dossier déjà existant sous son nom français OU anglais
+   * (jamais de doublon, même quand le projet a été créé dans l'autre
+   * langue), sinon null. Ne crée JAMAIS de dossier : le rendu reste
+   * purement descriptif. */
+  private findResearchCategoryFolder(
+    baseResearch: string,
+    researchFolders: Record<string, { label: string }>,
+    key: string
+  ): TFolder | null {
+    const names = researchFolderNames(researchFolders, key);
+    for (const name of names) {
+      const existing = this.app.vault.getAbstractFileByPath(
+        normalizePath(`${baseResearch}/${name}`)
+      );
+      if (existing instanceof TFolder) return existing;
+    }
+    return null;
+  }
+
+  /** Variante d'ÉCRITURE : garantit le dossier d'une catégorie (création
+   * explicite déclenchée par le bouton "+" de la rubrique, jamais par le
+   * rendu). Réutilise un dossier existant sous son nom français OU anglais,
+   * sinon le crée sous le libellé de la langue active. */
+  private async ensureResearchCategoryFolder(
+    baseResearch: string,
+    researchFolders: Record<string, { label: string }>,
+    key: string
+  ): Promise<TFolder> {
+    const existing = this.findResearchCategoryFolder(baseResearch, researchFolders, key);
+    if (existing) return existing;
+    const names = researchFolderNames(researchFolders, key);
+    return asFolder(await this.plugin.ensureFolder(`${baseResearch}/${names[0]}`));
+  }
+
   async renderResearchBody(container: HTMLElement, root: TFolder, gen: number): Promise<void> {
     const S = this.plugin.settings;
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
@@ -321,7 +605,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     const baseResearch = researchRoot
       ? researchRoot.path
       : `${root.path}/_Recherche`;
-    const baseResearchFolder = asFolder(await this.plugin.ensureFolder(baseResearch));
+    const baseResearchFile = this.app.vault.getAbstractFileByPath(baseResearch);
+    const baseResearchFolder = baseResearchFile instanceof TFolder ? baseResearchFile : null;
     if (this._renderGen !== gen) return;
 
     const mode = this.plugin.projectMode();
@@ -357,18 +642,20 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
 
     const sourcesFolder = rf.sources
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.sources.label}`))
+      ? this.findResearchCategoryFolder(baseResearch, rf, "sources")
       : null;
-    const bibliographieFolder = asFolder(await this.plugin.ensureFolder(
-      `${baseResearch}/${rf.bibliographie.label}`
-    ));
+    const bibliographieFolder = this.findResearchCategoryFolder(
+      baseResearch,
+      rf,
+      "bibliographie"
+    );
     /* Rationalisation : en non-fiction, Sources reste la SEULE
        bibliothèque de travail — Bibliographie devient la vue agrégée des
        sources citées (voir plus bas), plus un dossier de fiches
        manuelles. Migration automatique, idempotente (ne fait rien une
        fois les fiches déjà déplacées) : ne s'exécute jamais en fiction,
        où Bibliographie garde son sens d'origine. */
-    if (rf.sources && sourcesFolder) {
+    if (rf.sources && sourcesFolder && bibliographieFolder) {
       await this.plugin.migrateBibliographieIntoSources(bibliographieFolder, sourcesFolder);
     }
     /* rf.personnages/lieux/codex/glossaire/evenements n'existent plus en
@@ -380,24 +667,24 @@ export abstract class BaseFeuilletsView extends ItemView {
        simplement dans "customFolders" plus bas et reste visible avec son
        contenu — rien n'est supprimé automatiquement. */
     const personnagesFolder = rf.personnages
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.personnages.label}`))
+      ? this.findResearchCategoryFolder(baseResearch, rf, "personnages")
       : null;
     const lieuxFolder = rf.lieux
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.lieux.label}`))
+      ? this.findResearchCategoryFolder(baseResearch, rf, "lieux")
       : null;
     const codexFolder = rf.codex
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.codex.label}`))
+      ? this.findResearchCategoryFolder(baseResearch, rf, "codex")
       : null;
     const glossaireFolder = rf.glossaire
-      ? asFolder(await this.plugin.ensureFolder(`${baseResearch}/${rf.glossaire.label}`))
+      ? this.findResearchCategoryFolder(baseResearch, rf, "glossaire")
       : null;
     const chronoFolder = rf.evenements
-      ? this.plugin.getChronoFolder() || asFolder(await this.plugin.ensureFolder(`${baseResearch}/Chronologie`))
-      : this.plugin.getChronoFolder();
+      ? this.plugin.getChronoFolder()
+      : null;
 
     const standardPaths = new Set([
       sourcesFolder ? sourcesFolder.path : "",
-      bibliographieFolder.path,
+      bibliographieFolder ? bibliographieFolder.path : "",
       personnagesFolder ? personnagesFolder.path : "",
       lieuxFolder ? lieuxFolder.path : "",
       codexFolder ? codexFolder.path : "",
@@ -506,8 +793,8 @@ export abstract class BaseFeuilletsView extends ItemView {
           this.plugin.quickCiteSource(file);
         });
       };
-      this.renderSection(body, rf.sources.label, sourcesFolder, async () =>
-        this.createEntity(
+      this.renderSection(body, researchFolderLabel(rf, "sources"), sourcesFolder, async () =>
+        this.promptCreateResearchFile(
           sourcesFolder,
           rf.sources!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "sources", rf.sources!.newName)
@@ -519,24 +806,24 @@ export abstract class BaseFeuilletsView extends ItemView {
          c'est la vue agrégée des sources citées + le bouton pour générer
          le fichier final (voir renderBibliographySection). Créer une
          nouvelle référence se fait dans Sources, jamais ici. */
-      await this.renderBibliographySection(body, root, [sourcesFolder, bibliographieFolder]);
-    } else {
+      await this.renderBibliographySection(body, root, [sourcesFolder, ...(bibliographieFolder ? [bibliographieFolder] : [])]);
+    } else if (rf.bibliographie && bibliographieFolder) {
       /* Fiction (pas de Sources, pas de système de citation) :
          Bibliographie garde son sens d'origine — un dossier de fiches
          manuelles pour des lectures complémentaires, sans lien avec le
          texte. */
-      this.renderSection(body, rf.bibliographie.label, bibliographieFolder, async () =>
-        this.createEntity(
+      this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
+        this.promptCreateResearchFile(
           bibliographieFolder,
-          rf.bibliographie.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "bibliographie", rf.bibliographie.newName)
+          rf.bibliographie!.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, mode, "bibliographie", rf.bibliographie!.newName)
         ), "bibliographie"
       );
     }
 
     if (rf.personnages && personnagesFolder) {
-      this.renderSection(body, rf.personnages.label, personnagesFolder, async () =>
-        this.createEntity(
+      this.renderSection(body, researchFolderLabel(rf, "personnages"), personnagesFolder, async () =>
+        this.promptCreateResearchFile(
           personnagesFolder,
           rf.personnages!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "personnages", rf.personnages!.newName)
@@ -545,8 +832,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (rf.lieux && lieuxFolder) {
-      this.renderSection(body, rf.lieux.label, lieuxFolder, async () =>
-        this.createEntity(
+      this.renderSection(body, researchFolderLabel(rf, "lieux"), lieuxFolder, async () =>
+        this.promptCreateResearchFile(
           lieuxFolder,
           rf.lieux!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "lieux", rf.lieux!.newName)
@@ -555,8 +842,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (rf.codex && codexFolder) {
-      this.renderSection(body, rf.codex.label, codexFolder, async () =>
-        this.createEntity(
+      this.renderSection(body, researchFolderLabel(rf, "codex"), codexFolder, async () =>
+        this.promptCreateResearchFile(
           codexFolder,
           rf.codex!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "codex", rf.codex!.newName)
@@ -565,8 +852,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (rf.glossaire && glossaireFolder) {
-      this.renderSection(body, rf.glossaire.label, glossaireFolder, async () =>
-        this.createEntity(
+      this.renderSection(body, researchFolderLabel(rf, "glossaire"), glossaireFolder, async () =>
+        this.promptCreateResearchFile(
           glossaireFolder,
           rf.glossaire!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "glossaire", rf.glossaire!.newName)
@@ -575,8 +862,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (rf.evenements && chronoFolder) {
-      this.renderSection(body, rf.evenements.label, chronoFolder, async () =>
-        this.createEntity(
+      this.renderSection(body, researchFolderLabel(rf, "evenements"), chronoFolder, async () =>
+        this.promptCreateResearchFile(
           chronoFolder,
           rf.evenements!.newName,
           await getResearchTemplate(this.app, this.plugin.settings, mode, "evenements", rf.evenements!.newName)
@@ -587,20 +874,22 @@ export abstract class BaseFeuilletsView extends ItemView {
     // Rendu des dossiers de recherche personnalisés
     for (const folder of customFolders) {
       const folderTag = foldAccents(folder.name.toLowerCase().replace(/\s+/g, "-"));
-      this.renderSection(body, folder.name, folder, () =>
-        this.createEntity(
+      this.renderSection(body, folder.name, folder, async () => {
+        const defaultName = `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`;
+        this.promptCreateResearchFile(
           folder,
-          `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`,
+          defaultName,
           [
             "---",
-            `title: "Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}"`,
+            `title: "${defaultName}"`,
             "synopsis: ",
             "tags:",
             `  - ${folderTag}`,
             "---",
             ""
           ].join("\n")
-        ), folderTag
+        );
+      }, folderTag
       );
     }
 
@@ -757,7 +1046,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const S = this.plugin.settings;
     const collapsed = !this.researchFilterActive && !!S.collapsed[collapseKey];
 
-    const { section } = renderCollapsibleHead(container, {
+    const { section, head } = renderCollapsibleHead(container, {
       classes: {
         section: "feuillets-notes-section feuillets-research-section",
         head: "feuillets-notes-section-head",
@@ -776,6 +1065,24 @@ export abstract class BaseFeuilletsView extends ItemView {
       onCreate: onCreate ? () => { void onCreate(); } : undefined,
     });
 
+    // Ajouter l'attribut data pour identifier le dossier
+    if (folderOrFiles instanceof TFolder && typeof head.setAttribute === "function") {
+      head.setAttribute("data-research-folder-path", folderOrFiles.path);
+      head.setAttribute("data-research-folder-name", folderOrFiles.name);
+    }
+
+    /* Chaque rubrique Recherche correspond à un vrai dossier. Le menu rend
+       donc accessibles les mêmes opérations d'arborescence que dans le
+       Binder, y compris les sous-dossiers utiles à une future association
+       entre une partie du Binder et sa documentation. */
+    if (folderOrFiles instanceof TFolder) {
+      const actions = this.iconBtn(head, "more-horizontal", t("shared.research.folderActions"));
+      actions.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showResearchFolderContextMenu(e, folderOrFiles);
+      });
+    }
+
     if (collapsed) return;
 
     const list = section.createDiv({ cls: "feuillets-research-list" });
@@ -785,6 +1092,17 @@ export abstract class BaseFeuilletsView extends ItemView {
        glissé depuis une autre rubrique. */
     const destFolder = folderOrFiles instanceof TFolder ? folderOrFiles : null;
     if (destFolder) this.attachResearchDropTarget(section, destFolder);
+
+    if (folderOrFiles instanceof TFolder) {
+      /* Afficher les sous-dossiers avant les fichiers (ordre
+         alphabétique conservé à chaque niveau). */
+      const subfolders = folderOrFiles.children
+        .filter((c): c is TFolder => c instanceof TFolder)
+        .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+      for (const sf of subfolders) {
+        this.renderResearchSubfolder(list, sf);
+      }
+    }
 
     let files: TFile[] = [];
     if (folderOrFiles instanceof TFolder) {
@@ -797,98 +1115,296 @@ export abstract class BaseFeuilletsView extends ItemView {
       files = folderOrFiles;
     }
 
+    /* N'afficher "vide" que s'il n'y a ni fichier ni sous-dossier. */
     if (files.length === 0) {
-      list.createDiv({ cls: "feuillets-research-empty" }).setText(t("shared.research.empty"));
+      const hasSubfolders =
+        folderOrFiles instanceof TFolder &&
+        folderOrFiles.children.some((c): c is TFolder => c instanceof TFolder);
+      if (!hasSubfolders) {
+        list.createDiv({ cls: "feuillets-research-empty" }).setText(t("shared.research.empty"));
+      }
       return;
     }
 
     for (const f of files) {
-      const isMedia = isImageFile(f) || isPdfFile(f);
-      const row = list.createDiv({ cls: "feuillets-research-item" });
-      this.attachResearchDragSource(row, f);
-      const header = row.createDiv({ cls: "feuillets-research-item-header" });
+      this.renderResearchFileRow(list, f, folderOrFiles, rowAction);
+    }
+  }
 
-      if (isImageFile(f)) {
-        const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
-        setIcon(iconSpan, "image");
-      } else if (isPdfFile(f)) {
-        const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
-        setIcon(iconSpan, "file-text");
-      }
+  /** Affiche une ligne de fichier dans une rubrique de recherche. */
+  private renderResearchFileRow(
+    list: HTMLElement,
+    f: TFile,
+    folderOrFiles: TFolder | TFile[],
+    rowAction?: (header: HTMLElement, file: TFile) => void
+  ): void {
+    const isMedia = isImageFile(f) || isPdfFile(f);
+    const row = list.createDiv({ cls: "feuillets-research-item" });
+    this.attachResearchDragSource(row, f);
+    const header = row.createDiv({ cls: "feuillets-research-item-header" });
 
-      const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
-      nameEl.setText(this.plugin.titleFor(f));
+    if (isImageFile(f)) {
+      const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
+      setIcon(iconSpan, "image");
+    } else if (isPdfFile(f)) {
+      const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
+      setIcon(iconSpan, "file-text");
+    }
 
-      this.addPreviewBtn(header, f);
+    const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
+    nameEl.setText(this.plugin.titleFor(f));
 
-      if (isMedia) {
-        const insertLinkBtn = this.iconBtn(
-          header,
-          "link",
-          isImageFile(f)
-            ? t("shared.research.insertImageTooltip")
-            : t("shared.research.insertPdfLinkTooltip")
-        );
-        insertLinkBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const fname = f.name;
-          const link = isImageFile(f) ? `![[${fname}]]` : `[[${fname}]]`;
-          this.plugin.insertIntoActiveEditor(link);
-          new Notice(t("shared.research.linkInserted", { name: fname }));
-        });
+    this.addPreviewBtn(header, f);
 
-        const openFileBtn = this.iconBtn(
-          header,
-          "external-link",
-          t("shared.research.openFile")
-        );
-        openFileBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
-        });
-      } else if (Array.isArray(folderOrFiles)) {
-        const openFileBtn = this.iconBtn(
-          header,
-          "external-link",
-          t("shared.openNewTab")
-        );
-        openFileBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
-        });
-      } else {
-        const appearBtn = this.iconBtn(
-          header,
-          "list",
-          t("shared.research.appearancesTooltip")
-        );
-        appearBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          new AppearancesModal(this.app, this.plugin, f).open();
-        });
-        if (rowAction) rowAction(header, f);
-      }
-
-      row.addClass("internal-link");
-      row.setAttr("data-href", f.path);
-      row.setAttr("data-path", f.path);
-      row.setAttr("data-search", foldAccents(this.plugin.titleFor(f)));
-      row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
-
-      row.addEventListener("click", (e) => {
-        if (isMedia || Keymap.isModEvent(e)) {
-          openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
-          return;
-        }
-        this.viewingFile = f;
-        void this.render();
+    /* Menu contextuel ⋯ sur chaque fichier : Renommer, Dupliquer, Corbeille. */
+    if (!isMedia) {
+      const fileActionsBtn = this.iconBtn(header, "more-horizontal", t("shared.research.folderActions"));
+      fileActionsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showResearchFileContextMenu(e, f);
       });
     }
+
+    if (isMedia) {
+      const insertLinkBtn = this.iconBtn(
+        header,
+        "link",
+        isImageFile(f)
+          ? t("shared.research.insertImageTooltip")
+          : t("shared.research.insertPdfLinkTooltip")
+      );
+      insertLinkBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const fname = f.name;
+        const link = isImageFile(f) ? `![[${fname}]]` : `[[${fname}]]`;
+        this.plugin.insertIntoActiveEditor(link);
+        new Notice(t("shared.research.linkInserted", { name: fname }));
+      });
+
+      const openFileBtn = this.iconBtn(
+        header,
+        "external-link",
+        t("shared.research.openFile")
+      );
+      openFileBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
+      });
+    } else if (Array.isArray(folderOrFiles)) {
+      const openFileBtn = this.iconBtn(
+        header,
+        "external-link",
+        t("shared.openNewTab")
+      );
+      openFileBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
+      });
+    } else {
+      const appearBtn = this.iconBtn(
+        header,
+        "list",
+        t("shared.research.appearancesTooltip")
+      );
+      appearBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        new AppearancesModal(this.app, this.plugin, f).open();
+      });
+      if (rowAction) rowAction(header, f);
+    }
+
+    row.addClass("internal-link");
+    row.setAttr("data-href", f.path);
+    row.setAttr("data-path", f.path);
+    row.setAttr("data-search", foldAccents(this.plugin.titleFor(f)));
+    row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
+
+    row.addEventListener("click", (e) => {
+      if (isMedia || Keymap.isModEvent(e)) {
+        openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
+        return;
+      }
+      this.viewingFile = f;
+      void this.render();
+    });
+  }
+
+  /** Affiche récursivement un sous-dossier de recherche avec son chevron,
+   *  son icône, son menu d'actions et son contenu (sous-dossiers d'abord,
+   *  puis fichiers). La ligne entière est cliquable pour replier/déplier le
+   *  contenu ; l'état est persisté dans S.collapsed sous la clé
+   *  `research-folder:${folder.path}` (même mécanique que les rubriques). */
+  private renderResearchSubfolder(
+    parentList: HTMLElement,
+    folder: TFolder
+  ): void {
+    const S = this.plugin.settings;
+    const collapseKey = `research-folder:${folder.path}`;
+    const collapsed = !this.researchFilterActive && !!S.collapsed[collapseKey];
+
+    const subItem = parentList.createDiv({
+      cls: "feuillets-research-item feuillets-research-subfolder",
+    });
+    const header = subItem.createDiv({
+      cls: "feuillets-research-item-header",
+    });
+
+    /* Chevron d'état + icône dossier + nom : toute la ligne bascule
+       l'état replié/déplié du contenu. */
+    const chevron = header.createSpan({
+      cls: "feuillets-research-subfolder-chevron",
+    });
+    setIcon(chevron, collapsed ? "chevron-right" : "chevron-down");
+
+    const folderIcon = header.createSpan({
+      cls: "feuillets-research-item-icon",
+    });
+    setIcon(folderIcon, "folder");
+
+    const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
+    nameEl.setText(folder.name);
+
+    header.addEventListener("click", () => {
+      void (async () => {
+        if (collapsed) delete S.collapsed[collapseKey];
+        else S.collapsed[collapseKey] = true;
+        await this.plugin.saveSettings();
+        void this.render();
+      })();
+    });
+
+    /* Le sous-dossier est à la fois source et cible de drag & drop : on
+       réutilise exactement les mêmes fonctions que les fichiers, ce qui
+       permet de le déplacer vers une rubrique principale, vers un autre
+       sous-dossier, ou vers son dossier parent (les cas interdits — dans
+       lui-même, dans un descendant, conflit de nom, sortie de _Recherche —
+       sont refusés par attachResearchDropTarget). */
+    this.attachResearchDragSource(subItem, folder);
+    this.attachResearchDropTarget(subItem, folder);
+
+    /* Menu d'actions (⋮) identique à celui des dossiers racines. */
+    const actions = this.iconBtn(
+      header,
+      "more-horizontal",
+      t("shared.research.folderActions")
+    );
+    actions.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.showResearchFolderContextMenu(e, folder);
+    });
+
+    if (collapsed) return;
+
+    const nestedList = subItem.createDiv({
+      cls: "feuillets-research-list feuillets-research-nested",
+    });
+
+    /* Rendu récursif : sous-dossiers d'abord, puis fichiers. */
+    const subfolders = folder.children
+      .filter((c): c is TFolder => c instanceof TFolder)
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    for (const sf of subfolders) {
+      this.renderResearchSubfolder(nestedList, sf);
+    }
+
+    const files = folder.children
+      .filter((c): c is TFile => isResearchFile(c))
+      .sort((a, b) =>
+        this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), "fr")
+      );
+    for (const f of files) {
+      this.renderResearchFileRow(nestedList, f, folder);
+    }
+
+    if (subfolders.length === 0 && files.length === 0) {
+      nestedList
+        .createDiv({ cls: "feuillets-research-empty" })
+        .setText(t("shared.research.empty"));
+    }
+  }
+
+  /** Copie récursivement un dossier de Recherche. `readBinary`/`createBinary`
+   * préservent aussi les images et PDF déposés dans les sous-dossiers. */
+  private async copyResearchFolderContents(source: TFolder, destination: string): Promise<void> {
+    await this.app.vault.createFolder(destination);
+    for (const child of source.children) {
+      const target = normalizePath(`${destination}/${child.name}`);
+      if (child instanceof TFolder) {
+        await this.copyResearchFolderContents(child, target);
+      } else if (child instanceof TFile) {
+        const data = await this.app.vault.readBinary(child);
+        await this.app.vault.createBinary(target, data);
+      }
+    }
+  }
+
+  private async pasteResearchFolder(destination: TFolder): Promise<void> {
+    const sourcePath = this.researchFolderClipboardPath;
+    const source = sourcePath && this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(source instanceof TFolder)) {
+      this.researchFolderClipboardPath = undefined;
+      new Notice(t("shared.research.nothingToPaste"));
+      return;
+    }
+    if (destination.path === source.path || destination.path.startsWith(`${source.path}/`)) {
+      new Notice(t("shared.research.cannotPasteIntoItself"));
+      return;
+    }
+
+    const copySuffix = t("binder.research.copySuffix");
+    let name = source.name;
+    let target = normalizePath(`${destination.path}/${name}`);
+    let index = 2;
+    while (this.app.vault.getAbstractFileByPath(target)) {
+      name = `${source.name} (${copySuffix} ${index++})`;
+      target = normalizePath(`${destination.path}/${name}`);
+    }
+    await this.copyResearchFolderContents(source, target);
+    this.plugin.renderAllViews(true);
+    new Notice(t("shared.research.folderPasted", { name }));
+  }
+
+  private showResearchFolderContextMenu(e: MouseEvent, folder: TFolder): void {
+    const menu = new Menu();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.newSubfolder"))
+        .setIcon("folder-plus")
+        .onClick(() => this.plugin.newFolder(folder))
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.research.copyFolder"))
+        .setIcon("copy")
+        .onClick(() => {
+          this.researchFolderClipboardPath = folder.path;
+          new Notice(t("shared.research.folderCopied", { name: folder.name }));
+        })
+    );
+    menu.addItem((item) => {
+      item.setTitle(t("shared.research.pasteFolder")).setIcon("clipboard-paste");
+      if (!this.researchFolderClipboardPath) item.setDisabled(true);
+      else item.onClick(() => void this.pasteResearchFolder(folder));
+    });
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.contextMenu.trashFolder"))
+        .setIcon("trash")
+        .onClick(async () => {
+          await this.app.fileManager.trashFile(folder);
+          this.plugin.renderAllViews(true);
+          new Notice(t("shared.contextMenu.folderTrashed", { name: folder.name }));
+        })
+    );
+    menu.showAtMouseEvent(e);
   }
 
   /** Bouton "œil" : déclenche l'aperçu natif d'Obsidian (Aperçu de page) au
    * CLIC plutôt qu'au survol — le survol automatique gênait (aperçu qui
-   * s'ouvre en passant simplement la souris sur la liste). */
+   * s'ouvre en passant simplement la souris sur la liste). Encore utilisé
+   * par le panneau Notes (notes-view.ts) et par les fiches de Recherche —
+   * plus par le Binder. */
   addPreviewBtn(header: HTMLElement, f: TFile): HTMLElement {
     const btn = this.iconBtn(header, "eye", t("shared.previewTooltip"));
     btn.addEventListener("click", (e) => {
@@ -905,10 +1421,11 @@ export abstract class BaseFeuilletsView extends ItemView {
     return btn;
   }
 
-  /** Rend une fiche de recherche déplaçable : au dragstart, on mémorise son
-   * chemin sur le plugin (état partagé entre les rubriques, comme dragState
-   * pour le binder). Le vrai déplacement est fait par la cible de dépôt. */
-  attachResearchDragSource(row: HTMLElement, file: TFile): void {
+  /** Rend une fiche — ou un sous-dossier — de recherche déplaçable : au
+   * dragstart, on mémorise son chemin sur le plugin (état partagé entre les
+   * rubriques, comme dragState pour le binder). Le vrai déplacement est
+   * fait par la cible de dépôt. */
+  attachResearchDragSource(row: HTMLElement, file: TAbstractFile): void {
     row.draggable = true;
     row.addEventListener("dragstart", (e) => {
       this.plugin._researchDragPath = file.path;
@@ -928,10 +1445,12 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
   }
 
-  /** Fait d'une rubrique (section adossée à un dossier) une cible de dépôt :
-   * lâcher une fiche l'y déplace via fileManager.renameFile (met à jour les
-   * liens du coffre). Ignore le dépôt dans la rubrique d'origine, et refuse
-   * une collision de nom plutôt que d'écraser. */
+  /** Fait d'une rubrique ou d'un sous-dossier (section adossée à un vrai
+   * dossier) une cible de dépôt : lâcher une fiche OU un sous-dossier l'y
+   * déplace via fileManager.renameFile (met à jour les liens du coffre).
+   * Ignore le dépôt dans le dossier d'origine, refuse une collision de nom
+   * plutôt que d'écraser, refuse de ranger un dossier dans lui-même ou dans
+   * l'un de ses descendants, et ne laisse jamais rien sortir de _Recherche. */
   attachResearchDropTarget(section: HTMLElement, destFolder: TFolder): void {
     section.addEventListener("dragover", (e) => {
       if (!this.plugin._researchDragPath) return;
@@ -944,20 +1463,52 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
     section.addEventListener("drop", (e) => {
       e.preventDefault();
+      /* Un sous-dossier est lui-même une cible de dépôt DANS une rubrique
+         qui en est aussi une : sans stopPropagation, le même drop serait
+         traité deux fois (vers le sous-dossier puis vers la rubrique). */
+      e.stopPropagation();
       section.removeClass("feuillets-dragover");
       const srcPath = this.plugin._researchDragPath;
       this.plugin._researchDragPath = null;
       if (!srcPath) return;
-      const file = this.app.vault.getAbstractFileByPath(srcPath);
-      if (!(file instanceof TFile)) return;
-      if (file.parent && file.parent.path === destFolder.path) return;
-      const dest = normalizePath(`${destFolder.path}/${file.name}`);
+      const source = this.app.vault.getAbstractFileByPath(srcPath);
+      if (!source) return;
+
+      /* Refus : un dossier déposé dans lui-même ou dans un de ses
+         descendants (boucle impossible à construire). */
+      if (
+        source instanceof TFolder &&
+        (destFolder.path === source.path || destFolder.path.startsWith(`${source.path}/`))
+      ) {
+        new Notice(t("shared.research.cannotPasteIntoItself"));
+        return;
+      }
+
+      /* Refus (défensif) : sortir de l'espace _Recherche du projet actif.
+         Toutes les cibles rendues sont déjà sous _Recherche, mais on ne
+         déplace jamais un dossier de recherche hors de cet espace. */
+      const researchRoot = this.plugin.getResearchRoot();
+      const projectRoot = this.plugin.getProjectFolder();
+      const baseResearch = researchRoot instanceof TFolder
+        ? researchRoot.path
+        : projectRoot
+          ? `${projectRoot.path}/_Recherche`
+          : "_Recherche";
+      if (destFolder.path !== baseResearch && !destFolder.path.startsWith(`${baseResearch}/`)) {
+        new Notice(t("shared.research.cannotPasteIntoItself"));
+        return;
+      }
+
+      /* Déposer dans le dossier parent direct : rien à déplacer. */
+      if (source.parent && source.parent.path === destFolder.path) return;
+
+      const dest = normalizePath(`${destFolder.path}/${source.name}`);
       if (this.app.vault.getAbstractFileByPath(dest)) {
         new Notice(t("shared.research.duplicateNameInSection"));
         return;
       }
       void (async () => {
-        await this.app.fileManager.renameFile(file, dest);
+        await this.app.fileManager.renameFile(source, dest);
         this.plugin.renderAllViews(true);
       })();
     });
@@ -1287,9 +1838,215 @@ export abstract class BaseFeuilletsView extends ItemView {
     return isCollapsed;
   }
 
+  /** Actions Binder ↔ Recherche partagées entre le menu d'un DOSSIER et
+   * celui d'un FICHIER Markdown du Binder. Clé de la map
+   * researchFolderLinks : `keyNode` lui-même — dossier du Binder ou
+   * fichier du Binder directement. `displayName` est le nom affiché dans
+   * la modale (titre ou basename du fichier, nom du dossier). La création
+   * suit la règle du parent associé : pour un fichier, c'est `keyNode.parent`
+   * qui sert à trouver le dossier Recherche du parent lié s'il existe,
+   * sinon _Recherche. */
+  private addBinderResearchActions(
+    menu: Menu,
+    keyNode: TFile | TFolder,
+    displayName: string
+  ): void {
+    const plugin = this.plugin;
+
+    const linkedResearch = plugin.getLinkedResearchFolder(keyNode);
+    if (linkedResearch) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.openLinkedFolder"))
+          .setIcon("search")
+          .onClick(() => {
+            this.openResearchFolderInTab(linkedResearch);
+          })
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.changeLinkedFolder"))
+          .setIcon("pencil")
+          .onClick(() => new LinkResearchFolderModal(this.app, plugin, keyNode, displayName).open())
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.detachLinkedFolder"))
+          .setIcon("unlink")
+          .onClick(async () => {
+            await plugin.removeLinkedResearchFolder(keyNode);
+            plugin.renderAllViews(true);
+            new Notice(t("binder.research.folderDetached"));
+          })
+      );
+    } else {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.createLinkedFolder"))
+          .setIcon("folder-plus")
+          .onClick(() => {
+            /* Règle du parent associé : la création d'un dossier Recherche
+               lié se fait DANS le dossier Recherche associé du parent Binder
+               (clé `keyNode` elle-même pour un dossier, son parent pour un
+               fichier) s'il en a un — la documentation suit ainsi la
+               structure du manuscrit. Sinon, repli sur _Recherche du projet
+               actif. */
+            const parentFolder = keyNode.parent instanceof TFolder ? keyNode.parent : null;
+            const parentLinked = parentFolder ? plugin.getLinkedResearchFolder(parentFolder) : null;
+            const root = plugin.getProjectFolder();
+            let basePath: string | null = null;
+            if (parentLinked) basePath = parentLinked.path;
+            else if (root) {
+              const researchRoot = plugin.getResearchRoot();
+              basePath = researchRoot ? researchRoot.path : `${root.path}/_Recherche`;
+            }
+            if (!basePath) {
+              new Notice(t("binder.research.noResearchRoot"));
+              return;
+            }
+            new NewFolderModal(this.app, displayName, async (name) => {
+              const target = normalizePath(`${basePath}/${name}`);
+              const existing = this.app.vault.getAbstractFileByPath(target);
+              if (existing) {
+                new Notice(t("binder.research.linkAlreadyExists", { name }));
+                return;
+              }
+              const created = await this.app.vault.createFolder(target);
+              const createdFolder = this.app.vault.getAbstractFileByPath(target);
+              if (!(createdFolder instanceof TFolder)) return;
+              await plugin.setLinkedResearchFolder(keyNode, createdFolder);
+              plugin.renderAllViews(true);
+              new Notice(t("binder.research.linkedFolderCreated", { name: created.name }));
+            }).open();
+          })
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.linkExistingFolder"))
+          .setIcon("link")
+          .onClick(() => new LinkResearchFolderModal(this.app, plugin, keyNode, displayName).open())
+      );
+    }
+  }
+
+  private async openResearchFolderInTab(folder: TFolder): Promise<void> {
+    /* Ouvrir la vue Recherche de la sidebar Feuillets (pas une nouvelle
+       feuille centrale) et révéler le dossier lié. */
+    const { VIEW_SIDEBAR_FEUILLETS } = await import("../constants.js");
+    const app = this.app;
+
+    // Chercher la sidebar Feuillets existante
+    const sidebarLeaves = app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS);
+    let sidebarLeaf = sidebarLeaves.length > 0 ? sidebarLeaves[0] : null;
+
+    // Si pas de sidebar, l'ouvrir à droite
+    if (!sidebarLeaf) {
+      const rightLeaf = (app.workspace as unknown as { getRightLeaf?: (create: boolean) => unknown }).getRightLeaf?.(true);
+      sidebarLeaf = rightLeaf as unknown as WorkspaceLeaf | null;
+      if (sidebarLeaf && typeof (sidebarLeaf as unknown as { setViewState?: (state: unknown) => Promise<void> }).setViewState === "function") {
+        await (sidebarLeaf as unknown as { setViewState: (state: unknown) => Promise<void> }).setViewState({ type: VIEW_SIDEBAR_FEUILLETS, state: {} });
+      }
+    }
+
+    if (!sidebarLeaf) {
+      new Notice(t("binder.research.folderNoLongerExists"));
+      return;
+    }
+
+    // Activer la leaf de la sidebar
+    app.workspace.revealLeaf(sidebarLeaf);
+
+    // Obtenir la view sidebar et basculer vers l'onglet Recherche
+    const sidebarView = sidebarLeaf.view as unknown as {
+      activeTab?: string;
+      subViews?: Record<string, unknown & { revealLinkedResearchFolder?: (folder: TFolder) => Promise<void> }>;
+      render?: (force?: boolean) => Promise<void>;
+    } | null;
+
+    if (sidebarView) {
+      // Basculer vers l'onglet Recherche
+      if (sidebarView.activeTab !== "research") {
+        sidebarView.activeTab = "research";
+        if (typeof sidebarView.render === "function") {
+          await sidebarView.render(true);
+        }
+      }
+
+      // Révéler le dossier lié dans la vue Recherche de la sidebar
+      const researchSubView = sidebarView.subViews?.["research"];
+      if (researchSubView && typeof researchSubView.revealLinkedResearchFolder === "function") {
+        await researchSubView.revealLinkedResearchFolder(folder);
+      }
+    }
+  }
+
+  async revealLinkedResearchFolder(folder: TFolder): Promise<void> {
+    /* Méthode publique pour révéler et surligner un dossier Recherche lié.
+       Utilisée par openResearchFolderInTab et depuis les views sidebar. */
+    // Vérifier que le dossier existe toujours
+    const stillExists = this.app.vault.getAbstractFileByPath(folder.path);
+    if (!(stillExists instanceof TFolder)) {
+      new Notice(t("binder.research.folderNoLongerExists"));
+      return;
+    }
+
+    // Forcer le rendu de la view pour s'assurer que le DOM est à jour
+    if (typeof (this as unknown as { render?: (force?: boolean) => Promise<void> }).render === "function") {
+      await (this as unknown as { render?: (force?: boolean) => Promise<void> }).render?.(true);
+    }
+
+    // Surligner le dossier après un court délai
+    setTimeout(() => {
+      this.highlightResearchFolderInTab(folder);
+    }, 100);
+  }
+
+  private highlightResearchFolderInTab(folder: TFolder): void {
+    /* Chercher le dossier dans le DOM de la view Recherche et ajouter
+       un surlignage temporaire. Utilise le targetContainer (sidebar) ou
+       contentEl (centrale) selon la context. */
+    // Utiliser le conteneur de cette vue si disponible
+    const container = (this as unknown as { targetContainer?: HTMLElement; contentEl?: HTMLElement }).targetContainer ||
+                      (this as unknown as { contentEl?: HTMLElement }).contentEl;
+    if (!container) return;
+
+    // Chercher le dossier par son chemin ou son nom
+    const folderElements = container.querySelectorAll<HTMLElement>(
+      `[data-research-folder-path="${folder.path}"],
+       [data-research-folder-name="${folder.name}"]`
+    );
+
+    if (folderElements.length === 0) {
+      // Le dossier n'est pas visible (probablement un parent replié)
+      // On pourrait ici déplier les parents, mais pour l'instant on quitte silencieusement
+      return;
+    }
+
+    // Surligner le premier élément trouvé
+    const element = folderElements[0];
+    element.classList.add("feuillets-highlight-research-folder");
+
+    // Faire défiler jusqu'à l'élément
+    element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    // Retirer le surlignage après 2 secondes
+    setTimeout(() => {
+      element.classList.remove("feuillets-highlight-research-folder");
+    }, 2000);
+  }
+
   showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[]): void {
     const menu = new Menu();
     const plugin = this.plugin;
+
+    this.addBinderResearchActions(
+      menu,
+      file,
+      this.plugin.shortTitleFor?.(file) ||
+        this.plugin.titleFor?.(file) ||
+        file.basename
+    );
+    menu.addSeparator();
 
     /* Feuillet cliqué faisant partie d'une sélection multiple (voir
        handleMultiSelectClick) : Statut/Label/Tags s'appliquent alors à
@@ -1321,7 +2078,19 @@ export abstract class BaseFeuilletsView extends ItemView {
        ne passe jamais par ce hook — l'entrée y était donc invisible.
        Réservée aux vraies scènes (roleOfFile), pas aux feuillets-chapitres
        ni aux fiches hors manuscrit. */
-    if (!isGroup) {
+    if (isGroup) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.contextMenu.openWithPreview"))
+          .setIcon("eye")
+          .onClick(async () => {
+            const projectRoot = plugin.getProjectFolder();
+            if (!projectRoot) return;
+            const scope = createSelectionScope(projectRoot.path, Array.from(groupSel || []));
+            await openScopeWithPreview(this.app, scope);
+          })
+      );
+    } else {
       addOpenWithPreviewItem(menu, this.app, plugin, file);
     }
     menu.addItem((item) =>
@@ -1448,6 +2217,62 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
+    // Compilation libre
+    const compilationTitle = isGroup
+      ? t("binder.compileSelection")
+      : t("binder.compileFile");
+    menu.addItem((item) =>
+      item
+        .setTitle(compilationTitle)
+        .setIcon("download")
+        .onClick(async () => {
+          const mod = await import("../ui/export-modal.js");
+          const ExportModal = mod.ExportModal as any;
+          const { exportWithScope } = await import("../services/compile-export.js");
+
+          if (isGroup) {
+            // Compiler la sélection (tous les fichiers sélectionnés)
+            const selectedFiles = Array.from(plugin._binderMultiSelect || new Set())
+              .map((path: string) => this.app.vault.getAbstractFileByPath(path))
+              .filter((f): f is TFile => f instanceof TFile);
+            const projectRoot = plugin.getProjectFolder();
+            if (!projectRoot) {
+              new Notice("Dossier projet introuvable.");
+              return;
+            }
+            const { createSelectionScope } = await import("../services/compile-scope.js");
+            const modal = new ExportModal(this.app, plugin, {
+              type: "selection",
+              files: selectedFiles,
+            });
+            modal.setOnSubmit(async (format: string, name: string) => {
+              const scope = createSelectionScope(projectRoot.path, selectedFiles.map((f) => f.path));
+              await (exportWithScope as any)(this.app, plugin.settings, scope, format, name);
+            });
+            modal.open();
+          } else {
+            // Compiler ce fichier
+            const projectRoot = plugin.getProjectFolder();
+            if (!projectRoot) {
+              new Notice("Dossier projet introuvable.");
+              return;
+            }
+            const { createFileScope } = await import("../services/compile-scope.js");
+            const modal = new ExportModal(this.app, plugin, {
+              type: "file",
+              files: [file],
+            });
+            modal.setOnSubmit(async (format: string, name: string) => {
+              const scope = createFileScope(projectRoot.path, file.path);
+              await (exportWithScope as any)(this.app, plugin.settings, scope, format, name);
+            });
+            modal.open();
+          }
+        })
+    );
+
+    menu.addSeparator();
+
     menu.addItem((item) =>
       item
         .setTitle(t("shared.trash"))
@@ -1467,6 +2292,19 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     menu.addItem((item) =>
       item
+        .setTitle(t("shared.contextMenu.openWithPreview"))
+        .setIcon("eye")
+        .onClick(async () => {
+          const projectRoot = plugin.getProjectFolder();
+          if (!projectRoot) return;
+          const scope = createFolderScope(projectRoot.path, folder.path);
+          await openScopeWithPreview(this.app, scope);
+        })
+    );
+    menu.addSeparator();
+
+    menu.addItem((item) =>
+      item
         .setTitle(t("shared.contextMenu.newSheetInside"))
         .setIcon("file-plus")
         .onClick(async () => {
@@ -1481,6 +2319,34 @@ export abstract class BaseFeuilletsView extends ItemView {
           plugin.newFolder(folder);
         })
     );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.contextMenu.renameFolder"))
+        .setIcon("pencil")
+        .onClick(async () => {
+          const root = plugin.getProjectFolder();
+          if (root && folder.path === root.path) {
+            new Notice(t("shared.contextMenu.cannotRenameProjectRoot") || "Cannot rename the project root.");
+            return;
+          }
+          new RenameFolderModal(this.app, folder.name, async (newName) => {
+            const parent = folder.parent;
+            if (!parent) return;
+            const newPath = normalizePath(`${parent.path}/${newName}`);
+            if (this.app.vault.getAbstractFileByPath(newPath)) {
+              new Notice(t("shared.contextMenu.folderNameExists") || `A folder or file named "${newName}" already exists.`);
+              return;
+            }
+            try {
+              await this.app.fileManager.renameFile(folder, newPath);
+              plugin.renderAllViews(true);
+              new Notice(t("shared.contextMenu.folderRenamed", { name: newName }) || `Folder renamed to "${newName}".`);
+            } catch (e) {
+              new Notice(t("shared.contextMenu.renameFolderFailed") || "Failed to rename folder.");
+            }
+          }).open();
+        })
+    );
     menu.addSeparator();
 
     menu.addItem((item) =>
@@ -1492,6 +2358,9 @@ export abstract class BaseFeuilletsView extends ItemView {
           openFileActivating(this.app, this.app.workspace.getLeaf(false), note);
         })
     );
+    menu.addSeparator();
+
+    this.addBinderResearchActions(menu, folder, folder.name);
     menu.addSeparator();
 
     const note = plugin.folderNoteFor(folder);
@@ -1568,6 +2437,35 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setIcon("target")
         .onClick(() => {
           new FolderGoalModal(this.app, plugin, folder).open();
+        })
+    );
+    menu.addSeparator();
+
+    // Compilation libre
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.compileFolder"))
+        .setIcon("download")
+        .onClick(async () => {
+          const mod = await import("../ui/export-modal.js");
+          const ExportModal = mod.ExportModal as any;
+          const { exportWithScope } = await import("../services/compile-export.js");
+          const { createFolderScope } = await import("../services/compile-scope.js");
+          const projectRoot = plugin.getProjectFolder();
+          if (!projectRoot) {
+            new Notice("Dossier projet introuvable.");
+            return;
+          }
+          const modal = new ExportModal(this.app, plugin, {
+            type: "folder",
+            name: folder.name,
+            folderPath: folder.path,
+          });
+          modal.setOnSubmit(async (format: string, name: string) => {
+            const scope = createFolderScope(projectRoot.path, folder.path);
+            await (exportWithScope as any)(this.app, plugin.settings, scope, format, name);
+          });
+          modal.open();
         })
     );
     menu.addSeparator();
@@ -1649,7 +2547,7 @@ export abstract class BaseFeuilletsView extends ItemView {
    * glisser-déposer group entraîne réellement toute la sélection).
    * Retourne true si le clic a été consommé par la sélection (l'appelant
    * ne doit alors pas ouvrir le fichier). */
-  handleMultiSelectClick(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, siblings: ProjectNode[], scopeEl: HTMLElement): boolean {
+  handleMultiSelectClick(e: MouseEvent, node: TAbstractFile, parent: ProjectNode, index: number, siblings: ProjectNode[], scopeEl: HTMLElement): boolean {
     if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
     const sel = this.plugin._binderMultiSelect;
 
@@ -1665,7 +2563,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         }
       } else {
         sel.clear();
-        sel.add(file.path);
+        sel.add(node.path);
         this.plugin._binderMultiSelectAnchor = { parentPath: parent.path, index };
       }
       this.refreshMultiSelectClasses(scopeEl);
@@ -1674,8 +2572,8 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
-      if (sel.has(file.path)) sel.delete(file.path);
-      else sel.add(file.path);
+      if (sel.has(node.path)) sel.delete(node.path);
+      else sel.add(node.path);
       this.plugin._binderMultiSelectAnchor = { parentPath: parent.path, index };
       this.refreshMultiSelectClasses(scopeEl);
       return true;
@@ -1693,9 +2591,22 @@ export abstract class BaseFeuilletsView extends ItemView {
     const sel = this.plugin._binderMultiSelect;
     scopeEl.querySelectorAll("[data-path]").forEach((el) => {
       const path = el.getAttr("data-path");
-      if (sel && path && sel.has(path)) el.addClass("feuillets-multiselected");
-      else el.removeClass("feuillets-multiselected");
+      if (sel && path && sel.has(path)) el.addClass("is-selected");
+      else el.removeClass("is-selected");
     });
+  }
+
+  ensureSelectionForContextMenu(nodePath: string, scopeEl: HTMLElement): void {
+    if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
+    const sel = this.plugin._binderMultiSelect;
+
+    // Si le nœud cliqué n'est pas sélectionné, sélectionner uniquement celui-ci
+    if (!sel.has(nodePath)) {
+      sel.clear();
+      sel.add(nodePath);
+      this.refreshMultiSelectClasses(scopeEl);
+    }
+    // Sinon, garder la sélection existante (aucune action)
   }
 
   /** Actions groupées — mêmes trois gestes partagés entre le clic droit du
@@ -1731,6 +2642,27 @@ export abstract class BaseFeuilletsView extends ItemView {
     ).open();
   }
 
+  /** Filtre une liste de chemins sélectionnés pour éliminer les descendants
+   * d'autres éléments sélectionnés. Cela évite de déplacer un élément deux
+   * fois si son parent est également sélectionné. */
+  filterOutDescendants(selectedPaths: Set<string>): Set<string> {
+    const result = new Set<string>();
+    for (const path of selectedPaths) {
+      // Vérifier si ce chemin est un descendant d'un autre chemin sélectionné
+      let isDescendant = false;
+      for (const otherPath of selectedPaths) {
+        if (otherPath !== path && path.startsWith(otherPath + "/")) {
+          isDescendant = true;
+          break;
+        }
+      }
+      if (!isDescendant) {
+        result.add(path);
+      }
+    }
+    return result;
+  }
+
   attachDragHandlers(handleEl: HTMLElement, dropEl: HTMLElement, parent: ProjectNode, index: number, siblings: ProjectNode[], _scopeEl: HTMLElement): void {
     handleEl.draggable = true;
     handleEl.addEventListener("dragstart", (e) => {
@@ -1738,12 +2670,22 @@ export abstract class BaseFeuilletsView extends ItemView {
          (Cmd/Ctrl+clic ou Maj+clic, voir renderFileRow) : on entraîne tout
          le groupe, pas juste celle qu'on a saisie — sinon la sélection ne
          servirait à rien pour un vrai déplacement groupé. */
-      const sel = this.plugin._binderMultiSelect;
       const draggedPath = siblings[index] ? siblings[index].path : null;
+      const draggedNode = siblings[index];
+
+      // Interdire le drag des dossiers techniques (qui commencent par _)
+      if (draggedNode instanceof TFolder && draggedNode.name.startsWith("_")) {
+        e.preventDefault();
+        return;
+      }
+
+      const sel = this.plugin._binderMultiSelect;
       if (sel && sel.size > 1 && draggedPath && sel.has(draggedPath)) {
+        // Filtrer les descendants pour éviter de déplacer un élément deux fois
+        const filteredSel = this.filterOutDescendants(sel);
         const items = siblings
           .map((s, i) => ({ path: s.path, index: i }))
-          .filter((it) => sel.has(it.path));
+          .filter((it) => filteredSel.has(it.path));
         this.plugin.dragState = { parentPath: parent.path, multi: true, items };
       } else {
         this.plugin.dragState = {
@@ -1763,31 +2705,58 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.plugin.dragState = null;
       dropEl.removeClass("feuillets-dragging");
       this.contentEl
-        .querySelectorAll(".feuillets-dragover, .feuillets-dragging")
+        .querySelectorAll(".feuillets-dragover, .feuillets-dragging, .feuillets-dragover-folder, .feuillets-dragover-between")
         .forEach((el) => {
           el.removeClass("feuillets-dragover");
           el.removeClass("feuillets-dragging");
+          el.removeClass("feuillets-dragover-folder");
+          el.removeClass("feuillets-dragover-between");
         });
     });
     dropEl.addEventListener("dragover", (e) => {
       if (!this.plugin.dragState) return;
       e.preventDefault();
       e.dataTransfer!.dropEffect = "move";
-      dropEl.addClass("feuillets-dragover");
+
+      // Distinguer le dépôt SUR un dossier (le mettre dedans) vs ENTRE les éléments (réordonner)
+      const rect = dropEl.getBoundingClientRect();
+      const middleY = rect.top + rect.height / 2;
+      const isNearBottom = e.clientY > middleY;
+
+      // Déterminer si on dépose sur un dossier ou entre les éléments
+      const dropNode = siblings[index];
+      const isFolder = dropNode instanceof TFolder;
+
+      if (isFolder && !isNearBottom) {
+        // Au-dessus d'un dossier : indiquer un dépôt DANS le dossier
+        dropEl.addClass("feuillets-dragover-folder");
+        dropEl.removeClass("feuillets-dragover-between");
+      } else {
+        // En bas d'un élément ou d'un fichier : indiquer insertion APRÈS
+        dropEl.addClass("feuillets-dragover-between");
+        dropEl.removeClass("feuillets-dragover-folder");
+      }
     });
     dropEl.addEventListener("dragleave", () => {
       dropEl.removeClass("feuillets-dragover");
+      dropEl.removeClass("feuillets-dragover-folder");
+      dropEl.removeClass("feuillets-dragover-between");
     });
     dropEl.addEventListener("drop", (e) => {
       void (async () => {
       e.preventDefault();
       dropEl.removeClass("feuillets-dragover");
+      dropEl.removeClass("feuillets-dragover-folder");
+      dropEl.removeClass("feuillets-dragover-between");
       if (!this.plugin.dragState) return;
       const drag = this.plugin.dragState;
       this.plugin.dragState = null;
 
       if (drag.multi) {
-        if (this.plugin._binderMultiSelect) this.plugin._binderMultiSelect.clear();
+        // Conserver les chemins des éléments déplacés pour restaurer la sélection après
+        const movedPaths = (drag.items || []).map((it) => it.path);
+        const newSelection = new Set<string>();
+
         const sameParentTarget = drag.parentPath === parent.path ? siblings[index] : null;
         const draggedIndices = new Set((drag.items || []).map((it) => it.index));
         if (
@@ -1835,6 +2804,16 @@ export abstract class BaseFeuilletsView extends ItemView {
             }
           }
         }
+
+        // Restaurer la sélection avec les nouveaux chemins
+        for (const oldPath of movedPaths) {
+          const node = this.app.vault.getAbstractFileByPath(oldPath);
+          if (node) {
+            newSelection.add(node.path);
+          }
+        }
+        this.plugin._binderMultiSelect = newSelection;
+
         this.plugin.renderAllViews(true);
         return;
       }
@@ -1894,26 +2873,35 @@ export abstract class BaseFeuilletsView extends ItemView {
    * vide n'a alors aucune cible de drop — glisser une scène dedans ne
    * faisait rien. `dropEl` est ici le message "Aucun feuillet…" affiché à
    * la place de la liste ; le dépôt ajoute simplement à la fin de `folder`. */
-  attachEmptyFolderDropHandler(dropEl: HTMLElement, folder: TFolder): void {
+  attachEmptyFolderDropHandler(dropEl: HTMLElement | null | undefined, folder: TFolder): void {
+    if (!dropEl) return;
     dropEl.addEventListener("dragover", (e) => {
       if (!this.plugin.dragState) return;
       e.preventDefault();
       e.dataTransfer!.dropEffect = "move";
-      dropEl.addClass("feuillets-dragover");
+      // Pour le dossier vide, c'est toujours un dépôt DANS le dossier
+      dropEl.addClass("feuillets-dragover-folder");
     });
     dropEl.addEventListener("dragleave", () => {
       dropEl.removeClass("feuillets-dragover");
+      dropEl.removeClass("feuillets-dragover-folder");
+      dropEl.removeClass("feuillets-dragover-between");
     });
     dropEl.addEventListener("drop", (e) => {
       void (async () => {
       e.preventDefault();
       dropEl.removeClass("feuillets-dragover");
+      dropEl.removeClass("feuillets-dragover-folder");
+      dropEl.removeClass("feuillets-dragover-between");
       if (!this.plugin.dragState) return;
       const drag = this.plugin.dragState;
       this.plugin.dragState = null;
 
       if (drag.multi) {
-        if (this.plugin._binderMultiSelect) this.plugin._binderMultiSelect.clear();
+        // Conserver les chemins des éléments déplacés pour restaurer la sélection après
+        const movedPaths = (drag.items || []).map((it) => it.path);
+        const newSelection = new Set<string>();
+
         const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
         if (srcParent instanceof TFolder) {
           for (const it of (drag.items || [])) {
@@ -1922,6 +2910,16 @@ export abstract class BaseFeuilletsView extends ItemView {
             await this.plugin.moveNode(node as ProjectNode, srcParent, folder, Number.MAX_SAFE_INTEGER);
           }
         }
+
+        // Restaurer la sélection avec les nouveaux chemins
+        for (const oldPath of movedPaths) {
+          const node = this.app.vault.getAbstractFileByPath(oldPath);
+          if (node) {
+            newSelection.add(node.path);
+          }
+        }
+        this.plugin._binderMultiSelect = newSelection;
+
         this.plugin.renderAllViews(true);
         return;
       }

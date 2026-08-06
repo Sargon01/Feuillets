@@ -102,6 +102,11 @@ declare type ProjectMeta = {
   citationStyle?: string;
   /** Filtres Recherche sauvegardés — ui/entity-modals.ts ManageSavedFiltersModal. */
   savedResearchFilters?: SavedResearchFilter[];
+  /** Association dossier Binder (clé : chemin du dossier manuscrit) → dossier
+   *  Recherche (valeur : chemin du dossier de recherche associé). Persistée par
+   *  projet dans ProjectMeta ; maintenue par main.ts
+   *  (get/set/removeLinkedResearchFolder, remapResearchFolderLinks). */
+  researchFolderLinks?: Record<string, string>;
 
   /* Réglages globaux surchargés par projet. */
   boardMode?: string;

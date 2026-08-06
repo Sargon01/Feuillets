@@ -164,6 +164,96 @@ test("parseStoryDate", async (t) => {
     const file2 = { basename: "4" };
     assert.equal(parseStoryDate(null, file2), null);
   });
+
+  /* ================ Dates en français naturel (chronologie simplifiée) ================
+   * parseStoryDate accepte désormais, en plus de l'ISO déjà compatible
+   * ci-dessus, le français naturel — voir utils/natural-date.ts. */
+
+  await t.test("« 765 » (année seule, 3 chiffres)", () => {
+    const result = parseStoryDate("765");
+    assert.equal(result.y, 765);
+    assert.equal(result.display, "765");
+  });
+
+  await t.test("« 12 mars 765 » (jour + mois + année)", () => {
+    const result = parseStoryDate("12 mars 765");
+    assert.equal(result.y, 765);
+    assert.equal(result.mo, 3);
+    assert.equal(result.d, 12);
+    assert.equal(result.display, "12 mars 765");
+  });
+
+  await t.test("« 15 mars 44 av. J.-C. » (avant J.-C.)", () => {
+    const result = parseStoryDate("15 mars 44 av. J.-C.");
+    assert.equal(result.y, -44);
+    assert.equal(result.mo, 3);
+    assert.equal(result.d, 15);
+    assert.equal(result.display, "15 mars 44 av. J.-C.");
+  });
+
+  await t.test("« vers 450 av. J.-C. » (approximatif) ne lève pas et se formate proprement", () => {
+    const result = parseStoryDate("vers 450 av. J.-C.");
+    assert.equal(result.y, -450);
+    assert.equal(result.display, "vers 450 av. J.-C.");
+  });
+
+  await t.test("ordre correct entre dates avant et après J.-C.", () => {
+    const twoBC = parseStoryDate("2 av. J.-C.");
+    const oneBC = parseStoryDate("1 av. J.-C.");
+    const oneAD = parseStoryDate("1 apr. J.-C.");
+    assert.ok(twoBC.sort < oneBC.sort);
+    assert.ok(oneBC.sort < oneAD.sort);
+  });
+
+  await t.test("aucune valeur brute (0765, -0044) affichée : toujours un affichage français propre", () => {
+    assert.equal(parseStoryDate("0765").display, "765");
+    assert.equal(parseStoryDate("-0044").display, "44 av. J.-C.");
+  });
+
+  await t.test("compatibilité ascendante stricte : le format ISO canonique déjà testé plus haut garde son affichage brut inchangé", () => {
+    assert.equal(parseStoryDate("1890").display, "1890");
+    assert.equal(parseStoryDate("1890-05").display, "1890-05");
+    assert.equal(parseStoryDate("1890-05-12").display, "1890-05-12");
+  });
+
+  /* ================ raw accepte directement number/Date (normalizeDateInput) ================ */
+
+  await t.test("raw NOMBRE (YAML sans guillemets, ex. `date: 1879`) est accepté directement", () => {
+    const result = parseStoryDate(1879);
+    assert.equal(result.y, 1879);
+    assert.equal(result.display, "1879");
+  });
+
+  await t.test("raw objet Date (YAML timestamp, ex. `date: 1755-11-03`) est accepté directement", () => {
+    const result = parseStoryDate(new Date(Date.UTC(1755, 10, 3)));
+    assert.equal(result.y, 1755);
+    assert.equal(result.mo, 11);
+    assert.equal(result.d, 3);
+  });
+
+  /* ================ heure ISO préservée, sans influence sur le tri ================ */
+
+  await t.test("« 1755-11-01 09:30 » et « 1755-11-01T09:30 » sont acceptés, l'heure reste informative", () => {
+    const withSpace = parseStoryDate("1755-11-01 09:30");
+    const withT = parseStoryDate("1755-11-01T09:30");
+    const withoutTime = parseStoryDate("1755-11-01");
+    assert.equal(withSpace.sort, withoutTime.sort, "l'heure ne doit jamais modifier le sort historique");
+    assert.equal(withT.sort, withoutTime.sort);
+    assert.equal(withSpace.display, "1er novembre 1755 à 9 h 30");
+  });
+
+  /* ================ un seul jeu de règles ISO (délègue à parseIsoDate) ================ */
+
+  await t.test("mois/jour/heure invalides sont rejetés (même règles que parseIsoDate, jamais deux parseurs différents)", () => {
+    assert.equal(parseStoryDate("1900-13-01"), null);
+    assert.equal(parseStoryDate("1900-02-31"), null);
+    assert.equal(parseStoryDate("1755-11-01 24:00"), null);
+  });
+
+  await t.test("année zéro toujours rejetée, y compris via l'ancien format ISO", () => {
+    assert.equal(parseStoryDate("0"), null);
+    assert.equal(parseStoryDate("-0000"), null);
+  });
 });
 
 test("todayKey", () => {

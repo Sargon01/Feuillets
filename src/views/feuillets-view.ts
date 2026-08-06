@@ -7,53 +7,14 @@ import { ManageProjectsModal, NewProjectModal, OpenExistingFolderModal, Duplicat
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { openWithPreview } from "./preview-view.js";
 import { t } from "../i18n/index.js";
+import { openScopeWithPreview } from "./preview-view.js";
+import { createProjectScope } from "../services/compile-scope.js";
 import { Menu, TFile, TFolder, setIcon, Notice, normalizePath, type App, type TAbstractFile } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import type FeuilletsPlugin from "../main.js";
 
 type ProjectNode = TFile | TFolder;
-type BinderIconButton = (
-  parent: HTMLElement,
-  icon: string,
-  tooltip?: string,
-  onClick?: (event: MouseEvent) => void | Promise<void>
-) => HTMLElement;
-
-/** Le feuillet actif s'il appartient bien au projet — jamais un fichier
- * ouvert par ailleurs, ni un dossier. Même règle que
- * PreviewView.isPreviewableFile, dupliquée ici faute d'accès à une instance
- * de PreviewView depuis le Binder (les deux vues sont indépendantes). */
-function activeProjectFile(app: App, plugin: FeuilletsPlugin): TFile | null {
-  const file = app.workspace.getActiveFile();
-  if (!(file instanceof TFile) || file.extension !== "md") return null;
-  const root = plugin.getProjectFolder();
-  if (!root) return null;
-  return file.path === root.path || file.path.startsWith(`${root.path}/`) ? file : null;
-}
-
-/** Action autonome pour que le bouton permanent du Binder et son test
- * utilisent exactement le même chemin d'ouverture de PreviewView : le même
- * « Ouvrir avec aperçu » que le clic droit sur un feuillet
- * (addOpenWithPreviewItem) et la commande de palette homonyme — un seul
- * comportement, trois façons d'y accéder. */
-export function addBinderPreviewButton(
-  parent: HTMLElement,
-  app: App,
-  iconButton: BinderIconButton,
-  plugin: FeuilletsPlugin,
-  openPreview: (targetApp: App, targetPlugin: FeuilletsPlugin, file: TFile) => Promise<unknown> = openWithPreview
-): HTMLElement {
-  return iconButton(parent, "eye", t("shared.contextMenu.openWithPreview"), async () => {
-    const file = activeProjectFile(app, plugin);
-    if (!file) {
-      new Notice("Ouvre d’abord un feuillet du projet pour lancer son aperçu.");
-      return;
-    }
-    await openPreview(app, plugin, file);
-  });
-}
 
 /** Narrowing sans cast direct pour obsidianmd/no-tfile-tfolder-cast — voir
  * base-feuillets-view.ts pour le même patron. Le throw n'est jamais atteint
@@ -368,10 +329,6 @@ export class FeuilletsView extends BaseFeuilletsView {
     this.iconBtn(actions, "folder-cog", t("binder.manageProjects"), () => {
       new ManageProjectsModal(this.app, this.plugin).open();
     });
-    this.barSep(actions);
-    addBinderPreviewButton(actions, this.app, (parent, icon, tooltip, onClick) =>
-      this.iconBtn(parent, icon, tooltip, onClick), this.plugin
-    );
     this.barSep(actions);
     this.iconBtn(actions, "layout-grid", t("binder.boardPlan"), () =>
       this.plugin.activateBoard()
@@ -847,8 +804,10 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       }
 
+      item.setAttr("data-path", file.path);
+
       if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(file.path)) {
-        item.addClass("feuillets-multiselected");
+        item.addClass("is-selected");
       }
 
       item.addEventListener("click", (e) => {
@@ -875,6 +834,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         this.attachDragHandlers(grip, item, parent, i, siblings, dragScopeEl);
         item.addEventListener("contextmenu", (e) => {
           e.preventDefault();
+          this.ensureSelectionForContextMenu(file.path, dragScopeEl);
           this.showFileContextMenu(e, file, parent, i, siblings);
         });
       }
@@ -1477,6 +1437,17 @@ export class FeuilletsView extends BaseFeuilletsView {
     rootRow.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       const menu = new Menu();
+      const menuTitle = t("shared.contextMenu.openWithPreview");
+      menu.addItem((item) =>
+        item
+          .setTitle(menuTitle)
+          .setIcon("eye")
+          .onClick(async () => {
+            const scope = createProjectScope(treeRoot.path);
+            await openScopeWithPreview(this.app, scope);
+          })
+      );
+      menu.addSeparator();
       menu.addItem((item) =>
         item
           .setTitle(t("binder.duplicateAsVersion"))
@@ -1488,6 +1459,59 @@ export class FeuilletsView extends BaseFeuilletsView {
           })
       );
       menu.showAtMouseEvent(e);
+    });
+
+    /* Accepter le dépôt d'un dossier imbriqué sur la racine du projet :
+       glisser Documentation/Chapitre 5 sur la racine déplace Chapitre 5 à
+       la racine, avec vérifications pour éviter les pièges courants
+       (déplacement de la racine elle-même, dossier déjà à la racine,
+       conflits de nom, rejets de fichiers). */
+    rootRow.addEventListener("dragover", (e) => {
+      if (!this.plugin.dragState) return;
+      const draggedPath = this.plugin.dragState.path;
+      if (!draggedPath) return;
+      const dragged = this.app.vault.getAbstractFileByPath(draggedPath);
+      // Accepter seulement les dossiers, pas les fichiers
+      if (!(dragged instanceof TFolder)) return;
+      // Ne pas accepter la racine elle-même
+      if (dragged.path === treeRoot.path) return;
+      // Ne pas accepter un dossier qui est déjà à la racine
+      if (dragged.parent?.path === treeRoot.path) return;
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = "move";
+      rootRow.addClass("feuillets-dragover");
+    });
+
+    rootRow.addEventListener("dragleave", () => {
+      rootRow.removeClass("feuillets-dragover");
+    });
+
+    rootRow.addEventListener("drop", (e) => {
+      void (async () => {
+        e.preventDefault();
+        rootRow.removeClass("feuillets-dragover");
+        if (!this.plugin.dragState) return;
+        const drag = this.plugin.dragState;
+        this.plugin.dragState = null;
+
+        const draggedPath = drag.multi ? null : drag.path;
+        if (!draggedPath) return;
+
+        const dragged = this.app.vault.getAbstractFileByPath(draggedPath);
+        // Accepter seulement les dossiers
+        if (!(dragged instanceof TFolder)) return;
+        // Ne pas accepter la racine
+        if (dragged.path === treeRoot.path) return;
+        // Ne pas accepter un dossier qui est déjà à la racine
+        if (dragged.parent?.path === treeRoot.path) return;
+
+        const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
+        if (!(srcParent instanceof TFolder)) return;
+
+        // Déplacer le dossier à la racine
+        await this.plugin.moveNode(dragged, srcParent, treeRoot, Number.MAX_SAFE_INTEGER);
+        this.plugin.renderAllViews(true);
+      })();
     });
 
     // Filet de sécurité : chaque dossier jamais replié explicitement
@@ -1522,7 +1546,13 @@ export class FeuilletsView extends BaseFeuilletsView {
         const row = treePane.createDiv({ cls: "feuillets-folder-row" });
         if (depth === 0) row.addClass("is-depth-0");
         row.style.paddingLeft = `${6 + depth * 14}px`;
-        if (selectedFolder.path === child.path) row.addClass("is-selected");
+        if (selectedFolder.path === child.path) row.addClass("is-active");
+
+        row.setAttr("data-path", child.path);
+
+        if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(child.path)) {
+          row.addClass("is-selected");
+        }
 
         const grip = row.createSpan({ cls: "feuillets-drag-grip" });
         setIcon(grip, "grip-vertical");
@@ -1558,6 +1588,9 @@ export class FeuilletsView extends BaseFeuilletsView {
 
         row.addEventListener("click", (e) => {
           if (e.target === addBtn || addBtn.contains(e.target as Node)) return;
+          if (this.handleMultiSelectClick(e, child, parent, i, siblings, split)) {
+            return;
+          }
           void (async () => {
             // Toggle collapse
             if (S.collapsed[child.path]) delete S.collapsed[child.path];
@@ -1568,6 +1601,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         });
         row.addEventListener("contextmenu", (e) => {
           e.preventDefault();
+          this.ensureSelectionForContextMenu(child.path, split);
           this.showFolderContextMenu(e, child, parent, i, siblings);
         });
 
@@ -1660,17 +1694,29 @@ export class FeuilletsView extends BaseFeuilletsView {
     renderFilesOf(selectedFolder, 0);
 
     if (!any) {
-      /* emptyEl capture le retour de setText() (void dans les types
-         Obsidian), pas l'élément — écart préexistant à cette migration, non
-         corrigé ici pour ne rien changer au comportement actuel. */
-      const emptyEl = listBody
-        .createDiv({ cls: "feuillets-empty" })
-        .setText(
-          S.binderSplitRecursive !== false
-            ? t("binder.list.emptyRecursive")
-            : t("binder.list.emptyDirect")
-        );
-      this.attachEmptyFolderDropHandler(emptyEl as unknown as HTMLElement, selectedFolder);
+      const emptyEl = listBody.createDiv({ cls: "feuillets-empty" });
+      emptyEl.setText(
+        S.binderSplitRecursive !== false
+          ? t("binder.list.emptyRecursive")
+          : t("binder.list.emptyDirect")
+      );
+      this.attachEmptyFolderDropHandler(emptyEl, selectedFolder);
     }
+
+    // Vider la sélection quand on clique dans une zone vide du Binder
+    split.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      // Ne vider que si le clic est dans la zone vide ou pas sur un élément avec data-path
+      if (
+        !target.closest("[data-path]") &&
+        !target.closest(".feuillets-folder-add") &&
+        !target.closest(".feuillets-drag-grip")
+      ) {
+        if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.size > 0) {
+          this.plugin._binderMultiSelect.clear();
+          this.refreshMultiSelectClasses(split);
+        }
+      }
+    });
   }
 }
