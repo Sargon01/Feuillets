@@ -1931,12 +1931,13 @@ export class PreviewView extends ItemView {
 
     const header = panel.createDiv({ cls: "feuillets-preview-export-header" });
     header.createSpan({ cls: "feuillets-preview-export-title", text: "Exporter" });
+    const headerActions = header.createDiv({ cls: "feuillets-preview-export-header-actions" });
     /* Resynchronise TOUT le panneau — y compris les champs de la première
        page, relus dans le feuillet Front — avec l'aperçu. Utile si le
        fichier a été modifié ailleurs (éditeur, autre onglet) pendant que ce
        panneau restait ouvert. */
-    this.iconBtn(header, "refresh-cw", "Actualiser l’aperçu", () => void this.reloadExportPanel());
-    this.iconBtn(header, "x", "Replier le panneau Export", () => this.toggleExportPanel(true));
+    this.iconBtn(headerActions, "refresh-cw", "Actualiser l’aperçu", () => void this.reloadExportPanel());
+    this.iconBtn(headerActions, "x", "Replier le panneau Export", () => this.toggleExportPanel(true));
 
     const main = panel.createDiv({ cls: "feuillets-preview-export-main" });
     const field = (label: string, control: HTMLElement): HTMLElement => {
@@ -1949,14 +1950,14 @@ export class PreviewView extends ItemView {
     /* La portée est AFFICHÉE, jamais modifiable ici : le fil d'Ariane est le
        seul endroit qui change la portée (règle 3 et 4 du chantier). */
     const scopeLabel = createEl("span");
-    scopeLabel.className = "feuillets-preview-export-control";
+    scopeLabel.className = "feuillets-preview-export-control feuillets-preview-export-scope-value";
     scopeLabel.setAttribute("aria-label", "Portée de l’export");
     scopeLabel.textContent = this.scopeDisplayLabel();
     this.exportScopeLabelEl = scopeLabel;
     field("Portée", scopeLabel);
 
     const included = createEl("button");
-    included.className = "clickable-icon feuillets-preview-export-action";
+    included.className = "clickable-icon feuillets-preview-export-control feuillets-preview-export-action-btn";
     setIcon(included, "list-checks");
     included.createSpan({ text: "Éléments inclus" });
     included.setAttribute("aria-label", "Choisir les éléments inclus");
@@ -1994,8 +1995,6 @@ export class PreviewView extends ItemView {
     });
     field("Gabarit", template);
 
-    await this.renderFirstPageSection(panel, templates);
-
     const name = createEl("input");
     name.className = "feuillets-preview-export-control";
     name.type = "text";
@@ -2013,7 +2012,10 @@ export class PreviewView extends ItemView {
     });
     field("Nom du fichier", name);
 
-    const launch = panel.createEl("button", { cls: "clickable-icon feuillets-preview-export-launch" });
+    await this.renderFirstPageSection(panel, templates);
+
+    const footer = panel.createDiv({ cls: "feuillets-preview-export-footer" });
+    const launch = footer.createEl("button", { cls: "clickable-icon mod-cta feuillets-preview-export-launch" });
     setIcon(launch, "download");
     launch.createSpan({ text: "Exporter" });
     launch.setAttribute("aria-label", "Lancer l’export");
@@ -2156,7 +2158,8 @@ export class PreviewView extends ItemView {
     const details = panel.createEl("details", { cls: "feuillets-preview-export-details" });
     details.open = this.firstPageOpen;
     details.addEventListener("toggle", () => { this.firstPageOpen = details.open; });
-    details.createEl("summary", { text: "Première page" });
+    const summary = details.createEl("summary", { cls: "feuillets-preview-export-summary" });
+    summary.createSpan({ text: "Première page" });
     const body = details.createDiv({ cls: "feuillets-preview-export-details-body" });
     this.firstPageBodyEl = body;
     this.firstPageTemplates = templates;
@@ -2171,36 +2174,46 @@ export class PreviewView extends ItemView {
     body.empty();
     const { files, selected, included } = this.frontTitleState();
 
-    const includeRow = body.createEl("label", { cls: "feuillets-preview-export-inline-field" });
-    includeRow.createSpan({ text: "Inclure la page de titre" });
+    const row1 = body.createDiv({ cls: "feuillets-preview-export-row feuillets-preview-export-row-1" });
+    const row2 = body.createDiv({ cls: "feuillets-preview-export-row feuillets-preview-export-row-2" });
+
+    const includeWrap = row1.createDiv({ cls: "feuillets-preview-export-field feuillets-preview-export-field-checkbox" });
+    const includeRow = includeWrap.createEl("label", { cls: "feuillets-preview-export-inline-field" });
     const includeInput = includeRow.createEl("input", { type: "checkbox" });
     includeInput.checked = included;
     includeInput.setAttribute("aria-label", "Inclure la page de titre");
     includeInput.addEventListener("change", () => void this.setFirstPageIncluded(includeInput.checked));
+    includeRow.createSpan({ text: "Inclure la page de titre" });
 
     if (selected) {
       /* Un <div>, pas un <label> : le bouton « ouvrir » qui suit ne doit pas
          être avalé par le libellé (un clic dedans activerait la liste). */
-      const fileRow = body.createDiv({ cls: "feuillets-preview-export-inline-field" });
-      fileRow.createSpan({ text: "Fichier Front" });
-      const picker = fileRow.createEl("select", { cls: "feuillets-preview-export-control" });
+      const fileWrap = row1.createDiv({ cls: "feuillets-preview-export-field feuillets-preview-export-field-front" });
+      fileWrap.createSpan({ cls: "feuillets-preview-export-label", text: "Fichier Front" });
+      const fileControls = fileWrap.createDiv({ cls: "feuillets-preview-export-file-controls" });
+      const picker = fileControls.createEl("select", { cls: "feuillets-preview-export-control" });
       for (const file of files) picker.createEl("option", { value: file.path, text: file.basename });
       picker.value = selected.path;
       picker.setAttribute("aria-label", "Fichier Front utilisé");
       picker.addEventListener("change", () => void this.chooseFrontTitleFile(picker.value));
-      this.iconBtn(fileRow, "pencil", "Ouvrir le fichier Front", () => void this.openFrontFile(selected.path));
+      this.iconBtn(fileControls, "pencil", "Ouvrir le fichier Front", () => void this.openFrontFile(selected.path));
 
       const content = await this.app.vault.cachedRead(selected);
       for (const { label, role } of FIRST_PAGE_FIELDS) {
-        const row = body.createEl("label", { cls: "feuillets-preview-export-inline-field" });
-        row.createSpan({ text: label });
-        const input = row.createEl("input", { type: "text" });
+        const isRow1 = role === "titre" || role === "sous-titre";
+        const targetRow = isRow1 ? row1 : row2;
+
+        const wrap = targetRow.createDiv({
+          cls: `feuillets-preview-export-field feuillets-preview-export-field-${role}`,
+        });
+        wrap.createSpan({ cls: "feuillets-preview-export-label", text: label });
+        const input = wrap.createEl("input", { type: "text", cls: "feuillets-preview-export-control" });
         input.value = readTitleRoleValue(content, role);
         input.setAttribute("aria-label", label);
         input.addEventListener("change", () => void this.setFirstPageField(selected.path, role, input.value));
       }
     } else {
-      body.createDiv({
+      row2.createDiv({
         cls: "setting-item-description",
         text: "Aucun feuillet Front de type « titre » : l'aperçu compose alors une page de titre à partir du projet.",
       });
@@ -2210,9 +2223,14 @@ export class PreviewView extends ItemView {
      * modifie le même gabarit actif que le rendu et les exports, et c'est le
      * seul endroit où se règlent en-têtes, pieds, numéros de page, distances
      * aux bords et positionnement. */
-    const visualLayout = body.createEl("button", { cls: "clickable-icon feuillets-preview-export-action" });
-    setIcon(visualLayout, "panel-top");
-    visualLayout.createSpan({ text: "Mise en page visuelle" });
+    const visualLayout = body.createEl("button", { cls: "clickable-icon feuillets-preview-export-visual-btn" });
+    const visualLeft = visualLayout.createDiv({ cls: "feuillets-preview-export-visual-left" });
+    const iconSpan = visualLeft.createSpan({ cls: "feuillets-preview-export-visual-icon" });
+    setIcon(iconSpan, "panel-top");
+    visualLeft.createSpan({ text: "Mise en page visuelle" });
+
+    const chevron = visualLayout.createSpan({ cls: "feuillets-preview-export-chevron" });
+    setIcon(chevron, "chevron-right");
     visualLayout.setAttribute("aria-label", "Régler visuellement la page de titre");
     visualLayout.addEventListener("click", () => {
       // La valeur persistée est la référence : le panneau peut être en train
