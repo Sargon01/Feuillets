@@ -84,25 +84,28 @@ test("7. Nettoie et déduplique les tags", () => {
   assert.deepEqual(index[0].tags, ["#histoire"]);
 });
 
-test("8. Applique les priorités par défaut", () => {
+test("8. Applique les priorités par défaut (feuillet < chapitre < recherche projet < partagé < manuel)", () => {
   const sources = [
     { path: "Manual", kind: "manual" },
     { path: "Shared", kind: "shared" },
+    { path: "Research", kind: "project-research" },
     { path: "Chapter", kind: "chapter" },
-    { path: "Research", kind: "project-research" }
+    { path: "Feuillet", kind: "feuillet" }
   ];
   const documents = [
     { path: "Manual/M.md", basename: "M" },
     { path: "Shared/S.md", basename: "S" },
+    { path: "Research/R.md", basename: "R" },
     { path: "Chapter/C.md", basename: "C" },
-    { path: "Research/R.md", basename: "R" }
+    { path: "Feuillet/F.md", basename: "F" }
   ];
 
   const index = buildContextIndex(documents, sources);
-  assert.equal(index[0].sourceKind, "project-research"); // priority 0
+  assert.equal(index[0].sourceKind, "feuillet");         // priority 0
   assert.equal(index[1].sourceKind, "chapter");          // priority 10
-  assert.equal(index[2].sourceKind, "shared");           // priority 20
-  assert.equal(index[3].sourceKind, "manual");           // priority 30
+  assert.equal(index[2].sourceKind, "project-research"); // priority 20
+  assert.equal(index[3].sourceKind, "shared");           // priority 30
+  assert.equal(index[4].sourceKind, "manual");           // priority 40
 });
 
 test("9. Respecte une priorité explicite surchargée", () => {
@@ -122,10 +125,10 @@ test("9. Respecte une priorité explicite surchargée", () => {
   assert.equal(index[1].sourcePriority, 50);
 });
 
-test("10 & 11. Document dans plusieurs sources : 1 seul candidat avec la source la plus prioritaire", () => {
+test("10 & 11. Document dans plusieurs sources : 1 seul candidat avec la source la plus prioritaire (la plus précise)", () => {
   const sources = [
     { path: "Projet/Recherche/Chapitre1", kind: "chapter" },          // priority 10
-    { path: "Projet/Recherche", kind: "project-research" }            // priority 0
+    { path: "Projet/Recherche", kind: "project-research" }            // priority 20
   ];
   const documents = [
     { path: "Projet/Recherche/Chapitre1/Fiche.md", basename: "Fiche" }
@@ -133,8 +136,10 @@ test("10 & 11. Document dans plusieurs sources : 1 seul candidat avec la source 
 
   const index = buildContextIndex(documents, sources);
   assert.equal(index.length, 1);
-  assert.equal(index[0].sourceKind, "project-research");
-  assert.equal(index[0].sourcePriority, 0);
+  // Le chapitre est plus PRÉCIS que la recherche générale du projet : il
+  // gagne désormais, alors même que "Chapitre1" est aussi sous "Recherche".
+  assert.equal(index[0].sourceKind, "chapter");
+  assert.equal(index[0].sourcePriority, 10);
 });
 
 test("12. À priorité égale, la première source gagne", () => {
@@ -223,4 +228,28 @@ test("Test utilisateur 2 : déduplication des tags insensible à la casse avec c
   const index = buildContextIndex(documents, sources);
   assert.equal(index.length, 1);
   assert.deepEqual(index[0].tags, ["#Arabie", "#Commerce"]);
+});
+
+test("Test utilisateur 3 : déduplication des aliases insensible à la casse avec conservation de la première graphie", () => {
+  const sources = [{ path: "Projet/Recherche", kind: "project-research" }];
+  const documents = [
+    {
+      path: "Projet/Recherche/Duc.md",
+      basename: "Duc",
+      aliases: ["Duc de Bragance", " duc de bragance ", "DUC DE BRAGANCE", "Le Chat Botté", ""]
+    }
+  ];
+
+  const index = buildContextIndex(documents, sources);
+  assert.equal(index.length, 1);
+  assert.deepEqual(index[0].aliases, ["Duc de Bragance", "Le Chat Botté"]);
+});
+
+test("Aliases absents : champ vide, jamais undefined ni erreur", () => {
+  const sources = [{ path: "Projet/Recherche", kind: "project-research" }];
+  const documents = [{ path: "Projet/Recherche/Sans.md", basename: "Sans" }];
+
+  const index = buildContextIndex(documents, sources);
+  assert.equal(index.length, 1);
+  assert.deepEqual(index[0].aliases, []);
 });

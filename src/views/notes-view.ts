@@ -10,6 +10,8 @@ import { FRONT_PAGE_TYPES } from "../services/folder-structure.js";
 import { DiffModal } from "../ui/diff-modal.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
+import { buildContextIndex, type ContextDocument, type ContextSource } from "../services/context-index.js";
+import { matchContext } from "../services/context-matcher.js";
 
 
 type NotesPropertyType = "text" | "list" | "number" | "checkbox" | "date" | "datetime";
@@ -60,6 +62,18 @@ const TYPE_ICONS: Record<NotesPropertyType, string> = {
   checkbox: "check-square",
   date: "calendar",
   datetime: "calendar-clock",
+};
+
+/* Priorités des sources de contexte réellement produites par
+ * contextSourcesFor() — utilisées uniquement pour dédupliquer un chemin de
+ * source apparu deux fois (voir contextSourcesFor). Valeurs alignées sur
+ * les priorités par défaut de context-index.ts (feuillet < chapitre <
+ * recherche du projet), dupliquées ici à dessein : ce fichier ne doit pas
+ * modifier context-index.ts pour ce correctif. */
+const CONTEXT_SOURCE_PRIORITY: Record<"feuillet" | "chapter" | "project-research", number> = {
+  "feuillet": 0,
+  "chapter": 10,
+  "project-research": 20,
 };
 
 function inferPropertyType(value: unknown): NotesPropertyType {
@@ -224,6 +238,115 @@ export class NotesView extends BaseFeuilletsView {
     if (tags.includes("evenement")) return "evenement";
     if (tags.includes("codex")) return "codex";
     return null;
+  }
+
+  /** Dossier Chapitre réel du Binder contenant `file` — même définition que
+   * PreviewView.chapterFolderOf (dupliquée ici à dessein : ce chantier ne
+   * doit pas toucher l'Aperçu). Ne transforme jamais un dossier Partie en
+   * chapitre par défaut : son absence est une information de hiérarchie,
+   * pas une erreur. */
+  private chapterFolderOf(file: TFile): TFolder | null {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return null;
+
+    const ancestors: TFolder[] = [];
+    let folder: TFolder | null = file.parent;
+    while (folder && folder.path !== root.path) {
+      ancestors.push(folder);
+      folder = folder.parent;
+    }
+    if (!ancestors.length) return null;
+
+    for (const candidate of ancestors) {
+      if (this.plugin.roleOfFolder(candidate) === "chapitre") return candidate;
+    }
+    return null;
+  }
+
+  /** Sources de contexte autorisées pour `file` — TOUJOURS cumulatives,
+   * jamais l'une à la place de l'autre : dossier de recherche associé au
+   * feuillet lui-même (priorité "feuillet" = 0), dossier associé à son
+   * chapitre s'il existe (priorité "chapter" = 10), PUIS la recherche
+   * générale du projet, sous-dossiers compris, TOUJOURS ajoutée si elle
+   * existe (priorité "project-research" = 20) — un dossier lié ne retire
+   * jamais la Recherche générale de la liste, il s'y ajoute. Aucun retour
+   * anticipé : chaque source possible est évaluée indépendamment des
+   * autres. Réutilise EXCLUSIVEMENT l'association Binder ↔ Recherche déjà
+   * existante (plugin.getLinkedResearchFolder / researchFolderLinks, voir
+   * main.ts) — aucun second système.
+   *
+   * Un même chemin obtenu par deux voies (ex. le dossier lié au feuillet
+   * choisi identique à celui du chapitre) est dédupliqué en conservant la
+   * priorité la plus forte (la plus précise) — buildContextIndex() fait
+   * déjà ce choix par DOCUMENT, cette déduplication porte sur la liste des
+   * SOURCES elle-même, avant même de la lui passer. */
+  private contextSourcesFor(file: TFile): ContextSource[] {
+    const candidates: Array<{ path: string; kind: keyof typeof CONTEXT_SOURCE_PRIORITY }> = [];
+
+    const linkedToFile = this.plugin.getLinkedResearchFolder(file);
+    if (linkedToFile) candidates.push({ path: linkedToFile.path, kind: "feuillet" });
+
+    const chapterFolder = this.chapterFolderOf(file);
+    if (chapterFolder) {
+      const linkedToChapter = this.plugin.getLinkedResearchFolder(chapterFolder);
+      if (linkedToChapter) candidates.push({ path: linkedToChapter.path, kind: "chapter" });
+    }
+
+    const researchRoot = this.plugin.getResearchRoot();
+    if (researchRoot) candidates.push({ path: researchRoot.path, kind: "project-research" });
+
+    const byPath = new Map<string, { path: string; kind: keyof typeof CONTEXT_SOURCE_PRIORITY }>();
+    for (const candidate of candidates) {
+      const existing = byPath.get(candidate.path);
+      if (!existing || CONTEXT_SOURCE_PRIORITY[candidate.kind] < CONTEXT_SOURCE_PRIORITY[existing.kind]) {
+        byPath.set(candidate.path, candidate);
+      }
+    }
+    return Array.from(byPath.values());
+  }
+
+  /** Alias de frontmatter (`aliases`) d'un fichier, déjà disponibles dans le
+   * cache de métadonnées d'Obsidian via this.fm() (BaseFeuilletsView.fm →
+   * plugin.fmOf → metadataCache.getFileCache) — aucune lecture disque
+   * supplémentaire. Entièrement facultatifs : absence de la clé (ou fiche
+   * sans frontmatter) donne simplement une liste vide, jamais une erreur.
+   * Accepte aussi bien une chaîne unique qu'une liste YAML, comme le reste
+   * du frontmatter Obsidian. */
+  private aliasesOf(file: TFile): string[] {
+    const raw = this.fm(file)?.aliases;
+    if (!raw) return [];
+    const list = Array.isArray(raw) ? raw : [raw];
+    return list.map(String).filter(Boolean);
+  }
+
+  /** Documents Markdown des sources autorisées, récursivement — path,
+   * basename, titre Feuillets existant (repli sur le basename), tags et
+   * alias Obsidian, exactement les champs attendus par buildContextIndex().
+   * La déduplication d'un même fichier atteint par plusieurs sources est
+   * déléguée à buildContextIndex (priorité la plus précise = la plus
+   * basse gagne), pas reproduite ici. */
+  private collectContextDocuments(sources: ContextSource[]): ContextDocument[] {
+    const documents: ContextDocument[] = [];
+    const walk = (folder: TFolder): void => {
+      for (const child of folder.children) {
+        if (child instanceof TFolder) {
+          walk(child);
+        } else if (child instanceof TFile && child.extension === "md") {
+          documents.push({
+            path: child.path,
+            basename: child.basename,
+            title: this.plugin.titleFor(child),
+            tags: this.plugin.tagsOf(child),
+            aliases: this.aliasesOf(child),
+          });
+        }
+      }
+    };
+    for (const source of sources) {
+      const folder = this.app.vault.getAbstractFileByPath(source.path);
+      if (folder instanceof TFolder) walk(folder);
+    }
+    return documents;
   }
 
   /** Propriétés du fichier ouvert — reprise de l'ancien onglet Propriétés
@@ -480,69 +603,29 @@ export class NotesView extends BaseFeuilletsView {
     const collapseKey = "notes:field:contexte";
     const collapsed = !!S.collapsed[collapseKey];
 
-    const researchRoot = this.plugin.getResearchRoot();
-    if (!researchRoot && jalons.length === 0) return;
+    /* Sources autorisées — moteur de contexte indépendant (context-index.js
+       / context-matcher.js), branché sur l'association Binder ↔ Recherche
+       DÉJÀ existante (plugin.getLinkedResearchFolder), jamais sur un second
+       système : feuillet actif → son chapitre → recherche générale du
+       projet (sous-dossiers compris), voir contextSourcesFor(). */
+    const sources = this.contextSourcesFor(file);
+    if (sources.length === 0 && jalons.length === 0) return;
 
-    const projectEntities: TFile[] = [];
-    const walk = (folder: TFolder): void => {
-      for (const child of folder.children) {
-        if (child instanceof TFolder) {
-          walk(child);
-        } else if (child instanceof TFile && child.extension === "md") {
-          projectEntities.push(child);
-        }
-      }
-    };
-    if (researchRoot) walk(researchRoot);
+    const documents = this.collectContextDocuments(sources);
+    const index = buildContextIndex(documents, sources);
 
     const raw = await this.app.vault.cachedRead(file);
     const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
 
+    // Le texte du feuillet actif (frontmatter exclu) est envoyé tel quel au
+    // moteur — buildContextIndex() puis matchContext(), rien d'autre.
+    const matches = matchContext(body, index);
+
     const citedSet = new Set<TFile>();
     for (const jalon of jalons) citedSet.add(jalon);
-
-    const linkRe = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
-    let m: RegExpExecArray | null;
-    while ((m = linkRe.exec(body)) !== null) {
-      const captured = m[1];
-      const linkText = captured.trim().toLowerCase();
-      const match = projectEntities.find(
-        (ent) =>
-          ent.basename.toLowerCase() === linkText ||
-          this.plugin.titleFor(ent).toLowerCase() === linkText
-      );
-      if (match) {
-        citedSet.add(match);
-      }
-    }
-
-    const sortedForRegex = [...projectEntities].sort((a, b) => {
-      const lenA = Math.max(a.basename.length, this.plugin.titleFor(a).length);
-      const lenB = Math.max(b.basename.length, this.plugin.titleFor(b).length);
-      return lenB - lenA;
-    });
-
-    for (const ent of sortedForRegex) {
-      if (citedSet.has(ent)) continue;
-
-      const title = this.plugin.titleFor(ent);
-      const basename = ent.basename;
-      const aliases = this.fm(ent)?.aliases || [];
-      const aliasList = (Array.isArray(aliases) ? aliases : [aliases]).map(String).filter(Boolean);
-
-      const candidates = [title, basename, ...aliasList]
-        .map((name) => name.trim())
-        .filter((name) => name.length >= 3);
-
-      if (candidates.length === 0) continue;
-
-      const escapedCandidates = candidates.map(c => c.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'));
-      const pattern = "(?:^|[^a-zA-Z0-9À-ÖØ-öø-ÿ])(" + escapedCandidates.join("|") + ")(?:$|[^a-zA-Z0-9À-ÖØ-öø-ÿ])";
-      const regex = new RegExp(pattern, "i");
-
-      if (regex.test(body)) {
-        citedSet.add(ent);
-      }
+    for (const match of matches) {
+      const found = this.app.vault.getAbstractFileByPath(match.candidate.path);
+      if (found instanceof TFile) citedSet.add(found);
     }
 
     const entities = [...citedSet];

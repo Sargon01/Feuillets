@@ -1,8 +1,9 @@
 import { ContextCandidate } from "./context-matcher.js";
 
 export type ContextSourceKind =
-  | "project-research"
+  | "feuillet"
   | "chapter"
+  | "project-research"
   | "shared"
   | "manual";
 
@@ -17,6 +18,10 @@ export interface ContextDocument {
   basename: string;
   title?: string;
   tags?: string[];
+  /** Alias de frontmatter (Obsidian `aliases`) — facultatifs, aucune
+   * métadonnée n'est exigée. Nettoyés/dédupliqués comme les tags (voir
+   * cleanStrings) avant d'atteindre matchContext(). */
+  aliases?: string[];
 }
 
 export interface ContextIndexedCandidate extends ContextCandidate {
@@ -28,11 +33,17 @@ export interface BuildContextIndexOptions {
   includeNested?: boolean;
 }
 
+/* Une source plus PRÉCISE passe toujours avant une source plus GÉNÉRALE à
+ * pertinence égale (voir le tri de matchContext sur sourcePriority) : un
+ * dossier de recherche associé au feuillet lui-même prime sur celui de son
+ * chapitre, qui prime sur la recherche générale du projet, qui prime sur un
+ * dossier partagé, lui-même prioritaire sur une source manuelle. */
 const DEFAULT_SOURCE_PRIORITIES: Record<ContextSourceKind, number> = {
-  "project-research": 0,
+  "feuillet": 0,
   "chapter": 10,
-  "shared": 20,
-  "manual": 30
+  "project-research": 20,
+  "shared": 30,
+  "manual": 40
 };
 
 /**
@@ -59,17 +70,17 @@ function getParentDir(normPath: string): string {
 }
 
 /**
- * Nettoie et déduplique les tags d'un document de manière insensible à la casse,
- * tout en conservant la première graphie rencontrée.
+ * Nettoie et déduplique une liste de chaînes (tags OU aliases) de manière
+ * insensible à la casse, tout en conservant la première graphie rencontrée.
  */
-function cleanTags(tags?: string[]): string[] {
-  if (!tags || tags.length === 0) return [];
+function cleanStrings(values?: string[]): string[] {
+  if (!values || values.length === 0) return [];
   const result: string[] = [];
   const seenLower = new Set<string>();
 
-  for (const rawTag of tags) {
-    if (!rawTag) continue;
-    const trimmed = rawTag.trim();
+  for (const raw of values) {
+    if (!raw) continue;
+    const trimmed = raw.trim();
     if (!trimmed) continue;
 
     const lower = trimmed.toLowerCase();
@@ -163,7 +174,8 @@ export function buildContextIndex(
     if (!bestMatch) continue; // Le document n'appartient à aucune source autorisée
 
     const title = doc.title && doc.title.trim().length > 0 ? doc.title.trim() : doc.basename;
-    const tags = cleanTags(doc.tags);
+    const tags = cleanStrings(doc.tags);
+    const aliases = cleanStrings(doc.aliases);
 
     const newCandidate: ContextIndexedCandidate = {
       id: normDocPath,
@@ -171,6 +183,7 @@ export function buildContextIndex(
       title,
       basename: doc.basename,
       tags,
+      aliases,
       sourcePriority: bestMatch.priority,
       sourcePath: bestMatch.sourcePath,
       sourceKind: bestMatch.sourceKind

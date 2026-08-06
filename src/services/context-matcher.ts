@@ -4,11 +4,17 @@ export interface ContextCandidate {
   title: string;
   basename?: string;
   tags?: string[];
+  /** Alias de frontmatter (Obsidian `aliases`) — entièrement FACULTATIFS :
+   * aucune métadonnée n'est exigée, mais un alias existant doit produire
+   * une correspondance aussi fiable qu'un titre (voir la raison "alias"
+   * ci-dessous, classée juste sous "exact-title" et au-dessus de "tag"). */
+  aliases?: string[];
   sourcePriority?: number;
 }
 
 export type ContextMatchReason =
   | "exact-title"
+  | "alias"
   | "exact-basename"
   | "title-terms"
   | "tag"
@@ -91,6 +97,44 @@ function containsContiguousSequence(textWords: string[], targetWords: string[]):
 }
 
 /**
+ * Cherche un alias COMPLET (mots entiers, contigu OU tous ses termes
+ * significatifs présents dans le texte — même définition que le titre)
+ * parmi `aliases`. Ne fait JAMAIS d'un mot isolé d'un alias multi-mots une
+ * correspondance : un alias de deux mots ou plus doit être retrouvé en
+ * entier, jamais partiellement — c'est la règle qui évite le bruit qu'un
+ * simple "terme distinctif" introduirait sur des prénoms/mots courants
+ * partagés par plusieurs fiches.
+ */
+function matchFullAlias(
+  aliases: string[] | undefined,
+  textWords: string[],
+  textWordSet: Set<string>
+): { terms: string[]; contiguous: boolean } | null {
+  if (!aliases || aliases.length === 0) return null;
+
+  for (const rawAlias of aliases) {
+    if (!rawAlias) continue;
+    const normAlias = normalizeString(rawAlias);
+    const aliasWords = normAlias.split(" ").filter(Boolean);
+    if (aliasWords.length === 0) continue;
+
+    const sigAliasTerms = aliasWords.filter(w => !isWeakWord(w) && !isGenericTerm(w));
+    const matchedSigAliasTerms = sigAliasTerms.filter(w => textWordSet.has(w));
+    const isContiguousAlias = containsContiguousSequence(textWords, aliasWords);
+    const allSigAliasTermsMatched = sigAliasTerms.length > 0 && matchedSigAliasTerms.length === sigAliasTerms.length;
+
+    if (isContiguousAlias || allSigAliasTermsMatched) {
+      return {
+        terms: sigAliasTerms.length > 0 ? sigAliasTerms : aliasWords,
+        contiguous: isContiguousAlias
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Moteur indépendant de correspondance contextuelle entre le texte en cours d'écriture et les fiches candidats.
  */
 export function matchContext(
@@ -158,22 +202,33 @@ export function matchContext(
       matchedTerms = sigTitleTerms.length > 0 ? sigTitleTerms : titleWords;
       score = 5000 + matchedTerms.length * 10 + (isContiguousTitle ? 5 : 0);
     }
-    // B. Basename complet
     else {
-      const matchedSigBaseTerms = sigBasenameTerms.filter(w => textWordSet.has(w));
-      const isContiguousBase = basenameWords.length > 0 && containsContiguousSequence(textWords, basenameWords);
-      const allSigBaseTermsMatched = sigBasenameTerms.length > 0 && matchedSigBaseTerms.length === sigBasenameTerms.length;
-
-      if (isContiguousBase || allSigBaseTermsMatched) {
-        matchedReason = "exact-basename";
-        matchedTerms = sigBasenameTerms.length > 0 ? sigBasenameTerms : basenameWords;
-        score = 4000 + matchedTerms.length * 10 + (isContiguousBase ? 5 : 0);
+      // A2. Alias complet — facultatif (candidate.aliases peut être absent),
+      // mais aussi fiable qu'un titre quand il est présent : classé juste
+      // sous "exact-title" et au-dessus de "exact-basename"/"tag".
+      const aliasMatch = matchFullAlias(candidate.aliases, textWords, textWordSet);
+      if (aliasMatch) {
+        matchedReason = "alias";
+        matchedTerms = aliasMatch.terms;
+        score = 4500 + matchedTerms.length * 10 + (aliasMatch.contiguous ? 5 : 0);
       }
-      // C. Plusieurs termes du titre (au moins 2 termes significatifs dans le texte)
-      else if (matchedSigTitleTerms.length >= 2) {
-        matchedReason = "title-terms";
-        matchedTerms = matchedSigTitleTerms;
-        score = 3000 + matchedSigTitleTerms.length * 10;
+      // B. Basename complet
+      else {
+        const matchedSigBaseTerms = sigBasenameTerms.filter(w => textWordSet.has(w));
+        const isContiguousBase = basenameWords.length > 0 && containsContiguousSequence(textWords, basenameWords);
+        const allSigBaseTermsMatched = sigBasenameTerms.length > 0 && matchedSigBaseTerms.length === sigBasenameTerms.length;
+
+        if (isContiguousBase || allSigBaseTermsMatched) {
+          matchedReason = "exact-basename";
+          matchedTerms = sigBasenameTerms.length > 0 ? sigBasenameTerms : basenameWords;
+          score = 4000 + matchedTerms.length * 10 + (isContiguousBase ? 5 : 0);
+        }
+        // C. Plusieurs termes du titre (au moins 2 termes significatifs dans le texte)
+        else if (matchedSigTitleTerms.length >= 2) {
+          matchedReason = "title-terms";
+          matchedTerms = matchedSigTitleTerms;
+          score = 3000 + matchedSigTitleTerms.length * 10;
+        }
       }
     }
 
@@ -283,5 +338,27 @@ export function matchContext(
     return a.originalIndex - b.originalIndex;
   });
 
-  return matches.map(m => m.match).slice(0, limit);
+  const sortedMatches = matches.map(m => m.match);
+
+  /* Déduplication logique par TITRE normalisé : plusieurs fichiers
+   * différents (feuillet/chapitre/recherche du projet) peuvent porter
+   * exactement le même titre — le panneau Contexte ne doit montrer cette
+   * fiche logique qu'une fois, pas une entrée par source. Appliquée APRÈS
+   * le tri (score desc, sourcePriority asc, stabilité) et AVANT la limite
+   * finale : le premier match rencontré pour un titre donné est donc déjà
+   * le meilleur (règle "conserver le meilleur"), jamais recalculé ici.
+   * Clé = candidate.title normalisé (jamais basename : un titre explicite
+   * différent ne doit jamais être fusionné avec un autre). La déduplication
+   * par candidate.path plus haut reste inchangée — celle-ci s'ajoute, elle
+   * ne la remplace pas. */
+  const seenTitles = new Set<string>();
+  const uniqueMatches: ContextMatch[] = [];
+  for (const match of sortedMatches) {
+    const key = normalizeString(match.candidate.title || "");
+    if (key && seenTitles.has(key)) continue;
+    if (key) seenTitles.add(key);
+    uniqueMatches.push(match);
+  }
+
+  return uniqueMatches.slice(0, limit);
 }
