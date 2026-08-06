@@ -56,3 +56,23 @@ test("latestStateBefore : l'ordre des lignes n'a pas à être chronologique", ()
   const desordre = ["1900 : tardif.", "1700 : ancien.", "1800 : médian."].join("\n");
   assert.deepEqual(latestStateBefore(desordre, 1850), { y: 1800, text: "médian." });
 });
+
+/* Bug corrigé : une ligne d'état datée en jour précis (« 1755-11-01 : … »,
+ * plutôt qu'une simple année) faisait lire le PREMIER tiret de la date
+ * (entre année et mois) comme le séparateur du motif — le séparateur
+ * acceptant lui-même un simple tiret — et « 11-01 » (mois-jour) fuyait tel
+ * quel dans le texte affiché sous la fiche (ex. Lisbonne). */
+test("latestStateBefore : une date complète (YYYY-MM-DD) en tête de ligne n'affiche jamais son mois-jour brut", () => {
+  const fiche2 = "* 1755-11-01 : Le grand séisme frappe Lisbonne.";
+  assert.deepEqual(latestStateBefore(fiche2, 1800), { y: 1755, text: "Le grand séisme frappe Lisbonne." });
+});
+
+test("latestStateBefore : une date année-mois (YYYY-MM) en tête de ligne n'affiche jamais son mois brut", () => {
+  const fiche2 = "* 1755-11 : Le mois du grand séisme.";
+  assert.deepEqual(latestStateBefore(fiche2, 1800), { y: 1755, text: "Le mois du grand séisme." });
+});
+
+test("latestStateBefore : date complète sans puce, séparateur tiret (jamais confondu avec le tiret de la date)", () => {
+  const fiche2 = "1755-11-01 - Le grand séisme frappe Lisbonne.";
+  assert.deepEqual(latestStateBefore(fiche2, 1800), { y: 1755, text: "Le grand séisme frappe Lisbonne." });
+});

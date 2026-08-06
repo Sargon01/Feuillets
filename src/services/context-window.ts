@@ -2,18 +2,34 @@
  * Fenêtre de contexte autour du curseur — fonction PURE, sans dépendance à
  * Obsidian : reçoit le texte brut d'un feuillet (frontmatter compris) et
  * une position de curseur exprimée en offset dans CE texte, et retourne le
- * paragraphe qui contient le curseur, entouré d'un nombre `radius` de
- * paragraphes voisins de chaque côté (par défaut 1 : précédent + courant +
- * suivant). Sert à limiter l'analyse de la section « Contexte » de
- * NotesView au voisinage immédiat de l'écriture en cours, au lieu du
- * feuillet entier.
+ * paragraphe qui contient le curseur — SEUL, par défaut. Les paragraphes
+ * voisins (jusqu'à `radius` de chaque côté) ne sont ajoutés QUE si le
+ * paragraphe courant est très court (voir SHORT_PARAGRAPH_THRESHOLD) : un
+ * paragraphe normal fournit déjà assez de matière au moteur de contexte, et
+ * y ajouter systématiquement le voisinage (comportement d'origine, radius
+ * fixe) faisait remonter des fiches sans rapport dès que le curseur restait
+ * ne serait-ce qu'à un paragraphe de distance d'une mention — le symptôme
+ * "fiches sans rapport qui restent affichées après déplacement du curseur".
+ * Sert à limiter l'analyse de la section « Contexte » de NotesView au
+ * voisinage immédiat de l'écriture en cours, au lieu du feuillet entier.
  *
  * Un paragraphe est une suite de lignes séparée de ses voisines par une ou
  * plusieurs lignes vides. Le frontmatter YAML (`---\n…\n---`) en tête du
  * texte est toujours exclu, aussi bien du résultat que du calcul de
  * position : un offset qui tombe DANS le frontmatter est ramené au tout
- * début du corps.
+ * début du corps. Fonction pure et sans état : rien n'est mémorisé d'un
+ * appel à l'autre, donc jamais d'ancienne fenêtre conservée après un
+ * changement de paragraphe — chaque appel recalcule tout depuis `text`.
  */
+
+/** Un paragraphe de moins de ce nombre de caractères (une fois bordures
+ * blanches retirées) est considéré "très court" — une didascalie, une
+ * réplique isolée, un fragment — et seul alors le voisinage compense le
+ * manque de matière pour le moteur de contexte. Choisi largement en
+ * dessous d'une phrase ordinaire (~60-80 caractères) pour ne déclencher
+ * l'élargissement que sur de vrais fragments, pas sur un paragraphe normal
+ * un peu bref. */
+const SHORT_PARAGRAPH_THRESHOLD = 50;
 
 /** Longueur du bloc frontmatter YAML en tête de `text`, 0 s'il n'y en a
  * pas. Même convention que le reste du plugin (voir stripFrontmatter dans
@@ -69,10 +85,12 @@ function paragraphIndexAt(paragraphs: ParagraphRange[], offset: number): number 
 }
 
 /**
- * Retourne le paragraphe courant (celui qui contient `cursorOffset`) entouré
- * de `radius` paragraphes précédents et suivants, séparés par une ligne
- * vide — le frontmatter YAML exclu, les offsets hors bornes bornés
- * proprement (jamais d'erreur, jamais de découpage négatif).
+ * Retourne le paragraphe courant (celui qui contient `cursorOffset`) SEUL,
+ * sauf s'il est très court (voir SHORT_PARAGRAPH_THRESHOLD) : dans ce cas
+ * seulement, il est entouré de jusqu'à `radius` paragraphes précédents et
+ * suivants (par défaut 1 de chaque côté), séparés par une ligne vide — le
+ * frontmatter YAML exclu, les offsets hors bornes bornés proprement (jamais
+ * d'erreur, jamais de découpage négatif).
  */
 export function extractContextWindow(
   text: string,
@@ -94,10 +112,21 @@ export function extractContextWindow(
   if (paragraphs.length === 0) return "";
 
   const currentIndex = paragraphIndexAt(paragraphs, bodyOffset);
-  const safeRadius = Number.isFinite(radius) && radius >= 0 ? Math.floor(radius) : 1;
+  const currentParagraph = paragraphs[currentIndex];
 
-  const from = Math.max(0, currentIndex - safeRadius);
-  const to = Math.min(paragraphs.length - 1, currentIndex + safeRadius);
+  // Paragraphe courant seul par défaut — élargi uniquement s'il est très
+  // court : jamais de voisinage systématique, jamais d'ancienne fenêtre
+  // conservée (recalcul complet à chaque appel, aucun état mémorisé ici).
+  const isVeryShort = currentParagraph.text.trim().length < SHORT_PARAGRAPH_THRESHOLD;
+  const requestedRadius = Number.isFinite(radius) && radius >= 0 ? Math.floor(radius) : 1;
+  // `radius` reste la volonté explicite de l'appelant : un paragraphe très
+  // court l'autorise à s'appliquer (sinon toujours 0), mais un `radius: 0`
+  // explicite reste strictement 0 même sur un fragment très court — jamais
+  // élargi malgré lui.
+  const effectiveRadius = isVeryShort ? requestedRadius : 0;
+
+  const from = Math.max(0, currentIndex - effectiveRadius);
+  const to = Math.min(paragraphs.length - 1, currentIndex + effectiveRadius);
 
   return paragraphs
     .slice(from, to + 1)

@@ -1042,6 +1042,8 @@ export const en = {
   "main.notice.titlesUpdated": "{count} title(s) updated.",
   "main.notice.openChronologyDocFirst": "First open the chronology document to split.",
   "main.notice.noDatedTitleFound": "No dated title found (## or ### followed by a date).",
+  "main.notice.chronologyImportMissingDate": "Import cancelled: \"{title}\" has no date (### missing). No file created.",
+  "main.notice.chronologyImportInvalidDate": "Import cancelled: \"{title}\" has an unrecognized date. No file created.",
   "main.notice.chronologySplit": "Chronology split: {count} file(s) created",
   "main.notice.chronologySplitSkipped": ", {count} already existing skipped.",
   "main.notice.researchPanelHidden": "Research panel hidden — re-enable it in the settings.",

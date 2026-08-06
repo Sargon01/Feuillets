@@ -229,6 +229,13 @@ export class NotesView extends BaseFeuilletsView {
     this.renderFolderNoteLinks(wrapper, file);
     this.renderFilePropertiesSection(wrapper, file);
 
+    /* plugin.parseStoryDate() normalise directement `fm.date`, quel que soit
+       son type reçu du cache Obsidian (string, number ou objet Date — voir
+       normalizeDateInput, utils/natural-date.ts) : sans cette normalisation
+       interne, une scène datée `date: 1826-06-15` (écrite sans guillemets,
+       le cas courant) était silencieusement rejetée et tout l'enrichissement
+       personnage/lieu ci-dessous (âge, mort, évolution) disparaissait, alors
+       même que la fiche restait normalement affichée. */
     const sceneDate: StoryDate | null = this.plugin.parseStoryDate(fm.date, file);
     const jalons: TFile[] = [];
     if (sceneDate) {
@@ -832,6 +839,7 @@ export class NotesView extends BaseFeuilletsView {
          éditer la fiche elle-même), les deux usages coexistent. */
       this.addPreviewBtn(head, ent);
 
+      // Système historique (personnage) : écart d'âge / mort.
       if (kind === "personnage" && sceneDate) {
         const birth = this.plugin.parseStoryDate(efm.birth);
         const death = this.plugin.parseStoryDate(efm.death);
