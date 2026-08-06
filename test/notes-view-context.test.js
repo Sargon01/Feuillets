@@ -38,6 +38,7 @@ class FakeElement {
   addClass(classNames) { for (const className of classNames.split(" ")) this.classes.add(className); }
   removeClass(className) { this.classes.delete(className); }
   addEventListener(type, callback) { this.events.set(type, callback); }
+  removeEventListener(type, callback) { if (this.events.get(type) === callback) this.events.delete(type); }
   setText(text) { this.text = String(text); return this; }
   setAttr(name, value) { this.attributes[name] = value; }
   empty() { this.children = []; }
@@ -48,6 +49,51 @@ class FakeElement {
 
 function allElements(element) {
   return [element, ...element.children.flatMap(allElements)];
+}
+
+/** Éditeur Markdown minimal : seuls getValue/getCursor/posToOffset sont
+ * consultés par NotesView (activeSourceEditorFor/cursorContextWindow).
+ * `posToOffset` ignore l'EditorPosition reçu et renvoie directement
+ * `cursorOffset` — inutile de simuler une conversion ligne/colonne pour
+ * ces tests, seul l'offset final compte. */
+function fakeEditor(text, cursorOffset) {
+  return {
+    getValue: () => text,
+    getCursor: () => ({ line: 0, ch: 0 }),
+    posToOffset: () => cursorOffset,
+  };
+}
+
+/** Pose un éditeur Markdown actif pour `file` — retourne la vue simulée
+ * (toujours la MÊME instance à chaque appel de getActiveViewOfType, sinon
+ * un test qui la récupère deux fois pour y déclencher un événement
+ * n'attraperait pas le bon élément DOM). */
+function setActiveEditor(app, file, editor, mode = "source") {
+  const activeView = { file, editor, contentEl: new FakeElement(), getMode: () => mode };
+  app.workspace.getActiveViewOfType = () => activeView;
+  return activeView;
+}
+
+/** Minuteurs contrôlés à la main (même schéma que preview-view.test.js) :
+ * NotesView utilise window.setTimeout/clearTimeout pour son débounce
+ * (~300 ms), absents par défaut de l'environnement Node des tests. */
+function installFakeTimers() {
+  const previousWindow = globalThis.window;
+  const timers = new Map();
+  let nextId = 1;
+  globalThis.window = {
+    setTimeout: (fn) => { const id = nextId++; timers.set(id, fn); return id; },
+    clearTimeout: (id) => { timers.delete(id); },
+  };
+  return {
+    pendingCount: () => timers.size,
+    runAll() {
+      const pending = [...timers.values()];
+      timers.clear();
+      for (const fn of pending) fn();
+    },
+    restore() { globalThis.window = previousWindow; },
+  };
 }
 
 /** Construit un projet minimal avec :
@@ -459,4 +505,181 @@ test("Régression — sources cumulatives : seul le feuillet est lié, la Recher
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
   assert.deepEqual(citedNames(contentEl), ["Fiche 3"]);
+});
+
+/* ============= Fenêtre de contexte autour du curseur (extractContextWindow) =============
+ * NotesView doit préférer le paragraphe autour du curseur RÉEL de
+ * l'éditeur actif à l'analyse du feuillet entier — avec repli obligatoire
+ * sur le corps complet dès qu'aucun éditeur utilisable n'est trouvé. Voir
+ * aussi test/context-window.test.js pour extractContextWindow() elle-même,
+ * testée indépendamment de toute vue. */
+
+test("Fenêtre de contexte : une fiche hors fenêtre n'apparaît pas, un déplacement du curseur la fait apparaître", async () => {
+  const project = buildProject();
+  const paras = [
+    "Un paragraphe neutre pour espacer le récit.",
+    "On évoque Paris dans ce passage précis.",
+    "Encore un paragraphe neutre entre les deux passages.",
+    "Le Chat Botté traverse la forêt à cet instant.",
+    "Un dernier paragraphe neutre pour clore la scène."
+  ];
+  const body = paras.join("\n\n");
+  project.activeFile.content = body;
+  const { view, contentEl, app } = createView(project);
+
+  // Curseur dans le paragraphe "Paris" : "Chat Botté" est à 2 paragraphes
+  // de distance (radius par défaut = 1), donc hors fenêtre.
+  const offsetParis = body.indexOf(paras[1]) + 3;
+  setActiveEditor(app, project.activeFile, fakeEditor(body, offsetParis));
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), ["Paris"]);
+
+  // Déplacement du curseur au paragraphe "Chat Botté" : Paris sort de la
+  // fenêtre, Chat Botté (retrouvé par son alias) y entre.
+  const offsetAlias = body.indexOf(paras[3]) + 3;
+  contentEl.empty();
+  setActiveEditor(app, project.activeFile, fakeEditor(body, offsetAlias));
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), ["Fiche 42"]);
+});
+
+test("Repli obligatoire : aucun éditeur actif pour ce feuillet → corps complet", async () => {
+  const project = buildProject();
+  project.activeFile.content = "On évoque Paris au loin.";
+  const { view, contentEl } = createView(project);
+  // app.workspace.getActiveViewOfType n'est même pas défini.
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), ["Paris"]);
+});
+
+test("Repli obligatoire : éditeur actif sur un AUTRE fichier → corps complet du feuillet affiché", async () => {
+  const project = buildProject();
+  project.activeFile.content = "On évoque Paris au loin.";
+  const { view, contentEl, app } = createView(project);
+  const otherFile = new TFile("Projet/Autre.md", "");
+  setActiveEditor(app, otherFile, fakeEditor("Un texte sans rapport.", 0));
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), ["Paris"]);
+});
+
+test("Repli obligatoire : éditeur en mode LECTURE → corps complet (jamais le buffer de l'éditeur)", async () => {
+  const project = buildProject();
+  project.activeFile.content = "On évoque Paris au loin.";
+  const { view, contentEl, app } = createView(project);
+  // Texte délibérément différent de celui du disque : si le repli échouait
+  // à ignorer un éditeur en mode Lecture, ce texte (sans "Paris") serait
+  // utilisé à la place et l'assertion échouerait.
+  setActiveEditor(app, project.activeFile, fakeEditor("Texte de prévisualisation sans rapport.", 0), "preview");
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), ["Paris"]);
+});
+
+test("Repli obligatoire : une erreur de l'éditeur actif ne casse jamais le rendu", async () => {
+  const project = buildProject();
+  project.activeFile.content = "On évoque Paris au loin.";
+  const { view, contentEl, app } = createView(project);
+  app.workspace.getActiveViewOfType = () => { throw new Error("boom"); };
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), ["Paris"]);
+});
+
+test("Débounce (~300 ms) : plusieurs déplacements rapprochés du curseur ne déclenchent qu'un seul rafraîchissement", async () => {
+  const timers = installFakeTimers();
+  try {
+    const project = buildProject();
+    // 3 paragraphes, pour que déplacer le curseur du premier au dernier
+    // change RÉELLEMENT la fenêtre extraite (radius 1 : avec seulement 2
+    // paragraphes, toute position couvre déjà les deux à la fois).
+    const paras = [
+      "On évoque Paris dans ce premier passage.",
+      "Un paragraphe neutre entre les deux passages.",
+      "Le Chat Botté apparaît dans ce dernier passage."
+    ];
+    const body = paras.join("\n\n");
+    project.activeFile.content = body;
+    const { view, contentEl, app } = createView(project);
+
+    const offset = body.indexOf(paras[0]) + 3;
+    const activeView = setActiveEditor(app, project.activeFile, fakeEditor(body, offset));
+
+    // Premier rendu réel : branche l'écoute clavier/souris sur l'éditeur.
+    await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+    assert.equal(activeView.contentEl.events.has("keyup"), true, "l'écoute doit être posée après le premier rendu");
+
+    let renderCalls = 0;
+    view.render = async () => { renderCalls += 1; };
+
+    // Le curseur a réellement bougé jusqu'au DERNIER paragraphe dans
+    // l'éditeur (keyup est émis APRÈS que la touche a déplacé le curseur) —
+    // la fenêtre de contexte sera donc différente une fois le débounce
+    // écoulé (paragraphes 1+2 au lieu de 0+1).
+    const offsetPara3 = body.indexOf(paras[2]) + 3;
+    activeView.editor = fakeEditor(body, offsetPara3);
+
+    // Trois "frappes"/déplacements rapprochés : un seul minuteur en
+    // attente (chaque nouveau déclenchement annule le précédent).
+    activeView.contentEl.events.get("keyup")();
+    activeView.contentEl.events.get("keyup")();
+    activeView.contentEl.events.get("mouseup")();
+    assert.equal(timers.pendingCount(), 1, "un seul minuteur en attente malgré 3 déclenchements rapprochés");
+    assert.equal(renderCalls, 0, "aucun rendu avant l'expiration du débounce");
+
+    timers.runAll();
+    assert.equal(renderCalls, 1, "un seul rendu déclenché après le débounce");
+  } finally {
+    timers.restore();
+  }
+});
+
+test("Règle 5 : pas de nouveau rendu si la fenêtre de contexte n'a pas changé", async () => {
+  const timers = installFakeTimers();
+  try {
+    const project = buildProject();
+    // Un seul paragraphe : la fenêtre extraite est TOUJOURS identique,
+    // quelle que soit la position du curseur à l'intérieur.
+    project.activeFile.content = "On évoque Paris au loin, encore et encore.";
+    const { view, contentEl, app } = createView(project);
+    const activeView = setActiveEditor(
+      app,
+      project.activeFile,
+      fakeEditor(project.activeFile.content, project.activeFile.content.indexOf("Paris"))
+    );
+
+    await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+
+    let renderCalls = 0;
+    view.render = async () => { renderCalls += 1; };
+
+    activeView.contentEl.events.get("keyup")();
+    timers.runAll();
+
+    assert.equal(renderCalls, 0, "aucun rendu si la fenêtre de contexte est identique à la précédente");
+  } finally {
+    timers.restore();
+  }
+});
+
+test("onClose() détache l'écoute du curseur et annule le minuteur de débounce en vol", async () => {
+  const timers = installFakeTimers();
+  try {
+    const project = buildProject();
+    project.activeFile.content = "On évoque Paris au loin.";
+    const { view, contentEl, app } = createView(project);
+    const activeView = setActiveEditor(app, project.activeFile, fakeEditor(project.activeFile.content, 0));
+
+    await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+    assert.equal(activeView.contentEl.events.has("keyup"), true, "l'écoute est bien posée");
+    assert.equal(activeView.contentEl.events.has("mouseup"), true);
+
+    activeView.contentEl.events.get("keyup")(); // planifie un minuteur
+    assert.equal(timers.pendingCount(), 1);
+
+    await view.onClose();
+
+    assert.equal(timers.pendingCount(), 0, "le minuteur en attente est annulé à la fermeture");
+    assert.equal(activeView.contentEl.events.has("keyup"), false, "l'écoute keyup a été retirée à la fermeture");
+    assert.equal(activeView.contentEl.events.has("mouseup"), false, "l'écoute mouseup a été retirée à la fermeture");
+  } finally {
+    timers.restore();
+  }
 });
