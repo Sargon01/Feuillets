@@ -1,4 +1,10 @@
-import { createProjectScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
+import {
+  createProjectScope,
+  createFileScope,
+  createFolderScope,
+  resolveCompileScopeFiles,
+  type CompileScope,
+} from "../services/compile-scope.js";
 import { ItemView, MarkdownView, Menu, Notice, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_BOARD, VIEW_PREVIEW } from "../constants.js";
 import { openFeuilletsExportSettings } from "../settings/open-export-settings.js";
@@ -6,7 +12,7 @@ import { listExportTemplates, resolveExportTemplate, updateTemplateTitlePage } f
 import { paginateManuscript } from "../services/export-pdf.js";
 import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
-import { activePresetConfig, compile, exportFile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
+import { activePresetConfig, compile, exportFile, exportWithScope, resolvedFileTitleMarkdown } from "../services/compile-export.js";
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
 import { compiledTitleFor, fmOf, shortTitleFor, stripFrontmatter } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
@@ -287,6 +293,7 @@ export class PreviewView extends ItemView {
   zoomLabelEl: HTMLElement | null = null;
   btnExport: HTMLElement | null = null;
   btnSettings: HTMLElement | null = null;
+  exportScopeLabelEl: HTMLElement | null = null;
   openVisibleEl: HTMLElement | null = null;
   btnBarToggle: HTMLElement | null = null;
   exportPanelEl: HTMLElement | null = null;
@@ -352,6 +359,17 @@ export class PreviewView extends ItemView {
 
   private compileScope: CompileScope | null = null;
 
+
+
+  /* Dernier chemin CONCRET (dossier ou feuillet) explicitement ouvert dans
+     l'Aperçu via setCompileScope(). Repère de NAVIGATION uniquement : il ne
+     pilote jamais le contenu, le titre ni l'export, dont CompileScope reste
+     l'unique source de vérité. En portée Projet, il permet de réafficher
+     « Projet › Dossier › Feuillet » avec Projet actif — sans jamais être
+     re-synchronisé sur le fichier actif d'Obsidian. `null` tant qu'aucun
+     dossier/feuillet n'a été explicitement ouvert. */
+  private lastScopedNav: { type: "file" | "folder"; projectRoot: string; path: string } | null = null;
+
   /* Jeton de génération : seul le rendu le plus récent a le droit
      d'aboutir — un résultat obsolète ne remplace jamais l'affichage. */
   private refreshGeneration = 0;
@@ -367,9 +385,41 @@ export class PreviewView extends ItemView {
   }
 
   async setCompileScope(scope: CompileScope): Promise<void> {
+    this.rememberScopedNavigation(scope);
     this.compileScope = scope;
     this.updateUI();
     await this.refreshPreview();
+  }
+
+  /**
+   * Mémorise un chemin CONCRET (dossier ou feuillet) explicitement ouvert dans
+   * l'Aperçu — repère de NAVIGATION uniquement, jamais une source pour le
+   * contenu, le titre ni l'export, dont CompileScope reste l'unique source de
+   * vérité. Quand la portée repasse au niveau Projet, ce chemin permet de
+   * réafficher « Projet › Dossier › Feuillet » avec Projet actif.
+   *
+   * Règles :
+   *  - scope file  : mémorise le feuillet (projectRoot, chemin, dossier parent).
+   *  - scope folder : mémorise le dossier ; il CONSERVE le dernier feuillet
+   *    mémorisé si celui-ci appartient réellement à ce dossier, sinon il
+   *    remplace la mémoire par le dossier seul.
+   *  - scope project / selection : NE TOUCHE RIEN — le passage au Projet garde
+   *    le dernier dossier et feuillet affichés ; une sélection n'invente rien.
+   */
+  private rememberScopedNavigation(scope: CompileScope): void {
+    if (scope.type !== "file" && scope.type !== "folder") return;
+    if (scope.type === "file") {
+      this.lastScopedNav = { type: "file", projectRoot: scope.projectRoot, path: scope.path };
+      return;
+    }
+    // scope folder
+    const prev = this.lastScopedNav;
+    const keptInFolder =
+      prev && prev.type === "file" && prev.projectRoot === scope.projectRoot && prev.path.startsWith(`${scope.path}/`);
+    if (keptInFolder) {
+      return;
+    }
+    this.lastScopedNav = { type: "folder", projectRoot: scope.projectRoot, path: scope.path };
   }
 
   getViewType(): string {
@@ -394,9 +444,10 @@ export class PreviewView extends ItemView {
   }
 
   async setMode(mode: PreviewMode): Promise<void> {
-    const hadCompileScope = this.compileScope !== null;
-    this.compileScope = null;
-    if (this.mode === mode && !hadCompileScope) return;
+    /* Un changement de mode historique ne détruit JAMAIS une portée
+       CompileScope déjà établie : la portée est la source de vérité, le mode
+       ne sert de repli que lorsqu'aucune portée explicite n'est posée. */
+    if (this.mode === mode) return;
     this.openVisibleRequestId++;
     if (this.autoOpenVisibleTimer !== null && typeof window !== "undefined") {
       window.clearTimeout(this.autoOpenVisibleTimer);
@@ -621,26 +672,23 @@ export class PreviewView extends ItemView {
         this.showMessage("feuillets-preview-empty", "La portée sélectionnée ne contient aucun feuillet à afficher.");
         return null;
       }
-      const segments: PreviewCompileSegment[] = [];
-      const preset = activePresetConfig(settings);
-      for (const file of files) {
-        const body = stripFrontmatter(await this.app.vault.read(file)).trim();
-        if (!body) continue;
-        const level = headingLevelOf(depthOf(this.app, settings, file));
-        const title = this.mode === "part"
-          ? this.partFileTitleMarkdown(file, body, level)
-          : this.sceneTitleMarkdown(file, level);
-        segments.push({ text: title ? `${title}\n\n${body}` : body, path: file.path, frontType: null });
-      }
-      if (!segments.length) {
-        this.showMessage("feuillets-preview-empty", "La portée sélectionnée ne contient aucun feuillet avec du contenu à afficher.");
+      /* MÊME génération de contenu que l'export : on passe par compile()
+         avec la portée CompileScope et { writeOutput: false } — aucun
+         fichier n'est posé dans _Sortie, et la page de titre (et les pages
+         Front en général) est rendue comme une VRAIE page Front grâce aux
+         segments, au lieu d'arriver en texte Markdown brut. Le corps
+         réassemblé à la main ici avait ce défaut. */
+      let result: PreviewCompileResult | null = null;
+      result = await compile(this.app, settings, null, this.compileScope, undefined, { writeOutput: false });
+      if (generation !== this.refreshGeneration) return null;
+      if (!result) {
+        this.showMessage("feuillets-preview-error", "La compilation n'a produit aucun manuscrit.");
         return null;
       }
-      const separator = preset.separator || "\n\n";
-      const firstScene = segments.find((seg) => seg.path)?.path;
+      const firstScene = result.segments?.find((s) => s.path)?.path;
       return {
-        markdown: segments.map((seg) => seg.text).join(separator),
-        segments,
+        markdown: result.manuscript,
+        segments: result.segments,
         sourcePath: firstScene || root.path,
         title: settings.manuscriptTitle || root.name,
         subtitle: `Portée ${this.compileScope.type}`,
@@ -649,16 +697,21 @@ export class PreviewView extends ItemView {
 
     if (this.mode === "manuscript") {
       let result: PreviewCompileResult | null = null;
-      result = await compile(this.app, settings);
+      /* L'Aperçu ne doit JAMAIS écrire dans _Sortie : seul le bouton d'export
+         explicite a le droit de poser les fichiers de sortie. On compile donc
+         en mémoire ({ writeOutput: false }) — le moteur est le même que
+         l'export, seuls les effets de bord diffèrent. */
+      result = await compile(this.app, settings, null, null, undefined, { writeOutput: false });
       if (generation !== this.refreshGeneration) return null;
       if (!result) {
         this.showMessage("feuillets-preview-error", "La compilation n'a produit aucun manuscrit.");
         return null;
       }
+      const firstScene = result.segments?.find((s) => s.path)?.path;
       return {
         markdown: result.manuscript,
         segments: result.segments,
-        sourcePath: result.outPath,
+        sourcePath: firstScene || root.path,
         title: settings.manuscriptTitle || root.name,
         subtitle: "manuscrit compilé complet",
       };
@@ -1893,15 +1946,14 @@ export class PreviewView extends ItemView {
       return control;
     };
 
-    const scope = createEl("select");
-    scope.className = "feuillets-preview-export-control";
-    for (const [value, label] of [["scene", "Feuillet"], ["chapter", "Chapitre"], ["part", "Partie"], ["manuscript", "Manuscrit"]]) {
-      scope.createEl("option", { value, text: label });
-    }
-    scope.value = this.mode;
-    scope.setAttribute("aria-label", "Portée de l’export");
-    scope.addEventListener("change", () => void this.setMode(scope.value as PreviewMode));
-    field("Portée", scope);
+    /* La portée est AFFICHÉE, jamais modifiable ici : le fil d'Ariane est le
+       seul endroit qui change la portée (règle 3 et 4 du chantier). */
+    const scopeLabel = createEl("span");
+    scopeLabel.className = "feuillets-preview-export-control";
+    scopeLabel.setAttribute("aria-label", "Portée de l’export");
+    scopeLabel.textContent = this.scopeDisplayLabel();
+    this.exportScopeLabelEl = scopeLabel;
+    field("Portée", scopeLabel);
 
     const included = createEl("button");
     included.className = "clickable-icon feuillets-preview-export-action";
@@ -2213,8 +2265,36 @@ export class PreviewView extends ItemView {
     return typeof format === "string" && format ? format : "docx";
   }
 
+  /** Libellé de portée affiché dans le panneau Export. CompileScope avant
+   * tout ; le mode historique n'est qu'un repli quand aucune portée
+   * explicite n'est posée. */
+  private scopeDisplayLabel(): string {
+    const scope = this.compileScope;
+    if (scope) {
+      switch (scope.type) {
+        case "file":
+          return "Feuillet";
+        case "folder":
+          return "Dossier";
+        case "project":
+          return "Projet";
+        case "selection":
+          return `Sélection (${scope.paths.length})`;
+      }
+    }
+    return MODE_LABELS[this.mode];
+  }
+
   async doExport(): Promise<void> {
     const format = this.exportFormat;
+    /* Portée explicite : on passe par exportWithScope, qui route chaque
+       format vers le même moteur que l'Aperçu — c'est LE point d'écriture
+       exclusif des fichiers de sortie. */
+    if (this.compileScope) {
+      const baseName = this.exportFileName().replace(/\.md$/i, "");
+      await exportWithScope(this.app, this.plugin.settings, this.compileScope, format as never, baseName);
+      return;
+    }
     const scopePath = this.exportScopePath();
     if (format === "md") {
       await compile(this.app, this.plugin.settings, scopePath);
@@ -2274,6 +2354,9 @@ export class PreviewView extends ItemView {
     const canOpenVisible = (this.mode === "chapter" || this.mode === "part" || this.mode === "manuscript") && !!this.visibleFeuilletPath;
     this.openVisibleEl?.toggleClass("is-hidden", !canOpenVisible);
     this.openVisibleEl?.setAttribute("aria-hidden", canOpenVisible ? "false" : "true");
+    /* Le libellé de portée du panneau Export suit la même portée que le
+       rendu et le fil d'Ariane (une seule source de vérité). */
+    if (this.exportScopeLabelEl) this.exportScopeLabelEl.textContent = this.scopeDisplayLabel();
     this.renderBreadcrumb();
     const collapsed = this.barCollapsed;
     this.viewEl?.toggleClass("is-bar-collapsed", collapsed);
@@ -2388,48 +2471,156 @@ export class PreviewView extends ItemView {
     return levels;
   }
 
+  /** Fil d'Ariane dérivé de la portée CompileScope active — LA source de
+   * vérité de l'Aperçu. Construit la chaîne project → dossiers → fichier à
+   * partir de `compileScope`, jamais à partir du fichier actif ni d'un mode
+   * parallèle. Retourne `null` quand aucune portée explicite n'est posée
+   * (repli hérité sur le fichier actif, voir breadcrumbLevels()). */
+  private scopeBreadcrumbLevels(): Array<{ title: string; scope: CompileScope }> | null {
+    const root = this.plugin.getProjectFolder();
+    const scope = this.compileScope;
+    if (!root || !scope) return null;
+
+    const levels: Array<{ title: string; scope: CompileScope }> = [
+      { title: this.binderProjectTitle(root), scope: createProjectScope(scope.projectRoot) },
+    ];
+
+    if (scope.type === "selection") {
+      /* Une sélection ne correspond à AUCUN emplacement unique : on ne doit
+         pas inventer de faux dossier ni de faux feuillet dans le fil d'Ariane. */
+      return levels;
+    }
+
+    /* Un chemin concret à dérouler sous la racine : le DERNIER dossier ou
+       feuillet explicitement ouvert dans l'Aperçu (rememberScopedNavigation).
+       Toute ouverture réelle file/folder remplit cette mémoire, et le passage
+       au niveau Projet ne la vide pas — d'où « Projet › Dossier › Feuillet »
+       avec Projet actif. En portée file/folder active, elle déplie volontairement
+       la même mémoire : déplier uniquement le chemin réellement possédé, jamais le
+       fichier actif d'Obsidian ni un mode parallèle. Le repère n'est réutilisé
+       que s'il appartient au SAME projectRoot que la portée active : changer de
+       projet ne réaffiche jamais les dossiers/feuillets du projet précédent. */
+    let navPath: string | null = null;
+    if (this.lastScopedNav && this.lastScopedNav.projectRoot === scope.projectRoot) {
+      navPath = this.lastScopedNav.path;
+    } else if (scope.type === "file" || scope.type === "folder") {
+      /* Sécurité : une portée file/folder explicitement posée fournit toujours
+         son propre chemin si la mémoire est absente ou d'un autre projet. */
+      navPath = scope.path;
+    }
+
+    if (!navPath) {
+      /* Ouverture directe au niveau Projet sans historique : uniquement la
+         racine. */
+      return levels;
+    }
+
+    const rootParts = scope.projectRoot.split("/");
+    const rel = navPath.split("/").slice(rootParts.length).filter(Boolean);
+    const acc: string[] = [];
+    rel.forEach((segment, index) => {
+      acc.push(segment);
+      const nodePath = `${scope.projectRoot}/${acc.join("/")}`;
+      const node = this.app.vault.getAbstractFileByPath(nodePath);
+      const isLeaf = index === rel.length - 1;
+      const fileLeaf = isLeaf && node instanceof TFile;
+      const itemScope = fileLeaf
+        ? createFileScope(scope.projectRoot, nodePath)
+        : createFolderScope(scope.projectRoot, nodePath);
+      const title = fileLeaf ? this.binderFileTitle(node) : node instanceof TFolder ? node.name : segment;
+      levels.push({ title, scope: itemScope });
+    });
+    return levels;
+  }
+
+  private isCurrentBreadcrumbScope(scope: CompileScope): boolean {
+    const current = this.compileScope;
+    if (!current) return false;
+    if (scope.type !== current.type) return false;
+    if (scope.type === "project") return true;
+    if (scope.type === "file" || scope.type === "folder") {
+      return (scope as { path: string }).path === (current as { path: string }).path;
+    }
+    return false;
+  }
+
   private renderBreadcrumb(): void {
     const host = this.breadcrumbEl;
     if (!host) return;
     host.empty();
-    const levels = this.breadcrumbLevels();
+
+    const scopeLevels = this.scopeBreadcrumbLevels();
+    const levels = scopeLevels || [];
+
     if (!levels.length) {
-      host.setText("Feuillet");
+      const fallbackLevels = this.breadcrumbLevels();
+      if (!fallbackLevels.length) {
+        host.setText("Feuillet");
+        return;
+      }
+      fallbackLevels.forEach((level, index) => {
+        if (index > 0) {
+          host.createSpan({ cls: "feuillets-preview-breadcrumb-separator", text: "›" });
+        }
+        const button = host.createEl("button", { cls: "feuillets-preview-breadcrumb-item", text: level.title });
+        const active = this.mode === level.mode;
+        button.setAttribute("title", level.title);
+        button.setAttribute("aria-label", `Afficher ${level.title}`);
+        if (active) {
+          button.addClass("is-current");
+          button.setAttribute("aria-current", "page");
+        } else {
+          button.removeClass("is-current");
+          button.setAttribute("aria-current", "false");
+          if (typeof button.removeAttribute === "function") {
+            button.removeAttribute("aria-current");
+          }
+        }
+        button.addEventListener("click", () => {
+          if (index === 0) {
+            const projectRoot = this.plugin.getProjectFolder();
+            if (projectRoot) void this.setCompileScope(createProjectScope(projectRoot.path));
+          } else {
+            void this.setMode(level.mode);
+          }
+        });
+      });
       return;
     }
+
     levels.forEach((level, index) => {
-      if (index) host.createSpan({ cls: "feuillets-preview-breadcrumb-separator", text: "›" });
-      const button = host.createEl("button", { cls: "feuillets-preview-breadcrumb-item", text: level.title });
-      const active = this.compileScope
-        ? (this.compileScope.type === "project" && level.mode === "manuscript")
-        : (this.mode === level.mode);
+      if (index > 0) {
+        host.createSpan({ cls: "feuillets-preview-breadcrumb-separator", text: "›" });
+      }
+
+      const button = host.createEl("button", {
+        cls: "feuillets-preview-breadcrumb-item",
+        text: level.title,
+      });
+
+      const isCurrent = this.isCurrentBreadcrumbScope(level.scope);
+
       button.setAttribute("title", level.title);
       button.setAttribute("aria-label", `Afficher ${level.title}`);
-      button.setAttribute("aria-current", active ? "page" : "false");
-      button.toggleClass("is-current", active);
-      const activate = (): void => {
-        if (index === 0) {
-          const projectRoot = this.plugin.getProjectFolder();
-          if (!projectRoot) return;
-          void this.setCompileScope(createProjectScope(projectRoot.path));
-          return;
+
+      if (isCurrent) {
+        button.addClass("is-current");
+        button.setAttribute("aria-current", "page");
+      } else {
+        button.removeClass("is-current");
+        button.setAttribute("aria-current", "false");
+        if (typeof button.removeAttribute === "function") {
+          button.removeAttribute("aria-current");
         }
-        if (this.mode === "manuscript" && level.mode !== "manuscript") {
-          if (level.mode === "scene") {
-            void this.openVisibleFeuillet();
-            return;
-          }
-          void this.openVisibleFeuillet().then(() => {
-            if (level.mode !== "scene") return this.setMode(level.mode);
-          });
-        } else if (level.mode === "scene" && (this.mode === "chapter" || this.mode === "part")) void this.openVisibleFeuillet();
-        else void this.setMode(level.mode);
-      };
-      button.addEventListener("click", activate);
+      }
+
+      button.addEventListener("click", () => {
+        void this.setCompileScope(level.scope);
+      });
       button.addEventListener("keydown", (event: KeyboardEvent) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        activate();
+        void this.setCompileScope(level.scope);
       });
     });
   }
@@ -2644,8 +2835,6 @@ export class PreviewView extends ItemView {
       this.resizeObserver = null;
     }
     this.cancelSceneRefresh();
-    /* Écoute de défilement du panneau source : posée à la main (l'élément
-       change avec la feuille active), donc retirée à la main. */
     this.syncScrollerCleanup?.();
     this.syncScrollerCleanup = null;
     this.syncScroller = null;
@@ -2655,8 +2844,6 @@ export class PreviewView extends ItemView {
     this.syncJob = null;
     for (const handle of this.releaseHandles) this.cancelFrame(handle);
     this.releaseHandles = [];
-    /* Invalide tout rendu encore en vol : son `load` arrivera peut-être
-       après la fermeture, il ne doit alors rien tenter d'afficher. */
     this.refreshGeneration++;
     this.refreshInFlight = false;
     this.pendingFrame = null;
@@ -2669,6 +2856,9 @@ export class PreviewView extends ItemView {
     this.breadcrumbEl = null;
     this.btnExport = null;
     this.btnSettings = null;
+    this.exportScopeLabelEl = null;
+    this.compileScope = null;
+    this.lastScopedNav = null;
     this.openVisibleEl = null;
     this.btnBarToggle = null;
     this.exportPanelEl = null;
@@ -2703,6 +2893,12 @@ export async function activatePreviewView(app: App): Promise<WorkspaceLeaf | nul
  */
 export async function openScopeWithPreview(app: App, scope: CompileScope): Promise<void> {
   const leaf = await activatePreviewView(app);
+  /* Une feuille révélée peut rester une vue DIFFÉRÉE (Obsidian ≥ 1.7) : son
+     `.view` est alors un simple placeholder sans `setCompileScope`, et l'appel
+     ci-dessous échouerait silencieusement (garde de type). Il faut forcer le
+     chargement de la vraie instance avant d'y accéder — même schéma que
+     `FeuilletsPlugin.loadDeferredViews()`. */
+  if (leaf?.isDeferred) await leaf.loadIfDeferred();
   const view = leaf?.view as any;
   if (view && typeof view.setCompileScope === "function") {
     await view.setCompileScope(scope);
@@ -2781,8 +2977,12 @@ export async function openWithPreview(
   const editorLeaf = workspace.getLeaf(false);
   await editorLeaf.openFile(file, { active: true });
 
-  // 2. L'aperçu, en mode Scène — réglé AVANT l'ouverture pour que la vue
-  //    s'ouvre directement sur le bon contenu, sans rendu intermédiaire.
+  // 2. Résoudre le projectRoot et construire la portée file.
+  const root = plugin.getProjectFolder();
+  const projectRootPath = root ? root.path : (file.parent ? file.parent.path : file.path);
+  const fileScope = createFileScope(projectRootPath, file.path);
+
+  // Conservé temporairement pour compatibilité
   plugin.settings.previewMode = "scene";
   await plugin.saveSettings?.();
 
@@ -2795,6 +2995,22 @@ export async function openWithPreview(
   }
   if (previewLeaf) void workspace.revealLeaf(previewLeaf);
 
-  // 4. Le focus reste à l'écriture, pas à l'aperçu.
+  /* Une feuille d'aperçu réutilisée (`existing[0]`, restaurée par la mise en
+     page d'Obsidian) peut être une vue DIFFÉRÉE : son `.view` n'est alors
+     qu'un placeholder sans `setCompileScope`, et l'étape 4 échouerait sans le
+     moindre avertissement. La breadcrumb « Projet › Dossier › Feuillet » se
+     réaffichait alors par coïncidence via le repli historique sur le fichier
+     actif (breadcrumbLevels()), sans jamais poser la vraie portée ni remplir
+     lastScopedNav — d'où l'effondrement au clic sur « Projet » : la toute
+     première portée jamais reçue par l'instance réelle. */
+  if (previewLeaf?.isDeferred) await previewLeaf.loadIfDeferred();
+
+  // 4. Transmettre la portée file à l'instance réelle de PreviewView.
+  const view = previewLeaf?.view as PreviewView | undefined;
+  if (view && typeof view.setCompileScope === "function") {
+    await view.setCompileScope(fileScope);
+  }
+
+  // 5. Le focus reste à l'écriture, pas à l'aperçu.
   workspace.setActiveLeaf(editorLeaf, { focus: true });
 }
