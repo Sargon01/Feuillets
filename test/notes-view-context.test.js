@@ -15,6 +15,11 @@ const { TFile, TFolder } = await import(
   isCompiledTest ? "obsidian" : compiledModule("node_modules/obsidian/index.js")
 );
 const { NotesView } = await import(modulePath("src/views/notes-view.js"));
+// La VRAIE implémentation (utils/core.js), pas une resimulation : les tests
+// "Historique" exercent le même parseStoryDate que la production, y compris
+// ses limites connues (n'accepte que string/number/boolean — d'où le
+// passage systématique par toChronologyDateInput() côté NotesView).
+const { parseStoryDate } = await import(modulePath("src/utils/core.js"));
 
 class FakeElement {
   constructor(tag = "div", options = {}) {
@@ -29,6 +34,7 @@ class FakeElement {
 
   createEl(tag, options = {}) {
     const child = new FakeElement(tag, options);
+    child.parentEl = this;
     this.children.push(child);
     return child;
   }
@@ -42,7 +48,9 @@ class FakeElement {
   setText(text) { this.text = String(text); return this; }
   setAttr(name, value) { this.attributes[name] = value; }
   empty() { this.children = []; }
-  remove() {}
+  remove() {
+    if (this.parentEl) this.parentEl.children = this.parentEl.children.filter((c) => c !== this);
+  }
   querySelector() { return null; }
   querySelectorAll() { return []; }
 }
@@ -232,12 +240,17 @@ function createView(project) {
     roleOfFolder: (folder) => (folder.path === project.chapterFolder.path ? "chapitre" : "partie"),
     tagsOf: (file) => project.tags[file.path] || [],
     titleFor: (file) => project.titles[file.path] || file.basename,
+    parseStoryDate: (raw, file) => parseStoryDate(raw, file ?? null),
+    getChronoFolder: () => null,
     async saveSettings() {},
   };
   const view = new NotesView({ app, contentEl }, plugin);
-  // aliasesOf() lit this.fm(file)?.aliases — même cache de métadonnées
-  // qu'utilisait déjà l'ancienne détection (voir NotesView.aliasesOf).
-  view.fm = (file) => ({ aliases: project.aliases?.[file.path] });
+  // aliasesOf() lit this.fm(file)?.aliases (même cache de métadonnées
+  // qu'utilisait déjà l'ancienne détection, voir NotesView.aliasesOf) ; le
+  // système historique (âge/mort/évolution) lit this.fm(file)?.date/birth/
+  // death sur CE MÊME accès — project.frontmatter permet à un test de poser
+  // ces champs par fichier sans construire un vrai frontmatter YAML.
+  view.fm = (file) => ({ aliases: project.aliases?.[file.path], ...project.frontmatter?.[file.path] });
   return { view, contentEl, app, plugin };
 }
 
@@ -245,6 +258,43 @@ function citedNames(contentEl) {
   return allElements(contentEl)
     .filter((el) => el.classes.has("feuillets-entity-name"))
     .map((el) => el.text.replace(/^•\s*/, ""));
+}
+
+/** Ligne `.feuillets-entity-row` de la fiche `title`, ou `undefined`. */
+function rowFor(contentEl, title) {
+  const rows = allElements(contentEl).filter((el) => el.classes.has("feuillets-entity-row"));
+  return rows.find((row) =>
+    allElements(row).some((el) => el.classes.has("feuillets-entity-name") && el.text === `• ${title}`)
+  );
+}
+
+/** Texte de `.feuillets-entity-age` (âge/mort, système historique
+ * personnage) sous la fiche `title` — `null` si absent. */
+function ageFor(contentEl, title) {
+  const row = rowFor(contentEl, title);
+  if (!row) return undefined;
+  const age = allElements(row).find((el) => el.classes.has("feuillets-entity-age"));
+  return age ? age.text : null;
+}
+
+/** Texte complet de `.feuillets-entity-info` (état/évolution ou synopsis,
+ * système historique lieu/événement) sous la fiche `title` — le texte
+ * principal suivi, le cas échéant, du suffixe " (depuis {year})"
+ * (.feuillets-entity-since), exactement comme rendu à l'écran. */
+function infoFor(contentEl, title) {
+  const row = rowFor(contentEl, title);
+  if (!row) return undefined;
+  const info = allElements(row).find((el) => el.classes.has("feuillets-entity-info"));
+  if (!info) return null;
+  const since = allElements(info).find((el) => el.classes.has("feuillets-entity-since"));
+  return info.text + (since ? since.text : "");
+}
+
+/** StoryDate minimal (voir NotesView/plugin.parseStoryDate) pour une année
+ * ronde — suffisant pour les tests d'écart d'âge/évolution, qui ne
+ * regardent que `.sort` et `.y`. */
+function storyDate(year) {
+  return { sort: year * 10000, y: year, mo: 0, d: 0, display: String(year) };
 }
 
 test("1. une fiche dans Recherche du projet (racine) est trouvée", async () => {
@@ -682,4 +732,227 @@ test("onClose() détache l'écoute du curseur et annule le minuteur de débounce
   } finally {
     timers.restore();
   }
+});
+
+/* =============== Enrichissements historiques (personnage/lieu/événement) ===============
+ * Système historique : écart d'âge/mort pour un personnage
+ * (plugin.parseStoryDate + efm.death, voir NotesView), dernière évolution
+ * applicable pour un lieu ou un événement (latestStateBefore, voir
+ * utils/entity-states.ts — testé isolément dans entity-states.test.js).
+ * Les deux tests ci-dessous passent par de VRAIES métadonnées Obsidian
+ * (number/Date), donc par la normalisation interne de parseStoryDate (voir
+ * normalizeDateInput, utils/natural-date.ts), pour couvrir exactement le
+ * même défaut de typage YAML que le reste du panneau. */
+
+test("Historique — personnage : Deli mort en 1815, scène 1826 → « mort depuis 11 ans (en 1815) »", async () => {
+  const project = buildProject();
+  project.titles[project.ducC.path] = "Deli";
+  project.tags = { [project.ducC.path]: ["personnage"] };
+  project.frontmatter = {
+    [project.activeFile.path]: { date: 1826 },
+    // `death` déjà résolu depuis l'alias historique `mort` (voir
+    // LEGACY_FIELD_ALIASES, services/frontmatter.ts) — ce que renvoie
+    // réellement this.fm() une fois la fiche lue. Type NUMBER brut (YAML
+    // sans guillemets), pas une chaîne pré-formatée.
+    [project.ducC.path]: { death: 1815 },
+  };
+  project.activeFile.content = "Deli apparaît en pensée dans cette scène.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, storyDate(1826), []);
+
+  assert.deepEqual(citedNames(contentEl), ["Deli"]);
+  assert.equal(ageFor(contentEl, "Deli"), "mort depuis 11 ans (en 1815)");
+});
+
+test("Historique — lieu : Suvasa, évolutions 1820 et 1825, scène 1826 → « … (depuis 1825) »", async () => {
+  const project = buildProject();
+  project.titles[project.ducC.path] = "Suvasa";
+  project.tags = { [project.ducC.path]: ["lieu"] };
+  project.frontmatter = { [project.activeFile.path]: { date: 1826 } };
+  project.ducC.content =
+    "# Évolution\n" +
+    "* 1820 : Un petit port de pêche tranquille.\n" +
+    "* 1825 : Les navires de commerce bloquent l'entrée.\n";
+  project.activeFile.content = "Suvasa s'étend devant eux, bruyante.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, storyDate(1826), []);
+
+  assert.deepEqual(citedNames(contentEl), ["Suvasa"]);
+  assert.equal(infoFor(contentEl, "Suvasa"), "Les navires de commerce bloquent l'entrée. (depuis 1825)");
+});
+
+test("Historique — lieu : puce « - » également acceptée, aucune évolution applicable → rien n'est affiché", async () => {
+  const project = buildProject();
+  project.titles[project.ducC.path] = "Suvasa";
+  project.tags = { [project.ducC.path]: ["lieu"] };
+  project.frontmatter = { [project.activeFile.path]: { date: 1810 } };
+  project.ducC.content = "# Évolution\n- 1820 : Un petit port de pêche tranquille.\n";
+  project.activeFile.content = "Suvasa n'est encore qu'un hameau.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, storyDate(1810), []);
+
+  assert.deepEqual(citedNames(contentEl), ["Suvasa"]);
+  // Aucune évolution antérieure ou égale à 1810 : pas d'état affiché, et
+  // sans synopsis, la zone info est retirée (comportement déjà existant).
+  const row = rowFor(contentEl, "Suvasa");
+  assert.equal(allElements(row).some((el) => el.classes.has("feuillets-entity-info")), false);
+});
+
+test("Historique — événement : fiche datée du 15 juin 1826, scène 1826 → traitement existant conservé", async () => {
+  const project = buildProject();
+  project.titles[project.ducC.path] = "Bataille de Suvasa";
+  project.tags = { [project.ducC.path]: ["evenement"] };
+  project.frontmatter = {
+    [project.activeFile.path]: { date: 1826 },
+    [project.ducC.path]: { date: new Date(Date.UTC(1826, 5, 15)), synopsis: "La bataille décisive de la campagne." },
+  };
+  project.ducC.content = ""; // pas de section Évolution : repli sur le synopsis
+  project.activeFile.content = "La bataille de Suvasa fait rage.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, storyDate(1826), []);
+
+  assert.deepEqual(citedNames(contentEl), ["Bataille de Suvasa"]);
+  assert.equal(infoFor(contentEl, "Bataille de Suvasa"), "La bataille décisive de la campagne.");
+});
+
+/* ==================== Faux positifs de la fenêtre de contexte (corrigés) ====================
+ * Avant correctif, extractContextWindow() élargissait TOUJOURS au
+ * paragraphe précédent et suivant (radius fixe) : une fiche mentionnée dans
+ * un paragraphe voisin restait affichée même une fois le curseur ailleurs.
+ * Reproduit ici avec des paragraphes RÉALISTES (assez longs pour ne jamais
+ * être élargis par défaut), puis vérifié corrigé. */
+
+test("Faux positif corrigé : dernier paragraphe sans Deli/Suvasa/janissaires → ils disparaissent", async () => {
+  const project = buildProject();
+  project.titles[project.ducA.path] = "Deli";
+  project.titles[project.ducB.path] = "Suvasa";
+  project.titles[project.ducC.path] = "Janissaires";
+  const paras = [
+    "Deli traverse la ville de Suvasa entourée par une troupe de janissaires en armes, prête à intervenir sur un signal.",
+    "Un vent frais se lève sur la mer, apportant une odeur de sel et d'iode tout au long du rivage désert et silencieux."
+  ];
+  const body = paras.join("\n\n");
+  project.activeFile.content = body;
+  const { view, contentEl, app } = createView(project);
+
+  // Curseur dans le premier paragraphe : les trois sont bien trouvés
+  // (reproduit le cas normal, sert de référence).
+  setActiveEditor(app, project.activeFile, fakeEditor(body, body.indexOf(paras[0]) + 5));
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl).sort(), ["Deli", "Janissaires", "Suvasa"]);
+
+  // Déplacement au dernier paragraphe — sans rapport, assez long pour ne
+  // JAMAIS élargir au voisinage par défaut : les trois doivent disparaître.
+  contentEl.empty();
+  setActiveEditor(app, project.activeFile, fakeEditor(body, body.indexOf(paras[1]) + 5));
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), [], "aucune fiche du paragraphe précédent ne doit rester affichée");
+});
+
+test("Faux positif corrigé : passage vers un paragraphe « Arabie » → aucune fiche Lisbonne résiduelle", async () => {
+  const project = buildProject();
+  project.titles[project.ducC.path] = "Péninsule d'Arabie";
+  const paras = [
+    "Le grand séisme de Lisbonne a détruit la moitié de la ville en quelques minutes à peine, ravageant tout le port.",
+    "Les caravanes traversent la péninsule d'Arabie sous un soleil de plomb, chargées d'épices et de tissus précieux."
+  ];
+  const body = paras.join("\n\n");
+  project.activeFile.content = body;
+  const { view, contentEl, app } = createView(project);
+
+  setActiveEditor(app, project.activeFile, fakeEditor(body, body.indexOf(paras[0]) + 5));
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), ["Séisme de Lisbonne"]);
+
+  contentEl.empty();
+  setActiveEditor(app, project.activeFile, fakeEditor(body, body.indexOf(paras[1]) + 5));
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), ["Péninsule d'Arabie"], "Lisbonne ne doit plus apparaître une fois le curseur dans le passage Arabie");
+});
+
+test("Rendu « 11-01 » corrigé : une évolution datée en jour précis sous Lisbonne n'affiche jamais son mois-jour brut", async () => {
+  const project = buildProject();
+  project.titles[project.ducA.path] = "Séisme de Lisbonne";
+  project.tags = { [project.ducA.path]: ["evenement"] };
+  project.ducA.content = "* 1755-11-01 : Le grand séisme frappe la ville en quelques minutes.";
+  project.activeFile.content = "Le séisme de Lisbonne bouleverse toute l'Europe des Lumières.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, storyDate(1756), []);
+
+  assert.deepEqual(citedNames(contentEl), ["Séisme de Lisbonne"]);
+  const info = infoFor(contentEl, "Séisme de Lisbonne");
+  assert.equal(info.includes("11-01"), false, "aucune date partielle brute ne doit fuir dans le texte affiché");
+  assert.equal(info, "Le grand séisme frappe la ville en quelques minutes. (depuis 1755)");
+});
+
+/* ==================== Chronologie simplifiée : dates naturelles, fiches
+ * sans `type` (règles 1 à 9 du chantier) ==================== */
+
+test("« # Évolution » s'applique à une fiche SANS AUCUN tag (aucun type particulier requis)", async () => {
+  const project = buildProject();
+  project.titles[project.ducC.path] = "La Citadelle";
+  // Aucune entrée dans project.tags pour ducC : tagsOf() renvoie [],
+  // entityKind() renvoie donc null — ni personnage, ni lieu, ni événement,
+  // ni codex. « # Évolution » doit malgré tout s'appliquer : rien dans le
+  // panneau Notes ne conditionne son usage à une nature de fiche précise.
+  project.frontmatter = { [project.activeFile.path]: { date: 1826 } };
+  project.ducC.content =
+    "# Évolution\n" +
+    "- 1810 : devient un simple avant-poste.\n" +
+    "- 1820 : sa mémoire devient un symbole politique.\n";
+  project.activeFile.content = "La Citadelle domine toujours la vallée.";
+  const { view, contentEl } = createView(project);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, storyDate(1826), []);
+
+  assert.deepEqual(citedNames(contentEl), ["La Citadelle"]);
+  assert.equal(infoFor(contentEl, "La Citadelle"), "sa mémoire devient un symbole politique. (depuis 1820)");
+});
+
+test("Date de scène en français naturel (« 12 mars 765 ») : écart d'âge personnage calculé normalement", async () => {
+  const project = buildProject();
+  project.titles[project.ducC.path] = "Deli";
+  project.tags = { [project.ducC.path]: ["personnage"] };
+  project.frontmatter = {
+    [project.activeFile.path]: { date: "12 mars 765" },
+    [project.ducC.path]: { birth: "745" },
+  };
+  project.activeFile.content = "Deli apparaît en pensée dans cette scène.";
+  const { view, contentEl, plugin } = createView(project);
+
+  const sceneDate = plugin.parseStoryDate("12 mars 765", null);
+  assert.equal(sceneDate.display, "12 mars 765", "l'affichage reste la date naturelle telle qu'écrite");
+
+  await view.renderCitedEntities(contentEl, project.activeFile, sceneDate, []);
+
+  assert.deepEqual(citedNames(contentEl), ["Deli"]);
+  assert.equal(ageFor(contentEl, "Deli"), "~20 ans");
+});
+
+test("Jalon de chronologie SANS propriété `type`, daté en français naturel, égal à la date de la scène", async () => {
+  const project = buildProject();
+  project.titles[project.ducC.path] = "Départ de la caravane dans le Hedjaz";
+  // Aucun tag, aucun `type` sur la fiche jalon : seule la propriété `date`
+  // compte pour la reconnaître (voir la boucle `jalons` dans
+  // NotesView.render, indépendante de entityKind() — reproduite ici par
+  // l'appel direct à renderCitedEntities avec un jalon déjà résolu).
+  project.frontmatter = { [project.ducC.path]: { date: "12 mars 765" } };
+  project.activeFile.content = "La caravane s'ébranle avant l'aube.";
+  const { view, contentEl, plugin } = createView(project);
+
+  // Même mécanisme EXACT que NotesView.render() pour rapprocher un jalon de
+  // la scène : deux dates naturelles identiques doivent produire le même
+  // `.sort`, quelle que soit la fiche qui les porte.
+  const sceneDate = plugin.parseStoryDate("12 mars 765", null);
+  const jalonDate = plugin.parseStoryDate("12 mars 765", null);
+  assert.equal(jalonDate.sort, sceneDate.sort);
+
+  await view.renderCitedEntities(contentEl, project.activeFile, sceneDate, [project.ducC]);
+
+  assert.deepEqual(citedNames(contentEl), ["Départ de la caravane dans le Hedjaz"]);
 });

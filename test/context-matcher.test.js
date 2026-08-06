@@ -409,3 +409,58 @@ test("Déduplication par titre : aucun changement de classement quand tous les t
   assert.equal(results[2].candidate.path, "reconstruction.md");
 });
 
+
+/* ================== Faux positif corrigé : mot générique partagé ====================
+ * "Port de Lisbonne" ne doit JAMAIS apparaître pour un texte évoquant un
+ * autre "port" (ici "Port de Suvasa") : un seul terme générique partagé
+ * ("port") ne suffit pas — voir GENERIC_TERMS. Le titre reste retrouvable
+ * en entier ("Le port de Lisbonne" contigu) ou via son terme distinctif
+ * seul ("Lisbonne"). */
+
+test("« Port de Suvasa » ne retrouve jamais « Port de Lisbonne » (mot générique seul partagé)", () => {
+  const candidates = [{ id: "1", path: "port-lisbonne.md", title: "Port de Lisbonne" }];
+  const results = matchContext("Port de Suvasa", candidates);
+  assert.equal(results.length, 0);
+});
+
+test("« Le port de Lisbonne » retrouve bien « Port de Lisbonne » (titre complet contigu)", () => {
+  const candidates = [{ id: "1", path: "port-lisbonne.md", title: "Port de Lisbonne" }];
+  const results = matchContext("Le port de Lisbonne prospère depuis un siècle.", candidates);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].candidate.path, "port-lisbonne.md");
+  assert.equal(results[0].reason, "exact-title");
+});
+
+test("« Lisbonne » seule retrouve « Port de Lisbonne » (terme distinctif, non générique)", () => {
+  const candidates = [{ id: "1", path: "port-lisbonne.md", title: "Port de Lisbonne" }];
+  const results = matchContext("Ils débarquent à Lisbonne à l'aube.", candidates);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].candidate.path, "port-lisbonne.md");
+});
+
+test("autres mots génériques seuls (route, quartier, plan) ne déclenchent jamais une fiche à eux seuls", () => {
+  const candidates = [
+    { id: "1", path: "route-soie.md", title: "Route de la Soie" },
+    { id: "2", path: "quartier-juif.md", title: "Quartier Juif" },
+    { id: "3", path: "plan-ville.md", title: "Plan de la Ville Basse" },
+  ];
+  assert.equal(matchContext("Une route de terre battue.", candidates).length, 0);
+  assert.equal(matchContext("Le quartier est calme ce soir.", candidates).length, 0);
+  assert.equal(matchContext("Il déplie un vieux plan.", candidates).length, 0);
+});
+
+test("un titre COMPOSÉ UNIQUEMENT d'un terme générique reste trouvable par correspondance exacte", () => {
+  const cases = [
+    { title: "Port", text: "Le port grouille de monde ce matin." },
+    { title: "Commerce", text: "Le commerce reprend après la guerre." },
+    { title: "Route", text: "La route serpente entre les collines." },
+    { title: "Plan", text: "Il déplie le plan sur la table." },
+    { title: "Quartier", text: "Le quartier s'endort peu à peu." },
+  ];
+  for (const { title, text } of cases) {
+    const candidates = [{ id: "1", path: `${title}.md`, title }];
+    const results = matchContext(text, candidates);
+    assert.equal(results.length, 1, `"${title}" devrait être retrouvée par correspondance exacte`);
+    assert.equal(results[0].reason, "exact-title");
+  }
+});

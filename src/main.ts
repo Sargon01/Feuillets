@@ -49,6 +49,7 @@ import { getProjectFolder, projectDisplayName, depthOf, isFrontMatter, roleOfFol
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode } from "./services/project-mode.js";
 import { getChronoFolder, getResearchRoot, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
+import { parseChronologyImport } from "./services/chronology-import.js";
 import { buildNumbering } from "./services/numbering.js";
 import { orderFromSnapshot } from "./utils/sibling-order.js";
 import { handleFilChanged } from "./services/narrative-threads.js";
@@ -1258,21 +1259,23 @@ class FeuilletsPlugin extends Plugin {
         }
         const raw = await this.app.vault.read(file);
         const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
-        const headRe = /^(#{2,3})\s+(\d{1,4}(?:-\d{1,2}(?:-\d{1,2})?)?)\s*[-–—:]?\s*(.*)$/gm;
-        type ChronologyBlock = { date: string; title: string; start: number; end: number };
-        const blocks: ChronologyBlock[] = [];
-        let m: RegExpExecArray | null;
-        let last: ChronologyBlock | null = null;
-        while ((m = headRe.exec(body)) !== null) {
-          if (last) last.end = m.index;
-          last = {
-            date: m[2],
-            title: m[3].trim() || m[2],
-            start: headRe.lastIndex,
-            end: body.length,
-          };
-          blocks.push(last);
+        // Moteur pur (services/chronology-import.ts, testable sous Node) :
+        // essaie d'abord "## titre" + "### date" (nouveau format), retombe
+        // ENTIÈREMENT sur l'ancien format à un seul niveau
+        // ("## AAAA[-MM[-JJ]] - Titre") si le document en porte la
+        // signature, jamais mélangé. Jamais de propriété `type` déduite ou
+        // ajoutée dans les deux cas. Un document mal formé (bloc sans date,
+        // ou date non reconnue) fait échouer l'import ENTIER — jamais de
+        // création partielle.
+        const result = parseChronologyImport(body);
+        if (!result.ok) {
+          const key = result.error.reason === "missing-date"
+            ? "main.notice.chronologyImportMissingDate"
+            : "main.notice.chronologyImportInvalidDate";
+          new Notice(t(key, { title: result.error.title }));
+          return;
         }
+        const blocks = result.blocks;
         if (blocks.length === 0) {
           new Notice(t("main.notice.noDatedTitleFound"));
           return;
@@ -1286,25 +1289,28 @@ class FeuilletsPlugin extends Plugin {
         let created = 0;
         let skipped = 0;
         for (const b of blocks) {
-          const text = body.slice(b.start, b.end).trim();
           const safeTitle = b.title.replace(/[\\/:*?"<>|]/g, "-").slice(0, 80);
-          const fileName = `${b.date} - ${safeTitle || t("main.untitled")}`;
+          const safeDate = b.date.replace(/[\\/:*?"<>|]/g, "-");
+          const fileName = `${safeDate} - ${safeTitle || t("main.untitled")}`;
           const path = normalizePath(`${chronoFolder.path}/${fileName}.md`);
           if (this.app.vault.getAbstractFileByPath(path)) {
             skipped++;
             continue;
           }
-          const synopsis = text.replace(/\n+/g, " ").slice(0, 160).trim();
+          const synopsis = b.text.replace(/\n+/g, " ").slice(0, 160).trim();
+          // Tag historique automatique — ajouté par l'importateur lui-même,
+          // jamais demandé à l'auteur, et ce n'est pas une propriété `type` :
+          // même résultat homogène pour l'ancien et le nouveau format.
           const content = [
             "---",
-            `title: ${b.title || b.date}`,
-            `date: ${b.date}`,
-            `synopsis: ${synopsis.replace(/"/g, "'")}`,
+            `title: "${(b.title || b.date).replace(/"/g, "'")}"`,
+            `date: "${b.date.replace(/"/g, "'")}"`,
+            `synopsis: "${synopsis.replace(/"/g, "'")}"`,
             "tags:",
             "  - evenement",
             "---",
             "",
-            text,
+            b.text,
             "",
           ].join("\n");
           await this.app.vault.create(path, content);

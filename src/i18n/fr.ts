@@ -1042,6 +1042,8 @@ export const fr = {
   "main.notice.titlesUpdated": "{count} titre(s) mis à jour.",
   "main.notice.openChronologyDocFirst": "Ouvre d'abord le document de chronologie à éclater.",
   "main.notice.noDatedTitleFound": "Aucun titre daté trouvé (## ou ### suivi d'une date).",
+  "main.notice.chronologyImportMissingDate": "Import annulé : « {title} » n'a pas de date (### manquant). Aucun fichier créé.",
+  "main.notice.chronologyImportInvalidDate": "Import annulé : « {title} » a une date non reconnue. Aucun fichier créé.",
   "main.notice.chronologySplit": "Chronologie éclatée : {count} fichier(s) créé(s)",
   "main.notice.chronologySplitSkipped": ", {count} déjà existant(s) ignoré(s).",
   "main.notice.researchPanelHidden": "Panneau Recherche masqué — réactive-le dans les réglages.",
