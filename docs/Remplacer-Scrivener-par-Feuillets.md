@@ -441,26 +441,57 @@ Feuillets vise un parcours plus direct, avec des modèles intégrés et des rég
 
 # Migrer un projet Scrivener
 
-Feuillets peut importer un projet Scrivener afin de récupérer notamment :
+L’import lit directement un dossier `.scriv` (ou une archive `.scriv.zip`) et crée un nouveau projet Feuillets. Le projet Scrivener source n’est jamais modifié : aucune écriture, aucun renommage, aucune suppression n’y sont jamais effectués — tout renommage éventuel (voir plus bas) ne concerne que la copie créée dans Feuillets.
 
-- la structure du Binder ;
-- les dossiers ;
-- les documents textuels ;
-- l’ordre du manuscrit ;
-- les titres ;
-- certaines métadonnées ;
-- des images ou ressources prises en charge.
+L’ancien format Scrivener 1.x (Mac) n’est pas pris en charge ; l’import est refusé avec un message explicite. Ouvrez le projet dans Scrivener 3 pour le convertir, puis réessayez.
 
-Après l’import, vérifiez toujours :
+## Ce qui est réellement importé
+
+**Structure et ordre**
+
+- la structure complète du Binder (Draft/Manuscrit, Research/Recherche, dossiers, sous-dossiers), reconnue par le type XML du nœud, pas par son nom ;
+- l’ordre des éléments, préservé tel quel ;
+- le contenu propre d’un dossier (texte, synopsis, notes, métadonnées) : un dossier qui contient réellement quelque chose reçoit sa propre note (`Dossier/Dossier.md`) ; un dossier vide ne reçoit qu’un simple TFolder, jamais de note fabriquée ;
+- le contenu propre des racines Draft et Research elles-mêmes (pas seulement leurs enfants), sur le même principe ;
+- les dossiers Research classés automatiquement (Characters/Character Sketches → Personnages, Places/Locations/Settings → Lieux selon le mode du projet) ; les autres tombent dans un dossier « non classé » explicite.
+
+**Texte et mise en forme**
+
+- conversion RTF → Markdown : gras, italique, tableaux, retraits, guillemets et tirets typographiques ;
+- titres de chapitre, sous-titres, synopsis ;
+- notes de bas de page ;
+- commentaires et annotations Scrivener pris en charge, convertis en note Markdown lisible ;
+- labels, statuts (mappés sur des valeurs Feuillets courantes lorsqu’elles correspondent, sinon conservés tels quels), mots-clés (keywords) ;
+- métadonnées personnalisées (Custom Metadata) : conservées intégralement dans un bloc `scrivener_metadata` du frontmatter, sous leur nom Scrivener d’origine — jamais promues en propriété Feuillets. Seul un champ explicitement nommé Tags/Keywords (ou équivalent FR) alimente aussi les mots-clés Feuillets, en plus d’être conservé tel quel.
+
+**Liens internes**
+
+- un lien `scrivlink://` vers un document ou un dossier qui reçoit réellement une note Feuillets est converti en wikilien Obsidian ;
+- un lien vers un dossier sans note propre, vers un document introuvable, ou vers la Corbeille reste un texte simple (jamais un lien inventé à partir du texte affiché, qui risquerait de pointer vers un tout autre document portant le même titre par coïncidence).
+
+**Images et ressources**
+
+- formats pris en charge : PNG, JPEG, GIF, SVG, WEBP, PDF — images intégrées dans le texte (RTF), fichiers attachés à un document (`Files/Data/<uuid>/…`), et références `$PROJECT://…`/`$SCRImageLink[…]` ;
+- toutes les ressources copiées passent par un registre central qui distingue la SOURCE (le fichier réel dans le paquet `.scriv`) du NOM final dans Feuillets : deux ressources différentes qui porteraient le même nom (ex. deux `photo.jpg` dans des dossiers Scrivener distincts) ne s’écrasent jamais — la seconde reçoit un suffixe déterministe (`photo-2.jpg`) et son embed Markdown est mis à jour en conséquence. À l’inverse, une même ressource référencée plusieurs fois n’est copiée qu’une seule fois.
+- une référence `$PROJECT://…` est résolue par son chemin exact dans le paquet en priorité ; un repli par simple nom de fichier n’est utilisé que si le chemin exact ne peut être résolu, et seulement s’il désigne une ressource sans ambiguïté (un seul candidat) — jamais un choix arbitraire entre plusieurs fichiers homonymes.
+
+## Ce qui n’est pas importé ou qui est signalé
+
+- la **Corbeille Scrivener n’est jamais importée**. Si elle contient des éléments, l’aperçu avant confirmation l’annonce explicitement (nombre d’éléments, comptés récursivement) ; aucun de ses éléments n’entre dans le projet Feuillets, et un lien qui y pointerait reste un texte simple ;
+- les **médias dans un format non pris en charge** (audio, vidéo, PSD, Pages, Word, etc.) ne sont ni importés, ni convertis, ni supprimés de la source : ils sont comptés et signalés dans le résumé final de l’import ;
+- une **ressource `$PROJECT://…` introuvable** dans le paquet, ou **ambiguë** (plusieurs fichiers du même nom sans référence exacte permettant de trancher), n’est jamais copiée au hasard — elle est comptée séparément dans le résumé final ;
+- un fichier `.rtf` absent ou illisible ne bloque pas l’import ; il est compté et signalé.
+
+À la fin de l’import, un résumé indique le nombre de fichiers Markdown créés, de ressources importées, et — uniquement s’ils sont non nuls — le nombre de liens internes non résolus, de ressources introuvables ou ambiguës, de médias non pris en charge, d’éléments de la Corbeille ignorés et de fichiers texte introuvables/illisibles.
+
+## Après l’import, vérifiez toujours
 
 - l’ordre des parties, chapitres et scènes ;
-- les titres ;
-- les synopsis ;
-- les notes ;
-- les images ;
+- les titres, synopsis et notes ;
+- les images (en particulier celles renommées par collision) ;
 - les caractères spéciaux ;
-- les métadonnées ;
-- les documents non textuels ;
+- les métadonnées personnalisées et les mots-clés ;
+- les documents non textuels et les médias signalés comme non pris en charge ;
 - les éléments exclus de la compilation.
 
 Ne supprimez pas immédiatement le projet Scrivener d’origine. Conservez-le comme archive jusqu’à ce que plusieurs exports de contrôle aient été validés.

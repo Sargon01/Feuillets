@@ -19,6 +19,12 @@ import {
   sanitizeScrivenerTitle,
   allocateImportPath,
   buildScrivenerImportPlan,
+  createAssetRegistry,
+  allocateAssetName,
+  classifyAttachedFile,
+  deriveDataAssetDesiredName,
+  createEmptyImportReport,
+  formatImportSummary,
 } from "../src/services/scrivener-import.js";
 
 const SCRIVX_FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -2173,6 +2179,331 @@ test("§16/§17 chantier S2 — Corbeille Scrivener comptée, jamais importée",
     );
     assert.equal(res.text, "Voir Corbeille plus loin.");
     assert.equal(res.unresolvedLinkCount, 1);
+  });
+});
+
+// ============================ Lot S3 : finaliser et sécuriser l'import =====
+// Registre central des ressources, médias non pris en charge, rapport
+// d'import — voir docs du chantier.
+
+test("§4/§5/§6 chantier S3 — registre central des ressources", async (t) => {
+  await t.test("1. photo.jpg première source -> photo.jpg", () => {
+    const reg = createAssetRegistry();
+    const r = allocateAssetName(reg, "data:uuidA/photo.jpg", "photo.jpg");
+    assert.deepEqual(r, { finalName: "photo.jpg", isNewSource: true, renamed: false });
+  });
+
+  await t.test("2. autre source (basename identique) -> photo-2.jpg", () => {
+    const reg = createAssetRegistry();
+    allocateAssetName(reg, "data:uuidA/photo.jpg", "photo.jpg");
+    const r = allocateAssetName(reg, "data:uuidB/photo.jpg", "photo.jpg");
+    assert.equal(r.finalName, "photo-2.jpg");
+    assert.equal(r.isNewSource, true);
+    assert.equal(r.renamed, true, "collision réelle entre deux sources différentes");
+  });
+
+  await t.test("3. troisième source -> photo-3.jpg", () => {
+    const reg = createAssetRegistry();
+    allocateAssetName(reg, "data:uuidA/photo.jpg", "photo.jpg");
+    allocateAssetName(reg, "data:uuidB/photo.jpg", "photo.jpg");
+    const r = allocateAssetName(reg, "data:uuidC/photo.jpg", "photo.jpg");
+    assert.equal(r.finalName, "photo-3.jpg");
+  });
+
+  await t.test("4. même source répétée -> même nom initial, aucun nouveau suffixe", () => {
+    const reg = createAssetRegistry();
+    const first = allocateAssetName(reg, "data:uuidA/photo.jpg", "photo.jpg");
+    const second = allocateAssetName(reg, "data:uuidA/photo.jpg", "photo.jpg");
+    assert.equal(second.finalName, first.finalName);
+    assert.equal(second.isNewSource, false, "source déjà vue : jamais recopiée");
+    assert.equal(second.renamed, false);
+    // une troisième source de basename différent ne doit jamais recevoir "-2"
+    // à cause de cette répétition
+    const third = allocateAssetName(reg, "data:uuidB/photo.jpg", "photo.jpg");
+    assert.equal(third.finalName, "photo-2.jpg");
+  });
+
+  await t.test("collision avec un fichier DÉJÀ présent dans Assets avant l'import (registre pré-amorcé) -> photo-2.jpg, ancien fichier jamais écrasé", () => {
+    // Simule scrivener-import-modal.ts : `usedNames` est amorcé avec les
+    // fichiers déjà présents sur le disque AVANT toute allocation liée à
+    // l'import — une source Scrivener nommée pareil doit être traitée
+    // exactement comme une collision entre deux sources Scrivener (suffixe
+    // déterministe), jamais un écrasement silencieux de l'existant.
+    const reg = createAssetRegistry();
+    reg.usedNames.add("photo.jpg"); // Assets/photo.jpg existait déjà
+    const r = allocateAssetName(reg, "data:uuidA/photo.jpg", "photo.jpg");
+    assert.equal(r.finalName, "photo-2.jpg");
+    assert.equal(r.isNewSource, true);
+    assert.equal(r.renamed, true);
+  });
+
+  await t.test("la même source Scrivener réutilisée plusieurs fois garde son nom final même face à un fichier pré-existant", () => {
+    const reg = createAssetRegistry();
+    reg.usedNames.add("photo.jpg");
+    const first = allocateAssetName(reg, "project:images/a/photo.jpg", "photo.jpg");
+    const second = allocateAssetName(reg, "project:images/a/photo.jpg", "photo.jpg");
+    assert.equal(first.finalName, "photo-2.jpg");
+    assert.equal(second.finalName, "photo-2.jpg");
+    assert.equal(second.isNewSource, false, "même source : jamais recopiée ni réallouée");
+  });
+
+  await t.test("5. archive.final.pdf collision -> archive.final-2.pdf (suffixe avant l'extension)", () => {
+    const reg = createAssetRegistry();
+    allocateAssetName(reg, "s1", "archive.final.pdf");
+    const r = allocateAssetName(reg, "s2", "archive.final.pdf");
+    assert.equal(r.finalName, "archive.final-2.pdf");
+  });
+
+  await t.test("6. nom sans extension -> suffixe déterministe correct", () => {
+    const reg = createAssetRegistry();
+    allocateAssetName(reg, "s1", "README");
+    const r = allocateAssetName(reg, "s2", "README");
+    assert.equal(r.finalName, "README-2");
+  });
+
+  await t.test("7. deux extensions différentes -> aucune collision", () => {
+    const reg = createAssetRegistry();
+    const jpg = allocateAssetName(reg, "s1", "photo.jpg");
+    const png = allocateAssetName(reg, "s2", "photo.png");
+    assert.equal(jpg.finalName, "photo.jpg");
+    assert.equal(png.finalName, "photo.png");
+  });
+});
+
+test("§5/§9 chantier S3 — deriveDataAssetDesiredName (comportement UUID historique)", async (t) => {
+  await t.test("10. content.jpg dans Files/Data/<uuid> -> <uuid>.jpg", () => {
+    assert.equal(deriveDataAssetDesiredName("ABCD-1234", "content.jpg"), "ABCD-1234.jpg");
+  });
+
+  await t.test("notes.png -> <uuid>.png", () => {
+    assert.equal(deriveDataAssetDesiredName("ABCD-1234", "notes.png"), "ABCD-1234.png");
+  });
+
+  await t.test("un fichier ordinaire garde son nom d'origine", () => {
+    assert.equal(deriveDataAssetDesiredName("ABCD-1234", "carte.jpg"), "carte.jpg");
+  });
+
+  await t.test("12. un PDF suit la même règle (aucun traitement spécial)", () => {
+    assert.equal(deriveDataAssetDesiredName("ABCD-1234", "content.pdf"), "ABCD-1234.pdf");
+    assert.equal(deriveDataAssetDesiredName("ABCD-1234", "dossier.pdf"), "dossier.pdf");
+  });
+});
+
+test("§8 chantier S3 — images RTF extraites (\\pict)", async (t) => {
+  await t.test("13. image \\pict sans collision -> nom historique inchangé", () => {
+    const rtf = "{\\rtf1 Image: {\\pict\\pngblip 0123456789012345678901234567890123456789}}";
+    const res = rtfToMarkdown(rtf, {}, null, { uuid: "12345678-ABCD-EF00-1122-334455667788" });
+    assert.equal(res.extractedImages[0].name, "img-12345678-1.png");
+    assert.ok(res.text.includes("![[img-12345678-1.png]]"));
+  });
+
+  await t.test("16. plusieurs images RTF dans un même document -> ordre et embeds corrects", () => {
+    const rtf =
+      "{\\rtf1 Une: {\\pict\\pngblip 0123456789012345678901234567890123456789} " +
+      "Deux: {\\pict\\jpegblip 0123456789012345678901234567890123456789}}";
+    const res = rtfToMarkdown(rtf, {}, null, { uuid: "AAAAAAAA-0000-0000-0000-000000000001" });
+    assert.equal(res.extractedImages.length, 2);
+    assert.deepEqual(res.extractedImages.map((i) => i.name), ["img-AAAAAAAA-1.png", "img-AAAAAAAA-2.jpg"]);
+    const idx1 = res.text.indexOf("img-AAAAAAAA-1.png");
+    const idx2 = res.text.indexOf("img-AAAAAAAA-2.jpg");
+    assert.ok(idx1 >= 0 && idx2 >= 0 && idx1 < idx2, "les deux embeds apparaissent dans l'ordre du document");
+  });
+
+  // §14/§15 (collision réelle avec un asset déjà réservé, embed réécrit vers
+  // le nom final) sont assurés par le registre central (voir la suite de
+  // tests dédiée ci-dessus, allocateAssetName) : saveExtractedImages
+  // (scrivener-import-modal.ts) n'est qu'un fin appel à ce registre suivi
+  // d'un remplacement de chaîne — aucune logique propre à re-tester
+  // séparément sans mock complet du coffre Obsidian (aucun harnais de ce
+  // type n'existe pour runImport, comme pour S1/S2).
+});
+
+test("§11/§12/§13 chantier S3 — références $PROJECT:// et $SCRImageLink", async (t) => {
+  await t.test("17. rawRef exact préservé dans imageLinks (occurrence unique)", () => {
+    const rtf = "{\\rtf1 Texte avant {\\$SCRImageLink[w:1026;h:734]=\\$PROJECT://Images/A/photo.jpg} Texte après.}";
+    const res = rtfToMarkdown(rtf);
+    assert.equal(res.imageLinks.length, 1);
+    assert.equal(res.imageLinks[0].rawRef, "Images/A/photo.jpg");
+    assert.equal(res.imageLinks[0].fileName, "photo.jpg");
+    assert.ok(res.text.includes("![[photo.jpg]]"));
+  });
+
+  await t.test("21/22. deux rawRef DIFFÉRENTS, même basename, MÊME document -> photo.jpg + photo-2.jpg, chaque embed pointe vers sa bonne ressource", () => {
+    const rtf =
+      "{\\rtf1 Une: \\$PROJECT://Images/A/photo.jpg Deux: \\$PROJECT://Images/B/photo.jpg}";
+    const res = rtfToMarkdown(rtf);
+    assert.equal(res.imageLinks.length, 2, "deux sources distinctes, jamais dédupliquées par basename");
+    assert.deepEqual(
+      res.imageLinks.map((l) => l.rawRef),
+      ["Images/A/photo.jpg", "Images/B/photo.jpg"]
+    );
+    assert.deepEqual(
+      res.imageLinks.map((l) => l.fileName),
+      ["photo.jpg", "photo-2.jpg"]
+    );
+    assert.ok(res.text.includes("![[photo.jpg]]"));
+    assert.ok(res.text.includes("![[photo-2.jpg]]"));
+    // jamais un remplacement global qui pointerait les deux occurrences
+    // vers la même cible
+    const idxA = res.text.indexOf("![[photo.jpg]]");
+    const idxB = res.text.indexOf("![[photo-2.jpg]]");
+    assert.ok(idxA >= 0 && idxB >= 0 && idxA < idxB);
+  });
+
+  await t.test("23. même rawRef utilisé plusieurs fois -> même asset final, une seule entrée imageLinks", () => {
+    const rtf = "{\\rtf1 Une: \\$PROJECT://Images/A/photo.jpg Deux: \\$PROJECT://Images/A/photo.jpg}";
+    const res = rtfToMarkdown(rtf);
+    assert.equal(res.imageLinks.length, 1, "même source : une seule entrée, pas de re-résolution");
+    assert.equal(res.imageLinks[0].fileName, "photo.jpg");
+    const occurrences = res.text.split("![[photo.jpg]]").length - 1;
+    assert.equal(occurrences, 2, "les deux occurrences pointent vers le même nom");
+  });
+
+  await t.test("un rawRef sans dossier (basename seul) reste résolu normalement", () => {
+    const rtf = "{\\rtf1 <$Scr_H::2>\\$PROJECT://ma_photo.png<!$Scr_H::2> Texte après.}";
+    const res = rtfToMarkdown(rtf);
+    assert.ok(res.text.includes("![[ma_photo.png]]"));
+    assert.ok(!res.text.includes("Scr_H"));
+    assert.equal(res.imageLinks[0].fileName, "ma_photo.png");
+  });
+
+  // §18/§19/§20 (repli par basename à la résolution physique — 0/1/2+
+  // candidats) relèvent de ScrivenerFileMap.findScrivenerFileByRef /
+  // findScrivenerFilesByBasename, testées dans scrivener-import-modal.test.js
+  // (la résolution physique dans le paquet .scriv n'est pas du ressort de
+  // rtfToMarkdown, qui reste pur et ne lit aucun fichier).
+});
+
+test("§20 chantier S3 — liens internes non résolus dans les commentaires/annotations", async (t) => {
+  await t.test("un scrivlink non résolu À L'INTÉRIEUR d'un commentaire compte dans unresolvedLinkCount", () => {
+    const rtf =
+      '{\\rtf1 La {\\field{\\*\\fldinst{HYPERLINK "scrivcmt://BBBBBBBB-0000-0000-0000-000000000002"}}{\\fldrslt boue}} ocre.}';
+    const comments = {
+      "BBBBBBBB-0000-0000-0000-000000000002": {
+        rtf: '{\\rtf1 Voir {\\field{\\*\\fldinst{HYPERLINK "scrivlink://00000000-0000-0000-0000-0000000dead0"}}{\\fldrslt ici}} aussi.}',
+        isFootnote: false,
+      },
+    };
+    const res = rtfToMarkdown(rtf, comments, new Map());
+    assert.equal(res.unresolvedLinkCount, 1, "le lien non résolu du commentaire remonte au compteur global");
+  });
+
+  // Une annotation Scrivener (\Scrv_annot) stocke du texte brut après
+  // \text= (jamais un flux RTF imbriqué) : rtfToMarkdown ne la traite comme
+  // RTF que si elle commence par "{\rtf" (voir rtfToMarkdown), donc un
+  // scrivlink n'y apparaît jamais en pratique — seul le cas commentaire
+  // (scrivcmt://, RTF réel dans content.comments) est un scénario réel,
+  // couvert par le test précédent et le suivant.
+
+  await t.test("un lien résolu dans un commentaire ne compte pas comme non résolu", () => {
+    const map = new Map([["00000000-0000-0000-0000-0000000c0001", "Mon Roman/Manuscrit/Cible.md"]]);
+    const rtf =
+      '{\\rtf1 La {\\field{\\*\\fldinst{HYPERLINK "scrivcmt://CCCCCCCC-0000-0000-0000-000000000003"}}{\\fldrslt boue}} ocre.}';
+    const comments = {
+      "CCCCCCCC-0000-0000-0000-000000000003": {
+        rtf: '{\\rtf1 Voir {\\field{\\*\\fldinst{HYPERLINK "scrivlink://00000000-0000-0000-0000-0000000c0001"}}{\\fldrslt Cible}} aussi.}',
+        isFootnote: false,
+      },
+    };
+    const res = rtfToMarkdown(rtf, comments, map);
+    assert.equal(res.unresolvedLinkCount, undefined);
+  });
+});
+
+test("§14/§15/§30 chantier S3 — classification des ressources non prises en charge", async (t) => {
+  await t.test("24. png/jpg/jpeg/gif/svg/webp/pdf -> supported", () => {
+    for (const name of ["photo.png", "photo.jpg", "photo.jpeg", "photo.gif", "photo.svg", "photo.webp", "doc.pdf"]) {
+      assert.equal(classifyAttachedFile(name), "supported", name);
+    }
+  });
+
+  await t.test("25. mp3 -> unsupported", () => {
+    assert.equal(classifyAttachedFile("audio.mp3"), "unsupported");
+  });
+
+  await t.test("26. mov/mp4 -> unsupported", () => {
+    assert.equal(classifyAttachedFile("clip.mov"), "unsupported");
+    assert.equal(classifyAttachedFile("clip.mp4"), "unsupported");
+  });
+
+  await t.test("autres formats non pris en charge (wav, m4a, avi, psd, pages, doc)", () => {
+    for (const name of ["son.wav", "son.m4a", "clip.avi", "calque.psd", "texte.pages", "texte.doc"]) {
+      assert.equal(classifyAttachedFile(name), "unsupported", name);
+    }
+  });
+
+  await t.test("27. content.rtf -> controlFile, jamais unsupported", () => {
+    assert.equal(classifyAttachedFile("content.rtf"), "controlFile");
+  });
+
+  await t.test("28. notes.rtf / synopsis.txt / content.comments -> jamais unsupported", () => {
+    assert.equal(classifyAttachedFile("notes.rtf"), "controlFile");
+    assert.equal(classifyAttachedFile("synopsis.txt"), "controlFile");
+    assert.equal(classifyAttachedFile("content.comments"), "controlFile");
+  });
+
+  await t.test("classification insensible à la casse", () => {
+    assert.equal(classifyAttachedFile("CONTENT.RTF"), "controlFile");
+    assert.equal(classifyAttachedFile("Photo.JPG"), "supported");
+    assert.equal(classifyAttachedFile("Audio.MP3"), "unsupported");
+  });
+});
+
+test("§17/§23/§31 chantier S3 — ScrivenerImportReport et résumé Notice", async (t) => {
+  await t.test("createEmptyImportReport : tous les compteurs à zéro, listes vides", () => {
+    const r = createEmptyImportReport();
+    assert.deepEqual(r, {
+      markdownFilesCreated: 0,
+      assetsImported: 0,
+      assetCollisionsRenamed: 0,
+      unresolvedInternalLinks: 0,
+      unresolvedAssets: 0,
+      ambiguousAssets: 0,
+      unsupportedAssets: 0,
+      trashEntriesSkipped: 0,
+      rtfMissingOrUnreadable: 0,
+      unsupportedAssetNames: [],
+      ambiguousAssetNames: [],
+    });
+  });
+
+  await t.test("39. import sans avertissement -> résumé simple, sans mention des compteurs à zéro", () => {
+    const r = createEmptyImportReport();
+    r.markdownFilesCreated = 124;
+    r.assetsImported = 38;
+    const summary = formatImportSummary(r);
+    assert.match(summary, /124/);
+    assert.match(summary, /38/);
+    assert.ok(!/résolu|résolue|ambigu|prise en charge|Corbeille|illisible/.test(summary), "aucune ligne d'avertissement à zéro");
+  });
+
+  await t.test("40. import avec avertissements -> résumé contient uniquement les compteurs non nuls", () => {
+    const r = createEmptyImportReport();
+    r.markdownFilesCreated = 124;
+    r.assetsImported = 38;
+    r.unresolvedInternalLinks = 2;
+    r.unsupportedAssets = 1;
+    r.trashEntriesSkipped = 3;
+    const summary = formatImportSummary(r);
+    assert.match(summary, /2/);
+    assert.match(summary, /1/);
+    assert.match(summary, /3/);
+    assert.ok(!/ambigu/.test(summary), "ambiguousAssets = 0 n'apparaît pas");
+    assert.ok(!/illisible/.test(summary), "rtfMissingOrUnreadable = 0 n'apparaît pas");
+    assert.ok(!/introuvable\(s\) ;/.test(summary), "unresolvedAssets = 0 n'apparaît pas");
+  });
+
+  await t.test("36/37. unresolvedAssets, ambiguousAssets et unresolvedInternalLinks sont des compteurs distincts", () => {
+    const r = createEmptyImportReport();
+    r.unresolvedInternalLinks = 5;
+    r.unresolvedAssets = 2;
+    r.ambiguousAssets = 1;
+    assert.notEqual(r.unresolvedInternalLinks, r.unresolvedAssets);
+    assert.notEqual(r.unresolvedAssets, r.ambiguousAssets);
+    const summary = formatImportSummary(r);
+    assert.match(summary, /5 lien/);
+    assert.match(summary, /2 ressource\(s\) introuvable/);
+    assert.match(summary, /1 ressource\(s\) ambiguë/);
   });
 });
 
