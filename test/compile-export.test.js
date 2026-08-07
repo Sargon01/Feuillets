@@ -60,7 +60,7 @@ test("compile : respecte l'ordre, les pages Front et compile: false", async () =
   assert.match(result.manuscript, /Premier texte\./);
   assert.doesNotMatch(result.manuscript, /Texte exclu/);
   assert.equal(result.segments.length, 3);
-  assert.ok(vault.getAbstractFileByPath("Projet/Manuscrit/_Sortie/Manuscrit.md"));
+  assert.ok(vault.getAbstractFileByPath("Projet/_Sortie/Manuscrit.md"));
 });
 
 test("compile contextuelle : une portée Feuillet n'exporte que le fichier demandé", async () => {
@@ -266,7 +266,7 @@ test("activePresetConfig : index invalide retombe sur le preset de base", () => 
   assert.equal(cfg.name, "Réglages par défaut");
 });
 
-test("getOutputFolder : crée et renvoie le dossier Sortie à côté du projet", async () => {
+test("getOutputFolder : structure conventionnelle — _Sortie est un frère de Manuscrit", async () => {
   const volume = new TFolder("Projet");
   const manuscript = new TFolder("Projet/Manuscrit");
   volume.children = [manuscript];
@@ -280,8 +280,28 @@ test("getOutputFolder : crée et renvoie le dossier Sortie à côté du projet",
   const folder = await getOutputFolder(app, settings);
 
   assert.ok(folder);
-  assert.equal(folder.path, "Projet/Manuscrit/_Sortie");
-  assert.ok(vault.getAbstractFileByPath("Projet/Manuscrit/_Sortie"));
+  assert.equal(folder.path, "Projet/_Sortie");
+  assert.ok(vault.getAbstractFileByPath("Projet/_Sortie"));
+});
+
+test("getOutputFolder : projet libre (pas de dossier Manuscrit) — _Sortie est un enfant direct du projet", async () => {
+  const project = new TFolder("MonProjet");
+  const chapter1 = new TFolder("MonProjet/Chapitre 1");
+  const chapter2 = new TFolder("MonProjet/Chapitre 2");
+  project.children = [chapter1, chapter2];
+  chapter1.parent = project;
+  chapter2.parent = project;
+
+  const { vault } = createFakeVault([project, chapter1, chapter2]);
+  const app = { vault };
+
+  const settings = { projectFolder: project.path };
+
+  const folder = await getOutputFolder(app, settings);
+
+  assert.ok(folder);
+  assert.equal(folder.path, "MonProjet/_Sortie");
+  assert.ok(vault.getAbstractFileByPath("MonProjet/_Sortie"));
 });
 
 test("getOutputFolder : renvoie null si pas de dossier projet", async () => {
@@ -669,7 +689,7 @@ test("compile : { writeOutput: false } ne pose aucun fichier et garde la page de
   assert.ok(result);
   assert.equal(writes, 0, "aucune écriture (create/modify/createFolder) ne doit avoir lieu");
   assert.equal(result.outPath, "", "sans écriture, le chemin de sortie reste vide");
-  assert.ok(vault.getAbstractFileByPath("Projet/Manuscrit/_Sortie") === null, "_Sortie n'est jamais créé");
+  assert.ok(vault.getAbstractFileByPath("Projet/_Sortie") === null, "_Sortie n'est jamais créé");
   /* La page de titre doit rester un segment Front — c'est ce segment qui
      permet à l'Aperçu et à l'export de la styler comme une vraie page, au
      lieu de la laisser en Markdown brut. */

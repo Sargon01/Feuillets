@@ -260,7 +260,9 @@ export class TransformToProjectModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.addClass("feuillets-project-modal");
-    contentEl.createEl("h3", { text: t("modal.transformProject.title") });
+    const titleRow = contentEl.createDiv({ cls: "feuillets-modal-title-row" });
+    setIcon(titleRow.createDiv({ cls: "feuillets-cell-icon" }), "folder-cog");
+    titleRow.createEl("h3", { text: t("modal.transformProject.title") });
     contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("modal.transformProject.desc")
     );

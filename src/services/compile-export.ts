@@ -14,6 +14,7 @@ import {
   flattenFiles,
   isFrontMatter,
   FRONT_PAGE_TYPES,
+  MANUSCRIPT_FOLDER_NAME,
 } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
 import { preserveBlankLinesForFrontPage } from "./export-render.js";
@@ -104,10 +105,25 @@ export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
   return base;
 }
 
-/** Dossier de sortie de la compilation et des exports — à côté du dossier
- * projet (comme _Recherche et _Snapshots), jamais dedans : le manuscrit
- * compilé ne doit jamais apparaître comme un feuillet de plus dans tes
- * propres vues. Créé automatiquement s'il n'existe pas. */
+/** Dossier de sortie de la compilation et des exports.
+ *
+ * CAS A — le projet suit la convention (dossier `settings.projectFolder`
+ * nommé exactement "Manuscrit") : _Sortie est posé À CÔTÉ de Manuscrit, dans
+ * son dossier parent (comme _Recherche et _Snapshots), jamais dedans — le
+ * manuscrit compilé ne doit jamais apparaître comme un feuillet de plus
+ * dans tes propres vues.
+ *
+ * CAS B — le projet est un dossier "libre" (nom quelconque, contenant
+ * directement les chapitres, pas de dossier Manuscrit dédié) : _Sortie est
+ * un enfant DIRECT de ce dossier, jamais un niveau au-dessus. Piège à
+ * éviter : `getProjectRoot` (folder-structure.ts) remonte TOUJOURS d'un
+ * niveau sans vérifier le nom du dossier — inadapté ici, on distingue donc
+ * les deux cas explicitement sur le nom, pas sur une heuristique de
+ * structure de fichiers.
+ *
+ * CAS C — pas de dossier projet configuré : null.
+ *
+ * Créé automatiquement s'il n'existe pas. */
 /**
  * @param {import("obsidian").App} app
  * @param {import("./types.d.ts").FeuilletsSettings} settings
@@ -116,8 +132,12 @@ export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
 export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
-  // Créer _Sortie directement dans la racine du projet, pas à côté
-  return await ensureFolder(app, normalizePath(`${root.path}/_Sortie`));
+  const parent = root.parent;
+  const base =
+    root.name === MANUSCRIPT_FOLDER_NAME && parent instanceof TFolder && parent.path !== "" && parent.path !== "/"
+      ? parent
+      : root;
+  return await ensureFolder(app, normalizePath(`${base.path}/_Sortie`));
 }
 
 export type CompileOptions = {
