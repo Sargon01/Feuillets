@@ -590,20 +590,6 @@ export class ScrivenerImportModal extends Modal {
     const visuelsFolderPath = resourcesSubfolderPath(app, resourcesPath, assetsSub.name, ...assetsSub.variants);
     await plugin.ensureFolder(visuelsFolderPath);
 
-    /* Plan de destination COMPLET, calculé AVANT la moindre écriture —
-       une seule source de vérité pour les chemins finaux, réutilisée à la
-       fois pour l'écriture des fichiers et pour la résolution des liens
-       scrivlink://UUID (voir §3 à §6 du chantier S1). */
-    const unclassifiedFolderLabel = t("modal.scrivenerImport.unclassifiedFolder");
-    const plan = buildScrivenerImportPlan(parsed, {
-      manuscritPath,
-      researchRootPath: researchRoot ? researchRoot.path : null,
-      mode: modeKey,
-      unclassifiedFolderLabel,
-    });
-    const cursor = new ScrivenerPlanCursor(plan.targets);
-    const binderItemMap = plan.uuidToPath;
-
     let unreadableCount = 0;
 
     const readRtf = async (uuid: string): Promise<string> => {
@@ -620,18 +606,27 @@ export class ScrivenerImportModal extends Modal {
       return xml ? parseScrivenerComments(xml) : {};
     };
 
-    const readNotes = async (uuid: string): Promise<string> => {
+    /* Choisit le RTF de notes gagnant (Files/Data/<uuid>/notes.rtf, sinon
+       Files/Docs/<uuid>_notes.rtf) SANS convertir pour l'usage final — le
+       texte brut est mis en cache (voir folderMaterials plus bas) pour être
+       reconverti une seule fois, avec la carte de liens définitive, au
+       moment de l'écriture. La conversion ici (carte null) ne sert qu'à
+       décider quel candidat "gagne" (même règle que l'ancien readNotes :
+       un candidat dont le texte converti est vide cède la place au
+       suivant) — ce choix ne dépend jamais de la carte de liens (un lien
+       résolu ou non produit toujours du texte non vide). */
+    const pickNotesRaw = async (uuid: string): Promise<string | null> => {
       for (const candidate of [
         `Files/Data/${uuid}/notes.rtf`,
         `Files/Docs/${uuid}_notes.rtf`,
       ]) {
         const rtf = await fileMap.readText(candidate);
         if (rtf !== null) {
-          const { text } = rtfToMarkdown(rtf, {}, binderItemMap);
-          if (text) return text.trim();
+          const { text } = rtfToMarkdown(rtf, {}, null);
+          if (text) return rtf;
         }
       }
-      return "";
+      return null;
     };
 
     const readSynopsis = async (uuid: string): Promise<string> => {
@@ -643,6 +638,131 @@ export class ScrivenerImportModal extends Modal {
         if (txt !== null) return txt.trim();
       }
       return "";
+    };
+
+    /* --- Pré-analyse en LECTURE SEULE des dossiers du manuscrit ---------
+       Corrige le bug confirmé : buildScrivenerImportPlan planifiait un
+       markdownPath pour TOUT Folder du manuscrit, alors que l'écriture ne
+       crée réellement la note que si le dossier a du contenu. On détermine
+       donc ICI, une fois, quels UUID auront réellement une note — avant
+       toute écriture — et on transmet cet ensemble au plan (qui reste pur :
+       il ne lit toujours aucun fichier lui-même).
+
+       Le contenu lu (RTF, commentaires, notes, synopsis) est mis en cache
+       par UUID pour que l'écriture ne relise jamais les mêmes fichiers ni
+       ne recompte les RTF illisibles deux fois — seule la conversion finale
+       (avec la vraie carte de liens scrivlink://UUID, connue seulement une
+       fois le plan construit) est refaite à l'écriture, via la même
+       fonction deriveFolderNoteContent. */
+    type FolderMaterials = {
+      rtfContent: string;
+      comments: Awaited<ReturnType<typeof readComments>>;
+      notesRtfRaw: string | null;
+      synopsisText: string;
+      hasAttachedImages: boolean;
+    };
+    const folderMaterials = new Map<string, FolderMaterials>();
+
+    const deriveFolderNoteContent = (materials: FolderMaterials, uuid: string, linkMap: Map<string, string> | null) => {
+      const { text, footnotes, extractedImages, imageLinks, extractedComments, chapterTitle, sousTitre } = rtfToMarkdown(
+        materials.rtfContent,
+        materials.comments,
+        linkMap,
+        { uuid }
+      );
+      let docNotes = "";
+      if (materials.notesRtfRaw) {
+        const notesConverted = rtfToMarkdown(materials.notesRtfRaw, {}, linkMap).text;
+        if (notesConverted) docNotes = notesConverted.trim();
+      }
+      if (extractedComments && extractedComments.length > 0) {
+        const commentLines = extractedComments.map((c) =>
+          c.word ? t("modal.scrivenerImport.commentOn", { word: c.word, text: c.text }) : c.text
+        );
+        docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
+      }
+      return { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis: materials.synopsisText };
+    };
+
+    /* Même condition, au mot près, que celle utilisée par l'ancien
+       writeManuscriptNode pour décider si la note de dossier existe —
+       seule différence : le corps du texte tient compte de la présence
+       d'images jointes (`hasAttachedImages`) SANS écrire ces images ici
+       (l'écriture réelle reste dans processDataDirImages, à l'écriture). */
+    const folderHasContent = (
+      item: ScrivxItem,
+      materials: FolderMaterials,
+      derived: ReturnType<typeof deriveFolderNoteContent>
+    ): boolean => {
+      const bodyNonEmpty = !!derived.text || materials.hasAttachedImages;
+      return !!(
+        bodyNonEmpty ||
+        derived.docSynopsis ||
+        item.labelTitle ||
+        item.statusTitle ||
+        derived.docNotes ||
+        (item.keywords && item.keywords.length > 0)
+      );
+    };
+
+    const analyzeManuscriptFolders = async (items: ScrivxItem[]): Promise<Set<string>> => {
+      const noteUuids = new Set<string>();
+      const visit = async (item: ScrivxItem): Promise<void> => {
+        if (item.isFolder) {
+          const rtfContent = await readRtf(item.uuid);
+          const comments = await readComments(item.uuid);
+          const notesRtfRaw = await pickNotesRaw(item.uuid);
+          const synopsisText = item.synopsis || (await readSynopsis(item.uuid));
+          const hasAttachedImages = fileMap.findAttachedDataImages(item.uuid).length > 0;
+          const materials: FolderMaterials = { rtfContent, comments, notesRtfRaw, synopsisText, hasAttachedImages };
+          folderMaterials.set(item.uuid, materials);
+
+          const derived = deriveFolderNoteContent(materials, item.uuid, null);
+          if (folderHasContent(item, materials, derived)) {
+            noteUuids.add(item.uuid);
+          }
+        }
+        for (const child of item.children) {
+          await visit(child);
+        }
+      };
+      for (const item of items) await visit(item);
+      return noteUuids;
+    };
+
+    const manuscriptFolderNoteUuids = parsed.draft ? await analyzeManuscriptFolders(parsed.draft.children) : new Set<string>();
+
+    /* Plan de destination COMPLET, calculé AVANT la moindre écriture —
+       une seule source de vérité pour les chemins finaux, réutilisée à la
+       fois pour l'écriture des fichiers et pour la résolution des liens
+       scrivlink://UUID (voir §3 à §6 du chantier S1). `manuscriptFolderNoteUuids`
+       est le MÊME ensemble que celui utilisé plus bas par writeManuscriptNode
+       pour décider d'écrire ou non la note d'un dossier : aucune divergence
+       possible entre le plan et l'écriture (voir le correctif S1 « plan et
+       note de dossier manuscrit »). */
+    const unclassifiedFolderLabel = t("modal.scrivenerImport.unclassifiedFolder");
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath,
+      researchRootPath: researchRoot ? researchRoot.path : null,
+      mode: modeKey,
+      unclassifiedFolderLabel,
+      manuscriptFolderNoteUuids,
+    });
+    const cursor = new ScrivenerPlanCursor(plan.targets);
+    const binderItemMap = plan.uuidToPath;
+
+    // Notes des scènes/fiches ordinaires (pas les dossiers, déjà couverts
+    // par folderMaterials/deriveFolderNoteContent ci-dessus) : reconverties
+    // avec la carte de liens définitive, à partir du même sélecteur de
+    // candidat que la pré-analyse (pickNotesRaw), sans jamais relire deux
+    // fois le même fichier gagnant... sauf ici, où il s'agit d'un nœud qui
+    // n'est PAS un dossier et n'a donc pas été mis en cache par la
+    // pré-analyse (celle-ci ne visite que les Folder du manuscrit).
+    const readNotes = async (uuid: string): Promise<string> => {
+      const raw = await pickNotesRaw(uuid);
+      if (!raw) return "";
+      const converted = rtfToMarkdown(raw, {}, binderItemMap).text;
+      return converted ? converted.trim() : "";
     };
 
     const saveExtractedImages = async (extractedImages: { name: string; bytes: Uint8Array }[]) => {
@@ -799,35 +919,38 @@ export class ScrivenerImportModal extends Modal {
     const writeManuscriptNode = async (item: ScrivxItem, destFolder: TAbstractFile): Promise<TAbstractFile | undefined> => {
       const target = cursor.next(item);
       if (item.isFolder) {
-        if (!target.folderPath || !target.markdownPath) {
+        if (!target.folderPath) {
           throw new Error(`Plan d'import Scrivener incomplet pour le dossier « ${item.title} ».`);
         }
         const folder = await plugin.ensureFolder(target.folderPath);
 
-        const folderRtf = await readRtf(item.uuid);
-        const folderComments = await readComments(item.uuid);
-        let docNotes = await readNotes(item.uuid);
-        const docSynopsis = item.synopsis || (await readSynopsis(item.uuid));
-
-        const { text, footnotes, extractedImages, imageLinks, extractedComments, chapterTitle, sousTitre } = rtfToMarkdown(
-          folderRtf,
-          folderComments,
-          binderItemMap,
-          { uuid: item.uuid }
-        );
-
-        if (extractedComments && extractedComments.length > 0) {
-          const commentLines = extractedComments.map((c) =>
-            c.word ? t("modal.scrivenerImport.commentOn", { word: c.word, text: c.text }) : c.text
-          );
-          docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
+        /* La pré-analyse (analyzeManuscriptFolders, avant la construction
+           du plan) a déjà lu ce dossier une fois — on réutilise ce contenu
+           en cache plutôt que de relire les mêmes fichiers, et on ne
+           recalcule PAS la décision « ce dossier a-t-il une note ? » : elle
+           utilise le MÊME ensemble `manuscriptFolderNoteUuids` que celui
+           déjà transmis au plan, donc jamais de divergence entre chemin
+           planifié et fichier réellement écrit. */
+        const materials = folderMaterials.get(item.uuid);
+        if (!materials) {
+          throw new Error(`Pré-analyse Scrivener incomplète pour le dossier « ${item.title} ».`);
         }
+        const willHaveNote = manuscriptFolderNoteUuids.has(item.uuid);
+        const { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis } =
+          deriveFolderNoteContent(materials, item.uuid, binderItemMap);
 
+        // Copie des images jointes : toujours effectuée, que la note soit
+        // écrite ou non — comportement historique inchangé (voir
+        // folderHasContent : si des images sont jointes, le dossier a
+        // forcément du contenu et willHaveNote est déjà vrai).
         let folderBody = text;
         const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
         folderBody = await processDataDirImages(item.title, item.uuid, folderBody, hasExtractedRtf);
 
-        if (folderBody || docSynopsis || item.labelTitle || item.statusTitle || docNotes || (item.keywords && item.keywords.length > 0)) {
+        if (willHaveNote) {
+          if (!target.markdownPath) {
+            throw new Error(`Plan d'import Scrivener désynchronisé pour le dossier « ${item.title} » (note prévue par la pré-analyse mais absente du plan).`);
+          }
           if (extractedImages && extractedImages.length > 0) {
             await saveExtractedImages(extractedImages);
           }
