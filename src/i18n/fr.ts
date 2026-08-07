@@ -726,6 +726,20 @@ export const fr = {
   "docxReview.comment.resolvedInWord": "résolu dans Word",
   "docxReview.comment.anchorQuoted": "« {text} »",
 
+  // ---------- LOT 6 — traçabilité des décisions (snapshots/comparaison/restauration existants) ----------
+  "docxReview.trace.alreadyPresent": "Déjà présent dans le manuscrit (détecté automatiquement, aucune décision enregistrée).",
+  "docxReview.trace.appliedOn": "Appliqué le {date}",
+  "docxReview.trace.rejectedOn": "Refusé, décision prise le {date}",
+  "docxReview.trace.treatedOn": "Traité le {date}",
+  "docxReview.trace.restorePointAvailable": "Point de retour disponible",
+  "docxReview.trace.restorePointTooltip": "Revenir à l'état avant cette session de révision — ce point de retour correspond au début de la session, pas seulement à cette correction.",
+  "docxReview.trace.viewResult": "Voir le résultat",
+  "docxReview.trace.compareBeforeAfter": "Comparer avant/après",
+  "docxReview.trace.compareOrigin": "Comparer l'origine",
+  "docxReview.trace.compareDestination": "Comparer la destination",
+  "docxReview.trace.footnotesTransferred": "{count} note(s) de bas de page transférée(s)",
+  "docxReview.trace.footnotesTransferredRenamed": "{count} note(s) de bas de page transférée(s), dont {renamed} renommée(s)",
+
   // ---------- Documents éditoriaux (edition-docs-view.js) — sous-section de l'espace Édition ----------
   "editionDocs.displayText": "Documents éditoriaux",
   "editionDocs.notCreatedBody": "Aucun dossier Edition pour ce projet. Crée-le pour préparer synopsis, note d'intention, biographie, lettre d'accompagnement et suivi des envois.",

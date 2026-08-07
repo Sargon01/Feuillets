@@ -192,3 +192,36 @@ test("DiffModal restaure après snapshot, lecture, écriture, notification puis 
     "close",
   ]);
 });
+
+// LOT 6 (docx-review) — `allowRestore` : rétrocompatible (défaut `true`,
+// TOUS les usages existants — dont le test précédent — continuent de
+// permettre la restauration exactement comme avant ce lot), désactivable
+// pour "Comparer l'origine"/"Comparer la destination" d'un déplacement
+// inter-feuillets (voir docx-review-view.ts#openTraceCompare).
+test("DiffModal — allowRestore=false masque le bouton Restaurer, sans toucher au reste du rendu", async () => {
+  const root = new TFolder("Projet");
+  const current = new TFile("Projet/scene.md", "version actuelle");
+  const snapshot = new TFile("Projet/Snapshots/scene/ancien.md", "version sauvegardée");
+  const { vault } = createFakeVault([root, current, snapshot]);
+  const app = { vault };
+  const plugin = {
+    getProjectFolder: () => root,
+    snapshotFile: async () => {},
+    shortTitleFor: (file) => file.basename,
+  };
+  const modal = prepareModal(new DiffModal(app, plugin, current, snapshot, false), app);
+  modal.snapshots = [snapshot];
+  modal.selectedSnapshot = snapshot;
+
+  await modal.renderModalContent();
+
+  assert.equal(buttonComponents(modal.contentEl).length, 1, "seul le bouton Fermer reste");
+  assert.equal(textContent(modal.contentEl).includes("version actuelle"), true);
+});
+
+test("DiffModal — allowRestore omis (constructeur sans plugin) équivaut à true", async () => {
+  const current = new TFile("Projet/scene.md", "texte");
+  const app = { vault: { getAbstractFileByPath() { return null; } } };
+  const modal = prepareModal(new DiffModal(app, current), app);
+  assert.equal(modal.allowRestore, true);
+});

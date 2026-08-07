@@ -43,12 +43,12 @@ type DiffOrigin = {
 };
 
 type DiffModalArguments =
-  | [plugin: DiffPlugin, currentFile: TFile, initialSnapshot?: TFile]
-  | [currentFile: TFile, initialSnapshot?: TFile];
+  | [plugin: DiffPlugin, currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean]
+  | [currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean];
 
 function isFileOnlyDiffModalArguments(
   args: DiffModalArguments
-): args is [currentFile: TFile, initialSnapshot?: TFile] {
+): args is [currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean] {
   return args[0] instanceof TFile;
 }
 
@@ -337,24 +337,35 @@ export class DiffModal extends Modal {
   mode: DiffMode;
   snapshots: TFile[];
   selectedSnapshot: TFile | null;
+  /** LOT 6 (docx-review) — `false` uniquement pour l'entrée « Comparer
+   * l'origine »/« Comparer la destination » d'un déplacement inter-feuillets
+   * ouverte depuis la trace d'une décision DOCX (voir docx-review-view.ts) :
+   * un seul des deux feuillets restauré créerait un état incohérent (voir
+   * CompareFilesModal, même principe — « rien ne dit lequel des deux devrait
+   * écraser l'autre »). Par défaut `true` : tous les usages existants (le
+   * bouton « Comparer avec le snapshot », commandes générales) continuent de
+   * permettre la restauration exactement comme avant ce lot. */
+  allowRestore: boolean;
 
-  constructor(app: App, plugin: DiffPlugin, currentFile: TFile, initialSnapshot?: TFile);
-  constructor(app: App, currentFile: TFile, initialSnapshot?: TFile);
+  constructor(app: App, plugin: DiffPlugin, currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean);
+  constructor(app: App, currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean);
   constructor(
     app: App,
     ...args: DiffModalArguments
   ) {
     super(app);
     if (isFileOnlyDiffModalArguments(args)) {
-      const [currentFile, initialSnapshot] = args;
+      const [currentFile, initialSnapshot, allowRestore] = args;
       this.plugin = null;
       this.currentFile = currentFile;
       this.initialSnapshot = initialSnapshot;
+      this.allowRestore = allowRestore !== false;
     } else {
-      const [plugin, currentFile, initialSnapshot] = args;
+      const [plugin, currentFile, initialSnapshot, allowRestore] = args;
       this.plugin = plugin;
       this.currentFile = currentFile;
       this.initialSnapshot = initialSnapshot;
+      this.allowRestore = allowRestore !== false;
     }
     this.mode = "split"; // "split" | "inline"
     this.snapshots = [];
@@ -445,33 +456,39 @@ export class DiffModal extends Modal {
        setDestructive() (remplacement recommandé) n'existe que depuis Obsidian
        1.13.0 et minAppVersion reste 1.7.2 : setButtonDestructive() choisit à
        l'exécution la forme fournie par l'hôte au lieu d'en figer une (voir
-       src/utils/obsidian-compat.ts). */
-    setButtonDestructive(
-      new ButtonComponent(footerBar).setButtonText(t("modal.diff.restoreSnapshot"))
-    )
-      .onClick(() => {
-        if (!this.selectedSnapshot) return;
-        /* ConfirmModal plutôt que window.confirm() : cohérence avec le reste
-           de l'UI (cf. src/ui/basic-modals.js) et confirm() est bloquant,
-           donc proscrit par la revue Obsidian. */
-        const snapshot = this.selectedSnapshot;
-        new ConfirmModal(
-          this.app,
-          t("modal.diff.restoreSnapshot"),
-          t("modal.diff.restoreConfirm", { snapshot: snapshot.basename, current: this.currentFile.basename }),
-          t("modal.diff.restoreSnapshot"),
-          async () => {
-            const root = this.plugin ? this.plugin.getProjectFolder() : null;
-            if (this.plugin && root) {
-              await this.plugin.snapshotFile(this.currentFile, root);
+       src/utils/obsidian-compat.ts).
+       `allowRestore` (LOT 6, docx-review) : absent (repli true) pour tout
+       usage existant — seule la comparaison origine/destination d'un
+       déplacement inter-feuillets, ouverte depuis la trace d'une décision
+       DOCX, le désactive (voir sa doc plus haut). */
+    if (this.allowRestore) {
+      setButtonDestructive(
+        new ButtonComponent(footerBar).setButtonText(t("modal.diff.restoreSnapshot"))
+      )
+        .onClick(() => {
+          if (!this.selectedSnapshot) return;
+          /* ConfirmModal plutôt que window.confirm() : cohérence avec le reste
+             de l'UI (cf. src/ui/basic-modals.js) et confirm() est bloquant,
+             donc proscrit par la revue Obsidian. */
+          const snapshot = this.selectedSnapshot;
+          new ConfirmModal(
+            this.app,
+            t("modal.diff.restoreSnapshot"),
+            t("modal.diff.restoreConfirm", { snapshot: snapshot.basename, current: this.currentFile.basename }),
+            t("modal.diff.restoreSnapshot"),
+            async () => {
+              const root = this.plugin ? this.plugin.getProjectFolder() : null;
+              if (this.plugin && root) {
+                await this.plugin.snapshotFile(this.currentFile, root);
+              }
+              const content = await this.app.vault.read(snapshot);
+              await this.app.vault.modify(this.currentFile, content);
+              new Notice(t("modal.diff.restoredNotice", { name: snapshot.basename }));
+              this.close();
             }
-            const content = await this.app.vault.read(snapshot);
-            await this.app.vault.modify(this.currentFile, content);
-            new Notice(t("modal.diff.restoredNotice", { name: snapshot.basename }));
-            this.close();
-          }
-        ).open();
-      });
+          ).open();
+        });
+    }
 
     new ButtonComponent(footerBar)
       .setButtonText(t("modal.close"))

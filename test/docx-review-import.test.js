@@ -1943,6 +1943,31 @@ test("planApplyInterFile — transfert de note entre feuillets", async (t) => {
     assert.equal((modified["F1.md"].match(/\[\^2\]:/g) || []).length, 0);
   });
 
+  // LOT 6 (docx-review-view.js — traçabilité) : planApplyInterFile remonte
+  // désormais { count, renamedCount } — jamais recalculé côté vue, voir
+  // computeInterFileMovePlan/resolveFootnoteTransfer.
+  await t.test("13bis. LOT 6 — res.footnotes remonte le compteur de notes transférées (sans renommage)", async () => {
+    const files2 = {
+      "F1.md": "Début. Il partit[^2] à l'aube. Fin.\n\n[^2]: Vers l'inconnu.",
+      "F2.md": "Autre feuillet. Rien ici.",
+    };
+    const vault2 = {
+      read: async (f) => files2[f.path],
+      modify: async (f, c) => { files2[f.path] = c; },
+    };
+    const moveChange2 = {
+      type: "move",
+      text: "Il partit[^1] à l'aube.",
+      fromText: "Il partit[^1] à l'aube.",
+      fromContext: "Début. ",
+      toContext: "Autre feuillet. Rien ici.",
+      footnoteRefs: ["1"],
+    };
+    const res2 = await planApplyInterFile(vault2, { path: "F1.md" }, { path: "F2.md" }, moveChange2);
+    assert.equal(res2.ok, true);
+    assert.deepEqual(res2.footnotes, { count: 1, renamedCount: 0 });
+  });
+
   await t.test("14. conflit d'identifiant à destination : renumérotation propre", async () => {
     const files = {
       "F1.md": "Début. Il partit[^1] à l'aube. Fin.\n\n[^1]: Vers l'inconnu.",
@@ -1972,6 +1997,8 @@ test("planApplyInterFile — transfert de note entre feuillets", async (t) => {
     const newId = modified["F2.md"].match(/Il partit\[\^(\d+)\] à l'aube/)[1];
     assert.notEqual(newId, "1");
     assert.ok(modified["F2.md"].includes(`[^${newId}]: Vers l'inconnu.`));
+    // LOT 6 — collision -> renamedCount remonté (jamais recalculé côté vue).
+    assert.deepEqual(res.footnotes, { count: 1, renamedCount: 1 });
   });
 
   await t.test("15. une définition encore utilisée ailleurs dans l'origine n'est jamais supprimée", async () => {
