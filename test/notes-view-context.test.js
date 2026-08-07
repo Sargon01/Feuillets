@@ -350,6 +350,33 @@ test("5. une fiche EXTÉRIEURE aux sources autorisées est ignorée", async () =
   assert.deepEqual(citedNames(contentEl), []);
 });
 
+test("Volet Recherche — un dossier lié EXTÉRIEUR au projet reste une source de contexte valide", async () => {
+  // La restriction géographique (isInsideResearchSpace) est levée pour
+  // l'association Binder ↔ Recherche (base-feuillets-view.ts) : un dossier
+  // lié à un feuillet peut désormais vivre n'importe où dans le coffre.
+  // contextSourcesFor (notes-view.ts) ne filtrait déjà jamais par
+  // emplacement — ce test le prouve avec un dossier hors de toute
+  // arborescence du projet.
+  const project = buildProject();
+  const externalFolder = new TFolder("Documentation/Histoire ottomane");
+  const externalFile = new TFile("Documentation/Histoire ottomane/Janissaires.md");
+  externalFile.parent = externalFolder;
+  externalFolder.children = [externalFile];
+  project.filesByPath.set(externalFolder.path, externalFolder);
+  project.filesByPath.set(externalFile.path, externalFile);
+  project.titles[externalFile.path] = "Janissaires";
+
+  const { view, contentEl, plugin } = createView(project);
+  // Le feuillet actif est lié à un dossier hors du projet (autre arbre du
+  // coffre, sans rapport avec Projet/_Recherche).
+  plugin.getLinkedResearchFolder = (node) =>
+    node.path === project.activeFile.path ? externalFolder : null;
+
+  project.activeFile.content = "Les janissaires montent la garde.";
+  await view.renderCitedEntities(contentEl, project.activeFile, null, []);
+  assert.deepEqual(citedNames(contentEl), ["Janissaires"]);
+});
+
 test("6. un même fichier présent dans PLUSIEURS sources n'apparaît qu'une fois", async () => {
   const project = buildProject();
   // DucA ("Carte Secrète") vit sous feuilletResearch, lui-même sous

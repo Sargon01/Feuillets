@@ -88,7 +88,7 @@ export const fr = {
   "binder.research.linkModalPlaceholder": "Rechercher un dossier…",
   "binder.research.linkFolderNotFound": "Ce chemin ne correspond à aucun dossier du coffre.",
   "binder.research.folderLinked": "Dossier Recherche « {name} » associé.",
-  "binder.research.linkFolderOutside": "Ce dossier n'appartient pas à l'espace Recherche du projet.",
+  "binder.research.linkFolderAmbiguous": "Plusieurs dossiers correspondent à cette saisie : sélectionnez-en un dans la liste de suggestions.",
   "binder.research.folderDetached": "Dossier Recherche détaché (le dossier physique est intact).",
 
   "binder.projectManager.title": "Gérer les projets",
@@ -1369,6 +1369,11 @@ export const fr = {
   "modal.openFolder.noFolderChosen": "Choisissez un dossier.",
   "modal.openFolder.notAFolder": "Ce chemin ne correspond à aucun dossier du coffre.",
   "modal.openFolder.opened": "Projet activé : {path}",
+
+  "modal.transformProject.title": "Transformer en projet Feuillets",
+  "modal.transformProject.desc": "Choisissez un type de document : Feuillets crée alors les sous-dossiers de Recherche adaptés dans ce dossier, sans déplacer ni modifier vos fichiers existants.",
+  "modal.transformProject.ready": "« {name} » est maintenant un projet Feuillets.",
+  "modal.transformProject.transform": "Transformer",
 
   "modal.manageProjects.title": "Gérer les projets",
   "modal.manageProjects.createDemoTooltip": "Créer un projet d'exemple…",
