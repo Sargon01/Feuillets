@@ -1552,7 +1552,7 @@ test("parseCommentsExtended + parseCommentsXml (résolu / réponses)", async (t)
       '<w:comments><w:comment w:id="0" w:author="A" w:date="D">' +
       '<w:p w14:paraId="AA"><w:r><w:t>Simple.</w:t></w:r></w:p>' +
       '</w:comment></w:comments>';
-    assert.deepEqual(parseCommentsXml(commentsXml), { "0": { author: "A", date: "D", text: "Simple.", commentId: "0" } });
+    assert.deepEqual(parseCommentsXml(commentsXml), { "0": { author: "A", date: "D", text: "Simple.", commentId: "0", commentExtendedParaId: "AA" } });
   });
 
   await t.test("resolvedInWord se propage jusqu'à l'entrée de commentaire du feuillet", () => {
