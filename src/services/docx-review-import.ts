@@ -2790,10 +2790,10 @@ function resolveFootnoteTransfer(
   movedText: string,
   fromContent: string,
   toContent: string
-): { text: string; fromContent: string; toContent: string } {
+): { text: string; fromContent: string; toContent: string; transferredCount: number; renamedCount: number } {
   const { references } = parseFootnotes(movedText);
   if (references.length === 0) {
-    return { text: movedText, fromContent, toContent };
+    return { text: movedText, fromContent, toContent, transferredCount: 0, renamedCount: 0 };
   }
 
   const seenIds = [...new Set(references.map((r) => r.id))];
@@ -2801,6 +2801,14 @@ function resolveFootnoteTransfer(
   let workingTo = toContent;
   let text = movedText;
   let nextId = nextFootnoteNumber(workingTo);
+  /* LOT 6 (docx-review) — compteurs REMONTÉS jusqu'à planApplyInterFile (pour
+     la trace de décision, voir docx-review-view.ts), jamais recalculés
+     ailleurs : `transferredCount` = notes réellement transférées (celles
+     dont la définition d'origine a été retrouvée, voir le `continue`
+     ci-dessous), `renamedCount` = parmi elles, celles qui ont dû être
+     renumérotées pour éviter une collision de label à destination. */
+  let transferredCount = 0;
+  let renamedCount = 0;
 
   for (const label of seenIds) {
     // Contenu de RÉFÉRENCE (fichier d'origine, jamais encore muté par cette
@@ -2808,6 +2816,7 @@ function resolveFootnoteTransfer(
     // itération précédente en affecte la lecture.
     const def = findDefinition(fromContent, label);
     if (!def) continue;
+    transferredCount++;
 
     const existingAtDest = findDefinition(toContent, label);
     let resolvedLabel = label;
@@ -2832,6 +2841,7 @@ function resolveFootnoteTransfer(
 
     if (resolvedLabel !== label) {
       text = renameFootnoteCall(text, label, resolvedLabel);
+      renamedCount++;
     }
 
     if (findReferences(fromContent, label).length <= 1) {
@@ -2839,7 +2849,7 @@ function resolveFootnoteTransfer(
     }
   }
 
-  return { text, fromContent: workingFrom, toContent: workingTo };
+  return { text, fromContent: workingFrom, toContent: workingTo, transferredCount, renamedCount };
 }
 
 /** Résultat, encore SANS AUCUNE ÉCRITURE, du calcul complet d'un déplacement
@@ -2856,6 +2866,11 @@ type InterFileMovePlan =
       insResult: Extract<ApplyResult, { ok: true }>;
       workingFromContent: string;
       workingToContent: string;
+      /** LOT 6 (docx-review) — présent uniquement quand le passage déplacé
+       * portait au moins un appel de note (moveChange.footnoteRefs) :
+       * remonté tel quel jusqu'à planApplyInterFile puis jusqu'à la trace de
+       * décision (docx-review-view.ts) — jamais recalculé après coup. */
+      footnotes?: { count: number; renamedCount: number };
     }
   | { ok: false; step: "from" | "to"; reason: string; stage: "footnote" | "delete" | "insert" | "structure" };
 
@@ -2863,6 +2878,7 @@ function computeInterFileMovePlan(fromContent: string, toContent: string, moveCh
   let workingFromContent = fromContent;
   let workingToContent = toContent;
   let movedText = moveChange.text;
+  let footnotes: { count: number; renamedCount: number } | undefined;
 
   if (moveChange.footnoteRefs && moveChange.footnoteRefs.length > 0) {
     const fromMatch = locateChangeMatch(fromContent, moveChange.fromContext, moveChange.fromText);
@@ -2875,6 +2891,7 @@ function computeInterFileMovePlan(fromContent: string, toContent: string, moveCh
     movedText = resolved.text;
     workingFromContent = resolved.fromContent;
     workingToContent = resolved.toContent;
+    footnotes = { count: resolved.transferredCount, renamedCount: resolved.renamedCount };
   }
 
   const delResult = planApply(workingFromContent, {
@@ -2919,7 +2936,7 @@ function computeInterFileMovePlan(fromContent: string, toContent: string, moveCh
     return { ok: false, step: "to", reason: "ambiguous", stage: "structure" };
   }
 
-  return { ok: true, delResult, insResult, workingFromContent, workingToContent };
+  return { ok: true, delResult, insResult, workingFromContent, workingToContent, footnotes };
 }
 
 /** Applique un déplacement de texte inter-feuillets : supprime le texte
@@ -2935,7 +2952,17 @@ export async function planApplyInterFile(
   toFile: ReviewVaultFile,
   moveChange: MoveChange
 ): Promise<
-  | { ok: true; insertedRange?: { start: number; end: number } }
+  | {
+      ok: true;
+      insertedRange?: { start: number; end: number };
+      /** LOT 6 (docx-review) — remonté depuis computeInterFileMovePlan
+       * (donc resolveFootnoteTransfer) SANS aucun recalcul : `count` = notes
+       * réellement transférées, `renamedCount` = celles renommées pour
+       * éviter une collision de label à destination. Absent si le passage
+       * déplacé ne portait aucune note. Jamais un identifiant interne Word —
+       * seulement ces deux compteurs, voir la mission LOT 6 §4. */
+      footnotes?: { count: number; renamedCount: number };
+    }
   | { ok: false; step: "from" | "to"; reason: string }
 > {
   const fromContent = await vault.read(fromFile);
@@ -2943,7 +2970,7 @@ export async function planApplyInterFile(
 
   const plan = computeInterFileMovePlan(fromContent, toContent, moveChange);
   if (!plan.ok) return { ok: false, step: plan.step, reason: plan.reason };
-  const { delResult, insResult } = plan;
+  const { delResult, insResult, footnotes } = plan;
 
   /* Écriture transactionnelle (Lot 3, sécurité multi-feuillets) : jusqu'ici
      rien n'a été écrit — tout est calculé et vérifié en mémoire. À partir
@@ -3002,7 +3029,7 @@ export async function planApplyInterFile(
     return { ok: false, step: failedStep, reason: restoreFailed ? "rollback-failed" : "write-failed" };
   }
 
-  return { ok: true, insertedRange: insResult.insertedRange };
+  return { ok: true, insertedRange: insResult.insertedRange, footnotes };
 }
 
 /** LOT 4 — confiance d'un déplacement INTER-FEUILLETS, à partir du contenu
