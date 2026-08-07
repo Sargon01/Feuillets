@@ -520,6 +520,15 @@ export class ScrivenerImportModal extends Modal {
       });
     }
 
+    /* §17 du chantier S2 : la Corbeille n'est jamais importée, mais elle
+       n'est plus ignorée en silence — annoncée avant le bouton de
+       confirmation, seulement si elle n'est pas vide. */
+    if (counts.trashEntries > 0) {
+      contentEl.createDiv({ cls: "feuillets-notes-sub feuillets-field-spacer" }).setText(
+        t("modal.scrivenerImport.trashNotImported", { count: String(counts.trashEntries) })
+      );
+    }
+
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     const confirmBtn = btnRow.createEl("button", { text: t("modal.scrivenerImport.confirmBtn"), cls: "mod-cta" });
     confirmBtn.addEventListener("click", () => {
@@ -654,16 +663,31 @@ export class ScrivenerImportModal extends Modal {
        (avec la vraie carte de liens scrivlink://UUID, connue seulement une
        fois le plan construit) est refaite à l'écriture, via la même
        fonction deriveFolderNoteContent. */
-    type FolderMaterials = {
+    /* Généralisation S2 (§8 du chantier) de la notion FolderMaterials S1 :
+       même forme, mais désormais utilisée pour TOUT nœud Folder de l'arbre
+       (dossiers Manuscrit, racine Draft, racine Research, dossiers Research
+       classifiés/imbriqués, racines "other") — plus seulement les dossiers
+       du manuscrit. Une seule fonction de décision, un seul Set de UUID,
+       partagés par le plan et par l'écriture (voir plus bas). */
+    type NodeMaterials = {
       rtfContent: string;
       comments: Awaited<ReturnType<typeof readComments>>;
       notesRtfRaw: string | null;
       synopsisText: string;
       hasAttachedImages: boolean;
     };
-    const folderMaterials = new Map<string, FolderMaterials>();
+    const nodeMaterialsMap = new Map<string, NodeMaterials>();
 
-    const deriveFolderNoteContent = (materials: FolderMaterials, uuid: string, linkMap: Map<string, string> | null) => {
+    const readNodeMaterials = async (item: ScrivxItem): Promise<NodeMaterials> => {
+      const rtfContent = await readRtf(item.uuid);
+      const comments = await readComments(item.uuid);
+      const notesRtfRaw = await pickNotesRaw(item.uuid);
+      const synopsisText = item.synopsis || (await readSynopsis(item.uuid));
+      const hasAttachedImages = fileMap.findAttachedDataImages(item.uuid).length > 0;
+      return { rtfContent, comments, notesRtfRaw, synopsisText, hasAttachedImages };
+    };
+
+    const deriveNodeNoteContent = (materials: NodeMaterials, uuid: string, linkMap: Map<string, string> | null) => {
       const { text, footnotes, extractedImages, imageLinks, extractedComments, chapterTitle, sousTitre } = rtfToMarkdown(
         materials.rtfContent,
         materials.comments,
@@ -684,15 +708,14 @@ export class ScrivenerImportModal extends Modal {
       return { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis: materials.synopsisText };
     };
 
-    /* Même condition, au mot près, que celle utilisée par l'ancien
-       writeManuscriptNode pour décider si la note de dossier existe —
-       seule différence : le corps du texte tient compte de la présence
-       d'images jointes (`hasAttachedImages`) SANS écrire ces images ici
-       (l'écriture réelle reste dans processDataDirImages, à l'écriture). */
-    const folderHasContent = (
+    /* Même condition, au mot près, que l'ancien folderHasContent S1 — avec
+       une addition S2 (§8) : une customMetadata non vide suffit à elle
+       seule à justifier une note ("Folder sans texte, customMetadata =
+       POV: Alice -> une note DOIT être créée"). */
+    const nodeHasContent = (
       item: ScrivxItem,
-      materials: FolderMaterials,
-      derived: ReturnType<typeof deriveFolderNoteContent>
+      materials: NodeMaterials,
+      derived: ReturnType<typeof deriveNodeNoteContent>
     ): boolean => {
       const bodyNonEmpty = !!derived.text || materials.hasAttachedImages;
       return !!(
@@ -701,52 +724,53 @@ export class ScrivenerImportModal extends Modal {
         item.labelTitle ||
         item.statusTitle ||
         derived.docNotes ||
-        (item.keywords && item.keywords.length > 0)
+        (item.keywords && item.keywords.length > 0) ||
+        (item.customMetadata && item.customMetadata.length > 0)
       );
     };
 
-    const analyzeManuscriptFolders = async (items: ScrivxItem[]): Promise<Set<string>> => {
-      const noteUuids = new Set<string>();
-      const visit = async (item: ScrivxItem): Promise<void> => {
-        if (item.isFolder) {
-          const rtfContent = await readRtf(item.uuid);
-          const comments = await readComments(item.uuid);
-          const notesRtfRaw = await pickNotesRaw(item.uuid);
-          const synopsisText = item.synopsis || (await readSynopsis(item.uuid));
-          const hasAttachedImages = fileMap.findAttachedDataImages(item.uuid).length > 0;
-          const materials: FolderMaterials = { rtfContent, comments, notesRtfRaw, synopsisText, hasAttachedImages };
-          folderMaterials.set(item.uuid, materials);
-
-          const derived = deriveFolderNoteContent(materials, item.uuid, null);
-          if (folderHasContent(item, materials, derived)) {
-            noteUuids.add(item.uuid);
-          }
+    /* Pré-analyse en LECTURE SEULE, généralisée à toute la hiérarchie
+       (§8/§9/§11/§12/§13/§14 du chantier S2) : un seul parcours récursif,
+       une seule décision par nœud Folder — racine Draft et racine Research
+       comprises (toutes deux `isFolder: true`, voir parseScrivx), qu'on
+       visite ici en plus de leurs enfants directs. La Corbeille n'est
+       jamais visitée (§18 : "la Corbeille n'est pas importée"). */
+    const folderNoteUuids = new Set<string>();
+    const analyzeNode = async (item: ScrivxItem): Promise<void> => {
+      if (item.isFolder) {
+        const materials = await readNodeMaterials(item);
+        nodeMaterialsMap.set(item.uuid, materials);
+        const derived = deriveNodeNoteContent(materials, item.uuid, null);
+        if (nodeHasContent(item, materials, derived)) {
+          folderNoteUuids.add(item.uuid);
         }
-        for (const child of item.children) {
-          await visit(child);
-        }
-      };
-      for (const item of items) await visit(item);
-      return noteUuids;
+      }
+      for (const child of item.children) {
+        await analyzeNode(child);
+      }
     };
-
-    const manuscriptFolderNoteUuids = parsed.draft ? await analyzeManuscriptFolders(parsed.draft.children) : new Set<string>();
+    if (parsed.draft) await analyzeNode(parsed.draft);
+    if (parsed.research) await analyzeNode(parsed.research);
+    for (const other of parsed.others) await analyzeNode(other);
 
     /* Plan de destination COMPLET, calculé AVANT la moindre écriture —
        une seule source de vérité pour les chemins finaux, réutilisée à la
        fois pour l'écriture des fichiers et pour la résolution des liens
-       scrivlink://UUID (voir §3 à §6 du chantier S1). `manuscriptFolderNoteUuids`
-       est le MÊME ensemble que celui utilisé plus bas par writeManuscriptNode
-       pour décider d'écrire ou non la note d'un dossier : aucune divergence
-       possible entre le plan et l'écriture (voir le correctif S1 « plan et
-       note de dossier manuscrit »). */
+       scrivlink://UUID (voir §3 à §6 du chantier S1, généralisé en §15 du
+       chantier S2). `folderNoteUuids` est le MÊME ensemble que celui
+       utilisé plus bas par l'écriture pour décider d'écrire ou non la note
+       d'un nœud : aucune divergence possible entre le plan et l'écriture
+       (voir le correctif S1 « plan et note de dossier manuscrit », désormais
+       valable pour toute la hiérarchie). Le champ d'options s'appelle
+       toujours `manuscriptFolderNoteUuids` côté buildScrivenerImportPlan
+       (voir son commentaire) pour ne pas casser les tests S1 existants. */
     const unclassifiedFolderLabel = t("modal.scrivenerImport.unclassifiedFolder");
     const plan = buildScrivenerImportPlan(parsed, {
       manuscritPath,
       researchRootPath: researchRoot ? researchRoot.path : null,
       mode: modeKey,
       unclassifiedFolderLabel,
-      manuscriptFolderNoteUuids,
+      manuscriptFolderNoteUuids: folderNoteUuids,
     });
     const cursor = new ScrivenerPlanCursor(plan.targets);
     const binderItemMap = plan.uuidToPath;
@@ -911,9 +935,60 @@ export class ScrivenerImportModal extends Modal {
         notes: docNotes,
         includeInCompile: item.includeInCompile,
         wordGoal: item.wordGoal || S.wordGoal,
+        customMetadata: item.customMetadata,
       });
       requireFreePath(app, path);
       return app.vault.create(path, fm + body);
+    };
+
+    /* Écrit la note "scène" d'un nœud Folder-like (dossier du manuscrit ou
+       racine Draft elle-même, §9 du chantier S2) à partir de son
+       NodeMaterials déjà mis en cache par la pré-analyse — jamais de
+       relecture des mêmes fichiers, jamais de recalcul de la décision
+       « a-t-il une note ? » (voir folderNoteUuids, seule source de vérité,
+       partagée avec le plan). */
+    const writeManuscriptFolderStyleNote = async (
+      item: ScrivxItem,
+      target: ScrivenerImportTarget,
+      materials: NodeMaterials,
+      titreCourtFallback: string
+    ): Promise<void> => {
+      if (!target.markdownPath) {
+        throw new Error(`Plan d'import Scrivener désynchronisé pour « ${item.title} » (note prévue par la pré-analyse mais absente du plan).`);
+      }
+      const { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis } =
+        deriveNodeNoteContent(materials, item.uuid, binderItemMap);
+
+      let body = text;
+      const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
+      body = await processDataDirImages(item.title, item.uuid, body, hasExtractedRtf);
+      if (extractedImages && extractedImages.length > 0) {
+        await saveExtractedImages(extractedImages);
+      }
+      if (imageLinks && imageLinks.length > 0) {
+        await processImageLinks(imageLinks);
+      }
+      if (footnotes.length > 0) {
+        body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
+      }
+      if (item.labelTitle) encounteredLabels.add(item.labelTitle);
+      const fm = buildSceneFrontmatter({
+        titre: chapterTitle || item.title,
+        titreCourt: titreCourtFallback,
+        sousTitre,
+        order: 0,
+        isFiction,
+        synopsis: docSynopsis,
+        statut: mapScrivenerStatus(item.statusTitle),
+        label: item.labelTitle,
+        tags: item.keywords,
+        notes: docNotes,
+        includeInCompile: item.includeInCompile,
+        wordGoal: item.wordGoal || S.wordGoal,
+        customMetadata: item.customMetadata,
+      });
+      requireFreePath(app, target.markdownPath);
+      await app.vault.create(target.markdownPath, fm + body);
     };
 
     const writeManuscriptNode = async (item: ScrivxItem, destFolder: TAbstractFile): Promise<TAbstractFile | undefined> => {
@@ -924,61 +999,29 @@ export class ScrivenerImportModal extends Modal {
         }
         const folder = await plugin.ensureFolder(target.folderPath);
 
-        /* La pré-analyse (analyzeManuscriptFolders, avant la construction
-           du plan) a déjà lu ce dossier une fois — on réutilise ce contenu
-           en cache plutôt que de relire les mêmes fichiers, et on ne
-           recalcule PAS la décision « ce dossier a-t-il une note ? » : elle
-           utilise le MÊME ensemble `manuscriptFolderNoteUuids` que celui
-           déjà transmis au plan, donc jamais de divergence entre chemin
-           planifié et fichier réellement écrit. */
-        const materials = folderMaterials.get(item.uuid);
+        /* La pré-analyse (analyzeNode, avant la construction du plan) a
+           déjà lu ce dossier une fois — on réutilise ce contenu en cache
+           plutôt que de relire les mêmes fichiers, et on ne recalcule PAS
+           la décision « ce dossier a-t-il une note ? » : elle utilise le
+           MÊME ensemble `folderNoteUuids` que celui déjà transmis au plan,
+           donc jamais de divergence entre chemin planifié et fichier
+           réellement écrit. */
+        const materials = nodeMaterialsMap.get(item.uuid);
         if (!materials) {
           throw new Error(`Pré-analyse Scrivener incomplète pour le dossier « ${item.title} ».`);
         }
-        const willHaveNote = manuscriptFolderNoteUuids.has(item.uuid);
-        const { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis } =
-          deriveFolderNoteContent(materials, item.uuid, binderItemMap);
+        const willHaveNote = folderNoteUuids.has(item.uuid);
 
         // Copie des images jointes : toujours effectuée, que la note soit
         // écrite ou non — comportement historique inchangé (voir
-        // folderHasContent : si des images sont jointes, le dossier a
+        // nodeHasContent : si des images sont jointes, le dossier a
         // forcément du contenu et willHaveNote est déjà vrai).
-        let folderBody = text;
-        const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
-        folderBody = await processDataDirImages(item.title, item.uuid, folderBody, hasExtractedRtf);
-
-        if (willHaveNote) {
-          if (!target.markdownPath) {
-            throw new Error(`Plan d'import Scrivener désynchronisé pour le dossier « ${item.title} » (note prévue par la pré-analyse mais absente du plan).`);
-          }
-          if (extractedImages && extractedImages.length > 0) {
-            await saveExtractedImages(extractedImages);
-          }
-          if (imageLinks && imageLinks.length > 0) {
-            await processImageLinks(imageLinks);
-          }
-          const folderNotePath = target.markdownPath;
-          let body = folderBody;
-          if (footnotes.length > 0) {
-            body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
-          }
-          if (item.labelTitle) encounteredLabels.add(item.labelTitle);
-          const fm = buildSceneFrontmatter({
-            titre: chapterTitle || item.title,
-            titreCourt: folder.name,
-            sousTitre,
-            order: 0,
-            isFiction,
-            synopsis: docSynopsis,
-            statut: mapScrivenerStatus(item.statusTitle),
-            label: item.labelTitle,
-            tags: item.keywords,
-            notes: docNotes,
-            includeInCompile: item.includeInCompile,
-            wordGoal: item.wordGoal || S.wordGoal,
-          });
-          requireFreePath(app, folderNotePath);
-          await app.vault.create(folderNotePath, fm + body);
+        if (!willHaveNote) {
+          const { text, extractedImages } = deriveNodeNoteContent(materials, item.uuid, binderItemMap);
+          const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
+          await processDataDirImages(item.title, item.uuid, text, hasExtractedRtf);
+        } else {
+          await writeManuscriptFolderStyleNote(item, target, materials, folder.name);
         }
 
         await writeManuscriptChildren(item.children, folder);
@@ -1006,7 +1049,62 @@ export class ScrivenerImportModal extends Modal {
       if (created.length > 0) await plugin.writeOrder(destFolder, created);
     };
 
+    /* §9 du chantier S2 : note de la racine Draft elle-même, écrite AVANT
+       ses enfants (même ordre que le plan — voir buildScrivenerImportPlan)
+       et directement dans Manuscrit/, jamais dans un sous-dossier. */
+    if (parsed.draft && folderNoteUuids.has(parsed.draft.uuid)) {
+      const target = cursor.next({ uuid: parsed.draft.uuid, title: parsed.draft.title });
+      const materials = nodeMaterialsMap.get(parsed.draft.uuid);
+      if (!materials) {
+        throw new Error("Pré-analyse Scrivener incomplète pour la racine du Manuscrit.");
+      }
+      const actualFileName = (target.markdownPath || "").slice(
+        (target.markdownPath || "").lastIndexOf("/") + 1,
+        -".md".length
+      );
+      await writeManuscriptFolderStyleNote(parsed.draft, target, materials, actualFileName);
+    }
+
     await writeManuscriptChildren(parsed.draft!.children, manuscritFolder);
+
+    /* Écrit la note "entité" (buildEntityFrontmatter) d'un nœud Folder-like
+       Research — racine Research elle-même (§11), dossier classifié
+       Characters/Places (§12), dossier imbriqué/non classifié (§13), ou
+       racine "other" (§14). JAMAIS de tag structurel personnage/lieu sur la
+       note d'un dossier — seuls ses enfants directs en reçoivent un (voir
+       writeResearchNode ci-dessous). */
+    const writeResearchFolderSelfNote = async (
+      item: ScrivxItem,
+      target: ScrivenerImportTarget,
+      materials: NodeMaterials
+    ): Promise<void> => {
+      if (!target.markdownPath) {
+        throw new Error(`Plan d'import Scrivener désynchronisé pour le dossier de recherche « ${item.title} » (note prévue par la pré-analyse mais absente du plan).`);
+      }
+      const { text, footnotes, extractedImages, imageLinks, docNotes, docSynopsis } =
+        deriveNodeNoteContent(materials, item.uuid, binderItemMap);
+      let body = text;
+      const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
+      body = await processDataDirImages(item.title, item.uuid, body, hasExtractedRtf);
+      if (extractedImages && extractedImages.length > 0) {
+        await saveExtractedImages(extractedImages);
+      }
+      if (imageLinks && imageLinks.length > 0) {
+        await processImageLinks(imageLinks);
+      }
+      if (footnotes.length > 0) {
+        body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
+      }
+      const fm = buildEntityFrontmatter({
+        title: item.title,
+        synopsis: docSynopsis,
+        tags: item.keywords,
+        notes: docNotes,
+        customMetadata: item.customMetadata,
+      });
+      requireFreePath(app, target.markdownPath);
+      await app.vault.create(target.markdownPath, fm + body);
+    };
 
     const writeResearchNode = async (item: ScrivxItem, destFolder: TAbstractFile, structuralTag: string | null): Promise<void> => {
       const target = cursor.next(item);
@@ -1015,6 +1113,13 @@ export class ScrivenerImportModal extends Modal {
           throw new Error(`Plan d'import Scrivener incomplet pour le dossier de recherche « ${item.title} ».`);
         }
         const folder = await plugin.ensureFolder(target.folderPath);
+        if (folderNoteUuids.has(item.uuid)) {
+          const materials = nodeMaterialsMap.get(item.uuid);
+          if (!materials) {
+            throw new Error(`Pré-analyse Scrivener incomplète pour le dossier de recherche « ${item.title} ».`);
+          }
+          await writeResearchFolderSelfNote(item, target, materials);
+        }
         for (const child of item.children) {
           await writeResearchNode(child, folder, structuralTag);
         }
@@ -1078,6 +1183,7 @@ export class ScrivenerImportModal extends Modal {
         synopsis: item.synopsis || (await readSynopsis(item.uuid)),
         tags,
         notes: docNotes,
+        customMetadata: item.customMetadata,
       });
       requireFreePath(app, path);
       await app.vault.create(path, fm + text);
@@ -1091,6 +1197,19 @@ export class ScrivenerImportModal extends Modal {
        restent l'unique source de vérité pour la classification elle-même,
        jamais recalculée différemment ici (voir §6 du chantier S1). */
     if (parsed.research && researchRoot) {
+      /* §11 du chantier S2 : note de la racine Research elle-même, écrite
+         AVANT ses enfants (même ordre que le plan) — directement dans la
+         racine Recherche, jamais dans un sous-dossier Research/Research/…
+         Aucun tag structurel personnage/lieu ne lui est jamais associé. */
+      if (folderNoteUuids.has(parsed.research.uuid)) {
+        const target = cursor.next({ uuid: parsed.research.uuid, title: parsed.research.title });
+        const materials = nodeMaterialsMap.get(parsed.research.uuid);
+        if (!materials) {
+          throw new Error("Pré-analyse Scrivener incomplète pour la racine Recherche.");
+        }
+        await writeResearchFolderSelfNote(parsed.research, target, materials);
+      }
+
       const researchFolders = PROJECT_MODES[modeKey].researchFolders as Record<string, { label: string; tag: string }>;
       for (const child of parsed.research.children) {
         const key = child.isFolder ? classifyResearchFolder(child.title) : null;
@@ -1099,6 +1218,19 @@ export class ScrivenerImportModal extends Modal {
           const targetFolder = await plugin.ensureFolder(
             normalizePath(`${researchRoot.path}/${folderDef.label}`)
           );
+          /* §12 : le dossier classifié lui-même (Characters, Places…) a
+             une entrée dans le plan UNIQUEMENT s'il a du contenu propre —
+             on ne consomme le curseur pour lui QUE dans ce cas, exactement
+             comme buildScrivenerImportPlan ne l'a poussé que dans ce cas
+             (sinon désynchronisation détectée par ScrivenerPlanCursor). */
+          if (folderNoteUuids.has(child.uuid)) {
+            const target = cursor.next(child);
+            const materials = nodeMaterialsMap.get(child.uuid);
+            if (!materials) {
+              throw new Error(`Pré-analyse Scrivener incomplète pour le dossier de recherche « ${child.title} ».`);
+            }
+            await writeResearchFolderSelfNote(child, target, materials);
+          }
           for (const grandchild of child.children) {
             await writeResearchNode(grandchild, targetFolder, folderDef.tag);
           }

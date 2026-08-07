@@ -12,6 +12,7 @@ import {
   rtfToMarkdown,
   rtfPathCandidates,
   buildSceneFrontmatter,
+  buildEntityFrontmatter,
   extractHeadingTitle,
   extractChapterTitleMarker,
   parseScrivenerComments,
@@ -256,6 +257,7 @@ test("countImportPreview", async (t) => {
       scenes: 1,
       researchEntries: 2,
       unclassifiedRoots: 0,
+      trashEntries: 0,
     });
   });
 });
@@ -1459,6 +1461,597 @@ test("rtfToMarkdown — liens internes scrivlink://UUID résolus via le plan d'i
   await t.test("aucune carte de liens fournie (import hors contexte, comme avant) : texte affiché conservé", () => {
     const { text } = rtfToMarkdown(scrivLink(S1, "Scène"), {}, null);
     assert.equal(text, "Voir Scène plus loin.");
+  });
+});
+
+// ============================ Lot S2 : préserver les données ================
+// Custom metadata, racines Draft/Research, dossiers Research imbriqués/
+// classifiés, others, Corbeille — voir docs du chantier.
+
+const customMetaXml = (fields, itemsXml) => `<?xml version="1.0" encoding="UTF-8"?>
+<ScrivenerProject>
+  <CustomMetaDataSettings>
+    <MetaDataFields>
+      ${fields.map(([id, title]) => `<MetaDataField ID="${id}"><Title>${title}</Title></MetaDataField>`).join("\n")}
+    </MetaDataFields>
+  </CustomMetaDataSettings>
+  <Binder>
+    <BinderItem UUID="root" Type="DraftFolder">
+      <Title>Draft</Title>
+      <Children>
+        <BinderItem UUID="s1" Type="Text">
+          <Title>Scène 1</Title>
+          <MetaData>
+            <CustomMetaData>
+              ${itemsXml}
+            </CustomMetaData>
+          </MetaData>
+        </BinderItem>
+      </Children>
+    </BinderItem>
+  </Binder>
+</ScrivenerProject>`;
+
+test("§4 chantier S2 — CustomMetaData conservée en tableau", async (t) => {
+  await t.test("1. CustomMetaDataSettings : FieldID -> nom du champ", () => {
+    const xml = customMetaXml(
+      [["ID_1", "Point de vue"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value>Kemal</Value></MetaDataItem>"
+    );
+    const scene = parseScrivx(xml).draft.children[0];
+    assert.deepEqual(scene.customMetadata, [{ id: "ID_1", name: "Point de vue", value: "Kemal" }]);
+  });
+
+  await t.test("2. MetaDataItem conserve id + name + value", () => {
+    const xml = customMetaXml(
+      [["ID_2", "Date interne"]],
+      "<MetaDataItem><FieldID>ID_2</FieldID><Value>12 février 1997</Value></MetaDataItem>"
+    );
+    const meta = parseScrivx(xml).draft.children[0].customMetadata[0];
+    assert.equal(meta.id, "ID_2");
+    assert.equal(meta.name, "Date interne");
+    assert.equal(meta.value, "12 février 1997");
+  });
+
+  await t.test("3. deux champs de même nom : deux entrées distinctes", () => {
+    const xml = customMetaXml(
+      [["ID_1", "Lieu"], ["ID_2", "Lieu"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value>Paris</Value></MetaDataItem><MetaDataItem><FieldID>ID_2</FieldID><Value>Istanbul</Value></MetaDataItem>"
+    );
+    const meta = parseScrivx(xml).draft.children[0].customMetadata;
+    assert.equal(meta.length, 2);
+    assert.equal(meta[0].value, "Paris");
+    assert.equal(meta[1].value, "Istanbul");
+  });
+
+  await t.test("4. entités XML décodées", () => {
+    const xml = customMetaXml(
+      [["ID_1", "Citation"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value>&quot;L&apos;été&quot; &amp; l&apos;hiver</Value></MetaDataItem>"
+    );
+    const meta = parseScrivx(xml).draft.children[0].customMetadata[0];
+    assert.equal(meta.value, `"L'été" & l'hiver`);
+  });
+
+  await t.test('5. "00123" reste la chaîne "00123", jamais convertie en nombre', () => {
+    const xml = customMetaXml(
+      [["ID_1", "Référence"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value>00123</Value></MetaDataItem>"
+    );
+    const meta = parseScrivx(xml).draft.children[0].customMetadata[0];
+    assert.equal(meta.value, "00123");
+    assert.equal(typeof meta.value, "string");
+  });
+
+  await t.test('6. Lieu = "Paris, France" -> conservée, aucun keyword ajouté', () => {
+    const xml = customMetaXml(
+      [["ID_1", "Lieu"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value>Paris, France</Value></MetaDataItem>"
+    );
+    const scene = parseScrivx(xml).draft.children[0];
+    assert.deepEqual(scene.customMetadata, [{ id: "ID_1", name: "Lieu", value: "Paris, France" }]);
+    assert.deepEqual(scene.keywords, []);
+  });
+
+  await t.test('7. Référence = "#12" -> aucun keyword', () => {
+    const xml = customMetaXml(
+      [["ID_1", "Référence"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value>#12</Value></MetaDataItem>"
+    );
+    const scene = parseScrivx(xml).draft.children[0];
+    assert.deepEqual(scene.keywords, []);
+    assert.equal(scene.customMetadata[0].value, "#12");
+  });
+
+  await t.test('8. Tags = "New York, Guerre froide" -> keywords ["New York", "Guerre froide"] + customMetadata conservée', () => {
+    const xml = customMetaXml(
+      [["ID_1", "Tags"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value>New York, Guerre froide</Value></MetaDataItem>"
+    );
+    const scene = parseScrivx(xml).draft.children[0];
+    assert.deepEqual(scene.keywords, ["New York", "Guerre froide"]);
+    assert.deepEqual(scene.customMetadata, [{ id: "ID_1", name: "Tags", value: "New York, Guerre froide" }]);
+  });
+
+  await t.test("9. Keywords avec point-virgule -> découpe correcte", () => {
+    const xml = customMetaXml(
+      [["ID_1", "Keywords"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value>polar;enquête</Value></MetaDataItem>"
+    );
+    const scene = parseScrivx(xml).draft.children[0];
+    assert.deepEqual(scene.keywords, ["polar", "enquête"]);
+  });
+
+  await t.test("mots-clés (accents/tiret) reconnu comme champ de tags, insensible à la casse", () => {
+    const xml = customMetaXml(
+      [["ID_1", "Mots-Clés"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value>alpha, beta</Value></MetaDataItem>"
+    );
+    const scene = parseScrivx(xml).draft.children[0];
+    assert.deepEqual(scene.keywords, ["alpha", "beta"]);
+  });
+
+  await t.test("10. champ sans définition dans CustomMetaDataSettings : name = FieldID", () => {
+    const xml = customMetaXml([], "<MetaDataItem><FieldID>ID_INCONNU</FieldID><Value>valeur</Value></MetaDataItem>");
+    const meta = parseScrivx(xml).draft.children[0].customMetadata[0];
+    assert.equal(meta.name, "ID_INCONNU");
+  });
+
+  await t.test("une valeur réellement vide est ignorée (ni customMetadata ni keyword)", () => {
+    const xml = customMetaXml(
+      [["ID_1", "Notes internes"]],
+      "<MetaDataItem><FieldID>ID_1</FieldID><Value></Value></MetaDataItem>"
+    );
+    const scene = parseScrivx(xml).draft.children[0];
+    assert.deepEqual(scene.customMetadata, []);
+  });
+});
+
+test("§6/§7 chantier S2 — scrivener_metadata dans le frontmatter YAML", async (t) => {
+  await t.test("11. buildSceneFrontmatter sans metadata -> pas de scrivener_metadata", () => {
+    const fm = buildSceneFrontmatter({ titre: "T", order: 0, tags: [] });
+    assert.ok(!fm.includes("scrivener_metadata"));
+  });
+
+  await t.test("12. buildSceneFrontmatter avec metadata -> bloc présent", () => {
+    const fm = buildSceneFrontmatter({
+      titre: "T",
+      order: 0,
+      tags: [],
+      customMetadata: [{ id: "field-1", name: "Point de vue", value: "Kemal" }],
+    });
+    assert.match(fm, /scrivener_metadata:\n {2}- id: field-1\n {4}name: Point de vue\n {4}value: Kemal/);
+  });
+
+  await t.test("13. buildEntityFrontmatter sans metadata -> pas de bloc", () => {
+    const fm = buildEntityFrontmatter({ title: "Alice", tags: [] });
+    assert.ok(!fm.includes("scrivener_metadata"));
+  });
+
+  await t.test("14. buildEntityFrontmatter avec metadata -> bloc présent", () => {
+    const fm = buildEntityFrontmatter({
+      title: "Alice",
+      tags: [],
+      customMetadata: [{ id: "field-1", name: "Âge", value: "34" }],
+    });
+    assert.ok(fm.includes("scrivener_metadata:"));
+    assert.match(fm, /name: Âge/);
+  });
+
+  await t.test("15. deux metadata de même name restent présentes toutes les deux", () => {
+    const fm = buildSceneFrontmatter({
+      titre: "T",
+      order: 0,
+      tags: [],
+      customMetadata: [
+        { id: "f1", name: "Lieu", value: "Paris" },
+        { id: "f2", name: "Lieu", value: "Istanbul" },
+      ],
+    });
+    assert.match(fm, /value: Paris/);
+    assert.match(fm, /value: Istanbul/);
+  });
+
+  await t.test("16. valeurs avec :, #, \", ,, accents, \"00123\", retours ligne -> YAML correctement échappé", () => {
+    const fm = buildSceneFrontmatter({
+      titre: "T",
+      order: 0,
+      tags: [],
+      customMetadata: [
+        { id: "f1", name: "Champ: spécial", value: 'valeur: "#12", accentué\nmulti-ligne' },
+        { id: "f2", name: "Code", value: "00123" },
+      ],
+    });
+    assert.match(fm, /name: "Champ: spécial"/);
+    assert.match(fm, /value: "valeur: \\"#12\\", accentué\\nmulti-ligne"/);
+    assert.match(fm, /value: "00123"/);
+  });
+
+  await t.test("17. metadata name=\"title\" ne remplace pas title Feuillets (racine)", () => {
+    const fm = buildSceneFrontmatter({
+      titre: "Vrai titre",
+      order: 0,
+      tags: [],
+      customMetadata: [{ id: "f1", name: "title", value: "Faux titre" }],
+    });
+    assert.match(fm, /^title: Vrai titre$/m);
+    assert.match(fm, /name: title\n {4}value: Faux titre/);
+  });
+
+  await t.test('18. metadata name="tags" ne remplace pas directement la clé tags racine', () => {
+    const fm = buildSceneFrontmatter({
+      titre: "T",
+      order: 0,
+      tags: ["Réel"],
+      customMetadata: [{ id: "f1", name: "tags", value: "Faux, Tags" }],
+    });
+    assert.match(fm, /^tags:\n {2}- Réel$/m);
+    assert.match(fm, /name: tags\n {4}value: Faux, Tags/);
+  });
+});
+
+test("§9/§10 chantier S2 — racine Draft", async (t) => {
+  const MANUSCRIT = "Mon Roman/Manuscrit";
+  const draftXml = (childrenXml = "") => `<ScrivenerProject><Binder>
+    <BinderItem UUID="root" Type="DraftFolder"><Title>Manuscrit</Title>
+      <Children>${childrenXml}</Children>
+    </BinderItem>
+  </Binder></ScrivenerProject>`;
+
+  await t.test("27/32. Draft vide (absent de manuscriptFolderNoteUuids) : aucune note, aucun UUID dans uuidToPath", () => {
+    const parsed = parseScrivx(draftXml());
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(),
+    });
+    assert.equal(plan.targets.find((tg) => tg.uuid === "root"), undefined);
+    assert.equal(plan.uuidToPath.has("root"), false);
+  });
+
+  await t.test("28-31. Draft avec contenu (RTF/synopsis/notes/customMetadata) : note directement dans Manuscrit/<Titre>.md", () => {
+    const parsed = parseScrivx(draftXml());
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["root"]),
+    });
+    const target = plan.targets.find((tg) => tg.uuid === "root");
+    assert.equal(target.kind, "manuscriptRoot");
+    assert.equal(target.folderPath, undefined, "la racine Draft ne crée jamais de sous-dossier");
+    assert.equal(target.markdownPath, `${MANUSCRIT}/Manuscrit.md`);
+    assert.equal(plan.uuidToPath.get("root"), `${MANUSCRIT}/Manuscrit.md`);
+  });
+
+  await t.test("exemple du cahier des charges : Draft title=\"Draft\" -> Manuscrit/Draft.md", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["root"]),
+    });
+    assert.equal(plan.uuidToPath.get("root"), `${MANUSCRIT}/Draft.md`);
+  });
+
+  await t.test("33. Draft avec note + enfant homonyme -> l'enfant devient -2 (réservée avant les enfants)", () => {
+    const parsed = parseScrivx(draftXml('<BinderItem UUID="s1" Type="Text"><Title>Manuscrit</Title></BinderItem>'));
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["root"]),
+    });
+    assert.equal(plan.uuidToPath.get("root"), `${MANUSCRIT}/Manuscrit.md`);
+    assert.equal(plan.uuidToPath.get("s1"), `${MANUSCRIT}/Manuscrit-2.md`);
+  });
+
+  await t.test("34. Draft sans note + enfant homonyme -> aucune fausse collision", () => {
+    const parsed = parseScrivx(draftXml('<BinderItem UUID="s1" Type="Text"><Title>Draft</Title></BinderItem>'));
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(),
+    });
+    assert.equal(plan.uuidToPath.has("root"), false);
+    assert.equal(plan.uuidToPath.get("s1"), `${MANUSCRIT}/Draft.md`, "aucune raison de renommer -2");
+  });
+
+  await t.test("53/54. lien vers Draft root : wikilien si note, texte simple + unresolved sinon", () => {
+    // Le préfixe scrivlink:// n'accepte que des caractères hexadécimaux
+    // (voir le regex dans rtfToMarkdown) — UUID factice mais lisible, comme
+    // dans la suite de tests des liens internes ci-dessus.
+    const DRAFT_ROOT = "00000000-0000-0000-0000-0000000000d0";
+    const withNote = new Map([[DRAFT_ROOT, `${MANUSCRIT}/Manuscrit.md`]]);
+    const linked = rtfToMarkdown(
+      `{\\rtf1 Voir {\\field{\\*\\fldinst{HYPERLINK "scrivlink://${DRAFT_ROOT}"}}{\\fldrslt Manuscrit}} plus loin.}`,
+      {},
+      withNote
+    );
+    assert.ok(linked.text.includes("[[Mon Roman/Manuscrit/Manuscrit|Manuscrit]]"));
+
+    const withoutNote = new Map();
+    const unlinked = rtfToMarkdown(
+      `{\\rtf1 Voir {\\field{\\*\\fldinst{HYPERLINK "scrivlink://${DRAFT_ROOT}"}}{\\fldrslt Manuscrit}} plus loin.}`,
+      {},
+      withoutNote
+    );
+    assert.equal(unlinked.text, "Voir Manuscrit plus loin.");
+    assert.equal(unlinked.unresolvedLinkCount, 1);
+  });
+});
+
+test("§11 chantier S2 — racine Research", async (t) => {
+  const RESEARCH_ROOT = "Mon Roman/_Recherche";
+  const researchXml = (childrenXml = "") => `<ScrivenerProject><Binder>
+    <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+    <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+      <Children>${childrenXml}</Children>
+    </BinderItem>
+  </Binder></ScrivenerProject>`;
+
+  await t.test("35. Research root vide -> aucune note", () => {
+    const parsed = parseScrivx(researchXml());
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(),
+    });
+    assert.equal(plan.targets.find((tg) => tg.uuid === "root-research"), undefined);
+  });
+
+  await t.test("36/37. Research root avec contenu -> note directement dans la racine Recherche", () => {
+    const parsed = parseScrivx(researchXml());
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["root-research"]),
+    });
+    const target = plan.targets.find((tg) => tg.uuid === "root-research");
+    assert.equal(target.kind, "researchRoot");
+    assert.equal(target.folderPath, undefined, "pas de sous-dossier Research/Research");
+    assert.equal(target.markdownPath, `${RESEARCH_ROOT}/Research.md`);
+    assert.equal(plan.uuidToPath.get("root-research"), `${RESEARCH_ROOT}/Research.md`);
+  });
+
+  await t.test("38. UUID Research root dans uuidToPath uniquement si note", () => {
+    const parsed = parseScrivx(researchXml());
+    const planNoNote = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(planNoNote.uuidToPath.has("root-research"), false);
+  });
+
+  await t.test("55. lien vers Research root avec note -> wikilien", () => {
+    const RESEARCH_ROOT_UUID = "00000000-0000-0000-0000-0000000000e0";
+    const map = new Map([[RESEARCH_ROOT_UUID, `${RESEARCH_ROOT}/Research.md`]]);
+    const { text } = rtfToMarkdown(
+      `{\\rtf1 Voir {\\field{\\*\\fldinst{HYPERLINK "scrivlink://${RESEARCH_ROOT_UUID}"}}{\\fldrslt Recherche}} plus loin.}`,
+      {},
+      map
+    );
+    assert.ok(text.includes(`[[${RESEARCH_ROOT}/Research|Recherche]]`));
+  });
+});
+
+test("§12 chantier S2 — dossiers Research classifiés (Characters/Places)", async (t) => {
+  const RESEARCH_ROOT = "Mon Roman/_Recherche";
+  const parsed = parseScrivx(`<ScrivenerProject><Binder>
+    <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+    <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+      <Children>
+        <BinderItem UUID="chars" Type="Folder"><Title>Characters</Title>
+          <Children><BinderItem UUID="alice" Type="Text"><Title>Alice</Title></BinderItem></Children>
+        </BinderItem>
+      </Children>
+    </BinderItem>
+  </Binder></ScrivenerProject>`);
+
+  await t.test("40. Characters vide (absent de manuscriptFolderNoteUuids) -> aucun Characters.md", () => {
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(),
+    });
+    const charsTarget = plan.targets.find((tg) => tg.uuid === "chars");
+    assert.equal(charsTarget, undefined, "aucune entrée de plan pour un dossier classifié sans contenu propre");
+    assert.equal(plan.uuidToPath.has("chars"), false);
+    assert.equal(plan.uuidToPath.get("alice"), `${RESEARCH_ROOT}/Characters/Alice.md`, "les enfants restent importés normalement");
+  });
+
+  await t.test("41. Characters avec contenu -> Characters/Characters.md", () => {
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["chars"]),
+    });
+    const charsTarget = plan.targets.find((tg) => tg.uuid === "chars");
+    assert.equal(charsTarget.kind, "researchFolder");
+    assert.equal(charsTarget.folderPath, `${RESEARCH_ROOT}/Characters`);
+    assert.equal(charsTarget.markdownPath, `${RESEARCH_ROOT}/Characters/Characters.md`);
+    assert.equal(plan.uuidToPath.get("chars"), `${RESEARCH_ROOT}/Characters/Characters.md`);
+  });
+
+  await t.test("46/47. collision note Folder Research / enfant homonyme -> -2 uniquement si note réelle", () => {
+    const homonymParsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="chars" Type="Folder"><Title>Characters</Title>
+            <Children><BinderItem UUID="c1" Type="Text"><Title>Characters</Title></BinderItem></Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+
+    const planWithNote = buildScrivenerImportPlan(homonymParsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["chars"]),
+    });
+    assert.equal(planWithNote.uuidToPath.get("chars"), `${RESEARCH_ROOT}/Characters/Characters.md`);
+    assert.equal(planWithNote.uuidToPath.get("c1"), `${RESEARCH_ROOT}/Characters/Characters-2.md`);
+
+    const planWithoutNote = buildScrivenerImportPlan(homonymParsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(),
+    });
+    assert.equal(planWithoutNote.uuidToPath.has("chars"), false);
+    assert.equal(planWithoutNote.uuidToPath.get("c1"), `${RESEARCH_ROOT}/Characters/Characters.md`, "aucune fausse collision");
+  });
+
+  await t.test("56/57. lien vers dossier Research classifié : wikilien si note, unresolved sinon", () => {
+    const CHARS_UUID = "00000000-0000-0000-0000-0000000000c5";
+    const withNote = new Map([[CHARS_UUID, `${RESEARCH_ROOT}/Characters/Characters.md`]]);
+    const linked = rtfToMarkdown(
+      `{\\rtf1 Voir {\\field{\\*\\fldinst{HYPERLINK "scrivlink://${CHARS_UUID}"}}{\\fldrslt Personnages}} plus loin.}`,
+      {},
+      withNote
+    );
+    assert.ok(linked.text.includes(`[[${RESEARCH_ROOT}/Characters/Characters|Personnages]]`));
+
+    const withoutNote = new Map();
+    const unlinked = rtfToMarkdown(
+      `{\\rtf1 Voir {\\field{\\*\\fldinst{HYPERLINK "scrivlink://${CHARS_UUID}"}}{\\fldrslt Personnages}} plus loin.}`,
+      {},
+      withoutNote
+    );
+    assert.equal(unlinked.unresolvedLinkCount, 1);
+    assert.ok(!unlinked.text.includes("[["));
+  });
+});
+
+test("§13 chantier S2 — dossiers Research imbriqués / non classifiés", async (t) => {
+  const RESEARCH_ROOT = "Mon Roman/_Recherche";
+
+  await t.test("44/45. Folder Research imbriqué : note + uuidToPath si contenu, dossier seul sinon", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="sources" Type="Folder"><Title>Sources</Title>
+            <Children>
+              <BinderItem UUID="livres" Type="Folder"><Title>Livres</Title>
+                <Children><BinderItem UUID="livre1" Type="Text"><Title>Livre</Title></BinderItem></Children>
+              </BinderItem>
+            </Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["sources"]), // Sources a du contenu, pas Livres
+    });
+    const sourcesTarget = plan.targets.find((tg) => tg.uuid === "sources");
+    assert.equal(sourcesTarget.markdownPath, `${RESEARCH_ROOT}/Non classé/Sources/Sources.md`);
+    assert.equal(plan.uuidToPath.get("sources"), `${RESEARCH_ROOT}/Non classé/Sources/Sources.md`);
+
+    const livresTarget = plan.targets.find((tg) => tg.uuid === "livres");
+    assert.equal(livresTarget.markdownPath, undefined, "Livres n'a pas de note propre");
+    assert.equal(plan.uuidToPath.has("livres"), false);
+    assert.equal(plan.uuidToPath.get("livre1"), `${RESEARCH_ROOT}/Non classé/Sources/Livres/Livre.md`);
+  });
+});
+
+test("§14 chantier S2 — racines \"others\"", async (t) => {
+  const RESEARCH_ROOT = "Mon Roman/_Recherche";
+
+  await t.test("48. root other Text : comportement actuel inchangé", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="other1" Type="Text"><Title>Idée libre</Title></BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(plan.uuidToPath.get("other1"), `${RESEARCH_ROOT}/Non classé/Idée libre.md`);
+  });
+
+  await t.test("49/50/51. root other Folder : dossier seul si vide, note propre si RTF/customMetadata", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="other-folder" Type="Folder"><Title>Annexes</Title>
+        <Children><BinderItem UUID="a1" Type="Text"><Title>Annexe 1</Title></BinderItem></Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+
+    const planEmpty = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(),
+    });
+    const emptyTarget = planEmpty.targets.find((tg) => tg.uuid === "other-folder");
+    assert.equal(emptyTarget.folderPath, `${RESEARCH_ROOT}/Non classé/Annexes`);
+    assert.equal(emptyTarget.markdownPath, undefined);
+
+    const planWithContent = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["other-folder"]),
+    });
+    const filledTarget = planWithContent.targets.find((tg) => tg.uuid === "other-folder");
+    assert.equal(filledTarget.markdownPath, `${RESEARCH_ROOT}/Non classé/Annexes/Annexes.md`);
+    assert.equal(planWithContent.uuidToPath.get("a1"), `${RESEARCH_ROOT}/Non classé/Annexes/Annexe 1.md`, "les descendants restent importés comme avant");
+  });
+});
+
+test("§16/§17 chantier S2 — Corbeille Scrivener comptée, jamais importée", async (t) => {
+  await t.test("60. Trash absent -> trashEntries = 0", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+    </Binder></ScrivenerProject>`);
+    assert.equal(countImportPreview(parsed).trashEntries, 0);
+  });
+
+  await t.test("61. Trash vide -> 0", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-trash" Type="TrashFolder"><Title>Trash</Title></BinderItem>
+    </Binder></ScrivenerProject>`);
+    assert.equal(countImportPreview(parsed).trashEntries, 0);
+  });
+
+  await t.test("62. Trash avec un Text -> 1", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-trash" Type="TrashFolder"><Title>Trash</Title>
+        <Children><BinderItem UUID="t1" Type="Text"><Title>Supprimé</Title></BinderItem></Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    assert.equal(countImportPreview(parsed).trashEntries, 1);
+  });
+
+  await t.test("63. hiérarchie imbriquée -> compteur récursif exact (A + Folder + B + C = 4)", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-trash" Type="TrashFolder"><Title>Trash</Title>
+        <Children>
+          <BinderItem UUID="a" Type="Text"><Title>A</Title></BinderItem>
+          <BinderItem UUID="folder" Type="Folder"><Title>Folder</Title>
+            <Children>
+              <BinderItem UUID="b" Type="Text"><Title>B</Title></BinderItem>
+              <BinderItem UUID="c" Type="Text"><Title>C</Title></BinderItem>
+            </Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    assert.equal(countImportPreview(parsed).trashEntries, 4);
+  });
+
+  await t.test("64/65. aucun UUID Trash dans le plan ni dans uuidToPath", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-trash" Type="TrashFolder"><Title>Trash</Title>
+        <Children><BinderItem UUID="t1" Type="Text"><Title>Supprimé</Title></BinderItem></Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(plan.targets.some((tg) => tg.uuid === "root-trash" || tg.uuid === "t1"), false);
+    assert.equal(plan.uuidToPath.has("t1"), false);
+  });
+
+  await t.test("58. lien vers la Corbeille reste non résolu (UUID absent du plan, comme en S1)", () => {
+    const TRASH_UUID = "00000000-0000-0000-0000-0000000dead1";
+    const res = rtfToMarkdown(
+      `{\\rtf1 Voir {\\field{\\*\\fldinst{HYPERLINK "scrivlink://${TRASH_UUID}"}}{\\fldrslt Corbeille}} plus loin.}`,
+      {},
+      new Map()
+    );
+    assert.equal(res.text, "Voir Corbeille plus loin.");
+    assert.equal(res.unresolvedLinkCount, 1);
   });
 });
 
