@@ -24,7 +24,7 @@ class FakeElement {
     if (options.cls) this.addClass(options.cls);
   }
 
-  createEl(tag, options = {}) { const child = new FakeElement(tag, options); this.children.push(child); return child; }
+  createEl(tag, options = {}) { const child = new FakeElement(tag, options); child.parent = this; this.children.push(child); return child; }
   createDiv(options = {}) { return this.createEl("div", options); }
   createSpan(options = {}) { return this.createEl("span", options); }
   addClass(names) { for (const name of names.split(" ")) this.classes.add(name); }
@@ -34,21 +34,61 @@ class FakeElement {
   setAttr(name, value) { this.attributes[name] = value; }
   empty() { this.children = []; }
   contains(element) { return this === element || this.children.some((child) => child.contains(element)); }
+  remove() { if (this.parent) { const i = this.parent.children.indexOf(this); if (i !== -1) this.parent.children.splice(i, 1); } }
 }
 
 function allElements(element) { return [element, ...element.children.flatMap(allElements)]; }
 function file(path, content = "") { return new TFile(path, content); }
 
-function createView({ files = [], settings = {}, content = {}, root = new TFolder("Projet") } = {}) {
+/** Mock minimal de app.workspace + d'un éditeur CodeMirror-like, pour les
+ * tests Lot 4 (openAndReveal/revealMoveDestination) : `contentByPath` est
+ * PARTAGÉ avec le mock vault.modify (voir createView) — un fichier ouvert
+ * APRÈS une écriture reflète donc le contenu réellement écrit, sans second
+ * système de vérité. */
+function createWorkspaceMock(contentByPath) {
+  const opened = [];
+  const selections = [];
+  let currentPath = null;
+  const editor = {
+    getValue: () => contentByPath[currentPath] ?? "",
+    offsetToPos: (offset) => ({ offset }),
+    setSelection: (from, to) => { selections.push({ from, to }); },
+    scrollIntoView: () => {},
+  };
+  const view = { file: null, editor };
+  const leaf = {
+    view,
+    async openFile(f) {
+      opened.push(f.path);
+      currentPath = f.path;
+      view.file = f;
+    },
+  };
+  const workspace = {
+    getLeaf: () => leaf,
+    getActiveFile: () => (currentPath ? { path: currentPath } : null),
+    setActiveLeaf: () => {},
+  };
+  return { workspace, opened, selections, editor };
+}
+
+function createView({ files = [], settings = {}, content = {}, root = new TFolder("Projet"), withWorkspace = false } = {}) {
   const byPath = new Map(files.map((entry) => [entry.path, entry]));
   const writes = [];
+  const wsMock = withWorkspace ? createWorkspaceMock(content) : null;
   const app = {
     vault: {
       getAbstractFileByPath(path) { return byPath.get(path) ?? null; },
       getMarkdownFiles() { return files.filter((entry) => entry.extension === "md"); },
       async read(entry) { return content[entry.path] ?? entry.content; },
-      async modify(...args) { writes.push(args); },
+      async modify(entry, newContent) {
+        writes.push([entry, newContent]);
+        // Partagé avec le mock workspace (editor.getValue) : une lecture ou
+        // une révélation APRÈS écriture voit le VRAI contenu écrit.
+        content[entry.path] = newContent;
+      },
     },
+    ...(wsMock ? { workspace: wsMock.workspace } : {}),
   };
   const plugin = {
     settings: { collapsed: {}, ...settings },
@@ -62,7 +102,7 @@ function createView({ files = [], settings = {}, content = {}, root = new TFolde
   };
   const contentEl = new FakeElement();
   const view = new DocxReviewView({ app, contentEl }, plugin);
-  return { view, app, plugin, contentEl, writes };
+  return { view, app, plugin, contentEl, writes, ws: wsMock };
 }
 
 function iconsFrom(container) { return allElements(container).map((element) => element.icon).filter(Boolean); }
@@ -195,7 +235,7 @@ test("DocxReviewView — analyse DOCX sans écriture et états restaurés", asyn
     "word/commentsExtended.xml": '<w15:commentsEx><w15:commentEx w15:paraId="AA" w15:done="1"/></w15:commentsEx>',
   });
   await view.analyzeBuffer(new Uint8Array(), "retours.docx");
-  assert.deepEqual(zip.calls, ["word/document.xml", "word/comments.xml", "word/footnotes.xml", "word/commentsExtended.xml"]);
+  assert.deepEqual(zip.calls, ["word/document.xml", "word/comments.xml", "word/footnotes.xml", "word/commentsExtended.xml", "word/styles.xml"]);
   zip.restore();
   assert.equal(view.mode, "results");
   assert.equal(renders, 1);
@@ -265,4 +305,366 @@ test("DocxReviewView — conservée telle quelle sous le nouvel espace Édition 
   await view.onOpen();
   const icons = iconsFrom(contentEl);
   assert.ok(icons.includes("file-diff"), "l'en-tête de section Révision DOCX est toujours rendue");
+});
+
+/* =========================================================================
+ * Lot 2/3/4 — carte de déplacement : origine/destination visibles,
+ * boutons Voir l'origine/la destination, Aperçu du résultat (sans
+ * écriture), révélation du passage après application, panneau qui reste
+ * ouvert.
+ * ========================================================================= */
+
+test("Lot 2 — carte de déplacement : origine/destination distinctes, feuillets visibles, type de destination", () => {
+  const origin = file("Projet/Origine.md");
+  const dest = file("Projet/Destination.md");
+  const { view } = createView({ files: [origin, dest] });
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "avant", fromText: "passage",
+    toContext: "après", toContextAfter: "suite",
+    text: "passage", destinationBoundary: "paragraph-end",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const all = allElements(container);
+
+  const originZone = all.find((el) => el.classes.has("mod-origin"));
+  const destZone = all.find((el) => el.classes.has("mod-destination"));
+  assert.ok(originZone, "zone d'origine distincte présente");
+  assert.ok(destZone, "zone de destination distincte présente");
+  assert.notEqual(originZone, destZone);
+
+  // Le feuillet d'ORIGINE (différent du feuillet affiché, "Destination")
+  // doit être nommément visible.
+  assert.ok(all.some((el) => el.text && el.text.includes("Origine")));
+
+  const boundary = all.find((el) => el.classes.has("feuillets-docx-review-boundary"));
+  assert.ok(boundary, "le type de destination doit être affiché");
+  assert.equal(boundary.text, "à la fin du paragraphe");
+});
+
+test("mission item 4 — carte de déplacement compacte : le texte complet reste replié par défaut, déplié d'un clic", () => {
+  const origin = file("Projet/Origine.md");
+  const dest = file("Projet/Destination.md");
+  const { view } = createView({ files: [origin, dest] });
+  const longFromText =
+    "Un très long passage déplacé qui dépasse largement les soixante-dix caractères prévus pour le résumé compact de la carte, afin de vérifier qu'il est bien tronqué.";
+  const longText =
+    "Un autre très long passage inséré à la destination, tout aussi long que celui d'origine, pour vérifier la même troncature côté destination.";
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "avant", fromText: longFromText,
+    toContext: "après", text: longText,
+    destinationBoundary: "between-paragraphs",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  let all = allElements(container);
+
+  // Replié par défaut : le texte COMPLET n'apparaît nulle part, mais un
+  // résumé tronqué reste visible pour identifier le passage.
+  assert.equal(all.some((el) => el.text === longFromText), false, "le texte d'origine complet n'est pas affiché tant que la carte est repliée");
+  assert.equal(all.some((el) => el.text === longText), false, "le texte de destination complet n'est pas affiché tant que la carte est repliée");
+  assert.ok(all.some((el) => el.classes.has("mod-origin") && el.classes.has("mod-compact")), "un résumé compact d'origine est présent");
+  assert.ok(all.some((el) => el.classes.has("mod-destination") && el.classes.has("mod-compact")), "un résumé compact de destination est présent");
+  // Type, origine, destination et type de destination restent visibles fermés.
+  assert.ok(all.some((el) => el.text && el.text.includes("Déplacement")));
+  assert.ok(all.some((el) => el.classes.has("feuillets-docx-review-boundary")));
+  // Actions principales toujours visibles fermées.
+  assert.ok(all.some((el) => el.icon === "arrow-up-right"), "Voir l'origine visible carte fermée");
+  assert.ok(all.some((el) => el.icon === "arrow-down-right"), "Voir la destination visible carte fermée");
+  assert.ok(all.some((el) => el.icon === "eye"), "Aperçu visible carte fermée");
+  assert.ok(all.some((el) => el.icon === "check"), "Appliquer visible carte fermée");
+
+  const detailBtn = all.find((el) => el.icon === "chevron-down");
+  assert.ok(detailBtn, "bouton pour déplier les passages complets présent");
+
+  detailBtn.events.get("click")({ stopPropagation() {} });
+  all = allElements(container);
+  assert.ok(all.some((el) => el.text === longFromText), "le texte d'origine complet apparaît une fois déplié");
+  assert.ok(all.some((el) => el.text === longText), "le texte de destination complet apparaît une fois déplié");
+
+  // Un second clic replie à nouveau.
+  detailBtn.events.get("click")({ stopPropagation() {} });
+  all = allElements(container);
+  assert.equal(all.some((el) => el.text === longFromText), false, "recliqué : le texte complet disparaît à nouveau");
+});
+
+test("Lot 2 — même feuillet : deux zones origine/destination restent affichées séparément", () => {
+  const sheet = file("Projet/Sheet.md");
+  const { view } = createView({ files: [sheet] });
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: sheet.path, toPath: sheet.path,
+    fromContext: "avant", fromText: "passage",
+    toContext: "après", text: "passage",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, sheet, change);
+  const all = allElements(container);
+  assert.ok(all.some((el) => el.classes.has("mod-origin")));
+  assert.ok(all.some((el) => el.classes.has("mod-destination")));
+});
+
+test("Lot 2 — boutons Voir l'origine / Voir la destination ouvrent le bon feuillet", async () => {
+  const origin = file("Projet/Origine.md", "avant passage après.");
+  const dest = file("Projet/Destination.md", "après suite.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, ws } = createView({ files: [origin, dest], content, withWorkspace: true });
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "avant ", fromText: "passage",
+    toContext: "après ", text: "suite",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const btns = allElements(container).filter((el) => el.tag === "button");
+  const originBtn = btns.find((b) => b.icon === "arrow-up-right");
+  const destBtn = btns.find((b) => b.icon === "arrow-down-right");
+  assert.ok(originBtn, "bouton Voir l'origine présent");
+  assert.ok(destBtn, "bouton Voir la destination présent");
+
+  originBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(ws.opened, [origin.path]);
+
+  ws.opened.length = 0;
+  destBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(ws.opened, [dest.path]);
+});
+
+test("mission item 3 — Voir l'origine sélectionne le passage COMPLET d'un déplacement multi-paragraphe, jamais seulement le dernier fragment", async () => {
+  // Régression confirmée : openAndReveal dégradait, via findTolerant, la
+  // recherche du TEXTE ENTIER (pas seulement du contexte) en cas d'échec
+  // de correspondance exacte — pour un fromText multi-paragraphe (deux
+  // "\n\n" internes ici), le repli ne retrouvait plus que les derniers
+  // caractères du DERNIER fragment. locateChangeMatch (utilisé maintenant
+  // par la branche "move") ne dégrade JAMAIS le texte lui-même, seulement
+  // le contexte qui le précède.
+  const fromText = "Paragraphe un déplacé.\n\nParagraphe deux déplacé.\n\nParagraphe trois déplacé.";
+  const origin = file("Projet/Origine.md", `Avant le passage.\n\n${fromText}\n\nAprès le passage.`);
+  const dest = file("Projet/Destination.md", "Cible.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, ws } = createView({ files: [origin, dest], content, withWorkspace: true });
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Avant le passage.\n\n", fromText,
+    toContext: "Cible.", text: fromText,
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const originBtn = allElements(container).find((el) => el.icon === "arrow-up-right");
+  assert.ok(originBtn, "bouton Voir l'origine présent");
+
+  originBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(ws.selections.length, 1, "une seule sélection posée");
+  const { from, to } = ws.selections[0];
+  const selectedLength = to.offset - from.offset;
+  assert.equal(selectedLength, fromText.length, "la plage sélectionnée couvre le passage COMPLET (les trois paragraphes), jamais seulement le dernier fragment");
+  const selectedText = origin.content.slice(from.offset, to.offset);
+  assert.equal(selectedText, fromText);
+  assert.ok(selectedText.includes("Paragraphe un déplacé."), "le PREMIER paragraphe fait bien partie de la sélection");
+});
+
+test("mission item 3 — Voir le passage déplacé (destination) sélectionne aussi le passage complet, multi-paragraphe", async () => {
+  const text = "Premier paragraphe collé.\n\nDeuxième paragraphe collé.";
+  const dest = file("Projet/Destination.md", `Avant.\n\n${text}\n\nAprès.`);
+  const content = { [dest.path]: dest.content };
+  const { view, ws } = createView({ files: [dest], content, withWorkspace: true });
+  const change = {
+    type: "move", author: "A", date: "D", applied: true,
+    fromPath: dest.path, toPath: dest.path,
+    fromContext: "", fromText: text,
+    toContext: "Avant.\n\n", text,
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const viewMovedBtn = allElements(container).find((el) => el.icon === "locate");
+  assert.ok(viewMovedBtn, "bouton « Voir le passage déplacé » présent");
+
+  viewMovedBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(ws.selections.length, 1);
+  const { from, to } = ws.selections[0];
+  assert.equal(to.offset - from.offset, text.length, "la destination sélectionnée couvre les DEUX paragraphes collés, pas seulement le dernier");
+});
+
+test("Lot 3 — Aperçu du résultat ne modifie jamais le fichier", async () => {
+  const dest = file("Projet/Destination.md", "Contexte avant. Cible.");
+  const content = { [dest.path]: dest.content };
+  const { view, writes } = createView({ files: [dest], content });
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: dest.path, toPath: dest.path,
+    fromContext: "", fromText: "Passage inséré.",
+    toContext: "Cible.", text: " Passage inséré.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const previewBtn = allElements(container).find((el) => el.icon === "eye");
+  assert.ok(previewBtn, "bouton Aperçu du résultat présent");
+
+  previewBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(writes.length, 0, "l'aperçu ne doit jamais écrire dans le fichier");
+  const previewBox = allElements(container).find((el) => el.classes.has("feuillets-docx-review-preview-box"));
+  assert.ok(previewBox, "un bloc d'aperçu doit être affiché");
+  assert.ok(content[dest.path] === "Contexte avant. Cible.", "le contenu du fichier reste identique");
+});
+
+test("Lot 4 — après application, le feuillet cible est ouvert et le passage sélectionné, le panneau reste utilisable", async () => {
+  const origin = file("Projet/Origine.md", "Début. Passage à couper. Fin.");
+  const dest = file("Projet/Destination.md", "Avant. Après.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, ws, writes } = createView({ files: [origin, dest], content, withWorkspace: true });
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Début. ", fromText: "Passage à couper.",
+    toContext: "Avant. ", text: "Passage à couper.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const applyBtn = allElements(container).find((el) => el.icon === "check");
+  assert.ok(applyBtn, "bouton Appliquer présent");
+
+  applyBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(writes.length, 2, "écriture de l'origine ET de la destination");
+  assert.ok(ws.opened.includes(dest.path), "le feuillet de destination doit avoir été ouvert pour révéler le passage");
+  assert.ok(ws.selections.length > 0, "une sélection doit avoir été posée sur le passage inséré");
+  // Le panneau lui-même n'est jamais fermé : l'instance de vue reste
+  // pleinement utilisable après l'application.
+  assert.equal(typeof view.renderChange, "function");
+});
+
+test("Lot 4 — la sélection après application utilise la plage EXACTE écrite (insertedRange), jamais une re-recherche textuelle", async () => {
+  const origin = file("Projet/Origine.md", "Début. Passage à couper. Fin.");
+  const dest = file("Projet/Destination.md", "Avant. Après.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, ws, writes } = createView({ files: [origin, dest], content, withWorkspace: true });
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Début. ", fromText: "Passage à couper.",
+    toContext: "Avant. ", text: "Passage à couper.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const applyBtn = allElements(container).find((el) => el.icon === "check");
+
+  applyBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(writes.length, 2);
+  assert.equal(ws.selections.length, 1, "une seule sélection, posée directement sur la plage connue");
+  const { from, to } = ws.selections[0];
+  // offsetToPos (mock) renvoie {offset} tel quel : from.offset/to.offset SONT
+  // les offsets d'insertedRange — vérifie qu'ils délimitent, dans le fichier
+  // RÉELLEMENT écrit, exactement le passage déplacé, sans rien autour.
+  assert.equal(content[dest.path].slice(from.offset, to.offset), "Passage à couper.");
+});
+
+test("Lot 4 — jamais de notice d'échec de sélection quand l'écriture a réussi et que la plage est connue", async () => {
+  const dest = file("Projet/Destination.md", "Avant. Milieu. Fin passage à couper.");
+  const content = { [dest.path]: dest.content };
+  const { view, ws, writes } = createView({ files: [dest], content, withWorkspace: true });
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: dest.path, toPath: dest.path,
+    fromContext: "Fin ", fromText: "passage à couper.",
+    toContext: "Avant. ", text: "passage à couper.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const applyBtn = allElements(container).find((el) => el.icon === "check");
+
+  applyBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(writes.length, 1);
+  assert.equal(ws.selections.length, 1);
+  assert.ok(!notices.some((m) => typeof m === "string" && m.includes("n'a pas pu être retrouvé")), "aucune notice d'échec quand la plage était déjà connue");
+  Notice.onCreate = null;
+});
+
+test("Lot 4 — bouton « Voir le passage déplacé » sur un déplacement déjà appliqué", async () => {
+  const dest = file("Projet/Destination.md", "Avant. Passage.");
+  const content = { [dest.path]: dest.content };
+  const { view, ws } = createView({ files: [dest], content, withWorkspace: true });
+  const change = {
+    type: "move", author: "A", date: "D", applied: true,
+    fromPath: dest.path, toPath: dest.path,
+    fromContext: "", fromText: "Passage.",
+    toContext: "Avant. ", text: "Passage.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+
+  const viewMovedBtn = allElements(container).find((el) => el.icon === "locate");
+  assert.ok(viewMovedBtn, "bouton « Voir le passage déplacé » présent sur un item déjà appliqué");
+
+  viewMovedBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(ws.opened.includes(dest.path));
+});
+
+test("Lot 4 — le bouton « Voir le passage déplacé » n'apparaît PAS avant application", () => {
+  const dest = file("Projet/Destination.md");
+  const { view } = createView({ files: [dest] });
+  const change = {
+    type: "move", author: "A", date: "D", applied: false,
+    fromPath: dest.path, toPath: dest.path,
+    fromContext: "", fromText: "Passage.",
+    toContext: "Avant. ", text: "Passage.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const viewMovedBtn = allElements(container).find((el) => el.icon === "locate");
+  assert.equal(viewMovedBtn, undefined);
+});
+
+test("Problème 3 (réel) — clic sur un commentaire dont l'ancre est AMBIGUË : désambiguïsé par contexte, jamais « introuvable »", async () => {
+  const scene = file(
+    "Projet/Scene.md",
+    "Les anciens usages voulaient que Candide. Les anciens domestiques soupçonnaient la vérité."
+  );
+  const content = { [scene.path]: scene.content };
+  const { view, ws } = createView({ files: [scene], content, withWorkspace: true });
+  const comment = {
+    anchorText: "anciens",
+    contextBefore: "Candide. Les ",
+    contextAfter: " domestiques",
+    text: "Vérifier", author: "A", date: "D",
+  };
+  const container = new FakeElement();
+  view.renderComment(container, scene, comment);
+  const row = allElements(container).find((el) => el.classes.has("feuillets-clickable"));
+  assert.ok(row, "la carte doit être cliquable (fichier résolu)");
+
+  row.events.get("click")();
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(ws.selections.length, 1);
+  const { from, to } = ws.selections[0];
+  const expectedIndex = scene.content.indexOf("anciens domestiques");
+  assert.deepEqual({ from: from.offset, to: to.offset }, { from: expectedIndex, to: expectedIndex + "anciens".length });
 });

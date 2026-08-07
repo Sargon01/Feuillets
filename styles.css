@@ -5564,6 +5564,84 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   color: var(--text-success);
 }
 
+/* Origine/destination d'un déplacement (Lot 2) — deux zones TOUJOURS
+   distinctes visuellement, même quand le déplacement reste dans le même
+   feuillet : une bordure gauche discrète (couleur de son label mod-cut/
+   mod-paste déjà existants) suffit à les séparer sans nouveau langage
+   visuel. */
+.feuillets-docx-review-move-zone {
+  padding: 2px 0 2px var(--size-4-2);
+  border-left: 2px solid var(--background-modifier-border);
+  margin: var(--size-4-1) 0;
+}
+
+.feuillets-docx-review-move-zone.mod-origin {
+  border-left-color: var(--text-error);
+}
+
+.feuillets-docx-review-move-zone.mod-destination {
+  border-left-color: var(--text-success);
+}
+
+/* Carte compacte (Lot 6) — la ligne repliée reste une seule ligne (extrait
+   tronqué, voir truncateForSummary), jamais le habillage "texte à lire" en
+   plusieurs lignes du détail déplié. */
+.feuillets-docx-review-move-zone.mod-compact {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feuillets-docx-review-move-zone.mod-compact .feuillets-docx-review-context {
+  color: var(--text-muted);
+}
+
+/* Détail dépliable (Lot 6) — même langage que .feuillets-docx-review-
+   preview-box (déjà le "texte à lire dans un encart" du panneau), jamais un
+   nouveau composant : juste les deux zones origine/destination au texte
+   intégral, retirées de la carte repliée. */
+.feuillets-docx-review-move-detail {
+  margin-top: var(--size-4-2);
+  padding: var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.feuillets-docx-review-boundary {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 2px;
+}
+
+/* Aperçu du résultat (Lot 3) — même langage que .feuillets-docx-review-
+   preview (texte à lire, lecture confortable), jamais un nouveau composant. */
+.feuillets-docx-review-preview-box {
+  margin-top: var(--size-4-2);
+  padding: var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.feuillets-docx-review-preview-block + .feuillets-docx-review-preview-block {
+  margin-top: var(--size-4-2);
+}
+
+.feuillets-docx-review-preview-heading {
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+
+.feuillets-docx-review-preview-text {
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 /* mise en forme suivie (w:rPrChange) affichée telle quelle sur le passage
    d'ancrage, plutôt qu'une étiquette qui se contente de la décrire */
 .feuillets-docx-review-format-strike {
