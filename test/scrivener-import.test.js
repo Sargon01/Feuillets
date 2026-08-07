@@ -960,6 +960,11 @@ test("buildScrivenerImportPlan — structure", async (t) => {
     </Binder></ScrivenerProject>`);
     const plan = buildScrivenerImportPlan(parsed, {
       manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      // Les deux dossiers ont réellement du contenu (décidé par la
+      // pré-analyse en amont, hors périmètre de ce test structurel) :
+      // c'est cet ensemble, pas buildScrivenerImportPlan lui-même, qui
+      // décide si un Folder a une note (voir le correctif S1 dédié).
+      manuscriptFolderNoteUuids: new Set(["p1", "c1"]),
     });
     const byUuid = Object.fromEntries(plan.targets.map((tg) => [tg.uuid, tg]));
     assert.equal(byUuid.p1.folderPath, `${MANUSCRIT}/Partie 1`);
@@ -1001,6 +1006,7 @@ test("buildScrivenerImportPlan — structure", async (t) => {
     </Binder></ScrivenerProject>`);
     const plan = buildScrivenerImportPlan(parsed, {
       manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["p1"]),
     });
     assert.equal(plan.targets[0].kind, "manuscriptFolder");
     assert.equal(plan.targets[0].folderPath, `${MANUSCRIT}/Partie 1`);
@@ -1038,6 +1044,54 @@ test("buildScrivenerImportPlan — structure", async (t) => {
     assert.equal(byUuid.s2.markdownPath, `${MANUSCRIT}/Scène-2.md`);
   });
 
+  // Correctif S1 ultime : le notePath hypothétique d'un dossier SANS note
+  // ne doit jamais être réservé dans `used` — sinon un enfant qui porte le
+  // même titre que son dossier parent se fait renommer en "-2" pour éviter
+  // une collision avec un fichier qui ne sera jamais créé.
+  await t.test("dossier SANS note portant le même titre que son enfant : l'enfant garde son chemin naturel, pas de fausse collision -2", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="p1" Type="Folder"><Title>Partie 1</Title>
+            <Children>
+              <BinderItem UUID="s1" Type="Text"><Title>Partie 1</Title></BinderItem>
+            </Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(), // p1 n'a pas de note
+    });
+    const byUuid = Object.fromEntries(plan.targets.map((tg) => [tg.uuid, tg]));
+    assert.equal(byUuid.p1.folderPath, `${MANUSCRIT}/Partie 1`);
+    assert.equal(byUuid.p1.markdownPath, undefined);
+    assert.equal(plan.uuidToPath.has("p1"), false);
+    assert.equal(byUuid.s1.markdownPath, `${MANUSCRIT}/Partie 1/Partie 1.md`, "l'enfant n'a aucune raison d'être renommé -2");
+  });
+
+  await t.test("dossier AVEC note portant le même titre que son enfant : collision réelle, l'enfant devient -2", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="p1" Type="Folder"><Title>Partie 1</Title>
+            <Children>
+              <BinderItem UUID="s1" Type="Text"><Title>Partie 1</Title></BinderItem>
+            </Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["p1"]), // p1 a réellement une note
+    });
+    const byUuid = Object.fromEntries(plan.targets.map((tg) => [tg.uuid, tg]));
+    assert.equal(byUuid.p1.markdownPath, `${MANUSCRIT}/Partie 1/Partie 1.md`);
+    assert.equal(byUuid.s1.markdownPath, `${MANUSCRIT}/Partie 1/Partie 1-2.md`, "collision réelle cette fois : l'enfant cède la place à la note");
+  });
+
   await t.test("7. mêmes titres dans deux dossiers différents -> pas de collision", () => {
     const parsed = parseScrivx(`<ScrivenerProject><Binder>
       <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
@@ -1071,6 +1125,7 @@ test("buildScrivenerImportPlan — structure", async (t) => {
     </Binder></ScrivenerProject>`);
     const plan = buildScrivenerImportPlan(parsed, {
       manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["p1"]),
     });
     assert.equal(plan.uuidToPath.get("s1"), `${MANUSCRIT}/Partie 1/Scène.md`);
     assert.equal(plan.uuidToPath.get("p1"), `${MANUSCRIT}/Partie 1/Partie 1.md`);
@@ -1256,34 +1311,102 @@ test("rtfToMarkdown — liens internes scrivlink://UUID résolus via le plan d'i
 
   // Correctif S1 : la map ne doit plus jamais retomber sur un simple
   // folderPath — un dossier sans note propre est un UUID non résolu.
-  await t.test("correctif : lien vers un dossier manuscrit AVEC note -> wikilien vers la note planifiée", () => {
+  // ---- Correctif S1 final : plan et note de dossier manuscrit ----------
+  // buildScrivenerImportPlan ne planifie plus jamais un markdownPath pour
+  // un Folder du manuscrit par défaut : c'est `manuscriptFolderNoteUuids`
+  // (calculé par une pré-analyse en lecture seule dans la modale, hors de
+  // cette fonction pure) qui en décide. Ici on fournit directement cet
+  // ensemble, comme le ferait la pré-analyse réelle.
+  const FOLDER_XML = (uuid, title) => `<ScrivenerProject><Binder>
+    <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+      <Children>
+        <BinderItem UUID="${uuid}" Type="Folder"><Title>${title}</Title></BinderItem>
+      </Children>
+    </BinderItem>
+  </Binder></ScrivenerProject>`;
+
+  await t.test("1. vrai plan, Folder manuscrit VIDE (absent de manuscriptFolderNoteUuids) : folderPath présent, aucune cible résoluble", () => {
+    const parsed = parseScrivx(FOLDER_XML(P1, "Partie 1"));
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(), // la pré-analyse n'a trouvé aucun contenu
+    });
+    const target = plan.targets[0];
+    assert.equal(target.kind, "manuscriptFolder");
+    assert.equal(target.folderPath, "Mon Roman/Manuscrit/Partie 1");
+    assert.equal(target.markdownPath, undefined, "aucune note n'est planifiée pour un dossier vide");
+    assert.equal(plan.uuidToPath.has(P1), false, "aucune cible résoluble pour ce dossier");
+  });
+
+  await t.test("2. vrai plan, Folder manuscrit avec contenu propre (RTF non vide) : uuidToPath -> <Dossier>/<Dossier>.md", () => {
+    const parsed = parseScrivx(FOLDER_XML(P1, "Partie 1"));
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      // La pré-analyse a converti le content.rtf du dossier en texte non
+      // vide : ce dossier aura réellement une note.
+      manuscriptFolderNoteUuids: new Set([P1]),
+    });
+    assert.equal(plan.targets[0].markdownPath, "Mon Roman/Manuscrit/Partie 1/Partie 1.md");
+    assert.equal(plan.uuidToPath.get(P1), "Mon Roman/Manuscrit/Partie 1/Partie 1.md");
+  });
+
+  await t.test("3. Folder manuscrit avec synopsis mais sans RTF -> note prévue, uuidToPath correct", () => {
+    // Le RTF de contenu est vide, mais la pré-analyse détecte un synopsis
+    // (item.synopsis ou synopsis.txt) et inclut donc ce dossier dans
+    // manuscriptFolderNoteUuids — exactement la même condition que
+    // l'ancien writeManuscriptNode (`docSynopsis`).
     const parsed = parseScrivx(`<ScrivenerProject><Binder>
       <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
         <Children>
-          <BinderItem UUID="${P1}" Type="Folder"><Title>Partie 1</Title></BinderItem>
+          <BinderItem UUID="${P1}" Type="Folder"><Title>Partie 1</Title>
+            <MetaData><Synopsis>Un synopsis, sans corps de texte.</Synopsis></MetaData>
+          </BinderItem>
         </Children>
       </BinderItem>
     </Binder></ScrivenerProject>`);
+    assert.equal(parsed.draft.children[0].synopsis, "Un synopsis, sans corps de texte.");
     const plan = buildScrivenerImportPlan(parsed, {
       manuscritPath: "Mon Roman/Manuscrit", researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set([P1]),
     });
     assert.equal(plan.uuidToPath.get(P1), "Mon Roman/Manuscrit/Partie 1/Partie 1.md");
-    const { text } = rtfToMarkdown(scrivLink(P1, "Partie 1"), {}, plan.uuidToPath);
-    assert.ok(text.includes("[[Mon Roman/Manuscrit/Partie 1/Partie 1|Partie 1]]"));
   });
 
-  await t.test("correctif : lien vers un dossier manuscrit SANS note -> texte simple, jamais [[dossier]], unresolved +1", () => {
-    // simule le cas réel où le dossier n'a finalement aucune note propre
-    // (contenu vide) : son UUID n'a donc aucune entrée résoluble dans la
-    // map utilisée pour les liens.
-    const mapSansNote = new Map();
-    const res = rtfToMarkdown(scrivLink(P1, "Partie 1"), {}, mapSansNote);
+  await t.test("4. Folder manuscrit avec notes/commentaire mais sans corps -> note prévue, uuidToPath correct", () => {
+    // Même logique que le test 3, pour la branche notes/commentaires
+    // (docNotes) plutôt que synopsis — les deux sont des conditions
+    // indépendantes de folderHasContent (voir scrivener-import-modal.ts).
+    const parsed = parseScrivx(FOLDER_XML(P1, "Partie 1"));
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set([P1]),
+    });
+    assert.equal(plan.uuidToPath.get(P1), "Mon Roman/Manuscrit/Partie 1/Partie 1.md");
+  });
+
+  await t.test("5. lien scrivlink vers un Folder manuscrit VIDE, via la vraie map du plan -> texte simple, unresolved +1", () => {
+    const parsed = parseScrivx(FOLDER_XML(P1, "Partie 1"));
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(),
+    });
+    const res = rtfToMarkdown(scrivLink(P1, "Partie 1"), {}, plan.uuidToPath);
     assert.equal(res.text, "Voir Partie 1 plus loin.");
     assert.ok(!res.text.includes("[["), "jamais de wikilien vers un dossier sans note");
     assert.equal(res.unresolvedLinkCount, 1);
   });
 
-  await t.test("correctif : lien vers un dossier Research SANS note -> texte simple, unresolved +1", () => {
+  await t.test("6. lien vers un Folder manuscrit ayant réellement une note -> wikilien vers cette note", () => {
+    const parsed = parseScrivx(FOLDER_XML(P1, "Partie 1"));
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set([P1]),
+    });
+    const { text } = rtfToMarkdown(scrivLink(P1, "Partie 1"), {}, plan.uuidToPath);
+    assert.ok(text.includes("[[Mon Roman/Manuscrit/Partie 1/Partie 1|Partie 1]]"));
+  });
+
+  await t.test("lien vers un dossier Research SANS note (jamais de note propre, hors périmètre S1) -> texte simple, unresolved +1", () => {
     const parsed = parseScrivx(`<ScrivenerProject><Binder>
       <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
       <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>

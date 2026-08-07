@@ -427,6 +427,17 @@ export type ScrivenerImportPlanOptions = {
   researchRootPath?: string | null;
   mode: keyof typeof PROJECT_MODES;
   unclassifiedFolderLabel: string;
+  /** UUID des nœuds Folder du manuscrit dont l'import va RÉELLEMENT créer
+   * une note de dossier — décidé par une pré-analyse en lecture seule du
+   * contenu Scrivener (RTF du dossier, synopsis, label, statut, notes,
+   * commentaires, mots-clés, images jointes — voir scrivener-import-modal.ts),
+   * PAS par cette fonction (qui reste pure et ne lit aucun fichier). Un
+   * Folder absent de cet ensemble reçoit toujours son `folderPath` (le
+   * dossier est créé dans tous les cas) mais AUCUN `markdownPath` : jamais
+   * de note fabriquée ici pour un dossier qui restera vide — voir le
+   * correctif S1 « plan et note de dossier manuscrit ». Omis ou vide =
+   * aucun Folder du manuscrit n'a de note (comportement le plus prudent). */
+  manuscriptFolderNoteUuids?: Set<string>;
 };
 
 /** Construit le plan de destination COMPLET avant la moindre écriture —
@@ -461,10 +472,24 @@ export function buildScrivenerImportPlan(
     const safe = sanitizeScrivenerTitle(item.title);
     if (item.isFolder) {
       const folderPath = allocateImportPath(used, joinImportPath(destPath, safe));
-      const folderName = folderPath.slice(folderPath.lastIndexOf("/") + 1);
-      const notePath = joinImportPath(folderPath, `${folderName}.md`);
-      used.add(notePath);
-      targets.push({ uuid: item.uuid, sourceTitle: item.title, kind: "manuscriptFolder", folderPath, markdownPath: notePath });
+      const willHaveNote = opts.manuscriptFolderNoteUuids?.has(item.uuid) ?? false;
+      // Le nom de la note n'est réservé dans `used` QUE si elle sera
+      // réellement créée : sinon un enfant portant le même titre que le
+      // dossier (ex. un Text "Partie 1" sous le dossier "Partie 1") se
+      // ferait renommer en "-2" pour éviter une collision avec une note
+      // qui ne verra jamais le jour — une fausse collision, jamais voulue.
+      let notePath: string | undefined;
+      if (willHaveNote) {
+        const folderName = folderPath.slice(folderPath.lastIndexOf("/") + 1);
+        notePath = allocateImportPath(used, joinImportPath(folderPath, `${folderName}.md`));
+      }
+      targets.push({
+        uuid: item.uuid,
+        sourceTitle: item.title,
+        kind: "manuscriptFolder",
+        folderPath,
+        ...(notePath ? { markdownPath: notePath } : {}),
+      });
       for (const child of item.children) planManuscriptNode(child, folderPath);
       return;
     }
