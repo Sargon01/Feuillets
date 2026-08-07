@@ -726,6 +726,20 @@ export const en = {
   "docxReview.comment.resolvedInWord": "resolved in Word",
   "docxReview.comment.anchorQuoted": "“{text}”",
 
+  // ---------- LOT 6 — decision traceability (reuses existing snapshot/compare/restore system) ----------
+  "docxReview.trace.alreadyPresent": "Already present in the manuscript (auto-detected, no decision recorded).",
+  "docxReview.trace.appliedOn": "Applied on {date}",
+  "docxReview.trace.rejectedOn": "Rejected, decided on {date}",
+  "docxReview.trace.treatedOn": "Handled on {date}",
+  "docxReview.trace.restorePointAvailable": "Restore point available",
+  "docxReview.trace.restorePointTooltip": "Go back to the state before this review session — this restore point matches the start of the session, not just this correction.",
+  "docxReview.trace.viewResult": "View result",
+  "docxReview.trace.compareBeforeAfter": "Compare before/after",
+  "docxReview.trace.compareOrigin": "Compare origin",
+  "docxReview.trace.compareDestination": "Compare destination",
+  "docxReview.trace.footnotesTransferred": "{count} footnote(s) transferred",
+  "docxReview.trace.footnotesTransferredRenamed": "{count} footnote(s) transferred, {renamed} renamed",
+
   // ---------- Editorial documents (edition-docs-view.js) — subsection of the Edition space ----------
   "editionDocs.displayText": "Editorial documents",
   "editionDocs.notCreatedBody": "No Edition folder for this project yet. Create it to prepare a synopsis, note of intent, biography, cover letter, and submission tracking.",

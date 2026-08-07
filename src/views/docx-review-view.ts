@@ -22,11 +22,33 @@ import {
 } from "../services/docx-review-import.js";
 import { bookmarkIdFor } from "../utils/docx-bookmarks.js";
 import { t, getLocale } from "../i18n/index.js";
+import { listSnapshotFiles } from "../services/project-files.js";
+import { DiffModal } from "../ui/diff-modal.js";
 
 type DocxReviewPluginBase = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type ReviewMode = "picker" | "results";
 type ReviewChangeType = "insertion" | "deletion" | "replacement" | "move";
-type SavedReviewState = { applied: boolean; dismissed: boolean };
+/** LOT 6 — trace structurée minimale d'une décision APPLIQUÉE (jamais posée
+ * pour un refus ou un commentaire traité, voir saveItemState/section 6 de la
+ * mission) : de quoi retrouver PLUS TARD le ou les feuillets concernés et
+ * leur point de retour réel, sans jamais stocker de contenu (ni le .docx, ni
+ * une copie Markdown — seulement des chemins et l'horodatage déjà produit
+ * par snapshotFile, voir services/project-files.ts). `fromPath`/`toPath`
+ * ET `footnotes` ne sont posés QUE pour un déplacement inter-feuillets
+ * (fromFile.path !== toFile.path) — absents pour une correction simple, où
+ * `affectedFiles` porte alors une seule entrée. */
+type ReviewApplyTrace = {
+  decidedAt: string;
+  affectedFiles: Array<{ path: string; snapshotStamp?: string }>;
+  fromPath?: string;
+  toPath?: string;
+  footnotes?: { count: number; renamedCount: number };
+};
+/** `trace` reste OPTIONNEL : une entrée `{applied, dismissed}` sans trace
+ * (settings déjà écrits par une session antérieure à ce lot) continue de se
+ * charger et de s'afficher sans erreur — voir saveItemState/getSavedTrace,
+ * jamais une migration forcée. */
+type SavedReviewState = { applied: boolean; dismissed: boolean; trace?: ReviewApplyTrace };
 type ReviewStateByItem = Record<string, SavedReviewState>;
 type ReviewStateByDocument = Record<string, ReviewStateByItem>;
 type ReviewEntryBase = {
@@ -261,6 +283,15 @@ function truncateForSummary(text: string, maxLen = 70): string {
   return (lastSpace > maxLen * 0.6 ? cut.slice(0, lastSpace) : cut) + "…";
 }
 
+/* LOT 6 — même formatage que la date d'un fichier .docx dans le sélecteur
+ * (renderPickerPanel) : locale active (fr-FR/en-US), jamais un format ISO
+ * brut affiché à l'autrice. */
+function formatTraceDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(getLocale() === "en" ? "en-US" : "fr-FR");
+}
+
 const PREVIEW_SNIPPET_RADIUS = 60;
 
 /** Extrait lisible de `content` autour du point où `contextBefore`
@@ -385,6 +416,13 @@ export class DocxReviewView extends BaseFeuilletsView {
    * feuillets, voir LOT 3 sécurité transactionnelle) de savoir si un point
    * de retour existe vraiment avant d'écrire quoi que ce soit. */
   _snapshotOk: Set<string> | undefined;
+  /** LOT 6 — `file.path -> stamp` (horodatage retourné par snapshotFile,
+   * voir services/project-files.ts#snapshotFile) pour le SEUL snapshot posé
+   * dans cette session pour ce feuillet — jamais un par correction (voir
+   * ensureSnapshot). Sert uniquement à retrouver, plus tard, le VRAI fichier
+   * snapshot via listSnapshotFiles (getSnapshotStamp ci-dessous) : jamais un
+   * second système de datation. */
+  _snapshotStamps: Map<string, string> | undefined;
 
   constructor(leaf: WorkspaceLeaf, plugin: DocxReviewPluginBase) {
     super(leaf, plugin);
@@ -429,18 +467,77 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
   }
 
-  async saveItemState(item: ReviewEntry) {
+  /** `trace` :
+   * - omis (défaut) -> conserve la trace déjà mémorisée pour cet item, s'il
+   *   y en avait une (ex. simple bascule dismissed/applied sans nouvelle
+   *   décision — comportement historique inchangé) ;
+   * - objet `ReviewApplyTrace` -> remplace/pose la trace (décision APPLIQUÉE
+   *   avec succès, ou REFUSÉE/traitée — voir section 6 de la mission, qui
+   *   n'exige alors qu'un `decidedAt` avec `affectedFiles: []`) ;
+   * - `null` explicite -> EFFACE la trace existante (ex. "Rétablir" annule
+   *   un refus déjà mémorisé : la décision est revenue en arrière, la trace
+   *   de l'ancienne décision n'a plus lieu d'être présentée). */
+  async saveItemState(item: ReviewEntry, trace?: ReviewApplyTrace | null) {
     if (!this.docxName) return;
     const S = this.plugin.settings;
     if (!S.docxReviewResolved) S.docxReviewResolved = {};
     if (!S.docxReviewResolved[this.docxName]) S.docxReviewResolved[this.docxName] = {};
 
     const key = getItemKey(item);
-    S.docxReviewResolved[this.docxName][key] = {
+    const existing = S.docxReviewResolved[this.docxName][key];
+    const entry: SavedReviewState = {
       applied: !!item.applied,
       dismissed: !!item.dismissed,
     };
+    const resolvedTrace = trace === null ? undefined : trace !== undefined ? trace : existing?.trace;
+    if (resolvedTrace) entry.trace = resolvedTrace;
+    S.docxReviewResolved[this.docxName][key] = entry;
     await this.plugin.saveSettings();
+  }
+
+  /** LOT 6 — entrée mémorisée (settings) pour CET item, s'il y en a une :
+   * `undefined` uniquement quand `item.applied`/`item.dismissed` viennent de
+   * la détection automatique d'analyzeBuffer#processItem (jamais passée par
+   * saveItemState — voir section 11 de la mission, "ne pas inventer de
+   * trace"). Une entrée SANS `.trace` (settings écrits par une session
+   * antérieure à ce lot) est une vraie décision, juste sans détail
+   * structuré — distinguée ici de "rien n'a jamais été décidé". */
+  private getSavedStateEntry(item: ReviewEntry): SavedReviewState | undefined {
+    if (!this.docxName) return undefined;
+    const S = this.plugin.settings;
+    return S.docxReviewResolved?.[this.docxName]?.[getItemKey(item)];
+  }
+
+  /** LOT 6 — trace mémorisée pour CET item, s'il y en a une (settings,
+   * jamais recalculée) : `undefined` pour une ancienne entrée sans trace OU
+   * pour un item résolu automatiquement (voir getSavedStateEntry). */
+  private getSavedTrace(item: ReviewEntry): ReviewApplyTrace | undefined {
+    return this.getSavedStateEntry(item)?.trace;
+  }
+
+  /** LOT 6 — stamp du snapshot posé dans CETTE session pour `path`, s'il y
+   * en a un (voir ensureSnapshot/_snapshotStamps). */
+  private getSnapshotStamp(path: string): string | undefined {
+    return this._snapshotStamps?.get(path);
+  }
+
+  /** LOT 6 — ouvre DiffModal directement sur le snapshot porté par `trace`
+   * pour `file` (retrouvé via listSnapshotFiles, JAMAIS une seconde logique
+   * de localisation des dossiers Snapshots/_Snapshots) : aucun diff n'est
+   * recalculé ici (voir section 8 de la mission). Repli sur le snapshot le
+   * plus récent si le stamp mémorisé ne correspond plus à aucun fichier
+   * (snapshot supprimé depuis, ou trace ancienne sans stamp) — DiffModal
+   * affiche alors son propre état vide si aucun snapshot n'existe du tout.
+   * `allowRestore=false` pour "Comparer l'origine"/"Comparer la destination"
+   * d'un déplacement (section 9 cas 2, jamais de restauration directe
+   * depuis la carte) — `true` (défaut de DiffModal) pour une correction
+   * simple (section 9 cas 1). */
+  private openTraceCompare(file: TFile, trace: ReviewApplyTrace | undefined, allowRestore: boolean): void {
+    const root = this.plugin.getProjectFolder();
+    const snapshots = listSnapshotFiles(this.app, file, root);
+    const stamp = trace?.affectedFiles.find((a) => a.path === file.path)?.snapshotStamp;
+    const initial = stamp ? snapshots.find((s) => s.basename === stamp) : undefined;
+    new DiffModal(this.app, this.plugin, file, initial, allowRestore).open();
   }
 
   /** CORRECTIF — carte active : source de vérité UNIQUE (mission §2).
@@ -493,14 +590,21 @@ export class DocxReviewView extends BaseFeuilletsView {
     if (!(file instanceof TFile)) return true; // rien à snapshoter : pas un échec
     if (!this._snapshotted) this._snapshotted = new Set();
     if (!this._snapshotOk) this._snapshotOk = new Set();
+    if (!this._snapshotStamps) this._snapshotStamps = new Map();
     if (this._snapshotted.has(file.path)) return this._snapshotOk.has(file.path);
     const first = this._snapshotted.size === 0;
     this._snapshotted.add(file.path); // marqué avant l'await : pas de double snapshot si deux applications s'enchaînent vite
     const root = this.plugin.getProjectFolder();
     if (!root) return false;
     try {
-      await this.plugin.snapshotFile(file, root);
+      /* LOT 6 — le stamp retourné (horodatage, voir snapshotFile) est
+         désormais CAPTURÉ (plus jeté) : c'est ce qui permet à une trace de
+         décision de pointer vers le VRAI fichier snapshot plus tard (voir
+         openTraceCompare/getSnapshotStamp) plutôt que de retomber sur "le
+         plus récent" au hasard. */
+      const stamp = await this.plugin.snapshotFile(file, root);
       this._snapshotOk.add(file.path);
+      if (typeof stamp === "string" && stamp) this._snapshotStamps.set(file.path, stamp);
       /* Une seule fois par session, à la toute première écriture : l'auteur
          sait qu'un point de retour existe (via « Comparer avec le
          snapshot » / le dossier Snapshots) avant que la relecture ne touche
@@ -520,6 +624,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     this.docxName = docxName;
     this._snapshotted = new Set(); // nouvelle session de relecture : repartir de zéro
     this._snapshotOk = new Set();
+    this._snapshotStamps = new Map();
     this.activeFilter = "all"; // nouvelle analyse : repartir du début de la file
     this.queueIndex = 0;
     this.activeItemKey = null;
@@ -1274,6 +1379,92 @@ export class DocxReviewView extends BaseFeuilletsView {
         .setText(change.text || "");
     }
 
+    /* LOT 6 (section 7) — trace de décision sur les cartes déjà résolues :
+     * aucun diff recalculé ici, seulement la lecture de ce qui a été
+     * mémorisé (getSavedStateEntry/getSavedTrace) et des boutons qui
+     * rouvrent DiffModal sur le VRAI snapshot (openTraceCompare). Un item
+     * `applied` SANS entrée mémorisée est un état auto-détecté par
+     * analyzeBuffer (section 11) : jamais de date/snapshot inventés, jamais
+     * de bouton de restauration. */
+    if (change.applied || change.dismissed) {
+      const traceBox = name.createDiv({ cls: "feuillets-docx-review-trace" });
+      if (change.applied) {
+        const savedEntry = this.getSavedStateEntry(change);
+        if (!savedEntry) {
+          traceBox.createDiv({ cls: "feuillets-docx-review-trace-line" }).setText(t("docxReview.trace.alreadyPresent"));
+        } else {
+          const trace = savedEntry.trace;
+          if (trace?.decidedAt) {
+            traceBox.createDiv({ cls: "feuillets-docx-review-trace-line" }).setText(
+              t("docxReview.trace.appliedOn", { date: formatTraceDate(trace.decidedAt) })
+            );
+          }
+          const isInterFileMove =
+            change.type === "move" && fromFileObj instanceof TFile && toFileObj instanceof TFile && fromFileObj.path !== toFileObj.path;
+          if (isInterFileMove) {
+            /* Déplacement inter-feuillets (section 9 cas 2) : jamais de
+               restauration directe depuis la carte — un seul des deux
+               fichiers restauré créerait un état incohérent. Seulement
+               Comparer l'origine/la destination, allowRestore=false. */
+            const originTitle = this.plugin.titleFor(fromFileObj as TFile);
+            const destTitle = this.plugin.titleFor(toFileObj as TFile);
+            traceBox.createDiv({ cls: "feuillets-docx-review-trace-line" }).setText(`${originTitle} → ${destTitle}`);
+            if (trace?.footnotes && trace.footnotes.count > 0) {
+              traceBox.createDiv({ cls: "feuillets-docx-review-trace-line" }).setText(
+                trace.footnotes.renamedCount > 0
+                  ? t("docxReview.trace.footnotesTransferredRenamed", {
+                      count: String(trace.footnotes.count),
+                      renamed: String(trace.footnotes.renamedCount),
+                    })
+                  : t("docxReview.trace.footnotesTransferred", { count: String(trace.footnotes.count) })
+              );
+            }
+            const traceActions = traceBox.createDiv({ cls: "feuillets-docx-review-trace-actions" });
+            const originBtn = this.iconBtn(traceActions, "git-compare", t("docxReview.trace.compareOrigin"));
+            originBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              this.openTraceCompare(fromFileObj as TFile, trace, false);
+            });
+            const destBtn = this.iconBtn(traceActions, "git-compare", t("docxReview.trace.compareDestination"));
+            destBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              this.openTraceCompare(toFileObj as TFile, trace, false);
+            });
+          } else {
+            /* Correction simple, un seul feuillet (section 9 cas 1) :
+               "Comparer avant/après" donne accès à la restauration EXISTANTE
+               de DiffModal (allowRestore par défaut) — jamais présentée
+               comme "Annuler cette correction" (section 1) : ce point de
+               retour correspond au DÉBUT de la session de révision, pas
+               seulement à cette correction (voir ensureSnapshot). */
+            const targetFile =
+              change.type === "move" && toFileObj instanceof TFile ? toFileObj : file;
+            const restoreLine = traceBox.createDiv({ cls: "feuillets-docx-review-trace-line" });
+            restoreLine.setText(t("docxReview.trace.restorePointAvailable"));
+            restoreLine.title = t("docxReview.trace.restorePointTooltip");
+            if (targetFile instanceof TFile) {
+              const traceActions = traceBox.createDiv({ cls: "feuillets-docx-review-trace-actions" });
+              const viewBtn = this.iconBtn(traceActions, "eye", t("docxReview.trace.viewResult"));
+              viewBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                void this.openAndReveal(targetFile, change);
+              });
+              const compareBtn = this.iconBtn(traceActions, "git-compare", t("docxReview.trace.compareBeforeAfter"));
+              compareBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.openTraceCompare(targetFile, trace, true);
+              });
+            }
+          }
+        }
+      } else if (change.dismissed) {
+        const trace = this.getSavedTrace(change);
+        traceBox.createDiv({ cls: "feuillets-docx-review-trace-line" }).setText(
+          trace?.decidedAt ? t("docxReview.trace.rejectedOn", { date: formatTraceDate(trace.decidedAt) }) : t("docxReview.status.rejected")
+        );
+      }
+    }
+
     const fallbackText = change.type === "move" ? change.toContext : change.contextBefore;
 
     /** Résout fromFile/toFile pour CE changement (retombe sur `file` quand
@@ -1515,8 +1706,15 @@ export class DocxReviewView extends BaseFeuilletsView {
               newContent?: string;
               step?: string;
               insertedRange?: { start: number; end: number };
+              footnotes?: { count: number; renamedCount: number };
             };
             const { fromFile, toFile } = resolveMoveFiles();
+            /* LOT 6 — trace de décision, construite UNIQUEMENT si `result.ok`
+               (section 5 de la mission : jamais en cas de snapshot-failed/
+               write-failed/rollback-failed) et JAMAIS recalculée après coup —
+               `footnotes` vient directement du résultat de planApplyInterFile
+               (donc de resolveFootnoteTransfer, jamais une seconde recherche). */
+            let trace: ReviewApplyTrace | undefined;
 
             if (change.type === "move" && fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
               /* LOT 3 (sécurité transactionnelle) : un déplacement touche
@@ -1533,6 +1731,18 @@ export class DocxReviewView extends BaseFeuilletsView {
               } else {
                 result = await planApplyInterFile(this.app.vault, fromFile, toFile, change as unknown as Parameters<typeof planApplyInterFile>[3]);
               }
+              if (result.ok) {
+                trace = {
+                  decidedAt: new Date().toISOString(),
+                  affectedFiles: [
+                    { path: fromFile.path, snapshotStamp: this.getSnapshotStamp(fromFile.path) },
+                    { path: toFile.path, snapshotStamp: this.getSnapshotStamp(toFile.path) },
+                  ],
+                  fromPath: fromFile.path,
+                  toPath: toFile.path,
+                  footnotes: result.footnotes,
+                };
+              }
             } else {
               const targetFile = change.type === "move" && toFile instanceof TFile ? toFile : file;
               const content = await this.app.vault.read(targetFile);
@@ -1540,6 +1750,10 @@ export class DocxReviewView extends BaseFeuilletsView {
               if (result.ok) {
                 await this.ensureSnapshot(targetFile);
                 await this.app.vault.modify(targetFile, result.newContent || "");
+                trace = {
+                  decidedAt: new Date().toISOString(),
+                  affectedFiles: [{ path: targetFile.path, snapshotStamp: this.getSnapshotStamp(targetFile.path) }],
+                };
               }
             }
 
@@ -1557,7 +1771,7 @@ export class DocxReviewView extends BaseFeuilletsView {
             }
             change.applied = true;
             change.dismissed = true;
-            await this.saveItemState(change);
+            await this.saveItemState(change, trace);
             new Notice(t("docxReview.changeAppliedNotice"));
             if (change.type === "move" && toFile instanceof TFile) {
               if (result.insertedRange) {
@@ -1588,7 +1802,20 @@ export class DocxReviewView extends BaseFeuilletsView {
       e.stopPropagation();
       void (async () => {
         change.dismissed = !change.dismissed;
-        await this.saveItemState(change);
+        /* LOT 6 (section 6) — un REFUS mémorise au minimum la date de la
+           décision, aucun snapshot supplémentaire (affectedFiles: []).
+           Ce bouton bascule aussi "Rétablir" un item déjà APPLIQUÉ (voir
+           dismissBtn plus haut, jamais désactivé pour un item appliqué) :
+           dans ce cas `change.applied` reste vrai et la trace d'application
+           existante n'a pas à changer, seul un refus/un rétablissement
+           d'un item PAS ENCORE appliqué pose ou efface une trace de refus. */
+        if (!change.applied) {
+          await this.saveItemState(change, change.dismissed
+            ? { decidedAt: new Date().toISOString(), affectedFiles: [] }
+            : null);
+        } else {
+          await this.saveItemState(change);
+        }
         if (change.dismissed) {
           new Notice(t("docxReview.itemHiddenNotice"));
         } else {
@@ -1646,7 +1873,16 @@ export class DocxReviewView extends BaseFeuilletsView {
         applyBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           void (async () => {
-            let result: { ok: boolean; reason?: string; newContent?: string; step?: string };
+            let result: {
+              ok: boolean;
+              reason?: string;
+              newContent?: string;
+              step?: string;
+              footnotes?: { count: number; renamedCount: number };
+            };
+            // LOT 6 — même construction de trace que le bouton Appliquer
+            // principal (renderChange), jamais recalculée : voir sa doc.
+            let trace: ReviewApplyTrace | undefined;
             if (item.type === "move") {
               const fromFile = item.fromPath ? resolveVaultFile(this.app, item.fromPath) || f : f;
               const toFile = item.toPath ? resolveVaultFile(this.app, item.toPath) || f : f;
@@ -1660,15 +1896,35 @@ export class DocxReviewView extends BaseFeuilletsView {
                 } else {
                   result = await planApplyInterFile(this.app.vault, fromFile, toFile, item as unknown as Parameters<typeof planApplyInterFile>[3]);
                 }
+                if (result.ok) {
+                  trace = {
+                    decidedAt: new Date().toISOString(),
+                    affectedFiles: [
+                      { path: fromFile.path, snapshotStamp: this.getSnapshotStamp(fromFile.path) },
+                      { path: toFile.path, snapshotStamp: this.getSnapshotStamp(toFile.path) },
+                    ],
+                    fromPath: fromFile.path,
+                    toPath: toFile.path,
+                    footnotes: result.footnotes,
+                  };
+                }
               } else {
                 const content = await this.app.vault.read(f);
                 result = planApply(content, item as unknown as Parameters<typeof planApply>[1]);
-                if (result.ok) { await this.ensureSnapshot(f); await this.app.vault.modify(f, result.newContent || ""); }
+                if (result.ok) {
+                  await this.ensureSnapshot(f);
+                  await this.app.vault.modify(f, result.newContent || "");
+                  trace = { decidedAt: new Date().toISOString(), affectedFiles: [{ path: f.path, snapshotStamp: this.getSnapshotStamp(f.path) }] };
+                }
               }
             } else {
               const content = await this.app.vault.read(f);
               result = planApply(content, item as unknown as Parameters<typeof planApply>[1]);
-              if (result.ok) { await this.ensureSnapshot(f); await this.app.vault.modify(f, result.newContent || ""); }
+              if (result.ok) {
+                await this.ensureSnapshot(f);
+                await this.app.vault.modify(f, result.newContent || "");
+                trace = { decidedAt: new Date().toISOString(), affectedFiles: [{ path: f.path, snapshotStamp: this.getSnapshotStamp(f.path) }] };
+              }
             }
 
             if (!result.ok) {
@@ -1685,7 +1941,7 @@ export class DocxReviewView extends BaseFeuilletsView {
             }
             item.applied = true;
             item.dismissed = true;
-            await this.saveItemState(item);
+            await this.saveItemState(item, trace);
             new Notice(t("docxReview.changeAppliedInto", { title }));
             void this.render();
           })();
@@ -1744,6 +2000,22 @@ export class DocxReviewView extends BaseFeuilletsView {
       name.createDiv({ cls: "feuillets-docx-review-comment-text" }).setText(comment.text || "");
     }
 
+    /* LOT 6 (section 7) — "Traité le <date>" UNIQUEMENT si une vraie
+     * décision a été mémorisée (getSavedTrace) : un commentaire pré-masqué
+     * par resolvedInWord (processItem, jamais passé par saveItemState) a
+     * déjà son propre badge "résolu dans Word" ci-dessus — inventer une date
+     * ici serait contraire à la section 11 de la mission. Jamais de
+     * restauration DOCX proposée pour un commentaire (consultatif). */
+    if (comment.dismissed && !comment.resolvedInWord) {
+      const trace = this.getSavedTrace(comment);
+      if (trace) {
+        const traceBox = name.createDiv({ cls: "feuillets-docx-review-trace" });
+        traceBox.createDiv({ cls: "feuillets-docx-review-trace-line" }).setText(
+          t("docxReview.trace.treatedOn", { date: formatTraceDate(trace.decidedAt) })
+        );
+      }
+    }
+
     const actions = row.createDiv({ cls: "feuillets-docx-review-card-actions" });
 
     if (file) {
@@ -1782,7 +2054,12 @@ export class DocxReviewView extends BaseFeuilletsView {
       e.stopPropagation();
       void (async () => {
         comment.dismissed = !comment.dismissed;
-        await this.saveItemState(comment);
+        // LOT 6 (section 6) — même principe que le refus d'un changement
+        // (renderChange#dismissBtn) : décision mémorisée avec au minimum sa
+        // date, aucun snapshot ; effacée si le commentaire est rétabli.
+        await this.saveItemState(comment, comment.dismissed
+          ? { decidedAt: new Date().toISOString(), affectedFiles: [] }
+          : null);
         if (comment.dismissed) {
           new Notice(t("docxReview.commentResolvedNotice"));
         } else {
