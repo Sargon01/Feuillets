@@ -840,6 +840,7 @@ test("planApplyInterFile", async (t) => {
     const mockVault = {
       read: async (f) => files[f.path],
       modify: async (f, newContent) => {
+        files[f.path] = newContent;
         modified[f.path] = newContent;
       },
     };
@@ -857,7 +858,7 @@ test("planApplyInterFile", async (t) => {
     assert.equal(modified["F2.md"], "Début ContextB texte_deplacefin.");
   });
 
-  await t.test("lit les deux feuillets avant d'écrire l'origine puis la destination", async () => {
+  await t.test("lit les deux feuillets, écrit puis RELIT chacun pour vérification (Lot 3 — écriture transactionnelle), origine avant destination", async () => {
     const files = {
       "F1.md": "Début ContextA texte_deplace suite.",
       "F2.md": "Début ContextB fin.",
@@ -883,7 +884,18 @@ test("planApplyInterFile", async (t) => {
     });
 
     assert.equal(result.ok, true);
-    assert.deepEqual(order, ["read:F1.md", "read:F2.md", "modify:F1.md", "modify:F2.md"]);
+    // Chaque écriture est immédiatement relue et comparée au contenu
+    // attendu, avant de passer au feuillet suivant (voir
+    // planApplyInterFile) : origine écrite+vérifiée, PUIS destination
+    // écrite+vérifiée — jamais les deux écritures groupées sans relecture.
+    assert.deepEqual(order, [
+      "read:F1.md",
+      "read:F2.md",
+      "modify:F1.md",
+      "read:F1.md",
+      "modify:F2.md",
+      "read:F2.md",
+    ]);
   });
 
   await t.test("n'écrit aucun feuillet si l'insertion à destination échoue", async () => {
@@ -908,6 +920,232 @@ test("planApplyInterFile", async (t) => {
 
     assert.deepEqual(result, { ok: false, step: "to", reason: "ambiguous" });
     assert.deepEqual(order, ["read:F1.md", "read:F2.md"]);
+  });
+});
+
+/* =========================================================================
+ * LOT 3 — sécurité transactionnelle des applications DOCX multi-feuillets.
+ * Un déplacement inter-feuillets touche DEUX fichiers : soit les deux
+ * finissent modifiés (et vérifiés), soit AUCUN des deux ne l'est — jamais
+ * fromFile vidé sans que toFile ait reçu le texte, ni l'inverse, ni un
+ * fichier "à moitié" écrit après une erreur. Voir planApplyInterFile.
+ * ========================================================================= */
+test("planApplyInterFile — sécurité transactionnelle (LOT 3)", async (t) => {
+  await t.test("2. origine valide mais destination devenue invalide (contexte de destination introuvable) : aucun fichier modifié", async () => {
+    const files = {
+      "F1.md": "Début ContextA texte_deplace suite.",
+      "F2.md": "Contenu qui ne contient plus du tout le contexte attendu.",
+    };
+    const originalF1 = files["F1.md"];
+    const originalF2 = files["F2.md"];
+    let modifyCalled = false;
+    const vault = {
+      read: async (f) => files[f.path],
+      modify: async () => { modifyCalled = true; },
+    };
+    const moveChange = {
+      type: "move",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContexteDisparu ",
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, false);
+    assert.equal(res.step, "to");
+    assert.equal(modifyCalled, false, "aucune écriture, même partielle, quand la destination n'est plus retrouvable");
+    assert.equal(files["F1.md"], originalF1);
+    assert.equal(files["F2.md"], originalF2);
+  });
+
+  await t.test("3. destination valide mais origine ambiguë (sans note) : aucun fichier modifié", async () => {
+    const files = {
+      // "texte_deplace" apparaît deux fois à l'identique : localisation ambiguë côté origine.
+      "F1.md": "ContextA texte_deplace. Puis ContextA texte_deplace. encore.",
+      "F2.md": "Début ContextB fin.",
+    };
+    const originalF1 = files["F1.md"];
+    const originalF2 = files["F2.md"];
+    let modifyCalled = false;
+    const vault = {
+      read: async (f) => files[f.path],
+      modify: async () => { modifyCalled = true; },
+    };
+    const moveChange = {
+      type: "move",
+      text: "texte_deplace",
+      fromContext: "",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, false);
+    assert.equal(res.step, "from");
+    assert.equal(modifyCalled, false, "aucune écriture, même partielle, quand l'origine est ambiguë");
+    assert.equal(files["F1.md"], originalF1);
+    assert.equal(files["F2.md"], originalF2);
+  });
+
+  await t.test("5. erreur simulée lors de l'écriture du DEUXIÈME fichier (destination) : le premier fichier (origine), déjà écrit, est restauré à l'identique", async () => {
+    const files = {
+      "F1.md": "Début ContextA texte_deplace suite.",
+      "F2.md": "Début ContextB fin.",
+    };
+    const originalF1 = files["F1.md"];
+    const originalF2 = files["F2.md"];
+    const calls = [];
+    const vault = {
+      read: async (f) => files[f.path],
+      modify: async (f, c) => {
+        calls.push(f.path);
+        if (f.path === "F2.md" && calls.filter((p) => p === "F2.md").length === 1) {
+          // Écriture simulée en échec (ex. permission refusée, coffre en
+          // lecture seule) — F1 a DÉJÀ été écrit à ce stade.
+          throw new Error("écriture simulée en échec (F2)");
+        }
+        files[f.path] = c;
+      },
+    };
+    const moveChange = {
+      type: "move",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, false);
+    assert.equal(res.step, "to");
+    // La restauration de F1 a réussi : "write-failed" (jamais
+    // "rollback-failed", réservé au cas où la restauration échoue aussi).
+    assert.equal(res.reason, "write-failed");
+    // Jamais un état intermédiaire : F1 restauré, F2 jamais touché.
+    assert.equal(files["F1.md"], originalF1, "F1 doit être restauré à son contenu d'origine après l'échec d'écriture de F2");
+    assert.equal(files["F2.md"], originalF2, "F2 n'a jamais reçu le texte : il reste inchangé");
+    // F1 écrit, PUIS F2 tenté (échec), PUIS F1 restauré.
+    assert.deepEqual(calls, ["F1.md", "F2.md", "F1.md"]);
+  });
+
+  await t.test("6. échec de la VÉRIFICATION après écriture (le contenu relu ne correspond pas à ce qui vient d'être écrit) : restauration complète des DEUX fichiers", async () => {
+    const files = {
+      "F1.md": "Début ContextA texte_deplace suite.",
+      "F2.md": "Début ContextB fin.",
+    };
+    const originalF1 = files["F1.md"];
+    const originalF2 = files["F2.md"];
+    let toWriteCount = 0;
+    const vault = {
+      read: async (f) => {
+        // Simule un coffre qui rapporte une écriture réussie (modify ne
+        // lève rien) mais dont la relecture immédiate de F2 renvoie un
+        // contenu DIFFÉRENT de ce qui a été demandé (ex. un conflit de
+        // synchronisation résolu silencieusement) — seulement pour la
+        // toute première relecture, juste après la première écriture.
+        if (f.path === "F2.md" && toWriteCount === 1) return "CONTENU DIFFÉRENT — jamais ce qui a été écrit";
+        return files[f.path];
+      },
+      modify: async (f, c) => {
+        if (f.path === "F2.md") toWriteCount++;
+        files[f.path] = c;
+      },
+    };
+    const moveChange = {
+      type: "move",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, false);
+    assert.equal(res.step, "to");
+    // F1 (déjà écrit ET vérifié) ET F2 (écrit mais relu différent) sont
+    // TOUS LES DEUX restaurés à l'identique — jamais l'un sans l'autre.
+    assert.equal(files["F1.md"], originalF1);
+    assert.equal(files["F2.md"], originalF2);
+  });
+
+  await t.test("8. frontmatter YAML strictement identique avant/après — succès, PUIS après restauration suite à un échec simulé", async () => {
+    const fmF1 = '---\ntitle: "Un"\nstatus: draft\n---\n\n';
+    const fmF2 = '---\ntitle: "Deux"\nstatus: draft\n---\n\n';
+    const bodyF1 = "Début ContextA texte_deplace suite.";
+    const bodyF2 = "Début ContextB fin.";
+    const moveChange = {
+      type: "move",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+    };
+
+    // Cas succès : le frontmatter des DEUX fichiers ressort identique.
+    const files = { "F1.md": fmF1 + bodyF1, "F2.md": fmF2 + bodyF2 };
+    const modified = {};
+    const vault = {
+      read: async (f) => files[f.path],
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; },
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, true);
+    assert.ok(modified["F1.md"].startsWith(fmF1), "frontmatter de F1 inchangé après un déplacement réussi");
+    assert.ok(modified["F2.md"].startsWith(fmF2), "frontmatter de F2 inchangé après un déplacement réussi");
+
+    // Cas échec (écriture de F2 simulée en échec) : le frontmatter de F1,
+    // déjà réécrit puis restauré, ressort EXACTEMENT identique — jamais
+    // déplacé, dupliqué ni inséré dans le corps.
+    const files2 = { "F1.md": fmF1 + bodyF1, "F2.md": fmF2 + bodyF2 };
+    const vault2 = {
+      read: async (f) => files2[f.path],
+      modify: async (f, c) => {
+        if (f.path === "F2.md") throw new Error("échec simulé");
+        files2[f.path] = c;
+      },
+    };
+    const res2 = await planApplyInterFile(vault2, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res2.ok, false);
+    assert.equal(files2["F1.md"], fmF1 + bodyF1, "frontmatter + corps de F1 restaurés à l'identique, au caractère près");
+    assert.equal(files2["F2.md"], fmF2 + bodyF2, "F2 jamais touché");
+  });
+
+  await t.test("9. la restauration elle-même échoue après l'échec d'écriture du DEUXIÈME fichier : reason distinct \"rollback-failed\", jamais confondu avec un simple échec d'écriture", async () => {
+    const files = {
+      "F1.md": "Début ContextA texte_deplace suite.",
+      "F2.md": "Début ContextB fin.",
+    };
+    const calls = [];
+    const vault = {
+      read: async (f) => files[f.path],
+      modify: async (f, c) => {
+        calls.push(f.path);
+        if (f.path === "F2.md") {
+          // Écriture de la destination en échec (comme le test 5)...
+          throw new Error("écriture simulée en échec (F2)");
+        }
+        if (f.path === "F1.md" && calls.filter((p) => p === "F1.md").length === 2) {
+          // ...ET la tentative de RESTAURATION de F1 (2ᵉ appel modify sur
+          // F1 : la 1ʳᵉ écriture, réussie, puis cette tentative de retour
+          // en arrière) échoue elle aussi — ex. coffre devenu inaccessible
+          // entre-temps. L'état initial n'est alors PLUS garanti retrouvé.
+          throw new Error("restauration simulée en échec (F1)");
+        }
+        files[f.path] = c;
+      },
+    };
+    const moveChange = {
+      type: "move",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, false);
+    assert.equal(res.step, "to");
+    // Jamais "write-failed" ici : la restauration elle-même a échoué, la
+    // fonction ne doit surtout pas laisser croire que F1 est bien revenu à
+    // son état initial.
+    assert.equal(res.reason, "rollback-failed");
+    assert.deepEqual(calls, ["F1.md", "F2.md", "F1.md"], "écriture F1, tentative F2 (échec), tentative de restauration F1 (échec elle aussi)");
   });
 });
 
@@ -1492,7 +1730,7 @@ test("planApplyInterFile — transfert de note entre feuillets", async (t) => {
     const modified = {};
     const vault = {
       read: async (f) => files[f.path],
-      modify: async (f, c) => { modified[f.path] = c; },
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; },
     };
     const moveChange = {
       type: "move",
@@ -1520,7 +1758,7 @@ test("planApplyInterFile — transfert de note entre feuillets", async (t) => {
     const modified = {};
     const vault = {
       read: async (f) => files[f.path],
-      modify: async (f, c) => { modified[f.path] = c; },
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; },
     };
     const moveChange = {
       type: "move",
@@ -1552,7 +1790,7 @@ test("planApplyInterFile — transfert de note entre feuillets", async (t) => {
     const modified = {};
     const vault = {
       read: async (f) => files[f.path],
-      modify: async (f, c) => { modified[f.path] = c; },
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; },
     };
     const moveChange = {
       type: "move",
@@ -1601,7 +1839,7 @@ test("planApplyInterFile — transfert de note entre feuillets", async (t) => {
     const modified = {};
     const vault = {
       read: async (f) => files[f.path],
-      modify: async (f, c) => { modified[f.path] = c; },
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; },
     };
     const moveChange = {
       type: "move",
@@ -1642,7 +1880,7 @@ test("planApplyInterFile — collision de label de note et respect des appels or
     const modified = {};
     const vault = {
       read: async (f) => files[f.path],
-      modify: async (f, c) => { modified[f.path] = c; },
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; },
     };
     const moveChange = {
       type: "move",
@@ -1667,7 +1905,7 @@ test("planApplyInterFile — collision de label de note et respect des appels or
     const modified = {};
     const vault = {
       read: async (f) => files[f.path],
-      modify: async (f, c) => { modified[f.path] = c; },
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; },
     };
     const moveChange = {
       type: "move",
@@ -1695,7 +1933,7 @@ test("planApplyInterFile — collision de label de note et respect des appels or
     const modified = {};
     const vault = {
       read: async (f) => files[f.path],
-      modify: async (f, c) => { modified[f.path] = c; },
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; },
     };
     const moveChange = {
       type: "move",
@@ -1722,7 +1960,7 @@ test("planApplyInterFile — collision de label de note et respect des appels or
     const modified = {};
     const vault = {
       read: async (f) => files[f.path],
-      modify: async (f, c) => { modified[f.path] = c; },
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; },
     };
     const moveChange = {
       type: "move",
@@ -2714,7 +2952,7 @@ test("Nettoyage de la définition d'origine après un déplacement de note (Prob
   const apply = async (fromText, footnoteRef) => {
     const files = makeFiles();
     const modified = {};
-    const vault = { read: async (f) => files[f.path], modify: async (f, c) => { modified[f.path] = c; } };
+    const vault = { read: async (f) => files[f.path], modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; } };
     const moveChange = {
       type: "move",
       text: fromText,
@@ -2747,7 +2985,7 @@ test("Nettoyage de la définition d'origine après un déplacement de note (Prob
       "Premier paragraphe reste ici[^1], et là[^3], et encore là[^4].\n\n" +
       blockOf4;
     const modified = {};
-    const vault = { read: async (f) => files[f.path], modify: async (f, c) => { modified[f.path] = c; } };
+    const vault = { read: async (f) => files[f.path], modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; } };
     const moveChange = {
       type: "move",
       text: "Second paragraphe déplace[^2] une note du milieu.",
@@ -2772,7 +3010,7 @@ test("Nettoyage de la définition d'origine après un déplacement de note (Prob
       "Paragraphe à déplacer[^4] entier.\n\n" +
       blockOf4;
     const modified = {};
-    const vault = { read: async (f) => files[f.path], modify: async (f, c) => { modified[f.path] = c; } };
+    const vault = { read: async (f) => files[f.path], modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; } };
     const moveChange = {
       type: "move",
       text: "Paragraphe à déplacer[^4] entier.",
@@ -2814,7 +3052,7 @@ test("Nettoyage de la définition d'origine après un déplacement de note (Prob
   await t.test("note SEULE du bloc (première ET dernière à la fois) : bloc entier retiré proprement", async () => {
     const files = { "F1.md": "Seul paragraphe[^1] du feuillet.\n\n[^1]: Unique définition.", "F2.md": "Cible." };
     const modified = {};
-    const vault = { read: async (f) => files[f.path], modify: async (f, c) => { modified[f.path] = c; } };
+    const vault = { read: async (f) => files[f.path], modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; } };
     const moveChange = {
       type: "move",
       text: "Seul paragraphe[^1] du feuillet.",

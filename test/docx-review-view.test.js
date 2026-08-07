@@ -606,6 +606,88 @@ test("Lot 4 — jamais de notice d'échec de sélection quand l'écriture a réu
   Notice.onCreate = null;
 });
 
+test("LOT 3 (sécurité transactionnelle) — les DEUX feuillets sont snapshotés avant la moindre écriture, pour un déplacement inter-feuillets", async () => {
+  const origin = file("Projet/Origine.md", "Début. Passage à couper. Fin.");
+  const dest = file("Projet/Destination.md", "Avant. Après.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, plugin, writes } = createView({ files: [origin, dest], content, withWorkspace: true });
+  const order = [];
+  plugin.snapshotFile = async (f) => { order.push(`snapshot:${f.path}`); };
+  const realModify = view.app.vault.modify.bind(view.app.vault);
+  view.app.vault.modify = async (f, c) => {
+    order.push(`write:${f.path}`);
+    return realModify(f, c);
+  };
+
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Début. ", fromText: "Passage à couper.",
+    toContext: "Avant. ", text: "Passage à couper.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const applyBtn = allElements(container).find((el) => el.icon === "check");
+  assert.ok(applyBtn, "bouton Appliquer présent");
+
+  applyBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(writes.length, 2, "écriture de l'origine ET de la destination");
+  const snapshotEvents = order.filter((e) => e.startsWith("snapshot:"));
+  const firstWriteIdx = order.findIndex((e) => e.startsWith("write:"));
+  assert.equal(snapshotEvents.length, 2, "les DEUX feuillets (origine et destination) doivent être snapshotés");
+  assert.deepEqual(
+    new Set(snapshotEvents.map((e) => e.slice("snapshot:".length))),
+    new Set([origin.path, dest.path])
+  );
+  assert.ok(
+    snapshotEvents.every((e) => order.indexOf(e) < firstWriteIdx),
+    "aucune écriture avant que les deux snapshots soient créés : " + JSON.stringify(order)
+  );
+});
+
+test("LOT 3 (sécurité transactionnelle) — snapshot de l'origine réussi, snapshot de la destination en échec : aucune écriture, rien marqué appliqué", async () => {
+  const origin = file("Projet/Origine.md", "Début. Passage à couper. Fin.");
+  const dest = file("Projet/Destination.md", "Avant. Après.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, plugin, writes } = createView({ files: [origin, dest], content, withWorkspace: true });
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  plugin.snapshotFile = async (f) => {
+    if (f.path === dest.path) throw new Error("snapshot de la destination indisponible");
+    // le snapshot de l'origine, lui, réussit.
+  };
+
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Début. ", fromText: "Passage à couper.",
+    toContext: "Avant. ", text: "Passage à couper.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const applyBtn = allElements(container).find((el) => el.icon === "check");
+  assert.ok(applyBtn, "bouton Appliquer présent");
+
+  applyBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(writes.length, 0, "vault.modify ne doit JAMAIS être appelé quand le snapshot de la destination échoue");
+  assert.equal(content[origin.path], "Début. Passage à couper. Fin.", "origine inchangée");
+  assert.equal(content[dest.path], "Avant. Après.", "destination inchangée");
+  assert.equal(change.applied, undefined, "le retour ne doit jamais être marqué appliqué");
+  assert.ok(
+    notices.some((m) => typeof m === "string" && m.toLowerCase().includes("point de retour")),
+    "une notice explicite doit signaler l'échec du snapshot : " + JSON.stringify(notices)
+  );
+  Notice.onCreate = null;
+});
+
 test("Lot 4 — bouton « Voir le passage déplacé » sur un déplacement déjà appliqué", async () => {
   const dest = file("Projet/Destination.md", "Avant. Passage.");
   const content = { [dest.path]: dest.content };

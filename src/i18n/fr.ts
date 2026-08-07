@@ -637,6 +637,8 @@ export const fr = {
   "docxReview.applyInto": "Appliquer dans : {title}",
   "docxReview.ambiguousPassageShort": "Ce passage apparaît plusieurs fois — impossible d'appliquer automatiquement sans risque de se tromper d'endroit.",
   "docxReview.passageNotFoundInSheet": "Passage introuvable tel quel dans ce feuillet.",
+  "docxReview.snapshotFailedNotice": "Impossible de créer un point de retour pour ce déplacement entre feuillets — rien n'a été modifié. Réessaie, ou vérifie l'accès au dossier Snapshots.",
+  "docxReview.rollbackFailedNotice": "Écriture interrompue ET restauration automatique impossible — vérifie les feuillets concernés à la main (utilise les Snapshots pour comparer/revenir en arrière).",
   "docxReview.changeAppliedInto": "Modification appliquée dans {title}.",
   "docxReview.hideMarkResolvedShort": "Masquer / Marquer comme résolu",
   "docxReview.showInStack": "Rafficher dans la pile",
