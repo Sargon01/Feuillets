@@ -8,6 +8,15 @@ import { toValue } from "../utils/scene-fields.js";
 export { extractTag, extractAllTags, getAttr, decodeXmlEntities };
 
 type AttachedImage = { fileName: string; fullPath: string; ext: string };
+/** Une métadonnée personnalisée Scrivener (CustomMetaData), conservée telle
+ * quelle — voir §4 du chantier S2. Toujours un TABLEAU, jamais
+ * Record<string,string> : deux champs peuvent porter le même nom, aucune
+ * valeur ne doit en écraser une autre, et l'ordre Scrivener est préservé. */
+export type ScrivenerCustomMetadata = {
+  id: string;
+  name: string;
+  value: string;
+};
 type ScrivenerNode = {
   uuid: string;
   xmlType: string;
@@ -20,6 +29,10 @@ type ScrivenerNode = {
   includeInCompile: boolean;
   wordGoal: number;
   keywords: string[];
+  /** Métadonnées personnalisées Scrivener, jamais aplaties dans `keywords`
+   * (sauf règle explicite Tags/Keywords, voir §5 du chantier S2) — conservées
+   * intégralement pour tous les nœuds, pas seulement les scènes (§7). */
+  customMetadata: ScrivenerCustomMetadata[];
   children: ScrivenerNode[];
 };
 type ParsedScrivx = {
@@ -197,6 +210,28 @@ function parseCustomMetaDataSettings(xmlContent: string | null | undefined) {
   return map;
 }
 
+/** Normalise un nom/FieldID de métadonnée pour la comparaison Tags/Keywords
+ * (§5 du chantier S2) : insensible à la casse, aux accents et aux
+ * espaces/tirets/soulignés usuels — "Mots-Clés", "mots clés" et "MOTS_CLES"
+ * doivent tous être reconnus. */
+function normalizeMetaFieldKey(s: string | null | undefined): string {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[\s\-_]+/g, "");
+}
+
+const TAG_FIELD_KEYS = new Set(["tag", "tags", "keyword", "keywords", "motcle", "motscles"]);
+
+/** Un champ personnalisé alimente les keywords Feuillets UNIQUEMENT si son
+ * nom résolu OU son FieldID brut désigne explicitement un champ de tags —
+ * jamais parce que sa valeur contient une virgule, un "#" ou plusieurs mots
+ * (voir §5 : "Lieu = Paris, France" ne doit jamais devenir un tag). */
+function isTagFieldName(name: string | null | undefined, fieldId: string | null | undefined): boolean {
+  return TAG_FIELD_KEYS.has(normalizeMetaFieldKey(name)) || TAG_FIELD_KEYS.has(normalizeMetaFieldKey(fieldId));
+}
+
 function parseBinderItem(
   attrs: string,
   body: string,
@@ -255,28 +290,47 @@ function parseBinderItem(
     }
   }
 
+  /* CustomMetaData (§4/§5 du chantier S2) : conservée intégralement dans
+   * `customMetadata` (jamais aplatie dans `keywords` par défaut — l'ancien
+   * comportement qui coupait sur "," ou "#" produisait des faux tags pour
+   * des champs ordinaires comme "Lieu = Paris, France" ou "Référence = #12").
+   * Seul un champ explicitement dédié aux Tags/Keywords (nom OU FieldID,
+   * voir isTagFieldName) alimente aussi les keywords Feuillets — la
+   * métadonnée reste malgré tout présente dans customMetadata (§5 : "même
+   * dans ce cas, la metadata reste AUSSI dans customMetadata"). */
+  const customMetadata: ScrivenerCustomMetadata[] = [];
   const customMetaXml = extractTag(metaXml, "CustomMetaData") || extractTag(body, "CustomMetaData");
   if (customMetaXml) {
     const items = extractAllTags(customMetaXml, "MetaDataItem");
     for (const item of items) {
       const fieldId = getAttr(item.attrs, "FieldID") || getAttr(item.attrs, "fieldID") || extractTag(item.body, "FieldID");
-      const val = extractTag(item.body, "Value") || item.body.replace(/<[^>]+>/g, "").trim();
-      const fieldTitle = (customMetaTitles && fieldId) ? customMetaTitles.get(fieldId) : fieldId;
+      /* Un <Value> VIDE (mais présent) est une valeur vide légitime (§4 :
+         "une valeur réellement vide peut être ignorée"), à distinguer d'un
+         <Value> carrément ABSENT (repli sur le corps brut de l'item, cas
+         Scrivener sans balise dédiée) — sinon un champ vide récupérait par
+         erreur le contenu du <FieldID> voisin une fois les balises retirées. */
+      const hasValueTag = /<Value\b[^>]*>/.test(item.body);
+      const val = hasValueTag ? extractTag(item.body, "Value") : item.body.replace(/<[^>]+>/g, "").trim();
+      const fieldTitle = (customMetaTitles && fieldId) ? customMetaTitles.get(fieldId) : null;
+      /* Aucun nom connu (pas de CustomMetaDataSettings correspondant) :
+         name = FieldID (§4). */
       const cleanTitle = (fieldTitle || fieldId || "").trim();
       const cleanVal = decodeXmlEntities(val).trim();
 
-      if (cleanVal) {
-        const isTagField = /^(tags?|mots[-_ ]cl[eé]s?|keywords?)$/i.test(cleanTitle) || /^(tags?|mots[-_ ]cl[eé]s?|keywords?)$/i.test(fieldId);
-        if (isTagField || cleanVal.includes("#") || cleanVal.includes(",")) {
-          const parts = cleanVal
-            .split(/[,;\s]+/)
-            .map((p) => p.replace(/^#/, "").trim())
-            .filter(Boolean);
-          for (const p of parts) {
-            if (!keywords.includes(p)) keywords.push(p);
-          }
-        } else {
-          if (!keywords.includes(cleanVal)) keywords.push(cleanVal);
+      if (!cleanVal) continue; // valeur réellement vide : ignorée (§4)
+
+      customMetadata.push({ id: fieldId || cleanTitle, name: cleanTitle, value: cleanVal });
+
+      if (isTagFieldName(cleanTitle, fieldId)) {
+        /* Séparateurs de tags acceptés : virgule, point-virgule, retour à
+           la ligne — JAMAIS l'espace (§5 : "New York, Guerre froide" doit
+           rester deux tags, pas quatre). */
+        const parts = cleanVal
+          .split(/[,;\n]+/)
+          .map((p) => p.trim())
+          .filter(Boolean);
+        for (const p of parts) {
+          if (!keywords.includes(p)) keywords.push(p);
         }
       }
     }
@@ -313,6 +367,7 @@ function parseBinderItem(
     includeInCompile,
     wordGoal,
     keywords,
+    customMetadata,
     children,
   };
 }
@@ -385,8 +440,14 @@ export type ScrivenerImportTargetKind =
   | "manuscriptScene"
   | "manuscriptFolder"
   | "manuscriptContainer"
+  /** Note propre de la racine Draft elle-même — voir §9 du chantier S2.
+   * Jamais de folderPath : le dossier physique reste toujours Manuscrit/. */
+  | "manuscriptRoot"
   | "researchFolder"
-  | "researchEntry";
+  | "researchEntry"
+  /** Note propre de la racine Research elle-même — voir §11 du chantier S2.
+   * Jamais de folderPath : le dossier existe déjà (racine Recherche Feuillets). */
+  | "researchRoot";
 
 /** Une entrée du plan = un nœud Scrivener (identifié par son UUID) et sa
  * destination FINALE dans le coffre, déjà résolue (collisions comprises).
@@ -427,16 +488,21 @@ export type ScrivenerImportPlanOptions = {
   researchRootPath?: string | null;
   mode: keyof typeof PROJECT_MODES;
   unclassifiedFolderLabel: string;
-  /** UUID des nœuds Folder du manuscrit dont l'import va RÉELLEMENT créer
-   * une note de dossier — décidé par une pré-analyse en lecture seule du
-   * contenu Scrivener (RTF du dossier, synopsis, label, statut, notes,
-   * commentaires, mots-clés, images jointes — voir scrivener-import-modal.ts),
-   * PAS par cette fonction (qui reste pure et ne lit aucun fichier). Un
-   * Folder absent de cet ensemble reçoit toujours son `folderPath` (le
-   * dossier est créé dans tous les cas) mais AUCUN `markdownPath` : jamais
-   * de note fabriquée ici pour un dossier qui restera vide — voir le
-   * correctif S1 « plan et note de dossier manuscrit ». Omis ou vide =
-   * aucun Folder du manuscrit n'a de note (comportement le plus prudent). */
+  /** UUID de TOUT nœud Folder (au sens large : dossier du manuscrit, racine
+   * Draft, racine Research, dossier Research classifié ou imbriqué, racine
+   * "other") dont l'import va RÉELLEMENT créer une note propre — décidé par
+   * une pré-analyse en lecture seule du contenu Scrivener (RTF, synopsis,
+   * label, statut, notes, commentaires, mots-clés, customMetadata, images
+   * jointes — voir la fonction de décision partagée dans
+   * scrivener-import-modal.ts, §8 du chantier S2), PAS par cette fonction
+   * (qui reste pure et ne lit aucun fichier). Un nœud absent de cet
+   * ensemble reçoit toujours son `folderPath` (le dossier est créé dans
+   * tous les cas, quand il en a un) mais AUCUN `markdownPath` : jamais de
+   * note fabriquée ici pour un nœud qui restera vide — voir le correctif S1
+   * « plan et note de dossier manuscrit », généralisé en S2 à toute la
+   * hiérarchie. Le nom du champ reste `manuscriptFolderNoteUuids` pour ne
+   * pas casser les tests S1 existants ; son usage est désormais global. Omis
+   * ou vide = aucun nœud n'a de note (comportement le plus prudent). */
   manuscriptFolderNoteUuids?: Set<string>;
 };
 
@@ -506,14 +572,40 @@ export function buildScrivenerImportPlan(
   };
 
   if (parsed.draft) {
+    /* §9 du chantier S2 : la racine Draft ne crée JAMAIS de sous-dossier —
+       si elle a du contenu propre, sa note vit directement dans Manuscrit/,
+       réservée AVANT les enfants (ordre requis pour que la collision
+       Draft.md / enfant homonyme se résolve de façon déterministe, §10). */
+    const draftWillHaveNote = opts.manuscriptFolderNoteUuids?.has(parsed.draft.uuid) ?? false;
+    if (draftWillHaveNote) {
+      const safe = sanitizeScrivenerTitle(parsed.draft.title);
+      const notePath = allocateImportPath(used, joinImportPath(opts.manuscritPath, `${safe}.md`));
+      targets.push({ uuid: parsed.draft.uuid, sourceTitle: parsed.draft.title, kind: "manuscriptRoot", markdownPath: notePath });
+    }
     for (const child of parsed.draft.children) planManuscriptNode(child, opts.manuscritPath);
   }
 
+  /* Symétrique de planManuscriptNode pour la Recherche (§13 du chantier
+     S2) : un Folder Research (classifié ou non, imbriqué ou non) reçoit
+     toujours son `folderPath`, et un `markdownPath` UNIQUEMENT s'il a du
+     contenu propre (même Set partagé que le manuscrit, voir §8). */
   const planResearchNode = (item: ScrivenerNode, destPath: string): void => {
     const safe = sanitizeScrivenerTitle(item.title);
     if (item.isFolder) {
       const folderPath = allocateImportPath(used, joinImportPath(destPath, safe));
-      targets.push({ uuid: item.uuid, sourceTitle: item.title, kind: "researchFolder", folderPath });
+      const willHaveNote = opts.manuscriptFolderNoteUuids?.has(item.uuid) ?? false;
+      let notePath: string | undefined;
+      if (willHaveNote) {
+        const folderName = folderPath.slice(folderPath.lastIndexOf("/") + 1);
+        notePath = allocateImportPath(used, joinImportPath(folderPath, `${folderName}.md`));
+      }
+      targets.push({
+        uuid: item.uuid,
+        sourceTitle: item.title,
+        kind: "researchFolder",
+        folderPath,
+        ...(notePath ? { markdownPath: notePath } : {}),
+      });
       for (const child of item.children) planResearchNode(child, folderPath);
       return;
     }
@@ -524,11 +616,39 @@ export function buildScrivenerImportPlan(
   if (opts.researchRootPath) {
     const researchFolders = PROJECT_MODES[opts.mode].researchFolders as Record<string, { label: string; tag: string }>;
     if (parsed.research) {
+      /* §11 du chantier S2 : même principe que la racine Draft — pas de
+         sous-dossier Research/Research/…, note directe dans la racine
+         Recherche si contenu propre, réservée avant les enfants. Aucun tag
+         structurel (personnage/lieu) ne lui est jamais associé (§11, §21). */
+      const researchRootWillHaveNote = opts.manuscriptFolderNoteUuids?.has(parsed.research.uuid) ?? false;
+      if (researchRootWillHaveNote) {
+        const safe = sanitizeScrivenerTitle(parsed.research.title);
+        const notePath = allocateImportPath(used, joinImportPath(opts.researchRootPath, `${safe}.md`));
+        targets.push({ uuid: parsed.research.uuid, sourceTitle: parsed.research.title, kind: "researchRoot", markdownPath: notePath });
+      }
       for (const child of parsed.research.children) {
         const key = child.isFolder ? classifyResearchFolder(child.title) : null;
         const folderDef = key ? researchFolders[key] : null;
         if (folderDef) {
           const targetFolder = reusableFolder(folderDef.label);
+          /* §12 : le dossier classifié (Characters, Places…) reçoit sa
+             propre note SEULEMENT s'il a du contenu propre — jamais de
+             tag structurel personnage/lieu sur CETTE note (portée par ses
+             enfants directs uniquement, à l'écriture). */
+          const classifiedWillHaveNote = opts.manuscriptFolderNoteUuids?.has(child.uuid) ?? false;
+          if (classifiedWillHaveNote) {
+            /* Correctif final S2 : la note représente le Folder SCRIVENER
+               d'origine (`child`), pas le dossier Feuillets cible partagé
+               (`targetFolder`, réutilisé tel quel entre plusieurs Folder
+               classifiés vers la même rubrique — voir reusableFolder). Son
+               nom doit donc rester le titre Scrivener sanitizé du Folder,
+               jamais le basename du dossier cible : "Character Sketches"
+               classé dans Characters/ produit Characters/Character
+               Sketches.md, pas Characters/Characters.md. */
+            const noteName = sanitizeScrivenerTitle(child.title);
+            const notePath = allocateImportPath(used, joinImportPath(targetFolder, `${noteName}.md`));
+            targets.push({ uuid: child.uuid, sourceTitle: child.title, kind: "researchFolder", folderPath: targetFolder, markdownPath: notePath });
+          }
           for (const grandchild of child.children) planResearchNode(grandchild, targetFolder);
         } else {
           const fallback = reusableFolder(opts.unclassifiedFolderLabel);
@@ -537,6 +657,10 @@ export function buildScrivenerImportPlan(
       }
     }
     for (const other of parsed.others) {
+      /* §14 : une racine "other" Folder suit désormais le même mécanisme
+         que les dossiers Research (planResearchNode) — dossier toujours
+         créé, note propre uniquement si contenu. Rien de spécifique ici :
+         c'est le même moteur, pas un second système parallèle. */
       const fallback = reusableFolder(opts.unclassifiedFolderLabel);
       planResearchNode(other, fallback);
     }
@@ -645,7 +769,17 @@ export function countImportPreview(parsed: ParsedScrivx) {
   };
   if (parsed.research) for (const c of parsed.research.children) walkResearch(c);
 
-  return { folders, scenes, researchEntries, unclassifiedRoots: parsed.others.length };
+  /* Corbeille Scrivener (§16 du chantier S2) : jamais importée, mais plus
+   * jamais ignorée silencieusement — comptée récursivement (la racine Trash
+   * elle-même n'est pas comptée) pour être annoncée avant confirmation. */
+  let trashEntries = 0;
+  const walkTrash = (item: ScrivenerNode) => {
+    trashEntries++;
+    for (const c of item.children) walkTrash(c);
+  };
+  if (parsed.trash) for (const c of parsed.trash.children) walkTrash(c);
+
+  return { folders, scenes, researchEntries, unclassifiedRoots: parsed.others.length, trashEntries };
 }
 
 // ============================ Frontmatter YAML ==============================
@@ -677,6 +811,22 @@ function yamlTagsBlock(tags: string[] | null | undefined) {
   return "tags:\n" + list.map((t) => `  - ${yamlScalar(t)}`).join("\n");
 }
 
+/** Bloc `scrivener_metadata` (§6 du chantier S2) : une entrée par métadonnée
+ * personnalisée conservée, identifiable par son nom Scrivener d'origine.
+ * Retourne une chaîne vide (clé absente) si `items` est vide — jamais une
+ * clé `scrivener_metadata:` orpheline. Les propriétés Feuillets restent au
+ * niveau racine du frontmatter : ce bloc ne promeut JAMAIS une métadonnée
+ * personnalisée vers une propriété Feuillets (un champ nommé "title" ou
+ * "tags" reste ici, sans toucher aux clés racine `title`/`tags`). */
+function yamlCustomMetadataBlock(items: ScrivenerCustomMetadata[] | null | undefined): string {
+  const list = (items || []).filter((m) => m && m.value);
+  if (list.length === 0) return "";
+  const entries = list.map(
+    (m) => `  - id: ${yamlScalar(m.id)}\n    name: ${yamlScalar(m.name)}\n    value: ${yamlScalar(m.value)}`
+  );
+  return "scrivener_metadata:\n" + entries.join("\n");
+}
+
 export function extractHeadingTitle(bodyText: string | null | undefined) {
   const m = /^#{1,2}[ \t]+(.+)$/m.exec(bodyText || "");
   return m ? m[1].trim() : "";
@@ -695,6 +845,9 @@ type SceneFrontmatterOptions = {
   notes?: string;
   includeInCompile?: boolean;
   wordGoal?: number;
+  /** Métadonnées personnalisées Scrivener conservées (§6/§7 du chantier
+   * S2) — jamais promues en propriété Feuillets, voir yamlCustomMetadataBlock. */
+  customMetadata?: ScrivenerCustomMetadata[];
 };
 
 export function buildSceneFrontmatter({
@@ -710,6 +863,7 @@ export function buildSceneFrontmatter({
   notes,
   includeInCompile,
   wordGoal,
+  customMetadata,
 }: SceneFrontmatterOptions) {
   const binderTitle = sousTitre || titreCourt || titre || "";
   const lines = [
@@ -726,9 +880,10 @@ export function buildSceneFrontmatter({
     "date: ",
     `notes: ${yamlScalar(notes)}`,
     `compile: ${includeInCompile !== false ? "true" : "false"}`,
-    "---",
-    "",
   ];
+  const metaBlock = yamlCustomMetadataBlock(customMetadata);
+  if (metaBlock) lines.push(metaBlock);
+  lines.push("---", "");
   return lines.join("\n");
 }
 
@@ -737,18 +892,20 @@ type EntityFrontmatterOptions = {
   synopsis?: string;
   tags?: string[];
   notes?: string;
+  customMetadata?: ScrivenerCustomMetadata[];
 };
 
-export function buildEntityFrontmatter({ title, synopsis, tags, notes }: EntityFrontmatterOptions) {
+export function buildEntityFrontmatter({ title, synopsis, tags, notes, customMetadata }: EntityFrontmatterOptions) {
   const lines = [
     "---",
     `title: ${yamlScalar(title)}`,
     `synopsis: ${yamlScalar(synopsis)}`,
     `notes: ${yamlScalar(notes)}`,
     yamlTagsBlock(tags),
-    "---",
-    "",
   ];
+  const metaBlock = yamlCustomMetadataBlock(customMetadata);
+  if (metaBlock) lines.push(metaBlock);
+  lines.push("---", "");
   return lines.join("\n");
 }
 
