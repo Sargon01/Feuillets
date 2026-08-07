@@ -246,6 +246,11 @@ export function regenerateDocxParts(options: RegenerateOptions): RegenerateResul
   }
 
   for (const com of comments) {
+    // Les cartes de mise en forme (w:rPrChange, Lot 8) sont des ReviewComment
+    // synthétiques sans commentExtendedParaId : ce ne sont pas de vrais
+    // commentaires Word. Elles sont traitées manuellement côté UI et ne
+    // doivent jamais être transmises comme cible de résolution OOXML.
+    if (com.isFormatting === true) continue;
     const key = getItemKey(com);
     const saved = savedStates[key];
     if (!saved) continue;
