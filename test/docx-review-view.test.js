@@ -132,7 +132,10 @@ test("DocxReviewView — icônes, clés et résolution des feuillets", async () 
   }
   view.renderComment(iconContainer, null, { anchorText: "ancre", text: "commentaire", author: "A", isFormatting: false });
   view.renderComment(iconContainer, null, { anchorText: "ancre", text: "", author: "A", isFormatting: true, markers: [] });
-  const contentIcons = iconsFrom(iconContainer).filter((icon) => icon !== "x");
+  // "check-circle" (Marquer comme traité) et "x" (Refuser) sont deux icônes
+  // VOLONTAIREMENT distinctes (mission FINITION UX §7, IMPORTANT) — filtrées
+  // ici, hors sujet de cette assertion (types/icônes de TYPE de retour).
+  const contentIcons = iconsFrom(iconContainer).filter((icon) => icon !== "x" && icon !== "check-circle");
   assert.deepEqual(contentIcons.sort(), ["highlighter", "message-square", "minus", "move", "plus", "repeat"].sort());
 
   view.docxName = "retours.docx";
@@ -375,7 +378,7 @@ test("mission item 4 — carte de déplacement compacte : le texte complet reste
   // Actions principales toujours visibles fermées.
   assert.ok(all.some((el) => el.icon === "arrow-up-right"), "Voir l'origine visible carte fermée");
   assert.ok(all.some((el) => el.icon === "arrow-down-right"), "Voir la destination visible carte fermée");
-  assert.ok(all.some((el) => el.icon === "eye"), "Aperçu visible carte fermée");
+  assert.ok(all.some((el) => el.icon === "search"), "Aperçu visible carte fermée");
   assert.ok(all.some((el) => el.icon === "check"), "Appliquer visible carte fermée");
 
   const detailBtn = all.find((el) => el.icon === "chevron-down");
@@ -509,7 +512,7 @@ test("Lot 3 — Aperçu du résultat ne modifie jamais le fichier", async () => 
   };
   const container = new FakeElement();
   view.renderChange(container, dest, change);
-  const previewBtn = allElements(container).find((el) => el.icon === "eye");
+  const previewBtn = allElements(container).find((el) => el.icon === "search");
   assert.ok(previewBtn, "bouton Aperçu du résultat présent");
 
   previewBtn.events.get("click")({ stopPropagation() {} });
@@ -754,16 +757,19 @@ test("LOT 4 (correctif) — un élément À vérifier présente Examiner comme a
     confidence: "review",
   };
 
-  // 1. Un item simple (non-déplacement) "review" a un bouton Examiner (eye),
-  //    absent d'un item "safe" — la présentation n'est jamais identique.
+  // 1. Un item simple (non-déplacement) "review" a un bouton Examiner
+  //    (icône "search", convention FINITION UX §7 — "eye" est réservé à
+  //    Voir), absent d'un item "safe" — la présentation n'est jamais
+  //    identique. Un "safe", lui, garde son bouton Voir ("eye").
   const containerSafe = new FakeElement();
   view.renderChange(containerSafe, dest, { ...change, confidence: "safe" });
-  assert.equal(allElements(containerSafe).some((el) => el.icon === "eye"), false, "un élément \"safe\" n'a aucun bouton Examiner");
+  assert.equal(allElements(containerSafe).some((el) => el.icon === "search"), false, "un élément \"safe\" n'a aucun bouton Examiner");
+  assert.ok(allElements(containerSafe).some((el) => el.icon === "eye"), "un élément \"safe\" garde son bouton Voir");
 
   const containerReview = new FakeElement();
   view.renderChange(containerReview, dest, change);
   const elements = allElements(containerReview);
-  const examineBtn = elements.find((el) => el.icon === "eye");
+  const examineBtn = elements.find((el) => el.icon === "search");
   const acceptBtn = elements.find((el) => el.icon === "check");
   assert.ok(examineBtn, "bouton Examiner présent pour un élément \"review\"");
   assert.ok(acceptBtn, "l'utilisateur doit ensuite pouvoir accepter volontairement l'opération");
@@ -782,8 +788,9 @@ test("LOT 4 (correctif) — un élément À vérifier présente Examiner comme a
   assert.equal(change.applied, true);
 
   // 4. Un déplacement "review" garde EXACTEMENT le même nombre de boutons
-  //    "eye" qu'un déplacement "safe" (previewBtn déjà existant, jamais
-  //    dupliqué) : seul le bouton d'acceptation lui-même en tient compte.
+  //    "search" (Examiner) qu'un déplacement "safe" (previewBtn déjà
+  //    existant, jamais dupliqué) : seul le bouton d'acceptation lui-même
+  //    en tient compte.
   const origin = file("Projet/Origine.md", "Début. Passage à couper. Fin.");
   const dest2 = file("Projet/Destination2.md", "Avant. Après.");
   const content2 = { [origin.path]: origin.content, [dest2.path]: dest2.content };
@@ -798,8 +805,8 @@ test("LOT 4 (correctif) — un élément À vérifier présente Examiner comme a
   view2.renderChange(containerMoveSafe, dest2, { ...moveChange, confidence: "safe" });
   const containerMoveReview = new FakeElement();
   view2.renderChange(containerMoveReview, dest2, { ...moveChange, confidence: "review" });
-  const eyeCountSafe = allElements(containerMoveSafe).filter((el) => el.icon === "eye").length;
-  const eyeCountReview = allElements(containerMoveReview).filter((el) => el.icon === "eye").length;
+  const eyeCountSafe = allElements(containerMoveSafe).filter((el) => el.icon === "search").length;
+  const eyeCountReview = allElements(containerMoveReview).filter((el) => el.icon === "search").length;
   assert.equal(eyeCountReview, eyeCountSafe, "un déplacement a déjà son action Examiner (previewBtn) : jamais un doublon pour \"review\"");
   assert.ok(allElements(containerMoveReview).find((el) => el.icon === "check"), "l'acceptation volontaire reste possible pour un déplacement \"review\"");
 });
@@ -820,7 +827,7 @@ test("LOT 4 (confiance) — retour non rattaché à un feuillet (chemin non rés
 
   const applyBtn = allElements(header).find((el) => el.icon === "check");
   assert.equal(applyBtn, undefined, "jamais de bouton d'application directe pour un chemin non résolu");
-  const examineBtn = allElements(header).find((el) => el.icon === "eye");
+  const examineBtn = allElements(header).find((el) => el.icon === "search");
   assert.ok(examineBtn, "un bouton d'examen (ouvrir/révéler, sans écrire) doit rester disponible");
 
   examineBtn.events.get("click")({ stopPropagation() {} });
@@ -917,4 +924,841 @@ test("Problème 3 (réel) — clic sur un commentaire dont l'ancre est AMBIGUË 
   const { from, to } = ws.selections[0];
   const expectedIndex = scene.content.indexOf("anciens domestiques");
   assert.deepEqual({ from: from.offset, to: to.offset }, { from: expectedIndex, to: expectedIndex + "anciens".length });
+});
+
+/* =========================================================================
+ * LOT 5 — refonte UX du panneau : file de décisions éditoriales plate
+ * (renderResultsPanel), filtres, navigation, compteurs. renderChange/
+ * renderComment restent testés directement plus haut (icônes, actions par
+ * confiance) : ici, seulement ce qui les ENTOURE dans le panneau.
+ * ========================================================================= */
+
+/** Construit un `results` minimal (byPath/unmatched/unclassified) avec des
+ * `ord` explicites, sans passer par analyzeBuffer/le parsing XML — ord posé
+ * ici comme le ferait parseDocumentXml#stamp (ordinal de document). */
+function makeResults(byPath = {}, unmatched = {}, unclassified = { changes: [], comments: [] }) {
+  return { byPath, unmatched, unclassified };
+}
+
+test("LOT 5 — compteurs actif/résolu portent sur la file entière, tous feuillets confondus", async () => {
+  const sceneA = file("Projet/A.md", "Contenu A.");
+  const sceneB = file("Projet/B.md", "Contenu B.");
+  const { view, contentEl } = createView({ files: [sceneA, sceneB] });
+  view.mode = "results";
+  view.results = makeResults({
+    [sceneA.path]: {
+      changes: [
+        { type: "insertion", author: "A", date: "D", contextBefore: "Contenu", text: " X.", ord: 0 },
+        { type: "insertion", author: "A", date: "D", contextBefore: "Contenu", text: " Y.", ord: 1, applied: true, dismissed: true },
+      ],
+      comments: [],
+    },
+    [sceneB.path]: {
+      changes: [{ type: "deletion", author: "A", date: "D", contextBefore: "Contenu", text: " B.", ord: 2, dismissed: true }],
+      comments: [],
+    },
+  });
+  await view.render();
+  const texts = allElements(contentEl).map((el) => el.text).filter(Boolean);
+  assert.ok(texts.some((t) => t.includes("1") && t.includes("à traiter")), "1 seul retour actif attendu : " + JSON.stringify(texts));
+  assert.ok(texts.some((t) => t.includes("1") && t.includes("résolu")), "1 retour résolu attendu : " + JSON.stringify(texts));
+  assert.ok(texts.some((t) => t.includes("1") && t.includes("masqué")), "1 retour masqué attendu : " + JSON.stringify(texts));
+});
+
+test("LOT 5 — filtres Tous/Corrections/Déplacements/Commentaires/À vérifier réduisent bien la file affichée", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici pour le contexte.");
+  const { view } = createView({ files: [scene] });
+  view.mode = "results";
+  view.results = makeResults({
+    [scene.path]: {
+      changes: [
+        { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " ajouté", ord: 0, confidence: "safe" },
+        { type: "move", author: "A", date: "D", fromPath: scene.path, toPath: scene.path, fromContext: "", fromText: "ici", toContext: "pour", text: "ici", ord: 1, confidence: "safe" },
+        { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " incertain", ord: 2, confidence: "review" },
+        { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " flou", ord: 3, confidence: "ambiguous" },
+      ],
+      comments: [{ anchorText: "texte", text: "Vérifier ce mot", author: "A", date: "D", ord: 4 }],
+    },
+  });
+
+  const countCards = async (filter) => {
+    view.activeFilter = filter;
+    view.queueIndex = 0;
+    const container = new FakeElement();
+    await view.renderResultsPanel(container);
+    return allElements(container).filter((el) => el.classes.has("feuillets-docx-review-row")).length;
+  };
+
+  assert.equal(await countCards("all"), 5, "Tous : les 5 retours (4 changements + 1 commentaire)");
+  assert.equal(await countCards("corrections"), 3, "Corrections : les 3 insertions (safe/review/ambiguous), jamais le déplacement ni le commentaire");
+  assert.equal(await countCards("moves"), 1, "Déplacements : uniquement le move");
+  assert.equal(await countCards("comments"), 1, "Commentaires : uniquement le commentaire");
+  assert.equal(await countCards("review"), 2, "À vérifier : review + ambiguous regroupés");
+
+  // Cliquer un onglet change bien le filtre actif et remet la position à 0.
+  view.queueIndex = 2;
+  view.activeFilter = "all";
+  const panel = new FakeElement();
+  await view.renderResultsPanel(panel);
+  // Le libellé complet et le libellé compact ("Dépl.") vivent tous deux
+  // dans le DOM (le CSS, jamais évalué par ces tests, choisit lequel
+  // afficher selon la largeur réelle du panneau — voir styles.css).
+  const movesTab = allElements(panel).find(
+    (el) => el.tag === "button" && el.classes.has("feuillets-docx-review-filter-btn") &&
+      el.children.some((c) => c.text === "Déplacements")
+  );
+  assert.ok(movesTab, "onglet Déplacements présent");
+  movesTab.events.get("click")();
+  assert.equal(view.activeFilter, "moves");
+  assert.equal(view.queueIndex, 0, "changer de filtre remet la position à 0");
+});
+
+test("LOT 5 — corrections regroupe insertion/suppression/remplacement, jamais les déplacements ni les commentaires", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici.");
+  const { view } = createView({ files: [scene] });
+  view.results = makeResults({
+    [scene.path]: {
+      changes: [
+        { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " ajouté", ord: 0 },
+        { type: "deletion", author: "A", date: "D", contextBefore: "Un", text: "texte", ord: 1 },
+        { type: "replacement", author: "A", date: "D", contextBefore: "Un", oldText: "texte", newText: "mot", ord: 2 },
+        { type: "move", author: "A", date: "D", fromPath: scene.path, toPath: scene.path, fromContext: "", fromText: "ici", toContext: "texte", text: "ici", ord: 3 },
+      ],
+      comments: [{ anchorText: "texte", text: "?", author: "A", date: "D", ord: 4 }],
+    },
+  });
+  const container = new FakeElement();
+  view.activeFilter = "corrections";
+  await view.renderResultsPanel(container);
+  const cards = allElements(container).filter((el) => el.classes.has("feuillets-docx-review-row"));
+  assert.equal(cards.length, 3, "insertion + suppression + remplacement, jamais le déplacement ni le commentaire");
+});
+
+test("LOT 5 — navigation Précédent/Suivant porte sur la liste FILTRÉE et reste dans les bornes", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici pour le contexte général.");
+  const { view } = createView({ files: [scene] });
+  view.results = makeResults({
+    [scene.path]: {
+      changes: [
+        { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " un", ord: 0 },
+        { type: "insertion", author: "A", date: "D", contextBefore: "ici", text: " deux", ord: 1 },
+        { type: "insertion", author: "A", date: "D", contextBefore: "contexte", text: " trois", ord: 2 },
+      ],
+      comments: [],
+    },
+  });
+  view.activeFilter = "all";
+  view.queueIndex = 0;
+
+  const container1 = new FakeElement();
+  await view.renderResultsPanel(container1);
+  const counter1 = allElements(container1).find((el) => el.classes.has("feuillets-docx-review-nav-counter"));
+  assert.equal(counter1.text, "1 / 3");
+
+  const next1 = allElements(container1).find((el) => el.icon === "chevron-right");
+  next1.events.get("click")();
+  assert.equal(view.queueIndex, 1);
+
+  const container2 = new FakeElement();
+  await view.renderResultsPanel(container2);
+  const counter2 = allElements(container2).find((el) => el.classes.has("feuillets-docx-review-nav-counter"));
+  assert.equal(counter2.text, "2 / 3");
+
+  // Ne dépasse jamais la fin de la liste. Repositionnement direct de
+  // queueIndex (hors du mécanisme Précédent/Suivant) : activeItemKey doit
+  // être réaligné, sinon resolveCurrentIndex retrouverait encore l'ANCIENNE
+  // carte active (identité prioritaire, voir mission §2) et ignorerait ce
+  // repositionnement manuel.
+  view.queueIndex = 2;
+  view.activeItemKey = null;
+  const container3 = new FakeElement();
+  await view.renderResultsPanel(container3);
+  const next3 = allElements(container3).find((el) => el.icon === "chevron-right");
+  next3.events.get("click")();
+  assert.equal(view.queueIndex, 2, "déjà au dernier élément : Suivant ne dépasse pas la fin");
+
+  // Ne descend jamais sous le début.
+  view.queueIndex = 0;
+  view.activeItemKey = null;
+  const container4 = new FakeElement();
+  await view.renderResultsPanel(container4);
+  const prev4 = allElements(container4).find((el) => el.icon === "chevron-left");
+  prev4.events.get("click")();
+  assert.equal(view.queueIndex, 0, "déjà au premier élément : Précédent ne descend pas sous 0");
+});
+
+test("LOT 5 — position cohérente après traitement d'une carte : jamais un saut au début de la file", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici pour le contexte général.");
+  const content = { [scene.path]: scene.content };
+  const { view, writes } = createView({ files: [scene], content });
+  const changes = [
+    { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " un", ord: 0, confidence: "safe" },
+    { type: "insertion", author: "A", date: "D", contextBefore: "ici", text: " deux", ord: 1, confidence: "safe" },
+    { type: "insertion", author: "A", date: "D", contextBefore: "contexte", text: " trois", ord: 2, confidence: "safe" },
+  ];
+  view.results = makeResults({ [scene.path]: { changes, comments: [] } });
+  view.activeFilter = "all";
+  view.queueIndex = 1; // positionné sur le second élément
+
+  const container = new FakeElement();
+  await view.renderResultsPanel(container);
+  const cards = allElements(container).filter((el) => el.classes.has("feuillets-docx-review-row"));
+  const secondCard = cards[1];
+  const dismissBtn = allElements(secondCard).find((el) => el.icon === "x");
+  assert.ok(dismissBtn, "bouton Refuser présent sur la carte courante");
+  dismissBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(writes.length, 0, "Refuser ne modifie jamais le Markdown");
+  assert.equal(changes[1].dismissed, true, "la carte traitée est bien marquée refusée/traitée");
+
+  // Sans showResolved, la file filtrée passe de 3 à 2 éléments — la position
+  // reste ramenée DANS les bornes de cette nouvelle liste, jamais renvoyée
+  // au tout début (queueIndex=1 encore valide ici : 2 éléments restants).
+  assert.equal(view.queueIndex, 1, "queueIndex inchangé par le traitement lui-même");
+  const container2 = new FakeElement();
+  await view.renderResultsPanel(container2);
+  const counter2 = allElements(container2).find((el) => el.classes.has("feuillets-docx-review-nav-counter"));
+  assert.equal(counter2.text, "2 / 2", "position ramenée dans les bornes de la liste réduite, jamais au début");
+});
+
+test("LOT 5 — les retours résolus restent consultables via « Afficher les retours résolus »", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici.");
+  const { view } = createView({ files: [scene] });
+  view.results = makeResults({
+    [scene.path]: {
+      changes: [
+        { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " un", ord: 0, applied: true, dismissed: true },
+      ],
+      comments: [],
+    },
+  });
+  view.showResolved = false;
+  const containerHidden = new FakeElement();
+  await view.renderResultsPanel(containerHidden);
+  assert.equal(allElements(containerHidden).some((el) => el.classes.has("feuillets-docx-review-row")), false, "masqué par défaut");
+
+  view.showResolved = true;
+  const containerShown = new FakeElement();
+  await view.renderResultsPanel(containerShown);
+  const card = allElements(containerShown).find((el) => el.classes.has("feuillets-docx-review-row"));
+  assert.ok(card, "le retour résolu reste consultable via Afficher les retours résolus");
+  const badge = allElements(card).find((el) => el.classes.has("feuillets-docx-review-section-badge") && el.classes.has("mod-resolved"));
+  assert.ok(badge, "badge « Appliqué » visible sur un retour résolu consulté");
+  assert.equal(badge.text, "Appliqué");
+});
+
+test("LOT 5 — un commentaire n'affiche jamais Accepter/Refuser, seulement Voir + Marquer comme traité", async () => {
+  const scene = file("Projet/Scene.md", "Un mot ici.");
+  const { view } = createView({ files: [scene] });
+  const comment = { anchorText: "mot", text: "Vérifier cette formulation.", author: "A", date: "D" };
+  const container = new FakeElement();
+  view.renderComment(container, scene, comment);
+  const all = allElements(container);
+  const checkBtn = all.find((el) => el.icon === "check");
+  assert.equal(checkBtn, undefined, "jamais de bouton Accepter pour un commentaire");
+  // "check-circle" (Marquer comme traité), JAMAIS "x" (Refuser) — mission
+  // FINITION UX §7, IMPORTANT : les deux actions ne partagent pas la
+  // même croix.
+  const dismissBtn = all.find((el) => el.icon === "check-circle");
+  assert.ok(dismissBtn, "bouton Marquer comme traité (check-circle) présent");
+  assert.equal(all.some((el) => el.icon === "x"), false, "un commentaire n'a jamais l'icône Refuser (x)");
+  const row = all.find((el) => el.classes.has("feuillets-clickable"));
+  assert.ok(row, "Voir le passage : la carte entière ouvre/révèle le passage (fichier résolu)");
+});
+
+test("LOT 5 — emplacement toujours visible : nom du feuillet pour une correction, origine → destination pour un déplacement", () => {
+  const origin = file("Projet/Chapitre 2.md");
+  const dest = file("Projet/Chapitre 5.md");
+  const { view } = createView({ files: [origin, dest] });
+
+  const containerChange = new FakeElement();
+  view.renderChange(containerChange, dest, { type: "insertion", author: "A", date: "D", contextBefore: "x", text: "y" });
+  const locationChange = allElements(containerChange).find((el) => el.classes.has("feuillets-docx-review-location"));
+  assert.ok(locationChange, "ligne d'emplacement présente pour une correction simple");
+  assert.equal(locationChange.text, dest.basename);
+
+  const containerMove = new FakeElement();
+  view.renderChange(containerMove, dest, {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "", fromText: "x", toContext: "", text: "x",
+  });
+  const locationMove = allElements(containerMove).find((el) => el.classes.has("feuillets-docx-review-location"));
+  assert.ok(locationMove, "ligne d'emplacement présente pour un déplacement");
+  assert.equal(locationMove.text, `${origin.basename} → ${dest.basename}`);
+});
+
+test("LOT 5 — Ambigu affiche désormais Examiner (pas de bouton Accepter) même pour un item simple", async () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const content = { [dest.path]: dest.content };
+  const { view, writes } = createView({ files: [dest], content });
+  const change = {
+    type: "insertion", author: "A", date: "D",
+    contextBefore: "Cible.", text: " Ajout.",
+    confidence: "ambiguous", confidenceReasons: ["multiple-matches"],
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  const examineBtn = allElements(container).find((el) => el.icon === "search");
+  assert.ok(examineBtn, "bouton Examiner présent pour un item ambigu");
+  const applyBtn = allElements(container).find((el) => el.icon === "check");
+  assert.equal(applyBtn, undefined, "toujours aucun bouton Accepter pour Ambigu");
+
+  examineBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(writes.length, 0, "Examiner un item ambigu n'écrit jamais");
+  const whyText = allElements(container).find((el) => el.classes.has("feuillets-docx-review-preview-text") && el.text.includes("plusieurs endroits"));
+  assert.ok(whyText, "le motif « Pourquoi Ambigu ? » (multiple-matches) est affiché dans les détails");
+});
+
+function getFullText(el) {
+  return allElements(el).map((e) => e.text).filter(Boolean).join(" ");
+}
+
+test("LOT 5 Finition UX — 1. Actions principales explicites textuelles (safe, review, ambiguous)", () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const { view } = createView({ files: [dest] });
+
+  // Safe: Voir, Accepter, Refuser
+  const containerSafe = new FakeElement();
+  view.renderChange(containerSafe, dest, { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout.", confidence: "safe" });
+  const safeElements = allElements(containerSafe);
+  // FINITION UX (mission §7) — convention d'icônes : Voir = "eye", Examiner
+  // = "search" (jamais l'inverse, jamais une icône de document générique).
+  const viewBtnSafe = safeElements.find((el) => el.icon === "eye");
+  const acceptBtnSafe = safeElements.find((el) => el.icon === "check");
+  const rejectBtnSafe = safeElements.find((el) => el.icon === "x");
+  assert.ok(viewBtnSafe && getFullText(viewBtnSafe).includes("Voir"), "bouton Voir présent pour safe");
+  assert.ok(acceptBtnSafe && getFullText(acceptBtnSafe).includes("Accepter"), "bouton Accepter présent pour safe");
+  assert.ok(rejectBtnSafe && getFullText(rejectBtnSafe).includes("Refuser"), "bouton Refuser présent pour safe");
+
+  // Review: Examiner, Accepter, Refuser
+  const containerReview = new FakeElement();
+  view.renderChange(containerReview, dest, { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout.", confidence: "review" });
+  const reviewElements = allElements(containerReview);
+  const examineBtnReview = reviewElements.find((el) => el.icon === "search");
+  const acceptBtnReview = reviewElements.find((el) => el.icon === "check");
+  const rejectBtnReview = reviewElements.find((el) => el.icon === "x");
+  assert.ok(examineBtnReview && getFullText(examineBtnReview).includes("Examiner"), "bouton Examiner présent pour review");
+  assert.ok(acceptBtnReview && getFullText(acceptBtnReview).includes("Accepter"), "bouton Accepter présent pour review");
+  assert.ok(rejectBtnReview && getFullText(rejectBtnReview).includes("Refuser"), "bouton Refuser présent pour review");
+
+  // Ambiguous: Examiner, Refuser (JAMAIS Accepter)
+  const containerAmbiguous = new FakeElement();
+  view.renderChange(containerAmbiguous, dest, { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout.", confidence: "ambiguous" });
+  const ambElements = allElements(containerAmbiguous);
+  const examineBtnAmb = ambElements.find((el) => el.icon === "search");
+  const acceptBtnAmb = ambElements.find((el) => el.icon === "check");
+  const rejectBtnAmb = ambElements.find((el) => el.icon === "x");
+  assert.ok(examineBtnAmb && getFullText(examineBtnAmb).includes("Examiner"), "bouton Examiner présent pour ambiguous");
+  assert.equal(acceptBtnAmb, undefined, "bouton Accepter STRICTEMENT ABSENT pour ambiguous");
+  assert.ok(rejectBtnAmb && getFullText(rejectBtnAmb).includes("Refuser"), "bouton Refuser présent pour ambiguous");
+});
+
+test("LOT 5 Finition UX — 2. Commentaires : boutons explicites Voir le passage et Marquer comme traité", () => {
+  const scene = file("Projet/Scene.md", "Un mot ici.");
+  const { view } = createView({ files: [scene] });
+  const comment = { anchorText: "mot", text: "Remarque.", author: "A", date: "D" };
+  const container = new FakeElement();
+  view.renderComment(container, scene, comment);
+  const elements = allElements(container);
+
+  const viewBtn = elements.find((el) => el.icon === "eye");
+  const dismissBtn = elements.find((el) => el.icon === "check-circle");
+  assert.ok(viewBtn && getFullText(viewBtn).includes("Voir le passage"), "bouton Voir le passage présent");
+  assert.ok(dismissBtn && getFullText(dismissBtn).includes("Marquer comme traité"), "bouton Marquer comme traité présent");
+  assert.equal(elements.find((el) => el.icon === "check"), undefined, "un commentaire n'affiche jamais Accepter");
+  assert.equal(elements.find((el) => el.icon === "x"), undefined, "un commentaire n'affiche jamais Refuser (icône x réservée au Refuser d'un changement)");
+});
+
+test("LOT 5 Finition UX — 3 & 4. En-tête : actions globales explicites et compteurs en français naturel sans (s)", async () => {
+  const scene = file("Projet/Scene.md", "Formulation.");
+  const { view } = createView({ files: [scene] });
+  view.results = makeResults({
+    [scene.path]: {
+      changes: [
+        { id: "c1", type: "insertion", text: "a", applied: false, dismissed: false },
+        { id: "c2", type: "deletion", text: "b", applied: true, dismissed: true },
+      ],
+      comments: [
+        { id: "cm1", text: "note", dismissed: true },
+      ],
+    },
+  });
+
+  const container = new FakeElement();
+  await view.renderResultsPanel(container);
+  const elements = allElements(container);
+
+  // Vérification de la numération des compteurs
+  const sub = elements.find((el) => el.classes.has("feuillets-notes-sub"));
+  assert.ok(sub, "sous-titre compteurs présent");
+  assert.ok(sub.text.includes("1 à traiter"), "compteur à traiter au singulier");
+  assert.ok(sub.text.includes("1 résolu"), "compteur résolu au singulier");
+  assert.ok(sub.text.includes("1 masqué"), "compteur masqué affiché si > 0");
+
+  // Vérification des actions globales explicites
+  const toolbar = elements.find((el) => el.classes.has("feuillets-docx-review-toolbar"));
+  assert.ok(toolbar, "barre d'actions globales présente");
+  const toggleBtn = allElements(toolbar).find((el) => el.icon === "eye" || el.icon === "eye-off");
+  const dismissAllBtn = allElements(toolbar).find((el) => el.icon === "check-check");
+  assert.ok(toggleBtn && (getFullText(toggleBtn).includes("Masquer les résolus") || getFullText(toggleBtn).includes("Afficher les résolus")), "bouton bascule résolus explicite");
+  assert.ok(dismissAllBtn && getFullText(dismissAllBtn).includes("Tout marquer résolu"), "bouton tout marquer résolu explicite");
+});
+
+test("LOT 5 Responsive — structure verticale de la carte : zone d'actions dédiée sous le contenu principal", () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const { view } = createView({ files: [dest] });
+
+  const container = new FakeElement();
+  view.renderChange(container, dest, { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout.", confidence: "safe" });
+  
+  const row = allElements(container).find((el) => el.classes.has("feuillets-docx-review-row"));
+  assert.ok(row, "ligne de carte présente");
+  const actionsZone = allElements(row).find((el) => el.classes.has("feuillets-docx-review-card-actions"));
+  assert.ok(actionsZone, "zone d'actions dédiée présente sous le contenu principal");
+  
+  const acceptBtn = allElements(actionsZone).find((el) => el.icon === "check");
+  assert.ok(acceptBtn, "bouton Accepter logé dans la zone d'actions dédiée (ne partage pas la largeur du texte)");
+});
+
+test("LOT 5 Responsive — actions textuelles pour déplacements (review et ambiguous)", () => {
+  const origin = file("Projet/Origine.md", "Avant. Déplacement. Après.");
+  const dest = file("Projet/Destination.md", "Cible.");
+  const { view } = createView({ files: [origin, dest] });
+
+  // Move review : Examiner, Accepter, Refuser
+  const containerReview = new FakeElement();
+  view.renderChange(containerReview, dest, {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Avant. ", fromText: "Déplacement.",
+    toContext: "Cible.", text: "Déplacement.",
+    confidence: "review",
+  });
+  const revActions = allElements(containerReview).find((el) => el.classes.has("feuillets-docx-review-card-actions"));
+  assert.ok(revActions, "zone d'actions présente pour déplacement review");
+  const examineBtnRev = allElements(revActions).find((el) => el.icon === "search");
+  const acceptBtnRev = allElements(revActions).find((el) => el.icon === "check");
+  const rejectBtnRev = allElements(revActions).find((el) => el.icon === "x");
+  assert.ok(examineBtnRev && getFullText(examineBtnRev).includes("Examiner"), "déplacement review a Examiner");
+  assert.ok(acceptBtnRev && getFullText(acceptBtnRev).includes("Accepter"), "déplacement review a Accepter");
+  assert.ok(rejectBtnRev && getFullText(rejectBtnRev).includes("Refuser"), "déplacement review a Refuser");
+
+  // Move ambiguous : Examiner, Refuser (STRICTEMENT PAS Accepter)
+  const containerAmb = new FakeElement();
+  view.renderChange(containerAmb, dest, {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Avant. ", fromText: "Déplacement.",
+    toContext: "Cible.", text: "Déplacement.",
+    confidence: "ambiguous",
+  });
+  const ambActions = allElements(containerAmb).find((el) => el.classes.has("feuillets-docx-review-card-actions"));
+  const examineBtnAmb = allElements(ambActions).find((el) => el.icon === "search");
+  const acceptBtnAmb = allElements(ambActions).find((el) => el.icon === "check");
+  const rejectBtnAmb = allElements(ambActions).find((el) => el.icon === "x");
+  assert.ok(examineBtnAmb && getFullText(examineBtnAmb).includes("Examiner"), "déplacement ambiguous a Examiner");
+  assert.equal(acceptBtnAmb, undefined, "déplacement ambiguous n'a JAMAIS de bouton Accepter");
+  assert.ok(rejectBtnAmb && getFullText(rejectBtnAmb).includes("Refuser"), "déplacement ambiguous a Refuser");
+});
+
+/* =========================================================================
+ * CORRECTIF (largeur par défaut + focus de navigation) — la carte active
+ * (classe `mod-current`) doit TOUJOURS correspondre à l'index affiché par
+ * le compteur "N / total", quels que soient Précédent/Suivant, un
+ * changement de filtre ou le traitement d'une carte (active ou non).
+ * ========================================================================= */
+
+function activeCardOf(container) {
+  const cardWraps = allElements(container).filter((el) => el.classes.has("feuillets-docx-review-card-wrap"));
+  const currentCards = cardWraps.filter((el) => el.classes.has("mod-current"));
+  return { cardWraps, currentCards };
+}
+
+function threeInsertionsResults(scene) {
+  return {
+    byPath: {
+      [scene.path]: {
+        changes: [
+          { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " un", ord: 0, confidence: "safe" },
+          { type: "insertion", author: "A", date: "D", contextBefore: "ici", text: " deux", ord: 1, confidence: "safe" },
+          { type: "insertion", author: "A", date: "D", contextBefore: "contexte", text: " trois", ord: 2, confidence: "safe" },
+        ],
+        comments: [],
+      },
+    },
+    unmatched: {},
+    unclassified: { changes: [], comments: [] },
+  };
+}
+
+test("CORRECTIF — Suivant : la carte active passe de la 1ère à la 2e, une SEULE carte active à la fois", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici pour le contexte général.");
+  const { view } = createView({ files: [scene] });
+  view.results = threeInsertionsResults(scene);
+
+  const container1 = new FakeElement();
+  await view.renderResultsPanel(container1);
+  const before = activeCardOf(container1);
+  assert.equal(before.currentCards.length, 1, "une seule carte active au départ");
+  assert.equal(before.cardWraps.indexOf(before.currentCards[0]), 0, "la 1ère carte est active par défaut");
+
+  const next = allElements(container1).find((el) => el.icon === "chevron-right");
+  next.events.get("click")();
+  assert.equal(view.queueIndex, 1, "activeIndex passe de 0 à 1");
+
+  const container2 = new FakeElement();
+  await view.renderResultsPanel(container2);
+  const after = activeCardOf(container2);
+  assert.equal(after.currentCards.length, 1, "toujours une SEULE carte active après Suivant");
+  assert.equal(after.cardWraps.indexOf(after.currentCards[0]), 1, "c'est bien la 2e carte qui devient active, pas la 1ère");
+  const counter = allElements(container2).find((el) => el.classes.has("feuillets-docx-review-nav-counter"));
+  assert.equal(counter.text, "2 / 3", "le compteur et la carte active désignent la même carte");
+});
+
+test("CORRECTIF — Précédent : revient à la bonne carte (jamais la première par défaut)", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici pour le contexte général.");
+  const { view } = createView({ files: [scene] });
+  view.results = threeInsertionsResults(scene);
+
+  const c1 = new FakeElement();
+  await view.renderResultsPanel(c1);
+  allElements(c1).find((el) => el.icon === "chevron-right").events.get("click")(); // -> index 1
+  const c2 = new FakeElement();
+  await view.renderResultsPanel(c2);
+  allElements(c2).find((el) => el.icon === "chevron-right").events.get("click")(); // -> index 2
+  assert.equal(view.queueIndex, 2);
+
+  const c3 = new FakeElement();
+  await view.renderResultsPanel(c3);
+  allElements(c3).find((el) => el.icon === "chevron-left").events.get("click")(); // -> index 1
+  assert.equal(view.queueIndex, 1, "Précédent revient à l'index 1, pas à 0");
+
+  const c4 = new FakeElement();
+  await view.renderResultsPanel(c4);
+  const { cardWraps, currentCards } = activeCardOf(c4);
+  assert.equal(currentCards.length, 1);
+  assert.equal(cardWraps.indexOf(currentCards[0]), 1, "la carte active correspond bien à l'index 1, pas à la première carte");
+});
+
+test("CORRECTIF — changement de filtre : compteur et carte active restent synchronisés (identité conservée si possible)", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici pour le contexte.");
+  const { view } = createView({ files: [scene] });
+  view.results = makeResults({
+    [scene.path]: {
+      changes: [
+        { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " un", ord: 0, confidence: "safe" },
+        { type: "move", author: "A", date: "D", fromPath: scene.path, toPath: scene.path, fromContext: "", fromText: "ici", toContext: "pour", text: "ici", ord: 1, confidence: "safe" },
+        { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " deux", ord: 2, confidence: "safe" },
+      ],
+      comments: [],
+    },
+  });
+
+  // Position initiale sur la carte "moves" (index 1 en filtre "all").
+  const c1 = new FakeElement();
+  await view.renderResultsPanel(c1);
+  allElements(c1).find((el) => el.icon === "chevron-right").events.get("click")();
+  const c2 = new FakeElement();
+  await view.renderResultsPanel(c2);
+  const active2 = activeCardOf(c2);
+  assert.ok(allElements(active2.currentCards[0]).some((el) => el.text && el.text.includes("Déplacement")), "la carte active est bien le déplacement");
+
+  // Changer de filtre vers "moves" : la MÊME carte (même identité) doit
+  // rester active — mission §2, "si l'ancienne carte existe encore dans la
+  // nouvelle liste, conserver sa position".
+  view.activeFilter = "moves";
+  view.queueIndex = 0; // repli, ignoré si l'identité est retrouvée
+  const c3 = new FakeElement();
+  await view.renderResultsPanel(c3);
+  const counter3 = allElements(c3).find((el) => el.classes.has("feuillets-docx-review-nav-counter"));
+  assert.equal(counter3.text, "1 / 1", "un seul déplacement dans ce filtre");
+  const active3 = activeCardOf(c3);
+  assert.equal(active3.currentCards.length, 1);
+  assert.ok(allElements(active3.currentCards[0]).some((el) => el.text && el.text.includes("Déplacement")), "la même carte (le déplacement) reste active après le changement de filtre");
+
+  // Changer vers "comments" (liste totalement différente, aucun commentaire
+  // ici) : pas de carte candidate — vérifié séparément par le message vide,
+  // pas de crash.
+});
+
+test("CORRECTIF — traiter la carte active la fait disparaître : la carte qui prend sa place devient active", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici pour le contexte général.");
+  const content = { [scene.path]: scene.content };
+  const { view, writes } = createView({ files: [scene], content });
+  const changes = [
+    { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " un", ord: 0, confidence: "safe" },
+    { type: "insertion", author: "A", date: "D", contextBefore: "ici", text: " deux", ord: 1, confidence: "safe" },
+    { type: "insertion", author: "A", date: "D", contextBefore: "contexte", text: " trois", ord: 2, confidence: "safe" },
+  ];
+  view.results = makeResults({ [scene.path]: { changes, comments: [] } });
+
+  // Se positionner sur la 1ère carte (déjà active par défaut) et la refuser.
+  const c1 = new FakeElement();
+  await view.renderResultsPanel(c1);
+  const firstCard = activeCardOf(c1).currentCards[0];
+  const dismissBtn = allElements(firstCard).find((el) => el.icon === "x");
+  dismissBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(writes.length, 0, "Refuser ne modifie jamais le Markdown");
+  assert.equal(changes[0].dismissed, true);
+
+  // La carte qui PREND LA PLACE de la 1ère (celle qui était en 2e position,
+  // "deux") doit devenir active — jamais un saut arbitraire ailleurs.
+  const c2 = new FakeElement();
+  await view.renderResultsPanel(c2);
+  const active2 = activeCardOf(c2);
+  assert.equal(active2.currentCards.length, 1, "une seule carte active");
+  assert.ok(getFullText(active2.currentCards[0]).includes("deux"), "la carte 'deux' (qui prend la place de la carte traitée) devient active");
+  const counter2 = allElements(c2).find((el) => el.classes.has("feuillets-docx-review-nav-counter"));
+  assert.equal(counter2.text, "1 / 2", "position cohérente : toujours en tête de la file réduite");
+});
+
+test("CORRECTIF — traiter la DERNIÈRE carte de la file : la carte précédente devient active", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici pour le contexte général.");
+  const content = { [scene.path]: scene.content };
+  const { view, writes } = createView({ files: [scene], content });
+  const changes = [
+    { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " un", ord: 0, confidence: "safe" },
+    { type: "insertion", author: "A", date: "D", contextBefore: "ici", text: " deux", ord: 1, confidence: "safe" },
+    { type: "insertion", author: "A", date: "D", contextBefore: "contexte", text: " trois", ord: 2, confidence: "safe" },
+  ];
+  view.results = makeResults({ [scene.path]: { changes, comments: [] } });
+
+  // Se positionner sur la DERNIÈRE carte ("trois") et la refuser.
+  const c1 = new FakeElement();
+  await view.renderResultsPanel(c1);
+  allElements(c1).find((el) => el.icon === "chevron-right").events.get("click")();
+  const c2 = new FakeElement();
+  await view.renderResultsPanel(c2);
+  allElements(c2).find((el) => el.icon === "chevron-right").events.get("click")();
+  const c3 = new FakeElement();
+  await view.renderResultsPanel(c3);
+  const lastCard = activeCardOf(c3).currentCards[0];
+  assert.ok(getFullText(lastCard).includes("trois"), "positionné sur la dernière carte avant de la traiter");
+  const dismissBtn = allElements(lastCard).find((el) => el.icon === "x");
+  dismissBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(writes.length, 0);
+
+  const c4 = new FakeElement();
+  await view.renderResultsPanel(c4);
+  const active4 = activeCardOf(c4);
+  assert.equal(active4.currentCards.length, 1, "une seule carte active");
+  assert.ok(getFullText(active4.currentCards[0]).includes("deux"), "la carte PRÉCÉDENTE ('deux') devient active, jamais un retour à la première");
+  const counter4 = allElements(c4).find((el) => el.classes.has("feuillets-docx-review-nav-counter"));
+  assert.equal(counter4.text, "2 / 2", "position cohérente sur la nouvelle dernière carte");
+});
+
+test("CORRECTIF — aucune régression des handlers Voir/Accepter/Refuser/Examiner après la refonte de la carte active", async () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const content = { [dest.path]: dest.content };
+  const { view, writes } = createView({ files: [dest], content, withWorkspace: true });
+
+  // Accepter (safe) écrit toujours via le chemin transactionnel existant.
+  const containerSafe = new FakeElement();
+  const safeChange = { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout.", confidence: "safe" };
+  view.renderChange(containerSafe, dest, safeChange);
+  const acceptBtn = allElements(containerSafe).find((el) => el.icon === "check");
+  assert.ok(acceptBtn, "bouton Accepter toujours présent pour un item safe");
+  acceptBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(writes.length, 1, "Accepter applique toujours réellement la modification");
+  assert.equal(safeChange.applied, true);
+
+  // Refuser ne modifie jamais le Markdown.
+  const containerReview = new FakeElement();
+  const reviewChange = { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Autre.", confidence: "review" };
+  view.renderChange(containerReview, dest, reviewChange);
+  const examineBtn = allElements(containerReview).find((el) => el.icon === "search");
+  assert.ok(examineBtn, "bouton Examiner toujours présent pour un item review");
+  examineBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(writes.length, 1, "Examiner n'écrit jamais");
+  const rejectBtn = allElements(containerReview).find((el) => el.icon === "x");
+  rejectBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(writes.length, 1, "Refuser ne modifie jamais le Markdown");
+  assert.equal(reviewChange.dismissed, true);
+
+  // Voir (clic sur la carte) ouvre toujours le bon feuillet.
+  const containerView = new FakeElement();
+  view.renderChange(containerView, dest, { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Voir." });
+  const row = allElements(containerView).find((el) => el.classes.has("feuillets-clickable"));
+  assert.ok(row, "la carte reste cliquable (Voir)");
+});
+
+test("CORRECTIF — les filtres portent deux libellés (compact + complet) permettant un choix responsive en CSS", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici.");
+  const { view } = createView({ files: [scene] });
+  view.results = makeResults({ [scene.path]: { changes: [], comments: [] } });
+  const container = new FakeElement();
+  await view.renderResultsPanel(container);
+
+  const filterBtns = allElements(container).filter((el) => el.classes.has("feuillets-docx-review-filter-btn"));
+  assert.equal(filterBtns.length, 5, "les 5 filtres sont bien rendus");
+
+  const correctionsBtn = filterBtns.find((btn) => allElements(btn).some((el) => el.text === "Modifications"));
+  assert.ok(correctionsBtn, "le libellé complet 'Modifications' est présent dans le DOM");
+  const fullSpan = allElements(correctionsBtn).find((el) => el.classes.has("feuillets-docx-review-filter-full"));
+  const compactSpan = allElements(correctionsBtn).find((el) => el.classes.has("feuillets-docx-review-filter-compact"));
+  assert.ok(fullSpan, "span du libellé complet présent (affiché en CSS à largeur suffisante)");
+  assert.ok(compactSpan, "span du libellé compact présent (affiché en CSS à largeur d'ouverture normale)");
+  assert.equal(fullSpan.text, "Modifications");
+  assert.equal(compactSpan.text, "Modifs", "le libellé compact est bien plus court, pas une simple troncature ellipsis, et n'est plus « Corr. »");
+  assert.notEqual(compactSpan.text, fullSpan.text, "compact et complet diffèrent réellement pour les libellés trop longs");
+});
+
+/* =========================================================================
+ * FINITION UX — bandeau de contrôle sticky unique, types de carte courts,
+ * convention d'icônes cohérente, actions dans leur conteneur dédié.
+ * ========================================================================= */
+
+test("FINITION UX — pager (Précédent/N-total/Suivant) vit dans le MÊME bloc que filtres/actions globales, une SEULE zone sticky", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici pour le contexte.");
+  const { view } = createView({ files: [scene] });
+  view.results = makeResults({
+    [scene.path]: {
+      changes: [
+        { type: "insertion", author: "A", date: "D", contextBefore: "Un texte", text: " un", ord: 0 },
+        { type: "insertion", author: "A", date: "D", contextBefore: "ici", text: " deux", ord: 1 },
+      ],
+      comments: [],
+    },
+  });
+  const container = new FakeElement();
+  await view.renderResultsPanel(container);
+
+  // Une SEULE zone sticky de contrôle.
+  const stickyBars = allElements(container).filter((el) => el.classes.has("feuillets-docx-review-sticky-bar"));
+  assert.equal(stickyBars.length, 1, "une seule zone sticky de contrôle dans le panneau");
+  const stickyBar = stickyBars[0];
+
+  // Titre/compteur, filtres, actions globales ET navigation sont tous DANS
+  // cette même zone (mission FINITION UX §1) — jamais des composants
+  // séparés qui pourraient défiler indépendamment les uns des autres.
+  const inSticky = allElements(stickyBar);
+  assert.ok(inSticky.some((el) => el.classes.has("feuillets-docx-review-filters")), "filtres dans le bloc sticky");
+  assert.ok(inSticky.some((el) => el.classes.has("feuillets-docx-review-toolbar")), "actions globales dans le bloc sticky");
+  assert.ok(inSticky.some((el) => el.classes.has("feuillets-docx-review-nav")), "navigation (pager) dans le bloc sticky");
+  assert.ok(inSticky.some((el) => el.classes.has("feuillets-docx-review-nav-counter")), "compteur N/total dans le bloc sticky");
+
+  // La pile de cartes, elle, reste EN DEHORS du bloc sticky (c'est elle qui
+  // défile, pas le bandeau de contrôle).
+  const queueList = allElements(container).find((el) => el.classes.has("feuillets-docx-review-queue"));
+  assert.ok(queueList, "la file de cartes est présente");
+  assert.equal(allElements(stickyBar).includes(queueList), false, "la pile de cartes n'est PAS dans le bloc sticky");
+});
+
+test("FINITION UX — plus aucun sticky concurrent : le bandeau global n'utilise plus la classe partagée feuillets-research-toolbar", async () => {
+  const scene = file("Projet/Scene.md", "Un texte ici.");
+  const { view } = createView({ files: [scene] });
+  view.results = makeResults({ [scene.path]: { changes: [], comments: [] } });
+  const container = new FakeElement();
+  await view.renderResultsPanel(container);
+  const toolbar = allElements(container).find((el) => el.classes.has("feuillets-docx-review-toolbar"));
+  assert.ok(toolbar, "barre d'actions globales présente");
+  assert.equal(
+    toolbar.classes.has("feuillets-research-toolbar"),
+    false,
+    "la classe partagée feuillets-research-toolbar (qui porte son PROPRE sticky ailleurs dans l'app) n'est plus utilisée ici — un seul sticky, celui du bloc de contrôle"
+  );
+});
+
+test("FINITION UX — types de carte courts (Ajout/Suppression/Remplacement/Déplacement/Mise en forme/Commentaire), jamais « proposé »", () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const origin = file("Projet/Origine.md", "Origine.");
+  const { view } = createView({ files: [dest, origin] });
+
+  const labelOf = (kind, extra) => {
+    const container = new FakeElement();
+    if (kind === "change") view.renderChange(container, dest, extra);
+    else view.renderComment(container, dest, extra);
+    const metaEl = allElements(container).find((el) => el.classes.has("feuillets-docx-review-meta"));
+    return metaEl.text;
+  };
+
+  assert.equal(labelOf("change", { type: "insertion", author: "A", date: "D", text: "x" }), "Ajout");
+  assert.equal(labelOf("change", { type: "deletion", author: "A", date: "D", text: "x" }), "Suppression");
+  assert.equal(labelOf("change", { type: "replacement", author: "A", date: "D", oldText: "x", newText: "y" }), "Remplacement");
+  assert.equal(
+    labelOf("change", { type: "move", author: "A", date: "D", fromPath: origin.path, toPath: dest.path, fromContext: "", fromText: "x", toContext: "", text: "x" }),
+    "Déplacement"
+  );
+  assert.equal(labelOf("comment", { anchorText: "x", author: "A", date: "D", isFormatting: true, markers: [] }), "Mise en forme");
+  assert.equal(labelOf("comment", { anchorText: "x", author: "A", date: "D", text: "y" }), "Commentaire");
+
+  for (const label of ["Ajout", "Suppression", "Remplacement"]) {
+    assert.ok(!label.includes("proposé"), `« ${label} » ne doit plus contenir « proposé »`);
+  }
+});
+
+test("FINITION UX — convention d'icônes : UNE icône = UN sens dans tout le panneau", () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const origin = file("Projet/Origine.md", "Début. Passage. Fin.");
+  const { view } = createView({ files: [dest, origin] });
+
+  // Voir (safe, item simple) -> eye ; Accepter -> check ; Refuser -> x.
+  const containerSafe = new FakeElement();
+  view.renderChange(containerSafe, dest, { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " x", confidence: "safe" });
+  const safeEls = allElements(containerSafe);
+  assert.ok(safeEls.some((el) => el.icon === "eye"), "Voir -> eye");
+  assert.ok(safeEls.some((el) => el.icon === "check"), "Accepter -> check");
+  assert.ok(safeEls.some((el) => el.icon === "x"), "Refuser -> x");
+
+  // Examiner (review) -> search, jamais eye.
+  const containerReview = new FakeElement();
+  view.renderChange(containerReview, dest, { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " x", confidence: "review" });
+  assert.ok(allElements(containerReview).some((el) => el.icon === "search"), "Examiner -> search");
+
+  // Déplacement : Voir origine -> arrow-up-right, Voir destination -> arrow-down-right, Déplacement (type) -> move.
+  const containerMove = new FakeElement();
+  const moveChange = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Début. ", fromText: "Passage.",
+    toContext: "Avant. ", text: "Passage.",
+  };
+  view.renderChange(containerMove, dest, moveChange);
+  const moveEls = allElements(containerMove);
+  assert.ok(moveEls.some((el) => el.icon === "arrow-up-right"), "Voir l'origine -> arrow-up-right");
+  assert.ok(moveEls.some((el) => el.icon === "arrow-down-right"), "Voir la destination -> arrow-down-right");
+  assert.ok(moveEls.some((el) => el.icon === "move"), "Type Déplacement -> move");
+
+  // Commentaire : Marquer comme traité -> check-circle (jamais x), Rétablir -> rotate-ccw une fois traité.
+  const containerComment = new FakeElement();
+  const comment = { anchorText: "x", author: "A", date: "D", text: "note" };
+  view.renderComment(containerComment, dest, comment);
+  assert.ok(allElements(containerComment).some((el) => el.icon === "check-circle"), "Marquer comme traité -> check-circle");
+  assert.equal(allElements(containerComment).some((el) => el.icon === "x"), false, "jamais l'icône x (Refuser) sur un commentaire");
+
+  const containerCommentDone = new FakeElement();
+  view.renderComment(containerCommentDone, dest, { ...comment, dismissed: true });
+  assert.ok(allElements(containerCommentDone).some((el) => el.icon === "rotate-ccw"), "Rétablir -> rotate-ccw");
+
+  // Mise en forme : icône de type -> highlighter.
+  const containerFormatting = new FakeElement();
+  view.renderComment(containerFormatting, dest, { anchorText: "x", author: "A", date: "D", isFormatting: true, markers: [] });
+  assert.ok(allElements(containerFormatting).some((el) => el.icon === "highlighter"), "Mise en forme -> highlighter");
+});
+
+test("FINITION UX — les actions principales vivent dans leur conteneur dédié (.feuillets-docx-review-card-actions), jamais mêlées au contenu principal", () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const { view } = createView({ files: [dest] });
+  const container = new FakeElement();
+  view.renderChange(container, dest, { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout.", confidence: "safe" });
+
+  const preview = allElements(container).find((el) => el.classes.has("feuillets-docx-review-preview"));
+  const actions = allElements(container).find((el) => el.classes.has("feuillets-docx-review-card-actions"));
+  assert.ok(preview, "zone de contenu principal présente");
+  assert.ok(actions, "zone d'actions dédiée présente");
+
+  // Aucun bouton d'action (Voir/Accepter/Refuser) n'est un descendant de la
+  // zone de contenu principal — ils vivent EXCLUSIVEMENT dans `actions`.
+  const buttonsInPreview = allElements(preview).filter((el) => el.tag === "button");
+  assert.equal(buttonsInPreview.length, 0, "aucun bouton d'action dans la zone de contenu principal");
+  const buttonsInActions = allElements(actions).filter((el) => el.tag === "button");
+  assert.ok(buttonsInActions.length >= 3, "Voir/Accepter/Refuser sont bien dans la zone d'actions dédiée");
 });

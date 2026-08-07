@@ -2,7 +2,6 @@ import { setIcon, Notice, Platform, TFile, TAbstractFile, type App, type Workspa
 import JSZip from "jszip";
 import { VIEW_DOCX_REVIEW } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { renderCollapsibleHead } from "../utils/dom.js";
 import {
   parseDocxReview,
   resolveScenesToPaths,
@@ -151,6 +150,104 @@ function confidenceLabel(confidence: ReviewConfidence): string {
   }
 }
 
+/* LOT 5 — libellé explicatif d'une confidenceReason ("Pourquoi À vérifier ?"/
+ * "Pourquoi Ambigu ?", voir docxReview.md §4) : jamais une nouvelle preuve,
+ * seulement la traduction lisible d'un fait DÉJÀ déterminé par le moteur
+ * (ReviewConfidenceReason, docx-review-import.ts). */
+function confidenceReasonLabel(reason: ReviewConfidenceReason): string {
+  switch (reason) {
+    case "exact-match": return t("docxReview.reason.exactMatch");
+    case "context-degraded": return t("docxReview.reason.contextDegraded");
+    case "implicit-move": return t("docxReview.reason.implicitMove");
+    case "relocated-orphan": return t("docxReview.reason.relocatedOrphan");
+    case "unresolved-path": return t("docxReview.reason.unresolvedPath");
+    case "multiple-matches": return t("docxReview.reason.multipleMatches");
+    case "missing-source": return t("docxReview.reason.missingSource");
+    case "footnote-unverifiable": return t("docxReview.reason.footnoteUnverifiable");
+    case "structure-unverifiable": return t("docxReview.reason.structureUnverifiable");
+    default: return reason;
+  }
+}
+
+/* LOT 5 — file de décisions éditoriales : un élément aplati (changement OU
+ * commentaire), quel que soit son bucket d'origine (byPath/unmatched/
+ * unclassified) — remplace les gros accordéons par feuillet comme structure
+ * PRINCIPALE de navigation (mission §8), sans rien recalculer : `file`/
+ * `containerPath` sont juste portés le long de la file pour que renderChange/
+ * renderComment gardent EXACTEMENT le même comportement qu'appelés depuis
+ * l'ancien regroupement par feuillet. */
+type ReviewFilter = "all" | "corrections" | "moves" | "comments" | "review";
+type QueueEntry = {
+  kind: "change" | "comment";
+  item: ReviewEntry;
+  file: TFile | null;
+  containerPath: string | null;
+};
+
+/** Aplatit byPath/unmatched/unclassified en une file UNIQUE, ordonnée par
+ * `item.ord` (posé UNE FOIS au parse, en ordre de document — voir
+ * parseDocumentXml#stamp, docx-review-import.ts) quand il est disponible.
+ * Les objets créés APRÈS le parse (paires de déplacement fusionnées, voir
+ * mergeGlobalMovePairs/mergeImplicitCutPastePairs) n'ont jamais cet ordinal
+ * — mission §8 : "fallback déterministe sans inventer un ordre narratif
+ * arbitraire". Le tri Array#sort de JS étant stable, ces objets sans `ord`
+ * (traités comme +Infinity) conservent simplement leur position de
+ * CONSTRUCTION ci-dessous (feuillets triés par nom, puis non-rattachés) —
+ * déterministe d'un rendu à l'autre de la MÊME analyse, jamais un ordre
+ * narratif inventé. */
+function buildQueue(results: ReviewResults, app: App): QueueEntry[] {
+  const { byPath, unmatched, unclassified } = results;
+  const queue: QueueEntry[] = [];
+  const paths = Object.keys(byPath).sort((a, b) => a.localeCompare(b, "fr"));
+  for (const path of paths) {
+    const f = app.vault.getAbstractFileByPath(path);
+    const file = f instanceof TFile ? f : null;
+    for (const c of byPath[path].changes) queue.push({ kind: "change", item: c, file, containerPath: path });
+    for (const c of byPath[path].comments) queue.push({ kind: "comment", item: c, file, containerPath: path });
+  }
+  for (const id of Object.keys(unmatched).sort()) {
+    for (const c of unmatched[id].changes) queue.push({ kind: "change", item: c, file: null, containerPath: null });
+    for (const c of unmatched[id].comments) queue.push({ kind: "comment", item: c, file: null, containerPath: null });
+  }
+  for (const c of unclassified.changes) queue.push({ kind: "change", item: c, file: null, containerPath: null });
+  for (const c of unclassified.comments) queue.push({ kind: "comment", item: c, file: null, containerPath: null });
+
+  queue.sort((a, b) => {
+    const oa = typeof a.item.ord === "number" ? a.item.ord : Number.POSITIVE_INFINITY;
+    const ob = typeof b.item.ord === "number" ? b.item.ord : Number.POSITIVE_INFINITY;
+    return oa - ob;
+  });
+  return queue;
+}
+
+function isQueueEntryResolved(entry: QueueEntry): boolean {
+  return !!(entry.item.dismissed || entry.item.applied);
+}
+
+/** Filtres minimum de la mission §1 — "À vérifier" regroupe review ET
+ * ambiguous (jamais un filtre par statut supplémentaire, mission : "Ne crée
+ * pas une multitude de filtres"). */
+function matchesFilter(entry: QueueEntry, filter: ReviewFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "comments") return entry.kind === "comment";
+  /* FINITION UX (mission §2) — "Modifs" (ex-"Corrections") représente
+   * insertion/suppression/remplacement ET mise en forme : une mise en forme
+   * reste par ailleurs un ReviewComment (rendue par renderComment, jamais
+   * Accepter/Refuser — voir isFormatting) et continue d'apparaître aussi
+   * sous "Commentaires" ci-dessus, simplement retrouvable des deux façons. */
+  if (filter === "corrections" && entry.kind === "comment") {
+    return !!(entry.item as ReviewComment).isFormatting;
+  }
+  if (entry.kind === "comment") return false;
+  const change = entry.item as ReviewChange;
+  switch (filter) {
+    case "moves": return change.type === "move";
+    case "corrections": return change.type === "insertion" || change.type === "deletion" || change.type === "replacement";
+    case "review": return change.confidence === "review" || change.confidence === "ambiguous";
+    default: return true;
+  }
+}
+
 /* Ligne de contexte COURTE de la carte Déplacement repliée (Lot 6, carte
  * compacte) — jamais le passage complet (voir la zone dépliable, qui garde
  * le texte intégral tel quel) : juste de quoi identifier le passage d'un
@@ -265,6 +362,20 @@ export class DocxReviewView extends BaseFeuilletsView {
   results: ReviewResults | null;
   showResolved: boolean;
   docxName: string;
+  /** LOT 5 — file de décisions éditoriales : filtre actif et position
+   * courante dans la liste FILTRÉE (mission §8, "12 / 47" porte sur la liste
+   * actuellement filtrée) — jamais persisté dans les settings, propre à la
+   * session de consultation en cours (comme showResolved). */
+  activeFilter: ReviewFilter;
+  queueIndex: number;
+  /** CORRECTIF — identité (getItemKey) de la carte active, source de vérité
+   * pour resolveCurrentIndex : `queueIndex` seul (un simple entier) ne
+   * survit pas correctement à un changement de filtre ou au traitement
+   * d'une carte AUTRE que la carte active (l'array se décale, l'entier ne
+   * pointe alors plus sur la même carte logique). `null` avant toute
+   * résolution (première ouverture) — resolveCurrentIndex le pose alors
+   * depuis `queueIndex` clampé. */
+  activeItemKey: string | null;
   _snapshotted: Set<string> | undefined;
   /** Sous-ensemble de `_snapshotted` : uniquement les feuillets dont le
    * snapshot a RÉELLEMENT réussi (voir ensureSnapshot). `_snapshotted` seul
@@ -281,6 +392,9 @@ export class DocxReviewView extends BaseFeuilletsView {
     this.results = null; // { byPath, unmatched, unclassified }
     this.showResolved = false; // false = vider la pile des retours traités
     this.docxName = "";
+    this.activeFilter = "all";
+    this.queueIndex = 0;
+    this.activeItemKey = null;
   }
 
   getViewType() {
@@ -327,6 +441,36 @@ export class DocxReviewView extends BaseFeuilletsView {
       dismissed: !!item.dismissed,
     };
     await this.plugin.saveSettings();
+  }
+
+  /** CORRECTIF — carte active : source de vérité UNIQUE (mission §2).
+   * 1. Si `activeItemKey` correspond encore à une entrée de `visible`
+   *    (même filtre inchangé, ou changé mais l'ancienne carte y figure
+   *    toujours), elle reste active — `queueIndex` est recalé sur sa
+   *    NOUVELLE position (l'array a pu se décaler suite au traitement d'une
+   *    AUTRE carte, voir mission "jamais revenir arbitrairement à la
+   *    première").
+   * 2. Sinon (carte disparue : filtrée par changement de filtre, ou
+   *    résolue et masquée), repli sur `queueIndex` clampé dans les bornes
+   *    de la NOUVELLE liste — la carte qui prend la place de l'ancienne
+   *    (milieu de liste) ou la précédente (dernière carte traitée), jamais
+   *    un saut arbitraire au début (mission §2, dernier point).
+   * Dans tous les cas, `activeItemKey` est reposé sur la carte finalement
+   * retenue : la prochaine résolution repart d'une identité à jour. */
+  private resolveCurrentIndex(visible: QueueEntry[]): number {
+    if (this.activeItemKey != null) {
+      const idx = visible.findIndex((e) => getItemKey(e.item) === this.activeItemKey);
+      if (idx !== -1) {
+        this.queueIndex = idx;
+        return idx;
+      }
+    }
+    let idx = this.queueIndex;
+    if (idx >= visible.length) idx = visible.length - 1;
+    if (idx < 0) idx = 0;
+    this.queueIndex = idx;
+    this.activeItemKey = visible[idx] ? getItemKey(visible[idx].item) : null;
+    return idx;
   }
 
   /** Snapshot du feuillet AVANT sa première modification de la session de
@@ -376,6 +520,9 @@ export class DocxReviewView extends BaseFeuilletsView {
     this.docxName = docxName;
     this._snapshotted = new Set(); // nouvelle session de relecture : repartir de zéro
     this._snapshotOk = new Set();
+    this.activeFilter = "all"; // nouvelle analyse : repartir du début de la file
+    this.queueIndex = 0;
+    this.activeItemKey = null;
     let zip: JSZip;
     try {
       zip = await JSZip.loadAsync(buf);
@@ -662,82 +809,134 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
   }
 
+  /** LOT 5 — panneau Révision refondu en file de décisions éditoriales
+   * (mission docx-review-editorial-ui.md) : en-tête + compteurs + filtres
+   * (§1), cartes compactes plates ordonnées par `ord` (§2/§8, voir
+   * buildQueue), navigation Précédent/Suivant sur la liste FILTRÉE (§8).
+   * Le rendu de CHAQUE carte reste renderChange/renderComment, inchangés
+   * dans leur mécanique (recherche/application/snapshot) — seul ce qui les
+   * ENTOURE change. */
   async renderResultsPanel(container: HTMLElement) {
-    const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
-    const backBtn = this.iconBtn(toolbar, "arrow-left", t("docxReview.analyzeAnother"));
+    if (!this.results) return;
+    const queue = buildQueue(this.results, this.app);
+
+    const toProcessCount = queue.filter((e) => !e.item.applied && !e.item.dismissed && !e.item.resolvedInWord).length;
+    const resolvedCount = queue.filter((e) => e.item.applied || e.item.resolvedInWord).length;
+    const hiddenCount = queue.filter((e) => e.item.dismissed && !e.item.applied && !e.item.resolvedInWord).length;
+    const totalActive = queue.filter((e) => !isQueueEntryResolved(e)).length;
+    const totalResolved = queue.length - totalActive;
+
+    /* FINITION UX — UN SEUL bloc de contrôle sticky (mission §1) : titre +
+     * compteur, filtres, actions globales ET navigation Précédent/Suivant
+     * vivent tous DANS ce même conteneur `stickyBar` (une seule règle
+     * `position: sticky`, voir styles.css) — jamais un sticky concurrent
+     * dans un sous-élément (l'ancien `.feuillets-docx-review-toolbar`
+     * héritait silencieusement du sticky générique de
+     * `.feuillets-research-toolbar`, indépendant de ce bloc : c'était la
+     * cause du bug rapporté, la navigation défilant derrière). Seule la
+     * pile de cartes (`list`, plus bas) défile SOUS ce bloc. */
+    const stickyBar = container.createDiv({ cls: "feuillets-docx-review-sticky-bar" });
+    const header = stickyBar.createDiv({ cls: "feuillets-docx-review-panel-header" });
+    const titleRow = header.createDiv({ cls: "feuillets-docx-review-panel-title-row" });
+    const backBtn = this.iconBtn(titleRow, "arrow-left", t("docxReview.analyzeAnother"));
     backBtn.addEventListener("click", () => {
       this.mode = "picker";
       this.results = null;
       void this.render();
     });
+    titleRow.createDiv({ cls: "feuillets-notes-section-title" }).setText(t("docxReview.displayText"));
 
+    header.createDiv({ cls: "feuillets-docx-review-file-date" }).setText(this.docxName);
+
+    const counterParts: string[] = [
+      toProcessCount === 1
+        ? t("docxReview.counter.toProcessOne")
+        : t("docxReview.counter.toProcessMany", { count: String(toProcessCount) }),
+      resolvedCount === 1
+        ? t("docxReview.counter.resolvedOne")
+        : t("docxReview.counter.resolvedMany", { count: String(resolvedCount) }),
+    ];
+    if (hiddenCount > 0) {
+      counterParts.push(
+        hiddenCount === 1
+          ? t("docxReview.counter.hiddenOne")
+          : t("docxReview.counter.hiddenMany", { count: String(hiddenCount) })
+      );
+    }
+    header.createDiv({ cls: "feuillets-notes-sub" }).setText(counterParts.join(" · "));
+
+    // Filtres minimum (mission §1) — jamais recalculés depuis autre chose
+    // que `queue`, qui porte déjà tout ce qu'il faut (matchesFilter).
+    // CORRECTIF (largeur par défaut) : chaque bouton porte DEUX libellés
+    // (compact/complet), le CSS (container query sur .feuillets-docx-review-
+    // panel-header) choisit lequel afficher selon la largeur RÉELLE du
+    // panneau — jamais un texte tronqué par ellipsis (illisible), jamais de
+    // scroll horizontal : à largeur normale d'ouverture, les 5 tiennent sur
+    // une seule ligne grâce au libellé compact ; réservé aux deux libellés
+    // objectivement trop longs pour cette largeur ("Corrections",
+    // "Déplacements", "Commentaires") — "Tous"/"À vérifier" sont déjà courts,
+    // compact = complet pour ces deux-là.
+    const filterDefs: { key: ReviewFilter; label: string; compact: string }[] = [
+      { key: "all", label: t("docxReview.filter.all"), compact: t("docxReview.filter.all") },
+      { key: "corrections", label: t("docxReview.filter.corrections"), compact: t("docxReview.filter.correctionsShort") },
+      { key: "moves", label: t("docxReview.filter.moves"), compact: t("docxReview.filter.movesShort") },
+      { key: "comments", label: t("docxReview.filter.comments"), compact: t("docxReview.filter.commentsShort") },
+      { key: "review", label: t("docxReview.filter.review"), compact: t("docxReview.filter.review") },
+    ];
+    const filterRow = header.createDiv({ cls: "feuillets-docx-review-filters" });
+    for (const def of filterDefs) {
+      const btn = filterRow.createEl("button", { cls: "feuillets-docx-review-filter-btn" });
+      if (this.activeFilter === def.key) btn.addClass("mod-active");
+      btn.createSpan({ cls: "feuillets-docx-review-filter-compact" }).setText(def.compact);
+      btn.createSpan({ cls: "feuillets-docx-review-filter-full" }).setText(def.label);
+      btn.addEventListener("click", () => {
+        if (this.activeFilter === def.key) return;
+        this.activeFilter = def.key;
+        // Repli si l'ancienne carte active n'existe pas dans ce nouveau
+        // filtre — `activeItemKey`, lui, N'EST PAS effacé : resolveCurrentIndex
+        // essaie D'ABORD de la retrouver dans la nouvelle liste filtrée
+        // (mission §2 : "si l'ancienne carte existe encore... conserver sa
+        // position") avant de retomber sur ce repli.
+        this.queueIndex = 0;
+        void this.render();
+      });
+    }
+
+    /* Jamais "feuillets-research-toolbar" ici : cette classe partagée porte
+     * son PROPRE `position: sticky` ailleurs dans l'app (voir styles.css) —
+     * un second sticky concurrent, indépendant du bloc ci-dessus, est
+     * exactement la cause du bug rapporté (mission §1, "pas de sticky
+     * concurrent dans les sous-éléments"). */
+    const toolbar = stickyBar.createDiv({ cls: "feuillets-docx-review-toolbar" });
     const toggleResolvedBtn = this.iconBtn(
       toolbar,
       this.showResolved ? "eye-off" : "eye",
+      this.showResolved ? t("docxReview.hideResolved") : t("docxReview.showResolved")
+    );
+    toggleResolvedBtn.addClass("feuillets-docx-review-action-btn");
+    toggleResolvedBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(
       this.showResolved ? t("docxReview.hideResolved") : t("docxReview.showResolved")
     );
     toggleResolvedBtn.addEventListener("click", () => {
       this.showResolved = !this.showResolved;
       void this.render();
     });
-
-    if (!this.results) return;
-    const { byPath, unmatched, unclassified } = this.results;
-    const paths = Object.keys(byPath).sort((a, b) => a.localeCompare(b, "fr"));
-    const unmatchedIds = Object.keys(unmatched);
-
-    const isResolved = (item: ReviewEntry) => item && (item.dismissed || item.applied);
-
-    let activeMatched = 0;
-    let resolvedMatched = 0;
-    for (const path of paths) {
-      for (const c of byPath[path].changes) (isResolved(c) ? resolvedMatched++ : activeMatched++);
-      for (const c of byPath[path].comments) (isResolved(c) ? resolvedMatched++ : activeMatched++);
-    }
-
-    let activeUnmatched = 0;
-    let resolvedUnmatched = 0;
-    for (const id of unmatchedIds) {
-      for (const c of unmatched[id].changes) (isResolved(c) ? resolvedUnmatched++ : activeUnmatched++);
-      for (const c of unmatched[id].comments) (isResolved(c) ? resolvedUnmatched++ : activeUnmatched++);
-    }
-    /* resolvedUnmatched, pas resolvedUnclassified (variable jamais déclarée —
-       ReferenceError en module strict dès qu'UN orphelin résolu était compté,
-       faisant planter tout le rendu du panneau après avoir masqué un retour
-       non rattaché). Les orphelins non rattachés partagent le même compteur
-       "non rattaché" que les unmatched — ils sont affichés dans la même
-       section (voir plus bas). */
-    for (const c of unclassified.changes) (isResolved(c) ? resolvedUnmatched++ : activeUnmatched++);
-    for (const c of unclassified.comments) (isResolved(c) ? resolvedUnmatched++ : activeUnmatched++);
-
-    const totalActive = activeMatched + activeUnmatched;
-    const totalResolved = resolvedMatched + resolvedUnmatched;
-
     if (totalActive > 0) {
       const dismissAllBtn = this.iconBtn(toolbar, "check-check", t("docxReview.markAllResolved"));
+      dismissAllBtn.addClass("feuillets-docx-review-action-btn");
+      dismissAllBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(t("docxReview.markAllResolved"));
       dismissAllBtn.addEventListener("click", () => {
         void (async () => {
-          for (const path of paths) {
-            for (const c of byPath[path].changes) { c.dismissed = true; await this.saveItemState(c); }
-            for (const c of byPath[path].comments) { c.dismissed = true; await this.saveItemState(c); }
+          for (const entry of queue) {
+            if (isQueueEntryResolved(entry)) continue;
+            entry.item.dismissed = true;
+            await this.saveItemState(entry.item);
           }
-          for (const id of unmatchedIds) {
-            for (const c of unmatched[id].changes) { c.dismissed = true; await this.saveItemState(c); }
-            for (const c of unmatched[id].comments) { c.dismissed = true; await this.saveItemState(c); }
-          }
-          for (const c of unclassified.changes) { c.dismissed = true; await this.saveItemState(c); }
-          for (const c of unclassified.comments) { c.dismissed = true; await this.saveItemState(c); }
           new Notice(t("docxReview.allMarkedResolved"));
           void this.render();
         })();
       });
     }
-
-    const summary = container.createDiv({ cls: "feuillets-research-section" });
-    summary.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      t("docxReview.toProcess", { count: String(totalActive) }) +
-        (totalResolved > 0 ? t("docxReview.resolvedSuffix", { count: String(totalResolved) }) : "")
-    );
 
     if (totalActive === 0 && totalResolved > 0 && !this.showResolved) {
       const emptyBox = container.createDiv({ cls: "feuillets-research-section feuillets-docx-review-done-box" });
@@ -760,98 +959,63 @@ export class DocxReviewView extends BaseFeuilletsView {
       return;
     }
 
-    const S = this.plugin.settings;
-    for (const path of paths) {
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) continue;
-      const bucket = byPath[path];
+    const visible = queue
+      .filter((e) => matchesFilter(e, this.activeFilter))
+      .filter((e) => this.showResolved || !isQueueEntryResolved(e));
 
-      const visibleChanges = bucket.changes.filter((c) => this.showResolved || !isResolved(c));
-      const visibleComments = bucket.comments.filter((c) => this.showResolved || !isResolved(c));
-
-      if (visibleChanges.length === 0 && visibleComments.length === 0) continue;
-
-      const activeCount = bucket.changes.filter((c) => !isResolved(c)).length + bucket.comments.filter((c) => !isResolved(c)).length;
-      const collapseKey = `docx-review:${path}`;
-      const { section, head } = renderCollapsibleHead(container, {
-        classes: {
-          section: "feuillets-notes-section feuillets-research-section",
-          head: "feuillets-notes-section-head",
-          title: "feuillets-notes-section-title",
-          icon: "feuillets-notes-section-icon",
-        },
-        title: this.plugin.titleFor(file),
-        icon: "file-text",
-        collapsed: !!S.collapsed[collapseKey],
-        collapseKey,
-        settings: S,
-        onToggle: async () => {
-          await this.plugin.saveSettings();
-          void this.render();
-        },
-      });
-
-      const titleEl = head ? head.querySelector(".feuillets-notes-section-title") : null;
-      if (titleEl) {
-        const badgeEl = titleEl.createSpan({ cls: "feuillets-docx-review-section-badge" });
-        badgeEl.setText(activeCount > 0 ? t("docxReview.badgeToProcess", { count: String(activeCount) }) : t("docxReview.badgeResolved"));
-        if (activeCount === 0) badgeEl.addClass("mod-resolved");
-      }
-
-      if (S.collapsed[collapseKey]) continue;
-
-      const list = section.createDiv({ cls: "feuillets-research-list" });
-      for (const change of visibleChanges) this.renderChange(list, file, change);
-      for (const comment of visibleComments) this.renderComment(list, file, comment);
+    if (visible.length === 0) {
+      container.createDiv({ cls: "feuillets-research-empty" }).setText(t("docxReview.noItemsForFilter"));
+      return;
     }
 
-    const hasUnclassified = unclassified.changes.length > 0 || unclassified.comments.length > 0;
-    if (unmatchedIds.length > 0 || hasUnclassified) {
-      const allUnmatchedChanges = [
-        ...unmatchedIds.flatMap((id) => unmatched[id].changes),
-        ...unclassified.changes,
-      ].filter((c) => this.showResolved || !isResolved(c));
+    // CORRECTIF (§2) — carte active : identité D'ABORD (survit à un
+    // changement de filtre ou au traitement d'une AUTRE carte que
+    // l'active), repli sur `queueIndex` clampé SEULEMENT si l'ancienne
+    // carte n'existe plus dans cette liste — jamais un saut arbitraire au
+    // début. Voir resolveCurrentIndex.
+    const currentIdx = this.resolveCurrentIndex(visible);
 
-      const allUnmatchedComments = [
-        ...unmatchedIds.flatMap((id) => unmatched[id].comments),
-        ...unclassified.comments,
-      ].filter((c) => this.showResolved || !isResolved(c));
+    // Navigation dans le MÊME bloc sticky que le reste (mission §1) — jamais
+    // un composant séparé qui pourrait défiler indépendamment.
+    const nav = stickyBar.createDiv({ cls: "feuillets-docx-review-nav" });
+    const prevBtn = this.iconBtn(nav, "chevron-left", t("docxReview.previousItem"));
+    prevBtn.addEventListener("click", () => {
+      const newIndex = Math.max(0, currentIdx - 1);
+      this.queueIndex = newIndex;
+      this.activeItemKey = visible[newIndex] ? getItemKey(visible[newIndex].item) : null;
+      void this.render();
+    });
+    nav.createSpan({ cls: "feuillets-docx-review-nav-counter" }).setText(
+      t("docxReview.navPosition", { current: String(currentIdx + 1), total: String(visible.length) })
+    );
+    const nextBtn = this.iconBtn(nav, "chevron-right", t("docxReview.nextItem"));
+    nextBtn.addEventListener("click", () => {
+      const newIndex = Math.min(visible.length - 1, currentIdx + 1);
+      this.queueIndex = newIndex;
+      this.activeItemKey = visible[newIndex] ? getItemKey(visible[newIndex].item) : null;
+      void this.render();
+    });
+    if (currentIdx === 0) prevBtn.addClass("mod-disabled");
+    if (currentIdx === visible.length - 1) nextBtn.addClass("mod-disabled");
 
-      if (allUnmatchedChanges.length > 0 || allUnmatchedComments.length > 0) {
-        const collapseKey = "docx-review:unmatched";
-        const { section, head } = renderCollapsibleHead(container, {
-          classes: {
-            section: "feuillets-notes-section feuillets-research-section",
-            head: "feuillets-notes-section-head",
-            title: "feuillets-notes-section-title",
-            icon: "feuillets-notes-section-icon",
-          },
-          title: t("docxReview.unmatchedTitle"),
-          icon: "help-circle",
-          collapsed: !!S.collapsed[collapseKey],
-          collapseKey,
-          settings: S,
-          onToggle: async () => {
-            await this.plugin.saveSettings();
-            void this.render();
-          },
-        });
-        
-        const titleEl = head ? head.querySelector(".feuillets-notes-section-title") : null;
-        if (titleEl) {
-          const badgeEl = titleEl.createSpan({ cls: "feuillets-docx-review-section-badge" });
-          badgeEl.setText(t("docxReview.badgeToProcess", { count: String(allUnmatchedChanges.length + allUnmatchedComments.length) }));
-        }
+    // Une SEULE notion de carte active (mission §2) : `mod-current` posée
+    // ICI, sur la SEULE carte à l'index résolu ci-dessus — jamais recalculée
+    // ailleurs, jamais deux cartes actives à la fois.
+    const list = container.createDiv({ cls: "feuillets-research-list feuillets-docx-review-queue" });
+    visible.forEach((entry, i) => {
+      const cardWrap = list.createDiv({ cls: "feuillets-docx-review-card-wrap" });
+      if (i === currentIdx) cardWrap.addClass("mod-current");
+      if (entry.kind === "change") this.renderChange(cardWrap, entry.file, entry.item as ReviewChange);
+      else this.renderComment(cardWrap, entry.file, entry.item as ReviewComment);
+    });
 
-        if (!S.collapsed[collapseKey]) {
-          section.createDiv({ cls: "feuillets-notes-sub" }).setText(
-            t("docxReview.unmatchedExplanation")
-          );
-          const list = section.createDiv({ cls: "feuillets-research-list" });
-          for (const change of allUnmatchedChanges) this.renderChange(list, null, change);
-          for (const comment of allUnmatchedComments) this.renderComment(list, null, comment);
-        }
-      }
+    // scrollIntoView({block:"nearest"}) : défile JUSTE ASSEZ pour rendre la
+    // carte visible, RIEN si elle l'est déjà — jamais un déplacement brutal
+    // du panneau. Jamais .focus() : pas question de voler le clavier à un
+    // éditeur ouvert à côté (mission §2, "IMPORTANT").
+    const currentEl = list.children[currentIdx] as unknown as { scrollIntoView?: (opts?: unknown) => void } | undefined;
+    if (currentEl && typeof currentEl.scrollIntoView === "function") {
+      currentEl.scrollIntoView({ block: "nearest" });
     }
   }
 
@@ -1025,19 +1189,50 @@ export class DocxReviewView extends BaseFeuilletsView {
       (change.moved && change.type !== "move" ? t("docxReview.change.movedPrefix") : "") +
       labels[change.type];
     const name = header.createDiv({ cls: "feuillets-research-item-name" });
+
+    // LOT 5 — hiérarchie de la carte (mission §"Hiérarchie") : TYPE →
+    // CONFIANCE → EMPLACEMENT → MODIFICATION → ACTIONS. Auteur/date, eux,
+    // deviennent secondaires (ligne discrète sous l'emplacement).
     const metaEl = name.createDiv({ cls: "feuillets-docx-review-meta" });
-    metaEl.setText(`${label} — ${change.author}${change.date ? " · " + change.date : ""}`);
-    /* LOT 4 — badge discret de confiance, absent pour un item déjà appliqué
-     * (confidence jamais calculée dans ce cas, voir analyzeBuffer) ou tant
-     * que l'analyse confiance n'a pas encore tourné (docx antérieur à ce
-     * lot, état restauré sans confidence). Réutilise la même classe CSS que
-     * les badges de section existants ("à traiter"/"résolu") — jamais un
-     * style ad hoc. */
-    if (change.confidence) {
+    metaEl.setText(label);
+    /* Statut prioritaire sur la confiance dès qu'un retour est traité —
+     * "Appliqué"/"Refusé" (mission §9), jamais les deux badges à la fois.
+     * `confidence` reste absent pour un item déjà appliqué (voir
+     * analyzeBuffer) : le badge Sûr/À vérifier/Ambigu (LOT 4) ne s'affiche
+     * donc que tant que rien n'a encore été décidé. */
+    if (change.applied) {
+      metaEl.createSpan({ cls: "feuillets-docx-review-section-badge mod-resolved" }).setText(t("docxReview.status.applied"));
+    } else if (change.dismissed) {
+      metaEl.createSpan({ cls: "feuillets-docx-review-section-badge" }).setText(t("docxReview.status.rejected"));
+    } else if (change.confidence) {
       metaEl
         .createSpan({ cls: `feuillets-docx-review-section-badge mod-confidence-${change.confidence}` })
         .setText(confidenceLabel(change.confidence));
     }
+
+    const fromFileObj = change.fromPath ? resolveVaultFile(this.app, change.fromPath) : null;
+    const toFileObj = change.toPath ? resolveVaultFile(this.app, change.toPath) : null;
+
+    // EMPLACEMENT (mission §3) — toujours visible, jamais besoin d'ouvrir
+    // les détails pour savoir où la carte agit. Un déplacement affiche
+    // "Origine → Destination" (même dans le même feuillet).
+    const locationEl = name.createDiv({ cls: "feuillets-docx-review-location" });
+    if (change.type === "move") {
+      const fromTitle = fromFileObj instanceof TFile ? this.plugin.titleFor(fromFileObj) : t("docxReview.unmatchedTitle");
+      const toTitle = toFileObj instanceof TFile ? this.plugin.titleFor(toFileObj) : t("docxReview.unmatchedTitle");
+      locationEl.setText(`${fromTitle} → ${toTitle}`);
+    } else {
+      locationEl.setText(file ? this.plugin.titleFor(file) : t("docxReview.unmatchedTitle"));
+    }
+
+    // Auteur/date : secondaires (mission — "ne doivent plus dominer la
+    // carte compacte"), jamais supprimés pour autant.
+    if (change.author || change.date) {
+      name.createDiv({ cls: "feuillets-docx-review-submeta" }).setText(
+        `${change.author || ""}${change.date ? " · " + change.date : ""}`
+      );
+    }
+
     const preview = name.createDiv({ cls: "feuillets-docx-review-preview" });
 
     if (change.type === "replacement") {
@@ -1046,9 +1241,6 @@ export class DocxReviewView extends BaseFeuilletsView {
       preview.createSpan().setText(" → ");
       preview.createSpan({ cls: "feuillets-docx-review-added" }).setText(change.newText || "");
     } else if (change.type === "move") {
-      const fromFileObj = change.fromPath ? resolveVaultFile(this.app, change.fromPath) : null;
-      const toFileObj = change.toPath ? resolveVaultFile(this.app, change.toPath) : null;
-
       const fromLabel = fromFileObj instanceof TFile && fromFileObj !== file
         ? t("docxReview.change.cutFrom", { title: this.plugin.titleFor(fromFileObj) })
         : t("docxReview.change.cut");
@@ -1093,6 +1285,9 @@ export class DocxReviewView extends BaseFeuilletsView {
       toFile: change.toPath ? resolveVaultFile(this.app, change.toPath) || file : file,
     });
 
+    // Zone d'actions dédiée sous le contenu principal (Lot 5 responsive)
+    const actions = row.createDiv({ cls: "feuillets-docx-review-card-actions" });
+
     if (file) {
       row.addClass("feuillets-clickable");
       row.title = t("docxReview.openAndShowTooltip");
@@ -1119,7 +1314,7 @@ export class DocxReviewView extends BaseFeuilletsView {
         // (construit à l'ouverture, retiré à la fermeture, jamais les deux
         // en même temps).
         let detailBox: HTMLElement | null = null;
-        const detailBtn = this.iconBtn(header, "chevron-down", t("docxReview.showFullPassages"));
+        const detailBtn = this.iconBtn(actions, "chevron-down", t("docxReview.showFullPassages"));
         detailBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           if (detailBox) {
@@ -1149,14 +1344,14 @@ export class DocxReviewView extends BaseFeuilletsView {
         // le MÊME fichier mais sélectionnent des passages différents.
         const { fromFile: originFile, toFile: destFile } = resolveMoveFiles();
         if (originFile instanceof TFile) {
-          const originBtn = this.iconBtn(header, "arrow-up-right", t("docxReview.viewOrigin"));
+          const originBtn = this.iconBtn(actions, "arrow-up-right", t("docxReview.viewOrigin"));
           originBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             void this.openAndReveal(originFile, change, fallbackText);
           });
         }
         if (destFile instanceof TFile) {
-          const destBtn = this.iconBtn(header, "arrow-down-right", t("docxReview.viewDestination"));
+          const destBtn = this.iconBtn(actions, "arrow-down-right", t("docxReview.viewDestination"));
           destBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             void this.revealMoveDestination(destFile, change.toContext || "", change.text || "");
@@ -1166,7 +1361,13 @@ export class DocxReviewView extends BaseFeuilletsView {
         // Lot 3 — Aperçu du résultat : calcule (sans jamais écrire) ce que
         // planApply/planApplyMove produirait, à partir du contenu RÉEL
         // actuel du feuillet de destination — jamais une supposition.
-        const previewBtn = this.iconBtn(header, "eye", t("docxReview.previewResult"));
+        // FINITION UX (mission §7) — "search" pour Examiner, "eye" réservé
+        // à Voir/Voir le passage : UNE icône = UN sens dans tout le panneau.
+        const previewBtn = this.iconBtn(actions, "search", t("docxReview.previewResult"));
+        if (!change.applied && (change.confidence === "review" || change.confidence === "ambiguous")) {
+          previewBtn.addClass("feuillets-docx-review-action-btn");
+          previewBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(t("docxReview.action.examine"));
+        }
         let previewBox: HTMLElement | null = null;
         previewBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -1177,8 +1378,21 @@ export class DocxReviewView extends BaseFeuilletsView {
               return;
             }
             previewBox = row.createDiv({ cls: "feuillets-docx-review-preview-box" });
+            // LOT 5 (mission §4) — même "Pourquoi ?" que pour un item simple
+            // (voir examineBtn plus bas), ici pour un déplacement dont
+            // l'action d'examen EST déjà ce bouton Aperçu (jamais un doublon,
+            // voir LOT 4 correctif : eyeCountReview === eyeCountSafe).
+            if (change.confidenceReasons && change.confidenceReasons.length > 0 && change.confidence !== "safe") {
+              const whyBlock = previewBox.createDiv({ cls: "feuillets-docx-review-why-block" });
+              whyBlock.createDiv({ cls: "feuillets-docx-review-preview-heading" }).setText(
+                change.confidence === "ambiguous" ? t("docxReview.whyAmbiguousTitle") : t("docxReview.whyReviewTitle")
+              );
+              whyBlock.createDiv({ cls: "feuillets-docx-review-preview-text" }).setText(
+                change.confidenceReasons.map(confidenceReasonLabel).join(" · ")
+              );
+            }
             if (!(destFile instanceof TFile)) {
-              previewBox.setText(t("docxReview.previewUnavailable"));
+              previewBox.createDiv().setText(t("docxReview.previewUnavailable"));
               return;
             }
             const currentContent = await this.app.vault.read(destFile);
@@ -1197,12 +1411,24 @@ export class DocxReviewView extends BaseFeuilletsView {
         });
 
         if (change.applied) {
-          const viewMovedBtn = this.iconBtn(header, "locate", t("docxReview.viewMovedPassage"));
+          const viewMovedBtn = this.iconBtn(actions, "locate", t("docxReview.viewMovedPassage"));
           viewMovedBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             if (destFile instanceof TFile) void this.revealMoveDestination(destFile, change.toContext || "", change.text || "");
           });
         }
+      }
+
+      if (!change.applied && change.type !== "move") {
+        // FINITION UX (mission §7) — "eye" = Voir dans tout le panneau,
+        // jamais une icône de document générique pour ce même sens.
+        const viewBtn = this.iconBtn(actions, "eye", t("docxReview.openAndShowTooltip"));
+        viewBtn.addClass("feuillets-docx-review-action-btn");
+        viewBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(t("docxReview.action.view"));
+        viewBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void this.openAndReveal(file, change, fallbackText);
+        });
       }
 
       /* LOT 4 (correctif) — un élément "À vérifier" doit présenter Examiner
@@ -1212,9 +1438,14 @@ export class DocxReviewView extends BaseFeuilletsView {
        * (insertion/suppression/remplacement) n'avaient jusqu'ici AUCUNE
        * action d'examen distincte de l'application elle-même. Aperçu SANS
        * ÉCRITURE, même mécanisme que previewBtn (planApply en lecture
-       * seule, jamais une seconde implémentation de la recherche). */
-      if (!change.applied && change.confidence === "review" && change.type !== "move") {
-        const examineBtn = this.iconBtn(header, "eye", t("docxReview.examineChange"));
+       * seule, jamais une seconde implémentation de la recherche).
+       * LOT 5 — étendu à "ambiguous" (mission §2 : "Ambigu" -> [Examiner]
+       * SEUL, jamais aucune autre action pour un item simple avant ce lot) :
+       * même bouton, même mécanisme, seule la condition change. */
+      if (!change.applied && (change.confidence === "review" || change.confidence === "ambiguous") && change.type !== "move") {
+        const examineBtn = this.iconBtn(actions, "search", t("docxReview.examineChange"));
+        examineBtn.addClass("feuillets-docx-review-action-btn");
+        examineBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(t("docxReview.action.examine"));
         let examineBox: HTMLElement | null = null;
         examineBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -1224,11 +1455,24 @@ export class DocxReviewView extends BaseFeuilletsView {
               examineBox = null;
               return;
             }
+            examineBox = row.createDiv({ cls: "feuillets-docx-review-preview-box" });
+            // LOT 5 (mission §4) — "Pourquoi À vérifier ?"/"Pourquoi Ambigu ?" :
+            // traduit les confidenceReasons DÉJÀ posées par le moteur (LOT 4),
+            // jamais une nouvelle preuve calculée ici.
+            if (change.confidenceReasons && change.confidenceReasons.length > 0) {
+              const whyBlock = examineBox.createDiv({ cls: "feuillets-docx-review-why-block" });
+              whyBlock.createDiv({ cls: "feuillets-docx-review-preview-heading" }).setText(
+                change.confidence === "ambiguous" ? t("docxReview.whyAmbiguousTitle") : t("docxReview.whyReviewTitle")
+              );
+              whyBlock.createDiv({ cls: "feuillets-docx-review-preview-text" }).setText(
+                change.confidenceReasons.map(confidenceReasonLabel).join(" · ")
+              );
+            }
+            if (!file) return;
             const currentContent = await this.app.vault.read(file);
             const result = planApply(currentContent, change as unknown as Parameters<typeof planApply>[1]);
-            examineBox = row.createDiv({ cls: "feuillets-docx-review-preview-box" });
             if (!result.ok || result.newContent === undefined) {
-              examineBox.setText(t("docxReview.previewUnavailable"));
+              examineBox.createDiv().setText(t("docxReview.previewUnavailable"));
               return;
             }
             const ctx = change.contextBefore || "";
@@ -1255,10 +1499,13 @@ export class DocxReviewView extends BaseFeuilletsView {
        * d'origine, voir confirmation du correctif. */
       if (!change.applied && change.confidence !== "ambiguous") {
         const applyBtn = this.iconBtn(
-          header,
+          actions,
           "check",
           change.confidence === "review" ? t("docxReview.acceptChangeReview") : t("docxReview.applyChange")
         );
+        applyBtn.addClass("feuillets-docx-review-action-btn");
+        applyBtn.addClass("mod-accept");
+        applyBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(t("docxReview.action.accept"));
         applyBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           void (async () => {
@@ -1312,21 +1559,6 @@ export class DocxReviewView extends BaseFeuilletsView {
             change.dismissed = true;
             await this.saveItemState(change);
             new Notice(t("docxReview.changeAppliedNotice"));
-            /* Lot 4 — révèle le passage à sa nouvelle place APRÈS écriture
-               (jamais avant : le texte n'existe à cet endroit précis qu'une
-               fois le fichier réellement modifié) — même feuillet ou
-               inter-fichiers. `result.insertedRange` porte les offsets EXACTS
-               que le plan d'application vient d'écrire (voir
-               ApplyResult.insertedRange) : révélés directement
-               (revealRangeInFile), SANS repasser par une recherche textuelle
-               — celle-ci peut échouer sur un texte légèrement différent une
-               fois écrit (IDs de notes notamment) alors que l'écriture, elle,
-               a réussi. Repli sur l'ancienne recherche (revealMoveDestination)
-               seulement si aucune plage n'a été calculée (ne devrait plus
-               arriver en pratique). Le panneau Révision DOCX lui-même n'est
-               jamais fermé : seul l'éditeur du feuillet cible est
-               ouvert/activé (voir openAndReveal, déjà le mécanisme utilisé
-               par le reste du panneau pour prévisualiser AVANT application). */
             if (change.type === "move" && toFile instanceof TFile) {
               if (result.insertedRange) {
                 await this.revealRangeInFile(toFile, result.insertedRange);
@@ -1339,13 +1571,18 @@ export class DocxReviewView extends BaseFeuilletsView {
         });
       }
     } else {
-      this.renderNearFilesHints(header, change, row);
+      this.renderNearFilesHints(actions, change, row);
     }
 
     const dismissBtn = this.iconBtn(
-      header,
+      actions,
       change.dismissed ? "rotate-ccw" : "x",
       change.dismissed ? t("docxReview.restoreInStack") : t("docxReview.hideMarkResolved")
+    );
+    dismissBtn.addClass("feuillets-docx-review-action-btn");
+    if (!change.dismissed) dismissBtn.addClass("mod-reject");
+    dismissBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(
+      change.dismissed ? t("docxReview.action.restore") : t("docxReview.action.reject")
     );
     dismissBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1397,7 +1634,7 @@ export class DocxReviewView extends BaseFeuilletsView {
          * consultatif) garde son comportement historique inchangé — hors
          * périmètre de ce lot, voir la mission. */
         if (item.type) {
-          const examineBtn = this.iconBtn(header, "eye", t("docxReview.examineInto", { title }));
+          const examineBtn = this.iconBtn(header, "search", t("docxReview.examineInto", { title }));
           examineBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             void this.openAndReveal(f, item.anchorText || searchTextForChange(item as unknown as Parameters<typeof searchTextForChange>[0]));
@@ -1472,10 +1709,23 @@ export class DocxReviewView extends BaseFeuilletsView {
       : (comment.parentId != null ? t("docxReview.comment.reply") : t("docxReview.comment.comment"));
     const label = (comment.inFootnote ? t("docxReview.change.footnotePrefix") : "") + baseLabel;
     const name = header.createDiv({ cls: "feuillets-research-item-name" });
+    // LOT 5 — même hiérarchie que renderChange (TYPE → statut → EMPLACEMENT
+    // → contenu) : un commentaire n'a jamais de confiance (consultatif,
+    // voir ReviewEntryBase.confidence), seul son statut traité/résolu compte.
     const metaEl = name.createDiv({ cls: "feuillets-docx-review-meta" });
-    metaEl.setText(`${label} — ${comment.author}${comment.date ? " · " + comment.date : ""}`);
+    metaEl.setText(label);
+    if (comment.dismissed) {
+      metaEl.createSpan({ cls: "feuillets-docx-review-section-badge" }).setText(t("docxReview.status.treated"));
+    }
     if (comment.resolvedInWord) {
       metaEl.createSpan({ cls: "feuillets-docx-review-section-badge mod-resolved" }).setText(t("docxReview.comment.resolvedInWord"));
+    }
+    const locationEl = name.createDiv({ cls: "feuillets-docx-review-location" });
+    locationEl.setText(file ? this.plugin.titleFor(file) : t("docxReview.unmatchedTitle"));
+    if (comment.author || comment.date) {
+      name.createDiv({ cls: "feuillets-docx-review-submeta" }).setText(
+        `${comment.author || ""}${comment.date ? " · " + comment.date : ""}`
+      );
     }
     if (comment.anchorText) {
       const anchorEl = name.createDiv({ cls: "feuillets-docx-review-anchor" });
@@ -1494,18 +1744,39 @@ export class DocxReviewView extends BaseFeuilletsView {
       name.createDiv({ cls: "feuillets-docx-review-comment-text" }).setText(comment.text || "");
     }
 
+    const actions = row.createDiv({ cls: "feuillets-docx-review-card-actions" });
+
     if (file) {
       row.addClass("feuillets-clickable");
       row.title = t("docxReview.openAndShowTooltip");
       row.addEventListener("click", () => { void this.openAndReveal(file, comment); });
+
+      // FINITION UX (mission §7) — "eye" = Voir/Voir le passage, partout.
+      const viewBtn = this.iconBtn(actions, "eye", t("docxReview.openAndShowTooltip"));
+      viewBtn.addClass("feuillets-docx-review-action-btn");
+      viewBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(t("docxReview.action.viewPassage"));
+      viewBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.openAndReveal(file, comment);
+      });
     } else {
-      this.renderNearFilesHints(header, comment, row);
+      this.renderNearFilesHints(actions, comment, row);
     }
 
+    /* FINITION UX (mission §7, IMPORTANT) — "Marquer comme traité" NE PARTAGE
+     * JAMAIS la même croix que "Refuser" (dismissBtn de renderChange, plus
+     * haut) : `check-circle` ici, `x` là-bas — deux actions distinctes,
+     * deux icônes distinctes, même si le mécanisme sous-jacent (dismissed)
+     * est le même. "Rétablir" (rotate-ccw), lui, reste partagé : même sens
+     * partout dans le panneau. */
     const dismissBtn = this.iconBtn(
-      header,
-      comment.dismissed ? "rotate-ccw" : "x",
+      actions,
+      comment.dismissed ? "rotate-ccw" : "check-circle",
       comment.dismissed ? t("docxReview.showInStack") : t("docxReview.hideMarkResolvedShort")
+    );
+    dismissBtn.addClass("feuillets-docx-review-action-btn");
+    dismissBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(
+      comment.dismissed ? t("docxReview.action.restore") : t("docxReview.action.markResolved")
     );
     dismissBtn.addEventListener("click", (e) => {
       e.stopPropagation();
