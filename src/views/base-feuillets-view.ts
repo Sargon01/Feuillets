@@ -91,38 +91,41 @@ export function remapResearchFolderLinks(
   return changed ? out : links;
 }
 
-/** Vrai si `folderPath` est un dossier STRICTEMENT sous l'espace Recherche
- * du projet actif (`basePath` = chemin du dossier _Recherche) — jamais
- * _Recherche lui-même, jamais un dossier extérieur (autre projet, racine
- * du coffre). Fonction pure, exportée pour les tests. */
+/** Vrai si `folderPath` est un dossier STRICTEMENT sous `basePath` — jamais
+ * `basePath` lui-même. N'est plus utilisée pour restreindre l'association
+ * Binder → Recherche (un dossier lié peut être n'importe où dans le coffre,
+ * voir LinkResearchFolderModal ci-dessous) ; conservée comme prédicat pur,
+ * exporté pour les tests. */
 export function isInsideResearchSpace(folderPath: string, basePath: string): boolean {
   return folderPath !== basePath && folderPath.startsWith(`${basePath}/`);
 }
 
-/** Autocomplétion limitée à l'espace Recherche du projet actif : seuls les
- * dossiers STRICTEMENT sous `basePath` (jamais _Recherche lui-même) sont
- * proposés — le sélecteur d'association ne doit jamais laisser choisir un
- * dossier extérieur (autre projet, racine du coffre…). */
-class ResearchFolderSuggest extends FolderSuggest {
-  basePath: string;
-
-  constructor(app: App, inputEl: HTMLInputElement, basePath: string) {
-    super(app, inputEl);
-    this.basePath = basePath;
-  }
-
-  getSuggestions(query: string): TFolder[] {
-    return super
-      .getSuggestions(query)
-      .filter((f) => isInsideResearchSpace(f.path, this.basePath));
-  }
+/** Résout la saisie de LinkResearchFolderModal à l'appui sur Entrée SANS
+ * clic sur une suggestion : `candidates` est le résultat de
+ * FolderSuggest.getSuggestions(saisie) sur le texte courant. N'accepte
+ * jamais de résolution approximative : "none" si aucun dossier ne
+ * correspond, "ambiguous" si plusieurs correspondent (l'utilisateur doit
+ * alors choisir explicitement une suggestion), sinon l'unique TFolder.
+ * Fonction pure, exportée pour les tests. */
+export function resolveUniqueFolderMatch(candidates: TFolder[]): TFolder | "none" | "ambiguous" {
+  if (candidates.length === 0) return "none";
+  if (candidates.length === 1) return candidates[0];
+  return "ambiguous";
 }
 
-/** Modale de choix d'un dossier Recherche EXISTANT à associer à un dossier
- * ou un fichier Binder (associer ou changer). N'accepte que des dossiers
- * sous _Recherche du même projet — ni _Recherche lui-même, ni un dossier
- * extérieur (autre projet, racine du coffre). Ne crée jamais de dossier :
- * on ne fait que mémoriser le chemin dans researchFolderLinks. */
+/** Modale de choix d'un dossier EXISTANT du coffre à associer à un dossier
+ * ou un fichier Binder (associer ou changer) — simple SOURCE DOCUMENTAIRE,
+ * jamais un élément du Binder ni compilé. N'importe quel dossier du coffre
+ * peut être associé, y compris hors du projet actif (autre projet,
+ * documentation externe…). Ne crée jamais de dossier : on ne fait que
+ * mémoriser le chemin dans researchFolderLinks.
+ *
+ * Recherche dans TOUT le coffre (FolderSuggest, par nom ou morceau de
+ * chemin). La sélection d'une suggestion (clic ou clavier) mémorise
+ * directement le TFolder choisi — jamais de re-résolution depuis le texte
+ * affiché. Sans sélection explicite, Entrée n'accepte que si la saisie
+ * désigne SANS AMBIGUÏTÉ un seul dossier ; sinon on redemande à
+ * l'utilisateur de choisir explicitement une suggestion. */
 class LinkResearchFolderModal extends Modal {
   plugin: FeuilletsPlugin;
   binderNode: BinderNode;
@@ -135,14 +138,6 @@ class LinkResearchFolderModal extends Modal {
     this.displayName = displayName;
   }
 
-  /** Chemin de l'espace Recherche du projet actif, ou null. */
-  private researchBasePath(): string | null {
-    const root = this.plugin.getProjectFolder();
-    if (!root) return null;
-    const researchRoot = this.plugin.getResearchRoot();
-    return researchRoot instanceof TFolder ? researchRoot.path : `${root.path}/_Recherche`;
-  }
-
   onOpen() {
     const { contentEl } = this;
     contentEl.createEl("h3", {
@@ -153,26 +148,31 @@ class LinkResearchFolderModal extends Modal {
       attr: { placeholder: t("binder.research.linkModalPlaceholder") },
     });
     input.addClass("feuillets-input-full");
-    const basePath = this.researchBasePath();
-    if (basePath) new ResearchFolderSuggest(this.app, input, basePath);
+    const suggest = new FolderSuggest(this.app, input);
+    let selectedFolder: TFolder | null = null;
+    suggest.onSelect((folder) => {
+      selectedFolder = folder;
+    });
     input.focus();
     const submit = async () => {
-      const path = normalizePath(input.value.trim());
-      if (!path) return;
-      if (!basePath) {
-        new Notice(t("binder.research.noResearchRoot"));
-        return;
-      }
-      const folder = this.app.vault.getAbstractFileByPath(path);
-      if (!(folder instanceof TFolder)) {
-        new Notice(t("binder.research.linkFolderNotFound"));
-        return;
-      }
-      /* Refus de toute saisie manuelle extérieure : on n'associe JAMAIS un
-         dossier hors de _Recherche du même projet. */
-      if (!isInsideResearchSpace(folder.path, basePath)) {
-        new Notice(t("binder.research.linkFolderOutside"));
-        return;
+      const raw = input.value.trim();
+      if (!raw) return;
+      /* Le TFolder mémorisé par onSelect n'est réutilisé que tant que la
+         saisie visible n'a pas changé depuis la sélection — sinon on
+         retombe sur la résolution par correspondance unique ci-dessous. */
+      let folder: TFolder | null =
+        selectedFolder && selectedFolder.path === raw ? selectedFolder : null;
+      if (!folder) {
+        const resolved = resolveUniqueFolderMatch(suggest.getSuggestions(raw));
+        if (resolved === "none") {
+          new Notice(t("binder.research.linkFolderNotFound"));
+          return;
+        }
+        if (resolved === "ambiguous") {
+          new Notice(t("binder.research.linkFolderAmbiguous"));
+          return;
+        }
+        folder = resolved;
       }
       this.close();
       await this.plugin.setLinkedResearchFolder(this.binderNode, folder);

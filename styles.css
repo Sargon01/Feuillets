@@ -1641,6 +1641,16 @@ body.feuillets-concentration .markdown-preview-view {
   min-width: 520px;
 }
 
+.feuillets-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.feuillets-modal-title-row h3 {
+  margin: 0;
+}
+
 .feuillets-project-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

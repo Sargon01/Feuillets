@@ -3,9 +3,10 @@ import test from "node:test";
 import { Menu, TFile, TFolder } from "obsidian";
 import { FeuilletsView } from "../src/views/feuillets-view.js";
 import { hasKnownProject } from "../src/services/folder-structure.js";
-import { remapResearchFolderLinks, isInsideResearchSpace } from "../src/views/base-feuillets-view.js";
+import { remapResearchFolderLinks, isInsideResearchSpace, resolveUniqueFolderMatch } from "../src/views/base-feuillets-view.js";
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 import { NewFolderModal } from "../src/ui/basic-modals.js";
+import { FolderSuggest } from "../src/ui/folder-suggest.js";
 
 /* La décision "écran d'accueil vs gestionnaire de projets" repose sur
    hasKnownProject(), pure et testée directement ci-dessous : c'est ce qui
@@ -715,65 +716,121 @@ test("Binder ↔ Recherche : le nom du dossier de création utilise le basename 
 });
 
 // ---------------------------------------------------------------------------
-// Tests de restriction : LinkResearchFolderModal / ResearchFolderSuggest
+// Tests Binder ↔ Recherche : association d'un dossier — LinkResearchFolderModal
+// n'est plus restreinte à l'espace Recherche du projet (isInsideResearchSpace
+// n'est plus utilisée pour bloquer/filtrer, voir base-feuillets-view.ts).
+// FolderSuggest cherche désormais dans TOUT le coffre ; resolveUniqueFolderMatch
+// décide de l'acceptation d'une saisie non cliquée (Entrée).
 // ---------------------------------------------------------------------------
 
-test("Binder ↔ Recherche : ResearchFolderSuggest — dossier extérieur absent des suggestions", () => {
-  // On teste directement isInsideResearchSpace, la pure function
-  const researchBase = "Projet/_Recherche";
+/** Construit un petit coffre en mémoire pour FolderSuggest : un dossier
+ * "input" HTML minimal suffit, FolderSuggest ne lit que `vault.getRoot()`
+ * et parcourt `.children`. */
+function buildSuggestVault(folders) {
+  const root = new TFolder("/");
+  root.children = folders;
+  for (const f of folders) f.parent = root;
+  return { vault: { getRoot: () => root } };
+}
 
-  // Cas valides
-  assert.equal(isInsideResearchSpace("Projet/_Recherche/Docs", researchBase), true);
-  assert.equal(isInsideResearchSpace("Projet/_Recherche/Sources/Livres", researchBase), true);
-
-  // Cas invalides
-  assert.equal(isInsideResearchSpace("Projet/_Recherche", researchBase), false, "racine refusée");
-  assert.equal(isInsideResearchSpace("Projet/Manuscrit", researchBase), false, "hors _Recherche");
-  assert.equal(isInsideResearchSpace("Autre/_Recherche/Docs", researchBase), false, "autre projet");
-  assert.equal(isInsideResearchSpace("Projet/_RechercheSuite", researchBase), false, "nom voisin, pas préfixe exact");
+test("Volet Recherche : dossier sous _Recherche du projet toujours proposé", () => {
+  const inside = new TFolder("Projet/_Recherche/Personnages");
+  const { vault } = buildSuggestVault([inside]);
+  const suggest = new FolderSuggest({ vault }, { value: "" });
+  assert.deepEqual(suggest.getSuggestions("Personnages").map((f) => f.path), [inside.path]);
 });
 
-test("Binder ↔ Recherche : saisie extérieure refusée par la modale", () => {
-  // Simulé : la modale vérifie isInsideResearchSpace avant d'accepter
-  const researchBase = "Projet/_Recherche";
-
-  // Chemin extérieur
-  assert.equal(isInsideResearchSpace("HorsProjet/Dossier", researchBase), false);
-
-  // Chemin qui est exactement la racine
-  assert.equal(isInsideResearchSpace(researchBase, researchBase), false);
-
-  // Fichier (ne passerait pas le instanceof TFolder, mais isInsideResearchSpace
-  // est testé avant même ça dans la modale - la validation du chemin est
-  // faite par isInsideResearchSpace sur le folder.path)
+test("Volet Recherche : dossier extérieur au projet désormais proposé et associable", () => {
+  // C'est LE changement de comportement du Volet 2 : un dossier hors du
+  // projet actif (aucune restriction géographique) apparaît dans les
+  // suggestions et resolveUniqueFolderMatch l'accepte sans ambiguïté.
+  const outside = new TFolder("Documentation/Histoire ottomane");
+  const { vault } = buildSuggestVault([outside]);
+  const suggest = new FolderSuggest({ vault }, { value: "" });
+  const matches = suggest.getSuggestions("ottomane");
+  assert.deepEqual(matches.map((f) => f.path), [outside.path]);
+  assert.equal(resolveUniqueFolderMatch(matches), outside);
 });
 
-test("Binder ↔ Recherche : autre projet refusé", () => {
-  // Projet A: Roman/_Recherche, Projet B: Nouvelle/_Recherche
-  assert.equal(
-    isInsideResearchSpace("Nouvelle/_Recherche/Docs", "Roman/_Recherche"),
-    false,
-    "dossier d'un autre projet refusé"
-  );
+test("Volet Recherche : dossier d'un AUTRE projet du coffre désormais proposé et associable", () => {
+  const otherProject = new TFolder("AutreProjet/Recherche/Lieux");
+  const { vault } = buildSuggestVault([otherProject]);
+  const suggest = new FolderSuggest({ vault }, { value: "" });
+  const matches = suggest.getSuggestions("AutreProjet");
+  assert.deepEqual(matches.map((f) => f.path), [otherProject.path]);
+  assert.equal(resolveUniqueFolderMatch(matches), otherProject);
 });
 
-test("Binder ↔ Recherche : racine _Recherche refusée", () => {
-  assert.equal(
-    isInsideResearchSpace("Roman/_Recherche", "Roman/_Recherche"),
-    false,
-    "la racine _Recherche elle-même est refusée"
-  );
+test("Volet Recherche : recherche par nom partiel du dossier", () => {
+  const target = new TFolder("Bibliothèque personnelle/Architecture");
+  const other = new TFolder("Projet/_Recherche/Personnages");
+  const { vault } = buildSuggestVault([target, other]);
+  const suggest = new FolderSuggest({ vault }, { value: "" });
+  assert.deepEqual(suggest.getSuggestions("architecture").map((f) => f.path), [target.path]);
 });
 
-test("Binder ↔ Recherche : descendant valide accepté", () => {
-  assert.equal(
-    isInsideResearchSpace("Roman/_Recherche/Personnages", "Roman/_Recherche"),
-    true,
-    "descendant direct accepté"
+test("Volet Recherche : recherche par morceau de chemin (pas seulement le nom du dossier)", () => {
+  const target = new TFolder("Documentation/Histoire ottomane");
+  const other = new TFolder("Projet/_Recherche/Personnages");
+  const { vault } = buildSuggestVault([target, other]);
+  const suggest = new FolderSuggest({ vault }, { value: "" });
+  // "documentation" ne correspond qu'au chemin parent, pas au nom du dossier
+  assert.deepEqual(suggest.getSuggestions("documentation").map((f) => f.path), [target.path]);
+});
+
+test("Volet Recherche : deux dossiers de même nom → resolveUniqueFolderMatch ne tranche jamais au hasard", () => {
+  const a = new TFolder("ProjetA/_Recherche/Lieux");
+  const b = new TFolder("ProjetB/_Recherche/Lieux");
+  const { vault } = buildSuggestVault([a, b]);
+  const suggest = new FolderSuggest({ vault }, { value: "" });
+  const matches = suggest.getSuggestions("Lieux");
+  assert.equal(matches.length, 2, "les deux dossiers correspondent au nom");
+  assert.equal(resolveUniqueFolderMatch(matches), "ambiguous", "aucun choix arbitraire automatique");
+});
+
+test("Volet Recherche : resolveUniqueFolderMatch — aucune correspondance", () => {
+  assert.equal(resolveUniqueFolderMatch([]), "none");
+});
+
+test("CORRECTIF — cliquer une suggestion remplit le champ avec le chemin exact (pas de saisie manuelle nécessaire)", () => {
+  const target = new TFolder("Documentation/Histoire ottomane");
+  const { vault } = buildSuggestVault([target]);
+  const inputEl = { value: "" };
+  const suggest = new FolderSuggest({ vault }, inputEl);
+  let received = null;
+  suggest.onSelect((folder) => {
+    received = folder;
+  });
+  // Simule ce qu'Obsidian appelle réellement au clic (ou à la validation
+  // clavier) d'une suggestion — jamais un déclenchement manuel côté test.
+  suggest.selectSuggestion(target, { type: "click" });
+  assert.equal(inputEl.value, target.path, "le champ doit être rempli avec le chemin complet au clic");
+  assert.equal(received, target, "le callback onSelect doit recevoir le TFolder choisi");
+});
+
+test("Volet Recherche : resolveUniqueFolderMatch — une correspondance unique acceptée directement", () => {
+  const only = new TFolder("Projet/_Recherche/Sources");
+  assert.equal(resolveUniqueFolderMatch([only]), only);
+});
+
+test("Volet Recherche : isInsideResearchSpace reste un prédicat pur valide (mais n'est plus un filtre)", () => {
+  assert.equal(isInsideResearchSpace("Projet/_Recherche/Personnages", "Projet/_Recherche"), true);
+  assert.equal(isInsideResearchSpace("Projet/_Recherche", "Projet/_Recherche"), false, "racine refusée");
+  assert.equal(isInsideResearchSpace("AutreProjet/Dossier", "Projet/_Recherche"), false, "hors espace");
+});
+
+test("Volet Recherche : renommage d'un dossier EXTÉRIEUR lié — researchFolderLinks remappé correctement", () => {
+  // Le handler de remappage (remapResearchFolderLinks) est purement basé sur
+  // les chemins : il fonctionne identiquement pour un dossier externe.
+  const links = {
+    "Roman/Manuscrit/Chapitre 1": "Documentation/Histoire ottomane",
+  };
+  const mapped = remapResearchFolderLinks(
+    links,
+    "Documentation/Histoire ottomane",
+    "Documentation/Histoire des Ottomans"
   );
-  assert.equal(
-    isInsideResearchSpace("Roman/_Recherche/Docs/Sources/Primaires", "Roman/_Recherche"),
-    true,
-    "descendant profond accepté"
-  );
+  assert.deepEqual(mapped, {
+    "Roman/Manuscrit/Chapitre 1": "Documentation/Histoire des Ottomans",
+  });
 });
