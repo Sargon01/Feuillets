@@ -2331,3 +2331,43 @@ test("LOT 9B — la génération ne change pas applied/dismissed des cartes exis
   assert.equal(insertion.dismissed, beforeDismissed);
   assert.equal(JSON.stringify(plugin.settings.docxReviewResolved), beforeResolved, "docxReviewResolved inchangé : sortie pure, pas une nouvelle décision");
 });
+
+test("CORRECTIF — exception imprévue du moteur pendant la génération : aucun crash, Notice générique, isGeneratingDocx retombe à false", async () => {
+  const { view } = await setupAnalyzedView();
+  // Une décision existante évite ici le message d'avertissement §9 (hors
+  // sujet de ce test) — on veut isoler le SEUL message d'échec (voir le test
+  // "unsupported-footnote-move-regeneration" ci-dessus, même précaution).
+  const insertion = view.results.byPath["Projet/Scene.md"].changes.find((c) => c.type === "insertion");
+  await view.saveItemState({ ...insertion, applied: true, dismissed: true });
+
+  view.regenerateDocxZipFn = async () => {
+    throw new Error("panne imprévue du moteur");
+  };
+  const notices = [];
+  Notice.onCreate = (m) => notices.push(m);
+  await assert.doesNotReject(() => view.generateRevisedDocx(), "aucune exception ne doit remonter hors de generateRevisedDocx");
+  Notice.onCreate = null;
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0], "Impossible de générer ce DOCX en toute sécurité.");
+  assert.equal(view.isGeneratingDocx, false, "le bouton redevient utilisable, pas bloqué indéfiniment");
+});
+
+test("CORRECTIF — exception imprévue de writeBinaryFile pendant la génération : aucun crash, Notice générique, isGeneratingDocx retombe à false", async () => {
+  const { view } = await setupAnalyzedView();
+  const insertion = view.results.byPath["Projet/Scene.md"].changes.find((c) => c.type === "insertion");
+  await view.saveItemState({ ...insertion, applied: true, dismissed: true });
+
+  view.regenerateDocxZipFn = async () => ({ ok: true, docxBuffer: new ArrayBuffer(4), processedRefsCount: 1 });
+  const originalWrite = view.app.vault.createBinary;
+  view.app.vault.createBinary = async () => {
+    throw new Error("panne imprévue d'écriture disque");
+  };
+  const notices = [];
+  Notice.onCreate = (m) => notices.push(m);
+  await assert.doesNotReject(() => view.generateRevisedDocx(), "aucune exception ne doit remonter hors de generateRevisedDocx");
+  Notice.onCreate = null;
+  view.app.vault.createBinary = originalWrite;
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0], "Impossible de générer ce DOCX en toute sécurité.");
+  assert.equal(view.isGeneratingDocx, false, "le bouton redevient utilisable, pas bloqué indéfiniment");
+});

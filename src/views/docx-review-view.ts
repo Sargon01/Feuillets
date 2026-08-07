@@ -939,7 +939,16 @@ export class DocxReviewView extends BaseFeuilletsView {
         new Notice(t("docxReview.regenerateNoDecisionsWarning"));
       }
 
-      const result = await this.regenerateDocxZipFn(this.originalDocxBuffer, decisions, changes, comments);
+      let result: Awaited<ReturnType<typeof this.regenerateDocxZipFn>>;
+      try {
+        result = await this.regenerateDocxZipFn(this.originalDocxBuffer, decisions, changes, comments);
+      } catch (err) {
+        // Exception JS imprévue du moteur (jamais un simple ok:false) —
+        // jamais de crash de la vue, message générique déjà posé au Lot 9B.
+        console.error("Feuillets: exception imprévue pendant la régénération DOCX —", err);
+        new Notice(t("docxReview.regenerateErrorGeneric"));
+        return;
+      }
       if (!result.ok) {
         console.error("Feuillets: régénération DOCX impossible —", result.reason);
         new Notice(this.regenerateFailureMessage(result.reason));
@@ -956,10 +965,16 @@ export class DocxReviewView extends BaseFeuilletsView {
       const outPath = normalizePath(
         outBase ? `${outBase}/${baseName}-révisé.docx` : `${baseName}-révisé.docx`
       );
-      // writeBinaryFile (compile-export.ts, déjà utilisé par les exports
-      // natifs) : crée si absent, modifie en place sinon — jamais un second
-      // mécanisme d'écriture binaire inventé pour ce lot.
-      await writeBinaryFile(this.app, outPath, result.docxBuffer);
+      try {
+        // writeBinaryFile (compile-export.ts, déjà utilisé par les exports
+        // natifs) : crée si absent, modifie en place sinon — jamais un second
+        // mécanisme d'écriture binaire inventé pour ce lot.
+        await writeBinaryFile(this.app, outPath, result.docxBuffer);
+      } catch (err) {
+        console.error("Feuillets: exception imprévue pendant l'écriture du DOCX révisé —", err);
+        new Notice(t("docxReview.regenerateErrorGeneric"));
+        return;
+      }
       new Notice(t("docxReview.regenerateSuccessNotice", { path: outPath }));
     } finally {
       this.isGeneratingDocx = false;

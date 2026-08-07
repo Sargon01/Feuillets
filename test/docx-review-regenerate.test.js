@@ -876,4 +876,86 @@ test("LOT 9A — Moteur pur de régénération DOCX (suite complète avec correc
     const imgData = await newZip.file("word/media/image1.png").async("uint8array");
     assert.deepEqual(Array.from(imgData), [1, 2, 3, 4, 5]);
   });
+
+  await t.test("33. Correctif isFormatting : une carte de mise en forme (rPrChange) traitée ne touche jamais commentsExtended.xml", async () => {
+    const extXml =
+      '<w15:commentsEx xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">' +
+      '<w15:commentEx w15:paraId="P1" w15:done="0"/>' +
+      "</w15:commentsEx>";
+    const zip = new JSZip();
+    zip.file("word/document.xml", makeDocXml("<w:p><w:r><w:t>Texte</w:t></w:r></w:p>"));
+    zip.file("word/commentsExtended.xml", extXml);
+    const origBuffer = await zip.generateAsync({ type: "arraybuffer" });
+
+    const formattingComment = {
+      anchorText: "Texte",
+      text: "Gras appliqué",
+      author: "A",
+      date: "D",
+      isFormatting: true,
+      // Pas de commentExtendedParaId : ce n'est pas un vrai commentaire Word.
+    };
+    const key = getItemKey(formattingComment);
+
+    const res = await regenerateDocxZip(
+      origBuffer,
+      { [key]: { applied: false, dismissed: true } },
+      [],
+      [formattingComment]
+    );
+    assert.equal(res.ok, true);
+
+    const newZip = await JSZip.loadAsync(res.docxBuffer);
+    const newExtXml = await newZip.file("word/commentsExtended.xml").async("string");
+    assert.equal(newExtXml, extXml);
+  });
+
+  await t.test("34. Correctif isFormatting combiné : un vrai commentaire résolu ET une carte de mise en forme traitée en même temps", async () => {
+    const extXml =
+      '<w15:commentsEx xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">' +
+      '<w15:commentEx w15:paraId="P1" w15:done="0"/>' +
+      "</w15:commentsEx>";
+    const zip = new JSZip();
+    zip.file("word/document.xml", makeDocXml("<w:p><w:r><w:t>Texte</w:t></w:r></w:p>"));
+    zip.file("word/commentsExtended.xml", extXml);
+    const origBuffer = await zip.generateAsync({ type: "arraybuffer" });
+
+    const realComment = {
+      anchorText: "Texte",
+      text: "Vrai commentaire",
+      author: "A",
+      date: "D",
+      commentId: "0",
+      commentExtendedParaId: "P1",
+    };
+    const formattingComment = {
+      anchorText: "Texte",
+      text: "Gras appliqué",
+      author: "A",
+      date: "D",
+      isFormatting: true,
+    };
+    const keyReal = getItemKey(realComment);
+    const keyFormatting = getItemKey(formattingComment);
+
+    const res = await regenerateDocxZip(
+      origBuffer,
+      {
+        [keyReal]: { applied: false, dismissed: true },
+        [keyFormatting]: { applied: false, dismissed: true },
+      },
+      [],
+      [realComment, formattingComment]
+    );
+    assert.equal(res.ok, true);
+
+    const newZip = await JSZip.loadAsync(res.docxBuffer);
+    const newExtXml = await newZip.file("word/commentsExtended.xml").async("string");
+    assert.equal(
+      newExtXml,
+      '<w15:commentsEx xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">' +
+        '<w15:commentEx w15:paraId="P1" w15:done="1"/>' +
+        "</w15:commentsEx>"
+    );
+  });
 });
