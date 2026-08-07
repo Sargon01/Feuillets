@@ -424,7 +424,7 @@ export function parseCommentsXml(
       text: paragraphs.filter(Boolean).join("\n").trim(),
       commentId: id,
     };
-    if (paraIds[0]) commentObj.commentExtendedParaId = paraIds[0];
+    if (paraIds.length > 0) commentObj.commentExtendedParaId = paraIds[paraIds.length - 1];
     byId[id] = commentObj;
     for (const pid of paraIds) paraIdToId[pid] = id;
     collected.push({ id, paraIds });
@@ -1126,6 +1126,7 @@ export function parseDocumentXml(
       if (sawParagraph) pendingParaBreak = true;
       sawParagraph = true;
       currentParaIsHeading = false; // un seul <w:pStyle> par paragraphe, jamais hérité du précédent (voir sa doc)
+      lastPPrRevisionRef = null;
       continue;
     }
     if (t.name === "w:commentRangeStart" && t.selfClosing) {
