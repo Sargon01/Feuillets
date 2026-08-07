@@ -76,6 +76,10 @@ function createWorkspaceMock(contentByPath) {
 function createView({ files = [], settings = {}, content = {}, root = new TFolder("Projet"), withWorkspace = false } = {}) {
   const byPath = new Map(files.map((entry) => [entry.path, entry]));
   const writes = [];
+  // LOT 9B — écritures BINAIRES (createBinary/modifyBinary), distinctes des
+  // écritures Markdown ci-dessus (`writes`) : le générateur de DOCX révisé
+  // n'écrit JAMAIS dans `content`/`writes`, seulement ici.
+  const binaryWrites = [];
   const wsMock = withWorkspace ? createWorkspaceMock(content) : null;
   const app = {
     vault: {
@@ -87,6 +91,15 @@ function createView({ files = [], settings = {}, content = {}, root = new TFolde
         // Partagé avec le mock workspace (editor.getValue) : une lecture ou
         // une révélation APRÈS écriture voit le VRAI contenu écrit.
         content[entry.path] = newContent;
+      },
+      async createBinary(path, buf) {
+        binaryWrites.push({ path, buf, mode: "create" });
+        const created = file(path);
+        byPath.set(path, created);
+        return created;
+      },
+      async modifyBinary(entry, buf) {
+        binaryWrites.push({ path: entry.path, buf, mode: "modify" });
       },
     },
     ...(wsMock ? { workspace: wsMock.workspace } : {}),
@@ -103,7 +116,7 @@ function createView({ files = [], settings = {}, content = {}, root = new TFolde
   };
   const contentEl = new FakeElement();
   const view = new DocxReviewView({ app, contentEl }, plugin);
-  return { view, app, plugin, contentEl, writes, ws: wsMock };
+  return { view, app, plugin, contentEl, writes, binaryWrites, ws: wsMock };
 }
 
 function iconsFrom(container) { return allElements(container).map((element) => element.icon).filter(Boolean); }
@@ -2081,4 +2094,280 @@ test("LOT 6 — état auto-détecté déjà appliqué SANS état enregistré : a
   assert.ok(traceLines.some((t) => t.includes("Déjà présent")), "signale l'état auto-détecté, sans date inventée");
   assert.equal(allElements(container).some((el) => el.icon === "git-compare"), false, "aucune comparaison proposée sans point de retour connu");
   assert.equal(plugin.settings.docxReviewResolved, undefined, "aucune trace n'a été écrite dans les settings");
+});
+
+/* =========================================================================
+ * LOT 9B — génération du DOCX révisé : câblage panneau -> moteur (Lot 9A).
+ * Ne duplique jamais les tests internes du moteur (voir
+ * test/docx-review-regenerate.test.js) — ici, uniquement ce que la vue lui
+ * transmet et comment elle réagit au résultat. `regenerateDocxZipFn` est
+ * réassigné (voir DocxReviewView, point d'injection dédié) pour observer les
+ * arguments réels sans dépendre du moteur réel.
+ * ========================================================================= */
+
+/** Construit une vue déjà analysée (un feuillet, une insertion + un
+ * commentaire réels, post-fusions) — même XML minimal que le test "analyse
+ * DOCX sans écriture" ci-dessus, réutilisé pour ne pas réinventer un second
+ * format de fixture. */
+async function setupAnalyzedView(bufferBytes = "docx-bytes-A", docxName = "Manuscrit.docx") {
+  const scenePath = "Projet/Scene.md";
+  const scene = file(scenePath, "Avant ajout passage");
+  const bookmark = bookmarkIdFor(scenePath);
+  const created = createView({ files: [scene] });
+  const { view } = created;
+
+  const xml = documentXml(
+    `<w:p><w:bookmarkStart w:id="1" w:name="${bookmark}"/><w:r><w:t>Avant</w:t></w:r>` +
+    `<w:ins w:id="2" w:author="A" w:date="D"><w:r><w:t> ajout</w:t></w:r></w:ins>` +
+    `<w:commentRangeStart w:id="0"/><w:r><w:t> passage</w:t></w:r><w:commentRangeEnd w:id="0"/>` +
+    `<w:r><w:commentReference w:id="0"/></w:r><w:bookmarkEnd w:id="1"/></w:p>`
+  );
+  const zip = mockZip({
+    "word/document.xml": xml,
+    "word/comments.xml": '<w:comments><w:comment w:id="0" w:author="A" w:date="D"><w:p w14:paraId="AA"><w:r><w:t>Résolu</w:t></w:r></w:p></w:comment></w:comments>',
+    "word/footnotes.xml": "<w:footnotes/>",
+    "word/commentsExtended.xml": '<w15:commentsEx><w15:commentEx w15:paraId="AA" w15:done="1"/></w15:commentsEx>',
+  });
+  const buf = new TextEncoder().encode(bufferBytes).buffer;
+  await view.analyzeBuffer(buf, docxName);
+  zip.restore();
+  return { ...created, scene, buf };
+}
+
+test("LOT 9B — analyzeBuffer conserve le buffer original en mémoire de session", async () => {
+  const { view, buf } = await setupAnalyzedView();
+  assert.equal(view.originalDocxBuffer, buf, "même référence que le buffer passé à analyzeBuffer");
+});
+
+test("LOT 9B — charger un second DOCX remplace le buffer précédent (pas d'accumulation)", async () => {
+  const { view } = await setupAnalyzedView("premier", "Un.docx");
+  const firstBuf = view.originalDocxBuffer;
+
+  const scenePath = "Projet/Scene.md";
+  const bookmark = bookmarkIdFor(scenePath);
+  const xml = documentXml(
+    `<w:p><w:bookmarkStart w:id="1" w:name="${bookmark}"/><w:r><w:t>Avant</w:t></w:r>` +
+    `<w:ins w:id="2" w:author="A" w:date="D"><w:r><w:t> ajout</w:t></w:r></w:ins></w:p>`
+  );
+  const zip = mockZip({ "word/document.xml": xml });
+  const secondBuf = new TextEncoder().encode("second").buffer;
+  await view.analyzeBuffer(secondBuf, "Deux.docx");
+  zip.restore();
+
+  assert.equal(view.originalDocxBuffer, secondBuf, "le buffer courant est bien le second");
+  assert.notEqual(view.originalDocxBuffer, firstBuf, "aucune trace du premier buffer");
+  assert.equal(view.docxName, "Deux.docx");
+});
+
+test("LOT 9B — génération transmet au moteur le buffer original (même référence)", async () => {
+  const { view, buf } = await setupAnalyzedView();
+  let received = null;
+  view.regenerateDocxZipFn = async (...args) => { received = args; return { ok: true, docxBuffer: new ArrayBuffer(0), processedRefsCount: 0 }; };
+  await view.generateRevisedDocx();
+  assert.equal(received[0], buf, "le buffer transmis au moteur est le buffer ORIGINAL, sans copie ni transformation");
+});
+
+test("LOT 9B — génération transmet les ReviewChange réels (post-fusions)", async () => {
+  const { view } = await setupAnalyzedView();
+  let received = null;
+  view.regenerateDocxZipFn = async (...args) => { received = args; return { ok: true, docxBuffer: new ArrayBuffer(0), processedRefsCount: 0 }; };
+  await view.generateRevisedDocx();
+  const [, , parsedChanges] = received;
+  const expected = view.results.byPath["Projet/Scene.md"].changes;
+  assert.equal(parsedChanges.length, expected.length);
+  assert.equal(parsedChanges[0], expected[0], "même objet que celui affiché dans la carte — aucun reparsing");
+});
+
+test("LOT 9B — génération transmet les ReviewComment réels", async () => {
+  const { view } = await setupAnalyzedView();
+  let received = null;
+  view.regenerateDocxZipFn = async (...args) => { received = args; return { ok: true, docxBuffer: new ArrayBuffer(0), processedRefsCount: 0 }; };
+  await view.generateRevisedDocx();
+  const [, , , parsedComments] = received;
+  const expected = view.results.byPath["Projet/Scene.md"].comments;
+  assert.equal(parsedComments.length, expected.length);
+  assert.equal(parsedComments[0], expected[0]);
+});
+
+test("LOT 9B — génération transmet uniquement le saved state du DOCX courant, jamais mélangé avec un autre document", async () => {
+  const { view, plugin } = await setupAnalyzedView("bytes", "Courant.docx");
+  const insertion = view.results.byPath["Projet/Scene.md"].changes.find((c) => c.type === "insertion");
+  await view.saveItemState({ ...insertion, applied: true, dismissed: true });
+
+  // Décision d'un AUTRE document, présente dans les mêmes settings —
+  // ne doit JAMAIS apparaître dans les décisions transmises au moteur.
+  plugin.settings.docxReviewResolved["Autre.docx"] = {
+    "insertion|X|Y|contexte|texte|9": { applied: true, dismissed: true },
+  };
+
+  let received = null;
+  view.regenerateDocxZipFn = async (...args) => { received = args; return { ok: true, docxBuffer: new ArrayBuffer(0), processedRefsCount: 0 }; };
+  await view.generateRevisedDocx();
+  const [, decisions] = received;
+  const expectedKeys = Object.keys(plugin.settings.docxReviewResolved["Courant.docx"]);
+  assert.deepEqual(Object.keys(decisions).sort(), expectedKeys.sort());
+  assert.equal(Object.keys(decisions).some((k) => k.includes("|X|Y|")), false, "aucune décision de l'autre document");
+});
+
+test("LOT 9B — aucune décision implicite ajoutée depuis item.applied/dismissed seul (absent de docxReviewResolved)", async () => {
+  const { view, plugin } = await setupAnalyzedView();
+  // Le commentaire est auto-marqué `dismissed` (commentsExtended w15:done)
+  // par analyzeBuffer, SANS jamais passer par saveItemState : docxReviewResolved
+  // reste donc vide pour ce document.
+  const comment = view.results.byPath["Projet/Scene.md"].comments[0];
+  assert.equal(comment.dismissed, true, "prérequis : l'item porte bien un état en mémoire non sauvegardé");
+  assert.equal(plugin.settings.docxReviewResolved, undefined, "prérequis : rien n'a été sauvegardé");
+
+  let received = null;
+  view.regenerateDocxZipFn = async (...args) => { received = args; return { ok: true, docxBuffer: new ArrayBuffer(0), processedRefsCount: 0 }; };
+  await view.generateRevisedDocx();
+  const [, decisions] = received;
+  assert.deepEqual(decisions, {}, "aucune décision fabriquée à partir de l'état en mémoire seul");
+});
+
+test("LOT 9B — succès crée un fichier .docx", async () => {
+  const { view, binaryWrites } = await setupAnalyzedView();
+  view.regenerateDocxZipFn = async () => ({ ok: true, docxBuffer: new ArrayBuffer(4), processedRefsCount: 1 });
+  await view.generateRevisedDocx();
+  assert.equal(binaryWrites.length, 1);
+  assert.ok(binaryWrites[0].path.endsWith(".docx"));
+});
+
+test("LOT 9B — nom par défaut <nom-original>-révisé.docx", async () => {
+  const { view, binaryWrites } = await setupAnalyzedView("bytes", "Manuscrit.docx");
+  view.regenerateDocxZipFn = async () => ({ ok: true, docxBuffer: new ArrayBuffer(4), processedRefsCount: 1 });
+  await view.generateRevisedDocx();
+  assert.ok(binaryWrites[0].path.endsWith("Manuscrit-révisé.docx"), binaryWrites[0].path);
+});
+
+test("LOT 9B — l'original n'est jamais écrasé automatiquement", async () => {
+  const { view, app, binaryWrites } = await setupAnalyzedView("bytes", "Manuscrit.docx");
+  // Simule un fichier original présent dans le coffre, sous ce nom exact
+  // (même chemin que celui que writeBinaryFile viserait pour l'original).
+  const originalPath = "Projet/Manuscrit.docx";
+  const originalFile = file(originalPath);
+  const previousLookup = app.vault.getAbstractFileByPath;
+  app.vault.getAbstractFileByPath = (path) => (path === originalPath ? originalFile : previousLookup(path));
+  view.regenerateDocxZipFn = async () => ({ ok: true, docxBuffer: new ArrayBuffer(4), processedRefsCount: 1 });
+  await view.generateRevisedDocx();
+  assert.notEqual(binaryWrites[0].path, originalPath);
+  assert.equal(binaryWrites[0].mode, "create", "le fichier -révisé.docx est créé, l'original n'est ni lu ni modifié");
+});
+
+test("LOT 9B — échec du moteur (ok:false) : aucun fichier créé", async () => {
+  const { view, binaryWrites } = await setupAnalyzedView();
+  view.regenerateDocxZipFn = async () => ({ ok: false, reason: "invalid-xml-structure" });
+  const notices = [];
+  Notice.onCreate = (m) => notices.push(m);
+  await view.generateRevisedDocx();
+  Notice.onCreate = null;
+  assert.equal(binaryWrites.length, 0);
+  assert.ok(notices.length > 0);
+});
+
+test("LOT 9B — unsupported-footnote-move-regeneration affiche un message clair, sans jargon OOXML", async () => {
+  const { view } = await setupAnalyzedView();
+  // Une décision existante évite ici le message d'avertissement §9 (hors
+  // sujet de ce test) — on veut isoler le SEUL message d'échec du moteur.
+  const insertion = view.results.byPath["Projet/Scene.md"].changes.find((c) => c.type === "insertion");
+  await view.saveItemState({ ...insertion, applied: true, dismissed: true });
+
+  view.regenerateDocxZipFn = async () => ({ ok: false, reason: "unsupported-footnote-move-regeneration" });
+  const notices = [];
+  Notice.onCreate = (m) => notices.push(m);
+  await view.generateRevisedDocx();
+  Notice.onCreate = null;
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0], "Ce document contient un déplacement avec note de bas de page qui ne peut pas encore être régénéré automatiquement.");
+  assert.equal(/ooxml|xml|w:moveFrom|w:moveTo/i.test(notices[0]), false, "aucun jargon technique dans le message principal");
+});
+
+test("LOT 9B — double lancement empêché : un deuxième clic pendant la génération est ignoré", async () => {
+  const { view } = await setupAnalyzedView();
+  let calls = 0;
+  let resolveEngine;
+  view.regenerateDocxZipFn = async () => {
+    calls += 1;
+    return new Promise((resolve) => {
+      resolveEngine = () => resolve({ ok: true, docxBuffer: new ArrayBuffer(0), processedRefsCount: 0 });
+    });
+  };
+  const firstRun = view.generateRevisedDocx();
+  // Deuxième clic pendant que la génération est en cours (isGeneratingDocx déjà posé).
+  await view.generateRevisedDocx();
+  resolveEngine();
+  await firstRun;
+  assert.equal(calls, 1, "le moteur n'a été invoqué qu'une seule fois");
+});
+
+test("LOT 9B — la génération ne modifie aucun fichier Markdown du projet", async () => {
+  const { view, writes } = await setupAnalyzedView();
+  view.regenerateDocxZipFn = async () => ({ ok: true, docxBuffer: new ArrayBuffer(4), processedRefsCount: 1 });
+  await view.generateRevisedDocx();
+  assert.equal(writes.length, 0, "aucune écriture Markdown — sortie pure, jamais une application de révisions");
+});
+
+test("LOT 9B — la génération ne crée ni ne modifie de snapshot", async () => {
+  const { view, plugin } = await setupAnalyzedView();
+  let snapshotCalls = 0;
+  plugin.snapshotFile = async () => { snapshotCalls += 1; return "stamp"; };
+  view.regenerateDocxZipFn = async () => ({ ok: true, docxBuffer: new ArrayBuffer(4), processedRefsCount: 1 });
+  await view.generateRevisedDocx();
+  assert.equal(snapshotCalls, 0);
+});
+
+test("LOT 9B — la génération ne change pas applied/dismissed des cartes existantes ni docxReviewResolved", async () => {
+  const { view, plugin } = await setupAnalyzedView("bytes", "Courant.docx");
+  const insertion = view.results.byPath["Projet/Scene.md"].changes.find((c) => c.type === "insertion");
+  await view.saveItemState({ ...insertion, applied: true, dismissed: true });
+  const beforeApplied = insertion.applied;
+  const beforeDismissed = insertion.dismissed;
+  const beforeResolved = JSON.stringify(plugin.settings.docxReviewResolved);
+
+  view.regenerateDocxZipFn = async () => ({ ok: true, docxBuffer: new ArrayBuffer(4), processedRefsCount: 1 });
+  await view.generateRevisedDocx();
+
+  assert.equal(insertion.applied, beforeApplied);
+  assert.equal(insertion.dismissed, beforeDismissed);
+  assert.equal(JSON.stringify(plugin.settings.docxReviewResolved), beforeResolved, "docxReviewResolved inchangé : sortie pure, pas une nouvelle décision");
+});
+
+test("CORRECTIF — exception imprévue du moteur pendant la génération : aucun crash, Notice générique, isGeneratingDocx retombe à false", async () => {
+  const { view } = await setupAnalyzedView();
+  // Une décision existante évite ici le message d'avertissement §9 (hors
+  // sujet de ce test) — on veut isoler le SEUL message d'échec (voir le test
+  // "unsupported-footnote-move-regeneration" ci-dessus, même précaution).
+  const insertion = view.results.byPath["Projet/Scene.md"].changes.find((c) => c.type === "insertion");
+  await view.saveItemState({ ...insertion, applied: true, dismissed: true });
+
+  view.regenerateDocxZipFn = async () => {
+    throw new Error("panne imprévue du moteur");
+  };
+  const notices = [];
+  Notice.onCreate = (m) => notices.push(m);
+  await assert.doesNotReject(() => view.generateRevisedDocx(), "aucune exception ne doit remonter hors de generateRevisedDocx");
+  Notice.onCreate = null;
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0], "Impossible de générer ce DOCX en toute sécurité.");
+  assert.equal(view.isGeneratingDocx, false, "le bouton redevient utilisable, pas bloqué indéfiniment");
+});
+
+test("CORRECTIF — exception imprévue de writeBinaryFile pendant la génération : aucun crash, Notice générique, isGeneratingDocx retombe à false", async () => {
+  const { view } = await setupAnalyzedView();
+  const insertion = view.results.byPath["Projet/Scene.md"].changes.find((c) => c.type === "insertion");
+  await view.saveItemState({ ...insertion, applied: true, dismissed: true });
+
+  view.regenerateDocxZipFn = async () => ({ ok: true, docxBuffer: new ArrayBuffer(4), processedRefsCount: 1 });
+  const originalWrite = view.app.vault.createBinary;
+  view.app.vault.createBinary = async () => {
+    throw new Error("panne imprévue d'écriture disque");
+  };
+  const notices = [];
+  Notice.onCreate = (m) => notices.push(m);
+  await assert.doesNotReject(() => view.generateRevisedDocx(), "aucune exception ne doit remonter hors de generateRevisedDocx");
+  Notice.onCreate = null;
+  view.app.vault.createBinary = originalWrite;
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0], "Impossible de générer ce DOCX en toute sécurité.");
+  assert.equal(view.isGeneratingDocx, false, "le bouton redevient utilisable, pas bloqué indéfiniment");
 });
