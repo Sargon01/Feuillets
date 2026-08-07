@@ -15,6 +15,9 @@ import {
   extractHeadingTitle,
   extractChapterTitleMarker,
   parseScrivenerComments,
+  sanitizeScrivenerTitle,
+  allocateImportPath,
+  buildScrivenerImportPlan,
 } from "../src/services/scrivener-import.js";
 
 const SCRIVX_FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -869,6 +872,470 @@ test("parseScrImageLinks & {$SCRImageLink...}", async (t) => {
     assert.equal(res.text, "Les massacres et les expulsions continuent.");
     assert.equal(res.extractedComments[0].word, "expulsions");
     assert.equal(res.extractedComments[0].text, "Ceci est un commentaire");
+  });
+});
+
+// ============================ Lot S1 : plan d'import ========================
+// Fiabilise la structure et les liens internes — voir docs du chantier.
+
+test("sanitizeScrivenerTitle", async (t) => {
+  await t.test("retire les caractères interdits par le système de fichiers", () => {
+    assert.equal(sanitizeScrivenerTitle('Chapitre: "spécial"/test?'), "Chapitre spécialtest");
+  });
+
+  await t.test("titre vide ou uniquement fait de caractères interdits -> repli", () => {
+    assert.equal(sanitizeScrivenerTitle(""), "Sans-titre");
+    assert.equal(sanitizeScrivenerTitle("///"), "Sans-titre");
+    assert.equal(sanitizeScrivenerTitle(null), "Sans-titre");
+  });
+
+  await t.test("espaces de tête/fin retirés, espaces internes conservés", () => {
+    assert.equal(sanitizeScrivenerTitle("  Le vent hurle  "), "Le vent hurle");
+  });
+});
+
+test("allocateImportPath", async (t) => {
+  await t.test("un chemin encore libre est renvoyé tel quel", () => {
+    const used = new Set();
+    assert.equal(allocateImportPath(used, "A/B.md"), "A/B.md");
+    assert.ok(used.has("A/B.md"));
+  });
+
+  await t.test("collision : suffixe -2, -3… avant l'extension", () => {
+    const used = new Set(["A/B.md"]);
+    assert.equal(allocateImportPath(used, "A/B.md"), "A/B-2.md");
+    const used2 = new Set(["A/B.md", "A/B-2.md"]);
+    assert.equal(allocateImportPath(used2, "A/B.md"), "A/B-3.md");
+  });
+
+  await t.test("un dossier (pas d'extension) est dédoublonné pareil, par simple suffixe", () => {
+    const used = new Set(["A/Partie 1"]);
+    assert.equal(allocateImportPath(used, "A/Partie 1"), "A/Partie 1-2");
+  });
+
+  await t.test("réserve le chemin choisi pour la prochaine résolution", () => {
+    const used = new Set();
+    allocateImportPath(used, "A/B.md");
+    allocateImportPath(used, "A/B.md");
+    assert.equal(allocateImportPath(used, "A/B.md"), "A/B-3.md");
+  });
+});
+
+test("buildScrivenerImportPlan — structure", async (t) => {
+  const MANUSCRIT = "Mon Roman/Manuscrit";
+
+  await t.test("1. structure Draft simple : une scène à la racine", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="s1" Type="Text"><Title>Scène 1</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(plan.targets.length, 1);
+    assert.deepEqual(plan.targets[0], {
+      uuid: "s1", sourceTitle: "Scène 1", kind: "manuscriptScene",
+      markdownPath: `${MANUSCRIT}/Scène 1.md`,
+    });
+  });
+
+  await t.test("2. dossiers imbriqués : Partie 1 > Chapitre 1 > Scène", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="p1" Type="Folder"><Title>Partie 1</Title>
+            <Children>
+              <BinderItem UUID="c1" Type="Folder"><Title>Chapitre 1</Title>
+                <Children>
+                  <BinderItem UUID="s1" Type="Text"><Title>Scène</Title></BinderItem>
+                </Children>
+              </BinderItem>
+            </Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const byUuid = Object.fromEntries(plan.targets.map((tg) => [tg.uuid, tg]));
+    assert.equal(byUuid.p1.folderPath, `${MANUSCRIT}/Partie 1`);
+    assert.equal(byUuid.p1.markdownPath, `${MANUSCRIT}/Partie 1/Partie 1.md`);
+    assert.equal(byUuid.c1.folderPath, `${MANUSCRIT}/Partie 1/Chapitre 1`);
+    assert.equal(byUuid.c1.markdownPath, `${MANUSCRIT}/Partie 1/Chapitre 1/Chapitre 1.md`);
+    assert.equal(byUuid.s1.markdownPath, `${MANUSCRIT}/Partie 1/Chapitre 1/Scène.md`);
+  });
+
+  await t.test("3. Text avec enfants : dossier + fichier propre 00-<titre>.md", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="c1" Type="Text"><Title>Chapitre A</Title>
+            <Children>
+              <BinderItem UUID="s1" Type="Text"><Title>Scène A1</Title></BinderItem>
+            </Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const byUuid = Object.fromEntries(plan.targets.map((tg) => [tg.uuid, tg]));
+    assert.equal(byUuid.c1.kind, "manuscriptContainer");
+    assert.equal(byUuid.c1.folderPath, `${MANUSCRIT}/Chapitre A`);
+    assert.equal(byUuid.c1.markdownPath, `${MANUSCRIT}/Chapitre A/00-Chapitre A.md`);
+    assert.equal(byUuid.s1.markdownPath, `${MANUSCRIT}/Chapitre A/Scène A1.md`);
+  });
+
+  await t.test("4. Folder avec contenu propre : la note vit dans <Dossier>/<Dossier>.md", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="p1" Type="Folder"><Title>Partie 1</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(plan.targets[0].kind, "manuscriptFolder");
+    assert.equal(plan.targets[0].folderPath, `${MANUSCRIT}/Partie 1`);
+    assert.equal(plan.targets[0].markdownPath, `${MANUSCRIT}/Partie 1/Partie 1.md`);
+  });
+
+  await t.test("5. titres avec caractères interdits par le système de fichiers", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="s1" Type="Text"><Title>Chapitre: "spécial"?</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(plan.targets[0].markdownPath, `${MANUSCRIT}/Chapitre spécial.md`);
+  });
+
+  await t.test("6. deux fichiers de même titre dans le même dossier -> collision -2", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="s1" Type="Text"><Title>Scène</Title></BinderItem>
+          <BinderItem UUID="s2" Type="Text"><Title>Scène</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const byUuid = Object.fromEntries(plan.targets.map((tg) => [tg.uuid, tg]));
+    assert.equal(byUuid.s1.markdownPath, `${MANUSCRIT}/Scène.md`);
+    assert.equal(byUuid.s2.markdownPath, `${MANUSCRIT}/Scène-2.md`);
+  });
+
+  await t.test("7. mêmes titres dans deux dossiers différents -> pas de collision", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="p1" Type="Folder"><Title>Partie 1</Title>
+            <Children><BinderItem UUID="s1" Type="Text"><Title>Scène</Title></BinderItem></Children>
+          </BinderItem>
+          <BinderItem UUID="p2" Type="Folder"><Title>Partie 2</Title>
+            <Children><BinderItem UUID="s2" Type="Text"><Title>Scène</Title></BinderItem></Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const byUuid = Object.fromEntries(plan.targets.map((tg) => [tg.uuid, tg]));
+    assert.equal(byUuid.s1.markdownPath, `${MANUSCRIT}/Partie 1/Scène.md`);
+    assert.equal(byUuid.s2.markdownPath, `${MANUSCRIT}/Partie 2/Scène.md`);
+  });
+
+  await t.test("8. UUID -> chemin final correct dans uuidToPath", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="p1" Type="Folder"><Title>Partie 1</Title>
+            <Children><BinderItem UUID="s1" Type="Text"><Title>Scène</Title></BinderItem></Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(plan.uuidToPath.get("s1"), `${MANUSCRIT}/Partie 1/Scène.md`);
+    assert.equal(plan.uuidToPath.get("p1"), `${MANUSCRIT}/Partie 1/Partie 1.md`);
+  });
+
+  const COMPLEX_FIXTURE = `<ScrivenerProject><Binder>
+    <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+      <Children>
+        <BinderItem UUID="p1" Type="Folder"><Title>Partie</Title>
+          <Children>
+            <BinderItem UUID="s1" Type="Text"><Title>Scène</Title></BinderItem>
+          </Children>
+        </BinderItem>
+        <BinderItem UUID="p2" Type="Folder"><Title>Partie</Title>
+          <Children>
+            <BinderItem UUID="s2" Type="Text"><Title>Scène</Title></BinderItem>
+          </Children>
+        </BinderItem>
+      </Children>
+    </BinderItem>
+    <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+      <Children>
+        <BinderItem UUID="chars" Type="Folder"><Title>Characters</Title>
+          <Children><BinderItem UUID="alice" Type="Text"><Title>Alice</Title></BinderItem></Children>
+        </BinderItem>
+        <BinderItem UUID="misc1" Type="Text"><Title>Note diverse</Title></BinderItem>
+      </Children>
+    </BinderItem>
+  </Binder></ScrivenerProject>`;
+
+  await t.test("9. le plan est stable/déterministe (mêmes entrées -> même résultat)", () => {
+    const parsed1 = parseScrivx(COMPLEX_FIXTURE);
+    const parsed2 = parseScrivx(COMPLEX_FIXTURE);
+    const opts = { manuscritPath: MANUSCRIT, researchRootPath: "Mon Roman/_Recherche", mode: "fiction", unclassifiedFolderLabel: "Non classé" };
+    const plan1 = buildScrivenerImportPlan(parsed1, opts);
+    const plan2 = buildScrivenerImportPlan(parsed2, opts);
+    assert.deepEqual(plan1.targets, plan2.targets);
+    assert.deepEqual([...plan1.uuidToPath.entries()], [...plan2.uuidToPath.entries()]);
+  });
+
+  await t.test("10. aucun chemin final dupliqué, même avec des collisions imbriquées + recherche", () => {
+    const parsed = parseScrivx(COMPLEX_FIXTURE);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: "Mon Roman/_Recherche", mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const allPaths = plan.targets.flatMap((tg) => [tg.markdownPath, tg.folderPath].filter(Boolean));
+    assert.equal(new Set(allPaths).size, allPaths.length);
+  });
+
+  await t.test("Personnages/Lieux : la même rubrique classifiée est réutilisée, jamais dédoublonnée", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="chars" Type="Folder"><Title>Characters</Title>
+            <Children><BinderItem UUID="alice" Type="Text"><Title>Alice</Title></BinderItem></Children>
+          </BinderItem>
+          <BinderItem UUID="sketches" Type="Folder"><Title>Character Sketches</Title>
+            <Children><BinderItem UUID="bob" Type="Text"><Title>Bob</Title></BinderItem></Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: "Mon Roman/_Recherche", mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const byUuid = Object.fromEntries(plan.targets.map((tg) => [tg.uuid, tg]));
+    assert.equal(byUuid.alice.markdownPath, "Mon Roman/_Recherche/Characters/Alice.md");
+    assert.equal(byUuid.bob.markdownPath, "Mon Roman/_Recherche/Characters/Bob.md");
+  });
+
+  await t.test("recherche non classée : dossier de repli partagé entre plusieurs entrées", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="misc1" Type="Text"><Title>Note 1</Title></BinderItem>
+          <BinderItem UUID="misc2" Type="Text"><Title>Note 2</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: "Mon Roman/_Recherche", mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const byUuid = Object.fromEntries(plan.targets.map((tg) => [tg.uuid, tg]));
+    assert.equal(byUuid.misc1.markdownPath, "Mon Roman/_Recherche/Non classé/Note 1.md");
+    assert.equal(byUuid.misc2.markdownPath, "Mon Roman/_Recherche/Non classé/Note 2.md");
+  });
+
+  // Correctif S1 : uuidToPath ne doit jamais retomber sur un simple
+  // folderPath — un dossier de recherche (sous-dossier imbriqué sous
+  // Research) n'a jamais de note propre (voir §12, hors périmètre S1) et
+  // ne doit donc produire AUCUNE entrée résoluble.
+  await t.test("dossier de recherche imbriqué (kind researchFolder) : aucune entrée dans uuidToPath", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="sub-folder" Type="Folder"><Title>Sous-dossier</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: "Mon Roman/_Recherche", mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const subFolderTarget = plan.targets.find((tg) => tg.uuid === "sub-folder");
+    assert.equal(subFolderTarget.kind, "researchFolder");
+    assert.ok(subFolderTarget.folderPath, "le dossier est bien planifié");
+    assert.equal(subFolderTarget.markdownPath, undefined, "un dossier de recherche n'a jamais de note propre");
+    assert.equal(plan.uuidToPath.has("sub-folder"), false);
+  });
+
+  await t.test("aucune valeur de uuidToPath ne pointe vers un simple folderPath (toutes sont des .md prévus)", () => {
+    const parsed = parseScrivx(COMPLEX_FIXTURE);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: "Mon Roman/_Recherche", mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const folderOnlyPaths = new Set(
+      plan.targets.filter((tg) => !tg.markdownPath && tg.folderPath).map((tg) => tg.folderPath)
+    );
+    for (const path of plan.uuidToPath.values()) {
+      assert.ok(path.endsWith(".md"), `${path} devrait être une note .md`);
+      assert.ok(!folderOnlyPaths.has(path), `${path} ne doit jamais être un simple folderPath`);
+    }
+  });
+});
+
+test("rtfToMarkdown — liens internes scrivlink://UUID résolus via le plan d'import", async (t) => {
+  // Le préfixe scrivlink:// n'accepte que des caractères hexadécimaux (comme
+  // les vrais UUID Scrivener) — voir le regex dans rtfToMarkdown. On utilise
+  // ici des UUID hexadécimaux factices mais lisibles plutôt que "s1"/"p1".
+  const S1 = "00000000-0000-0000-0000-000000000001";
+  const S2 = "00000000-0000-0000-0000-000000000002";
+  const C1 = "00000000-0000-0000-0000-0000000000c1";
+  const P1 = "00000000-0000-0000-0000-0000000000a1";
+  const ALICE1 = "00000000-0000-0000-0000-00000000a001";
+  const ALICE2 = "00000000-0000-0000-0000-00000000a002";
+  const TRASHED = "00000000-0000-0000-0000-0000000dead0";
+
+  const scrivLink = (uuid, visibleText) =>
+    `{\\rtf1 Voir {\\field{\\*\\fldinst{HYPERLINK "scrivlink://${uuid}"}}{\\fldrslt ${visibleText}}} plus loin.}`;
+
+  await t.test("11. lien UUID simple : résolu vers le chemin Markdown final planifié", () => {
+    const map = new Map([[S1, "Mon Roman/Manuscrit/Partie 1/Scène.md"]]);
+    const { text } = rtfToMarkdown(scrivLink(S1, "Scène"), {}, map);
+    assert.equal(text, "Voir [[Mon Roman/Manuscrit/Partie 1/Scène|Scène]] plus loin.");
+  });
+
+  await t.test("12. lien UUID avec texte affiché différent du titre réel (alias préservé)", () => {
+    const map = new Map([[S1, "Mon Roman/Manuscrit/Partie 1/Scène.md"]]);
+    const { text } = rtfToMarkdown(scrivLink(S1, "le premier chapitre"), {}, map);
+    assert.equal(text, "Voir [[Mon Roman/Manuscrit/Partie 1/Scène|le premier chapitre]] plus loin.");
+  });
+
+  await t.test("13. la cible a été sanitizée (caractère interdit retiré du titre d'origine)", () => {
+    const map = new Map([[S1, "Mon Roman/Manuscrit/Chapitre spécial.md"]]);
+    const { text } = rtfToMarkdown(scrivLink(S1, "Chapitre spécial"), {}, map);
+    assert.ok(text.includes("[[Mon Roman/Manuscrit/Chapitre spécial|Chapitre spécial]]"));
+    assert.ok(!text.includes(".md"), "l'extension .md ne doit pas apparaître dans un wikilien");
+  });
+
+  await t.test("14. la cible a subi une collision de titre (-2) : le lien pointe vers le bon suffixe", () => {
+    const map = new Map([
+      [S1, "Mon Roman/Manuscrit/Scène.md"],
+      [S2, "Mon Roman/Manuscrit/Scène-2.md"],
+    ]);
+    const { text } = rtfToMarkdown(scrivLink(S2, "Scène"), {}, map);
+    assert.ok(text.includes("[[Mon Roman/Manuscrit/Scène-2|Scène]]"));
+    assert.ok(!text.includes("Scène-2.md"), "l'extension .md ne doit pas apparaître dans un wikilien");
+  });
+
+  await t.test("15. lien vers un Text avec enfants : pointe vers son fichier 00-…, pas vers son dossier", () => {
+    const map = new Map([[C1, "Mon Roman/Manuscrit/Chapitre A/00-Chapitre A.md"]]);
+    const { text } = rtfToMarkdown(scrivLink(C1, "Chapitre A"), {}, map);
+    assert.ok(text.includes("[[Mon Roman/Manuscrit/Chapitre A/00-Chapitre A|Chapitre A]]"));
+  });
+
+  await t.test("16. lien vers un dossier ayant sa propre note : pointe vers <Dossier>/<Dossier>.md", () => {
+    const map = new Map([[P1, "Mon Roman/Manuscrit/Partie 1/Partie 1.md"]]);
+    const { text } = rtfToMarkdown(scrivLink(P1, "Partie 1"), {}, map);
+    assert.ok(text.includes("[[Mon Roman/Manuscrit/Partie 1/Partie 1|Partie 1]]"));
+  });
+
+  // Correctif S1 : la map ne doit plus jamais retomber sur un simple
+  // folderPath — un dossier sans note propre est un UUID non résolu.
+  await t.test("correctif : lien vers un dossier manuscrit AVEC note -> wikilien vers la note planifiée", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="${P1}" Type="Folder"><Title>Partie 1</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(plan.uuidToPath.get(P1), "Mon Roman/Manuscrit/Partie 1/Partie 1.md");
+    const { text } = rtfToMarkdown(scrivLink(P1, "Partie 1"), {}, plan.uuidToPath);
+    assert.ok(text.includes("[[Mon Roman/Manuscrit/Partie 1/Partie 1|Partie 1]]"));
+  });
+
+  await t.test("correctif : lien vers un dossier manuscrit SANS note -> texte simple, jamais [[dossier]], unresolved +1", () => {
+    // simule le cas réel où le dossier n'a finalement aucune note propre
+    // (contenu vide) : son UUID n'a donc aucune entrée résoluble dans la
+    // map utilisée pour les liens.
+    const mapSansNote = new Map();
+    const res = rtfToMarkdown(scrivLink(P1, "Partie 1"), {}, mapSansNote);
+    assert.equal(res.text, "Voir Partie 1 plus loin.");
+    assert.ok(!res.text.includes("[["), "jamais de wikilien vers un dossier sans note");
+    assert.equal(res.unresolvedLinkCount, 1);
+  });
+
+  await t.test("correctif : lien vers un dossier Research SANS note -> texte simple, unresolved +1", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="${P1}" Type="Folder"><Title>Sous-dossier</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: "Mon Roman/_Recherche", mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(plan.uuidToPath.has(P1), false, "un dossier de recherche sans note n'a aucune entrée résoluble");
+    const res = rtfToMarkdown(scrivLink(P1, "Sous-dossier"), {}, plan.uuidToPath);
+    assert.equal(res.text, "Voir Sous-dossier plus loin.");
+    assert.ok(!res.text.includes("[["));
+    assert.equal(res.unresolvedLinkCount, 1);
+  });
+
+  await t.test("17. deux documents du même titre : l'UUID choisit le bon, jamais le mauvais homonyme (CRITIQUE)", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="p1" Type="Folder"><Title>Partie 1</Title>
+            <Children><BinderItem UUID="${ALICE1}" Type="Text"><Title>Alice</Title></BinderItem></Children>
+          </BinderItem>
+          <BinderItem UUID="p2" Type="Folder"><Title>Partie 2</Title>
+            <Children><BinderItem UUID="${ALICE2}" Type="Text"><Title>Alice</Title></BinderItem></Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    const { text: text1 } = rtfToMarkdown(scrivLink(ALICE1, "Alice"), {}, plan.uuidToPath);
+    const { text: text2 } = rtfToMarkdown(scrivLink(ALICE2, "Alice"), {}, plan.uuidToPath);
+    assert.ok(text1.includes("[[Mon Roman/Manuscrit/Partie 1/Alice|Alice]]"));
+    assert.ok(text2.includes("[[Mon Roman/Manuscrit/Partie 2/Alice|Alice]]"));
+    assert.notEqual(text1, text2);
+  });
+
+  await t.test("18. UUID inconnu du plan (Corbeille, référence orpheline) : jamais un faux lien inventé", () => {
+    const map = new Map([[S1, "Mon Roman/Manuscrit/Scène.md"]]);
+    const res = rtfToMarkdown(scrivLink(TRASHED, "Passage supprimé"), {}, map);
+    assert.equal(res.text, "Voir Passage supprimé plus loin.");
+    assert.ok(!res.text.includes("[["), "aucun wikilien ne doit être inventé pour un UUID absent du plan");
+    assert.equal(res.unresolvedLinkCount, 1);
+  });
+
+  await t.test("aucune carte de liens fournie (import hors contexte, comme avant) : texte affiché conservé", () => {
+    const { text } = rtfToMarkdown(scrivLink(S1, "Scène"), {}, null);
+    assert.equal(text, "Voir Scène plus loin.");
   });
 });
 

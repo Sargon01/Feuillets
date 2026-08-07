@@ -14,8 +14,11 @@ import {
   buildEntityFrontmatter,
   extractHeadingTitle,
   parseScrivenerComments,
-  buildUuidTitleMap,
+  buildScrivenerImportPlan,
+  type ScrivenerImportTarget,
 } from "../services/scrivener-import.js";
+import { getResearchRoot } from "../services/research.js";
+import { getFeuilletsFolderNames, resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { t } from "../i18n/index.js";
 
 type ScrivxItem = NonNullable<ReturnType<typeof parseScrivx>["draft"]>;
@@ -251,23 +254,39 @@ export type ImportContext = {
   mode: string;
 };
 
-function sanitizeName(title: string | null | undefined): string {
-  const cleaned = (title || "").replace(/[\\/:*?"<>|]/g, "").trim();
-  return cleaned || t("modal.scrivenerImport.untitled");
+/** Le chemin de chaque fichier/dossier a déjà été résolu une fois pour
+ * toutes par buildScrivenerImportPlan (voir services/scrivener-import.ts)
+ * — jamais recalculé ni réassigné silencieusement ici. Si le coffre a
+ * changé depuis la planification (autre onglet, sync…) et qu'un chemin
+ * prévu est désormais occupé, on arrête proprement plutôt que de choisir
+ * un autre nom qui rendrait les liens internes déjà résolus faux
+ * (voir §7 du chantier S1). */
+function requireFreePath(app: App, path: string): void {
+  if (app.vault.getAbstractFileByPath(path)) {
+    throw new Error(t("modal.scrivenerImport.pathTaken", { path }));
+  }
 }
 
-function unusedPath(app: App, basePath: string): string {
-  if (!app.vault.getAbstractFileByPath(basePath)) return basePath;
-  const dot = basePath.lastIndexOf(".");
-  const stem = dot > 0 ? basePath.slice(0, dot) : basePath;
-  const ext = dot > 0 ? basePath.slice(dot) : "";
-  let i = 2;
-  let candidate = "";
-  do {
-    candidate = `${stem}-${i}${ext}`;
-    i++;
-  } while (app.vault.getAbstractFileByPath(candidate));
-  return candidate;
+/** Consomme le plan dans l'ORDRE EXACT où il a été construit (parcours en
+ * profondeur du binder, voir buildScrivenerImportPlan) : l'écriture ne
+ * recherche jamais un nœud par titre ni ne recalcule son chemin — un seul
+ * moteur pour les deux (§6 du chantier S1). L'assertion sur l'UUID est un
+ * garde-fou de développement : elle ne sert pas à retrouver le nœud (la
+ * correspondance vient de l'ordre), seulement à détecter immédiatement
+ * toute désynchronisation entre le plan et l'écriture. */
+class ScrivenerPlanCursor {
+  private index = 0;
+  constructor(private readonly targets: ScrivenerImportTarget[]) {}
+
+  next(item: { uuid: string; title: string }): ScrivenerImportTarget {
+    const target = this.targets[this.index++];
+    if (!target || target.uuid !== item.uuid) {
+      throw new Error(
+        `Plan d'import Scrivener désynchronisé pour « ${item.title} » — import interrompu avant toute écriture incohérente.`
+      );
+    }
+    return target;
+  }
 }
 
 export class ScrivenerImportModal extends Modal {
@@ -526,6 +545,7 @@ export class ScrivenerImportModal extends Modal {
     const plugin = this.plugin;
     const S = plugin.settings;
     const isFiction = mode === "fiction";
+    const modeKey = mode as keyof typeof PROJECT_MODES;
 
     const volumePath = normalizePath(parentPath ? `${parentPath}/${name}` : name);
     if (app.vault.getAbstractFileByPath(volumePath)) {
@@ -536,9 +556,6 @@ export class ScrivenerImportModal extends Modal {
     const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
     await plugin.ensureFolder(manuscritPath);
 
-    const visuelsFolderPath = normalizePath(`${volumePath}/Resources/Assets`);
-    await plugin.ensureFolder(visuelsFolderPath);
-
     if (S.projectFolder && !S.projects.includes(S.projectFolder)) {
       S.projects.push(S.projectFolder);
     }
@@ -548,9 +565,45 @@ export class ScrivenerImportModal extends Modal {
     applyModeDefaults(S, mode);
     await plugin.saveSettings();
 
+    /* Structure conventionnelle Feuillets — jamais de chemin "Research"/
+       "Resources" recalculé ici (voir §2.A du chantier S1) : les vrais
+       dossiers Recherche/Ressources sont ceux retrouvés (ou créés) par
+       initProjectStructure, via les mêmes helpers centraux que le reste de
+       Feuillets (services/research.ts, services/folder-structure.ts) —
+       fonctionne en FR, en EN, et avec les variantes historiques déjà
+       reconnues (_Recherche, Research, _Resources, Ressources…). */
     await plugin.initProjectStructure();
 
-    const binderItemMap = buildUuidTitleMap(parsed);
+    const manuscritFolder = app.vault.getAbstractFileByPath(manuscritPath);
+    if (!(manuscritFolder instanceof TFolder)) {
+      throw new Error(t("modal.newProject.alreadyExists", { path: manuscritPath }));
+    }
+
+    const researchRoot = getResearchRoot(app, S);
+    const resourcesPath = resourcesFolderPath(app, manuscritFolder);
+    const folderNames = getFeuilletsFolderNames();
+    // Index 4 = sous-dossier "Ressources internes"/"Assets" (voir
+    // getFeuilletsFolderNames, services/folder-structure.ts) — même
+    // convention d'accès positionnel que templateFolderPath/layoutsPath
+    // dans initProjectStructure (project-files.ts).
+    const assetsSub = folderNames.resourcesSubs[4];
+    const visuelsFolderPath = resourcesSubfolderPath(app, resourcesPath, assetsSub.name, ...assetsSub.variants);
+    await plugin.ensureFolder(visuelsFolderPath);
+
+    /* Plan de destination COMPLET, calculé AVANT la moindre écriture —
+       une seule source de vérité pour les chemins finaux, réutilisée à la
+       fois pour l'écriture des fichiers et pour la résolution des liens
+       scrivlink://UUID (voir §3 à §6 du chantier S1). */
+    const unclassifiedFolderLabel = t("modal.scrivenerImport.unclassifiedFolder");
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath,
+      researchRootPath: researchRoot ? researchRoot.path : null,
+      mode: modeKey,
+      unclassifiedFolderLabel,
+    });
+    const cursor = new ScrivenerPlanCursor(plan.targets);
+    const binderItemMap = plan.uuidToPath;
+
     let unreadableCount = 0;
 
     const readRtf = async (uuid: string): Promise<string> => {
@@ -657,8 +710,11 @@ export class ScrivenerImportModal extends Modal {
 
     const encounteredLabels = new Set<string>();
 
-    const writeSceneFile = async (item: ScrivxItem, destFolder: TAbstractFile, baseName: string) => {
-      const path = unusedPath(app, normalizePath(`${destFolder.path}/${baseName}.md`));
+    const writeSceneFile = async (item: ScrivxItem, target: ScrivenerImportTarget) => {
+      const path = target.markdownPath;
+      if (!path) {
+        throw new Error(`Plan d'import Scrivener incomplet pour « ${item.title} » (aucun fichier prévu).`);
+      }
 
       let text = "";
       let footnotes: string[] = [];
@@ -736,15 +792,17 @@ export class ScrivenerImportModal extends Modal {
         includeInCompile: item.includeInCompile,
         wordGoal: item.wordGoal || S.wordGoal,
       });
+      requireFreePath(app, path);
       return app.vault.create(path, fm + body);
     };
 
     const writeManuscriptNode = async (item: ScrivxItem, destFolder: TAbstractFile): Promise<TAbstractFile | undefined> => {
-      const safeTitle = sanitizeName(item.title);
+      const target = cursor.next(item);
       if (item.isFolder) {
-        const folder = await plugin.ensureFolder(
-          unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}`))
-        );
+        if (!target.folderPath || !target.markdownPath) {
+          throw new Error(`Plan d'import Scrivener incomplet pour le dossier « ${item.title} ».`);
+        }
+        const folder = await plugin.ensureFolder(target.folderPath);
 
         const folderRtf = await readRtf(item.uuid);
         const folderComments = await readComments(item.uuid);
@@ -776,29 +834,28 @@ export class ScrivenerImportModal extends Modal {
           if (imageLinks && imageLinks.length > 0) {
             await processImageLinks(imageLinks);
           }
-          const folderNotePath = normalizePath(`${folder.path}/${folder.name}.md`);
-          if (!app.vault.getAbstractFileByPath(folderNotePath)) {
-            let body = folderBody;
-            if (footnotes.length > 0) {
-              body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
-            }
-            if (item.labelTitle) encounteredLabels.add(item.labelTitle);
-            const fm = buildSceneFrontmatter({
-              titre: chapterTitle || item.title,
-              titreCourt: folder.name,
-              sousTitre,
-              order: 0,
-              isFiction,
-              synopsis: docSynopsis,
-              statut: mapScrivenerStatus(item.statusTitle),
-              label: item.labelTitle,
-              tags: item.keywords,
-              notes: docNotes,
-              includeInCompile: item.includeInCompile,
-              wordGoal: item.wordGoal || S.wordGoal,
-            });
-            await app.vault.create(folderNotePath, fm + body);
+          const folderNotePath = target.markdownPath;
+          let body = folderBody;
+          if (footnotes.length > 0) {
+            body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
           }
+          if (item.labelTitle) encounteredLabels.add(item.labelTitle);
+          const fm = buildSceneFrontmatter({
+            titre: chapterTitle || item.title,
+            titreCourt: folder.name,
+            sousTitre,
+            order: 0,
+            isFiction,
+            synopsis: docSynopsis,
+            statut: mapScrivenerStatus(item.statusTitle),
+            label: item.labelTitle,
+            tags: item.keywords,
+            notes: docNotes,
+            includeInCompile: item.includeInCompile,
+            wordGoal: item.wordGoal || S.wordGoal,
+          });
+          requireFreePath(app, folderNotePath);
+          await app.vault.create(folderNotePath, fm + body);
         }
 
         await writeManuscriptChildren(item.children, folder);
@@ -806,14 +863,15 @@ export class ScrivenerImportModal extends Modal {
       }
 
       if (item.children.length > 0) {
-        const folder = await plugin.ensureFolder(
-          unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}`))
-        );
-        await writeSceneFile(item, folder, "00-" + safeTitle);
+        if (!target.folderPath) {
+          throw new Error(`Plan d'import Scrivener incomplet pour « ${item.title} » (aucun dossier prévu).`);
+        }
+        const folder = await plugin.ensureFolder(target.folderPath);
+        await writeSceneFile(item, target);
         await writeManuscriptChildren(item.children, folder);
         return folder;
       }
-      return writeSceneFile(item, destFolder, safeTitle);
+      return writeSceneFile(item, target);
     };
 
     const writeManuscriptChildren = async (children: ScrivxItem[], destFolder: TAbstractFile) => {
@@ -825,23 +883,24 @@ export class ScrivenerImportModal extends Modal {
       if (created.length > 0) await plugin.writeOrder(destFolder, created);
     };
 
-    const manuscritFolder = app.vault.getAbstractFileByPath(manuscritPath);
-    if (manuscritFolder instanceof TFolder) {
-      await writeManuscriptChildren(parsed.draft!.children, manuscritFolder);
-    }
+    await writeManuscriptChildren(parsed.draft!.children, manuscritFolder);
 
     const writeResearchNode = async (item: ScrivxItem, destFolder: TAbstractFile, structuralTag: string | null): Promise<void> => {
-      const safeTitle = sanitizeName(item.title);
+      const target = cursor.next(item);
       if (item.isFolder) {
-        const folder = await plugin.ensureFolder(
-          unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}`))
-        );
+        if (!target.folderPath) {
+          throw new Error(`Plan d'import Scrivener incomplet pour le dossier de recherche « ${item.title} ».`);
+        }
+        const folder = await plugin.ensureFolder(target.folderPath);
         for (const child of item.children) {
           await writeResearchNode(child, folder, structuralTag);
         }
         return;
       }
-      const path = unusedPath(app, normalizePath(`${destFolder.path}/${safeTitle}.md`));
+      const path = target.markdownPath;
+      if (!path) {
+        throw new Error(`Plan d'import Scrivener incomplet pour « ${item.title} » (aucun fichier prévu).`);
+      }
 
       let text = "";
       let hasExtractedRtf = false;
@@ -897,43 +956,44 @@ export class ScrivenerImportModal extends Modal {
         tags,
         notes: docNotes,
       });
+      requireFreePath(app, path);
       await app.vault.create(path, fm + text);
     };
 
-    if (parsed.research) {
-      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`)) as TFolder | null;
-      if (researchRoot) {
-        const modeKey = mode as keyof typeof PROJECT_MODES;
-        const researchFolders = PROJECT_MODES[modeKey].researchFolders as Record<string, { label: string; tag: string }>;
-        for (const child of parsed.research.children) {
-          const key = child.isFolder ? classifyResearchFolder(child.title) : null;
-          const folderDef = key ? researchFolders[key] : null;
-          if (folderDef) {
-            const targetFolder = await plugin.ensureFolder(
-              normalizePath(`${researchRoot.path}/${folderDef.label}`)
-            );
-            for (const grandchild of child.children) {
-              await writeResearchNode(grandchild, targetFolder, folderDef.tag);
-            }
-          } else {
-            const fallback = await plugin.ensureFolder(
-              normalizePath(`${researchRoot.path}/${t("modal.scrivenerImport.unclassifiedFolder")}`)
-            );
-            await writeResearchNode(child, fallback, null);
+    /* Même découpage que buildScrivenerImportPlan (classification des
+       dossiers Characters/Places, panier "non classé") : la SEULE logique
+       de calcul de chemin qui reste dupliquée entre plan et écriture, par
+       nécessité (le plan est pur et ne peut pas retourner de TFolder réel
+       pour plugin.ensureFolder) — classifyResearchFolder/researchFolders
+       restent l'unique source de vérité pour la classification elle-même,
+       jamais recalculée différemment ici (voir §6 du chantier S1). */
+    if (parsed.research && researchRoot) {
+      const researchFolders = PROJECT_MODES[modeKey].researchFolders as Record<string, { label: string; tag: string }>;
+      for (const child of parsed.research.children) {
+        const key = child.isFolder ? classifyResearchFolder(child.title) : null;
+        const folderDef = key ? researchFolders[key] : null;
+        if (folderDef) {
+          const targetFolder = await plugin.ensureFolder(
+            normalizePath(`${researchRoot.path}/${folderDef.label}`)
+          );
+          for (const grandchild of child.children) {
+            await writeResearchNode(grandchild, targetFolder, folderDef.tag);
           }
+        } else {
+          const fallback = await plugin.ensureFolder(
+            normalizePath(`${researchRoot.path}/${unclassifiedFolderLabel}`)
+          );
+          await writeResearchNode(child, fallback, null);
         }
       }
     }
 
-    if (parsed.others && parsed.others.length > 0) {
-      const researchRoot = app.vault.getAbstractFileByPath(normalizePath(`${volumePath}/Research`)) as TFolder | null;
-      if (researchRoot) {
-        const fallback = await plugin.ensureFolder(
-          normalizePath(`${researchRoot.path}/${t("modal.scrivenerImport.unclassifiedFolder")}`)
-        );
-        for (const otherItem of parsed.others) {
-          await writeResearchNode(otherItem, fallback, null);
-        }
+    if (parsed.others && parsed.others.length > 0 && researchRoot) {
+      const fallback = await plugin.ensureFolder(
+        normalizePath(`${researchRoot.path}/${unclassifiedFolderLabel}`)
+      );
+      for (const otherItem of parsed.others) {
+        await writeResearchNode(otherItem, fallback, null);
       }
     }
 
