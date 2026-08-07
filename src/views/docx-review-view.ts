@@ -231,6 +231,14 @@ export class DocxReviewView extends BaseFeuilletsView {
   showResolved: boolean;
   docxName: string;
   _snapshotted: Set<string> | undefined;
+  /** Sous-ensemble de `_snapshotted` : uniquement les feuillets dont le
+   * snapshot a RÉELLEMENT réussi (voir ensureSnapshot). `_snapshotted` seul
+   * marque une simple TENTATIVE (jamais retentée dans la session, même en
+   * échec — comportement existant et déjà couvert par un test, inchangé) ;
+   * ce second Set permet à un appelant qui l'EXIGE (déplacement inter-
+   * feuillets, voir LOT 3 sécurité transactionnelle) de savoir si un point
+   * de retour existe vraiment avant d'écrire quoi que ce soit. */
+  _snapshotOk: Set<string> | undefined;
 
   constructor(leaf: WorkspaceLeaf, plugin: DocxReviewPluginBase) {
     super(leaf, plugin);
@@ -291,28 +299,48 @@ export class DocxReviewView extends BaseFeuilletsView {
    * le coffre — un snapshot permet de revenir en arrière via "Comparer avec
    * le snapshot" / la corbeille des snapshots). Une seule fois par feuillet
    * et par session (Set réinitialisé à chaque nouvelle analyse) : appliquer
-   * dix retours dans un même feuillet ne crée pas dix copies. */
-  async ensureSnapshot(file: TFile | null) {
-    if (!(file instanceof TFile)) return;
+   * dix retours dans un même feuillet ne crée pas dix copies.
+   *
+   * Retourne `true` si un snapshot valide existe pour ce feuillet à l'issue
+   * de l'appel (déjà présent ou créé à l'instant), `false` sinon — POUR UNE
+   * APPLICATION SIMPLE (un seul feuillet), le snapshot reste une précaution
+   * au mieux : l'appelant peut ignorer ce retour et continuer même en cas
+   * d'échec (comportement historique, inchangé, voir applyBtn plus bas côté
+   * feuillet unique). Un déplacement inter-feuillets (LOT 3, sécurité
+   * transactionnelle), lui, EXIGE `true` pour les DEUX feuillets concernés
+   * avant d'écrire quoi que ce soit — voir les deux call-sites de
+   * planApplyInterFile. */
+  async ensureSnapshot(file: TFile | null): Promise<boolean> {
+    if (!(file instanceof TFile)) return true; // rien à snapshoter : pas un échec
     if (!this._snapshotted) this._snapshotted = new Set();
-    if (this._snapshotted.has(file.path)) return;
+    if (!this._snapshotOk) this._snapshotOk = new Set();
+    if (this._snapshotted.has(file.path)) return this._snapshotOk.has(file.path);
     const first = this._snapshotted.size === 0;
     this._snapshotted.add(file.path); // marqué avant l'await : pas de double snapshot si deux applications s'enchaînent vite
     const root = this.plugin.getProjectFolder();
-    if (!root) return;
+    if (!root) return false;
     try {
       await this.plugin.snapshotFile(file, root);
+      this._snapshotOk.add(file.path);
       /* Une seule fois par session, à la toute première écriture : l'auteur
          sait qu'un point de retour existe (via « Comparer avec le
          snapshot » / le dossier Snapshots) avant que la relecture ne touche
          son manuscrit. */
       if (first) new Notice(t("docxReview.snapshotCreatedNotice"));
-    } catch { /* le snapshot est une precaution, au mieux : s'il echoue, la relecture doit quand meme pouvoir demarrer */ }
+      return true;
+    } catch {
+      /* Une application simple (feuillet unique) continue quand même — le
+         snapshot y reste une précaution au mieux (comportement historique).
+         `false` permet seulement à un appelant qui EXIGE un snapshot
+         (déplacement inter-feuillets) de refuser d'écrire. */
+      return false;
+    }
   }
 
   async analyzeBuffer(buf: ArrayBuffer, docxName = "docx-review") {
     this.docxName = docxName;
     this._snapshotted = new Set(); // nouvelle session de relecture : repartir de zéro
+    this._snapshotOk = new Set();
     let zip: JSZip;
     try {
       zip = await JSZip.loadAsync(buf);
@@ -1085,9 +1113,20 @@ export class DocxReviewView extends BaseFeuilletsView {
             const { fromFile, toFile } = resolveMoveFiles();
 
             if (change.type === "move" && fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
-              await this.ensureSnapshot(fromFile);
-              await this.ensureSnapshot(toFile);
-              result = await planApplyInterFile(this.app.vault, fromFile, toFile, change as unknown as Parameters<typeof planApplyInterFile>[3]);
+              /* LOT 3 (sécurité transactionnelle) : un déplacement touche
+                 DEUX feuillets — le snapshot des DEUX doit avoir réussi
+                 AVANT toute écriture, sans quoi rien n'est écrit ni marqué
+                 appliqué (jamais le best-effort d'une application simple,
+                 voir ensureSnapshot). Les deux appels restent séquentiels
+                 (pas de Promise.all) : pas d'écriture tant que l'origine
+                 n'est pas elle-même confirmée snapshotée. */
+              const fromSnapshotOk = await this.ensureSnapshot(fromFile);
+              const toSnapshotOk = await this.ensureSnapshot(toFile);
+              if (!fromSnapshotOk || !toSnapshotOk) {
+                result = { ok: false, reason: "snapshot-failed" };
+              } else {
+                result = await planApplyInterFile(this.app.vault, fromFile, toFile, change as unknown as Parameters<typeof planApplyInterFile>[3]);
+              }
             } else {
               const targetFile = change.type === "move" && toFile instanceof TFile ? toFile : file;
               const content = await this.app.vault.read(targetFile);
@@ -1100,7 +1139,11 @@ export class DocxReviewView extends BaseFeuilletsView {
 
             if (!result.ok) {
               new Notice(
-                result.reason === "ambiguous"
+                result.reason === "rollback-failed"
+                  ? t("docxReview.rollbackFailedNotice")
+                  : result.reason === "snapshot-failed"
+                  ? t("docxReview.snapshotFailedNotice")
+                  : result.reason === "ambiguous"
                   ? t("docxReview.ambiguousPassage")
                   : t("docxReview.passageNotFound")
               );
@@ -1195,9 +1238,15 @@ export class DocxReviewView extends BaseFeuilletsView {
               const fromFile = item.fromPath ? resolveVaultFile(this.app, item.fromPath) || f : f;
               const toFile = item.toPath ? resolveVaultFile(this.app, item.toPath) || f : f;
               if (fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
-                await this.ensureSnapshot(fromFile);
-                await this.ensureSnapshot(toFile);
-                result = await planApplyInterFile(this.app.vault, fromFile, toFile, item as unknown as Parameters<typeof planApplyInterFile>[3]);
+                // LOT 3 (sécurité transactionnelle) : même exigence que le
+                // bouton Appliquer principal, voir renderChange plus haut.
+                const fromSnapshotOk = await this.ensureSnapshot(fromFile);
+                const toSnapshotOk = await this.ensureSnapshot(toFile);
+                if (!fromSnapshotOk || !toSnapshotOk) {
+                  result = { ok: false, reason: "snapshot-failed" };
+                } else {
+                  result = await planApplyInterFile(this.app.vault, fromFile, toFile, item as unknown as Parameters<typeof planApplyInterFile>[3]);
+                }
               } else {
                 const content = await this.app.vault.read(f);
                 result = planApply(content, item as unknown as Parameters<typeof planApply>[1]);
@@ -1211,7 +1260,11 @@ export class DocxReviewView extends BaseFeuilletsView {
 
             if (!result.ok) {
               new Notice(
-                result.reason === "ambiguous"
+                result.reason === "rollback-failed"
+                  ? t("docxReview.rollbackFailedNotice")
+                  : result.reason === "snapshot-failed"
+                  ? t("docxReview.snapshotFailedNotice")
+                  : result.reason === "ambiguous"
                   ? t("docxReview.ambiguousPassageShort")
                   : t("docxReview.passageNotFoundInSheet")
               );
