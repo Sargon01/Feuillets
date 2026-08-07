@@ -688,6 +688,174 @@ test("LOT 3 (sécurité transactionnelle) — snapshot de l'origine réussi, sna
   Notice.onCreate = null;
 });
 
+/* =========================================================================
+ * LOT 4 — statuts de confiance ("Sûr"/"À vérifier"/"Ambigu") : badge discret
+ * + blocage de l'application directe pour un élément Ambigu. La vue ne
+ * recalcule jamais elle-même la confiance dans ces tests (confidence posée
+ * directement sur l'objet change, comme le ferait analyzeBuffer) — seul le
+ * RENDU/la gestion des actions selon ce statut est testée ici.
+ * ========================================================================= */
+test("LOT 4 (confiance) — badge Sûr/À vérifier/Ambigu affiché selon change.confidence", async () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const content = { [dest.path]: dest.content };
+  const { view } = createView({ files: [dest], content });
+  const base = {
+    type: "insertion", author: "A", date: "D",
+    contextBefore: "Cible.", text: " Ajout.",
+  };
+
+  for (const [confidence, expectedLabel] of [
+    ["safe", "Sûr"],
+    ["review", "À vérifier"],
+    ["ambiguous", "Ambigu"],
+  ]) {
+    const container = new FakeElement();
+    view.renderChange(container, dest, { ...base, confidence });
+    const badge = allElements(container).find((el) => el.classes.has("feuillets-docx-review-section-badge") && el.classes.has(`mod-confidence-${confidence}`));
+    assert.ok(badge, `badge mod-confidence-${confidence} doit être rendu`);
+    assert.equal(badge.text, expectedLabel);
+  }
+
+  // Sans confidence (analyse antérieure à ce lot, état restauré) : aucun badge de confiance.
+  const containerNone = new FakeElement();
+  view.renderChange(containerNone, dest, { ...base });
+  assert.equal(allElements(containerNone).some((el) => el.classes.has("feuillets-docx-review-section-badge")), false);
+});
+
+test("LOT 4 (confiance) — un élément Ambigu n'affiche JAMAIS de bouton Appliquer (aucune écriture automatique possible)", async () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const content = { [dest.path]: dest.content };
+  const { view, writes } = createView({ files: [dest], content });
+  const change = {
+    type: "insertion", author: "A", date: "D",
+    contextBefore: "Cible.", text: " Ajout.",
+    confidence: "ambiguous",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+
+  const applyBtn = allElements(container).find((el) => el.icon === "check");
+  assert.equal(applyBtn, undefined, "aucun bouton Appliquer pour un élément confidence:\"ambiguous\"");
+  assert.equal(writes.length, 0);
+
+  // Un item "safe" (ou sans confidence connue), lui, garde son bouton.
+  const containerSafe = new FakeElement();
+  view.renderChange(containerSafe, dest, { ...change, confidence: "safe" });
+  assert.ok(allElements(containerSafe).find((el) => el.icon === "check"), "un élément \"safe\" garde son bouton Appliquer");
+});
+
+test("LOT 4 (correctif) — un élément À vérifier présente Examiner comme action PRINCIPALE, jamais une présentation identique à Sûr", async () => {
+  const dest = file("Projet/Destination.md", "Avant. Cible.");
+  const content = { [dest.path]: dest.content };
+  const { view, writes } = createView({ files: [dest], content });
+  const change = {
+    type: "insertion", author: "A", date: "D",
+    contextBefore: "Cible.", text: " Ajout.",
+    confidence: "review",
+  };
+
+  // 1. Un item simple (non-déplacement) "review" a un bouton Examiner (eye),
+  //    absent d'un item "safe" — la présentation n'est jamais identique.
+  const containerSafe = new FakeElement();
+  view.renderChange(containerSafe, dest, { ...change, confidence: "safe" });
+  assert.equal(allElements(containerSafe).some((el) => el.icon === "eye"), false, "un élément \"safe\" n'a aucun bouton Examiner");
+
+  const containerReview = new FakeElement();
+  view.renderChange(containerReview, dest, change);
+  const elements = allElements(containerReview);
+  const examineBtn = elements.find((el) => el.icon === "eye");
+  const acceptBtn = elements.find((el) => el.icon === "check");
+  assert.ok(examineBtn, "bouton Examiner présent pour un élément \"review\"");
+  assert.ok(acceptBtn, "l'utilisateur doit ensuite pouvoir accepter volontairement l'opération");
+  assert.ok(elements.indexOf(examineBtn) < elements.indexOf(acceptBtn), "Examiner doit être l'action PRINCIPALE, rendue avant Accepter");
+
+  // 2. Cliquer Examiner ne modifie jamais le fichier.
+  examineBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(writes.length, 0, "Examiner ne doit jamais écrire dans le fichier");
+  assert.equal(content[dest.path], "Avant. Cible.", "contenu inchangé après Examiner");
+
+  // 3. L'acceptation volontaire (Accepter), elle, applique bien la modification.
+  acceptBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(writes.length, 1, "Accepter applique réellement la modification");
+  assert.equal(change.applied, true);
+
+  // 4. Un déplacement "review" garde EXACTEMENT le même nombre de boutons
+  //    "eye" qu'un déplacement "safe" (previewBtn déjà existant, jamais
+  //    dupliqué) : seul le bouton d'acceptation lui-même en tient compte.
+  const origin = file("Projet/Origine.md", "Début. Passage à couper. Fin.");
+  const dest2 = file("Projet/Destination2.md", "Avant. Après.");
+  const content2 = { [origin.path]: origin.content, [dest2.path]: dest2.content };
+  const { view: view2 } = createView({ files: [origin, dest2], content: content2, withWorkspace: true });
+  const moveChange = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest2.path,
+    fromContext: "Début. ", fromText: "Passage à couper.",
+    toContext: "Avant. ", text: "Passage à couper.",
+  };
+  const containerMoveSafe = new FakeElement();
+  view2.renderChange(containerMoveSafe, dest2, { ...moveChange, confidence: "safe" });
+  const containerMoveReview = new FakeElement();
+  view2.renderChange(containerMoveReview, dest2, { ...moveChange, confidence: "review" });
+  const eyeCountSafe = allElements(containerMoveSafe).filter((el) => el.icon === "eye").length;
+  const eyeCountReview = allElements(containerMoveReview).filter((el) => el.icon === "eye").length;
+  assert.equal(eyeCountReview, eyeCountSafe, "un déplacement a déjà son action Examiner (previewBtn) : jamais un doublon pour \"review\"");
+  assert.ok(allElements(containerMoveReview).find((el) => el.icon === "check"), "l'acceptation volontaire reste possible pour un déplacement \"review\"");
+});
+
+test("LOT 4 (confiance) — retour non rattaché à un feuillet (chemin non résolu) : seulement examiner, jamais appliquer directement", async () => {
+  const candidate = file("Projet/Candidat.md", "Un passage candidat ici.");
+  const content = { [candidate.path]: candidate.content };
+  const { view, writes } = createView({ files: [candidate], content, withWorkspace: true });
+  const item = {
+    type: "insertion", author: "A", date: "D",
+    contextBefore: "candidat ", text: "AJOUT ",
+    nearFiles: [candidate.path],
+    confidence: "ambiguous",
+    confidenceReasons: ["unresolved-path"],
+  };
+  const header = new FakeElement();
+  view.renderNearFilesHints(header, item);
+
+  const applyBtn = allElements(header).find((el) => el.icon === "check");
+  assert.equal(applyBtn, undefined, "jamais de bouton d'application directe pour un chemin non résolu");
+  const examineBtn = allElements(header).find((el) => el.icon === "eye");
+  assert.ok(examineBtn, "un bouton d'examen (ouvrir/révéler, sans écrire) doit rester disponible");
+
+  examineBtn.events.get("click")({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(writes.length, 0, "examiner un candidat ne doit jamais écrire dans le fichier");
+});
+
+test("LOT 4 (confiance) — analyzeBuffer calcule réellement confidence pour un retour pas encore appliqué (bout en bout)", async () => {
+  const scenePath = "Projet/SceneConfiance.md";
+  const scene = file(scenePath, "Avant. Rien d'ajouté ici.");
+  const bookmark = bookmarkIdFor(scenePath);
+  const { view } = createView({ files: [scene] });
+  view.render = async () => {};
+
+  const xml = documentXml(
+    `<w:p><w:bookmarkStart w:id="1" w:name="${bookmark}"/><w:r><w:t>Avant. </w:t></w:r>` +
+    `<w:ins w:id="2" w:author="A" w:date="D"><w:r><w:t>Un ajout inédit.</w:t></w:r></w:ins>` +
+    `<w:bookmarkEnd w:id="1"/></w:p>`
+  );
+  const zip = mockZip({
+    "word/document.xml": xml,
+    "word/comments.xml": "",
+    "word/footnotes.xml": "<w:footnotes/>",
+    "word/commentsExtended.xml": "",
+  });
+  await view.analyzeBuffer(new Uint8Array(), "confiance.docx");
+  zip.restore();
+
+  const insertion = view.results.byPath[scenePath].changes.find((c) => c.type === "insertion");
+  assert.ok(insertion, "l'insertion doit être présente");
+  assert.equal(insertion.applied, undefined, "pas encore présente dans le feuillet : pas déjà appliquée");
+  assert.equal(insertion.confidence, "safe");
+  assert.deepEqual(insertion.confidenceReasons, ["exact-match"]);
+});
+
 test("Lot 4 — bouton « Voir le passage déplacé » sur un déplacement déjà appliqué", async () => {
   const dest = file("Projet/Destination.md", "Avant. Passage.");
   const content = { [dest.path]: dest.content };
