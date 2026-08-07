@@ -8,10 +8,14 @@ import {
   resolveScenesToPaths,
   resolveOrphans,
   mergeGlobalMovePairs,
+  mergeImplicitCutPastePairs,
+  absorbMoveOwnedFootnoteRevisions,
   searchTextForChange,
   planApply,
   planApplyInterFile,
   findTolerant,
+  findCommentAnchor,
+  locateChangeMatch,
 } from "../services/docx-review-import.js";
 import { bookmarkIdFor } from "../utils/docx-bookmarks.js";
 import { t, getLocale } from "../i18n/index.js";
@@ -35,6 +39,12 @@ type ReviewEntryBase = {
   newText?: string;
   fromPath?: string | null;
   toPath?: string | null;
+  toContextAfter?: string;
+  /** Texte réel autour de la plage annotée par UN COMMENTAIRE (voir
+   * findCommentAnchor) — jamais posé pour un ReviewChange. */
+  contextAfter?: string;
+  destinationBoundary?: "inline" | "paragraph-start" | "paragraph-end" | "between-paragraphs" | "standalone-paragraph";
+  footnoteRefs?: string[];
   anchorText?: string;
   parentId?: string;
   isFormatting?: boolean;
@@ -90,6 +100,66 @@ function iconFor(entry: ReviewEntry): string {
   if (entry.type === "insertion") return "plus";
   if (entry.type === "deletion") return "minus";
   return "repeat"; // replacement
+}
+
+/* Libellé discret du point d'insertion d'un déplacement (Lot 2, voir
+ * docx-review-import.ts#computeDestinationBoundary) — jamais recalculé ici,
+ * seulement traduit pour l'affichage. */
+function boundaryLabel(boundary: ReviewChange["destinationBoundary"]): string | null {
+  switch (boundary) {
+    case "inline": return t("docxReview.boundary.inline");
+    case "paragraph-start": return t("docxReview.boundary.paragraphStart");
+    case "paragraph-end": return t("docxReview.boundary.paragraphEnd");
+    case "between-paragraphs": return t("docxReview.boundary.betweenParagraphs");
+    case "standalone-paragraph": return t("docxReview.boundary.standaloneParagraph");
+    default: return null;
+  }
+}
+
+/* Ligne de contexte COURTE de la carte Déplacement repliée (Lot 6, carte
+ * compacte) — jamais le passage complet (voir la zone dépliable, qui garde
+ * le texte intégral tel quel) : juste de quoi identifier le passage d'un
+ * coup d'œil dans la pile. Coupe sur un espace quand possible (jamais un
+ * mot tranché en plein milieu). */
+function truncateForSummary(text: string, maxLen = 70): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= maxLen) return flat;
+  const cut = flat.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > maxLen * 0.6 ? cut.slice(0, lastSpace) : cut) + "…";
+}
+
+const PREVIEW_SNIPPET_RADIUS = 60;
+
+/** Extrait lisible de `content` autour du point où `contextBefore`
+ * (+`insertedText`, si fourni) est réellement localisé — Lot 3, aperçu
+ * "Avant"/"Après" : jamais une supposition, toujours retrouvé dans le VRAI
+ * contenu via findTolerant (même tolérance que planApply). `insertedText`
+ * vide -> aperçu "Avant" (juste le contexte, rien d'ajouté) ; non vide ->
+ * aperçu "Après" (passage inséré encadré de crochets pour le repérer d'un
+ * coup d'œil, sans dépendre d'une mise en forme HTML). */
+function previewSnippet(content: string, contextBefore: string, insertedText: string): string {
+  const searchText = insertedText ? contextBefore + insertedText : contextBefore;
+  const match = searchText ? findTolerant(content, searchText) : null;
+  if (!match) return content.slice(0, PREVIEW_SNIPPET_RADIUS * 2);
+
+  const centerEnd = match.index + match.length;
+  const start = Math.max(0, match.index - PREVIEW_SNIPPET_RADIUS);
+  const end = Math.min(content.length, centerEnd + PREVIEW_SNIPPET_RADIUS);
+  const prefix = start > 0 ? "…" : "";
+  const suffix = end < content.length ? "…" : "";
+  let snippet = content.slice(start, end);
+
+  if (insertedText) {
+    const insertOffset = centerEnd - insertedText.length - start;
+    if (insertOffset >= 0 && insertOffset + insertedText.length <= snippet.length) {
+      snippet =
+        snippet.slice(0, insertOffset) +
+        "[" + snippet.slice(insertOffset, insertOffset + insertedText.length) + "]" +
+        snippet.slice(insertOffset + insertedText.length);
+    }
+  }
+  return prefix + snippet + suffix;
 }
 
 /* w:rPrChange marker -> classe CSS appliquant la VRAIE mise en forme
@@ -268,12 +338,21 @@ export class DocxReviewView extends BaseFeuilletsView {
        Word) et fils de réponses. Absent des .docx anciens. */
     const commentsExtFile = zip.file("word/commentsExtended.xml");
     const commentsExtendedXml = commentsExtFile ? await commentsExtFile.async("string") : "";
+    /* styles.xml : reconnaît les paragraphes de titre/sous-titre de
+       feuillet injectés par compile-export.ts (voir
+       docx-review-import.ts#parseHeadingStyleIds) — sans lui, leur texte
+       polluait le contexte du premier changement de chaque feuillet.
+       Absent (docx ancien) : dégradation silencieuse, aucun style reconnu
+       comme titre. */
+    const stylesFile = zip.file("word/styles.xml");
+    const stylesXml = stylesFile ? await stylesFile.async("string") : "";
 
     const { scenes, unclassified } = parseDocxReview({
       "word/document.xml": documentXml,
       "word/comments.xml": commentsXml,
       "word/footnotes.xml": footnotesXml,
       "word/commentsExtended.xml": commentsExtendedXml,
+      "word/styles.xml": stylesXml,
     });
     const currentPaths = this.plugin.listCompiledFilePaths();
     const { byPath, unmatched } = resolveScenesToPaths(scenes, currentPaths);
@@ -291,6 +370,20 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
 
     mergeGlobalMovePairs(byPath, unmatched, unclassified);
+    /* Le corps d'une note déplacée AVEC son passage (voir
+       MoveChange.originFootnoteIds/destFootnoteIds) est TOUJOURS retiré
+       APRÈS mergeGlobalMovePairs (les MoveChange cross-feuillets n'existent
+       qu'à partir de là) et TOUJOURS AVANT mergeImplicitCutPastePairs (qui,
+       sinon, absorbe le couple w:del/w:ins du corps de note en un second
+       "move" fantôme pour la SEULE note — voir
+       docx-review-import.ts#absorbMoveOwnedFootnoteRevisions). */
+    absorbMoveOwnedFootnoteRevisions(byPath, unmatched, unclassified);
+    /* Couper-coller Word enregistré comme un w:del + un w:ins séparés
+       (aucun w:name partagé) — TOUJOURS après mergeGlobalMovePairs : les
+       vrais déplacements natifs sont déjà fusionnés et retirés, cette
+       détection plus prudente n'agit que sur ce qui reste. Voir
+       docx-review-import.ts#mergeImplicitCutPastePairs. */
+    mergeImplicitCutPastePairs(byPath, unmatched, unclassified);
 
     // Restauration de l'état mémorisé (settings) et détection automatique des retours déjà présents dans les feuillets
     const S = this.plugin.settings;
@@ -639,14 +732,64 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
   }
 
-  async openAndReveal(file: TFile, itemOrText: ReviewEntry | string | null | undefined, fallbackText?: string): Promise<void> {
+  /** Ouvre `file` et sélectionne/révèle le passage correspondant à
+   * `itemOrText` — réutilisé aussi bien pour l'aperçu AVANT application
+   * (clic sur une carte) que pour révéler un passage APRÈS application
+   * (Lot 4, voir revealMoveDestination) : même mécanisme Editor.setSelection/
+   * scrollIntoView (API Obsidian/CodeMirror déjà en place), jamais un
+   * second système de surlignage. Renvoie `true` si le passage a bien été
+   * localisé et sélectionné, `false` sinon — à l'appelant d'informer
+   * l'utilisateur plutôt que de prétendre silencieusement avoir réussi. */
+  async openAndReveal(file: TFile, itemOrText: ReviewEntry | string | null | undefined, fallbackText?: string): Promise<boolean> {
     const leaf = this.app.workspace.getLeaf(false);
     await leaf.openFile(file, { active: true });
     this.app.workspace.setActiveLeaf(leaf, { focus: true });
-    if (!leaf.view || !hasEditor(leaf.view)) return;
+    if (!leaf.view || !hasEditor(leaf.view)) return false;
     const editor = leaf.view.editor;
 
     const content = editor.getValue();
+
+    /* Déplacement (origine — fromContext/fromText — OU destination via
+       revealMoveDestination, qui réutilise cette branche avec fromContext=
+       toContext/fromText=text) : locateChangeMatch dégrade UNIQUEMENT le
+       CONTEXTE, jamais le passage lui-même — contrairement à findTolerant
+       plus bas (repli vers de courts suffixes ASCII du TEXTE ENTIER, y
+       compris son contexte, quand la correspondance exacte échoue).
+       Régression confirmée sur un vrai retour : un déplacement de
+       paragraphe entier ou multi-paragraphe (fromText contenant des "\n\n"
+       internes) ne sélectionnait plus, dès que la correspondance exacte
+       échouait, que les derniers caractères du DERNIER fragment — jamais
+       le passage complet. */
+    if (itemOrText && typeof itemOrText !== "string" && !itemOrText.anchorText && itemOrText.type === "move" && itemOrText.fromText) {
+      const moveMatch = locateChangeMatch(content, itemOrText.fromContext || "", itemOrText.fromText);
+      if (!moveMatch) return false;
+      const selStart = moveMatch.index + (moveMatch.length - moveMatch.matchedText.length);
+      const selEnd = moveMatch.index + moveMatch.length;
+      const from = editor.offsetToPos(selStart);
+      const to = editor.offsetToPos(selEnd);
+      editor.setSelection(from, to);
+      editor.scrollIntoView({ from, to }, true);
+      return true;
+    }
+
+    /* Commentaire (anchorText posé, jamais pour un ReviewChange — voir
+       ReviewEntryBase) : findCommentAnchor cherche D'ABORD la plage RÉELLEMENT
+       annotée (anchorText seul, le chemin le plus courant) et ne recourt au
+       contexte avant/après QUE si elle apparaît plusieurs fois dans le
+       feuillet — jamais une exigence de correspondance littérale avec tout
+       le texte compilé (voir sa doc, docx-review-import.ts). Un simple
+       string (clic depuis renderNearFilesHints, jamais un commentaire) reste
+       sur le chemin générique plus bas. */
+    if (itemOrText && typeof itemOrText !== "string" && itemOrText.anchorText) {
+      const anchorMatch = findCommentAnchor(content, itemOrText);
+      if (!anchorMatch) return false;
+      const from = editor.offsetToPos(anchorMatch.index);
+      const to = editor.offsetToPos(anchorMatch.index + anchorMatch.length);
+      editor.setSelection(from, to);
+      editor.scrollIntoView({ from, to }, true);
+      return true;
+    }
+
     let searchText = "";
     let targetText: string | undefined = "";
 
@@ -654,10 +797,8 @@ export class DocxReviewView extends BaseFeuilletsView {
       searchText = itemOrText;
       targetText = itemOrText;
     } else if (itemOrText) {
-      if (itemOrText.anchorText) {
-        searchText = itemOrText.anchorText;
-        targetText = itemOrText.anchorText;
-      } else if (itemOrText.type === "replacement") {
+      // itemOrText.anchorText déjà traité plus haut (findCommentAnchor) — jamais atteint ici.
+      if (itemOrText.type === "replacement") {
         searchText = (itemOrText.contextBefore || "") + itemOrText.oldText;
         targetText = itemOrText.oldText;
       } else if (itemOrText.type === "deletion") {
@@ -679,7 +820,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       (searchText && findTolerant(content, searchText)) ||
       (fallbackText && findTolerant(content, fallbackText));
 
-    if (!match) return;
+    if (!match) return false;
 
     let selStart = match.index;
     const selEnd = match.index + match.length;
@@ -695,6 +836,49 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     editor.setSelection(from, to);
     editor.scrollIntoView({ from, to }, true);
+    return true;
+  }
+
+  /** Révèle EXACTEMENT la plage `range` (offsets dans le fichier tel qu'il
+   * vient d'être écrit — voir ApplyResult.insertedRange, planApply/
+   * planApplyMove/planApplyInterFile) dans `file` : aucune recherche
+   * textuelle, le plan d'application a DÉJÀ calculé où le texte a atterri —
+   * le refaire chercher risquerait justement de ne pas le retrouver quand le
+   * Markdown réellement écrit diffère légèrement du texte porté par la carte
+   * (voir Markdown des IDs de notes, jamais [^N] mais le vrai label +
+   * définition). Couvre nativement le multi-paragraphe : `range` porte les
+   * offsets du DÉBUT au bout du passage entier, quel que soit son nombre de
+   * "\n\n" internes. Renvoie `false` seulement si `file` n'a pas pu être
+   * ouvert dans un éditeur (jamais pour un texte "introuvable" : il n'y a
+   * plus de recherche ici). */
+  private async revealRangeInFile(file: TFile, range: { start: number; end: number }): Promise<boolean> {
+    const leaf = this.app.workspace.getLeaf(false);
+    await leaf.openFile(file, { active: true });
+    this.app.workspace.setActiveLeaf(leaf, { focus: true });
+    if (!leaf.view || !hasEditor(leaf.view)) return false;
+    const editor = leaf.view.editor;
+    const from = editor.offsetToPos(range.start);
+    const to = editor.offsetToPos(range.end);
+    editor.setSelection(from, to);
+    editor.scrollIntoView({ from, to }, true);
+    return true;
+  }
+
+  /** Révèle un passage tel qu'il vient d'être COLLÉ (destination d'un
+   * déplacement, Lot 4). Réutilise la branche "move" de openAndReveal
+   * (locateChangeMatch, jamais findTolerant — voir sa doc) avec
+   * fromContext=toContext/fromText=text : exactement la recherche qu'il
+   * faut pour retrouver, EN ENTIER (même multi-paragraphe), un texte qui
+   * vient d'être INSÉRÉ à `toContext` — plus seulement son dernier
+   * fragment (régression corrigée, voir openAndReveal). Repli utilisé
+   * UNIQUEMENT quand aucune plage exacte n'est disponible (voir
+   * revealRangeInFile, désormais le chemin normal après application — voir
+   * son appel dans le bouton Appliquer) : affiche une notice claire — sans
+   * jamais prétendre avoir sélectionné quoi que ce soit — si le passage ne
+   * peut pas être retrouvé de façon sûre après écriture. */
+  private async revealMoveDestination(file: TFile, toContext: string, text: string): Promise<void> {
+    const found = await this.openAndReveal(file, { type: "move", fromContext: toContext || "", fromText: text || "" } as ReviewEntry);
+    if (!found) new Notice(t("docxReview.moveRevealFailedNotice"));
   }
 
   renderChange(container: HTMLElement, file: TFile | null, change: ReviewChange) {
@@ -737,13 +921,25 @@ export class DocxReviewView extends BaseFeuilletsView {
         ? t("docxReview.change.pasteInto", { title: this.plugin.titleFor(toFileObj) })
         : t("docxReview.change.paste");
 
-      preview.createSpan({ cls: "feuillets-docx-review-move-label mod-cut" }).setText(fromLabel);
-      if (change.fromContext) preview.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.fromContext + " ");
-      preview.createSpan({ cls: "feuillets-docx-review-removed" }).setText(change.fromText || "");
-      preview.createEl("br");
-      preview.createSpan({ cls: "feuillets-docx-review-move-label mod-paste" }).setText(toLabel);
-      if (change.toContext) preview.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.toContext + " ");
-      preview.createSpan({ cls: "feuillets-docx-review-added" }).setText(change.text || "");
+      /* Carte compacte (Lot 6) — repliée par défaut : origine/destination
+         restent identifiables d'un coup d'œil (fichier + court extrait,
+         voir truncateForSummary) et le saut de paragraphe éventuel reste
+         visible, mais jamais le texte COMPLET ici — il masquait le reste du
+         panneau (retour utilisateur). Le texte intégral vit dans la zone
+         dépliable "Passages complets" (voir plus bas, bouton `detailBtn`),
+         fermée par défaut, jamais reconstruite depuis autre chose que
+         change.fromText/change.text — mêmes valeurs, mêmes zones
+         .mod-origin/.mod-destination, juste déplacées derrière un bouton. */
+      const originLine = preview.createDiv({ cls: "feuillets-docx-review-move-zone mod-origin mod-compact" });
+      originLine.createSpan({ cls: "feuillets-docx-review-move-label mod-cut" }).setText(fromLabel);
+      originLine.createSpan({ cls: "feuillets-docx-review-context" }).setText(truncateForSummary(change.fromText || ""));
+
+      const destLine = preview.createDiv({ cls: "feuillets-docx-review-move-zone mod-destination mod-compact" });
+      destLine.createSpan({ cls: "feuillets-docx-review-move-label mod-paste" }).setText(toLabel);
+      destLine.createSpan({ cls: "feuillets-docx-review-context" }).setText(truncateForSummary(change.text || ""));
+
+      const boundary = boundaryLabel(change.destinationBoundary);
+      if (boundary) preview.createDiv({ cls: "feuillets-docx-review-boundary" }).setText(boundary);
     } else {
       if (change.contextBefore) preview.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.contextBefore + " ");
       preview
@@ -753,19 +949,140 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     const fallbackText = change.type === "move" ? change.toContext : change.contextBefore;
 
+    /** Résout fromFile/toFile pour CE changement (retombe sur `file` quand
+     * l'un des deux chemins est absent — même déplacement dans le même
+     * feuillet) — factorisé, réutilisé par les boutons Origine/Destination,
+     * Aperçu et Appliquer. */
+    const resolveMoveFiles = (): { fromFile: TFile | TAbstractFile | null; toFile: TFile | TAbstractFile | null } => ({
+      fromFile: change.fromPath ? resolveVaultFile(this.app, change.fromPath) || file : file,
+      toFile: change.toPath ? resolveVaultFile(this.app, change.toPath) || file : file,
+    });
+
     if (file) {
       row.addClass("feuillets-clickable");
       row.title = t("docxReview.openAndShowTooltip");
       row.addEventListener("click", () => { void this.openAndReveal(file, change, fallbackText); });
+
+      if (change.type === "move") {
+        // Mêmes libellés que la ligne compacte (voir plus haut, `preview`) —
+        // recalculés ici (portée séparée) plutôt que remontés en dehors du
+        // bloc : même coût négligeable que fromFileObj/toFileObj, déjà
+        // recalculés séparément avant ce chantier.
+        const fromFileObjForLabel = change.fromPath ? resolveVaultFile(this.app, change.fromPath) : null;
+        const toFileObjForLabel = change.toPath ? resolveVaultFile(this.app, change.toPath) : null;
+        const fromLabel = fromFileObjForLabel instanceof TFile && fromFileObjForLabel !== file
+          ? t("docxReview.change.cutFrom", { title: this.plugin.titleFor(fromFileObjForLabel) })
+          : t("docxReview.change.cut");
+        const toLabel = toFileObjForLabel instanceof TFile && toFileObjForLabel !== file
+          ? t("docxReview.change.pasteInto", { title: this.plugin.titleFor(toFileObjForLabel) })
+          : t("docxReview.change.paste");
+
+        // Lot 6 — carte compacte : le texte complet origine/destination
+        // (mêmes zones .mod-origin/.mod-destination qu'avant ce chantier,
+        // juste déplacées ici) reste accessible d'un clic, fermé par
+        // défaut — même mécanisme de repli lazy que previewBtn plus bas
+        // (construit à l'ouverture, retiré à la fermeture, jamais les deux
+        // en même temps).
+        let detailBox: HTMLElement | null = null;
+        const detailBtn = this.iconBtn(header, "chevron-down", t("docxReview.showFullPassages"));
+        detailBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (detailBox) {
+            detailBox.remove();
+            detailBox = null;
+            setIcon(detailBtn, "chevron-down");
+            return;
+          }
+          detailBox = preview.createDiv({ cls: "feuillets-docx-review-move-detail" });
+          const originZone = detailBox.createDiv({ cls: "feuillets-docx-review-move-zone mod-origin" });
+          originZone.createSpan({ cls: "feuillets-docx-review-move-label mod-cut" }).setText(fromLabel);
+          if (change.fromContext) originZone.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.fromContext + " ");
+          originZone.createSpan({ cls: "feuillets-docx-review-removed" }).setText(change.fromText || "");
+
+          const destZone = detailBox.createDiv({ cls: "feuillets-docx-review-move-zone mod-destination" });
+          destZone.createSpan({ cls: "feuillets-docx-review-move-label mod-paste" }).setText(toLabel);
+          if (change.toContext) destZone.createSpan({ cls: "feuillets-docx-review-context" }).setText("…" + change.toContext + " ");
+          destZone.createSpan({ cls: "feuillets-docx-review-added" }).setText(change.text || "");
+          if (change.toContextAfter) destZone.createSpan({ cls: "feuillets-docx-review-context" }).setText(" " + change.toContextAfter + "…");
+          setIcon(detailBtn, "chevron-up");
+        });
+
+        // Lot 2 — Voir l'origine / Voir la destination : deux actions
+        // DISTINCTES (contrairement au clic sur la ligne, qui ne révèle que
+        // l'origine, voir openAndReveal branche "move") — même pour un
+        // déplacement dans le même feuillet, où les deux boutons ouvrent
+        // le MÊME fichier mais sélectionnent des passages différents.
+        const { fromFile: originFile, toFile: destFile } = resolveMoveFiles();
+        if (originFile instanceof TFile) {
+          const originBtn = this.iconBtn(header, "arrow-up-right", t("docxReview.viewOrigin"));
+          originBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            void this.openAndReveal(originFile, change, fallbackText);
+          });
+        }
+        if (destFile instanceof TFile) {
+          const destBtn = this.iconBtn(header, "arrow-down-right", t("docxReview.viewDestination"));
+          destBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            void this.revealMoveDestination(destFile, change.toContext || "", change.text || "");
+          });
+        }
+
+        // Lot 3 — Aperçu du résultat : calcule (sans jamais écrire) ce que
+        // planApply/planApplyMove produirait, à partir du contenu RÉEL
+        // actuel du feuillet de destination — jamais une supposition.
+        const previewBtn = this.iconBtn(header, "eye", t("docxReview.previewResult"));
+        let previewBox: HTMLElement | null = null;
+        previewBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void (async () => {
+            if (previewBox) {
+              previewBox.remove();
+              previewBox = null;
+              return;
+            }
+            previewBox = row.createDiv({ cls: "feuillets-docx-review-preview-box" });
+            if (!(destFile instanceof TFile)) {
+              previewBox.setText(t("docxReview.previewUnavailable"));
+              return;
+            }
+            const currentContent = await this.app.vault.read(destFile);
+            const result = planApply(currentContent, change as unknown as Parameters<typeof planApply>[1]);
+            if (!result.ok || result.newContent === undefined) {
+              previewBox.setText(t("docxReview.previewUnavailable"));
+              return;
+            }
+            const beforeBlock = previewBox.createDiv({ cls: "feuillets-docx-review-preview-block" });
+            beforeBlock.createDiv({ cls: "feuillets-docx-review-preview-heading" }).setText(t("docxReview.previewBefore"));
+            beforeBlock.createDiv({ cls: "feuillets-docx-review-preview-text" }).setText(previewSnippet(currentContent, change.toContext || "", ""));
+            const afterBlock = previewBox.createDiv({ cls: "feuillets-docx-review-preview-block" });
+            afterBlock.createDiv({ cls: "feuillets-docx-review-preview-heading" }).setText(t("docxReview.previewAfter"));
+            afterBlock.createDiv({ cls: "feuillets-docx-review-preview-text" }).setText(previewSnippet(result.newContent, change.toContext || "", change.text || ""));
+          })();
+        });
+
+        if (change.applied) {
+          const viewMovedBtn = this.iconBtn(header, "locate", t("docxReview.viewMovedPassage"));
+          viewMovedBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (destFile instanceof TFile) void this.revealMoveDestination(destFile, change.toContext || "", change.text || "");
+          });
+        }
+      }
 
       if (!change.applied) {
         const applyBtn = this.iconBtn(header, "check", t("docxReview.applyChange"));
         applyBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           void (async () => {
-            let result: { ok: boolean; reason?: string; newContent?: string; step?: string };
-            const fromFile = change.fromPath ? resolveVaultFile(this.app, change.fromPath) || file : file;
-            const toFile = change.toPath ? resolveVaultFile(this.app, change.toPath) || file : file;
+            let result: {
+              ok: boolean;
+              reason?: string;
+              newContent?: string;
+              step?: string;
+              insertedRange?: { start: number; end: number };
+            };
+            const { fromFile, toFile } = resolveMoveFiles();
 
             if (change.type === "move" && fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
               await this.ensureSnapshot(fromFile);
@@ -793,6 +1110,28 @@ export class DocxReviewView extends BaseFeuilletsView {
             change.dismissed = true;
             await this.saveItemState(change);
             new Notice(t("docxReview.changeAppliedNotice"));
+            /* Lot 4 — révèle le passage à sa nouvelle place APRÈS écriture
+               (jamais avant : le texte n'existe à cet endroit précis qu'une
+               fois le fichier réellement modifié) — même feuillet ou
+               inter-fichiers. `result.insertedRange` porte les offsets EXACTS
+               que le plan d'application vient d'écrire (voir
+               ApplyResult.insertedRange) : révélés directement
+               (revealRangeInFile), SANS repasser par une recherche textuelle
+               — celle-ci peut échouer sur un texte légèrement différent une
+               fois écrit (IDs de notes notamment) alors que l'écriture, elle,
+               a réussi. Repli sur l'ancienne recherche (revealMoveDestination)
+               seulement si aucune plage n'a été calculée (ne devrait plus
+               arriver en pratique). Le panneau Révision DOCX lui-même n'est
+               jamais fermé : seul l'éditeur du feuillet cible est
+               ouvert/activé (voir openAndReveal, déjà le mécanisme utilisé
+               par le reste du panneau pour prévisualiser AVANT application). */
+            if (change.type === "move" && toFile instanceof TFile) {
+              if (result.insertedRange) {
+                await this.revealRangeInFile(toFile, result.insertedRange);
+              } else {
+                await this.revealMoveDestination(toFile, change.toContext || "", change.text || "");
+              }
+            }
             void this.render();
           })();
         });
@@ -929,7 +1268,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     if (file) {
       row.addClass("feuillets-clickable");
       row.title = t("docxReview.openAndShowTooltip");
-      row.addEventListener("click", () => { void this.openAndReveal(file, comment.anchorText); });
+      row.addEventListener("click", () => { void this.openAndReveal(file, comment); });
     } else {
       this.renderNearFilesHints(header, comment, row);
     }
