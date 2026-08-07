@@ -56,6 +56,14 @@ type ChangeMetadata = {
    * de passage (voir absorbMoveOwnedFootnoteRevisions) — jamais à
    * l'affichage ni à l'application. */
   footnoteId?: string;
+  /** LOT 4 (confiance) : posé UNIQUEMENT par resolveOrphans, quand ce
+   * changement était d'abord orphelin (aucun signet retrouvé dans le docx)
+   * et a été relocalisé vers un UNIQUE feuillet candidat par recherche
+   * textuelle (findTolerant) — jamais pour un changement directement
+   * rattaché par signet. Une relocalisation, même unique, reste une preuve
+   * plus faible qu'un rattachement par signet : "à vérifier", jamais
+   * "sûr". */
+  relocatedOrphan?: boolean;
 };
 
 /** Classement du point d'insertion d'une destination (voir
@@ -169,6 +177,12 @@ type ReviewComment = {
    * trouver aussi vite qu'avant ce correctif. */
   contextBefore?: string;
   contextAfter?: string;
+  /** LOT 4 — voir ChangeMetadata.relocatedOrphan, même sémantique : posé
+   * UNIQUEMENT par resolveOrphans. Un commentaire reste consultatif (jamais
+   * de statut de confiance affiché dessus, voir docx-review-view.ts) —
+   * conservé ici uniquement pour que resolveOrphans (générique sur
+   * ReviewChange | ReviewComment) reste type-safe des deux côtés. */
+  relocatedOrphan?: boolean;
 };
 
 type ReviewBucket = {
@@ -243,9 +257,64 @@ type ApplyResult =
    * sélectionner le passage tel quel après application, SANS refaire une
    * recherche textuelle approximative (voir docx-review-view.js#revealRangeInFile).
    * Absente (undefined) seulement pour replacement/deletion, qui ne
-   * réintroduisent rien à révéler. */
-  | { ok: true; newContent: string; insertedRange?: { start: number; end: number } }
+   * réintroduisent rien à révéler.
+   *
+   * `matchStrength` (LOT 4, confiance) : "exact" si la correspondance a été
+   * trouvée avec le CONTEXTE COMPLET, non tronqué, fourni par l'appelant
+   * (le tout premier candidat essayé — voir getContextCandidates) ;
+   * "degraded" si seul un candidat plus court (repli de dégradation
+   * progressive, voire l'absence totale de contexte pour une suppression)
+   * a permis de lever l'ambiguïté. Absent pour un `ok:false` — une preuve
+   * qui n'a pas abouti n'a pas de "force" à rapporter. Reflète une
+   * information DÉJÀ produite par la boucle de recherche existante :
+   * aucune recherche supplémentaire n'est faite pour la calculer. */
+  | { ok: true; newContent: string; insertedRange?: { start: number; end: number }; matchStrength?: "exact" | "degraded" }
   | { ok: false; reason: "no-context" | "not-found" | "ambiguous" };
+
+/** LOT 4 — statuts de confiance affichés sur chaque retour, AVANT
+ * application, uniquement à partir de preuves déjà connues du moteur
+ * (jamais un score, jamais une heuristique arbitraire — voir
+ * evaluateSingleFileConfidence/evaluateInterFileConfidence, seuls points
+ * d'entrée qui les calculent). */
+export type ReviewConfidence = "safe" | "review" | "ambiguous";
+
+/** Justification(s) d'un ReviewConfidence — toujours un fait démontrable
+ * par le moteur au moment de l'évaluation, jamais une supposition :
+ * - "exact-match" : correspondance UNIQUE sur le contexte complet fourni.
+ * - "context-degraded" : correspondance UNIQUE, mais seulement après
+ *   dégradation du contexte (candidat plus court que l'original).
+ * - "implicit-move" : couper-coller DÉDUIT d'un w:del + w:ins, jamais
+ *   déclaré comme déplacement par Word lui-même (voir MoveChange.moveName) —
+ *   reste "review" même si la correspondance, elle, est unique.
+ * - "relocated-orphan" : retour d'abord orphelin (aucun signet retrouvé),
+ *   relocalisé vers un unique feuillet candidat (voir resolveOrphans).
+ * - "unresolved-path" : origine et/ou destination non résolue vers un
+ *   feuillet réel (encore dans unmatched/unclassified, ou fromPath/toPath
+ *   null après une fusion de déplacement).
+ * - "multiple-matches" : plusieurs occurrences possibles, aucune ne peut
+ *   être choisie sans risque (reason "ambiguous" du moteur d'application).
+ * - "missing-source" : passage/contexte introuvable tel quel (reason
+ *   "not-found" ou "no-context").
+ * - "footnote-unverifiable" : appel(s) de note porté(s) par le passage,
+ *   mais le passage d'origine n'est pas localisable de façon sûre — le
+ *   transfert de note ne peut pas être décidé sans deviner.
+ * - "structure-unverifiable" : le résultat calculé casserait la structure
+ *   du fichier (verifyNoBrokenStructure) — jamais proposé tel quel. */
+export type ReviewConfidenceReason =
+  | "exact-match"
+  | "context-degraded"
+  | "implicit-move"
+  | "relocated-orphan"
+  | "unresolved-path"
+  | "multiple-matches"
+  | "missing-source"
+  | "footnote-unverifiable"
+  | "structure-unverifiable";
+
+export type ReviewConfidenceEvaluation = {
+  confidence: ReviewConfidence;
+  confidenceReasons: ReviewConfidenceReason[];
+};
 
 type ReviewVaultFile = { path: string };
 
@@ -1389,6 +1458,14 @@ function mergeMovePairs(changes: ReviewChange[]): ReviewChange[] {
           toContext: ins.contextBefore,
           toContextAfter: ins.toContextAfter,
           destinationBoundary: computeDestinationBoundary(ins.contextBefore, ins.followedByParagraphBreak),
+          /* LOT 4 (confiance) : ce move ne peut EXISTER que via un moveName Word
+           * réel (voir le filtre `c.moved && c.moveName` juste au-dessus —
+           * contrairement à mergeImplicitCutPastePairs, jamais de couper-coller
+           * déduit ici) — le préserver évite de le perdre : sans lui, un
+           * déplacement NATIF même feuillet redevenait indiscernable d'un
+           * couper-coller implicite pour tout code qui lit `.moveName` après
+           * coup (aucun effet avant ce lot : rien ne le lisait encore). */
+          moveName: c.moveName,
         };
         const moveFootnoteIds = ins.footnoteRefs?.length ? ins.footnoteRefs : del.footnoteRefs;
         if (moveFootnoteIds?.length) move.footnoteRefs = moveFootnoteIds;
@@ -2065,6 +2142,12 @@ function stripMoveMarkers(marked: string): { clean: string; range: { start: numb
 function planApplyMove(content: string, change: ApplyChange): ApplyResult {
 
   let toMatch: RegexMatch | null = null;
+  /* LOT 4 (confiance) : true seulement si `toMatch` vient du contexte
+   * COMPLET, non tronqué (toCandidates[0]) — ou de l'ancre déterministe
+   * toContext==="" (jamais ambiguë par construction). Le repli "paragraphe
+   * scindé" (toContextSplitNeeded) n'est JAMAIS "exact" : Word a dû
+   * recomposer une frontière que ce fichier-ci ne porte pas telle quelle. */
+  let toMatchExact = false;
   /* Vrai si le paragraphe de destination N'EXISTE PAS ENCORE, séparé, dans
      CE fichier — Word l'a créé en scindant un paragraphe déjà là pour faire
      de la place au passage déplacé (confirmé sur un vrai retour : le
@@ -2102,6 +2185,7 @@ function planApplyMove(content: string, change: ApplyChange): ApplyResult {
     const existingBreak = existingBreakMatch ? existingBreakMatch[0] : "";
     toMatch = { index: bodyStart, 0: existingBreak };
     toContextBodyStartNeedsBreak = existingBreak === "" && bodyStart > 0;
+    toMatchExact = true; // ancre déterministe (tout début de feuillet), jamais ambiguë
   } else {
     const toCandidates = getContextCandidates(change.toContext);
     for (const ctx of toCandidates) {
@@ -2110,6 +2194,7 @@ function planApplyMove(content: string, change: ApplyChange): ApplyResult {
       const count = countRegexMatches(re, content);
       if (count === 1) {
         toMatch = findSingleRegexMatch(re, content);
+        toMatchExact = ctx === toCandidates[0];
         break;
       }
     }
@@ -2123,6 +2208,7 @@ function planApplyMove(content: string, change: ApplyChange): ApplyResult {
         if (count === 1) {
           toMatch = findSingleRegexMatch(re, content);
           toContextSplitNeeded = true;
+          toMatchExact = false; // repli structurel (paragraphe scindé) : jamais la preuve la plus forte
           break;
         }
       }
@@ -2145,6 +2231,9 @@ function planApplyMove(content: string, change: ApplyChange): ApplyResult {
 
   let fromMatch: RegExpExecArray | null = null;
   let usedFromCtx = true;
+  // LOT 4 (confiance) : true seulement si `fromMatch` vient du contexte
+  // COMPLET, non tronqué (fromCandidates[0]) — jamais le "" ajouté en repli.
+  let fromMatchExact = false;
   const fromCandidates = [...getContextCandidates(change.fromContext), ""];
   for (const ctx of fromCandidates) {
     const pattern = ctx ? toleranceGroup(ctx) + toleranceGroup(change.fromText) : toleranceGroup(change.fromText);
@@ -2153,6 +2242,7 @@ function planApplyMove(content: string, change: ApplyChange): ApplyResult {
     if (count === 1) {
       fromMatch = findSingleRegexMatch(re, content);
       usedFromCtx = !!ctx;
+      fromMatchExact = ctx === fromCandidates[0];
       break;
     }
   }
@@ -2200,7 +2290,12 @@ function planApplyMove(content: string, change: ApplyChange): ApplyResult {
     }
     const { clean, range } = stripMoveMarkers(result);
     if (!verifyNoBrokenStructure(content, clean)) return { ok: false, reason: "ambiguous" };
-    return { ok: true, newContent: clean, insertedRange: range || undefined };
+    return {
+      ok: true,
+      newContent: clean,
+      insertedRange: range || undefined,
+      matchStrength: toMatchExact && fromMatchExact ? "exact" : "degraded",
+    };
   } else {
     // Si fromText est encore présent dans le fichier mais n'a pas pu être localisé de façon sûre (ex. ambiguïté), ne pas dupliquer sans couper !
     const rawFromRe = new RegExp(toleranceGroup(change.fromText), "g");
@@ -2224,7 +2319,14 @@ function planApplyMove(content: string, change: ApplyChange): ApplyResult {
       content.slice(0, insertAt) + leadingBreak + bodyStartLeadingBreak + change.text + trailingBreak + content.slice(insertAt);
     if (!verifyNoBrokenStructure(content, fallbackResult)) return { ok: false, reason: "ambiguous" };
     const fallbackStart = insertAt + leadingBreak.length + bodyStartLeadingBreak.length;
-    return { ok: true, newContent: fallbackResult, insertedRange: { start: fallbackStart, end: fallbackStart + change.text.length } };
+    return {
+      ok: true,
+      newContent: fallbackResult,
+      insertedRange: { start: fallbackStart, end: fallbackStart + change.text.length },
+      // Repli "origine déjà coupée par un edit précédent" : le côté origine
+      // n'a justement pas pu être re-vérifié dans CE fichier — jamais "exact".
+      matchStrength: "degraded",
+    };
   }
 }
 
@@ -2269,7 +2371,8 @@ export function planApply(content: string, change: ApplyChange | null | undefine
       const result = content.slice(0, insertAt) + leadingBreak + change.text + trailingBreak + content.slice(insertAt);
       if (!verifyNoBrokenStructure(content, result)) return { ok: false, reason: "ambiguous" };
       const start = insertAt + leadingBreak.length;
-      return { ok: true, newContent: result, insertedRange: { start, end: start + change.text.length } };
+      // Anchor déterministe (tout début de feuillet) : jamais ambiguë par construction — toujours "exact".
+      return { ok: true, newContent: result, insertedRange: { start, end: start + change.text.length }, matchStrength: "exact" };
     }
     if (!change.contextBefore) return { ok: false, reason: "no-context" };
     const candidates = getContextCandidates(change.contextBefore);
@@ -2295,6 +2398,10 @@ export function planApply(content: string, change: ApplyChange | null | undefine
             ok: true,
             newContent: content.slice(0, insertAt) + change.text + trailingBreak + content.slice(insertAt),
             insertedRange: { start: insertAt, end: insertAt + change.text.length },
+            // LOT 4 : le tout premier candidat (ctx === candidates[0]) porte le
+            // contexte COMPLET, non tronqué — tout candidat suivant est un repli
+            // de dégradation progressive (voir getContextCandidates).
+            matchStrength: ctx === candidates[0] ? "exact" : "degraded",
           };
         }
       }
@@ -2312,15 +2419,18 @@ export function planApply(content: string, change: ApplyChange | null | undefine
       if (count === 1) {
         const m = findSingleRegexMatch(re, content);
         if (m) {
+          const matchStrength = ctx === candidates[0] ? "exact" : "degraded";
           if (ctx) {
             return {
               ok: true,
               newContent: content.slice(0, m.index) + m[1] + change.newText + content.slice(m.index + m[0].length),
+              matchStrength,
             };
           } else {
             return {
               ok: true,
               newContent: content.slice(0, m.index) + change.newText + content.slice(m.index + m[0].length),
+              matchStrength,
             };
           }
         }
@@ -2346,17 +2456,59 @@ export function planApply(content: string, change: ApplyChange | null | undefine
            comportement exact d'avant ce chantier — aucune surprise sur les
            retours existants. */
         const collapse = needsTrailingParagraphBreak(change.destinationBoundary);
+        // Le "" ajouté en toute fin de `candidates` (recherche du texte SEUL,
+        // sans aucun contexte) n'est jamais candidates[0] dès que contextBefore
+        // n'est pas déjà vide — toujours "degraded", la preuve la plus faible.
+        const matchStrength = ctx === candidates[0] ? "exact" : "degraded";
         if (ctx) {
           const cut = content.slice(0, m.index) + m[1] + content.slice(m.index + m[0].length);
-          return { ok: true, newContent: collapse ? collapseBoundaryBreak(cut, m.index + m[1].length) : cut };
+          return { ok: true, newContent: collapse ? collapseBoundaryBreak(cut, m.index + m[1].length) : cut, matchStrength };
         } else {
           const cut = content.slice(0, m.index) + content.slice(m.index + m[0].length);
-          return { ok: true, newContent: collapse ? collapseBoundaryBreak(cut, m.index) : cut };
+          return { ok: true, newContent: collapse ? collapseBoundaryBreak(cut, m.index) : cut, matchStrength };
         }
       }
     }
   }
   return { ok: false, reason: sawAmbiguous ? "ambiguous" : "not-found" };
+}
+
+/** LOT 4 — confiance d'un changement SIMPLE (insertion/suppression/
+ * remplacement) ou d'un déplacement MÊME FEUILLET, à partir du contenu
+ * ACTUEL du feuillet (déjà lu par l'appelant — jamais relu ici). Réutilise
+ * planApply tel quel (aucune réimplémentation de la recherche) : cette
+ * fonction se contente de LIRE son verdict — jamais d'écrire, jamais
+ * d'appliquer quoi que ce soit elle-même. `change.moveName` (voir
+ * ChangeMetadata) distingue un déplacement Word NATIF (w:moveFrom/w:moveTo,
+ * moveName renseigné — y compris même feuillet depuis ce lot, voir
+ * mergeMovePairs) d'un couper-coller DÉDUIT d'un w:del + w:ins séparés
+ * (mergeImplicitCutPastePairs, moveName toujours absent) : ce dernier reste
+ * "à vérifier" même si sa correspondance, elle, est unique — Word ne l'a
+ * jamais déclaré comme un déplacement. */
+export function evaluateSingleFileConfidence(
+  content: string,
+  change: ApplyChange & { moveName?: string | null; relocatedOrphan?: boolean }
+): ReviewConfidenceEvaluation {
+  const result = planApply(content, change);
+  if (!result.ok) {
+    if (result.reason === "ambiguous") return { confidence: "ambiguous", confidenceReasons: ["multiple-matches"] };
+    return { confidence: "ambiguous", confidenceReasons: ["missing-source"] }; // "not-found" ou "no-context"
+  }
+  if (change.type === "move" && !change.moveName) {
+    return { confidence: "review", confidenceReasons: ["implicit-move"] };
+  }
+  if (result.matchStrength !== "exact") {
+    return { confidence: "review", confidenceReasons: ["context-degraded"] };
+  }
+  /* Retour d'abord orphelin, relocalisé de façon UNIQUE (voir resolveOrphans/
+   * ChangeMetadata.relocatedOrphan) : une relocalisation reste une preuve
+   * plus faible qu'un rattachement direct par signet, même quand la
+   * correspondance retrouvée ICI, elle, est par ailleurs "exacte" — jamais
+   * promu "safe" pour autant. */
+  if (change.relocatedOrphan) {
+    return { confidence: "review", confidenceReasons: ["exact-match", "relocated-orphan"] };
+  }
+  return { confidence: "safe", confidenceReasons: ["exact-match"] };
 }
 
 /** Cherche `text` (tolérance typographique, voir toleranceGroup) dans
@@ -2486,6 +2638,9 @@ export async function resolveOrphans(
         if (content != null && findTolerant(content, searchText)) matches.push(path);
       }
       if (matches.length === 1) {
+        // LOT 4 (confiance) : preuve plus faible qu'un rattachement direct
+        // par signet — voir ChangeMetadata.relocatedOrphan/ReviewComment.relocatedOrphan.
+        item.relocatedOrphan = true;
         if (!relocated[matches[0]]) relocated[matches[0]] = { changes: [], comments: [] };
         if ("anchorText" in item) relocated[matches[0]].comments.push(item);
         else relocated[matches[0]].changes.push(item);
@@ -2687,25 +2842,24 @@ function resolveFootnoteTransfer(
   return { text, fromContent: workingFrom, toContent: workingTo };
 }
 
-/** Applique un déplacement de texte inter-feuillets : supprime le texte
- * à l'origine (fromFile) et l'insère à la destination (toFile). Quand le
- * passage porte un ou plusieurs appels de note (moveChange.footnoteRefs),
- * transfère aussi leur définition — voir resolveFootnoteTransfer — de façon
- * SÛRE uniquement : le passage d'origine doit être localisable sans
- * ambiguïté (locateChangeMatch), faute de quoi rien n'est écrit, ni dans
- * fromFile ni dans toFile (voir la mission "couper-coller Word + notes"). */
-export async function planApplyInterFile(
-  vault: ReviewVault,
-  fromFile: ReviewVaultFile,
-  toFile: ReviewVaultFile,
-  moveChange: MoveChange
-): Promise<
-  | { ok: true; insertedRange?: { start: number; end: number } }
-  | { ok: false; step: "from" | "to"; reason: string }
-> {
-  const fromContent = await vault.read(fromFile);
-  const toContent = await vault.read(toFile);
+/** Résultat, encore SANS AUCUNE ÉCRITURE, du calcul complet d'un déplacement
+ * inter-feuillets — extrait de planApplyInterFile (Lots 1/3) pour que
+ * l'application RÉELLE et l'évaluation de confiance AVANT application (LOT 4,
+ * voir evaluateInterFileConfidence) passent TOUJOURS par le MÊME calcul :
+ * jamais deux implémentations de la même recherche. `stage` distingue POUR
+ * QUELLE RAISON le calcul s'est arrêté (utile à la confiance, ignoré par
+ * l'application elle-même qui ne regarde que `reason`). */
+type InterFileMovePlan =
+  | {
+      ok: true;
+      delResult: Extract<ApplyResult, { ok: true }>;
+      insResult: Extract<ApplyResult, { ok: true }>;
+      workingFromContent: string;
+      workingToContent: string;
+    }
+  | { ok: false; step: "from" | "to"; reason: string; stage: "footnote" | "delete" | "insert" | "structure" };
 
+function computeInterFileMovePlan(fromContent: string, toContent: string, moveChange: MoveChange): InterFileMovePlan {
   let workingFromContent = fromContent;
   let workingToContent = toContent;
   let movedText = moveChange.text;
@@ -2715,7 +2869,7 @@ export async function planApplyInterFile(
     if (!fromMatch) {
       // Passage introuvable de façon sûre dans le fichier d'origine : on ne
       // devine jamais quelle note transférer. Aucune écriture.
-      return { ok: false, step: "from", reason: "ambiguous" };
+      return { ok: false, step: "from", reason: "ambiguous", stage: "footnote" };
     }
     const resolved = resolveFootnoteTransfer(fromMatch.matchedText, fromContent, toContent);
     movedText = resolved.text;
@@ -2740,7 +2894,7 @@ export async function planApplyInterFile(
        d'écraser une mise en page volontaire du fichier d'origine. */
     destinationBoundary: moveChange.destinationBoundary,
   });
-  if (!delResult.ok) return { ok: false, step: "from", reason: delResult.reason };
+  if (!delResult.ok) return { ok: false, step: "from", reason: delResult.reason, stage: "delete" };
 
   const insResult = planApply(workingToContent, {
     type: "insertion",
@@ -2753,17 +2907,43 @@ export async function planApplyInterFile(
     toContext: "",
     destinationBoundary: moveChange.destinationBoundary,
   });
-  if (!insResult.ok) return { ok: false, step: "to", reason: insResult.reason };
+  if (!insResult.ok) return { ok: false, step: "to", reason: insResult.reason, stage: "insert" };
 
   // Vérification avant écriture (Lot 1) : jamais une structure cassée dans
   // l'un OU l'autre fichier — les DEUX résultats sont déjà calculés à ce
   // stade, rien n'est encore écrit si l'un des deux échoue ce contrôle.
   if (!verifyNoBrokenStructure(workingFromContent, delResult.newContent)) {
-    return { ok: false, step: "from", reason: "ambiguous" };
+    return { ok: false, step: "from", reason: "ambiguous", stage: "structure" };
   }
   if (!verifyNoBrokenStructure(workingToContent, insResult.newContent)) {
-    return { ok: false, step: "to", reason: "ambiguous" };
+    return { ok: false, step: "to", reason: "ambiguous", stage: "structure" };
   }
+
+  return { ok: true, delResult, insResult, workingFromContent, workingToContent };
+}
+
+/** Applique un déplacement de texte inter-feuillets : supprime le texte
+ * à l'origine (fromFile) et l'insère à la destination (toFile). Quand le
+ * passage porte un ou plusieurs appels de note (moveChange.footnoteRefs),
+ * transfère aussi leur définition — voir resolveFootnoteTransfer — de façon
+ * SÛRE uniquement : le passage d'origine doit être localisable sans
+ * ambiguïté (locateChangeMatch), faute de quoi rien n'est écrit, ni dans
+ * fromFile ni dans toFile (voir la mission "couper-coller Word + notes"). */
+export async function planApplyInterFile(
+  vault: ReviewVault,
+  fromFile: ReviewVaultFile,
+  toFile: ReviewVaultFile,
+  moveChange: MoveChange
+): Promise<
+  | { ok: true; insertedRange?: { start: number; end: number } }
+  | { ok: false; step: "from" | "to"; reason: string }
+> {
+  const fromContent = await vault.read(fromFile);
+  const toContent = await vault.read(toFile);
+
+  const plan = computeInterFileMovePlan(fromContent, toContent, moveChange);
+  if (!plan.ok) return { ok: false, step: plan.step, reason: plan.reason };
+  const { delResult, insResult } = plan;
 
   /* Écriture transactionnelle (Lot 3, sécurité multi-feuillets) : jusqu'ici
      rien n'a été écrit — tout est calculé et vérifié en mémoire. À partir
@@ -2823,4 +3003,38 @@ export async function planApplyInterFile(
   }
 
   return { ok: true, insertedRange: insResult.insertedRange };
+}
+
+/** LOT 4 — confiance d'un déplacement INTER-FEUILLETS, à partir du contenu
+ * ACTUEL des deux feuillets (déjà lus par l'appelant — jamais relus ici).
+ * Passe par computeInterFileMovePlan, EXACTEMENT le calcul que
+ * planApplyInterFile emploie pour réellement écrire (footnote comprise) —
+ * jamais une seconde recherche, jamais une écriture depuis cette fonction.
+ * `stage` (voir InterFileMovePlan) distingue POURQUOI le calcul a échoué :
+ * un transfert de note non résolu de façon sûre ("footnote") reste un fait
+ * démontrable distinct d'une simple ambiguïté textuelle. */
+export function evaluateInterFileConfidence(
+  fromContent: string,
+  toContent: string,
+  moveChange: MoveChange
+): ReviewConfidenceEvaluation {
+  const plan = computeInterFileMovePlan(fromContent, toContent, moveChange);
+  if (!plan.ok) {
+    if (plan.stage === "footnote") return { confidence: "ambiguous", confidenceReasons: ["footnote-unverifiable"] };
+    if (plan.stage === "structure") return { confidence: "ambiguous", confidenceReasons: ["structure-unverifiable"] };
+    if (plan.reason === "ambiguous") return { confidence: "ambiguous", confidenceReasons: ["multiple-matches"] };
+    return { confidence: "ambiguous", confidenceReasons: ["missing-source"] }; // "not-found" ou "no-context"
+  }
+  if (!moveChange.moveName) {
+    return { confidence: "review", confidenceReasons: ["implicit-move"] };
+  }
+  const bothExact = plan.delResult.matchStrength === "exact" && plan.insResult.matchStrength === "exact";
+  if (!bothExact) {
+    return { confidence: "review", confidenceReasons: ["context-degraded"] };
+  }
+  // Voir evaluateSingleFileConfidence : même règle, jamais promu "safe".
+  if (moveChange.relocatedOrphan) {
+    return { confidence: "review", confidenceReasons: ["exact-match", "relocated-orphan"] };
+  }
+  return { confidence: "safe", confidenceReasons: ["exact-match"] };
 }

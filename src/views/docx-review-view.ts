@@ -16,6 +16,10 @@ import {
   findTolerant,
   findCommentAnchor,
   locateChangeMatch,
+  evaluateSingleFileConfidence,
+  evaluateInterFileConfidence,
+  type ReviewConfidence,
+  type ReviewConfidenceReason,
 } from "../services/docx-review-import.js";
 import { bookmarkIdFor } from "../utils/docx-bookmarks.js";
 import { t, getLocale } from "../i18n/index.js";
@@ -51,11 +55,30 @@ type ReviewEntryBase = {
   markers?: string[];
   nearFiles?: string[];
   moved?: boolean;
+  /** Renseigné UNIQUEMENT pour un déplacement Word NATIF (w:moveFrom/
+   * w:moveTo, voir docx-review-import.ts#ChangeMetadata) — absent pour un
+   * couper-coller DÉDUIT d'un w:del + w:ins séparés (mergeImplicitCutPastePairs).
+   * Lu par evaluateSingleFileConfidence/evaluateInterFileConfidence (LOT 4)
+   * pour distinguer les deux : jamais réévalué ici, la vue ne fait que lire
+   * ce que le moteur a déjà déterminé au parsing/à la fusion. */
+  moveName?: string | null;
+  /** LOT 4 — posé par resolveOrphans quand ce retour était d'abord orphelin
+   * et relocalisé vers un unique feuillet candidat (voir
+   * docx-review-import.ts#ChangeMetadata.relocatedOrphan). */
+  relocatedOrphan?: boolean;
   inFootnote?: boolean;
   resolvedInWord?: boolean;
   ord?: number | string;
   applied?: boolean;
   dismissed?: boolean;
+  /** LOT 4 — statuts de confiance ("Sûr"/"À vérifier"/"Ambigu"), calculés
+   * UNE FOIS à l'analyse (voir analyzeBuffer#evaluateItemConfidence) à
+   * partir de preuves déjà connues du moteur (evaluateSingleFileConfidence/
+   * evaluateInterFileConfidence) — jamais recalculés au rendu, jamais une
+   * seconde recherche ici. Absent pour un commentaire (consultatif, hors
+   * périmètre de ce lot) ou tant que l'analyse confiance n'a pas tourné. */
+  confidence?: ReviewConfidence;
+  confidenceReasons?: ReviewConfidenceReason[];
 };
 type ReviewChange = ReviewEntryBase & { type: ReviewChangeType };
 type ReviewComment = ReviewEntryBase & { anchorText: string };
@@ -113,6 +136,18 @@ function boundaryLabel(boundary: ReviewChange["destinationBoundary"]): string | 
     case "between-paragraphs": return t("docxReview.boundary.betweenParagraphs");
     case "standalone-paragraph": return t("docxReview.boundary.standaloneParagraph");
     default: return null;
+  }
+}
+
+/* LOT 4 — libellé du badge de confiance ("Sûr"/"À vérifier"/"Ambigu"),
+ * jamais recalculé ici : `change.confidence` vient d'evaluateSingleFileConfidence/
+ * evaluateInterFileConfidence (docx-review-import.ts), calculé une fois à
+ * l'analyse (voir analyzeBuffer#evaluateItemConfidence). */
+function confidenceLabel(confidence: ReviewConfidence): string {
+  switch (confidence) {
+    case "safe": return t("docxReview.confidence.safe");
+    case "review": return t("docxReview.confidence.review");
+    case "ambiguous": return t("docxReview.confidence.ambiguous");
   }
 }
 
@@ -468,6 +503,66 @@ export class DocxReviewView extends BaseFeuilletsView {
     }
     for (const change of unclassified.changes) await processItem(change, null);
     for (const comment of unclassified.comments) await processItem(comment, null);
+
+    /* LOT 4 — statuts de confiance ("Sûr"/"À vérifier"/"Ambigu"), UNE FOIS
+       par analyse, uniquement sur les changements (jamais les commentaires,
+       consultatifs — voir ReviewEntryBase.confidence). Réutilise
+       evaluateSingleFileConfidence/evaluateInterFileConfidence (moteur,
+       docx-review-import.ts) : la vue ne fait ici que lire le contenu déjà
+       nécessaire et transmettre le verdict — AUCUNE recherche de texte
+       n'est réimplémentée. Un item déjà appliqué n'affiche plus de bouton
+       d'application : pas la peine de lui calculer une confiance. Un
+       chemin non résolu (fromPath/toPath absent pour un déplacement, ou
+       item toujours dans unmatched/unclassified) est TOUJOURS "ambiguous"
+       — fait structurel déjà connu, jamais une nouvelle recherche. */
+    const evaluateItemConfidence = async (item: ReviewChange, containerPath: string | null) => {
+      if (item.applied) return;
+      let evalResult: { confidence: ReviewConfidence; confidenceReasons: ReviewConfidenceReason[] };
+      if (item.type === "move") {
+        const fromFile = item.fromPath ? this.app.vault.getAbstractFileByPath(item.fromPath) : null;
+        const toFile = item.toPath ? this.app.vault.getAbstractFileByPath(item.toPath) : null;
+        if (!(fromFile instanceof TFile) || !(toFile instanceof TFile)) {
+          item.confidence = "ambiguous";
+          item.confidenceReasons = ["unresolved-path"];
+          return;
+        }
+        const fromContent = await this.app.vault.read(fromFile);
+        if (fromFile.path === toFile.path) {
+          evalResult = evaluateSingleFileConfidence(fromContent, item as unknown as Parameters<typeof evaluateSingleFileConfidence>[1]);
+        } else {
+          const toContent = await this.app.vault.read(toFile);
+          evalResult = evaluateInterFileConfidence(fromContent, toContent, item as unknown as Parameters<typeof evaluateInterFileConfidence>[2]);
+        }
+      } else {
+        if (!containerPath) {
+          item.confidence = "ambiguous";
+          item.confidenceReasons = ["unresolved-path"];
+          return;
+        }
+        const file = this.app.vault.getAbstractFileByPath(containerPath);
+        if (!(file instanceof TFile)) {
+          item.confidence = "ambiguous";
+          item.confidenceReasons = ["unresolved-path"];
+          return;
+        }
+        const content = await this.app.vault.read(file);
+        evalResult = evaluateSingleFileConfidence(content, item as unknown as Parameters<typeof evaluateSingleFileConfidence>[1]);
+      }
+      // La règle "orphelin relocalisé -> jamais 'safe'" vit dans le moteur
+      // (evaluateSingleFileConfidence/evaluateInterFileConfidence lisent
+      // directement item.relocatedOrphan, déjà passé dans `item`) : la vue
+      // se contente ici de reporter le verdict tel quel.
+      item.confidence = evalResult.confidence;
+      item.confidenceReasons = evalResult.confidenceReasons;
+    };
+
+    for (const [path, bucket] of Object.entries(byPath)) {
+      for (const change of bucket.changes) await evaluateItemConfidence(change, path);
+    }
+    for (const id of Object.keys(unmatched)) {
+      for (const change of unmatched[id].changes) await evaluateItemConfidence(change, null);
+    }
+    for (const change of unclassified.changes) await evaluateItemConfidence(change, null);
 
     const totalFound =
       Object.keys(byPath).length +
@@ -930,7 +1025,19 @@ export class DocxReviewView extends BaseFeuilletsView {
       (change.moved && change.type !== "move" ? t("docxReview.change.movedPrefix") : "") +
       labels[change.type];
     const name = header.createDiv({ cls: "feuillets-research-item-name" });
-    name.createDiv({ cls: "feuillets-docx-review-meta" }).setText(`${label} — ${change.author}${change.date ? " · " + change.date : ""}`);
+    const metaEl = name.createDiv({ cls: "feuillets-docx-review-meta" });
+    metaEl.setText(`${label} — ${change.author}${change.date ? " · " + change.date : ""}`);
+    /* LOT 4 — badge discret de confiance, absent pour un item déjà appliqué
+     * (confidence jamais calculée dans ce cas, voir analyzeBuffer) ou tant
+     * que l'analyse confiance n'a pas encore tourné (docx antérieur à ce
+     * lot, état restauré sans confidence). Réutilise la même classe CSS que
+     * les badges de section existants ("à traiter"/"résolu") — jamais un
+     * style ad hoc. */
+    if (change.confidence) {
+      metaEl
+        .createSpan({ cls: `feuillets-docx-review-section-badge mod-confidence-${change.confidence}` })
+        .setText(confidenceLabel(change.confidence));
+    }
     const preview = name.createDiv({ cls: "feuillets-docx-review-preview" });
 
     if (change.type === "replacement") {
@@ -1098,8 +1205,60 @@ export class DocxReviewView extends BaseFeuilletsView {
         }
       }
 
-      if (!change.applied) {
-        const applyBtn = this.iconBtn(header, "check", t("docxReview.applyChange"));
+      /* LOT 4 (correctif) — un élément "À vérifier" doit présenter Examiner
+       * comme ACTION PRINCIPALE, jamais une présentation identique à un
+       * élément "Sûr". Un déplacement l'a déjà (originBtn/destBtn/previewBtn
+       * ci-dessus, toujours rendus avant ce bloc) — seuls les types simples
+       * (insertion/suppression/remplacement) n'avaient jusqu'ici AUCUNE
+       * action d'examen distincte de l'application elle-même. Aperçu SANS
+       * ÉCRITURE, même mécanisme que previewBtn (planApply en lecture
+       * seule, jamais une seconde implémentation de la recherche). */
+      if (!change.applied && change.confidence === "review" && change.type !== "move") {
+        const examineBtn = this.iconBtn(header, "eye", t("docxReview.examineChange"));
+        let examineBox: HTMLElement | null = null;
+        examineBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void (async () => {
+            if (examineBox) {
+              examineBox.remove();
+              examineBox = null;
+              return;
+            }
+            const currentContent = await this.app.vault.read(file);
+            const result = planApply(currentContent, change as unknown as Parameters<typeof planApply>[1]);
+            examineBox = row.createDiv({ cls: "feuillets-docx-review-preview-box" });
+            if (!result.ok || result.newContent === undefined) {
+              examineBox.setText(t("docxReview.previewUnavailable"));
+              return;
+            }
+            const ctx = change.contextBefore || "";
+            const insertedTxt = change.type === "insertion" ? change.text || "" : change.type === "replacement" ? change.newText || "" : "";
+            const beforeBlock = examineBox.createDiv({ cls: "feuillets-docx-review-preview-block" });
+            beforeBlock.createDiv({ cls: "feuillets-docx-review-preview-heading" }).setText(t("docxReview.previewBefore"));
+            beforeBlock.createDiv({ cls: "feuillets-docx-review-preview-text" }).setText(previewSnippet(currentContent, ctx, ""));
+            const afterBlock = examineBox.createDiv({ cls: "feuillets-docx-review-preview-block" });
+            afterBlock.createDiv({ cls: "feuillets-docx-review-preview-heading" }).setText(t("docxReview.previewAfter"));
+            afterBlock.createDiv({ cls: "feuillets-docx-review-preview-text" }).setText(previewSnippet(result.newContent, ctx, insertedTxt));
+          })();
+        });
+      }
+
+      /* LOT 4 — un élément "Ambigu" ne propose JAMAIS d'application directe
+       * (aucune écriture automatique) : les actions d'examen ci-dessus
+       * (Voir l'origine/la destination, Aperçu, Examiner, ou le simple clic
+       * sur la ligne pour un item simple) restent, elles, disponibles sans
+       * condition — seul CE bouton disparaît. `change.confidence` absent
+       * (analyse antérieure à ce lot, état restauré) n'est PAS traité comme
+       * ambigu : seul un "ambiguous" explicite bloque. Le libellé diffère
+       * pour "review" (« Accepter (à vérifier) », jamais « Appliquer » tel
+       * quel) — un élément "safe" garde EXACTEMENT sa présentation
+       * d'origine, voir confirmation du correctif. */
+      if (!change.applied && change.confidence !== "ambiguous") {
+        const applyBtn = this.iconBtn(
+          header,
+          "check",
+          change.confidence === "review" ? t("docxReview.acceptChangeReview") : t("docxReview.applyChange")
+        );
         applyBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           void (async () => {
@@ -1228,6 +1387,23 @@ export class DocxReviewView extends BaseFeuilletsView {
         const f = resolveVaultFile(this.app, path);
         if (!(f instanceof TFile)) continue;
         const title = this.plugin.titleFor(f);
+
+        /* LOT 4 — un ReviewChange tombé ici a, par construction, un chemin
+         * non résolu (voir analyzeBuffer#evaluateItemConfidence : toujours
+         * confidence "ambiguous", reason "unresolved-path") : jamais
+         * d'application directe depuis un élément Ambigu — seulement
+         * examiner chaque feuillet candidat (ouvrir + révéler, sans jamais
+         * écrire). Un ReviewComment (item.type absent, purement
+         * consultatif) garde son comportement historique inchangé — hors
+         * périmètre de ce lot, voir la mission. */
+        if (item.type) {
+          const examineBtn = this.iconBtn(header, "eye", t("docxReview.examineInto", { title }));
+          examineBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            void this.openAndReveal(f, item.anchorText || searchTextForChange(item as unknown as Parameters<typeof searchTextForChange>[0]));
+          });
+          continue;
+        }
 
         const applyBtn = this.iconBtn(header, "check", t("docxReview.applyInto", { title }));
         applyBtn.addEventListener("click", (e) => {

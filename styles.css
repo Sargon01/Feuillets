@@ -5442,6 +5442,26 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   font-style: italic;
 }
 
+/* LOT 4 — statuts de confiance ("Sûr"/"À vérifier"/"Ambigu"), même badge
+   que mod-resolved ci-dessus, juste une teinte différente par statut. */
+.feuillets-docx-review-section-badge.mod-confidence-safe {
+  color: var(--text-success);
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.feuillets-docx-review-section-badge.mod-confidence-review {
+  color: var(--text-warning, #e5a50a);
+  background: rgba(229, 165, 10, 0.12);
+  border-color: rgba(229, 165, 10, 0.25);
+}
+
+.feuillets-docx-review-section-badge.mod-confidence-ambiguous {
+  color: var(--text-error, #e53935);
+  background: rgba(229, 57, 53, 0.12);
+  border-color: rgba(229, 57, 53, 0.25);
+}
+
 .feuillets-docx-review-row {
   display: block;
   padding: 10px var(--size-4-3);
