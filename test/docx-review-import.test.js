@@ -20,6 +20,8 @@ import {
   findTolerant,
   findCommentAnchor,
   parseHeadingStyleIds,
+  evaluateSingleFileConfidence,
+  evaluateInterFileConfidence,
 } from "../src/services/docx-review-import.js";
 
 test("walkTags", async (t) => {
@@ -1146,6 +1148,198 @@ test("planApplyInterFile — sécurité transactionnelle (LOT 3)", async (t) => 
     // son état initial.
     assert.equal(res.reason, "rollback-failed");
     assert.deepEqual(calls, ["F1.md", "F2.md", "F1.md"], "écriture F1, tentative F2 (échec), tentative de restauration F1 (échec elle aussi)");
+  });
+});
+
+/* =========================================================================
+ * LOT 4 — statuts de confiance ("safe"/"review"/"ambiguous"), calculés
+ * UNIQUEMENT à partir de preuves déjà produites par le moteur existant
+ * (planApply/planApplyMove/planApplyInterFile) — jamais un score, jamais
+ * une heuristique arbitraire. Voir evaluateSingleFileConfidence/
+ * evaluateInterFileConfidence.
+ * ========================================================================= */
+test("evaluateSingleFileConfidence / evaluateInterFileConfidence — LOT 4 (statuts de confiance)", async (t) => {
+  await t.test("1. insertion unique avec contexte fort -> safe", () => {
+    const content = "Chapitre un. Il faisait beau ce matin-là.";
+    const res = evaluateSingleFileConfidence(content, {
+      type: "insertion",
+      contextBefore: "Il faisait beau ",
+      text: "vraiment ",
+      oldText: "", newText: "", fromContext: "", fromText: "", toContext: "",
+    });
+    assert.deepEqual(res, { confidence: "safe", confidenceReasons: ["exact-match"] });
+  });
+
+  await t.test("2. suppression unique -> safe", () => {
+    const content = "Début. Texte à couper entièrement. Fin.";
+    const res = evaluateSingleFileConfidence(content, {
+      type: "deletion",
+      contextBefore: "Début. ",
+      text: "Texte à couper entièrement. ",
+      oldText: "", newText: "", fromContext: "", fromText: "", toContext: "",
+    });
+    assert.deepEqual(res, { confidence: "safe", confidenceReasons: ["exact-match"] });
+  });
+
+  await t.test("3. remplacement unique -> safe", () => {
+    const content = "Le chat noir dort sur le tapis.";
+    const res = evaluateSingleFileConfidence(content, {
+      type: "replacement",
+      contextBefore: "Le ",
+      oldText: "chat noir",
+      newText: "chien blanc",
+      text: "", fromContext: "", fromText: "", toContext: "",
+    });
+    assert.deepEqual(res, { confidence: "safe", confidenceReasons: ["exact-match"] });
+  });
+
+  await t.test("4. déplacement Word NATIF (moveName renseigné), même feuillet, complet et vérifiable -> safe", () => {
+    const content = "Début ContextA texte_deplace suite. ContextB fin.";
+    const res = evaluateSingleFileConfidence(content, {
+      type: "move",
+      moveName: "moveId-1",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+      contextBefore: "", oldText: "", newText: "",
+    });
+    assert.deepEqual(res, { confidence: "safe", confidenceReasons: ["exact-match"] });
+  });
+
+  await t.test("4bis. déplacement Word NATIF inter-feuillets, complet et vérifiable -> safe", () => {
+    const fromContent = "Début ContextA texte_deplace suite.";
+    const toContent = "Début ContextB fin.";
+    const res = evaluateInterFileConfidence(fromContent, toContent, {
+      type: "move",
+      moveName: "moveId-2",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+    });
+    assert.deepEqual(res, { confidence: "safe", confidenceReasons: ["exact-match"] });
+  });
+
+  await t.test("5. déplacement IMPLICITE (aucun moveName), appariement pourtant unique -> review (jamais safe)", () => {
+    const content = "Début ContextA texte_deplace suite. ContextB fin.";
+    const res = evaluateSingleFileConfidence(content, {
+      type: "move",
+      // moveName absent : couper-coller déduit d'un w:del + w:ins, jamais déclaré par Word.
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+      contextBefore: "", oldText: "", newText: "",
+    });
+    assert.deepEqual(res, { confidence: "review", confidenceReasons: ["implicit-move"] });
+  });
+
+  await t.test("5bis. déplacement implicite inter-feuillets, appariement unique -> review", () => {
+    const fromContent = "Début ContextA texte_deplace suite.";
+    const toContent = "Début ContextB fin.";
+    const res = evaluateInterFileConfidence(fromContent, toContent, {
+      type: "move",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+    });
+    assert.deepEqual(res, { confidence: "review", confidenceReasons: ["implicit-move"] });
+  });
+
+  await t.test("6. correspondance obtenue seulement après dégradation SIGNIFICATIVE du contexte -> review", () => {
+    // Le contexte fourni ne correspond PAS tel quel (préfixe fabriqué,
+    // absent du fichier) : seul un candidat tronqué (repli de dégradation
+    // progressive, voir getContextCandidates) retrouve une correspondance
+    // UNIQUE — jamais candidates[0], donc jamais "exact".
+    const content = "Chapitre deux. Il pleuvait sur la ville endormie hier soir.";
+    const fabricatedContext = "X".repeat(40) + " la ville endormie";
+    const res = evaluateSingleFileConfidence(content, {
+      type: "insertion",
+      contextBefore: fabricatedContext,
+      text: "NOUVEAU ",
+      oldText: "", newText: "", fromContext: "", fromText: "", toContext: "",
+    });
+    assert.deepEqual(res, { confidence: "review", confidenceReasons: ["context-degraded"] });
+  });
+
+  await t.test("7. retour d'abord ORPHELIN, relocalisé de façon unique (relocatedOrphan) -> review, même avec une correspondance par ailleurs exacte", () => {
+    const content = "Chapitre un. Il faisait beau ce matin-là.";
+    const res = evaluateSingleFileConfidence(content, {
+      type: "insertion",
+      contextBefore: "Il faisait beau ",
+      text: "vraiment ",
+      oldText: "", newText: "", fromContext: "", fromText: "", toContext: "",
+      relocatedOrphan: true,
+    });
+    assert.equal(res.confidence, "review");
+    assert.ok(res.confidenceReasons.includes("relocated-orphan"));
+  });
+
+  await t.test("8. plusieurs occurrences possibles -> ambiguous (multiple-matches)", () => {
+    const content = "Contexte. Passage identique. Puis Contexte. Passage identique. encore.";
+    const res = evaluateSingleFileConfidence(content, {
+      type: "insertion",
+      contextBefore: "Contexte. ",
+      text: "AJOUT ",
+      oldText: "", newText: "", fromContext: "", fromText: "", toContext: "",
+    });
+    assert.deepEqual(res, { confidence: "ambiguous", confidenceReasons: ["multiple-matches"] });
+  });
+
+  await t.test("9. passage/contexte introuvable -> ambiguous (missing-source)", () => {
+    const content = "Un contenu qui ne contient rien de ce qui est cherché.";
+    const res = evaluateSingleFileConfidence(content, {
+      type: "insertion",
+      contextBefore: "Ce contexte n'existe nulle part ici ",
+      text: "AJOUT ",
+      oldText: "", newText: "", fromContext: "", fromText: "", toContext: "",
+    });
+    assert.deepEqual(res, { confidence: "ambiguous", confidenceReasons: ["missing-source"] });
+  });
+
+  await t.test("10. destination de déplacement inter-feuillets NON vérifiable (toContext introuvable dans toContent) -> ambiguous (missing-source)", () => {
+    const fromContent = "Début ContextA texte_deplace suite.";
+    const toContent = "Contenu totalement différent, sans le contexte attendu.";
+    const res = evaluateInterFileConfidence(fromContent, toContent, {
+      type: "move",
+      moveName: "moveId-3",
+      text: "texte_deplace",
+      fromContext: "ContextA ",
+      fromText: "texte_deplace",
+      toContext: "ContexteAbsent ",
+    });
+    assert.deepEqual(res, { confidence: "ambiguous", confidenceReasons: ["missing-source"] });
+  });
+
+  await t.test("10bis. origine de déplacement AMBIGUË (fromText apparaît deux fois) -> ambiguous (multiple-matches)", () => {
+    const fromContent = "texte_deplace ici. Puis texte_deplace ici. encore.";
+    const toContent = "Début ContextB fin.";
+    const res = evaluateInterFileConfidence(fromContent, toContent, {
+      type: "move",
+      moveName: "moveId-4",
+      text: "texte_deplace",
+      fromContext: "",
+      fromText: "texte_deplace",
+      toContext: "ContextB ",
+    });
+    assert.deepEqual(res, { confidence: "ambiguous", confidenceReasons: ["multiple-matches"] });
+  });
+
+  await t.test("note impossible à associer avec certitude (passage d'origine ambigu, note portée) -> ambiguous (footnote-unverifiable)", () => {
+    const fromContent = "Il partit[^1] à l'aube. Puis Il partit[^1] à l'aube. encore.\n\n[^1]: Vers l'inconnu.";
+    const toContent = "Destination.";
+    const res = evaluateInterFileConfidence(fromContent, toContent, {
+      type: "move",
+      moveName: "moveId-5",
+      text: "Il partit[^1] à l'aube.",
+      fromText: "Il partit[^1] à l'aube.",
+      fromContext: "",
+      toContext: "Destination.",
+      footnoteRefs: ["1"],
+    });
+    assert.deepEqual(res, { confidence: "ambiguous", confidenceReasons: ["footnote-unverifiable"] });
   });
 });
 
