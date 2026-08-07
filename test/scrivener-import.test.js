@@ -1890,6 +1890,127 @@ test("§12 chantier S2 — dossiers Research classifiés (Characters/Places)", a
     assert.equal(planWithoutNote.uuidToPath.get("c1"), `${RESEARCH_ROOT}/Characters/Characters.md`, "aucune fausse collision");
   });
 
+  // ---- Correctif final S2 : nom de la note = titre Scrivener sanitizé ----
+  // du Folder classé, jamais le basename du dossier Feuillets cible partagé
+  // (reusableFolder) — voir buildScrivenerImportPlan.
+  await t.test("1. Characters avec note -> comportement actuel inchangé", () => {
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["chars"]),
+    });
+    assert.equal(plan.uuidToPath.get("chars"), `${RESEARCH_ROOT}/Characters/Characters.md`);
+  });
+
+  await t.test('2. "Character Sketches" avec note -> Characters/Character Sketches.md', () => {
+    const sketchesParsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="sketches" Type="Folder"><Title>Character Sketches</Title>
+            <Children><BinderItem UUID="bob" Type="Text"><Title>Bob</Title></BinderItem></Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(sketchesParsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["sketches"]),
+    });
+    const target = plan.targets.find((tg) => tg.uuid === "sketches");
+    assert.equal(target.folderPath, `${RESEARCH_ROOT}/Characters`, "cible classifiée correcte");
+    assert.equal(target.markdownPath, `${RESEARCH_ROOT}/Characters/Character Sketches.md`);
+    assert.equal(plan.uuidToPath.get("sketches"), `${RESEARCH_ROOT}/Characters/Character Sketches.md`);
+    assert.equal(plan.uuidToPath.get("bob"), `${RESEARCH_ROOT}/Characters/Bob.md`, "les enfants restent inchangés");
+  });
+
+  await t.test("3. \"Locations\" avec note -> dossier classifié Places/Lieux + Locations.md", () => {
+    const locationsParsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="locs" Type="Folder"><Title>Locations</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(locationsParsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["locs"]),
+    });
+    const target = plan.targets.find((tg) => tg.uuid === "locs");
+    const expectedFolder = researchTargetLabel("Locations", "fiction");
+    assert.equal(target.folderPath, `${RESEARCH_ROOT}/${expectedFolder}`, "dossier Feuillets classifié correct (Places/Lieux selon le mode)");
+    assert.equal(target.markdownPath, `${RESEARCH_ROOT}/${expectedFolder}/Locations.md`);
+  });
+
+  await t.test("4. Characters + Character Sketches vers la même rubrique -> deux notes distinctes, sans faux -2", () => {
+    const bothParsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="chars" Type="Folder"><Title>Characters</Title></BinderItem>
+          <BinderItem UUID="sketches" Type="Folder"><Title>Character Sketches</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(bothParsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["chars", "sketches"]),
+    });
+    assert.equal(plan.uuidToPath.get("chars"), `${RESEARCH_ROOT}/Characters/Characters.md`);
+    assert.equal(plan.uuidToPath.get("sketches"), `${RESEARCH_ROOT}/Characters/Character Sketches.md`);
+  });
+
+  await t.test("5. enfant homonyme de \"Character Sketches\" : collision réelle -2 si note, aucune sinon", () => {
+    const homonymSketches = () => parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="sketches" Type="Folder"><Title>Character Sketches</Title>
+            <Children><BinderItem UUID="s1" Type="Text"><Title>Character Sketches</Title></BinderItem></Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+
+    const planWithNote = buildScrivenerImportPlan(homonymSketches(), {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["sketches"]),
+    });
+    assert.equal(planWithNote.uuidToPath.get("sketches"), `${RESEARCH_ROOT}/Characters/Character Sketches.md`);
+    assert.equal(planWithNote.uuidToPath.get("s1"), `${RESEARCH_ROOT}/Characters/Character Sketches-2.md`);
+
+    const planWithoutNote = buildScrivenerImportPlan(homonymSketches(), {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(),
+    });
+    assert.equal(planWithoutNote.uuidToPath.has("sketches"), false);
+    assert.equal(planWithoutNote.uuidToPath.get("s1"), `${RESEARCH_ROOT}/Characters/Character Sketches.md`, "aucune fausse collision");
+  });
+
+  await t.test("lien scrivlink vers \"Character Sketches\" pointe vers le chemin exact, aucun structuralTag n'est présumé par le plan", () => {
+    const sketchesParsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title></BinderItem>
+      <BinderItem UUID="root-research" Type="ResearchFolder"><Title>Research</Title>
+        <Children>
+          <BinderItem UUID="sketches" Type="Folder"><Title>Character Sketches</Title></BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(sketchesParsed, {
+      manuscritPath: "Mon Roman/Manuscrit", researchRootPath: RESEARCH_ROOT, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+      manuscriptFolderNoteUuids: new Set(["sketches"]),
+    });
+    const SKETCHES_UUID = "sketches"; // pas de contrainte hex ici, testé via la map directement
+    const map = new Map([[SKETCHES_UUID, plan.uuidToPath.get("sketches")]]);
+    assert.equal(map.get(SKETCHES_UUID), `${RESEARCH_ROOT}/Characters/Character Sketches.md`);
+    // Le plan ne porte aucune notion de tag structurel — celui-ci n'est
+    // ajouté qu'à l'écriture pour les ENFANTS directs (voir writeResearchNode),
+    // jamais pour la note du Folder lui-même (kind reste "researchFolder",
+    // pas de champ tag/structuralTag sur ScrivenerImportTarget).
+    const target = plan.targets.find((tg) => tg.uuid === "sketches");
+    assert.equal(Object.prototype.hasOwnProperty.call(target, "structuralTag"), false);
+  });
+
   await t.test("56/57. lien vers dossier Research classifié : wikilien si note, unresolved sinon", () => {
     const CHARS_UUID = "00000000-0000-0000-0000-0000000000c5";
     const withNote = new Map([[CHARS_UUID, `${RESEARCH_ROOT}/Characters/Characters.md`]]);
