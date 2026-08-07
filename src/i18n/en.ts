@@ -664,6 +664,16 @@ export const en = {
   "docxReview.commentResolvedNotice": "Comment marked as resolved.",
   "docxReview.commentRestoredNotice": "Comment restored to the stack.",
 
+  // ---------- LOT 9B — generating the revised DOCX ----------
+  "docxReview.regenerateDocxButton": "Generate revised DOCX",
+  "docxReview.regenerateNoSource": "No source DOCX is loaded — analyze a file first.",
+  "docxReview.regenerateNoDecisionsWarning": "No review decisions have been applied to this DOCX yet.",
+  "docxReview.regenerateErrorFootnoteMove": "This document contains a move with a footnote that cannot yet be regenerated automatically.",
+  "docxReview.regenerateErrorNoAnalysis": "No valid DOCX analysis is available for this document.",
+  "docxReview.regenerateErrorCommentResolution": "Some comment resolutions cannot be safely carried over into this DOCX.",
+  "docxReview.regenerateErrorGeneric": "This DOCX cannot be generated safely.",
+  "docxReview.regenerateSuccessNotice": "Revised DOCX generated: {path}",
+
   // ---------- LOT 5 — editorial decision queue (UX overhaul) ----------
   "docxReview.filter.all": "All",
   "docxReview.filter.corrections": "Changes",

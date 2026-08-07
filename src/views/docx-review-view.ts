@@ -1,4 +1,4 @@
-import { setIcon, Notice, Platform, TFile, TAbstractFile, type App, type WorkspaceLeaf } from "obsidian";
+import { setIcon, Notice, Platform, TFile, TAbstractFile, normalizePath, type App, type WorkspaceLeaf } from "obsidian";
 import JSZip from "jszip";
 import { VIEW_DOCX_REVIEW } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -17,12 +17,16 @@ import {
   locateChangeMatch,
   evaluateSingleFileConfidence,
   evaluateInterFileConfidence,
+  type ReviewChange as EngineReviewChange,
+  type ReviewComment as EngineReviewComment,
   type ReviewConfidence,
   type ReviewConfidenceReason,
 } from "../services/docx-review-import.js";
 import { bookmarkIdFor } from "../utils/docx-bookmarks.js";
 import { t, getLocale } from "../i18n/index.js";
 import { listSnapshotFiles } from "../services/project-files.js";
+import { writeBinaryFile } from "../services/compile-export.js";
+import { regenerateDocxZip, type RegenerateDecision } from "../services/docx-review-regenerate.js";
 import { DiffModal } from "../ui/diff-modal.js";
 
 type DocxReviewPluginBase = ConstructorParameters<typeof BaseFeuilletsView>[1];
@@ -423,6 +427,26 @@ export class DocxReviewView extends BaseFeuilletsView {
    * snapshot via listSnapshotFiles (getSnapshotStamp ci-dessous) : jamais un
    * second système de datation. */
   _snapshotStamps: Map<string, string> | undefined;
+  /** LOT 9B — buffer ORIGINAL du .docx analysé (jamais reconstruit depuis le
+   * Markdown), conservé UNIQUEMENT en mémoire de session — jamais persisté
+   * dans settings/data.json (mission §3). Posé par analyzeBuffer au même
+   * moment que `this.results`, pour rester TOUJOURS cohérent avec le
+   * document dont les cartes sont affichées ; remplacé (jamais accumulé) à
+   * chaque nouvelle analyse. `null` avant toute analyse — c'est ce qui rend
+   * le bouton "Générer le DOCX révisé" indisponible (voir
+   * renderResultsPanel). */
+  originalDocxBuffer: ArrayBuffer | null;
+  /** LOT 9B — empêche un double lancement de génération (double clic) : posé
+   * avant l'appel au moteur, retiré dans le `finally` — voir
+   * generateRevisedDocx. */
+  isGeneratingDocx: boolean;
+  /** LOT 9B — point d'injection du moteur Lot 9A, TOUJOURS le vrai
+   * `regenerateDocxZip` importé ci-dessus en production ; seuls les tests
+   * (voir test/docx-review-view.test.js) le réassignent, pour vérifier le
+   * câblage du panneau SANS dupliquer les tests internes du moteur
+   * (test/docx-review-regenerate.test.js). Jamais modifié ailleurs dans
+   * cette classe. */
+  regenerateDocxZipFn: typeof regenerateDocxZip;
 
   constructor(leaf: WorkspaceLeaf, plugin: DocxReviewPluginBase) {
     super(leaf, plugin);
@@ -433,6 +457,9 @@ export class DocxReviewView extends BaseFeuilletsView {
     this.activeFilter = "all";
     this.queueIndex = 0;
     this.activeItemKey = null;
+    this.originalDocxBuffer = null;
+    this.isGeneratingDocx = false;
+    this.regenerateDocxZipFn = regenerateDocxZip;
   }
 
   getViewType() {
@@ -825,8 +852,119 @@ export class DocxReviewView extends BaseFeuilletsView {
       return;
     }
     this.results = { byPath, unmatched, unclassified };
+    /* LOT 9B — posé SEULEMENT ici, une fois l'analyse réellement aboutie
+       (mission §3) : `results`, `docxName` et `originalDocxBuffer` restent
+       ainsi TOUJOURS cohérents entre eux. Remplace (jamais n'accumule) le
+       buffer d'une éventuelle session de révision précédente. */
+    this.originalDocxBuffer = buf;
     this.mode = "results";
     await this.render();
+  }
+
+  /** LOT 9B — aplatit `this.results` en deux listes plates de `ReviewChange`/
+   * `ReviewComment`, dans le même ordre et avec les MÊMES objets que ceux
+   * affichés dans les cartes (réutilise buildQueue, déjà utilisé par
+   * renderResultsPanel pour construire la file de décisions) — jamais un
+   * second passage de parsing, jamais une reconstruction approximative
+   * (mission §4 : "exactement ceux produits par la chaîne d'analyse ayant
+   * produit les cartes du panneau"). */
+  private collectParsedItemsForRegenerate(): { changes: EngineReviewChange[]; comments: EngineReviewComment[] } {
+    if (!this.results) return { changes: [], comments: [] };
+    const queue = buildQueue(this.results, this.app);
+    const changes: EngineReviewChange[] = [];
+    const comments: EngineReviewComment[] = [];
+    for (const entry of queue) {
+      // Même produit que les cartes affichées (voir buildQueue) — le seul
+      // écart entre le type LOCAL de la vue (ReviewChange/ReviewComment,
+      // enrichi de champs UI comme `confidence`) et celui du moteur Lot 9A
+      // (docx-review-import.ts) est structurel, jamais une valeur
+      // différente : même convention de cast que evaluateItemConfidence
+      // ci-dessus (`as unknown as Parameters<...>`).
+      if (entry.kind === "change") changes.push(entry.item as unknown as EngineReviewChange);
+      else comments.push(entry.item as unknown as EngineReviewComment);
+    }
+    return { changes, comments };
+  }
+
+  /** LOT 9B — traduit une raison d'échec du moteur (docx-review-regenerate.ts
+   * #RegenerateZipResult) en message utilisateur SANS jargon OOXML (mission
+   * §7) ; la raison technique reste tracée en console pour un diagnostic
+   * éventuel, jamais affichée en premier plan. */
+  private regenerateFailureMessage(reason: string): string {
+    switch (reason) {
+      case "unsupported-footnote-move-regeneration":
+        return t("docxReview.regenerateErrorFootnoteMove");
+      case "missing-parsed-changes":
+        return t("docxReview.regenerateErrorNoAnalysis");
+      case "comment-resolution-unsupported":
+        return t("docxReview.regenerateErrorCommentResolution");
+      default:
+        return t("docxReview.regenerateErrorGeneric");
+    }
+  }
+
+  /** LOT 9B — action du bouton "Générer le DOCX révisé" (mission §5-10) :
+   * copie modifiée du .docx REÇU, jamais une reconstruction depuis le
+   * Markdown. N'utilise QUE les décisions déjà mémorisées dans
+   * `S.docxReviewResolved[this.docxName]` (mission §4, jamais une décision
+   * fabriquée depuis `item.applied`/`item.dismissed` de la carte en mémoire
+   * seule) et les `ReviewChange`/`ReviewComment` réels produits par
+   * l'analyse (collectParsedItemsForRegenerate). Sortie pure : ne touche
+   * JAMAIS le Markdown, `docxReviewResolved`, les snapshots, ni
+   * `applied`/`dismissed` des cartes (mission §8). */
+  async generateRevisedDocx(): Promise<void> {
+    if (this.isGeneratingDocx) return; // double clic ignoré (mission §5/§13)
+    if (!this.originalDocxBuffer || !this.results || !this.docxName) {
+      new Notice(t("docxReview.regenerateNoSource"));
+      return;
+    }
+    this.isGeneratingDocx = true;
+    void this.render();
+    try {
+      const { changes, comments } = this.collectParsedItemsForRegenerate();
+
+      // Mission §4 — UNIQUEMENT l'état RÉELLEMENT sauvegardé pour CE .docx,
+      // jamais mélangé avec celui d'un autre document ni fabriqué depuis les
+      // cartes en mémoire.
+      const S = this.plugin.settings;
+      const savedForDoc = (S.docxReviewResolved && S.docxReviewResolved[this.docxName]) || {};
+      const decisions: Record<string, RegenerateDecision> = {};
+      for (const key of Object.keys(savedForDoc)) {
+        const entry = savedForDoc[key];
+        decisions[key] = { applied: !!entry.applied, dismissed: !!entry.dismissed };
+      }
+      // Mission §9 — prévient sans bloquer : le moteur peut très bien
+      // produire une copie identique si rien n'a encore été décidé.
+      if (Object.keys(decisions).length === 0) {
+        new Notice(t("docxReview.regenerateNoDecisionsWarning"));
+      }
+
+      const result = await this.regenerateDocxZipFn(this.originalDocxBuffer, decisions, changes, comments);
+      if (!result.ok) {
+        console.error("Feuillets: régénération DOCX impossible —", result.reason);
+        new Notice(this.regenerateFailureMessage(result.reason));
+        return; // mission §7 — aucun fichier créé en cas d'échec
+      }
+
+      // Mission §6 — jamais le nom du fichier original : dossier de sortie
+      // déjà utilisé par les exports natifs (voir compile-export.ts), repli
+      // sur le dossier projet si aucun export n'a encore eu lieu.
+      const outputFolder = await this.plugin.getOutputFolder();
+      const projectFolder = this.plugin.getProjectFolder();
+      const outBase = outputFolder ? outputFolder.path : (projectFolder ? projectFolder.path : "");
+      const baseName = this.docxName.replace(/\.docx$/i, "");
+      const outPath = normalizePath(
+        outBase ? `${outBase}/${baseName}-révisé.docx` : `${baseName}-révisé.docx`
+      );
+      // writeBinaryFile (compile-export.ts, déjà utilisé par les exports
+      // natifs) : crée si absent, modifie en place sinon — jamais un second
+      // mécanisme d'écriture binaire inventé pour ce lot.
+      await writeBinaryFile(this.app, outPath, result.docxBuffer);
+      new Notice(t("docxReview.regenerateSuccessNotice", { path: outPath }));
+    } finally {
+      this.isGeneratingDocx = false;
+      void this.render();
+    }
   }
 
   async renderPickerPanel(container: HTMLElement) {
@@ -947,6 +1085,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     backBtn.addEventListener("click", () => {
       this.mode = "picker";
       this.results = null;
+      this.originalDocxBuffer = null; // LOT 9B — plus de session de révision affichée, plus de buffer associé
       void this.render();
     });
     titleRow.createDiv({ cls: "feuillets-notes-section-title" }).setText(t("docxReview.displayText"));
@@ -1042,6 +1181,27 @@ export class DocxReviewView extends BaseFeuilletsView {
         })();
       });
     }
+    /* LOT 9B — disponible dès qu'un DOCX source valide est en mémoire
+     * (mission §5) : toujours vrai en mode "results" (posé par analyzeBuffer
+     * en même temps que `this.results`), le contrôle reste explicite pour ne
+     * jamais dépendre implicitement de ce couplage. Grisé pendant la
+     * génération (`isGeneratingDocx`) pour empêcher un double lancement. */
+    if (this.originalDocxBuffer) {
+      const regenerateBtn = this.iconBtn(
+        toolbar,
+        "file-down",
+        t("docxReview.regenerateDocxButton")
+      );
+      regenerateBtn.addClass("feuillets-docx-review-action-btn");
+      regenerateBtn.createSpan({ cls: "feuillets-docx-review-btn-text" }).setText(
+        t("docxReview.regenerateDocxButton")
+      );
+      if (this.isGeneratingDocx) regenerateBtn.addClass("mod-disabled");
+      regenerateBtn.addEventListener("click", () => {
+        if (this.isGeneratingDocx) return; // double clic ignoré (mission §5)
+        void this.generateRevisedDocx();
+      });
+    }
 
     if (totalActive === 0 && totalResolved > 0 && !this.showResolved) {
       const emptyBox = container.createDiv({ cls: "feuillets-research-section feuillets-docx-review-done-box" });
@@ -1059,6 +1219,7 @@ export class DocxReviewView extends BaseFeuilletsView {
       pickAnotherBtn.addEventListener("click", () => {
         this.mode = "picker";
         this.results = null;
+        this.originalDocxBuffer = null; // LOT 9B — idem : pas de buffer orphelin sans résultats affichés
         void this.render();
       });
       return;

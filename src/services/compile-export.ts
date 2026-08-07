@@ -677,12 +677,17 @@ function uniqueBinaryPath(app: App, folderPath: string, baseName: string, extens
 }
 
 /**
+ * LOT 9B — exportée pour être réutilisée par le panneau de révision DOCX
+ * (docx-review-view.ts#generateRevisedDocx), qui écrit ainsi le .docx
+ * régénéré exactement comme n'importe quel export natif Feuillets (créer si
+ * absent, sinon modifier en place) — jamais un second mécanisme d'écriture
+ * binaire inventé pour ce lot.
  * @param {import("obsidian").App} app
  * @param {string} path
  * @param {Uint8Array|Blob|ArrayBuffer} data
  * @returns {Promise<void>}
  */
-async function writeBinaryFile(app: App, path: string, data: Uint8Array | Blob | ArrayBuffer) {
+export async function writeBinaryFile(app: App, path: string, data: Uint8Array | Blob | ArrayBuffer) {
   let buf: ArrayBuffer;
   if (data instanceof ArrayBuffer) {
     buf = data;
