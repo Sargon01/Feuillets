@@ -637,6 +637,8 @@ export const en = {
   "docxReview.applyInto": "Apply into: {title}",
   "docxReview.ambiguousPassageShort": "This passage appears several times — can't apply it automatically without risking the wrong spot.",
   "docxReview.passageNotFoundInSheet": "Passage not found as-is in this sheet.",
+  "docxReview.snapshotFailedNotice": "Couldn't create a restore point for this move between sheets — nothing was changed. Try again, or check access to the Snapshots folder.",
+  "docxReview.rollbackFailedNotice": "Write interrupted AND automatic restore failed — check the affected sheets by hand (use the Snapshots to compare/roll back).",
   "docxReview.changeAppliedInto": "Change applied into {title}.",
   "docxReview.hideMarkResolvedShort": "Hide / Mark as resolved",
   "docxReview.showInStack": "Show in the stack",

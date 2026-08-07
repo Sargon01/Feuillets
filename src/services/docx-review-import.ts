@@ -2765,7 +2765,62 @@ export async function planApplyInterFile(
     return { ok: false, step: "to", reason: "ambiguous" };
   }
 
-  await vault.modify(fromFile, delResult.newContent);
-  await vault.modify(toFile, insResult.newContent);
+  /* Écriture transactionnelle (Lot 3, sécurité multi-feuillets) : jusqu'ici
+     rien n'a été écrit — tout est calculé et vérifié en mémoire. À partir
+     de cette ligne, soit LES DEUX feuillets finissent modifiés ET relus à
+     l'identique de ce qui vient d'être écrit, soit AUCUN des deux ne
+     l'est : jamais fromFile vidé sans que toFile ait reçu le texte (ou
+     l'inverse). La relecture après chaque écriture protège contre un
+     adaptateur de coffre qui rapporterait un succès sans avoir vraiment
+     persisté (ex. un plugin de synchronisation qui intercepte l'écriture) —
+     un cas que `vault.modify` seul, sans exception, ne détecterait pas.
+     Toute écriture OU relecture en échec restaure IMMÉDIATEMENT chaque
+     fichier déjà touché à son contenu d'origine (fromContent/toContent, lus
+     tout en haut de cette fonction, jamais les versions "working"
+     retravaillées par resolveFootnoteTransfer) — dans l'ordre inverse de
+     l'écriture. La restauration elle-même reste best-effort (comme le
+     snapshot, voir docx-review-view.js#ensureSnapshot) : SI elle échoue à
+     son tour, ce n'est PLUS un simple "write-failed" — l'appelant ne doit
+     jamais croire l'état initial garanti retrouvé. `reason` devient
+     "rollback-failed" : à l'UI d'avertir explicitement que la restauration
+     automatique n'a pas pu être garantie et que les snapshots doivent être
+     utilisés pour vérifier/récupérer les feuillets concernés à la main. */
+  let fromWritten = false;
+  let toWritten = false;
+  let failedStep: "from" | "to" = "from";
+  try {
+    await vault.modify(fromFile, delResult.newContent);
+    fromWritten = true;
+    const fromCheck = await vault.read(fromFile);
+    if (fromCheck !== delResult.newContent) {
+      throw new Error("post-write verification failed (fromFile)");
+    }
+
+    failedStep = "to";
+    await vault.modify(toFile, insResult.newContent);
+    toWritten = true;
+    const toCheck = await vault.read(toFile);
+    if (toCheck !== insResult.newContent) {
+      throw new Error("post-write verification failed (toFile)");
+    }
+  } catch {
+    let restoreFailed = false;
+    if (toWritten) {
+      try {
+        await vault.modify(toFile, toContent);
+      } catch {
+        restoreFailed = true;
+      }
+    }
+    if (fromWritten) {
+      try {
+        await vault.modify(fromFile, fromContent);
+      } catch {
+        restoreFailed = true;
+      }
+    }
+    return { ok: false, step: failedStep, reason: restoreFailed ? "rollback-failed" : "write-failed" };
+  }
+
   return { ok: true, insertedRange: insResult.insertedRange };
 }
