@@ -637,8 +637,16 @@ export function buildScrivenerImportPlan(
              enfants directs uniquement, à l'écriture). */
           const classifiedWillHaveNote = opts.manuscriptFolderNoteUuids?.has(child.uuid) ?? false;
           if (classifiedWillHaveNote) {
-            const folderName = targetFolder.slice(targetFolder.lastIndexOf("/") + 1);
-            const notePath = allocateImportPath(used, joinImportPath(targetFolder, `${folderName}.md`));
+            /* Correctif final S2 : la note représente le Folder SCRIVENER
+               d'origine (`child`), pas le dossier Feuillets cible partagé
+               (`targetFolder`, réutilisé tel quel entre plusieurs Folder
+               classifiés vers la même rubrique — voir reusableFolder). Son
+               nom doit donc rester le titre Scrivener sanitizé du Folder,
+               jamais le basename du dossier cible : "Character Sketches"
+               classé dans Characters/ produit Characters/Character
+               Sketches.md, pas Characters/Characters.md. */
+            const noteName = sanitizeScrivenerTitle(child.title);
+            const notePath = allocateImportPath(used, joinImportPath(targetFolder, `${noteName}.md`));
             targets.push({ uuid: child.uuid, sourceTitle: child.title, kind: "researchFolder", folderPath: targetFolder, markdownPath: notePath });
           }
           for (const grandchild of child.children) planResearchNode(grandchild, targetFolder);
