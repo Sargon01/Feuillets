@@ -664,6 +664,16 @@ export const fr = {
   "docxReview.commentResolvedNotice": "Commentaire marqué comme résolu.",
   "docxReview.commentRestoredNotice": "Commentaire rétabli dans la pile.",
 
+  // ---------- LOT 9B — génération du DOCX révisé ----------
+  "docxReview.regenerateDocxButton": "Générer le DOCX révisé",
+  "docxReview.regenerateNoSource": "Aucun DOCX source n'est chargé — analyse d'abord un fichier.",
+  "docxReview.regenerateNoDecisionsWarning": "Aucune décision de révision n'a encore été appliquée à ce DOCX.",
+  "docxReview.regenerateErrorFootnoteMove": "Ce document contient un déplacement avec note de bas de page qui ne peut pas encore être régénéré automatiquement.",
+  "docxReview.regenerateErrorNoAnalysis": "Aucune analyse DOCX valide n'est disponible pour ce document.",
+  "docxReview.regenerateErrorCommentResolution": "La résolution de certains commentaires ne peut pas être reportée en toute sécurité dans ce DOCX.",
+  "docxReview.regenerateErrorGeneric": "Impossible de générer ce DOCX en toute sécurité.",
+  "docxReview.regenerateSuccessNotice": "DOCX révisé généré : {path}",
+
   // ---------- LOT 5 — file de décisions éditoriales (refonte UX) ----------
   "docxReview.filter.all": "Tous",
   "docxReview.filter.corrections": "Modifications",
