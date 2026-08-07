@@ -436,6 +436,187 @@ function joinImportPath(...parts: string[]): string {
   return parts.filter(Boolean).join("/");
 }
 
+// ============================ Registre central des ressources (S3) =========
+
+/** Registre central d'allocation de noms pour TOUTES les ressources binaires
+ * copiées dans le dossier Assets Feuillets pendant un import Scrivener —
+ * voir §4 du chantier S3. Partagé par les trois circuits existants (images
+ * RTF extraites, Files/Data/<uuid>, $PROJECT://+$SCRImageLink) pour que deux
+ * SOURCES différentes ne se retrouvent jamais avec le même nom de fichier
+ * final (collision silencieuse, §3), tout en garantissant qu'une MÊME
+ * source référencée plusieurs fois réutilise toujours le même fichier (§6) —
+ * jamais une copie par référence. */
+export type ScrivenerAssetRegistry = {
+  /** sourceKey (voir ci-dessous) -> nom de fichier final déjà attribué. */
+  sourceToFinalName: Map<string, string>;
+  /** Noms de fichier déjà réservés dans Assets, tous circuits confondus —
+   * même mécanique de suffixe déterministe ("-2", "-3"…) que
+   * allocateImportPath, appliquée ici à un simple nom de fichier plutôt
+   * qu'à un chemin complet (aucun dossier n'intervient dans ce registre). */
+  usedNames: Set<string>;
+};
+
+export function createAssetRegistry(): ScrivenerAssetRegistry {
+  return { sourceToFinalName: new Map(), usedNames: new Set() };
+}
+
+export type AssetAllocationResult = {
+  /** Nom de fichier réellement à utiliser — dans Assets et dans l'embed
+   * Markdown correspondant. */
+  finalName: string;
+  /** true la toute première fois que cette sourceKey est vue : c'est à ce
+   * moment (et seulement celui-là) que l'appelant doit réellement copier
+   * les octets et incrémenter son compteur d'assets importés (§19) — une
+   * source déjà vue ne doit jamais être recopiée ni recomptée. */
+  isNewSource: boolean;
+  /** true si `isNewSource` ET que `finalName` diffère du nom souhaité —
+   * une collision réelle avec une AUTRE source a forcé un suffixe
+   * déterministe (§3/§5) : c'est le signal pour incrémenter
+   * assetCollisionsRenamed (§19), jamais déclenché par la simple
+   * répétition de la même source. */
+  renamed: boolean;
+};
+
+/** Alloue (ou réutilise) le nom de fichier final d'une ressource, à partir
+ * d'une clé de source STABLE et d'un nom souhaité (§4/§5/§6 du chantier S3).
+ *
+ * Exemples de sourceKey (voir §4) :
+ *   data:<uuid>/<filename>        — Files/Data/<uuid>/...
+ *   rtf:<uuid>:<index>             — image \pict extraite du RTF (toujours
+ *                                    une source neuve, jamais de doublon
+ *                                    voulu — voir §8)
+ *   project:<rawRef normalisé>     — $PROJECT:// / $SCRImageLink
+ *
+ * Le suffixe ("-2", "-3"…) est ajouté AVANT l'extension, via le même
+ * algorithme que allocateImportPath (aucune duplication de logique — voir
+ * §5 : "photo.jpg -> photo-2.jpg", "archive.final.pdf -> archive.final-2.pdf"). */
+export function allocateAssetName(
+  registry: ScrivenerAssetRegistry,
+  sourceKey: string,
+  desiredName: string
+): AssetAllocationResult {
+  const existing = registry.sourceToFinalName.get(sourceKey);
+  if (existing) {
+    return { finalName: existing, isNewSource: false, renamed: false };
+  }
+  const finalName = allocateImportPath(registry.usedNames, desiredName);
+  registry.sourceToFinalName.set(sourceKey, finalName);
+  return { finalName, isNewSource: true, renamed: finalName !== desiredName };
+}
+
+// ============================ Médias non pris en charge (S3) ===============
+
+/** Extensions de ressource déjà prises en charge par l'import — INCHANGÉES
+ * depuis avant S3 (voir §14 : "Ne pas ajouter de nouveaux formats en S3"),
+ * dupliquées ici uniquement pour la classification (§15), jamais utilisées
+ * pour décider quoi copier — ce rôle reste celui de findAttachedDataImages
+ * (scrivener-import-modal.ts), inchangé. */
+const SUPPORTED_ASSET_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".pdf"]);
+
+/** Fichiers techniques Scrivener connus du moteur d'import dans
+ * Files/Data/<uuid>/ — jamais signalés comme médias non pris en charge
+ * (§15 : "content.rtf, notes.rtf, synopsis.txt, content.comments... ne
+ * doivent PAS être signalés comme médias"). */
+const CONTROL_FILE_BASENAMES = new Set(["content.rtf", "notes.rtf", "synopsis.txt", "content.comments"]);
+
+export type ScrivenerAttachedFileKind = "supported" | "unsupported" | "controlFile";
+
+/** Classifie un fichier trouvé dans Files/Data/<uuid>/ (§15/§30 du chantier
+ * S3) : fichier technique du moteur, ressource déjà prise en charge, ou
+ * média inconnu à signaler (jamais importé, jamais converti, jamais
+ * supprimé — voir §14/§25). Fonction PURE, ne lit aucun fichier. */
+export function classifyAttachedFile(fileName: string): ScrivenerAttachedFileKind {
+  const lower = (fileName || "").trim().toLowerCase();
+  if (CONTROL_FILE_BASENAMES.has(lower)) return "controlFile";
+  const dot = lower.lastIndexOf(".");
+  const ext = dot >= 0 ? lower.slice(dot) : "";
+  return SUPPORTED_ASSET_EXTENSIONS.has(ext) ? "supported" : "unsupported";
+}
+
+/** Comportement historique préservé (§5/§9/§10 du chantier S3) : dans
+ * Files/Data/<uuid>/, un fichier basé "content" ou "notes" (ex.
+ * content.jpg, notes.png) garde un nom dérivé de l'UUID pour éviter son
+ * ambiguïté — seul cas où un UUID reste visible dans le nom final, par
+ * nécessité déjà présente avant S3. Tout autre fichier garde son nom
+ * d'origine. Toujours utilisé comme `desiredName` du registre central
+ * (jamais le nom final imposé directement — voir allocateAssetName). */
+export function deriveDataAssetDesiredName(uuid: string, fileName: string): string {
+  const extIndex = fileName.lastIndexOf(".");
+  const ext = extIndex >= 0 ? fileName.slice(extIndex) : "";
+  const base = extIndex >= 0 ? fileName.slice(0, extIndex) : fileName;
+  return (base.toLowerCase() === "content" || base.toLowerCase() === "notes") ? `${uuid}${ext}` : fileName;
+}
+
+// ============================ Rapport d'import (S3) =========================
+
+/** Bilan factuel d'un import Scrivener — voir §17 du chantier S3. Rempli
+ * progressivement par scrivener-import-modal.ts au fil de l'écriture
+ * réelle (jamais à partir du plan seul : voir §18/§19, les compteurs ne
+ * montent qu'après un succès réel de app.vault.create/createBinary). */
+export type ScrivenerImportReport = {
+  markdownFilesCreated: number;
+  assetsImported: number;
+  assetCollisionsRenamed: number;
+  unresolvedInternalLinks: number;
+  unresolvedAssets: number;
+  ambiguousAssets: number;
+  unsupportedAssets: number;
+  trashEntriesSkipped: number;
+  rtfMissingOrUnreadable: number;
+  /** Listes courtes et dédupliquées — jamais affichées en intégralité dans
+   * le Notice final (§24), seulement leur longueur. */
+  unsupportedAssetNames: string[];
+  ambiguousAssetNames: string[];
+};
+
+export function createEmptyImportReport(): ScrivenerImportReport {
+  return {
+    markdownFilesCreated: 0,
+    assetsImported: 0,
+    assetCollisionsRenamed: 0,
+    unresolvedInternalLinks: 0,
+    unresolvedAssets: 0,
+    ambiguousAssets: 0,
+    unsupportedAssets: 0,
+    trashEntriesSkipped: 0,
+    rtfMissingOrUnreadable: 0,
+    unsupportedAssetNames: [],
+    ambiguousAssetNames: [],
+  };
+}
+
+/** Résumé du Notice final (§23) : n'affiche que les compteurs non nuls,
+ * jamais une ligne à zéro. Fonction PURE, testable indépendamment de
+ * l'écriture réelle (§31 tests 39/40). */
+export function formatImportSummary(report: ScrivenerImportReport): string {
+  const intro = t("modal.scrivenerImport.summaryIntro", {
+    files: String(report.markdownFilesCreated),
+    assets: String(report.assetsImported),
+  });
+  const warnings: string[] = [];
+  if (report.unresolvedInternalLinks > 0) {
+    warnings.push(t("modal.scrivenerImport.summaryUnresolvedLinks", { count: String(report.unresolvedInternalLinks) }));
+  }
+  if (report.unresolvedAssets > 0) {
+    warnings.push(t("modal.scrivenerImport.summaryUnresolvedAssets", { count: String(report.unresolvedAssets) }));
+  }
+  if (report.ambiguousAssets > 0) {
+    warnings.push(t("modal.scrivenerImport.summaryAmbiguousAssets", { count: String(report.ambiguousAssets) }));
+  }
+  if (report.unsupportedAssets > 0) {
+    warnings.push(t("modal.scrivenerImport.summaryUnsupportedAssets", { count: String(report.unsupportedAssets) }));
+  }
+  if (report.trashEntriesSkipped > 0) {
+    warnings.push(t("modal.scrivenerImport.summaryTrashSkipped", { count: String(report.trashEntriesSkipped) }));
+  }
+  if (report.rtfMissingOrUnreadable > 0) {
+    warnings.push(t("modal.scrivenerImport.summaryRtfUnreadable", { count: String(report.rtfMissingOrUnreadable) }));
+  }
+  /* §23 : jamais de ligne à zéro — seuls les compteurs non nuls apparaissent,
+     joints par " ; " et clos par un point final. */
+  return warnings.length > 0 ? `${intro} ${warnings.join(" ; ")}.` : intro;
+}
+
 export type ScrivenerImportTargetKind =
   | "manuscriptScene"
   | "manuscriptFolder"
@@ -705,6 +886,56 @@ export function parseScrImageLinks(text: string): ScrImageLink[] {
   }
 
   return links;
+}
+
+/** Corrige le bug §13 du chantier S3 : deux références $PROJECT://
+ * DIFFÉRENTES partageant le même basename, dans le MÊME document, ne
+ * doivent jamais s'écraser l'une l'autre dans les embeds Markdown.
+ *
+ * Remplace les occurrences AU FIL DU TEXTE (callback de .replace, donc dans
+ * l'ordre d'apparition, jamais un remplacement global par basename), avec
+ * une désambiguïsation LOCALE au document (rawRef -> nom réservé) :
+ *   - une rawRef déjà vue dans ce document réutilise son nom déjà résolu
+ *     (§6 : même source, même fichier) ;
+ *   - une rawRef nouvelle dont le basename est déjà pris par une AUTRE
+ *     rawRef de ce document reçoit un suffixe déterministe ("-2", "-3"…),
+ *     même algorithme que allocateImportPath.
+ *
+ * Cette désambiguïsation ne couvre que les collisions INTERNES au document
+ * — la désambiguïsation inter-documents (même basename, sources différentes
+ * dans deux fichiers distincts) reste du ressort du registre central
+ * (ScrivenerAssetRegistry, appliqué à l'écriture dans
+ * scrivener-import-modal.ts), qui reçoit `imageLinks` en sortie d'ici comme
+ * `desiredName`. Fonction PURE, ne lit/écrit aucun fichier. */
+function resolveProjectImageEmbeds(text: string): { text: string; imageLinks: ScrImageLink[] } {
+  if (!text) return { text: text || "", imageLinks: [] };
+
+  const imageLinks: ScrImageLink[] = [];
+  const localNameByRawRef = new Map<string, string>();
+  const usedLocalNames = new Set<string>();
+
+  const resolve = (rawRefRaw: string, fullMatch: string): string => {
+    const rawRef = rawRefRaw.trim();
+    const existing = localNameByRawRef.get(rawRef);
+    if (existing) return existing;
+    const baseName = (rawRef.slice(rawRef.lastIndexOf("/") + 1).trim()) || "asset";
+    const finalName = allocateImportPath(usedLocalNames, baseName);
+    localNameByRawRef.set(rawRef, finalName);
+    imageLinks.push({ rawRef, fileName: finalName, fullMatch });
+    return finalName;
+  };
+
+  let out = text.replace(
+    /\{?\$SCRImageLink\[[^\]]*\][:=]+\$PROJECT:\/\/([^}\s]+)\}?/gi,
+    (match: string, rawRef: string) => `\n\n![[${resolve(rawRef, match)}]]\n\n`
+  );
+
+  out = out.replace(
+    /\$PROJECT:\/\/([^\s"'<>})]+)/gi,
+    (match: string, rawRef: string) => `\n\n![[${resolve(rawRef, match)}]]\n\n`
+  );
+
+  return { text: out, imageLinks };
 }
 
 // ========================= Classification recherche =========================
@@ -1106,7 +1337,14 @@ export function rtfToMarkdown(
             rawText = inner.slice(textIdx + 6);
           }
           rawText = rawText.replace(/\\end_Scrv?_annot\b/gi, "").trim();
-          let { text: annotText } = rtfToMarkdown(rawText, comments, binderItemMap);
+          const annotRes = rtfToMarkdown(rawText, comments, binderItemMap);
+          let annotText = annotRes.text;
+          /* §20 du chantier S3 : un scrivlink://UUID non résolu À L'INTÉRIEUR
+             d'une annotation doit compter dans le bilan final au même titre
+             qu'un lien non résolu du corps principal — jamais silencieusement
+             perdu par l'appel récursif à rtfToMarkdown (voir aussi le cas
+             symétrique pour les commentaires scrivcmt:// plus bas). */
+          unresolvedLinks += annotRes.unresolvedLinkCount || 0;
           annotText = (annotText || "").replace(/\\n/g, " ").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
           if (annotText) {
             extractedComments.push({ word: "", text: `[Annotation]: ${annotText}` });
@@ -1205,8 +1443,11 @@ export function rtfToMarkdown(
             const commentUuid = commentMatch[1];
             const commentEntry = comments && comments[commentUuid];
             if (collectFootnotes && commentEntry) {
-              const { text: cText } = rtfToMarkdown(commentEntry.rtf, comments, binderItemMap);
-              const cleanCText = (cText || "").trim();
+              const commentRes = rtfToMarkdown(commentEntry.rtf, comments, binderItemMap);
+              /* §20 du chantier S3 : idem pour un lien non résolu à
+                 l'intérieur d'un commentaire Scrivener converti. */
+              unresolvedLinks += commentRes.unresolvedLinkCount || 0;
+              const cleanCText = (commentRes.text || "").trim();
               if (cleanCText) {
                 if (commentEntry.isFootnote) {
                   if (cleanText) emit(cleanText);
@@ -1387,8 +1628,18 @@ export function rtfToMarkdown(
   }
 
   const converted = convert(rtf, true);
-  const imageLinks = parseScrImageLinks(converted);
-  const marker = extractChapterTitleMarker(converted);
+  /* Correctif §13 du chantier S3 : résolution + désambiguïsation locale des
+     embeds $PROJECT://+$SCRImageLink AVANT l'extraction du titre de
+     chapitre et le nettoyage final — voir resolveProjectImageEmbeds
+     ci-dessus. `imageLinks` porte désormais le nom LOCALEMENT désambiguïsé
+     (déjà écrit dans le texte), que scrivener-import-modal.ts passe comme
+     `desiredName` au registre central pour la désambiguïsation
+     inter-documents (voir §4/§13). finalizeConvertedText garde ses propres
+     regex $PROJECT/$SCRImageLink comme filet de sécurité pour les rares
+     occurrences hors du corps principal (ex. notes de bas de page) —
+     comportement historique inchangé pour ce cas, voir son commentaire. */
+  const { text: withEmbeds, imageLinks } = resolveProjectImageEmbeds(converted);
+  const marker = extractChapterTitleMarker(withEmbeds);
 
   // Génération du format Body Title exigé par Feuillets (## Title puis ### Subtitle)
   let bodyHeader = "";
@@ -1400,7 +1651,7 @@ export function rtfToMarkdown(
     bodyHeader += "\n";
   }
 
-  const bodyContent = finalizeConvertedText(marker.title ? marker.rest : converted);
+  const bodyContent = finalizeConvertedText(marker.title ? marker.rest : withEmbeds);
 
   const res: RtfResult = {
     text: bodyHeader + bodyContent,

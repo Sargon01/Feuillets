@@ -132,3 +132,118 @@ test("ScrivenerFileMap : webkitGetAsEntry lecture récursive d'un réperteoire m
   assert.equal(map.scrivxName, "project.scrivx");
   assert.equal(await map.readText("Files/Data/content.rtf"), "content");
 });
+
+// ============================ Lot S3 : finaliser et sécuriser l'import =====
+
+function buildFixtureMap(files) {
+  const entries = Object.entries(files).map(([relativePath, content]) => ({
+    relativePath: `Projet.scriv/${relativePath}`,
+    file: {
+      text: async () => content,
+      arrayBuffer: async () => new TextEncoder().encode(content).buffer,
+    },
+  }));
+  return ScrivenerFileMap.fromEntries(entries);
+}
+
+test("§11 chantier S3 — 17. findScrivenerFileByRef : rawRef exact résolu vers la bonne source", async () => {
+  const map = buildFixtureMap({
+    "project.scrivx": "<ScrivenerProject><Binder></Binder></ScrivenerProject>",
+    "Images/A/photo.jpg": "bytes-A",
+    "Images/B/photo.jpg": "bytes-B",
+  });
+
+  const foundA = map.findScrivenerFileByRef("Images/A/photo.jpg");
+  assert.ok(foundA);
+  assert.equal(foundA.fileName, "photo.jpg");
+  assert.equal(new TextDecoder().decode(await foundA.readArrayBuffer()), "bytes-A");
+
+  const foundB = map.findScrivenerFileByRef("Images/B/photo.jpg");
+  assert.ok(foundB);
+  assert.equal(new TextDecoder().decode(await foundB.readArrayBuffer()), "bytes-B");
+});
+
+test("§11 chantier S3 — findScrivenerFileByRef normalise les antislashs et un éventuel / initial", async () => {
+  const map = buildFixtureMap({
+    "project.scrivx": "<ScrivenerProject><Binder></Binder></ScrivenerProject>",
+    "Images/A/photo.jpg": "bytes-A",
+  });
+  const found = map.findScrivenerFileByRef("\\Images\\A\\photo.jpg");
+  assert.ok(found);
+  assert.equal(new TextDecoder().decode(await found.readArrayBuffer()), "bytes-A");
+  const foundLeadingSlash = map.findScrivenerFileByRef("/Images/A/photo.jpg");
+  assert.ok(foundLeadingSlash);
+});
+
+test("§11 chantier S3 — findScrivenerFileByRef : référence inexistante -> null (jamais un repli implicite)", async () => {
+  const map = buildFixtureMap({
+    "project.scrivx": "<ScrivenerProject><Binder></Binder></ScrivenerProject>",
+    "Images/A/photo.jpg": "bytes-A",
+  });
+  assert.equal(map.findScrivenerFileByRef("Images/C/photo.jpg"), null);
+});
+
+test("§12 chantier S3 — 18. findScrivenerFilesByBasename : un seul candidat -> repli accepté", async () => {
+  const map = buildFixtureMap({
+    "project.scrivx": "<ScrivenerProject><Binder></Binder></ScrivenerProject>",
+    "Images/A/unique.png": "bytes",
+  });
+  const candidates = map.findScrivenerFilesByBasename("unique.png");
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].fileName, "unique.png");
+});
+
+test("§12 chantier S3 — 19. findScrivenerFilesByBasename : basename absent -> aucun candidat", async () => {
+  const map = buildFixtureMap({
+    "project.scrivx": "<ScrivenerProject><Binder></Binder></ScrivenerProject>",
+  });
+  assert.deepEqual(map.findScrivenerFilesByBasename("absent.png"), []);
+});
+
+test("§12 chantier S3 — 20. findScrivenerFilesByBasename : deux candidats de même basename -> tous deux renvoyés, aucun choix arbitraire", async () => {
+  const map = buildFixtureMap({
+    "project.scrivx": "<ScrivenerProject><Binder></Binder></ScrivenerProject>",
+    "Images/A/photo.jpg": "bytes-A",
+    "Images/B/photo.jpg": "bytes-B",
+  });
+  const candidates = map.findScrivenerFilesByBasename("photo.jpg");
+  assert.equal(candidates.length, 2, "ambiguïté : les deux candidats doivent être visibles, pas un seul choisi au hasard");
+});
+
+test("§15/§30 chantier S3 — 8/9. listAttachedDataFiles : fichiers techniques jamais signalés, ressource reconnue = supported", async () => {
+  const map = buildFixtureMap({
+    "project.scrivx": "<ScrivenerProject><Binder></Binder></ScrivenerProject>",
+    "Files/Data/UUID-1/content.rtf": "rtf",
+    "Files/Data/UUID-1/notes.rtf": "rtf",
+    "Files/Data/UUID-1/synopsis.txt": "txt",
+    "Files/Data/UUID-1/content.comments": "xml",
+    "Files/Data/UUID-1/photo.jpg": "bytes",
+  });
+  const files = map.listAttachedDataFiles("UUID-1");
+  const byName = Object.fromEntries(files.map((f) => [f.fileName, f.kind]));
+  assert.equal(byName["content.rtf"], "controlFile");
+  assert.equal(byName["notes.rtf"], "controlFile");
+  assert.equal(byName["synopsis.txt"], "controlFile");
+  assert.equal(byName["content.comments"], "controlFile");
+  assert.equal(byName["photo.jpg"], "supported");
+});
+
+test("§15/§30 chantier S3 — 29. listAttachedDataFiles : mp3/mov détectés comme non pris en charge (BinderItem Media)", async () => {
+  const map = buildFixtureMap({
+    "project.scrivx": "<ScrivenerProject><Binder></Binder></ScrivenerProject>",
+    "Files/Data/UUID-1/audio.mp3": "bytes",
+    "Files/Data/UUID-1/clip.mov": "bytes",
+  });
+  const files = map.listAttachedDataFiles("UUID-1");
+  const byName = Object.fromEntries(files.map((f) => [f.fileName, f.kind]));
+  assert.equal(byName["audio.mp3"], "unsupported");
+  assert.equal(byName["clip.mov"], "unsupported");
+});
+
+test("§15 chantier S3 — listAttachedDataFiles : un UUID sans fichier attaché renvoie une liste vide", async () => {
+  const map = buildFixtureMap({
+    "project.scrivx": "<ScrivenerProject><Binder></Binder></ScrivenerProject>",
+    "Files/Data/UUID-1/photo.jpg": "bytes",
+  });
+  assert.deepEqual(map.listAttachedDataFiles("UUID-INCONNU"), []);
+});

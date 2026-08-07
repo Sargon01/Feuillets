@@ -1440,6 +1440,13 @@ export const en = {
   "modal.scrivenerImport.noScrivxFound": "No .scrivx file found in this folder.",
   "modal.scrivenerImport.pathTaken": "The vault changed during import: \"{path}\" is now taken. Import stopped to avoid breaking already-resolved internal links.",
   "modal.scrivenerImport.trashNotImported": "Scrivener Trash: {count} item(s) will not be imported.",
+  "modal.scrivenerImport.summaryIntro": "Scrivener import complete: {files} Markdown file(s), {assets} asset(s).",
+  "modal.scrivenerImport.summaryUnresolvedLinks": "{count} unresolved internal link(s)",
+  "modal.scrivenerImport.summaryUnresolvedAssets": "{count} unresolved asset(s)",
+  "modal.scrivenerImport.summaryAmbiguousAssets": "{count} ambiguous asset(s)",
+  "modal.scrivenerImport.summaryUnsupportedAssets": "{count} unsupported asset(s)",
+  "modal.scrivenerImport.summaryTrashSkipped": "{count} Trash item(s) skipped",
+  "modal.scrivenerImport.summaryRtfUnreadable": "{count} missing/unreadable text file(s)",
 
   "modal.export.title": "Export / Compile",
   "modal.export.format": "Export format",

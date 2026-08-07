@@ -15,7 +15,15 @@ import {
   extractHeadingTitle,
   parseScrivenerComments,
   buildScrivenerImportPlan,
+  classifyAttachedFile,
+  deriveDataAssetDesiredName,
+  createAssetRegistry,
+  allocateAssetName,
+  createEmptyImportReport,
+  formatImportSummary,
   type ScrivenerImportTarget,
+  type ScrivenerAssetRegistry,
+  type ScrivenerImportReport,
 } from "../services/scrivener-import.js";
 import { getResearchRoot } from "../services/research.js";
 import { getFeuilletsFolderNames, resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
@@ -243,6 +251,68 @@ export class ScrivenerFileMap {
       }
     }
     return null;
+  }
+
+  private makeReader(item: FileMapItem): () => Promise<ArrayBuffer | null> {
+    return async () => {
+      try {
+        return item.kind === "file" ? await item.file.arrayBuffer() : await item.zipObject.async("arraybuffer");
+      } catch {
+        return null;
+      }
+    };
+  }
+
+  /** §11 du chantier S3 : résolution EXACTE d'une référence $PROJECT://
+   * (rawRef) — préférée dans tous les cas à une recherche par basename
+   * (findScrivenerFile), qui peut choisir la mauvaise source si le paquet
+   * contient deux fichiers homonymes dans des dossiers différents. Résout
+   * relativement à la racine du paquet .scriv (même `prefix`/`getItem` que
+   * le reste de ScrivenerFileMap). Retourne null si la référence exacte
+   * n'existe pas dans le paquet — jamais de repli implicite ici, voir
+   * findScrivenerFilesByBasename pour le repli explicite (§12). */
+  findScrivenerFileByRef(rawRef: string): { fileName: string; readArrayBuffer(): Promise<ArrayBuffer | null> } | null {
+    const normalized = (rawRef || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!normalized) return null;
+    const item = this.getItem(normalized);
+    if (!item) return null;
+    const fileName = normalized.slice(normalized.lastIndexOf("/") + 1) || normalized;
+    return { fileName, readArrayBuffer: this.makeReader(item) };
+  }
+
+  /** §12 du chantier S3 : repli EXPLICITE par basename, seulement quand
+   * findScrivenerFileByRef échoue. Retourne TOUS les candidats (jamais un
+   * seul choisi arbitrairement) — à l'appelant de décider : 0 -> non
+   * résolu, 1 -> repli accepté, 2+ -> ambiguïté signalée, aucune copie. */
+  findScrivenerFilesByBasename(targetName: string): { fileName: string; readArrayBuffer(): Promise<ArrayBuffer | null> }[] {
+    const targetLower = (targetName || "").toLowerCase();
+    const results: { fileName: string; readArrayBuffer(): Promise<ArrayBuffer | null> }[] = [];
+    for (const [p, item] of this.map.entries()) {
+      const baseName = p.split("/").pop() || "";
+      if (baseName.toLowerCase() === targetLower) {
+        results.push({ fileName: item.rawPath.split("/").pop() || baseName, readArrayBuffer: this.makeReader(item) });
+      }
+    }
+    return results;
+  }
+
+  /** §15 du chantier S3 : liste TOUS les fichiers attachés d'un UUID dans
+   * Files/Data/<uuid>/ — pas seulement les images reconnues (voir
+   * findAttachedDataImages, INCHANGÉE, toujours utilisée pour décider quoi
+   * copier). Sert uniquement à détecter/signaler les médias non pris en
+   * charge (§14/§16), jamais à décider quoi importer. */
+  listAttachedDataFiles(uuid: string): { fileName: string; kind: ReturnType<typeof classifyAttachedFile> }[] {
+    const uuidLower = (uuid || "").toLowerCase();
+    const targetPrefix = (this.prefix + `files/data/${uuidLower}/`).toLowerCase();
+    const results: { fileName: string; kind: ReturnType<typeof classifyAttachedFile> }[] = [];
+    for (const [p, item] of this.map.entries()) {
+      if (!p.startsWith(targetPrefix)) continue;
+      const rel = p.slice(targetPrefix.length);
+      if (rel.includes("/")) continue; // sous-dossier imbriqué : hors périmètre S3
+      const fileName = item.rawPath.split("/").pop() || rel;
+      results.push({ fileName, kind: classifyAttachedFile(fileName) });
+    }
+    return results;
   }
 }
 
@@ -601,6 +671,35 @@ export class ScrivenerImportModal extends Modal {
 
     let unreadableCount = 0;
 
+    /* Bilan factuel de l'import (§17 du chantier S3) — rempli au fil de
+       l'écriture réelle, jamais depuis le plan seul (voir §18/§19 : les
+       compteurs ne montent qu'après un succès réel de
+       app.vault.create/createBinary). `assetRegistry` est LE registre
+       central partagé par les trois circuits de ressources existants
+       (images RTF extraites, Files/Data/<uuid>, $PROJECT://+$SCRImageLink)
+       — voir §4 : deux sources différentes ne reçoivent jamais le même nom
+       final, une même source n'est jamais recopiée. */
+    const assetRegistry: ScrivenerAssetRegistry = createAssetRegistry();
+    /* Dernière vérification S3 : un fichier DÉJÀ présent dans
+       visuelsFolderPath avant l'import (ex. déposé par initProjectStructure,
+       ou par un import précédent dans le même dossier Ressources partagé —
+       voir resourcesFolderPath, qui réutilise un dossier existant) doit être
+       protégé exactement comme une collision entre deux sources Scrivener :
+       jamais écrasé silencieusement, jamais un embed pointant dessus par
+       erreur pour une ressource différente. On amorce donc `usedNames` avec
+       les noms déjà occupés sur le disque — allocateAssetName traite alors
+       n'importe quelle source Scrivener nommée pareil comme une collision
+       réelle (suffixe déterministe), sans aucune autre modification. */
+    const preExistingAssets = app.vault.getAbstractFileByPath(visuelsFolderPath);
+    if (preExistingAssets instanceof TFolder) {
+      for (const child of preExistingAssets.children) {
+        assetRegistry.usedNames.add(child.name);
+      }
+    }
+    const report: ScrivenerImportReport = createEmptyImportReport();
+    const unsupportedAssetNamesSet = new Set<string>();
+    const ambiguousAssetNamesSet = new Set<string>();
+
     const readRtf = async (uuid: string): Promise<string> => {
       for (const candidate of rtfPathCandidates(uuid)) {
         const content = await fileMap.readText(candidate);
@@ -688,16 +787,14 @@ export class ScrivenerImportModal extends Modal {
     };
 
     const deriveNodeNoteContent = (materials: NodeMaterials, uuid: string, linkMap: Map<string, string> | null) => {
-      const { text, footnotes, extractedImages, imageLinks, extractedComments, chapterTitle, sousTitre } = rtfToMarkdown(
-        materials.rtfContent,
-        materials.comments,
-        linkMap,
-        { uuid }
-      );
+      const mainRes = rtfToMarkdown(materials.rtfContent, materials.comments, linkMap, { uuid });
+      const { text, footnotes, extractedImages, imageLinks, extractedComments, chapterTitle, sousTitre } = mainRes;
       let docNotes = "";
+      let notesUnresolved = 0;
       if (materials.notesRtfRaw) {
-        const notesConverted = rtfToMarkdown(materials.notesRtfRaw, {}, linkMap).text;
-        if (notesConverted) docNotes = notesConverted.trim();
+        const notesRes = rtfToMarkdown(materials.notesRtfRaw, {}, linkMap);
+        notesUnresolved = notesRes.unresolvedLinkCount || 0;
+        if (notesRes.text) docNotes = notesRes.text.trim();
       }
       if (extractedComments && extractedComments.length > 0) {
         const commentLines = extractedComments.map((c) =>
@@ -705,7 +802,14 @@ export class ScrivenerImportModal extends Modal {
         );
         docNotes = docNotes ? `${docNotes.trim()}\n\n${commentLines.join("\n")}` : commentLines.join("\n");
       }
-      return { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis: materials.synopsisText };
+      /* §20 du chantier S3 : agrège les liens non résolus du corps principal
+         ET des notes — mais UNIQUEMENT significatif quand `linkMap` est la
+         carte définitive (binderItemMap). Avec linkMap=null (pré-analyse,
+         voir analyzeNode plus haut), ce total est volontairement ignoré par
+         l'appelant : ne JAMAIS le lire pendant la pré-analyse (chaque
+         scrivlink y paraîtrait non résolu, faussant le bilan). */
+      const unresolvedLinkCount = (mainRes.unresolvedLinkCount || 0) + notesUnresolved;
+      return { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis: materials.synopsisText, unresolvedLinkCount };
     };
 
     /* Même condition, au mot près, que l'ancien folderHasContent S1 — avec
@@ -782,74 +886,194 @@ export class ScrivenerImportModal extends Modal {
     // fois le même fichier gagnant... sauf ici, où il s'agit d'un nœud qui
     // n'est PAS un dossier et n'a donc pas été mis en cache par la
     // pré-analyse (celle-ci ne visite que les Folder du manuscrit).
-    const readNotes = async (uuid: string): Promise<string> => {
+    const readNotes = async (uuid: string): Promise<{ text: string; unresolvedLinkCount: number }> => {
       const raw = await pickNotesRaw(uuid);
-      if (!raw) return "";
-      const converted = rtfToMarkdown(raw, {}, binderItemMap).text;
-      return converted ? converted.trim() : "";
+      if (!raw) return { text: "", unresolvedLinkCount: 0 };
+      const res = rtfToMarkdown(raw, {}, binderItemMap);
+      return { text: res.text ? res.text.trim() : "", unresolvedLinkCount: res.unresolvedLinkCount || 0 };
     };
 
-    const saveExtractedImages = async (extractedImages: { name: string; bytes: Uint8Array }[]) => {
-      for (const img of extractedImages) {
-        const imgPath = normalizePath(`${visuelsFolderPath}/${img.name}`);
+    /* --- Registre central des ressources (§4 du chantier S3) --------------
+       Les trois circuits existants (images RTF extraites, Files/Data/<uuid>,
+       $PROJECT://+$SCRImageLink) partagent désormais `assetRegistry` : deux
+       SOURCES différentes ne reçoivent jamais le même nom final dans
+       Assets (§3, collision silencieuse corrigée) ; une MÊME source
+       référencée plusieurs fois réutilise toujours son fichier déjà copié
+       (§6). Aucun de ces circuits n'est remplacé — seule l'allocation du
+       nom final et le comptage passent désormais par le registre. */
+
+    const saveExtractedImages = async (
+      extractedImages: { name: string; bytes: Uint8Array }[],
+      uuid: string,
+      body: string
+    ): Promise<string> => {
+      let updatedBody = body;
+      for (let idx = 0; idx < extractedImages.length; idx++) {
+        const img = extractedImages[idx];
+        /* Une image \pict extraite du RTF est TOUJOURS une source neuve —
+           jamais de doublon voulu (§8) — la sourceKey inclut donc l'index
+           d'extraction, jamais réutilisée entre deux extractions. */
+        const sourceKey = `rtf:${uuid}:${idx}`;
+        const alloc = allocateAssetName(assetRegistry, sourceKey, img.name);
+        if (alloc.renamed) {
+          report.assetCollisionsRenamed++;
+          // Réécrit l'embed déjà émis par rtfToMarkdown vers le nom final (§7/§8).
+          updatedBody = updatedBody.split(`![[${img.name}]]`).join(`![[${alloc.finalName}]]`);
+        }
+        if (!alloc.isNewSource) continue;
+        const imgPath = normalizePath(`${visuelsFolderPath}/${alloc.finalName}`);
         if (!app.vault.getAbstractFileByPath(imgPath)) {
           try {
             const buf = img.bytes.buffer.slice(img.bytes.byteOffset, img.bytes.byteOffset + img.bytes.byteLength) as ArrayBuffer;
             await app.vault.createBinary(imgPath, buf);
+            report.assetsImported++;
           } catch { /* ignore */ }
         }
       }
+      return updatedBody;
     };
 
-    const processImageLinks = async (imageLinks: { fileName: string }[] | undefined) => {
-      if (!imageLinks || imageLinks.length === 0) return;
+    /* §11/§12/§13 du chantier S3 : `imageLinks` porte désormais le nom
+       LOCALEMENT désambiguïsé par resolveProjectImageEmbeds (déjà écrit
+       dans le corps par rtfToMarkdown) — utilisé ici comme `desiredName`
+       pour la désambiguïsation INTER-documents via le registre central.
+       Résolution physique : rawRef exact d'abord (§11), repli par basename
+       ensuite UNIQUEMENT si non résoluble (§12) — jamais de choix arbitraire
+       en cas d'ambiguïté (plusieurs candidats de même basename). */
+    const processImageLinks = async (
+      imageLinks: { rawRef: string; fileName: string }[] | undefined,
+      body: string
+    ): Promise<string> => {
+      if (!imageLinks || imageLinks.length === 0) return body;
+      let updatedBody = body;
       for (const link of imageLinks) {
-        const targetPath = normalizePath(`${visuelsFolderPath}/${link.fileName}`);
+        const sourceKey = `project:${link.rawRef.trim().toLowerCase()}`;
+        const alloc = allocateAssetName(assetRegistry, sourceKey, link.fileName);
+        if (alloc.renamed) {
+          report.assetCollisionsRenamed++;
+          updatedBody = updatedBody.split(`![[${link.fileName}]]`).join(`![[${alloc.finalName}]]`);
+        }
+        if (!alloc.isNewSource) continue; // même source déjà copiée (§6)
+
+        let found = fileMap.findScrivenerFileByRef(link.rawRef);
+        if (!found) {
+          const candidates = fileMap.findScrivenerFilesByBasename(link.fileName);
+          if (candidates.length === 1) {
+            found = candidates[0];
+          } else if (candidates.length > 1) {
+            report.ambiguousAssets++;
+            ambiguousAssetNamesSet.add(link.fileName);
+            continue; // jamais de choix arbitraire (§12)
+          } else {
+            report.unresolvedAssets++;
+            continue;
+          }
+        }
+
+        const targetPath = normalizePath(`${visuelsFolderPath}/${alloc.finalName}`);
         if (!app.vault.getAbstractFileByPath(targetPath)) {
-          const found = fileMap.findScrivenerFile(link.fileName);
-          if (found) {
-            try {
-              const bytes = await found.readArrayBuffer();
-              if (bytes) await app.vault.createBinary(targetPath, bytes);
-            } catch { /* ignore */ }
+          try {
+            const bytes = await found.readArrayBuffer();
+            if (bytes) {
+              await app.vault.createBinary(targetPath, bytes);
+              report.assetsImported++;
+            } else {
+              report.unresolvedAssets++;
+            }
+          } catch {
+            report.unresolvedAssets++;
           }
         }
       }
+      return updatedBody;
     };
 
     const processDataDirImages = async (itemTitle: string, uuid: string, currentBody: string, hasExtractedRtf = false): Promise<string> => {
+      /* §15/§16 : signale (sans jamais copier/convertir/supprimer) les
+         fichiers de Files/Data/<uuid>/ dans un format non pris en charge —
+         les fichiers techniques du moteur (content.rtf, notes.rtf,
+         synopsis.txt, content.comments) sont exclus par classifyAttachedFile
+         (kind "controlFile"), jamais comptés comme médias. */
+      for (const attached of fileMap.listAttachedDataFiles(uuid)) {
+        if (attached.kind === "unsupported") {
+          report.unsupportedAssets++;
+          unsupportedAssetNamesSet.add(attached.fileName);
+        }
+      }
+
       const dataImages = fileMap.findAttachedDataImages(uuid);
       let updatedBody = currentBody || "";
       if (!dataImages || dataImages.length === 0) return updatedBody;
 
       for (const img of dataImages) {
-        const extIndex = img.fileName.lastIndexOf(".");
-        const ext = extIndex >= 0 ? img.fileName.slice(extIndex) : "";
-        const base = extIndex >= 0 ? img.fileName.slice(0, extIndex) : img.fileName;
-        const uniqueFileName = (base.toLowerCase() === "content" || base.toLowerCase() === "notes")
-          ? `${uuid}${ext}`
-          : img.fileName;
-        const targetPath = normalizePath(`${visuelsFolderPath}/${uniqueFileName}`);
+        const desiredName = deriveDataAssetDesiredName(uuid, img.fileName);
+        const sourceKey = `data:${uuid}/${img.fileName}`;
+        const alloc = allocateAssetName(assetRegistry, sourceKey, desiredName);
+        if (alloc.renamed) report.assetCollisionsRenamed++;
 
-        if (!app.vault.getAbstractFileByPath(targetPath)) {
-          try {
-            const bytes = await img.readArrayBuffer();
-            if (bytes) await app.vault.createBinary(targetPath, bytes);
-          } catch { /* ignore */ }
+        if (alloc.isNewSource) {
+          const targetPath = normalizePath(`${visuelsFolderPath}/${alloc.finalName}`);
+          if (!app.vault.getAbstractFileByPath(targetPath)) {
+            try {
+              const bytes = await img.readArrayBuffer();
+              if (bytes) {
+                await app.vault.createBinary(targetPath, bytes);
+                report.assetsImported++;
+              }
+            } catch { /* ignore */ }
+          }
         }
 
         const hasImageEmbed = /!\[\[[^\]]+\]\]/.test(updatedBody);
         if (
           !hasImageEmbed &&
           !hasExtractedRtf &&
-          !updatedBody.includes(uniqueFileName) &&
-          !updatedBody.toLowerCase().includes(uniqueFileName.toLowerCase()) &&
+          !updatedBody.includes(alloc.finalName) &&
+          !updatedBody.toLowerCase().includes(alloc.finalName.toLowerCase()) &&
           !updatedBody.toLowerCase().includes(uuid.toLowerCase())
         ) {
-          updatedBody += `\n\n![[${uniqueFileName}]]\n\n`;
+          updatedBody += `\n\n![[${alloc.finalName}]]\n\n`;
         }
       }
       return updatedBody;
+    };
+
+    /* Nœud Image/PDF/Media autonome (BinderItem.isImage — §10/§16 du
+       chantier S3) : comportement inchangé si la ressource est dans un
+       format pris en charge (nom final via le registre, collision sûre) ;
+       si le binaire attaché n'est dans AUCUN format pris en charge, le
+       média est signalé (jamais deviné, jamais converti) — la structure
+       Binder et la note déjà prévues par S1/S2 ne changent pas pour autant
+       (§16 : "ne change pas la structure Binder uniquement à cause du média"). */
+    const resolveImageNodeEmbed = async (uuid: string): Promise<string> => {
+      const dataImages = fileMap.findAttachedDataImages(uuid);
+      if (dataImages.length === 0) {
+        for (const attached of fileMap.listAttachedDataFiles(uuid)) {
+          if (attached.kind === "unsupported") {
+            report.unsupportedAssets++;
+            unsupportedAssetNamesSet.add(attached.fileName);
+          }
+        }
+        return "";
+      }
+      const img = dataImages[0];
+      const desiredName = deriveDataAssetDesiredName(uuid, img.fileName);
+      const sourceKey = `data:${uuid}/${img.fileName}`;
+      const alloc = allocateAssetName(assetRegistry, sourceKey, desiredName);
+      if (alloc.renamed) report.assetCollisionsRenamed++;
+      if (alloc.isNewSource) {
+        const targetPath = normalizePath(`${visuelsFolderPath}/${alloc.finalName}`);
+        if (!app.vault.getAbstractFileByPath(targetPath)) {
+          try {
+            const bytes = await img.readArrayBuffer();
+            if (bytes) {
+              await app.vault.createBinary(targetPath, bytes);
+              report.assetsImported++;
+            }
+          } catch { /* ignore */ }
+        }
+      }
+      return `![[${alloc.finalName}]]`;
     };
 
     const encounteredLabels = new Set<string>();
@@ -868,24 +1092,7 @@ export class ScrivenerImportModal extends Modal {
 
       let rtfRes: ReturnType<typeof rtfToMarkdown> | null = null;
       if (item.isImage) {
-        const dataImages = fileMap.findAttachedDataImages(item.uuid);
-        if (dataImages.length > 0) {
-          const img = dataImages[0];
-          const extIndex = img.fileName.lastIndexOf(".");
-          const ext = extIndex >= 0 ? img.fileName.slice(extIndex) : "";
-          const base = extIndex >= 0 ? img.fileName.slice(0, extIndex) : img.fileName;
-          const uniqueFileName = (base.toLowerCase() === "content" || base.toLowerCase() === "notes")
-            ? `${item.uuid}${ext}`
-            : img.fileName;
-          const targetPath = normalizePath(`${visuelsFolderPath}/${uniqueFileName}`);
-          if (!app.vault.getAbstractFileByPath(targetPath)) {
-            try {
-              const bytes = await img.readArrayBuffer();
-              if (bytes) await app.vault.createBinary(targetPath, bytes);
-            } catch { /* ignore */ }
-          }
-          text = `![[${uniqueFileName}]]`;
-        }
+        text = await resolveImageNodeEmbed(item.uuid);
       } else {
         const rtfContent = await readRtf(item.uuid);
         const comments = await readComments(item.uuid);
@@ -894,13 +1101,14 @@ export class ScrivenerImportModal extends Modal {
         footnotes = rtfRes.footnotes || [];
         chapterTitle = rtfRes.chapterTitle || "";
         sousTitre = rtfRes.sousTitre || "";
+        report.unresolvedInternalLinks += rtfRes.unresolvedLinkCount || 0;
 
         if (rtfRes.extractedImages && rtfRes.extractedImages.length > 0) {
           hasExtractedRtf = true;
-          await saveExtractedImages(rtfRes.extractedImages);
+          text = await saveExtractedImages(rtfRes.extractedImages, item.uuid, text);
         }
         if (rtfRes.imageLinks && rtfRes.imageLinks.length > 0) {
-          await processImageLinks(rtfRes.imageLinks);
+          text = await processImageLinks(rtfRes.imageLinks, text);
         }
       }
 
@@ -912,7 +1120,9 @@ export class ScrivenerImportModal extends Modal {
       }
       if (item.labelTitle) encounteredLabels.add(item.labelTitle);
 
-      let docNotes = await readNotes(item.uuid);
+      const notesRes = await readNotes(item.uuid);
+      let docNotes = notesRes.text;
+      report.unresolvedInternalLinks += notesRes.unresolvedLinkCount;
       if (rtfRes && rtfRes.extractedComments && rtfRes.extractedComments.length > 0) {
         const commentLines = rtfRes.extractedComments.map((c) =>
           c.word ? t("modal.scrivenerImport.commentOn", { word: c.word, text: c.text }) : c.text
@@ -938,7 +1148,9 @@ export class ScrivenerImportModal extends Modal {
         customMetadata: item.customMetadata,
       });
       requireFreePath(app, path);
-      return app.vault.create(path, fm + body);
+      const createdScene = await app.vault.create(path, fm + body);
+      report.markdownFilesCreated++;
+      return createdScene;
     };
 
     /* Écrit la note "scène" d'un nœud Folder-like (dossier du manuscrit ou
@@ -956,18 +1168,19 @@ export class ScrivenerImportModal extends Modal {
       if (!target.markdownPath) {
         throw new Error(`Plan d'import Scrivener désynchronisé pour « ${item.title} » (note prévue par la pré-analyse mais absente du plan).`);
       }
-      const { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis } =
+      const { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis, unresolvedLinkCount } =
         deriveNodeNoteContent(materials, item.uuid, binderItemMap);
+      report.unresolvedInternalLinks += unresolvedLinkCount;
 
       let body = text;
-      const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
-      body = await processDataDirImages(item.title, item.uuid, body, hasExtractedRtf);
       if (extractedImages && extractedImages.length > 0) {
-        await saveExtractedImages(extractedImages);
+        body = await saveExtractedImages(extractedImages, item.uuid, body);
       }
       if (imageLinks && imageLinks.length > 0) {
-        await processImageLinks(imageLinks);
+        body = await processImageLinks(imageLinks, body);
       }
+      const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
+      body = await processDataDirImages(item.title, item.uuid, body, hasExtractedRtf);
       if (footnotes.length > 0) {
         body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
       }
@@ -989,6 +1202,7 @@ export class ScrivenerImportModal extends Modal {
       });
       requireFreePath(app, target.markdownPath);
       await app.vault.create(target.markdownPath, fm + body);
+      report.markdownFilesCreated++;
     };
 
     const writeManuscriptNode = async (item: ScrivxItem, destFolder: TAbstractFile): Promise<TAbstractFile | undefined> => {
@@ -1081,17 +1295,18 @@ export class ScrivenerImportModal extends Modal {
       if (!target.markdownPath) {
         throw new Error(`Plan d'import Scrivener désynchronisé pour le dossier de recherche « ${item.title} » (note prévue par la pré-analyse mais absente du plan).`);
       }
-      const { text, footnotes, extractedImages, imageLinks, docNotes, docSynopsis } =
+      const { text, footnotes, extractedImages, imageLinks, docNotes, docSynopsis, unresolvedLinkCount } =
         deriveNodeNoteContent(materials, item.uuid, binderItemMap);
+      report.unresolvedInternalLinks += unresolvedLinkCount;
       let body = text;
-      const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
-      body = await processDataDirImages(item.title, item.uuid, body, hasExtractedRtf);
       if (extractedImages && extractedImages.length > 0) {
-        await saveExtractedImages(extractedImages);
+        body = await saveExtractedImages(extractedImages, item.uuid, body);
       }
       if (imageLinks && imageLinks.length > 0) {
-        await processImageLinks(imageLinks);
+        body = await processImageLinks(imageLinks, body);
       }
+      const hasExtractedRtf = !!(extractedImages && extractedImages.length > 0);
+      body = await processDataDirImages(item.title, item.uuid, body, hasExtractedRtf);
       if (footnotes.length > 0) {
         body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
       }
@@ -1104,6 +1319,7 @@ export class ScrivenerImportModal extends Modal {
       });
       requireFreePath(app, target.markdownPath);
       await app.vault.create(target.markdownPath, fm + body);
+      report.markdownFilesCreated++;
     };
 
     const writeResearchNode = async (item: ScrivxItem, destFolder: TAbstractFile, structuralTag: string | null): Promise<void> => {
@@ -1134,41 +1350,27 @@ export class ScrivenerImportModal extends Modal {
       let hasExtractedRtf = false;
       let rtfRes: ReturnType<typeof rtfToMarkdown> | null = null;
       if (item.isImage) {
-        const dataImages = fileMap.findAttachedDataImages(item.uuid);
-        if (dataImages.length > 0) {
-          const img = dataImages[0];
-          const extIndex = img.fileName.lastIndexOf(".");
-          const ext = extIndex >= 0 ? img.fileName.slice(extIndex) : "";
-          const base = extIndex >= 0 ? img.fileName.slice(0, extIndex) : img.fileName;
-          const uniqueFileName = (base.toLowerCase() === "content" || base.toLowerCase() === "notes")
-            ? `${item.uuid}${ext}`
-            : img.fileName;
-          const targetPath = normalizePath(`${visuelsFolderPath}/${uniqueFileName}`);
-          if (!app.vault.getAbstractFileByPath(targetPath)) {
-            try {
-              const bytes = await img.readArrayBuffer();
-              if (bytes) await app.vault.createBinary(targetPath, bytes);
-            } catch { /* ignore */ }
-          }
-          text = `![[${uniqueFileName}]]`;
-        }
+        text = await resolveImageNodeEmbed(item.uuid);
       } else {
         const rtfContent = await readRtf(item.uuid);
         const comments = await readComments(item.uuid);
         rtfRes = rtfToMarkdown(rtfContent, comments, binderItemMap, { uuid: item.uuid });
         text = rtfRes.text;
+        report.unresolvedInternalLinks += rtfRes.unresolvedLinkCount || 0;
         if (rtfRes.extractedImages && rtfRes.extractedImages.length > 0) {
           hasExtractedRtf = true;
-          await saveExtractedImages(rtfRes.extractedImages);
+          text = await saveExtractedImages(rtfRes.extractedImages, item.uuid, text);
         }
         if (rtfRes.imageLinks && rtfRes.imageLinks.length > 0) {
-          await processImageLinks(rtfRes.imageLinks);
+          text = await processImageLinks(rtfRes.imageLinks, text);
         }
       }
 
       text = await processDataDirImages(item.title, item.uuid, text, hasExtractedRtf);
 
-      let docNotes = await readNotes(item.uuid);
+      const notesRes = await readNotes(item.uuid);
+      let docNotes = notesRes.text;
+      report.unresolvedInternalLinks += notesRes.unresolvedLinkCount;
       if (rtfRes && rtfRes.extractedComments && rtfRes.extractedComments.length > 0) {
         const commentLines = rtfRes.extractedComments.map((c) =>
           c.word ? t("modal.scrivenerImport.commentOn", { word: c.word, text: c.text }) : c.text
@@ -1187,6 +1389,7 @@ export class ScrivenerImportModal extends Modal {
       });
       requireFreePath(app, path);
       await app.vault.create(path, fm + text);
+      report.markdownFilesCreated++;
     };
 
     /* Même découpage que buildScrivenerImportPlan (classification des
@@ -1270,9 +1473,24 @@ export class ScrivenerImportModal extends Modal {
     await plugin.saveSettings();
     plugin.renderAllViews(true);
     plugin.updateStatusBar();
-    const warning = unreadableCount > 0
-      ? ` ${t("modal.scrivenerImport.unreadableWarning", { count: String(unreadableCount) })}`
-      : "";
-    new Notice(t("modal.scrivenerImport.importSuccess", { path: volumePath }) + warning, warning ? 10000 : 4000);
+
+    /* §21/§22 du chantier S3 : réutilise les compteurs déjà tenus par le
+       moteur, sans refonte — `unreadableCount` (readRtf, inchangé) et le
+       compteur Trash de countImportPreview (§16 du chantier S2), jamais
+       reparcouru une seconde fois. */
+    report.rtfMissingOrUnreadable = unreadableCount;
+    report.trashEntriesSkipped = countImportPreview(parsed).trashEntries;
+    report.unsupportedAssetNames = [...unsupportedAssetNamesSet];
+    report.ambiguousAssetNames = [...ambiguousAssetNamesSet];
+
+    const summary = formatImportSummary(report);
+    const hasWarnings =
+      report.unresolvedInternalLinks > 0 ||
+      report.unresolvedAssets > 0 ||
+      report.ambiguousAssets > 0 ||
+      report.unsupportedAssets > 0 ||
+      report.trashEntriesSkipped > 0 ||
+      report.rtfMissingOrUnreadable > 0;
+    new Notice(summary, hasWarnings ? 10000 : 4000);
   }
 }
