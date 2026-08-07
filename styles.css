@@ -5417,6 +5417,87 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   padding: 0 var(--size-4-3) 10px;
 }
 
+/* FINITION UX — UN SEUL bloc de contrôle sticky (mission §1) : titre +
+   compteur, filtres, actions globales et navigation vivent tous DANS ce
+   conteneur (voir renderResultsPanel) — une seule règle `position: sticky`
+   pour tout le bloc, fond opaque (variable Obsidian) pour qu'aucune carte
+   ne soit jamais visible au travers en défilant dessous. `z-index: 20` :
+   au-dessus des cartes ET de leurs propres survols/ombres, sans avoir à
+   sur-spécifier chaque sous-élément. */
+.feuillets-docx-review-sticky-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--background-primary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: var(--size-4-1);
+}
+
+/* en-tête (titre + compteurs + filtres, mission §1) — même langage que
+   .feuillets-notes-section-title/.feuillets-notes-sub déjà utilisés
+   partout ailleurs dans ce panneau, jamais un style ad hoc. */
+.feuillets-docx-review-panel-header {
+  padding: 0 var(--size-4-3) var(--size-4-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.feuillets-docx-review-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+/* File continue (mission §8) — navigation Précédent/Suivant sur la liste
+   FILTRÉE, jamais un composant séparé du reste du panneau. */
+.feuillets-docx-review-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-3);
+  margin-bottom: var(--size-4-1);
+}
+
+.feuillets-docx-review-nav-counter {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 4em;
+  text-align: center;
+}
+
+.feuillets-docx-review-nav .mod-disabled {
+  opacity: 0.4;
+}
+
+.feuillets-docx-review-queue .feuillets-docx-review-card-wrap.mod-current .feuillets-docx-review-row {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+/* EMPLACEMENT (mission §3) — toujours visible sur la carte, jamais besoin
+   d'ouvrir les détails pour savoir où elle agit. */
+.feuillets-docx-review-location {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  color: var(--text-normal);
+  margin-bottom: 2px;
+}
+
+/* Auteur/date : secondaires (mission — ne dominent plus la carte compacte),
+   même teinte discrète que .feuillets-docx-review-file-date. */
+.feuillets-docx-review-submeta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  margin-bottom: var(--size-4-1);
+}
+
+.feuillets-docx-review-why-block + * {
+  margin-top: var(--size-4-2);
+}
+
 .feuillets-docx-review-group-label {
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
@@ -5494,6 +5575,170 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   margin-top: 2px;
 }
 
+/* Contextes de Container Query pour le panneau Révision DOCX */
+.feuillets-docx-review-panel-header,
+.feuillets-docx-review-queue,
+.feuillets-docx-review-row {
+  container-type: inline-size;
+}
+
+/* 1. Filtres du panneau : les 5 tiennent sur UNE SEULE LIGNE à la largeur
+   d'ouverture normale du panneau (mission CORRECTIF §1) — chaque bouton
+   porte un libellé compact ET un libellé complet (voir renderResultsPanel),
+   cette règle choisit lequel afficher selon la largeur RÉELLE du panneau
+   (container query sur .feuillets-docx-review-panel-header, jamais un
+   texte tronqué par ellipsis : trop long -> illisible). */
+.feuillets-docx-review-filters {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.feuillets-docx-review-filter-btn {
+  flex: 1 1 0px;
+  min-width: 0;
+  padding: 3px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.feuillets-docx-review-filter-btn:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.feuillets-docx-review-filter-btn.mod-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+/* Par défaut (largeur d'ouverture normale du panneau) : libellé compact
+   uniquement ("Corr."/"Dépl."/"Comm." — "Tous"/"À vérifier" sont déjà
+   courts, identiques dans les deux variantes). */
+.feuillets-docx-review-filter-btn .feuillets-docx-review-filter-full {
+  display: none;
+}
+
+/* Panneau élargi : assez de place pour les libellés complets. */
+@container (min-width: 420px) {
+  .feuillets-docx-review-filter-btn .feuillets-docx-review-filter-compact {
+    display: none;
+  }
+  .feuillets-docx-review-filter-btn .feuillets-docx-review-filter-full {
+    display: inline;
+  }
+}
+
+/* Filet de sécurité extrême (panneau très étroit, mobile) : même les
+   libellés compacts passent sur plusieurs lignes plutôt qu'un débordement. */
+@container (max-width: 200px) {
+  .feuillets-docx-review-filters {
+    flex-wrap: wrap;
+  }
+  .feuillets-docx-review-filter-btn {
+    flex: 0 1 auto;
+  }
+}
+
+/* 2/3. Barre d'outils globale et actions de carte : REPLIENT PAR DÉFAUT
+   (jamais nowrap) — garantit l'absence de débordement/scroll horizontal à
+   n'importe quelle largeur, sans jamais avoir à comprimer le texte des
+   boutons (mission CORRECTIF §1 : "ne doivent jamais recommencer à
+   comprimer le texte"). Elles restent SOUS le contenu de la carte, un
+   passage à la ligne y est sans conséquence visuelle. */
+.feuillets-docx-review-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.feuillets-docx-review-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--background-modifier-border);
+  width: 100%;
+}
+
+/* FINITION UX (mission §5/§6) — les actions SECONDAIRES purement iconiques
+   (Voir l'origine/la destination, déplier les passages complets d'un
+   déplacement) restent compactes pour laisser toute la place aux actions
+   PRINCIPALES à texte (Examiner/Accepter/Refuser) — jamais l'inverse : le
+   wrap ci-dessus reste un filet de sécurité, pas le comportement normal à
+   la largeur d'ouverture par défaut. */
+.feuillets-docx-review-card-actions .clickable-icon:not(.feuillets-docx-review-action-btn) {
+  width: 22px;
+  height: 22px;
+  padding: 2px;
+}
+
+.feuillets-docx-review-toolbar .feuillets-docx-review-action-btn,
+.feuillets-docx-review-card-wrap .feuillets-docx-review-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 2px 6px;
+  font-size: 10.5px;
+  font-weight: 500;
+  height: 22px;
+  border-radius: 4px;
+  background-color: var(--interactive-normal);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.feuillets-docx-review-action-btn:hover {
+  background-color: var(--interactive-hover);
+}
+
+.feuillets-docx-review-action-btn.mod-accept {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.feuillets-docx-review-action-btn.mod-accept:hover {
+  background-color: var(--interactive-accent-hover);
+}
+
+.feuillets-docx-review-action-btn.mod-reject {
+  color: var(--text-muted);
+}
+
+.feuillets-docx-review-row .feuillets-research-item-name {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.feuillets-docx-review-location,
+.feuillets-docx-review-preview,
+.feuillets-docx-review-comment-text,
+.feuillets-docx-review-anchor {
+  width: 100%;
+  min-width: 0;
+  word-break: break-word;
+}
+
 .feuillets-docx-review-done-box {
   padding: var(--size-4-5) var(--size-4-4);
   background: var(--background-secondary-alt);
@@ -5546,10 +5791,23 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   line-height: 1.4;
 }
 
+/* FINITION UX (mission §3) — TYPE + badge de confiance/statut sur UNE
+   SEULE ligne à la largeur d'ouverture normale : les libellés de type sont
+   désormais courts ("Remplacement", jamais "Remplacement proposé", voir
+   docxReview.change.*), le badge ne revient donc plus à la ligne. */
 .feuillets-docx-review-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--size-4-1);
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   margin-bottom: var(--size-4-1);
+}
+
+.feuillets-docx-review-meta .feuillets-docx-review-section-badge {
+  margin-left: 0;
+  flex-shrink: 0;
 }
 
 .feuillets-docx-review-preview,
