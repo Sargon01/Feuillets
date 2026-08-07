@@ -3288,3 +3288,130 @@ test("Nettoyage de la définition d'origine après un déplacement de note (Prob
     assert.equal(/\\/.test(modified["F1.md"]), false);
   });
 });
+
+test("LOT 7 Validation — Corpus de régression et trous de couverture", async (t) => {
+  await t.test("Trou 1 : Déplacement multi-paragraphe inter-feuillets", async () => {
+    const files = {
+      "F1.md": "Avant origine.\n\nPremier paragraphe déplacé.\n\nDeuxième paragraphe déplacé.\n\nAprès origine.",
+      "F2.md": "Avant destination.\n\nAprès destination.",
+    };
+    const modified = {};
+    const vault = {
+      read: async (f) => files[f.path],
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; }
+    };
+    const moveChange = {
+      type: "move",
+      moveName: "MoveMulti",
+      fromText: "Premier paragraphe déplacé.\n\nDeuxième paragraphe déplacé.",
+      text: "Premier paragraphe déplacé.\n\nDeuxième paragraphe déplacé.",
+      fromContext: "Avant origine.\n\n",
+      toContext: "Avant destination.\n\n",
+      destinationBoundary: "standalone-paragraph",
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, true);
+    assert.equal(modified["F1.md"], "Avant origine.\n\nAprès origine.");
+    assert.equal(modified["F2.md"], "Avant destination.\n\nPremier paragraphe déplacé.\n\nDeuxième paragraphe déplacé.\n\nAprès destination.");
+  });
+
+  await t.test("Trou 2A : Passage déplacé inter-feuillets avec 2 notes Markdown (exclusives)", async () => {
+    const files = {
+      "F1.md": "Avant.\n\nPassage[^1] contenant aussi une seconde note[^2].\n\nAprès.\n\n[^1]: Première définition.\\\n[^2]: Seconde définition.",
+      "F2.md": "Destination.\n\n",
+    };
+    const modified = {};
+    const vault = {
+      read: async (f) => files[f.path],
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; }
+    };
+    const moveChange = {
+      type: "move",
+      fromText: "Passage[^1] contenant aussi une seconde note[^2].",
+      text: "Passage[^1] contenant aussi une seconde note[^2].",
+      fromContext: "Avant.\n\n",
+      toContext: "Destination.\n\n",
+      footnoteRefs: ["1", "2"],
+      destinationBoundary: "standalone-paragraph",
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, true);
+    assert.equal(modified["F1.md"].includes("[^1]"), false);
+    assert.equal(modified["F1.md"].includes("[^2]"), false);
+    assert.ok(modified["F2.md"].includes("Première définition."));
+    assert.ok(modified["F2.md"].includes("Seconde définition."));
+  });
+
+  await t.test("Trou 2B : Passage déplacé avec 2 notes Markdown dont une encore utilisée à l'origine", async () => {
+    const files = {
+      "F1.md": "Contexte avec note un[^1].\n\nPassage[^1] contenant aussi une seconde note[^2].\n\nAprès.\n\n[^1]: Première définition.\\\n[^2]: Seconde définition.",
+      "F2.md": "Destination.\n\n",
+    };
+    const modified = {};
+    const vault = {
+      read: async (f) => files[f.path],
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; }
+    };
+    const moveChange = {
+      type: "move",
+      fromText: "Passage[^1] contenant aussi une seconde note[^2].",
+      text: "Passage[^1] contenant aussi une seconde note[^2].",
+      fromContext: "Contexte avec note un[^1].\n\n",
+      toContext: "Destination.\n\n",
+      footnoteRefs: ["1", "2"],
+      destinationBoundary: "standalone-paragraph",
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, true);
+    assert.ok(modified["F1.md"].includes("[^1]: Première définition."));
+    assert.equal(modified["F1.md"].includes("[^2]"), false);
+    assert.ok(modified["F2.md"].includes("Première définition."));
+    assert.ok(modified["F2.md"].includes("Seconde définition."));
+  });
+
+  await t.test("Trou 3 : Passage déplacé puis modifié par l'éditeur (sécurité de confiance)", async () => {
+    const fromContent = "Avant. Texte original à déplacer. Après.";
+    const toContent = "Avant destination. Après destination.";
+    const moveChange = {
+      type: "move",
+      moveName: "Move1",
+      fromText: "Texte original à déplacer.",
+      text: "Texte original MODIFIÉ PAR L'ÉDITEUR.",
+      fromContext: "Avant.",
+      toContext: "Avant destination.",
+    };
+
+    const evalRes = evaluateInterFileConfidence(fromContent, toContent, moveChange);
+    assert.notEqual(evalRes.confidence, "safe", "un passage modifié après déplacement ne doit jamais être safe");
+    assert.ok(
+      evalRes.confidence === "review" || evalRes.confidence === "ambiguous",
+      "le statut doit être révision ou ambigu"
+    );
+  });
+
+  await t.test("Trou 4 : Blockquote Markdown (> Un passage cité)", async () => {
+    const files = {
+      "F1.md": "Avant origine.\n\n> Un passage cité à déplacer.\n\nAprès origine.",
+      "F2.md": "Avant destination.\n\nAprès destination.",
+    };
+    const modified = {};
+    const vault = {
+      read: async (f) => files[f.path],
+      modify: async (f, c) => { files[f.path] = c; modified[f.path] = c; }
+    };
+    const moveChange = {
+      type: "move",
+      moveName: "MoveQuote",
+      fromText: "> Un passage cité à déplacer.",
+      text: "> Un passage cité à déplacer.",
+      fromContext: "Avant origine.\n\n",
+      toContext: "Avant destination.\n\n",
+      destinationBoundary: "standalone-paragraph",
+    };
+    const res = await planApplyInterFile(vault, { path: "F1.md" }, { path: "F2.md" }, moveChange);
+    assert.equal(res.ok, true);
+    assert.equal(modified["F1.md"], "Avant origine.\n\nAprès origine.");
+    assert.equal(modified["F2.md"], "Avant destination.\n\n> Un passage cité à déplacer.\n\nAprès destination.");
+    assert.ok(modified["F2.md"].includes("> Un passage cité à déplacer."));
+  });
+});
