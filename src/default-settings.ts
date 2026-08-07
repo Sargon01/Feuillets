@@ -73,7 +73,22 @@ export type DefaultSettings = {
   /* Barre de PreviewView repliée : l'aperçu occupe alors toute la place.
      Purement visuel, mémorisé d'une session à l'autre. */
   previewBarCollapsed: boolean;
-  docxReviewResolved: Record<string, Record<string, { applied: boolean; dismissed: boolean }>>;
+  /* `trace` (LOT 6) — trace structurée minimale d'une décision APPLIQUÉE
+     avec succès (voir docx-review-view.ts#ReviewApplyTrace pour la doc
+     complète) : optionnelle, jamais de contenu de fichier stocké ici,
+     seulement des chemins et l'horodatage déjà produit par snapshotFile.
+     Une entrée ancienne sans `trace` reste valide (rétrocompatible). */
+  docxReviewResolved: Record<string, Record<string, {
+    applied: boolean;
+    dismissed: boolean;
+    trace?: {
+      decidedAt: string;
+      affectedFiles: Array<{ path: string; snapshotStamp?: string }>;
+      fromPath?: string;
+      toPath?: string;
+      footnotes?: { count: number; renamedCount: number };
+    };
+  }>>;
   exportFrenchTypography: boolean;
   pdfPageSize: string;
   pdfOrientation: "portrait" | "landscape";

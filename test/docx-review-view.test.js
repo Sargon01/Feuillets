@@ -10,6 +10,7 @@ const { Notice, Platform, TFile, TFolder } = await import(
 );
 const { DocxReviewView } = await import(modulePath("src/views/docx-review-view.js"));
 const { bookmarkIdFor } = await import(modulePath("src/utils/docx-bookmarks.js"));
+const { DiffModal } = await import(modulePath("src/ui/diff-modal.js"));
 const { default: JSZip } = await import("jszip");
 
 class FakeElement {
@@ -1761,4 +1762,323 @@ test("FINITION UX — les actions principales vivent dans leur conteneur dédié
   assert.equal(buttonsInPreview.length, 0, "aucun bouton d'action dans la zone de contenu principal");
   const buttonsInActions = allElements(actions).filter((el) => el.tag === "button");
   assert.ok(buttonsInActions.length >= 3, "Voir/Accepter/Refuser sont bien dans la zone d'actions dédiée");
+});
+
+/* =========================================================================
+ * LOT 6 — traçabilité des décisions DOCX (réutilise snapshotFile/
+ * listSnapshotFiles/DiffModal existants, aucun nouveau moteur de diff, aucun
+ * nouveau dossier de snapshots — voir docx-review-view.ts#ReviewApplyTrace).
+ * ========================================================================= */
+
+async function flush() {
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+}
+
+test("LOT 6 — application simple crée une trace persistante (fichier + snapshot)", async () => {
+  const scene = file("Projet/Scene.md", "Avant. Cible.");
+  const content = { [scene.path]: scene.content };
+  const { view, plugin } = createView({ files: [scene], content });
+  view.docxName = "retours.docx";
+  plugin.snapshotFile = async () => "2024-01-01 10h00m00s";
+
+  const change = { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout." };
+  const container = new FakeElement();
+  view.renderChange(container, scene, change);
+  const applyBtn = allElements(container).find((el) => el.icon === "check");
+  assert.ok(applyBtn, "bouton Appliquer présent");
+  applyBtn.events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  const saved = plugin.settings.docxReviewResolved["retours.docx"];
+  assert.ok(saved, "une entrée a été mémorisée");
+  const key = Object.keys(saved)[0];
+  const trace = saved[key].trace;
+  assert.ok(trace, "une trace a été enregistrée");
+  assert.equal(Number.isNaN(new Date(trace.decidedAt).getTime()), false, "decidedAt est une date valide");
+  assert.deepEqual(trace.affectedFiles, [{ path: scene.path, snapshotStamp: "2024-01-01 10h00m00s" }]);
+  assert.equal(trace.fromPath, undefined);
+  assert.equal(trace.toPath, undefined);
+});
+
+test("LOT 6 — réouverture du même DOCX : la trace mémorisée est relue depuis les settings", async () => {
+  const scene = file("Projet/Scene.md", "Avant. Cible.");
+  const content = { [scene.path]: scene.content };
+  const { view: view1, plugin } = createView({ files: [scene], content });
+  view1.docxName = "retours.docx";
+  plugin.snapshotFile = async () => "2024-02-02 11h00m00s";
+
+  const change = { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout." };
+  const container1 = new FakeElement();
+  view1.renderChange(container1, scene, change);
+  allElements(container1).find((el) => el.icon === "check").events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  // Nouvelle "session" : une seconde vue, MÊME plugin.settings (persistance
+  // Obsidian réelle) — jamais un second système de vérité.
+  const view2 = new (view1.constructor)({ app: view1.app, contentEl: new FakeElement() }, plugin);
+  view2.docxName = "retours.docx";
+  const reopenedChange = { ...change, applied: true, dismissed: true };
+  const container2 = new FakeElement();
+  view2.renderChange(container2, scene, reopenedChange);
+  const traceLines = allElements(container2).filter((el) => el.classes.has("feuillets-docx-review-trace-line")).map((el) => el.text);
+  assert.ok(traceLines.some((t) => t.includes("Appliqué le")), "la date d'application est relue depuis les settings");
+  assert.ok(allElements(container2).some((el) => el.icon === "git-compare"), "le bouton Comparer est proposé à la réouverture");
+});
+
+test("LOT 6 — ancienne entrée {applied,dismissed} sans trace : aucun crash, carte toujours utilisable", async () => {
+  const scene = file("Projet/Scene.md", "Avant. Cible.");
+  const { view, plugin } = createView({ files: [scene] });
+  view.docxName = "ancien.docx";
+  const change = { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout.", applied: true, dismissed: true };
+  // Entrée legacy strictement {applied, dismissed} — écrite directement,
+  // sans passer par saveItemState (simule un settings.json antérieur à ce lot).
+  plugin.settings.docxReviewResolved = { "ancien.docx": {} };
+  // getItemKey n'est pas exporté : on réutilise saveItemState UNE FOIS pour
+  // obtenir la même clé, puis on écrase l'entrée pour retirer `trace`.
+  await view.saveItemState(change);
+  const savedKey = Object.keys(plugin.settings.docxReviewResolved["ancien.docx"])[0];
+  plugin.settings.docxReviewResolved["ancien.docx"][savedKey] = { applied: true, dismissed: true };
+
+  const container = new FakeElement();
+  assert.doesNotThrow(() => view.renderChange(container, scene, change));
+  const traceLine = allElements(container).find((el) => el.classes.has("feuillets-docx-review-trace-line") && el.text.includes("Point de retour"));
+  assert.ok(traceLine, "une ancienne entrée sans trace affiche quand même le point de retour générique");
+});
+
+test("LOT 6 — déplacement inter-feuillets : deux fichiers + deux snapshots dans la trace", async () => {
+  const origin = file("Projet/Origine.md", "Début. Passage à couper. Fin.");
+  const dest = file("Projet/Destination.md", "Avant. Après.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, plugin } = createView({ files: [origin, dest], content, withWorkspace: true });
+  view.docxName = "retours.docx";
+  plugin.snapshotFile = async (f) => (f.path === origin.path ? "stamp-origine" : "stamp-destination");
+
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Début. ", fromText: "Passage à couper.",
+    toContext: "Avant. ", text: "Passage à couper.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  allElements(container).find((el) => el.icon === "check").events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  const saved = plugin.settings.docxReviewResolved["retours.docx"];
+  const trace = Object.values(saved)[0].trace;
+  assert.equal(trace.fromPath, origin.path);
+  assert.equal(trace.toPath, dest.path);
+  assert.deepEqual(
+    new Set(trace.affectedFiles.map((a) => a.path)),
+    new Set([origin.path, dest.path])
+  );
+  const stampByPath = Object.fromEntries(trace.affectedFiles.map((a) => [a.path, a.snapshotStamp]));
+  assert.equal(stampByPath[origin.path], "stamp-origine");
+  assert.equal(stampByPath[dest.path], "stamp-destination");
+});
+
+test("LOT 6 — déplacement avec note : le nombre de notes transférées est remonté dans la trace", async () => {
+  const origin = file("Projet/Origine.md", "Début. Il partit[^1] à l'aube. Fin.\n\n[^1]: Vers l'inconnu.");
+  const dest = file("Projet/Destination.md", "Avant. Après.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, plugin } = createView({ files: [origin, dest], content, withWorkspace: true });
+  view.docxName = "retours.docx";
+  plugin.snapshotFile = async () => "stamp";
+
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Début. ", fromText: "Il partit[^1] à l'aube.",
+    toContext: "Avant. ", text: "Il partit[^1] à l'aube.",
+    footnoteRefs: ["1"],
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  allElements(container).find((el) => el.icon === "check").events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  const trace = Object.values(plugin.settings.docxReviewResolved["retours.docx"])[0].trace;
+  assert.deepEqual(trace.footnotes, { count: 1, renamedCount: 0 });
+});
+
+test("LOT 6 — collision de label de note : renamedCount remonté dans la trace", async () => {
+  const origin = file("Projet/Origine.md", "Début. Il partit[^1] à l'aube. Fin.\n\n[^1]: Vers l'inconnu.");
+  const dest = file("Projet/Destination.md", "Texte existant[^1] ici. Autre.\n\n[^1]: Une note déjà là.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, plugin } = createView({ files: [origin, dest], content, withWorkspace: true });
+  view.docxName = "retours.docx";
+  plugin.snapshotFile = async () => "stamp";
+
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Début. ", fromText: "Il partit[^1] à l'aube.",
+    toContext: "Autre.", text: "Il partit[^1] à l'aube.",
+    footnoteRefs: ["1"],
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  allElements(container).find((el) => el.icon === "check").events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  const trace = Object.values(plugin.settings.docxReviewResolved["retours.docx"])[0].trace;
+  assert.equal(trace.footnotes.count, 1);
+  assert.equal(trace.footnotes.renamedCount, 1);
+});
+
+test("LOT 6 — échec d'application (passage introuvable) : aucune trace de succès créée", async () => {
+  const scene = file("Projet/Scene.md", "Contenu totalement différent.");
+  const content = { [scene.path]: scene.content };
+  const { view, plugin, writes } = createView({ files: [scene], content });
+  view.docxName = "retours.docx";
+
+  const change = { type: "insertion", author: "A", date: "D", contextBefore: "Introuvable.", text: " Ajout." };
+  const container = new FakeElement();
+  view.renderChange(container, scene, change);
+  allElements(container).find((el) => el.icon === "check").events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  assert.equal(writes.length, 0, "aucune écriture");
+  assert.equal(change.applied, undefined, "jamais marqué appliqué");
+  const saved = plugin.settings.docxReviewResolved?.["retours.docx"];
+  assert.ok(!saved || Object.keys(saved).length === 0, "aucune entrée mémorisée en cas d'échec");
+});
+
+test("LOT 6 — refus : aucune modification du Markdown, décision mémorisée (date, sans snapshot)", async () => {
+  const scene = file("Projet/Scene.md", "Avant. Cible.");
+  const content = { [scene.path]: scene.content };
+  const { view, plugin, writes } = createView({ files: [scene], content });
+  view.docxName = "retours.docx";
+
+  const change = { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout." };
+  const container = new FakeElement();
+  view.renderChange(container, scene, change);
+  const dismissBtn = allElements(container).find((el) => el.icon === "x");
+  assert.ok(dismissBtn, "bouton Refuser présent");
+  dismissBtn.events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  assert.equal(writes.length, 0, "un refus ne modifie jamais le Markdown");
+  const trace = Object.values(plugin.settings.docxReviewResolved["retours.docx"])[0].trace;
+  assert.ok(trace, "la décision de refus est mémorisée");
+  assert.equal(Number.isNaN(new Date(trace.decidedAt).getTime()), false);
+  assert.deepEqual(trace.affectedFiles, [], "aucun snapshot pour un refus");
+});
+
+test("LOT 6 — commentaire traité : décision mémorisée, aucune restauration proposée", async () => {
+  const scene = file("Projet/Scene.md", "Un passage annoté.");
+  const { view, plugin } = createView({ files: [scene] });
+  view.docxName = "retours.docx";
+
+  const comment = { anchorText: "annoté", text: "Vérifie ce passage.", author: "A", date: "D" };
+  const container = new FakeElement();
+  view.renderComment(container, scene, comment);
+  const dismissBtn = allElements(container).find((el) => el.icon === "check-circle");
+  assert.ok(dismissBtn, "bouton Marquer comme traité présent");
+  dismissBtn.events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  const trace = Object.values(plugin.settings.docxReviewResolved["retours.docx"])[0].trace;
+  assert.ok(trace, "la décision est mémorisée");
+  assert.deepEqual(trace.affectedFiles, []);
+
+  // Re-rendu de la carte traitée : "Traité le <date>", jamais de bouton de
+  // restauration DOCX (git-compare) pour un commentaire.
+  const container2 = new FakeElement();
+  view.renderComment(container2, scene, { ...comment, dismissed: true });
+  const traceLines = allElements(container2).filter((el) => el.classes.has("feuillets-docx-review-trace-line")).map((el) => el.text);
+  assert.ok(traceLines.some((t) => t.includes("Traité le")));
+  assert.equal(allElements(container2).some((el) => el.icon === "git-compare"), false, "aucune restauration proposée pour un commentaire");
+});
+
+test("LOT 6 — Comparer (cas simple) ouvre DiffModal sur le snapshot mémorisé, restauration autorisée", async () => {
+  const root = new TFolder("Projet");
+  const scene = file("Projet/Scene.md", "Avant. Cible.");
+  const snapFolder = new TFolder("Projet/Snapshots/Scene");
+  const snap = file("Projet/Snapshots/Scene/2024-03-03 09h00m00s.md", "Avant.");
+  snapFolder.children = [snap];
+  const content = { [scene.path]: scene.content };
+  const { view, plugin } = createView({ files: [scene, snapFolder, snap], content, root });
+  view.docxName = "retours.docx";
+  plugin.snapshotFile = async () => "2024-03-03 09h00m00s";
+
+  const change = { type: "insertion", author: "A", date: "D", contextBefore: "Cible.", text: " Ajout." };
+  const container = new FakeElement();
+  view.renderChange(container, scene, change);
+  allElements(container).find((el) => el.icon === "check").events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  const container2 = new FakeElement();
+  view.renderChange(container2, scene, { ...change, applied: true, dismissed: true });
+  const compareBtn = allElements(container2).find((el) => el.icon === "git-compare");
+  assert.ok(compareBtn, "bouton Comparer présent");
+
+  const originalOpen = DiffModal.prototype.open;
+  let captured = null;
+  DiffModal.prototype.open = function () { captured = this; };
+  try {
+    compareBtn.events.get("click")({ stopPropagation() {} });
+  } finally {
+    DiffModal.prototype.open = originalOpen;
+  }
+
+  assert.ok(captured, "DiffModal a bien été ouvert");
+  assert.equal(captured.currentFile, scene);
+  assert.equal(captured.allowRestore, true, "restauration autorisée pour une correction simple");
+  assert.equal(captured.initialSnapshot, snap, "le VRAI snapshot mémorisé est retrouvé via listSnapshotFiles");
+});
+
+test("LOT 6 — déplacement inter-feuillets : aucune restauration directe proposée depuis la carte", async () => {
+  const root = new TFolder("Projet");
+  const origin = file("Projet/Origine.md", "Début. Passage à couper. Fin.");
+  const dest = file("Projet/Destination.md", "Avant. Après.");
+  const content = { [origin.path]: origin.content, [dest.path]: dest.content };
+  const { view, plugin } = createView({ files: [origin, dest], content, root, withWorkspace: true });
+  view.docxName = "retours.docx";
+  plugin.snapshotFile = async () => "stamp";
+
+  const change = {
+    type: "move", author: "A", date: "D",
+    fromPath: origin.path, toPath: dest.path,
+    fromContext: "Début. ", fromText: "Passage à couper.",
+    toContext: "Avant. ", text: "Passage à couper.",
+  };
+  const container = new FakeElement();
+  view.renderChange(container, dest, change);
+  allElements(container).find((el) => el.icon === "check").events.get("click")({ stopPropagation() {} });
+  await flush();
+
+  const container2 = new FakeElement();
+  view.renderChange(container2, dest, { ...change, applied: true, dismissed: true });
+  const compareBtns = allElements(container2).filter((el) => el.icon === "git-compare");
+  assert.equal(compareBtns.length, 2, "Comparer l'origine ET Comparer la destination, jamais un bouton de restauration direct");
+
+  const originalOpen = DiffModal.prototype.open;
+  let captured = null;
+  DiffModal.prototype.open = function () { captured = this; };
+  try {
+    compareBtns[0].events.get("click")({ stopPropagation() {} });
+  } finally {
+    DiffModal.prototype.open = originalOpen;
+  }
+  assert.ok(captured);
+  assert.equal(captured.allowRestore, false, "jamais de restauration directe pour un déplacement inter-feuillets");
+});
+
+test("LOT 6 — état auto-détecté déjà appliqué SANS état enregistré : aucune trace inventée, aucune restauration proposée", async () => {
+  const scene = file("Projet/Scene.md", "Avant. Cible Ajout.");
+  const { view, plugin } = createView({ files: [scene] });
+  view.docxName = "retours.docx";
+  // Aucune entrée dans docxReviewResolved : `applied` posé directement sur
+  // l'objet (comme le ferait analyzeBuffer#processItem en détection auto).
+  const change = { type: "insertion", author: "A", date: "D", contextBefore: "Cible", text: " Ajout.", applied: true, dismissed: true };
+
+  const container = new FakeElement();
+  view.renderChange(container, scene, change);
+  const traceLines = allElements(container).filter((el) => el.classes.has("feuillets-docx-review-trace-line")).map((el) => el.text);
+  assert.ok(traceLines.some((t) => t.includes("Déjà présent")), "signale l'état auto-détecté, sans date inventée");
+  assert.equal(allElements(container).some((el) => el.icon === "git-compare"), false, "aucune comparaison proposée sans point de retour connu");
+  assert.equal(plugin.settings.docxReviewResolved, undefined, "aucune trace n'a été écrite dans les settings");
 });
