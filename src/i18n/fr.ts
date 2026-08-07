@@ -1438,6 +1438,7 @@ export const fr = {
   "modal.scrivenerImport.importSuccess": "Import Scrivener réussi : {path}.",
   "modal.scrivenerImport.legacyFormat": "Ce projet utilise l'ancien format Scrivener 1.x (Mac), non pris en charge. Ouvre-le dans Scrivener 3 pour le convertir, puis réessaie.",
   "modal.scrivenerImport.noScrivxFound": "Aucun fichier .scrivx trouvé dans ce dossier.",
+  "modal.scrivenerImport.pathTaken": "Le coffre a changé pendant l'import : « {path} » est désormais occupé. Import interrompu pour ne pas fausser les liens internes déjà résolus.",
 
   "modal.export.title": "Exporter / Compiler",
   "modal.export.format": "Format d'export",

@@ -42,6 +42,11 @@ type RtfResult = {
   extractedImages?: ExtractedImage[];
   extractedComments?: ExtractedComment[];
   imageLinks?: ScrImageLink[];
+  /** Nombre de scrivlink://UUID rencontrés dont l'UUID est absent du plan
+   * d'import (référence vers la Corbeille, ou UUID orphelin) — compté pour
+   * un futur rapport d'import (§5/§10 du chantier S1) plutôt que
+   * silencieusement ignoré. Jamais un lien inventé à la place. */
+  unresolvedLinkCount?: number;
 };
 
 type NodeFs = {
@@ -332,17 +337,222 @@ export function parseScrivx(xmlContent: string): ParsedScrivx {
   return { projectTitle, draft, research, trash, others };
 }
 
-export function buildUuidTitleMap(parsed: ParsedScrivx): Map<string, string> {
-  const map = new Map<string, string>();
-  const walk = (item: ScrivenerNode) => {
-    if (item.uuid && item.title) map.set(item.uuid, item.title);
-    for (const c of item.children) walk(c);
+// ============================ Plan d'import (chemins + collisions) =========
+
+/** Nom de fichier/dossier sûr pour un titre Scrivener — mêmes caractères
+ * interdits que le système de fichiers (\ / : * ? " < > |), même repli sur
+ * "Sans-titre" que par le passé. Seule source de vérité pour la
+ * sanitization : utilisée à la fois par le plan d'import (chemins finaux
+ * et résolution de collision, ci-dessous) et par l'écriture
+ * (scrivener-import-modal.ts) — jamais une seconde logique de calcul de
+ * nom (voir §6 du chantier S1 : un seul moteur pour les chemins). */
+export function sanitizeScrivenerTitle(title: string | null | undefined): string {
+  const cleaned = (title || "").replace(/[\\/:*?"<>|]/g, "").trim();
+  return cleaned || t("modal.scrivenerImport.untitled");
+}
+
+/** Résout une collision de chemin de façon déterministe, par simple
+ * réservation en mémoire (`used`) — jamais par une requête au coffre : le
+ * plan doit pouvoir se calculer entièrement hors ligne, avant la moindre
+ * écriture, pour que les liens internes et l'écriture des fichiers
+ * utilisent exactement le même résultat (voir buildScrivenerImportPlan).
+ * Même algorithme que l'ancien `unusedPath` de la modale (dernier "." du
+ * chemin = séparateur d'extension, suffixe "-2", "-3"…) : pas de
+ * changement de convention de nommage sans nécessité. */
+export function allocateImportPath(used: Set<string>, basePath: string): string {
+  if (!used.has(basePath)) {
+    used.add(basePath);
+    return basePath;
+  }
+  const dot = basePath.lastIndexOf(".");
+  const stem = dot > 0 ? basePath.slice(0, dot) : basePath;
+  const ext = dot > 0 ? basePath.slice(dot) : "";
+  let i = 2;
+  let candidate = "";
+  do {
+    candidate = `${stem}-${i}${ext}`;
+    i++;
+  } while (used.has(candidate));
+  used.add(candidate);
+  return candidate;
+}
+
+function joinImportPath(...parts: string[]): string {
+  return parts.filter(Boolean).join("/");
+}
+
+export type ScrivenerImportTargetKind =
+  | "manuscriptScene"
+  | "manuscriptFolder"
+  | "manuscriptContainer"
+  | "researchFolder"
+  | "researchEntry";
+
+/** Une entrée du plan = un nœud Scrivener (identifié par son UUID) et sa
+ * destination FINALE dans le coffre, déjà résolue (collisions comprises).
+ * `markdownPath` est le fichier .md qui représente réellement ce nœud pour
+ * les liens internes (scrivlink://UUID, voir rtfToMarkdown) ; `folderPath`
+ * le dossier qu'il crée, le cas échéant. Un nœud peut avoir les deux
+ * (dossier avec sa propre note, Text avec enfants) ou un seul des deux
+ * (scène simple ; dossier de recherche sans note propre — voir §12 du
+ * chantier S1, hors périmètre). */
+export type ScrivenerImportTarget = {
+  uuid: string;
+  sourceTitle: string;
+  kind: ScrivenerImportTargetKind;
+  markdownPath?: string;
+  folderPath?: string;
+};
+
+export type ScrivenerImportPlan = {
+  /** Une entrée par nœud visité, dans l'ORDRE EXACT du parcours en
+   * profondeur du binder — l'écriture consomme cette liste dans le même
+   * ordre (curseur séquentiel), jamais par re-calcul ni par re-recherche
+   * du titre : une seule source de vérité pour la correspondance nœud ->
+   * chemin (voir scrivener-import-modal.ts). */
+  targets: ScrivenerImportTarget[];
+  /** UUID Scrivener -> chemin Markdown final, pour la conversion des liens
+   * scrivlink://UUID (rtfToMarkdown). Contient UNIQUEMENT des cibles .md
+   * réellement prévues par le plan (markdownPath) — jamais un simple
+   * folderPath : un wikilien Obsidian doit pointer vers une note, pas vers
+   * un TFolder. Un nœud sans note propre (dossier de recherche, voir §12
+   * du chantier S1) n'a donc AUCUNE entrée ici — son UUID est traité comme
+   * non résolu par rtfToMarkdown (texte visible conservé, jamais de faux
+   * lien). Voir le correctif S1 « liens vers dossiers sans note ». */
+  uuidToPath: Map<string, string>;
+};
+
+export type ScrivenerImportPlanOptions = {
+  manuscritPath: string;
+  researchRootPath?: string | null;
+  mode: keyof typeof PROJECT_MODES;
+  unclassifiedFolderLabel: string;
+  /** UUID des nœuds Folder du manuscrit dont l'import va RÉELLEMENT créer
+   * une note de dossier — décidé par une pré-analyse en lecture seule du
+   * contenu Scrivener (RTF du dossier, synopsis, label, statut, notes,
+   * commentaires, mots-clés, images jointes — voir scrivener-import-modal.ts),
+   * PAS par cette fonction (qui reste pure et ne lit aucun fichier). Un
+   * Folder absent de cet ensemble reçoit toujours son `folderPath` (le
+   * dossier est créé dans tous les cas) mais AUCUN `markdownPath` : jamais
+   * de note fabriquée ici pour un dossier qui restera vide — voir le
+   * correctif S1 « plan et note de dossier manuscrit ». Omis ou vide =
+   * aucun Folder du manuscrit n'a de note (comportement le plus prudent). */
+  manuscriptFolderNoteUuids?: Set<string>;
+};
+
+/** Construit le plan de destination COMPLET avant la moindre écriture —
+ * voir §3 du chantier S1 (« fiabiliser la structure et les liens
+ * internes »). Fonction PURE : ne touche jamais au disque/coffre, ne lit
+ * aucun contenu RTF — seulement la structure `ParsedScrivx` déjà analysée
+ * (titres, hiérarchie, type de nœud). Les collisions de titres (même nom,
+ * même dossier parent) sont résolues ici, une fois pour toutes, dans
+ * l'ordre du binder Scrivener — jamais au hasard au moment de
+ * app.vault.create() (voir §3 et §7). */
+export function buildScrivenerImportPlan(
+  parsed: ParsedScrivx,
+  opts: ScrivenerImportPlanOptions
+): ScrivenerImportPlan {
+  const used = new Set<string>();
+  const namedFolders = new Map<string, string>();
+  const targets: ScrivenerImportTarget[] = [];
+
+  // Dossier "connu" (Personnages, Lieux, Non classé…) : réutilisé tel quel
+  // à chaque référence, jamais dédoublonné — même principe que
+  // plugin.ensureFolder (idempotent), pas une collision de titre réelle.
+  const reusableFolder = (name: string): string => {
+    const existing = namedFolders.get(name);
+    if (existing) return existing;
+    const path = joinImportPath(opts.researchRootPath || "", name);
+    used.add(path);
+    namedFolders.set(name, path);
+    return path;
   };
-  if (parsed.draft) walk(parsed.draft);
-  if (parsed.research) walk(parsed.research);
-  if (parsed.trash) walk(parsed.trash);
-  for (const o of parsed.others) walk(o);
-  return map;
+
+  const planManuscriptNode = (item: ScrivenerNode, destPath: string): void => {
+    const safe = sanitizeScrivenerTitle(item.title);
+    if (item.isFolder) {
+      const folderPath = allocateImportPath(used, joinImportPath(destPath, safe));
+      const willHaveNote = opts.manuscriptFolderNoteUuids?.has(item.uuid) ?? false;
+      // Le nom de la note n'est réservé dans `used` QUE si elle sera
+      // réellement créée : sinon un enfant portant le même titre que le
+      // dossier (ex. un Text "Partie 1" sous le dossier "Partie 1") se
+      // ferait renommer en "-2" pour éviter une collision avec une note
+      // qui ne verra jamais le jour — une fausse collision, jamais voulue.
+      let notePath: string | undefined;
+      if (willHaveNote) {
+        const folderName = folderPath.slice(folderPath.lastIndexOf("/") + 1);
+        notePath = allocateImportPath(used, joinImportPath(folderPath, `${folderName}.md`));
+      }
+      targets.push({
+        uuid: item.uuid,
+        sourceTitle: item.title,
+        kind: "manuscriptFolder",
+        folderPath,
+        ...(notePath ? { markdownPath: notePath } : {}),
+      });
+      for (const child of item.children) planManuscriptNode(child, folderPath);
+      return;
+    }
+    if (item.children.length > 0) {
+      const folderPath = allocateImportPath(used, joinImportPath(destPath, safe));
+      const folderName = folderPath.slice(folderPath.lastIndexOf("/") + 1);
+      const filePath = allocateImportPath(used, joinImportPath(folderPath, `00-${folderName}.md`));
+      targets.push({ uuid: item.uuid, sourceTitle: item.title, kind: "manuscriptContainer", folderPath, markdownPath: filePath });
+      for (const child of item.children) planManuscriptNode(child, folderPath);
+      return;
+    }
+    const filePath = allocateImportPath(used, joinImportPath(destPath, `${safe}.md`));
+    targets.push({ uuid: item.uuid, sourceTitle: item.title, kind: "manuscriptScene", markdownPath: filePath });
+  };
+
+  if (parsed.draft) {
+    for (const child of parsed.draft.children) planManuscriptNode(child, opts.manuscritPath);
+  }
+
+  const planResearchNode = (item: ScrivenerNode, destPath: string): void => {
+    const safe = sanitizeScrivenerTitle(item.title);
+    if (item.isFolder) {
+      const folderPath = allocateImportPath(used, joinImportPath(destPath, safe));
+      targets.push({ uuid: item.uuid, sourceTitle: item.title, kind: "researchFolder", folderPath });
+      for (const child of item.children) planResearchNode(child, folderPath);
+      return;
+    }
+    const filePath = allocateImportPath(used, joinImportPath(destPath, `${safe}.md`));
+    targets.push({ uuid: item.uuid, sourceTitle: item.title, kind: "researchEntry", markdownPath: filePath });
+  };
+
+  if (opts.researchRootPath) {
+    const researchFolders = PROJECT_MODES[opts.mode].researchFolders as Record<string, { label: string; tag: string }>;
+    if (parsed.research) {
+      for (const child of parsed.research.children) {
+        const key = child.isFolder ? classifyResearchFolder(child.title) : null;
+        const folderDef = key ? researchFolders[key] : null;
+        if (folderDef) {
+          const targetFolder = reusableFolder(folderDef.label);
+          for (const grandchild of child.children) planResearchNode(grandchild, targetFolder);
+        } else {
+          const fallback = reusableFolder(opts.unclassifiedFolderLabel);
+          planResearchNode(child, fallback);
+        }
+      }
+    }
+    for (const other of parsed.others) {
+      const fallback = reusableFolder(opts.unclassifiedFolderLabel);
+      planResearchNode(other, fallback);
+    }
+  }
+
+  const uuidToPath = new Map<string, string>();
+  for (const target of targets) {
+    /* Jamais de repli sur folderPath : un wikilien doit pointer vers une
+       note .md réellement prévue, jamais vers un simple TFolder (voir
+       le commentaire de ScrivenerImportPlan.uuidToPath ci-dessus). */
+    if (target.uuid && target.markdownPath && !uuidToPath.has(target.uuid)) {
+      uuidToPath.set(target.uuid, target.markdownPath);
+    }
+  }
+
+  return { targets, uuidToPath };
 }
 
 // ========================= Extractions des liens d'images ====================
@@ -598,6 +808,7 @@ export function rtfToMarkdown(
   const footnotes: string[] = [];
   const extractedImages: ExtractedImage[] = [];
   const extractedComments: ExtractedComment[] = [];
+  let unresolvedLinks = 0;
 
   function convert(src: string, collectFootnotes: boolean) {
     const len = src.length;
@@ -812,15 +1023,26 @@ export function rtfToMarkdown(
 
           if (linkMatch) {
             const targetUuid = linkMatch[1];
-            const targetTitle = binderItemMap ? binderItemMap.get(targetUuid) : null;
-            if (targetTitle) {
-              if (cleanText && cleanText !== targetTitle.trim()) {
-                emit(`[[${targetTitle.trim()}|${cleanText}]]`);
+            const targetPath = binderItemMap ? binderItemMap.get(targetUuid) : null;
+            if (targetPath) {
+              /* `binderItemMap` porte désormais le CHEMIN MARKDOWN FINAL
+                 planifié (voir buildScrivenerImportPlan), pas un titre
+                 approximatif — l'extension ".md" est retirée pour rester
+                 un wikilien Obsidian idiomatique ([[dossier/Cible]]). */
+              const linkTarget = targetPath.endsWith(".md") ? targetPath.slice(0, -3) : targetPath;
+              if (cleanText && cleanText !== linkTarget) {
+                emit(`[[${linkTarget}|${cleanText}]]`);
               } else {
-                emit(`[[${targetTitle.trim()}]]`);
+                emit(`[[${linkTarget}]]`);
               }
-            } else if (cleanText) {
-              emit(`[[${cleanText}]]`);
+            } else {
+              /* UUID absent du plan (référence vers la Corbeille, ou UUID
+                 orphelin) : jamais un lien inventé à partir du texte
+                 affiché (risque réel de pointer vers un tout autre
+                 document du coffre qui porterait ce titre par coïncidence)
+                 — on garde le texte visible tel quel, en texte simple. */
+              unresolvedLinks++;
+              if (cleanText) emit(cleanText);
             }
           } else if (commentMatch) {
             const commentUuid = commentMatch[1];
@@ -1037,6 +1259,9 @@ export function rtfToMarkdown(
   }
   if (imageLinks.length > 0) {
     res.imageLinks = imageLinks;
+  }
+  if (unresolvedLinks > 0) {
+    res.unresolvedLinkCount = unresolvedLinks;
   }
   return res;
 }
