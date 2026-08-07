@@ -89,7 +89,7 @@ export const en = {
   "binder.research.linkModalPlaceholder": "Search for a folder…",
   "binder.research.linkFolderNotFound": "This path doesn't match any folder in the vault.",
   "binder.research.folderLinked": "Research folder “{name}” linked.",
-  "binder.research.linkFolderOutside": "This folder does not belong to the project's Research space.",
+  "binder.research.linkFolderAmbiguous": "Several folders match this text: pick one from the suggestion list.",
   "binder.research.folderDetached": "Research folder detached (the physical folder is intact).",
 
   "binder.projectManager.title": "Manage projects",
@@ -1369,6 +1369,11 @@ export const en = {
   "modal.openFolder.noFolderChosen": "Pick a folder.",
   "modal.openFolder.notAFolder": "This path doesn't match any folder in the vault.",
   "modal.openFolder.opened": "Project activated: {path}",
+
+  "modal.transformProject.title": "Turn into a Feuillets project",
+  "modal.transformProject.desc": "Pick a document type: Feuillets will create the matching Research subfolders in this folder, without moving or changing your existing files.",
+  "modal.transformProject.ready": "“{name}” is now a Feuillets project.",
+  "modal.transformProject.transform": "Transform",
 
   "modal.manageProjects.title": "Manage projects",
   "modal.manageProjects.createDemoTooltip": "Create a demo project…",
