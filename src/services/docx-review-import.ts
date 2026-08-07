@@ -64,6 +64,7 @@ type ChangeMetadata = {
    * plus faible qu'un rattachement par signet : "à vérifier", jamais
    * "sûr". */
   relocatedOrphan?: boolean;
+  revisionRefs?: RevisionRef[];
 };
 
 /** Classement du point d'insertion d'une destination (voir
@@ -152,9 +153,9 @@ type MoveChange = ChangeMetadata & {
   destFootnoteIds?: string[];
 };
 
-type ReviewChange = InsertionChange | DeletionChange | ReplacementChange | MoveChange;
+export type ReviewChange = InsertionChange | DeletionChange | ReplacementChange | MoveChange;
 
-type ReviewComment = {
+export type ReviewComment = {
   anchorText: string;
   text: string;
   author: string;
@@ -183,6 +184,7 @@ type ReviewComment = {
    * conservé ici uniquement pour que resolveOrphans (générique sur
    * ReviewChange | ReviewComment) reste type-safe des deux côtés. */
   relocatedOrphan?: boolean;
+  commentId?: string;
 };
 
 type ReviewBucket = {
@@ -205,11 +207,13 @@ type ParsedComment = {
   text: string;
   done?: boolean;
   parentId?: string;
+  commentId?: string;
 };
 
 type CommentsById = Record<string, ParsedComment>;
 
 type TrackedChangeInfo = {
+  id?: string;
   author: string;
   date: string;
   buffer: string;
@@ -316,6 +320,14 @@ export type ReviewConfidenceEvaluation = {
   confidenceReasons: ReviewConfidenceReason[];
 };
 
+export type ReviewSourcePart = "word/document.xml" | "word/footnotes.xml";
+
+export type RevisionRef = {
+  part: ReviewSourcePart;
+  id: string;
+  kind: "ins" | "del" | "moveFrom" | "moveTo";
+};
+
 type ReviewVaultFile = { path: string };
 
 type ReviewVault = {
@@ -400,6 +412,7 @@ export function parseCommentsXml(
       author: getAttr(attrs, "w:author") || "Inconnu",
       date: getAttr(attrs, "w:date") || "",
       text: paragraphs.filter(Boolean).join("\n").trim(),
+      commentId: id,
     };
     for (const pid of paraIds) paraIdToId[pid] = id;
     collected.push({ id, paraIds });
@@ -832,6 +845,7 @@ export function parseDocumentXml(
        destination — silencieusement absent plutôt que mal étiqueté. */
     if ((t.name === "w:ins" || t.name === "w:moveTo") && !t.isClose && !t.selfClosing) {
       insInfo = {
+        id: getAttr(t.attrs, "w:id"),
         author: getAttr(t.attrs, "w:author") || "Inconnu",
         date: getAttr(t.attrs, "w:date") || "",
         buffer: "",
@@ -844,23 +858,7 @@ export function parseDocumentXml(
       continue;
     }
     if ((t.name === "w:ins" || t.name === "w:moveTo") && t.isClose) {
-      /* .buffer non vide, jamais .trim() : un ajout/suppression d'un SEUL
-         espace (fréquent quand Word découpe "mot A" -> "mot B" en
-         plusieurs runs, voir la structure réelle trouvée sur un vrai
-         retour : del(" ")+ins(" montagnes")+del("steppes")) doit rester
-         visible ICI pour que la fusion adjacente (mergeAdjacentReplacements)
-         le voie et l'intègre correctement — le filtrer ici aurait cassé
-         la chaîne et laissé un ancien espace orphelin, menant à une
-         reconstruction à double espace. Le filtre "que du blanc, jamais
-         fusionné" intervient PLUS TARD, après la fusion (voir
-         dropStandaloneWhitespace) : uniquement sur ce qui n'a vraiment
-         rien à voir avec un autre changement adjacent. */
       if (insInfo && insInfo.buffer.length > 0) {
-        /* Conserve le gras/italique d'une VRAIE insertion (pas d'un
-           déplacement, dont le texte garde déjà sa mise en forme à
-           l'origine) quand le format est uniforme et l'insertion tient sur
-           un seul paragraphe — une emphase Markdown ne peut pas enjamber une
-           ligne vide ("**a\n\nb**" invalide), d'où le garde-fou sur "\n\n". */
         let text = insInfo.buffer;
         if (!insInfo.moved && !text.includes("\n\n")) {
           text = wrapEmphasis(text, insInfo.fmtBold === true, insInfo.fmtItalic === true);
@@ -874,14 +872,13 @@ export function parseDocumentXml(
           moved: insInfo.moved,
           moveName: insInfo.moveName,
         };
+        if (insInfo.id) {
+          entry.revisionRefs = [{ part: "word/document.xml", id: insInfo.id, kind: insInfo.moved ? "moveTo" : "ins" }];
+        }
         const insFootnoteIds = footnoteIdsOf(text);
         if (insFootnoteIds.length) entry.footnoteRefs = insFootnoteIds;
         trackOrphan(entry);
         bucketFor(currentBookmarkId).changes.push(entry);
-        // Ce qui suit ce point (saut de paragraphe ou texte en ligne) n'est
-        // pas encore connu — résolu au prochain événement textuel, voir
-        // appendText/pendingAfterCapture. Sert uniquement à l'affichage/au
-        // classement de destinationBoundary, jamais à l'application.
         pendingAfterCapture.push(entry);
       }
       insInfo = null;
@@ -889,6 +886,7 @@ export function parseDocumentXml(
     }
     if ((t.name === "w:del" || t.name === "w:moveFrom") && !t.isClose && !t.selfClosing) {
       delInfo = {
+        id: getAttr(t.attrs, "w:id"),
         author: getAttr(t.attrs, "w:author") || "Inconnu",
         date: getAttr(t.attrs, "w:date") || "",
         buffer: "",
@@ -909,6 +907,9 @@ export function parseDocumentXml(
           moved: delInfo.moved,
           moveName: delInfo.moveName,
         };
+        if (delInfo.id) {
+          entry.revisionRefs = [{ part: "word/document.xml", id: delInfo.id, kind: delInfo.moved ? "moveFrom" : "del" }];
+        }
         const delFootnoteIds = footnoteIdsOf(delInfo.buffer);
         if (delFootnoteIds.length) entry.footnoteRefs = delFootnoteIds;
         trackOrphan(entry);
@@ -1105,6 +1106,7 @@ export function parseDocumentXml(
             text: comment.text,
             author: comment.author,
             date: comment.date,
+            commentId: id,
           };
           /* Posés seulement s'ils s'appliquent (un commentaire ordinaire
              garde sa forme exacte) : resolvedInWord pré-classe le retour
@@ -1143,6 +1145,7 @@ export function parseDocumentXml(
             text: comment.text,
             author: comment.author,
             date: comment.date,
+            commentId: id,
           };
           if (comment.done) entry.resolvedInWord = true;
           if (comment.parentId != null) entry.parentId = comment.parentId;
@@ -1260,24 +1263,26 @@ function parseFootnoteBody(body: string, commentsById: CommentsById): ReviewBuck
       continue;
     }
     if (t.name === "w:ins" && !t.isClose && !t.selfClosing) {
-      insInfo = { author: getAttr(t.attrs, "w:author") || "Inconnu", date: getAttr(t.attrs, "w:date") || "", buffer: "", contextBefore: currentContextBefore(), moved: false, moveName: null };
+      insInfo = { id: getAttr(t.attrs, "w:id"), author: getAttr(t.attrs, "w:author") || "Inconnu", date: getAttr(t.attrs, "w:date") || "", buffer: "", contextBefore: currentContextBefore(), moved: false, moveName: null };
       continue;
     }
     if (t.name === "w:ins" && t.isClose) {
       if (insInfo && insInfo.buffer.length > 0) {
         const change: InsertionChange = { type: "insertion", text: insInfo.buffer, author: insInfo.author, date: insInfo.date, contextBefore: trimContextBefore(insInfo.contextBefore), moved: false, moveName: null };
+        if (insInfo.id) change.revisionRefs = [{ part: "word/footnotes.xml", id: insInfo.id, kind: "ins" }];
         changes.push(change);
       }
       insInfo = null;
       continue;
     }
     if (t.name === "w:del" && !t.isClose && !t.selfClosing) {
-      delInfo = { author: getAttr(t.attrs, "w:author") || "Inconnu", date: getAttr(t.attrs, "w:date") || "", buffer: "", contextBefore: currentContextBefore(), moved: false, moveName: null };
+      delInfo = { id: getAttr(t.attrs, "w:id"), author: getAttr(t.attrs, "w:author") || "Inconnu", date: getAttr(t.attrs, "w:date") || "", buffer: "", contextBefore: currentContextBefore(), moved: false, moveName: null };
       continue;
     }
     if (t.name === "w:del" && t.isClose) {
       if (delInfo && delInfo.buffer.length > 0) {
         const change: DeletionChange = { type: "deletion", text: delInfo.buffer, author: delInfo.author, date: delInfo.date, contextBefore: trimContextBefore(delInfo.contextBefore), moved: false, moveName: null };
+        if (delInfo.id) change.revisionRefs = [{ part: "word/footnotes.xml", id: delInfo.id, kind: "del" }];
         changes.push(change);
       }
       delInfo = null;
@@ -1422,6 +1427,9 @@ function collapseSameTypeFragments<T extends InsertionChange | DeletionChange>(f
   const footnoteRefs = fragments.flatMap((f) => f.footnoteRefs || []);
   if (footnoteRefs.length) merged.footnoteRefs = footnoteRefs;
   else delete merged.footnoteRefs;
+  const revisionRefs = fragments.flatMap((f) => f.revisionRefs || []);
+  if (revisionRefs.length) merged.revisionRefs = revisionRefs;
+  else delete merged.revisionRefs;
   return merged;
 }
 
@@ -1458,15 +1466,10 @@ function mergeMovePairs(changes: ReviewChange[]): ReviewChange[] {
           toContext: ins.contextBefore,
           toContextAfter: ins.toContextAfter,
           destinationBoundary: computeDestinationBoundary(ins.contextBefore, ins.followedByParagraphBreak),
-          /* LOT 4 (confiance) : ce move ne peut EXISTER que via un moveName Word
-           * réel (voir le filtre `c.moved && c.moveName` juste au-dessus —
-           * contrairement à mergeImplicitCutPastePairs, jamais de couper-coller
-           * déduit ici) — le préserver évite de le perdre : sans lui, un
-           * déplacement NATIF même feuillet redevenait indiscernable d'un
-           * couper-coller implicite pour tout code qui lit `.moveName` après
-           * coup (aucun effet avant ce lot : rien ne le lisait encore). */
           moveName: c.moveName,
         };
+        const moveRefs = [...(del.revisionRefs || []), ...(ins.revisionRefs || [])];
+        if (moveRefs.length) move.revisionRefs = moveRefs;
         const moveFootnoteIds = ins.footnoteRefs?.length ? ins.footnoteRefs : del.footnoteRefs;
         if (moveFootnoteIds?.length) move.footnoteRefs = moveFootnoteIds;
         if (del.footnoteRefs?.length) move.originFootnoteIds = del.footnoteRefs;
@@ -1565,6 +1568,8 @@ export function mergeGlobalMovePairs(
       if (globalMoveFootnoteIds?.length) mergedMove.footnoteRefs = globalMoveFootnoteIds;
       if (del.footnoteRefs?.length) mergedMove.originFootnoteIds = del.footnoteRefs;
       if (ins.footnoteRefs?.length) mergedMove.destFootnoteIds = ins.footnoteRefs;
+      const globalMoveRefs = [...(del.revisionRefs || []), ...(ins.revisionRefs || [])];
+      if (globalMoveRefs.length) mergedMove.revisionRefs = globalMoveRefs;
 
       const targetPath = insItem.container.path || delItem.container.path;
       if (targetPath) {
@@ -1713,6 +1718,8 @@ export function mergeImplicitCutPastePairs(
     if (cutPasteFootnoteIds?.length) mergedMove.footnoteRefs = cutPasteFootnoteIds;
     if (del.footnoteRefs?.length) mergedMove.originFootnoteIds = del.footnoteRefs;
     if (ins.footnoteRefs?.length) mergedMove.destFootnoteIds = ins.footnoteRefs;
+    const cutPasteRefs = [...(del.revisionRefs || []), ...(ins.revisionRefs || [])];
+    if (cutPasteRefs.length) mergedMove.revisionRefs = cutPasteRefs;
 
     const targetPath = n.container.path || d.container.path;
     if (targetPath) {
@@ -1796,6 +1803,8 @@ function mergeAdjacentReplacements(changes: ReviewChange[]): ReviewChange[] {
         contextBefore: chain[0].contextBefore,
         moved: false,
       };
+      const chainRefs = chain.flatMap((c) => c.revisionRefs || []);
+      if (chainRefs.length) replacement.revisionRefs = chainRefs;
       merged.push(replacement);
     } else {
       merged.push(cur);

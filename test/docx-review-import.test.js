@@ -53,6 +53,7 @@ test("parseCommentsXml", async (t) => {
       author: "Jean Dupont",
       date: "2026-01-01T10:00:00Z",
       text: "Cette source est mal citée.",
+      commentId: "0",
     });
   });
 
@@ -89,6 +90,7 @@ test("parseDocumentXml — signets de feuillet", async (t) => {
       contextBefore: "Début. ",
       moved: false,
       moveName: null,
+      revisionRefs: [{ part: "word/document.xml", id: "2", kind: "ins" }],
       // Rien ne suit "ajout" dans ce XML (fin de document) : traité comme
       // "un saut de paragraphe suit" (rien à coller à la suite), voir
       // parseDocumentXml (résolution de pendingAfterCapture en fin de
@@ -202,6 +204,7 @@ test("parseDocumentXml — commentaires", async (t) => {
       text: "À retravailler.",
       author: "Jean Dupont",
       date: "D",
+      commentId: "0",
     });
   });
 
@@ -279,6 +282,7 @@ test("parseDocumentXml — commentaires", async (t) => {
       text: "Vérifier cette date.",
       author: "Dir",
       date: "D",
+      commentId: "7",
     });
   });
 
@@ -424,6 +428,10 @@ test("parseDocumentXml — réécriture (fusion suppression+ajout adjacents)", a
       date: "D",
       contextBefore: "Le vent soufflait ",
       moved: false,
+      revisionRefs: [
+        { part: "word/document.xml", id: "2", kind: "del" },
+        { part: "word/document.xml", id: "3", kind: "ins" },
+      ],
     });
   });
 
@@ -1544,7 +1552,7 @@ test("parseCommentsExtended + parseCommentsXml (résolu / réponses)", async (t)
       '<w:comments><w:comment w:id="0" w:author="A" w:date="D">' +
       '<w:p w14:paraId="AA"><w:r><w:t>Simple.</w:t></w:r></w:p>' +
       '</w:comment></w:comments>';
-    assert.deepEqual(parseCommentsXml(commentsXml), { "0": { author: "A", date: "D", text: "Simple." } });
+    assert.deepEqual(parseCommentsXml(commentsXml), { "0": { author: "A", date: "D", text: "Simple.", commentId: "0" } });
   });
 
   await t.test("resolvedInWord se propage jusqu'à l'entrée de commentaire du feuillet", () => {
