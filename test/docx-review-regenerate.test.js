@@ -2,12 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import JSZip from "jszip";
 
-import {
-  parseDocumentXml,
-  parseCommentsXml,
-  parseDocxReview,
-  mergeImplicitCutPastePairs,
-} from "../src/services/docx-review-import.js";
+import { parseDocxReview } from "../src/services/docx-review-import.js";
 
 import {
   regenerateDocxParts,
@@ -23,7 +18,7 @@ function makeFnXml(inner) {
   return `<w:footnotes>${inner}</w:footnotes>`;
 }
 
-test("LOT 9A — Moteur pur de régénération DOCX révisé", async (t) => {
+test("LOT 9A — Correctifs Audit Moteur pur de régénération DOCX", async (t) => {
   await t.test("1. Insertion acceptée (w:ins déballé)", () => {
     const xml = makeDocXml('<w:p><w:ins w:id="1"><w:r><w:t>Texte inséré</w:t></w:r></w:ins></w:p>');
     const change = {
@@ -131,77 +126,84 @@ test("LOT 9A — Moteur pur de régénération DOCX révisé", async (t) => {
     assert.equal(res.parts["word/document.xml"], makeDocXml("<w:p><w:r><w:t>Nouveau</w:t></w:r></w:p>"));
   });
 
-  await t.test("6. Replacement refusé (del restauré, ins supprimé)", () => {
+  await t.test("6. Correctif Section 1 : Deux déplacements natifs distincts A et B — accepter A laisse B strictly inchangé", () => {
     const xml = makeDocXml(
-      '<w:p><w:del w:id="10"><w:r><w:delText>Ancien</w:delText></w:r></w:del>' +
-        '<w:ins w:id="11"><w:r><w:t>Nouveau</w:t></w:r></w:ins></w:p>'
+      '<w:p><w:moveFromRangeStart w:id="mA" w:name="moveA"/>' +
+        '<w:moveFrom w:id="10"><w:r><w:t>Passage A</w:t></w:r></w:moveFrom>' +
+        '<w:moveFromRangeEnd w:id="mA"/>' +
+        '<w:moveToRangeStart w:id="mA_dest" w:name="moveA"/>' +
+        '<w:moveTo w:id="11"><w:r><w:t>Passage A</w:t></w:r></w:moveTo>' +
+        '<w:moveToRangeEnd w:id="mA_dest"/></w:p>' +
+        '<w:p><w:moveFromRangeStart w:id="mB" w:name="moveB"/>' +
+        '<w:moveFrom w:id="20"><w:r><w:t>Passage B</w:t></w:r></w:moveFrom>' +
+        '<w:moveFromRangeEnd w:id="mB"/>' +
+        '<w:moveToRangeStart w:id="mB_dest" w:name="moveB"/>' +
+        '<w:moveTo w:id="21"><w:r><w:t>Passage B</w:t></w:r></w:moveTo>' +
+        '<w:moveToRangeEnd w:id="mB_dest"/></w:p>'
     );
-    const change = {
-      type: "replacement",
-      oldText: "Ancien",
-      newText: "Nouveau",
+    const changeA = {
+      type: "move",
+      text: "Passage A",
+      fromText: "Passage A",
       author: "A",
       date: "D",
       contextBefore: "",
+      moveName: "moveA",
       revisionRefs: [
-        { part: "word/document.xml", id: "10", kind: "del" },
-        { part: "word/document.xml", id: "11", kind: "ins" },
+        { part: "word/document.xml", id: "10", kind: "moveFrom" },
+        { part: "word/document.xml", id: "11", kind: "moveTo" },
+      ],
+      moveRangeRefs: [
+        { part: "word/document.xml", kind: "moveFromRange", id: "mA", name: "moveA" },
+        { part: "word/document.xml", kind: "moveToRange", id: "mA_dest", name: "moveA" },
       ],
     };
-    const key = getItemKey(change);
-    const res = regenerateDocxParts({
-      parts: { "word/document.xml": xml },
-      changes: [change],
-      savedStates: { [key]: { applied: false, dismissed: true } },
-    });
-    assert.equal(res.ok, true);
-    assert.equal(res.parts["word/document.xml"], makeDocXml("<w:p><w:r><w:t>Ancien</w:t></w:r></w:p>"));
-  });
-
-  await t.test("7. Révision voisine non ciblée intacte", () => {
-    const xml = makeDocXml(
-      '<w:p><w:ins w:id="1"><w:r><w:t>Ciblé</w:t></w:r></w:ins>' +
-        '<w:ins w:id="2"><w:r><w:t>Non ciblé</w:t></w:r></w:ins></w:p>'
-    );
-    const change1 = {
-      type: "insertion",
-      text: "Ciblé",
+    const changeB = {
+      type: "move",
+      text: "Passage B",
+      fromText: "Passage B",
       author: "A",
       date: "D",
       contextBefore: "",
-      ord: 0,
-      revisionRefs: [{ part: "word/document.xml", id: "1", kind: "ins" }],
+      moveName: "moveB",
+      revisionRefs: [
+        { part: "word/document.xml", id: "20", kind: "moveFrom" },
+        { part: "word/document.xml", id: "21", kind: "moveTo" },
+      ],
+      moveRangeRefs: [
+        { part: "word/document.xml", kind: "moveFromRange", id: "mB", name: "moveB" },
+        { part: "word/document.xml", kind: "moveToRange", id: "mB_dest", name: "moveB" },
+      ],
     };
-    const change2 = {
-      type: "insertion",
-      text: "Non ciblé",
-      author: "A",
-      date: "D",
-      contextBefore: "Ciblé",
-      ord: 1,
-      revisionRefs: [{ part: "word/document.xml", id: "2", kind: "ins" }],
-    };
-    const key1 = getItemKey(change1);
+    const keyA = getItemKey(changeA);
     const res = regenerateDocxParts({
       parts: { "word/document.xml": xml },
-      changes: [change1, change2],
-      savedStates: { [key1]: { applied: true, dismissed: false } },
+      changes: [changeA, changeB],
+      savedStates: { [keyA]: { applied: true, dismissed: false } },
     });
     assert.equal(res.ok, true);
     assert.equal(
       res.parts["word/document.xml"],
-      makeDocXml('<w:p><w:r><w:t>Ciblé</w:t></w:r><w:ins w:id="2"><w:r><w:t>Non ciblé</w:t></w:r></w:ins></w:p>')
+      makeDocXml(
+        "<w:p><w:r><w:t>Passage A</w:t></w:r></w:p>" +
+          '<w:p><w:moveFromRangeStart w:id="mB" w:name="moveB"/>' +
+          '<w:moveFrom w:id="20"><w:r><w:t>Passage B</w:t></w:r></w:moveFrom>' +
+          '<w:moveFromRangeEnd w:id="mB"/>' +
+          '<w:moveToRangeStart w:id="mB_dest" w:name="moveB"/>' +
+          '<w:moveTo w:id="21"><w:r><w:t>Passage B</w:t></w:r></w:moveTo>' +
+          '<w:moveToRangeEnd w:id="mB_dest"/></w:p>'
+      )
     );
   });
 
-  await t.test("8. Move natif accepté (moveFrom supprimé, moveTo déballé, markers nettoyés)", () => {
+  await t.test("7. Correctif Section 2 : IDs de range origine/destination DISTINCTS (w:id=16 vs w:id=13)", () => {
     const xml = makeDocXml(
-      '<w:p><w:moveFromRangeStart w:id="m1" name="move1"/>' +
-        '<w:moveFrom w:id="10"><w:r><w:t>Passage</w:t></w:r></w:moveFrom>' +
-        '<w:moveFromRangeEnd w:id="m1"/>' +
-        '<w:moveToRangeStart w:id="m1" name="move1"/>' +
-        '<w:moveTo w:id="11"><w:r><w:t>Passage</w:t></w:r></w:moveTo>' +
-        '<w:moveToRangeEnd w:id="m1"/></w:p>'
+      '<w:p><w:moveFromRangeStart w:id="16" w:name="moveXYZ"/>' +
+        '<w:moveFrom w:id="17"><w:r><w:t>Passage</w:t></w:r></w:moveFrom>' +
+        '<w:moveFromRangeEnd w:id="16"/>' +
+        '<w:moveToRangeStart w:id="13" w:name="moveXYZ"/>' +
+        '<w:moveTo w:id="18"><w:r><w:t>Passage</w:t></w:r></w:moveTo>' +
+        '<w:moveToRangeEnd w:id="13"/></w:p>'
     );
     const change = {
       type: "move",
@@ -210,10 +212,14 @@ test("LOT 9A — Moteur pur de régénération DOCX révisé", async (t) => {
       author: "A",
       date: "D",
       contextBefore: "",
-      moveName: "move1",
+      moveName: "moveXYZ",
       revisionRefs: [
-        { part: "word/document.xml", id: "10", kind: "moveFrom" },
-        { part: "word/document.xml", id: "11", kind: "moveTo" },
+        { part: "word/document.xml", id: "17", kind: "moveFrom" },
+        { part: "word/document.xml", id: "18", kind: "moveTo" },
+      ],
+      moveRangeRefs: [
+        { part: "word/document.xml", kind: "moveFromRange", id: "16", name: "moveXYZ" },
+        { part: "word/document.xml", kind: "moveToRange", id: "13", name: "moveXYZ" },
       ],
     };
     const key = getItemKey(change);
@@ -226,93 +232,142 @@ test("LOT 9A — Moteur pur de régénération DOCX révisé", async (t) => {
     assert.equal(res.parts["word/document.xml"], makeDocXml("<w:p><w:r><w:t>Passage</w:t></w:r></w:p>"));
   });
 
-  await t.test("9. Move natif refusé (moveFrom déballé, moveTo supprimé, markers nettoyés)", () => {
-    const xml = makeDocXml(
-      '<w:p><w:moveFromRangeStart w:id="m1" name="move1"/>' +
-        '<w:moveFrom w:id="10"><w:r><w:t>Passage</w:t></w:r></w:moveFrom>' +
-        '<w:moveFromRangeEnd w:id="m1"/>' +
-        '<w:moveToRangeStart w:id="m1" name="move1"/>' +
-        '<w:moveTo w:id="11"><w:r><w:t>Passage</w:t></w:r></w:moveTo>' +
-        '<w:moveToRangeEnd w:id="m1"/></w:p>'
-    );
-    const change = {
-      type: "move",
-      text: "Passage",
-      fromText: "Passage",
+  await t.test("8. Correctif Section 3 : Deux commentaires — traiter le second modifie uniquement son commentEx (paraId exact)", () => {
+    const extXml =
+      '<w15:commentsEx xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">' +
+      '<w15:commentEx w15:paraId="P1" w15:done="0"/>' +
+      '<w15:commentEx w15:paraId="P2" w15:paraIdParent="P1" w15:done="0"/>' +
+      "</w15:commentsEx>";
+    const comment1 = {
+      anchorText: "mot1",
+      text: "Com 1",
       author: "A",
       date: "D",
-      contextBefore: "",
-      moveName: "move1",
-      revisionRefs: [
-        { part: "word/document.xml", id: "10", kind: "moveFrom" },
-        { part: "word/document.xml", id: "11", kind: "moveTo" },
-      ],
+      commentId: "0",
+      commentExtendedParaId: "P1",
     };
-    const key = getItemKey(change);
+    const comment2 = {
+      anchorText: "mot2",
+      text: "Com 2",
+      author: "A",
+      date: "D",
+      commentId: "1",
+      commentExtendedParaId: "P2",
+    };
+    const key2 = getItemKey(comment2);
     const res = regenerateDocxParts({
-      parts: { "word/document.xml": xml },
-      changes: [change],
-      savedStates: { [key]: { applied: false, dismissed: true } },
+      parts: { "word/commentsExtended.xml": extXml },
+      changes: [],
+      comments: [comment1, comment2],
+      savedStates: { [key2]: { applied: false, dismissed: true } },
     });
     assert.equal(res.ok, true);
-    assert.equal(res.parts["word/document.xml"], makeDocXml("<w:p><w:r><w:t>Passage</w:t></w:r></w:p>"));
+    assert.equal(
+      res.parts["word/commentsExtended.xml"],
+      '<w15:commentsEx xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">' +
+        '<w15:commentEx w15:paraId="P1" w15:done="0"/>' +
+        '<w15:commentEx w15:paraId="P2" w15:paraIdParent="P1" w15:done="1"/>' +
+        "</w15:commentsEx>"
+    );
   });
 
-  await t.test("10. Move implicite accepté (del orig supprimé, ins dest déballé)", () => {
+  await t.test("9. Correctif Section 3 : sans commentExtendedParaId sûr -> échec comment-resolution-unsupported", () => {
+    const extXml = '<w15:commentsEx><w15:commentEx w15:paraId="P1" w15:done="0"/></w15:commentsEx>';
+    const comment = {
+      anchorText: "mot",
+      text: "Sans paraId",
+      author: "A",
+      date: "D",
+      commentId: "0",
+      // pas de commentExtendedParaId !
+    };
+    const key = getItemKey(comment);
+    const res = regenerateDocxParts({
+      parts: { "word/commentsExtended.xml": extXml },
+      changes: [],
+      comments: [comment],
+      savedStates: { [key]: { applied: false, dismissed: true } },
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.reason, "comment-resolution-unsupported");
+  });
+
+  await t.test("10. Correctif Section 4 : Move portant une note -> échec unsupported-footnote-move-regeneration sans modifier le XML", () => {
     const xml = makeDocXml(
-      '<w:p><w:del w:id="5"><w:r><w:delText>Coupé</w:delText></w:r></w:del></w:p>' +
-        '<w:p><w:ins w:id="6"><w:r><w:t>Coupé</w:t></w:r></w:ins></w:p>'
+      '<w:p><w:moveFrom w:id="1"><w:r><w:t>Passage[^1]</w:t></w:r></w:moveFrom>' +
+        '<w:moveTo w:id="2"><w:r><w:t>Passage[^1]</w:t></w:r></w:moveTo></w:p>'
     );
     const change = {
       type: "move",
-      text: "Coupé",
-      fromText: "Coupé",
+      text: "Passage[^1]",
+      fromText: "Passage[^1]",
       author: "A",
       date: "D",
       contextBefore: "",
+      footnoteRefs: ["1"],
       revisionRefs: [
-        { part: "word/document.xml", id: "5", kind: "del" },
-        { part: "word/document.xml", id: "6", kind: "ins" },
+        { part: "word/document.xml", id: "1", kind: "moveFrom" },
+        { part: "word/document.xml", id: "2", kind: "moveTo" },
       ],
     };
     const key = getItemKey(change);
+    const parts = { "word/document.xml": xml };
     const res = regenerateDocxParts({
-      parts: { "word/document.xml": xml },
+      parts,
       changes: [change],
       savedStates: { [key]: { applied: true, dismissed: false } },
     });
-    assert.equal(res.ok, true);
-    assert.equal(res.parts["word/document.xml"], makeDocXml("<w:p></w:p><w:p><w:r><w:t>Coupé</w:t></w:r></w:p>"));
+    assert.equal(res.ok, false);
+    assert.equal(res.reason, "unsupported-footnote-move-regeneration");
+    assert.equal(parts["word/document.xml"], xml); // XML strictement inchangé dans l'objet d'origine !
   });
 
-  await t.test("11. Move implicite refusé (del orig restauré, ins dest supprimé)", () => {
+  await t.test("11. Correctif Section 6 : Structure réelle Word paragraph-mark (w:moveFrom/w:moveTo dans w:pPr)", () => {
     const xml = makeDocXml(
-      '<w:p><w:del w:id="5"><w:r><w:delText>Coupé</w:delText></w:r></w:del></w:p>' +
-        '<w:p><w:ins w:id="6"><w:r><w:t>Coupé</w:t></w:r></w:ins></w:p>'
+      '<w:p w14:paraId="09952DB8">' +
+        '<w:pPr><w:rPr><w:moveFrom w:id="1" w:author="A" w:date="D"/></w:rPr></w:pPr>' +
+        '<w:moveFromRangeStart w:id="2" w:author="A" w:date="D" w:name="moveP"/>' +
+        '<w:moveFrom w:id="3" w:author="A" w:date="D"><w:r><w:t>Paragraphe entier</w:t></w:r></w:moveFrom>' +
+        '<w:moveFromRangeEnd w:id="2"/></w:p>' +
+        '<w:p w14:paraId="43E80B96">' +
+        '<w:pPr><w:rPr><w:moveTo w:id="8" w:author="A" w:date="D"/></w:rPr></w:pPr>' +
+        '<w:moveToRangeStart w:id="9" w:author="A" w:date="D" w:name="moveP"/>' +
+        '<w:moveTo w:id="10" w:author="A" w:date="D"><w:r><w:t>Paragraphe entier</w:t></w:r></w:moveTo>' +
+        '<w:moveToRangeEnd w:id="9"/></w:p>'
     );
-    const change = {
-      type: "move",
-      text: "Coupé",
-      fromText: "Coupé",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      revisionRefs: [
-        { part: "word/document.xml", id: "5", kind: "del" },
-        { part: "word/document.xml", id: "6", kind: "ins" },
-      ],
-    };
-    const key = getItemKey(change);
+
+    const { unclassified } = parseDocxReview({ "word/document.xml": xml });
+    assert.equal(unclassified.changes.length, 1);
+    const moveChange = unclassified.changes[0];
+    assert.equal(moveChange.type, "move");
+
+    const key = getItemKey(moveChange);
     const res = regenerateDocxParts({
       parts: { "word/document.xml": xml },
-      changes: [change],
-      savedStates: { [key]: { applied: false, dismissed: true } },
+      changes: [moveChange],
+      savedStates: { [key]: { applied: true, dismissed: false } },
     });
     assert.equal(res.ok, true);
-    assert.equal(res.parts["word/document.xml"], makeDocXml("<w:p><w:r><w:t>Coupé</w:t></w:r></w:p><w:p></w:p>"));
+    assert.equal(
+      res.parts["word/document.xml"],
+      makeDocXml(
+        '<w:p w14:paraId="09952DB8"><w:pPr><w:rPr></w:rPr></w:pPr></w:p>' +
+          '<w:p w14:paraId="43E80B96"><w:pPr><w:rPr></w:rPr></w:pPr><w:r><w:t>Paragraphe entier</w:t></w:r></w:p>'
+      )
+    );
   });
 
-  await t.test("12. Insertion footnote acceptée dans word/footnotes.xml", () => {
+  await t.test("12. Correctif Section 7 : regenerateDocxZip sans parsedChanges/parsedComments -> missing-parsed-changes", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", makeDocXml('<w:p><w:ins w:id="1"><w:r><w:t>Ins</w:t></w:r></w:ins></w:p>'));
+    const origBuffer = await zip.generateAsync({ type: "arraybuffer" });
+
+    const res = await regenerateDocxZip(origBuffer, {});
+    assert.equal(res.ok, false);
+    assert.equal(res.reason, "missing-parsed-changes");
+  });
+
+  await t.test("13. Footnote insertion acceptée dans word/footnotes.xml", () => {
     const fnXml = makeFnXml('<w:footnote w:id="1"><w:p><w:ins w:id="20"><w:r><w:t>Note ajoutée</w:t></w:r></w:ins></w:p></w:footnote>');
     const change = {
       type: "insertion",
@@ -332,27 +387,7 @@ test("LOT 9A — Moteur pur de régénération DOCX révisé", async (t) => {
     assert.equal(res.parts["word/footnotes.xml"], makeFnXml('<w:footnote w:id="1"><w:p><w:r><w:t>Note ajoutée</w:t></w:r></w:p></w:footnote>'));
   });
 
-  await t.test("13. Insertion footnote refusée dans word/footnotes.xml", () => {
-    const fnXml = makeFnXml('<w:footnote w:id="1"><w:p><w:ins w:id="20"><w:r><w:t>Note ajoutée</w:t></w:r></w:ins></w:p></w:footnote>');
-    const change = {
-      type: "insertion",
-      text: "Note ajoutée",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      revisionRefs: [{ part: "word/footnotes.xml", id: "20", kind: "ins" }],
-    };
-    const key = getItemKey(change);
-    const res = regenerateDocxParts({
-      parts: { "word/footnotes.xml": fnXml },
-      changes: [change],
-      savedStates: { [key]: { applied: false, dismissed: true } },
-    });
-    assert.equal(res.ok, true);
-    assert.equal(res.parts["word/footnotes.xml"], makeFnXml('<w:footnote w:id="1"><w:p></w:p></w:footnote>'));
-  });
-
-  await t.test("14. Suppression footnote acceptée dans word/footnotes.xml", () => {
+  await t.test("14. Footnote suppression acceptée dans word/footnotes.xml", () => {
     const fnXml = makeFnXml('<w:footnote w:id="1"><w:p><w:del w:id="21"><w:r><w:delText>Note retirée</w:delText></w:r></w:del></w:p></w:footnote>');
     const change = {
       type: "deletion",
@@ -372,81 +407,7 @@ test("LOT 9A — Moteur pur de régénération DOCX révisé", async (t) => {
     assert.equal(res.parts["word/footnotes.xml"], makeFnXml('<w:footnote w:id="1"><w:p></w:p></w:footnote>'));
   });
 
-  await t.test("15. Suppression footnote refusée dans word/footnotes.xml", () => {
-    const fnXml = makeFnXml('<w:footnote w:id="1"><w:p><w:del w:id="21"><w:r><w:delText>Note retirée</w:delText></w:r></w:del></w:p></w:footnote>');
-    const change = {
-      type: "deletion",
-      text: "Note retirée",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      revisionRefs: [{ part: "word/footnotes.xml", id: "21", kind: "del" }],
-    };
-    const key = getItemKey(change);
-    const res = regenerateDocxParts({
-      parts: { "word/footnotes.xml": fnXml },
-      changes: [change],
-      savedStates: { [key]: { applied: false, dismissed: true } },
-    });
-    assert.equal(res.ok, true);
-    assert.equal(res.parts["word/footnotes.xml"], makeFnXml('<w:footnote w:id="1"><w:p><w:r><w:t>Note retirée</w:t></w:r></w:p></w:footnote>'));
-  });
-
-  await t.test("16. Replacement footnote accepté", () => {
-    const fnXml = makeFnXml(
-      '<w:footnote w:id="1"><w:p><w:del w:id="30"><w:r><w:delText>A</w:delText></w:r></w:del>' +
-        '<w:ins w:id="31"><w:r><w:t>B</w:t></w:r></w:ins></w:p></w:footnote>'
-    );
-    const change = {
-      type: "replacement",
-      oldText: "A",
-      newText: "B",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      revisionRefs: [
-        { part: "word/footnotes.xml", id: "30", kind: "del" },
-        { part: "word/footnotes.xml", id: "31", kind: "ins" },
-      ],
-    };
-    const key = getItemKey(change);
-    const res = regenerateDocxParts({
-      parts: { "word/footnotes.xml": fnXml },
-      changes: [change],
-      savedStates: { [key]: { applied: true, dismissed: false } },
-    });
-    assert.equal(res.ok, true);
-    assert.equal(res.parts["word/footnotes.xml"], makeFnXml('<w:footnote w:id="1"><w:p><w:r><w:t>B</w:t></w:r></w:p></w:footnote>'));
-  });
-
-  await t.test("17. Replacement footnote refusé", () => {
-    const fnXml = makeFnXml(
-      '<w:footnote w:id="1"><w:p><w:del w:id="30"><w:r><w:delText>A</w:delText></w:r></w:del>' +
-        '<w:ins w:id="31"><w:r><w:t>B</w:t></w:r></w:ins></w:p></w:footnote>'
-    );
-    const change = {
-      type: "replacement",
-      oldText: "A",
-      newText: "B",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      revisionRefs: [
-        { part: "word/footnotes.xml", id: "30", kind: "del" },
-        { part: "word/footnotes.xml", id: "31", kind: "ins" },
-      ],
-    };
-    const key = getItemKey(change);
-    const res = regenerateDocxParts({
-      parts: { "word/footnotes.xml": fnXml },
-      changes: [change],
-      savedStates: { [key]: { applied: false, dismissed: true } },
-    });
-    assert.equal(res.ok, true);
-    assert.equal(res.parts["word/footnotes.xml"], makeFnXml('<w:footnote w:id="1"><w:p><w:r><w:t>A</w:t></w:r></w:p></w:footnote>'));
-  });
-
-  await t.test("18. Aucune décision = XML strictement inchangé", () => {
+  await t.test("15. Aucune décision = XML strictement inchangé", () => {
     const xml = makeDocXml('<w:p><w:ins w:id="1"><w:r><w:t>Inchangé</w:t></w:r></w:ins></w:p>');
     const change = {
       type: "insertion",
@@ -465,256 +426,7 @@ test("LOT 9A — Moteur pur de régénération DOCX révisé", async (t) => {
     assert.equal(res.parts["word/document.xml"], xml);
   });
 
-  await t.test("19. État auto-détecté sans saved state = inchangé", () => {
-    const xml = makeDocXml('<w:p><w:ins w:id="1"><w:r><w:t>Déjà là dans MD</w:t></w:r></w:ins></w:p>');
-    const change = {
-      type: "insertion",
-      text: "Déjà là dans MD",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      applied: true, // auto-détecté par le parser
-      revisionRefs: [{ part: "word/document.xml", id: "1", kind: "ins" }],
-    };
-    const res = regenerateDocxParts({
-      parts: { "word/document.xml": xml },
-      changes: [change],
-      savedStates: {}, // aucune décision utilisateur sauvegardée
-    });
-    assert.equal(res.ok, true);
-    assert.equal(res.parts["word/document.xml"], xml);
-  });
-
-  await t.test("20. ID absent = échec sans modification", () => {
-    const xml = makeDocXml('<w:p><w:ins w:id="1"><w:r><w:t>Present</w:t></w:r></w:ins></w:p>');
-    const change = {
-      type: "insertion",
-      text: "Manquant",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      revisionRefs: [{ part: "word/document.xml", id: "99", kind: "ins" }],
-    };
-    const key = getItemKey(change);
-    const res = regenerateDocxParts({
-      parts: { "word/document.xml": xml },
-      changes: [change],
-      savedStates: { [key]: { applied: true, dismissed: false } },
-    });
-    assert.equal(res.ok, false);
-    assert.equal(res.reason, "revision-not-found");
-  });
-
-  await t.test("21. ID dupliqué = échec", () => {
-    const xml = makeDocXml(
-      '<w:p><w:ins w:id="1"><w:r><w:t>Dup1</w:t></w:r></w:ins>' +
-        '<w:ins w:id="1"><w:r><w:t>Dup2</w:t></w:r></w:ins></w:p>'
-    );
-    const change = {
-      type: "insertion",
-      text: "Dup1",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      revisionRefs: [{ part: "word/document.xml", id: "1", kind: "ins" }],
-    };
-    const key = getItemKey(change);
-    const res = regenerateDocxParts({
-      parts: { "word/document.xml": xml },
-      changes: [change],
-      savedStates: { [key]: { applied: true, dismissed: false } },
-    });
-    assert.equal(res.ok, false);
-    assert.equal(res.reason, "revision-duplicate");
-  });
-
-  await t.test("22. Moitié replacement absente = échec atomique", () => {
-    const xml = makeDocXml('<w:p><w:del w:id="10"><w:r><w:delText>Ancien</w:delText></w:r></w:del></w:p>');
-    const change = {
-      type: "replacement",
-      oldText: "Ancien",
-      newText: "Nouveau",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      revisionRefs: [
-        { part: "word/document.xml", id: "10", kind: "del" },
-        { part: "word/document.xml", id: "99", kind: "ins" }, // 99 manque !
-      ],
-    };
-    const key = getItemKey(change);
-    const res = regenerateDocxParts({
-      parts: { "word/document.xml": xml },
-      changes: [change],
-      savedStates: { [key]: { applied: true, dismissed: false } },
-    });
-    assert.equal(res.ok, false);
-    assert.equal(res.reason, "revision-not-found");
-  });
-
-  await t.test("23. Moitié move absente = échec atomique", () => {
-    const xml = makeDocXml('<w:p><w:moveFrom w:id="10"><w:r><w:t>Passage</w:t></w:r></w:moveFrom></w:p>');
-    const change = {
-      type: "move",
-      text: "Passage",
-      fromText: "Passage",
-      author: "A",
-      date: "D",
-      contextBefore: "",
-      moveName: "move1",
-      revisionRefs: [
-        { part: "word/document.xml", id: "10", kind: "moveFrom" },
-        { part: "word/document.xml", id: "99", kind: "moveTo" }, // 99 manque !
-      ],
-    };
-    const key = getItemKey(change);
-    const res = regenerateDocxParts({
-      parts: { "word/document.xml": xml },
-      changes: [change],
-      savedStates: { [key]: { applied: true, dismissed: false } },
-    });
-    assert.equal(res.ok, false);
-    assert.equal(res.reason, "revision-not-found");
-  });
-
-  await t.test("24. Parser conserve revisionRefs insertion", () => {
-    const xml = makeDocXml('<w:p><w:ins w:id="42" w:author="Author" w:date="D"><w:r><w:t>Texte</w:t></w:r></w:ins></w:p>');
-    const { unclassified } = parseDocumentXml(xml);
-    assert.equal(unclassified.changes.length, 1);
-    assert.deepEqual(unclassified.changes[0].revisionRefs, [{ part: "word/document.xml", id: "42", kind: "ins" }]);
-  });
-
-  await t.test("25. Parser conserve revisionRefs suppression", () => {
-    const xml = makeDocXml('<w:p><w:del w:id="43" w:author="Author" w:date="D"><w:r><w:delText>Texte</w:delText></w:r></w:del></w:p>');
-    const { unclassified } = parseDocumentXml(xml);
-    assert.equal(unclassified.changes.length, 1);
-    assert.deepEqual(unclassified.changes[0].revisionRefs, [{ part: "word/document.xml", id: "43", kind: "del" }]);
-  });
-
-  await t.test("26. Fusion replacement conserve les deux refs", () => {
-    const xml = makeDocXml(
-      '<w:p><w:del w:id="100" w:author="A" w:date="D"><w:r><w:delText>A</w:delText></w:r></w:del>' +
-        '<w:ins w:id="101" w:author="A" w:date="D"><w:r><w:t>B</w:t></w:r></w:ins></w:p>'
-    );
-    const { unclassified } = parseDocumentXml(xml);
-    assert.equal(unclassified.changes.length, 1);
-    assert.equal(unclassified.changes[0].type, "replacement");
-    assert.deepEqual(unclassified.changes[0].revisionRefs, [
-      { part: "word/document.xml", id: "100", kind: "del" },
-      { part: "word/document.xml", id: "101", kind: "ins" },
-    ]);
-  });
-
-  await t.test("27. Fusion move natif conserve origine/destination refs", () => {
-    const xml = makeDocXml(
-      '<w:p><w:moveFromRangeStart w:id="m1" w:name="move1"/>' +
-        '<w:moveFrom w:id="200" w:author="A" w:date="D"><w:r><w:t>Passage</w:t></w:r></w:moveFrom>' +
-        '<w:moveFromRangeEnd w:id="m1"/>' +
-        '<w:moveToRangeStart w:id="m1" w:name="move1"/>' +
-        '<w:moveTo w:id="201" w:author="A" w:date="D"><w:r><w:t>Passage</w:t></w:r></w:moveTo>' +
-        '<w:moveToRangeEnd w:id="m1"/></w:p>'
-    );
-    const { unclassified } = parseDocxReview({ "word/document.xml": xml });
-    assert.equal(unclassified.changes.length, 1);
-    assert.equal(unclassified.changes[0].type, "move");
-    assert.deepEqual(unclassified.changes[0].revisionRefs, [
-      { part: "word/document.xml", id: "200", kind: "moveFrom" },
-      { part: "word/document.xml", id: "201", kind: "moveTo" },
-    ]);
-  });
-
-  await t.test("28. Move implicite conserve del/ins refs", () => {
-    const byPath = {
-      "F1.md": {
-        changes: [
-          {
-            type: "deletion",
-            text: "Bloc unique déplacé",
-            author: "A",
-            date: "D",
-            contextBefore: "",
-            moved: false,
-            revisionRefs: [{ part: "word/document.xml", id: "300", kind: "del" }],
-          },
-        ],
-        comments: [],
-      },
-      "F2.md": {
-        changes: [
-          {
-            type: "insertion",
-            text: "Bloc unique déplacé",
-            author: "A",
-            date: "D",
-            contextBefore: "",
-            moved: false,
-            revisionRefs: [{ part: "word/document.xml", id: "301", kind: "ins" }],
-          },
-        ],
-        comments: [],
-      },
-    };
-    mergeImplicitCutPastePairs(byPath);
-    assert.equal(byPath["F2.md"].changes.length, 1);
-    assert.equal(byPath["F2.md"].changes[0].type, "move");
-    assert.deepEqual(byPath["F2.md"].changes[0].revisionRefs, [
-      { part: "word/document.xml", id: "300", kind: "del" },
-      { part: "word/document.xml", id: "301", kind: "ins" },
-    ]);
-  });
-
-  await t.test("29. commentId correctement remonté", () => {
-    const commentsXml =
-      '<w:comments><w:comment w:id="42" w:author="Author" w:date="D">' +
-      '<w:p w14:paraId="P1"><w:r><w:t>Texte du commentaire</w:t></w:r></w:p>' +
-      "</w:comment></w:comments>";
-    const parsed = parseCommentsXml(commentsXml);
-    assert.equal(parsed["42"].commentId, "42");
-  });
-
-  await t.test("30. Commentaire traité avec commentsExtended existant (w15:done='1')", () => {
-    const extXml =
-      '<w15:commentsEx xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">' +
-      '<w15:commentEx w15:paraId="P1" w15:paraIdParent="0" w15:done="0"/>' +
-      "</w15:commentsEx>";
-    const comment = {
-      anchorText: "mot",
-      text: "Un commentaire",
-      author: "A",
-      date: "D",
-      commentId: "0",
-    };
-    const key = getItemKey(comment);
-    const res = regenerateDocxParts({
-      parts: { "word/commentsExtended.xml": extXml },
-      changes: [],
-      comments: [comment],
-      savedStates: { [key]: { applied: false, dismissed: true } },
-    });
-    assert.equal(res.ok, true);
-    assert.ok(res.parts["word/commentsExtended.xml"].includes('w15:done="1"'));
-  });
-
-  await t.test("31. commentsExtended absent = commentaire inchangé", () => {
-    const comment = {
-      anchorText: "mot",
-      text: "Un commentaire",
-      author: "A",
-      date: "D",
-      commentId: "0",
-    };
-    const key = getItemKey(comment);
-    const res = regenerateDocxParts({
-      parts: { "word/document.xml": makeDocXml("<w:p/>") },
-      changes: [],
-      comments: [comment],
-      savedStates: { [key]: { applied: false, dismissed: true } },
-    });
-    assert.equal(res.ok, true);
-    assert.equal(res.parts["word/commentsExtended.xml"], undefined);
-  });
-
-  await t.test("32. Fichiers ZIP non concernés strictly préservés", async () => {
+  await t.test("16. Fichiers ZIP non concernés strictly préservés", async () => {
     const zip = new JSZip();
     zip.file("word/document.xml", makeDocXml('<w:p><w:ins w:id="1"><w:r><w:t>Ins</w:t></w:r></w:ins></w:p>'));
     zip.file("word/styles.xml", "<w:styles><w:style/></w:styles>");

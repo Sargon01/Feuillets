@@ -3,8 +3,7 @@ import {
   ReviewChange,
   ReviewComment,
   RevisionRef,
-  ReviewSourcePart,
-  parseDocxReview,
+  MoveRangeRef,
 } from "./docx-review-import.js";
 
 export type RegenerateDecision = {
@@ -37,6 +36,7 @@ export type RegenerateResult =
         | "unsupported-footnote-move-regeneration"
         | "comment-resolution-unsupported"
         | "invalid-xml-structure"
+        | "missing-parsed-changes"
         | string;
     };
 
@@ -77,9 +77,25 @@ function tagForKind(kind: RevisionRef["kind"]): string {
 }
 
 function countTagWithId(xml: string, tagName: string, id: string): number {
-  if (!xml) return 0;
+  if (!xml || !id) return 0;
   const escapedId = id.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
   const regex = new RegExp(`<${tagName}\\b[^>]*\\bw:id="${escapedId}"[^>]*>`, "gi");
+  const matches = xml.match(regex);
+  return matches ? matches.length : 0;
+}
+
+function countRangeMarkerWithId(xml: string, markerType: "start" | "end", kind: "moveFromRange" | "moveToRange", id: string): number {
+  if (!xml || !id) return 0;
+  const escapedId = id.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const tagName =
+    kind === "moveFromRange"
+      ? markerType === "start"
+        ? "w:moveFromRangeStart"
+        : "w:moveFromRangeEnd"
+      : markerType === "start"
+      ? "w:moveToRangeStart"
+      : "w:moveToRangeEnd";
+  const regex = new RegExp(`<${tagName}\\b[^>]*\\bw:id="${escapedId}"[^>]*\\/?>`, "gi");
   const matches = xml.match(regex);
   return matches ? matches.length : 0;
 }
@@ -94,7 +110,7 @@ type TagLocation = {
 };
 
 function findPairedTagWithId(xml: string, tagName: string, id: string): TagLocation | null {
-  if (!xml) return null;
+  if (!xml || !id) return null;
   const escapedId = id.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
   const openRegex = new RegExp(`<${tagName}\\b[^>]*\\bw:id="${escapedId}"[^>]*>`, "i");
   const match = openRegex.exec(xml);
@@ -150,17 +166,27 @@ function convertDelTextToT(body: string): string {
   return body.replace(/<w:delText\b([^>]*)>(.*?)<\/w:delText>/gis, "<w:t$1>$2</w:t>");
 }
 
-function removeRangeMarkers(xml: string, moveIdOrName: string): string {
-  if (!xml || !moveIdOrName) return xml;
-  const escaped = moveIdOrName.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-  const markerPattern = new RegExp(
-    `<w:(moveFromRangeStart|moveFromRangeEnd|moveToRangeStart|moveToRangeEnd)\\b[^>]*\\b(w:id|name)="${escaped}"[^>]*\\/?>`,
-    "gi"
-  );
-  let result = xml.replace(markerPattern, "");
-  const anyMarkerPattern = /<w:(moveFromRangeStart|moveFromRangeEnd|moveToRangeStart|moveToRangeEnd)\b[^>]*\/>/gi;
-  result = result.replace(anyMarkerPattern, "");
-  return result;
+function removeRangeMarkerById(
+  xml: string,
+  id: string,
+  kind: "moveFromRange" | "moveToRange"
+): { xml: string; success: boolean } {
+  if (!xml || !id) return { xml, success: false };
+  const escaped = id.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const startTag = kind === "moveFromRange" ? "w:moveFromRangeStart" : "w:moveToRangeStart";
+  const endTag = kind === "moveFromRange" ? "w:moveFromRangeEnd" : "w:moveToRangeEnd";
+
+  const startRegex = new RegExp(`<${startTag}\\b[^>]*\\bw:id="${escaped}"[^>]*\\/?>`, "i");
+  const endRegex = new RegExp(`<${endTag}\\b[^>]*\\bw:id="${escaped}"[^>]*\\/?>`, "i");
+
+  const hasStart = startRegex.test(xml);
+  const hasEnd = endRegex.test(xml);
+
+  if (!hasStart && !hasEnd) return { xml, success: false };
+
+  let updated = xml.replace(startRegex, "");
+  updated = updated.replace(endRegex, "");
+  return { xml: updated, success: true };
 }
 
 function unwrapTagElement(
@@ -202,7 +228,7 @@ export function regenerateDocxParts(options: RegenerateOptions): RegenerateResul
 
   type TargetedComment = {
     comment: ReviewComment;
-    action: "RESOLVE" | "LEAVE";
+    action: "RESOLVE";
   };
 
   const targetedChanges: TargetedChange[] = [];
@@ -228,20 +254,24 @@ export function regenerateDocxParts(options: RegenerateOptions): RegenerateResul
     }
   }
 
-  // 2. Atomic Pre-Check: Validate revisionRefs exist and are unique
+  // 2. Pre-Check: Refuse moves carrying footnotes (Section 4)
   for (const { change } of targetedChanges) {
-    // Unsupported check for move carrying footnotes without resolvable refs
-    if (change.type === "move" && change.footnoteRefs?.length) {
-      if (!change.revisionRefs || change.revisionRefs.length === 0) {
-        return { ok: false, reason: "unsupported-footnote-move-regeneration" };
-      }
+    if (
+      change.type === "move" &&
+      ((change.footnoteRefs && change.footnoteRefs.length > 0) ||
+        (change.originFootnoteIds && change.originFootnoteIds.length > 0) ||
+        (change.destFootnoteIds && change.destFootnoteIds.length > 0))
+    ) {
+      return { ok: false, reason: "unsupported-footnote-move-regeneration" };
     }
+  }
 
+  // 3. Atomic Pre-Check: Validate revisionRefs & moveRangeRefs exist and are unique
+  for (const { change } of targetedChanges) {
     if (!change.revisionRefs || change.revisionRefs.length === 0) {
       return { ok: false, reason: "revision-not-found" };
     }
 
-    // Check atomicity for replacement and move
     if (change.type === "replacement") {
       const delRef = change.revisionRefs.find((r) => r.kind === "del");
       const insRef = change.revisionRefs.find((r) => r.kind === "ins");
@@ -258,7 +288,6 @@ export function regenerateDocxParts(options: RegenerateOptions): RegenerateResul
       }
     }
 
-    // Check presence & uniqueness of each ref ID in targeted XML part
     for (const ref of change.revisionRefs) {
       const partXml = modifiedParts[ref.part];
       if (!partXml) {
@@ -272,9 +301,43 @@ export function regenerateDocxParts(options: RegenerateOptions): RegenerateResul
         return { ok: false, reason: "revision-duplicate" };
       }
     }
+
+    for (const rangeRef of change.moveRangeRefs || []) {
+      const partXml = modifiedParts[rangeRef.part];
+      if (!partXml) {
+        return { ok: false, reason: "revision-not-found" };
+      }
+      const startCount = countRangeMarkerWithId(partXml, "start", rangeRef.kind, rangeRef.id);
+      const endCount = countRangeMarkerWithId(partXml, "end", rangeRef.kind, rangeRef.id);
+      if (startCount === 0 || endCount === 0) {
+        return { ok: false, reason: "revision-not-found" };
+      }
+      if (startCount > 1 || endCount > 1) {
+        return { ok: false, reason: "revision-duplicate" };
+      }
+    }
   }
 
-  // 3. Apply XML transformations for targeted changes
+  // 4. Pre-Check: Validate commentsExtended paraId (Section 3)
+  const extXml = modifiedParts["word/commentsExtended.xml"];
+  if (targetedComments.length > 0 && extXml) {
+    for (const { comment } of targetedComments) {
+      if (!comment.commentExtendedParaId) {
+        return { ok: false, reason: "comment-resolution-unsupported" };
+      }
+      const escapedParaId = comment.commentExtendedParaId.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const regex = new RegExp(`<w15:commentEx\\b[^>]*\\bw15:paraId="${escapedParaId}"[^>]*\\/?>`, "gi");
+      const matches = extXml.match(regex);
+      if (!matches || matches.length === 0) {
+        return { ok: false, reason: "comment-resolution-unsupported" };
+      }
+      if (matches.length > 1) {
+        return { ok: false, reason: "revision-duplicate" };
+      }
+    }
+  }
+
+  // 5. Apply XML transformations for targeted changes
   for (const { change, action } of targetedChanges) {
     if (!change.revisionRefs) continue;
 
@@ -326,67 +389,68 @@ export function regenerateDocxParts(options: RegenerateOptions): RegenerateResul
         }
       }
 
-      if (change.type === "move" && change.moveName) {
-        updatedXml = removeRangeMarkers(updatedXml, change.moveName);
-      }
-      updatedXml = removeRangeMarkers(updatedXml, ref.id);
-
       modifiedParts[ref.part] = updatedXml;
       processedRefsCount++;
     }
-  }
 
-  // 4. Apply comment resolutions (in word/commentsExtended.xml if present)
-  if (targetedComments.length > 0) {
-    const extXml = modifiedParts["word/commentsExtended.xml"];
-    if (extXml) {
-      let updatedExtXml = extXml;
-      for (const { comment } of targetedComments) {
-        if (!comment.commentId) continue;
-        const cid = comment.commentId;
+    for (const rangeRef of change.moveRangeRefs || []) {
+      const partXml = modifiedParts[rangeRef.part];
+      if (!partXml) continue;
 
-        // Try to update w15:done="0" to w15:done="1" for w15:commentEx
-        const escapedCid = cid.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-        const regex = new RegExp(`(<w15:commentEx\\b[^>]*\\bw15:paraIdParent="${escapedCid}"[^>]*)(>)`, "gi");
-        if (regex.test(updatedExtXml)) {
-          updatedExtXml = updatedExtXml.replace(regex, (m, p1, p2) => {
-            if (p1.includes('w15:done="0"')) {
-              return p1.replace('w15:done="0"', 'w15:done="1"') + p2;
-            }
-            if (!p1.includes("w15:done=")) {
-              return p1 + ' w15:done="1"' + p2;
-            }
-            return m;
-          });
-        } else {
-          // General matching on commentEx tag order or attributes
-          const tagPattern = new RegExp(`(<w15:commentEx\\b[^>]*)(/?>)`, "g");
-          let index = 0;
-          const targetIndex = parseInt(cid, 10);
-          updatedExtXml = updatedExtXml.replace(tagPattern, (m, p1, p2) => {
-            if (index === targetIndex || (!isNaN(targetIndex) && index === targetIndex)) {
-              index++;
-              if (p1.includes('w15:done="0"')) return p1.replace('w15:done="0"', 'w15:done="1"') + p2;
-              if (!p1.includes("w15:done=")) return p1 + ' w15:done="1"' + p2;
-            }
-            index++;
-            return m;
-          });
-        }
-      }
-      modifiedParts["word/commentsExtended.xml"] = updatedExtXml;
+      const res = removeRangeMarkerById(partXml, rangeRef.id, rangeRef.kind);
+      if (!res.success) return { ok: false, reason: "revision-not-found" };
+      modifiedParts[rangeRef.part] = res.xml;
     }
   }
 
-  // 5. Post-transformation structural validation
+  // 6. Apply comment resolutions (strictly by w15:paraId)
+  if (targetedComments.length > 0 && extXml) {
+    let updatedExtXml = modifiedParts["word/commentsExtended.xml"];
+    for (const { comment } of targetedComments) {
+      if (!comment.commentExtendedParaId) continue;
+      const paraId = comment.commentExtendedParaId;
+      const escapedParaId = paraId.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const commentExPattern = new RegExp(`<w15:commentEx\\b[^>]*\\bw15:paraId="${escapedParaId}"[^>]*\\/?>`, "gi");
+
+      updatedExtXml = updatedExtXml.replace(commentExPattern, (tag) => {
+        if (tag.includes('w15:done="0"')) {
+          return tag.replace('w15:done="0"', 'w15:done="1"');
+        }
+        if (tag.includes('w15:done="1"')) {
+          return tag;
+        }
+        if (tag.endsWith("/>")) {
+          return tag.slice(0, -2) + ' w15:done="1"/>';
+        }
+        return tag.slice(0, -1) + ' w15:done="1">';
+      });
+    }
+    modifiedParts["word/commentsExtended.xml"] = updatedExtXml;
+  }
+
+  // 7. Post-transformation structural validation
   for (const { change } of targetedChanges) {
-    if (!change.revisionRefs) continue;
-    for (const ref of change.revisionRefs) {
-      const partXml = modifiedParts[ref.part];
-      if (partXml) {
-        const remainingCount = countTagWithId(partXml, tagForKind(ref.kind), ref.id);
-        if (remainingCount > 0) {
-          return { ok: false, reason: "invalid-xml-structure" };
+    if (change.revisionRefs) {
+      for (const ref of change.revisionRefs) {
+        const partXml = modifiedParts[ref.part];
+        if (partXml) {
+          const remainingCount = countTagWithId(partXml, tagForKind(ref.kind), ref.id);
+          if (remainingCount > 0) {
+            return { ok: false, reason: "invalid-xml-structure" };
+          }
+        }
+      }
+    }
+
+    if (change.moveRangeRefs) {
+      for (const rangeRef of change.moveRangeRefs) {
+        const partXml = modifiedParts[rangeRef.part];
+        if (partXml) {
+          const remainingStart = countRangeMarkerWithId(partXml, "start", rangeRef.kind, rangeRef.id);
+          const remainingEnd = countRangeMarkerWithId(partXml, "end", rangeRef.kind, rangeRef.id);
+          if (remainingStart > 0 || remainingEnd > 0) {
+            return { ok: false, reason: "invalid-xml-structure" };
+          }
         }
       }
     }
@@ -405,6 +469,10 @@ export async function regenerateDocxZip(
   parsedChanges?: ReviewChange[],
   parsedComments?: ReviewComment[]
 ): Promise<RegenerateZipResult> {
+  if (!parsedChanges || !parsedComments) {
+    return { ok: false, reason: "missing-parsed-changes" };
+  }
+
   let zip: JSZip;
   try {
     zip = await JSZip.loadAsync(docxArrayBuffer);
@@ -434,32 +502,10 @@ export async function regenerateDocxZip(
     parts["word/commentsExtended.xml"] = await comExtFile.async("string");
   }
 
-  let changes = parsedChanges;
-  let comments = parsedComments;
-
-  if (!changes || !comments) {
-    const reviewResult = parseDocxReview(parts);
-    const allChanges: ReviewChange[] = [];
-    const allComments: ReviewComment[] = [];
-
-    if (reviewResult.unclassified) {
-      allChanges.push(...(reviewResult.unclassified.changes || []));
-      allComments.push(...(reviewResult.unclassified.comments || []));
-    }
-
-    for (const bucket of Object.values(reviewResult.scenes || {}) as any[]) {
-      allChanges.push(...(bucket.changes || []));
-      allComments.push(...(bucket.comments || []));
-    }
-
-    changes = changes || allChanges;
-    comments = comments || allComments;
-  }
-
   const res = regenerateDocxParts({
     parts,
-    changes,
-    comments,
+    changes: parsedChanges,
+    comments: parsedComments,
     savedStates: decisions,
   });
 

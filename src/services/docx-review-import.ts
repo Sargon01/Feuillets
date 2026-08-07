@@ -65,6 +65,7 @@ type ChangeMetadata = {
    * "sûr". */
   relocatedOrphan?: boolean;
   revisionRefs?: RevisionRef[];
+  moveRangeRefs?: MoveRangeRef[];
 };
 
 /** Classement du point d'insertion d'une destination (voir
@@ -185,6 +186,7 @@ export type ReviewComment = {
    * ReviewChange | ReviewComment) reste type-safe des deux côtés. */
   relocatedOrphan?: boolean;
   commentId?: string;
+  commentExtendedParaId?: string;
 };
 
 type ReviewBucket = {
@@ -208,6 +210,7 @@ type ParsedComment = {
   done?: boolean;
   parentId?: string;
   commentId?: string;
+  commentExtendedParaId?: string;
 };
 
 type CommentsById = Record<string, ParsedComment>;
@@ -328,6 +331,13 @@ export type RevisionRef = {
   kind: "ins" | "del" | "moveFrom" | "moveTo";
 };
 
+export type MoveRangeRef = {
+  part: ReviewSourcePart;
+  kind: "moveFromRange" | "moveToRange";
+  id: string;
+  name: string;
+};
+
 type ReviewVaultFile = { path: string };
 
 type ReviewVault = {
@@ -408,12 +418,14 @@ export function parseCommentsXml(
         .map((t) => decodeXmlEntities(t.body))
         .join("")
     );
-    byId[id] = {
+    const commentObj: ParsedComment = {
       author: getAttr(attrs, "w:author") || "Inconnu",
       date: getAttr(attrs, "w:date") || "",
       text: paragraphs.filter(Boolean).join("\n").trim(),
       commentId: id,
     };
+    if (paraIds[0]) commentObj.commentExtendedParaId = paraIds[0];
+    byId[id] = commentObj;
     for (const pid of paraIds) paraIdToId[pid] = id;
     collected.push({ id, paraIds });
   }
@@ -612,6 +624,8 @@ export function parseDocumentXml(
      chaque <w:p> : un seul <w:pStyle> par paragraphe, jamais hérité du
      précédent. */
   let currentParaIsHeading = false;
+  const lastRangeRefByMoveName = new Map<string, MoveRangeRef>();
+  let lastPPrRevisionRef: RevisionRef | null = null;
 
   /* InsertionChange/MoveChange fraîchement fermés (w:ins/w:moveTo), en
      attente de savoir ce qui les SUIT immédiatement dans le document —
@@ -826,7 +840,11 @@ export function parseDocumentXml(
     if ((t.name === "w:moveFromRangeStart" || t.name === "w:moveToRangeStart") && t.selfClosing) {
       const id = getAttr(t.attrs, "w:id");
       const name = getAttr(t.attrs, "w:name");
-      if (id && name) moveRangeNameById.set(id, name);
+      if (id && name) {
+        moveRangeNameById.set(id, name);
+        const kind = t.name === "w:moveFromRangeStart" ? "moveFromRange" : "moveToRange";
+        lastRangeRefByMoveName.set(name, { part: "word/document.xml", kind, id, name });
+      }
       currentMoveName = name || currentMoveName;
       continue;
     }
@@ -872,8 +890,18 @@ export function parseDocumentXml(
           moved: insInfo.moved,
           moveName: insInfo.moveName,
         };
+        const revRefs: RevisionRef[] = [];
         if (insInfo.id) {
-          entry.revisionRefs = [{ part: "word/document.xml", id: insInfo.id, kind: insInfo.moved ? "moveTo" : "ins" }];
+          revRefs.push({ part: "word/document.xml", id: insInfo.id, kind: insInfo.moved ? "moveTo" : "ins" });
+        }
+        if (lastPPrRevisionRef && (lastPPrRevisionRef.kind === "moveTo" || lastPPrRevisionRef.kind === "ins")) {
+          revRefs.unshift(lastPPrRevisionRef);
+        }
+        if (revRefs.length) entry.revisionRefs = revRefs;
+
+        if (insInfo.moved && insInfo.moveName) {
+          const rRef = lastRangeRefByMoveName.get(insInfo.moveName);
+          if (rRef && rRef.kind === "moveToRange") entry.moveRangeRefs = [rRef];
         }
         const insFootnoteIds = footnoteIdsOf(text);
         if (insFootnoteIds.length) entry.footnoteRefs = insFootnoteIds;
@@ -907,8 +935,18 @@ export function parseDocumentXml(
           moved: delInfo.moved,
           moveName: delInfo.moveName,
         };
+        const revRefs: RevisionRef[] = [];
         if (delInfo.id) {
-          entry.revisionRefs = [{ part: "word/document.xml", id: delInfo.id, kind: delInfo.moved ? "moveFrom" : "del" }];
+          revRefs.push({ part: "word/document.xml", id: delInfo.id, kind: delInfo.moved ? "moveFrom" : "del" });
+        }
+        if (lastPPrRevisionRef && (lastPPrRevisionRef.kind === "moveFrom" || lastPPrRevisionRef.kind === "del")) {
+          revRefs.unshift(lastPPrRevisionRef);
+        }
+        if (revRefs.length) entry.revisionRefs = revRefs;
+
+        if (delInfo.moved && delInfo.moveName) {
+          const rRef = lastRangeRefByMoveName.get(delInfo.moveName);
+          if (rRef && rRef.kind === "moveFromRange") entry.moveRangeRefs = [rRef];
         }
         const delFootnoteIds = footnoteIdsOf(delInfo.buffer);
         if (delFootnoteIds.length) entry.footnoteRefs = delFootnoteIds;
@@ -920,7 +958,14 @@ export function parseDocumentXml(
     }
     if (t.name === "w:pPr" && !t.isClose && !t.selfClosing) {
       insidePPr = true;
+      lastPPrRevisionRef = null;
       continue;
+    }
+    if (insidePPr && t.selfClosing && (t.name === "w:del" || t.name === "w:ins" || t.name === "w:moveFrom" || t.name === "w:moveTo")) {
+      const pid = getAttr(t.attrs, "w:id");
+      if (pid) {
+        lastPPrRevisionRef = { part: "word/document.xml", id: pid, kind: t.name === "w:moveTo" ? "moveTo" : t.name === "w:moveFrom" ? "moveFrom" : t.name === "w:del" ? "del" : "ins" };
+      }
     }
     if (t.name === "w:pPr" && t.isClose) {
       insidePPr = false;
@@ -1108,6 +1153,7 @@ export function parseDocumentXml(
             date: comment.date,
             commentId: id,
           };
+          if (comment.commentExtendedParaId) entry.commentExtendedParaId = comment.commentExtendedParaId;
           /* Posés seulement s'ils s'appliquent (un commentaire ordinaire
              garde sa forme exacte) : resolvedInWord pré-classe le retour
              comme résolu à l'analyse (voir docx-review-view.js), parentId
@@ -1147,6 +1193,7 @@ export function parseDocumentXml(
             date: comment.date,
             commentId: id,
           };
+          if (comment.commentExtendedParaId) entry.commentExtendedParaId = comment.commentExtendedParaId;
           if (comment.done) entry.resolvedInWord = true;
           if (comment.parentId != null) entry.parentId = comment.parentId;
           trackOrphan(entry);
@@ -1308,7 +1355,14 @@ function parseFootnoteBody(body: string, commentsById: CommentsById): ReviewBuck
         resolvedCommentIds.add(id);
         const comment = commentsById[id];
         if (comment) {
-          const c: ReviewComment = { anchorText, text: comment.text, author: comment.author, date: comment.date };
+          const c: ReviewComment = {
+            anchorText,
+            text: comment.text,
+            author: comment.author,
+            date: comment.date,
+            commentId: id,
+          };
+          if (comment.commentExtendedParaId) c.commentExtendedParaId = comment.commentExtendedParaId;
           if (comment.done) c.resolvedInWord = true;
           if (comment.parentId != null) c.parentId = comment.parentId;
           comments.push(c);
@@ -1324,7 +1378,14 @@ function parseFootnoteBody(body: string, commentsById: CommentsById): ReviewBuck
         resolvedCommentIds.add(id);
         const comment = commentsById[id];
         if (comment) {
-          const c: ReviewComment = { anchorText: "", text: comment.text, author: comment.author, date: comment.date };
+          const c: ReviewComment = {
+            anchorText: "",
+            text: comment.text,
+            author: comment.author,
+            date: comment.date,
+            commentId: id,
+          };
+          if (comment.commentExtendedParaId) c.commentExtendedParaId = comment.commentExtendedParaId;
           if (comment.done) c.resolvedInWord = true;
           if (comment.parentId != null) c.parentId = comment.parentId;
           comments.push(c);
@@ -1430,6 +1491,9 @@ function collapseSameTypeFragments<T extends InsertionChange | DeletionChange>(f
   const revisionRefs = fragments.flatMap((f) => f.revisionRefs || []);
   if (revisionRefs.length) merged.revisionRefs = revisionRefs;
   else delete merged.revisionRefs;
+  const moveRangeRefs = fragments.flatMap((f) => f.moveRangeRefs || []);
+  if (moveRangeRefs.length) merged.moveRangeRefs = moveRangeRefs;
+  else delete merged.moveRangeRefs;
   return merged;
 }
 
@@ -1470,6 +1534,8 @@ function mergeMovePairs(changes: ReviewChange[]): ReviewChange[] {
         };
         const moveRefs = [...(del.revisionRefs || []), ...(ins.revisionRefs || [])];
         if (moveRefs.length) move.revisionRefs = moveRefs;
+        const moveRangeRefs = [...(del.moveRangeRefs || []), ...(ins.moveRangeRefs || [])];
+        if (moveRangeRefs.length) move.moveRangeRefs = moveRangeRefs;
         const moveFootnoteIds = ins.footnoteRefs?.length ? ins.footnoteRefs : del.footnoteRefs;
         if (moveFootnoteIds?.length) move.footnoteRefs = moveFootnoteIds;
         if (del.footnoteRefs?.length) move.originFootnoteIds = del.footnoteRefs;
@@ -1570,6 +1636,8 @@ export function mergeGlobalMovePairs(
       if (ins.footnoteRefs?.length) mergedMove.destFootnoteIds = ins.footnoteRefs;
       const globalMoveRefs = [...(del.revisionRefs || []), ...(ins.revisionRefs || [])];
       if (globalMoveRefs.length) mergedMove.revisionRefs = globalMoveRefs;
+      const globalMoveRangeRefs = [...(del.moveRangeRefs || []), ...(ins.moveRangeRefs || [])];
+      if (globalMoveRangeRefs.length) mergedMove.moveRangeRefs = globalMoveRangeRefs;
 
       const targetPath = insItem.container.path || delItem.container.path;
       if (targetPath) {
