@@ -142,7 +142,17 @@ La même logique de composition alimente l’Aperçu et les exports. Les titres,
 | Observer les fils narratifs | Chemin de fer |
 | Vérifier le temps du récit | Chronologie |
 | Lire comme un livre continu | Aperçu |
-| Explorer librement | Canvas |
+| Explorer librement | Carnet |
+
+Le Carnet est l'espace libre où l'auteur peut jeter ses idées, références,
+scènes possibles et matériaux de recherche, les disposer et les relier
+librement, puis transformer volontairement certaines idées en feuillets du
+manuscrit ou en fiches Markdown de Recherche.
+
+Le Carnet s'appuie sur le Canvas natif d'Obsidian. [Advanced Canvas](https://github.com/Developer-Mike/obsidian-advanced-canvas)
+reste facultatif mais recommandé pour une expérience plus proche de
+Scapple, notamment texte sans cadre, groupes repliables et interactions
+avancées avec les nœuds.
 
 ## Vos textes restent les vôtres
 

@@ -11,28 +11,40 @@ const GAP_X = 40;
 const GAP_Y = 40;
 const COLS = 5;
 
-type CanvasNode = {
+/** Valeurs possibles du marqueur `feuillets_managed` posé sur les nodes/edges
+ * que Feuillets crée lui-même sur le Tableau brainstorming — jamais posé sur
+ * un élément que l'autrice a créé ou déposé à la main (voir canvas-bridge.ts
+ * pour "manuscript"/"research" sur les nodes issus d'une idée convertie). */
+export type FeuilletsManagedKind = "manuscript" | "research" | "thread";
+
+export type CanvasNode = {
   id: string;
   type?: string;
+  text?: string;
   file?: string;
   x?: number;
   y?: number;
   width?: number;
   height?: number;
   color?: string;
+  feuillets_managed?: FeuilletsManagedKind;
   [key: string]: unknown;
 };
 
-type CanvasEdge = {
+export type CanvasEdge = {
   id: string;
   fromNode?: string;
   toNode?: string;
+  /* "fil"/"feuillets_fil" : anciens marqueurs des arêtes de fils créées par
+     Feuillets (avant feuillets_managed) — reconnus en lecture pour toujours,
+     jamais réécrits (voir isFeuilletsThreadEdge). */
   fil?: string;
   feuillets_fil?: string;
+  feuillets_managed?: FeuilletsManagedKind;
   [key: string]: unknown;
 };
 
-type CanvasData = {
+export type CanvasData = {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
 };
@@ -44,8 +56,22 @@ function generateId(): string {
   return s;
 }
 
-function canvasPathFor(app: App, root: TFolder): string {
+/** Chemin du tableau de brainstorming du projet actif — exporté : le pont
+ * Canvas (commandes "passer au manuscrit"/"transformer en notes de
+ * recherche", intégration Advanced Canvas) doit localiser exactement le même
+ * fichier que celui que ce module génère/met à jour, jamais un second chemin
+ * recalculé indépendamment. */
+export function canvasPathFor(app: App, root: TFolder): string {
   return normalizePath(`${resourcesFolderPath(app, root)}/Tableau brainstorming.canvas`);
+}
+
+/** Une arête est reconnue comme une arête de fil posée par Feuillets si elle
+ * porte le marqueur actuel (feuillets_managed:"thread") OU un des deux noms
+ * hérités ("fil"/"feuillets_fil") — jamais parce que son `label` correspond
+ * au nom d'un fil narratif : un lien tracé à la main qui porte par hasard le
+ * même texte que le fil ne doit jamais être confondu avec une arête générée. */
+function isFeuilletsThreadEdge(e: CanvasEdge): boolean {
+  return e.feuillets_managed === "thread" || !!e.fil || !!e.feuillets_fil;
 }
 
 /** Équivalents de isFrontMatter/roleOfFile (folder-structure.js), mais
@@ -70,10 +96,15 @@ function roleOfFileWithRoot(settings: FeuilletsSettings, root: TFolder, file: TF
 
 /** Génère ou met à jour le tableau canvas de brainstorming du projet actif :
  * une carte-fichier par scène/chapitre, colorée selon le label du feuillet.
- * Les cartes déjà présentes gardent EXACTEMENT leur position — seules les
- * scènes nouvelles (jamais vues) ou disparues (supprimées/déplacées hors
- * projet) sont ajoutées/retirées, pour ne jamais détruire un arrangement
- * manuel déjà en place.
+ *
+ * INVARIANT NON DESTRUCTIF — le Tableau appartient à l'autrice, pas à
+ * Feuillets : cette fonction n'ajoute que ce qui manque, elle ne retire
+ * JAMAIS un node existant (text, group, link, file externe, note Recherche,
+ * ancienne carte de scène supprimée…), ne déplace ni ne redimensionne rien,
+ * et ne retire une arête que si Feuillets l'a lui-même posée (marquée
+ * feuillets_managed:"thread", ou l'un des deux noms hérités "fil"/
+ * "feuillets_fil"). Une connexion tracée à la main n'est jamais touchée,
+ * même si son `label` correspond au nom d'un fil.
  *
  * Ce tableau est volontairement indépendant de l'ordre réel du manuscrit,
  * comme le mode "freeform" du corkboard de Scrivener : le déplacer ici ne
@@ -111,10 +142,11 @@ export async function generateCanvasBoard(app: App, settings: FeuilletsSettings)
   if (!Array.isArray(canvas.nodes)) canvas.nodes = [];
   if (!Array.isArray(canvas.edges)) canvas.edges = [];
 
-  // Retire les cartes dont le fichier n'appartient plus au projet (scène
-  // supprimée ou déplacée hors du manuscrit).
-  const scenePaths = new Set(scenes.map((f) => f.path));
-  canvas.nodes = canvas.nodes.filter((n) => n.type !== "file" || scenePaths.has(n.file as string));
+  /* Nettoyage défensif minimal : une arête dont l'un des deux bouts pointe
+     vers un id qui n'existe nulle part dans le tableau (fichier supprimé
+     directement dans le coffre, hors de Feuillets) est déjà une référence
+     cassée pour Obsidian lui-même — la retirer ici n'efface aucune donnée
+     valide, aucun node existant n'est jamais supprimé par ce module. */
   const nodeIds = new Set(canvas.nodes.map((n) => n.id));
   canvas.edges = canvas.edges.filter((e) => nodeIds.has(e.fromNode as string) && nodeIds.has(e.toNode as string));
 
@@ -123,7 +155,16 @@ export async function generateCanvasBoard(app: App, settings: FeuilletsSettings)
   // est en revanche toujours resynchronisée sur le label actuel du
   // feuillet — y compris pour une carte déjà présente — puisqu'un label
   // ajouté ou changé après coup doit se refléter ; seule la POSITION
-  // (voulue par toi) est intouchable une fois posée.
+  // (voulue par toi) est intouchable une fois posée. Ce resync ne s'applique
+  // qu'aux cartes que Feuillets gère réellement : celles déjà marquées
+  // feuillets_managed:"manuscript", ou une carte-fichier héritée d'une
+  // génération antérieure à ce marqueur (elle est alors migrée dessus,
+  // même principe que la migration fil/feuillets_fil→thread plus bas) — un
+  // fichier de scène simplement glissé à la main sur le tableau n'est en
+  // revanche jamais recoloré ni marqué : impossible de le distinguer d'une
+  // ancienne carte Feuillets sans indice, donc traité comme tel par
+  // compatibilité ; toute carte future (dès cette version) porte le
+  // marqueur dès sa création et ce cas ambigu ne se reproduira plus.
   let maxY = -GAP_Y;
   for (const n of canvas.nodes) {
     const bottom = (n.y || 0) + (n.height || NODE_H);
@@ -132,13 +173,14 @@ export async function generateCanvasBoard(app: App, settings: FeuilletsSettings)
   let col = 0;
   let added = 0;
   const nodeByFileSoFar = new Map<string, CanvasNode>();
-  for (const n of canvas.nodes) if (n.type === "file") nodeByFileSoFar.set(n.file as string, n);
+  for (const n of canvas.nodes) if (n.type === "file" && n.file) nodeByFileSoFar.set(n.file as string, n);
 
   for (const file of scenes) {
     const label = labelOf(app, file);
     const color = label ? labelColor(settings, label) : undefined;
     const existingNode = nodeByFileSoFar.get(file.path);
     if (existingNode) {
+      existingNode.feuillets_managed = "manuscript";
       if (color) existingNode.color = color;
       else delete existingNode.color;
       continue;
@@ -151,6 +193,7 @@ export async function generateCanvasBoard(app: App, settings: FeuilletsSettings)
       y: maxY + GAP_Y,
       width: NODE_W,
       height: NODE_H,
+      feuillets_managed: "manuscript",
     };
     if (color) node.color = color;
     canvas.nodes.push(node);
@@ -166,17 +209,13 @@ export async function generateCanvasBoard(app: App, settings: FeuilletsSettings)
   // feuillets qui partagent une même valeur de fil: — plantation vers
   // résolution (ou vers le marqueur en attente si pas encore résolu, les
   // deux portent la même valeur tant que ce n'est pas réglé). Reconstruites
-  // à chaque génération : on retire d'abord UNIQUEMENT celles qu'on a
-  // nous-mêmes créées (marquées par le champ "fil") — une arête que tu as
-  // tracée toi-même à la main sur le canvas n'a pas ce champ et n'est
-  // jamais touchée.
-  // "feuillets_fil" : ancien nom du marqueur (une seule génération l'a
-  // jamais utilisé) — filtré ici aussi une fois pour toutes, migration
-  // silencieuse vers "fil" sans dupliquer les arêtes déjà tracées.
-  canvas.edges = canvas.edges.filter((e) => !e.fil && !e.feuillets_fil);
+  // à chaque génération : on retire d'abord UNIQUEMENT celles que Feuillets
+  // a lui-même posées (isFeuilletsThreadEdge) — une arête tracée à la main
+  // sur le canvas, même avec le même label qu'un fil, n'est jamais touchée.
+  canvas.edges = canvas.edges.filter((e) => !isFeuilletsThreadEdge(e));
   const nodeByFile = new Map<string, CanvasNode>();
   for (const n of canvas.nodes) {
-    if (n.type === "file") nodeByFile.set(n.file as string, n);
+    if (n.type === "file" && n.file) nodeByFile.set(n.file as string, n);
   }
   const byFil = new Map<string, TFile[]>();
   for (const file of scenes) {
@@ -201,7 +240,7 @@ export async function generateCanvasBoard(app: App, settings: FeuilletsSettings)
         toSide: "left",
         color,
         label: value,
-        fil: value,
+        feuillets_managed: "thread",
       });
       edgesAdded++;
     }
