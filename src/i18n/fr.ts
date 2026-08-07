@@ -1440,6 +1440,13 @@ export const fr = {
   "modal.scrivenerImport.noScrivxFound": "Aucun fichier .scrivx trouvé dans ce dossier.",
   "modal.scrivenerImport.pathTaken": "Le coffre a changé pendant l'import : « {path} » est désormais occupé. Import interrompu pour ne pas fausser les liens internes déjà résolus.",
   "modal.scrivenerImport.trashNotImported": "Corbeille Scrivener : {count} élément(s) ne seront pas importés.",
+  "modal.scrivenerImport.summaryIntro": "Import Scrivener terminé : {files} fichier(s) Markdown, {assets} ressource(s).",
+  "modal.scrivenerImport.summaryUnresolvedLinks": "{count} lien(s) interne(s) non résolu(s)",
+  "modal.scrivenerImport.summaryUnresolvedAssets": "{count} ressource(s) introuvable(s)",
+  "modal.scrivenerImport.summaryAmbiguousAssets": "{count} ressource(s) ambiguë(s)",
+  "modal.scrivenerImport.summaryUnsupportedAssets": "{count} ressource(s) non prise(s) en charge",
+  "modal.scrivenerImport.summaryTrashSkipped": "{count} élément(s) de la Corbeille ignoré(s)",
+  "modal.scrivenerImport.summaryRtfUnreadable": "{count} fichier(s) texte introuvable(s)/illisible(s)",
 
   "modal.export.title": "Exporter / Compiler",
   "modal.export.format": "Format d'export",
