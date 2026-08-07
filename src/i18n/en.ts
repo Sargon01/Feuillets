@@ -251,7 +251,10 @@ export const en = {
   "board.filter.tooltip": "Filters (status, label, POV, progress)",
   "board.filterActiveNote": "Filter active — drag-and-drop disabled, partial total.",
   "board.noProjectFolder": "No project folder set (plugin settings).",
-  "board.canvasTooltip": "Canvas board (brainstorming)",
+  "board.canvasTooltip": "Open the Notebook",
+  "board.canvasMenu.open": "Open the Notebook",
+  "board.canvasMenu.toManuscript": "Turn ideas into manuscript sheets…",
+  "board.canvasMenu.toResearch": "Turn ideas into research files…",
   "board.viewOptionsTooltip": "View options",
   "board.visibleModesHeader": "— Visible modes —",
   "board.undoMoveTooltip": "Undo the last move",
@@ -494,6 +497,12 @@ export const en = {
   // ---------- Grammar check (grammar-view.js) ----------
 
   // ---------- Analysis (analysis-view.js) ----------
+  "advancedCanvas.toManuscript": "Send ideas to manuscript…",
+  "advancedCanvas.toManuscriptSingular": "Send to manuscript",
+  "advancedCanvas.toResearch": "Turn into research files…",
+  "advancedCanvas.toResearchSingular": "Turn into a research file",
+  "advancedCanvas.nodeMenu.toManuscript": "Turn into a manuscript sheet",
+  "advancedCanvas.nodeMenu.toResearch": "Turn into a research file",
   "analysis.displayText": "Analysis",
 
   /* Proofreading tab: results provided by a companion language-analysis
@@ -1082,7 +1091,9 @@ export const en = {
   "main.cmd.createDemoProject": "Create a demo project",
   "main.cmd.importScrivener": "Import a Scrivener project…",
   "main.cmd.openDocxReview": "Open the Edition panel (.docx feedback from an editor)",
-  "main.cmd.generateCanvasBoard": "Generate/update the canvas board (brainstorming)",
+  "main.cmd.generateCanvasBoard": "Open the Notebook",
+  "main.cmd.canvasBridgeToManuscript": "Notebook: turn ideas into manuscript sheets…",
+  "main.cmd.canvasBridgeToResearch": "Notebook: turn ideas into research files…",
   "main.cmd.manageProjects": "Manage projects…",
   "main.cmd.switchProject": "Switch project…",
   "main.cmd.duplicateProject": "Duplicate the active manuscript (new version)…",
@@ -1198,6 +1209,8 @@ export const en = {
   "main.notice.canvasCardsUpToDate": "{count} card(s), up to date",
   "main.notice.canvasLinksDrawn": "{count} link(s) drawn",
   "main.notice.canvasNoLinks": "no link",
+  "main.notice.canvasBoardMissing": "No Notebook for this project yet — open it first (Notebook button on the Cards panel).",
+  "main.notice.canvasUnreadable": "The canvas board is unreadable (invalid JSON).",
   "main.notice.clickToOpen": "Click to open.",
   "main.notice.sheetNameExists": "A sheet with this name already exists.",
   "main.notice.noMarkdownEditor": "No Markdown editor detected.",
@@ -1290,6 +1303,17 @@ export const en = {
   "modal.pdfStyle.dummyP3": "In {section}, we explain the project's core principles. Don't worry: it's nothing complicated, and you'll have it all figured out in no time.",
 
   "modal.close": "Close",
+  "modal.canvasBridge.titleManuscript": "Turn ideas into manuscript sheets",
+  "modal.canvasBridgeNode.title": "Turn “{idea}” into a sheet",
+  "modal.canvasBridge.titleResearch": "Turn ideas into research files",
+  "modal.canvasBridge.noIdeas": "No text idea on this board — write freely on the Canvas first, this dialog will pick them up.",
+  "modal.canvasBridge.destinationLabel": "Destination folder",
+  "modal.canvasBridge.researchDestination": "Destination: {path}",
+  "modal.canvasBridge.confirm": "Convert",
+  "modal.canvasBridge.untitledIdea": "(idea with no text)",
+  "modal.canvasBridge.noSelection": "Select at least one idea.",
+  "modal.canvasBridge.invalidFolder": "Destination folder not found.",
+  "modal.canvasBridge.done": "{count} sheet(s)/file(s) created.",
 
   "modal.appearances.title": "Appearances of “{name}”",
   "modal.appearances.searching": "Searching the manuscript…",

@@ -251,7 +251,10 @@ export const fr = {
   "board.filter.tooltip": "Filtres (statut, label, POV, progression)",
   "board.filterActiveNote": "Filtre actif — glisser-déposer désactivé, total partiel.",
   "board.noProjectFolder": "Aucun dossier projet défini (réglages du plugin).",
-  "board.canvasTooltip": "Tableau canvas (brainstorming)",
+  "board.canvasTooltip": "Ouvrir le Carnet",
+  "board.canvasMenu.open": "Ouvrir le Carnet",
+  "board.canvasMenu.toManuscript": "Passer des idées au manuscrit…",
+  "board.canvasMenu.toResearch": "Transformer des idées en fiches de recherche…",
   "board.viewOptionsTooltip": "Options de la vue",
   "board.visibleModesHeader": "— Modes affichés —",
   "board.undoMoveTooltip": "Annuler le dernier déplacement",
@@ -494,6 +497,12 @@ export const fr = {
   // ---------- Correction grammaticale (grammar-view.js) ----------
 
   // ---------- Analyse (analysis-view.js) ----------
+  "advancedCanvas.toManuscript": "Passer les idées au manuscrit…",
+  "advancedCanvas.toManuscriptSingular": "Passer au manuscrit",
+  "advancedCanvas.toResearch": "Transformer en fiches de recherche…",
+  "advancedCanvas.toResearchSingular": "Transformer en fiche Recherche",
+  "advancedCanvas.nodeMenu.toManuscript": "Transformer en feuillet",
+  "advancedCanvas.nodeMenu.toResearch": "Transformer en fiche Recherche",
   "analysis.displayText": "Analyse",
 
   /* Onglet Relecture : résultats rendus par un module compagnon d'analyse
@@ -1082,7 +1091,9 @@ export const fr = {
   "main.cmd.createDemoProject": "Créer un projet d'exemple (démonstration)",
   "main.cmd.importScrivener": "Importer un projet Scrivener…",
   "main.cmd.openDocxReview": "Ouvrir le panneau Édition (retours .docx d'un directeur/éditeur)",
-  "main.cmd.generateCanvasBoard": "Générer/mettre à jour le tableau canvas (brainstorming)",
+  "main.cmd.generateCanvasBoard": "Ouvrir le Carnet",
+  "main.cmd.canvasBridgeToManuscript": "Carnet : passer des idées au manuscrit…",
+  "main.cmd.canvasBridgeToResearch": "Carnet : transformer des idées en fiches de recherche…",
   "main.cmd.manageProjects": "Gestion des projets…",
   "main.cmd.switchProject": "Changer de projet…",
   "main.cmd.duplicateProject": "Dupliquer le manuscrit actif (nouvelle version)…",
@@ -1198,6 +1209,8 @@ export const fr = {
   "main.notice.canvasCardsUpToDate": "{count} carte(s), à jour",
   "main.notice.canvasLinksDrawn": "{count} lien(s) tracé(s)",
   "main.notice.canvasNoLinks": "aucun lien",
+  "main.notice.canvasBoardMissing": "Aucun Carnet pour ce projet — ouvre-le d'abord (bouton Carnet du panneau Cartes).",
+  "main.notice.canvasUnreadable": "Le tableau canvas est illisible (JSON invalide).",
   "main.notice.clickToOpen": "Cliquer pour ouvrir.",
   "main.notice.sheetNameExists": "Un feuillet portant ce nom existe déjà.",
   "main.notice.noMarkdownEditor": "Aucun éditeur Markdown détecté.",
@@ -1290,6 +1303,17 @@ export const fr = {
   "modal.pdfStyle.dummyP3": "Dans {section}, nous expliquons les principes fondamentaux du projet. Rassurez-vous : ça n'a rien de compliqué, et vous aurez tout compris en un rien de temps.",
 
   "modal.close": "Fermer",
+  "modal.canvasBridge.titleManuscript": "Passer des idées au manuscrit",
+  "modal.canvasBridgeNode.title": "Transformer « {idea} »",
+  "modal.canvasBridge.titleResearch": "Transformer des idées en fiches de recherche",
+  "modal.canvasBridge.noIdeas": "Aucune idée texte sur ce tableau — écris d'abord librement sur le Canvas, cette modale s'en resservira.",
+  "modal.canvasBridge.destinationLabel": "Dossier de destination",
+  "modal.canvasBridge.researchDestination": "Destination : {path}",
+  "modal.canvasBridge.confirm": "Convertir",
+  "modal.canvasBridge.untitledIdea": "(idée sans texte)",
+  "modal.canvasBridge.noSelection": "Sélectionne au moins une idée.",
+  "modal.canvasBridge.invalidFolder": "Dossier de destination introuvable.",
+  "modal.canvasBridge.done": "{count} feuillet(s)/fiche(s) créé(s).",
 
   "modal.appearances.title": "Apparitions de « {name} »",
   "modal.appearances.searching": "Recherche dans le manuscrit…",

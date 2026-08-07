@@ -54,7 +54,10 @@ import { buildNumbering } from "./services/numbering.js";
 import { orderFromSnapshot } from "./utils/sibling-order.js";
 import { handleFilChanged } from "./services/narrative-threads.js";
 import { createDemoProject } from "./services/demo-project.js";
-import { generateCanvasBoard } from "./services/canvas-board.js";
+import { generateCanvasBoard, canvasPathFor } from "./services/canvas-board.js";
+import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
+import type { BridgeMode } from "./services/canvas-bridge.js";
+import { registerAdvancedCanvasIntegration } from "./integrations/advanced-canvas.js";
 import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, duplicateProjectFolder, getVersionsRoot } from "./services/project-files.js";
 import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
@@ -335,6 +338,12 @@ class FeuilletsPlugin extends Plugin {
        coupe l'abonnement au déchargement de Feuillets — pas de référence
        retenue vers une vue morte. */
     this.register(this.analysisRegistry.onChange(() => this.refreshAnalysisPanel()));
+
+    /* Intégration Advanced Canvas : purement optionnelle, sans effet si le
+       plugin compagnon n'est pas installé (voir integrations/advanced-
+       canvas.ts — l'événement personnalisé qu'elle écoute n'est alors
+       simplement jamais émis). */
+    registerAdvancedCanvasIntegration(this);
 
     initScenesEditor(this as unknown as ScenesEditorPlugin);
   }
@@ -640,6 +649,16 @@ class FeuilletsPlugin extends Plugin {
       id: "generate-canvas-board",
       name: t("main.cmd.generateCanvasBoard"),
       callback: () => this.generateCanvasBoard(),
+    });
+    this.addCommand({
+      id: "canvas-bridge-to-manuscript",
+      name: t("main.cmd.canvasBridgeToManuscript"),
+      callback: () => void this.openCanvasBridge("manuscript"),
+    });
+    this.addCommand({
+      id: "canvas-bridge-to-research",
+      name: t("main.cmd.canvasBridgeToResearch"),
+      callback: () => void this.openCanvasBridge("research"),
     });
     this.addCommand({
       id: "manage-projects",
@@ -2834,6 +2853,33 @@ class FeuilletsPlugin extends Plugin {
     messageEl.addEventListener("click", () => {
       openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
     });
+  }
+
+  /** Ouvre le pont Canvas → manuscrit/recherche (repli universel, sans
+   * Advanced Canvas) : lit le Tableau brainstorming.canvas du projet actif,
+   * et laisse la modale choisir/ordonner les idées à convertir. N'agit que
+   * sur CE tableau précis — jamais un autre .canvas du coffre. */
+  async openCanvasBridge(mode: BridgeMode): Promise<void> {
+    const root = this.getProjectFolder();
+    if (!root) {
+      new Notice(t("main.notice.projectFolderNotFound"));
+      return;
+    }
+    const path = canvasPathFor(this.app, root);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      new Notice(t("main.notice.canvasBoardMissing"));
+      return;
+    }
+    const raw = await this.app.vault.read(file);
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      new Notice(t("main.notice.canvasUnreadable"));
+      return;
+    }
+    new CanvasBridgeModal(this.app, this.settings, file, data, mode).open();
   }
 
   openPdfStyleModal() {

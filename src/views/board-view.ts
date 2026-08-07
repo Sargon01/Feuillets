@@ -379,8 +379,31 @@ export class BoardView extends BaseFeuilletsView {
       if (activeMode === k) btn.addClass("feuillets-mode-active");
     }
 
-    this.iconBtn(modeGroup, "layout-dashboard", t("board.canvasTooltip"), () => {
+    const canvasBtn = this.iconBtn(modeGroup, "layout-dashboard", t("board.canvasTooltip"), () => {
       void this.plugin.generateCanvasBoard();
+    });
+    /* Clic droit : accès court aux mêmes actions que la palette de
+       commandes (ouvrir/passer au manuscrit/transformer en recherche) —
+       aucune autre fonction ici (voir cahier des charges, section 12). */
+    canvasBtn.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item.setTitle(t("board.canvasMenu.open")).setIcon("layout-dashboard").onClick(() => {
+          void this.plugin.generateCanvasBoard();
+        })
+      );
+      menu.addItem((item) =>
+        item.setTitle(t("board.canvasMenu.toManuscript")).setIcon("book-open").onClick(() => {
+          void this.plugin.openCanvasBridge("manuscript");
+        })
+      );
+      menu.addItem((item) =>
+        item.setTitle(t("board.canvasMenu.toResearch")).setIcon("flask-conical").onClick(() => {
+          void this.plugin.openCanvasBridge("research");
+        })
+      );
+      menu.showAtMouseEvent(e);
     });
 
     this.iconBtn(modeGroup, "sliders-horizontal", t("board.viewOptionsTooltip"), (e: MouseEvent) => {
