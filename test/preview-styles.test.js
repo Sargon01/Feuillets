@@ -145,3 +145,39 @@ test("styles — aucun contrôle de barre séparé ne subsiste", () => {
   assert.equal(CSS.includes(".feuillets-preview-bar-toggle {"), false);
   assert.equal(CSS.includes(".feuillets-preview-select {"), false);
 });
+
+test("styles — la typographie Feuillets exclut les FileNodes Markdown du Canvas", () => {
+  const markdownLeaf = '.workspace-leaf-content[data-type="markdown"]';
+  const markdownSurface = /\.(?:markdown-source-view|markdown-preview-view|markdown-rendered|cm-editor|cm-content|cm-line)\b/;
+  const feuilletsMarkdownSelectors = RULES.flatMap((rule) =>
+    rule.selector
+      .split(",")
+      .map((selector) => selector.trim())
+      .filter((selector) => selector.includes("body.feuillets-") && markdownSurface.test(selector))
+  );
+
+  assert.ok(feuilletsMarkdownSelectors.length > 0, "les réglages typographiques doivent rester présents");
+  for (const selector of feuilletsMarkdownSelectors) {
+    assert.ok(
+      selector.includes(markdownLeaf),
+      `« ${selector} » pourrait atteindre une vue Markdown embarquée sans leaf native`
+    );
+  }
+
+  // En édition, le FileNode réel vit dans iframe.canvas-node-iframe-body et
+  // commence directement par .markdown-source-view.mod-inside-iframe : il ne
+  // possède jamais l'ancêtre positif exigé ci-dessus.
+  assert.ok(
+    feuilletsMarkdownSelectors.some((selector) => selector.includes(".markdown-source-view")),
+    "le Live Preview natif doit rester couvert"
+  );
+  assert.ok(
+    feuilletsMarkdownSelectors.some((selector) => selector.includes(".markdown-preview-view")),
+    "le mode lecture natif doit rester couvert"
+  );
+  assert.equal(
+    feuilletsMarkdownSelectors.some((selector) => selector.includes(".canvas-node")),
+    false,
+    "la correction doit reposer sur la vraie leaf Markdown, pas sur une compensation Canvas"
+  );
+});

@@ -1069,28 +1069,38 @@
 
 /* ===== alinéas de paragraphe ===== */
 
-body.feuillets-indent .markdown-preview-view p,
-body.feuillets-indent .markdown-rendered p {
+body.feuillets-indent
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view p,
+body.feuillets-indent
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-rendered p {
   text-indent: 1.5em;
 }
 
-body.feuillets-indent .markdown-preview-view,
-body.feuillets-indent .markdown-rendered {
+body.feuillets-indent
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view,
+body.feuillets-indent
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-rendered {
   --p-spacing: 0px !important;
 }
 
 /* PERFORMANCE : la version précédente chaînait six :not() sur chaque
    .cm-line, réévalués à chaque frappe. Règle générale + remises à zéro
    par classe simple : même résultat, évaluation bien plus légère. */
-body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line {
+body.feuillets-indent
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-source-view.mod-cm6 .cm-line {
   text-indent: 1.5em;
 }
-body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-header,
-body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-list-line,
-body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote,
-body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock,
-body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.cm-hmd-frontmatter,
-body.feuillets-indent .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
+body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-header,
+body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-list-line,
+body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote,
+body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock,
+body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.cm-hmd-frontmatter,
+body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
   text-indent: 0;
 }
 
@@ -1605,14 +1615,19 @@ body.feuillets-concentration .status-bar {
 }
 
 /* estompage : par défaut tout est atténué, seule la zone de focus reste nette */
-body.feuillets-concentration .markdown-source-view.mod-cm6 .cm-line,
-body.feuillets-concentration .markdown-preview-view p {
+body.feuillets-concentration
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-source-view.mod-cm6 .cm-line,
+body.feuillets-concentration
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view p {
   opacity: var(--feuillets-dim-opacity, 0.35);
   transition: opacity 0.15s ease;
 }
 
 /* niveau Ligne : la ligne active reste nette (natif, fiable) */
 body.feuillets-concentration.feuillets-focus-line
+  .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6
   .cm-line.cm-active {
   opacity: 1;
@@ -1621,16 +1636,22 @@ body.feuillets-concentration.feuillets-focus-line
 /* niveaux Paragraphe et Phrase (approximation actuelle = paragraphe) :
    toutes les lignes du paragraphe contenant le curseur restent nettes */
 body.feuillets-concentration.feuillets-focus-paragraph
+  .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6
   .cm-line.feuillets-para-active,
 body.feuillets-concentration.feuillets-focus-sentence
+  .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6
   .cm-line.feuillets-para-active {
   opacity: 1;
 }
 
-body.feuillets-concentration .markdown-source-view,
-body.feuillets-concentration .markdown-preview-view {
+body.feuillets-concentration
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-source-view,
+body.feuillets-concentration
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view {
   max-width: var(--feuillets-concentration-width, 720px);
   margin: 0 auto;
 }
@@ -2407,12 +2428,14 @@ body.feuillets-concentration .markdown-preview-view {
 /* invisible : les lignes vides disparaissent visuellement (fichier intact),
    sauf la ligne active pour pouvoir y travailler */
 body.feuillets-lignesvides-invisible
+  .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6.is-live-preview
   .cm-line:has(> br) {
   display: none;
 }
 
 body.feuillets-lignesvides-invisible
+  .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6.is-live-preview
   .cm-active:has(> br) {
   display: block !important;
@@ -2420,6 +2443,7 @@ body.feuillets-lignesvides-invisible
 
 /* réduit : les lignes vides deviennent fines */
 body.feuillets-lignesvides-reduit
+  .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6.is-live-preview
   .cm-line:has(> br) {
   height: 0.6rem;
@@ -2436,8 +2460,8 @@ body.feuillets-lignesvides-reduit
    négociable contre l'esthétique. On s'arrête donc à la lecture, qui ne
    touche jamais à la frappe. !important : au cas où un thème définirait
    déjà text-align sur les paragraphes de lecture avec la même spécificité. */
-body.feuillets-cesure .markdown-preview-view p,
-body.feuillets-cesure .markdown-rendered p {
+body.feuillets-cesure .workspace-leaf-content[data-type="markdown"] .markdown-preview-view p,
+body.feuillets-cesure .workspace-leaf-content[data-type="markdown"] .markdown-rendered p {
   text-align: justify !important;
   hyphens: auto !important;
   word-wrap: break-word;
@@ -2452,18 +2476,19 @@ body.feuillets-cesure .markdown-rendered p {
    Mêmes exclusions structurelles que les alinéas : justifier un titre,
    une ligne de tableau ou du code n'aurait aucun sens. */
 body.feuillets-justify-live
+  .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6.is-live-preview
   .cm-line {
   text-align: justify;
   word-wrap: break-word;
 }
 
-body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-header,
-body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-list-line,
-body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-quote,
-body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-codeblock,
-body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.cm-hmd-frontmatter,
-body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-table-row {
+body.feuillets-justify-live .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-header,
+body.feuillets-justify-live .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-list-line,
+body.feuillets-justify-live .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-quote,
+body.feuillets-justify-live .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-codeblock,
+body.feuillets-justify-live .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6.is-live-preview .cm-line.cm-hmd-frontmatter,
+body.feuillets-justify-live .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6.is-live-preview .cm-line.HyperMD-table-row {
   text-align: left;
 }
 
@@ -2478,8 +2503,8 @@ body.feuillets-justify-live .markdown-source-view.mod-cm6.is-live-preview .cm-li
    simplement écraser — c'est pourquoi le réglage semblait sans effet.
    Valeur = une ligne pleine, exactement ce qu'occupe la ligne vide du
    markdown en Live Preview. */
-body.feuillets-lecture-comme-live .markdown-preview-view,
-body.feuillets-lecture-comme-live .markdown-rendered {
+body.feuillets-lecture-comme-live .workspace-leaf-content[data-type="markdown"] .markdown-preview-view,
+body.feuillets-lecture-comme-live .workspace-leaf-content[data-type="markdown"] .markdown-rendered {
   --p-spacing: calc(var(--line-height-normal, 1.5) * 1em);
   line-height: var(--line-height-normal, 1.5);
 }
@@ -2489,21 +2514,41 @@ body.feuillets-lecture-comme-live .markdown-rendered {
    en lecture, Obsidian matérialise chaque ligne vide (paragraphes ne
    contenant qu'un <br>), d'où les grands trous entre paragraphes que la
    vue d'édition, elle, masquait. On applique le même traitement. */
-body.feuillets-lignesvides-invisible .markdown-preview-view p:has(> br:only-child),
-body.feuillets-lignesvides-invisible .markdown-rendered p:has(> br:only-child) {
+body.feuillets-lignesvides-invisible
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view
+  p:has(> br:only-child),
+body.feuillets-lignesvides-invisible
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-rendered
+  p:has(> br:only-child) {
   display: none !important;
 }
 
-body.feuillets-lignesvides-reduit .markdown-preview-view p:has(> br:only-child),
-body.feuillets-lignesvides-reduit .markdown-rendered p:has(> br:only-child) {
+body.feuillets-lignesvides-reduit
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view
+  p:has(> br:only-child),
+body.feuillets-lignesvides-reduit
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-rendered
+  p:has(> br:only-child) {
   line-height: 0.6rem !important;
   margin: 0 !important;
   height: 0.6rem !important;
 }
 
 /* et les <br> de fin de paragraphe issus des lignes vides adjacentes */
-body.feuillets-lignesvides-invisible .markdown-preview-view p > br:last-child,
-body.feuillets-lignesvides-invisible .markdown-rendered p > br:last-child {
+body.feuillets-lignesvides-invisible
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view
+  p
+  > br:last-child,
+body.feuillets-lignesvides-invisible
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-rendered
+  p
+  > br:last-child {
   display: none;
 }
 
@@ -2511,15 +2556,15 @@ body.feuillets-lignesvides-invisible .markdown-rendered p > br:last-child {
    directement les marges des paragraphes et ignorent la variable. On
    impose donc aussi les marges elles-mêmes. margin-block-* ET
    margin-top/bottom, parce que les thèmes utilisent l'un ou l'autre. */
-body.feuillets-lecture-comme-live .markdown-preview-view p,
-body.feuillets-lecture-comme-live .markdown-rendered p {
+body.feuillets-lecture-comme-live .workspace-leaf-content[data-type="markdown"] .markdown-preview-view p,
+body.feuillets-lecture-comme-live .workspace-leaf-content[data-type="markdown"] .markdown-rendered p {
   line-height: var(--line-height-normal, 1.5) !important;
 }
 
 /* taille de texte du mode lecture, indépendante du Live Preview — la
    variable est posée sur body par applyLiveTypoClasses(), ce qui la fait
    descendre à travers .markdown-preview-view sans toucher .cm-content */
-body.feuillets-reading-fs .markdown-preview-view {
+body.feuillets-reading-fs .workspace-leaf-content[data-type="markdown"] .markdown-preview-view {
   font-size: var(--feuillets-reading-fs) !important;
 }
 
@@ -2527,16 +2572,25 @@ body.feuillets-reading-fs .markdown-preview-view {
    police ci-dessus, couvre édition ET lecture — aucun réglage natif
    Obsidian n'existe pour ça, contrairement à la police/taille/couleur
    d'accent gérées via vault.setConfig. */
-body.feuillets-line-height .markdown-source-view .cm-content,
-body.feuillets-line-height .markdown-preview-view {
+body.feuillets-line-height
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-source-view
+  .cm-content,
+body.feuillets-line-height
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view {
   line-height: var(--feuillets-line-height) !important;
 }
 
 /* Largeur de texte réglable (settings.textWidth) : contrairement à
    concentrationWidth ci-dessus (actif seulement en mode concentration),
    celle-ci s'applique en permanence à l'édition et à la lecture. */
-body.feuillets-text-width .markdown-source-view,
-body.feuillets-text-width .markdown-preview-view {
+body.feuillets-text-width
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-source-view,
+body.feuillets-text-width
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view {
   max-width: var(--feuillets-text-width) !important;
   margin-left: auto !important;
   margin-right: auto !important;
