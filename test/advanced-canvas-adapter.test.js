@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Menu, TFile, TFolder } from "obsidian";
+import { Menu, Notice, TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { registerAdvancedCanvasIntegration } from "../src/integrations/advanced-canvas.js";
 import { canvasPathFor } from "../src/services/canvas-board.js";
 import { CanvasBridgeModal, CanvasNodeToManuscriptModal } from "../src/ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "../src/ui/canvas-chapter-modal.js";
 import { CanvasIdeaTreeModal } from "../src/ui/canvas-idea-tree-modal.js";
+import { ImportOutlineModal } from "../src/ui/import-outline-modal.js";
 import { ideaTreeBranch } from "../src/services/canvas-idea-tree.js";
 
 /* On ne teste jamais Advanced Canvas lui-même — seulement l'adaptateur
@@ -1291,4 +1292,131 @@ test("Lot 5 — CanvasChapterModal (source idea-tree) préremplit le nom avec le
   const nameInputEl = captured.contentEl.children.find((c) => c.tag === "input" && c.type === "text");
   assert.ok(nameInputEl);
   assert.equal(nameInputEl.value, "B");
+});
+
+/* ---------------------------------------------------------------------- *
+ * Lot 9 — « Transformer cette branche en plan… » (node-menu) : réutilise
+ * ideaTreeBranchToOutlineMarkdown puis ImportOutlineModal, sans aucune
+ * mutation du Canvas.
+ * ---------------------------------------------------------------------- */
+
+function captureImportOutlineModal(run) {
+  let captured = null;
+  const originalOpen = ImportOutlineModal.prototype.open;
+  ImportOutlineModal.prototype.open = function () {
+    captured = this;
+  };
+  try {
+    run();
+  } finally {
+    ImportOutlineModal.prototype.open = originalOpen;
+  }
+  return captured;
+}
+
+test("Lot 9 — un membre idea-tree avec au moins un descendant propose « Transformer cette branche en plan… »", () => {
+  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
+  registerAdvancedCanvasIntegration(plugin);
+  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
+  const nodeA = { id: "A", type: "text", text: "A", y: 0 };
+  const nodeB = { id: "B", type: "text", text: "B", y: 20 };
+  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeB]);
+  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
+
+  const menu = new Menu();
+  fireNodeMenu(app, menu, { canvas, getData: () => nodeA });
+  assert.ok(menu.items.some((item) => item.title === "Transformer cette branche en plan…"));
+});
+
+test("Lot 9 — une simple feuille sans descendant idea-tree n'obtient jamais « Transformer cette branche en plan… »", () => {
+  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
+  registerAdvancedCanvasIntegration(plugin);
+  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
+  const nodeA = { id: "A", type: "text", text: "A", y: 0 };
+  const nodeB = { id: "B", type: "text", text: "B", y: 20 };
+  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeB]);
+  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
+
+  const menu = new Menu();
+  // B est un descendant (une feuille), pas la racine : aucun enfant idea-tree.
+  fireNodeMenu(app, menu, { canvas, getData: () => nodeB });
+  assert.ok(!menu.items.some((item) => item.title === "Transformer cette branche en plan…"));
+});
+
+test("Lot 9 — le clic ouvre ImportOutlineModal préremplie avec le Markdown de la branche, sans muter le Canvas", () => {
+  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
+  registerAdvancedCanvasIntegration(plugin);
+  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
+  const nodeA = { id: "A", type: "text", text: "Partie I", y: 0 };
+  const nodeB = { id: "B", type: "text", text: "Chapitre 1", y: 20 };
+  const nodeC = { id: "C", type: "text", text: "Arrivée de Kemal", y: 40 };
+  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeB, nodeC]);
+  canvas.getData().edges.push(
+    { id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" },
+    { id: "bc", fromNode: "B", toNode: "C", feuillets_managed: "idea-tree" }
+  );
+  const canvasBefore = JSON.stringify(canvas.getData());
+
+  const menu = new Menu();
+  fireNodeMenu(app, menu, { canvas, getData: () => nodeA });
+  const captured = captureImportOutlineModal(() => {
+    menu.items.find((item) => item.title === "Transformer cette branche en plan…").callback();
+  });
+
+  assert.ok(captured);
+  assert.equal(captured.initialText, "# Partie I\n## Chapitre 1\n- Arrivée de Kemal");
+  assert.equal(JSON.stringify(canvas.getData()), canvasBefore, "le Carnet reste exactement tel qu'il était");
+  assert.equal(canvas.setDataCalls.length, 0);
+});
+
+test("Lot 9 — une branche invalide (FileNode matérialisé) affiche une Notice, jamais de modale", () => {
+  const { app, plugin, manuscript, ch1 } = makeFixtureWithManuscriptFiles();
+  registerAdvancedCanvasIntegration(plugin);
+  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
+  const nodeA = { id: "A", type: "text", text: "A", y: 0 };
+  const nodeF = { id: "F", type: "file", file: ch1.path, y: 20 };
+  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeF]);
+  canvas.getData().edges.push({ id: "af", fromNode: "A", toNode: "F", feuillets_managed: "idea-tree" });
+
+  const menu = new Menu();
+  fireNodeMenu(app, menu, { canvas, getData: () => nodeA });
+
+  const notices = [];
+  const previousNotice = Notice.onCreate;
+  Notice.onCreate = (message) => notices.push(message);
+  const captured = captureImportOutlineModal(() => {
+    menu.items.find((item) => item.title === "Transformer cette branche en plan…").callback();
+  });
+  Notice.onCreate = previousNotice;
+
+  assert.equal(captured, null);
+  assert.deepEqual(notices, [
+    "Cette branche contient des éléments déjà matérialisés. Le plan ne peut être créé qu'à partir d'idées texte.",
+  ]);
+});
+
+test("Lot 9 — « Créer un chapitre avec cette branche… » reste présente et fonctionne comme avant", () => {
+  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
+  registerAdvancedCanvasIntegration(plugin);
+  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
+  const nodeA = { id: "A", type: "text", text: "A", y: 0 };
+  const nodeB = { id: "B", type: "text", text: "B", y: 20 };
+  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeB]);
+  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
+
+  let captured = null;
+  const originalOpen = CanvasChapterModal.prototype.open;
+  CanvasChapterModal.prototype.open = function () {
+    captured = this;
+  };
+  try {
+    const menu = new Menu();
+    fireNodeMenu(app, menu, { canvas, getData: () => nodeA });
+    menu.items.find((item) => item.title === "Créer un chapitre avec cette branche…").callback();
+  } finally {
+    CanvasChapterModal.prototype.open = originalOpen;
+  }
+  assert.ok(captured);
+  assert.equal(captured.context.source, "idea-tree");
+  assert.deepEqual(captured.context.ids, ["A", "B"]);
 });
