@@ -55,6 +55,7 @@ import { handleFilChanged } from "./services/narrative-threads.js";
 import { createDemoProject } from "./services/demo-project.js";
 import {
   addFileNodeToNotebook,
+  addFileNodesToNotebook,
   addTextNodeToNotebook,
   canvasPathFor,
   generateCanvasBoard,
@@ -2909,6 +2910,50 @@ class FeuilletsPlugin extends Plugin {
     const outcome = await addFileNodeToNotebook(this.app, result.file, file.path, liveView);
     if (outcome === "duplicate") {
       new Notice("Ce feuillet est déjà dans le Carnet.");
+    }
+  }
+
+  /** Lot 7 (« Ajouter la sélection au Carnet ») — équivalent BATCH de
+   * `addFileToNotebook` ci-dessus, jamais une boucle d'appels à celle-ci
+   * (une seule transaction Canvas, voir `addFileNodesToNotebook`,
+   * services/canvas-board.ts). `files` est déjà dans l'ORDRE BINDER
+   * CANONIQUE — reçu tel quel, jamais retrié ici (voir l'appelant,
+   * views/base-feuillets-view.ts `showFileContextMenu`, qui construit cet
+   * ordre via `flattenFiles`, jamais depuis l'ordre d'un `Set` de
+   * sélection). N'ouvre jamais le Carnet, ne touche jamais à la sélection
+   * Binder ni au fichier actif — `addFileToNotebook` reste intact,
+   * non modifiée au-delà de ce commentaire de tête. */
+  async addFilesToNotebook(files: TFile[]): Promise<void> {
+    if (files.length === 0) return;
+    const root = this.getProjectFolder();
+    if (!root) return;
+    const result = await generateCanvasBoard(this.app, this.settings);
+    if (!result) return;
+    const liveView = this.app.workspace.getLeavesOfType("canvas")
+      .map((leaf) => leaf.view as unknown as { file?: TFile | null } & Partial<LiveCanvasFileView>)
+      .find((view): view is { file: TFile } & LiveCanvasFileView =>
+        view.file?.path === result.file.path &&
+        typeof view.getViewData === "function" &&
+        typeof view.setViewData === "function" &&
+        typeof view.requestSave === "function"
+      );
+    const outcome = await addFileNodesToNotebook(this.app, result.file, files.map((f) => f.path), liveView);
+    if (outcome === "invalid") return;
+    const { added, duplicates } = outcome;
+    if (added === 0) {
+      new Notice(t("main.notice.notebookBatchAllDuplicates"));
+    } else if (duplicates === 0) {
+      new Notice(added === 1
+        ? t("main.notice.notebookBatchAddedOne")
+        : t("main.notice.notebookBatchAddedMany", { count: String(added) }));
+    } else if (added === 1 && duplicates === 1) {
+      new Notice(t("main.notice.notebookBatchMixedOneOne"));
+    } else if (added === 1) {
+      new Notice(t("main.notice.notebookBatchMixedOneMany", { duplicates: String(duplicates) }));
+    } else if (duplicates === 1) {
+      new Notice(t("main.notice.notebookBatchMixedManyOne", { added: String(added) }));
+    } else {
+      new Notice(t("main.notice.notebookBatchMixedManyMany", { added: String(added), duplicates: String(duplicates) }));
     }
   }
 
