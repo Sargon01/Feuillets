@@ -26,7 +26,6 @@ import {
   findReferences,
 } from "./utils/footnotes.js";
 import { openFileActivating, selectRange } from "./utils/dom.js";
-import { noticeMessageEl } from "./utils/obsidian-compat.js";
 import { NotesView } from "./views/notes-view.js";
 import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
@@ -54,8 +53,9 @@ import { buildNumbering } from "./services/numbering.js";
 import { orderFromSnapshot } from "./utils/sibling-order.js";
 import { handleFilChanged } from "./services/narrative-threads.js";
 import { createDemoProject } from "./services/demo-project.js";
-import { generateCanvasBoard, canvasPathFor } from "./services/canvas-board.js";
+import { generateCanvasBoard, canvasPathFor, type CanvasData } from "./services/canvas-board.js";
 import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
+import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
 import { registerAdvancedCanvasIntegration } from "./integrations/advanced-canvas.js";
 import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, duplicateProjectFolder, getVersionsRoot } from "./services/project-files.js";
@@ -659,6 +659,11 @@ class FeuilletsPlugin extends Plugin {
       id: "canvas-bridge-to-research",
       name: t("main.cmd.canvasBridgeToResearch"),
       callback: () => void this.openCanvasBridge("research"),
+    });
+    this.addCommand({
+      id: "canvas-chapter-create",
+      name: t("main.cmd.canvasChapterCreate"),
+      callback: () => void this.openCanvasChapterModal(),
     });
     this.addCommand({
       id: "manage-projects",
@@ -2840,19 +2845,41 @@ class FeuilletsPlugin extends Plugin {
   async generateCanvasBoard(): Promise<void> {
     const result = await generateCanvasBoard(this.app, this.settings);
     if (!result) return;
-    const parts: string[] = [];
-    parts.push(result.added > 0 ? t("main.notice.canvasCardsAdded", { count: String(result.added) }) : t("main.notice.canvasCardsUpToDate", { count: String(result.total) }));
-    parts.push(result.edgesAdded > 0 ? t("main.notice.canvasLinksDrawn", { count: String(result.edgesAdded) }) : t("main.notice.canvasNoLinks"));
-    const notice = new Notice(`${parts.join(" — ")}. ${t("main.notice.clickToOpen")}`, 8000);
-    /* `messageEl` (recommandé) n'existe que depuis Obsidian 1.8.7 et
-       minAppVersion reste 1.7.2 : noticeMessageEl() choisit à l'exécution la
-       forme fournie par l'hôte au lieu d'en figer une (voir
-       src/utils/obsidian-compat.ts). */
-    const messageEl = noticeMessageEl(notice);
-    messageEl.addClass("feuillets-clickable");
-    messageEl.addEventListener("click", () => {
-      openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
+    const existing = this.app.workspace.getLeavesOfType("canvas").find(
+      (leaf) => (leaf.view as unknown as { file?: TFile }).file?.path === result.file.path
+    );
+    if (existing) {
+      void this.app.workspace.revealLeaf(existing);
+      return;
+    }
+    openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
+  }
+
+  /** Ajoute explicitement un feuillet au Carnet sans modifier le Binder. */
+  async addFileToNotebook(file: TFile): Promise<void> {
+    if (file.extension !== "md") return;
+    const root = this.getProjectFolder();
+    if (!root || !file.path.startsWith(`${root.path}/`)) return;
+    const result = await generateCanvasBoard(this.app, this.settings);
+    if (!result) return;
+    const raw = await this.app.vault.read(result.file);
+    let data: CanvasData;
+    try { data = JSON.parse(raw) as CanvasData; } catch { return; }
+    if (data.nodes.some((node) => node.type === "file" && node.file === file.path)) {
+      new Notice("Ce feuillet est déjà dans le Carnet.");
+      return;
+    }
+    const maxY = data.nodes.reduce((max, node) => Math.max(max, (node.y || 0) + (node.height || 160)), 0);
+    data.nodes.push({
+      id: crypto.randomUUID().replace(/-/g, "").slice(0, 16),
+      type: "file",
+      file: file.path,
+      x: 0,
+      y: maxY + 40,
+      width: 320,
+      height: 220,
     });
+    await this.app.vault.modify(result.file, JSON.stringify(data, null, "\t"));
   }
 
   /** Ouvre le pont Canvas → manuscrit/recherche (repli universel, sans
@@ -2880,6 +2907,37 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
     new CanvasBridgeModal(this.app, this.settings, file, data, mode).open();
+  }
+
+  /** Commande palette « Carnet : créer un chapitre… » (section 4) — repli
+   * universel, sans dépendance à Advanced Canvas : ouvre la modale sur le
+   * Carnet du projet actif, l'auteur choisit un groupe existant ou coche
+   * manuellement des éléments admissibles (voir CanvasChapterModal,
+   * contexte "command"). */
+  async openCanvasChapterModal(): Promise<void> {
+    const root = this.getProjectFolder();
+    if (!root) {
+      new Notice(t("main.notice.projectFolderNotFound"));
+      return;
+    }
+    const path = canvasPathFor(this.app, root);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      new Notice(t("main.notice.canvasBoardMissing"));
+      return;
+    }
+    const raw = await this.app.vault.read(file);
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      new Notice(t("main.notice.canvasUnreadable"));
+      return;
+    }
+    new CanvasChapterModal(this.app, this.settings, data, { source: "command" }, {
+      persist: (updated) => this.app.vault.modify(file, JSON.stringify(updated, null, "\t")),
+      saveSettings: () => this.saveSettings(),
+    }).open();
   }
 
   openPdfStyleModal() {

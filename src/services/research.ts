@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import { foldAccents } from "../utils/core.js";
 import { fmOf, titleFor, tagsOf } from "./frontmatter.js";
 import { getProjectFolder, flattenFiles } from "./folder-structure.js";
+import { getLocale } from "../i18n/index.js";
 
 /** Dossier des jalons historiques : le chemin configuré d'abord, puis
  * les emplacements historiques, pour ne casser aucun coffre existant. */
@@ -85,6 +86,77 @@ export function researchFolderPath(app: App, settings: FeuilletsSettings, root: 
   if (existing) return existing.path;
   const base = root && root.parent ? root.parent.path : root ? root.path : null;
   return base ? normalizePath(`${base}/Research`) : null;
+}
+
+/** Rubrique libre de Recherche dédiée aux fiches créées depuis le Carnet
+ * (pont Canvas, voir services/canvas-bridge.ts) — "Carnet" en français,
+ * "Notebook" en anglais. Reconnus comme ÉQUIVALENTS : un changement de
+ * langue d'Obsidian ne doit jamais créer les deux rubriques en double,
+ * l'une ou l'autre déjà présente est toujours réutilisée telle quelle. */
+const NOTEBOOK_FOLDER_NAMES = { fr: "Carnet", en: "Notebook" } as const;
+const NOTEBOOK_FOLDER_VARIANTS = Object.values(NOTEBOOK_FOLDER_NAMES);
+
+/** Nom de la rubrique Carnet/Notebook pour la locale active — jamais utilisé
+ * pour DÉCIDER si un dossier existant est reconnu (voir
+ * `isNotebookRubricName`/`findNotebookResearchFolder`, qui acceptent les
+ * deux noms), seulement pour savoir lequel CRÉER quand aucun n'existe. */
+export function notebookFolderName(): string {
+  return getLocale() === "fr" ? NOTEBOOK_FOLDER_NAMES.fr : NOTEBOOK_FOLDER_NAMES.en;
+}
+
+/** Vrai si `name` est l'un des noms reconnus de la rubrique Carnet/Notebook
+ * (comparaison exacte, comme les autres rubriques de Recherche — voir
+ * researchFolderNames, utils/project-modes.js). Fonction pure, exportée
+ * pour les tests. */
+export function isNotebookRubricName(name: string): boolean {
+  return (NOTEBOOK_FOLDER_VARIANTS as readonly string[]).includes(name);
+}
+
+/** Dossier Carnet/Notebook déjà présent sous la racine Recherche du projet
+ * actif, quel que soit son nom (FR ou EN) — jamais créé ici, seulement
+ * reconnu. `null` si aucun des deux n'existe encore. */
+export function findNotebookResearchFolder(app: App, settings: FeuilletsSettings): TFolder | null {
+  const root = getProjectFolder(app, settings);
+  const basePath = researchFolderPath(app, settings, root);
+  if (!basePath) return null;
+  for (const name of NOTEBOOK_FOLDER_VARIANTS) {
+    const f = app.vault.getAbstractFileByPath(normalizePath(`${basePath}/${name}`));
+    if (f instanceof TFolder) return f;
+  }
+  return null;
+}
+
+/** Garantit la rubrique Carnet/Notebook : réutilise celle déjà présente
+ * (FR ou EN, quelle que soit la langue active), sinon crée celle qui
+ * correspond à la locale actuelle — jamais les deux à la fois. Ne crée
+ * jamais un doublon "Carnet" + "Notebook" au fil des changements de
+ * langue. `null` seulement si aucune racine Recherche n'est déterminable
+ * (pas de projet actif). */
+export async function ensureNotebookResearchFolder(app: App, settings: FeuilletsSettings): Promise<TFolder | null> {
+  const existing = findNotebookResearchFolder(app, settings);
+  if (existing) return existing;
+  const root = getProjectFolder(app, settings);
+  const basePath = researchFolderPath(app, settings, root);
+  if (!basePath) return null;
+  const path = normalizePath(`${basePath}/${notebookFolderName()}`);
+  let base = app.vault.getAbstractFileByPath(basePath);
+  if (!base) base = await app.vault.createFolder(basePath);
+  if (!(base instanceof TFolder)) return null;
+  const created = app.vault.getAbstractFileByPath(path) || (await app.vault.createFolder(path));
+  return created instanceof TFolder ? created : null;
+}
+
+/** Vrai si `path` se trouve sous la rubrique Carnet/Notebook (FR ou EN)
+ * effectivement présente sur le disque — sert à distinguer une fiche
+ * Recherche encore "libre" (créée depuis le Carnet, jamais classée par
+ * l'auteur) d'une fiche déjà rangée ailleurs (Personnages, Lieux…). Le
+ * Carnet lui-même ne s'en sert plus pour déplacer quoi que ce soit
+ * automatiquement (une arête n'a aucun effet métier) ; ce prédicat reste
+ * utile pour d'autres usages généraux de Recherche. */
+export function isUnderNotebookResearchFolder(app: App, settings: FeuilletsSettings, path: string): boolean {
+  const folder = findNotebookResearchFolder(app, settings);
+  if (!folder) return false;
+  return path === folder.path || path.startsWith(`${folder.path}/`);
 }
 
 /** Renomme un fichier de recherche encore sous son nom provisoire dès

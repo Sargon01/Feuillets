@@ -60,9 +60,15 @@ test("firstMeaningfulLine : première ligne non vide", () => {
 });
 
 // 21/22. idée multiligne → titre + corps ; idée une ligne → titre + corps vide
-test("bodyAfterTitle : tout ce qui suit la première ligne significative, vide si une seule ligne", () => {
-  assert.equal(bodyAfterTitle("Titre\n\nDeuxième paragraphe\nTroisième ligne"), "Deuxième paragraphe\nTroisième ligne");
-  assert.equal(bodyAfterTitle("Une idée toute seule"), "");
+test("bodyAfterTitle : conserve intégralement la note, y compris la ligne proposée comme titre", () => {
+  assert.equal(bodyAfterTitle("Titre\n\nDeuxième paragraphe\nTroisième ligne"), "Titre\n\nDeuxième paragraphe\nTroisième ligne");
+  assert.equal(bodyAfterTitle("Une idée toute seule"), "Une idée toute seule");
+});
+
+test("deriveTitle : ne prend que la première ligne et borne une proposition trop longue", () => {
+  const long = "x".repeat(180);
+  assert.equal(deriveTitle(`${long}\n\nCorps conservé`), `${"x".repeat(117)}…`);
+  assert.equal(deriveTitle("\n\nTitre possible\n\nCorps"), "Titre possible");
 });
 
 // 7. nom de fichier sûr
@@ -157,16 +163,21 @@ test("applySelectedIdeas : convertit uniquement les ids sélectionnés, dans l'o
   assert.equal(result.created, 2);
   assert.equal(result.skippedIds.length, 0);
 
-  const nodeB = canvas.nodes.find((n) => n.id === "idea-b");
-  const nodeA = canvas.nodes.find((n) => n.id === "idea-a");
+  const idB = result.convertedIds.get("idea-b");
+  const idA = result.convertedIds.get("idea-a");
+  assert.ok(idB && idB !== "idea-b");
+  assert.ok(idA && idA !== "idea-a");
+  const nodeB = canvas.nodes.find((n) => n.id === idB);
+  const nodeA = canvas.nodes.find((n) => n.id === idA);
   assert.equal(nodeB.type, "file");
   assert.equal(nodeA.type, "file");
   assert.equal(nodeB.file, "Projet/Manuscrit/Chapitre 1/Idée B.md");
   assert.equal(nodeA.file, "Projet/Manuscrit/Chapitre 1/Idée A.md");
   assert.equal(nodeB.feuillets_managed, "manuscript");
 
-  // 17. edges strictement inchangées.
-  assert.deepEqual(canvas.edges, [{ id: "e1", fromNode: "idea-a", toNode: "idea-b" }]);
+  // 17. edge conservée mais remappée vers les ids neufs.
+  assert.deepEqual(canvas.edges, [{ id: "e1", fromNode: idA, toNode: idB }]);
+  assert.equal(canvas.nodes.some((n) => n.id === "idea-a" || n.id === "idea-b"), false);
   // 18. node non sélectionné strictement inchangé.
   assert.deepEqual(canvas.nodes.find((n) => n.id === "file-1"), untouchedFile);
   assert.deepEqual(canvas.nodes.find((n) => n.id === "group-1"), untouchedGroup);

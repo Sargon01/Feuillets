@@ -69,11 +69,27 @@ export function createFakeVault(entries: FakeVaultEntry[] = []) {
   };
 
   const fileManager = {
-    async renameFile(file: FakeTFile, path: string): Promise<void> {
+    /* Déplace/renomme réellement l'entrée dans l'arborescence en mémoire :
+       retire l'ancien parent.children, met à jour file.parent et l'ajoute
+       aux children du nouveau parent — sans quoi getOrderedChildren
+       (folder-structure.ts), qui lit folder.children et pas la map `files`,
+       verrait encore le fichier dans son ancien dossier après un
+       déplacement simulé. */
+    async renameFile(file: FakeTFile | TFolder, path: string): Promise<void> {
       files.delete(file.path);
+      const oldParent = file.parent as TFolder | null;
+      if (oldParent?.children) {
+        oldParent.children = oldParent.children.filter((c) => c !== file);
+      }
       file.path = normalizePath(path);
-      file.name = file.path.split("/").pop()!;
-      file.basename = file.name.replace(/\.md$/, "");
+      if (file instanceof TFile) {
+        file.name = file.path.split("/").pop()!;
+        file.basename = file.name.replace(/\.md$/, "");
+      } else {
+        file.name = file.path.split("/").pop()!;
+      }
+      file.parent = (parentFolder(file.path) as TFolder) || null;
+      if (file.parent?.children) file.parent.children.push(file);
       files.set(file.path, file);
     },
     async processFrontMatter(file: FakeTFile, callback: (frontmatter: Frontmatter) => void): Promise<void> {
