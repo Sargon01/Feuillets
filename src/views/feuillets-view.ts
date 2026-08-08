@@ -1645,7 +1645,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       // (même S.collapsed, mais rien n'oblige les deux volets à s'accorder
       // visuellement, seul l'état logique est partagé).
       const isCollapsed = depth > 0 && !!S.collapsed[folder.path];
-      if (depth > 0 && files.length > 0) {
+      if (depth > 0) {
         const heading = listBody.createDiv({ cls: "feuillets-list-subheading" });
         heading.setText(folder.name);
         heading.addClass("feuillets-clickable");
