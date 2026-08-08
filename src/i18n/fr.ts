@@ -1103,6 +1103,8 @@ export const fr = {
   "main.cmd.canvasBridgeToManuscript": "Carnet : passer des idées au manuscrit…",
   "main.cmd.canvasBridgeToResearch": "Carnet : transformer des idées en fiches de recherche…",
   "main.cmd.canvasChapterCreate": "Carnet : créer un chapitre…",
+  "main.cmd.notebookCaptureIdea": "Carnet : noter une idée",
+  "main.cmd.notebookAddCurrentSheet": "Carnet : ajouter le feuillet courant",
   "main.cmd.manageProjects": "Gestion des projets…",
   "main.cmd.switchProject": "Changer de projet…",
   "main.cmd.duplicateProject": "Dupliquer le manuscrit actif (nouvelle version)…",
@@ -1260,6 +1262,7 @@ export const fr = {
 
   "modal.newFolder.title": "Nouveau dossier dans « {parent} »",
   "modal.newFolder.placeholder": "ex. Partie III",
+  "modal.captureIdea.placeholder": "Idée…",
 
   "modal.compileSelection.title": "Feuillets à compiler",
   "modal.compileSelection.desc": "Décocher un feuillet écrit compile: false dans son frontmatter — il reste visible et numéroté, mais saute à l'export.",

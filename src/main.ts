@@ -55,10 +55,12 @@ import { handleFilChanged } from "./services/narrative-threads.js";
 import { createDemoProject } from "./services/demo-project.js";
 import {
   addFileNodeToNotebook,
+  addTextNodeToNotebook,
   canvasPathFor,
   generateCanvasBoard,
   type LiveCanvasFileView,
 } from "./services/canvas-board.js";
+import { CaptureIdeaModal } from "./ui/capture-idea-modal.js";
 import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
@@ -669,6 +671,35 @@ class FeuilletsPlugin extends Plugin {
       id: "canvas-chapter-create",
       name: t("main.cmd.canvasChapterCreate"),
       callback: () => void this.openCanvasChapterModal(),
+    });
+    /* Lot 6 — disponible dès qu'un projet Feuillets actif existe (avant/
+       pendant l'écriture d'un feuillet, ou depuis toute autre vue) ; la
+       modale ne fait jamais rien d'autre qu'ajouter un TextNode libre,
+       jamais ouvrir le Carnet ni changer le fichier actif. */
+    this.addCommand({
+      id: "notebook-capture-idea",
+      name: t("main.cmd.notebookCaptureIdea"),
+      checkCallback: (checking) => {
+        if (!this.getProjectFolder()) return false;
+        if (!checking) {
+          new CaptureIdeaModal(this.app, (text) => void this.captureIdeaToNotebook(text)).open();
+        }
+        return true;
+      },
+    });
+    /* Lot 6 — n'apparaît que pour un feuillet du manuscrit réellement actif
+       (prédicat métier existant `isSceneFile`, jamais une détection par
+       chemin réinventée ici : exclut Recherche et tout .md hors manuscrit).
+       Appelle directement `addFileToNotebook`, jamais dupliquée. */
+    this.addCommand({
+      id: "notebook-add-current-sheet",
+      name: t("main.cmd.notebookAddCurrentSheet"),
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!(file instanceof TFile) || !this.isSceneFile(file)) return false;
+        if (!checking) void this.addFileToNotebook(file);
+        return true;
+      },
     });
     this.addCommand({
       id: "manage-projects",
@@ -2879,6 +2910,30 @@ class FeuilletsPlugin extends Plugin {
     if (outcome === "duplicate") {
       new Notice("Ce feuillet est déjà dans le Carnet.");
     }
+  }
+
+  /** Lot 6 (« Carnet : noter une idée ») — ajoute un TextNode LIBRE au
+   * Carnet sans jamais l'ouvrir, changer de feuille active, ou toucher au
+   * zoom/viewport : `generateCanvasBoard` garantit seulement que le fichier
+   * .canvas existe (jamais d'ouverture de vue), et `addTextNodeToNotebook`
+   * (services/canvas-board.ts) respecte l'état live d'un Carnet déjà ouvert
+   * exactement comme `addFileToNotebook` ci-dessus (invariant du Lot 4).
+   * Aucune association au feuillet en cours d'écriture — voir tête de
+   * fichier `addTextNodeToCanvas`. */
+  async captureIdeaToNotebook(rawText: string): Promise<void> {
+    const root = this.getProjectFolder();
+    if (!root) return;
+    const result = await generateCanvasBoard(this.app, this.settings);
+    if (!result) return;
+    const liveView = this.app.workspace.getLeavesOfType("canvas")
+      .map((leaf) => leaf.view as unknown as { file?: TFile | null } & Partial<LiveCanvasFileView>)
+      .find((view): view is { file: TFile } & LiveCanvasFileView =>
+        view.file?.path === result.file.path &&
+        typeof view.getViewData === "function" &&
+        typeof view.setViewData === "function" &&
+        typeof view.requestSave === "function"
+      );
+    await addTextNodeToNotebook(this.app, result.file, rawText, liveView);
   }
 
   /** Ouvre le pont Canvas → manuscrit/recherche (repli universel, sans
