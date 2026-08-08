@@ -2073,15 +2073,6 @@ export abstract class BaseFeuilletsView extends ItemView {
     const plugin = this.plugin;
 
     const researchName = this.plugin.shortTitleFor?.(file) || this.plugin.titleFor?.(file) || file.basename;
-    if (file.extension === "md" && file.path.startsWith(`${this.plugin.getProjectFolder()?.path || "\0"}/`)) {
-      menu.addItem((item) =>
-        item
-          .setTitle("Ajouter au Carnet")
-          .setIcon("notebook")
-          .onClick(() => { void this.plugin.addFileToNotebook(file); })
-      );
-      menu.addSeparator();
-    }
 
     /* Feuillet cliqué faisant partie d'une sélection multiple (voir
        handleMultiSelectClick) : Statut/Label/Tags s'appliquent alors à
@@ -2094,6 +2085,46 @@ export abstract class BaseFeuilletsView extends ItemView {
     const groupFiles = isGroup
       ? [...groupSel].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f): f is TFile => f instanceof TFile)
       : [file];
+
+    /* Lot 7 — « Ajouter la sélection au Carnet » REMPLACE, dans ce cas
+       précis, le simple « Ajouter au Carnet » : jamais les deux à la fois,
+       jamais un repli silencieux sur le seul fichier cliqué si la
+       sélection contient un élément non admissible (dossier, Recherche,
+       note de dossier, .md hors manuscrit…) — voir `isSceneFile`, le même
+       prédicat métier que la commande palette du Lot 6. Le comportement
+       simple à un seul feuillet reste exactement celui d'avant ce Lot. */
+    if (isGroup) {
+      const selectedPaths = [...groupSel];
+      const allAdmissible = selectedPaths.every((p) => {
+        const f = this.app.vault.getAbstractFileByPath(p);
+        return f instanceof TFile && this.plugin.isSceneFile(f);
+      });
+      if (allAdmissible) {
+        // ORDRE = ORDRE DU BINDER : jamais l'ordre du Set de sélection
+        // (qui reflète l'ordre des Cmd-clics) — le parcours canonique
+        // `flattenFiles` donne l'ordre réel du manuscrit, filtré ensuite
+        // sur les chemins sélectionnés.
+        const root = this.plugin.getProjectFolder();
+        const orderedSelected = root
+          ? this.plugin.flattenFiles(root).filter((f) => groupSel.has(f.path))
+          : [];
+        menu.addItem((item) =>
+          item
+            .setTitle(t("shared.contextMenu.addSelectionToNotebook"))
+            .setIcon("notebook")
+            .onClick(() => { void this.plugin.addFilesToNotebook(orderedSelected); })
+        );
+        menu.addSeparator();
+      }
+    } else if (file.extension === "md" && file.path.startsWith(`${this.plugin.getProjectFolder()?.path || "\0"}/`)) {
+      menu.addItem((item) =>
+        item
+          .setTitle("Ajouter au Carnet")
+          .setIcon("notebook")
+          .onClick(() => { void this.plugin.addFileToNotebook(file); })
+      );
+      menu.addSeparator();
+    }
 
     if (isGroup) {
       menu.addItem((item) => item.setTitle(t("shared.contextMenu.groupSelected", { count: String(groupFiles.length) })).setDisabled(true));

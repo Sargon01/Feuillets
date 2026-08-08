@@ -106,6 +106,71 @@ export async function addFileNodeToNotebook(
   return result;
 }
 
+export type AddFileNodesResult = { added: number; duplicates: number };
+
+/** Lot 7 (« Ajouter la sélection au Carnet ») — mutation pure BATCH : ajoute
+ * chaque chemin de `filePaths` (déjà dans l'ORDRE BINDER CANONIQUE — voir
+ * views/base-feuillets-view.ts `showFileContextMenu`, jamais l'ordre d'un
+ * `Set` de sélection) en réutilisant `addFileNodeToCanvas` tel quel pour
+ * chaque path, dans l'ordre reçu — jamais une seconde implémentation de la
+ * géométrie : chaque appel voit déjà les nodes ajoutés par les appels
+ * précédents dans `data.nodes`, donc l'empilement vertical (section 3,
+ * "placement après les nodes existants") reste exactement celui du chemin
+ * unitaire, sans code de layout supplémentaire. Un doublon (déjà présent
+ * avant CE batch, ou ajouté par un chemin précédent DANS ce même batch —
+ * mêmes deux idées ne peuvent de toute façon référencer qu'un seul chemin de
+ * fichier) est simplement compté, jamais déplacé ni recréé. */
+export function addFileNodesToCanvas(data: CanvasData, filePaths: string[]): AddFileNodesResult {
+  let added = 0;
+  let duplicates = 0;
+  for (const filePath of filePaths) {
+    const result = addFileNodeToCanvas(data, filePath);
+    if (result === "added") added += 1;
+    else if (result === "duplicate") duplicates += 1;
+  }
+  return { added, duplicates };
+}
+
+/** Lot 7 — même invariant Lot 4 que `addFileNodeToNotebook`, mais en UNE
+ * SEULE transaction pour tout le batch : `getViewData`/`vault.read` une
+ * fois, toutes les mutations en mémoire via `addFileNodesToCanvas`, puis
+ * `setViewData(…, false)`/`requestSave` ou `vault.modify` une seule fois —
+ * jamais une boucle de `addFileNodeToNotebook` (ce qui multiplierait
+ * lectures/écritures/`requestSave`). Si `added === 0` (tout était déjà
+ * présent), aucune écriture n'est déclenchée (ni `setViewData`/
+ * `requestSave`, ni `vault.modify`) : rien n'a changé, rien à persister. */
+export async function addFileNodesToNotebook(
+  app: Pick<App, "vault">,
+  canvasFile: TFile,
+  filePaths: string[],
+  liveView?: LiveCanvasFileView
+): Promise<AddFileNodesResult | "invalid"> {
+  if (liveView) {
+    let data: CanvasData;
+    try {
+      data = JSON.parse(liveView.getViewData()) as CanvasData;
+    } catch {
+      return "invalid";
+    }
+    const result = addFileNodesToCanvas(data, filePaths);
+    if (result.added > 0) {
+      liveView.setViewData(JSON.stringify(data, null, "\t"), false);
+      liveView.requestSave();
+    }
+    return result;
+  }
+
+  let data: CanvasData;
+  try {
+    data = JSON.parse(await app.vault.read(canvasFile)) as CanvasData;
+  } catch {
+    return "invalid";
+  }
+  const result = addFileNodesToCanvas(data, filePaths);
+  if (result.added > 0) await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
+  return result;
+}
+
 /** Lot 6 (« Carnet : noter une idée ») — mutation pure du Carnet : ajoute
  * exactement un TextNode LIBRE, jamais dédupliqué (deux idées au même texte
  * sont autorisées — voir tête de fichier `AddTextNodeResult`). Le node créé
