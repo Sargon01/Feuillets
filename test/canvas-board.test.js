@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { generateCanvasBoard, canvasPathFor } from "../src/services/canvas-board.js";
+import { addFileNodeToNotebook, canvasPathFor, generateCanvasBoard } from "../src/services/canvas-board.js";
 
 function makeProject() {
   const volume = new TFolder("Projet");
@@ -42,4 +42,87 @@ test("generateCanvasBoard : ne réécrit jamais un Carnet existant", async () =>
   const result = await generateCanvasBoard(app, settings);
   assert.equal(result.file, canvas);
   assert.equal(await app.vault.read(canvas), JSON.stringify(original));
+});
+
+test("Ajouter au Carnet : une vue live non sauvegardée est préservée et sauvegardée sans vault.modify", async () => {
+  const { app, settings } = makeProject();
+  const board = (await generateCanvasBoard(app, settings)).file;
+  const diskBefore = await app.vault.read(board);
+  let liveData = {
+    nodes: [{ id: "idee-live", type: "text", text: "Idée non sauvegardée", x: 50, y: 75, width: 200, height: 80 }],
+    edges: [],
+  };
+  const setCalls = [];
+  let saveCalls = 0;
+  let modifyCalls = 0;
+  const originalModify = app.vault.modify;
+  app.vault.modify = async (...args) => {
+    modifyCalls += 1;
+    return originalModify(...args);
+  };
+  const liveView = {
+    getViewData: () => JSON.stringify(liveData),
+    setViewData: (raw, clear) => {
+      setCalls.push({ raw, clear });
+      liveData = JSON.parse(raw);
+    },
+    requestSave: () => { saveCalls += 1; },
+  };
+
+  const result = await addFileNodeToNotebook(app, board, "Projet/Manuscrit/Chapitre 1/Scène 1.md", liveView);
+
+  assert.equal(result, "added");
+  assert.equal(setCalls.length, 1);
+  assert.equal(setCalls[0].clear, false);
+  assert.equal(saveCalls, 1);
+  assert.equal(modifyCalls, 0);
+  assert.equal(await app.vault.read(board), diskBefore);
+  assert.deepEqual(liveData.nodes.map((node) => node.id), ["idee-live", liveData.nodes[1].id]);
+  assert.deepEqual(liveData.nodes[1], {
+    id: liveData.nodes[1].id,
+    type: "file",
+    file: "Projet/Manuscrit/Chapitre 1/Scène 1.md",
+    x: 0,
+    y: 195,
+    width: 320,
+    height: 220,
+  });
+});
+
+test("Ajouter au Carnet : sans vue live, le fallback disque conserve la géométrie historique", async () => {
+  const { app, settings } = makeProject();
+  const board = (await generateCanvasBoard(app, settings)).file;
+  const result = await addFileNodeToNotebook(app, board, "Projet/Manuscrit/Chapitre 1/Scène 1.md");
+  const saved = JSON.parse(await app.vault.read(board));
+  assert.equal(result, "added");
+  assert.deepEqual({ ...saved.nodes[0], id: undefined }, {
+    id: undefined,
+    type: "file",
+    file: "Projet/Manuscrit/Chapitre 1/Scène 1.md",
+    x: 0,
+    y: 40,
+    width: 320,
+    height: 220,
+  });
+});
+
+test("Ajouter au Carnet : un doublon présent dans la vue live ne touche pas le disque", async () => {
+  const { app, settings } = makeProject();
+  const board = (await generateCanvasBoard(app, settings)).file;
+  let setCalls = 0;
+  let saveCalls = 0;
+  const liveView = {
+    getViewData: () => JSON.stringify({
+      nodes: [{ id: "deja", type: "file", file: "Projet/Manuscrit/Chapitre 1/Scène 1.md" }],
+      edges: [],
+    }),
+    setViewData: () => { setCalls += 1; },
+    requestSave: () => { saveCalls += 1; },
+  };
+  const diskBefore = await app.vault.read(board);
+  const result = await addFileNodeToNotebook(app, board, "Projet/Manuscrit/Chapitre 1/Scène 1.md", liveView);
+  assert.equal(result, "duplicate");
+  assert.equal(setCalls, 0);
+  assert.equal(saveCalls, 0);
+  assert.equal(await app.vault.read(board), diskBefore);
 });

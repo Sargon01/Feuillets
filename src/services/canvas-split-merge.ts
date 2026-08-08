@@ -70,7 +70,20 @@ export function splitTextNode(canvas: CanvasData, nodeId: string, first: string,
 
   const newId = freshCanvasNodeId(canvas);
   const width = typeof original.width === "number" ? original.width : 0;
+  const {
+    id: _oldId,
+    type: _oldType,
+    text: _oldText,
+    file: _oldFile,
+    feuillets_managed: _oldManaged,
+    x: _oldX,
+    y: _oldY,
+    width: _oldWidth,
+    height: _oldHeight,
+    ...sharedVisualData
+  } = original;
   const newNode: CanvasNode = {
+    ...sharedVisualData,
     id: newId,
     type: "text",
     text: second,

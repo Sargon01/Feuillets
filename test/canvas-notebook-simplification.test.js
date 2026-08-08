@@ -212,6 +212,38 @@ test("TEST 5 : scinder un TextNode — deux TextNodes, contenu réparti", () => 
   assert.equal(created.x, 240, "positionnée juste à côté (x + width + GAP)");
 });
 
+test("TEST 5 : scinder un TextNode — le second conserve son style sans données métier résiduelles", () => {
+  const original = {
+    id: "n1",
+    type: "text",
+    text: "Avant\n\nAprès",
+    x: 10,
+    y: 20,
+    width: 200,
+    height: 100,
+    color: "4",
+    styleAttributes: { border: "invisible", shape: null },
+    dynamicHeight: true,
+    zIndex: 7,
+    extensionField: { keep: true },
+    file: "Projet/Manuscrit/résidu.md",
+    feuillets_managed: "manuscript",
+  };
+  const canvas = { nodes: [original], edges: [] };
+  const result = splitTextNode(canvas, "n1", "Avant", "Après");
+  assert.ok(result);
+  const created = result.newNode;
+  assert.equal(created.type, "text");
+  assert.equal(created.color, "4");
+  assert.deepEqual(created.styleAttributes, { border: "invisible", shape: null });
+  assert.equal(created.dynamicHeight, true);
+  assert.equal(created.zIndex, 7);
+  assert.deepEqual(created.extensionField, { keep: true });
+  assert.equal("file" in created, false);
+  assert.equal("feuillets_managed" in created, false);
+  assert.notEqual(created.id, original.id);
+});
+
 // ---------------------------------------------------------------------------
 // TEST 6 — Scinder un feuillet → deux fichiers Markdown, aucun doublon.
 // ---------------------------------------------------------------------------

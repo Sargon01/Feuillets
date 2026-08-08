@@ -287,7 +287,7 @@ test("executeChapterPlan : nouveau text node créé directement dans le chapitre
 
   const created = app.vault.getAbstractFileByPath("Projet/Manuscrit/Chapitre 3/Le meurtre du muhtar.md");
   assert.ok(created);
-  assert.match(created.content, /title: Le meurtre du muhtar/);
+  assert.match(created.content, /title: "Le meurtre du muhtar"/);
   assert.match(created.content, /Suite du texte\./);
 
   const convertedNode = canvas.nodes.find((x) => x.file === created.path);

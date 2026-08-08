@@ -53,7 +53,12 @@ import { buildNumbering } from "./services/numbering.js";
 import { orderFromSnapshot } from "./utils/sibling-order.js";
 import { handleFilChanged } from "./services/narrative-threads.js";
 import { createDemoProject } from "./services/demo-project.js";
-import { generateCanvasBoard, canvasPathFor, type CanvasData } from "./services/canvas-board.js";
+import {
+  addFileNodeToNotebook,
+  canvasPathFor,
+  generateCanvasBoard,
+  type LiveCanvasFileView,
+} from "./services/canvas-board.js";
 import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
@@ -2862,24 +2867,18 @@ class FeuilletsPlugin extends Plugin {
     if (!root || !file.path.startsWith(`${root.path}/`)) return;
     const result = await generateCanvasBoard(this.app, this.settings);
     if (!result) return;
-    const raw = await this.app.vault.read(result.file);
-    let data: CanvasData;
-    try { data = JSON.parse(raw) as CanvasData; } catch { return; }
-    if (data.nodes.some((node) => node.type === "file" && node.file === file.path)) {
+    const liveView = this.app.workspace.getLeavesOfType("canvas")
+      .map((leaf) => leaf.view as unknown as { file?: TFile | null } & Partial<LiveCanvasFileView>)
+      .find((view): view is { file: TFile } & LiveCanvasFileView =>
+        view.file?.path === result.file.path &&
+        typeof view.getViewData === "function" &&
+        typeof view.setViewData === "function" &&
+        typeof view.requestSave === "function"
+      );
+    const outcome = await addFileNodeToNotebook(this.app, result.file, file.path, liveView);
+    if (outcome === "duplicate") {
       new Notice("Ce feuillet est déjà dans le Carnet.");
-      return;
     }
-    const maxY = data.nodes.reduce((max, node) => Math.max(max, (node.y || 0) + (node.height || 160)), 0);
-    data.nodes.push({
-      id: crypto.randomUUID().replace(/-/g, "").slice(0, 16),
-      type: "file",
-      file: file.path,
-      x: 0,
-      y: maxY + 40,
-      width: 320,
-      height: 220,
-    });
-    await this.app.vault.modify(result.file, JSON.stringify(data, null, "\t"));
   }
 
   /** Ouvre le pont Canvas → manuscrit/recherche (repli universel, sans
