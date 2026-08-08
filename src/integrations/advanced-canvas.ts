@@ -7,9 +7,16 @@ import { CanvasBridgeModal, CanvasNodeToManuscriptModal } from "../ui/canvas-bri
 import { CanvasChapterModal } from "../ui/canvas-chapter-modal.js";
 import { CanvasSplitModal } from "../ui/canvas-split-modal.js";
 import { CanvasMergeModal, type MergeRow } from "../ui/canvas-merge-modal.js";
+import { CanvasIdeaTreeModal } from "../ui/canvas-idea-tree-modal.js";
 import { applySelectedIdeas, deriveTitle, firstMeaningfulLine, type BridgeMode } from "../services/canvas-bridge.js";
 import { ensureNotebookResearchFolder } from "../services/research.js";
-import { admissibleChapterNodes, makeManuscriptPathChecker, nodesContainedInGroup } from "../services/canvas-chapter.js";
+import {
+  admissibleChapterNodes,
+  isAdmissibleChapterNode,
+  makeManuscriptPathChecker,
+  nodesContainedInGroup,
+} from "../services/canvas-chapter.js";
+import { createIdeaBranches, ideaTreeBranch, isIdeaTreeNode } from "../services/canvas-idea-tree.js";
 import { splitTextNode, executeMerge } from "../services/canvas-split-merge.js";
 import { titleFor } from "../services/frontmatter.js";
 import type { MinimalRuntimeCanvas } from "../services/canvas-runtime.js";
@@ -41,7 +48,7 @@ import type { MinimalRuntimeCanvas } from "../services/canvas-runtime.js";
  * `app.workspace.on(...)` inerte, jamais une erreur, jamais une
  * fonctionnalité principale désactivée. */
 
-type FeuilletsCanvasNodeSelectionData = { id: string; type?: string; text?: string };
+type FeuilletsCanvasNodeSelectionData = CanvasNode;
 type FeuilletsCanvasSelectionData = { nodes?: FeuilletsCanvasNodeSelectionData[] };
 
 /** Sous-ensemble structurel du `Canvas` d'Advanced Canvas réellement utilisé
@@ -312,6 +319,31 @@ async function applyMerge(
   new Notice(t("modal.canvasMerge.done"));
 }
 
+/** Ajoute les branches au Canvas courant sans toucher au vault Markdown.
+ * L'API live garde la priorité ; le repli disque reste disponible comme
+ * pour les autres actions Carnet et préserve les attributs inconnus. */
+async function applyIdeaBranches(
+  app: App,
+  canvas: MinimalAdvancedCanvas,
+  canvasFile: TFile,
+  parentId: string,
+  raw: string
+): Promise<void> {
+  const readLive = canvas.getData && canvas.setData && canvas.requestSave;
+  let data: CanvasData;
+  try {
+    data = readLive ? canvas.getData!() : (JSON.parse(await app.vault.read(canvasFile)) as CanvasData);
+  } catch {
+    new Notice(t("main.notice.canvasUnreadable"));
+    return;
+  }
+
+  const created = createIdeaBranches(data, parentId, raw);
+  if (created.nodes.length === 0) return;
+  if (readLive) persistCanvasData(canvas, data);
+  else await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
+}
+
 /** Vrai si `file` est le Carnet (Tableau brainstorming.canvas) du projet
  * Feuillets actif — jamais un autre .canvas du coffre. */
 function isActiveNotebook(plugin: FeuilletsPluginLike, file: TFile | null | undefined): file is TFile {
@@ -429,6 +461,13 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
       }
       if (!data) return;
 
+      const full = canvas.getData?.();
+      const fullNode = full?.nodes.find((candidate) => candidate.id === data!.id) || data;
+      const isManuscriptPath = makeManuscriptPathChecker(plugin.app, plugin.settings);
+      const canDevelopTree =
+        fullNode.type === "text" ||
+        (fullNode.type === "file" && isAdmissibleChapterNode(fullNode, isManuscriptPath));
+
       if (data.type === "text") {
         const nodeId = data.id;
         const ideaTitle = deriveTitle(data.text || "") || t("modal.canvasBridge.untitledIdea");
@@ -471,8 +510,41 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
               }).open();
             })
         );
-        return;
       }
+
+      if (canDevelopTree) {
+        menu.addItem((item) =>
+          item
+            .setTitle(t("advancedCanvas.nodeMenu.developIdeaTree"))
+            .setIcon("git-branch")
+            .onClick(() => {
+              new CanvasIdeaTreeModal(plugin.app, (raw) =>
+                applyIdeaBranches(plugin.app, canvas, canvasFile, data!.id, raw)
+              ).open();
+            })
+        );
+      }
+
+      if (full && isIdeaTreeNode(full, data.id)) {
+        menu.addItem((item) =>
+          item
+            .setTitle(t("advancedCanvas.nodeMenu.createChapterFromBranch"))
+            .setIcon("folder-plus")
+            .onClick(() => {
+              const fresh = canvas.getData?.() || full;
+              const branch = ideaTreeBranch(fresh, data!.id);
+              new CanvasChapterModal(
+                plugin.app,
+                plugin.settings,
+                fresh,
+                { source: "idea-tree", ids: branch.map((branchNode) => branchNode.id) },
+                { persist: livePersist(canvas), saveSettings: () => plugin.saveSettings(), runtimeCanvas: canvas }
+              ).open();
+            })
+        );
+      }
+
+      if (data.type === "text") return;
 
       // FileNode manuscrit : aucun « Scinder… » Canvas. Le menu de fichier
       // Feuillets fournit déjà « Feuillets: Scinder » avec son moteur fiable.
@@ -481,8 +553,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
       // manuscrit… », seulement s'il contient au moins un élément
       // admissible ; sinon l'action n'est simplement pas proposée. file et
       // link nodes ne reçoivent toujours aucune action dans ce Lot.
-      if (data.type === "group" && canvas.getData) {
-        const full = canvas.getData();
+      if (data.type === "group" && full) {
         const groupNode = full.nodes.find((n) => n.id === data!.id);
         if (!groupNode) return;
         const isManuscriptPath = makeManuscriptPathChecker(plugin.app, plugin.settings);
