@@ -379,10 +379,6 @@ export class BoardView extends BaseFeuilletsView {
       if (activeMode === k) btn.addClass("feuillets-mode-active");
     }
 
-    this.iconBtn(modeGroup, "layout-dashboard", t("board.canvasTooltip"), () => {
-      void this.plugin.generateCanvasBoard();
-    });
-
     this.iconBtn(modeGroup, "sliders-horizontal", t("board.viewOptionsTooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("board.visibleModesHeader")).setDisabled(true));

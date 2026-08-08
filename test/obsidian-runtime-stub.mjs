@@ -162,6 +162,7 @@ export class Menu {
   }
   showAtPosition(pos) {
     this.position = pos;
+    Menu.lastShown = this;
     return this;
   }
   showAtMouseEvent(event) {

@@ -330,6 +330,10 @@ export class FeuilletsView extends BaseFeuilletsView {
       new ManageProjectsModal(this.app, this.plugin).open();
     });
     this.barSep(actions);
+    this.iconBtn(actions, "notebook", "Carnet", () =>
+      this.plugin.generateCanvasBoard()
+    );
+    this.barSep(actions);
     this.iconBtn(actions, "layout-grid", t("binder.boardPlan"), () =>
       this.plugin.activateBoard()
     );
@@ -428,12 +432,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       (S.binderLabelFilter && S.binderLabelFilter !== "Tous") ||
       (S.binderProgressFilter && S.binderProgressFilter !== "Tous"));
 
-    const filterBtn = this.iconBtn(
-      filterBar,
-      binderFilterIsActive() ? "filter" : "list-filter",
-      t("binder.filter.tooltip")
-    );
-    if (binderFilterIsActive()) filterBtn.addClass("feuillets-mode-active");
+    if (binderFilterIsActive()) searchBtn.addClass("feuillets-mode-active");
     const filterSentinelLabel = (v: string) =>
       v === "Tous" ? t("binder.filter.all")
       : v === "Sans statut" ? t("binder.filter.noStatus")
@@ -442,7 +441,9 @@ export class FeuilletsView extends BaseFeuilletsView {
       : v === "En dessous" ? t("binder.filter.progressUnder")
       : v === "Dépassé" ? t("binder.filter.progressOver")
       : v;
-    filterBtn.addEventListener("click", (e: MouseEvent) => {
+    /* Une seule entrée Recherche/Filtres : le clic gauche ouvre la recherche
+       existante et ce popover de filtres, sans geste secondaire caché. */
+    searchBtn.addEventListener("click", (e: MouseEvent) => {
       const menu = new Menu();
 
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
