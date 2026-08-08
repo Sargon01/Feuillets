@@ -142,7 +142,7 @@ export function convertTextNodeToFileNode(node: CanvasNode, filePath: string, ma
  * ne doit pas montrer ; aucun autre champ du squelette habituel (status,
  * label, characters, pov, thread, date, arc…) n'est pré-rempli. */
 export function manuscriptSheetContent(title: string, body: string): string {
-  const lines = ["---", `title: ${title}`, "---", "", body, ""];
+  const lines = ["---", `title: ${JSON.stringify(title)}`, "---", "", body, ""];
   return lines.join("\n");
 }
 

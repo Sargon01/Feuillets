@@ -121,15 +121,23 @@ test("convertTextNodeToFileNode : conserve tout, ne change que type/file/feuille
 // 23/24. note de recherche / feuillet créés sans YAML métier, avec le minimum indispensable
 test("manuscriptSheetContent / researchNoteContent : seul `title` est écrit, aucun champ métier", () => {
   const content = manuscriptSheetContent("Le meurtre du muhtar", "Il pleuvait sur la place.");
-  assert.match(content, /^---\ntitle: Le meurtre du muhtar\n---\n\n/);
+  assert.match(content, /^---\ntitle: "Le meurtre du muhtar"\n---\n\n/);
   assert.match(content, /Il pleuvait sur la place\./);
   for (const forbidden of ["status:", "label:", "characters:", "pov:", "thread:", "date:", "arc:"]) {
     assert.equal(content.includes(forbidden), false, `${forbidden} ne doit pas apparaître`);
   }
 
   const research = researchNoteContent("Une piste", "Notes libres.");
-  assert.match(research, /^---\ntitle: Une piste\n---\n\n/);
+  assert.match(research, /^---\ntitle: "Une piste"\n---\n\n/);
   assert.equal(research.includes("tags:"), false);
+});
+
+test("manuscriptSheetContent : le titre YAML est sérialisé de façon sûre et déterministe", () => {
+  for (const title of ["Kemal : arrivée", "Chapitre #1", 'Il dit "non"', "L'été d'İstanbul"]) {
+    const content = manuscriptSheetContent(title, "Corps intact.");
+    assert.ok(content.startsWith(`---\ntitle: ${JSON.stringify(title)}\n---\n\n`));
+    assert.ok(content.endsWith("Corps intact.\n"));
+  }
 });
 
 function makeCanvasFixture() {
@@ -183,7 +191,7 @@ test("applySelectedIdeas : convertit uniquement les ids sélectionnés, dans l'o
   assert.deepEqual(canvas.nodes.find((n) => n.id === "group-1"), untouchedGroup);
 
   const bContent = await app.vault.read(await app.vault.getAbstractFileByPath(nodeB.file));
-  assert.match(bContent, /title: Idée B/);
+  assert.match(bContent, /title: "Idée B"/);
   assert.match(bContent, /Corps B/);
 });
 

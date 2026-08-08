@@ -33,6 +33,73 @@ export type CanvasEdge = {
 
 export type CanvasData = { nodes: CanvasNode[]; edges: CanvasEdge[] };
 
+/** Sous-ensemble public d'une vue de fichier Canvas déjà ouverte. Il ne
+ * dépend d'aucune API interne Canvas : `TextFileView` expose ces méthodes
+ * pour toutes les vues de fichier d'Obsidian. */
+export type LiveCanvasFileView = {
+  getViewData(): string;
+  setViewData(data: string, clear: boolean): void;
+  requestSave(): void;
+};
+
+export type AddFileNodeResult = "added" | "duplicate" | "invalid";
+
+function newFileNodeId(): string {
+  return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+}
+
+/** Mutation pure du Carnet : ajoute exactement un FileNode aux coordonnées
+ * historiques, ou signale le doublon sans modifier les données. */
+export function addFileNodeToCanvas(data: CanvasData, filePath: string): AddFileNodeResult {
+  if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) return "invalid";
+  if (data.nodes.some((node) => node.type === "file" && node.file === filePath)) return "duplicate";
+  const maxY = data.nodes.reduce((max, node) => Math.max(max, (node.y || 0) + (node.height || 160)), 0);
+  data.nodes.push({
+    id: newFileNodeId(),
+    type: "file",
+    file: filePath,
+    x: 0,
+    y: maxY + 40,
+    width: 320,
+    height: 220,
+  });
+  return "added";
+}
+
+/** Ajoute un feuillet au Carnet en respectant l'état live d'une vue ouverte.
+ * Le repli disque n'est employé qu'en l'absence de vue live correspondante. */
+export async function addFileNodeToNotebook(
+  app: Pick<App, "vault">,
+  canvasFile: TFile,
+  filePath: string,
+  liveView?: LiveCanvasFileView
+): Promise<AddFileNodeResult> {
+  if (liveView) {
+    let data: CanvasData;
+    try {
+      data = JSON.parse(liveView.getViewData()) as CanvasData;
+    } catch {
+      return "invalid";
+    }
+    const result = addFileNodeToCanvas(data, filePath);
+    if (result === "added") {
+      liveView.setViewData(JSON.stringify(data, null, "\t"), false);
+      liveView.requestSave();
+    }
+    return result;
+  }
+
+  let data: CanvasData;
+  try {
+    data = JSON.parse(await app.vault.read(canvasFile)) as CanvasData;
+  } catch {
+    return "invalid";
+  }
+  const result = addFileNodeToCanvas(data, filePath);
+  if (result === "added") await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
+  return result;
+}
+
 /** Chemin stable du Carnet du projet actif. */
 export function canvasPathFor(app: App, root: TFolder): string {
   return normalizePath(`${resourcesFolderPath(app, root)}/Tableau brainstorming.canvas`);
