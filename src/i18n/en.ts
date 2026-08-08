@@ -1103,6 +1103,8 @@ export const en = {
   "main.cmd.canvasBridgeToManuscript": "Notebook: turn ideas into manuscript sheets…",
   "main.cmd.canvasBridgeToResearch": "Notebook: turn ideas into research files…",
   "main.cmd.canvasChapterCreate": "Notebook: create a chapter…",
+  "main.cmd.notebookCaptureIdea": "Notebook: capture an idea",
+  "main.cmd.notebookAddCurrentSheet": "Notebook: add current sheet",
   "main.cmd.manageProjects": "Manage projects…",
   "main.cmd.switchProject": "Switch project…",
   "main.cmd.duplicateProject": "Duplicate the active manuscript (new version)…",
@@ -1260,6 +1262,7 @@ export const en = {
 
   "modal.newFolder.title": "New folder in “{parent}”",
   "modal.newFolder.placeholder": "e.g. Part III",
+  "modal.captureIdea.placeholder": "Idea…",
 
   "modal.compileSelection.title": "Sheets to compile",
   "modal.compileSelection.desc": "Uncheck a sheet with compile: false written in its frontmatter — it stays visible and numbered, but is skipped on export.",

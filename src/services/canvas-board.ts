@@ -44,6 +44,12 @@ export type LiveCanvasFileView = {
 
 export type AddFileNodeResult = "added" | "duplicate" | "invalid";
 
+/** Lot 6 (« noter une idée ») — pas de notion de doublon (deux idées avec
+ * exactement le même texte sont autorisées, voir `addTextNodeToCanvas`) :
+ * `"empty"` remplace `"duplicate"` pour le seul cas où rien n'est créé, un
+ * texte vide après trim. */
+export type AddTextNodeResult = "added" | "empty" | "invalid";
+
 function newFileNodeId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 }
@@ -96,6 +102,72 @@ export async function addFileNodeToNotebook(
     return "invalid";
   }
   const result = addFileNodeToCanvas(data, filePath);
+  if (result === "added") await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
+  return result;
+}
+
+/** Lot 6 (« Carnet : noter une idée ») — mutation pure du Carnet : ajoute
+ * exactement un TextNode LIBRE, jamais dédupliqué (deux idées au même texte
+ * sont autorisées — voir tête de fichier `AddTextNodeResult`). Le node créé
+ * ne porte QUE `type`/`text`/position/dimensions : aucun `feuillets_managed`,
+ * aucun `file`, aucune edge, aucune couleur métier, aucun YAML — une idée
+ * libre reste libre, jamais associée au feuillet en cours d'écriture ni à
+ * quoi que ce soit d'autre (voir integrations/advanced-canvas.ts, jamais
+ * touché par ce Lot). Géométrie : même principe que `addFileNodeToCanvas`
+ * (empile sous les nodes existants, jamais ne les déplace), dimensions
+ * fixes 320×120, aucun `dynamicHeight`. */
+export function addTextNodeToCanvas(data: CanvasData, rawText: string): AddTextNodeResult {
+  if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) return "invalid";
+  const text = String(rawText ?? "").trim();
+  if (!text) return "empty";
+  const maxY = data.nodes.reduce((max, node) => Math.max(max, (node.y || 0) + (node.height || 160)), 0);
+  data.nodes.push({
+    id: newFileNodeId(),
+    type: "text",
+    text,
+    x: 0,
+    y: maxY + 40,
+    width: 320,
+    height: 120,
+  });
+  return "added";
+}
+
+/** Lot 6 — même stratégie API live/repli disque que `addFileNodeToNotebook`
+ * (invariant du Lot 4, jamais réécrit) : un Carnet déjà ouvert utilise
+ * TOUJOURS `getViewData`/`setViewData(…, false)`/`requestSave`, jamais
+ * `vault.modify` — un `vault.modify` sur un Canvas ouvert écraserait
+ * silencieusement tout déplacement de node non encore sauvegardé par
+ * Obsidian. Le repli disque (`vault.read`/`vault.modify`) ne sert que si le
+ * Carnet n'est pas ouvert dans une vue live. */
+export async function addTextNodeToNotebook(
+  app: Pick<App, "vault">,
+  canvasFile: TFile,
+  rawText: string,
+  liveView?: LiveCanvasFileView
+): Promise<AddTextNodeResult> {
+  if (liveView) {
+    let data: CanvasData;
+    try {
+      data = JSON.parse(liveView.getViewData()) as CanvasData;
+    } catch {
+      return "invalid";
+    }
+    const result = addTextNodeToCanvas(data, rawText);
+    if (result === "added") {
+      liveView.setViewData(JSON.stringify(data, null, "\t"), false);
+      liveView.requestSave();
+    }
+    return result;
+  }
+
+  let data: CanvasData;
+  try {
+    data = JSON.parse(await app.vault.read(canvasFile)) as CanvasData;
+  } catch {
+    return "invalid";
+  }
+  const result = addTextNodeToCanvas(data, rawText);
   if (result === "added") await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
   return result;
 }
