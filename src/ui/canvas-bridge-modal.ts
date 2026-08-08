@@ -12,8 +12,8 @@ import {
   type BridgeMode,
 } from "../services/canvas-bridge.js";
 import { getProjectFolder } from "../services/folder-structure.js";
-import { getResearchRoot, researchFolderPath } from "../services/research.js";
-import { ensureFolder } from "../services/project-files.js";
+import { ensureNotebookResearchFolder, findNotebookResearchFolder, notebookFolderName, researchFolderPath } from "../services/research.js";
+import type { MinimalRuntimeCanvas } from "../services/canvas-runtime.js";
 
 /** Repli universel (aucune dépendance à Advanced Canvas) pour transformer
  * une sélection d'idées texte du Tableau brainstorming en feuillets du
@@ -35,6 +35,12 @@ export type CanvasBridgeModalOptions = {
   preselectedIds?: string[];
   persist?: CanvasBridgePersist;
   onDone?: () => void;
+  /** Canvas Advanced Canvas RÉEL (couche instances, voir services/canvas-
+   * runtime.ts) — permet à `applySelectedIdeas` de matérialiser un vrai
+   * FileNode runtime au lieu d'une simple mise à jour JSON. Absent en repli
+   * disque (pas de vue Canvas ouverte) : le comportement reste alors
+   * purement JSON, comme avant ce correctif. */
+  runtimeCanvas?: MinimalRuntimeCanvas;
 };
 
 export class CanvasBridgeModal extends Modal {
@@ -45,6 +51,7 @@ export class CanvasBridgeModal extends Modal {
   private preselectedIds: Set<string> | null;
   private persist: CanvasBridgePersist;
   private onDone?: () => void;
+  private runtimeCanvas?: MinimalRuntimeCanvas;
 
   private rows: CanvasNode[];
   private checked: Set<string>;
@@ -65,6 +72,7 @@ export class CanvasBridgeModal extends Modal {
     this.preselectedIds = options.preselectedIds ? new Set(options.preselectedIds) : null;
     this.persist = options.persist || ((data) => this.app.vault.modify(this.canvasFile, JSON.stringify(data, null, "\t")));
     this.onDone = options.onDone;
+    this.runtimeCanvas = options.runtimeCanvas;
 
     this.rows = sortNodesSpatially(textNodesOf(canvas));
     this.checked = new Set(
@@ -99,10 +107,13 @@ export class CanvasBridgeModal extends Modal {
       folderInput.value = root ? root.path : "";
       new FolderSuggest(this.app, folderInput);
     } else {
-      const researchPath = researchFolderPath(this.app, this.settings, getProjectFolder(this.app, this.settings));
+      const notebook = findNotebookResearchFolder(this.app, this.settings);
+      const researchPath = notebook
+        ? notebook.path
+        : `${researchFolderPath(this.app, this.settings, getProjectFolder(this.app, this.settings)) || ""}/${notebookFolderName()}`;
       contentEl.createEl("p", {
         cls: "feuillets-muted",
-        text: t("modal.canvasBridge.researchDestination", { path: researchPath || "" }),
+        text: t("modal.canvasBridge.researchDestination", { path: researchPath }),
       });
     }
 
@@ -162,21 +173,14 @@ export class CanvasBridgeModal extends Modal {
         return;
       }
     } else {
-      const root = getProjectFolder(this.app, this.settings);
-      const existing = getResearchRoot(this.app, this.settings);
-      if (existing) {
-        destFolder = existing;
-      } else {
-        const path = researchFolderPath(this.app, this.settings, root);
-        if (!path) {
-          new Notice(t("modal.canvasBridge.invalidFolder"));
-          return;
-        }
-        destFolder = (await ensureFolder(this.app, path)) as TFolder;
+      destFolder = await ensureNotebookResearchFolder(this.app, this.settings);
+      if (!destFolder) {
+        new Notice(t("modal.canvasBridge.invalidFolder"));
+        return;
       }
     }
 
-    const result = await applySelectedIdeas(this.app, this.canvas, orderedIds, destFolder, this.mode);
+    const result = await applySelectedIdeas(this.app, this.canvas, orderedIds, destFolder, this.mode, this.runtimeCanvas);
     await this.persist(this.canvas);
 
     this.close();
@@ -200,13 +204,13 @@ export class CanvasBridgeModal extends Modal {
 export class CanvasNodeToManuscriptModal extends Modal {
   private settings: FeuilletsSettings;
   private ideaTitle: string;
-  private onConfirm: (folder: TFolder) => void | Promise<void>;
+  private onConfirm: (folder: TFolder, title: string) => void | Promise<void>;
 
   constructor(
     app: App,
     settings: FeuilletsSettings,
     ideaTitle: string,
-    onConfirm: (folder: TFolder) => void | Promise<void>
+    onConfirm: (folder: TFolder, title: string) => void | Promise<void>
   ) {
     super(app);
     this.settings = settings;
@@ -223,7 +227,11 @@ export class CanvasNodeToManuscriptModal extends Modal {
     const root = getProjectFolder(this.app, this.settings);
     folderInput.value = root ? root.path : "";
     new FolderSuggest(this.app, folderInput);
-    folderInput.focus();
+    contentEl.createEl("label", { text: "Titre" });
+    const titleInput = contentEl.createEl("input", { type: "text" });
+    titleInput.addClass("feuillets-input-full");
+    titleInput.value = this.ideaTitle;
+    titleInput.focus();
 
     const submit = () => {
       const raw = normalizePath((folderInput.value || "").trim());
@@ -233,7 +241,7 @@ export class CanvasNodeToManuscriptModal extends Modal {
         return;
       }
       this.close();
-      void this.onConfirm(af);
+      void this.onConfirm(af, titleInput.value);
     };
     folderInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") submit();

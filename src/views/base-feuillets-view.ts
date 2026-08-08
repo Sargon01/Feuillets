@@ -64,6 +64,39 @@ function asFolder(af: TAbstractFile): TFolder {
  * Recherche. */
 type BinderNode = TFolder | TFile;
 
+function menuPoint(event: MouseEvent | KeyboardEvent | undefined): { x: number; y: number } | null {
+  if (!event || typeof (event as MouseEvent).clientX !== "number" || typeof (event as MouseEvent).clientY !== "number") return null;
+  return { x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY };
+}
+
+function eventDocument(event: Event | undefined): Document | undefined {
+  return (event?.target as { ownerDocument?: Document } | null)?.ownerDocument;
+}
+
+/** Affiche les sélecteurs compacts près du clic qui a ouvert le menu Binder.
+ * Le test structurel `instanceof MouseEvent` est volontairement évité : dans
+ * une fenêtre popout, son constructeur appartient à une autre Window. */
+export function showChoices(
+  event: MouseEvent | KeyboardEvent,
+  origin: MouseEvent,
+  fill: (menu: Menu) => void
+): void {
+  const menu = new Menu();
+  fill(menu);
+  if (menuPoint(event)) {
+    menu.showAtMouseEvent(event as MouseEvent);
+    return;
+  }
+  const point = menuPoint(origin);
+  if (point) {
+    menu.showAtPosition(point, eventDocument(origin));
+    return;
+  }
+  // Le chemin réel possède toujours l'événement de clic droit initial. Ce
+  // dernier repli ne concerne que les stubs de test dépourvus de coordonnées.
+  menu.showAtMouseEvent(origin);
+}
+
 /** Remappe les chemins d'une map de liens Binder→Recherche après un
  * renommage/déplacement dans le coffre (vault.on("rename"), main.ts). Règle :
  * égalité exacte, ou préfixe `oldPath/` — un chemin « voisin » (ex.
@@ -2039,14 +2072,16 @@ export abstract class BaseFeuilletsView extends ItemView {
     const menu = new Menu();
     const plugin = this.plugin;
 
-    this.addBinderResearchActions(
-      menu,
-      file,
-      this.plugin.shortTitleFor?.(file) ||
-        this.plugin.titleFor?.(file) ||
-        file.basename
-    );
-    menu.addSeparator();
+    const researchName = this.plugin.shortTitleFor?.(file) || this.plugin.titleFor?.(file) || file.basename;
+    if (file.extension === "md" && file.path.startsWith(`${this.plugin.getProjectFolder()?.path || "\0"}/`)) {
+      menu.addItem((item) =>
+        item
+          .setTitle("Ajouter au Carnet")
+          .setIcon("notebook")
+          .onClick(() => { void this.plugin.addFileToNotebook(file); })
+      );
+      menu.addSeparator();
+    }
 
     /* Feuillet cliqué faisant partie d'une sélection multiple (voir
        handleMultiSelectClick) : Statut/Label/Tags s'appliquent alors à
@@ -2113,28 +2148,19 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.newSheetBefore"))
-        .setIcon("corner-left-up")
-        .onClick(async () => {
-          plugin.newSheetAt(asFolder(parent), index);
-        })
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.newSheetAfter"))
-        .setIcon("corner-left-down")
-        .onClick(async () => {
-          plugin.newSheetAt(asFolder(parent), index + 1);
-        })
-    );
+    menu.addItem((item) => item.setTitle("Nouveau feuillet…").setIcon("file-plus").onClick((evt) =>
+      showChoices(evt, e, (choices) => {
+        choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetBefore")).setIcon("corner-left-up").onClick(() => plugin.newSheetAt(asFolder(parent), index)));
+        choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetAfter")).setIcon("corner-left-down").onClick(() => plugin.newSheetAt(asFolder(parent), index + 1)));
+      })
+    ));
     menu.addSeparator();
 
     const currentStatus = (this.fm(file).status as string) || "";
     const allStatuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
+    menu.addItem((item) => item.setTitle("Changer le statut…").setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const st of allStatuses.filter(Boolean)) {
-      menu.addItem((item) =>
+      choices.addItem((item) =>
         item
           .setTitle(t("shared.contextMenu.statusLabel", { status: st }))
           .setChecked(!isGroup && st === currentStatus)
@@ -2144,11 +2170,13 @@ export abstract class BaseFeuilletsView extends ItemView {
           })
       );
     }
+    })));
     menu.addSeparator();
 
     const currentLabel = plugin.labelOf(file);
+    menu.addItem((item) => item.setTitle("Changer le label…").setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const l of this.getProjectLabels()) {
-      menu.addItem((item) =>
+      choices.addItem((item) =>
         item
           .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
           .setChecked(!isGroup && l.name === currentLabel)
@@ -2158,6 +2186,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           })
       );
     }
+    })));
     menu.addSeparator();
 
     if (isGroup) {
@@ -2170,7 +2199,11 @@ export abstract class BaseFeuilletsView extends ItemView {
       menu.addSeparator();
     }
 
-    menu.addItem((item) =>
+    menu.addItem((item) => item.setTitle("Recherche associée…").setIcon("search").onClick((evt) =>
+      showChoices(evt, e, (choices) => this.addBinderResearchActions(choices, file, researchName))
+    ));
+    menu.addItem((item) => item.setTitle("Versions…").setIcon("history").onClick((evt) => showChoices(evt, e, (choices) => {
+    choices.addItem((item) =>
       item
         .setTitle(t("shared.contextMenu.snapshot"))
         .setIcon("camera")
@@ -2181,7 +2214,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           new Notice(t("shared.contextMenu.snapshotCreated", { name: n }));
         })
     );
-    menu.addItem((item) =>
+    choices.addItem((item) =>
       item
         .setTitle(t("shared.contextMenu.compareWithSnapshot"))
         .setIcon("history")
@@ -2196,6 +2229,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           new DiffModal(this.app, plugin, file, snapshots[0]).open();
         })
     );
+    })));
     menu.addItem((item) =>
       item
         .setTitle(t("shared.duplicate"))
@@ -2215,7 +2249,6 @@ export abstract class BaseFeuilletsView extends ItemView {
           new Notice(t("shared.duplicated", { name }));
         })
     );
-    menu.addSeparator();
 
     // Compilation libre
     const compilationTitle = isGroup
@@ -2303,22 +2336,10 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.newSheetInside"))
-        .setIcon("file-plus")
-        .onClick(async () => {
-          plugin.newSheet(folder);
-        })
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(t("binder.newSubfolder"))
-        .setIcon("folder-plus")
-        .onClick(async () => {
-          plugin.newFolder(folder);
-        })
-    );
+    menu.addItem((item) => item.setTitle("Nouveau…").setIcon("plus").onClick((evt) => showChoices(evt, e, (choices) => {
+      choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetInside")).setIcon("file-plus").onClick(() => plugin.newSheet(folder)));
+      choices.addItem((choice) => choice.setTitle(t("binder.newSubfolder")).setIcon("folder-plus").onClick(() => plugin.newFolder(folder)));
+    })));
     menu.addItem((item) =>
       item
         .setTitle(t("shared.contextMenu.renameFolder"))
@@ -2360,13 +2381,16 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
-    this.addBinderResearchActions(menu, folder, folder.name);
+    menu.addItem((item) => item.setTitle("Recherche associée…").setIcon("search").onClick((evt) =>
+      showChoices(evt, e, (choices) => this.addBinderResearchActions(choices, folder, folder.name))
+    ));
     menu.addSeparator();
 
     const note = plugin.folderNoteFor(folder);
     const currentLabel = note ? plugin.labelOf(note) : "";
+    menu.addItem((item) => item.setTitle("Changer le label…").setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const l of this.getProjectLabels()) {
-      menu.addItem((item) =>
+      choices.addItem((item) =>
         item
           .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
           .setChecked(l.name === currentLabel)
@@ -2378,11 +2402,13 @@ export abstract class BaseFeuilletsView extends ItemView {
           })
       );
     }
+    })));
     menu.addSeparator();
     const currentStatus = note ? ((this.fm(note).status as string) || "") : "";
     const allStatuses = getProjectStatuses(plugin ? plugin.settings : null);
+    menu.addItem((item) => item.setTitle("Changer le statut…").setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const st of allStatuses.filter(Boolean)) {
-      menu.addItem((item) =>
+      choices.addItem((item) =>
         item
           .setTitle(t("shared.contextMenu.statusLabel", { status: st }))
           .setChecked(st === currentStatus)
@@ -2394,56 +2420,53 @@ export abstract class BaseFeuilletsView extends ItemView {
           })
       );
     }
+    })));
     menu.addSeparator();
 
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.editTags"))
-        .setIcon("tag")
-        .onClick(async () => {
-          const targetNote = note || await plugin.getOrCreateFolderNote(folder);
-          if (targetNote) {
-            new TagsModal(this.app, plugin, targetNote).open();
-          }
-        })
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.editSynopsis"))
-        .setIcon("text")
-        .onClick(async () => {
-          const targetNote = note || await plugin.getOrCreateFolderNote(folder);
-          if (targetNote) {
-            new FmFieldModal(this.app, plugin, targetNote, "synopsis", t("shared.contextMenu.folderSynopsisLabel"), () => this.render(true)).open();
-          }
-        })
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.editSummary"))
-        .setIcon("file-text")
-        .onClick(async () => {
-          const targetNote = note || await plugin.getOrCreateFolderNote(folder);
-          if (targetNote) {
-            new FmFieldModal(this.app, plugin, targetNote, "summary", t("shared.contextMenu.folderSummaryLabel"), () => this.render(true)).open();
-          }
-        })
-    );
-    menu.addSeparator();
-
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.setWordGoal"))
-        .setIcon("target")
-        .onClick(() => {
-          new FolderGoalModal(this.app, plugin, folder).open();
-        })
+    menu.addItem((item) => item
+      .setTitle("Organisation…")
+      .setIcon("settings-2")
+      .onClick((evt) => showChoices(evt, e, (choices) => {
+        choices.addItem((item) => item
+          .setTitle(t("shared.contextMenu.editTags"))
+          .setIcon("tag")
+          .onClick(async () => {
+            const targetNote = note || await plugin.getOrCreateFolderNote(folder);
+            if (targetNote) new TagsModal(this.app, plugin, targetNote).open();
+          })
+        );
+        choices.addItem((item) => item
+          .setTitle(t("shared.contextMenu.editSynopsis"))
+          .setIcon("text")
+          .onClick(async () => {
+            const targetNote = note || await plugin.getOrCreateFolderNote(folder);
+            if (targetNote) new FmFieldModal(this.app, plugin, targetNote, "synopsis", t("shared.contextMenu.folderSynopsisLabel"), () => this.render(true)).open();
+          })
+        );
+        choices.addItem((item) => item
+          .setTitle(t("shared.contextMenu.editSummary"))
+          .setIcon("file-text")
+          .onClick(async () => {
+            const targetNote = note || await plugin.getOrCreateFolderNote(folder);
+            if (targetNote) new FmFieldModal(this.app, plugin, targetNote, "summary", t("shared.contextMenu.folderSummaryLabel"), () => this.render(true)).open();
+          })
+        );
+        choices.addItem((item) => item
+          .setTitle(t("shared.contextMenu.setWordGoal"))
+          .setIcon("target")
+          .onClick(() => new FolderGoalModal(this.app, plugin, folder).open())
+        );
+      }))
     );
     menu.addSeparator();
 
-    // Compilation libre
-    menu.addItem((item) =>
-      item
+    // Compilation libre : le sélecteur reste natif, même lorsqu'une seule
+    // commande de compilation de dossier est actuellement disponible.
+    menu.addItem((item) => item
+      .setTitle("Compilation…")
+      .setIcon("download")
+      .onClick((evt) => showChoices(evt, e, (choices) => {
+        choices.addItem((item) => item
         .setTitle(t("binder.compileFolder"))
         .setIcon("download")
         .onClick(async () => {
@@ -2466,7 +2489,8 @@ export abstract class BaseFeuilletsView extends ItemView {
             await (exportWithScope as any)(this.app, plugin.settings, scope, format, name);
           });
           modal.open();
-        })
+        }));
+      }))
     );
     menu.addSeparator();
 
@@ -2697,7 +2721,18 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.plugin._dragInProgress = true;
       this.plugin._dragRetryCount = 0;
       dropEl.addClass("feuillets-dragging");
-      e.dataTransfer!.effectAllowed = "move";
+      /* Le Binder garde son propre état pour le réordonnancement interne,
+         mais expose aussi le chemin du feuillet au Canvas natif. Obsidian /
+         Advanced Canvas peut alors créer un vrai FileNode sans que Feuillets
+         ne déplace, copie ou modifie le Markdown. Les dossiers et les
+         sélections multiples restent volontairement exclus de ce premier
+         flux. */
+      if (draggedNode instanceof TFile && !this.plugin.dragState?.multi) {
+        e.dataTransfer?.setData("text/plain", draggedNode.path);
+        e.dataTransfer!.effectAllowed = "move";
+      } else {
+        e.dataTransfer!.effectAllowed = "move";
+      }
       e.stopPropagation();
     });
     handleEl.addEventListener("dragend", () => {
