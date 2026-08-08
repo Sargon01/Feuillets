@@ -8,6 +8,9 @@ import {
   IDEA_TREE_MARKER,
   IDEA_TREE_NODE_STYLE,
   createIdeaBranches,
+  createIdeaChild,
+  createIdeaSibling,
+  hasIdeaTreeParent,
   ideaTreeBranch,
   ideaTreeLines,
   reflowIdeaTree,
@@ -266,4 +269,76 @@ test("Arbre d'idées visuel TEST 10 — les attributs inconnus des éléments ex
   assert.deepEqual(canvas.nodes.find((node) => node.id === "A"), beforeParent);
   assert.deepEqual(canvas.nodes.find((node) => node.id === "X"), beforeOther);
   assert.deepEqual(canvas.edges.find((edge) => edge.id === "ordinary"), beforeEdge);
+});
+
+// ---------------------------------------------------------------------------
+// Lot 5 — createIdeaChild / createIdeaSibling / hasIdeaTreeParent
+// ---------------------------------------------------------------------------
+
+test("Lot 5 — createIdeaChild crée un unique enfant, texte vide, géométrie historique inchangée", () => {
+  const parent = textNode("A", "A", 10, 100);
+  const canvas = { nodes: [parent], edges: [] };
+  const child = createIdeaChild(canvas, "A");
+
+  assert.equal(canvas.nodes.length, 2);
+  assert.equal(canvas.edges.length, 1);
+  assert.equal(child.text, "");
+  assert.equal(child.type, "text");
+  assert.equal(child.width, IDEA_TREE_LAYOUT.childWidth);
+  assert.equal(child.height, IDEA_TREE_LAYOUT.childHeight);
+  assert.equal(child.x, parent.x + IDEA_TREE_LAYOUT.horizontalIndent);
+  assert.equal(child.y, parent.y + IDEA_TREE_LAYOUT.verticalSpacing);
+  assert.equal(canvas.edges[0].fromNode, "A");
+  assert.equal(canvas.edges[0].toNode, child.id);
+  assert.equal(canvas.edges[0].feuillets_managed, IDEA_TREE_MARKER);
+});
+
+test("Lot 5 — createIdeaChild renvoie null si le parent n'existe plus", () => {
+  const canvas = { nodes: [], edges: [] };
+  assert.equal(createIdeaChild(canvas, "introuvable"), null);
+});
+
+test("Lot 5 — createIdeaSibling insère le frère immédiatement après celui cliqué", () => {
+  const canvas = { nodes: [textNode("A", "A")], edges: [] };
+  const created = createIdeaBranches(canvas, "A", "B\nC");
+  const [bNode] = created.nodes;
+  const sibling = createIdeaSibling(canvas, bNode.id, "B-bis");
+  assert.ok(sibling);
+  assert.deepEqual(ideaTreeBranch(canvas, "A").map((node) => node.text), ["A", "B", "B-bis", "C"]);
+});
+
+test("Lot 5 — createIdeaSibling inséré après un frère du MILIEU (pas le dernier) reste bien positionné", () => {
+  const canvas = { nodes: [textNode("A", "A")], edges: [] };
+  const created = createIdeaBranches(canvas, "A", "B\nC\nD");
+  const [, cNode] = created.nodes;
+  createIdeaSibling(canvas, cNode.id, "C-bis");
+  assert.deepEqual(ideaTreeBranch(canvas, "A").map((node) => node.text), ["A", "B", "C", "C-bis", "D"]);
+});
+
+test("Lot 5 — createIdeaSibling renvoie null pour une racine sans parent idea-tree", () => {
+  const canvas = { nodes: [textNode("A", "A")], edges: [] };
+  assert.equal(createIdeaSibling(canvas, "A"), null);
+});
+
+test("Lot 5 — createIdeaSibling renvoie null si le node cliqué a disparu", () => {
+  const canvas = { nodes: [textNode("A", "A")], edges: [] };
+  assert.equal(createIdeaSibling(canvas, "fantome"), null);
+});
+
+test("Lot 5 — hasIdeaTreeParent distingue une racine (faux) d'un descendant (vrai)", () => {
+  const canvas = { nodes: [textNode("A", "A"), textNode("B", "B")], edges: [managedEdge("ab", "A", "B")] };
+  assert.equal(hasIdeaTreeParent(canvas, "A"), false);
+  assert.equal(hasIdeaTreeParent(canvas, "B"), true);
+});
+
+test("Lot 5 — Tab puis Entrée (A → enfant B → frère C) reproduit exactement le scénario attendu", () => {
+  const canvas = { nodes: [textNode("A", "A")], edges: [] };
+  const b = createIdeaChild(canvas, "A", "B");
+  const c = createIdeaSibling(canvas, b.id, "C");
+  assert.ok(c);
+  assert.deepEqual(ideaTreeBranch(canvas, "A").map((node) => node.text), ["A", "B", "C"]);
+  // A a un seul enfant direct (B) ; C est le frère de B, pas un second enfant de A.
+  const parentOfC = canvas.edges.find((edge) => edge.toNode === c.id).fromNode;
+  const parentOfB = canvas.edges.find((edge) => edge.toNode === b.id).fromNode;
+  assert.equal(parentOfC, parentOfB);
 });

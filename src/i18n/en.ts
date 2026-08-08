@@ -507,6 +507,8 @@ export const en = {
   "advancedCanvas.nodeMenu.developIdeaTree": "Develop as a tree…",
   "advancedCanvas.nodeMenu.createChapterFromBranch": "Create a chapter from this branch…",
   "advancedCanvas.nodeMenu.split": "Split…",
+  "advancedCanvas.nodeMenu.addBranch": "Add a branch",
+  "advancedCanvas.nodeMenu.reorganizeTree": "Reorganize tree",
   "advancedCanvas.selectionMenu.createChapter": "Create a chapter from the selection…",
   "advancedCanvas.selectionMenu.merge": "Merge…",
   "analysis.displayText": "Analysis",

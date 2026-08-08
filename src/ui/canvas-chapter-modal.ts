@@ -146,6 +146,15 @@ export class CanvasChapterModal extends Modal {
     this.nameInput.placeholder = t("modal.canvasChapter.namePlaceholder");
     if (this.context.source === "group") {
       this.nameInput.value = defaultChapterNameForGroup(this.context.group);
+    } else if (this.context.source === "idea-tree") {
+      // Lot 5 (section 8) : le nom prérempli est celui du NODE CLIQUÉ, la
+      // racine de la branche choisie — context.ids[0] (voir
+      // integrations/advanced-canvas.ts, `ideaTreeBranch(fresh, data!.id)`),
+      // jamais `ideaTreeRoot()` : sur A─B─C, une action lancée depuis B doit
+      // proposer « B », pas « A ».
+      const clickedId = this.context.ids[0];
+      const clicked = clickedId ? this.canvas.nodes.find((n) => n.id === clickedId) : undefined;
+      if (clicked) this.nameInput.value = this.itemLabel(clicked);
     }
     this.nameInput.focus();
 

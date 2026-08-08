@@ -507,6 +507,8 @@ export const fr = {
   "advancedCanvas.nodeMenu.developIdeaTree": "Développer en arbre…",
   "advancedCanvas.nodeMenu.createChapterFromBranch": "Créer un chapitre avec cette branche…",
   "advancedCanvas.nodeMenu.split": "Scinder…",
+  "advancedCanvas.nodeMenu.addBranch": "Ajouter une branche",
+  "advancedCanvas.nodeMenu.reorganizeTree": "Réorganiser l'arbre",
   "advancedCanvas.selectionMenu.createChapter": "Créer un chapitre avec la sélection…",
   "advancedCanvas.selectionMenu.merge": "Fusionner…",
   "analysis.displayText": "Analyse",
