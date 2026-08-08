@@ -28,6 +28,94 @@ export type IdeaTreeCreation = {
   edges: CanvasEdge[];
 };
 
+/** Crée UN TextNode + SON edge marquée sous `parentId`, à la position `y`
+ * donnée (le géométrie x/largeur/hauteur reste toujours celle du modèle
+ * « Test Manuel », voir IDEA_TREE_LAYOUT) — factorisation partagée par
+ * `createIdeaBranches` (plusieurs lignes) et `createIdeaChild`/
+ * `createIdeaSibling` (Lot 5, une seule carte, texte vide autorisé) : une
+ * seule logique de création de paire node+edge, jamais dupliquée. */
+function appendIdeaNode(canvas: CanvasData, parentId: string, text: string, y: number): CanvasNode {
+  const { childWidth, childHeight, horizontalIndent } = IDEA_TREE_LAYOUT;
+  const parent = (canvas.nodes || []).find((node) => node.id === parentId);
+  const id = freshCanvasNodeId(canvas);
+  const node: CanvasNode = {
+    id,
+    type: "text",
+    text,
+    styleAttributes: { ...IDEA_TREE_NODE_STYLE },
+    x: (Number(parent?.x) || 0) + horizontalIndent,
+    y,
+    width: childWidth,
+    height: childHeight,
+  };
+  canvas.nodes.push(node);
+
+  const edge: CanvasEdge = {
+    id: freshCanvasEdgeId(canvas),
+    styleAttributes: { ...IDEA_TREE_EDGE_STYLE },
+    toFloating: false,
+    fromNode: parentId,
+    fromSide: "bottom",
+    toNode: id,
+    toSide: "left",
+    toEnd: "none",
+    feuillets_managed: IDEA_TREE_MARKER,
+  };
+  canvas.edges.push(edge);
+
+  return node;
+}
+
+/** Vrai si `nodeId` possède un parent idea-tree (une edge marquée dont il
+ * est la cible) — distinct de `isIdeaTreeNode`, qui répond aussi vrai pour
+ * une racine sans parent (elle a des enfants). Utilisé par le raccourci
+ * Entrée (section 2 du Lot 5) : créer un frère n'a de sens que si le node
+ * sélectionné a déjà un parent dans l'arbre. */
+export function hasIdeaTreeParent(canvas: CanvasData, nodeId: string): boolean {
+  return (canvas.edges || []).some((edge) => isIdeaTreeEdge(edge) && edge.toNode === nodeId);
+}
+
+/** Lot 5 — raccourci Tab : ajoute UN enfant (texte vide par défaut, l'appelant
+ * démarre l'édition juste après) sous `parentId`, juste sous les enfants déjà
+ * présents. Retourne `null` si `parentId` n'existe pas dans `canvas`. */
+export function createIdeaChild(canvas: CanvasData, parentId: string, text = ""): CanvasNode | null {
+  const parent = (canvas.nodes || []).find((node) => node.id === parentId);
+  if (!parent) return null;
+
+  const { verticalSpacing } = IDEA_TREE_LAYOUT;
+  const existingChildren = (canvas.edges || [])
+    .filter((edge) => isIdeaTreeEdge(edge) && edge.fromNode === parentId)
+    .map((edge) => canvas.nodes.find((node) => node.id === edge.toNode))
+    .filter((node): node is CanvasNode => !!node);
+  const y = existingChildren.reduce(
+    (bottom, child) => Math.max(bottom, (Number(child.y) || 0) + verticalSpacing),
+    (Number(parent.y) || 0) + verticalSpacing
+  );
+
+  const node = appendIdeaNode(canvas, parentId, text, y);
+  reflowIdeaTree(canvas, parentId);
+  return node;
+}
+
+/** Lot 5 — raccourci Entrée : ajoute UN frère juste après `siblingId` (même
+ * parent idea-tree), texte vide par défaut. Retourne `null` si `siblingId`
+ * n'a pas de parent idea-tree (racine) ou n'existe plus dans `canvas`. */
+export function createIdeaSibling(canvas: CanvasData, siblingId: string, text = ""): CanvasNode | null {
+  const parentEdge = (canvas.edges || []).find((edge) => isIdeaTreeEdge(edge) && edge.toNode === siblingId);
+  if (!parentEdge || !parentEdge.fromNode) return null;
+  const sibling = (canvas.nodes || []).find((node) => node.id === siblingId);
+  if (!sibling) return null;
+
+  // Un `y` juste au-dessus du prochain frère (verticalSpacing = 60 sépare
+  // toujours deux frères existants) place le nouveau node immédiatement
+  // après `siblingId` dans le tri (y, x, id) qu'utilise `ideaTreeBranch` —
+  // reflowIdeaTree recalcule ensuite la position réelle depuis cet ordre.
+  const y = (Number(sibling.y) || 0) + 1;
+  const node = appendIdeaNode(canvas, parentEdge.fromNode, text, y);
+  reflowIdeaTree(canvas, parentEdge.fromNode);
+  return node;
+}
+
 function freshCanvasEdgeId(canvas: CanvasData): string {
   const used = new Set((canvas.edges || []).map((edge) => edge.id));
   let index = 1;
@@ -106,48 +194,24 @@ export function createIdeaBranches(canvas: CanvasData, parentId: string, raw: st
   const lines = ideaTreeLines(raw);
   if (!parent || lines.length === 0) return { nodes: [], edges: [] };
 
-  const { childWidth, childHeight, horizontalIndent, verticalSpacing } = IDEA_TREE_LAYOUT;
+  const { verticalSpacing } = IDEA_TREE_LAYOUT;
   const existingChildren = (canvas.edges || [])
     .filter((edge) => isIdeaTreeEdge(edge) && edge.fromNode === parentId)
     .map((edge) => canvas.nodes.find((node) => node.id === edge.toNode))
     .filter((node): node is CanvasNode => !!node);
-  const x = (Number(parent.x) || 0) + horizontalIndent;
   const firstY = existingChildren.reduce(
     (bottom, child) => Math.max(bottom, (Number(child.y) || 0) + verticalSpacing),
     (Number(parent.y) || 0) + verticalSpacing
   );
 
   const nodes: CanvasNode[] = [];
-  const edges: CanvasEdge[] = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const id = freshCanvasNodeId(canvas);
-    const node: CanvasNode = {
-      id,
-      type: "text",
-      text: lines[index],
-      styleAttributes: { ...IDEA_TREE_NODE_STYLE },
-      x,
-      y: firstY + index * verticalSpacing,
-      width: childWidth,
-      height: childHeight,
-    };
-    canvas.nodes.push(node);
+    const node = appendIdeaNode(canvas, parentId, lines[index], firstY + index * verticalSpacing);
     nodes.push(node);
-
-    const edge: CanvasEdge = {
-      id: freshCanvasEdgeId(canvas),
-      styleAttributes: { ...IDEA_TREE_EDGE_STYLE },
-      toFloating: false,
-      fromNode: parentId,
-      fromSide: "bottom",
-      toNode: id,
-      toSide: "left",
-      toEnd: "none",
-      feuillets_managed: IDEA_TREE_MARKER,
-    };
-    canvas.edges.push(edge);
-    edges.push(edge);
   }
+  const edges = nodes
+    .map((node) => (canvas.edges || []).find((edge) => isIdeaTreeEdge(edge) && edge.toNode === node.id))
+    .filter((edge): edge is CanvasEdge => !!edge);
 
   reflowIdeaTree(canvas, parentId);
 

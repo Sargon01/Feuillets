@@ -87,6 +87,16 @@ export type MinimalRuntimeNode = {
   id: string;
   getData: () => RuntimeNodeData;
   setData: (data: RuntimeNodeData, addHistory?: boolean) => void;
+  /** Lot 5 (Arbre d'idées, raccourcis clavier) — `true` tant que l'éditeur
+   * (iframe) de ce TextNode est ouvert. Membre runtime standard du Canvas
+   * natif/Advanced Canvas, jamais supposé présent : tout code qui le lit le
+   * traite comme absent = "non édité" (voir integrations/advanced-
+   * canvas.ts, activeSelectionNode). */
+  isEditing?: boolean;
+  /** Lot 5 — élément DOM réel de la carte, uniquement utilisé pour poser une
+   * classe de lisibilité (jamais lu comme source de données) et, pour un
+   * TextNode en édition, retrouver l'iframe de son éditeur. */
+  nodeEl?: HTMLElement;
 };
 
 export type MinimalRuntimeEdgeEnd = {
@@ -125,6 +135,12 @@ export type MinimalRuntimeCanvas = {
   removeNode?: (node: MinimalRuntimeNode) => void;
   getEdgesForNode?: (node: MinimalRuntimeNode) => MinimalRuntimeEdge[];
   requestSave?: () => void;
+  /** Lot 5 — sélection courante du Canvas (instances runtime réelles, mêmes
+   * objets que les valeurs de `nodes`). Lue seule, jamais écrite : Feuillets
+   * ne sélectionne plus jamais automatiquement un node (décision produit —
+   * voir integrations/advanced-canvas.ts, `handleIdeaTreeKey`), seulement
+   * pour savoir si UN SEUL node est sélectionné avant d'agir sur Tab/Entrée. */
+  selection?: Set<MinimalRuntimeNode>;
 };
 
 /** Vrai si `canvas` expose l'intégralité du contrat runtime nécessaire au

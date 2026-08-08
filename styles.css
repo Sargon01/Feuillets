@@ -7233,3 +7233,18 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   50% { background-color: var(--text-accent); opacity: 0.2; }
   100% { background-color: transparent; opacity: 0; }
 }
+
+/* --- Carnet : Arbre d'idées (Lot 5) ---
+ * Deux cas UNIQUEMENT, jamais un autre Canvas/node :
+ *  - .feuillets-idea-tree-member : posée sur node.nodeEl (couche lecture) ;
+ *  - .feuillets-idea-tree-editing : posée sur le <body> de l'iframe réel de
+ *    l'éditeur (couche édition, document DOM séparé — un sélecteur CSS ne
+ *    peut jamais traverser .canvas-node jusqu'à cet iframe). */
+.feuillets-idea-tree-member {
+  font-size: 18px;
+  line-height: 1.3;
+}
+.feuillets-idea-tree-editing {
+  font-size: 18px;
+  line-height: 1.3;
+}

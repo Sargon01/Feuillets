@@ -7,6 +7,7 @@ import { canvasPathFor } from "../src/services/canvas-board.js";
 import { CanvasBridgeModal, CanvasNodeToManuscriptModal } from "../src/ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "../src/ui/canvas-chapter-modal.js";
 import { CanvasIdeaTreeModal } from "../src/ui/canvas-idea-tree-modal.js";
+import { ideaTreeBranch } from "../src/services/canvas-idea-tree.js";
 
 /* On ne teste jamais Advanced Canvas lui-même — seulement l'adaptateur
  * Feuillets, avec un faux objet minimal reproduisant uniquement le contrat
@@ -104,6 +105,177 @@ function makeLiveCanvas(boardFile, nodes = []) {
     },
     requestSave() {},
   };
+}
+
+/* ---------------------------------------------------------------------- *
+ * Lot 5 — fixtures Scope/runtime : couche instances réelle (canvas.nodes,
+ * canvas.selection) en plus de la couche JSON, pour tester Tab/Entrée et
+ * les classes visuelles sans dépendre du rendu réel d'Advanced Canvas.
+ * VERSION FINALE : le node créé n'est ni sélectionné ni édité
+ * automatiquement (décision produit) — ces fixtures ne simulent donc plus
+ * ni sélection auto, ni édition auto, ni focus ; `canvas.selection` reste
+ * settable directement par chaque test pour simuler CE QUE L'UTILISATEUR a
+ * sélectionné avant Tab/Entrée.
+ * ---------------------------------------------------------------------- */
+
+/** Faux iframe d'éditeur — uniquement `contentDocument.body.classList`
+ * (classe de lisibilité pendant l'édition, section 6). */
+function makeFakeIframe() {
+  const bodyClasses = new Set();
+  return {
+    contentDocument: {
+      body: {
+        classList: {
+          toggle(cls, force) {
+            const has = bodyClasses.has(cls);
+            const next = force === undefined ? !has : !!force;
+            if (next) bodyClasses.add(cls);
+            else bodyClasses.delete(cls);
+            return next;
+          },
+          contains(cls) {
+            return bodyClasses.has(cls);
+          },
+        },
+      },
+    },
+  };
+}
+
+function makeFakeNodeEl() {
+  const classes = new Set();
+  let iframe = makeFakeIframe();
+  return {
+    classList: {
+      toggle(cls, force) {
+        const has = classes.has(cls);
+        const next = force === undefined ? !has : !!force;
+        if (next) classes.add(cls);
+        else classes.delete(cls);
+        return next;
+      },
+      contains(cls) {
+        return classes.has(cls);
+      },
+    },
+    querySelector(sel) {
+      return sel === "iframe" ? iframe : null;
+    },
+    setIframe(el) {
+      iframe = el;
+    },
+  };
+}
+
+function makeFakeRuntimeNode(nodeData) {
+  return {
+    id: nodeData.id,
+    getData: () => nodeData,
+    setData(updated) {
+      Object.assign(nodeData, updated);
+    },
+    isEditing: false,
+    nodeEl: makeFakeNodeEl(),
+  };
+}
+
+/** Canvas complet Lot 5 : couche JSON (getData/importData/requestSave) ET
+ * couche instances (nodes Map, selection) — `importData` (le SEUL chemin
+ * retenu par `persistCanvasData` quand il est présent) reconstruit `nodes`
+ * depuis le JSON à chaque appel, comme le vrai mécanisme audité (voir
+ * services/canvas-runtime.ts, tête de fichier). */
+function makeRuntimeCanvas(boardFile, nodeDataList = []) {
+  const data = { nodes: nodeDataList, edges: [] };
+  const canvas = {
+    view: { file: boardFile },
+    importDataCalls: [],
+    getData: () => data,
+    importData(updated) {
+      this.importDataCalls.push(updated);
+      data.nodes = updated.nodes;
+      data.edges = updated.edges;
+      const known = new Set(data.nodes.map((n) => n.id));
+      for (const id of [...canvas.nodes.keys()]) if (!known.has(id)) canvas.nodes.delete(id);
+      for (const nd of data.nodes) if (!canvas.nodes.has(nd.id)) canvas.nodes.set(nd.id, makeFakeRuntimeNode(nd));
+    },
+    // Présent uniquement pour satisfaire les gardes `readLive` (getData &&
+    // setData && requestSave) du fichier testé — `persistCanvasData` préfère
+    // toujours `importData` quand il est là (voir plus haut), donc ce
+    // `setData` n'est jamais réellement invoqué dans ces tests.
+    setData(updated) {
+      this.importData(updated);
+    },
+    requestSave() {},
+    nodes: new Map(nodeDataList.map((nd) => [nd.id, makeFakeRuntimeNode(nd)])),
+    selection: new Set(),
+  };
+  return canvas;
+}
+
+/** Faux Scope Obsidian — mêmes signatures que `Scope.register`/`unregister`. */
+function makeFakeScope() {
+  const handlers = [];
+  return {
+    handlers,
+    register(modifiers, key, func) {
+      const handler = { modifiers, key, func };
+      handlers.push(handler);
+      return handler;
+    },
+    unregister(handler) {
+      const idx = handlers.indexOf(handler);
+      if (idx >= 0) handlers.splice(idx, 1);
+    },
+  };
+}
+
+/** Fixture complète avec un faux workspace `getLeavesOfType("canvas")` —
+ * pour tester `attachIdeaTreeKeymaps` sans dépendre du rendu réel d'une vue
+ * Canvas. */
+function makeScopedFixture(nodeDataList = []) {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  volume.children = [manuscript];
+  manuscript.parent = volume;
+  const { vault } = createFakeVault([volume, manuscript]);
+  const boardFile = new TFile(canvasPathFor({ vault }, manuscript), "");
+  const canvas = makeRuntimeCanvas(boardFile, nodeDataList);
+  const scope = makeFakeScope();
+  const cleanups = [];
+  const view = {
+    file: boardFile,
+    canvas,
+    scope,
+    register(cb) {
+      cleanups.push(cb);
+    },
+  };
+  const leaves = [{ view }];
+  const app = {
+    vault,
+    workspace: {
+      handlers: {},
+      on(name, cb) {
+        this.handlers[name] = cb;
+        return { name };
+      },
+      getLeavesOfType(type) {
+        return type === "canvas" ? leaves : [];
+      },
+    },
+  };
+  const settings = { projectFolder: manuscript.path };
+  const registeredCleanups = [];
+  const plugin = {
+    app,
+    settings,
+    registerEvent() {},
+    saveSettings: async () => {},
+    register(cb) {
+      registeredCleanups.push(cb);
+    },
+  };
+  return { app, plugin, settings, manuscript, boardFile, canvas, scope, view, cleanups, registeredCleanups };
 }
 
 test("registerAdvancedCanvasIntegration : s'enregistre sans planter même sans Advanced Canvas", () => {
@@ -205,8 +377,9 @@ test("registerAdvancedCanvasIntegration : node-menu TextNode conserve les action
   const menu = new Menu();
   fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "t1", type: "text" }) });
 
-  assert.equal(menu.items.length, 4);
+  assert.equal(menu.items.length, 5);
   assert.equal(menu.items.some((item) => item.title === "Développer en arbre…"), true);
+  assert.equal(menu.items.some((item) => item.title === "Ajouter une branche"), true);
   assert.ok(menu.items.every((item) => typeof item.callback === "function"));
 });
 
@@ -483,7 +656,7 @@ test("registerAdvancedCanvasIntegration : selection-menu et node-menu coexistent
 
   const nodeMenu = new Menu();
   fireNodeMenu(app, nodeMenu, { canvas, getData: () => ({ id: "t1", type: "text" }) });
-  assert.equal(nodeMenu.items.length, 4);
+  assert.equal(nodeMenu.items.length, 5);
 });
 
 // ---------------------------------------------------------------------------
@@ -549,11 +722,12 @@ test("registerAdvancedCanvasIntegration : node-menu sur un text node → jamais 
   const menu = new Menu();
   fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "t1", type: "text", text: "Idée" }) });
 
-  assert.equal(menu.items.length, 4);
+  assert.equal(menu.items.length, 5);
   assert.equal(menu.items[0].title, "Transformer en feuillet");
   assert.equal(menu.items[1].title, "Transformer en fiche Recherche");
   assert.equal(menu.items[2].title, "Scinder…");
-  assert.equal(menu.items[3].title, "Développer en arbre…");
+  assert.equal(menu.items[3].title, "Ajouter une branche");
+  assert.equal(menu.items[4].title, "Développer en arbre…");
   assert.equal(menu.items.some((i) => i.title.includes("chapitre")), false);
 });
 
@@ -741,4 +915,380 @@ test("registerAdvancedCanvasIntegration : aucun écouteur de synchronisation gé
   ]) {
     assert.equal(app.workspace.handlers[forbiddenEvent], undefined, `${forbiddenEvent} ne doit jamais être écouté`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Lot 5 — Arbre d'idées : raccourcis clavier (Scope), lisibilité, menu.
+// ---------------------------------------------------------------------------
+
+test("Lot 5 — Scope : Tab et Entrée sont enregistrés dans le Scope de la vue Carnet", () => {
+  const { plugin, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
+  registerAdvancedCanvasIntegration(plugin);
+  assert.equal(scope.handlers.filter((h) => h.key === "Tab").length, 1);
+  assert.equal(scope.handlers.filter((h) => h.key === "Enter").length, 1);
+});
+
+test("Lot 5 — Scope : un Canvas qui n'est pas le Carnet du projet actif n'obtient aucun raccourci", () => {
+  const { plugin, scope, view } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
+  const wrongFile = new TFile("Projet/Autre.canvas", "");
+  view.file = wrongFile;
+  view.canvas.view.file = wrongFile;
+  registerAdvancedCanvasIntegration(plugin);
+  assert.equal(scope.handlers.length, 0);
+});
+
+test("Lot 5 — Tab sur un node sélectionné et non édité crée un enfant idea-tree (rien d'autre : pas de sélection/édition automatique)", () => {
+  const { plugin, canvas, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A", x: 0, y: 0, width: 260, height: 80 }]);
+  registerAdvancedCanvasIntegration(plugin);
+  const runtimeA = canvas.nodes.get("A");
+  canvas.selection = new Set([runtimeA]);
+  const selectionBefore = canvas.selection;
+
+  const tabHandler = scope.handlers.find((h) => h.key === "Tab");
+  assert.ok(tabHandler);
+  const evt = { preventDefault() { this.prevented = true; } };
+  tabHandler.func(evt, {});
+
+  assert.equal(evt.prevented, true);
+  const nodes = canvas.getData().nodes;
+  assert.equal(nodes.length, 2);
+  const child = nodes[1];
+  assert.equal(child.text, "");
+  assert.equal(child.width, 260);
+  assert.equal(child.height, 80);
+  assert.equal(child.x, 170);
+  assert.equal(child.y, 60);
+
+  const runtimeChild = canvas.nodes.get(child.id);
+  assert.ok(runtimeChild, "le node créé existe dans canvas.nodes");
+
+  // Décision produit VERSION FINALE : aucune sélection ni édition
+  // automatique du node créé — la sélection du Canvas reste celle de
+  // l'utilisateur (A), le nouveau node n'est pas en édition.
+  assert.equal(canvas.selection, selectionBefore);
+  assert.equal([...canvas.selection][0], runtimeA);
+  assert.equal(runtimeChild.isEditing, false);
+
+  // Aucun zoom, aucun déplacement de viewport.
+  for (const zoomFn of ["zoomToSelection", "zoomToFit", "zoomToBbox", "setViewport"]) {
+    assert.equal(zoomFn in canvas, false);
+  }
+});
+
+test("Lot 5 — Entrée sur un membre avec parent, non édité, crée un frère juste après lui (rien d'autre)", () => {
+  const { plugin, canvas, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A", x: 0, y: 0 }]);
+  registerAdvancedCanvasIntegration(plugin);
+  const runtimeA = canvas.nodes.get("A");
+  canvas.selection = new Set([runtimeA]);
+  scope.handlers.find((h) => h.key === "Tab").func({ preventDefault() {} }, {});
+  const bId = canvas.getData().nodes[1].id;
+  const runtimeB = canvas.nodes.get(bId);
+  canvas.selection = new Set([runtimeB]);
+
+  const enterHandler = scope.handlers.find((h) => h.key === "Enter");
+  const evt = { preventDefault() { this.prevented = true; } };
+  enterHandler.func(evt, {});
+
+  assert.equal(evt.prevented, true);
+  const finalData = canvas.getData();
+  assert.equal(finalData.nodes.length, 3);
+  const cId = finalData.nodes[2].id;
+  assert.equal(finalData.nodes[2].text, "");
+  assert.deepEqual(ideaTreeBranch(finalData, "A").map((n) => n.id), ["A", bId, cId]);
+
+  const runtimeC = canvas.nodes.get(cId);
+  assert.ok(runtimeC, "le frère créé existe dans canvas.nodes");
+  assert.equal([...canvas.selection][0], runtimeB, "la sélection reste celle de l'utilisateur, jamais déplacée sur C");
+  assert.equal(runtimeC.isEditing, false);
+
+  for (const zoomFn of ["zoomToSelection", "zoomToFit", "zoomToBbox", "setViewport"]) {
+    assert.equal(zoomFn in canvas, false);
+  }
+});
+
+test("Lot 5 — Entrée sur la racine (sans parent idea-tree) ne crée rien", () => {
+  const { plugin, canvas, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
+  registerAdvancedCanvasIntegration(plugin);
+  canvas.selection = new Set([canvas.nodes.get("A")]);
+
+  const enterHandler = scope.handlers.find((h) => h.key === "Enter");
+  const evt = { preventDefault() { this.prevented = true; } };
+  enterHandler.func(evt, {});
+
+  assert.equal(evt.prevented, undefined);
+  assert.equal(canvas.getData().nodes.length, 1);
+});
+
+test("Lot 5 — un node en cours d'édition : Tab et Entrée restent totalement natifs", () => {
+  const { plugin, canvas, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
+  registerAdvancedCanvasIntegration(plugin);
+  const nodeA = canvas.nodes.get("A");
+  nodeA.isEditing = true;
+  canvas.selection = new Set([nodeA]);
+
+  for (const key of ["Tab", "Enter"]) {
+    const handler = scope.handlers.find((h) => h.key === key);
+    const evt = { preventDefault() { this.prevented = true; } };
+    const result = handler.func(evt, {});
+    assert.equal(evt.prevented, undefined, `${key} ne doit jamais appeler preventDefault en édition`);
+    assert.equal(result, undefined);
+  }
+  assert.equal(canvas.getData().nodes.length, 1);
+});
+
+test("Lot 5 — Tab/Entrée ne font rien sans sélection unique (aucune ou multiple)", () => {
+  const { plugin, canvas, scope } = makeScopedFixture([
+    { id: "A", type: "text", text: "A" },
+    { id: "B", type: "text", text: "B" },
+  ]);
+  registerAdvancedCanvasIntegration(plugin);
+  const tabHandler = scope.handlers.find((h) => h.key === "Tab");
+
+  canvas.selection = new Set();
+  tabHandler.func({ preventDefault() { this.prevented = true; } }, {});
+
+  canvas.selection = new Set([canvas.nodes.get("A"), canvas.nodes.get("B")]);
+  tabHandler.func({ preventDefault() { this.prevented = true; } }, {});
+
+  assert.equal(canvas.getData().nodes.length, 2);
+});
+
+test("Lot 5 — aucune API de zoom n'est jamais appelée par les raccourcis Tab/Entrée", () => {
+  const { plugin, canvas, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
+  for (const zoomFn of ["zoomToSelection", "zoomToFit", "zoomToBbox", "setViewport"]) {
+    canvas[zoomFn] = () => {
+      throw new Error(`${zoomFn} ne doit jamais être appelée`);
+    };
+  }
+  registerAdvancedCanvasIntegration(plugin);
+  canvas.selection = new Set([canvas.nodes.get("A")]);
+  const tabHandler = scope.handlers.find((h) => h.key === "Tab");
+  assert.doesNotThrow(() => tabHandler.func({ preventDefault() {} }, {}));
+});
+
+test("Lot 5 — VERSION FINALE : aucune logique d'autofocus ne subsiste (Tab/Entrée ne touchent ni sélection ni édition)", () => {
+  const { plugin, canvas, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A", x: 0, y: 0 }]);
+  registerAdvancedCanvasIntegration(plugin);
+  const runtimeA = canvas.nodes.get("A");
+  canvas.selection = new Set([runtimeA]);
+  const selectionRef = canvas.selection;
+
+  // Tab : création d'un enfant.
+  scope.handlers.find((h) => h.key === "Tab").func({ preventDefault() {} }, {});
+  const bId = canvas.getData().nodes[1].id;
+  const runtimeB = canvas.nodes.get(bId);
+
+  // Aucun helper de sélection/édition automatique n'a été appelé : la
+  // référence de sélection du Canvas n'a même pas changé d'objet, et le
+  // nouveau node n'a jamais été touché.
+  assert.equal(canvas.selection, selectionRef);
+  assert.equal([...canvas.selection][0], runtimeA);
+  assert.equal(runtimeB.isEditing, false);
+  assert.equal("startEditing" in runtimeB, false);
+  assert.equal("setIsEditing" in runtimeB, false);
+  assert.equal("selectOnly" in canvas, false);
+
+  // Entrée : création d'un frère — même constat.
+  canvas.selection = new Set([runtimeB]);
+  const selectionRef2 = canvas.selection;
+  scope.handlers.find((h) => h.key === "Enter").func({ preventDefault() {} }, {});
+  const cId = canvas.getData().nodes[2].id;
+  const runtimeC = canvas.nodes.get(cId);
+
+  assert.equal(canvas.selection, selectionRef2);
+  assert.equal([...canvas.selection][0], runtimeB);
+  assert.equal(runtimeC.isEditing, false);
+});
+
+test("Lot 5 — les handlers Tab/Entrée sont désenregistrés au déchargement de la VUE", () => {
+  const { plugin, scope, cleanups } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
+  registerAdvancedCanvasIntegration(plugin);
+  assert.equal(scope.handlers.length, 2);
+  cleanups.forEach((cb) => cb());
+  assert.equal(scope.handlers.length, 0);
+});
+
+test("Lot 5 — les handlers Tab/Entrée sont aussi désenregistrés au déchargement du PLUGIN", () => {
+  const { plugin, scope, registeredCleanups } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
+  registerAdvancedCanvasIntegration(plugin);
+  assert.equal(scope.handlers.length, 2);
+  registeredCleanups.forEach((cb) => cb());
+  assert.equal(scope.handlers.length, 0);
+});
+
+test("Lot 5 — attachIdeaTreeKeymaps n'attache jamais deux fois la même vue Carnet", () => {
+  const { plugin, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
+  registerAdvancedCanvasIntegration(plugin);
+  assert.equal(scope.handlers.length, 2);
+  plugin.app.workspace.handlers["active-leaf-change"]();
+  plugin.app.workspace.handlers["layout-change"]();
+  assert.equal(scope.handlers.length, 2);
+});
+
+test("Lot 5 — classe de lecture posée sur les membres idea-tree, jamais sur une carte libre", () => {
+  const { plugin, canvas, scope } = makeScopedFixture([
+    { id: "A", type: "text", text: "A" },
+    { id: "LIBRE", type: "text", text: "Libre" },
+  ]);
+  registerAdvancedCanvasIntegration(plugin);
+  canvas.selection = new Set([canvas.nodes.get("A")]);
+  scope.handlers.find((h) => h.key === "Tab").func({ preventDefault() {} }, {});
+
+  assert.equal(canvas.nodes.get("A").nodeEl.classList.contains("feuillets-idea-tree-member"), true);
+  const childId = canvas.getData().nodes.find((n) => n.id !== "A" && n.id !== "LIBRE").id;
+  assert.equal(canvas.nodes.get(childId).nodeEl.classList.contains("feuillets-idea-tree-member"), true);
+  assert.equal(canvas.nodes.get("LIBRE").nodeEl.classList.contains("feuillets-idea-tree-member"), false);
+});
+
+test("Lot 5 — classe d'édition posée sur le body de l'iframe réel de l'éditeur d'un membre idea-tree, jamais sur une carte libre", () => {
+  const nodeA = { id: "A", type: "text", text: "A" };
+  const nodeB = { id: "B", type: "text", text: "B" };
+  const nodeLibre = { id: "LIBRE", type: "text", text: "Libre" };
+  const { app, plugin, canvas } = makeScopedFixture([nodeA, nodeB]);
+  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
+  canvas.getData().nodes.push(nodeLibre);
+  canvas.nodes.set("LIBRE", makeFakeRuntimeNode(nodeLibre));
+  registerAdvancedCanvasIntegration(plugin);
+
+  const runtimeB = canvas.nodes.get("B");
+  const iframeB = makeFakeIframe();
+  runtimeB.nodeEl.setIframe(iframeB);
+  const handler = app.workspace.handlers["advanced-canvas:node-editing-state-changed"];
+
+  handler({ canvas, getData: () => nodeB, nodeEl: runtimeB.nodeEl }, true);
+  assert.equal(iframeB.contentDocument.body.classList.contains("feuillets-idea-tree-editing"), true);
+  handler({ canvas, getData: () => nodeB, nodeEl: runtimeB.nodeEl }, false);
+  assert.equal(iframeB.contentDocument.body.classList.contains("feuillets-idea-tree-editing"), false);
+
+  const runtimeLibre = canvas.nodes.get("LIBRE");
+  const iframeLibre = makeFakeIframe();
+  runtimeLibre.nodeEl.setIframe(iframeLibre);
+  handler({ canvas, getData: () => nodeLibre, nodeEl: runtimeLibre.nodeEl }, true);
+  assert.equal(iframeLibre.contentDocument.body.classList.contains("feuillets-idea-tree-editing"), false);
+});
+
+test("Lot 5 — menu « Ajouter une branche » crée un enfant (aucune sélection/édition automatique)", () => {
+  const { app, plugin, canvas } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
+  registerAdvancedCanvasIntegration(plugin);
+  const runtimeA = canvas.nodes.get("A");
+  canvas.selection = new Set([runtimeA]);
+
+  const menu = new Menu();
+  fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "A", type: "text", text: "A" }) });
+  const item = menu.items.find((i) => i.title === "Ajouter une branche");
+  assert.ok(item);
+  item.callback();
+
+  const nodes = canvas.getData().nodes;
+  assert.equal(nodes.length, 2);
+  const child = nodes[1];
+  assert.equal(child.text, "");
+
+  const runtimeChild = canvas.nodes.get(child.id);
+  assert.ok(runtimeChild);
+  assert.equal(runtimeChild.isEditing, false);
+  assert.equal([...canvas.selection][0], runtimeA, "la sélection reste celle de l'utilisateur");
+});
+
+test("Lot 5 — menu « Réorganiser l'arbre » appelle exclusivement reflowIdeaTree, aucun zoom", () => {
+  const nodeA = { id: "A", type: "text", text: "A", x: 0, y: 0 };
+  const nodeB = { id: "B", type: "text", text: "B", x: 999, y: 999 };
+  const { app, plugin, canvas } = makeScopedFixture([nodeA, nodeB]);
+  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
+  for (const zoomFn of ["zoomToSelection", "zoomToFit", "zoomToBbox", "setViewport"]) {
+    canvas[zoomFn] = () => {
+      throw new Error(`${zoomFn} ne doit jamais être appelée`);
+    };
+  }
+  registerAdvancedCanvasIntegration(plugin);
+
+  const menu = new Menu();
+  fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "A", type: "text", text: "A" }) });
+  const item = menu.items.find((i) => i.title === "Réorganiser l'arbre");
+  assert.ok(item);
+  assert.doesNotThrow(() => item.callback());
+
+  const updatedB = canvas.getData().nodes.find((n) => n.id === "B");
+  assert.equal(updatedB.x, nodeA.x + 170);
+  assert.equal(updatedB.y, nodeA.y + 60);
+});
+
+test("Lot 5 — une carte libre (hors idea-tree) n'obtient jamais « Réorganiser l'arbre »", () => {
+  const { app, plugin, canvas } = makeScopedFixture([{ id: "LIBRE", type: "text", text: "Libre" }]);
+  registerAdvancedCanvasIntegration(plugin);
+  const menu = new Menu();
+  fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "LIBRE", type: "text", text: "Libre" }) });
+  assert.equal(menu.items.some((i) => i.title === "Réorganiser l'arbre"), false);
+});
+
+/* Faux <contentEl> minimal — suffisant pour CanvasChapterModal.onOpen() sans
+ * dépendre d'un vrai DOM : seuls createEl/createDiv/addClass/empty/focus/
+ * addEventListener sont réellement utilisés par cette modale. */
+class FakeChapterEl {
+  constructor(tag = "div") {
+    this.tag = tag;
+    this.children = [];
+    this.classes = new Set();
+    this.value = "";
+  }
+  createEl(tag, opts = {}) {
+    const el = new FakeChapterEl(tag);
+    if (opts.text !== undefined) el.text = opts.text;
+    if (opts.type !== undefined) el.type = opts.type;
+    if (opts.value !== undefined) el.value = opts.value;
+    if (opts.cls) el.classes.add(opts.cls);
+    this.children.push(el);
+    return el;
+  }
+  createDiv(opts = {}) {
+    return this.createEl("div", opts);
+  }
+  createSpan(opts = {}) {
+    return this.createEl("span", opts);
+  }
+  addClass(c) {
+    this.classes.add(c);
+    return this;
+  }
+  empty() {
+    this.children = [];
+  }
+  focus() {}
+  addEventListener() {}
+}
+
+test("Lot 5 — CanvasChapterModal (source idea-tree) préremplit le nom avec le NODE CLIQUÉ, jamais avec la racine", () => {
+  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
+  registerAdvancedCanvasIntegration(plugin);
+  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
+  const nodeA = { id: "A", type: "text", text: "A", y: 0 };
+  const nodeB = { id: "B", type: "text", text: "B", y: 20 };
+  const nodeC = { id: "C", type: "text", text: "C", y: 40 };
+  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeB, nodeC]);
+  canvas.getData().edges.push(
+    { id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" },
+    { id: "bc", fromNode: "B", toNode: "C", feuillets_managed: "idea-tree" }
+  );
+
+  let captured = null;
+  const originalOpen = CanvasChapterModal.prototype.open;
+  CanvasChapterModal.prototype.open = function () {
+    captured = this;
+  };
+  try {
+    const menu = new Menu();
+    // Action lancée depuis B, pas depuis la racine A.
+    fireNodeMenu(app, menu, { canvas, getData: () => nodeB });
+    menu.items.find((item) => item.title === "Créer un chapitre avec cette branche…").callback();
+  } finally {
+    CanvasChapterModal.prototype.open = originalOpen;
+  }
+  assert.ok(captured);
+  assert.deepEqual(captured.context.ids, ["B", "C"]);
+
+  captured.contentEl = new FakeChapterEl();
+  captured.onOpen();
+  const nameInputEl = captured.contentEl.children.find((c) => c.tag === "input" && c.type === "text");
+  assert.ok(nameInputEl);
+  assert.equal(nameInputEl.value, "B");
 });

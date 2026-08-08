@@ -16,10 +16,19 @@ import {
   makeManuscriptPathChecker,
   nodesContainedInGroup,
 } from "../services/canvas-chapter.js";
-import { createIdeaBranches, ideaTreeBranch, isIdeaTreeNode } from "../services/canvas-idea-tree.js";
+import {
+  createIdeaBranches,
+  createIdeaChild,
+  createIdeaSibling,
+  hasIdeaTreeParent,
+  ideaTreeBranch,
+  isIdeaTreeNode,
+  reflowIdeaTree,
+} from "../services/canvas-idea-tree.js";
 import { splitTextNode, executeMerge } from "../services/canvas-split-merge.js";
 import { titleFor } from "../services/frontmatter.js";
-import type { MinimalRuntimeCanvas } from "../services/canvas-runtime.js";
+import type { MinimalRuntimeCanvas, MinimalRuntimeNode } from "../services/canvas-runtime.js";
+import type { KeymapEventHandler, KeymapEventListener, Modifier } from "obsidian";
 
 /* Intégration OPTIONNELLE avec Advanced Canvas (Developer-Mike/obsidian-
  * advanced-canvas). Feuillets ne dépend d'AUCUN module npm de ce plugin, ne
@@ -66,7 +75,11 @@ type FeuilletsCanvasSelectionData = { nodes?: FeuilletsCanvasNodeSelectionData[]
  * par les services purs canvas-bridge.ts/canvas-chapter.ts, qui ne
  * dépendent jamais de ce fichier). */
 export type MinimalAdvancedCanvas = MinimalRuntimeCanvas & {
-  view?: { file?: TFile | null };
+  /** Lot 5 : `scope` est le `Scope` Obsidian PUBLIC de la vue Canvas
+   * (`View.scope`, natif — pas spécifique à Advanced Canvas), utilisé pour
+   * les raccourcis Tab/Entrée de l'Arbre d'idées. Jamais de listener
+   * document/window/wrapperEl — voir `registerIdeaTreeKeymap`. */
+  view?: { file?: TFile | null; scope?: MinimalCanvasScope };
   getSelectionData?: () => FeuilletsCanvasSelectionData;
   getData?: () => CanvasData;
   setData?: (data: CanvasData) => void;
@@ -109,11 +122,51 @@ function persistCanvasData(canvas: MinimalAdvancedCanvas, data: CanvasData): voi
 export type MinimalAdvancedCanvasNode = {
   canvas?: MinimalAdvancedCanvas;
   getData?: () => FeuilletsCanvasNodeSelectionData;
+  /** Lot 5 — élément DOM réel de la carte, transmis par l'événement
+   * `advanced-canvas:node-editing-state-changed` (section 6) pour retrouver
+   * l'iframe de l'éditeur d'un TextNode et lui poser la classe de lisibilité
+   * pendant l'édition. */
+  nodeEl?: HTMLElement;
+};
+
+/** Sous-ensemble structurel du `Scope` Obsidian réellement utilisé — mêmes
+ * signatures que la classe publique `Scope` (obsidian.d.ts), jamais réécrit
+ * ici : ce type local existe seulement pour typer `MinimalAdvancedCanvas`
+ * sans imposer une dépendance directe à la classe concrète. */
+type MinimalCanvasScope = {
+  register(modifiers: Modifier[] | null, key: string | null, func: KeymapEventListener): KeymapEventHandler;
+  unregister(handler: KeymapEventHandler): void;
 };
 
 type WorkspaceWithCanvasMenuEvents = {
   on(name: "canvas:selection-menu", cb: (menu: Menu, canvas: MinimalAdvancedCanvas) => void): EventRef;
   on(name: "canvas:node-menu", cb: (menu: Menu, node: MinimalAdvancedCanvasNode) => void): EventRef;
+  /** Lot 5 (section 6) — événement Advanced Canvas émis à chaque bascule
+   * édition/lecture d'un TextNode. `node.nodeEl` porte l'iframe réel de
+   * l'éditeur ; `editing` est `true` à l'ouverture, `false` à la fermeture. */
+  on(
+    name: "advanced-canvas:node-editing-state-changed",
+    cb: (node: MinimalAdvancedCanvasNode, editing: boolean) => void
+  ): EventRef;
+};
+
+/** Lot 5 — sous-ensemble structurel du `Workspace` réellement utilisé pour
+ * retrouver les vues Canvas déjà ouvertes (`WorkspaceLeaf.view`, `getLeaves-
+ * OfType` sont tous deux publics/documentés, pas spécifiques à Advanced
+ * Canvas). `view.canvas` (le vrai objet Canvas runtime, propriété publique
+ * de la CanvasView native d'Obsidian) et `view.scope` (`View.scope`, public)
+ * sont ce dont a besoin `registerIdeaTreeKeymap`. `view.register` est la
+ * méthode `Component.register` héritée par toute `View` — attacher le
+ * nettoyage ici lie le cycle de vie des raccourcis à celui de LA VUE, jamais
+ * à un listener document/window. */
+type CanvasLeafView = {
+  file?: TFile | null;
+  canvas?: MinimalAdvancedCanvas;
+  scope?: MinimalCanvasScope;
+  register(cb: () => void): void;
+};
+type WorkspaceWithCanvasLeaves = {
+  getLeavesOfType(type: "canvas"): Array<{ view: CanvasLeafView }>;
 };
 
 /* L'intégration est enregistrée depuis le cycle de vie du plugin, mais une
@@ -122,11 +175,21 @@ type WorkspaceWithCanvasMenuEvents = {
  * entrées Canvas dupliquées, pas un problème de traduction ou de libellé. */
 const registeredPlugins = new WeakSet<object>();
 
+/** Lot 5 — vues Canvas dont le Scope Tab/Entrée a déjà été attaché : jamais
+ * deux fois la même vue, même si `active-leaf-change`/`layout-change` se
+ * déclenchent plusieurs fois pour elle (voir `attachIdeaTreeKeymaps`). */
+const scopedCanvasViews = new WeakSet<object>();
+
 export type FeuilletsPluginLike = {
   app: App;
   settings: FeuilletsSettings;
   registerEvent(evt: EventRef): void;
   saveSettings(): void | Promise<void>;
+  /** Component.register — nettoyage exécuté au déchargement du PLUGIN (voir
+   * section 3 du Lot 5). Optionnel : si absent, seul le déchargement de
+   * chaque VUE (via `view.register`, toujours appelé) nettoie ses propres
+   * raccourcis. */
+  register?(cb: () => void): void;
 };
 
 /** Stratégie de sauvegarde partagée par les modales Lot 1 (CanvasBridgeModal,
@@ -342,6 +405,189 @@ async function applyIdeaBranches(
   if (created.nodes.length === 0) return;
   if (readLive) persistCanvasData(canvas, data);
   else await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
+  refreshIdeaTreeNodeClasses(canvas);
+}
+
+/* --------------------------------------------------------------------- *
+ * Lot 5 — Arbre d'idées : raccourcis clavier (Scope), lisibilité, menu
+ * « Ajouter une branche »/« Réorganiser l'arbre ».
+ * --------------------------------------------------------------------- */
+
+/** Classe posée sur `node.nodeEl` (lecture) pour les TextNodes réellement
+ * membres d'un idea-tree — jamais sur un autre node/Canvas (section 6). */
+const IDEA_TREE_MEMBER_CLASS = "feuillets-idea-tree-member";
+/** Classe posée sur le `<body>` de l'iframe d'édition (couche DOM séparée,
+ * un sélecteur CSS ne peut jamais la traverser depuis `.canvas-node`) pour
+ * un TextNode membre en cours d'édition — voir l'écouteur
+ * `advanced-canvas:node-editing-state-changed` plus bas. */
+const IDEA_TREE_EDITING_CLASS = "feuillets-idea-tree-editing";
+
+/** Recalcule la classe de lecture sur CHAQUE TextNode réel du Canvas ouvert
+ * — jamais sur le JSON seul (`node.nodeEl` n'existe que côté instances
+ * runtime). Appelé après toute mutation de l'arbre (Tab/Entrée, « Ajouter
+ * une branche », « Développer en arbre… », « Réorganiser l'arbre ») pour
+ * qu'un node qui vient de rejoindre — ou de quitter — un idea-tree reflète
+ * immédiatement son état. Silencieux si `nodes`/`getData` sont absents. */
+function refreshIdeaTreeNodeClasses(canvas: MinimalAdvancedCanvas): void {
+  if (!canvas.nodes || !canvas.getData) return;
+  let data: CanvasData;
+  try {
+    data = canvas.getData();
+  } catch {
+    return;
+  }
+  for (const [id, runtimeNode] of canvas.nodes) {
+    runtimeNode.nodeEl?.classList.toggle(IDEA_TREE_MEMBER_CLASS, isIdeaTreeNode(data, id));
+  }
+}
+
+/** Le node runtime réel actuellement sélectionné, seulement si la sélection
+ * du Canvas ne contient EXACTEMENT qu'un seul élément — `null` sinon (aucune
+ * sélection, sélection multiple, ou `canvas.selection` absent). Les
+ * raccourcis Tab/Entrée n'agissent jamais en dehors de ce cas précis
+ * (section 2 du Lot 5). */
+function activeSelectionNode(canvas: MinimalAdvancedCanvas): MinimalRuntimeNode | null {
+  const selection = canvas.selection;
+  if (!selection || selection.size !== 1) return null;
+  const [only] = selection;
+  return only || null;
+}
+
+/** Lit `data` depuis le Canvas déjà ouvert (jamais le disque : les
+ * raccourcis clavier n'agissent que sur une vue Canvas déjà en mémoire) —
+ * `null` si `getData` est absent ou échoue. */
+function liveIdeaTreeData(canvas: MinimalAdvancedCanvas): CanvasData | null {
+  if (!canvas.getData) return null;
+  try {
+    return canvas.getData();
+  } catch {
+    return null;
+  }
+}
+
+/** Gestionnaire commun Tab (`kind: "child"`) / Entrée (`kind: "sibling"`) —
+ * voir section 2 du Lot 5. Ne fait STRICTEMENT rien (retour sans
+ * `preventDefault`, donc comportement natif inchangé) dans tous les cas où
+ * Feuillets ne doit pas intervenir : pas de sélection unique, node en cours
+ * d'édition (l'éditeur vit dans un iframe — ses propres Tab/Entrée ne
+ * remontent jamais ici, mais un Scope reste actif même la carte éditée
+ * techniquement sélectionnée, d'où cette garde explicite), racine sans
+ * parent idea-tree pour Entrée. VERSION FINALE (décision produit) : le node
+ * créé n'est ni sélectionné ni mis en édition automatiquement — le runtime
+ * Canvas réel ne garantit pas cette prise de main de façon fiable après
+ * création (testé), Feuillets n'essaie plus de la simuler. Après création,
+ * le node existe, point ; aucun déplacement de viewport, aucun zoom. */
+function handleIdeaTreeKey(canvas: MinimalAdvancedCanvas, kind: "child" | "sibling"): KeymapEventListener {
+  return (evt) => {
+    const node = activeSelectionNode(canvas);
+    if (!node || node.isEditing) return;
+    const data = liveIdeaTreeData(canvas);
+    if (!data) return;
+
+    const created =
+      kind === "child"
+        ? createIdeaChild(data, node.id)
+        : hasIdeaTreeParent(data, node.id)
+          ? createIdeaSibling(data, node.id)
+          : null;
+    if (!created) return;
+
+    evt.preventDefault();
+    persistCanvasData(canvas, data);
+    refreshIdeaTreeNodeClasses(canvas);
+    return false;
+  };
+}
+
+/** Attache Tab/Entrée au Scope PUBLIC de la vue Canvas (jamais un listener
+ * document/window/wrapperEl — voir section 3 du Lot 5) — une seule fois par
+ * vue (`scopedCanvasViews`), jamais dupliqué même si cette fonction est
+ * appelée à répétition (`active-leaf-change`/`layout-change`). Les deux
+ * `KeymapEventHandler` retournés par `scope.register` sont désenregistrés
+ * au déchargement de LA VUE (`view.register`, toujours disponible) et, en
+ * plus, au déchargement du PLUGIN si `plugin.register` existe — jamais
+ * seulement l'un des deux. */
+function registerIdeaTreeKeymap(plugin: FeuilletsPluginLike, view: CanvasLeafView): void {
+  const canvas = view.canvas;
+  const scope = view.scope;
+  if (!canvas || !scope || scopedCanvasViews.has(view)) return;
+  scopedCanvasViews.add(view);
+
+  const tabHandler = scope.register(null, "Tab", handleIdeaTreeKey(canvas, "child"));
+  const enterHandler = scope.register(null, "Enter", handleIdeaTreeKey(canvas, "sibling"));
+  const unregister = () => {
+    scope.unregister(tabHandler);
+    scope.unregister(enterHandler);
+  };
+  view.register(unregister);
+  plugin.register?.(unregister);
+
+  refreshIdeaTreeNodeClasses(canvas);
+}
+
+/** Parcourt les vues Canvas déjà ouvertes et attache le Scope Tab/Entrée à
+ * celles qui affichent le Carnet du projet actif — jamais aux autres Canvas
+ * du coffre (section 9 : aucun autre Canvas/node ne doit être affecté).
+ * Silencieux si `getLeavesOfType` est absent (repli défensif, comme le
+ * reste de ce fichier). */
+function attachIdeaTreeKeymaps(plugin: FeuilletsPluginLike): void {
+  const workspace = plugin.app.workspace as unknown as WorkspaceWithCanvasLeaves;
+  if (!workspace.getLeavesOfType) return;
+  for (const leaf of workspace.getLeavesOfType("canvas")) {
+    const view = leaf?.view;
+    if (view && isActiveNotebook(plugin, view.file)) registerIdeaTreeKeymap(plugin, view);
+  }
+}
+
+/** Action menu « Ajouter une branche » (section 7) — un seul enfant, texte
+ * vide. Même stratégie API live/repli disque que `applyIdeaBranches`, dont
+ * elle reste distincte : celle-ci ne demande jamais de texte (pas de
+ * modale). Le node créé n'est ni sélectionné ni mis en édition
+ * automatiquement (décision produit, voir `handleIdeaTreeKey`). */
+async function applyIdeaChild(
+  app: App,
+  canvas: MinimalAdvancedCanvas,
+  canvasFile: TFile,
+  parentId: string
+): Promise<void> {
+  const readLive = canvas.getData && canvas.setData && canvas.requestSave;
+  let data: CanvasData;
+  try {
+    data = readLive ? canvas.getData!() : (JSON.parse(await app.vault.read(canvasFile)) as CanvasData);
+  } catch {
+    new Notice(t("main.notice.canvasUnreadable"));
+    return;
+  }
+
+  const created = createIdeaChild(data, parentId);
+  if (!created) return;
+  if (readLive) persistCanvasData(canvas, data);
+  else await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
+  refreshIdeaTreeNodeClasses(canvas);
+}
+
+/** Action menu « Réorganiser l'arbre » (section 7) — appelle EXCLUSIVEMENT
+ * `reflowIdeaTree`, déjà existant et testé : aucune nouvelle logique de
+ * layout, aucun zoom (section 9 : le viewport de l'utilisateur reste
+ * strictement inchangé). */
+async function applyIdeaTreeReflow(
+  app: App,
+  canvas: MinimalAdvancedCanvas,
+  canvasFile: TFile,
+  memberId: string
+): Promise<void> {
+  const readLive = canvas.getData && canvas.setData && canvas.requestSave;
+  let data: CanvasData;
+  try {
+    data = readLive ? canvas.getData!() : (JSON.parse(await app.vault.read(canvasFile)) as CanvasData);
+  } catch {
+    new Notice(t("main.notice.canvasUnreadable"));
+    return;
+  }
+
+  reflowIdeaTree(data, memberId);
+  if (readLive) persistCanvasData(canvas, data);
+  else await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
 }
 
 /** Vrai si `file` est le Carnet (Tableau brainstorming.canvas) du projet
@@ -510,6 +756,14 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
               }).open();
             })
         );
+        menu.addItem((item) =>
+          item
+            .setTitle(t("advancedCanvas.nodeMenu.addBranch"))
+            .setIcon("git-branch-plus")
+            .onClick(() => {
+              void applyIdeaChild(plugin.app, canvas, canvasFile, nodeId);
+            })
+        );
       }
 
       if (canDevelopTree) {
@@ -540,6 +794,14 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
                 { source: "idea-tree", ids: branch.map((branchNode) => branchNode.id) },
                 { persist: livePersist(canvas), saveSettings: () => plugin.saveSettings(), runtimeCanvas: canvas }
               ).open();
+            })
+        );
+        menu.addItem((item) =>
+          item
+            .setTitle(t("advancedCanvas.nodeMenu.reorganizeTree"))
+            .setIcon("refresh-cw")
+            .onClick(() => {
+              void applyIdeaTreeReflow(plugin.app, canvas, canvasFile, data!.id);
             })
         );
       }
@@ -578,4 +840,39 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
       }
     })
   );
+
+  /* Lot 5 (section 6) — classe de lisibilité pendant l'édition : posée sur
+   * le `<body>` réel de l'iframe d'édition, jamais sur `.canvas-node`
+   * (couche DOM séparée, aucun sélecteur CSS ne la traverse). Ignoré pour
+   * tout node hors idea-tree ou tout Canvas qui n'est pas le Carnet actif. */
+  plugin.registerEvent(
+    workspace.on("advanced-canvas:node-editing-state-changed", (node, editing) => {
+      const canvas = node.canvas;
+      if (!canvas) return;
+      if (!isActiveNotebook(plugin, canvas.view?.file)) return;
+
+      let data: FeuilletsCanvasNodeSelectionData | undefined;
+      try {
+        data = node.getData?.();
+      } catch {
+        return;
+      }
+      if (!data) return;
+      const full = liveIdeaTreeData(canvas);
+      if (!full || !isIdeaTreeNode(full, data.id)) return;
+
+      const body = node.nodeEl?.querySelector("iframe")?.contentDocument?.body;
+      body?.classList.toggle(IDEA_TREE_EDITING_CLASS, editing);
+    })
+  );
+
+  /* Lot 5 (section 3) — attache le Scope Tab/Entrée à chaque vue Canvas du
+   * Carnet déjà ouverte ou qui vient de s'ouvrir. `active-leaf-change` et
+   * `layout-change` sont les deux événements Workspace natifs déjà utilisés
+   * ailleurs dans le plugin (main.ts) pour réagir à l'ouverture d'une vue ;
+   * `attachIdeaTreeKeymaps` reste elle-même idempotente (`scopedCanvasViews`)
+   * donc aucun risque de double attache même appelée à chaque déclenchement. */
+  plugin.registerEvent(plugin.app.workspace.on("active-leaf-change", () => attachIdeaTreeKeymaps(plugin)));
+  plugin.registerEvent(plugin.app.workspace.on("layout-change", () => attachIdeaTreeKeymaps(plugin)));
+  attachIdeaTreeKeymaps(plugin);
 }
