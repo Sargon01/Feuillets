@@ -12,6 +12,7 @@ import {
   createIdeaSibling,
   hasIdeaTreeParent,
   ideaTreeBranch,
+  ideaTreeBranchToOutlineMarkdown,
   ideaTreeLines,
   reflowIdeaTree,
 } from "../src/services/canvas-idea-tree.js";
@@ -329,6 +330,129 @@ test("Lot 5 — hasIdeaTreeParent distingue une racine (faux) d'un descendant (v
   const canvas = { nodes: [textNode("A", "A"), textNode("B", "B")], edges: [managedEdge("ab", "A", "B")] };
   assert.equal(hasIdeaTreeParent(canvas, "A"), false);
   assert.equal(hasIdeaTreeParent(canvas, "B"), true);
+});
+
+// ---------------------------------------------------------------------------
+// Lot 9 — ideaTreeBranchToOutlineMarkdown (Arbre d'idées → plan Markdown)
+// ---------------------------------------------------------------------------
+
+test("Lot 9 A — A avec deux enfants sans petits-enfants → un titre, deux puces", () => {
+  const canvas = {
+    nodes: [textNode("A", "A", 0, 0), textNode("B", "B", 170, 60), textNode("C", "C", 170, 120)],
+    edges: [managedEdge("ab", "A", "B"), managedEdge("ac", "A", "C")],
+  };
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.deepEqual(result, { ok: true, markdown: "# A\n- B\n- C" });
+});
+
+test("Lot 9 B — A → B → C, D : profondeur relative, B reste un dossier, C/D des puces", () => {
+  const canvas = {
+    nodes: [textNode("A", "A", 0, 0), textNode("B", "B", 170, 60), textNode("C", "C", 340, 120), textNode("D", "D", 340, 180)],
+    edges: [managedEdge("ab", "A", "B"), managedEdge("bc", "B", "C"), managedEdge("bd", "B", "D")],
+  };
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.deepEqual(result, { ok: true, markdown: "# A\n## B\n- C\n- D" });
+});
+
+test("Lot 9 C — l'ordre des frères suit exactement l'ordre déterministe de ideaTreeBranch", () => {
+  const canvas = {
+    nodes: [textNode("A", "A", 0, 50), textNode("C", "C", 500, 200), textNode("B", "B", 500, 20)],
+    edges: [managedEdge("ac", "A", "C"), managedEdge("ab", "A", "B")],
+  };
+  const branchOrder = ideaTreeBranch(canvas, "A").map((node) => node.id);
+  assert.deepEqual(branchOrder, ["A", "B", "C"]);
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.deepEqual(result, { ok: true, markdown: "# A\n- B\n- C" });
+});
+
+test("Lot 9 D — sous-arbre : l'action sur B ignore A et E, ne produit que B/C/D", () => {
+  const canvas = {
+    nodes: [
+      textNode("A", "A", 0, 0),
+      textNode("B", "B", 170, 60),
+      textNode("C", "C", 340, 120),
+      textNode("D", "D", 340, 180),
+      textNode("E", "E", 170, 240),
+    ],
+    edges: [
+      managedEdge("ab", "A", "B"),
+      managedEdge("bc", "B", "C"),
+      managedEdge("bd", "B", "D"),
+      managedEdge("ae", "A", "E"),
+    ],
+  };
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "B");
+  assert.deepEqual(result, { ok: true, markdown: "# B\n- C\n- D" });
+});
+
+test("Lot 9 E — une edge Canvas ordinaire vers X n'apparaît jamais dans le plan", () => {
+  const canvas = {
+    nodes: [textNode("A", "A", 0, 0), textNode("B", "B", 170, 60), textNode("X", "X", 900, 900)],
+    edges: [managedEdge("ab", "A", "B"), { id: "ordinary", fromNode: "B", toNode: "X" }],
+  };
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.equal(result.ok, true);
+  assert.ok(!result.markdown.includes("X"));
+});
+
+test("Lot 9 F — seule la première ligne significative devient le titre", () => {
+  const canvas = {
+    nodes: [textNode("A", "A", 0, 0), textNode("B", "  Kemal arrive  \ntexte secondaire", 170, 60)],
+    edges: [managedEdge("ab", "A", "B")],
+  };
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.deepEqual(result, { ok: true, markdown: "# A\n- Kemal arrive" });
+});
+
+test("Lot 9 G — un TextNode vide dans la branche refuse toute génération (empty-title)", () => {
+  const canvas = {
+    nodes: [textNode("A", "A", 0, 0), textNode("B", "   \n  ", 170, 60)],
+    edges: [managedEdge("ab", "A", "B")],
+  };
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.deepEqual(result, { ok: false, code: "empty-title" });
+});
+
+test("Lot 9 H — un FileNode dans la branche refuse toute génération (non-text-node)", () => {
+  const canvas = {
+    nodes: [textNode("A", "A", 0, 0), { id: "F", type: "file", file: "Manuscrit/Scène.md", x: 170, y: 60 }],
+    edges: [managedEdge("af", "A", "F")],
+  };
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.deepEqual(result, { ok: false, code: "non-text-node" });
+});
+
+test("Lot 9 I — un node AVEC ENFANTS qui nécessiterait plus de 6 # refuse toute génération (too-deep)", () => {
+  const ids = ["A", "B", "C", "D", "E", "F", "G", "H"];
+  const nodes = ids.map((id, index) => textNode(id, id, index * 170, index * 60));
+  const edges = [];
+  for (let i = 0; i < ids.length - 1; i += 1) edges.push(managedEdge(`${ids[i]}${ids[i + 1]}`, ids[i], ids[i + 1]));
+  const canvas = { nodes, edges };
+  // A..G : 7 niveaux de dossiers (profondeur 0 à 6, donc # à #######) → refusé.
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.deepEqual(result, { ok: false, code: "too-deep" });
+});
+
+test("Lot 9 I bis — exactement 6 niveaux de dossiers reste accepté (limite incluse)", () => {
+  // A..F : 6 dossiers imbriqués (profondeur 0 à 5) + G en feuille.
+  const ids = ["A", "B", "C", "D", "E", "F", "G"];
+  const nodes = ids.map((id, index) => textNode(id, id, index * 170, index * 60));
+  const edges = [];
+  for (let i = 0; i < ids.length - 1; i += 1) edges.push(managedEdge(`${ids[i]}${ids[i + 1]}`, ids[i], ids[i + 1]));
+  const canvas = { nodes, edges };
+  const result = ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.equal(result.ok, true);
+  assert.equal(result.markdown, "# A\n## B\n### C\n#### D\n##### E\n###### F\n- G");
+});
+
+test("Lot 9 J — fonction pure : le Canvas original reste identique (deepEqual) avant/après", () => {
+  const canvas = {
+    nodes: [textNode("A", "A", 0, 0), textNode("B", "B", 170, 60)],
+    edges: [managedEdge("ab", "A", "B")],
+  };
+  const before = deepCopy(canvas);
+  ideaTreeBranchToOutlineMarkdown(canvas, "A");
+  assert.deepEqual(canvas, before);
 });
 
 test("Lot 5 — Tab puis Entrée (A → enfant B → frère C) reproduit exactement le scénario attendu", () => {

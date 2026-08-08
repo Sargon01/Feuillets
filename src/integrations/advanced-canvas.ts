@@ -1,5 +1,5 @@
 import { Notice, TFolder, TFile } from "obsidian";
-import type { App, EventRef, Menu } from "obsidian";
+import type { App, EventRef, Menu, TAbstractFile } from "obsidian";
 import { t } from "../i18n/index.js";
 import { getProjectFolder } from "../services/folder-structure.js";
 import { canvasPathFor, type CanvasData, type CanvasNode } from "../services/canvas-board.js";
@@ -8,6 +8,7 @@ import { CanvasChapterModal } from "../ui/canvas-chapter-modal.js";
 import { CanvasSplitModal } from "../ui/canvas-split-modal.js";
 import { CanvasMergeModal, type MergeRow } from "../ui/canvas-merge-modal.js";
 import { CanvasIdeaTreeModal } from "../ui/canvas-idea-tree-modal.js";
+import { ImportOutlineModal } from "../ui/import-outline-modal.js";
 import { applySelectedIdeas, deriveTitle, firstMeaningfulLine, type BridgeMode } from "../services/canvas-bridge.js";
 import { ensureNotebookResearchFolder } from "../services/research.js";
 import {
@@ -22,6 +23,7 @@ import {
   createIdeaSibling,
   hasIdeaTreeParent,
   ideaTreeBranch,
+  ideaTreeBranchToOutlineMarkdown,
   isIdeaTreeNode,
   reflowIdeaTree,
 } from "../services/canvas-idea-tree.js";
@@ -190,6 +192,18 @@ export type FeuilletsPluginLike = {
    * chaque VUE (via `view.register`, toujours appelé) nettoie ses propres
    * raccourcis. */
   register?(cb: () => void): void;
+  /** Lot 9 — mêmes méthodes que celles déjà utilisées par `ImportOutlineModal`
+   * (commande « Importer un plan… », voir main.ts) : requises ici pour que
+   * l'action node-menu « Transformer cette branche en plan… » réutilise
+   * EXACTEMENT la même modale, jamais une seconde implémentation.
+   * `getOrderedChildren` (correctif Lot 9, mode idea-tree) : ORDRE
+   * CANONIQUE Feuillets, jamais `folder.children` brut — déjà public sur le
+   * plugin principal (voir main.ts). */
+  getProjectFolder(): TFolder | null;
+  ensureFolder(path: string): Promise<TAbstractFile>;
+  writeOrder(parent: TAbstractFile, children: TAbstractFile[]): Promise<void>;
+  renderAllViews(force: boolean): void;
+  getOrderedChildren(folder: TFolder): Array<TFile | TFolder>;
 };
 
 /** Stratégie de sauvegarde partagée par les modales Lot 1 (CanvasBridgeModal,
@@ -802,6 +816,32 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
             .setIcon("refresh-cw")
             .onClick(() => {
               void applyIdeaTreeReflow(plugin.app, canvas, canvasFile, data!.id);
+            })
+        );
+      }
+
+      // Lot 9 : uniquement si le node cliqué possède au moins un descendant
+      // idea-tree (jamais pour une simple feuille sans enfant) — voir
+      // ideaTreeBranchToOutlineMarkdown, section 1 du Lot 9.
+      if (full && ideaTreeBranch(full, data.id).length > 1) {
+        menu.addItem((item) =>
+          item
+            .setTitle(t("advancedCanvas.nodeMenu.transformBranchToOutline"))
+            .setIcon("list-tree")
+            .onClick(() => {
+              const fresh = canvas.getData?.() || full;
+              const result = ideaTreeBranchToOutlineMarkdown(fresh, data!.id);
+              if (!result.ok) {
+                const noticeKey =
+                  result.code === "non-text-node"
+                    ? "advancedCanvas.notice.branchHasMaterializedNodes"
+                    : result.code === "empty-title"
+                      ? "advancedCanvas.notice.branchEmptyTitle"
+                      : "advancedCanvas.notice.branchTooDeep";
+                new Notice(t(noticeKey));
+                return;
+              }
+              new ImportOutlineModal(plugin.app, plugin, result.markdown, { source: "idea-tree" }).open();
             })
         );
       }

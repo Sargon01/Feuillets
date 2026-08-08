@@ -509,8 +509,12 @@ export const en = {
   "advancedCanvas.nodeMenu.split": "Split…",
   "advancedCanvas.nodeMenu.addBranch": "Add a branch",
   "advancedCanvas.nodeMenu.reorganizeTree": "Reorganize tree",
+  "advancedCanvas.nodeMenu.transformBranchToOutline": "Transform this branch into an outline…",
   "advancedCanvas.selectionMenu.createChapter": "Create a chapter from the selection…",
   "advancedCanvas.selectionMenu.merge": "Merge…",
+  "advancedCanvas.notice.branchHasMaterializedNodes": "This branch contains elements that already exist as files. The outline can only be created from text ideas.",
+  "advancedCanvas.notice.branchEmptyTitle": "An idea in this branch is empty. Name it before creating the outline.",
+  "advancedCanvas.notice.branchTooDeep": "This branch is too deep to be converted into a Markdown outline.",
   "analysis.displayText": "Analysis",
 
   /* Proofreading tab: results provided by a companion language-analysis
@@ -1297,6 +1301,8 @@ export const en = {
   "modal.importOutline.untitled": "Untitled-{index}",
   "modal.importOutline.noProjectFolder": "No project folder set in the settings.",
   "modal.importOutline.importDone": "Import successful: {folders} folder(s), {files} scene(s) created.",
+  "modal.importOutline.ambiguousExisting": "Several sheets share the title \"{title}\" in \"{folder}\". Rename one of them before re-importing this outline.",
+  "modal.importOutline.duplicateInPlan": "The outline lists the title \"{title}\" more than once in \"{folder}\". Give them distinct titles before re-importing this outline.",
 
   "modal.pdfStyle.title": "Export & Layout Studio",
   "modal.pdfStyle.tabPdf": "PDF (Print)",

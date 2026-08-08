@@ -1,5 +1,5 @@
 import type { CanvasData, CanvasEdge, CanvasNode } from "./canvas-board.js";
-import { freshCanvasNodeId } from "./canvas-bridge.js";
+import { firstMeaningfulLine, freshCanvasNodeId } from "./canvas-bridge.js";
 
 /** Marqueur exclusivement porté par les arêtes créées par l'Arbre d'idées. */
 export const IDEA_TREE_MARKER = "idea-tree" as const;
@@ -263,4 +263,76 @@ export function ideaTreeBranch(canvas: CanvasData, rootId: string): CanvasNode[]
   };
   visit(root);
   return ordered;
+}
+
+/** Lot 9 — nombre maximal de `#` que le Markdown standard réutilisé par
+ * `ImportOutlineModal` sait interpréter en niveau de dossier. */
+const MAX_OUTLINE_HEADING_LEVEL = 6;
+
+export type IdeaTreeOutlineResult =
+  | { ok: true; markdown: string }
+  | { ok: false; code: "non-text-node" | "empty-title" | "too-deep" };
+
+/** Lot 9 — convertit UNE branche idea-tree (le node `rootId` inclus, et
+ * seulement ses descendants atteints par des edges `feuillets_managed:
+ * "idea-tree"`, voir `ideaTreeBranch`) en Markdown compatible avec
+ * `ImportOutlineModal` :
+ *
+ *   - un node qui a au moins un enfant idea-tree devient un titre Markdown
+ *     (`#` répété selon sa profondeur relative depuis `rootId`, `rootId`
+ *     lui-même à profondeur 0 donc `#`) ;
+ *   - un node sans enfant idea-tree devient une puce (`- …`) sous le titre
+ *     le plus proche.
+ *
+ * Fonction PURE : aucune lecture de `app`/vault, aucune mutation de
+ * `canvas`. Toute branche invalide (node non-TextNode, titre vide, ou
+ * profondeur nécessitant plus de 6 `#`) est refusée entièrement — jamais
+ * une génération partielle qui ignorerait silencieusement un node. */
+export function ideaTreeBranchToOutlineMarkdown(canvas: CanvasData, rootId: string): IdeaTreeOutlineResult {
+  const branch = ideaTreeBranch(canvas, rootId);
+  if (branch.length === 0) return { ok: true, markdown: "" };
+
+  for (const node of branch) {
+    if (node.type !== "text") return { ok: false, code: "non-text-node" };
+  }
+
+  const titles = new Map<string, string>();
+  for (const node of branch) {
+    const title = firstMeaningfulLine(node.text || "");
+    if (!title) return { ok: false, code: "empty-title" };
+    titles.set(node.id, title);
+  }
+
+  const branchIds = new Set(branch.map((node) => node.id));
+  const parentOf = new Map<string, string>();
+  const hasChild = new Set<string>();
+  for (const edge of canvas.edges || []) {
+    if (!isIdeaTreeEdge(edge) || !edge.fromNode || !edge.toNode) continue;
+    if (!branchIds.has(edge.fromNode) || !branchIds.has(edge.toNode)) continue;
+    if (!parentOf.has(edge.toNode)) parentOf.set(edge.toNode, edge.fromNode);
+    hasChild.add(edge.fromNode);
+  }
+
+  const depth = new Map<string, number>([[rootId, 0]]);
+  for (const node of branch) {
+    if (node.id === rootId) continue;
+    const parentId = parentOf.get(node.id);
+    const parentDepth = (parentId ? depth.get(parentId) : undefined) ?? 0;
+    depth.set(node.id, parentDepth + 1);
+  }
+
+  const lines: string[] = [];
+  for (const node of branch) {
+    const title = titles.get(node.id) as string;
+    const nodeDepth = depth.get(node.id) ?? 0;
+    if (hasChild.has(node.id)) {
+      const level = nodeDepth + 1;
+      if (level > MAX_OUTLINE_HEADING_LEVEL) return { ok: false, code: "too-deep" };
+      lines.push(`${"#".repeat(level)} ${title}`);
+    } else {
+      lines.push(`- ${title}`);
+    }
+  }
+
+  return { ok: true, markdown: lines.join("\n") };
 }

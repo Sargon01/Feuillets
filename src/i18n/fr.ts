@@ -509,8 +509,12 @@ export const fr = {
   "advancedCanvas.nodeMenu.split": "Scinder…",
   "advancedCanvas.nodeMenu.addBranch": "Ajouter une branche",
   "advancedCanvas.nodeMenu.reorganizeTree": "Réorganiser l'arbre",
+  "advancedCanvas.nodeMenu.transformBranchToOutline": "Transformer cette branche en plan…",
   "advancedCanvas.selectionMenu.createChapter": "Créer un chapitre avec la sélection…",
   "advancedCanvas.selectionMenu.merge": "Fusionner…",
+  "advancedCanvas.notice.branchHasMaterializedNodes": "Cette branche contient des éléments déjà matérialisés. Le plan ne peut être créé qu'à partir d'idées texte.",
+  "advancedCanvas.notice.branchEmptyTitle": "Une idée de cette branche est vide. Nommez-la avant de créer le plan.",
+  "advancedCanvas.notice.branchTooDeep": "Cette branche est trop profonde pour être convertie en plan Markdown.",
   "analysis.displayText": "Analyse",
 
   /* Onglet Relecture : résultats rendus par un module compagnon d'analyse
@@ -1297,6 +1301,8 @@ export const fr = {
   "modal.importOutline.untitled": "Sans-titre-{index}",
   "modal.importOutline.noProjectFolder": "Aucun dossier projet défini dans les réglages.",
   "modal.importOutline.importDone": "Import réussi : {folders} dossier(s), {files} scène(s) créée(s).",
+  "modal.importOutline.ambiguousExisting": "Plusieurs feuillets portent le titre « {title} » dans « {folder} ». Renommez l'un d'eux avant de réimporter ce plan.",
+  "modal.importOutline.duplicateInPlan": "Le plan contient plusieurs fois le titre « {title} » dans « {folder} ». Donnez-leur des titres distincts avant de réimporter ce plan.",
 
   "modal.pdfStyle.title": "Studio d'exportation & Mise en page",
   "modal.pdfStyle.tabPdf": "PDF (Impression)",
