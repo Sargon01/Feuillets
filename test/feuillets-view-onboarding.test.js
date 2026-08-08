@@ -3,7 +3,7 @@ import test from "node:test";
 import { Menu, TFile, TFolder } from "obsidian";
 import { FeuilletsView } from "../src/views/feuillets-view.js";
 import { hasKnownProject } from "../src/services/folder-structure.js";
-import { remapResearchFolderLinks, isInsideResearchSpace, resolveUniqueFolderMatch } from "../src/views/base-feuillets-view.js";
+import { remapResearchFolderLinks, isInsideResearchSpace, resolveUniqueFolderMatch, showChoices } from "../src/views/base-feuillets-view.js";
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 import { NewFolderModal } from "../src/ui/basic-modals.js";
 import { FolderSuggest } from "../src/ui/folder-suggest.js";
@@ -324,6 +324,27 @@ class TestBinderResearchView extends BaseFeuilletsView {
   async render() {}
 }
 
+test("Binder : les sélecteurs compacts gardent la position du clic droit", () => {
+  const origin = /** @type {MouseEvent} */ ({ clientX: 428, clientY: 316, target: null });
+
+  showChoices(
+    /** @type {KeyboardEvent} */ ({}),
+    origin,
+    (menu) => menu.addItem((item) => item.setTitle("Choix"))
+  );
+
+  assert.deepEqual(Menu.lastShown.position, { x: 428, y: 316 });
+  assert.notDeepEqual(Menu.lastShown.position, { x: 0, y: 0 });
+
+  const trigger = /** @type {MouseEvent} */ ({ clientX: 451, clientY: 339, target: null });
+  showChoices(
+    trigger,
+    origin,
+    (menu) => menu.addItem((item) => item.setTitle("Choix"))
+  );
+  assert.equal(Menu.lastShown.event, trigger, "le clic du choix est privilégié");
+});
+
 test("Binder ↔ Recherche : menu d'un TFile Binder non lié contient les actions de liaison", () => {
   const project = buildBinderResearchProject();
   const plugin = buildBinderResearchPlugin(project);
@@ -347,12 +368,12 @@ test("Binder ↔ Recherche : menu d'un TFile Binder non lié contient les action
 
   const titles = menu.items.map((i) => i.title);
   assert.ok(
-    titles.includes("Créer un dossier Recherche associé"),
-    "contient l'action de création de dossier Recherche"
+    titles.includes("Recherche associée…"),
+    "contient l'entrée Recherche compacte"
   );
   assert.ok(
-    titles.includes("Associer un dossier Recherche existant…"),
-    "contient l'action d'association d'un dossier existant"
+    !titles.includes("Associer un dossier Recherche existant…"),
+    "les choix Recherche ne sont plus étalés au premier niveau"
   );
 });
 
@@ -392,7 +413,10 @@ test("Binder ↔ Recherche : menu d'un TFile Binder lié contient ouvrir/changer
   );
 
   const menu = Menu.lastShown;
-  const titles = menu.items.map((i) => i.title);
+  const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
+  assert.ok(researchItem, "contient l'entrée Recherche compacte");
+  researchItem.callback();
+  const titles = Menu.lastShown.items.map((i) => i.title);
   assert.ok(
     titles.includes("Ouvrir le dossier Recherche associé"),
     "contient l'action d'ouverture"
@@ -445,7 +469,10 @@ test("Binder ↔ Recherche : détachement d'un fichier sans suppression physique
   );
 
   const menu = Menu.lastShown;
-  const detachItem = menu.items.find(
+  const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
+  assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
+  researchItem.callback();
+  const detachItem = Menu.lastShown.items.find(
     (i) => i.title === "Détacher le dossier Recherche"
   );
   assert.ok(detachItem, "l'entrée détacher doit exister");
@@ -522,9 +549,10 @@ test("Binder ↔ Recherche : création d'un dossier associé à un fichier — p
     );
 
     const menu = Menu.lastShown;
-    const createItem = menu.items.find(
-      (i) => i.title === "Créer un dossier Recherche associé"
-    );
+    const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
+    assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
+    researchItem.callback();
+    const createItem = Menu.lastShown.items.find((i) => i.title === "Créer un dossier Recherche associé");
     assert.ok(createItem, "l'entrée créer doit exister");
 
     // Déclencher le clic sur "Créer un dossier Recherche associé"
@@ -597,9 +625,10 @@ test("Binder ↔ Recherche : création d'un dossier associé à un fichier — s
     );
 
     const menu = Menu.lastShown;
-    const createItem = menu.items.find(
-      (i) => i.title === "Créer un dossier Recherche associé"
-    );
+    const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
+    assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
+    researchItem.callback();
+    const createItem = Menu.lastShown.items.find((i) => i.title === "Créer un dossier Recherche associé");
     createItem.callback();
 
     assert.ok(modalCallback, "la modale a été ouverte");
@@ -651,9 +680,10 @@ test("Binder ↔ Recherche : le nom du dossier de création utilise le short_tit
     );
 
     const menu = Menu.lastShown;
-    const createItem = menu.items.find(
-      (i) => i.title === "Créer un dossier Recherche associé"
-    );
+    const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
+    assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
+    researchItem.callback();
+    const createItem = Menu.lastShown.items.find((i) => i.title === "Créer un dossier Recherche associé");
     createItem.callback();
 
     assert.equal(
@@ -700,9 +730,10 @@ test("Binder ↔ Recherche : le nom du dossier de création utilise le basename 
     );
 
     const menu = Menu.lastShown;
-    const createItem = menu.items.find(
-      (i) => i.title === "Créer un dossier Recherche associé"
-    );
+    const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
+    assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
+    researchItem.callback();
+    const createItem = Menu.lastShown.items.find((i) => i.title === "Créer un dossier Recherche associé");
     createItem.callback();
 
     assert.equal(

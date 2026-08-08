@@ -142,7 +142,16 @@ The same composition logic powers Preview and exports. Titles, separators, margi
 | Observe narrative threads | Storyline |
 | Verify the story timeline | Timeline |
 | Read as a continuous book | Preview |
-| Explore freely | Canvas |
+| Explore freely | Notebook |
+
+The Notebook is the free space where you can throw down ideas, references,
+possible scenes, and research material, arrange and connect them freely,
+then deliberately turn some of those ideas into manuscript sheets or free
+Markdown research files.
+
+The Notebook is built on Obsidian's native Canvas. [Advanced Canvas](https://github.com/Developer-Mike/obsidian-advanced-canvas)
+remains optional but recommended for an experience closer to Scapple,
+notably borderless text, collapsible groups, and richer node interactions.
 
 ## Your writing remains yours
 
