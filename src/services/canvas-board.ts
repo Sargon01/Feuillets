@@ -5,6 +5,7 @@ import { ensureFolder } from "./project-files.js";
 
 /** Valeurs conservées pour les nodes créés explicitement par Feuillets. */
 export type FeuilletsManagedKind = "manuscript" | "research" | "thread";
+export type FeuilletsManagedEdgeKind = FeuilletsManagedKind | "idea-tree";
 
 export type CanvasNode = {
   id: string;
@@ -26,7 +27,7 @@ export type CanvasEdge = {
   toNode?: string;
   fil?: string;
   feuillets_fil?: string;
-  feuillets_managed?: FeuilletsManagedKind;
+  feuillets_managed?: FeuilletsManagedEdgeKind;
   [key: string]: unknown;
 };
 

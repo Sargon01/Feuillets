@@ -6,6 +6,7 @@ import { registerAdvancedCanvasIntegration } from "../src/integrations/advanced-
 import { canvasPathFor } from "../src/services/canvas-board.js";
 import { CanvasBridgeModal, CanvasNodeToManuscriptModal } from "../src/ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "../src/ui/canvas-chapter-modal.js";
+import { CanvasIdeaTreeModal } from "../src/ui/canvas-idea-tree-modal.js";
 
 /* On ne teste jamais Advanced Canvas lui-même — seulement l'adaptateur
  * Feuillets, avec un faux objet minimal reproduisant uniquement le contrat
@@ -194,8 +195,8 @@ test("registerAdvancedCanvasIntegration : plusieurs text nodes → deux actions,
   assert.equal(menu.items.length, 2);
 });
 
-// 1. canvas:node-menu sur un text node du Carnet → 2 actions Feuillets
-test("registerAdvancedCanvasIntegration : node-menu sur un text node du Carnet → 3 actions (manuscrit/recherche/scinder)", () => {
+// 1. canvas:node-menu sur un text node du Carnet → actions historiques + arbre
+test("registerAdvancedCanvasIntegration : node-menu TextNode conserve les actions historiques et ajoute Développer en arbre", () => {
   const { app, plugin, manuscript } = makeFixture();
   registerAdvancedCanvasIntegration(plugin);
 
@@ -204,7 +205,8 @@ test("registerAdvancedCanvasIntegration : node-menu sur un text node du Carnet �
   const menu = new Menu();
   fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "t1", type: "text" }) });
 
-  assert.equal(menu.items.length, 3);
+  assert.equal(menu.items.length, 4);
+  assert.equal(menu.items.some((item) => item.title === "Développer en arbre…"), true);
   assert.ok(menu.items.every((item) => typeof item.callback === "function"));
 });
 
@@ -481,7 +483,7 @@ test("registerAdvancedCanvasIntegration : selection-menu et node-menu coexistent
 
   const nodeMenu = new Menu();
   fireNodeMenu(app, nodeMenu, { canvas, getData: () => ({ id: "t1", type: "text" }) });
-  assert.equal(nodeMenu.items.length, 3);
+  assert.equal(nodeMenu.items.length, 4);
 });
 
 // ---------------------------------------------------------------------------
@@ -521,9 +523,8 @@ test("registerAdvancedCanvasIntegration : node-menu group d'un autre Canvas → 
   assert.equal(menu.items.length, 0);
 });
 
-// 3. file node → aucune commande Canvas : le menu de fichier Feuillets
-// fournit seul « Feuillets: Scinder » au runtime.
-test("registerAdvancedCanvasIntegration : node-menu sur un file node → aucune scission Canvas", () => {
+// 3. file node manuscrit → arbre, mais toujours aucune scission Canvas.
+test("registerAdvancedCanvasIntegration : node-menu FileNode manuscrit → arbre sans scission Canvas", () => {
   const { app, plugin, manuscript, ch1 } = makeFixtureWithManuscriptFiles();
   registerAdvancedCanvasIntegration(plugin);
 
@@ -532,11 +533,13 @@ test("registerAdvancedCanvasIntegration : node-menu sur un file node → aucune 
   const menu = new Menu();
   fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "f1", type: "file" }) });
 
-  assert.equal(menu.items.length, 0);
+  assert.equal(menu.items.length, 1);
+  assert.equal(menu.items[0].title, "Développer en arbre…");
+  assert.equal(menu.items.some((i) => i.title === "Scinder…"), false);
   assert.equal(menu.items.some((i) => i.title.includes("chapitre")), false);
 });
 
-// 4. text node → conserve uniquement les actions Lot 1 (jamais l'action chapitre)
+// 4. text node libre → conserve les actions Lot 1 et l'arbre, jamais chapitre.
 test("registerAdvancedCanvasIntegration : node-menu sur un text node → jamais l'action chapitre, toujours Scinder", () => {
   const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
   registerAdvancedCanvasIntegration(plugin);
@@ -546,11 +549,65 @@ test("registerAdvancedCanvasIntegration : node-menu sur un text node → jamais 
   const menu = new Menu();
   fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "t1", type: "text", text: "Idée" }) });
 
-  assert.equal(menu.items.length, 3);
+  assert.equal(menu.items.length, 4);
   assert.equal(menu.items[0].title, "Transformer en feuillet");
   assert.equal(menu.items[1].title, "Transformer en fiche Recherche");
   assert.equal(menu.items[2].title, "Scinder…");
+  assert.equal(menu.items[3].title, "Développer en arbre…");
   assert.equal(menu.items.some((i) => i.title.includes("chapitre")), false);
+});
+
+test("registerAdvancedCanvasIntegration : Développer en arbre ouvre la modale légère et persiste uniquement nodes/edges", async () => {
+  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
+  registerAdvancedCanvasIntegration(plugin);
+  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
+  const parent = { id: "A", type: "text", text: "A", x: 0, y: 0, width: 240, height: 80 };
+  const canvas = makeLiveCanvas(boardFile, [parent]);
+
+  let captured = null;
+  const originalOpen = CanvasIdeaTreeModal.prototype.open;
+  CanvasIdeaTreeModal.prototype.open = function () { captured = this; };
+  try {
+    const menu = new Menu();
+    fireNodeMenu(app, menu, { canvas, getData: () => parent });
+    menu.items.find((item) => item.title === "Développer en arbre…").callback();
+  } finally {
+    CanvasIdeaTreeModal.prototype.open = originalOpen;
+  }
+  assert.ok(captured);
+  await captured.onSubmit("B\nC");
+  assert.deepEqual(canvas.getData().nodes.filter((node) => node.type === "text").map((node) => node.text), ["A", "B", "C"]);
+  assert.ok(canvas.getData().edges.every((edge) => edge.feuillets_managed === "idea-tree"));
+});
+
+test("registerAdvancedCanvasIntegration : une node d'arbre ouvre le chapitre avec l'ordre DFS exact", () => {
+  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
+  registerAdvancedCanvasIntegration(plugin);
+  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
+  const nodes = [
+    { id: "A", type: "text", text: "A", y: 0 },
+    { id: "C", type: "text", text: "C", y: 200 },
+    { id: "B", type: "text", text: "B", y: 20 },
+  ];
+  const canvas = makeLiveCanvas(boardFile, nodes);
+  canvas.getData().edges.push(
+    { id: "ac", fromNode: "A", toNode: "C", feuillets_managed: "idea-tree" },
+    { id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" }
+  );
+
+  let captured = null;
+  const originalOpen = CanvasChapterModal.prototype.open;
+  CanvasChapterModal.prototype.open = function () { captured = this; };
+  try {
+    const menu = new Menu();
+    fireNodeMenu(app, menu, { canvas, getData: () => nodes[0] });
+    menu.items.find((item) => item.title === "Créer un chapitre avec cette branche…").callback();
+  } finally {
+    CanvasChapterModal.prototype.open = originalOpen;
+  }
+  assert.ok(captured);
+  assert.equal(captured.context.source, "idea-tree");
+  assert.deepEqual(captured.context.ids, ["A", "B", "C"]);
 });
 
 // 5. selection-menu avec 2 text nodes → action chapitre proposée

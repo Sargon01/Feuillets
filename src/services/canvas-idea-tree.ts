@@ -1,0 +1,202 @@
+import type { CanvasData, CanvasEdge, CanvasNode } from "./canvas-board.js";
+import { freshCanvasNodeId } from "./canvas-bridge.js";
+
+/** Marqueur exclusivement porté par les arêtes créées par l'Arbre d'idées. */
+export const IDEA_TREE_MARKER = "idea-tree" as const;
+
+export const IDEA_TREE_LAYOUT = {
+  childWidth: 260,
+  childHeight: 80,
+  horizontalIndent: 170,
+  verticalSpacing: 60,
+} as const;
+
+/** Attributs communs aux TextNodes du modèle « Test Manuel ». Advanced
+ * Canvas les interprète ; Canvas natif les conserve sans dépendance. */
+export const IDEA_TREE_NODE_STYLE = {
+  border: "invisible",
+  shape: null,
+} as const;
+
+/** Attributs communs aux cinq edges du modèle « Test Manuel ». */
+export const IDEA_TREE_EDGE_STYLE = {
+  pathfindingMethod: "square",
+} as const;
+
+export type IdeaTreeCreation = {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+};
+
+function freshCanvasEdgeId(canvas: CanvasData): string {
+  const used = new Set((canvas.edges || []).map((edge) => edge.id));
+  let index = 1;
+  while (used.has(`feuillets-idea-tree-${index}`)) index += 1;
+  return `feuillets-idea-tree-${index}`;
+}
+
+/** Une ligne non vide devient une branche. Seuls les blancs extérieurs de
+ * chaque ligne sont retirés ; le texte intérieur reste strictement intact. */
+export function ideaTreeLines(raw: string): string[] {
+  return String(raw || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/** Retrouve l'ancêtre racine d'un node en remontant exclusivement les
+ * arêtes gérées. Une edge Canvas libre n'entre jamais dans ce calcul. */
+export function ideaTreeRoot(canvas: CanvasData, nodeId: string): CanvasNode | null {
+  const byId = new Map((canvas.nodes || []).map((node) => [node.id, node]));
+  if (!byId.has(nodeId)) return null;
+  const parentOf = new Map<string, string>();
+  for (const edge of canvas.edges || []) {
+    if (!isIdeaTreeEdge(edge) || !edge.fromNode || !edge.toNode) continue;
+    if (!byId.has(edge.fromNode) || !byId.has(edge.toNode) || parentOf.has(edge.toNode)) continue;
+    parentOf.set(edge.toNode, edge.fromNode);
+  }
+
+  let currentId = nodeId;
+  const visited = new Set<string>();
+  while (!visited.has(currentId)) {
+    visited.add(currentId);
+    const parentId = parentOf.get(currentId);
+    if (!parentId) break;
+    currentId = parentId;
+  }
+  return byId.get(currentId) || null;
+}
+
+/** Reflow visuel d'un SEUL arbre Feuillets. La racine reste son ancre ;
+ * tous ses descendants suivent l'ordre DFS métier existant et leur
+ * profondeur structurelle. Aucun node extérieur, même relié par une edge
+ * ordinaire, n'est lu ni déplacé. */
+export function reflowIdeaTree(canvas: CanvasData, memberId: string): CanvasNode[] {
+  const root = ideaTreeRoot(canvas, memberId);
+  if (!root) return [];
+  const ordered = ideaTreeBranch(canvas, root.id);
+  const ids = new Set(ordered.map((node) => node.id));
+  const parentOf = new Map<string, string>();
+  for (const edge of canvas.edges || []) {
+    if (!isIdeaTreeEdge(edge) || !edge.fromNode || !edge.toNode) continue;
+    if (ids.has(edge.fromNode) && ids.has(edge.toNode) && !parentOf.has(edge.toNode)) {
+      parentOf.set(edge.toNode, edge.fromNode);
+    }
+  }
+
+  const depth = new Map<string, number>([[root.id, 0]]);
+  const rootX = Number(root.x) || 0;
+  const rootY = Number(root.y) || 0;
+  ordered.forEach((node, index) => {
+    if (node.id === root.id) return;
+    const parentDepth = depth.get(parentOf.get(node.id) || root.id) ?? 0;
+    const nodeDepth = parentDepth + 1;
+    depth.set(node.id, nodeDepth);
+    node.x = rootX + nodeDepth * IDEA_TREE_LAYOUT.horizontalIndent;
+    node.y = rootY + index * IDEA_TREE_LAYOUT.verticalSpacing;
+  });
+  return ordered;
+}
+
+/** Ajoute uniquement les nouveaux TextNodes et leurs arêtes marquées. Les
+ * nodes/edges déjà présents ne sont ni clonés ni réécrits, ce qui préserve
+ * tous leurs attributs connus ou inconnus. */
+export function createIdeaBranches(canvas: CanvasData, parentId: string, raw: string): IdeaTreeCreation {
+  const parent = (canvas.nodes || []).find((node) => node.id === parentId);
+  const lines = ideaTreeLines(raw);
+  if (!parent || lines.length === 0) return { nodes: [], edges: [] };
+
+  const { childWidth, childHeight, horizontalIndent, verticalSpacing } = IDEA_TREE_LAYOUT;
+  const existingChildren = (canvas.edges || [])
+    .filter((edge) => isIdeaTreeEdge(edge) && edge.fromNode === parentId)
+    .map((edge) => canvas.nodes.find((node) => node.id === edge.toNode))
+    .filter((node): node is CanvasNode => !!node);
+  const x = (Number(parent.x) || 0) + horizontalIndent;
+  const firstY = existingChildren.reduce(
+    (bottom, child) => Math.max(bottom, (Number(child.y) || 0) + verticalSpacing),
+    (Number(parent.y) || 0) + verticalSpacing
+  );
+
+  const nodes: CanvasNode[] = [];
+  const edges: CanvasEdge[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const id = freshCanvasNodeId(canvas);
+    const node: CanvasNode = {
+      id,
+      type: "text",
+      text: lines[index],
+      styleAttributes: { ...IDEA_TREE_NODE_STYLE },
+      x,
+      y: firstY + index * verticalSpacing,
+      width: childWidth,
+      height: childHeight,
+    };
+    canvas.nodes.push(node);
+    nodes.push(node);
+
+    const edge: CanvasEdge = {
+      id: freshCanvasEdgeId(canvas),
+      styleAttributes: { ...IDEA_TREE_EDGE_STYLE },
+      toFloating: false,
+      fromNode: parentId,
+      fromSide: "bottom",
+      toNode: id,
+      toSide: "left",
+      toEnd: "none",
+      feuillets_managed: IDEA_TREE_MARKER,
+    };
+    canvas.edges.push(edge);
+    edges.push(edge);
+  }
+
+  reflowIdeaTree(canvas, parentId);
+
+  return { nodes, edges };
+}
+
+export function isIdeaTreeEdge(edge: CanvasEdge): boolean {
+  return edge.feuillets_managed === IDEA_TREE_MARKER;
+}
+
+export function isIdeaTreeNode(canvas: CanvasData, nodeId: string): boolean {
+  return (canvas.edges || []).some(
+    (edge) => isIdeaTreeEdge(edge) && (edge.fromNode === nodeId || edge.toNode === nodeId)
+  );
+}
+
+/** Branche en depth-first pre-order. Les frères sont triés selon Y, puis X
+ * et enfin id pour garantir un résultat stable même à coordonnées égales.
+ * Les cycles accidentels sont bornés par `visited`. */
+export function ideaTreeBranch(canvas: CanvasData, rootId: string): CanvasNode[] {
+  const byId = new Map((canvas.nodes || []).map((node) => [node.id, node]));
+  const root = byId.get(rootId);
+  if (!root) return [];
+
+  const children = new Map<string, CanvasNode[]>();
+  for (const edge of canvas.edges || []) {
+    if (!isIdeaTreeEdge(edge) || !edge.fromNode || !edge.toNode) continue;
+    const child = byId.get(edge.toNode);
+    if (!child) continue;
+    const list = children.get(edge.fromNode) || [];
+    list.push(child);
+    children.set(edge.fromNode, list);
+  }
+  for (const list of children.values()) {
+    list.sort((a, b) =>
+      (Number(a.y) || 0) - (Number(b.y) || 0) ||
+      (Number(a.x) || 0) - (Number(b.x) || 0) ||
+      a.id.localeCompare(b.id)
+    );
+  }
+
+  const ordered: CanvasNode[] = [];
+  const visited = new Set<string>();
+  const visit = (node: CanvasNode) => {
+    if (visited.has(node.id)) return;
+    visited.add(node.id);
+    ordered.push(node);
+    for (const child of children.get(node.id) || []) visit(child);
+  };
+  visit(root);
+  return ordered;
+}

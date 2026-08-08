@@ -27,6 +27,7 @@ import type { MinimalRuntimeCanvas } from "../services/canvas-runtime.js";
 export type CanvasChapterContext =
   | { source: "group"; group: CanvasNode }
   | { source: "selection"; ids: string[] }
+  | { source: "idea-tree"; ids: string[] }
   | { source: "command" };
 
 export type CanvasChapterModalOptions = {
@@ -105,6 +106,14 @@ export class CanvasChapterModal extends Modal {
       const selected = context.ids.map((id) => byId.get(id)).filter((n): n is CanvasNode => !!n);
       this.rows = defaultChapterOrder(selected, this.binderIndex());
       this.references = [];
+      this.checked = new Set(this.rows.map((n) => n.id));
+    } else if (context.source === "idea-tree") {
+      // L'ordre DFS pré-calculé par canvas-idea-tree.ts porte l'intention de
+      // la branche. Aucun tri spatial/Binder ne doit le remplacer ici.
+      const byId = new Map((this.canvas.nodes || []).map((n) => [n.id, n]));
+      const branch = context.ids.map((id) => byId.get(id)).filter((n): n is CanvasNode => !!n);
+      this.rows = admissibleChapterNodes(branch, this.isManuscriptPath);
+      this.references = branch.filter((n) => !this.rows.includes(n) && n.type !== "group");
       this.checked = new Set(this.rows.map((n) => n.id));
     } else {
       this.rows = defaultChapterOrder(this.allAdmissible, this.binderIndex());
