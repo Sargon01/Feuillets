@@ -2906,6 +2906,19 @@ export async function activatePreviewView(app: App): Promise<WorkspaceLeaf | nul
   return leaf;
 }
 
+interface ScopeableView {
+  setCompileScope(scope: CompileScope): Promise<void>;
+}
+
+function isScopeableView(view: unknown): view is ScopeableView {
+  return (
+    typeof view === "object" &&
+    view !== null &&
+    "setCompileScope" in view &&
+    typeof view.setCompileScope === "function"
+  );
+}
+
 /**
  * Helper unique pour récupérer ou créer la vue Preview, l'activer et lui transmettre une portée explicite CompileScope.
  */
@@ -2917,8 +2930,8 @@ export async function openScopeWithPreview(app: App, scope: CompileScope): Promi
      chargement de la vraie instance avant d'y accéder — même schéma que
      `FeuilletsPlugin.loadDeferredViews()`. */
   if (leaf?.isDeferred) await leaf.loadIfDeferred();
-  const view = leaf?.view as any;
-  if (view && typeof view.setCompileScope === "function") {
+  const view = leaf?.view;
+  if (isScopeableView(view)) {
     await view.setCompileScope(scope);
   }
 }
