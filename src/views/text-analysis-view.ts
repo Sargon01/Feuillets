@@ -3,8 +3,9 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import type { ResolvedAnalysisIssue, TextAnalysisProvider } from "../api/text-analysis.js";
 import type { AnalysisRun } from "../services/text-analysis.js";
 import { openIssueContextMenu } from "../services/grammar-context-menu.js";
-import { selectRange } from "../utils/dom.js";
+import { renderCollapsibleHead, selectRange } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
+import { findRepetitions } from "../utils/repetitions.js";
 
 type BaseFeuilletsPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type TextAnalysisViewPlugin = BaseFeuilletsPlugin & {
@@ -56,11 +57,41 @@ export class TextAnalysisView extends BaseFeuilletsView {
     container.empty();
     container.addClass("feuillets-grammar-container");
 
+    const activeFile = this.app.workspace.getActiveFile?.();
+    let hasNativeSignal = false;
+    if (activeFile instanceof TFile) {
+      const collapseKey = "relecture:repetitions";
+      const settings = this.plugin.settings as FeuilletsSettings & { collapsed?: Record<string, boolean> };
+      settings.collapsed ??= {};
+      const collapsed = !!settings.collapsed[collapseKey];
+      const { section: native } = renderCollapsibleHead(container, {
+        classes: { section: "feuillets-notes-section", head: "feuillets-notes-section-head", icon: "feuillets-notes-section-icon", title: "feuillets-notes-section-title" },
+        title: t("analysisResults.repetitions"), icon: "repeat-2", collapsed, collapseKey, settings,
+        onToggle: async () => { await this.plugin.saveSettings(); await this.render(); },
+      });
+      if (!collapsed) {
+        const repetitions = findRepetitions(await this.app.vault.cachedRead(activeFile));
+        hasNativeSignal = repetitions.length > 0;
+        if (!repetitions.length) {
+          native.createDiv({ cls: "feuillets-notes-sub" }).setText(t("analysisResults.noRepetitions"));
+        } else {
+        const list = native.createDiv({ cls: "feuillets-notes-metadata-list" });
+        for (const item of repetitions.slice(0, 8)) {
+          const row = list.createDiv({ cls: "feuillets-notes-metadata-row feuillets-clickable" });
+          row.createDiv({ cls: "feuillets-notes-metadata-label", text: item.word });
+          row.createDiv({ cls: "feuillets-notes-metadata-value", text: `×${item.count}` });
+          row.addEventListener("click", () => {
+            const editor = this.plugin.activeEditorAnywhere();
+            if (editor) selectRange(editor, item.offsets[0], item.offsets[0] + item.word.length);
+          });
+        }
+      }
+      }
+    }
+
     const provider = this.plugin.getAnalysisProvider();
     if (!provider) {
-      container
-        .createDiv({ cls: "feuillets-research-empty" })
-        .setText(t("analysisResults.noProvider"));
+      if (!hasNativeSignal) container.createDiv({ cls: "feuillets-research-empty" }).setText(t("analysisResults.noFindings"));
       return;
     }
 
@@ -69,7 +100,11 @@ export class TextAnalysisView extends BaseFeuilletsView {
       this.plugin.analyzeActiveFile()
     );
 
-    const summary = container.createDiv({ cls: "feuillets-research-section" });
+    const { section: summary } = renderCollapsibleHead(container, {
+      classes: { section: "feuillets-notes-section", head: "feuillets-notes-section-head", icon: "feuillets-notes-section-icon", title: "feuillets-notes-section-title" },
+      title: t("analysisResults.linguisticAnalysis"), icon: "spell-check", collapsed: false, collapseKey: "relecture:linguistic",
+      settings: { collapsed: {} }, onToggle: () => {},
+    });
     const sub = summary.createDiv({ cls: "feuillets-notes-sub" });
     const badge = summary.createSpan({ cls: "feuillets-tag-chip feuillets-mt-xs" });
     badge.setText(provider.name);
@@ -81,6 +116,10 @@ export class TextAnalysisView extends BaseFeuilletsView {
 
     const run = this.plugin.analysisRun;
     if (!run) {
+      sub.setText(t("analysisResults.notRunYet"));
+      return;
+    }
+    if (activeFile && (!(activeFile instanceof TFile) || run.filePath !== activeFile.path)) {
       sub.setText(t("analysisResults.notRunYet"));
       return;
     }

@@ -258,6 +258,8 @@ export const fr = {
   "board.viewOptionsTooltip": "Options de la vue",
   "board.visibleModesHeader": "— Modes affichés —",
   "board.undoMoveTooltip": "Annuler le dernier déplacement",
+  "board.filter.tagPrompt": "Filtrer par tag…",
+  "board.selection.enable": "Sélection multiple",
   "board.projectBreadcrumb": "Projet",
 
   "board.selection.selectTooltip": "Sélectionner des {unitPlural}…",
@@ -463,13 +465,18 @@ export const fr = {
   "journal.historyTotal": "{total} mots sur les {days} derniers jours",
 
   // ---------- Panneau latéral à onglets (sidebar-feuillets-view.js) ----------
-  "sidebar.displayText": "Feuillets — Inspecteur",
-  "sidebar.tab.notes": "Notes du feuillet",
-  "sidebar.tab.research": "Recherche & extraits",
-  "sidebar.tab.journal": "Journal & statistiques",
+  "sidebar.displayText": "Feuillets — Atelier",
+  "sidebar.tab.notes": "Feuillet",
+  "sidebar.tab.research": "Recherche",
+  "sidebar.tab.journal": "Journal",
   "sidebar.tab.project": "Édition",
-  "sidebar.tab.analysis": "Analyse du texte",
+  "sidebar.tab.analysis": "Analyse",
   "sidebar.tab.proofreading": "Relecture",
+  "editionDocs.folderFiles": "Fichiers du dossier Édition",
+  "analysisResults.repetitions": "Répétitions rapprochées",
+  "analysisResults.noRepetitions": "Aucune répétition rapprochée détectée.",
+  "analysisResults.noFindings": "Aucun signalement",
+  "analysisResults.linguisticAnalysis": "Analyse linguistique",
 
 
   // ---------- Recherche & remplacement (search-replace-bar.js) ----------
@@ -544,6 +551,7 @@ export const fr = {
   "analysis.openSheetToAnalyze": "Ouvre un feuillet pour l'analyser.",
   "analysis.group.thisSheet": "Ce feuillet",
   "analysis.group.novel": "Le roman",
+  "analysis.group.project": "Le projet",
 
   "analysis.pace.action": "Action",
   "analysis.pace.dialogue": "Dialogue",

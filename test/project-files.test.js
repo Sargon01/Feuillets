@@ -5,6 +5,34 @@ import { createFakeVault } from "./helpers/fake-vault.js";
 import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, EDITION_DOCUMENTS, EDITION_SUBFOLDERS, editionDocumentForName } from "../src/services/project-files.js";
 import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
 import { setLocale } from "../src/i18n/index.js";
+import { DEFAULT_SETTINGS } from "../src/default-settings.js";
+import { BoardView } from "../src/views/board-view.js";
+
+class BoardElement {
+  constructor() {
+    this.style = {};
+  }
+  empty() {}
+  addClass() {}
+  createDiv() { return new BoardElement(); }
+}
+
+async function visibleModesAtFirstBoardRender(vault, settings) {
+  const root = vault.getAbstractFileByPath(settings.projectFolder);
+  const icons = [];
+  const stop = new Error("modes-ready");
+  const view = new BoardView(
+    { app: { vault }, contentEl: new BoardElement() },
+    { settings, getProjectFolder: () => root }
+  );
+  view.iconBtn = (_parent, icon) => {
+    icons.push(icon);
+    if (icon === "sliders-horizontal") throw stop;
+    return new BoardElement();
+  };
+  await assert.rejects(() => view._render(true), (error) => error === stop);
+  return icons.filter((icon) => ["layout-grid", "list-tree", "git-branch", "milestone"].includes(icon));
+}
 
 function projectFixture() {
   const volume = new TFolder("Projet");
@@ -199,6 +227,59 @@ test("createMinimalProject (fiction) : crée la racine réelle, Manuscrit, Front
   assert.equal(settings.mergeYamlPreset, "roman");
 });
 
+test("createMinimalProject : initialise les préférences Board du type avant le premier rendu", async (t) => {
+  for (const [type, name, hiddenBoardModes, columns, visibleIcons] of [
+    ["fiction", "Roman", ["timeline"], ["synopsis", "status"], ["layout-grid", "list-tree", "git-branch"]],
+    ["nonfiction", "Essai", ["arcs", "timeline"], ["summary"], ["layout-grid", "list-tree"]],
+    ["free", "Carnet", ["arcs", "timeline"], ["synopsis"], ["layout-grid", "list-tree"]],
+  ]) {
+    await t.test(type, async () => {
+      const { vault } = createFakeVault([]);
+      const settings = freshSettings({
+        hiddenBoardModes: [...DEFAULT_SETTINGS.hiddenBoardModes],
+        outlineCols: { ...DEFAULT_SETTINGS.outlineCols },
+      });
+      const result = await createMinimalProject({ vault }, settings, { name, type });
+      const meta = settings.projectMeta[result.manuscritPath];
+      assert.deepEqual(meta.hiddenBoardModes, hiddenBoardModes);
+      assert.deepEqual(Object.keys(meta.outlineCols).filter((key) => meta.outlineCols[key]), columns);
+      assert.deepEqual(await visibleModesAtFirstBoardRender(vault, settings), visibleIcons);
+    });
+  }
+});
+
+test("premier rendu Board : distingue les defaults globaux d'un réglage legacy personnalisé", async (t) => {
+  await t.test("les globals identiques à DEFAULT_SETTINGS laissent le type Libre initialiser le Plan", async () => {
+    const { vault } = createFakeVault([]);
+    const settings = freshSettings({
+      hiddenBoardModes: [...DEFAULT_SETTINGS.hiddenBoardModes],
+      outlineCols: { ...DEFAULT_SETTINGS.outlineCols },
+    });
+    const result = await createMinimalProject({ vault }, settings, { name: "Carnet", type: "free" });
+    delete settings.projectMeta[result.manuscritPath].hiddenBoardModes;
+    delete settings.projectMeta[result.manuscritPath].outlineCols;
+
+    await visibleModesAtFirstBoardRender(vault, settings);
+    const meta = settings.projectMeta[result.manuscritPath];
+    assert.deepEqual(meta.hiddenBoardModes, ["arcs", "timeline"]);
+    assert.deepEqual(Object.keys(meta.outlineCols).filter((key) => meta.outlineCols[key]), ["synopsis"]);
+  });
+
+  await t.test("un global legacy réellement modifié est repris une seule fois", async () => {
+    const { vault } = createFakeVault([]);
+    const legacyOutline = { ...DEFAULT_SETTINGS.outlineCols, summary: true, synopsis: false };
+    const settings = freshSettings({ hiddenBoardModes: ["board"], outlineCols: legacyOutline });
+    const result = await createMinimalProject({ vault }, settings, { name: "Ancien", type: "free" });
+    delete settings.projectMeta[result.manuscritPath].hiddenBoardModes;
+    delete settings.projectMeta[result.manuscritPath].outlineCols;
+
+    await visibleModesAtFirstBoardRender(vault, settings);
+    const meta = settings.projectMeta[result.manuscritPath];
+    assert.deepEqual(meta.hiddenBoardModes, ["board"]);
+    assert.deepEqual(meta.outlineCols, legacyOutline);
+  });
+});
+
 test("createMinimalProject (fiction) : Chapitre 1 et Scène 1.md sont classés chapitre/scène", async () => {
   const { vault } = createFakeVault([]);
   const app = { vault };
@@ -233,6 +314,29 @@ test("createMinimalProject (non-fiction) : crée Partie 1/Chapitre 1.md, sans Sc
   assert.match(result.firstFile.content, /summary: /);
   assert.match(result.firstFile.content, /sources: /);
   assert.doesNotMatch(result.firstFile.content, /synopsis: /);
+});
+
+test("createMinimalProject (libre) : crée uniquement Nouveau texte.md sans structure de livre", async () => {
+  const { vault } = createFakeVault([]);
+  const settings = freshSettings();
+
+  const result = await createMinimalProject({ vault }, settings, { name: "Carnet", type: "free" });
+
+  assert.equal(result.firstFolderPath, "Carnet/Manuscrit");
+  assert.equal(result.firstFile.path, "Carnet/Manuscrit/Nouveau texte.md");
+  assert.equal(result.firstFile.content, "# Nouveau texte\n\n");
+  assert.equal(settings.projectMeta["Carnet/Manuscrit"].type, "free");
+  assert.equal(vault.getAbstractFileByPath("Carnet/Manuscrit/Front"), null);
+  assert.equal(vault.getAbstractFileByPath("Carnet/Manuscrit/Partie 1"), null);
+  assert.equal(vault.getAbstractFileByPath("Carnet/Manuscrit/Chapitre 1"), null);
+  assert.equal(vault.getAbstractFileByPath("Carnet/Manuscrit/Chapitre 1.md"), null);
+  assert.deepEqual(settings.projectMeta["Carnet/Manuscrit"].hiddenBoardModes, ["arcs", "timeline"]);
+  assert.deepEqual(
+    Object.keys(settings.projectMeta["Carnet/Manuscrit"].outlineCols).filter(
+      (key) => settings.projectMeta["Carnet/Manuscrit"].outlineCols[key]
+    ),
+    ["synopsis"]
+  );
 });
 
 test("createMinimalProject (non-fiction) : Partie 1 et Chapitre 1.md sont classés partie/chapitre", async () => {

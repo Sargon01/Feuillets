@@ -157,7 +157,9 @@ function createResearchHarness({ preexisting = [], mode = "fiction" } = {}) {
   const plugin = {
     settings: { researchSearch: "", researchTagFilter: "", collapsed: {}, projectMeta: {}, labels: [] },
     getProjectFolder: () => new TFolder("Projet"),
-    getResearchRoot: () => null,
+    getResearchRoot: () =>
+      vault.getAbstractFileByPath("Projet/_Recherche") ||
+      vault.getAbstractFileByPath("Projet/_Research") || null,
     getChronoFolder: () => null,
     async ensureFolder(path) {
       created.push(path);
@@ -271,7 +273,7 @@ test("renderResearchBody ne crée aucun doublon quand le dossier anglais existe 
   setLocale("fr");
   try {
     const harness = createResearchHarness({
-      preexisting: ["Projet/_Recherche/Characters"],
+      preexisting: ["Projet/_Recherche", "Projet/_Recherche/Characters"],
     });
     const { sections } = await renderResearchBody(harness);
 
@@ -339,7 +341,9 @@ function createRenderHarness(vault = {}, collapseState = {}) {
   const plugin = {
     settings,
     getProjectFolder: () => null,
-    getResearchRoot: () => null,
+    getResearchRoot: () =>
+      vault.getAbstractFileByPath?.("Projet/_Recherche") ||
+      vault.getAbstractFileByPath?.("Projet/_Research") || null,
     getChronoFolder: () => null,
     async ensureFolder() {},
     projectMode: () => PROJECT_MODES.fiction,
@@ -873,7 +877,9 @@ function createDropHarness({ vault = {} } = {}) {
   const plugin = {
     settings,
     getProjectFolder: () => new TFolder("Projet"),
-    getResearchRoot: () => null,
+    getResearchRoot: () =>
+      vault.getAbstractFileByPath?.("Projet/_Recherche") ||
+      vault.getAbstractFileByPath?.("Projet/_Research") || null,
     getChronoFolder: () => null,
     async ensureFolder() {},
     projectMode: () => PROJECT_MODES.fiction,
@@ -1042,7 +1048,7 @@ test("un déplacement vers un nom déjà pris est refusé", async () => {
 
 test("renderResearchBody affiche un dossier présent", async () => {
   const harness = createResearchHarness({
-    preexisting: ["Projet/_Recherche/Personnages"]
+    preexisting: ["Projet/_Recherche", "Projet/_Recherche/Personnages"]
   });
   const { sections } = await renderResearchBody(harness);
 
@@ -1073,7 +1079,7 @@ test("renderResearchBody ne crée rien lors de deux rendus successifs", async ()
 
 test("renderResearchBody ne crée pas un dossier supprimé après rendu", async () => {
   const harness = createResearchHarness({
-    preexisting: ["Projet/_Recherche/Personnages"]
+    preexisting: ["Projet/_Recherche", "Projet/_Recherche/Personnages"]
   });
 
   // Affiche le dossier

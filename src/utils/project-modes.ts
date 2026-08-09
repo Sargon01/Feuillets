@@ -54,6 +54,40 @@ const NONFICTION_RESEARCH: ResearchFolders = {
 
 const FREE_RESEARCH: ResearchFolders = {};
 
+type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
+
+export type BoardProjectDefaults = {
+  hiddenBoardModes: BoardModeKey[];
+  outlineCols: Record<string, boolean>;
+};
+
+const FICTION_BOARD_DEFAULTS: BoardProjectDefaults = {
+  hiddenBoardModes: ["timeline"],
+  outlineCols: {
+    synopsis: true, summary: false, notes: false, tags: false, label: false,
+    status: true, date: false, compile: false, filename: false,
+    words: false, goal: false, progress: false,
+  },
+};
+
+const NONFICTION_BOARD_DEFAULTS: BoardProjectDefaults = {
+  hiddenBoardModes: ["arcs", "timeline"],
+  outlineCols: {
+    synopsis: false, summary: true, notes: false, tags: false, label: false,
+    status: false, date: false, compile: false, filename: false,
+    words: false, goal: false, progress: false,
+  },
+};
+
+const FREE_BOARD_DEFAULTS: BoardProjectDefaults = {
+  hiddenBoardModes: ["arcs", "timeline"],
+  outlineCols: {
+    synopsis: true, summary: false, notes: false, tags: false, label: false,
+    status: false, date: false, compile: false, filename: false,
+    words: false, goal: false, progress: false,
+  },
+};
+
 /** Ancien nom français de chaque catégorie (dossiers déjà créés avant ce
  * renommage) — jamais renommés de force sur le disque, toujours reconnus
  * en plus du nouveau nom anglais. */
@@ -132,6 +166,7 @@ export const PROJECT_MODES = {
       boardMode: "board",
       cardContent: "synopsis",
     },
+    boardDefaults: FICTION_BOARD_DEFAULTS,
   },
   nonfiction: {
     label: "Non-fiction",
@@ -147,6 +182,7 @@ export const PROJECT_MODES = {
       boardMode: "outline",
       cardContent: "summary",
     },
+    boardDefaults: NONFICTION_BOARD_DEFAULTS,
   },
   free: {
     label: "Libre",
@@ -162,8 +198,20 @@ export const PROJECT_MODES = {
       boardMode: "outline",
       cardContent: "summary",
     },
+    boardDefaults: FREE_BOARD_DEFAULTS,
   },
 };
+
+/** Copie les préférences initiales de la zone centrale pour un nouveau
+ * projet. La copie empêche ensuite les choix du projet de muter les
+ * constantes partagées de PROJECT_MODES. */
+export function projectBoardDefaults(type: string | null | undefined): BoardProjectDefaults {
+  const defaults = PROJECT_MODES[resolveType(type)].boardDefaults;
+  return {
+    hiddenBoardModes: [...defaults.hiddenBoardModes],
+    outlineCols: { ...defaults.outlineCols },
+  };
+}
 
 /** Ramène une valeur de type quelconque (absente, ou ancien texte libre
  * non reconnu) sur une clé valide de PROJECT_MODES — "fiction" par repli,

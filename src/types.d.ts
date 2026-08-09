@@ -113,6 +113,8 @@ declare type ProjectMeta = {
   boardWholeManuscript?: boolean;
   cardContent?: string;
   hiddenBoardModes?: string[];
+  /** Colonnes du Plan propres au projet. Absentes sur les projets legacy. */
+  outlineCols?: Record<string, boolean>;
 
   [key: string]: unknown;
 };

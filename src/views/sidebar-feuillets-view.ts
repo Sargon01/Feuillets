@@ -10,7 +10,7 @@ import type { ProjectView } from "./project-view.js";
 import { ResearchView } from "./research-view.js";
 import { TextAnalysisView } from "./text-analysis-view.js";
 
-type SidebarTab = "notes" | "research" | "journal" | "project" | "analyse" | "relecture";
+type SidebarTab = "notes" | "research" | "journal" | "project" | "relecture";
 type SidebarPlugin = ConstructorParameters<typeof ProjectView>[1];
 type SidebarSubView = {
   targetContainer?: HTMLElement;
@@ -29,23 +29,23 @@ type SidebarSubViews = {
   analyse: AnalysisSidebarSubView;
   relecture: SidebarSubView;
 };
-type SidebarTabDefinition = { id: SidebarTab; icon: string; title: string };
+type SidebarTabDefinition = { id: SidebarTab; icon: string; titleKey: string };
 
 const SIDEBAR_TABS: SidebarTabDefinition[] = [
-  { id: "notes", icon: "file-text", title: t("sidebar.tab.notes") },
-  { id: "research", icon: "book-marked", title: t("sidebar.tab.research") },
-  { id: "journal", icon: "calendar", title: t("sidebar.tab.journal") },
-  { id: "project", icon: "file-edit", title: t("sidebar.tab.project") },
-  { id: "analyse", icon: "bar-chart-3", title: t("sidebar.tab.analysis") },
-  { id: "relecture", icon: "spell-check", title: t("sidebar.tab.proofreading") },
+  { id: "notes", icon: "file-text", titleKey: "sidebar.tab.notes" },
+  { id: "research", icon: "book-marked", titleKey: "sidebar.tab.research" },
+  { id: "journal", icon: "calendar", titleKey: "sidebar.tab.journal" },
+  { id: "project", icon: "file-edit", titleKey: "sidebar.tab.project" },
+  { id: "relecture", icon: "spell-check", titleKey: "sidebar.tab.proofreading" },
 ];
 
 function activeTabFor(value: unknown): SidebarTab {
   if (value === "docx") return "project";
+  if (value === "analyse") return "relecture";
   if (value === "metadata") return "notes";
   if (
     value === "notes" || value === "research" || value === "journal" ||
-    value === "project" || value === "analyse" || value === "relecture"
+    value === "project" || value === "relecture"
   ) {
     return value;
   }
@@ -93,12 +93,12 @@ export class SidebarFeuilletsView extends ItemView {
        dépend du feuillet courant (Notes, Correcteur, Analyse — tous lisent
        getActiveFile). Recherche/Projet/Journal ne dépendent pas du feuillet
        et ne sont donc pas re-rendus inutilement. */
-    const feuilletTabs = new Set<SidebarTab>(["notes", "analyse"]);
+    const feuilletTabs = new Set<SidebarTab>(["notes", "relecture"]);
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
         if (!feuilletTabs.has(this.activeTab)) return;
         if (this.activeTab === "notes") awaitRender(this.subViews.notes, true);
-        else if (this.activeTab === "analyse") awaitRender(this.subViews.analyse, true);
+        else awaitRender(this.subViews.relecture, true);
       })
     );
     /* L'agrégation « équilibre des chapitres » (onglet Analyse) lit tout le
@@ -118,19 +118,22 @@ export class SidebarFeuilletsView extends ItemView {
     container.addClass("feuillets-sidebar-container");
 
     // ----- BARRE D'ONGLETS -----
-    const tabBar = container.createDiv({ cls: "feuillets-sidebar-tab-bar" });
+    const tabBar = container.createDiv({ cls: "feuillets-sidebar-tab-bar", attr: { role: "tablist" } });
     const hiddenPanels = new Set(this.plugin.settings.hiddenPanels || []);
     const tabs = SIDEBAR_TABS.filter((tab) => !hiddenPanels.has(tab.id));
-    if (!tabs.some((tab) => tab.id === this.activeTab)) {
+    if (tabs.length && !tabs.some((tab) => tab.id === this.activeTab)) {
       this.activeTab = tabs[0].id;
     }
 
     for (const tab of tabs) {
-      const button = tabBar.createDiv({
-        cls: `feuillets-tab-btn ${this.activeTab === tab.id ? "is-active" : ""}`
-      });
+      const label = t(tab.titleKey);
+      const button = typeof tabBar.createEl === "function"
+        ? tabBar.createEl("button", { cls: `feuillets-tab-btn ${this.activeTab === tab.id ? "is-active" : ""}`, attr: { role: "tab", "aria-label": label, "aria-selected": String(this.activeTab === tab.id), title: label } })
+        : tabBar.createDiv({ cls: `feuillets-tab-btn ${this.activeTab === tab.id ? "is-active" : ""}` });
       setIcon(button, tab.icon);
-      button.setAttr("title", tab.title);
+      button.setAttr?.("role", "tab");
+      button.setAttr?.("aria-label", label);
+      button.setAttr?.("aria-selected", String(this.activeTab === tab.id));
 
       const handleTabClick = async (): Promise<void> => {
         this.activeTab = tab.id;
@@ -140,6 +143,16 @@ export class SidebarFeuilletsView extends ItemView {
       };
       button.addEventListener("click", () => {
         void handleTabClick();
+      });
+      button.addEventListener("keydown", (event) => {
+        const index = tabs.indexOf(tab);
+        const key = (event as KeyboardEvent).key;
+        const next = key === "Home" ? 0 : key === "End" ? tabs.length - 1 :
+          key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length :
+          key === "ArrowRight" ? (index + 1) % tabs.length : -1;
+        if (next < 0) return;
+        event.preventDefault();
+        void (async () => { this.activeTab = tabs[next].id; this.plugin.settings.activeRightPanelTab = this.activeTab; await this.plugin.saveSettings(); await this.render(); })();
       });
     }
 
@@ -158,9 +171,6 @@ export class SidebarFeuilletsView extends ItemView {
         break;
       case "project":
         await this.renderProjectTab(content);
-        break;
-      case "analyse":
-        await this.renderAnalysisTab(content);
         break;
       case "relecture":
         await this.renderProofreadingTab(content);
@@ -187,15 +197,12 @@ export class SidebarFeuilletsView extends ItemView {
      toujours exclusivement dans PreviewView. L'identifiant `project` est
      gardé pour migrer sans casser les préférences existantes. */
   async renderProjectTab(element: HTMLElement): Promise<void> {
-    const docxEl = element.createDiv({ cls: "feuillets-merged-section" });
-    await this.renderSubView(this.subViews.docx, docxEl);
     const editionEl = element.createDiv({ cls: "feuillets-merged-section" });
     await this.renderSubView(this.subViews.editionDocs, editionEl);
+    const docxEl = element.createDiv({ cls: "feuillets-merged-section" });
+    await this.renderSubView(this.subViews.docx, docxEl);
   }
 
-  async renderAnalysisTab(element: HTMLElement): Promise<void> {
-    await this.renderSubView(this.subViews.analyse, element);
-  }
 
   async renderProofreadingTab(element: HTMLElement): Promise<void> {
     await this.renderSubView(this.subViews.relecture, element);

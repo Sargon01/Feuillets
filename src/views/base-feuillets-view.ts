@@ -10,7 +10,7 @@ import { getResearchTemplate } from "../services/research-templates.js";
 import { promptForPage } from "../ui/citation-modal.js";
 import { DiffModal, CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { listSnapshotFiles } from "../services/project-files.js";
-import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js";
+import { isResearchFile, isImageFile, isPdfFile, researchFolderPath } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { addOpenWithPreviewItem, openScopeWithPreview } from "./preview-view.js";
 import { createFolderScope, createSelectionScope } from "../services/compile-scope.js";
@@ -618,7 +618,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const researchRoot = this.plugin.getResearchRoot();
     const baseResearch = researchRoot
       ? researchRoot.path
-      : `${root.path}/_Recherche`;
+      : researchFolderPath(this.app, this.plugin.settings, root) || root.path;
     const baseResearchFile = this.app.vault.getAbstractFileByPath(baseResearch);
     const baseResearchFolder = baseResearchFile instanceof TFolder ? baseResearchFile : null;
     if (this._renderGen !== gen) return;
@@ -652,7 +652,17 @@ export abstract class BaseFeuilletsView extends ItemView {
        section. Disponible en fiction comme en non-fiction. */
     const newFolderBtn = this.iconBtn(toolbar, "folder-plus", t("shared.research.newTopicTooltip"));
     newFolderBtn.addEventListener("click", () => {
-      if (baseResearchFolder) this.plugin.newFolder(baseResearchFolder);
+      void (async () => {
+        let folder = baseResearchFolder;
+        if (!folder) {
+          const path = researchFolderPath(this.app, this.plugin.settings, root);
+          if (path) {
+            const created = await this.plugin.ensureFolder(path);
+            folder = created instanceof TFolder ? created : null;
+          }
+        }
+        if (folder) this.plugin.newFolder(folder);
+      })();
     });
 
     const sourcesFolder = rf.sources
@@ -707,8 +717,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     ]);
 
     const customFolders: TFolder[] = [];
-    if (researchRoot && researchRoot instanceof TFolder) {
-      for (const child of researchRoot.children) {
+    if (baseResearchFolder) {
+      for (const child of baseResearchFolder.children) {
         if (child instanceof TFolder && !standardPaths.has(child.path)) {
           if (!child.name.startsWith("_") && !child.name.startsWith(".")) {
             customFolders.push(child);

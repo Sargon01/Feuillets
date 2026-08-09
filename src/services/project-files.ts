@@ -19,7 +19,7 @@ import { getResearchRoot } from "./research.js";
 import { getProjectMode } from "./project-mode.js";
 import { getLocale } from "../i18n/index.js";
 import { openFileActivating } from "../utils/dom.js";
-import { applyModeDefaults, resolveType, PROJECT_MODES, researchFolderNames } from "../utils/project-modes.js";
+import { applyModeDefaults, resolveType, PROJECT_MODES, projectBoardDefaults, researchFolderNames } from "../utils/project-modes.js";
 
 export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
   const p = normalizePath(path);
@@ -261,7 +261,8 @@ export async function duplicateProjectFolder(app: App, root: TFolder, label: str
  * (createMinimalProject ci-dessous, ou le projet de démonstration —
  * demo-project.ts) : `Recherche` et `Ressources/{Images,Template,Layout,
  * Export,Assets}` à la racine réelle (`volumePath`, frères de Manuscrit),
- * et le dossier `Front` à l'intérieur de Manuscrit. Une seule fonction pour
+ * et, pour les projets structurés, le dossier `Front` à l'intérieur de
+ * Manuscrit. Une seule fonction pour
  * ne pas dupliquer cette liste de dossiers à deux endroits. Idempotent :
  * ensureFolder ne recrée jamais un dossier déjà présent.
  *
@@ -272,8 +273,9 @@ export async function duplicateProjectFolder(app: App, root: TFolder, label: str
 export async function ensureProjectBaseFolders(
   app: App,
   volumePath: string,
-  manuscritPath: string
-): Promise<{ frontPath: string }> {
+  manuscritPath: string,
+  withFront = true
+): Promise<{ frontPath: string | null }> {
   await ensureFolder(app, volumePath);
   await ensureFolder(app, manuscritPath);
   const virtualRoot = app.vault.getAbstractFileByPath(manuscritPath);
@@ -285,8 +287,8 @@ export async function ensureProjectBaseFolders(
   for (const { name } of names.resourcesSubs) {
     await ensureFolder(app, normalizePath(`${resourcesPath}/${name}`));
   }
-  const frontPath = normalizePath(`${manuscritPath}/${FRONT_FOLDER_NAME}`);
-  await ensureFolder(app, frontPath);
+  const frontPath = withFront ? normalizePath(`${manuscritPath}/${FRONT_FOLDER_NAME}`) : null;
+  if (frontPath) await ensureFolder(app, frontPath);
   return { frontPath };
 }
 
@@ -408,19 +410,22 @@ export async function createMinimalProject(
     throw new CreateProjectError("already-exists", volumePath);
   }
   const trimmedAuthor = (author || "").trim();
+  const projectType = resolveType(type);
 
   // --- Racine réelle : Manuscrit, Recherche, Ressources en frères ---
   const manuscritPath = normalizePath(`${volumePath}/${MANUSCRIPT_FOLDER_NAME}`);
-  const { frontPath } = await ensureProjectBaseFolders(app, volumePath, manuscritPath);
+  const { frontPath } = await ensureProjectBaseFolders(app, volumePath, manuscritPath, projectType !== "free");
 
-  // --- Page de titre ---
-  await app.vault.create(
-    normalizePath(`${frontPath}/Page de titre.md`),
-    titlePageContent(trimmedName, trimmedAuthor)
-  );
+  if (frontPath) {
+    // --- Page de titre ---
+    await app.vault.create(
+      normalizePath(`${frontPath}/Page de titre.md`),
+      titlePageContent(trimmedName, trimmedAuthor)
+    );
+  }
 
   // --- Corps du manuscrit, selon le type ---
-  const isFiction = resolveType(type) === "fiction";
+  const isFiction = projectType === "fiction";
   let firstFolderPath: string;
   let firstFile: TFile;
   if (isFiction) {
@@ -430,12 +435,18 @@ export async function createMinimalProject(
       normalizePath(`${firstFolderPath}/Scène 1.md`),
       manuscriptFileContent("Scène 1", 1, true, settings.wordGoal)
     );
-  } else {
+  } else if (projectType === "nonfiction") {
     firstFolderPath = normalizePath(`${manuscritPath}/Partie 1`);
     await ensureFolder(app, firstFolderPath);
     firstFile = await app.vault.create(
       normalizePath(`${firstFolderPath}/Chapitre 1.md`),
       manuscriptFileContent("Chapitre 1", 1, false, settings.wordGoal)
+    );
+  } else {
+    firstFolderPath = manuscritPath;
+    firstFile = await app.vault.create(
+      normalizePath(`${manuscritPath}/Nouveau texte.md`),
+      "# Nouveau texte\n\n"
     );
   }
 
@@ -445,7 +456,14 @@ export async function createMinimalProject(
   }
   settings.projectFolder = manuscritPath;
   if (!settings.projectMeta[manuscritPath]) settings.projectMeta[manuscritPath] = {};
-  settings.projectMeta[manuscritPath].type = type;
+  settings.projectMeta[manuscritPath].type = projectType;
+  /* Un projet créé ici est nécessairement neuf : ses préférences Board
+     partent donc du type choisi, sans jamais hériter des réglages globaux
+     legacy. Les projets existants restent initialisés paresseusement par
+     BoardView, avec leur compatibilité dédiée. */
+  const boardDefaults = projectBoardDefaults(projectType);
+  settings.projectMeta[manuscritPath].hiddenBoardModes = boardDefaults.hiddenBoardModes;
+  settings.projectMeta[manuscritPath].outlineCols = boardDefaults.outlineCols;
   if (trimmedAuthor) settings.projectMeta[manuscritPath].author = trimmedAuthor;
   applyModeDefaults(settings, type);
   /* Voir le commentaire de tête : correspond à la forme réelle créée

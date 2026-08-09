@@ -22,6 +22,7 @@ test("PROJECT_MODES", async (t) => {
       assert.ok(mode.unit, `${key}.unit`);
       assert.equal(typeof mode.hasSources, "boolean", `${key}.hasSources`);
       assert.ok(mode.defaults, `${key}.defaults`);
+      assert.ok(mode.boardDefaults, `${key}.boardDefaults`);
       assert.ok(mode.researchFolders, `${key}.researchFolders`);
       /* rf.bibliographie existe en fiction et non-fiction uniquement —
          en libre, aucun dossier n'est imposé, l'utilisateur les crée
@@ -34,6 +35,30 @@ test("PROJECT_MODES", async (t) => {
         assert.ok(entry.tag, `${key}.researchFolders.bibliographie.tag`);
       }
     }
+  });
+
+  await t.test("les defaults centraux gardent Cartes et Plan visibles selon le type", () => {
+    assert.deepEqual(PROJECT_MODES.fiction.boardDefaults.hiddenBoardModes, ["timeline"]);
+    assert.deepEqual(PROJECT_MODES.nonfiction.boardDefaults.hiddenBoardModes, ["arcs", "timeline"]);
+    assert.deepEqual(PROJECT_MODES.free.boardDefaults.hiddenBoardModes, ["arcs", "timeline"]);
+  });
+
+  await t.test("les colonnes du Plan initiales restent adaptées au type", () => {
+    const fiction = PROJECT_MODES.fiction.boardDefaults.outlineCols;
+    const nonfiction = PROJECT_MODES.nonfiction.boardDefaults.outlineCols;
+    const free = PROJECT_MODES.free.boardDefaults.outlineCols;
+    assert.deepEqual(
+      Object.keys(fiction).filter((key) => fiction[key]),
+      ["synopsis", "status"]
+    );
+    assert.deepEqual(
+      Object.keys(nonfiction).filter((key) => nonfiction[key]),
+      ["summary"]
+    );
+    assert.deepEqual(
+      Object.keys(free).filter((key) => free[key]),
+      ["synopsis"]
+    );
   });
 
   await t.test("fiction garde Personnages/Lieux/Lore/Glossaire/Événements, pas de dossier Sources dédié", () => {

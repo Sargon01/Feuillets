@@ -1088,7 +1088,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       S.activeRightPanelTab === "metadata" ? "notes" :
       S.activeRightPanelTab === "notes" || S.activeRightPanelTab === "research" ||
       S.activeRightPanelTab === "journal" || S.activeRightPanelTab === "project" ||
-      S.activeRightPanelTab === "analyse" || S.activeRightPanelTab === "relecture"
+      S.activeRightPanelTab === "relecture"
         ? S.activeRightPanelTab
         : "notes";
     new Setting(container)
@@ -1099,7 +1099,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("research", t("sidebar.tab.research"))
           .addOption("journal", t("sidebar.tab.journal"))
           .addOption("project", t("sidebar.tab.project"))
-          .addOption("analyse", t("sidebar.tab.analysis"))
           .addOption("relecture", t("sidebar.tab.proofreading"))
           .setValue(activeInspectorTab())
           .onChange(async (value) => {
@@ -1147,7 +1146,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       ["research", t("sidebar.tab.research")],
       ["journal", t("sidebar.tab.journal")],
       ["project", t("sidebar.tab.project")],
-      ["analyse", t("sidebar.tab.analysis")],
       ["relecture", t("sidebar.tab.proofreading")],
     ];
     const hiddenPanels = new Set(S.hiddenPanels || []);

@@ -70,6 +70,7 @@ function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels =
       _dashboardCache: "dashboard",
       _romanVocabCache: "roman",
     },
+    relecture: createSubView("relecture", calls),
   };
   return { sidebar, contentEl, settings, listeners, calls, order };
 }
@@ -89,7 +90,7 @@ test("SidebarFeuilletsView n'affiche pas les onglets masqués", async () => {
   await sidebar.render();
 
   assert.deepEqual(contentEl.children[0].children.map((button) => button.icon), [
-    "file-text", "calendar", "file-edit", "bar-chart-3", "spell-check",
+    "file-text", "calendar", "file-edit", "spell-check",
   ]);
 });
 
@@ -137,7 +138,7 @@ test("SidebarFeuilletsView sauvegarde l'onglet avant de relancer le rendu", asyn
 
 test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné", async () => {
   const { sidebar, calls } = createSidebar();
-  for (const tab of ["notes", "research", "journal", "analyse"]) {
+  for (const tab of ["notes", "research", "journal"]) {
     calls.length = 0;
     sidebar.activeTab = tab;
     await sidebar.render();
@@ -150,7 +151,7 @@ test("SidebarFeuilletsView rend Révision DOCX et les documents éditoriaux dans
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
 
-  assert.deepEqual(calls.map((call) => call.name), ["docx", "editionDocs"]);
+  assert.deepEqual(calls.map((call) => call.name), ["editionDocs", "docx"]);
   assert.equal(container.children.length, 2);
 });
 
@@ -161,12 +162,12 @@ test("SidebarFeuilletsView ne rafraîchit au file-open que les onglets liés au 
   sidebar.render = async () => {};
   await sidebar.onOpen();
 
-  for (const tab of ["notes", "research", "journal", "project", "analyse"]) {
+  for (const tab of ["notes", "research", "journal", "project", "relecture"]) {
     calls.length = 0;
     sidebar.activeTab = tab;
     listeners.workspace.get("file-open")();
     await Promise.resolve();
-    assert.deepEqual(calls.map((call) => call.name), ["notes", "analyse"].includes(tab) ? [tab] : []);
+    assert.deepEqual(calls.map((call) => call.name), ["notes", "relecture"].includes(tab) ? [tab] : []);
   }
   assert.equal(registered.length, 2);
 });
@@ -199,5 +200,5 @@ test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide san
   await sidebar.render();
 
   assert.equal(settings.activeRightPanelTab, "invalide");
-  assert.deepEqual(calls.map((call) => call.name), ["docx", "editionDocs"]);
+  assert.deepEqual(calls.map((call) => call.name), ["editionDocs", "docx"]);
 });

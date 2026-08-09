@@ -258,6 +258,8 @@ export const en = {
   "board.viewOptionsTooltip": "View options",
   "board.visibleModesHeader": "— Visible modes —",
   "board.undoMoveTooltip": "Undo the last move",
+  "board.filter.tagPrompt": "Filter by tag…",
+  "board.selection.enable": "Multi-select",
   "board.projectBreadcrumb": "Project",
 
   "board.selection.selectTooltip": "Select {unitPlural}…",
@@ -463,13 +465,18 @@ export const en = {
   "journal.historyTotal": "{total} words over the last {days} days",
 
   // ---------- Tabbed sidebar panel (sidebar-feuillets-view.js) ----------
-  "sidebar.displayText": "Feuillets — Inspector",
-  "sidebar.tab.notes": "Sheet notes",
-  "sidebar.tab.research": "Research & excerpts",
-  "sidebar.tab.journal": "Journal & stats",
+  "sidebar.displayText": "Feuillets — Workshop",
+  "sidebar.tab.notes": "Sheet",
+  "sidebar.tab.research": "Research",
+  "sidebar.tab.journal": "Journal",
   "sidebar.tab.project": "Edition",
-  "sidebar.tab.analysis": "Text analysis",
+  "sidebar.tab.analysis": "Analysis",
   "sidebar.tab.proofreading": "Proofreading",
+  "editionDocs.folderFiles": "Files in the Edition folder",
+  "analysisResults.repetitions": "Close repetitions",
+  "analysisResults.noRepetitions": "No close repetitions detected.",
+  "analysisResults.noFindings": "No findings",
+  "analysisResults.linguisticAnalysis": "Linguistic analysis",
 
 
   // ---------- Search & replace (search-replace-bar.js) ----------
@@ -544,6 +551,7 @@ export const en = {
   "analysis.openSheetToAnalyze": "Open a sheet to analyze it.",
   "analysis.group.thisSheet": "This sheet",
   "analysis.group.novel": "The novel",
+  "analysis.group.project": "The project",
 
   "analysis.pace.action": "Action",
   "analysis.pace.dialogue": "Dialogue",

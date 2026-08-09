@@ -337,6 +337,8 @@ export class AnalysisView extends BaseFeuilletsView {
     const raw = await this.app.vault.cachedRead(file);
     const a = analyzeProse(raw);
     const S = this.plugin.settings;
+    const projectRoot = this.plugin.getProjectFolder();
+    const isFiction = projectRoot ? S.projectMeta?.[projectRoot.path]?.type !== "nonfiction" && S.projectMeta?.[projectRoot.path]?.type !== "free" : true;
 
     // ========================= CE FEUILLET =========================
     if (!this.group(container, "file-text", t("analysis.group.thisSheet"), "feuillet")) {
@@ -424,8 +426,8 @@ export class AnalysisView extends BaseFeuilletsView {
       }
     });
 
-    // Rythme du feuillet (tags manuels de la scène active)
-    this.tool(gb, "rythme", "sliders-horizontal", t("analysis.pace.sheetTitle"), (section) => {
+    // Rythme du feuillet (fiction uniquement).
+    if (isFiction) this.tool(gb, "rythme", "sliders-horizontal", t("analysis.pace.sheetTitle"), (section) => {
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
         t("analysis.pace.instructions", { max: String(RYTHME_MAX) })
       );
@@ -467,7 +469,7 @@ export class AnalysisView extends BaseFeuilletsView {
     } // fin du groupe « Ce feuillet »
 
     // ========================= LE ROMAN =========================
-    if (!this.group(container, "book-open", t("analysis.group.novel"), "roman")) {
+    if (!this.group(container, "book-open", t("analysis.group.project"), "roman")) {
     const gb = container.createDiv({ cls: "feuillets-analysis-groupbody" });
 
     // Tableau de bord (synthèse du manuscrit)
@@ -562,7 +564,7 @@ export class AnalysisView extends BaseFeuilletsView {
     );
 
     // ---- Courbe narrative (déduite des tags de rythme) ----
-    this.tool(gb, "curve", "activity", t("analysis.curve.title"), (section) => {
+    if (isFiction) this.tool(gb, "curve", "activity", t("analysis.curve.title"), (section) => {
       const scenes = this.sceneFiles();
       const tagged = scenes.filter((f) => {
         const r = this.rythmeOf(f);

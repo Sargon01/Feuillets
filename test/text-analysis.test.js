@@ -402,12 +402,13 @@ function makeView(pluginExtras = {}, appExtras = {}) {
   return { view, container, plugin, app };
 }
 
-test("panneau : sans module compagnon, un message clair et aucune erreur", async () => {
+test("panneau : sans module compagnon, les vérifications natives restent utilisables", async () => {
   const { view, container } = makeView();
   await view.render();
 
   const text = allText(container);
-  assert.match(text, /Aucun module d'analyse linguistique n'est installé/);
+  assert.match(text, /Aucun signalement/);
+  assert.doesNotMatch(text, /Aucun module d'analyse linguistique/);
   // Pas de faux résultat, pas de barre d'outils inutile.
   assert.equal(allElements(container).some((e) => e.tag === "button"), false);
 });

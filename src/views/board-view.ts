@@ -23,11 +23,24 @@ type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
    _binderMultiSelect : idem, attaché par base-feuillets-view.js. */
 type BoardViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
   _binderMultiSelect?: Set<string>;
+  moveStack?: unknown[];
   isSceneFile(file: TFile): boolean;
   openMergeModal(files: TFile[]): Promise<void>;
   duplicateManyScenes(files: TFile[]): Promise<void>;
   openMoveManyModal(files: TFile[]): void;
 };
+
+function differsFromDefaults(value: Record<string, unknown> | undefined, defaults: Record<string, unknown>): boolean {
+  if (!value) return false;
+  return Object.keys({ ...defaults, ...value }).some((key) => {
+    const current = value[key];
+    const initial = defaults[key];
+    if (Array.isArray(current) && Array.isArray(initial)) {
+      return current.length !== initial.length || current.some((entry, index) => entry !== initial[index]);
+    }
+    return current !== initial;
+  });
+}
 
 /* app.commands (exécution de commandes par id) est une API interne
    d'Obsidian, non déclarée dans obsidian.d.ts. */
@@ -85,6 +98,7 @@ export class BoardView extends BaseFeuilletsView {
   selectedFil?: string;
   selectedPov?: string;
   _renderGen?: number;
+  outlineColumns?: Record<string, boolean>;
 
   constructor(leaf: import("obsidian").WorkspaceLeaf, plugin: BoardViewPlugin) {
     super(leaf, plugin);
@@ -234,7 +248,30 @@ export class BoardView extends BaseFeuilletsView {
     let mode: string = meta.boardMode || modeConfig.defaults.boardMode;
     this.currentCardContent = meta.cardContent || modeConfig.defaults.cardContent;
 
-    const hiddenModes: string[] = (meta.hiddenBoardModes as string[]) || S.hiddenBoardModes || [];
+    let initializedProjectPrefs = false;
+    const hiddenModes: string[] = Array.isArray(meta.hiddenBoardModes)
+      ? meta.hiddenBoardModes
+      : Array.isArray(S.hiddenBoardModes) && differsFromDefaults(
+        { hiddenBoardModes: S.hiddenBoardModes },
+        { hiddenBoardModes: DEFAULT_SETTINGS.hiddenBoardModes }
+      )
+        ? [...S.hiddenBoardModes]
+        : [...modeConfig.boardDefaults.hiddenBoardModes];
+    if (!Array.isArray(meta.hiddenBoardModes)) {
+      meta.hiddenBoardModes = hiddenModes;
+      initializedProjectPrefs = true;
+    }
+    const outlineColumns: Record<string, boolean> = meta.outlineCols
+      ? { ...meta.outlineCols }
+      : differsFromDefaults(S.outlineCols, DEFAULT_SETTINGS.outlineCols)
+        ? { ...S.outlineCols }
+        : { ...modeConfig.boardDefaults.outlineCols };
+    if (!meta.outlineCols) {
+      meta.outlineCols = outlineColumns;
+      initializedProjectPrefs = true;
+    }
+    this.outlineColumns = outlineColumns;
+    if (initializedProjectPrefs && typeof this.plugin.saveSettings === "function") void this.plugin.saveSettings();
     const wholeManuscript = meta.boardWholeManuscript !== undefined ? !!meta.boardWholeManuscript : !!S.boardWholeManuscript;
     if (mode === "research") mode = "board";
 
@@ -327,6 +364,16 @@ export class BoardView extends BaseFeuilletsView {
           })
         );
       }
+      menu.addSeparator();
+      menu.addItem((item) =>
+        item.setTitle(t("board.filter.tagPrompt")).setIcon("tag").onClick(async () => {
+          const entered = window.prompt(t("board.filter.tagPrompt"), (S.tagFilter || "").replace(/^#/, ""));
+          if (entered === null) return;
+          S.tagFilter = entered.trim().replace(/^#/, "");
+          await this.plugin.saveSettings();
+          void this.render();
+        })
+      );
       if (this.filterActive()) {
         menu.addSeparator();
         menu.addItem((item) =>
@@ -342,19 +389,6 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.showAtMouseEvent(e);
-    });
-
-    const tagInput = bar.createEl("input", { cls: "feuillets-tag-filter", type: "text", attr: { placeholder: "#Tag…" } });
-    tagInput.value = S.tagFilter || "";
-    tagInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        void (async () => {
-          S.tagFilter = tagInput.value.trim();
-          await this.plugin.saveSettings();
-          tagInput.blur();
-          void this.render();
-        })();
-      }
     });
 
     this.barSep(bar);
@@ -381,6 +415,7 @@ export class BoardView extends BaseFeuilletsView {
         menu.addItem((item) =>
           item.setTitle(this.boardModeLabel(k)).setChecked(visibleModes.includes(k)).onClick(async () => {
             const set = new Set(hiddenModes);
+            if (!set.has(k) && visibleModes.length === 1) return;
             if (set.has(k)) set.delete(k); else set.add(k);
             const arr = [...set];
             if (meta) meta.hiddenBoardModes = arr;
@@ -391,13 +426,21 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.addSeparator();
-      this.buildModeOptionsMenu(menu, activeMode, { S, meta, pType: projectType, wholeManuscript });
+      menu.addItem((item) =>
+        item.setTitle(t("board.selection.enable")).setIcon("list-checks").setChecked(!!this.selectionModeActive).onClick(() => {
+          this.selectionModeActive = !this.selectionModeActive;
+          if (!this.selectionModeActive) this.plugin._binderMultiSelect?.clear();
+          void this.render(true);
+        })
+      );
+      menu.addSeparator();
+      this.buildModeOptionsMenu(menu, activeMode, { S, meta, pType: projectType, wholeManuscript, outlineColumns });
       menu.showAtMouseEvent(e);
     });
 
     this.barSep(bar);
 
-    if (activeMode !== "arcs") {
+    if (this.selectionModeActive && activeMode !== "arcs") {
       const multiSelect = this.plugin._binderMultiSelect;
       const selSize = multiSelect.size;
       const getSelectedFiles = (): TFile[] =>
@@ -491,7 +534,9 @@ export class BoardView extends BaseFeuilletsView {
       if (this.selectionModeActive) btnSel.addClass("feuillets-mode-active");
     }
 
-    this.iconBtn(bar, "undo-2", t("board.undoMoveTooltip"), () => (this.app as unknown as AppWithCommands).commands.executeCommandById("feuillets:undo-move"));
+    if ((this.plugin.moveStack?.length || 0) > 0) {
+      this.iconBtn(bar, "undo-2", t("board.undoMoveTooltip"), () => (this.app as unknown as AppWithCommands).commands.executeCommandById("feuillets:undo-move"));
+    }
 
     const flattened = this.plugin.flattenFiles(root);
     const wcMapRaw = await this.plugin.getWordCounts(flattened);
@@ -531,8 +576,8 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx): void {
-    const { S, meta, pType, wholeManuscript } = ctx;
+  buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx & { outlineColumns: Record<string, boolean> }): void {
+    const { S, meta, pType, wholeManuscript, outlineColumns } = ctx;
     const addToggleOption = (key: string, label: string) =>
       menu.addItem((item) =>
         item.setTitle(label).setChecked(!!S[key]).onClick(async () => {
@@ -610,8 +655,10 @@ export class BoardView extends BaseFeuilletsView {
         ["progress", t("board.col.progress")],
       ]) {
         menu.addItem((item) =>
-          item.setTitle(label).setChecked(!!S.outlineCols[colKey]).onClick(async () => {
-            S.outlineCols[colKey] = !S.outlineCols[colKey];
+          item.setTitle(label).setChecked(!!outlineColumns[colKey]).onClick(async () => {
+            outlineColumns[colKey] = !outlineColumns[colKey];
+            meta.outlineCols = outlineColumns;
+            S.outlineCols = { ...outlineColumns };
             await this.plugin.saveSettings();
             void this.render();
           })
@@ -1333,7 +1380,7 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   visibleCols(): { id: string; label: string }[] {
-    const cols = this.plugin.settings.outlineCols;
+    const cols = this.outlineColumns || this.plugin.settings.outlineCols;
     const res = [{ id: "title", label: t("board.col.title") }];
     if (cols.synopsis) res.push({ id: "synopsis", label: t("board.col.synopsis") });
     if (cols.summary) res.push({ id: "summary", label: t("board.col.summary") });

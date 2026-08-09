@@ -239,7 +239,7 @@ export class EditionDocsView extends BaseFeuilletsView {
     const wrapper = section.createDiv({ cls: "feuillets-submission-summary" });
     wrapper.createDiv({ cls: "feuillets-submission-summary-title", text: t("editionDocs.submission.tracking") });
     for (const folder of folders) this.renderSubmissionCard(wrapper, folder);
-    section.createDiv({ cls: "feuillets-edition-tree-title", text: "Fichiers du dossier Edition" });
+    section.createDiv({ cls: "feuillets-edition-tree-title", text: t("editionDocs.folderFiles") });
   }
 
   private renderSubmissionCard(parent: HTMLElement, folder: TFolder): void {

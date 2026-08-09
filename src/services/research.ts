@@ -76,6 +76,12 @@ export function getResearchRoot(app: App, settings: FeuilletsSettings): TFolder 
 export function researchFolderPath(app: App, settings: FeuilletsSettings, root: TFolder | null | undefined): string | null {
   const existing = getResearchRoot(app, settings);
   if (existing) return existing.path;
+  if (root) {
+    for (const name of UNDERSCORED_RESEARCH_ROOT_NAMES) {
+      const candidate = app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${name}`));
+      if (candidate instanceof TFolder) return candidate.path;
+    }
+  }
   return root ? feuilletsAuxiliaryPath(root, "research") : null;
 }
 
