@@ -74,6 +74,10 @@ export const YAML_PRESETS: Record<string, YamlPreset> = {
   },
 };
 
+function yamlPresetLabel(key: string): string {
+  return t(`scenesEditor.yamlPreset.${key}`);
+}
+
 type ScenesEditorSettings = FeuilletsSettings & {
   splitStatus: string;
   copyCompilerOnSplit: boolean;
@@ -209,7 +213,7 @@ export class TextInputModal extends Modal {
     new Setting(this.contentEl)
       .addButton((btn) =>
         btn
-          .setButtonText("Valider")
+          .setButtonText(t("scenesEditor.validate"))
           .setCta()
           .onClick(async () => {
             await this.onSubmit(this.values);
@@ -217,12 +221,12 @@ export class TextInputModal extends Modal {
           })
       )
       .addButton((btn) =>
-        btn.setButtonText("Annuler").onClick(() => this.close())
+        btn.setButtonText(t("modal.cancel")).onClick(() => this.close())
       );
   }
 }
 
-class MergeModal extends Modal {
+export class MergeModal extends Modal {
   plugin: ScenesEditorPlugin;
   files: TFile[];
   targetPath: string;
@@ -259,20 +263,21 @@ class MergeModal extends Modal {
     const plan = this.plan;
     if (!plan) return;
     this.contentEl.empty();
-    this.setTitle("Fusion");
+    this.setTitle(t("scenesEditor.merge.title"));
 
     const hero = this.contentEl.createDiv({ cls: "feuillets-merge-hero" });
     hero.createDiv({ cls: "feuillets-merge-title", text: plan.summary });
     hero.createDiv({
       cls: "feuillets-merge-subtitle",
-      text: `${plan.sources.length} source${
-        plan.sources.length > 1 ? "s" : ""
-      } supprimée${plan.sources.length > 1 ? "s" : ""} après fusion.`,
+      text: t("scenesEditor.merge.sourcesAfter", {
+        count: String(plan.sources.length),
+        plural: plan.sources.length > 1 ? "s" : "",
+      }),
     });
 
     new Setting(this.contentEl)
-      .setName("Scène cible")
-      .setDesc("Fichier qui reçoit la fusion")
+      .setName(t("scenesEditor.merge.targetScene"))
+      .setDesc(t("scenesEditor.merge.targetSceneDesc"))
       .addDropdown((drop) => {
         this.files.forEach((file) => {
           drop.addOption(file.path, this.plugin.shortTitleFor(file));
@@ -288,12 +293,12 @@ class MergeModal extends Modal {
       });
 
     new Setting(this.contentEl)
-      .setName("Mode de fusion")
-      .setDesc("Forme du texte ajouté")
+      .setName(t("scenesEditor.merge.mode"))
+      .setDesc(t("scenesEditor.merge.modeDesc"))
       .addDropdown((drop) => {
-        drop.addOption("heading", "Titre intermédiaire");
-        drop.addOption("comment", "Commentaire de provenance");
-        drop.addOption("continuous", "Texte continu");
+        drop.addOption("heading", t("scenesEditor.merge.modeHeading"));
+        drop.addOption("comment", t("scenesEditor.merge.modeComment"));
+        drop.addOption("continuous", t("scenesEditor.merge.modeContinuous"));
         drop.setValue(this.mergeMode);
         drop.onChange(async (value) => {
           this.mergeMode = value;
@@ -310,9 +315,9 @@ class MergeModal extends Modal {
 
     const compact = this.contentEl.createDiv({
       cls: "feuillets-merge-compact-note",
-      text: `Preset YAML : ${
-        YAML_PRESETS[this.plugin.settings.mergeYamlPreset].label
-      } · clic pour voir les options`,
+      text: t("scenesEditor.merge.yamlPresetHint", {
+        preset: yamlPresetLabel(this.plugin.settings.mergeYamlPreset),
+      }),
     });
     compact.addEventListener("click", () => {
       void this.plugin.openYamlOptions(this);
@@ -320,10 +325,10 @@ class MergeModal extends Modal {
 
     const stats = this.contentEl.createDiv({ cls: "feuillets-merge-stats" });
     [
-      ["Sources", String(plan.sources.length)],
-      ["Tags", String(plan.preview.tags.length)],
-      ["Notes", plan.preview.notes ? "oui" : "non"],
-      ["Obj.", String(plan.preview.objectif)],
+      [t("scenesEditor.merge.sources"), String(plan.sources.length)],
+      [t("scenesEditor.merge.tags"), String(plan.preview.tags.length)],
+      [t("scenesEditor.merge.notes"), plan.preview.notes ? t("scenesEditor.yes") : t("scenesEditor.no")],
+      [t("scenesEditor.merge.goal"), String(plan.preview.objectif)],
     ].forEach(([label, value]) => {
       const card = stats.createDiv({ cls: "feuillets-merge-stat" });
       card.createDiv({ cls: "feuillets-merge-stat-value", text: value });
@@ -332,7 +337,7 @@ class MergeModal extends Modal {
 
     const grid = this.contentEl.createDiv({ cls: "feuillets-merge-grid" });
     const left = grid.createDiv({ cls: "feuillets-merge-card" });
-    left.createDiv({ cls: "feuillets-merge-card-title", text: "Cible" });
+    left.createDiv({ cls: "feuillets-merge-card-title", text: t("scenesEditor.merge.target") });
     left.createDiv({
       cls: "feuillets-merge-path",
       text: this.plugin.shortTitleFor(plan.target),
@@ -343,7 +348,7 @@ class MergeModal extends Modal {
     });
     left.createDiv({
       cls: "feuillets-merge-card-title",
-      text: "Ordre des sources",
+      text: t("scenesEditor.merge.sourceOrder"),
     });
     const sourceList = left.createDiv({ cls: "feuillets-merge-order" });
     plan.sources.forEach((file, index) => {
@@ -373,13 +378,13 @@ class MergeModal extends Modal {
     });
 
     const right = grid.createDiv({ cls: "feuillets-merge-card" });
-    right.createDiv({ cls: "feuillets-merge-card-title", text: "Résumé YAML" });
+    right.createDiv({ cls: "feuillets-merge-card-title", text: t("scenesEditor.merge.yamlSummary") });
     const meta = right.createEl("ul", { cls: "feuillets-merge-list" });
     [
-      `Preset : ${YAML_PRESETS[this.plugin.settings.mergeYamlPreset].label}`,
-      `Stratégie : ${plan.preview.yamlLabel}`,
-      `Tags : ${shortText(plan.preview.tags.join(", ") || "—", 42)}`,
-      `Notes : ${shortText(plan.preview.notes, 44)}`,
+      t("scenesEditor.merge.yamlPreset", { preset: yamlPresetLabel(this.plugin.settings.mergeYamlPreset) }),
+      t("scenesEditor.merge.yamlStrategy", { strategy: plan.preview.yamlLabel }),
+      t("scenesEditor.merge.yamlTags", { tags: shortText(plan.preview.tags.join(", ") || "—", 42) }),
+      t("scenesEditor.merge.yamlNotes", { notes: shortText(plan.preview.notes, 44) }),
     ].forEach((line) => meta.createEl("li", { text: line }));
 
     const excerpts = this.contentEl.createDiv({
@@ -387,7 +392,7 @@ class MergeModal extends Modal {
     });
     excerpts.createDiv({
       cls: "feuillets-merge-card-title",
-      text: "Texte ajouté",
+      text: t("scenesEditor.merge.addedText"),
     });
     const excerptList = excerpts.createDiv({
       cls: "feuillets-merge-excerpts",
@@ -407,12 +412,12 @@ class MergeModal extends Modal {
     new Setting(this.contentEl)
       .addButton((btn) =>
         btn
-          .setButtonText("Options YAML")
+          .setButtonText(t("scenesEditor.yamlOptions.title"))
           .onClick(async () => this.plugin.openYamlOptions(this))
       )
       .addButton((btn) =>
         btn
-          .setButtonText("Fusionner")
+          .setButtonText(t("scenesEditor.merge.action"))
           .setCta()
           .onClick(async () => {
             this.close();
@@ -425,7 +430,7 @@ class MergeModal extends Modal {
           })
       )
       .addButton((btn) =>
-        btn.setButtonText("Annuler").onClick(() => this.close())
+        btn.setButtonText(t("modal.cancel")).onClick(() => this.close())
       );
   }
 
@@ -434,7 +439,7 @@ class MergeModal extends Modal {
   }
 }
 
-class YamlOptionsModal extends Modal {
+export class YamlOptionsModal extends Modal {
   plugin: ScenesEditorPlugin;
   mergeModal: MergeModal;
 
@@ -446,15 +451,15 @@ class YamlOptionsModal extends Modal {
 
   onOpen(): void {
     this.contentEl.empty();
-    this.setTitle("Options YAML");
+    this.setTitle(t("scenesEditor.yamlOptions.title"));
     const preset = YAML_PRESETS[this.plugin.settings.mergeYamlPreset];
 
     new Setting(this.contentEl)
-      .setName("Préréglage")
-      .setDesc("Choix simple pour la fusion")
+      .setName(t("scenesEditor.yamlOptions.preset"))
+      .setDesc(t("scenesEditor.yamlOptions.presetDesc"))
       .addDropdown((drop) => {
-        Object.entries(YAML_PRESETS).forEach(([key, item]) => {
-          drop.addOption(key, item.label);
+        Object.keys(YAML_PRESETS).forEach((key) => {
+          drop.addOption(key, yamlPresetLabel(key));
         });
         drop.setValue(this.plugin.settings.mergeYamlPreset);
         drop.onChange(async (value) => {
@@ -469,23 +474,23 @@ class YamlOptionsModal extends Modal {
 
     this.contentEl.createDiv({
       cls: "feuillets-yaml-subtitle",
-      text: `Règles du preset ${preset.label} : cible / source / agrégation / premier non vide / ignore.`,
+      text: t("scenesEditor.yamlOptions.rules", { preset: yamlPresetLabel(this.plugin.settings.mergeYamlPreset) }),
     });
 
     this.contentEl.createDiv({
       cls: "feuillets-yaml-note",
-      text: "Version volontairement simple : pas d’édition champ par champ dans l’interface.",
+      text: t("scenesEditor.yamlOptions.note"),
     });
 
     new Setting(this.contentEl).addButton((btn) =>
       btn
-        .setButtonText("Fermer")
+        .setButtonText(t("scenesEditor.close"))
         .setCta()
         .onClick(() => this.close())
     );
   }
 }
-class MergeSelectModal extends Modal {
+export class MergeSelectModal extends Modal {
   plugin: ScenesEditorPlugin;
   targetFile: TFile;
   scenes: TFile[];
@@ -507,18 +512,18 @@ class MergeSelectModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
-    this.setTitle(`Fusionner dans : ${this.plugin.shortTitleFor(this.targetFile)}`);
+    this.setTitle(t("scenesEditor.mergeSelect.title", { target: this.plugin.shortTitleFor(this.targetFile) }));
 
     const unit = this.plugin.unitLabel();
     const unitPlural = this.plugin.unitLabelPlural();
 
     if (this.scenes.length === 0) {
-      contentEl.createEl("p", { text: `Aucune autre ${unit} à fusionner dans ce dossier.` });
-      new Setting(contentEl).addButton(btn => btn.setButtonText("Fermer").onClick(() => this.close()));
+      contentEl.createEl("p", { text: t("scenesEditor.mergeSelect.none", { unit }) });
+      new Setting(contentEl).addButton(btn => btn.setButtonText(t("scenesEditor.close")).onClick(() => this.close()));
       return;
     }
 
-    contentEl.createEl("p", { text: `Sélectionnez les ${unitPlural} à fusionner dans cette ${unit} cible :` });
+    contentEl.createEl("p", { text: t("scenesEditor.mergeSelect.select", { unit, unitPlural }) });
 
     const listEl = contentEl.createDiv({ cls: "feuillets-merge-select-list" });
     listEl.addClasses(["feuillets-scroll-list", "feuillets-mb-lg"]);
@@ -535,15 +540,15 @@ class MergeSelectModal extends Modal {
     });
 
     new Setting(contentEl)
-      .addButton(btn => btn.setButtonText("Suivant").setCta().onClick(() => {
+      .addButton(btn => btn.setButtonText(t("scenesEditor.next")).setCta().onClick(() => {
         if (this.selected.size === 0) {
-          new Notice(`Veuillez sélectionner au moins une ${unit}.`);
+          new Notice(t("scenesEditor.mergeSelect.required", { unit }));
           return;
         }
         this.close();
         void this.plugin.openMergeModal([this.targetFile, ...this.selected]);
       }))
-      .addButton(btn => btn.setButtonText("Annuler").onClick(() => this.close()));
+      .addButton(btn => btn.setButtonText(t("modal.cancel")).onClick(() => this.close()));
   }
 }
 
@@ -563,21 +568,21 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
     menu
       .addItem((i) =>
         i
-          .setTitle("Scinder")
+          .setTitle(t("scenesEditor.action.split"))
           .setIcon("scissors")
           .onClick(async () => plugin.splitSceneFile(file))
       );
     menu
       .addItem((i) =>
         i
-          .setTitle("Dupliquer")
+          .setTitle(t("scenesEditor.action.duplicate"))
           .setIcon("copy")
           .onClick(async () => plugin.duplicateSceneFile(file))
       );
     menu
       .addItem((i) =>
         i
-          .setTitle("Déplacer")
+          .setTitle(t("scenesEditor.action.move"))
           .setIcon("move")
           .onClick(async () => plugin.moveSceneFile(file))
       );
@@ -608,13 +613,13 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
     const unit = plugin.unitLabel();
     const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
     const editor = view?.editor;
-    if (!file) { new Notice(`Aucune ${unit} active.`); return; }
+    if (!file) { new Notice(t("scenesEditor.notice.noActive", { unit })); return; }
     if (!editor || view?.file?.path !== file.path) {
-      new Notice(`Ouvre la ${unit} dans l’éditeur.`);
+      new Notice(t("scenesEditor.notice.openInEditor", { unit }));
       return;
     }
     if (!plugin.isSceneFile(file)) {
-      new Notice(`Cette note ne ressemble pas à une ${unit} Feuillets.`);
+      new Notice(t("scenesEditor.notice.notFeuilletsUnit", { unit }));
       return;
     }
     const selection = editor.getSelection();
@@ -626,7 +631,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         : content.slice(editor.posToOffset(cursor));
     if (!splitText.trim()) {
       new Notice(
-        "Sélectionne un texte ou place le curseur avant la fin du document."
+        t("scenesEditor.notice.selectTextOrCursor")
       );
       return;
     }
@@ -640,12 +645,12 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
 
     new TextInputModal(
       plugin.app,
-      `Scinder la ${unit}`,
+      t("scenesEditor.split.title", { unit }),
       [
-        { name: "titre", label: "Nouveau titre", value: String(defaultTitle) },
-        { name: "titre_binder", label: "Titre binder", value: String(defaultShort) },
-        { name: "ordre", label: "Ordre", value: String(currentOrder + 1) },
-        { name: "filename", label: "Nom du fichier", value: String(defaultTitle) },
+        { name: "titre", label: t("scenesEditor.field.newTitle"), value: String(defaultTitle) },
+        { name: "titre_binder", label: t("scenesEditor.field.binderTitle"), value: String(defaultShort) },
+        { name: "ordre", label: t("scenesEditor.field.order"), value: String(currentOrder + 1) },
+        { name: "filename", label: t("scenesEditor.field.fileName"), value: String(defaultTitle) },
       ],
       async (values) => {
         const folder = file.parent?.path || "";
@@ -655,7 +660,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         );
         const path = folder ? `${folder}/${safe}.md` : `${safe}.md`;
         if (plugin.app.vault.getAbstractFileByPath(path)) {
-          new Notice("Un fichier avec ce nom existe déjà.");
+          new Notice(t("scenesEditor.notice.fileExists"));
           return;
         }
         const frontmatter: Record<string, unknown> = Object.assign({}, fm, {
@@ -691,7 +696,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
             editor.offsetToPos(content.length)
           );
         }
-        new Notice(`${unit.charAt(0).toUpperCase() + unit.slice(1)} créée : ${safe}`);
+        new Notice(t("scenesEditor.notice.created", { unit: unit.charAt(0).toUpperCase() + unit.slice(1), name: safe }));
       }
     ).open();
   };
@@ -699,9 +704,9 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
   plugin.duplicateSceneFile = async (file: TFile | null): Promise<void> => {
     const unit = plugin.unitLabel();
     const unitCap = unit.charAt(0).toUpperCase() + unit.slice(1);
-    if (!file) { new Notice(`Aucune ${unit} active.`); return; }
+    if (!file) { new Notice(t("scenesEditor.notice.noActive", { unit })); return; }
     if (!plugin.isSceneFile(file)) {
-      new Notice(`Cette note ne ressemble pas à une ${unit} Feuillets.`);
+      new Notice(t("scenesEditor.notice.notFeuilletsUnit", { unit }));
       return;
     }
     const fm: Record<string, unknown> = Object.assign({}, plugin.fmOf(file));
@@ -711,16 +716,16 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
       : `${file.basename} - copie`;
     new TextInputModal(
       plugin.app,
-      `Dupliquer la ${unit}`,
+      t("scenesEditor.duplicate.title", { unit }),
       [
-        { name: "titre", label: "Titre", value: String(defaultTitle) },
+        { name: "titre", label: t("scenesEditor.field.title"), value: String(defaultTitle) },
         {
           name: "titre_binder",
-          label: "Titre binder",
+          label: t("scenesEditor.field.binderTitle"),
           value: toValue(fm.short_title),
         },
-        { name: "ordre", label: "Ordre", value: String(currentOrder + 1) },
-        { name: "filename", label: "Nom du fichier", value: String(defaultTitle) },
+        { name: "ordre", label: t("scenesEditor.field.order"), value: String(currentOrder + 1) },
+        { name: "filename", label: t("scenesEditor.field.fileName"), value: String(defaultTitle) },
       ],
       async (values) => {
         const folder = file.parent?.path || "";
@@ -730,7 +735,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         );
         const path = folder ? `${folder}/${safe}.md` : `${safe}.md`;
         if (plugin.app.vault.getAbstractFileByPath(path)) {
-          new Notice("Un fichier avec ce nom existe déjà.");
+          new Notice(t("scenesEditor.notice.fileExists"));
           return;
         }
         /* Vault.copy() exige Obsidian 1.8.7 ; minAppVersion reste 1.7.2 —
@@ -738,7 +743,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         const contentToCopy = await plugin.app.vault.read(file);
         await plugin.app.vault.create(path, contentToCopy);
         const copied = plugin.app.vault.getAbstractFileByPath(path);
-        if (!(copied instanceof TFile)) { new Notice("Copie introuvable."); return; }
+        if (!(copied instanceof TFile)) { new Notice(t("scenesEditor.notice.copyMissing")); return; }
         await plugin.app.fileManager.processFrontMatter(copied, (fm2: Record<string, unknown>) => {
           fm2.title = values.titre || defaultTitle;
           fm2.short_title = values.titre_binder || "";
@@ -755,7 +760,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
           delete fm2.resume;
           delete fm2.objectif;
         });
-        new Notice(`${unitCap} dupliquée : ${safe}`);
+        new Notice(t("scenesEditor.notice.duplicated", { unit: unitCap, name: safe }));
       }
     ).open();
   };
@@ -763,15 +768,15 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
   plugin.moveSceneFile = async (file: TFile | null): Promise<void> => {
     const unit = plugin.unitLabel();
     const unitCap = unit.charAt(0).toUpperCase() + unit.slice(1);
-    if (!file) { new Notice(`Aucune ${unit} active.`); return; }
+    if (!file) { new Notice(t("scenesEditor.notice.noActive", { unit })); return; }
     new TextInputModal(
       plugin.app,
-      `Déplacer la ${unit}`,
+      t("scenesEditor.move.title", { unit }),
       [
-        { name: "folder", label: "Dossier cible", value: file.parent?.path || "" },
+        { name: "folder", label: t("scenesEditor.field.targetFolder"), value: file.parent?.path || "" },
         {
           name: "filename",
-          label: "Nom du fichier",
+          label: t("scenesEditor.field.fileName"),
           value: stripMdExtension(file.name),
         },
       ],
@@ -786,14 +791,14 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
           targetPath !== file.path &&
           plugin.app.vault.getAbstractFileByPath(targetPath)
         ) {
-          new Notice("Le fichier cible existe déjà.");
+          new Notice(t("scenesEditor.notice.targetExists"));
           return;
         }
         if (folder && !plugin.app.vault.getAbstractFileByPath(folder)) {
           await plugin.app.vault.createFolder(folder);
         }
         await plugin.app.fileManager.renameFile(file, targetPath);
-        new Notice(`${unitCap} déplacée : ${targetPath}`);
+        new Notice(t("scenesEditor.notice.moved", { unit: unitCap, path: targetPath }));
       }
     ).open();
   };
@@ -816,7 +821,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
       const safe = sanitizeFileBasename(defaultTitle, defaultTitle);
       const path = folder ? `${folder}/${safe}.md` : `${safe}.md`;
       if (plugin.app.vault.getAbstractFileByPath(path)) {
-        new Notice(`Ignoré (nom déjà pris) : ${safe}`);
+        new Notice(t("scenesEditor.notice.skippedName", { name: safe }));
         continue;
       }
       /* Vault.copy() exige Obsidian 1.8.7 ; minAppVersion reste 1.7.2 —
@@ -843,8 +848,8 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
     const unit = plugin.unitLabel();
     new Notice(
       created > 0
-        ? `${created} ${unit}(s) dupliquée(s).`
-        : `Aucune ${unit} dupliquée.`
+        ? t("scenesEditor.notice.duplicatesCreated", { count: String(created), unit })
+        : t("scenesEditor.notice.noDuplicates", { unit })
     );
   };
 
@@ -857,16 +862,16 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
       (f) => f instanceof TFile && plugin.isSceneFile(f)
     );
     if (sceneFiles.length === 0) {
-      new Notice(`Aucune ${unit} à déplacer.`);
+      new Notice(t("scenesEditor.notice.noneToMove", { unit }));
       return;
     }
     new TextInputModal(
       plugin.app,
-      `Déplacer ${sceneFiles.length} ${unit}(s)`,
+      t("scenesEditor.moveMany.title", { count: String(sceneFiles.length), unit }),
       [
         {
           name: "folder",
-          label: "Dossier cible",
+          label: t("scenesEditor.field.targetFolder"),
           value: sceneFiles[0].parent?.path || "",
         },
       ],
@@ -884,14 +889,16 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
             targetPath !== file.path &&
             plugin.app.vault.getAbstractFileByPath(targetPath)
           ) {
-            new Notice(`Ignoré (nom déjà pris à destination) : ${file.name}`);
+            new Notice(t("scenesEditor.notice.skippedDestinationName", { name: file.name }));
             continue;
           }
           await plugin.app.fileManager.renameFile(file, targetPath);
           moved++;
         }
         new Notice(
-          moved > 0 ? `${moved} ${unit}(s) déplacée(s).` : `Aucune ${unit} déplacée.`
+          moved > 0
+            ? t("scenesEditor.notice.manyMoved", { count: String(moved), unit })
+            : t("scenesEditor.notice.noneMoved", { unit })
         );
       }
     ).open();
@@ -1008,8 +1015,15 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
       localRules,
       summary:
         sources.length === 1
-          ? `Fusionner "${plugin.shortTitleFor(sources[0])}" dans "${plugin.shortTitleFor(target)}" ?`
-          : `Fusionner ${sources.length} ${plugin.unitLabelPlural()} dans "${plugin.shortTitleFor(target)}" ?`,
+          ? t("scenesEditor.merge.confirmOne", {
+              source: plugin.shortTitleFor(sources[0]),
+              target: plugin.shortTitleFor(target),
+            })
+          : t("scenesEditor.merge.confirmMany", {
+              count: String(sources.length),
+              unitPlural: plugin.unitLabelPlural(),
+              target: plugin.shortTitleFor(target),
+            }),
       preview: {
         tags: normalizeTags(previewFm.tags),
         statut: toValue(previewFm.status),
@@ -1019,7 +1033,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         excerpts: sources.map((src, i) =>
           buildMergedSection(src, sourceBodies[i], mergeMode)
         ),
-        yamlLabel: preset.label,
+        yamlLabel: yamlPresetLabel(plugin.settings.mergeYamlPreset),
         yamlEntries,
       },
     };
@@ -1053,7 +1067,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
   ): Promise<void> => {
     const unit = plugin.unitLabel();
     if (!(target instanceof TFile) || sources.length === 0) {
-      new Notice(`Aucune ${unit} à fusionner.`);
+      new Notice(t("scenesEditor.notice.noneToMerge", { unit }));
       return;
     }
     const joiner = keepSeparator ? plugin.settings.mergeNotesSeparator : "\n\n";
@@ -1086,23 +1100,26 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
       } catch (e) {
         console.error("Feuillets : échec de la fusion", e);
         new Notice(
-          `Fusion interrompue après ${mergedCount} ${unit}(s) fusionnée(s) avec succès : ` +
-            `échec sur « ${plugin.shortTitleFor(source)} ». Aucune autre ${unit} n'a été touchée.`
+          t("scenesEditor.notice.mergeInterrupted", {
+            count: String(mergedCount),
+            unit,
+            source: plugin.shortTitleFor(source),
+          })
         );
         return;
       }
     }
-    new Notice(`Fusion terminée dans : ${plugin.shortTitleFor(target)}`);
+    new Notice(t("scenesEditor.notice.mergeCompleted", { target: plugin.shortTitleFor(target) }));
   };
 
   // 2. Register Ribbon Icon
   plugin.addRibbonIcon(
     "scissors-square-dashed-bottom",
-    "Feuillets : Actions de scène",
+    t("scenesEditor.ribbon.actions"),
     (evt) => {
       const file = plugin.getActiveFile();
       if (!file || !plugin.isSceneFile(file)) {
-        new Notice("Ouvre une scène Feuillets.");
+        new Notice(t("scenesEditor.notice.openFeuilletsScene"));
         return;
       }
       plugin.openSceneMenu(file, evt);
@@ -1112,24 +1129,24 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
   // 3. Register Commands
   plugin.addCommand({
     id: "split-scene",
-    name: "Scinder la scène",
+    name: t("scenesEditor.command.split"),
     callback: async () => plugin.splitActiveScene(),
   });
   plugin.addCommand({
     id: "duplicate-scene",
-    name: "Dupliquer la scène",
+    name: t("scenesEditor.command.duplicate"),
     callback: async () => plugin.duplicateActiveScene(),
   });
   plugin.addCommand({
     id: "move-scene",
-    name: "Déplacer la scène",
+    name: t("scenesEditor.command.move"),
     callback: async () => plugin.moveActiveScene(),
   });
   plugin.addCommand({
     id: "merge-selected-scenes",
-    name: "Fusionner les scènes sélectionnées",
+    name: t("scenesEditor.command.mergeSelected"),
     callback: async () =>
-      new Notice("Sélectionne au moins deux fichiers dans l’explorateur."),
+      new Notice(t("scenesEditor.notice.selectTwoFiles")),
   });
 
   // 4. Register Event Hooks
@@ -1143,19 +1160,19 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         addOpenWithPreviewItem(menu, plugin.app, plugin, file);
         menu.addItem((item) =>
           item
-            .setTitle("Feuillets: Scinder")
+            .setTitle(t("scenesEditor.menu.split"))
             .setIcon("scissors")
             .onClick(async () => plugin.splitSceneFile(file))
         );
         menu.addItem((item) =>
           item
-            .setTitle("Feuillets: Dupliquer")
+            .setTitle(t("scenesEditor.menu.duplicate"))
             .setIcon("copy")
             .onClick(async () => plugin.duplicateSceneFile(file))
         );
         menu.addItem((item) =>
           item
-            .setTitle("Feuillets: Déplacer")
+            .setTitle(t("scenesEditor.menu.move"))
             .setIcon("move")
             .onClick(async () => plugin.moveSceneFile(file))
         );
@@ -1182,19 +1199,19 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
       menu.addSeparator();
       menu.addItem((item) =>
         item
-          .setTitle("Feuillets: Scinder")
+          .setTitle(t("scenesEditor.menu.split"))
           .setIcon("scissors")
           .onClick(async () => plugin.splitSceneFile(file))
       );
       menu.addItem((item) =>
         item
-          .setTitle("Feuillets: Dupliquer")
+          .setTitle(t("scenesEditor.menu.duplicate"))
           .setIcon("copy")
           .onClick(async () => plugin.duplicateSceneFile(file))
       );
       menu.addItem((item) =>
         item
-          .setTitle("Feuillets: Déplacer")
+          .setTitle(t("scenesEditor.menu.move"))
           .setIcon("move")
           .onClick(async () => plugin.moveSceneFile(file))
       );
@@ -1210,7 +1227,7 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
       menu.addSeparator();
       menu.addItem((item) =>
         item
-          .setTitle(`Feuillets: Fusionner ${sceneFiles.length} scènes`)
+          .setTitle(t("scenesEditor.menu.merge", { count: String(sceneFiles.length) }))
           .setIcon("git-merge")
           .onClick(async () => plugin.openMergeModal(sceneFiles))
       );

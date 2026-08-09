@@ -172,6 +172,95 @@ test("BoardView : Modifier les tags ouvre TagsModal pour la carte concernée", (
   }
 });
 
+test("BoardView : les filtres de labels reconnaissent tous les labels d'une carte", () => {
+  const multiple = new TFile("Projet/Double.md");
+  const none = new TFile("Projet/Sans label.md");
+  const single = new TFile("Projet/Unique.md");
+  const labels = new Map([
+    [multiple.path, ["Intrigue", "Sophie"]],
+    [none.path, []],
+    [single.path, ["Unique"]],
+  ]);
+  const plugin = {
+    settings: { labelFilter: "Tous", tagFilter: "" },
+    fmOf: () => ({}),
+    labelsOf: (file) => labels.get(file.path) || [],
+    tagsOf: () => [],
+  };
+  const view = new BoardView({ app: {}, contentEl: new FakeElement() }, plugin);
+
+  for (const [filter, file, expected] of [
+    ["Intrigue", multiple, true],
+    ["Sophie", multiple, true],
+    ["Sans label", multiple, false],
+    ["Sans label", none, true],
+    ["Unique", single, true],
+  ]) {
+    plugin.settings.labelFilter = filter;
+    assert.equal(view.passesFilter(file), expected);
+  }
+});
+
+test("BoardView : le menu de labels liste chaque label multiple une seule fois", async () => {
+  const root = new TFolder("Projet/Manuscrit");
+  const first = new TFile("Projet/Manuscrit/Un.md");
+  const second = new TFile("Projet/Manuscrit/Deux.md");
+  root.children = [first, second];
+  first.parent = root;
+  second.parent = root;
+  const labels = new Map([
+    [first.path, ["Intrigue", "Sophie"]],
+    [second.path, ["Intrigue"]],
+  ]);
+  const settings = {
+    fontSize: 14,
+    uiScale: 100,
+    projectMeta: {},
+    hiddenBoardModes: [],
+    boardWholeManuscript: false,
+    labels: [],
+    statuses: [],
+    statusFilter: "Tous",
+    labelFilter: "Tous",
+    progressFilter: "Tous",
+    povFilter: "Tous",
+    tagFilter: "",
+  };
+  const contentEl = new FakeElement();
+  const plugin = {
+    settings,
+    getProjectFolder: () => root,
+    getOrderedChildren: (folder) => folder.children,
+    labelsOf: (file) => labels.get(file.path) || [],
+    fmOf: () => ({}),
+  };
+  const view = new BoardView({
+    app: { vault: { getAbstractFileByPath: () => null } },
+    contentEl,
+  }, plugin);
+  let filterAction;
+  let iconCalls = 0;
+  const stopAfterFilterButton = new Error("stop-after-filter-button");
+  view.iconBtn = (_parent, _icon, _tooltip, action) => {
+    if (iconCalls++ === 0) {
+      filterAction = action;
+      return new FakeElement();
+    }
+    throw stopAfterFilterButton;
+  };
+
+  try {
+    await view._render(true);
+  } catch (error) {
+    assert.equal(error, stopAfterFilterButton);
+  }
+  filterAction({});
+  const titles = Menu.lastShown.items.map((item) => item.title);
+
+  assert.equal(titles.filter((title) => title === "Intrigue").length, 1);
+  assert.equal(titles.filter((title) => title === "Sophie").length, 1);
+});
+
 test("FolderGoalModal sauvegarde un objectif positif avant de fermer", async () => {
   const folder = new TFolder("Projet/Acte 1");
   const order = [];

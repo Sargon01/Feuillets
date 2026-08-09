@@ -464,8 +464,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       const walkLabels = (f: TFolder) => {
         for (const child of this.plugin.getOrderedChildren(f)) {
           if (child instanceof TFile) {
-            const l = this.plugin.labelOf(child);
-            if (l) activeLabels.add(l);
+            for (const label of this.plugin.labelsOf(child)) activeLabels.add(label);
           } else if (child instanceof TFolder) {
             walkLabels(child);
           }
@@ -638,8 +637,8 @@ export class FeuilletsView extends BaseFeuilletsView {
       }
       const lf = S.binderLabelFilter;
       if (lf && lf !== "Tous") {
-        const l = this.plugin.labelOf(file);
-        if (lf === "Sans label" ? l !== "" : l !== lf) return false;
+        const labels = this.plugin.labelsOf(file);
+        if (lf === "Sans label" ? labels.length !== 0 : !labels.includes(lf)) return false;
       }
       const pf = S.binderProgressFilter;
       if (pf && pf !== "Tous") {

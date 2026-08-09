@@ -107,7 +107,7 @@ test("Binder : affiche l'écran d'accueil au tout premier lancement (aucun proje
   const rendered = textContent(contentEl);
   assert.match(rendered, /Feuillets/);
   assert.match(rendered, /Créer un projet/);
-  assert.match(rendered, /Ouvrir un dossier existant/);
+  assert.match(rendered, /Utiliser un dossier existant tel quel/);
   assert.match(rendered, /Découvrir avec un projet de démonstration/);
   assert.match(rendered, /Vos fichiers restent des fichiers Markdown ordinaires/);
 });
@@ -161,6 +161,7 @@ test("Binder : le filtre de progression utilise le nombre de mots de l'entrée d
     titleFor: (file) => file.basename,
     shortTitleFor: (file) => file.basename,
     labelOf: () => "",
+    labelsOf: () => [],
     projectDisplayName: () => "Projet",
     roleOfFile: () => "scene",
     saveSettings: async () => {},
@@ -176,6 +177,67 @@ test("Binder : le filtre de progression utilise le nombre de mots de l'entrée d
     ["Dépassé", [over.basename]],
   ]) {
     settings.binderProgressFilter = filter;
+    await view.render(true);
+    const names = findElements(contentEl, (el) => el.classes.has("feuillets-item-name"))
+      .map((el) => el.text.trim());
+    assert.deepEqual(names, expected);
+  }
+});
+
+test("Binder : les filtres de labels reconnaissent tous les labels d'un feuillet", async () => {
+  const root = new TFolder("Projet/Manuscrit");
+  const multiple = new TFile("Projet/Manuscrit/Double.md");
+  const none = new TFile("Projet/Manuscrit/Sans label.md");
+  const single = new TFile("Projet/Manuscrit/Unique.md");
+  root.children = [multiple, none, single];
+  for (const file of root.children) file.parent = root;
+  const labels = new Map([
+    [multiple.path, ["Intrigue", "Sophie"]],
+    [none.path, []],
+    [single.path, ["Unique"]],
+  ]);
+  const settings = baseSettings({
+    projectFolder: root.path,
+    binderSelectedPath: root.path,
+    binderLabelFilter: "Tous",
+    binderTreeWidth: 240,
+    collapsed: {},
+  });
+  const contentEl = new FakeElement();
+  const app = {
+    vault: { getAbstractFileByPath: (path) => path === root.path ? root : null },
+    workspace: {},
+  };
+  const plugin = {
+    settings,
+    getProjectFolder: () => root,
+    getResearchRoot: () => null,
+    getVersionsRoot: () => null,
+    getOrderedChildren: (folder) => folder.children,
+    flattenFiles: () => root.children,
+    getWordCounts: async () => new Map(),
+    buildNumbering: () => new Map(),
+    fmOf: () => ({}),
+    titleFor: (file) => file.basename,
+    shortTitleFor: (file) => file.basename,
+    labelOf: () => "",
+    labelsOf: (file) => labels.get(file.path) || [],
+    projectDisplayName: () => "Projet",
+    roleOfFile: () => "scene",
+    saveSettings: async () => {},
+    generateCanvasBoard() {},
+  };
+  const view = new FeuilletsView({ app, contentEl }, plugin);
+  view.attachDragHandlers = () => {};
+  view.updateActiveHighlight = () => {};
+
+  for (const [filter, expected] of [
+    ["Intrigue", [multiple.basename]],
+    ["Sophie", [multiple.basename]],
+    ["Sans label", [none.basename]],
+    ["Unique", [single.basename]],
+  ]) {
+    settings.binderLabelFilter = filter;
     await view.render(true);
     const names = findElements(contentEl, (el) => el.classes.has("feuillets-item-name"))
       .map((el) => el.text.trim());
@@ -358,6 +420,7 @@ function buildBinderResearchPlugin(project, overrides = {}) {
     },
     fmOf: () => ({}),
     labelOf: () => "",
+    labelsOf: () => [],
     titleFor: (f) => f.basename,
     shortTitleFor: (f) => f.basename,
     renderAllViews: () => {},

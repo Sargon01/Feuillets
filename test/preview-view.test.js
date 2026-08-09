@@ -2,13 +2,79 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MarkdownRenderer, Menu, TFolder, TFile } from "obsidian";
 import { VIEW_PREVIEW } from "../src/constants.js";
-import { PreviewView, activatePreviewView, openScopeWithPreview, openWithPreview } from "../src/views/preview-view.js";
+import {
+  PreviewView,
+  activatePreviewView,
+  openScopeWithPreview,
+  openWithPreview,
+  previewFirstPageFields,
+  previewModeLabel,
+  previewStatusLabel,
+  previewZoomModeLabel,
+} from "../src/views/preview-view.js";
 import { resolveCompileScopeFiles } from "../src/services/compile-scope.js";
 import { CompileSelectionModal } from "../src/ui/selection-modals.js";
 import { LayoutModal } from "../src/ui/layout-modal.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
 import { setTitleRoleValue } from "../src/utils/title-roles.js";
 import { TextPromptModal } from "../src/ui/basic-modals.js";
+import { setLocale } from "../src/i18n/index.js";
+import { readFile } from "node:fs/promises";
+
+test("PreviewView : les libellés de modes, états, zoom et première page sont traduits", async () => {
+  try {
+    setLocale("fr");
+    assert.deepEqual(
+      ["scene", "chapter", "part", "manuscript"].map(previewModeLabel),
+      ["Feuillet", "Chapitre", "Partie", "Manuscrit"]
+    );
+    assert.deepEqual(
+      ["fresh", "stale", "rendering", "error"].map((status) => previewStatusLabel(status, "scene")),
+      ["Feuillet à jour", "Feuillet à actualiser", "Rendu en cours…", "Erreur"]
+    );
+    assert.deepEqual(
+      ["fit-width", "fit-page", "manual"].map(previewZoomModeLabel),
+      ["ajusté à la largeur", "page entière", "manuel"]
+    );
+    assert.deepEqual(
+      previewFirstPageFields().map((field) => field.label),
+      ["Titre", "Sous-titre", "Auteur", "Mention complémentaire", "Image ou logo"]
+    );
+
+    setLocale("en");
+    assert.deepEqual(
+      ["scene", "chapter", "part", "manuscript"].map(previewModeLabel),
+      ["Sheet", "Chapter", "Part", "Manuscript"]
+    );
+    assert.deepEqual(
+      ["fresh", "stale", "rendering", "error"].map((status) => previewStatusLabel(status, "scene")),
+      ["Sheet is up to date", "Sheet needs updating", "Rendering…", "Error"]
+    );
+    assert.deepEqual(
+      ["fit-width", "fit-page", "manual"].map(previewZoomModeLabel),
+      ["fit to width", "full page", "manual"]
+    );
+    assert.deepEqual(
+      previewFirstPageFields().map((field) => field.label),
+      ["Title", "Subtitle", "Author", "Additional mention", "Image or logo"]
+    );
+  } finally {
+    setLocale("fr");
+  }
+});
+
+test("PreviewView : les chaînes utilisateur migrées ne restent pas codées en dur", async () => {
+  const source = await readFile("src/views/preview-view.ts", "utf8");
+  for (const text of [
+    "Ouvrir ce feuillet",
+    "Réglages d’export",
+    "Masquer la barre",
+    "Afficher la barre",
+    "Rendu en cours…",
+  ]) {
+    assert.equal(source.includes(`\"${text}\"`), false);
+  }
+});
 
 /* Chantier « PreviewView : zoom et centrage » — deux bugs confirmés
  * manuellement : les boutons de zoom ne pilotaient rien de réel (l'iframe
@@ -4166,5 +4232,3 @@ test("openWithPreview — une feuille d'aperçu réutilisée mais DIFFÉRÉE (Ob
     "Dossier et Feuillet doivent rester dans le fil d'Ariane après le passage à Projet"
   );
 }));
-
-

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MarkdownView, Notice, TFile, TFolder } from "obsidian";
-import { NewProjectModal, OpenExistingFolderModal } from "../src/ui/project-modals.js";
+import { NewProjectModal, OpenExistingFolderModal, TransformToProjectModal } from "../src/ui/project-modals.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { fr } from "../src/i18n/fr.js";
+import { en } from "../src/i18n/en.js";
 
 class FakeElement {
   constructor(tag = "div", options = {}) {
@@ -10,7 +12,7 @@ class FakeElement {
     this.children = [];
     this.classes = new Set();
     this.events = new Map();
-    this.value = "";
+    this.value = options.value ?? "";
     this.text = options.text ?? "";
     this.attributes = { ...(options.attr ?? {}) };
     if (options.cls) this.addClass(options.cls);
@@ -51,8 +53,8 @@ function findElements(element, predicate) {
   return found;
 }
 
-function createModal(ModalClass, app, plugin) {
-  const modal = new ModalClass(app, plugin);
+function createModal(ModalClass, app, plugin, ...args) {
+  const modal = new ModalClass(app, plugin, ...args);
   modal.app = app;
   modal.contentEl = new FakeElement();
   modal.close = () => { modal.closed = true; };
@@ -230,9 +232,64 @@ test("OpenExistingFolderModal : active un dossier existant sans déplacer, renom
     assert.ok(settings.projects.includes("MonRoman"));
     assert.equal(scene.path, originalPath);
     assert.equal(scene.content, originalContent);
+    assert.equal(vault.getAbstractFileByPath("MonRoman/_Recherche"), null);
     assert.deepEqual(notices, ["Projet activé : MonRoman"]);
     assert.ok(modal.closed);
   });
+});
+
+test("TransformToProjectModal : exige un type explicite avant toute initialisation", async () => {
+  await withNotices(async (notices) => {
+    const folder = new TFolder("MonRoman");
+    const { vault } = createFakeVault([folder]);
+    const app = fakeApp(vault);
+    const settings = freshSettings();
+    const plugin = fakePlugin(settings);
+    const modal = createModal(TransformToProjectModal, app, plugin, folder.path);
+
+    modal.onOpen();
+    const select = findElements(modal.contentEl, (el) => el.tag === "select")[0];
+    assert.equal(select.value, "");
+    assert.equal(select.children[0].text, "Choisir le type de projet…");
+    await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
+
+    assert.deepEqual(settings.projectMeta, {});
+    assert.deepEqual(settings.projects, []);
+    assert.equal(vault.getAbstractFileByPath("MonRoman/_Recherche/Personnages"), null);
+    assert.deepEqual(plugin.calls, []);
+    assert.deepEqual(notices, ["Choisissez un type de projet."]);
+  });
+});
+
+test("TransformToProjectModal : initialise après le choix explicite d'un type", async () => {
+  await withNotices(async (notices) => {
+    const folder = new TFolder("MonRoman");
+    const { vault } = createFakeVault([folder]);
+    const app = fakeApp(vault);
+    const settings = freshSettings();
+    const plugin = fakePlugin(settings);
+    const modal = createModal(TransformToProjectModal, app, plugin, folder.path);
+
+    modal.onOpen();
+    findElements(modal.contentEl, (el) => el.tag === "select")[0].value = "fiction";
+    await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
+
+    assert.equal(settings.projectMeta[folder.path].type, "fiction");
+    assert.ok(settings.projects.includes(folder.path));
+    assert.ok(vault.getAbstractFileByPath("MonRoman/_Recherche/Personnages") instanceof TFolder);
+    assert.deepEqual(plugin.calls, ["save", "render", "statusBar"]);
+    assert.ok(modal.closed);
+    assert.deepEqual(notices, ["« MonRoman » est maintenant un projet Feuillets."]);
+  });
+});
+
+test("les libellés des deux parcours existent en français et en anglais", () => {
+  for (const dictionary of [fr, en]) {
+    assert.ok(dictionary["modal.openFolder.title"]);
+    assert.ok(dictionary["modal.transformProject.title"]);
+    assert.ok(dictionary["modal.transformProject.typePlaceholder"]);
+    assert.ok(dictionary["modal.transformProject.typeRequired"]);
+  }
 });
 
 test("OpenExistingFolderModal : refuse un chemin qui n'est pas un dossier", async () => {

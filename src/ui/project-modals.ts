@@ -176,7 +176,7 @@ export class NewProjectModal extends Modal {
 /** Utilise un dossier déjà présent dans le coffre comme projet — sans rien y
  * déplacer, renommer, ni modifier : seule la référence dans les réglages
  * (settings.projectFolder / settings.projects) change. Même comportement que
- * le champ "Ajouter un dossier existant" du gestionnaire de projets (voir
+ * le champ « Utiliser un dossier existant tel quel » du gestionnaire de projets (voir
  * feuillets-view.js, renderProjectManagerSplitView), mais en modale dédiée
  * avec un vrai sélecteur de dossier (FolderSuggest) plutôt qu'un champ texte
  * libre à saisir de mémoire — utile en premier lancement, quand on ne
@@ -245,7 +245,7 @@ export class OpenExistingFolderModal extends Modal {
   }
 }
 
-/** Modale de transformation d'un dossier existant en projet Feuillets avec
+/** Modale d'initialisation d'un dossier existant en projet Feuillets avec
  * sélection du mode (Fiction, Non-fiction, Projet libre). */
 export class TransformToProjectModal extends Modal {
   plugin: ProjectModalsPlugin;
@@ -271,10 +271,10 @@ export class TransformToProjectModal extends Modal {
     const typeSelect = contentEl.createEl("select");
     typeSelect.addClass("feuillets-input-full");
     typeSelect.addClass("feuillets-field-spacer");
+    typeSelect.createEl("option", { text: t("modal.transformProject.typePlaceholder"), value: "" });
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
       typeSelect.createEl("option", { text: mode.label, value: key });
     }
-    // Pas de défaut forcé : l'utilisateur doit choisir explicitement
 
     const transform = async () => {
       const S = this.plugin.settings;
@@ -286,6 +286,10 @@ export class TransformToProjectModal extends Modal {
 
       // Enregistrer le mode dans projectMeta
       const chosenMode = typeSelect.value;
+      if (!Object.prototype.hasOwnProperty.call(PROJECT_MODES, chosenMode)) {
+        new Notice(t("modal.transformProject.typeRequired"));
+        return;
+      }
       if (!S.projectMeta[this.folderPath]) S.projectMeta[this.folderPath] = {};
       S.projectMeta[this.folderPath].type = chosenMode;
 

@@ -161,8 +161,8 @@ export class BoardView extends BaseFeuilletsView {
     }
     const labelFilter = S.labelFilter;
     if (labelFilter && labelFilter !== "Tous") {
-      const currentLabel = this.plugin.labelOf(file);
-      if (labelFilter === "Sans label" ? currentLabel !== "" : currentLabel !== labelFilter) return false;
+      const labels = this.plugin.labelsOf(file);
+      if (labelFilter === "Sans label" ? labels.length !== 0 : !labels.includes(labelFilter)) return false;
     }
     const povFilter = S.povFilter;
     if (povFilter && povFilter !== "Tous") {
@@ -271,8 +271,7 @@ export class BoardView extends BaseFeuilletsView {
         const collect = (f: TFolder) => {
           for (const c of this.plugin.getOrderedChildren(f)) {
             if (c instanceof TFile) {
-              const l = this.plugin.labelOf(c);
-              if (l) labels.add(l);
+              for (const label of this.plugin.labelsOf(c)) labels.add(label);
             } else if (c instanceof TFolder) collect(c);
           }
         };
