@@ -2,6 +2,36 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.0.0
+
+### Écrire d’abord
+
+- **Positionnement élargi** : Feuillets accompagne désormais aussi bien un article, une nouvelle ou un essai qu’un recueil, un projet non-fiction ou un roman.
+- **Trois points de départ** : Fiction, Non-fiction et Libre. Le mode Libre démarre avec un seul texte, sans hiérarchie éditoriale imposée.
+- **Dossiers existants** : un dossier Obsidian peut devenir un projet Feuillets sans déplacer, renommer ni restructurer son contenu personnel.
+
+### Atelier et organisation
+
+- **Inspecteur unifié** en cinq espaces : Feuillet, Recherche, Journal, Édition et Relecture.
+- **Relecture native** : détection des répétitions rapprochées même sans module compagnon ; les fournisseurs linguistiques peuvent ajouter leurs propres signalements.
+- **Cartes et Plan adaptés au type de projet** au premier démarrage, tout en laissant ensuite les choix de l’auteur prioritaires.
+- **Classeur et compilation** fiabilisés pour les fichiers, dossiers, sélections et déplacements vers la racine.
+- **Édition** regroupe les documents éditoriaux, la révision DOCX et l’intégration facultative avec Courrier.
+
+### Structure Feuillets 2
+
+- **Nouvel espace auxiliaire canonique `_Feuillets`** pour Recherche, Ressources, Edition, Journal, Snapshots, Backups et Sortie.
+- **Compatibilité conservée avec les anciens projets** : les anciens chemins restent reconnus lorsqu’ils existent, sans migration, déplacement ou renommage automatique.
+- **Recherche et Chronologie** utilisent désormais les résolveurs V2 et ne recréent plus de nouveaux chemins legacy.
+- **Sauvegardes et instantanés** respectent la racine réelle du projet et excluent leurs propres destinations.
+
+### Composition, export et qualité
+
+- **Exports natifs** Markdown compilé, DOCX, EPUB, ODT et PDF, sans Pandoc.
+- **Flux éditorial DOCX** renforcé, y compris la préparation facultative d’une soumission vers Courrier.
+- **Documentation FR/EN** réalignée sur l’architecture et l’interface Feuillets 2.
+- **Validation de release** : plus de 2 000 tests automatisés, typecheck, build, lint général et lint Obsidian.
+
 ## 1.7.2
 
 ### Maintenance
