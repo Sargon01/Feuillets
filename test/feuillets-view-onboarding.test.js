@@ -333,8 +333,11 @@ test("Binder : les sélecteurs compacts gardent la position du clic droit", () =
     (menu) => menu.addItem((item) => item.setTitle("Choix"))
   );
 
-  assert.deepEqual(Menu.lastShown.position, { x: 428, y: 316 });
-  assert.notDeepEqual(Menu.lastShown.position, { x: 0, y: 0 });
+  assert.equal(Menu.lastShown.event, origin, "le vrai événement contextmenu est utilisé");
+  assert.deepEqual(
+    { x: Menu.lastShown.event.clientX, y: Menu.lastShown.event.clientY },
+    { x: 428, y: 316 }
+  );
 
   const trigger = /** @type {MouseEvent} */ ({ clientX: 451, clientY: 339, target: null });
   showChoices(
@@ -342,7 +345,7 @@ test("Binder : les sélecteurs compacts gardent la position du clic droit", () =
     origin,
     (menu) => menu.addItem((item) => item.setTitle("Choix"))
   );
-  assert.equal(Menu.lastShown.event, trigger, "le clic du choix est privilégié");
+  assert.equal(Menu.lastShown.event, origin, "le clic droit initial est conservé");
 });
 
 test("Binder ↔ Recherche : menu d'un TFile Binder non lié contient les actions de liaison", () => {

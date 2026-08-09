@@ -722,7 +722,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
       if (!data) return;
 
       const full = canvas.getData?.();
-      const fullNode = full?.nodes.find((candidate) => candidate.id === data!.id) || data;
+      const fullNode = full?.nodes.find((candidate) => candidate.id === data.id) || data;
       const isManuscriptPath = makeManuscriptPathChecker(plugin.app, plugin.settings);
       const canDevelopTree =
         fullNode.type === "text" ||
@@ -765,7 +765,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
               const freshData = canvas.getData ? canvas.getData() : null;
               const fullNode = freshData ? freshData.nodes.find((n) => n.id === nodeId) : null;
               if (!fullNode) return;
-              new CanvasSplitModal(plugin.app, ideaTitle, data!.text || "", (first, second) => {
+              new CanvasSplitModal(plugin.app, ideaTitle, data.text || "", (first, second) => {
                 void applySplit(plugin.app, canvas, canvasFile, fullNode, first, second);
               }).open();
             })
@@ -787,7 +787,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
             .setIcon("git-branch")
             .onClick(() => {
               new CanvasIdeaTreeModal(plugin.app, (raw) =>
-                applyIdeaBranches(plugin.app, canvas, canvasFile, data!.id, raw)
+                applyIdeaBranches(plugin.app, canvas, canvasFile, data.id, raw)
               ).open();
             })
         );
@@ -800,7 +800,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
             .setIcon("folder-plus")
             .onClick(() => {
               const fresh = canvas.getData?.() || full;
-              const branch = ideaTreeBranch(fresh, data!.id);
+              const branch = ideaTreeBranch(fresh, data.id);
               new CanvasChapterModal(
                 plugin.app,
                 plugin.settings,
@@ -815,7 +815,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
             .setTitle(t("advancedCanvas.nodeMenu.reorganizeTree"))
             .setIcon("refresh-cw")
             .onClick(() => {
-              void applyIdeaTreeReflow(plugin.app, canvas, canvasFile, data!.id);
+              void applyIdeaTreeReflow(plugin.app, canvas, canvasFile, data.id);
             })
         );
       }
@@ -830,7 +830,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
             .setIcon("list-tree")
             .onClick(() => {
               const fresh = canvas.getData?.() || full;
-              const result = ideaTreeBranchToOutlineMarkdown(fresh, data!.id);
+              const result = ideaTreeBranchToOutlineMarkdown(fresh, data.id);
               if (!result.ok) {
                 const noticeKey =
                   result.code === "non-text-node"
@@ -856,7 +856,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
       // admissible ; sinon l'action n'est simplement pas proposée. file et
       // link nodes ne reçoivent toujours aucune action dans ce Lot.
       if (data.type === "group" && full) {
-        const groupNode = full.nodes.find((n) => n.id === data!.id);
+        const groupNode = full.nodes.find((n) => n.id === data.id);
         if (!groupNode) return;
         const isManuscriptPath = makeManuscriptPathChecker(plugin.app, plugin.settings);
         const contained = nodesContainedInGroup(full, groupNode);

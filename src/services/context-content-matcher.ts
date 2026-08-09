@@ -121,9 +121,9 @@ function longestCommonRun(
   b: string[]
 ): { aStart: number; bStart: number; length: number } {
   let best = { aStart: -1, bStart: -1, length: 0 };
-  let prev = new Array(b.length + 1).fill(0);
+  let prev: number[] = new Array<number>(b.length + 1).fill(0);
   for (let i = 0; i < a.length; i++) {
-    const curr = new Array(b.length + 1).fill(0);
+    const curr: number[] = new Array<number>(b.length + 1).fill(0);
     for (let j = 0; j < b.length; j++) {
       if (a[i] && a[i] === b[j]) {
         const len = prev[j] + 1;

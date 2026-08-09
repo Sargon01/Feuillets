@@ -1582,8 +1582,8 @@ export class DocxReviewView extends BaseFeuilletsView {
                restauration directe depuis la carte — un seul des deux
                fichiers restauré créerait un état incohérent. Seulement
                Comparer l'origine/la destination, allowRestore=false. */
-            const originTitle = this.plugin.titleFor(fromFileObj as TFile);
-            const destTitle = this.plugin.titleFor(toFileObj as TFile);
+            const originTitle = this.plugin.titleFor(fromFileObj);
+            const destTitle = this.plugin.titleFor(toFileObj);
             traceBox.createDiv({ cls: "feuillets-docx-review-trace-line" }).setText(`${originTitle} → ${destTitle}`);
             if (trace?.footnotes && trace.footnotes.count > 0) {
               traceBox.createDiv({ cls: "feuillets-docx-review-trace-line" }).setText(
@@ -1599,12 +1599,12 @@ export class DocxReviewView extends BaseFeuilletsView {
             const originBtn = this.iconBtn(traceActions, "git-compare", t("docxReview.trace.compareOrigin"));
             originBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              this.openTraceCompare(fromFileObj as TFile, trace, false);
+              this.openTraceCompare(fromFileObj, trace, false);
             });
             const destBtn = this.iconBtn(traceActions, "git-compare", t("docxReview.trace.compareDestination"));
             destBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              this.openTraceCompare(toFileObj as TFile, trace, false);
+              this.openTraceCompare(toFileObj, trace, false);
             });
           } else {
             /* Correction simple, un seul feuillet (section 9 cas 1) :

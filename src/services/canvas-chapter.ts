@@ -327,7 +327,7 @@ export async function executeChapterPlan(
 
   try {
     // 2. création du dossier chapitre
-    createdFolder = (await app.vault.createFolder(plan.chapterPath)) as unknown as TFolder;
+    createdFolder = await app.vault.createFolder(plan.chapterPath);
     const chapterFolder = createdFolder;
 
     // 3/4. déplacement des fichiers existants + création des nouveaux

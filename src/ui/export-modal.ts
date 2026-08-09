@@ -85,11 +85,9 @@ export class ExportModal extends Modal {
       });
 
     // Boutons
-    const buttonContainer = contentEl.createDiv({ cls: "modal-button-container" });
-    buttonContainer.style.display = "flex";
-    buttonContainer.style.justifyContent = "flex-end";
-    buttonContainer.style.gap = "10px";
-    buttonContainer.style.marginTop = "20px";
+    const buttonContainer = contentEl.createDiv({
+      cls: "modal-button-container feuillets-export-modal-buttons",
+    });
 
     const cancelBtn = buttonContainer.createEl("button", { text: t("shared.cancel") });
     cancelBtn.addEventListener("click", () => {
@@ -100,15 +98,17 @@ export class ExportModal extends Modal {
       text: t("modal.export.exportAction"),
       cls: "mod-cta",
     });
-    exportBtn.addEventListener("click", async () => {
-      if (!this.outputName.trim()) {
-        new Notice(t("modal.export.emptyName") || "Le nom ne peut pas être vide");
-        return;
-      }
-      if (this.onSubmit) {
-        await this.onSubmit(this.selectedFormat, this.outputName);
-      }
-      this.close();
+    exportBtn.addEventListener("click", () => {
+      void (async () => {
+        if (!this.outputName.trim()) {
+          new Notice(t("modal.export.emptyName") || "Le nom ne peut pas être vide");
+          return;
+        }
+        if (this.onSubmit) {
+          await this.onSubmit(this.selectedFormat, this.outputName);
+        }
+        this.close();
+      })();
     });
   }
 

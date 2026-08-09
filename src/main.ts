@@ -60,6 +60,7 @@ import {
   canvasPathFor,
   generateCanvasBoard,
   type LiveCanvasFileView,
+  type CanvasData,
 } from "./services/canvas-board.js";
 import { CaptureIdeaModal } from "./ui/capture-idea-modal.js";
 import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
@@ -2998,9 +2999,9 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
     const raw = await this.app.vault.read(file);
-    let data;
+    let data: CanvasData;
     try {
-      data = JSON.parse(raw);
+      data = JSON.parse(raw) as CanvasData;
     } catch {
       new Notice(t("main.notice.canvasUnreadable"));
       return;
@@ -3026,9 +3027,9 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
     const raw = await this.app.vault.read(file);
-    let data;
+    let data: CanvasData;
     try {
-      data = JSON.parse(raw);
+      data = JSON.parse(raw) as CanvasData;
     } catch {
       new Notice(t("main.notice.canvasUnreadable"));
       return;
@@ -3523,6 +3524,13 @@ class FeuilletsPlugin extends Plugin {
 
   isFeuilletsSidebarActive() {
     const workspace = this.app.workspace;
+    const inspectorLeaves = workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS);
+    if (inspectorLeaves.some((leaf) =>
+      leaf.getRoot() === workspace.rightSplit && this.leafVisible(leaf)
+    )) {
+      return true;
+    }
+
     if (workspace.leftSplit.collapsed) return false;
     
     const leaves = workspace.getLeavesOfType(VIEW_SIDEBAR);

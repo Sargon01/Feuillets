@@ -64,36 +64,16 @@ function asFolder(af: TAbstractFile): TFolder {
  * Recherche. */
 type BinderNode = TFolder | TFile;
 
-function menuPoint(event: MouseEvent | KeyboardEvent | undefined): { x: number; y: number } | null {
-  if (!event || typeof (event as MouseEvent).clientX !== "number" || typeof (event as MouseEvent).clientY !== "number") return null;
-  return { x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY };
-}
-
-function eventDocument(event: Event | undefined): Document | undefined {
-  return (event?.target as { ownerDocument?: Document } | null)?.ownerDocument;
-}
-
 /** Affiche les sélecteurs compacts près du clic qui a ouvert le menu Binder.
- * Le test structurel `instanceof MouseEvent` est volontairement évité : dans
- * une fenêtre popout, son constructeur appartient à une autre Window. */
+ * L'événement du clic sur l'item du premier menu est volontairement ignoré :
+ * seule la position du `contextmenu` initial correspond au clic droit. */
 export function showChoices(
-  event: MouseEvent | KeyboardEvent,
+  _event: MouseEvent | KeyboardEvent,
   origin: MouseEvent,
   fill: (menu: Menu) => void
 ): void {
   const menu = new Menu();
   fill(menu);
-  if (menuPoint(event)) {
-    menu.showAtMouseEvent(event as MouseEvent);
-    return;
-  }
-  const point = menuPoint(origin);
-  if (point) {
-    menu.showAtPosition(point, eventDocument(origin));
-    return;
-  }
-  // Le chemin réel possède toujours l'événement de clic droit initial. Ce
-  // dernier repli ne concerne que les stubs de test dépourvus de coordonnées.
   menu.showAtMouseEvent(origin);
 }
 
@@ -1893,7 +1873,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           .setTitle(t("binder.research.openLinkedFolder"))
           .setIcon("search")
           .onClick(() => {
-            this.openResearchFolderInTab(linkedResearch);
+            void this.openResearchFolderInTab(linkedResearch);
           })
       );
       menu.addItem((item) =>
@@ -1975,7 +1955,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     // Si pas de sidebar, l'ouvrir à droite
     if (!sidebarLeaf) {
       const rightLeaf = (app.workspace as unknown as { getRightLeaf?: (create: boolean) => unknown }).getRightLeaf?.(true);
-      sidebarLeaf = rightLeaf as unknown as WorkspaceLeaf | null;
+      sidebarLeaf = rightLeaf as WorkspaceLeaf | null;
       if (sidebarLeaf && typeof (sidebarLeaf as unknown as { setViewState?: (state: unknown) => Promise<void> }).setViewState === "function") {
         await (sidebarLeaf as unknown as { setViewState: (state: unknown) => Promise<void> }).setViewState({ type: VIEW_SIDEBAR_FEUILLETS, state: {} });
       }
@@ -1987,12 +1967,12 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     // Activer la leaf de la sidebar
-    app.workspace.revealLeaf(sidebarLeaf);
+    await app.workspace.revealLeaf(sidebarLeaf);
 
     // Obtenir la view sidebar et basculer vers l'onglet Recherche
     const sidebarView = sidebarLeaf.view as unknown as {
       activeTab?: string;
-      subViews?: Record<string, unknown & { revealLinkedResearchFolder?: (folder: TFolder) => Promise<void> }>;
+      subViews?: Record<string, { revealLinkedResearchFolder?: (folder: TFolder) => Promise<void> }>;
       render?: (force?: boolean) => Promise<void>;
     } | null;
 

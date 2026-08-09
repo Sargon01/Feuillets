@@ -3,7 +3,6 @@ import {
   ReviewChange,
   ReviewComment,
   RevisionRef,
-  MoveRangeRef,
 } from "./docx-review-import.js";
 
 export type RegenerateDecision = {
@@ -20,6 +19,17 @@ export type RegenerateOptions = {
   savedStates: Record<string, RegenerateDecision>;
 };
 
+export type RegenerateReason =
+  | "revision-not-found"
+  | "revision-duplicate"
+  | "replacement-incomplete"
+  | "move-incomplete"
+  | "unsupported-footnote-move-regeneration"
+  | "comment-resolution-unsupported"
+  | "invalid-xml-structure"
+  | "missing-parsed-changes"
+  | (string & {});
+
 export type RegenerateResult =
   | {
       ok: true;
@@ -28,16 +38,7 @@ export type RegenerateResult =
     }
   | {
       ok: false;
-      reason:
-        | "revision-not-found"
-        | "revision-duplicate"
-        | "replacement-incomplete"
-        | "move-incomplete"
-        | "unsupported-footnote-move-regeneration"
-        | "comment-resolution-unsupported"
-        | "invalid-xml-structure"
-        | "missing-parsed-changes"
-        | string;
+      reason: RegenerateReason;
     };
 
 export type RegenerateZipResult =
@@ -51,7 +52,21 @@ export type RegenerateZipResult =
       reason: string;
     };
 
-export function getItemKey(item: any): string {
+export type KeyableItem = {
+  type?: string;
+  isFormatting?: boolean;
+  author?: string;
+  date?: string;
+  contextBefore?: string;
+  fromContext?: string;
+  anchorText?: string;
+  text?: string;
+  newText?: string;
+  oldText?: string;
+  ord?: number | string | null;
+};
+
+export function getItemKey(item: KeyableItem): string {
   const type = item.type || (item.isFormatting ? "formatting" : "comment");
   const author = item.author || "";
   const date = item.date || "";
@@ -481,7 +496,7 @@ export async function regenerateDocxZip(
   let zip: JSZip;
   try {
     zip = await JSZip.loadAsync(docxArrayBuffer);
-  } catch (_e) {
+  } catch {
     return { ok: false, reason: "invalid-xml-structure" };
   }
 

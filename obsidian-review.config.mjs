@@ -99,11 +99,11 @@ export default [
     // traverse le module est directement actionnable. Les autres services
     // restent progressivement typables avant d'entrer dans cette liste.
     files: [
-      "src/services/frontmatter.js",
-      "src/services/folder-structure.js",
-      "src/utils/core.js",
-      "src/utils/text-metrics.js",
-      "src/utils/footnotes.js",
+      "src/services/frontmatter.ts",
+      "src/services/folder-structure.ts",
+      "src/utils/core.ts",
+      "src/utils/text-metrics.ts",
+      "src/utils/footnotes.ts",
     ],
     rules: {
       "@typescript-eslint/no-unsafe-member-access": "warn",
@@ -116,7 +116,7 @@ export default [
     // Les vues et modales manipulent directement les objets dynamiques
     // d'Obsidian et du DOM. Ces alertes y sont trop bruitées pour être
     // actionnables ; les règles de sûreté propres à Obsidian restent actives.
-    files: ["src/views/**/*.js", "src/ui/**/*.js", "src/settings/**/*.js"],
+    files: ["src/views/**/*.ts", "src/ui/**/*.ts", "src/settings/**/*.ts"],
     rules: {
       "@typescript-eslint/no-unsafe-member-access": "off",
       "@typescript-eslint/no-unsafe-assignment": "off",
