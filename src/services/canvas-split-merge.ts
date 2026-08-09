@@ -115,7 +115,7 @@ export type SplitFileResult = { originalFile: TFile; newFile: TFile };
  * de structure Binder supplémentaire »). */
 export async function splitFeuilletFile(app: App, file: TFile, first: string, second: string): Promise<SplitFileResult | null> {
   const raw = await app.vault.read(file);
-  const fmMatch = raw.match(/^﻿?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/);
+  const fmMatch = raw.match(/^\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/);
   const frontmatterBlock = fmMatch ? fmMatch[0] : "";
 
   await app.vault.modify(file, `${frontmatterBlock}${first}\n`);
@@ -216,7 +216,7 @@ export async function executeMerge(
       if (!(file instanceof TFile)) return { ok: false, error: `missing-target-file:${targetNode.file}` };
       targetFile = file;
       targetOriginalRaw = await app.vault.read(file);
-      const fmMatch = targetOriginalRaw.match(/^﻿?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/);
+      const fmMatch = targetOriginalRaw.match(/^\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/);
       const frontmatterBlock = fmMatch ? fmMatch[0] : "";
       await app.vault.modify(file, `${frontmatterBlock}${merged}\n`);
     } else if (targetNode.type === "text") {

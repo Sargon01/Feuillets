@@ -274,7 +274,7 @@ export async function duplicateProjectFolder(app: App, root: TFolder, label: str
  * Les noms de Recherche et Ressources sont déterminés par la locale active
  * via getFeuilletsFolderNames — seuls les trois dossiers de base sont créés
  * ici, jamais les sous-dossiers de Recherche (Personnages, Lieux…) : c'est
- * le rôle d'initProjectStructure (commande « Initialiser la structure »). */
+ * le rôle d'initProjectStructure (commande « Initialiser la structure »). */
 export async function ensureProjectBaseFolders(
   app: App,
   volumePath: string,
@@ -814,7 +814,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     names.journal,
     resPath.split("/").pop(),
   ].join(", ");
-  new Notice(`Structure initialisée : ${listParts}.`);
+  new Notice(`Structure initialisée : ${listParts}.`);
 }
 
 /** `onDone` : appelé après création réussie (le plugin y branche son

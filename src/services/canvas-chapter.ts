@@ -338,16 +338,19 @@ export async function executeChapterPlan(
 
     for (const item of plan.items) {
       if (item.kind === "existing-file") {
-        const file = app.vault.getAbstractFileByPath(item.sourcePath) as TFile;
+        const file = app.vault.getAbstractFileByPath(item.sourcePath);
+        if (!(file instanceof TFile)) continue;
         const srcParentPath = file.parent ? file.parent.path : "";
         originalSourceParentOf.set(item.sourcePath, srcParentPath);
         touchOrder(srcParentPath);
         const destPath = normalizePath(`${chapterFolder.path}/${file.name}`);
         await app.fileManager.renameFile(file, destPath);
         movedFiles.push({ file, from: item.sourcePath });
-        const moved = app.vault.getAbstractFileByPath(destPath) as TFile;
-        chapterChildrenInOrder.push(moved);
-        newNodesById.set(item.node.id, { ...item.node, file: moved.path });
+        const moved = app.vault.getAbstractFileByPath(destPath);
+        if (moved instanceof TFile) {
+          chapterChildrenInOrder.push(moved);
+          newNodesById.set(item.node.id, { ...item.node, file: moved.path });
+        }
       } else {
         // Réutilise un fichier déjà créé par une tentative antérieure
         // interrompue avant le remplacement runtime (jamais un doublon) —

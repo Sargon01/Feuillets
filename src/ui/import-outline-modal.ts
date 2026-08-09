@@ -382,7 +382,9 @@ export class ImportOutlineModal extends Modal {
         if (child.existing) {
           childReal = child.existing;
         } else {
-          childReal = (await this.plugin.ensureFolder(child.path)) as TFolder;
+          const created = await this.plugin.ensureFolder(child.path);
+          if (!(created instanceof TFolder)) continue;
+          childReal = created;
           counts.folders++;
         }
         if (!present.has(childReal.name)) {

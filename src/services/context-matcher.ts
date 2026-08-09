@@ -80,7 +80,7 @@ export function normalizeString(str: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/['’ʼ`\-_/\\,;:!?.()"\[\]{}<>#=~+*&%$@]/g, " ")
+    .replace(/['’ʼ`\-_/\\,;:!?.()"\u005B\u005D{}<>#=~+*&%$@]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

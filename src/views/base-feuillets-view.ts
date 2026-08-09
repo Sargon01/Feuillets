@@ -2009,7 +2009,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     // Surligner le dossier après un court délai
-    setTimeout(() => {
+    window.setTimeout(() => {
       this.highlightResearchFolderInTab(folder);
     }, 100);
   }
@@ -2043,7 +2043,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     element.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
     // Retirer le surlignage après 2 secondes
-    setTimeout(() => {
+    window.setTimeout(() => {
       element.classList.remove("feuillets-highlight-research-folder");
     }, 2000);
   }

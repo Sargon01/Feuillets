@@ -1662,7 +1662,7 @@ export function mergeGlobalMovePairs(
 function normalizeCutPasteText(text: string): string {
   if (!text) return "";
   let t = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  t = t.replace(/[  ]/g, " ");
+  t = t.replace(/[\u00A0\u202F]/g, " ");
   t = t.replace(/[ \t]+/g, " ");
   t = t.replace(/[ \t]*\n[ \t]*/g, "\n");
   return t.trim();
