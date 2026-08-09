@@ -102,30 +102,30 @@ Il gère :
 
 L’**Inspecteur unifié**.
 
-Les onglets courants sont :
+Les onglets publics courants sont :
 
 ```text
-notes
-research
-journal
-project   → libellé public : Édition
-analyse
-relecture
+notes       → libellé public : Feuillet
+research    → Recherche
+journal     → Journal
+project     → Édition
+relecture   → Relecture
 ```
 
 L’identifiant historique `project` est conservé pour compatibilité de réglages. L’onglet Édition agrège les sous-vues de révision DOCX et de documents éditoriaux.
 
-Les anciennes vues individuelles restent enregistrables uniquement là où la compatibilité de workspace l’exige ; elles ne doivent pas redevenir une seconde architecture d’interface.
+Les anciennes valeurs persistées sont redirigées sans recréer d’onglet public : `docx` → `project`, `metadata` → `notes`, `analyse` → `relecture`. Les anciennes vues individuelles restent enregistrables uniquement là où la compatibilité de workspace l’exige ; elles ne doivent pas redevenir une seconde architecture d’interface.
 
 ### Sous-vues de l’Inspecteur
 
-- `notes-view.ts` — notes, propriétés, notes de bas de page, contexte ;
+- `notes-view.ts` — Feuillet : synopsis, résumé, notes, propriétés, notes de bas de page, contexte ;
 - `research-view.ts` / `base-feuillets-view.ts` — Recherche ;
 - `journal-view.ts` — Journal ;
 - `docx-review-view.ts` — révisions DOCX ;
-- `edition-docs-view.ts` — documents `_Edition` ;
-- `analysis-view.ts` — analyse de prose ;
-- `text-analysis-view.ts` — signalements d’un fournisseur compagnon.
+- `edition-docs-view.ts` — documents `_Feuillets/Edition` ;
+- `text-analysis-view.ts` — Relecture : répétitions natives et signalements d’un fournisseur compagnon lorsqu’il existe.
+
+`analysis-view.ts` reste présent dans le code comme compatibilité/réserve interne, mais ne correspond plus à un onglet public de l’Inspecteur.
 
 ## Racines de projet
 
@@ -151,50 +151,70 @@ Pour un projet structuré :
 ```text
 Mon projet/
 ├── Manuscrit/
-├── _Recherche/
-├── _Ressources/
-└── ...
+└── _Feuillets/
+    ├── Recherche/
+    ├── Ressources/
+    ├── Edition/
+    ├── Journal/
+    ├── Snapshots/
+    ├── Backups/
+    └── Sortie/
 ```
 
-la racine réelle est `Mon projet`.
+la racine réelle est `Mon projet`. Certains sous-dossiers auxiliaires sont créés au premier usage plutôt qu’à la création initiale du projet.
 
 `getProjectRoot()` existe pour les opérations qui ont réellement besoin de ce volume.
 
-### Dossier utilisé tel quel
+### Formes créées par type
 
-Feuillets accepte aussi :
+La création initiale distingue explicitement les trois types :
+
+- **Fiction** : `Manuscrit/Front` et `Manuscrit/Chapitre 1/Scène 1.md` ;
+- **Non-fiction** : `Manuscrit/Front` et `Manuscrit/Partie 1/Chapitre 1.md` ;
+- **Libre** : uniquement `Manuscrit/Nouveau texte.md`, sans `Front` ni hiérarchie éditoriale imposée.
+
+Le type définit seulement l’état de départ. Il ne doit jamais être réappliqué automatiquement au point d’écraser les choix ultérieurs du projet.
+
+### Dossier existant feuilleté
+
+Lorsqu’un dossier existant est initialisé comme projet, son contenu reste en place et l’utilisateur choisit **Fiction**, **Non-fiction** ou **Libre**. `settings.projectFolder` pointe directement vers ce dossier et `_Feuillets` est créé à l’intérieur :
 
 ```text
 Articles/
 ├── A.md
-└── B.md
+├── B.md
+└── _Feuillets/
+    └── ...
 ```
 
-avec `settings.projectFolder = "Articles"`.
+Aucun `Manuscrit`, `Front`, partie, chapitre, scène ou nouveau texte n’est imposé dans ce parcours.
 
 Il ne faut donc **jamais** supposer que `root.parent` est automatiquement la racine du projet.
 
-Cette distinction gouverne en particulier `_Sortie` et `_Backups`.
+Cette distinction gouverne en particulier `_Feuillets/Sortie` et `_Feuillets/Backups`.
 
 ## Dossiers conventionnels
 
-La création des noms courants est centralisée dans `getFeuilletsFolderNames()`.
+La création V2 canonique des espaces auxiliaires s’appuie sur `FEUILLETS_AUXILIARY_FOLDER_NAME`, `FEUILLETS_AUXILIARY_FOLDERS`, `feuilletsAuxiliaryRootPath()` et `feuilletsAuxiliaryPath()` dans `services/folder-structure.ts`.
 
-Selon la langue :
+La forme canonique est :
 
-- `_Recherche` / `_Research` ;
-- `_Ressources` / `_Resources`.
+```text
+_Feuillets/
+├── Recherche/
+├── Ressources/
+├── Edition/
+├── Journal/
+├── Snapshots/
+├── Backups/
+└── Sortie/
+```
 
-Autres noms techniques stables :
+Les anciens emplacements (`_Recherche`, `_Research`, `Recherche`, `Research`, `_Ressources`, `_Resources`, ainsi que les anciens dossiers Edition, Journal, Snapshots, Backups ou Sortie) restent **reconnus** lorsqu’ils existent. Ils ne sont ni renommés ni déplacés automatiquement. Si canonical et legacy coexistent, le résolveur canonique est prioritaire.
 
-- `_Snapshots` ;
-- `_Backups` ;
-- `_Journal` ;
-- `_Edition`.
+`getFeuilletsFolderNames()` reste utilisé pour des variantes historiques et certains noms de sous-dossiers ; il ne définit plus à lui seul la racine auxiliaire V2.
 
-`_Versions` et `_Sortie` sont également des espaces techniques utilisés par les services concernés.
-
-Les variantes historiques sans underscore ou dans l’autre langue peuvent être **reconnues** sans être renommées.
+`_Versions` reste un espace séparé utilisé par la duplication manuelle du manuscrit ; il ne fait pas partie du namespace canonique `_Feuillets`.
 
 Principe :
 
@@ -225,7 +245,7 @@ Ne pas introduire une regex locale de YAML dans un autre service lorsque ce help
 - apparitions ;
 - fichiers de Recherche.
 
-Les racines reconnues incluent les variantes :
+La racine canonique est `_Feuillets/Recherche`. Les résolveurs reconnaissent aussi, pour compatibilité, les variantes historiques :
 
 ```text
 _Recherche
@@ -234,9 +254,9 @@ Recherche
 Research
 ```
 
-avec la restriction historique voulue : les variantes sans underscore ne doivent pas apparaître comme faux dossiers du manuscrit.
+avec la restriction historique voulue : les variantes sans underscore ne doivent pas apparaître comme faux dossiers du manuscrit. Une racine legacy existante est conservée ; en l’absence de racine reconnue, toute nouvelle écriture passe par `_Feuillets/Recherche`.
 
-Pour les événements/chronologie, les variantes historiques FR/EN restent reconnues sans création de doublon.
+Pour les événements/chronologie, les variantes historiques FR/EN restent reconnues sans création de doublon. Une valeur legacy de `settings.chronoFolder` peut servir à reconnaître un emplacement existant, jamais à fabriquer une nouvelle racine Recherche hors de `_Feuillets`.
 
 `utils/project-modes.ts` définit les catégories proposées par Fiction, Non-fiction et Libre et leurs variantes.
 
@@ -322,13 +342,13 @@ Services de format :
 
 Les modèles partagés vivent notamment dans `utils/export-templates.ts` et `services/export-templates-custom.ts`.
 
-### `_Sortie`
+### `_Feuillets/Sortie`
 
-Pour un `Manuscrit` structuré, `_Sortie` est placé dans la racine réelle du projet.
+Pour un `Manuscrit` structuré, la sortie canonique est `_Feuillets/Sortie` dans la racine réelle du projet.
 
-Pour un dossier utilisé tel quel, `_Sortie` reste un enfant du dossier actif.
+Pour un dossier existant feuilleté, `_Feuillets/Sortie` reste un enfant du dossier actif.
 
-Cette règle ne doit pas être remplacée par `root.parent || root`.
+L’ancien `_Sortie` est reconnu lorsqu’il existe déjà, mais n’est plus la destination créée par défaut. Cette règle ne doit pas être remplacée par `root.parent || root`.
 
 ## Sauvegardes
 
@@ -344,9 +364,9 @@ sinon
     → sauvegarder root
 ```
 
-`_Backups` est créé sous cette même racine et exclu du ZIP.
+`_Feuillets/Backups` est la destination canonique et reste exclu du ZIP. Un `_Backups` historique déjà présent est reconnu et réutilisé.
 
-Cette règle protège les dossiers « utilisés tels quels » contre l’inclusion accidentelle de leurs frères ou de la racine du coffre.
+Cette règle protège les dossiers existants feuilletés contre l’inclusion accidentelle de leurs frères ou de la racine du coffre.
 
 ## Instantanés et versions
 
@@ -356,21 +376,21 @@ Cette règle protège les dossiers « utilisés tels quels » contre l’inclusi
 - duplication du manuscrit dans `_Versions` ;
 - copie de l’ordre de Binder ;
 - création/initialisation de structure ;
-- `_Edition`.
+- `_Feuillets/Edition`.
 
 Une version du manuscrit ne duplique pas automatiquement la Recherche.
 
-## Analyse de prose et analyse linguistique
+## Relecture et analyse linguistique
 
-Deux concepts doivent rester séparés.
+La surface publique est l’onglet **Relecture**.
 
-### Analyse intégrée
+`views/text-analysis-view.ts` fournit un premier niveau natif, notamment les répétitions rapprochées. Si aucun fournisseur compagnon n’est installé, Relecture reste donc fonctionnelle et affiche simplement les signalements natifs disponibles.
 
-`views/analysis-view.ts` et les utilitaires associés calculent des métriques locales sur le texte.
+`views/analysis-view.ts` et ses utilitaires restent dans le code comme compatibilité/réserve interne, mais l’ancien onglet public `analyse` n’existe plus : une valeur persistée `analyse` est redirigée vers `relecture`.
 
 ### Fournisseur compagnon
 
-`api/text-analysis.ts` définit `TextAnalysisProvider`.
+`api/text-analysis.ts` définit `TextAnalysisProvider`. Un compagnon peut ajouter des signalements linguistiques à Relecture sans embarquer son moteur dans le noyau.
 
 Le contrat contient :
 
@@ -439,7 +459,7 @@ Le build TypeScript est bloquant avant le bundle de production.
    - noms conventionnels → helpers de structure
    - sauvegarde → `project-backup.ts`
 
-2. **Pas de remontée automatique au parent d’un projet libre.**
+2. **Pas de remontée automatique au parent d’un dossier existant feuilleté.**
 
 3. **Pas de migration destructive de dossiers historiques.**
 

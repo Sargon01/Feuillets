@@ -86,9 +86,9 @@ Feuillets does not replace Obsidian or create a second editor. It organizes the 
 
 ## Start without building a system first
 
-### Use an existing folder as-is
+### Turn an existing folder into a project
 
-Any folder already present in the vault can become a Feuillets project **without moving, renaming or converting its files**.
+Any folder already present in the vault can become a Feuillets project **without moving, renaming or converting its personal files**.
 
 For example:
 
@@ -100,27 +100,35 @@ My texts/
 └── Notes.md
 ```
 
-You can start working with what already exists.
-
-### Create a structured project
-
-If you want a more complete organization, create a **Fiction**, **Non-fiction** or **Free** project from the Binder welcome screen.
-
-A structured project can use:
+With **Initialize as a Feuillets project…**, choose **Fiction**, **Non-fiction** or **Free**. The choice defines the initial tools and views; the existing organization stays intact. Feuillets adds its canonical auxiliary space around the texts:
 
 ```text
-My project/
-├── Manuscrit/
-│   └── Front/
-├── _Research/ or _Recherche/
-└── _Resources/ or _Ressources/
+My texts/
+├── Article.md
+├── Column 2.md
+├── Short story.md
+├── Notes.md
+└── _Feuillets/
+    ├── Recherche/
+    ├── Ressources/
+    ├── Edition/
+    ├── Journal/
+    ├── Snapshots/
+    ├── Backups/
+    └── Sortie/
 ```
 
-Other technical spaces (`_Backups`, `_Snapshots`, `_Journal`, `_Edition`, `_Sortie`, `_Versions`) appear only when they become useful.
+Legacy locations such as `_Recherche`, `_Research`, `Recherche`, `Research`, `_Ressources` or `_Resources` remain recognized when they already exist; Feuillets 2 does not automatically rename them.
 
-### Initialize an existing folder
+### Create a new project
 
-**Initialize as a Feuillets project…** adds useful project conventions to an existing folder without restructuring the manuscript.
+From the Binder welcome screen, create a **Fiction**, **Non-fiction** or **Free** project. The type only provides a starting structure:
+
+- **Fiction**: `Front`, then `Chapitre 1/Scène 1.md`;
+- **Non-fiction**: `Front`, then `Partie 1/Chapitre 1.md`;
+- **Free**: only `Manuscrit/Nouveau texte.md`, with no imposed `Front`, part, chapter or scene hierarchy.
+
+Feuillets 2 keeps auxiliary spaces under `_Feuillets` (`Recherche`, `Ressources`, `Edition`, `Journal`, `Snapshots`, `Backups`, `Sortie`). Some are created during initialization and others when they become useful. The type defines the first state; later choices remain yours.
 
 ![Create or open a project](docs/creer-premier-projet.gif)
 
@@ -202,16 +210,15 @@ These views do not create parallel versions of the project: they show **the same
 
 ## Inspector: information when it becomes useful
 
-The right-hand Inspector contains six tabs that can be shown or hidden:
+The right-hand Inspector contains five tabs that can be shown or hidden:
 
 | Tab | Purpose |
 |---|---|
-| **Notes** | Synopsis, summary, working notes, properties, footnotes and Context |
+| **Sheet** | Synopsis, summary, working notes, properties, footnotes and Context |
 | **Research** | Documentation, characters, places, events, sources, bibliography and custom sections |
 | **Journal** | Writing journal and tracking |
 | **Edition** | Editorial documents and DOCX Revision |
-| **Analysis** | Local prose and project analysis |
-| **Proofreading** | Issues supplied by a companion text-analysis plugin |
+| **Proofreading** | Native close-repetition signals and, when a companion provider is installed, additional linguistic findings |
 
 Feuillets is progressively powerful: you can write with almost nothing visible, then open a tool only when it becomes useful.
 
@@ -230,7 +237,7 @@ Depending on the project, it can contain:
 - glossary;
 - your own categories.
 
-Inside **Notes**, **Context** can connect the passage around the cursor with useful project information: explicit references, associated Research, related documents, chronological information and pinned items.
+Inside **Sheet**, **Context** can connect the passage around the cursor with useful project information: explicit references, associated Research, related documents, chronological information and pinned items.
 
 Matching remains **local and deterministic**. No remote AI analyzes the manuscript.
 

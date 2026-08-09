@@ -86,9 +86,9 @@ Feuillets ne remplace pas Obsidian et ne crée pas un second éditeur. Il organi
 
 ## Commencer sans préparer un système
 
-### Utiliser un dossier existant tel quel
+### Transformer un dossier existant en projet
 
-N’importe quel dossier déjà présent dans le coffre peut devenir un projet Feuillets **sans déplacer, renommer ni convertir ses fichiers**.
+N’importe quel dossier déjà présent dans le coffre peut devenir un projet Feuillets **sans déplacer, renommer ni convertir ses fichiers personnels**.
 
 Par exemple :
 
@@ -100,27 +100,35 @@ Mes textes/
 └── Notes.md
 ```
 
-Vous pouvez commencer à travailler immédiatement avec ce qui existe déjà.
-
-### Créer un projet structuré
-
-Si vous souhaitez une organisation plus complète, créez un projet **Fiction**, **Non-fiction** ou **Libre** depuis l’accueil du Classeur.
-
-Un projet structuré peut utiliser :
+Avec **Initialiser comme projet Feuillets…**, vous choisissez **Fiction**, **Non-fiction** ou **Libre**. Ce choix définit le point de départ des outils et des vues ; l’organisation déjà présente reste intacte. Feuillets ajoute autour des textes son espace auxiliaire canonique :
 
 ```text
-Mon projet/
-├── Manuscrit/
-│   └── Front/
-├── _Recherche/ ou _Research/
-└── _Ressources/ ou _Resources/
+Mes textes/
+├── Article sur Volvic.md
+├── Chronique 2.md
+├── Nouvelle.md
+├── Notes.md
+└── _Feuillets/
+    ├── Recherche/
+    ├── Ressources/
+    ├── Edition/
+    ├── Journal/
+    ├── Snapshots/
+    ├── Backups/
+    └── Sortie/
 ```
 
-Les autres espaces techniques (`_Backups`, `_Snapshots`, `_Journal`, `_Edition`, `_Sortie`, `_Versions`) n’apparaissent que lorsqu’ils deviennent utiles.
+Les anciens emplacements comme `_Recherche`, `_Research`, `Recherche`, `Research`, `_Ressources` ou `_Resources` restent reconnus lorsqu’ils existent déjà ; Feuillets 2 ne les renomme pas automatiquement.
 
-### Initialiser un dossier existant
+### Créer un nouveau projet
 
-L’action **Initialiser comme projet Feuillets…** permet d’ajouter les conventions utiles à un dossier existant sans restructurer le manuscrit.
+Depuis l’accueil du Classeur, vous pouvez créer un projet **Fiction**, **Non-fiction** ou **Libre**. Le type fournit seulement une structure de départ :
+
+- **Fiction** : `Front`, puis `Chapitre 1/Scène 1.md` ;
+- **Non-fiction** : `Front`, puis `Partie 1/Chapitre 1.md` ;
+- **Libre** : seulement `Manuscrit/Nouveau texte.md`, sans `Front`, partie, chapitre ou scène imposés.
+
+Les espaces auxiliaires de Feuillets 2 sont regroupés sous `_Feuillets` (`Recherche`, `Ressources`, `Edition`, `Journal`, `Snapshots`, `Backups`, `Sortie`). Certains sont créés dès l’initialisation, d’autres lorsqu’ils deviennent utiles. Le type donne un premier état ; vos choix ultérieurs restent libres.
 
 ![Créer ou ouvrir un projet](docs/creer-premier-projet.gif)
 
@@ -202,16 +210,15 @@ Ces vues ne créent pas plusieurs versions du projet : elles montrent **les mêm
 
 ## L’Inspecteur : l’information quand elle devient utile
 
-Le panneau droit réunit six onglets que vous pouvez afficher ou masquer :
+Le panneau droit réunit cinq onglets que vous pouvez afficher ou masquer :
 
 | Onglet | Rôle |
 |---|---|
-| **Notes** | Synopsis, résumé, notes de travail, propriétés, notes de bas de page et Contexte |
+| **Feuillet** | Synopsis, résumé, notes de travail, propriétés, notes de bas de page et Contexte |
 | **Recherche** | Documentation, personnages, lieux, événements, sources, bibliographie et rubriques personnalisées |
 | **Journal** | Journal d’écriture et suivi |
 | **Édition** | Documents éditoriaux et Révision DOCX |
-| **Analyse** | Analyse locale de la prose et du projet |
-| **Relecture** | Signalements fournis par un module compagnon d’analyse linguistique |
+| **Relecture** | Répétitions détectées nativement et, si un module compagnon est installé, signalements linguistiques supplémentaires |
 
 La puissance de Feuillets doit rester progressive : vous pouvez écrire avec presque rien à l’écran, puis ouvrir un outil seulement au moment où il devient utile.
 
@@ -230,7 +237,7 @@ Selon le projet, elle peut accueillir :
 - glossaire ;
 - vos propres catégories.
 
-Dans **Notes**, la section **Contexte** rapproche le passage autour du curseur de la documentation utile : références explicites, fiches associées, documents proches, informations chronologiques et éléments épinglés.
+Dans **Feuillet**, la section **Contexte** rapproche le passage autour du curseur de la documentation utile : références explicites, fiches associées, documents proches, informations chronologiques et éléments épinglés.
 
 Le rapprochement reste **local et déterministe**. Aucune IA distante n’analyse votre manuscrit.
 

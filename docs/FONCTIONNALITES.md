@@ -9,13 +9,18 @@ Ce document sert de référence fonctionnelle. Les noms internes de réglages so
 ## Projets
 
 - Création de projets **Fiction**, **Non-fiction** et **Libre**.
+- **Fiction** démarre avec `Front`, un premier chapitre et une première scène.
+- **Non-fiction** démarre avec `Front`, une première partie et un premier chapitre.
+- **Libre** démarre avec `Manuscrit/Nouveau texte.md`, sans `Front` ni hiérarchie éditoriale imposée.
 - Projet de démonstration.
 - Gestion de plusieurs projets.
-- Utilisation d’un dossier existant **tel quel**, sans déplacement ni renommage de son contenu.
-- Initialisation d’un dossier existant comme projet Feuillets lorsque vous souhaitez ajouter les conventions du projet.
+- Feuilletisation d’un dossier existant avec choix **Fiction / Non-fiction / Libre**, sans déplacement ni renommage de son contenu personnel.
+- Ajout de l’espace auxiliaire canonique `_Feuillets` autour d’un dossier existant feuilleté.
 - Import d’un plan structuré et import Scrivener sur ordinateur.
 - Métadonnées et conventions de projet facultatives pour écrire.
-- Compatibilité avec plusieurs noms historiques français ou anglais pour les dossiers spécialisés.
+- Compatibilité avec plusieurs noms historiques français ou anglais pour les dossiers spécialisés, sans migration destructive.
+
+Les espaces auxiliaires V2 sont regroupés sous `_Feuillets` : `Recherche`, `Ressources`, `Edition`, `Journal`, `Snapshots`, `Backups` et `Sortie`. Les anciens emplacements restent reconnus lorsqu’ils existent déjà.
 
 ## Écrire
 
@@ -80,7 +85,7 @@ Voir **[Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md)** pour le guide
 
 ## Notes et Contexte
 
-L’onglet **Notes** de l’Inspecteur peut réunir ce qui accompagne le feuillet sans appartenir au texte final :
+L’onglet **Feuillet** de l’Inspecteur peut réunir ce qui accompagne le feuillet sans appartenir au texte final :
 
 - synopsis et résumé ;
 - notes de travail ;
@@ -170,7 +175,7 @@ Voir **[Utiliser le contexte intelligent de Feuillets](How-to-Contexte-Feuillets
 - Insertion d’un lien ou extrait dans le feuillet actif.
 - Lecture d’états datés présents dans les fiches.
 
-Feuillets reconnaît les variantes françaises et anglaises utilisées par les projets actuels ou plus anciens. Pour la Recherche, cela inclut notamment `_Recherche`, `_Research`, `Recherche` et `Research`. Les dossiers non préfixés sont reconnus dans le contexte attendu d’un projet structuré, sans renommage destructif.
+La racine canonique de Recherche est `_Feuillets/Recherche`. Feuillets reconnaît aussi les variantes historiques `_Recherche`, `_Research`, `Recherche` et `Research` lorsqu’elles existent déjà. Les dossiers non préfixés ne sont reconnus que dans le contexte historique attendu, sans renommage ni migration destructive. Si canonical et legacy coexistent, la racine canonique est prioritaire.
 
 Pour les événements chronologiques, les variantes historiques telles que `Événements`, `Events`, `Chronologie`, `Timeline`, `Chronology` et `_Chronologie` peuvent être réutilisées lorsqu’elles existent.
 
@@ -186,16 +191,15 @@ Pour les événements chronologiques, les variantes historiques telles que `Év�
 
 Les propriétés restent facultatives pour écrire.
 
-L’**Inspecteur** unifié regroupe six onglets :
+L’**Inspecteur** unifié regroupe cinq onglets :
 
-- **Notes** ;
+- **Feuillet** ;
 - **Recherche** ;
 - **Journal** ;
 - **Édition** ;
-- **Analyse** ;
 - **Relecture**.
 
-La section **Contexte** et les propriétés du feuillet sont accessibles depuis **Notes**. Les onglets inutiles peuvent être masqués ; Feuillets conserve toujours au moins un onglet visible.
+La section **Contexte** et les propriétés du feuillet sont accessibles depuis **Feuillet**. Les onglets inutiles peuvent être masqués ; Feuillets conserve toujours au moins un onglet visible.
 
 ## Scènes
 
@@ -224,14 +228,14 @@ La section **Contexte** et les propriétés du feuillet sont accessibles depuis 
 - Journal quotidien.
 - Compilation du journal.
 
-## Analyse, relecture et révision éditoriale
+## Relecture et révision éditoriale
 
 - Relecture dans l’Aperçu.
 - Comparaison de deux états.
 - Recherche et remplacement.
 - Révision d’un DOCX annoté dans **Inspecteur → Édition → Révision DOCX**.
-- **Analyse** locale de la prose dans le noyau.
-- **Relecture** alimentée par un module spécialisé lorsqu’un fournisseur est installé.
+- Détection native des répétitions rapprochées dans **Relecture**, même sans module compagnon.
+- Signalements linguistiques supplémentaires dans **Relecture** lorsqu’un fournisseur spécialisé est installé.
 - Correction linguistique confiée à un module compagnon, notamment Feuillets-Grammalecte ; aucun moteur grammatical n’est embarqué dans le noyau.
 - Contrôleur d’incohérences entre manuscrit, fiches et chronologie lorsque disponible dans la version installée.
 
@@ -245,7 +249,7 @@ La section **Contexte** et les propriétés du feuillet sont accessibles depuis 
 - Comparaison avec l’original.
 - Sauvegarde et restauration des réglages.
 
-Pour un projet qui utilise un dossier existant tel quel, les sauvegardes restent dans ce dossier. Pour un projet structuré dont le dossier actif est `Manuscrit`, la sauvegarde couvre le projet parent. `_Backups` suit la même portée et n’est jamais inclus dans sa propre archive.
+Pour un dossier existant feuilleté, la sauvegarde reste strictement dans ce dossier. Pour un projet structuré dont le dossier actif est `Manuscrit`, la sauvegarde couvre le projet parent. `_Feuillets/Backups` est la destination canonique et n’est jamais inclus dans sa propre archive ; un `_Backups` historique déjà présent reste reconnu.
 
 ## Composition
 
