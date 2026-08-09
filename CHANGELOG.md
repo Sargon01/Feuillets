@@ -2,6 +2,13 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.0.1
+
+### Corrigé
+
+- Description du plugin ajustée pour respecter les règles du répertoire communautaire.
+- Corrections mineures de conformité à l’API Obsidian, sans changement du fonctionnement attendu.
+
 ## 2.0.0
 
 ### Écrire d’abord

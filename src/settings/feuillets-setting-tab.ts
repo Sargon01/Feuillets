@@ -1,8 +1,6 @@
 import { YAML_PRESETS } from "../scenes-editor.js";
 import { BOARD_MODES } from "../constants.js";
 import { resolveType } from "../utils/project-modes.js";
-import { NewProjectModal, ManageProjectsModal } from "../ui/project-modals.js";
-import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { LayoutModal } from "../ui/layout-modal.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
 import { getProjectMode } from "../services/project-mode.js";
@@ -14,7 +12,6 @@ import {
   Setting,
   TFolder,
   Notice,
-  Menu,
   Platform,
   Plugin,
   type App,
@@ -74,14 +71,6 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   backupProjectNow(): Promise<void>;
   hidePanel(key: string): Promise<void>;
 
-  /* Requis par les modales déjà migrées ouvertes depuis ce panneau
-     (ManageProjectsModal, NewProjectModal, ScrivenerImportModal) — mêmes
-     signatures que ProjectModalsPlugin/ScrivenerImportPlugin. */
-  ensureFolder(path: string): Promise<import("obsidian").TAbstractFile>;
-  initProjectStructure(): Promise<void>;
-  getOutputFolder(): Promise<import("obsidian").TAbstractFile | null>;
-  duplicateProject(path: string, label: string): Promise<string | null>;
-  writeOrder(parent: import("obsidian").TAbstractFile, orderedChildren: import("obsidian").TAbstractFile[]): Promise<void>;
 };
 
 /* Migré vers l'API déclarative `getSettingDefinitions()` (Obsidian ≥ 1.13.0,
@@ -210,7 +199,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
   private renderProjetCategory(container: HTMLElement): void {
     const S = this.plugin.settings;
     const unit = this.plugin.unitLabel();
-    const unitPlural = this.plugin.unitLabelPlural();
     const refresh = () => this.plugin.refreshView();
 
     const root = this.plugin.getProjectFolder();

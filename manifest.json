@@ -1,9 +1,9 @@
 {
   "id": "feuillets",
   "name": "Feuillets",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "minAppVersion": "1.13.0",
-  "description": "Writing and editorial studio for Obsidian: organize, revise, compile and export Markdown texts, from a single article to a book.",
+  "description": "Writing and editorial studio for Markdown texts: organize, revise, compile and export anything from a single article to a book.",
   "author": "Halim Yalcin",
   "authorUrl": "https://github.com/Sargon01",
   "isDesktopOnly": false

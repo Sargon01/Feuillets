@@ -452,8 +452,6 @@ export class YamlOptionsModal extends Modal {
   onOpen(): void {
     this.contentEl.empty();
     this.setTitle(t("scenesEditor.yamlOptions.title"));
-    const preset = YAML_PRESETS[this.plugin.settings.mergeYamlPreset];
-
     new Setting(this.contentEl)
       .setName(t("scenesEditor.yamlOptions.preset"))
       .setDesc(t("scenesEditor.yamlOptions.presetDesc"))

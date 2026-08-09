@@ -1,4 +1,4 @@
-import { Menu, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
+import { Menu, Modal, Setting, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
 import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating } from "../utils/dom.js";
@@ -80,6 +80,46 @@ type ModeOptionsCtx = {
   pType: string;
   wholeManuscript: boolean;
 };
+
+class TagFilterModal extends Modal {
+  private value: string;
+  private readonly onSubmit: (value: string) => Promise<void>;
+  private submitting = false;
+
+  constructor(app: import("obsidian").App, value: string, onSubmit: (value: string) => Promise<void>) {
+    super(app);
+    this.value = value;
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen(): void {
+    this.contentEl.empty();
+    this.setTitle(t("board.filter.tagPrompt"));
+    new Setting(this.contentEl).addText((text) => {
+      text.setValue(this.value);
+      text.onChange((value) => {
+        this.value = value;
+      });
+      text.inputEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void this.submit();
+        }
+      });
+      window.setTimeout(() => text.inputEl.focus(), 0);
+    });
+    new Setting(this.contentEl)
+      .addButton((button) => button.setButtonText(t("modal.cancel")).onClick(() => this.close()))
+      .addButton((button) => button.setButtonText(t("modal.save")).setCta().onClick(() => void this.submit()));
+  }
+
+  private async submit(): Promise<void> {
+    if (this.submitting) return;
+    this.submitting = true;
+    await this.onSubmit(this.value.trim().replace(/^#/, ""));
+    this.close();
+  }
+}
 
 export class BoardView extends BaseFeuilletsView {
   declare plugin: BoardViewPlugin;
@@ -366,12 +406,12 @@ export class BoardView extends BaseFeuilletsView {
       }
       menu.addSeparator();
       menu.addItem((item) =>
-        item.setTitle(t("board.filter.tagPrompt")).setIcon("tag").onClick(async () => {
-          const entered = window.prompt(t("board.filter.tagPrompt"), (S.tagFilter || "").replace(/^#/, ""));
-          if (entered === null) return;
-          S.tagFilter = entered.trim().replace(/^#/, "");
-          await this.plugin.saveSettings();
-          void this.render();
+        item.setTitle(t("board.filter.tagPrompt")).setIcon("tag").onClick(() => {
+          new TagFilterModal(this.app, (S.tagFilter || "").replace(/^#/, ""), async (value) => {
+            S.tagFilter = value;
+            await this.plugin.saveSettings();
+            void this.render();
+          }).open();
         })
       );
       if (this.filterActive()) {

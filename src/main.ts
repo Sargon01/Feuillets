@@ -1601,16 +1601,8 @@ class FeuilletsPlugin extends Plugin {
       }
       // eslint-disable-next-line @typescript-eslint/unbound-method -- même repli volontaire que ci-dessus : getDisplayText() utilise `this`, appelée uniquement via .call(this) plus bas
       const fallback: (this: MarkdownView) => string = plugin._originalGetDisplayText ?? MarkdownView.prototype.getDisplayText;
-      /* `.call()` renvoie `any` sans `strictBindCallApply` (non activé ici,
-         changement de portée projet) même sur une fonction typée `(this:
-         MarkdownView) => string` — la véritable signature de `fallback`
-         garantit un `string`, d'où ce cast précis plutôt qu'un `any` réel.
-         Une revue avec `strictBindCallApply` actif (donc `.call()` déjà typé
-         `string`) le signale comme « inutile » — mais le retirer réintroduit
-         ici un `any` non typé (`no-unsafe-return`, erreur) sous NOTRE config
-         réelle : l'assertion reste correcte pour ce dépôt, faux positif
-         assumé côté revue. */
-      return fallback.call(this) as string;
+      const displayText: unknown = fallback.call(this);
+      return typeof displayText === "string" ? displayText : "";
     };
     MarkdownView.prototype.getDisplayText = this._patchedGetDisplayText;
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.refreshTabHeaderFor(file)));

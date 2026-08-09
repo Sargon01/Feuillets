@@ -304,7 +304,7 @@ export async function executeChapterPlan(
     }
     for (const f of createdFiles) {
       try {
-        await app.vault.delete(f);
+        await app.fileManager.trashFile(f);
       } catch {
         /* best effort */
       }
@@ -313,7 +313,7 @@ export async function executeChapterPlan(
       const stillThere = app.vault.getAbstractFileByPath(createdFolder.path);
       if (stillThere instanceof TFolder && stillThere.children.length === 0) {
         try {
-          await app.vault.delete(stillThere);
+          await app.fileManager.trashFile(stillThere);
         } catch {
           /* best effort */
         }

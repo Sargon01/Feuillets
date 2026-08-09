@@ -16,7 +16,7 @@ import {
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
-import { getResearchRoot, researchFolderPath } from "./research.js";
+import { getResearchRoot } from "./research.js";
 import { getProjectMode } from "./project-mode.js";
 import { getLocale } from "../i18n/index.js";
 import { openFileActivating } from "../utils/dom.js";
