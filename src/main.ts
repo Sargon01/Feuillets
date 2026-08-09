@@ -46,7 +46,7 @@ import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js
 import { fmOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, labelColor, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
-import { getProjectMode } from "./services/project-mode.js";
+import { getProjectMode, getProjectType } from "./services/project-mode.js";
 import { getChronoFolder, getResearchRoot, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
 import { parseChronologyImport } from "./services/chronology-import.js";
 import { buildNumbering } from "./services/numbering.js";
@@ -1946,7 +1946,7 @@ class FeuilletsPlugin extends Plugin {
       ["autoOpenDocxReview", "project"],
       ["autoOpenProperties", "notes"],
     ];
-    const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(data, key);
+    const hasOwn = (key: string): boolean => Object.getOwnPropertyDescriptor(data, key) !== undefined;
     const hasAutoOpenInspector = hasOwn("autoOpenInspector");
     const hasActiveRightPanelTab = hasOwn("activeRightPanelTab");
     const directLegacyPanels = legacyAutoOpenPanels
@@ -2448,8 +2448,8 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  unitLabel() { return this.projectMode().unit; }
-  unitLabelPlural() { return this.projectMode().unitPlural; }
+  unitLabel() { return t(getProjectType(this.app, this.settings) === "fiction" ? "unit.scene" : "unit.section"); }
+  unitLabelPlural() { return t(getProjectType(this.app, this.settings) === "fiction" ? "unit.scenes" : "unit.sections"); }
   hasSources() { return this.projectMode().hasSources; }
   // Nom personnalisé (S.projectMeta[path].name, réglable dans
   // ManageProjectsModal) en priorité, sinon déduit du dossier (voir

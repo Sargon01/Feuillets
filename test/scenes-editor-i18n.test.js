@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { MarkdownView, Menu, Notice, Setting, TFile } from "obsidian";
+import { MarkdownView, Menu, Notice, Setting, TFile, TFolder } from "obsidian";
 import {
   MergeModal,
   TextInputModal,
@@ -9,7 +9,8 @@ import {
 } from "../src/scenes-editor.js";
 import { en } from "../src/i18n/en.js";
 import { fr } from "../src/i18n/fr.js";
-import { setLocale } from "../src/i18n/index.js";
+import { setLocale, t } from "../src/i18n/index.js";
+import FeuilletsPlugin from "../src/main.js";
 
 class FakeElement {
   constructor(options = {}) {
@@ -55,8 +56,8 @@ function createPlugin() {
     getProjectFolder: () => ({ path: "Projet" }),
     fmOf: () => ({}),
     shortTitleFor: (file) => file.basename,
-    unitLabel: () => "scène",
-    unitLabelPlural: () => "scènes",
+    unitLabel: () => t("unit.scene"),
+    unitLabelPlural: () => t("unit.scenes"),
     saveSettings: async () => {},
     addCommand(command) { commands.push(command); },
     addRibbonIcon(...args) { ribbons.push(args); },
@@ -132,7 +133,7 @@ test("ScenesEditor : titres, commandes et menus contextuels sont traduits", asyn
   Menu.prototype.showAtPosition = function showAtPosition() { shownMenu = this; return this; };
   TextInputModal.prototype.open = function open() { openedTitles.push(this.titleText); return this; };
   try {
-    for (const [locale, expected] of [["fr", ["Scinder la scène", "Scinder", ["Scinder la scène", "Dupliquer la scène", "Déplacer la scène"]]], ["en", ["Split scene", "Split", ["Split the scène", "Duplicate the scène", "Move the scène"]]]]) {
+    for (const [locale, expected] of [["fr", ["Scinder la scène", "Scinder", ["Scinder la scène", "Dupliquer la scène", "Déplacer la scène"]]], ["en", ["Split scene", "Split", ["Split the scene", "Duplicate the scene", "Move the scene"]]]]) {
       setLocale(locale);
       initScenesEditor(plugin);
       assert.ok(plugin._commands.some((command) => command.name === expected[0]));
@@ -171,11 +172,29 @@ test("ScenesEditor : les Notices principales utilisent i18n", async () => {
     setLocale("en");
     await plugin.splitSceneFile(null);
     await plugin.mergeManyScenes([], new TFile("Projet/Cible.md"));
-    assert.deepEqual(notices, ["No active scène.", "No scène to merge."]);
+    assert.deepEqual(notices, ["No active scene.", "No scene to merge."]);
   } finally {
     Notice.onCreate = null;
     setLocale("fr");
   }
+});
+
+test("ScenesEditor : unitLabel traduit les unités selon la langue et le type de projet", () => {
+  for (const [locale, type, singular, plural] of [
+    ["fr", "fiction", "scène", "scènes"],
+    ["en", "fiction", "scene", "scenes"],
+    ["fr", "nonfiction", "section", "sections"],
+    ["en", "nonfiction", "section", "sections"],
+  ]) {
+    setLocale(locale);
+    const root = new TFolder("Projet/Manuscrit");
+    const plugin = Object.create(FeuilletsPlugin.prototype);
+    plugin.app = { vault: { getAbstractFileByPath: (path) => path === root.path ? root : null } };
+    plugin.settings = { projectFolder: root.path, projectMeta: { [root.path]: { type } } };
+    assert.equal(plugin.unitLabel(), singular, `${locale} ${type}`);
+    assert.equal(plugin.unitLabelPlural(), plural, `${locale} ${type}`);
+  }
+  setLocale("fr");
 });
 
 test("ScenesEditor : les clés ajoutées existent dans les deux langues et les anciennes chaînes ciblées ont disparu", async () => {

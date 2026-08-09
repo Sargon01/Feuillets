@@ -1343,6 +1343,10 @@ export const en = {
   "preview.scope.selection": "Selection ({count})",
   "preview.breadcrumb.show": "Show {title}",
 
+  "unit.scene": "scene",
+  "unit.scenes": "scenes",
+  "unit.section": "section",
+  "unit.sections": "sections",
   "scenesEditor.validate": "Confirm",
   "scenesEditor.close": "Close",
   "scenesEditor.next": "Next",

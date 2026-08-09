@@ -1,7 +1,7 @@
 import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { foldAccents } from "../utils/core.js";
-import { fmOf, titleFor, tagsOf } from "./frontmatter.js";
+import { fmOf, titleFor, tagsOf, stripFrontmatter } from "./frontmatter.js";
 import { getProjectFolder, flattenFiles } from "./folder-structure.js";
 import { getLocale } from "../i18n/index.js";
 
@@ -230,11 +230,12 @@ export async function findAppearances(app: App, settings: FeuilletsSettings, ent
   const linkRe = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
   const results: Array<{ file: TFile; excerpt: string; via: "lien" | "nom" | "tag" }> = [];
 
-  // Regex globale avec frontières de mots
+  // Frontières Unicode : `\b` ne considère pas les lettres accentuées comme
+  // des caractères de mot. Les lookarounds conservent les offsets du texte.
   let nameRegex: RegExp | null = null;
   if (matchNames.length > 0) {
     const escaped = matchNames.map(n => n.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'));
-    nameRegex = new RegExp(`\\b(${escaped.join("|")})\\b`, "i");
+    nameRegex = new RegExp(`(?<![\\p{L}\\p{N}_])(${escaped.join("|")})(?![\\p{L}\\p{N}_])`, "iu");
   }
 
   for (const f of files) {
@@ -247,7 +248,7 @@ export async function findAppearances(app: App, settings: FeuilletsSettings, ent
 
     let viaName = false;
     const raw = await app.vault.cachedRead(f);
-    const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+    const body = stripFrontmatter(raw);
 
     if (nameRegex && nameRegex.test(body)) {
       viaName = true;
