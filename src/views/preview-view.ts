@@ -1221,15 +1221,10 @@ export class PreviewView extends ItemView {
    * pointe vers la fenêtre de CE realm, elle aussi non patchée : y appeler
    * `.createEl` planterait exactement pareil. */
   private addTitleRoleControls(element: HTMLElement, role: string, path: string): void {
-    const doc = element.ownerDocument;
-    if (!doc?.createElement) return;
-    const controls = doc.createElement("span");
-    controls.className = "feuillets-preview-title-controls";
+    const controls = element.createSpan({ cls: "feuillets-preview-title-controls" });
     controls.setAttribute("data-title-controls", role);
     const action = (icon: string, label: string, run: () => void): void => {
-      const button = doc.createElement("button");
-      button.type = "button";
-      button.className = "clickable-icon";
+      const button = controls.createEl("button", { cls: "clickable-icon", type: "button" });
       setIcon(button, icon);
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);
@@ -1238,12 +1233,9 @@ export class PreviewView extends ItemView {
         event.stopPropagation();
         run();
       });
-      controls.appendChild(button);
     };
     action("pencil", `Modifier ${role}`, () => void this.editTitleRole(path, role));
-    const drag = doc.createElement("button");
-    drag.type = "button";
-    drag.className = "clickable-icon";
+    const drag = controls.createEl("button", { cls: "clickable-icon", type: "button" });
     setIcon(drag, "grip-vertical");
     drag.setAttribute("aria-label", "Déplacer verticalement");
     drag.setAttribute("title", "Déplacer verticalement");
@@ -1283,14 +1275,9 @@ export class PreviewView extends ItemView {
    * et marges internes, sans panneau permanent ni réglage parallèle.
    * `doc.createElement` volontaire — voir addTitleRoleControls ci-dessus. */
   private addTitlePageControls(titlePage: HTMLElement): void {
-    const doc = titlePage.ownerDocument;
-    if (!doc?.createElement) return;
-    const controls = doc.createElement("span");
-    controls.className = "feuillets-preview-title-page-controls";
+    const controls = titlePage.createSpan({ cls: "feuillets-preview-title-page-controls" });
     const action = (icon: string, label: string, run: () => void): void => {
-      const button = doc.createElement("button");
-      button.type = "button";
-      button.className = "clickable-icon";
+      const button = controls.createEl("button", { cls: "clickable-icon", type: "button" });
       setIcon(button, icon);
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);
@@ -1389,14 +1376,9 @@ export class PreviewView extends ItemView {
 
   /** `doc.createElement` volontaire — voir addTitleRoleControls plus haut. */
   private addGeneratedTitleRoleControls(element: HTMLElement, role: string, edit: () => void): void {
-    const doc = element.ownerDocument;
-    if (!doc?.createElement) return;
-    const controls = doc.createElement("span");
-    controls.className = "feuillets-preview-title-controls";
+    const controls = element.createSpan({ cls: "feuillets-preview-title-controls" });
     const action = (icon: string, label: string, run: () => void): HTMLElement => {
-      const button = doc.createElement("button");
-      button.type = "button";
-      button.className = "clickable-icon";
+      const button = controls.createEl("button", { cls: "clickable-icon", type: "button" });
       setIcon(button, icon);
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);
@@ -1949,8 +1931,7 @@ export class PreviewView extends ItemView {
 
     /* La portée est AFFICHÉE, jamais modifiable ici : le fil d'Ariane est le
        seul endroit qui change la portée (règle 3 et 4 du chantier). */
-    const scopeLabel = createEl("span");
-    scopeLabel.className = "feuillets-preview-export-control feuillets-preview-export-scope-value";
+    const scopeLabel = createSpan({ cls: "feuillets-preview-export-control feuillets-preview-export-scope-value" });
     scopeLabel.setAttribute("aria-label", "Portée de l’export");
     scopeLabel.textContent = this.scopeDisplayLabel();
     this.exportScopeLabelEl = scopeLabel;
