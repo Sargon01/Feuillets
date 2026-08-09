@@ -8,6 +8,7 @@ import { CompileSelectionModal } from "../src/ui/selection-modals.js";
 import { LayoutModal } from "../src/ui/layout-modal.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
 import { setTitleRoleValue } from "../src/utils/title-roles.js";
+import { TextPromptModal } from "../src/ui/basic-modals.js";
 
 /* Chantier « PreviewView : zoom et centrage » — deux bugs confirmés
  * manuellement : les boutons de zoom ne pilotaient rien de réel (l'iframe
@@ -2897,11 +2898,20 @@ test("page de titre interactive — titre, sous-titre et auteur persistent sans 
     view.zoomMode = "manual";
     view.refreshPreview = async () => { refreshes++; };
 
+    const origOpen = TextPromptModal.prototype.open;
     const answers = ["Nouveau titre", "Nouveau sous-titre", "Nouvelle autrice"];
-    window.prompt = () => answers.shift();
-    await view.editTitleRole(file.path, "titre");
-    await view.editTitleRole(file.path, "sous-titre");
-    await view.editTitleRole(file.path, "auteur");
+    TextPromptModal.prototype.open = function() {
+      const answer = answers.shift();
+      this.isSubmitted = true;
+      this.onResult(answer !== undefined ? answer : null);
+    };
+    try {
+      await view.editTitleRole(file.path, "titre");
+      await view.editTitleRole(file.path, "sous-titre");
+      await view.editTitleRole(file.path, "auteur");
+    } finally {
+      TextPromptModal.prototype.open = origOpen;
+    }
 
     assert.match(file.content, /:::titre: Nouveau titre/);
     assert.match(file.content, /:::sous-titre: Nouveau sous-titre/);
@@ -2962,6 +2972,7 @@ test("page de titre interactive — ordre, espacement et alignement passent par 
 
 test("page de titre interactive — clic sélectionne sur la page et révèle une barre visuelle compacte", () => {
   const dom = installDom();
+  const origOpen = TextPromptModal.prototype.open;
   try {
     const root = element("div");
     const doc = {
@@ -2982,14 +2993,18 @@ test("page de titre interactive — clic sélectionne sur la page et révèle un
       settings: { previewMode: "manuscript", exportTemplate: "classique" },
       getProjectFolder: () => null,
     });
-    let prompts = 0;
-    window.prompt = () => { prompts++; return null; };
+    let modalOpens = 0;
+    TextPromptModal.prototype.open = function() {
+      modalOpens++;
+      this.isSubmitted = true;
+      this.onResult(null);
+    };
 
     view.makeTitleElementEditable(title, "titre", "Roman/Front/Titre.md");
     title.click();
 
     assert.equal(title.hasClass("is-title-selected"), true);
-    assert.equal(prompts, 0, "un simple clic sélectionne sans ouvrir de formulaire");
+    assert.equal(modalOpens, 0, "un simple clic sélectionne sans ouvrir de formulaire");
     const controls = title.nextElementSibling;
     assert.equal(controls.hasClass("feuillets-preview-title-controls"), true);
     assert.deepEqual(
@@ -3008,12 +3023,14 @@ test("page de titre interactive — clic sélectionne sur la page et révèle un
       ["Monter la composition", "Descendre la composition", "Réduire les marges internes", "Augmenter les marges internes"]
     );
   } finally {
+    TextPromptModal.prototype.open = origOpen;
     dom.restore();
   }
 });
 
 test("page de titre générée — un simple clic révèle aussi les commandes visuelles", () => {
   const dom = installDom();
+  const origOpen = TextPromptModal.prototype.open;
   try {
     const root = element("div");
     const doc = {
@@ -3035,19 +3052,71 @@ test("page de titre générée — un simple clic révèle aussi les commandes v
       getProjectFolder: () => null,
       saveSettings: async () => {},
     });
-    let prompts = 0;
-    window.prompt = () => { prompts++; return null; };
+    let modalOpens = 0;
+    TextPromptModal.prototype.open = function() {
+      modalOpens++;
+      this.isSubmitted = true;
+      this.onResult(null);
+    };
 
     view.makeFallbackTitleElementEditable(title, "manuscriptTitle", "Titre", "titre");
     title.click();
 
     assert.equal(title.hasClass("is-title-selected"), true);
-    assert.equal(prompts, 0, "le clic sélectionne la zone sans ouvrir immédiatement une boîte de dialogue");
+    assert.equal(modalOpens, 0, "le clic sélectionne la zone sans ouvrir immédiatement une boîte de dialogue");
     assert.deepEqual(
       title.nextElementSibling.children.map((button) => button.getAttribute("aria-label")),
       ["Modifier titre", "Déplacer verticalement", "Réduire l’espace avant", "Augmenter l’espace avant", "Changer l’alignement"]
     );
   } finally {
+    TextPromptModal.prototype.open = origOpen;
+    dom.restore();
+  }
+});
+
+test("page de titre interactive — promptText annulation (null) et chaîne vide", async () => {
+  const dom = installDom();
+  const origOpen = TextPromptModal.prototype.open;
+  try {
+    const file = new TFile("Roman/Front/Titre.md", ":::titre: Titre original");
+    file.path = "Roman/Front/Titre.md";
+    let saves = 0;
+    const app = {
+      vault: {
+        getAbstractFileByPath: (path) => path === file.path ? file : null,
+        cachedRead: async () => file.content,
+        modify: async (_file, content) => { file.content = content; },
+      },
+    };
+    const settings = { previewMode: "manuscript", exportTemplate: "classique", manuscriptTitle: "Titre original" };
+    const view = new PreviewView({ contentEl: element("div") }, {
+      settings,
+      getProjectFolder: () => null,
+      saveSettings: async () => { saves++; },
+    });
+    view.app = app;
+    view.refreshPreview = async () => {};
+
+    // 1. Annulation (null) -> le fichier ne doit pas changer
+    TextPromptModal.prototype.open = function() {
+      this.isSubmitted = true;
+      this.onResult(null);
+    };
+    await view.editTitleRole(file.path, "titre");
+    assert.equal(file.content, ":::titre: Titre original");
+    assert.equal(saves, 0);
+
+    // 2. Chaîne vide ("") -> acceptée et appliquée
+    TextPromptModal.prototype.open = function() {
+      this.isSubmitted = true;
+      this.onResult("");
+    };
+    await view.editTitleRole(file.path, "titre");
+    assert.equal(file.content, ":::titre: ");
+    assert.equal(settings.manuscriptTitle, "");
+    assert.equal(saves, 1);
+  } finally {
+    TextPromptModal.prototype.open = origOpen;
     dom.restore();
   }
 });

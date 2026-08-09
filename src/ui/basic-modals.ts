@@ -258,3 +258,80 @@ export class RenameFolderModal extends Modal {
     this.contentEl.empty();
   }
 }
+
+export class TextPromptModal extends Modal {
+  titleText: string;
+  initialValue: string;
+  onResult: (value: string | null) => void;
+  private isSubmitted = false;
+
+  constructor(app: App, titleText: string, initialValue: string, onResult: (value: string | null) => void) {
+    super(app);
+    this.titleText = titleText;
+    this.initialValue = initialValue;
+    this.onResult = onResult;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: this.titleText });
+    const input = contentEl.createEl("input", {
+      type: "text",
+      value: this.initialValue,
+    });
+    input.addClass("feuillets-input-full");
+    input.focus();
+    input.select();
+
+    const submit = () => {
+      if (this.isSubmitted) return;
+      this.isSubmitted = true;
+      const val = input.value;
+      this.close();
+      this.onResult(val);
+    };
+
+    const cancel = () => {
+      if (this.isSubmitted) return;
+      this.isSubmitted = true;
+      this.close();
+      this.onResult(null);
+    };
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submit();
+      }
+    });
+
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow
+      .createEl("button", { text: t("modal.cancel") })
+      .addEventListener("click", cancel);
+    const saveBtn = btnRow.createEl("button", { text: t("modal.save") });
+    saveBtn.addClass("mod-cta");
+    saveBtn.addEventListener("click", submit);
+  }
+
+  onClose() {
+    if (!this.isSubmitted) {
+      this.isSubmitted = true;
+      this.onResult(null);
+    }
+    this.contentEl.empty();
+  }
+}
+
+export function promptText(app: App, title: string, initialValue: string = ""): Promise<string | null> {
+  return new Promise<string | null>((resolve) => {
+    let resolved = false;
+    const modal = new TextPromptModal(app, title, initialValue, (result) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(result);
+      }
+    });
+    modal.open();
+  });
+}

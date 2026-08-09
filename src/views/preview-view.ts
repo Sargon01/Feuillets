@@ -16,6 +16,7 @@ import { activePresetConfig, compile, exportFile, exportWithScope, resolvedFileT
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
 import { compiledTitleFor, fmOf, shortTitleFor, stripFrontmatter } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
+import { promptText } from "../ui/basic-modals.js";
 import { t } from "../i18n/index.js";
 import { mountTemplatePreview } from "../ui/template-preview.js";
 import { CompileSelectionModal } from "../ui/selection-modals.js";
@@ -1356,12 +1357,11 @@ export class PreviewView extends ItemView {
     element.setAttribute("title", `Modifier ${label.toLowerCase()}`);
     const edit = (): void => {
       const current = String(this.plugin.settings[key] || element.textContent || "");
-      const next = typeof window !== "undefined" && typeof window.prompt === "function"
-        ? window.prompt(label, current)
-        : null;
-      if (next === null) return;
-      this.plugin.settings[key] = next.trim();
-      void this.plugin.saveSettings?.().then(() => this.refreshPreview());
+      void promptText(this.app, label, current).then((next) => {
+        if (next === null) return;
+        this.plugin.settings[key] = next.trim();
+        void this.plugin.saveSettings?.().then(() => this.refreshPreview());
+      });
     };
     element.addEventListener("click", () => this.selectTitleElement(element));
     element.addEventListener("dblclick", edit);
@@ -1405,9 +1405,7 @@ export class PreviewView extends ItemView {
     const content = await this.app.vault.cachedRead(file);
     const normalizedRole = role.trim().toLocaleLowerCase("fr");
     const current = readTitleRoleValue(content, role);
-    const next = typeof window !== "undefined" && typeof window.prompt === "function"
-      ? window.prompt(`Modifier ${role}`, current)
-      : null;
+    const next = await promptText(this.app, `Modifier ${role}`, current);
     if (next === null) return;
     await this.app.vault.modify(file, setTitleRoleValue(content, role, next));
 
