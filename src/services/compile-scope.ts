@@ -1,5 +1,5 @@
-import { App, TFile, TFolder, type TAbstractFile } from "obsidian";
-import { getOrderedChildren, getProjectFolder } from "./folder-structure.js";
+import { App, TFile, TFolder } from "obsidian";
+import { getOrderedChildren } from "./folder-structure.js";
 
 export type CompileScope =
   | { type: "project"; projectRoot: string }

@@ -6,19 +6,14 @@ import {
   getProjectRoot,
   getOrderedChildren,
   getResourcesRoot,
-  resourcesFolderPath,
   resourcesSubfolderPath,
   editionFolderPath,
   getEditionRoot,
   getFeuilletsFolderNames,
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
-  RESEARCH_FOLDER_NAME,
-  RESOURCES_FOLDER_NAME,
-  RESOURCES_SUBFOLDER_NAMES,
 } from "./folder-structure.js";
 import { getResearchRoot } from "./research.js";
-import { ensureJournalFolder } from "./journal.js";
 import { getProjectMode } from "./project-mode.js";
 import { getLocale } from "../i18n/index.js";
 import { openFileActivating } from "../utils/dom.js";

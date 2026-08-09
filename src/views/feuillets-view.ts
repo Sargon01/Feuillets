@@ -10,9 +10,8 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { t } from "../i18n/index.js";
 import { openScopeWithPreview } from "./preview-view.js";
 import { createProjectScope } from "../services/compile-scope.js";
-import { Menu, TFile, TFolder, setIcon, Notice, normalizePath, type App, type TAbstractFile } from "obsidian";
+import { Menu, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
-import type FeuilletsPlugin from "../main.js";
 
 type ProjectNode = TFile | TFolder;
 
@@ -1639,7 +1638,6 @@ export class FeuilletsView extends BaseFeuilletsView {
     const renderFilesOf = (folder: TFolder, depth: number) => {
       if (listTruncated) return;
       const kids = this.plugin.getOrderedChildren(folder);
-      const files = kids.filter((c: ProjectNode) => c instanceof TFile);
       // Le nom du dossier (sous-titre) enroule/déroule ses feuillets ET ses
       // sous-dossiers dans CE volet — indépendant du repli du volet dossiers
       // (même S.collapsed, mais rien n'oblige les deux volets à s'accorder

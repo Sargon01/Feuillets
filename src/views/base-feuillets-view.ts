@@ -1,4 +1,4 @@
-import { getProjectStatuses, VIEW_RESEARCH } from "../constants.js";
+import { getProjectStatuses } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
@@ -13,7 +13,7 @@ import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { addOpenWithPreviewItem, openScopeWithPreview } from "./preview-view.js";
-import { createFileScope, createFolderScope, createSelectionScope, createProjectScope } from "../services/compile-scope.js";
+import { createFolderScope, createSelectionScope } from "../services/compile-scope.js";
 import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
 import { t } from "../i18n/index.js";
@@ -2373,7 +2373,7 @@ export abstract class BaseFeuilletsView extends ItemView {
               await this.app.fileManager.renameFile(folder, newPath);
               plugin.renderAllViews(true);
               new Notice(t("shared.contextMenu.folderRenamed", { name: newName }) || `Folder renamed to "${newName}".`);
-            } catch (e) {
+            } catch {
               new Notice(t("shared.contextMenu.renameFolderFailed") || "Failed to rename folder.");
             }
           }).open();

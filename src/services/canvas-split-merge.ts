@@ -1,7 +1,7 @@
 import { TFile } from "obsidian";
 import type { App } from "obsidian";
 import type { CanvasData, CanvasNode } from "./canvas-board.js";
-import { freshCanvasNodeId, safeFileName, uniqueFileName } from "./canvas-bridge.js";
+import { freshCanvasNodeId, uniqueFileName } from "./canvas-bridge.js";
 import { stripFrontmatter } from "./frontmatter.js";
 
 /* Brainstorming Carnet : « Scinder… » et « Fusionner… » (section 5A/5B du
