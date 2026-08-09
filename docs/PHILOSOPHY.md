@@ -1,68 +1,57 @@
 # Feuillets philosophy
 
-> **English** · [Français](PHILOSOPHIE.md)
+> [Français](PHILOSOPHIE.md) · **English** · [Documentation index](README.md)
 
-## Built from real work
+## Obsidian provides the environment; Feuillets provides the writing studio
 
-Feuillets was born from the difficulties met while writing novels:
+Feuillets is not meant to become a separate application hidden inside Obsidian.
 
-- scattered tools;
-- locked-in formats;
-- subscriptions;
-- separation between writing, documentation and export;
-- difficulty seeing the whole book while working scene by scene.
+Obsidian provides the vault, Markdown, links, editor, Canvas, user-chosen sync and plugin ecosystem. Feuillets adds manuscript structure, writing operations, Research, context, narrative views, rewriting, composition and editorial tools.
 
-The project therefore starts from the craft of writing, not from a technology to showcase.
+## The manuscript remains readable without Feuillets
 
-## Speaking the writer's language
+Texts are Markdown files and folders are real folders. Optional properties remain readable data rather than a proprietary database.
 
-In its public French usage, Feuillets uses:
+Conventions improve the experience; they do not own the manuscript.
 
-- writing project;
-- manuscript;
-- part;
-- chapter;
-- scene;
-- draft page;
-- Binder;
-- Preview;
-- snapshot;
-- backup;
-- template;
-- comparison.
+## Complexity should be progressive
 
-The words file, folder, YAML and Markdown remain necessary in the technical documentation, but they should not define the daily experience.
+A new user should be able to work with:
 
-## The draft page as the basic unit
+> Binder → sheet → Focus Mode → Preview
 
-The draft page gives the manuscript its mobility.
+Research, Journal, narrative threads, Analysis, DOCX review and export templates should appear when useful, not as an entry fee.
 
-It can be written, moved, split, merged, compared, excluded or brought back in independently.
+## One structure, several representations
 
-## Power must not create overload
+Binder, Cards, Outline, Storyline, Timeline and Preview answer different questions about the **same files**.
 
-Feuillets can be reduced to:
+No view should become a second hidden source of truth.
 
-> a Binder, a draft page and Focus mode
+## Metadata helps; it does not gate writing
 
-The other tools appear when the author needs them.
+Status, labels, goals, synopsis, dates and threads can enrich the workflow, but they should not be mandatory forms before writing can begin.
 
-## The method remains the author's
+## Rewriting should remain reversible
 
-Some start with an outline. Others start with a scene, a voice, an image or some documentation.
+Snapshots, comparisons, versions and backups are separate tools with separate purposes.
 
-Feuillets lets you move between Canvas, Research, Boards, Outline, Binder, Timeline and direct writing without imposing a single order.
+## Preview is not a second editor
 
-## Rewriting must remain fearless
+The editor is for writing. Preview is for reading the composed result. Synchronization should connect them without creating two competing documents.
 
-The author must be able to try, cut, move and go back.
+## Specialized domains can remain companions
 
-Backups, snapshots, comparisons and versions serve this creative freedom.
+Feuillets-Grammalecte handles linguistic analysis, Courrier handles editorial correspondence, and Advanced Canvas remains optional.
 
-## The manuscript must remain open
+Feuillets exposes only the contracts needed to work with them.
 
-Feuillets uses Obsidian as its current environment, but keeps the texts in ordinary formats and its code under the GNU GPLv3 licence.
+## Maintenance favors stability
 
-The dependency on Obsidian is an accepted limit. It allows today to benefit from a stable, cross-platform editor without rebuilding all this infrastructure.
+Priorities are stability, cross-view consistency, ergonomics and small useful improvements. A broad rearchitecture is not a goal by itself.
 
-A future standalone version remains possible because the code of Feuillets and the texts are not locked in.
+## Freedom
+
+Feuillets is local, telemetry-free and GPL-3.0.
+
+> **You should be able to leave the tool without leaving your manuscript.**

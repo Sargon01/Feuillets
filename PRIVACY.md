@@ -1,64 +1,81 @@
 # Privacy
 
-Feuillets makes no network requests on its own initiative, and collects no
-data of any kind. The only network activity that can ever happen is two
-explicit, user-triggered actions described below — never automatic, never
-in the background, never on load.
+Feuillets is designed as a local writing plugin for Obsidian.
 
 ## What Feuillets collects
 
-**Nothing.** No analytics, no telemetry, no crash reporting, no usage
-statistics, no identifiers.
+**Nothing.**
 
-## Network activity — none
+Feuillets contains no:
 
-Feuillets makes no network request of its own. It contacts no server, loads
-no remote script, font, or image, and sends your text nowhere.
+- analytics;
+- telemetry;
+- advertising identifiers;
+- crash-reporting service;
+- account system;
+- usage tracking.
 
-Up to 1.4.4 there were two exceptions: downloading the local grammar engines,
-and submitting text to LanguageTool if you selected it. Both are gone in
-1.4.5 — grammar checking was removed from Feuillets entirely (see
-`README.md`). Nothing replaced them: the plugin now works fully offline
-from the moment it is installed.
+The core plugin does not require a Feuillets server or a Feuillets account.
 
-For spelling and grammar, install a dedicated plugin from Obsidian's
-Community Plugins browser. Those plugins have their own privacy policies;
-Feuillets neither configures them nor reads their data.
+## Manuscript data
 
-Nothing in Feuillets makes a network call. `WebSocket`, `fetch` and
-`requestUrl` appear nowhere in the source.
+Your manuscript remains in your Obsidian vault as ordinary files and folders.
 
-## Where your data lives
+Depending on the features you use, Feuillets may create local project material such as:
 
-- **Your manuscript** (scenes, folders, frontmatter) stays exactly where you
-  put it: as plain Markdown files in your own Obsidian vault, managed only
-  through Obsidian's standard vault APIs.
-- **Plugin settings** (word-count goals, board layout, typography
-  preferences, etc.) are stored locally by Obsidian in this plugin's own
-  `data.json`, inside your vault's `.obsidian/plugins/feuillets/` folder —
-  never synced or transmitted anywhere by the plugin itself. If you use
-  Obsidian Sync, iCloud, or another vault-sync service, that service handles
-  the file the same way it handles any other vault file; the plugin has no
-  part in that.
-- **Grammar-check "learned words" and "ignored issues"** are stored
-  separately, in `resources/grammar-user-data.json` inside the plugin
-  folder — same locality guarantees as `data.json`, just kept out of it so
-  a long list doesn't bloat the settings file.
-- **Exported files** (`.docx`/`.epub`/`.pdf`, built natively in pure
-  JavaScript by default — see `SECURITY.md`) are written to your vault (or
-  its configured output folder) on your own machine. If you opt into the
-  Pandoc export engine instead, Pandoc itself runs locally; nothing is
-  uploaded either way.
+- `_Recherche` / `_Research`;
+- `_Ressources` / `_Resources`;
+- `_Snapshots`;
+- `_Versions`;
+- `_Backups`;
+- `_Edition`;
+- `_Journal`;
+- `_Sortie`.
 
-## Third parties
+These are local vault files. They are not uploaded by Feuillets.
 
-Two, both described above and both opt-in/explicit: GitHub (release-asset
-hosting for the local grammar engines) and LanguageTool (only if you select
-it as your proofreading engine). Feuillets integrates with no other
-third-party service, API, or SDK.
+A project can also be an existing folder used as-is. Opening such a folder does not move or rename its existing files.
 
-## Changes to this document
+## Plugin settings
 
-If a future version of Feuillets changes its network or data-collection
-behavior, this file will be updated first, and the change will be called
-out explicitly in the release notes.
+Feuillets settings are stored through Obsidian's plugin data mechanism, locally in the vault configuration.
+
+If you use Obsidian Sync, iCloud, Dropbox, Git, a filesystem backup or another synchronization service, that service may copy vault files according to **its** configuration and privacy policy. Feuillets does not control those services.
+
+## Network behavior
+
+Feuillets does not need a network service to read, write, analyze structurally, compile or export the manuscript.
+
+The core plugin does not send manuscript text to a remote proofreading service and does not download a grammar engine.
+
+Ordinary links displayed in documentation or interface text may of course open a website when **you explicitly click them**. That is different from background manuscript transmission.
+
+## Imports and exports
+
+Scrivener import and reviewed-DOCX workflows operate on files selected by the user.
+
+Exports are generated locally. DOCX, EPUB and ODT are built locally from bundled JavaScript libraries; PDF uses the local system print flow on desktop.
+
+Generated output stays in the vault/project output location unless the user later moves, shares or synchronizes it.
+
+## Backups
+
+Project backups are local ZIP files.
+
+For a structured project, the backup may cover the project folder containing `Manuscrit` and its companion folders. For a folder used as-is, backup scope is restricted to that folder and does not implicitly include sibling folders or the whole vault.
+
+## Companion plugins
+
+Feuillets exposes a local API through which another installed Obsidian plugin can register a text-analysis provider.
+
+For example, Feuillets-Grammalecte can provide linguistic analysis while Feuillets displays the results.
+
+A companion plugin is separate software. Its own data and network behavior are governed by that plugin's implementation and privacy documentation. Installing Feuillets alone does not install or activate such a provider.
+
+## Third-party libraries
+
+The libraries bundled in Feuillets are used locally for document generation, ZIP handling and text comparison. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+## Changes
+
+If Feuillets ever introduces telemetry, a required network service, remote manuscript processing, or another material change to this model, this document and the security documentation must be updated in the same release.

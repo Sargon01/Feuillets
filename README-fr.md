@@ -1,255 +1,253 @@
 # Feuillets
 
-**English version: [English](https://github.com/Sargon01/Feuillets/blob/main/README.md)**
+**English version: [README.md](README.md)**
 
 ## Écrivez un livre, pas une collection de notes
 
 **Feuillets transforme Obsidian en atelier d’écriture longue, libre, local et gratuit.**
 
-Organisez votre manuscrit dans le **Classeur**, écrivez **feuillet par feuillet**, passez en mode **Concentration**, relisez une scène, un chapitre, une partie ou le manuscrit entier dans l’**Aperçu**, puis composez et exportez votre œuvre.
+Le principe est simple : le **Classeur** garde le manuscrit visible, le **feuillet** reste le lieu où l’on écrit, le mode **Concentration** efface le bruit, l’**Aperçu** permet de lire le texte comme un livre, puis Feuillets compose et exporte le résultat.
 
-> **Aussi simple qu’une page. Aussi riche qu’un projet de roman.**
+> **Aussi simple qu’une page. Aussi riche qu’un projet de livre.**
 
-Feuillets ne vous impose ni méthode unique ni interface chargée. Vous pouvez commencer avec un Classeur, un feuillet et le mode Concentration. Les outils avancés restent disponibles lorsque votre projet en a besoin.
-
-**Conçu par un écrivain, pour le travail réel des écrivains.**
-
-![Feuillets — Classeur, écriture et aperçu paginé](docs/feuillets-ecriture-apercu.png)
+![Feuillets — Classeur, écriture et aperçu](docs/feuillets-ecriture-apercu.png)
 
 *Écrivez dans le feuillet. Relisez le livre.*
 
-## Commencer en cinq minutes
+## Ce que Feuillets ajoute à Obsidian
 
-### 1. Créez ou ouvrez un projet d’écriture
+Obsidian fournit le coffre, les fichiers Markdown, les liens et l’écosystème. Feuillets ajoute l’atelier spécialisé de l’auteur :
 
-Depuis l’accueil du Classeur, vous pouvez :
+- un **Classeur** hiérarchique pour parties, chapitres, scènes, sections et feuillets ;
+- **Cartes**, **Plan**, **Chemin de fer** et **Chronologie** pour examiner le même manuscrit sous plusieurs angles ;
+- un **Carnet** fondé sur Canvas pour explorer librement des idées avant de les transformer en texte ;
+- un **Inspecteur** à onglets : Notes, Recherche, Journal, Édition, Analyse et Relecture ;
+- un mode **Concentration** et une présentation d’écriture littéraire ;
+- un **Aperçu paginé** de la scène, du chapitre, de la partie ou du manuscrit ;
+- des outils de **scission, fusion, déplacement, duplication et sélection multiple** ;
+- des **objectifs, statistiques et journal d’écriture** ;
+- des **instantanés, comparaisons, versions et sauvegardes ZIP** ;
+- la **composition** d’un fichier, d’un dossier, d’une sélection ou du projet entier ;
+- des exports **DOCX, EPUB, ODT, PDF et Markdown compilé** ;
+- l’import d’un **plan Markdown** et l’import d’un projet **Scrivener**.
 
-- créer un projet de fiction ou de non-fiction ;
-- reprendre un manuscrit existant ;
-- découvrir Feuillets avec un projet de démonstration.
+Feuillets ne remplace pas l’éditeur d’Obsidian : il l’organise autour du travail d’écriture longue.
 
-Un nouveau projet ouvre directement un premier feuillet prêt à écrire.
+## Commencer
 
-![Créer un premier projet dans Feuillets](docs/creer-premier-projet.gif)
+### Créer un projet
 
-*Créez un projet d’écriture et commencez à écrire en quelques secondes.*
+Depuis l’accueil du Classeur, choisissez **Créer un projet** puis le type :
 
-### 2. Construisez le manuscrit dans le Classeur
+- **Fiction** ;
+- **Non-fiction** ;
+- **Libre**.
 
-Le Classeur présente le livre sous sa forme naturelle :
+Un projet créé par Feuillets utilise une structure claire :
 
-- parties ;
-- chapitres ;
-- scènes ;
-- feuillets.
+```text
+Mon projet/
+├── Manuscrit/
+├── _Recherche/ ou _Research/
+├── _Ressources/ ou _Resources/
+└── Front/ se trouve dans Manuscrit/
+```
 
-Le glisser-déposer permet de déplacer et réordonner le manuscrit. Un plan déjà préparé peut être importé en une seule fois.
+Les autres espaces techniques (`_Backups`, `_Snapshots`, `_Journal`, `_Edition`, `_Sortie`, `_Versions`) ne sont créés que lorsqu’ils sont nécessaires.
 
-### 3. Ouvrez un feuillet et écrivez
+![Créer un premier projet](docs/creer-premier-projet.gif)
 
-Le **feuillet** est l’unité de base de Feuillets. Il peut contenir une scène, une section ou tout fragment que vous souhaitez écrire, déplacer, comparer ou exclure indépendamment.
+### Utiliser un dossier existant tel quel
 
-La vue Écriture rend la syntaxe discrète et applique au manuscrit une présentation littéraire : largeur maîtrisée, alinéas, paragraphes resserrés et typographie personnalisable.
+Vous pouvez aussi choisir n’importe quel dossier déjà présent dans le coffre et l’utiliser comme manuscrit **sans déplacer, renommer ni convertir ses fichiers**.
 
-### 4. Activez Concentration
+C’est la voie la plus simple pour un ensemble de notes Markdown déjà existant.
 
-Le mode Concentration réduit l’atelier à l’essentiel :
+### Initialiser un dossier comme projet Feuillets
 
-- texte centré ;
-- largeur réglable ;
-- défilement machine à écrire ;
-- estompage du texte hors attention ;
-- compteur de mots discret.
+Depuis l’Explorateur de fichiers d’Obsidian, l’action **Initialiser comme projet Feuillets…** permet d’associer un type de projet à un dossier existant et de préparer les catégories de Recherche correspondantes, sans restructurer le manuscrit.
 
-![Mode Concentration de Feuillets](docs/feuillets-concentration.png)
+## Le Classeur
 
-*Quand il faut écrire, tout le reste disparaît.*
+Le Classeur est la colonne vertébrale du projet. Il permet de :
 
-### 5. Ouvrez l’Aperçu
+- naviguer dans la hiérarchie ;
+- créer et renommer dossiers et feuillets ;
+- déplacer des éléments par glisser-déposer, y compris vers la racine du manuscrit ;
+- sélectionner plusieurs éléments ;
+- chercher dans les titres ou le contenu ;
+- filtrer par statut, label ou progression ;
+- afficher au choix extrait, synopsis, résumé, notes, tags, statut, progression ou nombre de mots ;
+- ouvrir un fichier, un dossier ou une sélection directement dans l’Aperçu ;
+- compiler un fichier, un dossier ou une sélection.
 
-L’Aperçu peut afficher :
-
-- la scène active ;
-- un chapitre ;
-- une partie ;
-- le manuscrit entier.
-
-Il repose sur la même composition que les exports. Une correction effectuée dans le feuillet apparaît dans le rendu, et la navigation peut suivre la scène correspondante.
-
-![Aperçu paginé du manuscrit](docs/feuillets-apercu.png)
-
-*Corrigez la scène. Jugez le livre.*
-
-## Un outil simple qui grandit avec le manuscrit
-
-Le parcours essentiel suffit pour écrire un livre :
-
-> Classeur → feuillet → Concentration → Aperçu → export
-
-Lorsque le projet grandit, Feuillets ajoute :
-
-- Cartes pour déplacer et équilibrer les scènes ;
-- Plan pour examiner les informations du manuscrit ;
-- Chemin de fer pour suivre les fils narratifs ;
-- Chronologie pour distinguer ordre du récit et ordre des événements ;
-- Recherche pour construire la bible du projet ;
-- Notes pour garder synopsis, résumé, sources et contexte à côté du texte ;
-- Journal et Statistiques pour suivre le travail ;
-- Révision, instantanés, sauvegardes et versions ;
-- composition, modèles et exports.
-
-La puissance de l’atelier n’oblige jamais à tout afficher.
-
-## Pourquoi un écrivain expérimenté choisit Feuillets
-
-### Le texte et la structure restent liés
-
-Une scène n’est pas seulement du texte. Elle possède une place, un statut, un synopsis, des liens, des dates, des fils narratifs et parfois un objectif.
-
-Feuillets permet de déplacer, scinder, fusionner et dupliquer les scènes sans perdre silencieusement les informations qui leur sont associées.
-
-### Le livre reste visible pendant l’écriture
-
-Le Classeur conserve l’architecture du manuscrit sous les yeux. L’Aperçu permet de lire le texte dans le mouvement réel du chapitre ou du livre.
-
-![Classeur du manuscrit dans Feuillets](docs/feuillets-classeur.png)
+![Le Classeur](docs/feuillets-classeur.png)
 
 *Le livre reste visible pendant que vous écrivez.*
 
-### La réécriture reste réversible
+## Écrire et se concentrer
 
-Sauvegardes automatiques, instantanés, comparaison et duplication en nouvelle version permettent d’explorer une autre direction sans sacrifier l’état précédent.
+Le manuscrit reste constitué de fichiers Markdown ordinaires. Feuillets améliore leur présentation sans créer de format propriétaire :
 
-![Comparaison de deux versions d’un feuillet](docs/feuillets-comparaison.png)
+- largeur de texte maîtrisée ;
+- typographie et interligne réglables ;
+- alinéas et paragraphes adaptés à la prose ;
+- syntaxe Markdown rendue discrète ;
+- aides typographiques françaises ;
+- recherche/remplacement à l’échelle du manuscrit ;
+- notes de bas de page et citations.
 
-*Réécrivez sans perdre ce que vous aviez écrit.*
+Le mode **Concentration** peut masquer les panneaux, centrer le texte, conserver la ligne active dans une zone confortable, estomper le reste et afficher un compteur discret.
 
-### La composition n’est pas découverte après coup
+![Mode Concentration](docs/feuillets-concentration.png)
 
-La même logique de composition alimente l’Aperçu et les exports. Les titres, séparateurs, marges, polices, espacements et éléments liminaires peuvent être vérifiés avant la production du document final.
+## L’Inspecteur
 
-## Plusieurs manières de comprendre le même manuscrit
+Le panneau droit réunit les outils qui accompagnent l’écriture. Chaque onglet peut être affiché ou masqué dans les réglages.
+
+| Onglet | Rôle |
+|---|---|
+| **Notes** | Synopsis, résumé, notes de travail, propriétés, notes de bas de page et contexte du passage |
+| **Recherche** | Bible du projet, sources, bibliographie, personnages, lieux, événements et rubriques personnalisées |
+| **Journal** | Journal d’écriture et suivi |
+| **Édition** | Documents éditoriaux et réintégration des révisions DOCX |
+| **Analyse** | Métriques de prose, répétitions, équilibre des chapitres, rythme et tableau de bord |
+| **Relecture** | Résultats fournis par un module compagnon d’analyse linguistique |
+
+Feuillets ne contient pas lui-même de moteur grammatical. Le contrat public d’analyse permet à un module compagnon, comme **Feuillets-Grammalecte**, de fournir les signalements tandis que Feuillets gère l’affichage, la navigation et les corrections.
+
+## Recherche et contexte
+
+La Recherche sert de bible du projet. Les rubriques proposées dépendent du type de projet :
+
+- **Fiction** : personnages, lieux, événements, lore, glossaire, bibliographie ;
+- **Non-fiction** : sources, bibliographie, notes ;
+- **Libre** : aucune rubrique métier imposée.
+
+Vous pouvez ajouter vos propres rubriques. Les anciens noms français et anglais restent reconnus afin de ne pas dupliquer les dossiers d’un projet existant.
+
+Dans **Notes**, la section **Contexte** peut rapprocher le passage courant de fiches de Recherche, d’associations explicites et d’informations chronologiques. Le rapprochement est local et déterministe : aucune IA distante n’analyse le manuscrit.
+
+## Cartes, Plan, Chemin de fer et Chronologie
 
 ![Cartes, Plan, Chemin de fer et Chronologie](docs/feuillets-mosaique-narrative.png)
 
 *Un même manuscrit, plusieurs angles de lecture.*
 
-| Besoin | Vue |
+| Question | Vue |
 |---|---|
-| Naviguer entre parties, chapitres et scènes | Classeur |
-| Réorganiser visuellement le récit | Cartes |
-| Contrôler les informations et la progression | Plan |
-| Observer les fils narratifs | Chemin de fer |
-| Vérifier le temps du récit | Chronologie |
-| Lire comme un livre continu | Aperçu |
-| Explorer librement | Carnet |
+| Où se trouve ce texte ? | Classeur |
+| Comment réordonner les scènes visuellement ? | Cartes |
+| Quelles informations manquent ou déséquilibrent le manuscrit ? | Plan |
+| Où passent les fils narratifs ? | Chemin de fer |
+| Dans quel ordre les événements se produisent-ils ? | Chronologie |
+| Comment le texte se lit-il une fois composé ? | Aperçu |
+| Où jeter, relier et faire mûrir des idées ? | Carnet |
 
-Le Carnet est l'espace libre où l'auteur peut jeter ses idées, références,
-scènes possibles et matériaux de recherche, les disposer et les relier
-librement, puis transformer volontairement certaines idées en feuillets du
-manuscrit ou en fiches Markdown de Recherche.
+Le **Carnet** repose sur Canvas natif. **Advanced Canvas** reste facultatif ; s’il est installé, Feuillets peut profiter de ses interactions enrichies sans en faire une dépendance.
 
-Le Carnet s'appuie sur le Canvas natif d'Obsidian. [Advanced Canvas](https://github.com/Developer-Mike/obsidian-advanced-canvas)
-reste facultatif mais recommandé pour une expérience plus proche de
-Scapple, notamment texte sans cadre, groupes repliables et interactions
-avancées avec les nœuds.
+## Aperçu, composition et export
 
-## Vos textes restent les vôtres
+L’Aperçu peut travailler sur :
 
-Feuillets fonctionne localement dans Obsidian et ne nécessite aucun service en ligne pour son usage normal.
+- un feuillet ;
+- un dossier ;
+- une sélection ;
+- le projet complet.
 
-- aucun abonnement Feuillets ;
-- aucune télémétrie ;
-- aucun serveur imposé ;
-- textes conservés en Markdown ;
-- code publié sous licence GNU GPLv3.
+La scène active se met à jour rapidement ; les portées longues privilégient la stabilité de lecture. L’Aperçu et les exports utilisent la même logique de titres, séparateurs, pages liminaires et modèles.
 
-Un projet peut être sauvegardé, synchronisé et repris avec d’autres outils. Feuillets n’enferme pas le manuscrit dans une base opaque.
+![Aperçu paginé](docs/feuillets-apercu.png)
 
-## Importer un projet existant
+Les formats actuellement pris en charge par le moteur natif sont :
 
-Feuillets peut :
+- **DOCX** ;
+- **EPUB** ;
+- **ODT** ;
+- **PDF** — via la boîte d’impression du système, sur ordinateur ;
+- **Markdown compilé**.
 
-- ouvrir un manuscrit Markdown existant sans le déplacer ni le renommer ;
-- transformer un plan structuré en parties, chapitres et scènes ;
-- importer un projet Scrivener sur ordinateur afin d’en reprendre la structure, les textes et les éléments compatibles.
+Les sorties sont placées dans `_Sortie`. Pour un projet structuré autour de `Manuscrit`, `_Sortie` est créé à côté de `Manuscrit`. Pour un dossier utilisé tel quel, `_Sortie` reste à l’intérieur de ce dossier : Feuillets ne remonte pas arbitrairement dans le coffre.
 
-![Import d’un projet Scrivener dans Feuillets](docs/feuillets-import-scrivener.png)
+## Réécrire sans perdre
+
+Feuillets distingue plusieurs niveaux de protection :
+
+- **instantané** d’un feuillet pour marquer un état précis ;
+- **comparaison** entre états ;
+- **version** du manuscrit pour explorer une autre direction ;
+- **sauvegarde ZIP** automatique ou manuelle du projet actif.
+
+![Comparer deux états](docs/feuillets-comparaison.png)
+
+Une sauvegarde d’un projet structuré couvre le dossier qui contient `Manuscrit` et ses espaces associés. Un dossier utilisé tel quel est sauvegardé **strictement dans son propre périmètre** ; Feuillets ne sauvegarde pas ses dossiers frères ni la racine entière du coffre.
+
+## Importer depuis Scrivener
+
+L’import Scrivener récupère la structure du Binder, les textes et les éléments compatibles, puis les transforme en fichiers et dossiers du coffre.
+
+![Import Scrivener](docs/feuillets-import-scrivener.png)
 
 *Changez d’atelier, pas de manuscrit.*
 
-## Composer et exporter
-
-Feuillets assemble les feuillets selon l’ordre du Classeur et les règles choisies.
-
-Selon la version et l’environnement, la composition peut être produite en :
-
-- DOCX ;
-- EPUB ;
-- ODT ;
-- PDF par l’impression du système ;
-- Markdown compilé.
-
-La documentation de la version installée reste la référence exacte pour les formats et leurs limites.
+Le guide détaillé se trouve dans [Importer un projet Scrivener](docs/IMPORT-SCRIVENER.md).
 
 ## Écosystème
 
-Des modules spécialisés peuvent prolonger l’atelier :
+Feuillets garde son noyau centré sur l’écriture et délègue les domaines spécialisés à des modules compagnons :
 
-- **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** : correction linguistique séparée du noyau ;
-- **[Courrier](https://github.com/Sargon01/Courrier)** : contacts, correspondance, soumissions, réponses et relances.
+- **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** — analyse linguistique française ;
+- **[Courrier](https://github.com/Sargon01/Courrier)** — contacts, soumissions, réponses, relances et suivi éditorial.
 
-![Écosystème Feuillets, Feuillets-Grammalecte et Courrier](docs/feuillets-ecosysteme.png)
+![Écosystème Feuillets](docs/feuillets-ecosysteme.png)
 
-*Écrire, corriger, soumettre : un atelier, des modules spécialisés.*
+## Liberté, confidentialité et sécurité
 
-## Sécurité, confidentialité et assurance qualité
+- fichiers source en **Markdown** ;
+- fonctionnement local ;
+- **aucune télémétrie** ;
+- **aucun envoi du manuscrit vers un service distant** ;
+- aucun moteur grammatical téléchargé ou exécuté par Feuillets ;
+- aucune dépendance à Pandoc ;
+- code source sous **GNU GPL-3.0** ;
+- build non minifié et vérifiable ;
+- tests, TypeScript, ESLint et revue Obsidian dans l’intégration continue.
 
-Feuillets fonctionne localement dans votre coffre Obsidian. Il ne contient aucune télémétrie, ne dépend d’aucun service cloud et n’effectue aucune requête réseau suspecte.
+Feuillets requiert **Obsidian 1.13.0 ou plus récent**. Le plugin n’est pas déclaré desktop-only ; l’export PDF reste toutefois une fonction desktop, car il passe par la boîte d’impression.
 
-Le plugin est couvert par des tests automatisés et des contrôles d’intégration continue. Son code source, sa version de production, ses dépendances et ses fichiers de publication sont vérifiés avant chaque mise à disposition.
-
-### À propos de l’analyse automatisée
-
-Feuillets est un environnement d’écriture complet qui nécessite légitimement l’accès à plusieurs fonctionnalités d’Obsidian et du système de fichiers, notamment pour lire, créer et modifier des fichiers dans le coffre.
-
-En raison de cette richesse fonctionnelle, l’analyse automatisée peut classer certains comportements attendus et certains choix d’architecture comme des points de vigilance. Ces résultats n’indiquent pas nécessairement l’existence de vulnérabilités de sécurité.
-
-La version publiée :
-
-- passe l’ensemble des tests automatisés du projet ;
-- ne comporte aucune dépendance connue comme vulnérable ;
-- ne présente aucune activité réseau suspecte ;
-- inclut des attestations GitHub vérifiées pour les fichiers publiés ;
-- peut être reproduite à l’identique à partir du code source.
+Voir [PRIVACY.md](PRIVACY.md) et [SECURITY.md](SECURITY.md).
 
 ## Installation
 
-### Depuis les modules communautaires d’Obsidian
+### Modules communautaires d’Obsidian
 
-Après acceptation dans le catalogue :
-
-1. ouvrez **Réglages → Modules communautaires** ;
-2. recherchez **Feuillets** ;
-3. installez puis activez le module.
+1. Ouvrez **Réglages → Modules communautaires**.
+2. Recherchez **Feuillets**.
+3. Installez puis activez le module.
 
 ### Installation manuelle
 
-1. téléchargez `main.js`, `manifest.json` et `styles.css` depuis la [dernière version publiée](https://github.com/Sargon01/Feuillets/releases/latest) ;
-2. placez-les dans `.obsidian/plugins/feuillets/` ;
-3. rechargez Obsidian ;
-4. activez Feuillets.
+Téléchargez `main.js`, `manifest.json` et `styles.css` depuis la dernière release puis placez-les dans :
+
+```text
+<votre coffre>/.obsidian/plugins/feuillets/
+```
+
+Rechargez Obsidian et activez Feuillets.
 
 ## Documentation
 
-- [Découvrir Feuillets](https://github.com/Sargon01/Feuillets/blob/main/docs/DECOUVRIR.md)
-- [Le parcours d’un auteur](https://github.com/Sargon01/Feuillets/blob/main/docs/PARCOURS-AUTEUR.md)
-- [Fonctionnalités par usage](https://github.com/Sargon01/Feuillets/blob/main/docs/FONCTIONNALITES.md)
-- [Créer une interface d’écriture épurée](https://github.com/Sargon01/Feuillets/blob/main/docs/SETUP-INTERFACE.md)
-- [Composition et export](https://github.com/Sargon01/Feuillets/blob/main/docs/COMPOSITION-ET-EXPORT.md)
-- [Réécriture, sauvegardes et versions](https://github.com/Sargon01/Feuillets/blob/main/docs/VERSIONNAGE-ET-SECURITE.md)
-- [Importer un projet Scrivener](https://github.com/Sargon01/Feuillets/blob/main/docs/IMPORT-SCRIVENER.md)
-- [Philosophie](https://github.com/Sargon01/Feuillets/blob/main/docs/PHILOSOPHIE.md)
-- [Architecture technique](https://github.com/Sargon01/Feuillets/blob/main/docs/ARCHITECTURE.md)
+La documentation complète est indexée dans **[docs/README.md](docs/README.md)**.
+
+Pour commencer :
+
+- [Découvrir Feuillets](docs/DECOUVRIR.md)
+- [Le parcours d’un auteur](docs/PARCOURS-AUTEUR.md)
+- [Fonctionnalités](docs/FONCTIONNALITES.md)
+- [Interface d’écriture](docs/SETUP-INTERFACE.md)
+- [Composition et export](docs/COMPOSITION-ET-EXPORT.md)
+- [Réécriture, sauvegardes et versions](docs/VERSIONNAGE-ET-SECURITE.md)
+- [Contexte intelligent local](docs/How-to-Contexte-Feuillets.md)
+- [Importer depuis Scrivener](docs/IMPORT-SCRIVENER.md)
 
 > **Feuillets — l’atelier libre du manuscrit.**

@@ -1,56 +1,61 @@
 # Import a Scrivener project
 
-> **English** · [Français](IMPORT-SCRIVENER.md)
+> [Français](IMPORT-SCRIVENER.md) · **English** · [Documentation index](README.md)
 
-## Switch workshops without rebuilding the manuscript
+Feuillets can convert a Scrivener project into Markdown files and folders inside the Obsidian vault.
 
-The Scrivener import does not merely try to recover a long text.
+![Scrivener import](feuillets-import-scrivener.png)
 
-It aims to take over, depending on the compatible elements:
+## Before importing
 
-- the structure;
-- the parts;
-- the chapters;
-- the scenes;
-- the order of the manuscript;
-- the contents;
-- the synopses;
-- the statuses and labels;
-- the notes;
-- the supported images and resources.
+Work from a copy if you want to preserve an untouched Scrivener original. Feuillets reads the selected project material and creates vault content; it does not modify Scrivener itself.
 
-<!-- CAPTURE before / after
-On the left: Scrivener structure.
-On the right: the same structure in the Binder.
-Hide personal information.
-Caption: "Change workshops, not manuscripts."
--->
+## Input
 
-## Why it matters
+The importer understands a `.scriv` project structure and compatible archives containing the `.scrivx` file and project data.
 
-A project can represent years of organisation. An export into a continuous text keeps the words but often destroys:
+## What it attempts to preserve
 
-- the hierarchy;
-- the landmarks;
-- the synopses;
-- the statuses;
-- the research documents;
-- the structure choices.
+When available and compatible:
 
-Feuillets tries to avoid this manual rebuilding.
+- Binder/Draft hierarchy;
+- titles;
+- text;
+- order;
+- compatible statuses;
+- useful synopsis/metadata;
+- supported Scrivener comments;
+- Research folders;
+- images, PDFs and other classified assets;
+- other convertible metadata.
 
-## After the import
+RTF manuscript text is converted to Markdown.
 
-The author can resume work in:
+## What changes
 
-- the Binder;
-- the Boards;
-- the Outline;
-- the Preview;
-- the Timeline;
-- the Storyline;
-- the backup and compilation tools.
+Scrivener stores a project in its own bundle. Feuillets produces ordinary readable vault files and folders.
 
-## Platform limit
+The goal is a **working migration**, not a binary clone:
 
-The Scrivener import requires access to the project located on the computer. It is therefore not offered on mobile environments that do not provide this access.
+> usable structure + readable text + useful metadata + recoverable assets.
+
+## Workflow
+
+1. Open Scrivener import.
+2. Select the project or archive.
+3. Review the import preview/summary.
+4. Choose the target options.
+5. Run the import.
+6. Read the final report.
+
+## After importing
+
+Check hierarchy, titles, opening/ending paragraphs, Unicode text, lists/emphasis, important comments, expected images/PDFs, Research categories and the statuses/fields you actually use.
+
+Keep the original Scrivener project until you have worked in Feuillets and exported a control document successfully.
+
+## Limits
+
+Some Scrivener-specific concepts have no meaningful Markdown/Obsidian equivalent. They may be simplified, converted to text or reported rather than imitated artificially.
+
+Continue with [Discover Feuillets](DISCOVER.md), [Author workflow](AUTHOR-WORKFLOW.md) and [Replacing Scrivener with Feuillets](Remplacer-Scrivener-par-Feuillets.md).

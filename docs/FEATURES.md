@@ -1,222 +1,266 @@
 # Feuillets — features by use
 
-> **English** · [Français](FONCTIONNALITES.md)
+> [Français](FONCTIONNALITES.md) · **English** · [Documentation index](README.md)
 
-This document serves as a functional reference. The internal names of settings are deliberately left to the technical documentation and the code.
+This is the user-facing functional reference.
 
-## Write
+![Overview](feuillets-ecriture-apercu.png)
 
-- Writing view applied to the manuscript.
-- Adjustable text width, size, line spacing and typography.
-- Visually discreet Markdown syntax.
-- Automatic paragraph indents.
-- Normal, reduced or visually continuous paragraphs.
-- Apostrophes, French quotation marks, non-breaking spaces and typographic dashes as you type.
-- Typographic correction command on a selection or the draft page.
-- Focus mode.
+## Projects
+
+- Fiction, Non-fiction and Free project types.
+- Demo project.
+- Multiple registered projects.
+- Use any existing vault folder as-is.
+- Initialize an existing folder as a Feuillets project.
+- Project display names and metadata.
+- Legacy French and English folder names remain recognized.
+
+## Binder
+
+- Hierarchical navigation.
+- Two-pane folder/file layout, folder-only and file-only modes.
+- Adjustable density.
+- Create and rename folders and sheets.
+- Drag and drop, including moving items back to manuscript root.
+- Multi-selection.
+- Persistent custom order.
+- Title-only or title-and-content search.
+- Status, label and progress filters.
+- Optional label stripes, tags, status, progress and word counts.
+- Configurable preview text.
+- Outline import.
+- Contextual compilation of a file, folder or selection.
+- Open a scope directly in Preview.
+
+## Writing
+
+- Native Obsidian Markdown editor.
+- Literary manuscript presentation.
+- Configurable font, size, line height and width.
+- Paragraph indents and spacing.
+- Discreet Markdown syntax.
+- Optional French typography helpers.
+- Manuscript search and replace.
+- Scene separators.
+- Footnotes and citations.
+- Next/previous sheet navigation.
+
+## Focus Mode
+
+- Hide surrounding UI.
+- Dedicated writing width.
 - Typewriter scrolling.
-- Dimming by line or paragraph.
+- Line or paragraph dimming.
 - Floating word counter.
-- Search and replace within the manuscript.
-- Scene separator insertion.
-- Cleaning of imported blank lines and separators.
+
+![Focus Mode](feuillets-concentration.png)
+
+## Notes, properties and local Context
+
+The Notes Inspector tab can contain:
+
+- synopsis;
+- summary;
+- working notes;
+- sources;
+- footnotes;
+- YAML properties;
+- folder notes;
+- sheet outline;
+- referenced entities;
+- local Context.
+
+Context can use the cursor window, pinned files, explicit references, linked Research folders, chapter context, project Research, lexical content matching, dated entity states and chronological alerts. No remote service is involved.
+
+## Research
+
+- Project-type-specific categories.
+- Fiction: Characters, Places, Events, Lore, Glossary, Bibliography.
+- Non-fiction: Sources, Bibliography, Notes.
+- Free: no imposed business categories.
+- Custom categories.
+- Text search and tag filters.
+- Saved Research folders/filters.
+- Create, rename, duplicate and trash Research files.
+- Open in tab or split.
+- Associate Research folders with Binder folders or individual sheets.
+- Associations may point elsewhere in the vault.
+- Insert links, excerpts and sourced excerpts.
+- Insert images and PDF links.
+- Find appearances in the manuscript.
+- Citation-based bibliography.
+- Legacy FR/EN folder variants recognized without forced renaming.
 
 ## Footnotes and citations
 
-- Note insertion.
-- Navigation between note call and definition.
-- Check for orphaned calls or missing definitions.
-- Renumbering of numeric identifiers.
-- Named identifiers kept.
-- Collision handling between draft pages during compilation.
-- Citation insertion from a Source card.
-- Export adapted to each format's capabilities.
+- Insert and navigate footnotes.
+- Check missing, unused, duplicate, empty and malformed notes.
+- Renumber numeric IDs.
+- Preserve named IDs.
+- Avoid cross-sheet collisions during compilation.
+- Insert citations from Source files.
+- Generate bibliography.
 
-## Organise the manuscript
+## Cards, Outline, Storyline and Timeline
 
-- Hierarchical Binder.
-- Parts, chapters, scenes and draft pages.
-- Several Binder layouts.
-- Contextual creation at the right level.
-- Drag and drop.
-- Undo of the last move.
-- Renumbering.
-- Search by title or content.
-- Filters by status, label and progress.
-- Excerpts, synopses, summaries, notes or keywords displayable in the Binder.
-- Multiple project management.
-- Import of a structured outline.
-- Scrivener import on desktop.
+![Narrative views](feuillets-mosaique-narrative.png)
 
-## Boards, Outline, Storyline, Timeline and Reading
+**Cards** provide visual scene organization and configurable card content.
 
-### Boards
+**Outline** provides hierarchical tabular project information with configurable columns.
 
-- One card per scene.
-- Adjustable card size and number of columns.
-- Synopsis, excerpt or information display.
-- Labels and progress.
-- Visual reorganisation.
-- Work on a chapter or the whole manuscript.
+**Storyline** follows narrative threads across the manuscript.
 
-### Outline
+**Timeline** supports scene dates, Research events, narrative/chronological order, scales, filters and parallel events.
 
-- Hierarchical table.
-- Configurable columns.
-- Adjustable widths.
-- Possible information: synopsis, summary, notes, keywords, label, status, date, compilation, words, goal and progress.
+## Notebook
 
-### Storyline
+- Native Canvas project notebook.
+- Text and file nodes.
+- Idea capture.
+- Groups and connections.
+- Deliberate conversion of ideas into manuscript sheets or Research files.
+- Chapter creation from selected/grouped ideas.
+- Outline import from idea-tree structures.
+- Optional Advanced Canvas integration.
 
-- Native Canvas table.
-- Coloured cards.
-- Grouping or reading by narrative thread.
-- Overview adapted to a large number of scenes.
+## Analysis
 
-### Timeline
+Built-in and separate from grammar checking:
 
-- Dated scenes and milestones.
-- Chronological or narrative order.
-- Several time scales.
-- Filters.
-- Parallel events.
+- word counts and prose metrics;
+- dialogue ratio;
+- repetitions;
+- chapter-length balance;
+- outlier detection;
+- surface lexical richness;
+- writer-supplied pace dimensions;
+- project dashboard;
+- optional linguistic metrics exposed by a companion provider.
 
-### Reading and Preview
+## Proofreading
 
-- Continuous reading of the manuscript or a selection.
-- Preview at scene, chapter, part or manuscript scale.
-- Synchronisation with the active draft page.
-- Navigation breadcrumb.
-- Zoom.
-- Access to the Export panel.
-- Rendering based on the real compilation.
+- Public text-analysis provider API.
+- Analyze document or selection.
+- Issues with message, category, severity and suggestions.
+- Jump to the exact range.
+- Correction context menu.
+- Optional ignore-occurrence and learn-word operations supplied by the companion.
+- No grammar engine bundled by Feuillets.
 
-## Research and documentation
+## Journal and statistics
 
-- Project bible.
-- Characters, places, events, concepts, universe, sources, bibliography and glossary.
-- Categories adapted to the project type.
-- Search and filtering.
-- Insertion of a link or excerpt into the active draft page.
-- Automatic context of the quoted items.
-- Reading of dated states present in the cards.
-- Chapter and part notes.
-- Internal draft page outline.
-
-## Properties
-
-- Editing the properties of the active draft page.
-- Text, date, checkbox and list fields.
-- View of the properties used in the project.
-- Adding an existing property.
-- Bulk deletion with confirmation.
-- Browsing the project's keywords.
-- Possibility to hide the native display of properties in the editor.
-
-Properties remain optional for writing.
-
-## Scenes
-
-- Creation.
-- Move.
-- Duplication.
-- Split.
-- Multiple merge.
-- Multiple selection.
-- Configurable rules for information during a merge or a split.
-- Permanent exclusion from the compilation without removing from the Binder.
-- Customisable statuses.
-- Coloured labels.
-- Word goal.
-- Synopsis and summary.
-- Narrative threads.
-
-## Tracking
-
-- Goals per scene and project.
-- Word count.
-- Text statistics.
-- Page and reading time estimates.
+- Daily writing journal.
+- Goals.
+- Calendar/activity tracking.
+- Compiled journal.
+- Word and text statistics.
 - Recent history.
-- Writing calendar.
-- Daily journal.
-- Journal compilation.
 
-## Revision
+## Scene/section operations
 
-- Proofreading in the Preview.
-- Comparison of two states.
-- Search and replace.
-- Processing panel for an annotated DOCX.
-- Proofreading delegated to a specialised module.
-- Inconsistency checker between manuscript, cards and timeline when available in the installed version.
+- Split.
+- Duplicate.
+- Move.
+- Multi-file merge.
+- Ordered merge.
+- Merge separators/modes.
+- Explicit YAML preservation and aggregation rules.
+- Multi-selection.
 
-## Backups and versions
+## Preview
 
-- Automatic backups.
-- Snapshot of the active draft page.
-- Project snapshot.
-- Restoration with prior protection.
-- Full duplication into a new version.
-- Comparison with the original.
-- Settings backup and restoration.
+- File, folder, selection and project scopes.
+- Chapter/part continuous reading.
+- Pagination.
+- Fit-width, fit-page and manual zoom.
+- Source/Preview scroll synchronization where applicable.
+- Open currently visible sheet.
+- Breadcrumb navigation.
+- Integrated Export panel.
+- Front-page editing.
+- Shared styling engine with native exports.
 
-## Compilation
+![Preview](feuillets-apercu.png)
 
-- Assembly according to the Binder's order.
-- Scope: scene, chapter, part, manuscript or selection.
-- Exclusion of certain draft pages.
-- Part, chapter and scene headings.
-- Separators.
-- Title page from the front-matter draft page.
-- Built-in templates.
-- Custom templates.
-- Visual layout.
-- Margins, orientation, columns, fonts, spacing, headers, footers and pagination by format.
-- Preview relying on the same logic as the exports.
+## Compilation and export
 
-## Export
+- File scope.
+- Folder-plus-descendants scope.
+- Mixed selection scope.
+- Full project scope.
+- Duplicate removal.
+- Binder order.
+- Technical-folder exclusion.
+- Per-sheet compile exclusion.
+- Titles and separators.
+- Front pages.
+- Built-in and custom templates.
+- Optional French typography transforms.
 
-The exact possibilities must be checked in the installed version.
+Native formats:
 
-The native engine can support:
+- **DOCX**;
+- **EPUB**;
+- **ODT**;
+- **PDF** on desktop through the system print dialog;
+- **compiled Markdown**.
 
-- compiled Markdown;
-- DOCX;
-- EPUB;
-- ODT;
-- PDF via desktop printing.
+Outputs are written under `_Sortie`.
 
-Principles:
+## DOCX review
 
-- no imposed online service;
-- compilation performed locally;
-- source untouched by the export;
-- acknowledged differences between formats;
-- named Word styles in the DOCX;
-- EPUB adaptable to the e-reader;
-- specific limits of notes in certain formats.
+The Edition tab can import reviewed DOCX content, map supported revisions back to source sheets, classify uncertain changes, require author decisions and protect the Markdown source before applying edits.
+
+## Editorial documents
+
+Optional `_Edition` can be initialized with Synopsis, Intent note, Biography, Cover letter, Submissions and Sent versions. They remain ordinary editable files/folders.
+
+## Backups, snapshots and versions
+
+- Automatic ZIP backups.
+- Manual backup.
+- Backup rotation.
+- Safe backup scope for as-is folder projects.
+- Sheet snapshots.
+- Snapshot comparison.
+- Manuscript copies under `_Versions`.
+- Binder order copied with a version.
+
+## Import
+
+- Structured Markdown outline.
+- Scrivener project/archive.
+- Compatible RTF text conversion.
+- Binder structure.
+- Compatible status/comments/data.
+- Attached images/PDFs when available.
+- Import report.
 
 ## Interface
 
-- French or English interface.
-- Automatic or forced language.
-- Suggested values for a clean interface.
-- Hiding of the built-in title, properties, ribbon, vault switcher and other native elements.
-- Transparency of panels and bars.
-- Visual reduction of secondary icons.
-- Font, size, text width, line spacing and accent colour.
-- Touch or trackpad gestures to open and close panels.
-- Panels and views that can be enabled or hidden.
-- Settings export and import.
+- French and English.
+- Automatic or explicit locale.
+- Tabbed Inspector.
+- Hideable Inspector tabs.
+- Binder independent from Inspector.
+- UI simplification/transparency options.
+- Accent color and writing typography.
+- Panel gestures.
+- Settings export/import.
 
-## Editorial life with Courrier
+## Ecosystem
 
-- Address book.
-- Publishers, agents, journals and contests.
-- Letter templates.
-- History.
-- Submission tracking.
-- Replies.
-- Reminders.
-- Attachments and submitted versions.
+- Feuillets-Grammalecte.
+- Courrier.
+- Optional Advanced Canvas.
+
+## Data principles
+
+- Markdown source of truth.
+- Optional YAML.
+- Legacy names recognized.
+- No destructive automatic renaming.
+- No telemetry.
+- No manuscript upload.

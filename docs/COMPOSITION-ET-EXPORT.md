@@ -1,123 +1,159 @@
 # Composition et export
 
-> **Français** · [English](COMPOSITION-AND-EXPORT.md)
+> **Français** · [English](COMPOSITION-AND-EXPORT.md) · [Index](README.md)
 
-## Deux apparences pour deux besoins
+## Écrire n’est pas mettre en page
 
-Feuillets distingue clairement :
+Feuillets sépare :
 
-- **l’atelier d’écriture**, destiné au confort de rédaction ;
-- **le document final**, destiné à la lecture, à l’impression ou à l’envoi.
+- l’apparence confortable de l’éditeur ;
+- la composition du document destiné à être lu, imprimé ou envoyé.
 
-La police, le fond et la largeur choisis pour écrire ne déterminent pas la mise en page exportée.
+![Écriture et composition](feuillets-concentration-apercu.png)
 
-<!-- CAPTURE COMPARAISON
-À gauche : vue Écriture sombre et épurée.
-À droite : document clair et paginé.
-Légende : « Écrivez dans votre atelier. Composez selon la destination. »
--->
+La police ou la largeur choisie pour écrire ne doit pas vous enfermer dans la mise en page finale.
 
-## Les portées de l’Aperçu
+## La portée de composition
 
-L’Aperçu peut travailler sur :
+Une composition peut viser :
 
-- la scène active ;
-- le chapitre ;
-- la partie ;
-- le manuscrit entier.
+- **un fichier** ;
+- **un dossier** et tous ses descendants Markdown ;
+- **une sélection** de fichiers et dossiers ;
+- **le projet entier**.
 
-Il assemble le contenu correspondant sans lancer une compilation écrite à chaque défilement.
+Si un dossier et l’un de ses descendants sont sélectionnés en même temps, le descendant n’est inclus qu’une fois.
 
-## Une source commune
+L’ordre final suit l’ordre du Classeur.
 
-La composition et l’Aperçu partagent les mêmes règles essentielles :
+## Ce qui n’entre pas automatiquement dans le manuscrit
 
-- ordre du Classeur ;
-- retrait des propriétés techniques ;
-- inclusion ou exclusion des feuillets ;
-- titres selon leur niveau ;
+Les dossiers techniques sont exclus du parcours de composition. Les fichiers explicitement marqués comme exclus de la compilation restent également hors du document final.
+
+Les espaces Recherche, Ressources, Édition, Sauvegardes et autres dossiers techniques ne doivent pas devenir des chapitres par accident.
+
+## Aperçu
+
+![Aperçu paginé](feuillets-apercu.png)
+
+L’Aperçu sert à vérifier la composition avant l’export :
+
+- titres ;
 - séparateurs ;
-- page de titre ;
-- modèle de mise en page.
-
-Cela réduit l’écart entre ce que l’auteur contrôle et ce qu’il exporte.
-
-## Le panneau Export
-
-Depuis l’Aperçu, le panneau Export peut regrouper notamment :
-
-- portée ;
-- éléments inclus ;
-- format ;
+- pages Front ;
 - modèle ;
-- première page ;
-- nom du document ;
-- commande d’export.
+- ordre ;
+- portée ;
+- pagination.
 
-La première page est liée au feuillet liminaire du projet. Les modifications sont enregistrées dans le projet plutôt que conservées uniquement dans la fenêtre d’Aperçu.
+La scène active peut être actualisée rapidement. Les portées plus longues évitent une recompilation agressive à chaque frappe.
 
-## Mise en page visuelle
+## Pages Front
 
-Les réglages peuvent couvrir, selon le format :
+Le dossier `Front` du manuscrit peut contenir les pages liminaires. La page de titre peut utiliser des rôles spécifiques pour le titre, le sous-titre, l’auteur, une mention supplémentaire ou une image.
 
-- marges ;
-- orientation ;
-- colonnes ;
+L’Aperçu et les exports lisent les mêmes documents Front plutôt que de conserver une seconde page de titre dans un réglage caché.
+
+## Modèles
+
+Feuillets fournit des modèles intégrés et accepte des modèles personnalisés dans les Ressources du projet.
+
+Un modèle peut définir notamment :
+
 - police ;
 - taille ;
 - interligne ;
+- alignement ;
 - retrait ;
 - espacement ;
 - styles de titres ;
 - séparateur de scène ;
-- en-têtes et pieds ;
-- pagination ;
-- première page différente.
+- orientation ;
+- marges et autres paramètres pris en charge.
 
-## Différences normales entre formats
+Les réglages de géométrie PDF restent spécifiques au PDF lorsqu’ils dépendent réellement de la page imprimée.
+
+## Dossier de sortie
+
+Les exports et compilations sont écrits dans `_Sortie`.
+
+### Projet structuré
+
+```text
+Mon projet/
+├── Manuscrit/
+├── _Recherche/
+├── _Ressources/
+└── _Sortie/
+```
+
+### Dossier utilisé tel quel
+
+```text
+Mon dossier/
+├── Chapitre A.md
+├── Sous-dossier/
+└── _Sortie/
+```
+
+Feuillets ne remonte pas au dossier parent dans ce second cas.
+
+## Formats natifs
 
 ### DOCX
 
-- document Word réel ;
-- styles de titres nommés et modifiables ;
-- prise en charge avancée selon le contenu.
+- vrai document Word ;
+- styles de titres nommés ;
+- images et structures prises en charge par le moteur d’export ;
+- document adapté à l’échange avec éditeurs/relecteurs.
 
 ### EPUB
 
-- texte adaptable à l’écran de la liseuse ;
-- pas de page physique fixe ;
-- certaines options de page ou de colonnes n’ont pas de sens.
+- EPUB pour liseuse ;
+- texte reflowable ;
+- la notion de page physique fixe n’est pas applicable.
 
 ### ODT
 
-- styles OpenDocument ;
-- certaines fonctions avancées peuvent avoir une représentation plus simple.
+- format OpenDocument ;
+- utile pour LibreOffice et logiciels compatibles.
 
 ### PDF
 
-- produit par l’impression du système sur ordinateur ;
-- mise en page fixe ;
-- comportement dépendant des capacités de l’environnement d’impression.
+- **desktop uniquement** ;
+- Feuillets construit la pagination puis ouvre la boîte d’impression du système ;
+- choisissez **Enregistrer au format PDF** dans cette boîte ;
+- A4, A5 ou Letter et orientation selon les réglages ;
+- en-têtes, pieds et pagination selon les options disponibles.
 
 ### Markdown compilé
 
-- texte assemblé dans un format ouvert ;
-- utile pour la conservation, les traitements externes ou une autre chaîne éditoriale.
+- texte assemblé en Markdown ;
+- utile pour archivage, contrôle ou chaîne éditoriale externe.
 
-## Vérification visuelle recommandée
+## Notes de bas de page
 
-Le manuscrit de contrôle devrait contenir :
+Avant l’export, Feuillets renumérote/namespace les notes lorsque nécessaire afin que deux feuillets contenant localement le même identifiant ne se confondent pas dans le document compilé.
 
-- une page de titre ;
-- une partie et plusieurs chapitres ;
-- plusieurs scènes ;
-- paragraphes courts et longs ;
-- citation ;
-- liste ;
-- séparateur de scène ;
-- image portrait et paysage ;
-- caractères français et Unicode ;
-- notes de bas de page ;
-- saut de page explicite.
+Les formats n’ont pas tous la même représentation des notes : vérifiez le fichier final dans son lecteur cible.
 
-Le DOCX doit notamment être ouvert dans Word pour vérifier que les styles apparaissent comme de vrais styles, et pas seulement comme un formatage figé.
+## Typographie
+
+L’option de typographie française à l’export peut normaliser plusieurs signes dans la composition même si le texte a été collé depuis une source externe.
+
+## Contrôle conseillé
+
+Avant un envoi important, vérifiez au minimum :
+
+1. page de titre ;
+2. début de chaque partie ou chapitre ;
+3. séparateurs de scènes ;
+4. images ;
+5. notes de bas de page ;
+6. caractères accentués et Unicode ;
+7. en-têtes/pieds si utilisés ;
+8. fichier final dans Word, LibreOffice, une liseuse ou un lecteur PDF selon le format.
+
+## Une seule règle à retenir
+
+> **L’Aperçu sert à juger le livre avant que le format d’export ne devienne le dernier endroit où l’on découvre un problème.**

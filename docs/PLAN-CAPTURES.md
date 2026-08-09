@@ -1,80 +1,83 @@
-# Plan des captures
+# Inventaire et plan des captures
 
-## Règles communes
+Les captures documentaires vivent toutes directement dans `docs/`.
 
-- utiliser le même projet de démonstration ;
-- employer un texte littéraire réel ;
-- masquer toute donnée personnelle ;
-- garder la même taille de fenêtre ;
-- choisir un thème et une palette cohérents ;
-- ne montrer qu’un bénéfice principal par image ;
-- éviter les menus techniques inutiles ;
-- fournir une légende courte.
+Elles ne doivent pas être dupliquées entre la documentation française et anglaise.
 
-## 1. Image principale
+## Inventaire actuel
 
-Classeur à gauche, feuillet au centre, Aperçu à droite.
+| Fichier | Sujet | Emplacements recommandés |
+|---|---|---|
+| `feuillets-ecriture-apercu.png` | Classeur + écriture + Aperçu | README FR/EN, Découvrir, index docs, guide Contexte |
+| `creer-premier-projet.gif` | Création d’un projet | README FR/EN, Découvrir, Parcours auteur |
+| `feuillets-classeur.png` | Structure du manuscrit | README FR/EN, Découvrir, Parcours |
+| `feuillets-concentration.png` | Mode Concentration | README FR/EN, Découvrir, Interface |
+| `feuillets-concentration-apercu.png` | Écriture et lecture côte à côte | Interface, Parcours, Composition, guide Ulysses |
+| `feuillets-apercu.png` | Aperçu paginé | README FR/EN, Découvrir, Parcours, Composition |
+| `feuillets-mosaique-narrative.png` | Cartes / Plan / Chemin de fer / Chronologie | README FR/EN, Découvrir, Parcours, fonctionnalités, guides de migration |
+| `feuillets-comparaison.png` | Comparaison de deux états | README FR/EN, Parcours, versionnage, guide Scrivener |
+| `feuillets-import-scrivener.png` | Import Scrivener | README FR/EN, guides d’import/migration |
+| `feuillets-ecosysteme.png` | Feuillets + compagnons | README FR/EN |
 
-> **Écrivez dans le feuillet. Relisez le livre.**
+## Règles
 
-## 2. Concentration
+1. Garder une seule copie de chaque image.
+2. Utiliser des chemins relatifs depuis les fichiers de `docs/`.
+3. Depuis les README racine, utiliser `docs/<nom>`.
+4. Utiliser la même capture dans les pages FR et EN lorsqu’elle illustre le même concept.
+5. Une capture doit expliquer un bénéfice ou une interaction, pas simplement remplir la page.
+6. Masquer toute donnée personnelle.
+7. Utiliser un projet de démonstration cohérent d’une image à l’autre.
+8. Ne pas afficher de panneau devenu obsolète.
 
-Texte seul ou presque, compteur discret.
+## Remplacer une capture
 
-> **Quand il faut écrire, tout le reste disparaît.**
+Lorsque l’interface change mais que le rôle documentaire de l’image reste le même, remplacer le fichier **en conservant son nom**.
 
-## 3. Classeur
+Exemple :
 
-Deux parties, plusieurs chapitres et scènes.
+```text
+docs/feuillets-classeur.png
+```
 
-> **Le livre reste visible pendant que vous écrivez.**
+peut être remplacé par une capture plus récente du Classeur sans modifier tous les guides.
 
-## 4. Aperçu
+Changer le nom uniquement si le concept illustré change réellement.
 
-Début de chapitre ou page de titre paginée.
+## Images prioritaires à maintenir à jour
 
-> **Ne découvrez plus votre livre après l’export.**
+### `feuillets-ecriture-apercu.png`
 
-## 5. Mosaïque narrative
+Image principale du produit. Elle doit montrer :
 
-Cartes, Plan, Chemin de fer et Chronologie.
+- Classeur lisible ;
+- feuillet actif ;
+- Aperçu cohérent ;
+- interface sans données privées.
 
-> **Un même manuscrit, plusieurs angles de lecture.**
+### `feuillets-classeur.png`
 
-## 6. Écriture et composition
+Doit refléter le Classeur actuel : arborescence, indentation, icônes et structure cohérente.
 
-Vue Écriture sombre à gauche, document final clair à droite.
+### `feuillets-mosaique-narrative.png`
 
-> **Écrivez dans votre atelier. Composez selon la destination.**
+Doit présenter les quatre représentations actuelles :
 
-## 7. Comparaison
+- Cartes ;
+- Plan ;
+- Chemin de fer ;
+- Chronologie.
 
-Deux versions côte à côte.
+### `feuillets-apercu.png`
 
-> **Réécrivez sans perdre ce que vous aviez écrit.**
+Doit refléter l’Aperçu paginé actuel et, si possible, la barre d’outils/export actuelle.
 
-## 8. Import Scrivener
+### `feuillets-concentration.png`
 
-Structure avant et après l’import.
+Doit rester très lisible et ne montrer que ce que Concentration cherche précisément à faire disparaître.
 
-> **Changez d’atelier, pas de manuscrit.**
+## Captures qui ne sont plus nécessaires
 
-## 9. Écosystème
+Ne pas recréer des captures séparées d’anciens panneaux Notes, Recherche, Projet ou Révision comme s’ils étaient encore chacun une barre latérale indépendante.
 
-Feuillets, Feuillets-Grammalecte et Courrier.
-
-> **Écrire, corriger, soumettre : un atelier, des modules spécialisés.**
-
-## Animations courtes
-
-### Du plan au feuillet
-
-Classeur → création d’une scène → ouverture → première phrase.
-
-### Tout disparaît
-
-Interface complète → Concentration → retour au Classeur.
-
-### Du feuillet au livre
-
-Édition → Aperçu → portée manuscrit → export.
+Si une nouvelle capture de l’Inspecteur est ajoutée un jour, elle doit représenter **l’Inspecteur unifié à onglets**.

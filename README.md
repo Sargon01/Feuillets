@@ -1,253 +1,242 @@
 # Feuillets
 
-🇫🇷 **French version: [Français](https://github.com/Sargon01/Feuillets/blob/main/README-fr.md)**
+**Version française : [README-fr.md](README-fr.md)**
 
 ## Write a book, not a collection of notes
 
 **Feuillets turns Obsidian into a free, local, long-form writing studio.**
 
-Organize your manuscript in the **Binder**, write **sheet by sheet**, switch to **Focus Mode**, review a scene, chapter, part, or the entire manuscript in **Preview**, then compose and export your work.
+The idea is simple: the **Binder** keeps the manuscript visible, each **sheet** remains the place where you write, **Focus Mode** removes distractions, **Preview** lets you read the text as a book, and Feuillets composes and exports the result.
 
-> **As simple as a page. As powerful as a novel project.**
+> **As simple as a page. As rich as a book project.**
 
-Feuillets does not impose a single method or a cluttered interface. You can begin with a Binder, one sheet, and Focus Mode. Advanced tools remain available whenever your project needs them.
-
-**Designed by a writer, for the real work of writers.**
-
-![Feuillets — Binder, writing, and paginated preview](docs/feuillets-ecriture-apercu.png)
+![Feuillets — Binder, writing and Preview](docs/feuillets-ecriture-apercu.png)
 
 *Write in the sheet. Read the book.*
 
-## Get started in five minutes
+## What Feuillets adds to Obsidian
 
-### 1. Create or open a writing project
+Obsidian provides the vault, Markdown files, links and ecosystem. Feuillets provides the writer-specific workspace:
 
-From the Binder welcome screen, you can:
+- a hierarchical **Binder** for parts, chapters, scenes, sections and sheets;
+- **Cards**, **Outline**, **Storyline** and **Timeline** views of the same manuscript;
+- a Canvas-based **Notebook** for free-form idea work before turning ideas into manuscript content;
+- a tabbed **Inspector**: Notes, Research, Journal, Edition, Analysis and Proofreading;
+- **Focus Mode** and a literary writing presentation;
+- paginated **Preview** for a scene, chapter, part or full manuscript;
+- scene **split, merge, move, duplicate and multi-selection** tools;
+- goals, statistics and a writing journal;
+- snapshots, comparisons, versions and ZIP backups;
+- compilation of one file, one folder, a selection, or the whole project;
+- native **DOCX, EPUB, ODT, PDF and compiled Markdown** export;
+- Markdown outline import and **Scrivener** import.
 
-- create a fiction or non-fiction project;
-- resume an existing manuscript;
-- discover Feuillets with a demo project.
+Feuillets does not replace Obsidian's editor: it organizes it around long-form writing.
 
-A new project opens directly with a first sheet ready for writing.
+## Start a project
 
-![Create a first project in Feuillets](docs/creer-premier-projet.gif)
+### Create a project
 
-*Create a writing project and start writing in seconds.*
+From the Binder welcome screen choose **Create a project**, then select:
 
-### 2. Build the manuscript in the Binder
+- **Fiction**;
+- **Non-fiction**;
+- **Free**.
 
-The Binder presents the book in its natural structure:
+A Feuillets-created project uses a clear structure:
 
-- parts;
-- chapters;
-- scenes;
-- sheets.
+```text
+My project/
+├── Manuscrit/
+├── _Research/ or _Recherche/
+├── _Resources/ or _Ressources/
+└── Front/ lives inside Manuscrit/
+```
 
-Drag and drop lets you move and reorder the manuscript. An existing outline can be imported in one step.
+Other technical spaces (`_Backups`, `_Snapshots`, `_Journal`, `_Edition`, `_Sortie`, `_Versions`) are created only when needed.
 
-### 3. Open a sheet and write
+![Create a first project](docs/creer-premier-projet.gif)
 
-The **sheet** is the basic unit of Feuillets. It can contain a scene, a section, or any fragment you want to write, move, compare, or exclude independently.
+### Use an existing folder as-is
 
-Writing View keeps the syntax discreet and gives the manuscript a literary presentation: controlled width, paragraph indents, compact spacing, and customizable typography.
+Any existing vault folder can become the active manuscript **without moving, renaming or converting its files**.
 
-### 4. Activate Focus Mode
+### Initialize an existing folder as a Feuillets project
 
-Focus Mode reduces the studio to the essentials:
+From Obsidian's File Explorer, **Initialize as a Feuillets project…** assigns a project type and prepares matching Research categories without restructuring the manuscript.
 
-- centered text;
-- adjustable width;
-- typewriter scrolling;
-- dimmed text outside the current focus;
-- a discreet word counter.
+## Binder
 
-![Feuillets Focus Mode](docs/feuillets-concentration.png)
+The Binder is the project's backbone. It can:
 
-*When it is time to write, everything else disappears.*
+- navigate the hierarchy;
+- create and rename folders and sheets;
+- drag items between folders or back to the manuscript root;
+- multi-select items;
+- search titles or content;
+- filter by status, label and progress;
+- show excerpts, synopsis, summary, notes, tags, status, progress or word count;
+- open a file, folder or selection in Preview;
+- compile one file, one folder or a selection.
 
-### 5. Open Preview
+![Binder](docs/feuillets-classeur.png)
 
-Preview can display:
+## Writing and Focus Mode
 
-- the active scene;
-- a chapter;
-- a part;
-- the entire manuscript.
+The manuscript remains ordinary Markdown. Feuillets changes presentation and workflow, not ownership of the files:
 
-It uses the same composition engine as exports. A correction made in the sheet appears in the rendered document, and navigation can follow the corresponding scene.
+- controlled text width;
+- configurable font and line height;
+- prose-oriented indents and paragraph spacing;
+- discreet Markdown syntax;
+- French typography helpers when desired;
+- manuscript-wide search and replace;
+- footnotes and citations.
 
-![Paginated manuscript preview](docs/feuillets-apercu.png)
+Focus Mode can hide panels, center the writing area, keep the active line in a comfortable zone, dim surrounding text and show a discreet counter.
 
-*Revise the scene. Judge the book.*
+![Focus Mode](docs/feuillets-concentration.png)
 
-## A simple tool that grows with the manuscript
+## Inspector
 
-The essential workflow is enough to write a book:
+The right-hand Inspector groups the tools that accompany the current writing task.
 
-> Binder → sheet → Focus Mode → Preview → export
-
-As the project grows, Feuillets adds:
-
-- Cards to move and balance scenes;
-- Outline to inspect manuscript information;
-- Storyline to follow narrative threads;
-- Timeline to distinguish story order from event order;
-- Research to build the project bible;
-- Notes to keep synopses, summaries, sources, and context beside the text;
-- Journal and Statistics to track the work;
-- revision, snapshots, backups, and versions;
-- composition, templates, and exports.
-
-The power of the studio never forces you to display everything.
-
-## Why an experienced writer chooses Feuillets
-
-### Text and structure stay connected
-
-A scene is not only text. It has a place, a status, a synopsis, links, dates, narrative threads, and sometimes a goal.
-
-Feuillets lets you move, split, merge, and duplicate scenes without silently losing the information attached to them.
-
-### The book stays visible while you write
-
-The Binder keeps the architecture of the manuscript in view. Preview lets you read the text within the actual flow of the chapter or book.
-
-![Manuscript Binder in Feuillets](docs/feuillets-classeur.png)
-
-*The book stays visible while you write.*
-
-### Rewriting stays reversible
-
-Automatic backups, snapshots, comparison, and duplication into a new version let you explore another direction without sacrificing the previous state.
-
-![Compare two versions of a sheet](docs/feuillets-comparaison.png)
-
-*Rewrite without losing what you had written.*
-
-### Composition is not discovered at the end
-
-The same composition logic powers Preview and exports. Titles, separators, margins, fonts, spacing, and front matter can be checked before the final document is produced.
-
-## Several ways to understand the same manuscript
-
-![Cards, Outline, Storyline, and Timeline](docs/feuillets-mosaique-narrative.png)
-
-*One manuscript, several angles of view.*
-
-| Need | View |
+| Tab | Purpose |
 |---|---|
-| Navigate between parts, chapters, and scenes | Binder |
-| Reorganize the story visually | Cards |
-| Check information and progress | Outline |
-| Observe narrative threads | Storyline |
-| Verify the story timeline | Timeline |
-| Read as a continuous book | Preview |
-| Explore freely | Notebook |
+| **Notes** | Synopsis, summary, working notes, properties, footnotes and local context |
+| **Research** | Project bible, sources, bibliography, characters, places, events and custom sections |
+| **Journal** | Writing journal and progress tracking |
+| **Edition** | Editorial documents and reviewed-DOCX reintegration |
+| **Analysis** | Prose metrics, repetitions, chapter balance, pace and dashboard |
+| **Proofreading** | Issues supplied by a companion text-analysis plugin |
 
-The Notebook is the free space where you can throw down ideas, references,
-possible scenes, and research material, arrange and connect them freely,
-then deliberately turn some of those ideas into manuscript sheets or free
-Markdown research files.
+Feuillets itself contains no grammar engine. Its public analysis contract lets a companion such as **Feuillets-Grammalecte** provide issues while Feuillets handles display, navigation and corrections.
 
-The Notebook is built on Obsidian's native Canvas. [Advanced Canvas](https://github.com/Developer-Mike/obsidian-advanced-canvas)
-remains optional but recommended for an experience closer to Scapple,
-notably borderless text, collapsible groups, and richer node interactions.
+## Research and local context
 
-## Your writing remains yours
+Research categories depend on the project type:
 
-Feuillets works locally inside Obsidian and requires no online service for normal use.
+- **Fiction**: characters, places, events, lore, glossary, bibliography;
+- **Non-fiction**: sources, bibliography, notes;
+- **Free**: no imposed business categories.
 
-- no Feuillets subscription;
-- no telemetry;
-- no mandatory server;
-- text kept in Markdown;
-- code released under the GNU GPLv3 license.
+You can create your own sections. Legacy French and English folder names remain recognized to avoid duplicate folders in existing projects.
 
-A project can be backed up, synchronized, and reopened with other tools. Feuillets does not lock the manuscript inside an opaque database.
+The **Context** section inside Notes can match the current passage with Research files, explicitly linked research folders and chronological information. Matching is local and deterministic; no remote AI reads the manuscript.
 
-## Import an existing project
+## Cards, Outline, Storyline and Timeline
 
-Feuillets can:
+![Cards, Outline, Storyline and Timeline](docs/feuillets-mosaique-narrative.png)
 
-- open an existing Markdown manuscript without moving or renaming it;
-- turn a structured outline into parts, chapters, and scenes;
-- import a Scrivener project on desktop while preserving its structure, text, and compatible elements.
+| Question | View |
+|---|---|
+| Where is this text in the book? | Binder |
+| How can scenes be rearranged visually? | Cards |
+| Which information or progress values need attention? | Outline |
+| Where do narrative threads run? | Storyline |
+| In what order do events actually happen? | Timeline |
+| How does the composed text read? | Preview |
+| Where can ideas be explored freely? | Notebook |
 
-![Import a Scrivener project into Feuillets](docs/feuillets-import-scrivener.png)
+The Notebook is based on native Obsidian Canvas. **Advanced Canvas** is optional; when installed, Feuillets can benefit from its richer Canvas interactions without making it a dependency.
 
-*Change studios, not manuscripts.*
+## Preview, compilation and export
 
-## Compose and export
+Preview works with:
 
-Feuillets assembles sheets according to Binder order and the selected rules.
+- one sheet;
+- one folder;
+- a selection;
+- the complete project.
 
-Depending on the version and environment, the composition can be produced as:
+Preview and export share the same essential composition rules for titles, separators, front matter and templates.
 
-- DOCX;
-- EPUB;
-- ODT;
-- PDF through the system print dialog;
-- compiled Markdown.
+![Paginated Preview](docs/feuillets-apercu.png)
 
-The documentation for the installed version remains the exact reference for supported formats and their limitations.
+The native export engine currently supports:
+
+- **DOCX**;
+- **EPUB**;
+- **ODT**;
+- **PDF** — through the system print dialog on desktop;
+- **compiled Markdown**.
+
+Outputs are written to `_Sortie`. For a structured `Manuscrit` project it sits next to `Manuscrit`; for an as-is folder project it stays inside that folder.
+
+## Rewrite without losing work
+
+Feuillets separates several safety mechanisms:
+
+- sheet snapshots;
+- side-by-side comparison;
+- manuscript versions;
+- automatic or manual ZIP project backups.
+
+![Compare two states](docs/feuillets-comparaison.png)
+
+For a structured project, a backup covers the project folder that contains `Manuscrit` and its companion folders. For a folder used as-is, backup scope is **strictly that folder**; sibling folders and the vault root are never pulled in implicitly.
+
+## Scrivener import
+
+Scrivener import converts compatible Binder structure, text and project material into vault files and folders.
+
+![Scrivener import](docs/feuillets-import-scrivener.png)
+
+See [Import a Scrivener project](docs/IMPORT-SCRIVENER-EN.md).
 
 ## Ecosystem
 
-Specialized companion plugins can extend the studio:
+- **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** — French linguistic analysis companion;
+- **[Courrier](https://github.com/Sargon01/Courrier)** — contacts, submissions, replies and editorial follow-up.
 
-- **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)**: language correction kept separate from the core plugin;
-- **[Courrier](https://github.com/Sargon01/Courrier)**: contacts, correspondence, submissions, replies, and follow-ups.
+![Feuillets ecosystem](docs/feuillets-ecosysteme.png)
 
-![Feuillets, Feuillets-Grammalecte, and Courrier ecosystem](docs/feuillets-ecosysteme.png)
+## Freedom, privacy and security
 
-*Write, correct, submit: one studio, specialized modules.*
+- Markdown source files;
+- local operation;
+- no telemetry;
+- no manuscript upload to a remote service;
+- no grammar engine downloaded or executed by Feuillets;
+- no Pandoc dependency;
+- GNU GPL-3.0 source;
+- unminified, auditable production bundle;
+- TypeScript, automated tests, ESLint and Obsidian review lint in CI.
 
-## Security, privacy and quality assurance
+Feuillets requires **Obsidian 1.13.0 or newer**. It is not declared desktop-only; PDF export is desktop-only because it uses the system print dialog.
 
-Feuillets works locally within your Obsidian vault. It contains no telemetry, does not rely on a cloud service, and makes no suspicious network requests.
-
-The plugin is covered by automated tests and continuous integration checks. Its source code, production build, dependencies, and release artifacts are verified before publication.
-
-### About the automated review
-
-Feuillets is a comprehensive writing environment that legitimately requires access to several Obsidian and filesystem capabilities, including reading, creating, and modifying files in the vault.
-
-Because of this broad feature set, the automated review may classify some expected behaviors and architectural choices as cautions. These findings do not necessarily indicate security vulnerabilities.
-
-The published release:
-
-- passes the project’s automated test suite;
-- has no known vulnerable dependencies;
-- shows no suspicious network activity;
-- includes verified GitHub artifact attestations;
-- can be reproduced byte-for-byte from the source code.
+See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 
 ## Installation
 
-### From Obsidian Community Plugins
+### Obsidian Community Plugins
 
-To install Feuillets from Obsidian Community Plugins:
-
-1. open **Settings → Community plugins**;
-2. search for **Feuillets**;
-3. install and enable the plugin.
+1. Open **Settings → Community plugins**.
+2. Search for **Feuillets**.
+3. Install and enable it.
 
 ### Manual installation
 
-1. download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/Sargon01/Feuillets/releases/latest);
-2. place them in `.obsidian/plugins/feuillets/`;
-3. reload Obsidian;
-4. enable Feuillets.
+Download `main.js`, `manifest.json` and `styles.css` from the latest release and place them in:
+
+```text
+<your vault>/.obsidian/plugins/feuillets/
+```
+
+Reload Obsidian and enable Feuillets.
 
 ## Documentation
 
-- [Discover Feuillets](https://github.com/Sargon01/Feuillets/blob/main/docs/DISCOVER.md)
-- [An author's journey](https://github.com/Sargon01/Feuillets/blob/main/docs/AUTHOR-WORKFLOW.md)
-- [Features by use](https://github.com/Sargon01/Feuillets/blob/main/docs/FEATURES.md)
-- [Creating a clean writing interface](https://github.com/Sargon01/Feuillets/blob/main/docs/WRITING-INTERFACE.md)
-- [Compilation and export](https://github.com/Sargon01/Feuillets/blob/main/docs/COMPOSITION-AND-EXPORT.md)
-- [Rewriting, backups and versions](https://github.com/Sargon01/Feuillets/blob/main/docs/REWRITING-BACKUPS-AND-VERSIONS.md)
-- [Import a Scrivener project](https://github.com/Sargon01/Feuillets/blob/main/docs/IMPORT-SCRIVENER-EN.md)
-- [Philosophy](https://github.com/Sargon01/Feuillets/blob/main/docs/PHILOSOPHY.md)
+The complete documentation is indexed in **[docs/README.md](docs/README.md)**.
+
+Start with:
+
+- [Discover Feuillets](docs/DISCOVER.md)
+- [An author's workflow](docs/AUTHOR-WORKFLOW.md)
+- [Features](docs/FEATURES.md)
+- [Writing interface](docs/WRITING-INTERFACE.md)
+- [Composition and export](docs/COMPOSITION-AND-EXPORT.md)
+- [Rewriting, backups and versions](docs/REWRITING-BACKUPS-AND-VERSIONS.md)
+- [Scrivener import](docs/IMPORT-SCRIVENER-EN.md)
 
 > **Feuillets — the free manuscript studio.**

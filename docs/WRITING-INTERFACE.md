@@ -1,103 +1,65 @@
-# Creating a clean writing interface
+# Build a calm writing interface
 
-> **English** · [Français](SETUP-INTERFACE.md)
+> [Français](SETUP-INTERFACE.md) · **English** · [Documentation index](README.md)
 
-Feuillets can give Obsidian the calm look of a dedicated writing application without imposing a theme or locking down the user's choices.
+Feuillets can make Obsidian feel much calmer for long-form writing without imposing a theme or rewriting the rest of the vault.
 
-## 1. Start with the suggested values
+![Focus Mode](feuillets-concentration.png)
 
-Open:
+## Three different layers
 
-> **Settings → Feuillets → Interface**
+**Editor:** Obsidian's native Markdown editor with Feuillets manuscript presentation.
 
-In the **Clean interface** section, the **Suggested values** button applies a consistent starting point.
+**Workspace:** Binder, Inspector and Feuillets commands around the text.
 
-These values remain editable. The button does not create a locked mode and does not block any setting.
+**Focus Mode:** a temporary reduction of the surrounding interface.
 
-It can notably act on:
+Keeping these layers separate makes the workspace easier to tune.
 
-- the display of properties in the editor;
-- the built-in draft page title;
-- the tab title bar;
-- the icon ribbon;
-- the vault switcher;
-- panel transparency;
-- tab bar transparency;
-- the discreetness of action icons;
-- the look of inactive side tabs.
+## Interface settings
 
-<!-- CAPTURE settings
-Show the Interface tab and the Suggested values button.
-Caption: "One click to find a calm workshop again."
--->
+Open **Settings → Feuillets → Interface** to adjust font, size, line height, text width, accent, panel transparency and visibility of selected Obsidian UI elements.
 
-## 2. Adjust the writing comfort
+Suggested values are only a starting point.
 
-The Interface section also lets you choose:
+## Keep the Binder as quiet as you want
 
-- text size;
-- Feuillets interface scale;
-- line spacing;
-- column width;
-- main font;
-- monospaced font;
-- accent colour.
+Optional row information includes label stripes, tags, status, progress, word count and a configurable text preview. Leave them hidden if names and hierarchy are enough.
 
-The literary presentation applies to the manuscript. Outside notes keep a more documentary look.
+## Modular Inspector
 
-## 3. Distinguish the Writing view and Focus mode
+The Inspector has Notes, Research, Journal, Edition, Analysis and Proofreading tabs. Hide tabs you do not use; the Binder remains independent.
 
-### Writing view
+## Focus Mode
 
-It shapes the page:
+Focus Mode can hide panels, recenter the writing column, use a dedicated width, keep the active area in a typewriter position, dim surrounding text and display a discreet counter.
 
-- discreet syntax;
-- paragraph indents;
-- paragraphs;
-- width;
-- typography.
+It never changes the file contents.
 
-### Focus mode
+## Write and read side by side
 
-It reduces the environment:
+![Writing and Preview](feuillets-concentration-apercu.png)
 
-- hidden panels;
-- recentred text;
-- active line kept in the centre;
-- dimmed text outside attention;
-- floating word counter.
+Preview can remain next to the editor so that the composed text is visible without turning the editor into a page-layout application.
 
-The two features are complementary.
+## Themes and CSS snippets
 
-## 4. Optionally choose a background or a theme
-
-Feuillets does not replace Obsidian's complete theme.
-
-A custom background colour depends on the theme or a CSS snippet. This separation is deliberate: Feuillets adjusts its own workspace but does not change the overall look of other plugins.
-
-Example of a warm background:
+Feuillets does not replace the full Obsidian theme. Use a theme or CSS snippet when you want to change the vault-wide background.
 
 ```css
 .theme-light {
   --background-primary: #f3eee0;
   --background-primary-alt: #f3eee0;
   --background-secondary: #ece4d0;
-  --background-secondary-alt: #ece4d0;
 }
 ```
 
-Place this snippet in `.obsidian/snippets/`, then enable it in:
+Place snippets in `.obsidian/snippets/` and enable them from Obsidian Appearance settings.
 
-> **Settings → Appearance → CSS snippets**
+## Optional companions
 
-## 5. Optional plugins and themes
+Advanced Canvas, Feuillets-Grammalecte and Courrier are optional. None is required for the core writing workflow.
 
-Nothing else is needed to get a clean interface.
+## Moving settings between vaults
 
-Themes or plugins such as Minimal, Style Settings or Hider can be added for deeper customisation, but Feuillets does not require them.
-
-## 6. Carry your workspace to another vault
-
-Feuillets settings can be exported and then re-imported from the command palette.
-
-Any CSS snippet must be copied separately into the new vault.
+Use Feuillets settings export/import for plugin settings. CSS snippets remain separate Obsidian files.

@@ -1,123 +1,79 @@
-# Compilation and export
+# Composition and export
 
-> **English** · [Français](COMPOSITION-ET-EXPORT.md)
+> [Français](COMPOSITION-ET-EXPORT.md) · **English** · [Documentation index](README.md)
 
-## Two looks for two needs
+## Writing appearance is not final layout
 
-Feuillets clearly distinguishes:
+Feuillets separates the comfortable editor from the document meant to be read, printed or submitted.
 
-- **the writing workshop**, made for writing comfort;
-- **the final document**, made for reading, printing or sending.
+![Writing and composition](feuillets-concentration-apercu.png)
 
-The font, background and width chosen for writing do not determine the exported layout.
+## Composition scope
 
-<!-- CAPTURE comparison
-On the left: dark, clean Writing view.
-On the right: light, paginated document.
-Caption: "Write in your workshop. Compose for the destination."
--->
+A composition can target:
 
-## Preview scopes
+- one file;
+- one folder and all Markdown descendants;
+- a mixed selection of files and folders;
+- the whole project.
 
-The Preview can work on:
+If both a folder and one of its descendants are selected, the descendant is included only once. Final order follows Binder order.
 
-- the active scene;
-- the chapter;
-- the part;
-- the whole manuscript.
+## Technical content stays out
 
-It assembles the matching content without launching a written compilation at every scroll.
+Technical folders are excluded from manuscript traversal. Research, Resources, Edition, Backups and other technical spaces do not become manuscript chapters accidentally.
 
-## A common source
+Sheets explicitly excluded from compilation remain out as well.
 
-Compilation and Preview share the same essential rules:
+## Preview
 
-- Binder order;
-- removal of technical properties;
-- inclusion or exclusion of draft pages;
-- headings according to their level;
-- separators;
-- title page;
-- layout template.
+![Paginated Preview](feuillets-apercu.png)
 
-This reduces the gap between what the author controls and what he exports.
+Preview checks titles, separators, Front pages, template, order, scope and pagination before export.
 
-## The Export panel
+The active sheet can refresh quickly; longer scopes prioritize stable reading rather than recompiling aggressively on every keystroke.
 
-From the Preview, the Export panel can group notably:
+## Front pages
 
-- scope;
-- included items;
-- format;
-- template;
-- first page;
-- document name;
-- export command.
+The manuscript `Front` folder contains authored front matter. Title-page roles can represent title, subtitle, author, an additional line or an image.
 
-The first page is linked to the project's front-matter draft page. The changes are saved in the project rather than kept only in the Preview window.
+Preview and export read the same Front files.
 
-## Visual layout
+## Templates
 
-Depending on the format, the settings can cover:
+Built-in and project-specific templates can control font, size, line height, alignment, indent, spacing, headings, scene divider, orientation and other supported layout values.
 
-- margins;
-- orientation;
-- columns;
-- font;
-- size;
-- line spacing;
-- indent;
-- spacing;
-- heading styles;
-- scene separator;
-- headers and footers;
-- pagination;
-- different first page.
+PDF page geometry remains PDF-specific where it represents actual physical page settings.
 
-## Normal differences between formats
+## Output folder
+
+Outputs are written to `_Sortie`.
+
+For a structured project, `_Sortie` sits next to `Manuscrit`. For a folder used as-is, `_Sortie` stays inside that folder and Feuillets does not climb to its parent.
+
+## Native formats
 
 ### DOCX
-
-- real Word document;
-- named, editable heading styles;
-- advanced support depending on the content.
+Real Word document with named heading styles and editable content.
 
 ### EPUB
-
-- text that adapts to the e-reader screen;
-- no fixed physical page;
-- some page or column options do not make sense.
+Reflowable ebook format; physical page options do not apply.
 
 ### ODT
-
-- OpenDocument styles;
-- some advanced features may have a simpler representation.
+OpenDocument output for LibreOffice and compatible applications.
 
 ### PDF
-
-- produced by the system printing on desktop;
-- fixed layout;
-- behaviour depending on the capabilities of the printing environment.
+Desktop only. Feuillets builds the paginated print document, then opens the system print dialog; choose the system's PDF-save option.
 
 ### Compiled Markdown
+Open text composition for archiving or another publishing pipeline.
 
-- text assembled in an open format;
-- useful for archiving, external processing or another editorial workflow.
+## Footnotes and typography
 
-## Recommended visual check
+Footnote IDs are normalized across composed sheets so local identifiers do not collide. Optional French typography transforms can be applied during composition.
 
-The control manuscript should contain:
+## Recommended final check
 
-- a title page;
-- a part and several chapters;
-- several scenes;
-- short and long paragraphs;
-- a quotation;
-- a list;
-- a scene separator;
-- portrait and landscape images;
-- French and Unicode characters;
-- footnotes;
-- an explicit page break.
+Inspect title page, chapter starts, scene dividers, images, footnotes, Unicode text, headers/footers and the final file in its target application.
 
-The DOCX in particular should be opened in Word to check that the styles appear as real styles, not just as frozen formatting.
+> **Preview should be where you notice layout problems—not the exported file after submission.**

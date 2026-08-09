@@ -1,222 +1,113 @@
-# An author's journey, from the first word to the export
+# An author's workflow, from first word to submission
 
-> **English** · [Français](PARCOURS-AUTEUR.md)
+> [Français](PARCOURS-AUTEUR.md) · **English** · [Documentation index](README.md)
 
-This guide follows the work in its natural order. It does not try to go through every setting.
+This guide follows the natural order of writing work rather than listing every setting.
 
-## 1. Giving birth to a project
+## 1. Choose how to enter the project
 
-On the Binder's home screen, three paths are offered:
+You can create a project, use an existing folder as-is, initialize an existing folder with a Feuillets project type, import Scrivener, or open the demo project.
 
-- **Create a project**: choose a name, optionally an author and a project type;
-- **Open an existing manuscript**: pick up work begun elsewhere;
-- **Discover with a demo project**: explore Feuillets before writing.
+If an existing Markdown manuscript is already organized the way you want, using it as-is is the least invasive option.
 
-A fiction project naturally uses the vocabulary of part, chapter and scene. A non-fiction project adapts the labels and the research categories.
+![Create a first project](creer-premier-projet.gif)
 
-Specialised spaces such as the Journal or snapshots may only appear at the moment of their first use.
+## 2. Shape the manuscript in the Binder
 
-## 2. Laying out the structure in the Binder
+![Binder](feuillets-classeur.png)
 
-The Binder shows the hierarchy:
+Create, rename, drag, move back to root, multi-select, search and filter manuscript items. The structure is flexible; “part”, “chapter”, “scene” and “section” guide the interface without turning Markdown into a rigid database.
 
-> Part → Chapter → Scene → Draft page
+## 3. Write in the sheet
 
-It can be shown in two panes, in a condensed view or as a tree.
+Feuillets keeps Obsidian's editor at the center and adds literary presentation, typography helpers, manuscript search/replace, footnotes, citations, Focus Mode and typewriter scrolling.
 
-The author can:
+![Writing and Preview](feuillets-concentration-apercu.png)
 
-- create items at the right level;
-- move draft pages and chapters;
-- undo a move;
-- search for a scene;
-- filter by status, label or progress;
-- import a plan prepared elsewhere.
+## 4. Keep working material beside the text
 
-<!-- CAPTURE journey 1
-Show the creation of a scene, its move, then its opening.
-Caption: "From plan to draft page in a few moves."
--->
+The **Notes** Inspector tab contains synopsis, summary, working notes, properties, footnotes, folder notes and the current passage context.
 
-## 3. Write
+## 5. Build project Research
 
-Feuillets enriches the Obsidian editor without creating another one.
+Research files remain Markdown. Standard categories depend on project type, custom sections are allowed, and Research folders can be explicitly associated with Binder files or folders.
 
-The Writing view can bring:
+Research text can be linked or quoted back into the manuscript.
 
-- typographic quotation marks, apostrophes and dashes;
-- automatic paragraph indents;
-- tightened paragraphs;
-- a text width of your choice;
-- search and replace within the manuscript;
-- footnotes and citations;
-- Focus mode;
-- typewriter scrolling.
+## 6. Use local Context
 
-The draft page remains the main place for writing.
+The Context section inside Notes follows the passage around the cursor and can surface pinned references, explicit references, associated documents, entity states and chronological alerts.
 
-## 4. Keep information beside the text
+It is deterministic and local. It does not rewrite the manuscript.
 
-The Notes panel avoids mixing the final text and the preparatory work.
+## 7. Explore in Notebook
 
-It can contain:
+Notebook is the free-form Canvas space. Ideas can be moved, linked and grouped before selected ideas are deliberately turned into manuscript sheets or Research documents.
 
-- synopsis;
-- summary;
-- working notes;
-- sources;
-- the draft page's outline;
-- chapter or part notes;
-- context of the quoted characters and places.
+## 8. Change perspective
 
-This information stays beside the scene without being confused with the compiled manuscript.
+![Narrative views](feuillets-mosaique-narrative.png)
 
-## 5. Build the project's bible
+- **Cards** — visual scene organization.
+- **Outline** — structured project data.
+- **Storyline** — narrative thread distribution.
+- **Timeline** — event order versus narrative order.
+- **Preview** — composed reading.
 
-The Research panel hosts the cards the book needs:
+## 9. Transform scenes and sections
 
-- characters;
-- places;
-- events;
-- concepts;
-- universe;
-- sources;
-- bibliography;
-- glossary.
+Move, duplicate, split, merge or exclude content from compilation. Split/merge rules make metadata behavior explicit rather than silently discarding information.
 
-Excerpts can be inserted into the active draft page as a link, a quote, or a quote with its source.
+## 10. Separate Analysis from Proofreading
 
-## 6. Step back
+**Analysis** is built into Feuillets and offers prose metrics, repetitions, chapter balance and writer-supplied pace information.
 
-### Boards
+**Proofreading** displays issues returned by a companion analyzer. Feuillets ships no grammar engine.
 
-To move scenes and read their synopses or excerpts.
+## 11. Track the work
 
-### Outline
+Journal and statistics can be introduced when the project needs them. They are not mandatory for a lightweight workflow.
 
-To examine the hierarchy, status, progress and the information you selected.
+## 12. Protect a state before major rewriting
 
-### Storyline
+Use a snapshot for a local checkpoint, a manuscript version for an alternate direction, and ZIP backups for regular safety.
 
-To observe the narrative threads and the balances of the story.
+![Version comparison](feuillets-comparaison.png)
 
-### Timeline
+## 13. Read before exporting
 
-To distinguish the order in which the reader discovers events from the order in which they happen.
+![Paginated Preview](feuillets-apercu.png)
 
-### Preview
+Check order, titles, separators, front pages, template and selected scope before producing the final file.
 
-To read the scene, the chapter, the part or the manuscript continuously.
+## 14. Compile the right scope
 
-<!-- CAPTURE journey 2
-Create a Boards / Storyline / Timeline mosaic.
-Caption: "Change your point of view without changing your manuscript."
--->
+Feuillets can compile one file, one folder and its descendants, a mixed selection, or the whole project. Duplicate descendants are removed automatically.
 
-## 7. Transform scenes
+## 15. Export
 
-A scene can be:
+Native formats:
 
-- moved;
-- split;
-- merged;
-- duplicated;
-- excluded from the compilation;
-- brought back in later.
+- DOCX;
+- EPUB;
+- ODT;
+- PDF on desktop;
+- compiled Markdown.
 
-When splitting or merging, Feuillets can apply defined rules to the associated properties. The goal is to avoid silent losses while letting the author decide on the desired behaviour.
+See [Composition and export](COMPOSITION-AND-EXPORT.md).
 
-## 8. Keep track of the work
+## 16. Reinstate external DOCX revisions
 
-### Statistics
+The **Edition** tab can inspect reviewed DOCX changes and comments. The workflow remains:
 
-To follow in particular:
+> Feuillets Markdown → DOCX → external review → author decision → Markdown
 
-- word goal;
-- progress of a scene;
-- progress of the project;
-- characters, sentences and paragraphs;
-- estimated reading time;
-- recent activity.
+Ambiguous changes are not meant to be applied silently.
 
-### Writing journal
+## 17. Prepare editorial material
 
-To keep a daily record:
+The optional `_Edition` folder can hold Synopsis, Intent note, Biography, Cover letter, Submissions and Sent versions. The companion **Courrier** plugin can manage contacts and submission follow-up.
 
-- goals;
-- difficulties;
-- narrative decisions;
-- attempts;
-- changes of direction;
-- session review.
+## 18. Keep ownership of the manuscript
 
-## 9. Proofread and revise
-
-Proofreading can combine:
-
-- direct correction in the draft page;
-- continuous reading in the Preview;
-- search and replace;
-- comparison of versions;
-- processing an annotated DOCX document in the Revision panel;
-- proofreading with a specialised module, notably Feuillets-Grammalecte.
-
-The grammar checker does not belong to the core of Feuillets.
-
-## 10. Work on several manuscripts
-
-Several projects can be saved and opened one after another. Switching projects refreshes the views linked to the active manuscript.
-
-## 11. Compose the final document
-
-The compilation assembles the draft pages according to:
-
-- the order of the Binder;
-- the chosen scope;
-- the exclusions;
-- the headings to include;
-- the separators;
-- the layout template;
-- the visual settings.
-
-The Preview lets you check the result before exporting.
-
-<!-- CAPTURE journey 3
-Show the Preview bar and the Export panel with scope, format, template and document name.
-Caption: "The final document is prepared in front of you."
--->
-
-## 12. Export
-
-Depending on the version and the environment, Feuillets can produce DOCX, EPUB, ODT, PDF or compiled Markdown documents.
-
-Differences between formats are normal:
-
-- EPUB stays a text that adapts to the e-reader;
-- PDF depends on the system printing;
-- some advanced structures, notably notes, can vary by format;
-- DOCX keeps editable Word styles.
-
-## 13. Protect yourself
-
-Feuillets distinguishes:
-
-- **automatic backup**: regular protection;
-- **snapshot**: a chosen milestone;
-- **comparison**: understanding the changes;
-- **new version**: exploring another direction;
-- **restoration**: returning to an earlier state.
-
-## 14. Continue the editorial life
-
-Courrier can extend the work after the export:
-
-- contacts;
-- publishers;
-- agents;
-- journals and contests;
-- letters;
-- submissions;
-- replies;
-- reminders;
-- history.
+At every stage, the project remains readable as ordinary files and folders inside the Obsidian vault.

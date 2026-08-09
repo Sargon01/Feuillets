@@ -1,71 +1,49 @@
 # Rewriting, backups and versions
 
-> **English** · [Français](VERSIONNAGE-ET-SECURITE.md)
+> [Français](VERSIONNAGE-ET-SECURITE.md) · **English** · [Documentation index](README.md)
 
-A manuscript does not evolve in a straight line.
+A manuscript does not evolve in a straight line. Feuillets separates several safety mechanisms because they solve different problems.
 
-Feuillets distinguishes several tools so as not to confuse automatic protection, a deliberate milestone and a new narrative direction.
+![Compare two states](feuillets-comparaison.png)
 
-## Automatic backup
+## ZIP backups
 
-It regularly protects the current work against:
+Automatic or manual backups are local ZIP archives under `_Backups`.
 
-- handling errors;
-- accidental deletion;
-- corruption;
-- bad rewriting.
+For a structured project whose active manuscript folder is actually named `Manuscrit`, the backup covers the surrounding project folder while excluding `_Backups` itself.
 
-## Snapshot
+For a folder used as-is, Feuillets backs up **strictly that folder**. It does not include siblings or climb to the vault root.
 
-A snapshot marks an important state.
+Backup retention rotates older ZIP files according to the configured keep count.
 
-### Draft page snapshot
+## Sheet snapshots
 
-Before cutting, merging or rewriting a scene.
-
-### Project snapshot
-
-At the end of a first draft, before a restructure or before a submission.
-
-## Restoration
-
-Restoration lets you go back to an earlier state. An extra protection can be created before the return so that the restoration does not in turn destroy recent work.
+A snapshot preserves the current content of one sheet under `_Snapshots`. Use it before a risky rewrite, cut, merge or experiment.
 
 ## Comparison
 
-Two states can be placed side by side to spot:
+Comparison is for understanding additions, removals and replacements between states.
 
-- additions;
-- deletions;
-- replacements;
-- rewrites.
+## Manuscript versions
 
-<!-- CAPTURE comparison
-Show two versions with visible, readable differences.
-Caption: "Rewrite without losing what you had written."
--->
+**Duplicate as a new version** copies the manuscript under `_Versions`. Research remains shared; the purpose is to branch manuscript work, not clone the entire project bible.
 
-## New version
+Custom Binder order is copied with the version.
 
-Duplicating the manuscript allows you to:
+## Reviewed DOCX
 
-- test another beginning;
-- change the point of view;
-- restructure the chapters;
-- produce a shorter version;
-- prepare a distinct editorial version;
-- keep the original intact.
+Reviewed-DOCX reintegration is a separate workflow. It maps external review changes back to Markdown source and leaves ambiguous cases for explicit author decisions.
 
-## Which tool should I choose?
+See [DOCX review validation](DOCX-REVIEW-VALIDATION.md).
+
+## Which tool?
 
 | Need | Tool |
 |---|---|
-| Being protected without thinking about it | Automatic backup |
-| Marking an important state | Snapshot |
-| Exploring another direction | New version |
-| Understanding the changes | Comparison |
-| Going back | Restoration |
+| Regular local protection | ZIP backup |
+| Preserve one sheet before editing | Snapshot |
+| Understand changes | Comparison |
+| Explore an alternate manuscript | New version |
+| Reinstate Word review | DOCX review |
 
-## Backing up the settings
-
-Feuillets can also export and restore its settings, so you can find the same workspace after a reinstall or in another vault.
+Feuillets backups are a local safety net, not a replacement for a full-vault backup strategy.

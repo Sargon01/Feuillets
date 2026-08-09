@@ -1,222 +1,360 @@
 # Feuillets — fonctionnalités par usage
 
-> **Français** · [English](FEATURES.md)
+> **Français** · [English](FEATURES.md) · [Index](README.md)
 
-Ce document sert de référence fonctionnelle. Les noms internes de réglages sont volontairement laissés à la documentation technique et au code.
+Cette page est la référence fonctionnelle de la documentation utilisateur. Elle décrit le comportement visible et évite les noms de variables internes.
 
-## Écrire
+![Vue d’ensemble](feuillets-ecriture-apercu.png)
 
-- Vue Écriture appliquée au manuscrit.
-- Largeur de texte, taille, interligne et typographie réglables.
-- Syntaxe Markdown visuellement discrète.
-- Alinéas automatiques.
-- Paragraphes normaux, réduits ou visuellement continus.
-- Apostrophes, guillemets français, espaces insécables et tirets typographiques à la frappe.
-- Commande de correction typographique sur une sélection ou le feuillet.
-- Mode Concentration.
+## Projets
+
+- Création de projets **Fiction**, **Non-fiction** et **Libre**.
+- Projet de démonstration.
+- Gestion de plusieurs projets.
+- Utilisation d’un dossier existant tel quel, sans déplacement ni renommage.
+- Initialisation d’un dossier existant comme projet Feuillets.
+- Nom d’affichage du projet distinct du chemin du dossier.
+- Métadonnées de projet.
+- Compatibilité avec les anciens noms de dossiers français ou anglais.
+
+## Classeur
+
+- Navigation hiérarchique.
+- Double volet dossiers/fichiers.
+- Modes dossiers seuls ou fichiers seuls.
+- Densité d’affichage.
+- Création de dossiers et feuillets.
+- Renommage des dossiers et fichiers.
+- Glisser-déposer.
+- Déplacement vers la racine du manuscrit.
+- Annulation du dernier déplacement lorsque disponible.
+- Sélection multiple.
+- Ordre personnalisé persistant.
+- Recherche dans le titre seul ou dans le titre et le contenu.
+- Filtres par statut, label et progression.
+- Liserés de labels, tags, statut, progression et nombre de mots affichables.
+- Aperçu de fiche configurable : extrait, synopsis, résumé, notes ou tags.
+- Import d’un plan.
+- Compilation contextuelle d’un fichier, d’un dossier ou d’une sélection.
+- Ouverture d’une portée dans l’Aperçu.
+
+## Écriture
+
+- Utilisation de l’éditeur Markdown natif d’Obsidian.
+- Présentation littéraire appliquée au manuscrit.
+- Police, taille, interligne et largeur configurables.
+- Alinéas.
+- Espacement de paragraphes configurable.
+- Syntaxe Markdown rendue discrète.
+- Apostrophes, guillemets, tirets et espaces typographiques.
+- Correction typographique d’une sélection ou d’un feuillet.
+- Recherche et remplacement dans le manuscrit.
+- Insertion de séparateurs de scène.
+- Nettoyage de certains artefacts d’import.
+- Navigation feuillet suivant/précédent depuis le Classeur.
+
+## Mode Concentration
+
+- Masquage des zones périphériques.
+- Largeur spécifique.
 - Défilement machine à écrire.
 - Estompage par ligne ou paragraphe.
 - Compteur de mots flottant.
-- Recherche et remplacement dans le manuscrit.
-- Insertion d’un séparateur de scène.
-- Nettoyage des lignes vides et séparateurs importés.
+- Retour sans modification du texte.
+
+![Mode Concentration](feuillets-concentration.png)
+
+## Notes et propriétés
+
+L’onglet **Notes** de l’Inspecteur peut regrouper :
+
+- synopsis ;
+- résumé ;
+- notes de travail ;
+- sources du feuillet ;
+- notes de bas de page ;
+- propriétés YAML ;
+- notes de dossier ;
+- plan du feuillet ;
+- entités et contexte.
+
+Les propriétés restent facultatives. Un fichier Markdown sans frontmatter reste utilisable.
+
+## Contexte local
+
+- Fenêtre de texte autour du curseur.
+- Références explicites.
+- Fiches épinglées par feuillet.
+- Recherche dans des dossiers associés.
+- Contexte de chapitre.
+- Contexte Recherche du projet.
+- Détection de correspondances lexicales dans le contenu.
+- États datés d’entités.
+- Alertes : personnage pas encore né, déjà mort, état incompatible, objet ou technique anachronique lorsque les données nécessaires existent.
+- Résultats limités puis dépliables.
+- Aucun service distant ni IA requise.
+
+## Recherche
+
+- Rubriques adaptées au type de projet.
+- Fiction : Characters/Personnages, Places/Lieux, Events/Événements, Lore, Glossary/Glossaire, Bibliography/Bibliographie.
+- Non-fiction : Sources, Bibliography/Bibliographie, Notes.
+- Projet Libre : aucune rubrique métier imposée.
+- Rubriques personnalisées.
+- Recherche texte.
+- Filtres par tags.
+- Dossiers de recherche sauvegardés.
+- Création et renommage de fiches.
+- Duplication et corbeille.
+- Ouverture en onglet ou côte à côte.
+- Association d’un dossier de Recherche à un dossier **ou à un feuillet** du Classeur.
+- Association possible avec un dossier situé ailleurs dans le coffre.
+- Insertion de liens, extraits et extraits sourcés.
+- Insertion d’images et de liens PDF.
+- Recherche des apparitions d’une fiche dans le manuscrit.
+- Bibliographie fondée sur les sources citées.
+- Catégories historiques FR/EN reconnues sans duplication.
 
 ## Notes de bas de page et citations
 
-- Insertion d’une note.
+- Insertion de note.
 - Navigation entre appel et définition.
-- Vérification des appels orphelins ou définitions absentes.
-- Renumérotation des identifiants numériques.
-- Identifiants nommés conservés.
-- Gestion des collisions entre feuillets lors de la composition.
-- Insertion d’une citation depuis une fiche Source.
-- Export adapté selon les possibilités de chaque format.
-
-## Organiser le manuscrit
-
-- Classeur hiérarchique.
-- Parties, chapitres, scènes et feuillets.
-- Plusieurs présentations du Classeur.
-- Création contextuelle au bon niveau.
-- Glisser-déposer.
-- Annulation du dernier déplacement.
+- Vérification des appels sans définition, définitions inutilisées, doublons, définitions vides et appels mal formés.
 - Renumérotation.
-- Recherche par titre ou contenu.
-- Filtres par statut, étiquette et progression.
-- Extraits, synopsis, résumés, notes ou mots-clés affichables dans le Classeur.
-- Gestion de plusieurs projets.
-- Import d’un plan structuré.
-- Import Scrivener sur ordinateur.
+- Identifiants nommés conservés.
+- Gestion des collisions entre feuillets lors de la compilation.
+- Citation depuis une fiche Source.
+- Génération de bibliographie.
 
-## Cartes, Plan, Chemin de fer, Chronologie et lecture
+## Cartes
 
-### Cartes
-
-- Une carte par scène.
-- Taille et nombre de colonnes réglables.
-- Synopsis, extrait ou informations affichables.
-- Étiquettes et progression.
+- Une représentation par feuillet.
 - Réorganisation visuelle.
-- Travail sur un chapitre ou le manuscrit entier.
+- Travail sur un dossier ou une portée plus large.
+- Synopsis, extrait ou données affichables.
+- Labels et progression.
+- Réglages de taille et de colonnes.
 
-### Plan
+## Plan
 
 - Tableau hiérarchique.
 - Colonnes configurables.
 - Largeurs réglables.
-- Informations possibles : synopsis, résumé, notes, mots-clés, étiquette, statut, date, composition, mots, objectif et progression.
+- Données telles que synopsis, résumé, notes, tags, label, statut, date, compilation, mots, objectif et progression.
 
-### Chemin de fer
+## Chemin de fer
 
-- Tableau Canvas natif.
+- Représentation des fils narratifs.
 - Cartes colorées.
-- Regroupement ou lecture par fil narratif.
-- Vue d’ensemble adaptée à un grand nombre de scènes.
+- Vue de la distribution des fils à travers le manuscrit.
+- Intégration avec Canvas.
 
-### Chronologie
+## Chronologie
 
-- Scènes datées et jalons.
-- Ordre chronologique ou narratif.
-- Plusieurs échelles temporelles.
+- Dates de scènes.
+- Jalons/événements de Recherche.
+- Ordre narratif et ordre chronologique.
+- Échelles temporelles.
 - Filtres.
 - Événements parallèles.
+- Noms historiques reconnus : Événements, Events, Chronologie, Timeline, Chronology, `_Chronologie`.
 
-### Lecture et Aperçu
+## Carnet
 
-- Lecture continue du manuscrit ou d’une sélection.
-- Aperçu à l’échelle de la scène, du chapitre, de la partie ou du manuscrit.
-- Synchronisation avec le feuillet actif.
-- Fil de navigation.
-- Zoom.
-- Accès au panneau Export.
-- Rendu fondé sur la composition réelle.
+- Canvas natif du projet.
+- Nœuds texte et fichiers.
+- Capture d’idées.
+- Groupes.
+- Passage volontaire d’idées vers le manuscrit ou la Recherche.
+- Création de chapitre à partir d’un ensemble d’éléments.
+- Import d’un plan depuis l’arbre d’idées.
+- Intégration facultative avec Advanced Canvas.
 
-## Recherche et documentation
+## Analyse
 
-- Bible du projet.
-- Personnages, lieux, événements, concepts, univers, sources, bibliographie et glossaire.
-- Catégories adaptées au type de projet.
-- Recherche et filtrage.
-- Insertion d’un lien ou extrait dans le feuillet actif.
-- Contexte automatique des éléments cités.
-- Lecture d’états datés présents dans les fiches.
-- Notes de chapitre et de partie.
-- Plan interne du feuillet.
+Onglet intégré, distinct de la correction grammaticale :
 
-## Propriétés
+- nombre de mots ;
+- métriques de prose ;
+- part de dialogue ;
+- répétitions ;
+- comparaison de longueur des chapitres ;
+- signalement d’écarts importants ;
+- richesse lexicale de surface ;
+- courbes ou informations de rythme lorsque `rythme` est renseigné ;
+- tableau de bord ;
+- analyse linguistique complémentaire si le fournisseur compagnon la propose.
 
-- Édition des propriétés du feuillet actif.
-- Champs de texte, dates, cases et listes.
-- Vue des propriétés employées dans le projet.
-- Ajout d’une propriété existante.
-- Suppression en masse avec confirmation.
-- Parcours des mots-clés du projet.
-- Possibilité de masquer la présentation native des propriétés dans l’éditeur.
+## Relecture
 
-Les propriétés restent facultatives pour écrire.
+- API publique de fournisseur d’analyse de texte.
+- Analyse du document ou de la sélection.
+- Signalements avec message, catégorie, sévérité et suggestions.
+- Navigation vers la plage concernée.
+- Menu contextuel de correction.
+- Possibilité pour un compagnon de proposer l’ignorance d’une occurrence ou l’apprentissage d’un mot.
+- Aucun moteur grammatical dans le noyau.
 
-## Scènes
+## Journal et statistiques
 
-- Création.
-- Déplacement.
-- Duplication.
-- Scission.
-- Fusion multiple.
-- Sélection multiple.
-- Règles configurables pour les informations lors d’une fusion ou d’une scission.
-- Exclusion permanente de la composition sans retrait du Classeur.
-- Statuts personnalisables.
-- Étiquettes colorées.
-- Objectif de mots.
-- Synopsis et résumé.
-- Fils narratifs.
-
-## Suivi
-
-- Objectifs par scène et projet.
-- Comptage de mots.
-- Statistiques de texte.
-- Estimation de pages et de temps de lecture.
-- Historique récent.
-- Calendrier d’écriture.
 - Journal quotidien.
-- Compilation du journal.
+- Objectifs.
+- Calendrier/activité.
+- Compilation du Journal.
+- Compteurs de mots et statistiques de texte.
+- Historique récent.
 
-## Révision
+## Scission, fusion et duplication
 
-- Relecture dans l’Aperçu.
-- Comparaison de deux états.
-- Recherche et remplacement.
-- Panneau de traitement d’un DOCX annoté.
-- Correction linguistique confiée à un module spécialisé.
-- Contrôleur d’incohérences entre manuscrit, fiches et chronologie lorsque disponible dans la version installée.
+- Scission du feuillet actif.
+- Duplication.
+- Déplacement.
+- Fusion de plusieurs scènes.
+- Ordre de fusion choisi.
+- Modes de séparation.
+- Règles de conservation/agrégation des propriétés YAML.
+- Protection des propriétés importantes.
+- Sélection multiple.
 
-## Sauvegardes et versions
+## Aperçu
 
-- Sauvegardes automatiques.
-- Instantané du feuillet actif.
-- Instantané du projet.
-- Restauration avec protection préalable.
-- Duplication complète en nouvelle version.
-- Comparaison avec l’original.
-- Sauvegarde et restauration des réglages.
+- Portée feuillet.
+- Portée dossier.
+- Portée sélection.
+- Portée projet.
+- Lecture d’un chapitre ou d’une partie.
+- Pagination.
+- Zoom : largeur, page, manuel.
+- Synchronisation de défilement avec l’éditeur dans les cas pris en charge.
+- Navigation vers le feuillet visible.
+- Fil d’Ariane.
+- Panneau Export intégré.
+- Première page liée aux documents Front.
+- Même moteur de styles que les exports.
+
+![Aperçu paginé](feuillets-apercu.png)
 
 ## Composition
 
-- Assemblage selon l’ordre du Classeur.
-- Portée : scène, chapitre, partie, manuscrit ou sélection.
-- Exclusion de certains feuillets.
-- Titres de parties, chapitres et scènes.
+- Portée fichier.
+- Portée dossier et descendants.
+- Portée sélection de fichiers et dossiers.
+- Portée projet.
+- Déduplication lorsqu’un dossier et un descendant sont tous deux sélectionnés.
+- Respect de l’ordre du Classeur.
+- Exclusion des dossiers techniques.
+- Exclusion individuelle de feuillets via leurs propriétés.
+- Titres de dossiers, chapitres et scènes selon les réglages.
 - Séparateurs.
-- Page de titre issue du feuillet liminaire.
-- Modèles intégrés.
-- Modèles personnalisés.
-- Mise en page visuelle.
-- Marges, orientation, colonnes, polices, espacements, en-têtes, pieds et pagination selon le format.
-- Aperçu reposant sur la même logique que les exports.
+- Pages Front.
+- Modèles intégrés et personnalisés.
+- Styles de titre.
+- Typographie française optionnelle à l’export.
 
 ## Export
 
-Les possibilités exactes doivent être vérifiées dans la version installée.
+Formats natifs réellement implémentés :
 
-Le moteur natif peut prendre en charge :
+- **DOCX** ;
+- **EPUB** ;
+- **ODT** ;
+- **PDF** sur desktop via la boîte d’impression ;
+- **Markdown compilé**.
 
-- Markdown compilé ;
-- DOCX ;
-- EPUB ;
-- ODT ;
-- PDF par impression sur ordinateur.
+Le dossier de sortie est `_Sortie`.
 
-Principes :
+## Mise en page
 
-- aucun service en ligne imposé ;
-- composition effectuée localement ;
-- source non modifiée par l’export ;
-- différences assumées entre formats ;
-- styles Word nommés dans le DOCX ;
-- EPUB adaptable à la liseuse ;
-- limites spécifiques des notes dans certains formats.
+Selon le format et le modèle :
+
+- police ;
+- taille ;
+- interligne ;
+- alignement ;
+- retrait ;
+- espacement ;
+- marges ;
+- orientation ;
+- colonnes ;
+- styles de titres ;
+- séparateurs ;
+- en-têtes et pieds ;
+- pagination ;
+- marges miroir ;
+- première page différente.
+
+## Révision DOCX
+
+Dans l’onglet Édition :
+
+- import d’un DOCX révisé ;
+- lecture des insertions, suppressions, remplacements et commentaires pris en charge ;
+- localisation vers les feuillets sources ;
+- états à appliquer, à vérifier ou ambigus ;
+- décision explicite de l’auteur ;
+- protections avant écriture ;
+- comparaison avant/après.
+
+Voir [Validation du flux de révision DOCX](DOCX-REVIEW-VALIDATION.md).
+
+## Documents éditoriaux
+
+Création à la demande de `_Edition` avec un socle documentaire :
+
+- `Synopsis.md` ;
+- `Note d’intention.md` ;
+- `Biographie.md` ;
+- `Lettre d’accompagnement.md` ;
+- `Soumissions/` ;
+- `Versions envoyées/`.
+
+Les documents restent modifiables, renommables ou supprimables comme des fichiers ordinaires.
+
+## Sauvegardes, instantanés et versions
+
+- Sauvegardes ZIP automatiques.
+- Sauvegarde manuelle.
+- Rotation du nombre de sauvegardes conservées.
+- Périmètre sécurisé pour les dossiers utilisés tel quel.
+- Instantanés de feuillets.
+- Comparaison avec un instantané.
+- Duplications du manuscrit dans `_Versions`.
+- Ordre du Classeur recopié avec une version.
+
+## Import
+
+- Plan structuré Markdown.
+- Projet Scrivener `.scriv`/archive compatible.
+- Textes RTF convertis en Markdown lorsque pris en charge.
+- Structure du Binder.
+- Statuts compatibles.
+- Commentaires et données compatibles.
+- Images/PDF associés lorsque disponibles.
+- Rapport d’import.
 
 ## Interface
 
-- Interface française ou anglaise.
-- Langue automatique ou forcée.
-- Valeurs suggérées pour une interface épurée.
-- Masquage du titre intégré, des propriétés, du ruban, du sélecteur de coffre et d’autres éléments natifs.
-- Transparence des panneaux et barres.
-- Réduction visuelle des icônes secondaires.
-- Police, taille, largeur de texte, interligne et couleur d’accent.
-- Gestes tactiles ou pavé tactile pour ouvrir et fermer les panneaux.
-- Panneaux et vues activables ou masquables.
-- Export et import des réglages.
+- Français / anglais.
+- Détection de langue et choix explicite.
+- Inspecteur à onglets.
+- Onglets d’Inspecteur masquables.
+- Classeur indépendant de l’Inspecteur.
+- Transparence et simplification de plusieurs éléments d’interface.
+- Couleur d’accent.
+- Gestes de panneau.
+- Export/import des réglages.
 
-## Vie éditoriale avec Courrier
+## Écosystème
 
-- Carnet d’adresses.
-- Maisons d’édition, agents, revues et concours.
-- Modèles de lettres.
-- Historique.
-- Suivi des envois.
-- Réponses.
-- Relances.
-- Pièces et versions envoyées.
+- **Feuillets-Grammalecte** : fournisseur d’analyse linguistique.
+- **Courrier** : contacts, soumissions et suivi éditorial.
+- **Advanced Canvas** : intégration facultative du Carnet.
+
+## Principes de données
+
+- Markdown comme source.
+- YAML facultatif.
+- Noms historiques reconnus.
+- Pas de renommage automatique destructif.
+- Pas de télémétrie.
+- Pas d’envoi du manuscrit.

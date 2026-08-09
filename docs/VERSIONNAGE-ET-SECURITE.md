@@ -1,71 +1,109 @@
 # Réécriture, sauvegardes et versions
 
-> **Français** · [English](REWRITING-BACKUPS-AND-VERSIONS.md)
+> **Français** · [English](REWRITING-BACKUPS-AND-VERSIONS.md) · [Index](README.md)
 
-Un manuscrit n’évolue pas en ligne droite.
+Un manuscrit n’évolue pas en ligne droite. Feuillets sépare plusieurs mécanismes parce qu’ils ne répondent pas au même besoin.
 
-Feuillets distingue plusieurs outils afin de ne pas confondre protection automatique, jalon volontaire et nouvelle direction narrative.
+![Comparaison de deux états](feuillets-comparaison.png)
 
-## Sauvegarde automatique
+## 1. Sauvegarde ZIP
 
-Elle protège régulièrement le travail courant contre :
+La sauvegarde automatique ou manuelle crée une archive ZIP locale dans `_Backups`.
 
-- erreur de manipulation ;
-- suppression accidentelle ;
-- corruption ;
-- mauvaise réécriture.
+Elle est destinée au filet de sécurité régulier, pas au travail comparatif quotidien.
 
-## Instantané
+### Projet structuré autour de `Manuscrit`
 
-Un instantané marque un état important.
+Si le dossier actif est réellement `Manuscrit` et se trouve dans un dossier de projet :
 
-### Instantané du feuillet
+```text
+Mon projet/
+├── Manuscrit/
+├── _Recherche/
+├── _Ressources/
+├── _Snapshots/
+├── _Versions/
+└── _Backups/
+```
 
-Avant de couper, fusionner ou réécrire une scène.
+la sauvegarde couvre **Mon projet** et exclut `_Backups` lui-même du ZIP.
 
-### Instantané du projet
+### Dossier utilisé tel quel
 
-À la fin d’un premier jet, avant une restructuration ou avant un envoi.
+Si le projet actif est un dossier quelconque :
 
-## Restauration
+```text
+Documents/
+├── Mon article/
+└── Autre dossier/
+```
 
-La restauration permet de revenir à un état antérieur. Une protection supplémentaire peut être créée avant le retour afin que la restauration ne détruise pas à son tour le travail récent.
+et `Mon article` est utilisé comme projet, Feuillets sauvegarde **strictement `Mon article`**.
 
-## Comparaison
+Il ne remonte pas vers `Documents`, n’inclut pas `Autre dossier` et ne sauvegarde jamais implicitement la racine entière du coffre.
 
-Deux états peuvent être placés côte à côte afin de repérer :
+`_Backups` est créé dans `Mon article`.
+
+### Rotation
+
+Le nombre de ZIP conservés dépend du réglage de rétention. Les anciennes archives au-delà de cette limite sont envoyées à la corbeille via Obsidian.
+
+## 2. Instantané d’un feuillet
+
+Un instantané copie le contenu actuel d’un feuillet dans l’espace `_Snapshots`.
+
+Utilisez-le avant :
+
+- une grosse coupe ;
+- une réécriture risquée ;
+- une fusion ;
+- une expérience locale.
+
+L’instantané est un jalon, pas une branche active.
+
+## 3. Comparaison
+
+La comparaison sert à comprendre les changements :
 
 - ajouts ;
 - suppressions ;
-- remplacements ;
-- réécritures.
+- remplacements.
 
-<!-- CAPTURE COMPARAISON
-Montrer deux versions avec des différences visibles et lisibles.
-Légende : « Réécrivez sans perdre ce que vous aviez écrit. »
--->
+Elle peut être utilisée avec des instantanés ou d’autres fichiers selon le contexte.
 
-## Nouvelle version
+## 4. Nouvelle version du manuscrit
 
-La duplication du manuscrit permet de :
+**Dupliquer comme nouvelle version** copie le manuscrit dans `_Versions`.
 
-- tester un autre début ;
-- changer le point de vue ;
-- restructurer les chapitres ;
+La Recherche reste partagée : l’objectif est de dupliquer le manuscrit, pas toute la bible documentaire.
+
+L’ordre personnalisé du Classeur est recopié avec la version afin qu’une duplication ne retombe pas simplement dans l’ordre alphabétique.
+
+Utilisez une version pour :
+
+- tester un nouveau début ;
+- modifier fortement la structure ;
 - produire une version courte ;
-- préparer une version éditoriale distincte ;
-- garder l’original intact.
+- conserver un premier jet tout en poursuivant le second.
+
+## 5. Révision DOCX
+
+La réintégration d’un DOCX révisé est encore un autre mécanisme : elle compare des propositions extérieures avec les fichiers Markdown sources.
+
+Les changements ambigus doivent rester soumis à une décision explicite.
+
+Voir [Validation du flux de révision DOCX](DOCX-REVIEW-VALIDATION.md).
 
 ## Quel outil choisir ?
 
 | Besoin | Outil |
 |---|---|
-| Être protégé sans y penser | Sauvegarde automatique |
-| Marquer un état important | Instantané |
-| Explorer une autre direction | Nouvelle version |
-| Comprendre les changements | Comparaison |
-| Revenir en arrière | Restauration |
+| Protection régulière du projet | Sauvegarde ZIP |
+| Marquer l’état d’un seul feuillet | Instantané |
+| Comprendre ce qui a changé | Comparaison |
+| Explorer une direction alternative | Nouvelle version |
+| Réintégrer les retours d’un relecteur Word | Révision DOCX |
 
-## Sauvegarder les réglages
+## Limite importante
 
-Feuillets peut aussi exporter et restaurer ses réglages afin de retrouver le même atelier après une réinstallation ou dans un autre coffre.
+Les sauvegardes Feuillets sont un filet de sécurité local. Elles ne remplacent pas une vraie stratégie de sauvegarde du coffre entier : Obsidian Sync, Time Machine, sauvegarde système, Git ou autre solution adaptée à vos données.

@@ -1,68 +1,105 @@
 # Philosophie de Feuillets
 
-> **Français** · [English](PHILOSOPHY.md)
+> **Français** · [English](PHILOSOPHY.md) · [Index](README.md)
 
-## Conçu à partir du travail réel
+## Obsidian fournit l’environnement ; Feuillets fournit l’atelier
 
-Feuillets est né des difficultés rencontrées pendant l’écriture de romans :
+Feuillets n’a pas vocation à devenir une application indépendante cachée dans Obsidian.
 
-- outils dispersés ;
-- formats captifs ;
-- abonnements ;
-- séparation entre rédaction, documentation et export ;
-- difficulté à voir le livre entier tout en travaillant scène par scène.
+Obsidian apporte :
 
-Le projet part donc du métier d’écrire, pas d’une technologie à mettre en avant.
+- le coffre ;
+- Markdown ;
+- les liens ;
+- l’éditeur ;
+- Canvas ;
+- la synchronisation choisie par l’utilisateur ;
+- l’écosystème de modules.
 
-## Parler le langage de l’écrivain
+Feuillets apporte ce qui manque à l’auteur de texte long :
 
-Dans l’usage public français, Feuillets emploie :
+- une représentation du manuscrit ;
+- des opérations sur sa structure ;
+- une bible de Recherche ;
+- un contexte de travail ;
+- des vues narratives ;
+- une chaîne de réécriture ;
+- une composition cohérente ;
+- des outils éditoriaux.
 
-- projet d’écriture ;
-- manuscrit ;
-- partie ;
-- chapitre ;
-- scène ;
-- feuillet ;
-- Classeur ;
-- Aperçu ;
-- instantané ;
-- sauvegarde ;
-- modèle ;
-- comparaison.
+## Le manuscrit reste lisible sans Feuillets
 
-Les mots fichier, dossier, YAML et Markdown restent nécessaires dans la documentation technique, mais ils ne doivent pas définir l’expérience quotidienne.
+Un projet Feuillets doit continuer à avoir du sens lorsque le plugin est désactivé.
 
-## Le feuillet comme unité de base
+Les textes sont des fichiers Markdown. Les dossiers sont de vrais dossiers. Les informations complémentaires utilisent des propriétés lisibles.
 
-Le feuillet donne au manuscrit sa mobilité.
+Les conventions améliorent l’expérience mais ne doivent pas transformer le coffre en format opaque.
 
-Il peut être écrit, déplacé, scindé, fusionné, comparé, exclu ou réintégré indépendamment.
+## La complexité reste progressive
 
-## La puissance ne doit pas créer de surcharge
+Un nouvel utilisateur doit pouvoir écrire avec :
 
-Feuillets peut se réduire à :
+> Classeur → feuillet → Concentration → Aperçu
 
-> un Classeur, un feuillet et Concentration
+Les fonctions avancées ne doivent pas être une taxe d’entrée.
 
-Les autres outils apparaissent lorsque l’auteur en a besoin.
+Le Journal, la Recherche, les fils narratifs, l’Analyse, la révision DOCX ou les modèles d’export deviennent utiles à des moments différents. L’interface doit donc pouvoir les cacher.
 
-## La méthode reste celle de l’auteur
+## Une seule structure, plusieurs représentations
 
-Certains commencent avec un plan. D’autres avec une scène, une voix, une image ou une documentation.
+Le Classeur, Cartes, Plan, Chemin de fer, Chronologie et Aperçu ne sont pas des mondes parallèles.
 
-Feuillets permet de passer entre Canvas, Recherche, Cartes, Plan, Classeur, Chronologie et écriture directe sans imposer un ordre unique.
+Ils répondent à des questions différentes sur **les mêmes fichiers**.
 
-## La réécriture doit rester sans peur
+Cette règle réduit les synchronisations fragiles et évite que l’auteur doive comprendre quel panneau possède la « vraie » version d’une scène.
 
-L’auteur doit pouvoir essayer, couper, déplacer et revenir en arrière.
+## Les métadonnées sont des aides, pas des obligations
 
-Les sauvegardes, instantanés, comparaisons et versions servent cette liberté créative.
+Statut, label, objectif, synopsis, dates et fils narratifs peuvent enrichir le travail.
 
-## Le manuscrit doit rester ouvert
+Ils ne sont pas nécessaires pour ouvrir et écrire un fichier.
 
-Feuillets utilise Obsidian comme environnement actuel, mais conserve les textes dans des formats ordinaires et son code sous licence GNU GPLv3.
+Feuillets préfère une fonction qui fonctionne avec peu de métadonnées puis devient plus riche lorsqu’elles existent, plutôt qu’un formulaire obligatoire avant l’écriture.
 
-La dépendance à Obsidian est une limite assumée. Elle permet aujourd’hui de bénéficier d’un éditeur stable et multiplateforme sans reconstruire toute cette infrastructure.
+## La réécriture doit rester réversible
 
-Une future version autonome reste possible parce que le code de Feuillets et les textes ne sont pas enfermés.
+Le texte long exige des décisions difficiles. Feuillets sépare instantané, comparaison, version et sauvegarde pour que l’auteur sache pourquoi il utilise chaque mécanisme.
+
+La protection ne doit pas prendre le contrôle du projet : une sauvegarde n’est pas une nouvelle version narrative ; une version n’est pas une simple copie de sécurité.
+
+## L’Aperçu n’est pas un second éditeur
+
+L’éditeur sert à écrire. L’Aperçu sert à lire le texte composé.
+
+La synchronisation entre les deux doit rapprocher écriture et lecture sans créer deux sources de vérité.
+
+## Les domaines spécialisés peuvent rester des compagnons
+
+Un correcteur grammatical, un outil de suivi de soumissions ou un enrichissement Canvas peuvent évoluer à leur propre rythme.
+
+C’est pourquoi :
+
+- Feuillets-Grammalecte fournit l’analyse linguistique ;
+- Courrier gère la vie éditoriale ;
+- Advanced Canvas reste facultatif.
+
+Le noyau Feuillets garde le contrat nécessaire pour les intégrer sans absorber tout leur domaine.
+
+## Maintenance : la stabilité avant la course aux fonctions
+
+Feuillets possède déjà un atelier large. La priorité de maintenance est :
+
+1. stabilité ;
+2. cohérence entre les vues ;
+3. ergonomie ;
+4. petites améliorations réellement utiles.
+
+Une réarchitecture générale ne doit pas être lancée simplement parce qu’elle est techniquement séduisante.
+
+## Liberté
+
+Feuillets est local, sans télémétrie, sous GPL-3.0.
+
+La promesse n’est pas seulement « vos fichiers sont en Markdown ». Elle est :
+
+> **vous devez pouvoir quitter l’outil sans quitter votre manuscrit.**

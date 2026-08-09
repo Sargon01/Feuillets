@@ -1,141 +1,131 @@
 # Discover Feuillets
 
-> **English** · [Français](DECOUVRIR.md)
+> [Français](DECOUVRIR.md) · **English** · [Documentation index](README.md)
 
-## A workshop to carry a book
+## A writing studio built inside Obsidian
 
-Feuillets turns Obsidian into a long-form writing environment.
+Feuillets is designed so that a writer can stay in Obsidian without feeling that a book is merely a collection of unrelated notes.
 
-You can start simply: open the Binder, pick a scene and write. As your manuscript grows, other tools appear to organise, document, proofread, revise, compose and export.
+The manuscript remains Markdown, while Feuillets adds structure, writing views, research, rewriting tools and a composition pipeline.
 
-> **Feuillets can be reduced to a Binder and one draft page, then grow along with the manuscript.**
+![Feuillets overview](feuillets-ecriture-apercu.png)
 
-## The draft page
+The minimal workflow is deliberately short:
 
-The draft page is the basic unit.
+> **Binder → sheet → Focus Mode → Preview → export**
 
-It can represent:
+Everything else can remain closed until the project needs it.
 
-- a scene;
-- a section;
-- a fragment;
-- a front-matter page;
-- anything the author wants to move or work on independently.
+## Sheets and project types
 
-Draft pages are organised into chapters and parts.
+A **sheet** is an independent unit of work: a scene, section, fragment, front page or any text that should be movable, comparable or excludable on its own.
 
-## The Binder
+Feuillets provides three project types:
 
-The Binder is the backbone of the manuscript.
+- **Fiction** — scene-oriented vocabulary and fiction research categories;
+- **Non-fiction** — section-oriented vocabulary with Sources, Bibliography and Notes as a starting point;
+- **Free** — no imposed business categories.
 
-It lets you:
-
-- create parts, chapters, scenes and draft pages;
-- immediately open the text you want to work on;
-- move elements by drag and drop;
-- search by title or content;
-- filter by status, label or progress;
-- choose among several layouts of the structure.
-
-<!-- CAPTURE BINDER
-Use a clean project with two parts, several chapters and evocative scene titles.
-Caption: "The book stays visible while you write."
--->
-
-## The Writing view
-
-Within the manuscript, Feuillets applies a literary presentation:
-
-- discreet Markdown syntax;
-- rendered headings;
-- paragraph indents;
-- continuous or tightened paragraphs;
-- adjustable text width;
-- customisable typography;
-- French typographic help.
-
-Outside the manuscript, notes keep a more documentary look. This visual distinction lets you know immediately whether you are writing the work itself or working around it.
-
-## The Focus mode
-
-Focus mode does not change the text: it clears the environment around it.
-
-It can adjust the alternate active line, centre the text, dim what is outside attention and display word count quietly.
-
-## The Preview
-
-The Preview is not just a static snapshot of the document.
-
-It lets you read:
-
-- the scene;
-- the chapter;
-- the part;
-- the manuscript.
-
-The draft page and the preview can move forward together. The author edits locally while watching the rhythm of the composed text.
-
-## The tools around the text
-
-### Notes
-
-To keep beside the scene:
-
-- synopsis;
-- summary;
-- working notes;
-- sources;
-- internal outline;
-- context of the characters and places you quote.
-
-### Notecards for research
-
-To build the project's bible:
-
-- characters;
-- places;
-- events;
-- concepts;
-- universe;
-- sources;
-- bibliography;
-- glossary.
-
-### Boards, Outline, Storyline and Timeline
-
-Each view answers a question:
-
-| Question | View |
-|---|---|
-| Where is this scene? | Binder |
-| How do I balance and move the scenes? | Boards |
-| What information is missing? | Outline |
-| Where do the narrative arcs run? | Storyline |
-| Are the story events coherent? | Timeline |
-| How does the book read? | Preview |
+Project type chooses vocabulary and initial defaults; it does not lock the folder hierarchy.
 
 ## Three ways to start
 
-### Create a project
+### Create a Feuillets project
 
-Feuillets prepares a minimal structure and opens a first draft page ready to write.
+Feuillets prepares `Manuscrit`, a title page, a first writing unit, and sibling Research/Resources spaces.
 
-### Take over an existing manuscript
+![Create a project](creer-premier-projet.gif)
 
-An existing Markdown manuscript can be opened without moving or renaming it.
+### Use an existing folder as-is
 
-### Explore the demo project
+Choose any existing vault folder. Feuillets uses it as the manuscript **without moving, renaming or creating files during opening**.
 
-The demo project lets you discover the views and commands before you begin your own work.
+### Initialize an existing folder
 
-## Properties remain optional
+**Initialize as a Feuillets project…** associates a project type and prepares appropriate Research categories while leaving the manuscript structure in place.
 
-Properties, statuses, labels and project conventions expand Feuillets, but none are required to write.
+## Binder
 
-You can ignore YAML and just use:
+![Binder](feuillets-classeur.png)
 
-> Binder → draft page → Focus → Preview → export
+The Binder can navigate, create, rename, move and multi-select content; search titles or full text; filter by status, label and progress; show useful metadata; open scopes in Preview; and compile a file, folder or selection.
 
-## Your texts remain open
+The same structural order is reused by Preview and export.
 
-Technically, draft pages are ordinary Markdown documents. This reality matters for the freedom of your manuscript, but it does not need to occupy the author's daily experience.
+## Writing and Focus Mode
+
+Feuillets enriches Obsidian's Markdown editor rather than replacing it. Typography, width, line height, paragraph treatment and optional French typography helpers can be adjusted.
+
+![Focus Mode](feuillets-concentration.png)
+
+Focus Mode reduces the surrounding interface, keeps the writing area comfortable and can dim text outside the current focus.
+
+## Inspector
+
+The right-hand Inspector contains six tabs:
+
+- **Notes**;
+- **Research**;
+- **Journal**;
+- **Edition**;
+- **Analysis**;
+- **Proofreading**.
+
+Tabs can be hidden. Notes also contains the local Context section. Proofreading receives issues from a companion provider; Feuillets ships no grammar engine itself.
+
+## Notebook
+
+Notebook uses native Canvas for free-form exploration. Ideas can be arranged and connected, then deliberately converted into manuscript sheets or Research documents.
+
+Advanced Canvas is optional.
+
+## Multiple views of one manuscript
+
+![Narrative views](feuillets-mosaique-narrative.png)
+
+- **Cards** — visual rearrangement.
+- **Outline** — structured manuscript data.
+- **Storyline** — narrative threads.
+- **Timeline** — event order versus narrative order.
+- **Preview** — composed reading.
+
+These are views of the same files, not parallel databases.
+
+## Research and local context
+
+Research files remain Markdown. Standard and custom sections can coexist, folders can be associated with Binder items, and files can be searched, linked or quoted into the manuscript.
+
+The Context section in Notes uses the passage around the cursor, explicit links, associated documents and dates. Matching remains local and deterministic.
+
+## Analysis and Proofreading
+
+**Analysis** is built into Feuillets and provides prose metrics, repetition detection, chapter balance and writer-entered pace data.
+
+**Proofreading** is a host surface for companion analyzers. Without a provider it simply reports that no analyzer is installed.
+
+## Preview and export
+
+![Preview](feuillets-apercu.png)
+
+Preview can represent one sheet, one folder, a selection or the full project. It shares composition rules with export.
+
+Supported native formats:
+
+- DOCX;
+- EPUB;
+- ODT;
+- PDF on desktop through the system print dialog;
+- compiled Markdown.
+
+## Rewriting and safety
+
+![Comparison](feuillets-comparaison.png)
+
+Snapshots, comparisons, manuscript versions and ZIP backups serve different purposes. An as-is folder is backed up strictly within its own scope; a structured `Manuscrit` project can back up the complete surrounding project volume.
+
+## Continue
+
+- [Author workflow](AUTHOR-WORKFLOW.md)
+- [Feature reference](FEATURES.md)
+- [Composition and export](COMPOSITION-AND-EXPORT.md)
+- [Rewriting, backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md)

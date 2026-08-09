@@ -1,103 +1,117 @@
 # Créer une interface d’écriture épurée
 
-> **Français** · [English](WRITING-INTERFACE.md)
+> **Français** · [English](WRITING-INTERFACE.md) · [Index](README.md)
 
-Feuillets peut donner à Obsidian l’apparence calme d’une application d’écriture dédiée sans imposer un thème ni verrouiller les choix de l’utilisateur.
+Feuillets peut rendre Obsidian beaucoup plus calme pour l’écriture sans imposer un thème ni modifier le reste du coffre de façon irréversible.
 
-## 1. Commencer par les valeurs suggérées
+![Mode Concentration](feuillets-concentration.png)
+
+## 1. Distinguer trois niveaux
+
+### L’éditeur
+
+C’est l’éditeur Markdown natif d’Obsidian. Feuillets applique au manuscrit sa présentation d’écriture.
+
+### L’atelier
+
+Classeur à gauche, Inspecteur à droite, onglets et commandes de Feuillets.
+
+### Concentration
+
+Un état temporaire qui réduit l’environnement autour du texte.
+
+Cette distinction évite de chercher un unique « mode écriture » qui devrait tout faire à la fois.
+
+## 2. Réglages de l’interface
 
 Ouvrez :
 
 > **Réglages → Feuillets → Interface**
 
-Dans la section **Interface épurée**, le bouton **Valeurs suggérées** applique un point de départ cohérent.
+Vous pouvez notamment ajuster :
 
-Ces valeurs restent modifiables. Le bouton ne crée pas un mode fermé et ne bloque aucun réglage.
-
-Il peut notamment agir sur :
-
-- l’affichage des propriétés dans l’éditeur ;
-- le titre intégré du feuillet ;
-- la barre de titre des onglets ;
-- le ruban d’icônes ;
-- le sélecteur de coffre ;
-- la transparence des panneaux ;
-- la transparence de la barre d’onglets ;
-- la discrétion des icônes d’actions ;
-- la présentation des onglets latéraux inactifs.
-
-<!-- CAPTURE RÉGLAGES
-Montrer l’onglet Interface et le bouton Valeurs suggérées.
-Légende : « Un clic pour retrouver un atelier calme. »
--->
-
-## 2. Régler le confort d’écriture
-
-La section Interface permet aussi de choisir :
-
-- taille du texte ;
-- échelle de l’interface Feuillets ;
+- police ;
+- taille ;
 - interligne ;
-- largeur de la colonne ;
-- police principale ;
-- police à chasse fixe ;
-- couleur d’accent.
+- largeur du texte ;
+- couleur d’accent ;
+- transparence de certains panneaux ;
+- visibilité de plusieurs éléments d’Obsidian ;
+- discrétion des actions secondaires.
 
-La présentation littéraire s’applique au manuscrit. Les notes extérieures conservent une apparence plus documentaire.
+Le bouton de valeurs suggérées fournit un point de départ ; il ne verrouille aucun réglage.
 
-## 3. Distinguer vue Écriture et Concentration
+## 3. Le Classeur peut rester très léger
 
-### Vue Écriture
+Le Classeur peut afficher uniquement les noms, ou ajouter progressivement :
 
-Elle façonne la page :
+- liseré de label ;
+- tags ;
+- statut ;
+- progression ;
+- nombre de mots ;
+- extrait/synopsis/résumé/notes.
 
-- syntaxe discrète ;
-- alinéas ;
-- paragraphes ;
-- largeur ;
-- typographie.
+Si la structure vous suffit, laissez ces informations masquées.
 
-### Mode Concentration
+## 4. L’Inspecteur est modulaire
 
-Il réduit l’environnement :
+Les six onglets sont :
 
-- panneaux masqués ;
-- texte recentré ;
-- ligne active maintenue au centre ;
-- texte hors attention estompé ;
-- compteur de mots flottant.
+- Notes ;
+- Recherche ;
+- Journal ;
+- Édition ;
+- Analyse ;
+- Relecture.
 
-Les deux fonctions sont complémentaires.
+Masquez les onglets que vous n’utilisez pas. Le Classeur reste indépendant : cacher ou fermer l’Inspecteur ne supprime pas la navigation du manuscrit.
 
-## 4. Choisir éventuellement un fond ou un thème
+## 5. Concentration
 
-Feuillets ne remplace pas le thème complet d’Obsidian.
+Le mode Concentration peut :
 
-Une couleur de fond personnalisée dépend du thème ou d’un extrait CSS. Cette séparation est volontaire : Feuillets règle son atelier, mais ne modifie pas l’apparence générale des autres modules.
+- masquer les panneaux ;
+- recentrer la colonne ;
+- utiliser une largeur propre ;
+- garder la zone active dans une position de type machine à écrire ;
+- estomper la ligne ou le paragraphe non actif ;
+- afficher le compteur.
 
-Exemple de fond chaud :
+Il n’ajoute rien au fichier et ne crée aucune copie du texte.
+
+## 6. Écrire et relire côte à côte
+
+![Écriture et aperçu](feuillets-concentration-apercu.png)
+
+L’Aperçu peut rester ouvert à côté du feuillet pour contrôler le rythme d’un chapitre ou le rendu paginé sans transformer l’éditeur en logiciel de PAO.
+
+## 7. Thèmes et extraits CSS
+
+Feuillets n’essaie pas de remplacer le thème complet d’Obsidian. Si vous voulez changer le fond global du coffre, utilisez un thème ou un extrait CSS.
+
+Exemple minimal :
 
 ```css
 .theme-light {
   --background-primary: #f3eee0;
   --background-primary-alt: #f3eee0;
   --background-secondary: #ece4d0;
-  --background-secondary-alt: #ece4d0;
 }
 ```
 
-Placez cet extrait dans `.obsidian/snippets/`, puis activez-le dans :
+Placez l’extrait dans `.obsidian/snippets/` puis activez-le dans **Réglages → Apparence → Extraits CSS**.
 
-> **Réglages → Apparence → Extraits CSS**
+## 8. Modules facultatifs
 
-## 5. Modules et thèmes facultatifs
+Aucun module supplémentaire n’est requis pour écrire.
 
-Rien d’autre n’est nécessaire pour obtenir une interface épurée.
+- **Advanced Canvas** enrichit facultativement le Carnet.
+- **Feuillets-Grammalecte** ajoute l’analyse linguistique française.
+- **Courrier** ajoute le suivi éditorial.
 
-Des thèmes ou modules comme Minimal, Style Settings ou Hider peuvent être ajoutés pour une personnalisation plus poussée, mais ils ne sont pas requis par Feuillets.
+Les thèmes Minimal et les outils de personnalisation d’Obsidian peuvent être utilisés, mais Feuillets ne les exige pas.
 
-## 6. Transporter son atelier
+## 9. Transporter ses réglages
 
-Les réglages de Feuillets peuvent être exportés puis réimportés depuis la palette de commandes.
-
-Un extrait CSS éventuel doit être copié séparément dans le nouveau coffre.
+Les réglages Feuillets peuvent être exportés/importés depuis les commandes prévues. Un éventuel extrait CSS reste un fichier Obsidian séparé et doit être copié séparément.
