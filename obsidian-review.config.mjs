@@ -92,6 +92,29 @@ export default [
       "no-useless-escape": "warn",
       "no-misleading-character-class": "warn",
       "no-irregular-whitespace": "warn",
+      "obsidianmd/ui/sentence-case": [
+        "warn",
+        {
+          ignoreWords: [
+            "Feuillets",
+            "Carnet",
+            "Front",
+            "Word",
+            "OpenDocument",
+            "DOCX",
+            "ODT",
+            "EPUB",
+            "ZIP",
+          ],
+          ignoreRegex: [
+            "^Roman1/Manuscrit$",
+            "^tag1, tag2, tag3$",
+            "^AAAA-MM-JJ$",
+            "^US Letter$",
+            "^Choisis « Enregistrer au format PDF » dans la boîte d'impression\\.$",
+          ],
+        },
+      ],
     },
   },
   {

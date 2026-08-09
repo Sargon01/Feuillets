@@ -485,7 +485,7 @@ export class ScrivenerImportModal extends Modal {
     contentEl.createEl("label", { text: t("modal.newProject.nameLabel") });
     const nameInput = contentEl.createEl("input", {
       type: "text",
-      attr: { placeholder: "Mon Roman" },
+      attr: { placeholder: "Mon roman" },
     });
     nameInput.addClass("feuillets-input-full");
     nameInput.addClass("feuillets-field-spacer");
