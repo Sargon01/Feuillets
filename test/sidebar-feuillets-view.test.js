@@ -33,11 +33,11 @@ function createSubView(name, calls) {
   };
 }
 
-function createSidebar(activeRightPanelTab = "notes", order = []) {
+function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels = []) {
   const contentEl = new FakeElement();
   const listeners = { workspace: new Map(), vault: new Map() };
   const settings = new Proxy(
-    { activeRightPanelTab },
+    { activeRightPanelTab, hiddenPanels },
     {
       set(target, key, value) {
         if (key === "activeRightPanelTab") order.push("settings");
@@ -77,6 +77,46 @@ function createSidebar(activeRightPanelTab = "notes", order = []) {
 test("SidebarFeuilletsView remplace les onglets historiques docx et metadata", () => {
   assert.equal(createSidebar("docx").sidebar.activeTab, "project");
   assert.equal(createSidebar("metadata").sidebar.activeTab, "notes");
+});
+
+test("SidebarFeuilletsView démarre sur l'onglet Recherche mémorisé", () => {
+  assert.equal(createSidebar("research").sidebar.activeTab, "research");
+});
+
+test("SidebarFeuilletsView n'affiche pas les onglets masqués", async () => {
+  const { sidebar, contentEl } = createSidebar("notes", [], ["research"]);
+
+  await sidebar.render();
+
+  assert.deepEqual(contentEl.children[0].children.map((button) => button.icon), [
+    "file-text", "calendar", "file-edit", "bar-chart-3", "spell-check",
+  ]);
+});
+
+test("SidebarFeuilletsView conserve l'ordre des quatre onglets visibles", async () => {
+  const { sidebar, contentEl } = createSidebar("notes", [], ["research", "analyse"]);
+
+  await sidebar.render();
+
+  assert.deepEqual(contentEl.children[0].children.map((button) => button.icon), [
+    "file-text", "calendar", "file-edit", "spell-check",
+  ]);
+});
+
+test("SidebarFeuilletsView bascule vers le premier onglet visible si l'onglet mémorisé est masqué", async () => {
+  const { sidebar } = createSidebar("research", [], ["research"]);
+
+  await sidebar.render();
+
+  assert.equal(sidebar.activeTab, "notes");
+});
+
+test("SidebarFeuilletsView ignore docxReview dans hiddenPanels pour l'onglet Édition", async () => {
+  const { sidebar, contentEl } = createSidebar("project", [], ["docxReview"]);
+
+  await sidebar.render();
+
+  assert.ok(contentEl.children[0].children.some((button) => button.icon === "file-edit"));
 });
 
 test("SidebarFeuilletsView sauvegarde l'onglet avant de relancer le rendu", async () => {

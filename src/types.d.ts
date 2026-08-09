@@ -361,14 +361,8 @@ declare type FeuilletsSettings = {
   timelineScale: string;
   compilePresets: unknown[];
 
-  /** Panneaux auto-ouverts au démarrage si un projet est actif (voir
-   * registerAutoOpenPanels/loadSettings — autoOpenHub/hubActiveTab sont
-   * d'anciens noms migrés vers ces quatre champs). */
-  autoOpenNotes: boolean;
-  autoOpenProperties: boolean;
-  autoOpenResearch: boolean;
-  autoOpenProject: boolean;
-  autoOpenJournal: boolean;
+  /** Inspecteur auto-ouvert au démarrage si un projet est actif. */
+  autoOpenInspector: boolean;
 
   /** Préfixe des chapitres auto-renommés (chapterPattern/renumberTitles). */
   renamePrefix: string;

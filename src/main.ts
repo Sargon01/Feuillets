@@ -443,46 +443,22 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "open-progression",
       name: t("main.cmd.openStatsPanel"),
-      callback: () => {
-        if (this.isPanelHidden("journal")) {
-          new Notice(t("main.notice.journalPanelHidden"));
-          return;
-        }
-        void this.activateJournal();
-      },
+      callback: () => { void this.activateJournal(); },
     });
     this.addCommand({
       id: "open-journal",
       name: t("main.cmd.openJournal"),
-      callback: () => {
-        if (this.isPanelHidden("journal")) {
-          new Notice(t("main.notice.journalPanelHidden"));
-          return;
-        }
-        void this.activateJournal();
-      },
+      callback: () => { void this.activateJournal(); },
     });
     this.addCommand({
       id: "open-project",
       name: t("main.cmd.openProjectPanel"),
-      callback: () => {
-        if (this.isPanelHidden("project")) {
-          new Notice(t("main.notice.projectPanelHidden"));
-          return;
-        }
-        void this.activateProject();
-      },
+      callback: () => { void this.activateProject(); },
     });
     this.addCommand({
       id: "open-export",
       name: t("main.cmd.openCompileExportPanel"),
-      callback: () => {
-        if (this.isPanelHidden("project")) {
-          new Notice(t("main.notice.projectPanelHidden"));
-          return;
-        }
-        void this.activateProject();
-      },
+      callback: () => { void this.activateProject(); },
     });
     /* Intégration Courrier (Lot 14B) : n'apparaît utilisable que si un
        projet d'écriture est ouvert (même garde que les autres commandes
@@ -706,13 +682,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "manage-projects",
       name: t("main.cmd.manageProjects"),
-      callback: () => {
-        if (this.isPanelHidden("project")) {
-          new Notice(t("main.notice.projectPanelHidden"));
-          return;
-        }
-        void this.activateProject();
-      },
+      callback: () => { void this.activateProject(); },
     });
     this.addCommand({
       id: "switch-project",
@@ -1012,7 +982,7 @@ class FeuilletsPlugin extends Plugin {
 
       const hasProject = !!this.getProjectFolder();
 
-      // Si un projet est actif, ouvrir le binder et le volet droit (si autoOpenBinder est actif)
+      // Si un projet est actif, ouvrir les panneaux demandés s'ils n'existent pas déjà.
       if (hasProject) {
         if (
           this.settings.autoOpenBinder &&
@@ -1022,7 +992,10 @@ class FeuilletsPlugin extends Plugin {
           if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR, active: false });
         }
 
-        if (this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS).length === 0) {
+        if (
+          this.settings.autoOpenInspector &&
+          this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS).length === 0
+        ) {
           const leaf = this.app.workspace.getRightLeaf(false);
           if (leaf) await leaf.setViewState({ type: VIEW_SIDEBAR_FEUILLETS, active: false });
         }
@@ -1388,24 +1361,12 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "open-research",
       name: t("main.cmd.openResearchPanel"),
-      callback: async () => {
-        if (this.isPanelHidden("research")) {
-          new Notice(t("main.notice.researchPanelHidden"));
-          return;
-        }
-        void this.activateResearch();
-      },
+      callback: () => { void this.activateResearch(); },
     });
     this.addCommand({
       id: "open-notes",
       name: t("main.cmd.openNotesPanel"),
-      callback: async () => {
-        if (this.isPanelHidden("notes")) {
-          new Notice(t("main.notice.notesPanelHidden"));
-          return;
-        }
-        void this.activateNotes();
-      },
+      callback: () => { void this.activateNotes(); },
     });
     this.addCommand({
       id: "fix-escaped-scene-breaks",
@@ -1977,19 +1938,50 @@ class FeuilletsPlugin extends Plugin {
        refuse un cast direct tant que ces 4 propriétés manquent. Le reste de
        la fusion (tout le corps de cette méthode) reste entièrement
        vérifié — ni `any`, ni cast sur `data`. */
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, data) as unknown as FeuilletsSettings;
-    if (data.autoOpenHub !== undefined && data.autoOpenNotes === undefined) {
-      const wasOn = !!data.autoOpenHub;
-      const tab = asString(data.hubActiveTab) || "properties";
-      this.settings.autoOpenNotes = wasOn && tab === "notes";
-      this.settings.autoOpenProperties = wasOn && tab === "properties";
-      this.settings.autoOpenResearch = wasOn && tab === "research";
-      this.settings.autoOpenJournal = wasOn && (tab === "progression" || tab === "journal");
-      this.settings.autoOpenProject = wasOn && (tab === "project" || tab === "export");
+    const legacyAutoOpenPanels: Array<[string, "notes" | "research" | "journal" | "project"]> = [
+      ["autoOpenNotes", "notes"],
+      ["autoOpenResearch", "research"],
+      ["autoOpenJournal", "journal"],
+      ["autoOpenProject", "project"],
+      ["autoOpenDocxReview", "project"],
+      ["autoOpenProperties", "notes"],
+    ];
+    const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(data, key);
+    const hasAutoOpenInspector = hasOwn("autoOpenInspector");
+    const hasActiveRightPanelTab = hasOwn("activeRightPanelTab");
+    const directLegacyPanels = legacyAutoOpenPanels
+      .filter(([key]) => hasOwn(key))
+      .map(([key, tab]) => [asBoolean(data[key]) === true, tab] as const);
+    const historicalPanels: Array<[boolean, "notes" | "research" | "journal" | "project"]> = [];
+    if (directLegacyPanels.length === 0) {
+      if (hasOwn("autoOpenHub")) {
+        const hubTab = asString(data.hubActiveTab) || "properties";
+        historicalPanels.push([
+          asBoolean(data.autoOpenHub) === true,
+          hubTab === "research" ? "research" :
+          hubTab === "progression" || hubTab === "journal" ? "journal" :
+          hubTab === "project" || hubTab === "export" ? "project" : "notes",
+        ]);
+      }
+      if (hasOwn("autoOpenProgression")) {
+        historicalPanels.push([asBoolean(data.autoOpenProgression) === true, "journal"]);
+      }
+      if (hasOwn("autoOpenExport")) {
+        historicalPanels.push([asBoolean(data.autoOpenExport) === true, "project"]);
+      }
     }
-    if (data.autoOpenProgression !== undefined || data.autoOpenExport !== undefined) {
-      if (data.autoOpenProgression) this.settings.autoOpenJournal = true;
-      if (data.autoOpenExport) this.settings.autoOpenProject = true;
+    for (const [key] of legacyAutoOpenPanels) delete data[key];
+
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data) as unknown as FeuilletsSettings;
+    if (!hasAutoOpenInspector) {
+      const migratedPanels = directLegacyPanels.length > 0 ? directLegacyPanels : historicalPanels;
+      if (migratedPanels.length > 0) {
+        this.settings.autoOpenInspector = migratedPanels.some(([enabled]) => enabled);
+        if (!hasActiveRightPanelTab) {
+          const activePanel = migratedPanels.find(([enabled]) => enabled);
+          if (activePanel) this.settings.activeRightPanelTab = activePanel[1];
+        }
+      }
     }
     /* Migration : les statuts personnalisés (simples chaînes, ajoutées à une
        liste de base figée) deviennent des entrées {name, color} au même
@@ -3143,6 +3135,14 @@ class FeuilletsPlugin extends Plugin {
   }
 
   async activateSidebarView(tabId = "project"): Promise<void> {
+    if (
+      (tabId === "notes" || tabId === "research" || tabId === "journal" ||
+        tabId === "project" || tabId === "analyse" || tabId === "relecture") &&
+      this.isPanelHidden(tabId)
+    ) {
+      new Notice(t("sidebar.notice.tabHidden"));
+      return;
+    }
     const workspace = this.app.workspace;
     const leaves = workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS);
     let leaf = leaves.length > 0 ? leaves[0] : null;

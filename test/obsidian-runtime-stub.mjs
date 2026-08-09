@@ -11,6 +11,15 @@ export class Component {
   unload() {}
 }
 
+export class Plugin {}
+
+export class PluginSettingTab {
+  constructor(app, plugin) {
+    this.app = app;
+    this.plugin = plugin;
+  }
+}
+
 export class ItemView {
   constructor(leaf) {
     this.leaf = leaf;

@@ -131,12 +131,8 @@ export type DefaultSettings = {
   uiHideVaultSwitcher: boolean;
   uiDimTabActions: boolean;
   projectMeta: Record<string, ProjectMeta>;
-  autoOpenNotes: boolean;
-  autoOpenProperties: boolean;
-  autoOpenResearch: boolean;
-  autoOpenProject: boolean;
-  autoOpenDocxReview: boolean;
   autoOpenBinder: boolean;
+  autoOpenInspector: boolean;
   binderShowLabels: boolean;
   binderShowTags: boolean;
   binderShowStatus: boolean;
@@ -185,7 +181,6 @@ export type DefaultSettings = {
    *  global : un épinglage ne vaut que pour le feuillet depuis lequel il a
    *  été posé (voir NotesView.pinnedPathsFor/togglePinned). */
   notesPinned: Record<string, string[]>;
-  autoOpenJournal: boolean;
   structureSectionOrder: string[];
   hiddenBoardModes: string[];
   hiddenPanels: string[];
@@ -312,12 +307,8 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   uiHideVaultSwitcher: false,
   uiDimTabActions: false,
   projectMeta: {},
-  autoOpenNotes: false,
-  autoOpenProperties: true,
-  autoOpenResearch: false,
-  autoOpenProject: true,
-  autoOpenDocxReview: true,
   autoOpenBinder: true,
+  autoOpenInspector: true,
   binderShowLabels: false,
   binderShowTags: false,
   binderShowStatus: false,
@@ -369,7 +360,6 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   notesShowNotes: true,
   notesSectionOrder: ["Synopsis", "Résumé", "Notes"],
   notesPinned: {},
-  autoOpenJournal: false,
   structureSectionOrder: ["Progression", "Compteurs"],
   hiddenBoardModes: [],
   hiddenPanels: [],

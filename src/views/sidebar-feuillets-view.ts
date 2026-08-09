@@ -31,6 +31,15 @@ type SidebarSubViews = {
 };
 type SidebarTabDefinition = { id: SidebarTab; icon: string; title: string };
 
+const SIDEBAR_TABS: SidebarTabDefinition[] = [
+  { id: "notes", icon: "file-text", title: t("sidebar.tab.notes") },
+  { id: "research", icon: "book-marked", title: t("sidebar.tab.research") },
+  { id: "journal", icon: "calendar", title: t("sidebar.tab.journal") },
+  { id: "project", icon: "file-edit", title: t("sidebar.tab.project") },
+  { id: "analyse", icon: "bar-chart-3", title: t("sidebar.tab.analysis") },
+  { id: "relecture", icon: "spell-check", title: t("sidebar.tab.proofreading") },
+];
+
 function activeTabFor(value: unknown): SidebarTab {
   if (value === "docx") return "project";
   if (value === "metadata") return "notes";
@@ -110,14 +119,11 @@ export class SidebarFeuilletsView extends ItemView {
 
     // ----- BARRE D'ONGLETS -----
     const tabBar = container.createDiv({ cls: "feuillets-sidebar-tab-bar" });
-    const tabs: SidebarTabDefinition[] = [
-      { id: "notes", icon: "file-text", title: t("sidebar.tab.notes") },
-      { id: "research", icon: "book-marked", title: t("sidebar.tab.research") },
-      { id: "journal", icon: "calendar", title: t("sidebar.tab.journal") },
-      { id: "project", icon: "file-edit", title: t("sidebar.tab.project") },
-      { id: "analyse", icon: "bar-chart-3", title: t("sidebar.tab.analysis") },
-      { id: "relecture", icon: "spell-check", title: t("sidebar.tab.proofreading") },
-    ];
+    const hiddenPanels = new Set(this.plugin.settings.hiddenPanels || []);
+    const tabs = SIDEBAR_TABS.filter((tab) => !hiddenPanels.has(tab.id));
+    if (!tabs.some((tab) => tab.id === this.activeTab)) {
+      this.activeTab = tabs[0].id;
+    }
 
     for (const tab of tabs) {
       const button = tabBar.createDiv({

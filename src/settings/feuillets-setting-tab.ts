@@ -1,5 +1,5 @@
 import { YAML_PRESETS } from "../scenes-editor.js";
-import { BOARD_MODES, HIDEABLE_PANELS } from "../constants.js";
+import { BOARD_MODES } from "../constants.js";
 import { resolveType } from "../utils/project-modes.js";
 import { NewProjectModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
@@ -1313,64 +1313,39 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     new Setting(container)
-      .setName(t("settings.autoOpenResearch.name"))
-      .setDesc(t("settings.autoOpen.rightSidebar"))
+      .setName(t("settings.autoOpenInspector.name"))
+      .setDesc(t("settings.autoOpenInspector.desc"))
       .addToggle((t2) =>
-        t2.setValue(S.autoOpenResearch).onChange(async (v) => {
-          S.autoOpenResearch = v;
+        t2.setValue(S.autoOpenInspector).onChange(async (v) => {
+          S.autoOpenInspector = v;
           await this.plugin.saveSettings();
         })
       );
 
+    const activeInspectorTab = () =>
+      S.activeRightPanelTab === "docx" ? "project" :
+      S.activeRightPanelTab === "metadata" ? "notes" :
+      S.activeRightPanelTab === "notes" || S.activeRightPanelTab === "research" ||
+      S.activeRightPanelTab === "journal" || S.activeRightPanelTab === "project" ||
+      S.activeRightPanelTab === "analyse" || S.activeRightPanelTab === "relecture"
+        ? S.activeRightPanelTab
+        : "notes";
     new Setting(container)
-      .setName(t("settings.autoOpenNotes.name"))
-      .setDesc(t("settings.autoOpen.rightSidebar"))
-      .addToggle((t2) =>
-        t2.setValue(S.autoOpenNotes).onChange(async (v) => {
-          S.autoOpenNotes = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.autoOpenJournal.name"))
-      .setDesc(t("settings.autoOpen.rightSidebar"))
-      .addToggle((t2) =>
-        t2.setValue(S.autoOpenJournal).onChange(async (v) => {
-          S.autoOpenJournal = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.autoOpenProject.name"))
-      .setDesc(t("settings.autoOpen.rightSidebar"))
-      .addToggle((t2) =>
-        t2.setValue(S.autoOpenProject).onChange(async (v) => {
-          S.autoOpenProject = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.autoOpenProperties.name"))
-      .setDesc(t("settings.autoOpen.rightSidebar"))
-      .addToggle((t2) =>
-        t2.setValue(S.autoOpenProperties).onChange(async (v) => {
-          S.autoOpenProperties = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.autoOpenDocxReview.name"))
-      .setDesc(t("settings.autoOpenDocxReview.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.autoOpenDocxReview).onChange(async (v) => {
-          S.autoOpenDocxReview = v;
-          await this.plugin.saveSettings();
-        })
-      );
+      .setName(t("settings.inspectorInitialTab.name"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("notes", t("sidebar.tab.notes"))
+          .addOption("research", t("sidebar.tab.research"))
+          .addOption("journal", t("sidebar.tab.journal"))
+          .addOption("project", t("sidebar.tab.project"))
+          .addOption("analyse", t("sidebar.tab.analysis"))
+          .addOption("relecture", t("sidebar.tab.proofreading"))
+          .setValue(activeInspectorTab())
+          .onChange(async (value) => {
+            S.activeRightPanelTab = value;
+            await this.plugin.saveSettings();
+          });
+      });
 
     container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.activeViews") });
 
@@ -1406,26 +1381,35 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     container.createDiv({ cls: "feuillets-notes-sub" }).setText(
       t("settings.activeViews.sidePanels")
     );
+    const inspectorTabs = [
+      ["notes", t("sidebar.tab.notes")],
+      ["research", t("sidebar.tab.research")],
+      ["journal", t("sidebar.tab.journal")],
+      ["project", t("sidebar.tab.project")],
+      ["analyse", t("sidebar.tab.analysis")],
+      ["relecture", t("sidebar.tab.proofreading")],
+    ];
     const hiddenPanels = new Set(S.hiddenPanels || []);
-    const panelLabels: Record<string, string> = {
-      research: t("sidebar.tab.research"),
-      notes: t("sidebar.tab.notes"),
-      journal: t("sidebar.tab.journal"),
-      project: t("sidebar.tab.project"),
-      docxReview: t("settings.activeViews.docxReviewPanel"),
-    };
-    for (const { key } of HIDEABLE_PANELS) {
-      new Setting(container).setName(panelLabels[key] || key).addToggle((t2) =>
+    for (const [key, label] of inspectorTabs) {
+      new Setting(container).setName(label).addToggle((t2) =>
         t2.setValue(!hiddenPanels.has(key)).onChange(async (v) => {
-          if (!v) {
-            await this.plugin.hidePanel(key);
-            return;
-          }
           const set = new Set(S.hiddenPanels || []);
-          set.delete(key);
+          if (!v) {
+            const visibleTabs = inspectorTabs.filter(([tabId]) => !set.has(tabId));
+            if (visibleTabs.length === 1 && visibleTabs[0][0] === key) {
+              new Notice(t("settings.inspector.keepOneTab"));
+              return;
+            }
+            set.add(key);
+            if (activeInspectorTab() === key) {
+              S.activeRightPanelTab = inspectorTabs.find(([tabId]) => !set.has(tabId))![0];
+            }
+          } else {
+            set.delete(key);
+          }
           S.hiddenPanels = [...set];
           await this.plugin.saveSettings();
-          this.plugin.refreshRibbonIcons();
+          this.plugin.renderAllViews(true);
         })
       );
     }
