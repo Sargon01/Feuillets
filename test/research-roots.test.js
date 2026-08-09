@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { entityMatchNames, entityMatchTags, findAppearances, getChronoFolder, getResearchRoot, maybeRenameResearchFile, researchFolderPath } from "../src/services/research.js";
+import { chronologyFolderPath, entityMatchNames, entityMatchTags, findAppearances, getChronoFolder, getResearchRoot, migrateLegacyResearchEntries, maybeRenameResearchFile, researchFolderPath } from "../src/services/research.js";
 
 test("research roots : reconnaît une recherche sœur du manuscrit", () => {
   const manuscript = new TFolder("Projet/Manuscrit");
@@ -43,6 +43,87 @@ test("research roots : reconnaît Recherche et Research sans underscore seulemen
   }
 });
 
+test("migrate-research : déplace les entrées legacy vers la Recherche résolue", async () => {
+  const project = new TFolder("Roman");
+  const manuscript = new TFolder("Roman/Manuscrit");
+  const characters = new TFolder("Roman/_Personnages");
+  const places = new TFolder("Roman/_Lieux");
+  const chronology = new TFolder("Roman/_Chronologie");
+  const charactersBase = new TFile("Roman/Personnages.base", "{}");
+  const placesBase = new TFile("Roman/Lieux.base", "{}");
+  const auxiliary = new TFolder("Roman/_Feuillets");
+  const research = new TFolder("Roman/_Feuillets/Recherche");
+  manuscript.parent = project;
+  for (const entry of [characters, places, chronology, charactersBase, placesBase, auxiliary]) entry.parent = project;
+  research.parent = auxiliary;
+  const { vault, fileManager } = createFakeVault([project, manuscript, characters, places, chronology, charactersBase, placesBase, auxiliary, research]);
+  const app = { vault, fileManager };
+  const settings = { projectFolder: manuscript.path };
+
+  assert.equal(researchFolderPath(app, settings, manuscript), research.path);
+  assert.deepEqual(await migrateLegacyResearchEntries(app, manuscript, research.path), { moved: 5, collisions: [] });
+  for (const name of ["Personnages", "Lieux", "Chronologie", "Personnages.base", "Lieux.base"]) {
+    assert.ok(vault.getAbstractFileByPath(`Roman/_Feuillets/Recherche/${name}`), name);
+  }
+  assert.equal(vault.getAbstractFileByPath("Roman/_Recherche"), null);
+});
+
+test("migrate-research : le chemin V2 est utilisé sans Recherche existante, aussi pour un dossier direct", async () => {
+  const root = new TFolder("Articles");
+  const characters = new TFolder("Articles/_Personnages");
+  characters.parent = root;
+  const { vault, fileManager } = createFakeVault([root, characters]);
+  const settings = { projectFolder: root.path };
+  const app = { vault, fileManager };
+
+  const destination = researchFolderPath(app, settings, root);
+  assert.equal(destination, "Articles/_Feuillets/Recherche");
+  await vault.createFolder("Articles/_Feuillets");
+  await vault.createFolder(destination);
+  await migrateLegacyResearchEntries(app, root, destination);
+  assert.equal(vault.getAbstractFileByPath("Articles/_Feuillets/Recherche/Personnages"), characters);
+  assert.equal(vault.getAbstractFileByPath("Articles/_Recherche"), null);
+});
+
+test("migrate-research : réutilise le legacy, privilégie le canonical et préserve une collision", async (t) => {
+  await t.test("legacy seul", async () => {
+    const root = new TFolder("Projet");
+    const legacy = new TFolder("Projet/_Recherche");
+    const places = new TFolder("Projet/_Lieux");
+    legacy.parent = root;
+    places.parent = root;
+    const { vault, fileManager } = createFakeVault([root, legacy, places]);
+    const app = { vault, fileManager };
+    const settings = { projectFolder: root.path };
+    assert.equal(researchFolderPath(app, settings, root), legacy.path);
+    await migrateLegacyResearchEntries(app, root, legacy.path);
+    assert.equal(vault.getAbstractFileByPath("Projet/_Recherche/Lieux"), places);
+    assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Recherche"), null);
+  });
+
+  await t.test("canonical prioritaire et collision non écrasée", async () => {
+    const root = new TFolder("Projet");
+    const legacy = new TFolder("Projet/_Recherche");
+    const auxiliary = new TFolder("Projet/_Feuillets");
+    const canonical = new TFolder("Projet/_Feuillets/Recherche");
+    const oldCharacters = new TFolder("Projet/_Personnages");
+    const existingCharacters = new TFolder("Projet/_Feuillets/Recherche/Personnages");
+    legacy.parent = root;
+    auxiliary.parent = root;
+    canonical.parent = auxiliary;
+    oldCharacters.parent = root;
+    existingCharacters.parent = canonical;
+    const { vault, fileManager } = createFakeVault([root, legacy, auxiliary, canonical, oldCharacters, existingCharacters]);
+    const app = { vault, fileManager };
+    const settings = { projectFolder: root.path };
+    assert.equal(researchFolderPath(app, settings, root), canonical.path);
+    const result = await migrateLegacyResearchEntries(app, root, canonical.path);
+    assert.deepEqual(result, { moved: 0, collisions: [{ from: "_Personnages", to: "Personnages" }] });
+    assert.equal(vault.getAbstractFileByPath(oldCharacters.path), oldCharacters);
+    assert.equal(vault.getAbstractFileByPath(existingCharacters.path), existingCharacters);
+  });
+});
+
 test("research chronology : reconnaît les rubriques Événements, Events et les variantes historiques", () => {
   for (const name of ["Événements", "Events", "Chronologie", "Timeline", "Chronology"]) {
     const project = new TFolder("Projet");
@@ -55,6 +136,60 @@ test("research chronology : reconnaît les rubriques Événements, Events et les
     const { vault } = createFakeVault([project, manuscript, research, chronology]);
     assert.equal(getChronoFolder({ vault }, { projectFolder: manuscript.path }), chronology, name);
   }
+});
+
+test("split-chronology : résout une destination V2 sans utiliser chronoFolder pour créer un chemin legacy", () => {
+  const project = new TFolder("Roman");
+  const manuscript = new TFolder("Roman/Manuscrit");
+  manuscript.parent = project;
+  const { vault } = createFakeVault([project, manuscript]);
+  const settings = {
+    projectFolder: manuscript.path,
+    chronoFolder: "Recherche/Chronologie",
+    projectMeta: { [manuscript.path]: { type: "fiction" } },
+  };
+
+  assert.equal(chronologyFolderPath({ vault }, settings, manuscript), "Roman/_Feuillets/Recherche/Événements");
+  assert.equal(vault.getAbstractFileByPath("Roman/Manuscrit/Recherche/Chronologie"), null);
+  assert.equal(vault.getAbstractFileByPath("Roman/_Recherche"), null);
+});
+
+test("split-chronology : résout sous _Feuillets pour un dossier direct et réutilise les variantes existantes", () => {
+  const direct = new TFolder("Articles");
+  const { vault: directVault } = createFakeVault([direct]);
+  const directSettings = { projectFolder: direct.path, projectMeta: { [direct.path]: { type: "free" } } };
+  assert.equal(chronologyFolderPath({ vault: directVault }, directSettings, direct), "Articles/_Feuillets/Recherche/Chronologie");
+
+  for (const name of ["Chronologie", "Timeline", "Events"]) {
+    const project = new TFolder("Projet");
+    const manuscript = new TFolder("Projet/Manuscrit");
+    const auxiliary = new TFolder("Projet/_Feuillets");
+    const research = new TFolder("Projet/_Feuillets/Recherche");
+    const chronology = new TFolder(`Projet/_Feuillets/Recherche/${name}`);
+    manuscript.parent = project;
+    auxiliary.parent = project;
+    research.parent = auxiliary;
+    chronology.parent = research;
+    const { vault } = createFakeVault([project, manuscript, auxiliary, research, chronology]);
+    const settings = { projectFolder: manuscript.path, projectMeta: { [manuscript.path]: { type: "fiction" } } };
+    assert.equal(chronologyFolderPath({ vault }, settings, manuscript), chronology.path, name);
+  }
+});
+
+test("split-chronology : réutilise la Recherche legacy mais privilégie la canonical", () => {
+  const root = new TFolder("Projet");
+  const legacy = new TFolder("Projet/_Recherche");
+  legacy.parent = root;
+  const { vault } = createFakeVault([root, legacy]);
+  const settings = { projectFolder: root.path, projectMeta: { [root.path]: { type: "free" } } };
+  assert.equal(chronologyFolderPath({ vault }, settings, root), "Projet/_Recherche/Chronologie");
+
+  const auxiliary = new TFolder("Projet/_Feuillets");
+  const canonical = new TFolder("Projet/_Feuillets/Recherche");
+  auxiliary.parent = root;
+  canonical.parent = auxiliary;
+  const { vault: canonicalVault } = createFakeVault([root, legacy, auxiliary, canonical]);
+  assert.equal(chronologyFolderPath({ vault: canonicalVault }, settings, root), "Projet/_Feuillets/Recherche/Chronologie");
 });
 
 test("research : normalise les identifiants d'une entité", () => {

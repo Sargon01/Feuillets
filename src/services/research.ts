@@ -4,6 +4,7 @@ import { foldAccents } from "../utils/core.js";
 import { fmOf, titleFor, tagsOf, stripFrontmatter } from "./frontmatter.js";
 import { feuilletsAuxiliaryPath, getProjectFolder, flattenFiles } from "./folder-structure.js";
 import { getLocale } from "../i18n/index.js";
+import { PROJECT_MODES, researchFolderNames, resolveType } from "../utils/project-modes.js";
 
 const UNDERSCORED_RESEARCH_ROOT_NAMES = ["_Recherche", "_Research"] as const;
 const SIBLING_RESEARCH_ROOT_NAMES = [...UNDERSCORED_RESEARCH_ROOT_NAMES, "Recherche", "Research"] as const;
@@ -83,6 +84,65 @@ export function researchFolderPath(app: App, settings: FeuilletsSettings, root: 
     }
   }
   return root ? feuilletsAuxiliaryPath(root, "research") : null;
+}
+
+/** Chemin de la rubrique Chronologie à utiliser pour une écriture. Une
+ * rubrique existante garde toujours la priorité ; sinon la racine Recherche
+ * est résolue par la politique V2 avant de choisir un nom de rubrique. */
+export function chronologyFolderPath(
+  app: App,
+  settings: FeuilletsSettings,
+  root: TFolder | null | undefined
+): string | null {
+  const existing = getChronoFolder(app, settings);
+  if (existing) return existing.path;
+  const researchPath = researchFolderPath(app, settings, root);
+  if (!researchPath || !root) return null;
+  const mode = PROJECT_MODES[resolveType(settings.projectMeta?.[root.path]?.type)];
+  const names = researchFolderNames(mode.researchFolders, "evenements");
+  const preferredName = names[0] || (getLocale() === "fr" ? "Chronologie" : "Timeline");
+  return normalizePath(`${researchPath}/${preferredName}`);
+}
+
+/** Déplace les anciennes rubriques de Recherche vers une racine déjà
+ * résolue par researchFolderPath(). La politique de destination (canonique,
+ * legacy, ou création V2) reste donc hors de cette opération mécanique. */
+export async function migrateLegacyResearchEntries(
+  app: App,
+  root: TFolder,
+  destinationRoot: string
+): Promise<{ moved: number; collisions: Array<{ from: string; to: string }> }> {
+  const searchBases = [root.path, root.parent ? root.parent.path : null].filter(
+    (path): path is string => Boolean(path)
+  );
+  const moves = [
+    ["_Personnages", "Personnages"],
+    ["_Lieux", "Lieux"],
+    ["_Chronologie", "Chronologie"],
+    ["Personnages.base", "Personnages.base"],
+    ["Lieux.base", "Lieux.base"],
+  ];
+  const collisions: Array<{ from: string; to: string }> = [];
+  let moved = 0;
+  for (const [from, to] of moves) {
+    let src: TFile | TFolder | null = null;
+    for (const base of searchBases) {
+      const candidate = app.vault.getAbstractFileByPath(normalizePath(`${base}/${from}`));
+      if (candidate instanceof TFile || candidate instanceof TFolder) {
+        src = candidate;
+        break;
+      }
+    }
+    if (!src) continue;
+    const destination = normalizePath(`${destinationRoot}/${to}`);
+    if (app.vault.getAbstractFileByPath(destination)) {
+      collisions.push({ from, to });
+      continue;
+    }
+    await app.fileManager.renameFile(src, destination);
+    moved++;
+  }
+  return { moved, collisions };
 }
 
 /** Rubrique libre de Recherche dédiée aux fiches créées depuis le Carnet

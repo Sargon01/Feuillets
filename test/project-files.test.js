@@ -592,6 +592,8 @@ test("initProjectStructure (FR, projet imbriqué) : dossiers sous la racine du p
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Personnages`) instanceof TFolder, "Personnages");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Lieux`) instanceof TFolder, "Lieux");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Lore`) instanceof TFolder, "Lore");
+  assert.ok(vault.getAbstractFileByPath(`${base}/Manuscrit/Front/Page de titre.md`) instanceof TFile, "page de titre Fiction");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Modèles/Characters.md`) instanceof TFile, "template Fiction");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Snapshots`) instanceof TFolder, "Snapshots sous _Feuillets");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Backups`) instanceof TFolder, "Backups sous _Feuillets");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Journal`) instanceof TFolder, "Journal sous _Feuillets");
@@ -710,6 +712,57 @@ test("initProjectStructure (FR) : mode non-fiction crée Notes, Bibliographie, S
   assert.equal(vault.getAbstractFileByPath(`${base}/_Recherche/Personnages`), null, "pas de Personnages en non-fiction");
   assert.equal(vault.getAbstractFileByPath(`${base}/_Recherche/Lieux`), null, "pas de Lieux en non-fiction");
   assert.equal(vault.getAbstractFileByPath(`${base}/_Recherche/Glossaire`), null, "pas de Glossaire en non-fiction");
+  assert.ok(vault.getAbstractFileByPath(`${base}/Manuscrit/Front/Page de titre.md`) instanceof TFile, "page de titre Non-fiction");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Modèles/Sources.md`) instanceof TFile, "template Non-fiction");
+});
+
+test("initProjectStructure (FR) : mode libre crée seulement les éléments techniques", async () => {
+  setLocale("fr");
+  const { projets, volume, manuscript } = makeNestedProject("Projets/Libre");
+  const { vault } = createFakeVault([projets, volume, manuscript]);
+  const app = { vault };
+  const settings = freshSettingsFor("Projets/Libre/Manuscrit", {
+    projectMeta: { "Projets/Libre/Manuscrit": { type: "free" } },
+    mergeYamlPreset: "minimal",
+  });
+
+  await initProjectStructure(app, settings);
+
+  const base = "Projets/Libre";
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche`) instanceof TFolder, "Recherche technique");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources`) instanceof TFolder, "Ressources techniques");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Snapshots`) instanceof TFolder, "Snapshots");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Backups`) instanceof TFolder, "Backups");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Journal`) instanceof TFolder, "Journal");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Mises en page/Exemple.md`) instanceof TFile, "modèle générique");
+  assert.equal(vault.getAbstractFileByPath(`${base}/Manuscrit/Front`), null);
+  for (const name of ["Characters.md", "Places.md", "Lore.md", "Sources.md", "Acteurs.md", "Geographie.md", "Concepts.md", "Bibliography.md", "Glossary.md", "Events.md"]) {
+    assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Modèles/${name}`), null, name);
+  }
+  for (const name of ["Bibliographie", "Glossaire", "Événements", "Personnages", "Lieux", "Notes", "Sources"]) {
+    assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/${name}`), null, name);
+  }
+});
+
+test("initProjectStructure (FR) : ne supprime pas le Front existant d'un projet libre", async () => {
+  setLocale("fr");
+  const { projets, volume, manuscript } = makeNestedProject("Projets/Libre legacy");
+  const front = new TFolder("Projets/Libre legacy/Manuscrit/Front");
+  const titlePage = new TFile("Projets/Libre legacy/Manuscrit/Front/Page de titre.md", "Titre existant");
+  front.parent = manuscript;
+  titlePage.parent = front;
+  manuscript.children = [front];
+  front.children = [titlePage];
+  const { vault } = createFakeVault([projets, volume, manuscript, front, titlePage]);
+  const settings = freshSettingsFor("Projets/Libre legacy/Manuscrit", {
+    projectMeta: { "Projets/Libre legacy/Manuscrit": { type: "free" } },
+    mergeYamlPreset: "minimal",
+  });
+
+  await initProjectStructure({ vault }, settings);
+
+  assert.equal(vault.getAbstractFileByPath(front.path), front);
+  assert.equal(await vault.read(titlePage), "Titre existant");
 });
 
 // -------------------------------------------------------------------------

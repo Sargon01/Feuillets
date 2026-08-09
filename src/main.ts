@@ -47,7 +47,7 @@ import { fmOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, label
 import { getProjectFolder, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
-import { getChronoFolder, getResearchRoot, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
+import { chronologyFolderPath, getChronoFolder, getResearchRoot, researchFolderPath, migrateLegacyResearchEntries, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
 import { parseChronologyImport } from "./services/chronology-import.js";
 import { buildNumbering } from "./services/numbering.js";
 import { orderFromSnapshot } from "./utils/sibling-order.js";
@@ -874,45 +874,16 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.projectFolderNotFound"));
           return;
         }
-        const searchBases = [root.path, root.parent ? root.parent.path : null].filter(Boolean);
-        const existingResearch = this.getResearchRoot();
-        const destBase = existingResearch
-          ? existingResearch.parent
-            ? existingResearch.parent.path
-            : root.path
-          : root.parent
-          ? root.parent.path
-          : root.path;
-        await this.ensureFolder(`${destBase}/_Recherche`);
-        const moves = [
-          ["_Personnages", "_Recherche/Personnages"],
-          ["_Lieux", "_Recherche/Lieux"],
-          ["_Chronologie", "_Recherche/Chronologie"],
-          ["Personnages.base", "_Recherche/Personnages.base"],
-          ["Lieux.base", "_Recherche/Lieux.base"],
-        ];
-        let moved = 0;
-        for (const [from, to] of moves) {
-          let src: TAbstractFile | null = null;
-          for (const b of searchBases) {
-            const cand = this.app.vault.getAbstractFileByPath(normalizePath(`${b}/${from}`));
-            if (cand) {
-              src = cand;
-              break;
-            }
-          }
-          if (!src) continue;
-          const destPath = normalizePath(`${destBase}/${to}`);
-          if (this.app.vault.getAbstractFileByPath(destPath)) {
-            new Notice(t("main.notice.migrateAlreadyExists", { to, from }));
-            continue;
-          }
-          await this.app.fileManager.renameFile(src, destPath);
-          moved++;
+        const destinationRoot = researchFolderPath(this.app, this.settings, root);
+        if (!destinationRoot) return;
+        await this.ensureFolder(destinationRoot);
+        const result = await migrateLegacyResearchEntries(this.app, root, destinationRoot);
+        for (const { from, to } of result.collisions) {
+          new Notice(t("main.notice.migrateAlreadyExists", { to, from }));
         }
         new Notice(
-          moved > 0
-            ? t("main.notice.migrateDone", { count: String(moved) })
+          result.moved > 0
+            ? t("main.notice.migrateDone", { count: String(result.moved) })
             : t("main.notice.nothingToMigrate")
         );
         this.renderAllViews(true);
@@ -1315,11 +1286,13 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("main.notice.noDatedTitleFound"));
           return;
         }
-        const chronoFolder =
-          this.getChronoFolder() ||
-          (await this.ensureFolder(
-            normalizePath(`${this.getProjectFolder()!.path}/${this.settings.chronoFolder}`)
-          ));
+        const root = this.getProjectFolder();
+        const chronologyPath = chronologyFolderPath(this.app, this.settings, root);
+        if (!chronologyPath) {
+          new Notice(t("main.notice.projectFolderNotFound"));
+          return;
+        }
+        const chronoFolder = this.getChronoFolder() || await this.ensureFolder(chronologyPath);
 
         let created = 0;
         let skipped = 0;

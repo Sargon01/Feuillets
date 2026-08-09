@@ -652,9 +652,9 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     ""
   ].join("\n"));
 
-  const isFiction = getProjectMode(app, settings).yamlPreset === "roman" || getProjectMode(app, settings).yamlPreset === "nouvelle";
+  const initializedProjectType = resolveType(projectMode);
 
-  if (isFiction) {
+  if (initializedProjectType === "fiction") {
     // Templates de fiction
     await writeTemplate(`${templateFolderPath}/Characters.md`, [
       "---",
@@ -724,7 +724,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       "---",
       ""
     ].join("\n"));
-  } else {
+  } else if (initializedProjectType === "nonfiction") {
     // Templates de non-fiction
     await writeTemplate(`${templateFolderPath}/Sources.md`, [
       "---",
@@ -810,43 +810,45 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     ].join("\n"));
   }
 
-  /* Front — enfant direct de Manuscrit (pas un voisin), paraît dans le
-     Binder au même niveau que les Parties, juste avant elles. */
-  const manuscritForFront = getProjectFolder(app, settings)!;
-  await ensureFolder(app, normalizePath(`${manuscritForFront.path}/Front`));
+  if (initializedProjectType !== "free") {
+    /* Front — enfant direct de Manuscrit (pas un voisin), paraît dans le
+       Binder au même niveau que les Parties, juste avant elles. */
+    const manuscritForFront = getProjectFolder(app, settings)!;
+    await ensureFolder(app, normalizePath(`${manuscritForFront.path}/Front`));
 
-  /* Page de titre pré-remplie : structure à rôles (:::titre:, :::sous-titre:…
-     — voir utils/title-roles.js) prête à compléter, seul le titre étant
-     rempli d'emblée avec le nom du projet (même source que le titre du
-     manuscrit, settings.manuscriptTitle sinon le nom du dossier). Écrite via
-     writeTemplate : idempotent, ne réécrit jamais une page de titre déjà
-     composée. */
-  const projectTitle = settings.manuscriptTitle || manuscritForFront.name;
-  await writeTemplate(`${manuscritForFront.path}/Front/Page de titre.md`, [
-    "---",
-    `title: ${projectTitle}`,
-    "short_title: ",
-    "order: 1",
-    "synopsis: ",
-    "status: ",
-    "label: ",
-    "tags: ",
-    "date: ",
-    "notes: ",
-    "compile: true",
-    "type: titre",
-    "---",
-    `:::titre: ${projectTitle}`,
-    ":::sous-titre: ",
-    ":::mots: ",
-    ":::auteur: ",
-    ":::adresse: ",
-    ":::coordonnées: ",
-    "",
-  ].join("\n"));
+    /* Page de titre pré-remplie : structure à rôles (:::titre:, :::sous-titre:…
+       — voir utils/title-roles.js) prête à compléter, seul le titre étant
+       rempli d'emblée avec le nom du projet (même source que le titre du
+       manuscrit, settings.manuscriptTitle sinon le nom du dossier). Écrite via
+       writeTemplate : idempotent, ne réécrit jamais une page de titre déjà
+       composée. */
+    const projectTitle = settings.manuscriptTitle || manuscritForFront.name;
+    await writeTemplate(`${manuscritForFront.path}/Front/Page de titre.md`, [
+      "---",
+      `title: ${projectTitle}`,
+      "short_title: ",
+      "order: 1",
+      "synopsis: ",
+      "status: ",
+      "label: ",
+      "tags: ",
+      "date: ",
+      "notes: ",
+      "compile: true",
+      "type: titre",
+      "---",
+      `:::titre: ${projectTitle}`,
+      ":::sous-titre: ",
+      ":::mots: ",
+      ":::auteur: ",
+      ":::adresse: ",
+      ":::coordonnées: ",
+      "",
+    ].join("\n"));
+  }
 
   const listParts = [
-    "Front",
+    ...(initializedProjectType === "free" ? [] : ["Front"]),
     researchPath.split("/").pop(),
     names.snapshots,
     names.backups,
