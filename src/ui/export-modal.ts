@@ -20,7 +20,7 @@ type ExportModalPlugin = {
 export class ExportModal extends Modal {
   plugin: ExportModalPlugin;
   exportScope: ExportScope;
-  private selectedFormat: ExportFormat = "epub";
+  private selectedFormat: ExportFormat;
   private outputName: string = "";
   private onSubmit?: (format: ExportFormat, name: string) => Promise<void>;
 
@@ -28,6 +28,15 @@ export class ExportModal extends Modal {
     super(app);
     this.plugin = plugin;
     this.exportScope = exportScope;
+    const configuredFormat = plugin.settings.exportFormat;
+    this.selectedFormat =
+      configuredFormat === "md" ||
+      configuredFormat === "epub" ||
+      configuredFormat === "docx" ||
+      configuredFormat === "odt" ||
+      configuredFormat === "pdf"
+        ? configuredFormat
+        : "docx";
     this.outputName = this.getDefaultOutputName();
   }
 
@@ -134,7 +143,7 @@ export class ExportModal extends Modal {
   private getDefaultOutputName(): string {
     switch (this.exportScope.type) {
       case "file":
-        return this.exportScope.files?.[0]?.name || "Manuscrit";
+        return this.exportScope.files?.[0]?.basename || "Manuscrit";
       case "folder":
         return this.exportScope.name || "Dossier";
       case "selection":

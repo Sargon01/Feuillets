@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TFile, TFolder } from "obsidian";
+import { Menu, TFile, TFolder } from "obsidian";
 import {
   AppearancesModal,
   FolderGoalModal,
@@ -8,6 +8,7 @@ import {
   SaveResearchFilterModal,
   TagsModal,
 } from "../src/ui/entity-modals.js";
+import { BoardView } from "../src/views/board-view.js";
 
 class FakeElement {
   constructor(tag = "div", options = {}) {
@@ -18,7 +19,7 @@ class FakeElement {
     this.value = "";
     this.text = options.text ?? "";
     this.attributes = { ...(options.attr ?? {}) };
-    this.style = { cssText: "" };
+    this.style = { cssText: "", setProperty() {} };
     if (options.cls) this.addClass(options.cls);
   }
 
@@ -39,6 +40,8 @@ class FakeElement {
   addClass(classNames) {
     for (const className of classNames.split(" ")) this.classes.add(className);
   }
+
+  hide() { this.hidden = true; }
 
   setText(text) {
     this.text = String(text);
@@ -130,6 +133,43 @@ test("TagsModal supprime les tags quand la saisie est vide", async () => {
   await findElements(modal.contentEl, (element) => element.tag === "button")[0].trigger("click");
 
   assert.equal("tags" in savedFrontmatter, false);
+});
+
+test("BoardView : Modifier les tags ouvre TagsModal pour la carte concernée", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  const parent = new TFolder("Projet/Manuscrit");
+  file.parent = parent;
+  const contentEl = new FakeElement();
+  const app = {
+    vault: { cachedRead: async () => "Texte." },
+    workspace: {},
+  };
+  const plugin = {
+    settings: { statuses: [], showProgress: false, showCardTags: false },
+    fmOf: () => ({}),
+    roleOfFile: () => "scene",
+    labelOf: () => "",
+    labelColor: () => null,
+    shortTitleFor: () => file.basename,
+  };
+  const view = new BoardView({ app, contentEl }, plugin);
+  view.wcMap = new Map([[file.path, 0]]);
+  view.filterActive = () => true;
+
+  const originalOpen = TagsModal.prototype.open;
+  let openedFor = null;
+  TagsModal.prototype.open = function () { openedFor = this.file; };
+  try {
+    view.renderCard(contentEl, parent, file, 0, [file], new Map(), () => {});
+    const more = findElements(contentEl, (element) => element.classes.has("feuillets-card-more"))[0];
+    more.events.get("click")({ stopPropagation() {} });
+    const editTags = Menu.lastShown.items.find((item) => item.title === "Modifier les tags…");
+    editTags.callback();
+
+    assert.equal(openedFor, file);
+  } finally {
+    TagsModal.prototype.open = originalOpen;
+  }
 });
 
 test("FolderGoalModal sauvegarde un objectif positif avant de fermer", async () => {

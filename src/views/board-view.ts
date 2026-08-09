@@ -8,6 +8,7 @@ import { DEFAULT_SETTINGS } from "../default-settings.js";
 import { povOf } from "../utils/arc-fields.js";
 import { DiffModal } from "../ui/diff-modal.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
+import { TagsModal } from "../ui/entity-modals.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
@@ -19,18 +20,13 @@ type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
    attachés dynamiquement au plugin par initScenesEditor (scenes-editor.ts),
    pas déclarés comme méthodes de classe dans main.js — absents du type
    inféré de FeuilletsPlugin, donc ajoutés ici comme dans ScenesEditorPlugin.
-   _binderMultiSelect : idem, attaché par base-feuillets-view.js.
-   openTagsModal : appelé ici (menu "…" d'une carte) mais n'existe nulle
-   part dans le code actuel — déjà le cas avant cette migration (bouton mort
-   au clic), comportement reproduit tel quel, pas de notre ressort de le
-   corriger dans une migration de typage. */
+   _binderMultiSelect : idem, attaché par base-feuillets-view.js. */
 type BoardViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
   _binderMultiSelect?: Set<string>;
   isSceneFile(file: TFile): boolean;
   openMergeModal(files: TFile[]): Promise<void>;
   duplicateManyScenes(files: TFile[]): Promise<void>;
   openMoveManyModal(files: TFile[]): void;
-  openTagsModal(file: TFile): void;
 };
 
 /* app.commands (exécution de commandes par id) est une API interne
@@ -971,7 +967,7 @@ export class BoardView extends BaseFeuilletsView {
       menu.addSeparator();
       menu.addItem((item) =>
         item.setTitle(t("shared.contextMenu.editTags")).onClick(() => {
-          this.plugin.openTagsModal(file);
+          new TagsModal(this.app, this.plugin, file).open();
         })
       );
       menu.addItem((item) =>

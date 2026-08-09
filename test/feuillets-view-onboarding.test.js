@@ -44,6 +44,8 @@ class FakeElement {
   createDiv(options = {}) { return this.createEl("div", options); }
   createSpan(options = {}) { return this.createEl("span", options); }
   addClass(classNames) { for (const c of classNames.split(" ")) this.classes.add(c); }
+  removeClass(className) { this.classes.delete(className); }
+  hide() { this.hidden = true; }
   setText(text) { this.text = String(text); return this; }
   setAttr() {}
   addEventListener(type, callback) { this.events.set(type, callback); }
@@ -117,6 +119,68 @@ test("Binder : masque l'écran d'accueil dès qu'un projet est connu, même inac
 
   assert.equal(findElements(contentEl, (el) => el.classes.has("feuillets-onboarding")).length, 0);
   assert.equal(findElements(contentEl, (el) => el.classes.has("feuillets-project-hub")).length, 1);
+});
+
+test("Binder : le filtre de progression utilise le nombre de mots de l'entrée de cache", async () => {
+  const root = new TFolder("Projet/Manuscrit");
+  const under = new TFile("Projet/Manuscrit/En dessous.md");
+  const hit = new TFile("Projet/Manuscrit/Atteint.md");
+  const over = new TFile("Projet/Manuscrit/Dépassé.md");
+  root.children = [under, hit, over];
+  for (const file of root.children) file.parent = root;
+
+  const settings = baseSettings({
+    projectFolder: root.path,
+    binderSelectedPath: root.path,
+    binderProgressFilter: "Tous",
+    binderTreeWidth: 240,
+    collapsed: {},
+    wordGoal: 1000,
+    tolerance: 0,
+  });
+  const wordCounts = new Map([
+    [under.path, { mtime: 1, wc: 800, chars: 0 }],
+    [hit.path, { mtime: 1, wc: 1000, chars: 0 }],
+    [over.path, { mtime: 1, wc: 1200, chars: 0 }],
+  ]);
+  const contentEl = new FakeElement();
+  const app = {
+    vault: { getAbstractFileByPath: (path) => path === root.path ? root : null },
+    workspace: {},
+  };
+  const plugin = {
+    settings,
+    getProjectFolder: () => root,
+    getResearchRoot: () => null,
+    getVersionsRoot: () => null,
+    getOrderedChildren: (folder) => folder.children,
+    flattenFiles: () => root.children,
+    getWordCounts: async () => wordCounts,
+    buildNumbering: () => new Map(),
+    fmOf: () => ({}),
+    titleFor: (file) => file.basename,
+    shortTitleFor: (file) => file.basename,
+    labelOf: () => "",
+    projectDisplayName: () => "Projet",
+    roleOfFile: () => "scene",
+    saveSettings: async () => {},
+    generateCanvasBoard() {},
+  };
+  const view = new FeuilletsView({ app, contentEl }, plugin);
+  view.attachDragHandlers = () => {};
+  view.updateActiveHighlight = () => {};
+
+  for (const [filter, expected] of [
+    ["En dessous", [under.basename]],
+    ["Atteint", [hit.basename]],
+    ["Dépassé", [over.basename]],
+  ]) {
+    settings.binderProgressFilter = filter;
+    await view.render(true);
+    const names = findElements(contentEl, (el) => el.classes.has("feuillets-item-name"))
+      .map((el) => el.text.trim());
+    assert.deepEqual(names, expected);
+  }
 });
 
 test("Binder ↔ Recherche : remappage — aucune map ne renvoie undefined", () => {

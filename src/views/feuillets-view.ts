@@ -643,14 +643,10 @@ export class FeuilletsView extends BaseFeuilletsView {
       }
       const pf = S.binderProgressFilter;
       if (pf && pf !== "Tous") {
-        const wc = wcCache.get(file.path);
+        const entry = wcCache.get(file.path);
         const goal = this.goalFor(file);
-        if (wc !== undefined && goal > 0) {
-          /* wc est l'objet {mtime, wc, chars, ...} de getWordCounts(), pas un
-             nombre — écart préexistant à cette migration (ringState n'avait
-             aucun type avant), non corrigé ici pour ne rien changer au
-             comportement. */
-          const state = this.ringState(wc as unknown as number, goal);
+        if (entry !== undefined && goal > 0) {
+          const state = this.ringState(entry.wc, goal);
           if (pf === "Atteint" && state !== "hit") return false;
           if (pf === "En dessous" && state !== "under") return false;
           if (pf === "Dépassé" && state !== "over") return false;

@@ -49,11 +49,6 @@ export function resolveCompileScopeFiles(
     return files;
   };
 
-  // Utilitaire: tester si un fichier est dans un dossier
-  const isInFolder = (filePath: string, folderPath: string): boolean => {
-    return filePath === folderPath || filePath.startsWith(folderPath + "/");
-  };
-
   switch (scope.type) {
     case "file": {
       const file = app.vault.getAbstractFileByPath(scope.path);
@@ -68,45 +63,28 @@ export function resolveCompileScopeFiles(
 
     case "selection": {
       const allFiles = new Map<string, TFile>();
-      const expandedFolders = new Set<string>();
 
-      // Étape 1: séparer fichiers et dossiers, développer les dossiers
+      // Développer les dossiers sélectionnés : la Map élimine naturellement
+      // les doublons lorsqu'un de leurs descendants est aussi sélectionné.
       for (const path of scope.paths) {
         const node = app.vault.getAbstractFileByPath(path);
 
         if (node instanceof TFile && node.extension === "md") {
           allFiles.set(node.path, node);
         } else if (node instanceof TFolder && !technicalFolders.has(node.name)) {
-          expandedFolders.add(node.path);
-          // Ajouter tous les descendants du dossier
           for (const file of getAllMarkdownFiles(node)) {
             allFiles.set(file.path, file);
           }
         }
       }
 
-      // Étape 2: supprimer les doublons (fichiers déjà couverts par un dossier parent sélectionné)
-      const finalFiles = new Map<string, TFile>();
-      for (const [filePath, file] of allFiles) {
-        let isCovered = false;
-        for (const folderPath of expandedFolders) {
-          if (isInFolder(filePath, folderPath) && filePath !== folderPath) {
-            isCovered = true;
-            break;
-          }
-        }
-        if (!isCovered) {
-          finalFiles.set(filePath, file);
-        }
-      }
-
-      // Étape 3: respecter l'ordre du Binder
+      // Respecter strictement l'ordre du Binder.
       const result: TFile[] = [];
       const collectInOrder = (folder: TFolder) => {
         for (const child of getOrderedChildren(app, settings, folder, false)) {
-          if (child instanceof TFile && finalFiles.has(child.path)) {
+          if (child instanceof TFile && allFiles.has(child.path)) {
             result.push(child);
-            finalFiles.delete(child.path);
+            allFiles.delete(child.path);
           } else if (child instanceof TFolder && !technicalFolders.has(child.name)) {
             collectInOrder(child);
           }
@@ -114,7 +92,7 @@ export function resolveCompileScopeFiles(
       };
       collectInOrder(projectRoot);
 
-      for (const file of finalFiles.values()) {
+      for (const file of allFiles.values()) {
         result.push(file);
       }
 
