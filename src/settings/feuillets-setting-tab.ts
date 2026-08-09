@@ -820,7 +820,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         s
           .setLimits(0, 28, 1)
           .setValue(S.readingFontSize)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             S.readingFontSize = v;
             await this.plugin.saveSettings();
@@ -930,7 +929,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         s
           .setLimits(10, 22, 1)
           .setValue(S.fontSize)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             S.fontSize = v;
             await this.plugin.saveSettings();
@@ -944,7 +942,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         s
           .setLimits(60, 160, 5)
           .setValue(S.uiScale)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             S.uiScale = v;
             await this.plugin.saveSettings();
@@ -994,7 +991,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         const current = this.plugin.getVaultConfig("baseFontSize");
         sl.setLimits(12, 28, 1)
           .setValue(typeof current === "number" ? current : 16)
-          .setDynamicTooltip()
           .onChange((v) => this.plugin.setVaultConfig("baseFontSize", v));
       });
 
@@ -1067,7 +1063,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         sl
           .setLimits(10, 80, 5)
           .setValue(S.dimOpacity)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             S.dimOpacity = v;
             await this.plugin.saveSettings();
@@ -1084,7 +1079,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         sl
           .setLimits(480, 1000, 20)
           .setValue(S.concentrationWidth)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             S.concentrationWidth = v;
             await this.plugin.saveSettings();
@@ -1236,7 +1230,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         s
           .setLimits(160, 420, 10)
           .setValue(S.tileSize)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             S.tileSize = v;
             await this.plugin.saveSettings();
@@ -1251,7 +1244,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         s
           .setLimits(0, 8, 1)
           .setValue(S.columns)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             S.columns = v;
             await this.plugin.saveSettings();
@@ -1516,7 +1508,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         s
           .setLimits(1, 6, 1)
           .setValue(S.listPanePreviewLines)
-          .setDynamicTooltip()
           .onChange(async (v) => {
             S.listPanePreviewLines = v;
             await this.plugin.saveSettings();
