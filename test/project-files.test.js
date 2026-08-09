@@ -29,7 +29,7 @@ test("ensureEditionFolder : crée le dossier Edition (voisin de Manuscrit), ses 
 
   const edition = await ensureEditionFolder(app, manuscript);
 
-  assert.equal(edition.path, `Projet/${getFeuilletsFolderNames().edition}`);
+  assert.equal(edition.path, "Projet/_Feuillets/Edition");
   assert.equal(getEditionRoot(app, manuscript).path, edition.path);
   for (const sub of EDITION_SUBFOLDERS) {
     assert.ok(vault.getAbstractFileByPath(`${edition.path}/${sub}`) instanceof TFolder, `${sub} créé`);
@@ -54,7 +54,7 @@ test("ensureEditionFolder : idempotent — n'écrase pas un document déjà modi
   const app = { vault };
 
   await ensureEditionFolder(app, manuscript);
-  const synopsisPath = `Projet/${getFeuilletsFolderNames().edition}/Synopsis.md`;
+  const synopsisPath = "Projet/_Feuillets/Edition/Synopsis.md";
   const synopsis = vault.getAbstractFileByPath(synopsisPath);
   await vault.modify(synopsis, "Contenu déjà écrit par l'autrice.");
 
@@ -71,7 +71,7 @@ test("snapshotFile : un projet structuré écrit les snapshots à la racine du p
   const stamp = await snapshotFile(app, scene, manuscript);
 
   assert.match(stamp, /^\d{4}-\d{2}-\d{2} \d{2}h\d{2}\d{2}$/);
-  assert.ok(vault.getAbstractFileByPath(`Projet/_Snapshots/${scene.basename}/${stamp}.md`) instanceof TFile);
+  assert.ok(vault.getAbstractFileByPath(`Projet/_Feuillets/Snapshots/${scene.basename}/${stamp}.md`) instanceof TFile);
   assert.equal(vault.getAbstractFileByPath("Projet/Manuscrit/_Snapshots"), null, "aucun dossier technique dans Manuscrit");
   const snapshots = listSnapshotFiles(app, scene, manuscript);
   assert.equal(snapshots.length, 1);
@@ -87,7 +87,7 @@ test("snapshotFile : un dossier utilisé tel quel écrit les snapshots dans ce d
 
   const stamp = await snapshotFile({ vault }, file, root);
 
-  assert.ok(vault.getAbstractFileByPath(`Mes textes/_Snapshots/${file.basename}/${stamp}.md`) instanceof TFile);
+  assert.ok(vault.getAbstractFileByPath(`Mes textes/_Feuillets/Snapshots/${file.basename}/${stamp}.md`) instanceof TFile);
 });
 
 test("listSnapshotFiles : lit les snapshots historiques sous Manuscrit sans y écrire les nouveaux", async () => {
@@ -109,7 +109,7 @@ test("listSnapshotFiles : lit les snapshots historiques sous Manuscrit sans y é
   const snapshots = listSnapshotFiles(app, scene, manuscript);
   assert.equal(snapshots.length, 2);
   assert.ok(snapshots.some((snapshot) => snapshot.path === legacy.path), "snapshot historique lisible");
-  assert.ok(vault.getAbstractFileByPath(`Projet/_Snapshots/${scene.basename}`) instanceof TFolder, "nouveau snapshot canonique");
+  assert.ok(vault.getAbstractFileByPath(`Projet/_Feuillets/Snapshots/${scene.basename}`) instanceof TFolder, "nouveau snapshot canonique");
   assert.equal(legacyForScene.children.length, 1, "aucune écriture dans l'ancien emplacement");
 });
 
@@ -182,11 +182,11 @@ test("createMinimalProject (fiction) : crée la racine réelle, Manuscrit, Front
   assert.match(scene.content, /synopsis: /);
   assert.match(scene.content, new RegExp(`goal: ${settings.wordGoal}`));
 
-  // _Recherche et _Ressources à la racine réelle, frères de Manuscrit.
-  assert.ok(vault.getAbstractFileByPath("Roman1/_Recherche") instanceof TFolder);
-  assert.ok(vault.getAbstractFileByPath("Roman1/_Ressources") instanceof TFolder);
+  // Les auxiliaires nouveaux sont regroupés sous _Feuillets.
+  assert.ok(vault.getAbstractFileByPath("Roman1/_Feuillets/Recherche") instanceof TFolder);
+  assert.ok(vault.getAbstractFileByPath("Roman1/_Feuillets/Ressources") instanceof TFolder);
   for (const sub of ["Images", "Modèles", "Mises en page", "Exports", "Ressources internes"]) {
-    assert.ok(vault.getAbstractFileByPath(`Roman1/_Ressources/${sub}`) instanceof TFolder, `_Ressources/${sub} manquant`);
+    assert.ok(vault.getAbstractFileByPath(`Roman1/_Feuillets/Ressources/${sub}`) instanceof TFolder, `Ressources/${sub} manquant`);
   }
 
   // Ni _Recherche ni _Ressources DANS Manuscrit.
@@ -225,8 +225,8 @@ test("createMinimalProject (non-fiction) : crée Partie 1/Chapitre 1.md, sans Sc
   assert.equal(result.firstFolderPath, "Essai/Manuscrit/Partie 1");
   assert.equal(result.firstFile.path, "Essai/Manuscrit/Partie 1/Chapitre 1.md");
   assert.ok(vault.getAbstractFileByPath("Essai/Manuscrit/Front/Page de titre.md") instanceof TFile);
-  assert.ok(vault.getAbstractFileByPath("Essai/_Recherche") instanceof TFolder);
-  assert.ok(vault.getAbstractFileByPath("Essai/_Ressources") instanceof TFolder);
+  assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche") instanceof TFolder);
+  assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Ressources") instanceof TFolder);
   assert.equal(vault.getAbstractFileByPath("Essai/Manuscrit/Chapitre 1"), null);
   assert.equal(vault.getAbstractFileByPath("Essai/Manuscrit/Partie 1/Scène 1.md"), null);
 
@@ -249,7 +249,7 @@ test("createMinimalProject (non-fiction) : Partie 1 et Chapitre 1.md sont class�
   assert.equal(roleOfFile(app, settings, chapterFile), "chapitre");
 });
 
-test("createMinimalProject (non-fiction) : crée _Recherche/Notes, Bibliographie, Sources uniquement", async () => {
+test("createMinimalProject (non-fiction) : crée Recherche/Notes, Bibliographie, Sources uniquement", async () => {
   setLocale("fr");
   const { vault } = createFakeVault([]);
   const app = { vault };
@@ -258,17 +258,17 @@ test("createMinimalProject (non-fiction) : crée _Recherche/Notes, Bibliographie
   await createMinimalProject(app, settings, { name: "Essai", type: "nonfiction" });
 
   // Vérifie les sous-dossiers du mode non-fiction
-  assert.ok(vault.getAbstractFileByPath("Essai/_Recherche") instanceof TFolder, "_Recherche créé");
-  assert.ok(vault.getAbstractFileByPath("Essai/_Recherche/Notes") instanceof TFolder, "Notes créé");
-  assert.ok(vault.getAbstractFileByPath("Essai/_Recherche/Bibliographie") instanceof TFolder, "Bibliographie créé");
-  assert.ok(vault.getAbstractFileByPath("Essai/_Recherche/Sources") instanceof TFolder, "Sources créé");
+  assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche") instanceof TFolder, "Recherche créé");
+  assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Notes") instanceof TFolder, "Notes créé");
+  assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Bibliographie") instanceof TFolder, "Bibliographie créé");
+  assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Sources") instanceof TFolder, "Sources créé");
 
   // Vérifie qu'aucune catégorie fiction n'est créée
-  assert.equal(vault.getAbstractFileByPath("Essai/_Recherche/Personnages"), null, "pas de Personnages en non-fiction");
-  assert.equal(vault.getAbstractFileByPath("Essai/_Recherche/Lieux"), null, "pas de Lieux en non-fiction");
-  assert.equal(vault.getAbstractFileByPath("Essai/_Recherche/Glossaire"), null, "pas de Glossaire en non-fiction");
-  assert.equal(vault.getAbstractFileByPath("Essai/_Recherche/Événements"), null, "pas d'Événements en non-fiction");
-  assert.equal(vault.getAbstractFileByPath("Essai/_Recherche/Lore"), null, "pas de Lore en non-fiction");
+  assert.equal(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Personnages"), null, "pas de Personnages en non-fiction");
+  assert.equal(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Lieux"), null, "pas de Lieux en non-fiction");
+  assert.equal(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Glossaire"), null, "pas de Glossaire en non-fiction");
+  assert.equal(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Événements"), null, "pas d'Événements en non-fiction");
+  assert.equal(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Lore"), null, "pas de Lore en non-fiction");
 });
 
 test("createMinimalProject : dossier parent facultatif imbrique le projet", async () => {
@@ -439,8 +439,8 @@ test("createMinimalProject (FR) : _Recherche et _Ressources sous le volume, pas 
 
   const result = await createMinimalProject(app, settings, { name: "Roman FR", type: "fiction" });
 
-  assert.ok(vault.getAbstractFileByPath("Roman FR/_Recherche") instanceof TFolder, "_Recherche sous le volume");
-  assert.ok(vault.getAbstractFileByPath("Roman FR/_Ressources") instanceof TFolder, "_Ressources sous le volume");
+  assert.ok(vault.getAbstractFileByPath("Roman FR/_Feuillets/Recherche") instanceof TFolder, "Recherche sous _Feuillets");
+  assert.ok(vault.getAbstractFileByPath("Roman FR/_Feuillets/Ressources") instanceof TFolder, "Ressources sous _Feuillets");
   assert.equal(vault.getAbstractFileByPath("_Recherche"), null, "pas de _Recherche à la racine");
   assert.equal(vault.getAbstractFileByPath("_Ressources"), null, "pas de _Ressources à la racine");
   assert.equal(vault.getAbstractFileByPath("_Research"), null, "pas de _Research en FR");
@@ -457,8 +457,8 @@ test("createMinimalProject (EN) : _Research et _Resources sous le volume, noms a
 
   const result = await createMinimalProject(app, settings, { name: "Novel EN", type: "fiction" });
 
-  assert.ok(vault.getAbstractFileByPath("Novel EN/_Research") instanceof TFolder, "_Research sous le volume");
-  assert.ok(vault.getAbstractFileByPath("Novel EN/_Resources") instanceof TFolder, "_Resources sous le volume");
+  assert.ok(vault.getAbstractFileByPath("Novel EN/_Feuillets/Recherche") instanceof TFolder, "Recherche sous _Feuillets");
+  assert.ok(vault.getAbstractFileByPath("Novel EN/_Feuillets/Ressources") instanceof TFolder, "Ressources sous _Feuillets");
   assert.equal(vault.getAbstractFileByPath("_Recherche"), null, "pas de _Recherche en EN");
   assert.equal(vault.getAbstractFileByPath("_Ressources"), null, "pas de _Ressources en EN");
 
@@ -481,19 +481,19 @@ test("initProjectStructure (FR, projet imbriqué) : dossiers sous la racine du p
 
   const base = "Projets/Mon recueil";
   // _Recherche et ses sous-dossiers sous la racine du projet (mode fiction)
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche`) instanceof TFolder, "_Recherche sous le projet");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Bibliographie`) instanceof TFolder, "Bibliographie");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Glossaire`) instanceof TFolder, "Glossaire");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Événements`) instanceof TFolder, "Événements");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Personnages`) instanceof TFolder, "Personnages");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Lieux`) instanceof TFolder, "Lieux");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Lore`) instanceof TFolder, "Lore");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Snapshots`) instanceof TFolder, "_Snapshots sous le projet");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Backups`) instanceof TFolder, "_Backups sous le projet");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Journal`) instanceof TFolder, "_Journal sous le projet");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Ressources`) instanceof TFolder, "_Ressources sous le projet");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Ressources/Modèles`) instanceof TFolder, "Modèles");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Ressources/Mises en page`) instanceof TFolder, "Mises en page");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche`) instanceof TFolder, "Recherche sous _Feuillets");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Bibliographie`) instanceof TFolder, "Bibliographie");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Glossaire`) instanceof TFolder, "Glossaire");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Événements`) instanceof TFolder, "Événements");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Personnages`) instanceof TFolder, "Personnages");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Lieux`) instanceof TFolder, "Lieux");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Lore`) instanceof TFolder, "Lore");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Snapshots`) instanceof TFolder, "Snapshots sous _Feuillets");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Backups`) instanceof TFolder, "Backups sous _Feuillets");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Journal`) instanceof TFolder, "Journal sous _Feuillets");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources`) instanceof TFolder, "Ressources sous _Feuillets");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Modèles`) instanceof TFolder, "Modèles");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Mises en page`) instanceof TFolder, "Mises en page");
 
   // Aucun dossier à la racine du coffre
   assert.equal(vault.getAbstractFileByPath("_Recherche"), null, "pas de _Recherche à la racine du coffre");
@@ -598,10 +598,10 @@ test("initProjectStructure (FR) : mode non-fiction crée Notes, Bibliographie, S
 
   const base = "Projets/Essai";
   // _Recherche et ses sous-dossiers en mode non-fiction
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche`) instanceof TFolder, "_Recherche sous le projet");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Bibliographie`) instanceof TFolder, "Bibliographie");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Notes`) instanceof TFolder, "Notes");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Recherche/Sources`) instanceof TFolder, "Sources");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche`) instanceof TFolder, "Recherche sous _Feuillets");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Bibliographie`) instanceof TFolder, "Bibliographie");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Notes`) instanceof TFolder, "Notes");
+  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Sources`) instanceof TFolder, "Sources");
   // Pas de catégories fiction
   assert.equal(vault.getAbstractFileByPath(`${base}/_Recherche/Personnages`), null, "pas de Personnages en non-fiction");
   assert.equal(vault.getAbstractFileByPath(`${base}/_Recherche/Lieux`), null, "pas de Lieux en non-fiction");

@@ -1,6 +1,6 @@
 import { Notice, normalizePath, TFile } from "obsidian";
 import type { App, TAbstractFile } from "obsidian";
-import { getProjectFolder } from "./folder-structure.js";
+import { feuilletsAuxiliaryPath, getProjectFolder } from "./folder-structure.js";
 import { getResearchRoot, getChronoFolder, researchFolderPath } from "./research.js";
 import { ensureFolder, initProjectStructure } from "./project-files.js";
 import { ensureDayEntry } from "./journal.js";
@@ -271,7 +271,7 @@ async function generate(app: App, S: FeuilletsSettings, plugin: DemoPlugin, manu
      snapshot » et le comparateur de différences aient tout de suite un vrai
      avant/après à montrer, sans attendre que l'utilisateur en crée un. */
   {
-    const snapshotsBase = normalizePath(`${root.parent!.path}/Snapshots`);
+    const snapshotsBase = feuilletsAuxiliaryPath(root, "snapshots");
     const snapshotDir = normalizePath(`${snapshotsBase}/${ouvertureFile.basename}`);
     await ensureFolder(app, snapshotsBase);
     await ensureFolder(app, snapshotDir);

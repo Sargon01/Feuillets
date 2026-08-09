@@ -132,8 +132,8 @@ test("NewProjectModal : crée la structure minimale, active le projet, ouvre la 
     await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
 
     assert.ok(vault.getAbstractFileByPath("Roman1/Manuscrit/Chapitre 1") instanceof TFolder);
-    assert.ok(vault.getAbstractFileByPath("Roman1/_Recherche") instanceof TFolder);
-    assert.ok(vault.getAbstractFileByPath("Roman1/_Ressources/Modèles") instanceof TFolder);
+    assert.ok(vault.getAbstractFileByPath("Roman1/_Feuillets/Recherche") instanceof TFolder);
+    assert.ok(vault.getAbstractFileByPath("Roman1/_Feuillets/Ressources/Modèles") instanceof TFolder);
     const scene = vault.getAbstractFileByPath("Roman1/Manuscrit/Chapitre 1/Scène 1.md");
     assert.ok(scene instanceof TFile);
     const titlePage = vault.getAbstractFileByPath("Roman1/Manuscrit/Front/Page de titre.md");

@@ -1,6 +1,6 @@
 import { TFile, TFolder, Notice, normalizePath } from "obsidian";
 import type { App } from "obsidian";
-import { getProjectFolder } from "./folder-structure.js";
+import { feuilletsAuxiliaryPath, getProjectFolder } from "./folder-structure.js";
 import { dateKey } from "../utils/journal-stats.js";
 import { buildCarnet } from "../utils/journal-carnet.js";
 
@@ -15,6 +15,8 @@ const CARNET_NAME = "Journal d'écriture";
 export function getJournalRoot(app: App, settings: FeuilletsSettings): TFolder | null {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
+  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "journal"));
+  if (canonical instanceof TFolder) return canonical;
   const rel = settings.journalFolder || "Journal";
   const bases = [root.parent ? root.parent.path : null, root.path].filter(Boolean);
   for (const base of bases) {
@@ -26,17 +28,12 @@ export function getJournalRoot(app: App, settings: FeuilletsSettings): TFolder |
 
 /** Base à utiliser pour CRÉER le dossier du journal s'il n'existe pas
  * encore : frère du dossier projet, comme Recherche/Snapshots/Sortie. */
-function journalBase(root: TFolder) {
-  return root.parent ? root.parent.path : root.path;
-}
-
 export async function ensureJournalFolder(app: App, settings: FeuilletsSettings): Promise<TFolder | null> {
   const existing = getJournalRoot(app, settings);
   if (existing) return existing;
   const root = getProjectFolder(app, settings);
   if (!root) return null;
-  const rel = settings.journalFolder || "Journal";
-  const folderPath = normalizePath(`${journalBase(root)}/${rel}`);
+  const folderPath = feuilletsAuxiliaryPath(root, "journal");
   const check = app.vault.getAbstractFileByPath(folderPath);
   if (check instanceof TFolder) return check;
   try {
@@ -52,8 +49,7 @@ export function dayEntryPath(app: App, settings: FeuilletsSettings, date: Date):
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const existing = getJournalRoot(app, settings);
-  const rel = settings.journalFolder || "Journal";
-  const base = existing ? existing.path : normalizePath(`${journalBase(root)}/${rel}`);
+  const base = existing ? existing.path : feuilletsAuxiliaryPath(root, "journal");
   return normalizePath(`${base}/${dateKey(date)}.md`);
 }
 

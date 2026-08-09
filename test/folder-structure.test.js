@@ -97,7 +97,7 @@ test("getEditionRoot : un projet sans dossier Edition renvoie null sans lever �
   const app = { vault };
 
   assert.equal(getEditionRoot(app, manuscrit), null);
-  assert.equal(editionFolderPath(app, manuscrit), `Roman1/_Edition`);
+  assert.equal(editionFolderPath(app, manuscrit), "Roman1/_Feuillets/Edition");
 });
 
 test("getEditionRoot : reconnaît le dossier Edition une fois créé, voisin de Manuscrit", () => {

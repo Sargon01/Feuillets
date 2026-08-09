@@ -1092,6 +1092,11 @@ export const en = {
   "settings.category.sidePanels": "Panels",
   "settings.category.grammar": "Proofreader",
   "settings.category.export": "Export",
+  "settings.category.views": "Views",
+  "settings.category.backupHistory": "Backup & history",
+  "settings.category.compositionExport": "Composition & export",
+  "settings.projectType.free": "Free",
+  "settings.section.advanced": "Advanced options",
 
   // ---------- main.js (ribbon, commands, notices) ----------
   "main.ribbon.binder": "Feuillets: binder",

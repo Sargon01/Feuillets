@@ -1092,6 +1092,11 @@ export const fr = {
   "settings.category.sidePanels": "Panneaux",
   "settings.category.grammar": "Correcteur",
   "settings.category.export": "Export",
+  "settings.category.views": "Vues",
+  "settings.category.backupHistory": "Sauvegarde & historique",
+  "settings.category.compositionExport": "Composition & export",
+  "settings.projectType.free": "Libre",
+  "settings.section.advanced": "Options avancées",
 
   // ---------- main.js (ruban, commandes, notifications) ----------
   "main.ribbon.binder": "Feuillets : binder",

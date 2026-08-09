@@ -26,6 +26,36 @@ export const MANUSCRIPT_FOLDER_NAME = "Manuscrit";
 export const FRONT_FOLDER_NAME = "Front";
 export const RESEARCH_FOLDER_NAME = "Recherche";
 export const RESOURCES_FOLDER_NAME = "Ressources";
+export const FEUILLETS_AUXILIARY_FOLDER_NAME = "_Feuillets";
+export const FEUILLETS_AUXILIARY_FOLDERS = {
+  research: "Recherche",
+  resources: "Ressources",
+  edition: "Edition",
+  journal: "Journal",
+  snapshots: "Snapshots",
+  backups: "Backups",
+  output: "Sortie",
+} as const;
+
+/** Base unique des nouveaux dossiers auxiliaires. Les emplacements
+ * historiques restent traités par les résolveurs propres à chaque dossier. */
+export function feuilletsAuxiliaryRootPath(root: TFolder): string {
+  const parent = root.parent;
+  const base = root.name === MANUSCRIPT_FOLDER_NAME
+    && parent instanceof TFolder
+    && parent.path !== ""
+    && parent.path !== "/"
+    ? parent.path
+    : root.path;
+  return normalizePath(`${base}/${FEUILLETS_AUXILIARY_FOLDER_NAME}`);
+}
+
+export function feuilletsAuxiliaryPath(
+  root: TFolder,
+  kind: keyof typeof FEUILLETS_AUXILIARY_FOLDERS
+): string {
+  return normalizePath(`${feuilletsAuxiliaryRootPath(root)}/${FEUILLETS_AUXILIARY_FOLDERS[kind]}`);
+}
 export const RESOURCES_SUBFOLDER_NAMES = {
   images: "Images",
   template: "Template",
@@ -89,11 +119,7 @@ export function getProjectRoot(app: App, settings: FeuilletsSettings | null | un
 export function editionFolderPath(app: App, root: TFolder): string {
   const existing = getEditionRoot(app, root);
   if (existing) return existing.path;
-  const base =
-    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
-      ? root.parent.path
-      : root.path;
-  return normalizePath(`${base}/${getFeuilletsFolderNames().edition}`);
+  return feuilletsAuxiliaryPath(root, "edition");
 }
 
 /** Dossier Edition déjà présent sur le disque, ou null s'il n'a jamais été
@@ -103,6 +129,8 @@ export function editionFolderPath(app: App, root: TFolder): string {
  * un projet sans dossier Edition renvoie simplement null partout. */
 export function getEditionRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
+  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "edition"));
+  if (canonical instanceof TFolder) return canonical;
   const base = root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
     ? root.parent.path
     : root.path;
@@ -149,6 +177,8 @@ export function projectDisplayName(path: string): string {
  * appliqué ici à un vrai dossier : jamais renommé de force sur le disque). */
 export function getResourcesRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
+  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "resources"));
+  if (canonical instanceof TFolder) return canonical;
   const base = root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
     ? root.parent.path
     : root.path;
@@ -253,12 +283,8 @@ export function resourcesFolderPath(app: App, root: null | undefined): null;
  * ("_Ressources"/"_Resources" via getFeuilletsFolderNames). */
 export function resourcesFolderPath(app: App, root: TFolder | null | undefined): string | null {
   if (!root) return null;
-  const base =
-    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
-      ? root.parent.path
-      : root.path;
   const existing = getResourcesRoot(app, root);
-  return existing ? existing.path : normalizePath(`${base}/${getFeuilletsFolderNames().resources}`);
+  return existing ? existing.path : feuilletsAuxiliaryPath(root, "resources");
 }
 
 /** Sous-dossier de Ressources dont le nom a changé (Visuels->Assets,

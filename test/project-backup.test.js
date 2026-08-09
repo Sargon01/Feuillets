@@ -55,12 +55,12 @@ test("project backup : un dossier imbriqué utilisé tel quel ne sauvegarde pas 
 
   const path = await createProjectBackup(app, article, {});
 
-  assert.equal(getBackupsRoot(app, article)?.path, "Documents/Article/_Backups");
-  assert.ok(path.startsWith("Documents/Article/_Backups/Article "));
+  assert.equal(getBackupsRoot(app, article)?.path, "Documents/Article/_Feuillets/Backups");
+  assert.ok(path.startsWith("Documents/Article/_Feuillets/Backups/Article "));
   const entries = await archiveEntries(vault, path);
   assert.ok(entries.includes("Documents/Article/Texte.md"));
   assert.ok(!entries.some((entry) => entry.startsWith("Documents/AutreDossier/")));
-  assert.ok(!entries.some((entry) => entry.startsWith("Documents/Article/_Backups/")));
+  assert.ok(!entries.some((entry) => entry.startsWith("Documents/Article/_Feuillets/Backups/")));
 });
 
 test("project backup : un dossier de premier niveau utilisé tel quel ne sauvegarde pas le coffre", async () => {
@@ -77,7 +77,7 @@ test("project backup : un dossier de premier niveau utilisé tel quel ne sauvega
 
   const path = await createProjectBackup(app, article, {});
 
-  assert.equal(getBackupsRoot(app, article)?.path, "Article/_Backups");
-  assert.ok(path.startsWith("Article/_Backups/Article "));
+  assert.equal(getBackupsRoot(app, article)?.path, "Article/_Feuillets/Backups");
+  assert.ok(path.startsWith("Article/_Feuillets/Backups/Article "));
   assert.deepEqual(await archiveEntries(vault, path), ["Article/", "Article/Texte.md"]);
 });

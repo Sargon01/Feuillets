@@ -14,6 +14,7 @@ import {
   flattenFiles,
   isFrontMatter,
   FRONT_PAGE_TYPES,
+  feuilletsAuxiliaryPath,
   MANUSCRIPT_FOLDER_NAME,
 } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
@@ -137,7 +138,11 @@ export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
     root.name === MANUSCRIPT_FOLDER_NAME && parent instanceof TFolder && parent.path !== "" && parent.path !== "/"
       ? parent
       : root;
-  return await ensureFolder(app, normalizePath(`${base.path}/_Sortie`));
+  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "output"));
+  if (canonical instanceof TFolder) return canonical;
+  const legacy = app.vault.getAbstractFileByPath(normalizePath(`${base.path}/_Sortie`));
+  if (legacy instanceof TFolder) return legacy;
+  return await ensureFolder(app, feuilletsAuxiliaryPath(root, "output"));
 }
 
 export type CompileOptions = {

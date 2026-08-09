@@ -2,7 +2,7 @@ import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import JSZip from "jszip";
 import { ensureFolder } from "./project-files.js";
-import { MANUSCRIPT_FOLDER_NAME } from "./folder-structure.js";
+import { feuilletsAuxiliaryPath, MANUSCRIPT_FOLDER_NAME } from "./folder-structure.js";
 
 /** Dossier des sauvegardes .zip automatiques d'un projet — même convention
  * que _Recherche/_Versions/_Snapshots (voisin du dossier manuscrit s'il y
@@ -24,6 +24,8 @@ function getBackupSourceRoot(root: TFolder): TFolder {
 
 export function getBackupsRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
+  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "backups"));
+  if (canonical instanceof TFolder) return canonical;
   const base = getBackupSourceRoot(root).path;
   const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/_Backups`));
   return f instanceof TFolder ? f : null;
@@ -51,7 +53,8 @@ async function addFolderToZip(app: App, zip: JSZip, folder: TFolder, skipPath: s
  * du .zip créé. */
 export async function createProjectBackup(app: App, root: TFolder, settings: BackupSettings): Promise<string> {
   const base = getBackupSourceRoot(root);
-  const backupsPath = normalizePath(`${base.path}/_Backups`);
+  const existing = getBackupsRoot(app, root);
+  const backupsPath = existing?.path ?? feuilletsAuxiliaryPath(root, "backups");
   await ensureFolder(app, backupsPath);
 
   const zip = new JSZip();

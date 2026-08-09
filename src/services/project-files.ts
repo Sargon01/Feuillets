@@ -10,6 +10,8 @@ import {
   editionFolderPath,
   getEditionRoot,
   getFeuilletsFolderNames,
+  feuilletsAuxiliaryPath,
+  feuilletsAuxiliaryRootPath,
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
@@ -47,10 +49,9 @@ export async function snapshotFile(app: App, file: TFile, root: TFolder): Promis
   const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(
     d.getDate()
   )} ${p(d.getHours())}h${p(d.getMinutes())}${p(d.getSeconds())}`;
-  const names = getFeuilletsFolderNames(getLocale());
-  const base = snapshotWriteBase(root).path;
-  const dir = normalizePath(`${base}/${names.snapshots}/${file.basename}`);
-  await ensureFolder(app, normalizePath(`${base}/${names.snapshots}`));
+  const snapshotsPath = feuilletsAuxiliaryPath(root, "snapshots");
+  const dir = normalizePath(`${snapshotsPath}/${file.basename}`);
+  await ensureFolder(app, snapshotsPath);
   await ensureFolder(app, dir);
   const dest = normalizePath(`${dir}/${stamp}.md`);
   const content = await app.vault.read(file);
@@ -68,6 +69,14 @@ export function listSnapshotFiles(app: App, file: TFile | null | undefined, root
   const candidates = canonicalBase === root ? [root.path] : [canonicalBase.path, root.path];
   const snapshotFolderNames = ["Snapshots", "_Snapshots"];
   const found: TFile[] = [];
+
+  const canonicalPath = feuilletsAuxiliaryPath(root, "snapshots");
+  const canonicalFolder = app.vault.getAbstractFileByPath(normalizePath(`${canonicalPath}/${file.basename}`));
+  if (canonicalFolder instanceof TFolder) {
+    for (const child of canonicalFolder.children) {
+      if (child instanceof TFile) found.push(child);
+    }
+  }
 
   for (const base of candidates) {
     for (const folderName of snapshotFolderNames) {
@@ -265,11 +274,13 @@ export async function ensureProjectBaseFolders(
   volumePath: string,
   manuscritPath: string
 ): Promise<{ frontPath: string }> {
-  const names = getFeuilletsFolderNames(getLocale());
   await ensureFolder(app, volumePath);
   await ensureFolder(app, manuscritPath);
-  await ensureFolder(app, normalizePath(`${volumePath}/${names.research}`));
-  const resourcesPath = normalizePath(`${volumePath}/${names.resources}`);
+  const virtualRoot = app.vault.getAbstractFileByPath(manuscritPath);
+  if (!(virtualRoot instanceof TFolder)) throw new Error("Manuscrit introuvable après création.");
+  await ensureFolder(app, feuilletsAuxiliaryPath(virtualRoot, "research"));
+  const resourcesPath = feuilletsAuxiliaryPath(virtualRoot, "resources");
+  const names = getFeuilletsFolderNames(getLocale());
   await ensureFolder(app, resourcesPath);
   for (const { name } of names.resourcesSubs) {
     await ensureFolder(app, normalizePath(`${resourcesPath}/${name}`));
@@ -442,8 +453,10 @@ export async function createMinimalProject(
   settings.level1Role = isFiction ? "chapitres" : "parties";
 
   // --- Sous-dossiers de Recherche selon le mode ---
-  const names = getFeuilletsFolderNames(getLocale());
-  const researchPath = normalizePath(`${volumePath}/${names.research}`);
+  const manuscriptFolder = app.vault.getAbstractFileByPath(manuscritPath);
+  const researchPath = manuscriptFolder instanceof TFolder
+    ? feuilletsAuxiliaryPath(manuscriptFolder, "research")
+    : normalizePath(`${volumePath}/_Feuillets/Recherche`);
   await initResearchSubfolders(app, researchPath, type);
 
   return { volumePath, manuscritPath, firstFolderPath, firstFile };
@@ -505,6 +518,7 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
   }
   const base = projectRoot.path;
   const names = getFeuilletsFolderNames(getLocale());
+  const manuscritRoot = getProjectFolder(app, settings);
 
   /* === Recherche ===
      getResearchRoot reconnaît _Recherche, Recherche, Research ; on vérifie
@@ -516,12 +530,13 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
   }
   const researchPath = existingResearch
     ? existingResearch.path
-    : normalizePath(`${base}/${names.research}`);
+    : manuscritRoot
+      ? feuilletsAuxiliaryPath(manuscritRoot, "research")
+      : normalizePath(`${base}/_Feuillets/Recherche`);
   await ensureFolder(app, researchPath);
 
   /* Sous-dossiers de Recherche selon le mode du projet — variantes historiques
      reconnues avant toute création pour éviter les doublons. */
-  const manuscritRoot = getProjectFolder(app, settings);
   const projectMode = manuscritRoot ? settings.projectMeta[manuscritRoot.path]?.type : null;
   await initResearchSubfolders(app, researchPath, projectMode);
 
@@ -530,15 +545,16 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
      Si une variante sans préfixe existe déjà (projet legacy), elle est
      reconnue et réutilisée — jamais renommée, jamais dupliquée. */
   const pickOrCreate = (preferred: string, ...legacyNames: string[]): string => {
-    for (const v of [preferred, ...legacyNames]) {
+    for (const v of legacyNames) {
       const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/${v}`));
       if (f instanceof TFolder) return f.path;
     }
-    return normalizePath(`${base}/${preferred}`);
+    return preferred;
   };
-  await ensureFolder(app, pickOrCreate(names.snapshots, "Snapshots"));
-  await ensureFolder(app, pickOrCreate(names.backups, "Backups"));
-  await ensureFolder(app, pickOrCreate(names.journal, "Journal"));
+  const auxiliaryRoot = manuscritRoot ? feuilletsAuxiliaryRootPath(manuscritRoot) : normalizePath(`${base}/_Feuillets`);
+  await ensureFolder(app, pickOrCreate(normalizePath(`${auxiliaryRoot}/Snapshots`), "Snapshots", "_Snapshots"));
+  await ensureFolder(app, pickOrCreate(normalizePath(`${auxiliaryRoot}/Backups`), "Backups", "_Backups"));
+  await ensureFolder(app, pickOrCreate(normalizePath(`${auxiliaryRoot}/Journal`), "Journal", "_Journal"));
 
   /* === Ressources ===
      getResourcesRoot reconnaît _Ressources, _Resources, Ressources, Resources.
@@ -548,7 +564,9 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
   const existingRes = manuscritRoot ? getResourcesRoot(app, manuscritRoot) : null;
   const resPath = existingRes
     ? existingRes.path
-    : normalizePath(`${base}/${names.resources}`);
+    : manuscritRoot
+      ? feuilletsAuxiliaryPath(manuscritRoot, "resources")
+      : normalizePath(`${base}/_Feuillets/Ressources`);
   await ensureFolder(app, resPath);
   for (const { name, variants } of names.resourcesSubs) {
     await ensureFolder(app, resourcesSubfolderPath(app, resPath, name, ...variants));

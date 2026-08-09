@@ -2,7 +2,7 @@ import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { foldAccents } from "../utils/core.js";
 import { fmOf, titleFor, tagsOf, stripFrontmatter } from "./frontmatter.js";
-import { getProjectFolder, flattenFiles } from "./folder-structure.js";
+import { feuilletsAuxiliaryPath, getProjectFolder, flattenFiles } from "./folder-structure.js";
 import { getLocale } from "../i18n/index.js";
 
 const UNDERSCORED_RESEARCH_ROOT_NAMES = ["_Recherche", "_Research"] as const;
@@ -49,6 +49,8 @@ export function getChronoFolder(app: App, settings: FeuilletsSettings): TFolder 
 export function getResearchRoot(app: App, settings: FeuilletsSettings): TFolder | null {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
+  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "research"));
+  if (canonical instanceof TFolder) return canonical;
   for (const name of UNDERSCORED_RESEARCH_ROOT_NAMES) {
     const f = app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${name}`));
     if (f instanceof TFolder) return f;
@@ -74,8 +76,7 @@ export function getResearchRoot(app: App, settings: FeuilletsSettings): TFolder 
 export function researchFolderPath(app: App, settings: FeuilletsSettings, root: TFolder | null | undefined): string | null {
   const existing = getResearchRoot(app, settings);
   if (existing) return existing.path;
-  const base = root && root.parent ? root.parent.path : root ? root.path : null;
-  return base ? normalizePath(`${base}/Research`) : null;
+  return root ? feuilletsAuxiliaryPath(root, "research") : null;
 }
 
 /** Rubrique libre de Recherche dédiée aux fiches créées depuis le Carnet

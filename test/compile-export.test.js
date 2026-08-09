@@ -60,7 +60,7 @@ test("compile : respecte l'ordre, les pages Front et compile: false", async () =
   assert.match(result.manuscript, /Premier texte\./);
   assert.doesNotMatch(result.manuscript, /Texte exclu/);
   assert.equal(result.segments.length, 3);
-  assert.ok(vault.getAbstractFileByPath("Projet/_Sortie/Manuscrit.md"));
+  assert.ok(vault.getAbstractFileByPath("Projet/_Feuillets/Sortie/Manuscrit.md"));
 });
 
 test("compile contextuelle : une portée Feuillet n'exporte que le fichier demandé", async () => {
@@ -280,8 +280,8 @@ test("getOutputFolder : structure conventionnelle — _Sortie est un frère de M
   const folder = await getOutputFolder(app, settings);
 
   assert.ok(folder);
-  assert.equal(folder.path, "Projet/_Sortie");
-  assert.ok(vault.getAbstractFileByPath("Projet/_Sortie"));
+  assert.equal(folder.path, "Projet/_Feuillets/Sortie");
+  assert.ok(vault.getAbstractFileByPath("Projet/_Feuillets/Sortie"));
 });
 
 test("getOutputFolder : projet libre (pas de dossier Manuscrit) — _Sortie est un enfant direct du projet", async () => {
@@ -300,8 +300,8 @@ test("getOutputFolder : projet libre (pas de dossier Manuscrit) — _Sortie est 
   const folder = await getOutputFolder(app, settings);
 
   assert.ok(folder);
-  assert.equal(folder.path, "MonProjet/_Sortie");
-  assert.ok(vault.getAbstractFileByPath("MonProjet/_Sortie"));
+  assert.equal(folder.path, "MonProjet/_Feuillets/Sortie");
+  assert.ok(vault.getAbstractFileByPath("MonProjet/_Feuillets/Sortie"));
 });
 
 test("getOutputFolder : renvoie null si pas de dossier projet", async () => {
@@ -627,8 +627,8 @@ test("compile : le fichier de sortie est écrit dans <projectRoot>/_Sortie", asy
   const result = await compile(app, settings);
   assert.ok(result);
   // Le chemin de sortie doit être dans <projectRoot>/_Sortie
-  assert.equal(result.outPath, "R/Manuscrit/_Sortie/Manuscrit.md");
-  assert.ok(vault.getAbstractFileByPath("R/Manuscrit/_Sortie/Manuscrit.md"));
+  assert.equal(result.outPath, "R/Manuscrit/_Feuillets/Sortie/Manuscrit.md");
+  assert.ok(vault.getAbstractFileByPath("R/Manuscrit/_Feuillets/Sortie/Manuscrit.md"));
 });
 
 test("compile : { writeOutput: false } ne pose aucun fichier et garde la page de titre en segments", async () => {

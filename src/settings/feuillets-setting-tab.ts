@@ -133,14 +133,14 @@ export class FeuilletsSettingTab extends PluginSettingTab {
    * source de vérité. Chaque groupe délègue à une méthode `renderXCategory`
    * qui reprend, quasiment inchangé, le code de contrôle historique. */
   getSettingDefinitions(): SettingDefinitionItem[] {
-    const ORDER = ["Projet", "Écriture", "Interface", "Panneaux latéraux", "Correction", "Export"];
+    const ORDER = ["Projet", "Écriture", "Interface", "Vues", "Sauvegarde & historique", "Composition & export"];
     const CATEGORY_LABELS: Record<string, string> = {
       "Projet": t("settings.category.project"),
       "Écriture": t("settings.category.writing"),
       "Interface": t("settings.category.interface"),
-      "Panneaux latéraux": t("settings.category.sidePanels"),
-      "Correction": t("settings.category.grammar"),
-      "Export": t("settings.category.export"),
+      "Vues": t("settings.category.views"),
+      "Sauvegarde & historique": t("settings.category.backupHistory"),
+      "Composition & export": t("settings.category.compositionExport"),
     };
     if (!this._activeSettingsTab || !ORDER.includes(this._activeSettingsTab)) {
       this._activeSettingsTab = ORDER[0];
@@ -150,9 +150,9 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       "Projet": (c) => this.renderProjetCategory(c),
       "Écriture": (c) => this.renderEcritureCategory(c),
       "Interface": (c) => this.renderInterfaceCategory(c),
-      "Panneaux latéraux": (c) => this.renderPanneauxCategory(c),
-      "Correction": (c) => this.renderCorrectionCategory(c),
-      "Export": (c) => this.renderExportCategory(c),
+      "Vues": (c) => this.renderPanneauxCategory(c),
+      "Sauvegarde & historique": (c) => this.renderBackupCategory(c),
+      "Composition & export": (c) => this.renderExportCategory(c),
     };
 
     const items: SettingDefinitionItem[] = [
@@ -213,98 +213,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const unitPlural = this.plugin.unitLabelPlural();
     const refresh = () => this.plugin.refreshView();
 
-    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.projectFolder") });
-
-
-    const allProjects = (S.projects || []).concat(S.projectFolder ? [S.projectFolder] : [])
-      .filter((p, i, a) => p && a.indexOf(p) === i)
-      .sort((a, b) =>
-        this.plugin.projectDisplayName(a).localeCompare(
-          this.plugin.projectDisplayName(b), "fr", { sensitivity: "base" }
-        )
-      );
-
-    // Dropdown pour choisir le projet actif
-    new Setting(container)
-      .setName(t("settings.activeProject.name"))
-      .setDesc(t("settings.activeProject.desc"))
-      .addDropdown((d) => {
-        d.addOption("", t("settings.activeProject.none"));
-        for (const p of allProjects) {
-          const folderObj = this.app.vault.getAbstractFileByPath(p);
-          const exists = folderObj instanceof TFolder;
-          d.addOption(
-            p,
-            exists
-              ? this.plugin.projectDisplayName(p)
-              : t("settings.activeProject.notFound", { name: this.plugin.projectDisplayName(p) })
-          );
-        }
-        d.setValue(S.projectFolder || "");
-        d.onChange(async (v) => {
-          if (v && !(this.app.vault.getAbstractFileByPath(v) instanceof TFolder)) {
-            new Notice(t("settings.activeProject.folderGoneNotice", { path: v }));
-            d.setValue(S.projectFolder || "");
-            return;
-          }
-          S.projectFolder = v;
-          await this.plugin.saveSettings();
-          this.plugin.updateStatusBar();
-          this.plugin.renderAllViews(true);
-          this.update();
-        });
-      });
-
-    // Champ texte pour saisir / éditer le chemin directement
-    new Setting(container)
-      .setName(t("settings.projectPath.name"))
-      .setDesc(t("settings.projectPath.desc"))
-      .addText((tx) => {
-        tx.setValue(S.projectFolder || "");
-        tx.setPlaceholder("Roman1/Manuscrit");
-        tx.onChange(async (v) => {
-          const val = v.trim();
-          S.projectFolder = val;
-          if (val && !(S.projects || []).includes(val)) {
-            if (!S.projects) S.projects = [];
-            S.projects.push(val);
-          }
-          await this.plugin.saveSettings();
-          this.plugin.updateStatusBar();
-          this.plugin.renderAllViews(true);
-        });
-      });
-
-    // Boutons d'actions rapides (Créer, Importer Scrivener, Gérer la liste)
-    const btnSetting = new Setting(container)
-      .setName(t("settings.projectActions.name"))
-      .setDesc(t("settings.projectActions.desc"));
-
-    btnSetting.addButton((b) => {
-      b.setButtonText(t("settings.projectActions.create"))
-        .setCta()
-        .onClick(() => {
-          new NewProjectModal(this.app, this.plugin).open();
-        });
-    });
-
-    btnSetting.addButton((b) => {
-      b.setButtonText(t("settings.projectActions.importScrivener"))
-        .onClick(() => {
-          new ScrivenerImportModal(this.app, this.plugin).open();
-        });
-    });
-
-    btnSetting.addButton((b) => {
-      b.setButtonText(t("settings.projectActions.manageList"))
-        .onClick(() => {
-          new ManageProjectsModal(this.app, this.plugin).open();
-        });
-    });
-
-    /* garde-fou : un dossier projet mal pointé (ex. un cran trop haut,
-       contenant _Recherche/_Snapshots à côté du vrai manuscrit) ne casse
-       rien silencieusement — un avertissement explicite apparaît ici. */
     const root = this.plugin.getProjectFolder();
     if (root) {
       const count = this.plugin.chapterCount(root);
@@ -328,6 +236,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         .addDropdown((d) => {
           d.addOption("fiction", t("settings.projectType.fiction"));
           d.addOption("nonfiction", t("settings.projectType.nonfiction"));
+          d.addOption("free", t("settings.projectType.free"));
           d.setValue(resolveType(meta.type))
            .onChange(async (v) => {
              meta.type = v;
@@ -354,117 +263,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           );
       }
     }
-
-    new Setting(container)
-      .setName(t("settings.chronoFolder.name"))
-      .setDesc(t("settings.chronoFolder.desc"))
-      .addText((t2) =>
-        t2.setValue(S.chronoFolder).onChange(async (v) => {
-          S.chronoFolder = v.trim() || "Recherche/Chronologie";
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.journalFolder.name"))
-      .setDesc(t("settings.journalFolder.desc"))
-      .addText((t2) =>
-        t2.setValue(S.journalFolder).onChange(async (v) => {
-          S.journalFolder = v.trim() || "Journal";
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.demoProject.name"))
-      .setDesc(t("settings.demoProject.desc"))
-      .addButton((b) =>
-        b.setButtonText(t("settings.demoProject.name")).onClick((e) => {
-          const menu = new Menu();
-          menu.addItem((item) =>
-            item.setTitle(t("settings.demoProject.elira")).onClick(async () => {
-              await this.plugin.createDemoProject("elira");
-              this.update();
-            })
-          );
-          menu.addItem((item) =>
-            item
-              .setTitle(t("settings.demoProject.candide"))
-              .onClick(async () => {
-                await this.plugin.createDemoProject("candide");
-                this.update();
-              })
-          );
-          menu.showAtMouseEvent(e);
-        })
-      );
-
-    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.numbering") });
-
-
-    new Setting(container)
-      .setName(t("settings.level1Role.name"))
-      .setDesc(t("settings.level1Role.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("parties", t("settings.level1Role.parts"))
-          .addOption("chapitres", t("settings.level1Role.chapters", { unitPlural }))
-          .setValue(S.level1Role)
-          .onChange(async (v) => {
-            S.level1Role = v as DefaultSettings["level1Role"];
-            await this.plugin.saveSettings();
-            refresh();
-          })
-      );
-
-    new Setting(container)
-      .setName(t("settings.chapterNumbering.name"))
-      .setDesc(t("settings.chapterNumbering.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("continu", t("settings.chapterNumbering.continuous"))
-          .addOption("parPartie", t("settings.chapterNumbering.perPart"))
-          .addOption("aucune", t("settings.chapterNumbering.none"))
-          .setValue(S.chapterNumbering)
-          .onChange(async (v) => {
-            S.chapterNumbering = v as DefaultSettings["chapterNumbering"];
-            await this.plugin.saveSettings();
-            refresh();
-          })
-      );
-
-    new Setting(container)
-      .setName(t("settings.sceneNumbering.name", { unitPlural }))
-      .setDesc(t("settings.sceneNumbering.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("hier", t("settings.sceneNumbering.hierarchical", { unit }))
-          .addOption("continue", t("settings.sceneNumbering.continuous"))
-          .addOption("aucune", t("settings.chapterNumbering.none"))
-          .setValue(S.sceneNumbering)
-          .onChange(async (v) => {
-            S.sceneNumbering = v as DefaultSettings["sceneNumbering"];
-            await this.plugin.saveSettings();
-            refresh();
-          })
-      );
-
-    new Setting(container)
-      .setName(t("settings.autoRename.name"))
-      .setDesc(t("settings.autoRename.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.autoRename).onChange(async (v) => {
-          S.autoRename = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(container).setName(t("settings.renamePrefix.name")).addText((t2) =>
-      t2.setValue(S.renamePrefix).onChange(async (v) => {
-        S.renamePrefix = v.trim() || "chapitre";
-        await this.plugin.saveSettings();
-      })
-    );
 
     container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.statusesLabels") });
 
@@ -639,63 +437,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.history") });
-
-
-    new Setting(container)
-      .setName(t("settings.statsRetention.name"))
-      .setDesc(t("settings.statsRetention.desc"))
-      .addText((t2) =>
-        t2.setValue(String(S.statsRetention)).onChange(async (v) => {
-          const n = parseInt(v, 10);
-          S.statsRetention = isNaN(n) ? 120 : Math.max(0, n);
-          await this.plugin.saveSettings();
-        })
-      );
-
-    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.backup") });
-
-
-    new Setting(container)
-      .setName(t("settings.backupEnabled.name"))
-      .setDesc(t("settings.backupEnabled.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.backupEnabled).onChange(async (v) => {
-          S.backupEnabled = v;
-          await this.plugin.saveSettings();
-          this.update();
-        })
-      );
-
-    if (S.backupEnabled) {
-      new Setting(container)
-        .setName(t("settings.backupInterval.name"))
-        .addText((t2) =>
-          t2.setValue(String(S.backupIntervalMinutes)).onChange(async (v) => {
-            const n = parseInt(v, 10);
-            S.backupIntervalMinutes = isNaN(n) ? 30 : Math.max(1, n);
-            await this.plugin.saveSettings();
-          })
-        );
-
-      new Setting(container)
-        .setName(t("settings.backupKeepCount.name"))
-        .setDesc(t("settings.backupKeepCount.desc"))
-        .addText((t2) =>
-          t2.setValue(String(S.backupKeepCount)).onChange(async (v) => {
-            const n = parseInt(v, 10);
-            S.backupKeepCount = isNaN(n) ? 5 : Math.max(1, n);
-            await this.plugin.saveSettings();
-          })
-        );
-
-      new Setting(container)
-        .setName(t("settings.backupNow.name"))
-        .addButton((b) =>
-          b.setButtonText(t("settings.backupNow.btn")).onClick(() => this.plugin.backupProjectNow())
-        );
-    }
-
   }
   private renderEcritureCategory(container: HTMLElement): void {
     const S = this.plugin.settings;
@@ -863,17 +604,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       });
 
     new Setting(container)
-      .setName(t("settings.autoAnalyzeInRelecture.name"))
-      .setDesc(t("settings.autoAnalyzeInRelecture.desc"))
-      .addToggle((toggle) => {
-        toggle.setValue(S.autoAnalyzeInRelecture !== false);
-        toggle.onChange(async (value) => {
-          S.autoAnalyzeInRelecture = value;
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(container)
       .setName(t("settings.mergeKeepSeparator.name"))
       .addToggle((toggle) => {
         toggle.setValue(S.mergeKeepSeparatorDefault);
@@ -896,6 +626,44 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         });
       });
 
+  }
+  private renderBackupCategory(container: HTMLElement): void {
+    const S = this.plugin.settings;
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.history") });
+    new Setting(container)
+      .setName(t("settings.statsRetention.name"))
+      .setDesc(t("settings.statsRetention.desc"))
+      .addText((input) => input.setValue(String(S.statsRetention)).onChange(async (value) => {
+        const parsed = parseInt(value, 10);
+        S.statsRetention = isNaN(parsed) ? 120 : Math.max(0, parsed);
+        await this.plugin.saveSettings();
+      }));
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.backup") });
+    new Setting(container)
+      .setName(t("settings.backupEnabled.name"))
+      .setDesc(t("settings.backupEnabled.desc"))
+      .addToggle((toggle) => toggle.setValue(S.backupEnabled).onChange(async (value) => {
+        S.backupEnabled = value;
+        await this.plugin.saveSettings();
+        this.update();
+      }));
+    if (!S.backupEnabled) return;
+    new Setting(container).setName(t("settings.backupInterval.name")).addText((input) =>
+      input.setValue(String(S.backupIntervalMinutes)).onChange(async (value) => {
+        const parsed = parseInt(value, 10);
+        S.backupIntervalMinutes = isNaN(parsed) ? 30 : Math.max(1, parsed);
+        await this.plugin.saveSettings();
+      }));
+    new Setting(container)
+      .setName(t("settings.backupKeepCount.name"))
+      .setDesc(t("settings.backupKeepCount.desc"))
+      .addText((input) => input.setValue(String(S.backupKeepCount)).onChange(async (value) => {
+        const parsed = parseInt(value, 10);
+        S.backupKeepCount = isNaN(parsed) ? 5 : Math.max(1, parsed);
+        await this.plugin.saveSettings();
+      }));
+    new Setting(container).setName(t("settings.backupNow.name")).addButton((button) =>
+      button.setButtonText(t("settings.backupNow.btn")).onClick(() => this.plugin.backupProjectNow()));
   }
   private renderInterfaceCategory(container: HTMLElement): void {
     const S = this.plugin.settings;
@@ -1196,13 +964,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-
-    container.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.leanInterface.goFurther"));
-    const goFurther = container.createDiv({ cls: "feuillets-tags" });
-    this.storeLinkButton(goFurther, t("settings.leanInterface.themeMinimal"), () => this.openAppearanceTab());
-    this.storeLinkButton(goFurther, t("settings.leanInterface.pluginHider"), () => this.openCommunityPluginsSearch("Hider"));
-    this.storeLinkButton(goFurther, t("settings.leanInterface.pluginStyleSettings"), () => this.openCommunityPluginsSearch("Style Settings"));
-    this.storeLinkButton(goFurther, t("settings.leanInterface.pluginMinimalSettings"), () => this.openCommunityPluginsSearch("Minimal Theme Settings"));
 
   }
   private renderPanneauxCategory(container: HTMLElement): void {
@@ -1598,24 +1359,60 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const orderWrapNotes = container.createDiv({ cls: "feuillets-notes-order-wrap" });
     this.renderSectionOrderList(orderWrapNotes, S, "notesSectionOrder", ["Synopsis", "Résumé", "Notes"], refresh);
 
-  }
-  private renderCorrectionCategory(container: HTMLElement): void {
-    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.grammarCheck") });
-
-
-    /* Section volontairement non interactive : Feuillets ne fournit plus de
-       correcteur grammatical (voir README, « Correction grammaticale »). On
-       informe plutot que de laisser croire a une panne, et on ne detecte ni
-       ne configure aucun greffon tiers — aucune API privee n'est appelee. */
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.tab.proofreading") });
     new Setting(container)
-      .setName(t("settings.grammarExternal.name"))
-      .setDesc(t("settings.grammarExternal.desc"));
+      .setName(t("settings.autoAnalyzeInRelecture.name"))
+      .setDesc(t("settings.autoAnalyzeInRelecture.desc"))
+      .addToggle((toggle) => toggle.setValue(S.autoAnalyzeInRelecture !== false).onChange(async (value) => {
+        S.autoAnalyzeInRelecture = value;
+        await this.plugin.saveSettings();
+      }));
 
   }
   private renderExportCategory(container: HTMLElement): void {
     const S = this.plugin.settings;
+    const unit = this.plugin.unitLabel();
     const unitPlural = this.plugin.unitLabelPlural();
     const refresh = () => this.plugin.refreshView();
+
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.numbering") });
+    new Setting(container).setName(t("settings.level1Role.name")).setDesc(t("settings.level1Role.desc")).addDropdown((dropdown) =>
+      dropdown.addOption("parties", t("settings.level1Role.parts"))
+        .addOption("chapitres", t("settings.level1Role.chapters", { unitPlural }))
+        .setValue(S.level1Role).onChange(async (value) => {
+          S.level1Role = value as DefaultSettings["level1Role"];
+          await this.plugin.saveSettings();
+          refresh();
+        }));
+    new Setting(container).setName(t("settings.chapterNumbering.name")).setDesc(t("settings.chapterNumbering.desc")).addDropdown((dropdown) =>
+      dropdown.addOption("continu", t("settings.chapterNumbering.continuous"))
+        .addOption("parPartie", t("settings.chapterNumbering.perPart"))
+        .addOption("aucune", t("settings.chapterNumbering.none"))
+        .setValue(S.chapterNumbering).onChange(async (value) => {
+          S.chapterNumbering = value as DefaultSettings["chapterNumbering"];
+          await this.plugin.saveSettings();
+          refresh();
+        }));
+    new Setting(container).setName(t("settings.sceneNumbering.name", { unitPlural })).setDesc(t("settings.sceneNumbering.desc")).addDropdown((dropdown) =>
+      dropdown.addOption("hier", t("settings.sceneNumbering.hierarchical", { unit }))
+        .addOption("continue", t("settings.sceneNumbering.continuous"))
+        .addOption("aucune", t("settings.chapterNumbering.none"))
+        .setValue(S.sceneNumbering).onChange(async (value) => {
+          S.sceneNumbering = value as DefaultSettings["sceneNumbering"];
+          await this.plugin.saveSettings();
+          refresh();
+        }));
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.advanced") });
+    new Setting(container).setName(t("settings.autoRename.name")).setDesc(t("settings.autoRename.desc")).addToggle((toggle) =>
+      toggle.setValue(S.autoRename).onChange(async (value) => {
+        S.autoRename = value;
+        await this.plugin.saveSettings();
+      }));
+    new Setting(container).setName(t("settings.renamePrefix.name")).addText((input) =>
+      input.setValue(S.renamePrefix).onChange(async (value) => {
+        S.renamePrefix = value.trim() || "chapitre";
+        await this.plugin.saveSettings();
+      }));
 
     container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.compilation") });
 
