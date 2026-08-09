@@ -19,6 +19,44 @@ test("research roots : reconnaît une recherche sœur du manuscrit", () => {
   assert.equal(researchFolderPath(app, settings, manuscript), research.path);
 });
 
+test("research roots : reconnaît _Research et _Recherche à côté du Manuscrit", () => {
+  for (const name of ["_Research", "_Recherche"]) {
+    const project = new TFolder("Projet");
+    const manuscript = new TFolder("Projet/Manuscrit");
+    const research = new TFolder(`Projet/${name}`);
+    manuscript.parent = project;
+    research.parent = project;
+    const { vault } = createFakeVault([project, manuscript, research]);
+    assert.equal(getResearchRoot({ vault }, { projectFolder: manuscript.path }), research, name);
+  }
+});
+
+test("research roots : reconnaît Recherche et Research sans underscore seulement à côté du Manuscrit", () => {
+  for (const name of ["Recherche", "Research"]) {
+    const project = new TFolder("Projet");
+    const manuscript = new TFolder("Projet/Manuscrit");
+    const research = new TFolder(`Projet/${name}`);
+    manuscript.parent = project;
+    research.parent = project;
+    const { vault } = createFakeVault([project, manuscript, research]);
+    assert.equal(getResearchRoot({ vault }, { projectFolder: manuscript.path }), research, name);
+  }
+});
+
+test("research chronology : reconnaît les rubriques Événements, Events et les variantes historiques", () => {
+  for (const name of ["Événements", "Events", "Chronologie", "Timeline", "Chronology"]) {
+    const project = new TFolder("Projet");
+    const manuscript = new TFolder("Projet/Manuscrit");
+    const research = new TFolder("Projet/_Research");
+    const chronology = new TFolder(`Projet/_Research/${name}`);
+    manuscript.parent = project;
+    research.parent = project;
+    chronology.parent = research;
+    const { vault } = createFakeVault([project, manuscript, research, chronology]);
+    assert.equal(getChronoFolder({ vault }, { projectFolder: manuscript.path }), chronology, name);
+  }
+});
+
 test("research : normalise les identifiants d'une entité", () => {
   const file = new TFile("Projet/Research/Personnages/Élodie.md");
   const app = {

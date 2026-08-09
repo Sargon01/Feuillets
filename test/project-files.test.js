@@ -596,6 +596,23 @@ test("initResearchSubfolders (FR, mode fiction) : dossier transformé crée cat�
   assert.equal(vault.getAbstractFileByPath(`Existant/${names.research}/Notes`), null, "pas de Notes en fiction");
 });
 
+test("initResearchSubfolders : réutilise une rubrique Chronologie existante pour les événements", async () => {
+  setLocale("en");
+  const project = new TFolder("Projet");
+  const research = new TFolder("Projet/_Research");
+  const chronology = new TFolder("Projet/_Research/Chronologie");
+  research.parent = project;
+  chronology.parent = research;
+  project.children = [research];
+  research.children = [chronology];
+  const { vault } = createFakeVault([project, research, chronology]);
+
+  await initResearchSubfolders({ vault }, research.path, "fiction");
+
+  assert.equal(vault.getAbstractFileByPath("Projet/_Research/Events"), null, "pas de doublon Events");
+  assert.equal(vault.getAbstractFileByPath("Projet/_Research/Chronologie"), chronology);
+});
+
 test("initResearchSubfolders (FR, mode non-fiction) : dossier transformé crée catégories non-fiction", async () => {
   setLocale("fr");
   const existingFolder = new TFolder("Essai");

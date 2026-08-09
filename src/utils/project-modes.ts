@@ -66,6 +66,10 @@ export const LEGACY_RESEARCH_LABELS = {
   notes: "Notes",
 };
 
+const RESEARCH_FOLDER_VARIANTS: Partial<Record<keyof typeof LEGACY_RESEARCH_LABELS, string[]>> = {
+  evenements: ["Chronologie", "Timeline", "Chronology"],
+};
+
 /** Libellé affiché d'une catégorie de recherche selon la langue active :
  * en interface française, l'ancien libellé français s'il existe dans
  * LEGACY_RESEARCH_LABELS (source de traduction unique, jamais une seconde
@@ -99,6 +103,9 @@ export function researchFolderNames(
   const other = preferred === entry.label ? legacy : entry.label;
   const names = [preferred];
   if (other && !names.includes(other)) names.push(other);
+  for (const variant of RESEARCH_FOLDER_VARIANTS[key as keyof typeof LEGACY_RESEARCH_LABELS] || []) {
+    if (!names.includes(variant)) names.push(variant);
+  }
   return names;
 }
 

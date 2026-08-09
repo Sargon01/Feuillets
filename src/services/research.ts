@@ -5,6 +5,10 @@ import { fmOf, titleFor, tagsOf } from "./frontmatter.js";
 import { getProjectFolder, flattenFiles } from "./folder-structure.js";
 import { getLocale } from "../i18n/index.js";
 
+const UNDERSCORED_RESEARCH_ROOT_NAMES = ["_Recherche", "_Research"] as const;
+const SIBLING_RESEARCH_ROOT_NAMES = [...UNDERSCORED_RESEARCH_ROOT_NAMES, "Recherche", "Research"] as const;
+const CHRONO_FOLDER_NAMES = ["Événements", "Chronologie", "Events", "Timeline", "Chronology", "_Chronologie"] as const;
+
 /** Dossier des jalons historiques : le chemin configuré d'abord, puis
  * les emplacements historiques, pour ne casser aucun coffre existant. */
 export function getChronoFolder(app: App, settings: FeuilletsSettings): TFolder | null {
@@ -13,7 +17,6 @@ export function getChronoFolder(app: App, settings: FeuilletsSettings): TFolder 
   const candidates = [
     settings.chronoFolder || "_Recherche/Chronologie",
     "_Chronologie",
-    "_Recherche/Chronologie",
   ];
   /* deux bases possibles : _Recherche À L'INTÉRIEUR du dossier projet
      (hypothèse d'origine), ou À CÔTÉ de lui — nécessaire dès que le
@@ -31,16 +34,10 @@ export function getChronoFolder(app: App, settings: FeuilletsSettings): TFolder 
       if (f instanceof TFolder) return f;
     }
   }
-  /* « Recherche »/« Research » sans underscore : uniquement à côté du
-     dossier projet, jamais dedans — même restriction que getResearchRoot.
-     "Research" (anglais) reconnu au même titre que "Recherche" (voir
-     services/frontmatter.js pour le même principe appliqué aux champs) :
-     jamais renommé de force, seuls les nouveaux projets créent "Research". */
-  if (root.parent) {
-    for (const rel of ["Recherche/Chronologie", "Research/Chronology"]) {
-      const f = app.vault.getAbstractFileByPath(
-        normalizePath(`${root.parent.path}/${rel}`)
-      );
+  const researchRoot = getResearchRoot(app, settings);
+  if (researchRoot) {
+    for (const name of CHRONO_FOLDER_NAMES) {
+      const f = app.vault.getAbstractFileByPath(normalizePath(`${researchRoot.path}/${name}`));
       if (f instanceof TFolder) return f;
     }
   }
@@ -50,17 +47,10 @@ export function getChronoFolder(app: App, settings: FeuilletsSettings): TFolder 
 /** Dossier racine de la recherche (parent du dossier de chronologie) —
  * sert à reconnaître qu'un lien pointe vers une fiche personnage/lieu. */
 export function getResearchRoot(app: App, settings: FeuilletsSettings): TFolder | null {
-  const chrono = getChronoFolder(app, settings);
-  if (chrono && chrono.parent) return chrono.parent;
   const root = getProjectFolder(app, settings);
   if (!root) return null;
-  const bases = [root.path, root.parent ? root.parent.path : null].filter(
-    (path): path is string => Boolean(path)
-  );
-  for (const base of bases) {
-    const f = app.vault.getAbstractFileByPath(
-      normalizePath(`${base}/_Recherche`)
-    );
+  for (const name of UNDERSCORED_RESEARCH_ROOT_NAMES) {
+    const f = app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${name}`));
     if (f instanceof TFolder) return f;
   }
   /* « Recherche »/« Research » sans underscore : reconnu UNIQUEMENT à côté
@@ -68,7 +58,7 @@ export function getResearchRoot(app: App, settings: FeuilletsSettings): TFolder 
      le ferait apparaître comme une fausse Partie dans le manuscrit,
      exactement ce que l'underscore existe pour empêcher. */
   if (root.parent) {
-    for (const name of ["Recherche", "Research"]) {
+    for (const name of SIBLING_RESEARCH_ROOT_NAMES) {
       const f = app.vault.getAbstractFileByPath(
         normalizePath(`${root.parent.path}/${name}`)
       );

@@ -144,8 +144,7 @@ export function tagsOf(app: App, file: TFile): string[] {
 
 /** Premier label sous forme de chaîne simple, `""` si aucun. */
 export function labelOf(app: App, file: TFile): string {
-  const l = fmOf(app, file).label;
-  return typeof l === "string" && l.trim() ? l.trim() : "";
+  return labelsOf(app, file)[0] || "";
 }
 
 /** Tous les labels d'un feuillet (un feuillet peut en porter plusieurs). */
