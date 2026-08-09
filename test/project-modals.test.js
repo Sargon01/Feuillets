@@ -276,11 +276,97 @@ test("TransformToProjectModal : initialise après le choix explicite d'un type",
 
     assert.equal(settings.projectMeta[folder.path].type, "fiction");
     assert.ok(settings.projects.includes(folder.path));
-    assert.ok(vault.getAbstractFileByPath("MonRoman/_Recherche/Personnages") instanceof TFolder);
+    assert.equal(settings.projectFolder, folder.path);
+    assert.ok(vault.getAbstractFileByPath("MonRoman/_Feuillets/Recherche/Personnages") instanceof TFolder);
+    assert.equal(vault.getAbstractFileByPath("MonRoman/_Recherche"), null);
+    assert.deepEqual(settings.projectMeta[folder.path].hiddenBoardModes, ["timeline"]);
     assert.deepEqual(plugin.calls, ["save", "render", "statusBar"]);
     assert.ok(modal.closed);
     assert.deepEqual(notices, ["« MonRoman » est maintenant un projet Feuillets."]);
   });
+});
+
+test("TransformToProjectModal : préserve le dossier existant et initialise le modèle V2 selon le type", async (t) => {
+  for (const [type, hiddenBoardModes, visibleColumns] of [
+    ["fiction", ["timeline"], ["synopsis", "status"]],
+    ["nonfiction", ["arcs", "timeline"], ["summary"]],
+    ["free", ["arcs", "timeline"], ["synopsis"]],
+  ]) {
+    await t.test(type, async () => {
+      const folder = new TFolder("Mes textes");
+      const article = new TFile("Mes textes/Article 1.md", "Texte personnel");
+      const archives = new TFolder("Mes textes/Archives");
+      article.parent = folder;
+      archives.parent = folder;
+      folder.children = [article, archives];
+      const { vault } = createFakeVault([folder, article, archives]);
+      const app = fakeApp(vault);
+      const settings = freshSettings();
+      const plugin = fakePlugin(settings);
+      const modal = createModal(TransformToProjectModal, app, plugin, folder.path);
+
+      modal.onOpen();
+      findElements(modal.contentEl, (el) => el.tag === "select")[0].value = type;
+      await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
+
+      assert.equal(vault.getAbstractFileByPath(article.path), article);
+      assert.equal(vault.getAbstractFileByPath(archives.path), archives);
+      for (const name of ["Recherche", "Ressources", "Edition", "Journal", "Snapshots", "Backups", "Sortie"]) {
+        assert.ok(vault.getAbstractFileByPath(`Mes textes/_Feuillets/${name}`) instanceof TFolder, name);
+      }
+      assert.equal(vault.getAbstractFileByPath("Mes textes/_Recherche"), null);
+      assert.equal(vault.getAbstractFileByPath("Mes textes/Manuscrit"), null);
+      assert.equal(vault.getAbstractFileByPath("Mes textes/Front"), null);
+      assert.equal(vault.getAbstractFileByPath("Mes textes/Partie 1"), null);
+      assert.equal(vault.getAbstractFileByPath("Mes textes/Chapitre 1"), null);
+      assert.equal(vault.getAbstractFileByPath("Mes textes/Nouveau texte.md"), null);
+      const meta = settings.projectMeta[folder.path];
+      assert.equal(meta.type, type);
+      assert.deepEqual(meta.hiddenBoardModes, hiddenBoardModes);
+      assert.deepEqual(Object.keys(meta.outlineCols).filter((key) => meta.outlineCols[key]), visibleColumns);
+    });
+  }
+});
+
+test("TransformToProjectModal : conserve une Recherche legacy sans migration", async () => {
+  const folder = new TFolder("Ancien");
+  const legacyResearch = new TFolder("Ancien/_Recherche");
+  legacyResearch.parent = folder;
+  folder.children = [legacyResearch];
+  const { vault } = createFakeVault([folder, legacyResearch]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  const modal = createModal(TransformToProjectModal, app, fakePlugin(settings), folder.path);
+
+  modal.onOpen();
+  findElements(modal.contentEl, (el) => el.tag === "select")[0].value = "free";
+  await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
+
+  assert.equal(vault.getAbstractFileByPath("Ancien/_Recherche"), legacyResearch);
+  assert.equal(vault.getAbstractFileByPath("Ancien/_Feuillets/Recherche"), null);
+});
+
+test("TransformToProjectModal : garde la Recherche V2 prioritaire lorsqu'elle coexiste avec le legacy", async () => {
+  const folder = new TFolder("Mixte");
+  const legacyResearch = new TFolder("Mixte/_Recherche");
+  const auxiliary = new TFolder("Mixte/_Feuillets");
+  const canonicalResearch = new TFolder("Mixte/_Feuillets/Recherche");
+  legacyResearch.parent = folder;
+  auxiliary.parent = folder;
+  canonicalResearch.parent = auxiliary;
+  folder.children = [legacyResearch, auxiliary];
+  auxiliary.children = [canonicalResearch];
+  const { vault } = createFakeVault([folder, legacyResearch, auxiliary, canonicalResearch]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  const modal = createModal(TransformToProjectModal, app, fakePlugin(settings), folder.path);
+
+  modal.onOpen();
+  findElements(modal.contentEl, (el) => el.tag === "select")[0].value = "free";
+  await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
+
+  assert.equal(vault.getAbstractFileByPath("Mixte/_Feuillets/Recherche"), canonicalResearch);
+  assert.equal(vault.getAbstractFileByPath("Mixte/_Recherche"), legacyResearch);
 });
 
 test("les libellés des deux parcours existent en français et en anglais", () => {

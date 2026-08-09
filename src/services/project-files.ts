@@ -12,10 +12,11 @@ import {
   getFeuilletsFolderNames,
   feuilletsAuxiliaryPath,
   feuilletsAuxiliaryRootPath,
+  FEUILLETS_AUXILIARY_FOLDERS,
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
-import { getResearchRoot } from "./research.js";
+import { getResearchRoot, researchFolderPath } from "./research.js";
 import { getProjectMode } from "./project-mode.js";
 import { getLocale } from "../i18n/index.js";
 import { openFileActivating } from "../utils/dom.js";
@@ -28,6 +29,23 @@ export async function ensureFolder(app: App, path: string): Promise<TAbstractFil
     f = await app.vault.createFolder(p);
   }
   return f;
+}
+
+/** Crée l'espace auxiliaire V2 complet autour d'un dossier déjà utilisé
+ * comme projet, sans jamais toucher à son contenu. Une Recherche legacy
+ * reconnue est conservée ; les autres catégories suivent la source de
+ * vérité FEUILLETS_AUXILIARY_FOLDERS. */
+export async function ensureFeuilletsAuxiliaryFolders(
+  app: App,
+  root: TFolder,
+  existingResearchPath?: string | null
+): Promise<void> {
+  for (const kind of Object.keys(FEUILLETS_AUXILIARY_FOLDERS) as Array<keyof typeof FEUILLETS_AUXILIARY_FOLDERS>) {
+    const path = kind === "research" && existingResearchPath
+      ? existingResearchPath
+      : feuilletsAuxiliaryPath(root, kind);
+    await ensureFolder(app, path);
+  }
 }
 
 /** Base canonique des snapshots : le parent de Manuscrit pour un projet

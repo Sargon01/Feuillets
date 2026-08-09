@@ -1,12 +1,12 @@
 import { App, Menu, Modal, Notice, normalizePath, setIcon, TAbstractFile, TFile, TFolder } from "obsidian";
-import { PROJECT_MODES, resolveType } from "../utils/project-modes.js";
+import { PROJECT_MODES, projectBoardDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
 import { FolderSuggest } from "./folder-suggest.js";
-import { createMinimalProject, CreateProjectError, initResearchSubfolders } from "../services/project-files.js";
-import { getFeuilletsFolderNames } from "../services/folder-structure.js";
+import { createMinimalProject, CreateProjectError, ensureFeuilletsAuxiliaryFolders, initResearchSubfolders } from "../services/project-files.js";
+import { getResearchRoot, researchFolderPath } from "../services/research.js";
 import { openFileActivatingWithCursor } from "../utils/dom.js";
-import { getLocale, t } from "../i18n/index.js";
+import { t } from "../i18n/index.js";
 
 type ProjectModalsPlugin = {
   /* manuscriptAuthor : absent de l'interface globale FeuilletsSettings
@@ -292,17 +292,23 @@ export class TransformToProjectModal extends Modal {
       }
       if (!S.projectMeta[this.folderPath]) S.projectMeta[this.folderPath] = {};
       S.projectMeta[this.folderPath].type = chosenMode;
+      const boardDefaults = projectBoardDefaults(chosenMode);
+      S.projectMeta[this.folderPath].hiddenBoardModes = boardDefaults.hiddenBoardModes;
+      S.projectMeta[this.folderPath].outlineCols = boardDefaults.outlineCols;
 
       // Ajouter le dossier à la liste des projets
       if (!S.projects) S.projects = [];
       if (!S.projects.includes(this.folderPath)) {
         S.projects.push(this.folderPath);
       }
+      S.projectFolder = this.folderPath;
       await this.plugin.saveSettings();
 
-      // Créer les sous-dossiers de Recherche selon le mode choisi
-      const names = getFeuilletsFolderNames(getLocale());
-      const researchPath = normalizePath(`${this.folderPath}/${names.research}`);
+      // Espace auxiliaire V2 : aucun dossier personnel n'est restructuré.
+      const existingResearch = getResearchRoot(this.app, S);
+      const researchPath = researchFolderPath(this.app, S, folder);
+      await ensureFeuilletsAuxiliaryFolders(this.app, folder, existingResearch?.path);
+      if (!researchPath) throw new Error("Dossier Recherche introuvable.");
       await initResearchSubfolders(this.app, researchPath, chosenMode);
 
       this.plugin.renderAllViews(true);
