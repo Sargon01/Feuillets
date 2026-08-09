@@ -589,6 +589,21 @@ export async function exportDocxToFolder(
   return exportViaNative(app, settings, "docx", null, destinationFolderPath, suggestedBaseName, true);
 }
 
+/** Export DOCX d'un document Markdown individuel : même moteur natif que le
+ * manuscrit, avec une portée `file`, sans réécrire le Markdown source. */
+export async function exportEditorialDocumentDocxToFolder(
+  app: App,
+  settings: FeuilletsSettings,
+  sourceFilePath: string,
+  destinationFolderPath: string,
+  suggestedBaseName: string
+): Promise<string | undefined> {
+  const root = getProjectFolder(app, settings);
+  if (!root) return undefined;
+  const scope: CompileScope = { type: "file", projectRoot: root.path, path: sourceFilePath };
+  return exportViaNative(app, settings, "docx", null, destinationFolderPath, suggestedBaseName, true, scope);
+}
+
 /** Compile puis rend via le moteur natif (MarkdownRenderer d'Obsidian +
  * bibliothèques JS pures `docx`/`jszip`) — aucune dépendance externe,
  * fonctionne desktop et mobile (sauf PDF, desktop uniquement — voir
@@ -723,4 +738,3 @@ export async function writeBinaryFile(app: App, path: string, data: Uint8Array |
     await app.vault.createBinary(path, buf);
   }
 }
-

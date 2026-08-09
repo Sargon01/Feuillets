@@ -180,6 +180,21 @@ test("detectEditorialDocuments : document manquant (Lettre d'accompagnement abse
   assert.ok(!candidates.some((c) => c.id === "lettre-accompagnement"));
 });
 
+test("detectEditorialDocuments : reconnaît les variantes historiques avec apostrophe droite", async () => {
+  const { volume, manuscrit, edition, synopsis, bio } = editionFixture();
+  const note = new TFile("Roman1/Edition/Note d'intention.md", "Note.");
+  const letter = new TFile("Roman1/Edition/Lettre d'accompagnement.md", "Lettre.");
+  note.parent = edition;
+  letter.parent = edition;
+  edition.children.push(note, letter);
+  const host = createHost({ files: [volume, manuscrit, edition, synopsis, bio, note, letter] });
+
+  const candidates = await detectEditorialDocuments(host.app, host.settings, manuscrit);
+
+  assert.ok(candidates.some((candidate) => candidate.id === "note-intention" && candidate.path === note.path));
+  assert.ok(candidates.some((candidate) => candidate.id === "lettre-accompagnement" && candidate.path === letter.path));
+});
+
 test("detectEditorialDocuments : dernier DOCX exporté détecté et coché par défaut (manuscrit)", async () => {
   const { volume, manuscrit } = projectFixture();
   const sortie = new TFolder("Roman1/Sortie");
@@ -243,6 +258,15 @@ test("applySubmissionChoice : l'export DOCX direct remplace la copie du manuscri
 
   assert.deepEqual(calls[0].pieceJointes, ["Roman1/Edition/Synopsis.md"]);
   assert.equal(typeof calls[0].exportManuscritDocx, "function");
+});
+
+test("buildSubmissionData : transmet le callback d'export DOCX des documents éditoriaux", async () => {
+  const { volume, manuscrit } = projectFixture();
+  const host = createHost({ files: [volume, manuscrit] });
+
+  const data = await buildSubmissionData(host, manuscrit);
+
+  assert.equal(typeof data.exportEditorialDocumentDocx, "function");
 });
 
 // --- prepareSubmission : orchestration complète ---

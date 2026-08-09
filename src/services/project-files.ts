@@ -28,56 +28,29 @@ export async function ensureFolder(app: App, path: string): Promise<TAbstractFil
   return f;
 }
 
-/** Copie datée du feuillet dans _Snapshots/<nom>/<horodatage>.md. Comme
- * _Recherche, ce dossier peut être un enfant du dossier projet (ancienne
- * convention) ou son voisin (quand "Dossier projet" pointe directement
- * sur le sous-dossier des parties/chapitres) — les deux emplacements
- * existants sont respectés ; à défaut, créé en voisin. */
+/** Base canonique des snapshots : le parent de Manuscrit pour un projet
+ * structuré, le dossier actif lui-même dans tous les autres cas. */
+function snapshotWriteBase(root: TFolder): TFolder {
+  const parent = root.parent;
+  return root.name === MANUSCRIPT_FOLDER_NAME
+    && parent instanceof TFolder
+    && parent.path !== ""
+    && parent.path !== "/"
+    ? parent
+    : root;
+}
+
+/** Copie datée du feuillet dans _Snapshots/<nom>/<horodatage>.md. */
 export async function snapshotFile(app: App, file: TFile, root: TFolder): Promise<string> {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(
     d.getDate()
   )} ${p(d.getHours())}h${p(d.getMinutes())}${p(d.getSeconds())}`;
-  /* Base possible : le dossier voisin (racine du projet réel) quand il
-     existe et n'est pas la racine du coffre, sinon le dossier projet
-     lui-même — jamais la racine du coffre (règle : aucun dossier technique
-     créé hors du projet actif). */
-  const neighbor =
-    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
-      ? root.parent.path
-      : null;
-  const candidates = neighbor ? [root.path, neighbor] : [root.path];
-  /* "Snapshots" sans underscore : variante HISTORIQUE reconnue uniquement
-     voisine du dossier projet, jamais dedans — même restriction que
-     "Recherche", pour ne jamais apparaître comme une fausse Partie dans le
-     binder. "_Snapshots" (legacy) reste reconnu voisin OU enfant du
-     dossier projet. À défaut, création en "_Snapshots" via la source
-     centrale (getFeuilletsFolderNames) — jamais "Snapshots" sans préfixe. */
   const names = getFeuilletsFolderNames(getLocale());
-  let base: string | null = null;
-  let folderName = names.snapshots;
-  if (neighbor) {
-    const snap = app.vault.getAbstractFileByPath(normalizePath(`${neighbor}/Snapshots`));
-    if (snap instanceof TFolder) {
-      base = neighbor;
-      folderName = "Snapshots";
-    }
-  }
-  if (!base) {
-    /* legacy : anciens projets créés avant l'abandon du préfixe _,
-       où _Snapshots pouvait être voisin ou enfant du dossier projet */
-    const legacyBase = candidates.find((b) =>
-      app.vault.getAbstractFileByPath(normalizePath(`${b}/${names.snapshots}`))
-    );
-    if (legacyBase) {
-      base = legacyBase;
-      folderName = names.snapshots;
-    }
-  }
-  if (!base) base = root.path;
-  const dir = normalizePath(`${base}/${folderName}/${file.basename}`);
-  await ensureFolder(app, normalizePath(`${base}/${folderName}`));
+  const base = snapshotWriteBase(root).path;
+  const dir = normalizePath(`${base}/${names.snapshots}/${file.basename}`);
+  await ensureFolder(app, normalizePath(`${base}/${names.snapshots}`));
   await ensureFolder(app, dir);
   const dest = normalizePath(`${dir}/${stamp}.md`);
   const content = await app.vault.read(file);
@@ -88,7 +61,11 @@ export async function snapshotFile(app: App, file: TFile, root: TFolder): Promis
 /** Récupère la liste des fichiers snapshots (.md) pour un feuillet, triés du plus récent au plus ancien. */
 export function listSnapshotFiles(app: App, file: TFile | null | undefined, root: TFolder | null | undefined): TFile[] {
   if (!file || !root) return [];
-  const candidates = [root.path, root.parent ? root.parent.path : null].filter(Boolean);
+  const canonicalBase = snapshotWriteBase(root);
+  /* Lecture : le chemin canonique, puis l'ancien _Snapshots sous Manuscrit
+     pour un projet structuré. Un dossier utilisé tel quel ne sort jamais de
+     sa propre racine. */
+  const candidates = canonicalBase === root ? [root.path] : [canonicalBase.path, root.path];
   const snapshotFolderNames = ["Snapshots", "_Snapshots"];
   const found: TFile[] = [];
 
@@ -184,11 +161,24 @@ export function getVersionsRoot(app: App, root: TFolder | null | undefined): TFo
  * reste libre de les renommer, supprimer ou d'en ajouter d'autres : cette
  * liste ne sert qu'à amorcer un dossier tout neuf. */
 export const EDITION_DOCUMENTS = [
-  "Synopsis.md",
-  "Note d’intention.md",
-  "Biographie.md",
-  "Lettre d’accompagnement.md",
-];
+  { id: "synopsis", file: "Synopsis.md", variants: [] },
+  { id: "note-intention", file: "Note d’intention.md", variants: ["Note d'intention.md"] },
+  { id: "biographie", file: "Biographie.md", variants: [] },
+  { id: "lettre-accompagnement", file: "Lettre d’accompagnement.md", variants: ["Lettre d'accompagnement.md"] },
+] as const;
+
+export type EditionDocument = typeof EDITION_DOCUMENTS[number];
+
+/** Variantes lues pour un document éditorial : le nom canonique est créé,
+ * les formes historiques avec apostrophe droite sont seulement reconnues. */
+export function editionDocumentNames(document: EditionDocument): readonly string[] {
+  return [document.file, ...document.variants];
+}
+
+/** Document conventionnel correspondant à un nom de fichier existant. */
+export function editionDocumentForName(name: string): EditionDocument | undefined {
+  return EDITION_DOCUMENTS.find((document) => editionDocumentNames(document).includes(name));
+}
 
 /** Sous-dossiers conventionnels du dossier Edition — suivi des envois aux
  * éditeurs/agents (Soumissions) et archivage de chaque version transmise
@@ -214,9 +204,9 @@ export async function ensureEditionFolder(app: App, root: TFolder): Promise<TFol
     await ensureFolder(app, normalizePath(`${path}/${sub}`));
   }
   for (const doc of EDITION_DOCUMENTS) {
-    const docPath = normalizePath(`${path}/${doc}`);
+    const docPath = normalizePath(`${path}/${doc.file}`);
     if (!app.vault.getAbstractFileByPath(docPath)) {
-      const title = doc.replace(/\.md$/, "");
+      const title = doc.file.replace(/\.md$/, "");
       await app.vault.create(docPath, `# ${title}\n\n`);
     }
   }

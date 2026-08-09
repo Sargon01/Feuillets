@@ -18,21 +18,11 @@ import { Notice, TFile, TFolder, type App } from "obsidian";
 import { getManuscriptRoot, getProjectRoot, getEditionRoot, editionFolderPath } from "./folder-structure.js";
 import { t } from "../i18n/index.js";
 import { SubmissionAttachmentsModal, type SubmissionAttachmentCandidate } from "../ui/submission-attachments-modal.js";
-import { exportDocxToFolder } from "./compile-export.js";
+import { exportDocxToFolder, exportEditorialDocumentDocxToFolder } from "./compile-export.js";
+import { EDITION_DOCUMENTS, editionDocumentNames } from "./project-files.js";
 
-/** Documents éditoriaux conventionnels reconnus dans le dossier Édition —
- * mêmes noms de fichier exacts que `DOCUMENT_SORT_ORDER`
- * (`views/edition-docs-view.ts`), pas dupliqués littéralement ici pour
- * éviter un import circulaire entre une vue et un service, mais tenus
- * strictement synchronisés : toute vue de ces documents doit rester
- * reconnue comme pièce jointe possible d'une soumission. */
-const EDITORIAL_DOCUMENTS: ReadonlyArray<{ id: string; file: string }> = [
-  { id: "synopsis", file: "Synopsis.md" },
-  { id: "note-intention", file: "Note d'intention.md" },
-  { id: "biographie", file: "Biographie.md" },
-  { id: "lettre-accompagnement", file: "Lettre d'accompagnement.md" },
-];
-
+/** Les documents éditoriaux conventionnels viennent de project-files :
+ * création et détection partagent exactement les mêmes noms et variantes. */
 /** Contrat attendu de `app.plugins.plugins["courrier"].api` — duck-typé
  * (aucun type partagé au moment de la compilation, chaque plugin est
  * bundlé séparément). Doit rester le sous-ensemble MINIMAL réellement
@@ -71,6 +61,7 @@ export interface SubmissionDraftData {
    * propre "Édition" accentué, différent de "Edition"). */
   editionFolderPath?: string;
   exportManuscritDocx?: (destinationFolderPath: string, suggestedBaseName: string) => Promise<string | undefined>;
+  exportEditorialDocumentDocx?: (sourceFilePath: string, destinationFolderPath: string, suggestedBaseName: string) => Promise<string | undefined>;
 }
 
 /** Sous-ensemble minimal du plugin Feuillets dont ce module a besoin —
@@ -149,11 +140,13 @@ export async function detectEditorialDocuments(app: App, settings: FeuilletsSett
 
   const editionRoot = getEditionRoot(app, root);
   if (editionRoot) {
-    for (const doc of EDITORIAL_DOCUMENTS) {
-      const path = `${editionFolderPath(app, root)}/${doc.file}`;
-      const file = app.vault.getAbstractFileByPath(path);
-      if (file instanceof TFile) {
-        candidates.push({ id: doc.id, label: file.basename, path: file.path, checkedByDefault: doc.id === "synopsis" });
+    for (const doc of EDITION_DOCUMENTS) {
+      for (const name of editionDocumentNames(doc)) {
+        const file = app.vault.getAbstractFileByPath(`${editionRoot.path}/${name}`);
+        if (file instanceof TFile) {
+          candidates.push({ id: doc.id, label: file.basename, path: file.path, checkedByDefault: doc.id === "synopsis" });
+          break;
+        }
       }
     }
   }
@@ -185,6 +178,8 @@ export async function buildSubmissionData(host: SubmissionHost, root: TFolder): 
   data.editionFolderPath = resolveRealEditionPath(host.app, root);
   data.exportManuscritDocx = (destinationFolderPath, suggestedBaseName) =>
     exportDocxToFolder(host.app, host.settings, destinationFolderPath, suggestedBaseName);
+  data.exportEditorialDocumentDocx = (sourceFilePath, destinationFolderPath, suggestedBaseName) =>
+    exportEditorialDocumentDocxToFolder(host.app, host.settings, sourceFilePath, destinationFolderPath, suggestedBaseName);
 
   const exported = await findLatestExportedDocx(host.app, root);
   if (exported) data.documentExportePath = exported;

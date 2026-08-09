@@ -894,6 +894,32 @@ test("exportWithScope format docx : produit un fichier .docx (pas .md)", async (
   }
 });
 
+test("exportEditorialDocumentDocxToFolder : exporte un document Markdown individuel dans le dossier demandé", async () => {
+  const { exportEditorialDocumentDocxToFolder } = await import("../src/services/compile-export.js");
+  const { app, vault, settings } = makeExportFixture();
+  const edition = new TFolder("EW/_Edition");
+  const synopsis = new TFile("EW/_Edition/Synopsis.md", "# Synopsis\n\nUne histoire.");
+  const destination = new TFolder("EW/_Edition/Soumissions/Paquet");
+  edition.parent = new TFolder("EW");
+  synopsis.parent = edition;
+  destination.parent = edition;
+  edition.children = [synopsis, destination];
+  vault.getAbstractFileByPath = ((original) => (path) => {
+    if (path === edition.path) return edition;
+    if (path === synopsis.path) return synopsis;
+    if (path === destination.path) return destination;
+    return original(path);
+  })(vault.getAbstractFileByPath);
+  const restoreDom = installMinimalDom();
+  try {
+    const outPath = await exportEditorialDocumentDocxToFolder(app, settings, synopsis.path, destination.path, "Synopsis");
+    assert.equal(outPath, "EW/_Edition/Soumissions/Paquet/Synopsis.docx");
+    assert.ok(vault.getAbstractFileByPath(outPath), "le DOCX est créé dans le dossier demandé");
+  } finally {
+    restoreDom();
+  }
+});
+
 test("exportWithScope format epub : produit un fichier .epub (pas .md)", async () => {
   const { exportWithScope } = await import("../src/services/compile-export.js");
   const { createProjectScope } = await import("../src/services/compile-scope.js");

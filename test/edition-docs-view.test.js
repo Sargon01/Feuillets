@@ -20,6 +20,14 @@ globalThis.setIcon = function setIcon(element, iconName) {
 
 const { EditionDocsView, revealInFileExplorer } = await import(modulePath("src/views/edition-docs-view.js"));
 const { EDITION_FOLDER_NAME } = await import(modulePath("src/services/folder-structure.js"));
+const { fr } = await import(modulePath("src/i18n/fr.js"));
+const { en } = await import(modulePath("src/i18n/en.js"));
+
+test("EditionDocs : les libellés de suivi des soumissions existent en français et en anglais", () => {
+  const keys = Object.keys(fr).filter((key) => key.startsWith("editionDocs.submission."));
+  assert.ok(keys.length > 0);
+  for (const key of keys) assert.ok(en[key], `${key} manque en anglais`);
+});
 
 class FakeElement {
   constructor(tag = "div", options = {}) {

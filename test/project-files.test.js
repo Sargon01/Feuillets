@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, EDITION_DOCUMENTS, EDITION_SUBFOLDERS } from "../src/services/project-files.js";
+import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, EDITION_DOCUMENTS, EDITION_SUBFOLDERS, editionDocumentForName } from "../src/services/project-files.js";
 import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
 import { setLocale } from "../src/i18n/index.js";
 
@@ -35,8 +35,17 @@ test("ensureEditionFolder : crée le dossier Edition (voisin de Manuscrit), ses 
     assert.ok(vault.getAbstractFileByPath(`${edition.path}/${sub}`) instanceof TFolder, `${sub} créé`);
   }
   for (const doc of EDITION_DOCUMENTS) {
-    assert.ok(vault.getAbstractFileByPath(`${edition.path}/${doc}`) instanceof TFile, `${doc} créé`);
+    const created = vault.getAbstractFileByPath(`${edition.path}/${doc.file}`);
+    assert.ok(created instanceof TFile, `${doc.file} créé`);
+    assert.equal(editionDocumentForName(created.name)?.id, doc.id, `${doc.file} reconnu comme document éditorial`);
   }
+});
+
+test("documents éditoriaux : les apostrophes droite et typographique sont reconnues", () => {
+  assert.equal(editionDocumentForName("Note d’intention.md")?.id, "note-intention");
+  assert.equal(editionDocumentForName("Note d'intention.md")?.id, "note-intention");
+  assert.equal(editionDocumentForName("Lettre d’accompagnement.md")?.id, "lettre-accompagnement");
+  assert.equal(editionDocumentForName("Lettre d'accompagnement.md")?.id, "lettre-accompagnement");
 });
 
 test("ensureEditionFolder : idempotent — n'écrase pas un document déjà modifié", async () => {
@@ -54,7 +63,7 @@ test("ensureEditionFolder : idempotent — n'écrase pas un document déjà modi
   assert.equal(await vault.read(vault.getAbstractFileByPath(synopsisPath)), "Contenu déjà écrit par l'autrice.");
 });
 
-test("snapshotFile : crée et retrouve un instantané du feuillet", async () => {
+test("snapshotFile : un projet structuré écrit les snapshots à la racine du projet", async () => {
   const { volume, manuscript, chapter, scene } = projectFixture();
   const { vault } = createFakeVault([volume, manuscript, chapter, scene]);
   const app = { vault };
@@ -62,9 +71,71 @@ test("snapshotFile : crée et retrouve un instantané du feuillet", async () => 
   const stamp = await snapshotFile(app, scene, manuscript);
 
   assert.match(stamp, /^\d{4}-\d{2}-\d{2} \d{2}h\d{2}\d{2}$/);
+  assert.ok(vault.getAbstractFileByPath(`Projet/_Snapshots/${scene.basename}/${stamp}.md`) instanceof TFile);
+  assert.equal(vault.getAbstractFileByPath("Projet/Manuscrit/_Snapshots"), null, "aucun dossier technique dans Manuscrit");
   const snapshots = listSnapshotFiles(app, scene, manuscript);
   assert.equal(snapshots.length, 1);
   assert.equal(await vault.read(snapshots[0]), "Texte original");
+});
+
+test("snapshotFile : un dossier utilisé tel quel écrit les snapshots dans ce dossier", async () => {
+  const root = new TFolder("Mes textes");
+  const file = new TFile("Mes textes/Texte 1.md", "Texte.");
+  file.parent = root;
+  root.children = [file];
+  const { vault } = createFakeVault([root, file]);
+
+  const stamp = await snapshotFile({ vault }, file, root);
+
+  assert.ok(vault.getAbstractFileByPath(`Mes textes/_Snapshots/${file.basename}/${stamp}.md`) instanceof TFile);
+});
+
+test("listSnapshotFiles : lit les snapshots historiques sous Manuscrit sans y écrire les nouveaux", async () => {
+  const { volume, manuscript, chapter, scene } = projectFixture();
+  const legacyRoot = new TFolder("Projet/Manuscrit/_Snapshots");
+  const legacyForScene = new TFolder(`Projet/Manuscrit/_Snapshots/${scene.basename}`);
+  const legacy = new TFile(`Projet/Manuscrit/_Snapshots/${scene.basename}/ancien.md`, "Ancien.");
+  legacy.stat = { mtime: 1 };
+  legacyRoot.parent = manuscript;
+  legacyForScene.parent = legacyRoot;
+  legacy.parent = legacyForScene;
+  legacyRoot.children = [legacyForScene];
+  legacyForScene.children = [legacy];
+  const { vault } = createFakeVault([volume, manuscript, chapter, scene, legacyRoot, legacyForScene, legacy]);
+  const app = { vault };
+
+  await snapshotFile(app, scene, manuscript);
+
+  const snapshots = listSnapshotFiles(app, scene, manuscript);
+  assert.equal(snapshots.length, 2);
+  assert.ok(snapshots.some((snapshot) => snapshot.path === legacy.path), "snapshot historique lisible");
+  assert.ok(vault.getAbstractFileByPath(`Projet/_Snapshots/${scene.basename}`) instanceof TFolder, "nouveau snapshot canonique");
+  assert.equal(legacyForScene.children.length, 1, "aucune écriture dans l'ancien emplacement");
+});
+
+test("listSnapshotFiles : un dossier utilisé tel quel n'explore ni parent ni dossier frère", () => {
+  const parent = new TFolder("Collection");
+  const root = new TFolder("Collection/Mes textes");
+  const sibling = new TFolder("Collection/Autre");
+  const file = new TFile("Collection/Mes textes/Texte 1.md", "Texte.");
+  const parentSnapshots = new TFolder("Collection/_Snapshots");
+  const parentScene = new TFolder(`Collection/_Snapshots/${file.basename}`);
+  const parentSnapshot = new TFile(`Collection/_Snapshots/${file.basename}/parent.md`, "Parent.");
+  const siblingSnapshots = new TFolder("Collection/Autre/_Snapshots");
+  const siblingScene = new TFolder(`Collection/Autre/_Snapshots/${file.basename}`);
+  const siblingSnapshot = new TFile(`Collection/Autre/_Snapshots/${file.basename}/frere.md`, "Frère.");
+  root.parent = parent;
+  sibling.parent = parent;
+  file.parent = root;
+  parentSnapshots.parent = parent;
+  parentScene.parent = parentSnapshots;
+  parentSnapshot.parent = parentScene;
+  siblingSnapshots.parent = sibling;
+  siblingScene.parent = siblingSnapshots;
+  siblingSnapshot.parent = siblingScene;
+  const { vault } = createFakeVault([parent, root, sibling, file, parentSnapshots, parentScene, parentSnapshot, siblingSnapshots, siblingScene, siblingSnapshot]);
+
+  assert.deepEqual(listSnapshotFiles({ vault }, file, root), []);
 });
 
 function freshSettings(overrides = {}) {

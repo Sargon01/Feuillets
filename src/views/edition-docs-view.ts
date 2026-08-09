@@ -2,7 +2,7 @@ import { Modal, Notice, TFile, TFolder, normalizePath, setIcon, type App, type W
 import { t } from "../i18n/index.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { getEditionRoot, editionFolderPath } from "../services/folder-structure.js";
-import { ensureEditionFolder } from "../services/project-files.js";
+import { ensureEditionFolder, EDITION_DOCUMENTS, editionDocumentForName } from "../services/project-files.js";
 import { openFileActivating } from "../utils/dom.js";
 import { prepareSubmission } from "../services/courrier-integration.js";
 import { getCourrierApi } from "../services/courrier-integration.js";
@@ -16,8 +16,6 @@ type AppWithInternalPlugins = App & {
 
 /** Ordre d'affichage pour les documents conventionnels. Les dossiers
  * apparaissent après, triés alphabétiquement. */
-const DOCUMENT_SORT_ORDER = ["Synopsis.md", "Note d'intention.md", "Biographie.md", "Lettre d'accompagnement.md"];
-
 /** Révèle un fichier dans l'explorateur natif d'Obsidian (pas le Binder de
  * Feuillets) — même geste que le clic droit "Afficher dans l'explorateur"
  * natif. Silencieux si le plugin natif file-explorer est indisponible ou
@@ -76,18 +74,18 @@ class SubmissionSentModal extends Modal {
   ) { super(app); }
 
   onOpen(): void {
-    this.contentEl.createEl("h3", { text: "Marquer la soumission comme envoyée" });
+    this.contentEl.createEl("h3", { text: t("editionDocs.submission.markSent") });
     const today = new Date().toISOString().slice(0, 10);
-    const sentLabel = this.contentEl.createEl("label", { cls: "feuillets-submission-date-field", text: "Date d’envoi" });
+    const sentLabel = this.contentEl.createEl("label", { cls: "feuillets-submission-date-field", text: t("editionDocs.submission.sentDate") });
     const sentInput = sentLabel.createEl("input", { type: "date" });
     sentInput.value = today;
-    const reminderLabel = this.contentEl.createEl("label", { cls: "feuillets-submission-date-field", text: "Date de relance (facultative)" });
+    const reminderLabel = this.contentEl.createEl("label", { cls: "feuillets-submission-date-field", text: t("editionDocs.submission.followUpDate") });
     const reminderInput = reminderLabel.createEl("input", { type: "date" });
     const actions = this.contentEl.createDiv({ cls: "feuillets-submission-modal-actions" });
-    actions.createEl("button", { text: "Annuler" }).addEventListener("click", () => this.close());
-    actions.createEl("button", { cls: "mod-cta", text: "Confirmer" }).addEventListener("click", () => {
+    actions.createEl("button", { text: t("editionDocs.submission.cancel") }).addEventListener("click", () => this.close());
+    actions.createEl("button", { cls: "mod-cta", text: t("editionDocs.submission.confirm") }).addEventListener("click", () => {
       if (!sentInput.value) {
-        new Notice("La date d’envoi est obligatoire.");
+        new Notice(t("editionDocs.submission.sentDateRequired"));
         return;
       }
       void this.onConfirm({
@@ -220,7 +218,7 @@ export class EditionDocsView extends BaseFeuilletsView {
   private renderWorkflow(section: HTMLElement): void {
     section.createDiv({
       cls: "feuillets-submission-workflow",
-      text: "Préparer → Rédiger → Exporter → Envoyer → Relancer",
+      text: t("editionDocs.submission.workflow"),
     });
   }
 
@@ -239,7 +237,7 @@ export class EditionDocsView extends BaseFeuilletsView {
     if (folders.length === 0) return;
 
     const wrapper = section.createDiv({ cls: "feuillets-submission-summary" });
-    wrapper.createDiv({ cls: "feuillets-submission-summary-title", text: "Suivi des soumissions" });
+    wrapper.createDiv({ cls: "feuillets-submission-summary-title", text: t("editionDocs.submission.tracking") });
     for (const folder of folders) this.renderSubmissionCard(wrapper, folder);
     section.createDiv({ cls: "feuillets-edition-tree-title", text: "Fichiers du dossier Edition" });
   }
@@ -261,7 +259,7 @@ export class EditionDocsView extends BaseFeuilletsView {
       || this.firstDestinationLine(frontmatter?.destinataire)
       || folder.name;
     const statusValue = this.frontmatterText(suivi.statut) || "Brouillon";
-    const status = statusValue === "Envoyé" ? "Envoyée" : statusValue;
+    const status = statusValue === "Envoyé" ? t("editionDocs.submission.sent") : statusValue === "Brouillon" ? t("editionDocs.submission.draft") : statusValue;
     const sentDate = this.frontmatterText(suivi.date_envoi);
     const reminderDate = this.frontmatterText(suivi.date_relance);
     const packageFiles = packageFolder?.children.filter((child): child is TFile => child instanceof TFile) ?? [];
@@ -278,26 +276,26 @@ export class EditionDocsView extends BaseFeuilletsView {
 
     card.createDiv({
       cls: missing.length ? "feuillets-submission-docs mod-missing" : "feuillets-submission-docs mod-ready",
-      text: missing.length ? `Manquants : ${missing.join(", ")}` : "Documents prêts",
+      text: missing.length ? t("editionDocs.submission.missing", { documents: missing.join(", ") }) : t("editionDocs.submission.ready"),
     });
     const dates = card.createDiv({ cls: "feuillets-submission-dates" });
-    dates.createSpan({ text: `Envoi : ${sentDate || "—"}` });
-    dates.createSpan({ text: `Relance : ${reminderDate || "—"}` });
+    dates.createSpan({ text: t("editionDocs.submission.sentOn", { date: sentDate || "—" }) });
+    dates.createSpan({ text: t("editionDocs.submission.followUpOn", { date: reminderDate || "—" }) });
 
     const actions = card.createDiv({ cls: "feuillets-submission-actions" });
-    this.submissionAction(actions, "file-text", "Ouvrir la lettre", () => {
-      if (!letter) return new Notice("Lettre source introuvable.");
+    this.submissionAction(actions, "file-text", t("editionDocs.submission.openLetter"), () => {
+      if (!letter) return new Notice(t("editionDocs.submission.letterMissing"));
       openFileActivating(this.app, this.app.workspace.getLeaf(false), letter);
     });
-    this.submissionAction(actions, "folder-open", "Ouvrir le dossier", () => {
-      if (!letter || !revealInFileExplorer(this.app, letter)) new Notice("Explorateur de fichiers indisponible.");
+    this.submissionAction(actions, "folder-open", t("editionDocs.submission.openFolder"), () => {
+      if (!letter || !revealInFileExplorer(this.app, letter)) new Notice(t("editionDocs.submission.explorerUnavailable"));
     });
-    this.submissionAction(actions, "file-output", "Exporter", () => {
+    this.submissionAction(actions, "file-output", t("editionDocs.submission.export"), () => {
       void this.runSubmissionApiAction(letter, "exportSubmissionDocx");
     });
-    this.submissionAction(actions, "send", "Marquer comme envoyée", () => {
+    this.submissionAction(actions, "send", t("editionDocs.submission.markSent"), () => {
       if (!letter) {
-        new Notice("Lettre source introuvable.");
+        new Notice(t("editionDocs.submission.letterMissing"));
         return;
       }
       new SubmissionSentModal(this.app, (dates) => this.runSubmissionApiAction(letter, "markSubmissionAsSent", dates)).open();
@@ -317,7 +315,7 @@ export class EditionDocsView extends BaseFeuilletsView {
     dates?: { dateEnvoi?: string; dateRelance?: string }
   ): Promise<void> {
     if (!letter) {
-      new Notice("Lettre source introuvable.");
+      new Notice(t("editionDocs.submission.letterMissing"));
       return;
     }
     const api = getCourrierApi(this.app);
@@ -325,14 +323,14 @@ export class EditionDocsView extends BaseFeuilletsView {
       ? typeof api?.markSubmissionAsSent === "function"
       : typeof api?.exportSubmissionDocx === "function";
     if (!api || !available) {
-      new Notice("Courrier doit être activé et mis à jour pour cette action.");
+      new Notice(t("editionDocs.submission.courrierUnavailable"));
       return;
     }
     const result = action === "markSubmissionAsSent"
       ? await api.markSubmissionAsSent?.(letter.path, dates)
       : await api.exportSubmissionDocx?.(letter.path);
     if (!result) return;
-    if (!result.success) new Notice(result.message || "L’action n’a pas pu être effectuée.");
+    if (!result.success) new Notice(result.message || t("editionDocs.submission.actionFailed"));
     await this.render();
   }
 
@@ -348,8 +346,8 @@ export class EditionDocsView extends BaseFeuilletsView {
     if (!date) return null;
     const today = new Date();
     const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-    if (date < todayIso) return { text: "En retard", kind: "late" };
-    if (date === todayIso) return { text: "À relancer", kind: "due" };
+    if (date < todayIso) return { text: t("editionDocs.submission.overdue"), kind: "late" };
+    if (date === todayIso) return { text: t("editionDocs.submission.followUpDue"), kind: "due" };
     return null;
   }
 
@@ -374,8 +372,8 @@ export class EditionDocsView extends BaseFeuilletsView {
 
     // Trier fichiers selon DOCUMENT_SORT_ORDER, puis alphabétiquement
     files.sort((a, b) => {
-      const aIdx = DOCUMENT_SORT_ORDER.indexOf(a.name);
-      const bIdx = DOCUMENT_SORT_ORDER.indexOf(b.name);
+      const aIdx = EDITION_DOCUMENTS.findIndex((document) => editionDocumentForName(a.name)?.id === document.id);
+      const bIdx = EDITION_DOCUMENTS.findIndex((document) => editionDocumentForName(b.name)?.id === document.id);
       if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
       if (aIdx >= 0) return -1;
       if (bIdx >= 0) return 1;
