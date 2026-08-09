@@ -247,7 +247,9 @@ Pour commencer :
 - [Interface d’écriture](docs/SETUP-INTERFACE.md)
 - [Composition et export](docs/COMPOSITION-ET-EXPORT.md)
 - [Réécriture, sauvegardes et versions](docs/VERSIONNAGE-ET-SECURITE.md)
+- [Le Carnet — des idées au manuscrit](docs/HOW-TO-CARNET.md)
 - [Contexte intelligent local](docs/How-to-Contexte-Feuillets.md)
+- [Révision DOCX — retour Word vers le manuscrit](docs/HOW-TO-REVISION-DOCX.md)
 - [Importer depuis Scrivener](docs/IMPORT-SCRIVENER.md)
 
 > **Feuillets — l’atelier libre du manuscrit.**

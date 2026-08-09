@@ -26,19 +26,21 @@ Les anciens comportements restent dans Git et le changelog. Les guides utilisate
 - `COMPOSITION-ET-EXPORT.md` / `COMPOSITION-AND-EXPORT.md`
 - `VERSIONNAGE-ET-SECURITE.md` / `REWRITING-BACKUPS-AND-VERSIONS.md`
 - `IMPORT-SCRIVENER.md` / `IMPORT-SCRIVENER-EN.md`
-- `How-to-Contexte-Feuillets.md`
+- `HOW-TO-CARNET.md` / `HOW-TO-NOTEBOOK.md`
+- `How-to-Contexte-Feuillets.md` / `HOW-TO-CONTEXT.md`
+- `HOW-TO-REVISION-DOCX.md` / `HOW-TO-DOCX-REVISION.md`
 
 ### Principes et migration
 
 - `PHILOSOPHIE.md` / `PHILOSOPHY.md`
-- `Remplacer-Scrivener-par-Feuillets.md`
-- `Remplacer-Ulysses-par-Feuillets.md`
-- `Remplacer-Aeon-Timeline-par-Feuillets.md`
+- `Remplacer-Scrivener-par-Feuillets.md` / `REPLACE-SCRIVENER-WITH-FEUILLETS.md`
+- `Remplacer-Ulysses-par-Feuillets.md` / `REPLACE-ULYSSES-WITH-FEUILLETS.md`
+- `Remplacer-Aeon-Timeline-par-Feuillets.md` / `REPLACE-AEON-TIMELINE-WITH-FEUILLETS.md`
 
 ### Maintenance / revue
 
 - `ARCHITECTURE.md`
-- `DOCX-REVIEW-VALIDATION.md`
+- `DOCX-REVIEW-VALIDATION.md` — recette/validation technique ; ne pas le confondre avec `HOW-TO-REVISION-DOCX.md`, guide utilisateur.
 - `SECURITY_AND_EXTERNAL_RESOURCES.md`
 - `PLAN-CAPTURES.md`
 - `../CONTRIBUTING.md`

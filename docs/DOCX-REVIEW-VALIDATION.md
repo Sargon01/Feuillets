@@ -1,5 +1,7 @@
 # Validation du flux de révision DOCX
 
+> Pour le parcours utilisateur, voir **[Réviser un manuscrit Word avec Feuillets](HOW-TO-REVISION-DOCX.md)**.
+
 > Document de recette et de maintenance, pas une présentation marketing.
 
 ## Flux

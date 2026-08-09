@@ -81,3 +81,7 @@ Doit rester très lisible et ne montrer que ce que Concentration cherche précis
 Ne pas recréer des captures séparées d’anciens panneaux Notes, Recherche, Projet ou Révision comme s’ils étaient encore chacun une barre latérale indépendante.
 
 Si une nouvelle capture de l’Inspecteur est ajoutée un jour, elle doit représenter **l’Inspecteur unifié à onglets**.
+
+## Guides détaillés sans capture dédiée
+
+`HOW-TO-CARNET.md` et `HOW-TO-REVISION-DOCX.md` peuvent rester textuels tant qu’aucune capture actuelle ne montre précisément leur interface. Ne pas réutiliser une image approximative simplement pour remplir la page. Une future capture doit montrer l’interface réelle de la version courante.

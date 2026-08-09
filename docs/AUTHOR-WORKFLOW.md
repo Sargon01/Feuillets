@@ -1,113 +1,270 @@
-# An author's workflow, from first word to submission
+# An author's workflow, from the first word to export
 
 > [Français](PARCOURS-AUTEUR.md) · **English** · [Documentation index](README.md)
 
-This guide follows the natural order of writing work rather than listing every setting.
+This guide follows the work in its natural order. It does not try to explain every setting.
 
-## 1. Choose how to enter the project
+## 1. Let the project begin
 
-You can create a project, use an existing folder as-is, initialize an existing folder with a Feuillets project type, import Scrivener, or open the demo project.
+From the Binder welcome screen, you can:
 
-If an existing Markdown manuscript is already organized the way you want, using it as-is is the least invasive option.
+- **Create a project**: choose a name and, if useful, an author and project type;
+- **Use an existing folder as-is**: keep its current structure and files untouched;
+- **Initialize an existing folder as a Feuillets project**: add Feuillets conventions when you actually want them;
+- **Open an existing manuscript**;
+- **Discover Feuillets with the demo project**.
+
+A fiction project naturally uses part, chapter and scene terminology. A non-fiction project adapts labels and Research categories. A Free project keeps the least prescriptive structure.
+
+Specialized areas such as Journal, snapshots or Edition can appear only when they become useful.
 
 ![Create a first project](creer-premier-projet.gif)
 
 ## 2. Shape the manuscript in the Binder
 
+The Binder shows the manuscript hierarchy.
+
+A typical fiction project might read:
+
+> Part → Chapter → Scene → Sheet
+
+The author can:
+
+- create items at the right level;
+- rename folders and sheets;
+- drag and reorder items;
+- move an item back to manuscript root;
+- undo the last move;
+- search;
+- filter by status, label or progress;
+- import an outline prepared elsewhere.
+
 ![Binder](feuillets-classeur.png)
 
-Create, rename, drag, move back to root, multi-select, search and filter manuscript items. The structure is flexible; “part”, “chapter”, “scene” and “section” guide the interface without turning Markdown into a rigid database.
+## 3. Let ideas mature in the Notebook
 
-## 3. Write in the sheet
+The **Notebook** is Feuillets' visual brainstorming space. It is based on a standard Obsidian Canvas and deliberately remains separate from the Binder: the Notebook helps you think, while the Binder remains the real manuscript structure.
 
-Feuillets keeps Obsidian's editor at the center and adds literary presentation, typography helpers, manuscript search/replace, footnotes, citations, Focus Mode and typewriter scrolling.
+You can:
+
+- capture an idea without leaving the active sheet;
+- add an existing sheet or a selection of sheets;
+- turn an idea into a real Markdown sheet;
+- turn an idea into a Research note;
+- build branches and Idea Trees;
+- create a chapter from a selection, a Canvas group or a branch;
+- turn a branch into a Feuillets outline.
+
+An outline created from an Idea Tree can be imported again as it evolves. Feuillets reuses existing folders and sheets when titles match exactly, preserves existing order, and adds only new elements.
+
+This is not permanent synchronization: moving a Notebook card does not automatically move the corresponding file in the Binder.
+
+Advanced Canvas is recommended for direct card menus and Idea Trees, but essential commands remain available from the command palette.
+
+See **[The Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md)**.
+
+## 4. Write
+
+Feuillets enriches the Obsidian editor instead of replacing it.
+
+Writing View can provide:
+
+- typographic quotation marks, apostrophes and dashes;
+- automatic paragraph indents;
+- compact paragraph presentation;
+- controlled text width;
+- manuscript-wide find and replace;
+- footnotes and citations;
+- Focus Mode;
+- typewriter scrolling.
+
+The sheet remains the main place where writing happens.
 
 ![Writing and Preview](feuillets-concentration-apercu.png)
 
-## 4. Keep working material beside the text
+## 5. Keep useful information beside the text
 
-The **Notes** Inspector tab contains synopsis, summary, working notes, properties, footnotes, folder notes and the current passage context.
+The **Notes** tab of the Inspector keeps working material separate from final manuscript text.
 
-## 5. Build project Research
+It can contain:
 
-Research files remain Markdown. Standard categories depend on project type, custom sections are allowed, and Research folders can be explicitly associated with Binder files or folders.
+- synopsis;
+- summary;
+- working notes;
+- sources;
+- sheet outline;
+- chapter or part notes;
+- properties;
+- Context for characters, places, events and documents relevant to the current passage.
 
-Research text can be linked or quoted back into the manuscript.
+These elements accompany the scene without being confused with compiled manuscript text.
 
-## 6. Use local Context
+## 6. Build the project bible
 
-The Context section inside Notes follows the passage around the cursor and can surface pinned references, explicit references, associated documents, entity states and chronological alerts.
+The **Research** tab holds the documentation the book needs:
 
-It is deterministic and local. It does not rewrite the manuscript.
+- characters;
+- places;
+- events;
+- concepts;
+- lore;
+- sources;
+- bibliography;
+- glossary.
 
-## 7. Explore in Notebook
+Excerpts can be inserted into the active sheet as a link, quotation or quotation with source.
 
-Notebook is the free-form Canvas space. Ideas can be moved, linked and grouped before selected ideas are deliberately turned into manuscript sheets or Research documents.
+## 7. Step back and change viewpoint
 
-## 8. Change perspective
+### Cards
 
-![Narrative views](feuillets-mosaique-narrative.png)
+Move scenes and read their synopsis, excerpt, status or progress at a glance.
 
-- **Cards** — visual scene organization.
-- **Outline** — structured project data.
-- **Storyline** — narrative thread distribution.
-- **Timeline** — event order versus narrative order.
-- **Preview** — composed reading.
+### Outline
 
-## 9. Transform scenes and sections
+Inspect hierarchy, status, progress and chosen project information in a table.
 
-Move, duplicate, split, merge or exclude content from compilation. Split/merge rules make metadata behavior explicit rather than silently discarding information.
+### Storyline
 
-## 10. Separate Analysis from Proofreading
+Observe narrative threads and the balance of the story.
 
-**Analysis** is built into Feuillets and offers prose metrics, repetitions, chapter balance and writer-supplied pace information.
+### Timeline
 
-**Proofreading** displays issues returned by a companion analyzer. Feuillets ships no grammar engine.
+Distinguish the order in which events happen from the order in which the reader discovers them.
 
-## 11. Track the work
+### Preview
 
-Journal and statistics can be introduced when the project needs them. They are not mandatory for a lightweight workflow.
+Read a scene, chapter, part, folder, selection or full manuscript through the composition engine.
 
-## 12. Protect a state before major rewriting
+![Several views of the same manuscript](feuillets-mosaique-narrative.png)
 
-Use a snapshot for a local checkpoint, a manuscript version for an alternate direction, and ZIP backups for regular safety.
+## 8. Transform scenes
 
-![Version comparison](feuillets-comparaison.png)
+A scene or sheet can be:
 
-## 13. Read before exporting
+- moved;
+- renamed;
+- split;
+- merged;
+- duplicated;
+- excluded from composition;
+- restored to composition later.
 
-![Paginated Preview](feuillets-apercu.png)
+During split or merge, Feuillets can apply project rules to attached properties so that information is not silently lost.
 
-Check order, titles, separators, front pages, template and selected scope before producing the final file.
+## 9. Track the work
 
-## 14. Compile the right scope
+### Statistics
 
-Feuillets can compile one file, one folder and its descendants, a mixed selection, or the whole project. Duplicate descendants are removed automatically.
+Use them to follow:
 
-## 15. Export
+- word targets;
+- sheet progress;
+- project progress;
+- characters, sentences and paragraphs;
+- estimated reading time;
+- recent activity.
 
-Native formats:
+### Writing Journal
 
+Keep a daily record of:
+
+- goals;
+- difficulties;
+- narrative decisions;
+- experiments;
+- changes of direction;
+- session review.
+
+## 10. Reread and revise
+
+Revision can combine:
+
+- direct correction in the sheet;
+- continuous reading in Preview;
+- find and replace;
+- version comparison;
+- local prose Analysis;
+- Proofreading through a specialized provider such as Feuillets-Grammalecte;
+- processing an annotated DOCX in **Inspector → Edition → DOCX Revision**.
+
+The grammar engine does not belong to the Feuillets core.
+
+## 11. Work on several manuscripts
+
+Several projects can be registered in one vault and opened successively.
+
+Switching projects changes the manuscript scope, Binder, Research and related project tools without requiring a separate Obsidian vault for every book.
+
+## 12. Compose the final document
+
+Composition lets you choose the exact scope:
+
+- one sheet;
+- one folder;
+- a selection of files and folders;
+- the whole project.
+
+You can then define inclusion, order, titles, separators, first pages and output styling.
+
+Preview uses the same composition logic, so the final structure can be judged before export.
+
+## 13. Export
+
+Feuillets can produce:
+
+- compiled Markdown;
 - DOCX;
 - EPUB;
 - ODT;
-- PDF on desktop;
-- compiled Markdown.
+- PDF through desktop system printing.
 
-See [Composition and export](COMPOSITION-AND-EXPORT.md).
+The Markdown files remain the source. Export creates a publication artifact; it does not convert the project into a proprietary document.
 
-## 16. Reinstate external DOCX revisions
+![Paginated Preview](feuillets-apercu.png)
 
-The **Edition** tab can inspect reviewed DOCX changes and comments. The workflow remains:
+## 14. Bring Word feedback back into the manuscript
 
-> Feuillets Markdown → DOCX → external review → author decision → Markdown
+When an editor or proofreader returns an annotated DOCX:
 
-Ambiguous changes are not meant to be applied silently.
+1. open **Inspector → Edition → DOCX Revision**;
+2. analyze the returned file;
+3. review tracked changes and comments;
+4. inspect uncertain mappings before applying them;
+5. accept, reject or defer each decision;
+6. let Feuillets update the corresponding Markdown when safe;
+7. generate a revised DOCX for the next editorial exchange.
 
-## 17. Prepare editorial material
+See **[Reviewing a Word manuscript with Feuillets](HOW-TO-DOCX-REVISION.md)**.
 
-The optional `_Edition` folder can hold Synopsis, Intent note, Biography, Cover letter, Submissions and Sent versions. The companion **Courrier** plugin can manage contacts and submission follow-up.
+## 15. Protect the work
 
-## 18. Keep ownership of the manuscript
+Different tools serve different purposes:
 
-At every stage, the project remains readable as ordinary files and folders inside the Obsidian vault.
+- snapshots provide a quick point of return;
+- comparisons show what changed;
+- versions preserve larger narrative branches;
+- ZIP backups protect the project as files.
+
+![Compare versions](feuillets-comparaison.png)
+
+## 16. Continue the editorial life
+
+The companion **Courrier** plugin can manage:
+
+- publishers and agents;
+- submissions;
+- letter templates;
+- replies;
+- follow-ups;
+- the exact version sent.
+
+Feuillets stays focused on the manuscript; Courrier handles correspondence.
+
+## 17. Keep going without lock-in
+
+At every stage, the project remains made of Markdown files and ordinary folders.
+
+You can stop using Feuillets without losing the manuscript format, continue in another Markdown editor, use Obsidian without Feuillets, or keep the project under Git or another backup system.
+
+The aim is not to make the author dependent on the software. It is to make the software useful for as long as the author wants it.

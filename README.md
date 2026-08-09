@@ -233,10 +233,17 @@ Start with:
 
 - [Discover Feuillets](docs/DISCOVER.md)
 - [An author's workflow](docs/AUTHOR-WORKFLOW.md)
-- [Features](docs/FEATURES.md)
+- [Features by use](docs/FEATURES.md)
+- [The Notebook — from ideas to manuscript](docs/HOW-TO-NOTEBOOK.md)
+- [Using local Context](docs/HOW-TO-CONTEXT.md)
+- [Reviewing a Word manuscript with Feuillets](docs/HOW-TO-DOCX-REVISION.md)
 - [Writing interface](docs/WRITING-INTERFACE.md)
 - [Composition and export](docs/COMPOSITION-AND-EXPORT.md)
 - [Rewriting, backups and versions](docs/REWRITING-BACKUPS-AND-VERSIONS.md)
 - [Scrivener import](docs/IMPORT-SCRIVENER-EN.md)
+- [Replace Scrivener with Feuillets](docs/REPLACE-SCRIVENER-WITH-FEUILLETS.md)
+- [Replace Ulysses with Feuillets](docs/REPLACE-ULYSSES-WITH-FEUILLETS.md)
+- [Replace Aeon Timeline with Feuillets](docs/REPLACE-AEON-TIMELINE-WITH-FEUILLETS.md)
+- [Philosophy](docs/PHILOSOPHY.md)
 
 > **Feuillets — the free manuscript studio.**

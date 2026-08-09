@@ -2,19 +2,19 @@
 
 Cette page est l’index de la documentation du dépôt.
 
-> **Français** · English documentation is linked beside each French guide where available.
+> **Français** · English documentation is linked beside each user-facing French guide.
 
 ![Feuillets — écrire et relire](feuillets-ecriture-apercu.png)
 
 ## Pour découvrir
 
-- **[Découvrir Feuillets](DECOUVRIR.md)** · [English](DISCOVER.md)  
+- **[Découvrir Feuillets](DECOUVRIR.md)** · [English](DISCOVER.md)
   La logique générale : Classeur, feuillets, Inspecteur, Carnet, Aperçu.
-- **[Le parcours d’un auteur](PARCOURS-AUTEUR.md)** · [English](AUTHOR-WORKFLOW.md)  
+- **[Le parcours d’un auteur](PARCOURS-AUTEUR.md)** · [English](AUTHOR-WORKFLOW.md)
   Du premier projet à l’export et à la révision.
-- **[Fonctionnalités par usage](FONCTIONNALITES.md)** · [English](FEATURES.md)  
+- **[Fonctionnalités par usage](FONCTIONNALITES.md)** · [English](FEATURES.md)
   Référence fonctionnelle sans noms de variables internes.
-- **[Philosophie](PHILOSOPHIE.md)** · [English](PHILOSOPHY.md)  
+- **[Philosophie](PHILOSOPHIE.md)** · [English](PHILOSOPHY.md)
   Pourquoi Feuillets reste dans Obsidian et garde Markdown comme source de vérité.
 
 ## Guides pratiques
@@ -23,20 +23,23 @@ Cette page est l’index de la documentation du dépôt.
 - **[Composition et export](COMPOSITION-ET-EXPORT.md)** · [English](COMPOSITION-AND-EXPORT.md)
 - **[Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md)** · [English](REWRITING-BACKUPS-AND-VERSIONS.md)
 - **[Importer un projet Scrivener](IMPORT-SCRIVENER.md)** · [English](IMPORT-SCRIVENER-EN.md)
-- **[Utiliser le contexte intelligent local](How-to-Contexte-Feuillets.md)**
+- **[Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md)** · [English](HOW-TO-NOTEBOOK.md)
+- **[Utiliser le contexte intelligent local](How-to-Contexte-Feuillets.md)** · [English](HOW-TO-CONTEXT.md)
 
 ## Révision et édition
 
-- **[Validation du flux de révision DOCX](DOCX-REVIEW-VALIDATION.md)**  
+- **[Réviser un manuscrit Word avec Feuillets](HOW-TO-REVISION-DOCX.md)** · [English](HOW-TO-DOCX-REVISION.md)
+  Guide utilisateur du retour Word → Markdown → DOCX révisé.
+- **[Validation du flux de révision DOCX](DOCX-REVIEW-VALIDATION.md)**
   Document de maintenance et de recette du retour Word → Markdown.
 - Le dossier `_Edition`, lorsqu’il est créé, regroupe les documents éditoriaux : synopsis, note d’intention, biographie, lettre d’accompagnement, soumissions et versions envoyées.
 - Le module compagnon **Courrier** prolonge le suivi des contacts, envois, réponses et relances.
 
 ## Comparer ou migrer depuis un autre outil
 
-- **[Remplacer Scrivener par Feuillets](Remplacer-Scrivener-par-Feuillets.md)**
-- **[Remplacer Ulysses par Feuillets](Remplacer-Ulysses-par-Feuillets.md)**
-- **[Remplacer Aeon Timeline par Feuillets](Remplacer-Aeon-Timeline-par-Feuillets.md)**
+- **[Remplacer Scrivener par Feuillets](Remplacer-Scrivener-par-Feuillets.md)** · [English](REPLACE-SCRIVENER-WITH-FEUILLETS.md)
+- **[Remplacer Ulysses par Feuillets](Remplacer-Ulysses-par-Feuillets.md)** · [English](REPLACE-ULYSSES-WITH-FEUILLETS.md)
+- **[Remplacer Aeon Timeline par Feuillets](Remplacer-Aeon-Timeline-par-Feuillets.md)** · [English](REPLACE-AEON-TIMELINE-WITH-FEUILLETS.md)
 
 Ces documents ne prétendent pas reproduire chaque fonction des logiciels cités. Ils expliquent quelles habitudes peuvent être reprises dans Feuillets, ce qui change, et quelles limites restent normales.
 

@@ -1,214 +1,517 @@
-# How-to — Utiliser le contexte intelligent local de Feuillets
+# How-to — Utiliser le contexte intelligent de Feuillets
 
-> [Index de la documentation](README.md)
+> **Français** · [English](HOW-TO-CONTEXT.md) · [Index](README.md)
 
-La fonction **Contexte** se trouve dans l’onglet **Notes** de l’Inspecteur. Ce n’est pas un panneau séparé.
+La section **Contexte** de l’onglet **Notes** de l’Inspecteur affiche automatiquement les informations utiles pendant l’écriture d’un feuillet.
 
-Elle sert à garder près du passage en cours les informations susceptibles d’être utiles : fiches de Recherche, documents associés, éléments épinglés et informations chronologiques.
+Il peut retrouver :
+
+- les personnages, lieux, événements ou notions cités dans le passage courant ;
+- des fiches Recherche liées au feuillet ou au chapitre ;
+- des informations chronologiques correspondant à la date du feuillet ;
+- des incohérences, comme un personnage déjà mort ou un objet anachronique ;
+- des documents dont le contenu partage plusieurs termes avec le passage ;
+- des références que vous choisissez de conserver grâce à l’épinglage.
+
+Tout reste local dans le coffre Obsidian. Aucune intelligence artificielle ni aucun service en ligne ne sont utilisés.
 
 ![Écriture avec l’atelier Feuillets](feuillets-ecriture-apercu.png)
 
-Tout le rapprochement est effectué localement dans le coffre. Feuillets n’envoie pas le passage à une IA ou à un serveur de recherche.
+---
 
-## 1. Ce que Contexte observe
+## 1. Préparer les fiches Recherche
 
-Feuillets ne relit pas nécessairement tout le feuillet à chaque mouvement du curseur.
+Créez vos fiches dans l’onglet **Recherche**.
 
-Il extrait une **fenêtre de contexte** autour de la zone travaillée, généralement le paragraphe courant avec un peu de voisinage lorsque c’est utile.
+Selon le projet, elles peuvent concerner :
 
-Cette fenêtre sert à comparer le passage avec les informations disponibles.
+- des personnages ;
+- des lieux ;
+- des événements ;
+- des concepts ;
+- des éléments d’univers ;
+- des sources ;
+- une bibliographie ;
+- un glossaire.
 
-## 2. Les sources de contexte
+Une fiche peut être retrouvée grâce à son titre, ses alias, ses tags ou son contenu.
 
-Plusieurs sources peuvent participer.
+### Exemple
 
-### Recherche liée au feuillet
+```markdown
+---
+aliases:
+  - commerce des caravanes
+tags:
+  - hedjaz
+  - commerce
+---
 
-Un dossier de Recherche peut être associé directement à un feuillet du Classeur.
+# Commerce caravanier
 
-### Recherche liée à un dossier du manuscrit
+Les caravanes transportent des épices et des tissus précieux entre les villes.
+```
 
-Un dossier de Recherche peut être associé à un chapitre, une partie ou un autre dossier du Classeur.
+---
 
-Les feuillets contenus peuvent alors bénéficier de ce contexte.
+## 2. Associer la Recherche au manuscrit
 
-### Recherche générale du projet
+Feuillets peut utiliser plusieurs niveaux de documentation :
 
-Les fiches de la Recherche du projet servent aux correspondances explicites : nom, alias, tag ou référence.
+- la Recherche associée directement au feuillet ;
+- la Recherche associée à son chapitre ;
+- la Recherche générale du projet.
 
-### Dossiers situés ailleurs dans le coffre
+Les résultats les plus proches du texte sont prioritaires.
 
-Une association Recherche n’est pas obligée de pointer vers un sous-dossier du projet. Vous pouvez lier un dossier documentaire existant ailleurs dans le coffre.
+La recherche dans le **contenu intégral des fiches** reste volontairement limitée aux dossiers associés au feuillet ou au chapitre. Elle ne parcourt pas toute la Recherche générale du projet.
 
-L’association mémorise le chemin ; elle ne déplace pas ce dossier et ne le fait pas entrer dans la compilation du manuscrit.
+Cette limite évite que des dizaines de fiches éloignées du passage apparaissent sans raison.
 
-## 3. Préparer une fiche
+---
 
-Une fiche peut être retrouvée à partir de son titre, de ses alias, de ses tags ou de certains éléments de son contenu.
+## 3. Écrire normalement
 
-Exemple :
+Aucune commande spéciale n’est nécessaire.
+
+Feuillets examine le passage dans lequel se trouve le curseur :
+
+- généralement le paragraphe courant ;
+- avec un peu de contexte voisin lorsque le paragraphe est très court.
+
+Le feuillet entier n’est pas analysé en permanence. Les résultats suivent donc le passage réellement travaillé.
+
+### Exemple
+
+Dans le feuillet :
+
+> Les marchands déchargèrent leurs tissus et leurs épices avant la tombée de la nuit.
+
+Dans une fiche Recherche associée :
+
+> Les caravanes transportent des épices et des tissus précieux entre les villes.
+
+Même si le titre **Commerce caravanier** n’est pas cité, la fiche peut apparaître dans **Documents associés**, car plusieurs termes significatifs sont communs aux deux textes.
+
+---
+
+# Les sections de Contexte
+
+## Épinglées
+
+Cette section contient les fiches que vous avez décidé de conserver pour le feuillet actif.
+
+Une fiche épinglée :
+
+- reste visible lorsque vous changez de paragraphe ;
+- reste attachée uniquement à ce feuillet ;
+- ne se répète pas dans les autres sections ;
+- peut être ouverte ou prévisualisée normalement.
+
+L’épinglage est utile pour une information importante qui doit rester sous les yeux pendant toute la rédaction d’une scène.
+
+### Exemple
+
+Vous écrivez une scène située en Arabie et souhaitez conserver la fiche **Arabie** visible, même lorsque le passage courant parle d’un personnage ou d’un objet.
+
+Cliquez sur l’icône d’épingle de la fiche.
+
+Pour la retirer, cliquez de nouveau sur l’épingle.
+
+---
+
+## Références du passage
+
+Cette section contient les éléments reconnus avec une forte fiabilité.
+
+Une fiche peut apparaître parce que le passage contient :
+
+- son titre ;
+- un alias ;
+- son nom ;
+- un tag pertinent ;
+- une référence explicite.
+
+### Exemple
+
+Fiche :
 
 ```markdown
 ---
 aliases:
   - Hedjaz
-tags:
-  - arabie
-  - caravane
 ---
-
 # Arabie occidentale
-
-Les caravanes transportent des tissus et des épices entre les villes.
 ```
 
-Dans le manuscrit :
+Passage :
 
-> La caravane atteignit le Hedjaz avant la tombée de la nuit.
+> La caravane atteignit enfin le Hedjaz.
 
-La référence explicite à `Hedjaz` peut faire remonter la fiche.
+La fiche peut être reconnue grâce à l’alias **Hedjaz**.
 
-## 4. Épinglées
+Les références sont recalculées lorsque vous déplacez le curseur vers un autre passage.
 
-Une fiche épinglée reste visible pour le feuillet actif même lorsque le curseur se déplace vers un autre paragraphe.
+---
 
-Utilisez l’épinglage pour une information que vous voulez garder sous les yeux pendant toute une scène :
+## Documents associés
 
-- plan d’un lieu ;
-- fiche d’un personnage ;
-- source principale ;
-- règle d’univers ;
-- chronologie locale.
+Cette section complète les références explicites.
 
-L’épinglage ne copie pas le fichier. Il conserve seulement sa référence pour ce feuillet.
+Feuillets cherche dans le contenu des fiches appartenant aux dossiers Recherche associés au feuillet ou au chapitre.
 
-## 5. Références du passage
+Pour qu’une fiche apparaisse, il faut généralement :
 
-Cette section contient les correspondances les plus explicites.
+- au moins deux termes significatifs communs ;
+- ou une expression distinctive de plusieurs mots.
 
-Une fiche peut être reconnue lorsque le passage contient par exemple :
+Un seul mot générique comme `ville`, `route`, `maison` ou `commerce` ne suffit pas.
 
-- son titre ;
-- un alias ;
-- son nom ;
-- un tag pertinent dans le contexte attendu ;
-- un lien Obsidian explicite.
-
-La détection cherche une occurrence réelle du nom ou de la référence, pas une simple sous-chaîne arbitraire.
-
-## 6. Documents associés
-
-Cette section complète les références explicites avec une recherche lexicale dans le contenu des documents associés.
-
-Exemple :
+### Exemple positif
 
 Passage :
 
 > Les marchands déchargèrent leurs tissus et leurs épices.
 
-Fiche associée :
+Fiche :
 
 > Les caravanes transportent des épices et des tissus précieux.
 
-Plusieurs termes significatifs communs peuvent suffire à faire remonter la fiche, même si son titre n’est pas cité.
+Les mots `tissus` et `épices` permettent la correspondance.
 
-À l’inverse, un seul mot générique ne doit pas déclencher une avalanche de résultats.
+### Exemple sans résultat
 
-## 7. Pourquoi la recherche de contenu est limitée
+Passage :
 
-Feuillets ne parcourt pas aveuglément le corps de toutes les notes du coffre à chaque frappe.
+> Les marchands apportèrent des étoffes et des épices.
 
-La recherche de contenu détaillée privilégie les documents réellement associés au feuillet ou à sa structure.
+Fiche :
 
-Cette limite :
+> Les caravanes transportent des tissus et des épices.
 
-- évite le bruit ;
-- réduit le coût de calcul ;
-- rend les résultats plus explicables ;
-- garde le contexte lié à l’organisation choisie par l’auteur.
+Le seul terme exact commun est `épices`.
 
-## 8. Dates et chronologie
+Feuillets ne considère pas automatiquement `étoffes` et `tissus` comme synonymes. La recherche reste lexicale et prévisible.
 
-Lorsqu’un feuillet possède une date exploitable, Contexte peut rapprocher cette date des données chronologiques du projet.
+---
 
-Exemple :
+# Le contexte chronologique
+
+Lorsqu’un feuillet possède une date, Feuillets peut utiliser cette date pour afficher des informations historiques pertinentes.
+
+La date apparaît en haut des références du passage.
+
+### Exemple
+
+```yaml
+---
+date: 14 mars 762
+---
+```
+
+La section peut alors afficher un événement correspondant à cette période :
+
+```text
+14 mars 762
+
+Élimination du corps des janissaires
+Le sultan Mahmud II supprime par la force ce corps militaire…
+```
+
+Les événements historiques pertinents sont placés avant les références ordinaires.
+
+---
+
+## Âge et état des personnages
+
+Une fiche Personnage peut contenir des informations de naissance, de mort ou une évolution datée.
+
+Feuillets peut alors déterminer l’état du personnage à la date du feuillet.
+
+### Exemple
+
+```yaml
+---
+naissance: 1770
+mort: 1815
+---
+```
+
+Feuillet :
+
+```yaml
+---
+date: 1826-06-15
+---
+```
+
+Si le personnage est cité dans le passage, Feuillets peut afficher :
+
+```text
+Deli
+Mort depuis 11 ans — en 1815
+```
+
+Un âge ou un état compatible reste une information secondaire.
+
+Une incohérence importante reçoit une alerte visible.
+
+---
+
+# Les alertes chronologiques
+
+Feuillets peut signaler plusieurs types d’incohérences :
+
+- personnage déjà mort ;
+- personnage pas encore né ;
+- âge impossible ;
+- état historique incompatible ;
+- objet ou technique postérieur à la date du feuillet.
+
+### Exemples
+
+```text
+⚠ Deli
+Mort depuis 11 ans — en 1815
+```
+
+```text
+⚠ Montre-bracelet
+Objet anachronique pour cette date.
+```
+
+```text
+⚠ Photographie
+Technique postérieure à la scène.
+```
+
+Ces alertes ne corrigent pas le manuscrit automatiquement. Elles attirent seulement l’attention de l’auteur.
+
+Le choix final reste toujours le vôtre : une incohérence peut être volontaire, liée à un souvenir, à un rêve ou à un narrateur peu fiable.
+
+---
+
+# Prévisualiser et ouvrir une fiche
+
+Chaque résultat propose des actions discrètes.
+
+Selon la ligne, vous pouvez :
+
+- ouvrir la fiche ;
+- afficher son aperçu ;
+- l’épingler ;
+- la désépingler.
+
+L’aperçu permet de vérifier rapidement une information sans quitter le feuillet en cours.
+
+---
+
+# Afficher davantage
+
+Pour éviter de surcharger la section, Feuillets limite le nombre de résultats visibles.
+
+Lorsqu’une section contient plus de résultats, une commande permet d’afficher les suivants :
+
+```text
+Afficher 5 autres
+```
+
+Puis de revenir à la liste réduite :
+
+```text
+Afficher moins
+```
+
+L’affichage supplémentaire utilise les résultats déjà calculés. Il ne relance pas toute la recherche.
+
+---
+
+# Pourquoi une fiche n’apparaît-elle pas ?
+
+## Le curseur n’est pas dans le bon passage
+
+Le contexte dépend du paragraphe courant.
+
+Placez le curseur dans le passage contenant les termes ou les personnages concernés.
+
+---
+
+## Un seul mot est commun
+
+La recherche de contenu exige plusieurs indices.
+
+Exemple insuffisant :
+
+- passage : `épices` ;
+- fiche : `épices`.
+
+Ajoutez un second terme réellement présent dans les deux textes pour vérifier la correspondance.
+
+---
+
+## Les mots sont seulement synonymes
+
+Feuillets ne relie pas automatiquement :
+
+- `étoffe` et `tissu` ;
+- `bateau` et `navire` ;
+- `marchand` et `négociant`.
+
+Cette limitation évite les rapprochements imprécis.
+
+Utilisez dans la fiche quelques variantes naturelles du vocabulaire important, des alias ou des tags pertinents.
+
+---
+
+## La fiche n’est pas dans un dossier associé
+
+La recherche dans le corps des documents ne parcourt que les dossiers Recherche associés au feuillet ou au chapitre.
+
+Une fiche située uniquement dans la Recherche générale peut apparaître comme référence explicite, mais pas comme simple correspondance de contenu.
+
+---
+
+## La date n’est pas reconnue
+
+Vérifiez que le feuillet contient une date exploitable.
+
+Exemples :
 
 ```yaml
 date: 1826-06-15
 ```
 
-Une fiche Personnage peut contenir une naissance, une mort ou des états datés. Une fiche d’événement ou une information d’univers peut également posséder une période pertinente.
+```yaml
+date: 15 juin 1826
+```
 
-## 9. Alertes chronologiques
+Les informations chronologiques des fiches doivent également utiliser un format pris en charge par Feuillets.
 
-Lorsque les données sont suffisantes, Feuillets peut signaler une incompatibilité potentielle :
+---
 
-- personnage pas encore né ;
-- personnage déjà mort ;
-- âge incohérent ;
-- état daté incompatible ;
-- objet ou technique postérieur à la scène.
+## La fiche est déjà épinglée
 
-Une alerte n’est pas une correction automatique.
+Une fiche épinglée est retirée des autres sections pour éviter les doublons.
 
-Un souvenir, un rêve, un mensonge ou un narrateur peu fiable peuvent rendre l’incohérence volontaire. Le rôle de Feuillets est de la montrer, pas de décider à la place de l’auteur.
+Cherchez-la dans **Épinglées**.
 
-## 10. Prévisualiser ou ouvrir
+---
 
-Selon le résultat, les actions permettent de :
+# Conseils pour de meilleurs résultats
 
-- prévisualiser ;
-- ouvrir la fiche ;
-- l’épingler ;
-- la désépingler.
+## Donner des titres précis
 
-L’objectif est de vérifier une information sans perdre le fil de l’écriture.
+Préférez :
 
-## 11. Afficher davantage
+```text
+Commerce caravanier dans le Hedjaz
+```
 
-Les listes sont limitées par défaut pour ne pas transformer Notes en moteur de recherche permanent.
+à :
 
-Lorsqu’il y a davantage de résultats, l’interface peut déplier les lignes déjà calculées sans relancer tout le contexte.
+```text
+Commerce
+```
 
-## 12. Pourquoi une fiche n’apparaît-elle pas ?
+Un titre précis améliore la détection et réduit les ambiguïtés.
 
-### Le curseur est ailleurs
+## Utiliser des alias utiles
 
-Placez le curseur dans le passage qui contient réellement le nom, l’alias ou les termes attendus.
+```yaml
+aliases:
+  - routes des caravanes
+  - commerce caravanier
+```
 
-### Le nom n’est pas celui de la fiche
+Les alias permettent de reconnaître les formulations réellement utilisées dans le manuscrit.
 
-Ajoutez un alias utile à la fiche si le manuscrit emploie une autre forme.
+## Ajouter quelques tags pertinents
 
-### Il n’y a qu’un terme générique commun
+```yaml
+tags:
+  - hedjaz
+  - caravane
+  - commerce
+```
 
-Une correspondance de contenu demande suffisamment d’indices pour éviter les faux positifs.
+Les tags doivent décrire le contenu, pas seulement son emplacement dans le projet.
 
-### Les mots ne sont que synonymes
+## Écrire les informations importantes dans le corps
 
-Le rapprochement de contenu reste lexical. `bateau` et `navire`, ou `étoffe` et `tissu`, ne sont pas considérés automatiquement comme équivalents.
+Le moteur de documents associés lit le contenu réel de la fiche.
 
-### Le document n’est pas associé
+Une fiche uniquement composée d’un titre et de propriétés très générales offrira peu de correspondances.
 
-Pour la recherche détaillée dans le corps des documents, associez le dossier documentaire au feuillet ou à son dossier du Classeur.
+## Éviter les listes artificielles de mots-clés
 
-### La date n’est pas interprétable
+Il n’est pas nécessaire d’accumuler des dizaines de synonymes.
 
-Vérifiez la valeur `date` et les dates présentes dans les fiches concernées.
+Une fiche bien rédigée, avec des phrases naturelles et quelques alias pertinents, suffit généralement.
 
-## 13. Ce que Contexte n’est pas
+---
 
-Contexte n’est pas :
+# Exemple complet
 
-- un moteur de recherche web ;
-- une IA qui invente des relations ;
-- un correcteur automatique ;
-- une base de données séparée du coffre.
+## Fiche Recherche
 
-Il s’agit d’une lecture locale et explicable des informations que vous avez déjà placées dans le projet.
+```markdown
+---
+aliases:
+  - commerce des caravanes
+tags:
+  - hedjaz
+  - épices
+---
 
-## À lire ensuite
+# Commerce caravanier
 
-- [Découvrir Feuillets](DECOUVRIR.md)
-- [Fonctionnalités](FONCTIONNALITES.md)
-- [Le parcours d’un auteur](PARCOURS-AUTEUR.md)
+Les caravanes transportent des épices, des tissus précieux et des objets manufacturés entre les villes du Hedjaz.
+```
+
+## Feuillet
+
+```markdown
+---
+date: 14 mars 762
+---
+
+Les marchands déchargèrent leurs tissus et leurs épices avant la tombée de la nuit.
+```
+
+## Résultat possible
+
+```text
+RÉFÉRENCES DU PASSAGE
+
+14 mars 762
+
+DOCUMENTS ASSOCIÉS
+
+Commerce caravanier
+Les caravanes transportent des épices, des tissus précieux…
+```
+
+En écrivant ensuite explicitement :
+
+> Le commerce des caravanes enrichissait la ville.
+
+la fiche peut passer dans **Références du passage**, car son alias est désormais cité. Elle ne sera pas répétée dans **Documents associés**.
+
+---
+
+# Ce que fait réellement Feuillets
+
+La section Contexte ne remplace pas la Recherche et ne décide pas à la place de l’auteur.
+
+Il sert à faire revenir les informations utiles au moment où elles peuvent aider :
+
+- une ancienne fiche oubliée ;
+- l’état d’un personnage ;
+- un événement historique ;
+- une incohérence de date ;
+- un document associé au chapitre ;
+- une référence que l’auteur souhaite conserver sous les yeux.
+
+Le principe est simple :
+
+> **Écrire dans le feuillet, laisser le passage appeler sa documentation, puis garder uniquement ce qui aide réellement.**
