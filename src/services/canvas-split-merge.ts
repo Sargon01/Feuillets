@@ -232,7 +232,7 @@ export async function executeMerge(
         const file = app.vault.getAbstractFileByPath(node.file);
         if (file instanceof TFile) {
           const content = await app.vault.read(file);
-          await app.vault.delete(file);
+          await app.fileManager.trashFile(file);
           deletedSources.push({ path: file.path, content });
         }
       }
