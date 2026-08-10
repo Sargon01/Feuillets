@@ -2,6 +2,15 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.0.3
+
+### Maintenance et conformité
+
+- Réduction des avertissements CSS de la Community Review Obsidian.
+- Suppression des usages de `:has()`, `text-indent` et `!important`.
+- Conservation du rendu typographique et des comportements existants.
+- Retrait du réglage accessoire de masquage du sélecteur de coffre.
+
 ## 2.0.2
 
 ### Maintenance et conformité
