@@ -346,7 +346,7 @@ class FeuilletsPlugin extends Plugin {
 
     this.registerMarkdownPostProcessor((element) => {
       const paragraphs = element.matches("p")
-        ? [element as HTMLParagraphElement]
+        ? [element]
         : Array.from(element.querySelectorAll<HTMLParagraphElement>("p"));
 
       for (const p of paragraphs) {
