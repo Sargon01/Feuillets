@@ -223,6 +223,21 @@ class FakeElement {
     return clone;
   }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+  /* Element.closest réel : une liste de sélecteurs simples séparés par des
+     virgules (aucun combinateur — c'est tout ce que le clic bloc → éditeur
+     de PreviewView lui demande), en remontant parentNode. Utilisé pour
+     vérifier qu'un clic sur un lien/bouton n'est jamais détourné, même sans
+     reconstruire une vraie hiérarchie DOM : un élément autonome (sans
+     parent) qui se matche lui-même suffit. */
+  closest(selector) {
+    const parts = selector.split(",").map((s) => s.trim()).filter(Boolean);
+    let node = this;
+    while (node) {
+      if (parts.some((part) => node.matchesSelector && node.matchesSelector(part))) return node;
+      node = node.parentNode || null;
+    }
+    return null;
+  }
   matchesSelector(selector) {
     // [attr] — présence seule, ce qu'utilise la recherche de sections.
     const present = selector.match(/^\[([^=\]]+)\]$/);
@@ -286,10 +301,16 @@ function buildFakeIframeDocument(srcdoc) {
   /* Repères de source réellement présents dans le HTML sérialisé (posés par
      preview-source-map.ts) : on les extrait du srcdoc plutôt que de les
      inventer — le test échoue donc si l'attribut n'a pas survécu jusqu'au
-     rendu, ce qui est exactement ce qu'on veut vérifier. */
-  for (const match of srcdoc.matchAll(/data-source-path="([^"]+)"/g)) {
+     rendu, ce qui est exactement ce qu'on veut vérifier. TOUS les attributs
+     `data-source-*` de chaque balise marquée sont repris (pas seulement
+     data-source-path) : c'est ce qui permet de vérifier le repère de BLOC
+     (lignes/colonnes) posé par applyBlockSourceMarkers, pas seulement le
+     repère de feuillet. Un élément synthétique par balise marquée, dans
+     l'ORDRE d'apparition dans le srcdoc — c'est cet ordre que le test « deux
+     paragraphes identiques » (E) doit pouvoir distinguer. */
+  for (const attrs of extractSourceMarkedTags(srcdoc)) {
     const marked = new FakeElement("div");
-    marked.setAttribute("data-source-path", match[1]);
+    for (const [name, value] of Object.entries(attrs)) marked.setAttribute(name, value);
     pagesGroup.appendChild(marked);
   }
   wrapper.appendChild(pagesGroup);
@@ -298,13 +319,57 @@ function buildFakeIframeDocument(srcdoc) {
   pagesGroup.offsetHeight = pageCount > 0 ? pageCount * PAGE_H + (pageCount - 1) * PAGE_GAP : 0;
   wrapper.offsetHeight = pagesGroup.offsetHeight;
   bodyEl.appendChild(wrapper);
+  // Écouteurs délégués (voir PreviewView.bindPreviewBlockClicks) : un clic se
+  // simule en appelant directement les fonctions enregistrées, sans tenter
+  // de reproduire une vraie propagation DOM — inutile ici, la délégation de
+  // production lit `event.target`, pas `this`.
+  const docListeners = new Map();
   return {
     documentElement: docEl,
     body: bodyEl,
     readyState: "complete",
     querySelector: (selector) => bodyEl.querySelector(selector),
     querySelectorAll: (selector) => bodyEl.querySelectorAll(selector),
+    addEventListener(type, fn) {
+      if (!docListeners.has(type)) docListeners.set(type, []);
+      docListeners.get(type).push(fn);
+    },
+    removeEventListener(type, fn) {
+      const list = docListeners.get(type);
+      if (!list) return;
+      const i = list.indexOf(fn);
+      if (i >= 0) list.splice(i, 1);
+    },
+    dispatch(type, event) {
+      for (const fn of [...(docListeners.get(type) || [])]) fn(event);
+    },
   };
+}
+
+/** Toutes les balises ouvrantes du srcdoc portant un repère de source —
+ * `data-source-path` (UN par feuillet, base du défilement synchronisé) ou
+ * `data-source-block-path` (un par BLOC, base du clic Aperçu → éditeur) —, avec
+ * la totalité de leurs attributs `data-source-*`, DANS L'ORDRE d'apparition
+ * — jamais une correspondance par sous-chaîne isolée (voir commentaire
+ * d'appel). Le sérialiseur (FakeElement.outerHTML) écrit toujours les
+ * attributs entre guillemets doubles : la même hypothèse que le reste du
+ * fixture (voir son propre commentaire). */
+function extractSourceMarkedTags(srcdoc) {
+  const tags = [];
+  const tagRe = /<[a-z][a-z0-9-]*((?:\s+[a-z0-9:-]+(?:="[^"]*")?)*)\s*\/?>/gi;
+  let tagMatch;
+  while ((tagMatch = tagRe.exec(srcdoc))) {
+    const attrsSrc = tagMatch[1];
+    if (!/\bdata-source(-block)?-path=/.test(attrsSrc)) continue;
+    const attrs = {};
+    const attrRe = /([a-z0-9:-]+)="([^"]*)"/gi;
+    let attrMatch;
+    while ((attrMatch = attrRe.exec(attrsSrc))) {
+      if (attrMatch[1].startsWith("data-source-")) attrs[attrMatch[1]] = attrMatch[2];
+    }
+    tags.push(attrs);
+  }
+  return tags;
 }
 
 Object.defineProperty(FakeElement.prototype, "contentDocument", {
@@ -552,12 +617,18 @@ function buildProject() {
     /* Une VRAIE feuille Markdown : un `contentEl` contenant l'élément
        réellement défilable d'Obsidian (`.cm-scroller`), pas un objet
        « scroller » inventé — c'est ce que la vue doit savoir retrouver. */
-    openMarkdownPane: (file, { scrollHeight = 4000, clientHeight = 600 } = {}) => {
+    // `getValue` optionnel : quand fourni, le feuillet ouvert expose un
+    // `editor.getValue()` — le tampon vivant que PreviewView.editorForFile
+    // doit préférer à vault.cachedRead(). Absent par défaut (comportement
+    // inchangé pour tous les tests qui n'en ont pas besoin).
+    openMarkdownPane: (file, { scrollHeight = 4000, clientHeight = 600, getValue = null } = {}) => {
       const contentEl = new FakeElement("div");
       const scroller = contentEl.createDiv({ cls: "cm-scroller" });
       scroller.scrollHeight = scrollHeight;
       scroller.clientHeight = clientHeight;
-      const leaf = { view: { file, contentEl } };
+      const view = { file, contentEl };
+      if (typeof getValue === "function") view.editor = { getValue };
+      const leaf = { view };
       leavesByType.set("markdown", [...(leavesByType.get("markdown") || []), leaf]);
       return scroller;
     },
@@ -637,6 +708,17 @@ const CENTER_LABEL = "Recentrer sur le feuillet ouvert";
 const SYNC_LABEL = "Synchroniser le défilement";
 
 function fireLoad(frame) { frame.dispatch("load"); }
+
+/** Simule un clic délégué dans le document de l'Aperçu (voir
+ * PreviewView.bindPreviewBlockClicks) : on invoque directement les
+ * écouteurs enregistrés sur `doc`, `target` étant l'élément visé — c'est
+ * exactement ce que lit la production (`event.target`), une vraie
+ * propagation DOM n'apporterait rien de plus ici. */
+function simulateBlockClick(doc, target) {
+  const event = { target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+  doc.dispatch("click", event);
+  return event;
+}
 
 /** Ouvre RÉELLEMENT le menu attaché à un contrôle de la barre et renvoie le
  *  Menu construit : la barre n'expose plus qu'un libellé par sujet, tout le
@@ -3941,6 +4023,70 @@ test("fil d'Ariane — état actif visuel dérivé de la portée CompileScope", 
   assert.equal(writeCalled, false, "les clics de portée ne déclenchent ni vault.create ni vault.modify");
 }));
 
+test("compileScope file — ouvrir un AUTRE feuillet (clic Binder) fait suivre l'aperçu", withCapture(async (_dom, rendered) => {
+  /* Le clic gauche dans le Binder ne pose AUCUNE portée : il ouvre le fichier,
+     et l'aperçu doit réagir via file-open. Sans ce suivi, une portée `file`
+     posée une fois (« Ouvrir avec aperçu ») figeait l'aperçu définitivement. */
+  const { view, app, viewport, sceneFile, sceneFile2 } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+
+  await view.setCompileScope({ type: "file", projectRoot, path: sceneFile.path });
+  await flush();
+  // L'iframe de ce premier rendu doit être « chargée », sinon le rendu suivant
+  // reste en attente derrière elle (même schéma que les autres tests de portée).
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+  assert.equal(view.compileScope.path, sceneFile.path);
+
+  const renderedBefore = rendered.length;
+  app.setActiveFile(sceneFile2);
+  app.emitWorkspace("file-open");
+  /* `onActiveFileChanged` est déclenché en fire-and-forget et enchaîne
+     setCompileScope → refreshPreview → compile : plusieurs tours de boucle
+     sont nécessaires avant que le rendu ne soit effectivement produit. */
+  await flush();
+  await flush();
+  await flush();
+
+  assert.equal(view.compileScope.type, "file", "la portée reste de type file");
+  assert.equal(view.compileScope.path, sceneFile2.path, "la portée suit le feuillet ouvert");
+  assert.ok(rendered.length > renderedBefore, "l'aperçu est re-rendu sur le nouveau feuillet");
+}));
+
+test("compileScope folder/project — ouvrir un feuillet ne déplace PAS la lecture en cours", withCapture(async () => {
+  // Contrepartie stricte du test précédent : une étendue explicitement
+  // choisie ne se laisse jamais remplacer par le fichier actif.
+  const { view, app, chapterDir, sceneFile2 } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+
+  for (const scope of [
+    { type: "folder", projectRoot, path: chapterDir.path },
+    { type: "project", projectRoot },
+  ]) {
+    await view.setCompileScope(scope);
+    await flush();
+    app.setActiveFile(sceneFile2);
+    app.emitWorkspace("file-open");
+    await flush();
+
+    assert.equal(view.compileScope.type, scope.type, `la portée ${scope.type} n'est jamais transformée en file`);
+    if (scope.path) assert.equal(view.compileScope.path, scope.path);
+  }
+}));
+
+test("compileScope file — un fichier HORS projet ne détourne pas l'aperçu", withCapture(async () => {
+  const { view, app, sceneFile } = await openLoadedView("scene");
+  const projectRoot = view.plugin.getProjectFolder().path;
+
+  await view.setCompileScope({ type: "file", projectRoot, path: sceneFile.path });
+  await flush();
+
+  app.setActiveFile({ path: "Ailleurs/note.md", extension: "md" });
+  app.emitWorkspace("file-open");
+  await flush();
+
+  assert.equal(view.compileScope.path, sceneFile.path, "une note hors projet laisse l'aperçu sur son feuillet");
+}));
+
 test("compileScope — le fonctionnement du mode scene reste inchangé sans portée explicite", withCapture(async (_dom, rendered) => {
   const { view } = await openLoadedView("scene");
   await view.refreshPreview();
@@ -4335,3 +4481,618 @@ test("openWithPreview — une feuille d'aperçu réutilisée mais DIFFÉRÉE (Ob
     "Dossier et Feuillet doivent rester dans le fil d'Ariane après le passage à Projet"
   );
 }));
+
+/* ============================================================================
+   Clic dans l'Aperçu → éditeur
+   (voir preview-source-map.ts::applyBlockSourceMarkers et
+   PreviewView.bindPreviewBlockClicks/onPreviewBlockClick/openPreviewBlockInEditor)
+
+   Tous ces tests utilisent withCapture : son faux MarkdownRenderer.render
+   découpe le Markdown reçu en un <p> par bloc séparé par une ligne vide —
+   exactement le découpage que markManuscript produit pour son marqueur
+   FEUILLETS-SRC (toujours suivi de `\n\n`), donc le seul qui permette de
+   vérifier applyBlockSourceMarkers sur un DOM réellement structuré (et pas
+   la reconstruction par regex de buildFakeIframeDocument, qui ne sert qu'au
+   HTML déjà paginé).
+   ========================================================================= */
+
+/** Feuille d'éditeur factice : son `editor` est TOUT ce que le clic bloc →
+ *  éditeur utilise de l'API Editor publique d'Obsidian (setCursor,
+ *  scrollIntoView, focus) — jamais `editor.cm`. Son `.cm-scroller` est un
+ *  VRAI scroller (comme `openMarkdownPane`) et `scrollIntoView` y déplace
+ *  réellement `scrollTop` puis émet un `scroll` — exactement ce qu'un vrai
+ *  CodeMirror ferait à l'ouverture d'un feuillet. Sans ce détail, le test de
+ *  non-régression « l'Aperçu ne remonte pas au clic » ne prouverait rien :
+ *  il ne pourrait pas échouer même en présence du bug corrigé ici, faute de
+ *  déclencher la réaction de synchronisation source → Aperçu qui le causait. */
+function makeEditorLeaf() {
+  const calls = { setCursor: [], scrollIntoView: [], focus: 0 };
+  const editorHost = element("div");
+  const scroller = editorHost.createDiv({ cls: "cm-scroller" });
+  scroller.scrollHeight = 2000;
+  scroller.clientHeight = 600;
+  const editor = {
+    setCursor(pos) { calls.setCursor.push(pos); },
+    scrollIntoView(range, center) {
+      calls.scrollIntoView.push({ range, center });
+      scroller.scrollTop = 900; // position quelconque, non nulle : ce qui compte est qu'elle change
+      scroller.dispatch("scroll");
+    },
+    focus() { calls.focus++; },
+  };
+  const opened = [];
+  const leaf = {
+    view: { file: null, contentEl: editorHost, editor },
+    openFile: async (file, options) => {
+      opened.push({ file, options });
+      leaf.view.file = file;
+    },
+  };
+  return { leaf, calls, opened, editor, scroller };
+}
+
+/** `---\ntitre: <titre>\n---\n` + paragraphes séparés par une ligne vide —
+ *  le gabarit de contenu utilisé par buildProject() pour sceneFile/sceneFile2. */
+function frontmatterBody(titre, paragraphs) {
+  return `---\ntitre: ${titre}\n---\n${paragraphs.join("\n\n")}`;
+}
+
+/** SectionCache attendues pour un contenu produit par frontmatterBody() : le
+ *  frontmatter tient toujours les lignes 0 à 2, chaque paragraphe est SEUL
+ *  sur sa ligne et séparé du suivant par une seule ligne vide. Position
+ *  RÉELLE dans le fichier ORIGINAL — jamais recalculée depuis le corps
+ *  débarrassé de son frontmatter. */
+function sectionsForFrontmatterBody(paragraphs) {
+  const sections = [{ type: "yaml", position: { start: { line: 0, col: 0 }, end: { line: 2, col: 3 } } }];
+  let line = 3;
+  for (const text of paragraphs) {
+    sections.push({ type: "paragraph", position: { start: { line, col: 0 }, end: { line, col: text.length } } });
+    line += 2;
+  }
+  return sections;
+}
+
+/** Projet à deux feuillets, chacun avec ses SectionCache réelles posées dans
+ *  metadataCache — fixture commune aux tests A et B (project/folder). */
+async function setupTwoFileProject(mode) {
+  const ctx = await openLoadedView(mode);
+  const { app, sceneFile, sceneFile2 } = ctx;
+  sceneFile.content = frontmatterBody("Scene 1", ["Premier paragraphe du premier feuillet."]);
+  sceneFile2.content = frontmatterBody("Scene 2", [
+    "Premier paragraphe du second feuillet.",
+    "Second paragraphe du second feuillet.",
+  ]);
+  const sectionsByFile = new Map([
+    [sceneFile, sectionsForFrontmatterBody(["Premier paragraphe du premier feuillet."])],
+    [sceneFile2, sectionsForFrontmatterBody([
+      "Premier paragraphe du second feuillet.",
+      "Second paragraphe du second feuillet.",
+    ])],
+  ]);
+  app.metadataCache.getFileCache = (file) => ({ sections: sectionsByFile.get(file) || [] });
+  return ctx;
+}
+
+/** Clique le bloc annoté le plus proche de `target` et laisse
+ *  `openPreviewBlockInEditor` (fire-and-forget) se terminer. */
+async function clickBlockAndSettle(doc, target) {
+  const event = simulateBlockClick(doc, target);
+  await flush();
+  return event;
+}
+
+test("clic bloc — Aperçu project : clic sur le second paragraphe du second feuillet", withCapture(async (dom, rendered) => {
+  const { view, app, viewport, sceneFile2 } = await setupTwoFileProject("manuscript");
+
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const marks = doc.querySelectorAll("[data-source-start-line]");
+  assert.equal(marks.length, 3, "1 paragraphe du premier feuillet + 2 du second");
+  const target = marks[marks.length - 1]; // second paragraphe du second feuillet
+  assert.equal(target.getAttribute("data-source-block-path"), sceneFile2.path);
+  assert.equal(target.getAttribute("data-source-start-line"), "5");
+
+  // Aperçu positionné au MILIEU du document avant le clic.
+  viewport.scrollHeight = 5000;
+  viewport.clientHeight = 700;
+  viewport.scrollTop = 1500;
+  const frameBefore = view.previewFrame;
+
+  const { leaf, calls, opened } = makeEditorLeaf();
+  app.workspace.getLeaf = () => leaf;
+  let focused = 0;
+  app.workspace.setActiveLeaf = () => { focused++; };
+  const renderedBefore = rendered.length;
+  const generationBefore = view.refreshGeneration;
+
+  const event = await clickBlockAndSettle(doc, target);
+  dom.runTimers(); // écoule tout job de synchronisation source → Aperçu qui aurait été programmé
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(opened.length, 1, "le second feuillet doit être ouvert");
+  assert.equal(opened[0].file.path, sceneFile2.path);
+  assert.deepEqual(opened[0].options, { active: true });
+  assert.deepEqual(calls.setCursor[0], { line: 5, ch: 0 }, "curseur à la VRAIE ligne source");
+  assert.equal(calls.scrollIntoView.length, 1, "scrollIntoView appelé");
+  assert.deepEqual(calls.scrollIntoView[0].range, { from: { line: 5, ch: 0 }, to: { line: 5, ch: 37 } });
+  assert.equal(calls.scrollIntoView[0].center, true);
+  assert.equal(calls.focus, 1, "l'éditeur reçoit le focus");
+  assert.equal(focused, 1, "setActiveLeaf appelé : clic = navigation explicite, le focus est normal");
+
+  assert.equal(view.compileScope.type, "project", "compileScope reste project");
+  assert.equal(rendered.length, renderedBefore, "aucun nouveau rendu de l'Aperçu");
+  assert.equal(view.refreshGeneration, generationBefore, "aucune compilation déclenchée");
+  assert.equal(view.previewFrame, frameBefore, "l'iframe/document de l'Aperçu n'est jamais remplacé");
+  assert.equal(viewport.scrollTop, 1500, "la position de l'Aperçu ne bouge pas au clic");
+}));
+
+test("clic bloc — Aperçu folder : même contrat, compileScope reste folder", withCapture(async (dom, rendered) => {
+  const { view, app, viewport, chapterDir, sceneFile2 } = await setupTwoFileProject("manuscript");
+
+  await view.setCompileScope({ type: "folder", projectRoot: "Manuscrit", path: chapterDir.path });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const marks = doc.querySelectorAll("[data-source-start-line]");
+  assert.equal(marks.length, 3);
+  const target = marks[marks.length - 1];
+
+  viewport.scrollHeight = 5000;
+  viewport.clientHeight = 700;
+  viewport.scrollTop = 1500;
+  const frameBefore = view.previewFrame;
+
+  const { leaf, calls, opened } = makeEditorLeaf();
+  app.workspace.getLeaf = () => leaf;
+  app.workspace.setActiveLeaf = () => {};
+  const renderedBefore = rendered.length;
+  const generationBefore = view.refreshGeneration;
+
+  await clickBlockAndSettle(doc, target);
+  dom.runTimers();
+
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].file.path, sceneFile2.path);
+  assert.deepEqual(calls.setCursor[0], { line: 5, ch: 0 });
+  assert.equal(calls.focus, 1);
+  assert.equal(view.compileScope.type, "folder", "compileScope reste folder, jamais transformé en file");
+  assert.equal(rendered.length, renderedBefore, "aucun nouveau rendu");
+  assert.equal(view.refreshGeneration, generationBefore, "aucune compilation déclenchée");
+  assert.equal(view.previewFrame, frameBefore, "l'iframe/document de l'Aperçu n'est jamais remplacé");
+  assert.equal(viewport.scrollTop, 1500, "la position de l'Aperçu ne bouge pas au clic");
+}));
+
+test("clic bloc — le numéro de ligne est celui du fichier ORIGINAL, YAML multi-lignes compris", withCapture(async (_dom, rendered) => {
+  const { view, app, viewport, sceneFile } = await openLoadedView("manuscript");
+  // 5 lignes de frontmatter (0 à 4) : la position du paragraphe doit malgré
+  // tout être RELATIVE AU FICHIER, jamais au corps une fois stripFrontmatter
+  // appliqué (qui, lui, commencerait ce même paragraphe à la ligne 0).
+  sceneFile.content = "---\ntitre: Scene\nauteur: Test\nstatut: brouillon\n---\nSeul paragraphe ici.";
+  app.metadataCache.getFileCache = (file) => (file === sceneFile
+    ? { sections: [
+        { type: "yaml", position: { start: { line: 0, col: 0 }, end: { line: 4, col: 3 } } },
+        { type: "paragraph", position: { start: { line: 5, col: 0 }, end: { line: 5, col: 20 } } },
+      ] }
+    : { sections: [] });
+
+  await view.setCompileScope({ type: "file", projectRoot: "Manuscrit", path: sceneFile.path });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const marks = doc.querySelectorAll("[data-source-start-line]");
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0].getAttribute("data-source-start-line"), "5", "ligne du fichier ORIGINAL, pas du corps débarrassé du YAML");
+
+  const { leaf, calls } = makeEditorLeaf();
+  app.workspace.getLeaf = () => leaf;
+  app.workspace.setActiveLeaf = () => {};
+  await clickBlockAndSettle(doc, marks[0]);
+  assert.deepEqual(calls.setCursor[0], { line: 5, ch: 0 });
+  assert.equal(rendered.length >= 1, true);
+}));
+
+test("clic bloc — Markdown formaté (gras, lien, titre) : la position vient du cache, jamais du texte rendu", withCapture(async () => {
+  const { view, app, viewport, sceneFile } = await openLoadedView("manuscript");
+  sceneFile.content =
+    "---\ntitre: Scene\n---\nUn paragraphe en **gras**.\n\n[Un lien](https://exemple.test).\n\n## Un titre";
+  app.metadataCache.getFileCache = (file) => (file === sceneFile
+    ? { sections: [
+        { type: "yaml", position: { start: { line: 0, col: 0 }, end: { line: 2, col: 3 } } },
+        { type: "paragraph", position: { start: { line: 3, col: 0 }, end: { line: 3, col: 27 } } },
+        { type: "paragraph", position: { start: { line: 5, col: 0 }, end: { line: 5, col: 32 } } },
+        { type: "heading", position: { start: { line: 7, col: 0 }, end: { line: 7, col: 11 } } },
+      ] }
+    : { sections: [] });
+
+  await view.setCompileScope({ type: "file", projectRoot: "Manuscrit", path: sceneFile.path });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const marks = doc.querySelectorAll("[data-source-start-line]");
+  assert.equal(marks.length, 3, "gras, lien et titre sont trois blocs distincts");
+  assert.deepEqual(marks.map((m) => m.getAttribute("data-source-start-line")), ["3", "5", "7"]);
+}));
+
+test("clic bloc — deux paragraphes identiques : cliquer le second vise la ligne du SECOND, jamais indexOf du texte", withCapture(async () => {
+  const { view, app, viewport, sceneFile } = await openLoadedView("manuscript");
+  sceneFile.content = "---\ntitre: Scene\n---\nMême phrase.\n\nMême phrase.";
+  app.metadataCache.getFileCache = (file) => (file === sceneFile
+    ? { sections: [
+        { type: "yaml", position: { start: { line: 0, col: 0 }, end: { line: 2, col: 3 } } },
+        { type: "paragraph", position: { start: { line: 3, col: 0 }, end: { line: 3, col: 12 } } },
+        { type: "paragraph", position: { start: { line: 5, col: 0 }, end: { line: 5, col: 12 } } },
+      ] }
+    : { sections: [] });
+
+  await view.setCompileScope({ type: "file", projectRoot: "Manuscrit", path: sceneFile.path });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const marks = doc.querySelectorAll("[data-source-start-line]");
+  assert.equal(marks.length, 2);
+
+  const { leaf, calls } = makeEditorLeaf();
+  app.workspace.getLeaf = () => leaf;
+  app.workspace.setActiveLeaf = () => {};
+
+  await clickBlockAndSettle(doc, marks[1]);
+  assert.deepEqual(calls.setCursor[0], { line: 5, ch: 0 }, "le SECOND bloc, pas le premier trouvé par un texte identique");
+}));
+
+test("clic bloc — liste multiligne : une seule SectionCache, sa plage start/end complète est utilisée", withCapture(async () => {
+  const { view, app, viewport, sceneFile } = await openLoadedView("manuscript");
+  sceneFile.content = "---\ntitre: Scene\n---\n- item un\n- item deux\n- item trois";
+  app.metadataCache.getFileCache = (file) => (file === sceneFile
+    ? { sections: [
+        { type: "yaml", position: { start: { line: 0, col: 0 }, end: { line: 2, col: 3 } } },
+        { type: "list", position: { start: { line: 3, col: 0 }, end: { line: 5, col: 11 } } },
+      ] }
+    : { sections: [] });
+
+  await view.setCompileScope({ type: "file", projectRoot: "Manuscrit", path: sceneFile.path });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const marks = doc.querySelectorAll("[data-source-start-line]");
+  assert.equal(marks.length, 1, "les trois puces forment UN seul bloc rendu, comme UNE seule SectionCache");
+
+  const { leaf, calls } = makeEditorLeaf();
+  app.workspace.getLeaf = () => leaf;
+  app.workspace.setActiveLeaf = () => {};
+  await clickBlockAndSettle(doc, marks[0]);
+
+  assert.deepEqual(calls.setCursor[0], { line: 3, ch: 0 }, "curseur en TÊTE de liste");
+  assert.deepEqual(
+    calls.scrollIntoView[0].range,
+    { from: { line: 3, ch: 0 }, to: { line: 5, ch: 11 } },
+    "la plage complète de la liste est transmise à scrollIntoView, pas un point unique"
+  );
+}));
+
+test("clic bloc — liens, boutons et contrôles Feuillets ne sont jamais détournés", withCapture(async () => {
+  const { view, app, viewport } = await setupTwoFileProject("manuscript");
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const { leaf, opened } = makeEditorLeaf();
+  app.workspace.getLeaf = () => leaf;
+  app.workspace.setActiveLeaf = () => {};
+
+  const link = new FakeElement("a", "un lien");
+  link.setAttribute("href", "https://exemple.test");
+  const button = new FakeElement("button", "contrôle");
+  const titleControl = new FakeElement("span", "");
+  titleControl.className = "feuillets-preview-title-controls";
+  const roleField = new FakeElement("p", "Un rôle de page de titre");
+  roleField.setAttribute("data-fp-role", "titre");
+  // Même annoté d'un repère de bloc, un lien À L'INTÉRIEUR reste un lien :
+  // le clic vise le lien, la protection porte sur LUI, pas sur l'ancêtre.
+  const annotatedParagraph = new FakeElement("p", "texte avec lien");
+  annotatedParagraph.setAttribute("data-source-block-path", "Manuscrit/Chapitre 1/01-scene.md");
+  annotatedParagraph.setAttribute("data-source-start-line", "3");
+  annotatedParagraph.setAttribute("data-source-start-col", "0");
+  annotatedParagraph.setAttribute("data-source-end-line", "3");
+  annotatedParagraph.setAttribute("data-source-end-col", "10");
+  const nestedLink = annotatedParagraph.createEl("a", { text: "lien imbriqué" });
+  nestedLink.setAttribute("href", "https://exemple.test");
+
+  for (const target of [link, button, titleControl, roleField, nestedLink]) {
+    const event = simulateBlockClick(doc, target);
+    assert.equal(event.defaultPrevented, false, `${target.tagName} : preventDefault ne doit jamais être appelé`);
+  }
+  await flush();
+
+  assert.equal(opened.length, 0, "aucune ouverture d'éditeur pour ces clics protégés");
+}));
+
+test("repères de source — `data-source-path` reste UNIQUE par feuillet malgré le repérage par bloc, et la section d'un feuillet va jusqu'au FEUILLET suivant", withCapture(async () => {
+  /* Non-régression d'une panne constatée en conditions réelles : le repérage
+     par bloc (clic Aperçu → éditeur) réutilisait `data-source-path`, qui a
+     pourtant une sémantique dont TOUT le défilement synchronisé dépend — un
+     seul repère par feuillet, sur son premier bloc. Chaque paragraphe devenant
+     un repère, `sectionForPath` bornait la section d'un feuillet par le
+     PARAGRAPHE suivant au lieu du FEUILLET suivant : sa hauteur tombait sous
+     celle du cadre, l'amplitude devenait nulle, et les DEUX sens de la
+     synchronisation se figeaient (cible constante pendant que la source
+     défilait). Les deux repères ont donc des attributs distincts. */
+  const { view, viewport, sceneFile, sceneFile2 } = await setupTwoFileProject("manuscript");
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const sheetMarks = doc.querySelectorAll("[data-source-path]");
+  const blockMarks = doc.querySelectorAll("[data-source-block-path]");
+
+  assert.equal(sheetMarks.length, 2, "UN repère de feuillet par feuillet — jamais un par paragraphe");
+  assert.deepEqual(
+    Array.from(sheetMarks).map((m) => m.getAttribute("data-source-path")),
+    [sceneFile.path, sceneFile2.path]
+  );
+  assert.equal(blockMarks.length, 3, "un repère de BLOC par paragraphe (1 pour le premier feuillet, 2 pour le second)");
+
+  /* Conséquence directe, et c'est ELLE qui portait la panne : la section du
+     premier feuillet doit s'étendre jusqu'au second FEUILLET (1000), pas
+     jusqu'au paragraphe suivant du même feuillet. */
+  sheetMarks.forEach((m, i) => { m.offsetTop = 0; m._rectTop = i * 1000; });
+  view.naturalPagesHeight = 2000;
+  view.zoomScale = 1;
+
+  const section = view.sectionForPath(sceneFile.path);
+  assert.ok(section, "la section du premier feuillet doit être trouvée");
+  assert.equal(section.height, 1000, "hauteur = distance jusqu'au FEUILLET suivant");
+}));
+
+test("clic bloc — les nouveaux repères data-source-* n'existent QUE dans PreviewView, jamais dans un moteur d'export", async () => {
+  const exportFiles = [
+    "src/services/export-docx.ts",
+    "src/services/export-odt.ts",
+    "src/services/export-epub.ts",
+    "src/services/export-pdf.ts",
+    "src/services/export-render.ts",
+    "src/services/compile-export.ts",
+  ];
+  for (const path of exportFiles) {
+    const source = await readFile(path, "utf8");
+    assert.equal(source.includes("applyBlockSourceMarkers"), false, `${path} ne doit jamais utiliser le repérage de bloc de l'Aperçu`);
+    assert.equal(source.includes("data-source-start-line"), false, `${path} ne doit jamais écrire de repère de bloc`);
+  }
+});
+
+/* ============================================================================
+   Correctif de stabilité de l'Aperçu :
+     1. le clic ne fait plus « remonter » l'Aperçu (voir openPreviewBlockInEditor,
+        garde preservingPreviewScrollRequestId) ;
+     2. la dernière frappe est immédiatement visible (voir readFileForPreview /
+        editorForFile / compileForPreview).
+   ========================================================================= */
+
+test("typing — le premier rafraîchissement contient déjà la dernière frappe, pas un cachedRead périmé", withCapture(async (dom, rendered) => {
+  const { view, app, sceneFile } = await openLoadedView("scene");
+
+  // cachedRead simule le retard RÉEL d'Obsidian : encore SANS le point.
+  app.vault.cachedRead = async () => "---\ntitre: Scene 1\n---\nSuvasa";
+  // Le tampon vivant, lui, a déjà le point — exactement ce que l'éditeur
+  // affiche à l'instant de la frappe.
+  app.openMarkdownPane(sceneFile, { getValue: () => "---\ntitre: Scene 1\n---\nSuvasa." });
+
+  app.emitWorkspace("editor-change");
+  dom.runTimers(); // écoule le débounce du mode Scène (400 ms)
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), view.previewViewport));
+
+  assert.equal(rendered.at(-1), "Suvasa.", "le tampon vivant est utilisé dès CE rafraîchissement, aucune frappe supplémentaire requise");
+}));
+
+test("typing — frappes rapides regroupées : l'état final est exactement le dernier editor.getValue()", withCapture(async (dom, rendered) => {
+  const { view, app, sceneFile } = await openLoadedView("scene");
+
+  let buffer = "Un";
+  // Toujours périmé, quel que soit l'instant : si le rendu s'appuyait sur
+  // cachedRead pour ce feuillet ouvert, CE texte apparaîtrait.
+  app.vault.cachedRead = async () => "---\ntitre: Scene 1\n---\nJAMAIS CE TEXTE";
+  app.openMarkdownPane(sceneFile, { getValue: () => `---\ntitre: Scene 1\n---\n${buffer}` });
+
+  app.emitWorkspace("editor-change");
+  buffer = "Un d";
+  app.emitWorkspace("editor-change");
+  buffer = "Un deux";
+  app.emitWorkspace("editor-change");
+  buffer = "Un deux trois.";
+  app.emitWorkspace("editor-change");
+  assert.equal(dom.pendingTimers(), 1, "les frappes rapides sont regroupées en un seul rafraîchissement programmé");
+
+  dom.runTimers();
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), view.previewViewport));
+
+  assert.equal(rendered.at(-1), "Un deux trois.", "seul le DERNIER état du tampon compte");
+  assert.equal(rendered.at(-1).includes("JAMAIS CE TEXTE"), false);
+}));
+
+test("rendu asynchrone ancien — un load tardif de la génération N n'écrase jamais la génération N+1 déjà affichée", withRender(async () => {
+  const { view, scaledContainer, viewport } = await openLoadedView("scene");
+  const genOld = view.refreshGeneration;
+
+  const sourceOld = {
+    markdown: "Ancien contenu.", segments: null,
+    sourcePath: "Manuscrit/Chapitre 1/01-scene.md", title: "t", subtitle: "s",
+  };
+  const sourceNew = {
+    markdown: "Nouveau contenu.", segments: null,
+    sourcePath: "Manuscrit/Chapitre 1/01-scene.md", title: "t", subtitle: "s",
+  };
+
+  // Génération N (obsolète) : montée, mais son `load` n'arrive PAS encore.
+  view.refreshGeneration = genOld;
+  await view.renderPreviewSource(sourceOld, genOld, null, () => {});
+  const oldFrame = latestFrame(scaledContainer);
+
+  // Génération N+1 : démarre et se monte AVANT que le `load` de N n'arrive.
+  view.refreshGeneration = genOld + 1;
+  await view.renderPreviewSource(sourceNew, genOld + 1, null, () => {});
+  const newFrame = latestFrame(scaledContainer);
+  assert.notEqual(newFrame, oldFrame, "deux iframes distinctes existent, l'ancienne pas encore chargée");
+
+  fireLoad(placeFrame(newFrame, viewport));
+  assert.equal(view.previewFrame, newFrame, "la génération récente s'affiche");
+
+  // Le `load` de l'ancienne génération arrive ENFIN, en retard.
+  fireLoad(oldFrame);
+  assert.equal(view.previewFrame, newFrame, "le load tardif de l'ancienne génération ne remplace jamais l'affichage");
+  assert.equal(scaledContainer.children.includes(oldFrame), false, "l'iframe périmée est retirée du DOM, jamais affichée");
+}));
+
+test("typing — en portée project, seul le feuillet ACTUELLEMENT édité utilise son tampon vivant", withCapture(async (dom, rendered) => {
+  const { view, app, viewport, sceneFile2 } = await setupTwoFileProject("manuscript");
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  // cachedRead reflète simplement le contenu déclaré du fichier (comme le
+  // reste du fixture) : sceneFile n'est pas éditée, elle doit continuer à
+  // passer par LUI. Seule sceneFile2 reçoit en plus un éditeur vivant.
+  app.vault.cachedRead = async (f) => (f && typeof f.content === "string" ? f.content : "");
+  app.openMarkdownPane(sceneFile2, {
+    getValue: () => "---\ntitre: Scene 2\n---\nContenu vivant du second feuillet.",
+  });
+  /* Un tampon qui diffère du disque SIGNIFIE qu'on vient de taper : sans cet
+     événement, le fixture décrivait une situation qui n'existe pas dans
+     Obsidian. Il est désormais requis, car c'est lui qui rend le tampon
+     vivant digne de confiance (voir liveBufferIsTrustworthy). */
+  app.emitWorkspace("editor-change");
+
+  await view.refreshPreview();
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const markdown = rendered.at(-1);
+  assert.ok(markdown.includes("Premier paragraphe du premier feuillet."), "le feuillet NON édité garde son mécanisme actuel (cachedRead)");
+  assert.ok(markdown.includes("Contenu vivant du second feuillet."), "le feuillet ÉDITÉ utilise son tampon vivant");
+  assert.equal(markdown.includes("Second paragraphe du second feuillet."), false, "l'ancien contenu du feuillet édité ne doit plus apparaître");
+  assert.equal(view.compileScope.type, "project", "la portée de l'Aperçu n'est pas modifiée par la lecture du tampon vivant");
+}));
+
+test("changement de feuillet — un tampon d'éditeur encore PÉRIMÉ ne contamine jamais le rendu", withCapture(async (_dom, rendered) => {
+  /* Non-régression d'un défaut constaté en conditions réelles : l'aperçu
+     affichait le TITRE du feuillet ouvert avec le CORPS du précédent.
+     Mécanisme : pendant un changement de fichier, Obsidian met `view.file` à
+     jour avant d'avoir remplacé le document CodeMirror. `editorForFile`
+     validait donc l'éditeur par son chemin et renvoyait le texte de l'ANCIEN
+     feuillet, tandis que titres et métadonnées venaient (correctement) du
+     MetadataCache — d'où un document hybride. */
+  const { view, app, viewport, sceneFile, sceneFile2 } = await setupTwoFileProject("manuscript");
+  const projectRoot = view.plugin.getProjectFolder().path;
+  app.vault.cachedRead = async (f) => (f && typeof f.content === "string" ? f.content : "");
+
+  await view.setCompileScope({ type: "file", projectRoot, path: sceneFile.path });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  /* La feuille annonce DÉJÀ le second feuillet, mais son tampon contient
+     encore le texte du premier : exactement la fenêtre incriminée. */
+  app.openMarkdownPane(sceneFile2, {
+    getValue: () => "---\ntitre: Scene 1\n---\nTEXTE PÉRIMÉ DU PREMIER FEUILLET.",
+  });
+  app.setActiveFile(sceneFile2);
+  app.emitWorkspace("file-open");
+  await flush();
+  await flush();
+  await flush();
+
+  const markdown = rendered.at(-1);
+  assert.equal(
+    markdown.includes("TEXTE PÉRIMÉ DU PREMIER FEUILLET."),
+    false,
+    "le tampon périmé ne doit JAMAIS servir de corps au feuillet nouvellement ouvert"
+  );
+  assert.ok(
+    markdown.includes("Premier paragraphe du second feuillet."),
+    "le corps vient du cache disque, qui est la source sûre après un changement de feuillet"
+  );
+}));
+
+test("clic bloc — un changement réellement externe (second clic) continue de fonctionner après le premier", withCapture(async (dom) => {
+  const { view, app, viewport, sceneFile2 } = await setupTwoFileProject("manuscript");
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const marks = doc.querySelectorAll("[data-source-start-line]");
+  const first = marks[0];
+  const last = marks[marks.length - 1];
+
+  const { leaf: leaf1, opened: opened1 } = makeEditorLeaf();
+  app.workspace.getLeaf = () => leaf1;
+  app.workspace.setActiveLeaf = () => {};
+  await clickBlockAndSettle(doc, first);
+  dom.runTimers();
+  assert.equal(opened1.length, 1, "premier clic : ouverture normale");
+  assert.equal(view.preservingPreviewScrollRequestId, null, "le garde-fou anti-scroll est levé après le premier clic");
+
+  const { leaf: leaf2, opened: opened2, calls: calls2 } = makeEditorLeaf();
+  app.workspace.getLeaf = () => leaf2;
+  await clickBlockAndSettle(doc, last);
+  dom.runTimers();
+
+  assert.equal(opened2.length, 1, "second clic : fonctionne toujours normalement");
+  assert.equal(opened2[0].file.path, sceneFile2.path);
+  assert.equal(calls2.focus, 1);
+  assert.equal(view.compileScope.type, "project");
+}));
+
+test("clic bloc — le scroll manuel de l'éditeur resynchronise l'Aperçu juste après un clic", withCapture(async (dom) => {
+  const { view, app, viewport, sceneFile2 } = await setupTwoFileProject("manuscript");
+  await view.setCompileScope({ type: "project", projectRoot: "Manuscrit" });
+  await flush();
+  fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+  const doc = view.previewFrame.contentDocument;
+  const marks = doc.querySelectorAll("[data-source-start-line]");
+  const target = marks[marks.length - 1]; // second paragraphe du second feuillet
+
+  // Géométrie nécessaire à sectionForPath/previewTarget (voir les tests
+  // « le feuillet visible s'ouvre automatiquement après le scroll »).
+  const pathMarks = doc.querySelectorAll("[data-source-path]");
+  pathMarks.forEach((m, i) => { m.offsetTop = 0; m._rectTop = i * 1000; });
+  view.naturalPagesHeight = pathMarks.length * 1000;
+  viewport.clientHeight = 700;
+  viewport.scrollHeight = 5000;
+  viewport.scrollTop = 1500;
+
+  const { leaf, opened, scroller } = makeEditorLeaf();
+  app.workspace.getLeaf = () => leaf;
+  app.workspace.setActiveLeaf = () => {};
+
+  // 1. Clic Aperçu → Markdown : le scroll PROGRAMMATIQUE de scrollIntoView()
+  //    ne doit pas déplacer l'Aperçu.
+  await clickBlockAndSettle(doc, target);
+  dom.runTimers();
+  assert.equal(opened.length, 1, "le feuillet ciblé est ouvert");
+  assert.equal(opened[0].file.path, sceneFile2.path);
+  assert.equal(view.syncScroller, scroller, "l'éditeur ouvert devient la source suivie");
+  assert.equal(view.preservingPreviewScrollRequestId, null, "le garde-fou est déjà levé");
+  assert.equal(viewport.scrollTop, 1500, "position de l'Aperçu inchangée par le clic");
+
+  // 2. Juste après (aucune attente réelle) : un scroll MANUEL de l'éditeur
+  //    doit de nouveau synchroniser normalement l'Aperçu — la garde ne doit
+  //    ignorer QUE le scroll programmatique du clic, pas ceux qui suivent.
+  scroller.scrollTop = 300;
+  scroller.dispatch("scroll");
+  dom.runTimers();
+  await flush();
+
+  assert.notEqual(viewport.scrollTop, 1500, "l'Aperçu suit de nouveau le scroll manuel de l'éditeur");
+}));
+

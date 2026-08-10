@@ -100,3 +100,104 @@ function nextElement(el: Element): Element | null {
   const next = el.nextElementSibling;
   return next && next !== el ? next : null;
 }
+
+/* ================= Repères de BLOC (clic Aperçu → éditeur) =================
+ *
+ * Ce qui précède (SOURCE_PATH_ATTR) situe un FEUILLET ; ce qui suit situe un
+ * BLOC Markdown à l'intérieur de ce feuillet (paragraphe, titre, liste,
+ * citation, code, tableau…), pour que PreviewView puisse, au clic, placer le
+ * curseur au bon endroit dans l'éditeur — sans jamais comparer de texte.
+ *
+ * La seule source de position acceptée est `MetadataCache.getFileCache(file)
+ * .sections` : les couples ligne/colonne du FICHIER MARKDOWN ORIGINAL,
+ * jamais recalculés depuis le rendu. Reste alors à savoir QUEL bloc rendu
+ * correspond à QUELLE SectionCache, dans l'ordre — sans marqueur par bloc
+ * (voir preview-scroll-sync.ts, même audit : un marqueur par bloc casserait
+ * les listes et les blocs de code qu'il traverse).
+ *
+ * La solution retenue s'appuie sur le marqueur EXISTANT (un seul par
+ * feuillet, déjà posé par `markSegments`) : les blocs qui suivent ce
+ * marqueur, dans l'ordre, sont soit un ou deux titres ARTIFICIELS insérés
+ * par Feuillets (titre de scène, éventuel sous-titre — jamais plus, jamais
+ * fondés sur une SectionCache), soit le corps réel du feuillet, un bloc par
+ * SectionCache, dans le même ordre. Le nombre de titres artificiels
+ * (`leadingSkip`, 0/1/2) est fourni par l'appelant : PreviewView le connaît
+ * exactement (c'est lui qui les a générés), il n'est jamais deviné ici.
+ *
+ * `applyBlockSourceMarkers` avance donc, pour chaque marqueur reconnu,
+ * EXACTEMENT `leadingSkip + sections.length` éléments à partir du marqueur —
+ * jamais « jusqu'au marqueur suivant », qui engloberait à tort un titre de
+ * dossier/chapitre généré (segment SANS chemin, donc sans marqueur) placé
+ * juste après ce feuillet dans le flux. Si le conteneur ne fournit pas assez
+ * d'éléments réels pour ce quota, CE feuillet n'est pas repéré au niveau
+ * bloc : mieux vaut renoncer que repérer au mauvais endroit.
+ *
+ * Doit être appelée AVANT `applySourceMarkers` (qui retire les marqueurs) —
+ * cette fonction-ci ne les retire jamais elle-même, elle ne fait que lire
+ * leur position dans le DOM. */
+
+export type SourceLineCol = { line: number; col: number };
+
+/** Position d'un bloc dans le fichier Markdown ORIGINAL — copie directe de
+ * `SectionCache.position`, jamais une position recalculée. */
+export type SourceBlockPosition = { start: SourceLineCol; end: SourceLineCol };
+
+/** Repères d'un feuillet : ses sections réelles, dans l'ordre du fichier
+ * (frontmatter déjà exclu), et le nombre de blocs de titre ARTIFICIELS que
+ * PreviewView a insérés devant elles dans le rendu. */
+export type SourceBlockMap = { leadingSkip: number; sections: SourceBlockPosition[] };
+
+/** Chemin du feuillet porté par un BLOC repéré ligne à ligne.
+ *
+ * Volontairement DISTINCT de `SOURCE_PATH_ATTR`. Ce dernier a une sémantique
+ * que toute la synchronisation de défilement tient pour acquise : « posé sur
+ * le PREMIER bloc rendu de chaque feuillet », donc exactement une occurrence
+ * par feuillet. `sectionForPath` (preview-view.ts) borne la section d'un
+ * feuillet par le repère SUIVANT dans le document ; réutiliser le même
+ * attribut ici ferait de chaque paragraphe un repère, et la « section » d'un
+ * feuillet se réduirait à la hauteur d'un seul paragraphe — plus courte que
+ * le cadre, donc d'amplitude nulle, ce qui fige les DEUX sens de la
+ * synchronisation (régression constatée et mesurée en conditions réelles :
+ * cible constante à 10⁻¹³ près pendant que la source défilait). */
+export const SOURCE_BLOCK_PATH_ATTR = "data-source-block-path";
+
+export const SOURCE_START_LINE_ATTR = "data-source-start-line";
+export const SOURCE_START_COL_ATTR = "data-source-start-col";
+export const SOURCE_END_LINE_ATTR = "data-source-end-line";
+export const SOURCE_END_COL_ATTR = "data-source-end-col";
+
+export function applyBlockSourceMarkers(
+  containerEl: MarkerHost,
+  blocksByPath: ReadonlyMap<string, SourceBlockMap>
+): void {
+  const markers = Array.from(containerEl.querySelectorAll("p")).filter((el) =>
+    (el.textContent || "").trim().startsWith(SOURCE_MARKER_PREFIX)
+  );
+
+  for (const marker of markers) {
+    const path = (marker.textContent || "").trim().slice(SOURCE_MARKER_PREFIX.length).trim();
+    if (!path) continue;
+    const info = blocksByPath.get(path);
+    if (!info || !info.sections.length) continue;
+
+    const need = info.leadingSkip + info.sections.length;
+    const collected: Element[] = [];
+    let node: Element | null = marker.nextElementSibling;
+    while (node && collected.length < need) {
+      collected.push(node);
+      node = node.nextElementSibling;
+    }
+    if (collected.length < need) continue; // pas assez de blocs réels : abandon
+
+    const bodyBlocks = collected.slice(info.leadingSkip);
+    bodyBlocks.forEach((el, i) => {
+      if (typeof el.setAttribute !== "function") return;
+      const pos = info.sections[i];
+      el.setAttribute(SOURCE_BLOCK_PATH_ATTR, path);
+      el.setAttribute(SOURCE_START_LINE_ATTR, String(pos.start.line));
+      el.setAttribute(SOURCE_START_COL_ATTR, String(pos.start.col));
+      el.setAttribute(SOURCE_END_LINE_ATTR, String(pos.end.line));
+      el.setAttribute(SOURCE_END_COL_ATTR, String(pos.end.col));
+    });
+  }
+}

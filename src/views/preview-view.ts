@@ -21,7 +21,20 @@ import { t } from "../i18n/index.js";
 import { mountTemplatePreview } from "../ui/template-preview.js";
 import { CompileSelectionModal } from "../ui/selection-modals.js";
 import { LayoutModal } from "../ui/layout-modal.js";
-import { applySourceMarkers, markManuscript, markSegments, SOURCE_PATH_ATTR } from "./preview-source-map.js";
+import {
+  applyBlockSourceMarkers,
+  applySourceMarkers,
+  markManuscript,
+  markSegments,
+  SOURCE_BLOCK_PATH_ATTR,
+  SOURCE_END_COL_ATTR,
+  SOURCE_END_LINE_ATTR,
+  SOURCE_PATH_ATTR,
+  SOURCE_START_COL_ATTR,
+  SOURCE_START_LINE_ATTR,
+  type SourceBlockMap,
+  type SourceBlockPosition,
+} from "./preview-source-map.js";
 import {
   findScriveningsScroller,
   findSourceScroller,
@@ -41,6 +54,15 @@ type PreviewCompileSegment = {
   path: string | null;
   text: string;
   frontType?: string | null;
+  /** Nombre de blocs de TITRE ARTIFICIEL (titre de scène, éventuel
+   * sous-titre) que PreviewView a insérés en tête de `text`, avant le corps
+   * réel du feuillet — jamais deviné : c'est PreviewView qui les a générés
+   * (voir sceneTitleMarkdown/partFileTitleMarkdown), donc lui seul le sait
+   * avec certitude. Sert au repérage de bloc pour le clic Aperçu → éditeur
+   * (voir preview-source-map.ts, applyBlockSourceMarkers). Absent (ou
+   * recalculé via titleLeadingSkipFor) pour les segments issus de compile(),
+   * qui ne portent pas cette information. */
+  titleBlockCount?: number;
 };
 
 type PreviewCompileResult = {
@@ -100,6 +122,15 @@ export type PreviewMode = "scene" | "chapter" | "part" | "manuscript";
  * ni à une repagination. */
 type ScrollAnchor = { pageIndex: number; pageProgress: number };
 
+/** Sous-ensemble de `Editor` (API publique Obsidian) réellement utilisé par
+ * le clic Aperçu → éditeur — jamais `editor.cm`, jamais d'API interne. */
+type PreviewEditorLike = {
+  setCursor(pos: { line: number; ch: number }): void;
+  scrollIntoView(range: { from: { line: number; ch: number }; to: { line: number; ch: number } }, center?: boolean): void;
+  focus(): void;
+  getValue(): string;
+};
+
 /** Contenu prêt à paginer, quel que soit le mode qui l'a produit. */
 type PreviewSource = {
   markdown: string;
@@ -126,6 +157,26 @@ const AUTO_OPEN_VISIBLE_DELAY_MS = 300;
  * peu pour tenir dans un menu qu'on lit d'un coup d'œil. Le zoom continu
  * reste disponible au trackpad (Cmd/Ctrl + molette). */
 const ZOOM_STEPS = [75, 100, 125, 150];
+
+/** Éléments à ne JAMAIS détourner d'un clic bloc → éditeur (voir
+ * bindPreviewBlockClicks) : liens, contrôles de formulaire, contenu
+ * éditable, et toutes les poignées propres à Feuillets (page de titre à
+ * rôles) qui gèrent déjà leur propre clic. Sélecteurs simples uniquement
+ * (pas de combinateur) — c'est tout ce que `Element.closest` a besoin de
+ * comprendre ici. */
+const PROTECTED_PREVIEW_CLICK_SELECTOR = [
+  "a",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "[contenteditable]",
+  ".feuillets-preview-title-editable",
+  ".feuillets-preview-title-controls",
+  ".feuillets-preview-title-page-controls",
+  "[data-fp-role]",
+  "[data-title-controls]",
+].join(", ");
 
 /** Niveau de titre Markdown pour un nœud du Binder, à l'identique de
  * `compile()` : la profondeur du nœud, bornée à [1, 6]. */
@@ -331,6 +382,12 @@ export class PreviewView extends ItemView {
   private syncingFromPreview = false;
   private lastSourceScrollAt = 0;
   private lastPreviewScrollAt = 0;
+  /* Arbitrent à eux deux la confiance accordée au tampon vivant de l'éditeur
+     — voir liveBufferIsTrustworthy(). */
+  private lastEditorChangeAt = 0;
+  private lastFileSwitchAt = 0;
+  /** Vrai tant qu'un rendu emprunte `vault.cachedRead` (voir compileForPreview). */
+  private cachedReadPatched = false;
   private syncJob: (() => void) | null = null;
   private syncHandle: { id: number; kind: "frame" | "timeout" } | null = null;
   private releaseHandles: Array<{ id: number; kind: "frame" | "timeout" }> = [];
@@ -598,6 +655,8 @@ export class PreviewView extends ItemView {
     if (this.closed) return;
     const file = this.app.workspace.getActiveFile();
     if (!this.isPreviewableFile(file)) return;
+    // Une frappe rend de nouveau le tampon vivant plus à jour que le cache.
+    this.lastEditorChangeAt = Date.now();
     this.setStatus("stale");
     this.schedulePreviewRefresh();
   }
@@ -606,12 +665,38 @@ export class PreviewView extends ItemView {
    * reste la référence : seul un changement de portée déclenche un rendu. */
   private async onActiveFileChanged(): Promise<void> {
     if (this.closed) return;
+    /* Tout changement de feuillet périme le tampon vivant : l'éditeur peut
+       annoncer le nouveau fichier en contenant encore le texte de l'ancien
+       (voir liveBufferIsTrustworthy). */
+    this.lastFileSwitchAt = Date.now();
     /* La feuille suivie change AVANT toute décision de rendu : même si rien
        n'est re-rendu (Chapitre/Manuscrit), le défilement doit désormais
        suivre le bon éditeur. */
     this.bindSourcePane();
     this.updateUI();
-    if (this.compileScope) return;
+
+    const scope = this.compileScope;
+    if (scope) {
+      /* Portée FEUILLET : l'aperçu suit le feuillet actif, exactement comme le
+         mode Scène dont elle est l'équivalent explicite (voir syncScrollEnabled,
+         « Feuillet : comportement d'un feuillet unique »). Sans cela, une
+         portée posée une fois par « Ouvrir avec aperçu » figeait l'aperçu pour
+         de bon : cliquer un autre feuillet dans le Binder n'ouvre que le
+         fichier, sans jamais reposer de portée, et l'aperçu restait sur le
+         feuillet précédent.
+
+         Les portées DOSSIER, PROJET et SÉLECTION ne suivent JAMAIS le fichier
+         actif : leur contenu est une étendue explicitement choisie, et y ouvrir
+         un feuillet ne doit pas déplacer la lecture en cours (règle 3). */
+      if (scope.type === "file") {
+        const active = this.app.workspace.getActiveFile();
+        if (this.isPreviewableFile(active) && active.path !== scope.path) {
+          await this.setCompileScope(createFileScope(scope.projectRoot, active.path));
+        }
+      }
+      return;
+    }
+
     if (this.mode === "scene") {
       const file = this.app.workspace.getActiveFile();
       const path = file instanceof TFile ? file.path : null;
@@ -689,6 +774,104 @@ export class PreviewView extends ItemView {
     return this.chapterFolderOf(file) || (roleOfFile(this.app, this.plugin.settings, file) === "chapitre" ? file : null);
   }
 
+  /* =========== Contenu à jour : tampon vivant plutôt que le disque ========
+   * `vault.cachedRead()`/`vault.read()` reflètent le fichier tel qu'Obsidian
+   * l'a écrit en cache — avec le retard propre à SON cycle interne
+   * d'enregistrement (pas le nôtre : aucun debounce ajouté ici). C'est
+   * précisément ce retard qui rendait l'Aperçu « en retard d'une frappe » :
+   * la dernière frappe existe déjà dans `MarkdownView.editor.getValue()`
+   * avant d'exister dans le cache disque. Quand le feuillet à lire est
+   * ACTUELLEMENT ouvert dans un éditeur, on lit donc ce tampon — jamais une
+   * écriture, jamais `editor.cm`, jamais d'API privée. Les autres feuillets
+   * (non ouverts) gardent `cachedRead()`, inchangé. */
+
+  /** Éditeur Markdown ouvert sur CE fichier précis, s'il en existe un —
+   * n'importe lequel des panneaux ouverts, pas seulement le panneau actif :
+   * en portée Dossier/Projet, le feuillet en cours d'écriture n'est pas
+   * forcément la feuille au focus au moment du rafraîchissement. */
+  private editorForFile(file: TFile): PreviewEditorLike | null {
+    const workspace = this.app.workspace as unknown as {
+      getLeavesOfType?(type: string): Array<{ view?: { file?: unknown; editor?: PreviewEditorLike } }>;
+    };
+    for (const leaf of workspace.getLeavesOfType?.("markdown") || []) {
+      const view = leaf?.view;
+      if (view?.file instanceof TFile && view.file.path === file.path && typeof view.editor?.getValue === "function") {
+        return view.editor;
+      }
+    }
+    return null;
+  }
+
+  /** Le tampon vivant n'est DIGNE DE CONFIANCE que si l'utilisatrice a tapé
+   * depuis le dernier changement de feuillet.
+   *
+   * `editorForFile` reconnaît un éditeur par `view.file.path`. Or, pendant un
+   * changement de fichier, Obsidian met `view.file` à jour AVANT que le
+   * document CodeMirror n'ait été remplacé : l'éditeur se présente donc comme
+   * celui du nouveau feuillet tout en contenant encore le texte de l'ANCIEN.
+   * Lire `editor.getValue()` dans cette fenêtre produit un document hybride —
+   * titre et métadonnées du bon feuillet (ils viennent du MetadataCache),
+   * corps d'un autre (défaut constaté : titre « Al-Malik », corps d'« Ar-Rahim »).
+   *
+   * Le tampon vivant n'existe que pour une raison : rendre la DERNIÈRE FRAPPE
+   * visible sans attendre le cycle d'enregistrement d'Obsidian. Ce besoin
+   * n'existe donc que lorsqu'on vient de taper. Hors de ce cas, `cachedRead()`
+   * est à la fois suffisant et sûr. */
+  private liveBufferIsTrustworthy(): boolean {
+    return this.lastEditorChangeAt > this.lastFileSwitchAt;
+  }
+
+  /** Contenu à utiliser pour LE RENDU de l'Aperçu : le tampon vivant quand il
+   * est digne de confiance (voir ci-dessus), `cachedRead()` sinon. */
+  private async readFileForPreview(
+    file: TFile,
+    fallbackRead: (file: TFile) => Promise<string> = (f) => this.app.vault.cachedRead(f)
+  ): Promise<string> {
+    if (this.liveBufferIsTrustworthy()) {
+      const editor = this.editorForFile(file);
+      if (editor) return editor.getValue();
+    }
+    return fallbackRead(file);
+  }
+
+  /** Exécute `run` (un appel à `compile()`) avec `vault.cachedRead` posé sur
+   * `readFileForPreview` le temps de l'appel, puis restaure IMMÉDIATEMENT la
+   * méthode d'origine — `try/finally`, jamais laissée en place. `compile()`
+   * (services/compile-export.ts) n'est pas modifié : c'est le SEUL point
+   * d'entrée qu'il expose vers le disque (`readBody` n'appelle que
+   * `vault.cachedRead`), donc le seul endroit où brancher un tampon vivant
+   * sans dupliquer sa pipeline de transformation (typographie, notes,
+   * wikiliens) — la dupliquer aurait été la vraie « devinette » interdite.
+   * N'affecte JAMAIS un export réel : `exportWithScope`/`exportFile`
+   * appellent `compile()` par un chemin totalement séparé, jamais à travers
+   * ce wrapper. Ne délégüe à `readFileForPreview` QUE pour un feuillet
+   * réellement ouvert dans un éditeur (voir `editorForFile`) — pour tout
+   * autre fichier, le comportement de `cachedRead` reste EXACTEMENT le
+   * même : aucun effet de bord visible pour un appelant tiers pendant cette
+   * fenêtre. */
+  private async compileForPreview<T>(run: () => Promise<T>): Promise<T> {
+    const vault = this.app.vault;
+    /* Réentrance : si un rendu est déjà en train d'emprunter `cachedRead`, ne
+       PAS reposer un second patch par-dessus. Le `finally` du plus interne
+       restaurerait sinon le wrapper de l'externe au lieu de la méthode
+       d'origine, laissant `vault.cachedRead` définitivement enveloppé — une
+       fuite qui survit à la fermeture de l'aperçu. */
+    if (this.cachedReadPatched) return run();
+    const original: (file: TFile) => Promise<string> = vault.cachedRead.bind(vault);
+    this.cachedReadPatched = true;
+    // `original` explicitement en repli : `vault.cachedRead` DÉSIGNE la
+    // version posée ici tant que le patch est en place — s'appuyer sur
+    // `this.app.vault.cachedRead` dans le repli rappellerait cette même
+    // fonction et boucle indéfiniment sur elle-même (repli implicite = auto-référence).
+    vault.cachedRead = (file: TFile) => this.readFileForPreview(file, original);
+    try {
+      return await run();
+    } finally {
+      vault.cachedRead = original;
+      this.cachedReadPatched = false;
+    }
+  }
+
   /** Assemble le contenu à afficher selon le mode. Renvoie `null` avec un
    * message affiché si le mode ne peut rien montrer. */
   private async collectSource(generation: number): Promise<PreviewSource | null> {
@@ -699,8 +882,14 @@ export class PreviewView extends ItemView {
       return null;
     }
 
-    if (this.compileScope) {
-      const files = resolveCompileScopeFiles(this.app, settings, this.compileScope);
+    /* Portée CAPTURÉE une seule fois pour toute la durée de ce rendu. La
+       relire à chaque étape était une course : `collectSource` traverse
+       plusieurs `await`, et un changement de feuillet survenu entre-temps
+       (chaque `file-open` en déclenche désormais un) faisait résoudre la
+       liste de fichiers avec une portée et compiler avec une AUTRE. */
+    const activeScope = this.compileScope;
+    if (activeScope) {
+      const files = resolveCompileScopeFiles(this.app, settings, activeScope);
       if (!files.length) {
         this.showMessage("feuillets-preview-empty", t("preview.message.emptyScope"));
         return null;
@@ -712,7 +901,9 @@ export class PreviewView extends ItemView {
          segments, au lieu d'arriver en texte Markdown brut. Le corps
          réassemblé à la main ici avait ce défaut. */
       let result: PreviewCompileResult | null = null;
-      result = await compile(this.app, settings, null, this.compileScope, undefined, { writeOutput: false });
+      result = await this.compileForPreview(() =>
+        compile(this.app, settings, null, activeScope, undefined, { writeOutput: false })
+      );
       if (generation !== this.refreshGeneration) return null;
       if (!result) {
         this.showMessage("feuillets-preview-error", t("preview.message.emptyCompilation"));
@@ -724,7 +915,7 @@ export class PreviewView extends ItemView {
         segments: result.segments,
         sourcePath: firstScene || root.path,
         title: settings.manuscriptTitle || root.name,
-        subtitle: t("preview.subtitle.scope", { scope: this.compileScope.type }),
+        subtitle: t("preview.subtitle.scope", { scope: activeScope.type }),
       };
     }
 
@@ -734,7 +925,9 @@ export class PreviewView extends ItemView {
          explicite a le droit de poser les fichiers de sortie. On compile donc
          en mémoire ({ writeOutput: false }) — le moteur est le même que
          l'export, seuls les effets de bord diffèrent. */
-      result = await compile(this.app, settings, null, null, undefined, { writeOutput: false });
+      result = await this.compileForPreview(() =>
+        compile(this.app, settings, null, null, undefined, { writeOutput: false })
+      );
       if (generation !== this.refreshGeneration) return null;
       if (!result) {
         this.showMessage("feuillets-preview-error", t("preview.message.emptyCompilation"));
@@ -768,10 +961,20 @@ export class PreviewView extends ItemView {
          avant tout h1/h2. Le premier mot du feuillet se retrouvait donc
          page 2 alors que l'éditeur était ligne 1 : c'était LA cause du
          décalage constaté, pas une page de titre. */
-      const body = stripFrontmatter(await this.app.vault.cachedRead(active)).trim();
+      const body = stripFrontmatter(await this.readFileForPreview(active)).trim();
       const title = this.sceneTitleMarkdown(active, 1);
       return {
         markdown: title ? `${title}\n\n${body}` : body,
+        /* PAS de segment ici, volontairement : le mode Scène rend le texte
+           directement (`renderManuscriptHtml`, branche `else` ci-dessous),
+           sans passer par `markManuscript`/`applySourceMarkers` — un test de
+           régression (« mode Scène — le feuillet SEUL ») vérifie que le
+           Markdown transmis au moteur de rendu est EXACTEMENT `markdown`
+           ci-dessus, rien d'ajouté. Conséquence assumée : le clic bloc →
+           éditeur (preview-source-map.ts) ne fonctionne pas encore en mode
+           Scène — limite explicite de cette première version (voir rapport).
+           Sans grand enjeu pratique : en Scène, l'aperçu EST déjà le
+           feuillet actif dans l'éditeur. */
         segments: null,
         sourcePath: active.path,
         title: this.binderFileTitle(active),
@@ -812,12 +1015,12 @@ export class PreviewView extends ItemView {
   /** Un chapitre peut être stocké dans un seul feuillet : il reste une
    * portée Chapitre valide, sans inventer de scènes enfants. */
   private async collectSingleFileSource(file: TFile): Promise<PreviewSource> {
-    const body = stripFrontmatter(await this.app.vault.cachedRead(file)).trim();
+    const body = stripFrontmatter(await this.readFileForPreview(file)).trim();
     const title = this.sceneTitleMarkdown(file, 1);
     const text = title ? `${title}\n\n${body}` : body;
     return {
       markdown: text,
-      segments: [{ path: file.path, text, frontType: null }],
+      segments: [{ path: file.path, text, frontType: null, titleBlockCount: title ? 1 : 0 }],
       sourcePath: file.path,
       title: this.binderFileTitle(file),
       subtitle: file.path,
@@ -882,19 +1085,93 @@ export class PreviewView extends ItemView {
           if (fmOf(this.app, child).compile === false) continue;
           // Nettoyage feuillet PAR feuillet, avant tout assemblage : jamais
           // « concaténer puis retirer le premier frontmatter ».
-          const body = stripFrontmatter(await this.app.vault.cachedRead(child)).trim();
+          const body = stripFrontmatter(await this.readFileForPreview(child)).trim();
           if (!body) continue;
           const level = headingLevelOf(depthOf(this.app, settings, child));
           const title = this.mode === "part"
             ? this.partFileTitleMarkdown(child, body, level)
             : this.sceneTitleMarkdown(child, level);
-          segments.push({ text: title ? `${title}\n\n${body}` : body, path: child.path, frontType: null });
+          segments.push({
+            text: title ? `${title}\n\n${body}` : body,
+            path: child.path,
+            frontType: null,
+            // `title` peut contenir un sous-titre (`resolvedFileTitleMarkdown`,
+            // mode Partie) : autant de blocs de titre artificiels que de
+            // paragraphes séparés par une ligne vide.
+            titleBlockCount: title ? title.split("\n\n").length : 0,
+          });
         }
       }
     };
 
     await walk(folder);
     return segments;
+  }
+
+  /* =================== Repérage de bloc (clic Aperçu → éditeur) ==========
+   * Voir preview-source-map.ts (applyBlockSourceMarkers) pour l'explication
+   * d'ensemble. Ce qui suit ne fait QUE rassembler, pour renderPreviewSource,
+   * les deux informations qu'applyBlockSourceMarkers ne peut pas deviner
+   * elle-même : les positions RÉELLES (MetadataCache) et le nombre de blocs
+   * de titre artificiels insérés devant chaque feuillet. */
+
+  /** Sections réelles d'un feuillet, dans l'ordre du fichier, frontmatter
+   * YAML exclu — jamais recalculées depuis le texte rendu. `null` si le
+   * cache n'a rien à offrir (fichier non indexé, par exemple juste créé). */
+  private realSectionsFor(file: TFile): SourceBlockPosition[] {
+    const sections = this.app.metadataCache.getFileCache(file)?.sections;
+    if (!sections || !sections.length) return [];
+    return sections
+      .filter((section) => section.type !== "yaml")
+      .map((section) => ({
+        start: { line: section.position.start.line, col: section.position.start.col },
+        end: { line: section.position.end.line, col: section.position.end.col },
+      }));
+  }
+
+  /** Nombre de blocs de titre artificiel qu'un feuillet issu de `compile()`
+   * (portée `compileScope`, ou mode Manuscrit) a reçus — recalculé avec
+   * EXACTEMENT les mêmes entrées que `compile-export.ts` (`pushFile`) :
+   * même sélecteur de rôle, même profondeur, même `resolvedFileTitleMarkdown`.
+   * Les transformations de compilation (typographie, notes, wikiliens)
+   * n'ajoutent ni ne retirent de ligne de titre : elles ne changent donc
+   * jamais ce décompte, seul le texte affiché. Pour les segments que
+   * PreviewView construit lui-même (Scène/Chapitre/Partie), ce recalcul
+   * n'est jamais utilisé : `titleBlockCount` est déjà connu avec certitude
+   * (voir assembleFolder/collectSingleFileSource/collectSource). */
+  private async titleLeadingSkipFor(file: TFile): Promise<number> {
+    const settings = this.plugin.settings;
+    const preset = activePresetConfig(settings);
+    const role = roleOfFile(this.app, settings, file);
+    const wantTitle = role === "scene" ? preset.sceneTitles : preset.chapterTitles;
+    const depth = depthOf(this.app, settings, file);
+    const body = stripFrontmatter(await this.readFileForPreview(file)).trim();
+    const title = resolvedFileTitleMarkdown(this.app, file, body, wantTitle, depth + 1);
+    return title ? title.split("\n\n").length : 0;
+  }
+
+  /** Repères de bloc par feuillet, prêts pour `applyBlockSourceMarkers`. Les
+   * pages Front (`frontType` non nul — page de titre, dédicace…) sont
+   * exclues : elles ont leur propre édition dédiée dans l'aperçu (rôles
+   * `:::rôle:`), pas un clic bloc-par-bloc sur du texte ordinaire. */
+  private async buildBlocksByPath(
+    segments: PreviewCompileSegment[] | null
+  ): Promise<Map<string, SourceBlockMap>> {
+    const map = new Map<string, SourceBlockMap>();
+    if (!segments) return map;
+    for (const seg of segments) {
+      if (!seg.path || seg.frontType) continue;
+      if (map.has(seg.path)) continue; // un feuillet n'apparaît qu'une fois
+      const file = this.app.vault.getAbstractFileByPath(seg.path);
+      if (!(file instanceof TFile)) continue;
+      const sections = this.realSectionsFor(file);
+      if (!sections.length) continue;
+      const leadingSkip = typeof seg.titleBlockCount === "number"
+        ? seg.titleBlockCount
+        : await this.titleLeadingSkipFor(file);
+      map.set(seg.path, { leadingSkip, sections });
+    }
+    return map;
   }
 
   /** Dossier-PARTIE auquel appartient un feuillet : l'ancêtre de rôle
@@ -1081,6 +1358,14 @@ export class PreviewView extends ItemView {
       containerEl = rendered.containerEl;
       footnotes = rendered.footnotes;
       if (generation !== this.refreshGeneration) return;
+      /* Repères de BLOC (clic Aperçu → éditeur, voir preview-source-map.ts)
+         AVANT applySourceMarkers : ce dernier retire les marqueurs dont
+         applyBlockSourceMarkers a encore besoin pour délimiter chaque
+         feuillet. `buildBlocksByPath` peut relire un fichier
+         (titleLeadingSkipFor) : reconfirmer la génération après l'attente. */
+      const blocksByPath = await this.buildBlocksByPath(source.segments);
+      if (generation !== this.refreshGeneration) return;
+      applyBlockSourceMarkers(containerEl, blocksByPath);
       applySourceMarkers(containerEl);
     } else {
       const rendered = await renderManuscriptHtml(this.app, source.markdown, source.sourcePath);
@@ -1169,12 +1454,145 @@ export class PreviewView extends ItemView {
 
     this.restoreScrollAnchor(anchor);
     this.bindInteractiveTitlePage();
+    this.bindPreviewBlockClicks(frame);
     if (this.syncScrollEnabled) {
       this.bindSourcePane();
       this.applySourceToPreview();
     } else {
       this.updateVisibleFeuillet();
     }
+  }
+
+  /* =================== Clic dans l'Aperçu → éditeur =====================
+   * Navigation EXPLICITE (contrairement au défilement automatique) : rien
+   * n'empêche l'éditeur de prendre le focus, c'est même le but. Un seul
+   * écouteur, posé par délégation sur le DOCUMENT de l'iframe à chaque
+   * chargement — la précédente iframe est de toute façon détachée (voir
+   * onFrameLoad), inutile de désabonner quoi que ce soit. */
+
+  /** Installe le gestionnaire de clic délégué. Sans effet si l'iframe n'a
+   * pas de `contentDocument` exploitable (sandbox trop strict, iframe déjà
+   * détachée). */
+  private bindPreviewBlockClicks(frame: HTMLIFrameElement): void {
+    const doc = frame.contentDocument;
+    if (!doc || typeof doc.addEventListener !== "function") return;
+    doc.addEventListener("click", (event: MouseEvent) => this.onPreviewBlockClick(event));
+  }
+
+  private onPreviewBlockClick(event: { target: unknown; preventDefault(): void }): void {
+    const target = event.target as Element | null;
+    if (!target || typeof target.closest !== "function") return;
+
+    // Liens, boutons, champs, contrôles Feuillets : jamais détournés — ils
+    // gèrent déjà leur propre clic (ou n'en ont volontairement aucun).
+    if (target.closest(PROTECTED_PREVIEW_CLICK_SELECTOR)) return;
+
+    const block = target.closest(`[${SOURCE_START_LINE_ATTR}]`);
+    if (!block) return; // aucun repère source exploitable : rien à faire
+
+    // Attribut PROPRE au repérage par bloc : `SOURCE_PATH_ATTR` reste réservé
+    // au premier bloc de chaque feuillet, dont dépend le défilement synchronisé.
+    const path = block.getAttribute(SOURCE_BLOCK_PATH_ATTR);
+    const startLine = Number(block.getAttribute(SOURCE_START_LINE_ATTR));
+    const startCol = Number(block.getAttribute(SOURCE_START_COL_ATTR));
+    const endLine = Number(block.getAttribute(SOURCE_END_LINE_ATTR));
+    const endCol = Number(block.getAttribute(SOURCE_END_COL_ATTR));
+    if (
+      !path ||
+      !Number.isFinite(startLine) || !Number.isFinite(startCol) ||
+      !Number.isFinite(endLine) || !Number.isFinite(endCol)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    void this.openPreviewBlockInEditor(path, { line: startLine, ch: startCol }, { line: endLine, ch: endCol });
+  }
+
+  /** Ouvre le feuillet source dans l'éditeur existant (jamais une nouvelle
+   * feuille inutile — même résolveur que le reste de l'aperçu) et place le
+   * curseur en tête du bloc cliqué. Ne touche ni `compileScope`, ni
+   * `previewMode`, ne rerend rien : seule la feuille MARKDOWN change. */
+  private async openPreviewBlockInEditor(
+    path: string,
+    from: { line: number; ch: number },
+    to: { line: number; ch: number }
+  ): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return;
+
+    const leaf = this.plugin.getLeafForOpeningFile?.() || this.app.workspace.getLeaf(false);
+    if (!leaf) return;
+
+    /* La navigation vise l'ÉDITEUR, jamais l'Aperçu — même garde-fou que
+       openVisibleFeuillet({ alignFromPreview: true }) contre un scroll
+       TARDIF émis par l'éditeur nouvellement monté (position initiale à
+       l'ouverture, puis `scrollIntoView` juste après) : sans lui, ce
+       scroll-là est pris pour un geste de lecture par `onSourceScroll` et
+       réappliqué à l'Aperçu via `applySourceToPreview` — c'est CE
+       mécanisme, pas un rerendu, qui faisait « remonter » l'Aperçu au clic.
+       Aucune iframe n'est jamais reconstruite ici ; seule sa position de
+       défilement l'était par erreur, corrigée à la source (le scroll-sync
+       ne se déclenche plus du tout pendant cette fenêtre) plutôt que
+       masquée après coup par un `scrollTo()` différé.
+
+       Volontairement PAS de `this.lastPreviewScrollAt = Date.now()` ici :
+       ce champ nourrit le délai générique `SCROLL_SYNC_SUSPEND_MS` (200 ms)
+       qu'`applySourceToPreview` applique à TOUT scroll source suivant, pas
+       seulement à celui du clic — le poser aurait ignoré, par effet de
+       bord, un scroll manuel authentique de l'éditeur survenu dans les 200 ms
+       après le clic (régression constatée : la synchronisation Markdown →
+       Aperçu restait inerte après un clic). `preservingPreviewScrollRequestId`
+       seul suffit : il ne couvre que la fenêtre d'une frame, exactement
+       celle du scroll programmatique de `scrollIntoView` ci-dessous. */
+    const requestId = ++this.openVisibleRequestId;
+    this.preservingPreviewScrollRequestId = requestId;
+    const keptPreviewScrollTop = Number(this.previewViewport?.scrollTop) || 0;
+
+    await leaf.openFile(file, { active: true });
+    if (this.closed || requestId !== this.openVisibleRequestId) return;
+
+    // Duck-typing volontaire (comme activeMarkdownView) : dans les tests
+    // comme dans certaines vues, `leaf.view` n'est jamais une VRAIE instance
+    // de MarkdownView, seulement un objet qui en a la forme.
+    const view = (leaf as unknown as {
+      view?: { file?: unknown; contentEl?: HTMLElement; editor?: PreviewEditorLike };
+    }).view;
+    const editor = view?.editor;
+    if (!editor || typeof editor.setCursor !== "function") {
+      if (this.preservingPreviewScrollRequestId === requestId) this.preservingPreviewScrollRequestId = null;
+      return;
+    }
+
+    this.synchronizedFeuilletPath = file.path;
+    this.app.workspace.setActiveLeaf(leaf, { focus: true });
+
+    /* Brancher le suivi AVANT de bouger le curseur : `scrollIntoView`
+       ci-dessous peut émettre un `scroll` sur ce panneau, et c'est
+       précisément `preservingPreviewScrollRequestId` (posé plus haut) qui
+       doit l'intercepter côté `onSourceScroll` — le brancher après aurait
+       laissé passer ce premier scroll sans écouteur pour le voir. */
+    this.bindSourcePane({
+      file: view?.file instanceof TFile ? view.file : file,
+      contentEl: view?.contentEl || null,
+    });
+
+    // Le curseur SEUL : jamais de sélection du paragraphe entier, qu'une
+    // frappe distraite pourrait remplacer par inadvertance.
+    editor.setCursor(from);
+    editor.scrollIntoView({ from, to }, true);
+    editor.focus();
+
+    // Restaure la position exacte capturée avant l'ouverture — un dernier
+    // scroll de l'éditeur peut encore survenir après cette ligne (voir le
+    // commentaire d'ouverture), d'où la restauration répétée à la frame
+    // suivante avant de lever le garde-fou.
+    if (this.previewViewport) this.previewViewport.scrollTop = keptPreviewScrollTop;
+    this.releaseAfterFrame(() => {
+      if (this.preservingPreviewScrollRequestId !== requestId) return;
+      this.preservingPreviewScrollRequestId = null;
+      if (this.previewViewport) this.previewViewport.scrollTop = keptPreviewScrollTop;
+    });
   }
 
   /** Rend les champs déjà présents sur la page de titre cliquables. Le DOM
@@ -1637,7 +2055,10 @@ export class PreviewView extends ItemView {
        « ignorer » veut dire ne pas le suivre, pas oublier le feuillet
        qu'on suivait. Une feuille réellement fermée, elle, est détachée du
        document et libère donc bien son écouteur. */
-    if (!scroller && this.syncScroller && isStillAttached(this.syncScroller)) return;
+    if (!scroller && this.syncScroller && isStillAttached(this.syncScroller)) {
+      return;
+    }
+
 
     if (scroller !== this.syncScroller) {
       this.syncScrollerCleanup?.();
@@ -1873,9 +2294,45 @@ export class PreviewView extends ItemView {
     }
 
     const section = this.sectionForPath(path);
-    // Repli documenté : sans repère exploitable, progression relative pure.
+    // Aucun repère : progression relative pure (repli historique).
     if (!section) return scrollTopForProgress(viewport, globalProgress);
+
+    /* Correctif STRICTEMENT limité à l'aperçu MONO-feuillet. Là, une section
+       dégénérée (plus courte que le cadre) fige `scrollTopWithinSection` sur
+       `section.top` quelle que soit la progression — panne mesurée en
+       conditions réelles — et la progression globale est le repli exact,
+       puisque la section EST le document.
+
+       En MULTI-feuillets (Dossier, Projet, Chapitre, Partie), une section
+       plus courte que le cadre est au contraire le cas NORMAL : le feuillet
+       est rendu et paginé, il occupe bien moins de hauteur que dans
+       l'éditeur. Y appliquer un repli quel qu'il soit désactive la
+       synchronisation là où elle sert le plus. Comportement historique donc
+       inchangé ici. */
+    /* Aperçu MONO-feuillet dont la section n'a aucune amplitude : la section
+       EST le document, la progression globale est alors exacte. Seul repli
+       conservé — les sections des aperçus multi-feuillets sont de nouveau
+       mesurées correctement depuis que le repérage par bloc a son propre
+       attribut (voir SOURCE_BLOCK_PATH_ATTR). */
+    if (!this.isLongFormPreview && !this.sectionHasUsableRange(section)) {
+      return scrollTopForProgress(viewport, globalProgress);
+    }
     return scrollTopWithinSection(section, viewport.clientHeight || 0, progress);
+  }
+
+  /** Une section ne peut porter une progression que si elle est PLUS HAUTE
+   * que le cadre qui l'affiche. Sinon `section.height - clientHeight` est nul
+   * ou négatif, et les deux conversions de preview-scroll-sync.ts s'effondrent
+   * en constantes : `scrollTopWithinSection` renvoie `section.top` pour
+   * n'importe quelle progression, et `progressWithinSection` renvoie 0 pour
+   * n'importe quelle position. Les DEUX sens de la synchronisation se figent
+   * alors en même temps — c'est la panne observée, mesurée en conditions
+   * réelles (cible constante à 10⁻¹⁴ près pendant que la source défilait).
+   * Dans ce cas la progression GLOBALE est le repli déjà prévu par la
+   * hiérarchie documentée du module, et elle est même exacte quand l'aperçu
+   * ne contient qu'un seul feuillet. */
+  private sectionHasUsableRange(section: ScrollSection): boolean {
+    return section.height - (this.previewViewport?.clientHeight || 0) > 0;
   }
 
   applySourceToPreview(): void {
@@ -1909,7 +2366,9 @@ export class PreviewView extends ItemView {
        de savoir quelle scène l'aperçu montre en tête, ce que les repères
        actuels ne garantissent qu'au feuillet près (voir la limite
        documentée dans preview-scroll-sync.ts). */
-    const section = this.syncKind === "markdown" ? this.sectionForPath(this.syncSourcePath) : null;
+    /* Strictement inverse de previewTarget : même conversion, même repli. */
+    const found = this.syncKind === "markdown" ? this.sectionForPath(this.syncSourcePath) : null;
+    const section = found && (this.isLongFormPreview || this.sectionHasUsableRange(found)) ? found : null;
     const progress = section
       ? progressWithinSection(viewport.scrollTop, section, viewport.clientHeight || 0)
       : scrollProgress(viewport);
