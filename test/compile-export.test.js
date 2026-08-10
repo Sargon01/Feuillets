@@ -772,7 +772,13 @@ function makeEl(tag, textContent = "") {
 }
 
 function installMinimalDom() {
-  const prev = { document: globalThis.document, Node: globalThis.Node, XMLSerializer: globalThis.XMLSerializer };
+  const prev = {
+    document: globalThis.document,
+    Node: globalThis.Node,
+    XMLSerializer: globalThis.XMLSerializer,
+    createEl: globalThis.createEl,
+    createDiv: globalThis.createDiv,
+  };
   globalThis.document = {
     createElement: (tag) => makeEl(tag),
     createTextNode: (t) => ({ nodeType: 3, nodeValue: t, textContent: t, get outerHTML() { return t; }, cloneNode() { return this; }, remove() {} }),
@@ -780,6 +786,10 @@ function installMinimalDom() {
   };
   globalThis.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
   globalThis.XMLSerializer = class { serializeToString(n) { return n?.outerHTML ?? String(n?.textContent ?? ""); } };
+  // Fonctions globales autonomes createEl/createDiv d'Obsidian (nœud
+  // détaché, non ajouté à un parent) — voir export-render.ts.
+  globalThis.createEl = (tag, options = {}) => makeEl(tag, options.text || "");
+  globalThis.createDiv = (options = {}) => globalThis.createEl("div", options);
   return () => Object.assign(globalThis, prev);
 }
 

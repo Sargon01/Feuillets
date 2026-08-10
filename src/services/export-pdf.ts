@@ -325,38 +325,40 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   /* Construction explicite du document d'impression, sans document.write
      (obsolète, ré-analyse tout le document au fil de l'eau). iframe.contentDocument
      est un DOM détaché du document Obsidian — un realm JS séparé sans les
-     prototypes patchés par Obsidian (pas de createEl/createDiv ici), d'où
-     l'API DOM native. open()/close() sont conservés à l'identique de l'ancien
-     code (close() aide à déclencher l'évènement "load" de l'iframe, attendu
-     plus bas).
+     prototypes patchés par Obsidian (pas de createEl/createDiv ici, ils
+     créeraient des éléments du document principal, pas de ce realm). open()/
+     close() sont conservés à l'identique de l'ancien code (close() aide à
+     déclencher l'évènement "load" de l'iframe, attendu plus bas).
 
      doc.open() vide le document : il ne recrée PAS de squelette <html>/
      <head>/<body> (c'était le rôle du parseur HTML déclenché par
      document.write, qu'on ne fait plus). doc.documentElement/doc.head/
      doc.body valent donc réellement null juste après — d'où l'ancien crash
-     (« Cannot read properties of null (reading 'setAttribute') »). On
-     construit donc html/head/body nous-mêmes, sur des références locales
-     jamais relues dans le document, puis on insère l'arbre complet d'un
-     coup via replaceChildren. */
+     (« Cannot read properties of null (reading 'setAttribute') »). Le
+     squelette est donc reconstitué avec DOMParser, à partir d'une chaîne
+     HTML statique et constante — jamais d'interpolation de title/css/
+     pagesHtml dans cette chaîne — puis importé dans le realm de l'iframe via
+     doc.importNode (transfert standard d'un nœud entre documents), avant
+     d'être peuplé en travaillant directement sur les éléments importés. */
   const doc = iframe.contentDocument;
   doc.open();
 
-  const htmlEl = doc.createElement("html");
+  const skeleton = new DOMParser().parseFromString(
+    "<html><head><meta charset=\"utf-8\"><title></title><style></style></head><body></body></html>",
+    "text/html"
+  );
+  const htmlEl = doc.importNode(skeleton.documentElement, true);
+  const headEl = htmlEl.querySelector("head");
+  const bodyEl = htmlEl.querySelector("body");
+  const titleTag = htmlEl.querySelector("title");
+  const styleEl = htmlEl.querySelector("style");
+  if (!headEl || !bodyEl || !titleTag || !styleEl) {
+    throw new Error("Squelette HTML d'impression incomplet.");
+  }
+
   htmlEl.setAttribute("lang", settings.epubLanguage || "fr");
-  const headEl = doc.createElement("head");
-  const bodyEl = doc.createElement("body");
-  htmlEl.appendChild(headEl);
-  htmlEl.appendChild(bodyEl);
-
-  const metaEl = doc.createElement("meta");
-  metaEl.setAttribute("charset", "utf-8");
-  headEl.appendChild(metaEl);
-
-  const titleTag = doc.createElement("title");
   titleTag.textContent = title;
-  headEl.appendChild(titleTag);
 
-  const styleEl = doc.createElement("style");
   styleEl.textContent = `${css}
 @page {
   size: ${pageSize}${orientation === "landscape" ? " landscape" : ""};
@@ -381,7 +383,6 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   max-height: 100%;
   object-fit: contain;
 }`;
-  headEl.appendChild(styleEl);
 
   /* pagesHtml est du HTML déjà produit par paginateManuscript à partir du
      rendu Markdown natif d'Obsidian (MarkdownRenderer) — jamais de saisie

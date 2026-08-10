@@ -1,5 +1,5 @@
-import { Component, MarkdownRenderer, Notice } from "obsidian";
-import type { App, TFile } from "obsidian";
+import { Component, MarkdownRenderer, Notice, TFile } from "obsidian";
+import type { App } from "obsidian";
 import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
 
 type RenderedFootnote = {
@@ -64,12 +64,11 @@ const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, ImageMime>> = {
  * le DOCX a besoin des octets bruts pour construire un vrai ImageRun (la
  * légende y est ajoutée comme un paragraphe séparé — voir export-docx.js). */
 export async function renderManuscriptHtml(app: App, markdown: string, sourcePath: string): Promise<RenderedManuscript> {
-  /* API DOM native volontaire (pas de createDiv) : cet arbre reste détaché
-     du document Obsidian du début à la fin de tout le pipeline export
-     (EPUB/DOCX/PDF) — jamais affiché, seulement rendu par MarkdownRenderer
-     puis sérialisé/parcouru nœud par nœud. Aucun des helpers createEl/
-     createDiv/createSpan n'est utilisé nulle part ailleurs dans ce fichier. */
-  const container = document.createElement("div");
+  /* Créé via l'helper Obsidian createDiv() : l'élément appartient au
+     document principal Obsidian mais reste détaché du début à la fin de
+     tout le pipeline export (EPUB/DOCX/PDF) — jamais affiché, seulement
+     rendu par MarkdownRenderer puis sérialisé/parcouru nœud par nœud. */
+  const container = createDiv();
   const component = new Component();
   component.load();
   try {
@@ -215,9 +214,9 @@ function wrapFrontPagesInDom(containerEl: HTMLElement): void {
       i++;
       continue;
     }
-    // API DOM native volontaire : containerEl (voir renderManuscriptHtml
+    // Créé via createDiv() : containerEl (voir renderManuscriptHtml
     // ci-dessus) reste détaché du document Obsidian, wrapper en fait partie.
-    const wrapper = document.createElement("div");
+    const wrapper = createDiv();
     wrapper.className = `feuillets-frontpage feuillets-frontpage-${m[1]}`;
     el.remove();
     i++;
@@ -343,16 +342,34 @@ function isRemoteImageSource(source: string): boolean {
 function resolveImageFile(app: App, img: HTMLImageElement, src: string, sourcePath?: string): TFile | null {
   const embedEl = img.closest(".internal-embed");
   const linkpath = embedEl?.getAttribute("src") || "";
-  // Une URL distante n'est jamais un linkpath du coffre : getFirstLinkpathDest
-  // est une résolution LOCALE et ne doit jamais la recevoir (voir
-  // isRemoteImageSource). L'appelant (inlineImages) filtre déjà ce cas avant
-  // d'atteindre resolveImageFile ; la garde reste ici en défense en profondeur.
   if (linkpath && !isRemoteImageSource(linkpath)) {
-    const file = app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath || "");
+    const file = app.metadataCache.getFirstLinkpathDest(decodeURIComponent(linkpath), sourcePath || "");
     if (file) return file;
   }
+
+  const rawSrc = img.getAttribute("src") || "";
+  if (rawSrc && !isRemoteImageSource(rawSrc) && !rawSrc.startsWith("data:") && !rawSrc.startsWith("app://")) {
+    const decoded = decodeURIComponent(rawSrc);
+    const file = app.metadataCache.getFirstLinkpathDest(decoded, sourcePath || "");
+    if (file) return file;
+    if (app.vault.getAbstractFileByPath) {
+      const direct = app.vault.getAbstractFileByPath(decoded);
+      if (direct instanceof TFile) return direct;
+    }
+  }
+
   const path = decodeURIComponent(src.replace(/^app:\/\/[^/]+\//, "").split("?")[0]).replace(/^\/+/, "");
-  return app.vault.getFiles().find((f) => f.path === path || src.includes(encodeURIComponent(f.name))) || null;
+  if (path) {
+    if (app.vault.getAbstractFileByPath) {
+      const directFile = app.vault.getAbstractFileByPath(path);
+      if (directFile instanceof TFile) return directFile;
+    }
+
+    const fileFromPath = app.metadataCache.getFirstLinkpathDest(path, sourcePath || "");
+    if (fileFromPath) return fileFromPath;
+  }
+
+  return null;
 }
 
 /** Images internes au coffre (embeds `![[fichier.png]]` ou `![alt](fichier.png)`)
@@ -416,12 +433,12 @@ async function inlineImages(
       const { width, height } = await naturalSizeOf(dataUri);
       const caption = realCaption(img.getAttribute("alt"), file);
       if (caption) {
-        // API DOM native volontaire : img appartient à container (voir
+        // Créés via createEl() : img appartient à container (voir
         // renderManuscriptHtml ci-dessus), détaché du document Obsidian.
-        const figure = document.createElement("figure");
+        const figure = createEl("figure");
         img.replaceWith(figure);
         figure.appendChild(img);
-        const figcaption = document.createElement("figcaption");
+        const figcaption = createEl("figcaption");
         figcaption.textContent = caption;
         figure.appendChild(figcaption);
       }

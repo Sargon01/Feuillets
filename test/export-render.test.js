@@ -144,15 +144,23 @@ function element(tag, text, attributes = {}) {
 function installDom() {
   const previousDocument = globalThis.document;
   const previousImage = globalThis.Image;
+  const previousCreateEl = globalThis.createEl;
+  const previousCreateDiv = globalThis.createDiv;
   globalThis.document = { createElement: (tag) => element(tag) };
   globalThis.Image = class {
     naturalWidth = 640;
     naturalHeight = 480;
     set src(_value) { queueMicrotask(() => this.onload()); }
   };
+  // Fonctions globales autonomes createEl/createDiv d'Obsidian (nœud
+  // détaché, non ajouté à un parent) — voir export-render.ts.
+  globalThis.createEl = (tag, options = {}) => element(tag, options.text || "");
+  globalThis.createDiv = (options = {}) => globalThis.createEl("div", options);
   return () => {
     globalThis.document = previousDocument;
     globalThis.Image = previousImage;
+    globalThis.createEl = previousCreateEl;
+    globalThis.createDiv = previousCreateDiv;
   };
 }
 

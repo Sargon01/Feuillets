@@ -1,4 +1,4 @@
-import { setIcon, Notice, Platform, TFile, TAbstractFile, normalizePath, type App, type WorkspaceLeaf } from "obsidian";
+import { setIcon, Notice, Platform, TFile, TFolder, TAbstractFile, normalizePath, type App, type WorkspaceLeaf } from "obsidian";
 import JSZip from "jszip";
 import { VIEW_DOCX_REVIEW } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -373,15 +373,49 @@ function getItemKey(item: ReviewEntry): string {
   return `${type}|${author}|${date}|${ctx}|${txt}|${ord}`;
 }
 
-function resolveVaultFile(app: App, path: string | null | undefined): TFile | null {
+function resolveVaultFile(app: App, path: string | null | undefined, projectFolder?: TFolder | null): TFile | null {
   if (!path) return null;
+
   const direct = app.vault.getAbstractFileByPath(path);
   if (direct instanceof TFile) return direct;
-  return (
-    app.vault.getMarkdownFiles().find(
-      (f) => f.path === path || f.name === path || f.basename === path || f.path.endsWith("/" + path)
-    ) || null
-  );
+
+  const normalized = normalizePath(path);
+  if (normalized !== path) {
+    const directNorm = app.vault.getAbstractFileByPath(normalized);
+    if (directNorm instanceof TFile) return directNorm;
+  }
+
+  const fromCache = app.metadataCache?.getFirstLinkpathDest ? app.metadataCache.getFirstLinkpathDest(path, "") : null;
+  if (fromCache instanceof TFile) return fromCache;
+
+  if (projectFolder) {
+    const q = path.toLowerCase();
+    let match: TFile | null = null;
+    const searchInFolder = (folder: TFolder) => {
+      if (match || !folder || !Array.isArray(folder.children)) return;
+      for (const child of folder.children) {
+        if (match) break;
+        if (child instanceof TFile) {
+          if (
+            child.path === path ||
+            child.name === path ||
+            child.basename === path ||
+            child.path.toLowerCase().endsWith("/" + q) ||
+            child.name.toLowerCase() === q ||
+            child.basename.toLowerCase() === q
+          ) {
+            match = child;
+          }
+        } else if (child instanceof TFolder) {
+          searchInFolder(child);
+        }
+      }
+    };
+    searchInFolder(projectFolder);
+    if (match) return match;
+  }
+
+  return null;
 }
 
 export class DocxReviewView extends BaseFeuilletsView {
@@ -1491,8 +1525,8 @@ export class DocxReviewView extends BaseFeuilletsView {
         .setText(confidenceLabel(change.confidence));
     }
 
-    const fromFileObj = change.fromPath ? resolveVaultFile(this.app, change.fromPath) : null;
-    const toFileObj = change.toPath ? resolveVaultFile(this.app, change.toPath) : null;
+    const fromFileObj = change.fromPath ? resolveVaultFile(this.app, change.fromPath, this.getProjectFolder()) : null;
+    const toFileObj = change.toPath ? resolveVaultFile(this.app, change.toPath, this.getProjectFolder()) : null;
 
     // EMPLACEMENT (mission §3) — toujours visible, jamais besoin d'ouvrir
     // les détails pour savoir où la carte agit. Un déplacement affiche
@@ -1648,8 +1682,8 @@ export class DocxReviewView extends BaseFeuilletsView {
      * feuillet) — factorisé, réutilisé par les boutons Origine/Destination,
      * Aperçu et Appliquer. */
     const resolveMoveFiles = (): { fromFile: TFile | TAbstractFile | null; toFile: TFile | TAbstractFile | null } => ({
-      fromFile: change.fromPath ? resolveVaultFile(this.app, change.fromPath) || file : file,
-      toFile: change.toPath ? resolveVaultFile(this.app, change.toPath) || file : file,
+      fromFile: change.fromPath ? resolveVaultFile(this.app, change.fromPath, this.getProjectFolder()) || file : file,
+      toFile: change.toPath ? resolveVaultFile(this.app, change.toPath, this.getProjectFolder()) || file : file,
     });
 
     // Zone d'actions dédiée sous le contenu principal (Lot 5 responsive)
@@ -1665,8 +1699,8 @@ export class DocxReviewView extends BaseFeuilletsView {
         // recalculés ici (portée séparée) plutôt que remontés en dehors du
         // bloc : même coût négligeable que fromFileObj/toFileObj, déjà
         // recalculés séparément avant ce chantier.
-        const fromFileObjForLabel = change.fromPath ? resolveVaultFile(this.app, change.fromPath) : null;
-        const toFileObjForLabel = change.toPath ? resolveVaultFile(this.app, change.toPath) : null;
+        const fromFileObjForLabel = change.fromPath ? resolveVaultFile(this.app, change.fromPath, this.getProjectFolder()) : null;
+        const toFileObjForLabel = change.toPath ? resolveVaultFile(this.app, change.toPath, this.getProjectFolder()) : null;
         const fromLabel = fromFileObjForLabel instanceof TFile && fromFileObjForLabel !== file
           ? t("docxReview.change.cutFrom", { title: this.plugin.titleFor(fromFileObjForLabel) })
           : t("docxReview.change.cut");
@@ -2014,7 +2048,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     if (candidates.length === 0) return;
 
     if (row && candidates[0]) {
-      const fFirst = resolveVaultFile(this.app, candidates[0]);
+      const fFirst = resolveVaultFile(this.app, candidates[0], this.getProjectFolder());
       if (fFirst instanceof TFile) {
         row.addClass("feuillets-clickable");
         row.title = t("docxReview.clickToOpen", { title: this.plugin.titleFor(fFirst) });
@@ -2024,7 +2058,7 @@ export class DocxReviewView extends BaseFeuilletsView {
 
     if (!item.applied) {
       for (const path of candidates) {
-        const f = resolveVaultFile(this.app, path);
+        const f = resolveVaultFile(this.app, path, this.getProjectFolder());
         if (!(f instanceof TFile)) continue;
         const title = this.plugin.titleFor(f);
 
@@ -2060,8 +2094,8 @@ export class DocxReviewView extends BaseFeuilletsView {
             // principal (renderChange), jamais recalculée : voir sa doc.
             let trace: ReviewApplyTrace | undefined;
             if (item.type === "move") {
-              const fromFile = item.fromPath ? resolveVaultFile(this.app, item.fromPath) || f : f;
-              const toFile = item.toPath ? resolveVaultFile(this.app, item.toPath) || f : f;
+              const fromFile = item.fromPath ? resolveVaultFile(this.app, item.fromPath, this.getProjectFolder()) || f : f;
+              const toFile = item.toPath ? resolveVaultFile(this.app, item.toPath, this.getProjectFolder()) || f : f;
               if (fromFile instanceof TFile && toFile instanceof TFile && fromFile.path !== toFile.path) {
                 // LOT 3 (sécurité transactionnelle) : même exigence que le
                 // bouton Appliquer principal, voir renderChange plus haut.

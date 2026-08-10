@@ -160,7 +160,6 @@ export const en = {
   "shared.research.tagFilterActive": "Tag filter: #{tag}",
   "shared.research.tagFilterTooltip": "Filter sheets by tag",
   "shared.research.allTags": "All tags",
-  "shared.research.vaultOtherNotes": "Vault (other notes)",
   "shared.research.empty": "Empty.",
   "shared.research.insertImageTooltip": "Insert the image in the active scene (![[...]])",
   "shared.research.insertPdfLinkTooltip": "Insert the PDF link in the active scene ([[...]])",

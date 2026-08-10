@@ -70,6 +70,8 @@ function installDom() {
   const previousDocument = globalThis.document;
   const previousNode = globalThis.Node;
   const previousXMLSerializer = globalThis.XMLSerializer;
+  const previousCreateEl = globalThis.createEl;
+  const previousCreateDiv = globalThis.createDiv;
   globalThis.document = { createElement: (tag) => el(tag) };
   globalThis.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
   globalThis.XMLSerializer = class {
@@ -77,10 +79,16 @@ function installDom() {
       return node && typeof node.outerHTML === "string" ? node.outerHTML : String(node?.textContent ?? "");
     }
   };
+  // Fonctions globales autonomes createEl/createDiv d'Obsidian (nœud
+  // détaché, non ajouté à un parent) — voir export-render.ts.
+  globalThis.createEl = (tag, options = {}) => el(tag, options.text || "");
+  globalThis.createDiv = (options = {}) => globalThis.createEl("div", options);
   return () => {
     globalThis.document = previousDocument;
     globalThis.Node = previousNode;
     globalThis.XMLSerializer = previousXMLSerializer;
+    globalThis.createEl = previousCreateEl;
+    globalThis.createDiv = previousCreateDiv;
   };
 }
 

@@ -2,7 +2,7 @@ import type { CanvasData, CanvasEdge, CanvasNode } from "./canvas-board.js";
 import { firstMeaningfulLine, freshCanvasNodeId } from "./canvas-bridge.js";
 
 /** Marqueur exclusivement porté par les arêtes créées par l'Arbre d'idées. */
-export const IDEA_TREE_MARKER = "idea-tree" as const;
+export const IDEA_TREE_MARKER = "idea-tree";
 
 export const IDEA_TREE_LAYOUT = {
   childWidth: 260,

@@ -74,17 +74,16 @@ function createWorkspaceMock(contentByPath) {
 }
 
 function createView({ files = [], settings = {}, content = {}, root = new TFolder("Projet"), withWorkspace = false } = {}) {
+  if (root instanceof TFolder && (!root.children || root.children.length === 0)) {
+    root.children = files;
+  }
   const byPath = new Map(files.map((entry) => [entry.path, entry]));
   const writes = [];
-  // LOT 9B — écritures BINAIRES (createBinary/modifyBinary), distinctes des
-  // écritures Markdown ci-dessus (`writes`) : le générateur de DOCX révisé
-  // n'écrit JAMAIS dans `content`/`writes`, seulement ici.
   const binaryWrites = [];
   const wsMock = withWorkspace ? createWorkspaceMock(content) : null;
   const app = {
     vault: {
       getAbstractFileByPath(path) { return byPath.get(path) ?? null; },
-      getMarkdownFiles() { return files.filter((entry) => entry.extension === "md"); },
       async read(entry) { return content[entry.path] ?? entry.content; },
       async modify(entry, newContent) {
         writes.push([entry, newContent]);

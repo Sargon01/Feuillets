@@ -216,14 +216,31 @@ export function getSearchReplaceFiles(app: SearchReplaceApp, plugin: SearchRepla
   }
 
   const root = plugin.getProjectFolder ? plugin.getProjectFolder() : null;
-  const allFiles = app.vault.getMarkdownFiles ? app.vault.getMarkdownFiles() : [];
-
-  if (!root) return allFiles;
+  if (!root) return [];
 
   const baseFolder = root.parent || root;
-  return allFiles.filter(
-    (f) => f && f.path && (baseFolder.path === "" || f.path.startsWith(baseFolder.path + "/"))
-  );
+  const result: SearchReplaceFile[] = [];
+
+  const isMdFile = (item: unknown): boolean => {
+    if (!item || typeof (item as { path?: string }).path !== "string") return false;
+    const ext = (item as { extension?: string }).extension;
+    if (typeof ext === "string") return ext === "md";
+    return (item as { path: string }).path.endsWith(".md");
+  };
+
+  const collect = (folder: unknown) => {
+    if (!folder || !Array.isArray((folder as { children?: unknown[] }).children)) return;
+    for (const child of (folder as { children: unknown[] }).children) {
+      if (child && Array.isArray((child as { children?: unknown[] }).children)) {
+        collect(child);
+      } else if (isMdFile(child)) {
+        result.push(child as SearchReplaceFile);
+      }
+    }
+  };
+
+  collect(baseFolder);
+  return result;
 }
 
 /**

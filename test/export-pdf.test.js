@@ -49,7 +49,20 @@ class FakeElement {
   removeChild(child) { const index = this.children.indexOf(child); if (index >= 0) { this.children.splice(index, 1); child.parentNode = null; } return child; }
   remove() { if (this.parentNode) this.parentNode.removeChild(this); }
   cloneNode(deep) { const clone = new FakeElement(this.tagName, this._text); clone.className = this.className; clone.offsetHeight = this.offsetHeight; if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true)); return clone; }
-  querySelector() { return null; }
+  // Sélecteur minimal (nom de balise simple) : suffisant pour retrouver
+  // head/body/title/style dans le squelette construit par DOMParser côté
+  // export-pdf.js — pas un vrai moteur de sélecteurs CSS.
+  querySelector(selector) {
+    if (/^[a-z]+$/i.test(selector)) {
+      const tag = selector.toUpperCase();
+      for (const child of this.children) {
+        if (child.tagName === tag) return child;
+        const found = child.querySelector(selector);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
   querySelectorAll() { return []; }
 }
 
@@ -66,6 +79,10 @@ function createFakeIframeDocument() {
     head: null,
     body: null,
     createElement: (tag) => new FakeElement(tag),
+    // Transfert d'un nœud entre documents : dans ce fake, un simple realm
+    // JS unique suffit — pas besoin de vraiment recopier l'arbre, l'original
+    // (le squelette DOMParser) n'est de toute façon plus relu ensuite.
+    importNode(node) { return node; },
     open() {
       this.documentElement = null;
       this.head = null;
@@ -102,7 +119,30 @@ function installDom() {
     createElement(tag) { return new FakeElement(tag); },
   };
   globalThis.document = document;
-  globalThis.DOMParser = class { parseFromString(html) { const bodyEl = new FakeElement("body"); bodyEl.appendChild(new RawNode(html)); return { body: bodyEl }; } };
+  // Deux usages du DOMParser réel dans export-pdf.js : parser le squelette
+  // HTML statique <html><head>...</head><body></body></html> (a besoin d'un
+  // vrai documentElement/head/body/title/style) et parser pagesHtml (a
+  // seulement besoin de .body, contenu préservé tel quel via RawNode).
+  globalThis.DOMParser = class {
+    parseFromString(html) {
+      if (/^<html>/.test(html)) {
+        const htmlEl = new FakeElement("html");
+        const headEl = new FakeElement("head");
+        const bodyEl = new FakeElement("body");
+        htmlEl.appendChild(headEl);
+        htmlEl.appendChild(bodyEl);
+        const metaEl = new FakeElement("meta");
+        metaEl.setAttribute("charset", "utf-8");
+        headEl.appendChild(metaEl);
+        headEl.appendChild(new FakeElement("title"));
+        headEl.appendChild(new FakeElement("style"));
+        return { documentElement: htmlEl, body: bodyEl };
+      }
+      const bodyEl = new FakeElement("body");
+      bodyEl.appendChild(new RawNode(html));
+      return { body: bodyEl };
+    }
+  };
   globalThis.window = { setTimeout(callback) { callback(); return 0; } };
   // Fonctions globales autonomes createEl/createDiv/createSpan d'Obsidian
   // (nœud détaché, non ajouté à un parent) — voir export-pdf.js.

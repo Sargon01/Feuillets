@@ -917,19 +917,6 @@ export abstract class BaseFeuilletsView extends ItemView {
       );
     }
 
-    if (this.researchFilterActive && S.researchSearch.trim()) {
-      const q = S.researchSearch.trim().toLowerCase();
-      const baseResearchLower = baseResearch.toLowerCase();
-      const vaultMatches = this.app.vault.getMarkdownFiles().filter(f => {
-        if (f.path.toLowerCase().startsWith(baseResearchLower + "/")) return false;
-        return f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q);
-      }).sort((a, b) => a.path.localeCompare(b.path, "fr")).slice(0, 30);
-
-      if (vaultMatches.length > 0) {
-        this.renderSection(body, t("shared.research.vaultOtherNotes"), vaultMatches, undefined, "coffre");
-      }
-    }
-
     this.filterEntities();
   }
 

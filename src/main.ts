@@ -850,9 +850,30 @@ class FeuilletsPlugin extends Plugin {
       id: "import-settings",
       name: t("main.cmd.importSettings"),
       callback: async () => {
-        const files = this.app.vault
-          .getFiles()
-          .filter((f) => f.extension === "json" && f.name.startsWith("feuillets-reglages"));
+        const targetFolderPaths = new Set<string>();
+        targetFolderPaths.add("");
+        const activeProject = this.getProjectFolder();
+        if (activeProject) targetFolderPaths.add(activeProject.path);
+        if (this.settings.projectFolder) targetFolderPaths.add(this.settings.projectFolder);
+        if (Array.isArray(this.settings.projects)) {
+          for (const p of this.settings.projects) {
+            if (typeof p === "string" && p) targetFolderPaths.add(p);
+          }
+        }
+
+        const fileMap = new Map<string, TFile>();
+        for (const pathStr of targetFolderPaths) {
+          const target = pathStr === "" ? this.app.vault.getRoot() : this.app.vault.getAbstractFileByPath(pathStr);
+          if (target instanceof TFolder) {
+            for (const child of target.children) {
+              if (child instanceof TFile && child.extension === "json" && child.name.startsWith("feuillets-reglages")) {
+                fileMap.set(child.path, child);
+              }
+            }
+          }
+        }
+
+        const files = Array.from(fileMap.values());
         if (files.length === 0) {
           new Notice(t("main.notice.noSettingsBackupFound"));
           return;
