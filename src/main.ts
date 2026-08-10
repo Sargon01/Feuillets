@@ -13,6 +13,7 @@
  */
 
 import { DEFAULT_SETTINGS } from "./default-settings.js";
+import type { CompileScope } from "./services/compile-scope.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
@@ -214,6 +215,12 @@ class FeuilletsPlugin extends Plugin {
    * propriété d'instance sur les versions antérieures).
    */
   settings!: FeuilletsSettings;
+
+  /** Portée d'export courante, mémorisée pour la SEULE durée de la session
+   * (Binder, Aperçu et Édition la partagent via services/export-workflow.ts).
+   * Volontairement absente de settings/data.json : perdue au redémarrage,
+   * ce qui est normal — voir export-workflow.ts. */
+  activeExportScope: CompileScope | null = null;
 
   moveStack?: MoveHistoryEntry[];
   _ribbonDefs?: Array<{ key: string; icon: string; labelKey: string; action: () => void; hideable?: boolean }>;

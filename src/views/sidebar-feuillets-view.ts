@@ -4,6 +4,9 @@ import { t } from "../i18n/index.js";
 import { AnalysisView } from "./analysis-view.js";
 import { DocxReviewView } from "./docx-review-view.js";
 import { EditionDocsView } from "./edition-docs-view.js";
+import { EditionCompositionView } from "./edition-composition-view.js";
+import { EditionLayoutView } from "./edition-layout-view.js";
+import { EditionExportView } from "./edition-export-view.js";
 import { JournalView } from "./journal-view.js";
 import { NotesView } from "./notes-view.js";
 import type { ProjectView } from "./project-view.js";
@@ -26,6 +29,9 @@ type SidebarSubViews = {
   journal: SidebarSubView;
   docx: SidebarSubView;
   editionDocs: SidebarSubView;
+  editionComposition: SidebarSubView;
+  editionLayout: SidebarSubView;
+  editionExport: SidebarSubView;
   analyse: AnalysisSidebarSubView;
   relecture: SidebarSubView;
 };
@@ -67,6 +73,9 @@ export class SidebarFeuilletsView extends ItemView {
       journal: new JournalView(this.leaf, this.plugin),
       docx: new DocxReviewView(this.leaf, this.plugin),
       editionDocs: new EditionDocsView(this.leaf, this.plugin),
+      editionComposition: new EditionCompositionView(this.leaf, this.plugin),
+      editionLayout: new EditionLayoutView(this.leaf, this.plugin),
+      editionExport: new EditionExportView(this.leaf, this.plugin),
       analyse: new AnalysisView(this.leaf, this.plugin),
       relecture: new TextAnalysisView(this.leaf, this.plugin),
     };
@@ -196,11 +205,33 @@ export class SidebarFeuilletsView extends ItemView {
      biographie, lettre d'accompagnement, soumissions…). L'export vit
      toujours exclusivement dans PreviewView. L'identifiant `project` est
      gardé pour migrer sans casser les préférences existantes. */
+  /* Espace Édition (Phase 2) : cinq sections empilées dans un seul
+     conteneur — chaque sous-vue reste responsable de SA propre section
+     (.feuillets-project-section, voir renderSectionHead), le séparateur
+     visuel entre elles venant de cette classe elle-même (styles.css), sans
+     wrapper .feuillets-merged-section devenu inutile.
+     Correctif alignement (Phase 2) : les cinq sous-vues partagent en plus
+     un même conteneur frère .feuillets-edition-section-container, seule
+     source de padding horizontal pour l'espace Édition — voir styles.css.
+     Sans lui, chaque sous-vue posait (ou pas) son propre padding, d'où le
+     décalage visuel entre Documents éditoriaux/Révision DOCX (historiques)
+     et Composition/Mise en page/Exporter (nouvelles). La première section
+     reçoit en plus .is-first-edition-section, ciblée directement en CSS
+     plutôt que via un sélecteur *:first-child fragile. */
   async renderProjectTab(element: HTMLElement): Promise<void> {
-    const editionEl = element.createDiv({ cls: "feuillets-merged-section" });
-    await this.renderSubView(this.subViews.editionDocs, editionEl);
-    const docxEl = element.createDiv({ cls: "feuillets-merged-section" });
-    await this.renderSubView(this.subViews.docx, docxEl);
+    const workspace = element.createDiv({ cls: "feuillets-edition-workspace" });
+    const editionSubViews: SidebarSubView[] = [
+      this.subViews.editionDocs,
+      this.subViews.editionComposition,
+      this.subViews.editionLayout,
+      this.subViews.editionExport,
+      this.subViews.docx,
+    ];
+    for (const [index, subView] of editionSubViews.entries()) {
+      const sectionContainer = workspace.createDiv({ cls: "feuillets-edition-section-container" });
+      if (index === 0) sectionContainer.addClass("is-first-edition-section");
+      await this.renderSubView(subView, sectionContainer);
+    }
   }
 
 
@@ -217,6 +248,9 @@ export class SidebarFeuilletsView extends ItemView {
     if (this.activeTab === "project") {
       await this.subViews.docx.render(force);
       await this.subViews.editionDocs.render(force);
+      await this.subViews.editionComposition.render(force);
+      await this.subViews.editionLayout.render(force);
+      await this.subViews.editionExport.render(force);
       return;
     }
     await this.subViews[this.activeTab].render(force);

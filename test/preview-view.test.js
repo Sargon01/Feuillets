@@ -14,9 +14,7 @@ import {
 } from "../src/views/preview-view.js";
 import { resolveCompileScopeFiles } from "../src/services/compile-scope.js";
 import { CompileSelectionModal } from "../src/ui/selection-modals.js";
-import { LayoutModal } from "../src/ui/layout-modal.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
-import { setTitleRoleValue } from "../src/utils/title-roles.js";
 import { TextPromptModal } from "../src/ui/basic-modals.js";
 import { setLocale } from "../src/i18n/index.js";
 import { readFile } from "node:fs/promises";
@@ -1555,7 +1553,10 @@ test("modes — la portée s'AFFICHE dans Export mais ne s'y change plus (seul l
   await flush();
   const label = view.exportPanelEl.querySelector('[aria-label="Portée de l’export"]');
   assert.ok(label, "le libellé de portée est affiché");
-  assert.equal(label.textContent, "Manuscrit");
+  /* Phase 1 : le libellé vient directement du CompileScope réel
+     (effectiveExportScope), plus d'un texte de mode — en mode Manuscrit sans
+     portée explicite, effectiveExportScope() résout la portée Projet. */
+  assert.equal(label.textContent, "Projet");
   /* Plus aucun select capable de changer la portée depuis le panneau */
   assert.equal(
     view.exportPanelEl.querySelectorAll('select[aria-label="Portée de l’export"]').length,
@@ -2402,23 +2403,6 @@ test("export contextuel — portée (affichée), inclusions, format, gabarit et 
   await flush();
   assert.equal(plugin.settings.exportTemplate, "moderne");
 
-  const previousLayoutOpen = LayoutModal.prototype.open;
-  let openedLayout = null;
-  LayoutModal.prototype.open = function openLayout() { openedLayout = this; };
-  try {
-    const visualLayout = view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]');
-    assert.ok(visualLayout, "le réglage visuel doit être directement disponible dans Export");
-    visualLayout.click();
-  } finally {
-    LayoutModal.prototype.open = previousLayoutOpen;
-  }
-  assert.equal(openedLayout.templateKey, "moderne");
-  let layoutRefreshes = 0;
-  view.refreshPreview = async () => { layoutRefreshes++; };
-  openedLayout.onChange();
-  await flush();
-  assert.equal(layoutRefreshes, 1, "une modification dans le modal actualise l’aperçu ouvert");
-
   const name = view.exportPanelEl.querySelector('[aria-label="Nom du fichier exporté"]');
   name.value = "Mon chapitre";
   name.dispatch("change");
@@ -2435,19 +2419,22 @@ test("export contextuel — portée (affichée), inclusions, format, gabarit et 
   }
   assert.equal(selectionOpened, 1, "la sélection existante des feuillets est réutilisée");
 
-  let calls = 0;
-  const realExport = view.doExport.bind(view);
-  view.doExport = async () => { calls++; };
-  view.exportPanelEl.querySelectorAll("button").find((el) => el.textContent === "Exporter").click();
-  await flush();
-  assert.equal(calls, 1, "le bloc doit appeler doExport, pas une logique d'export locale");
-
-  // Et doExport atteint réellement le service central : en Markdown, il
-  // passe par compile(), qui écrit le manuscrit.
+  // Phase 1 : le bouton Exporter du panneau appelle directement le workflow
+  // commun (services/export-workflow.ts) — plus aucun passage par
+  // PreviewView.doExport(). En Markdown, ce workflow passe par compile(),
+  // qui écrit le manuscrit : c'est ce qu'on observe ici plutôt qu'un simple
+  // compteur d'appel à doExport().
   plugin.settings.exportFormat = "md";
   const compiles = countCompiles(app);
-  await realExport();
-  assert.ok(compiles() > 0, "compile() doit avoir été appelé");
+  view.exportPanelEl.querySelectorAll("button").find((el) => el.textContent === "Exporter").click();
+  await flush();
+  assert.ok(compiles() > 0, "le clic sur Exporter doit atteindre compile() via le workflow commun");
+
+  // doExport() reste, pour compatibilité (tests/appelants externes), une
+  // pure délégation vers ce même workflow.
+  const compilesAgain = countCompiles(app);
+  await view.doExport();
+  assert.ok(compilesAgain() > 0, "doExport() doit lui aussi déléguer au workflow commun");
 }));
 
 test("panneau Export — repli et réouverture de session ne perdent aucun choix", withRender(async () => {
@@ -2477,13 +2464,13 @@ test("panneau Export — repli et réouverture de session ne perdent aucun choix
   assert.equal(view.contentEl.querySelector(".feuillets-preview-settings"), null, "aucune vue de réglages supplémentaire");
 }));
 
-test("panneau Export — plus aucun réglage d'en-tête ni de pied de page", withRender(async () => {
+test("panneau Export — plus aucun réglage d'en-tête ni de pied de page, ni de sous-section Première page (Phase 3 : déplacée dans Édition)", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
   view.btnExport.click();
   await flush();
 
   const summaries = view.exportPanelEl.querySelectorAll("summary").map((s) => s.textContent);
-  assert.deepEqual(summaries, ["Première page"], "une seule sous-section repliable subsiste");
+  assert.deepEqual(summaries, [], "plus aucune sous-section repliable : Première page a quitté ExportPanel");
 
   const labels = view.exportPanelEl.querySelectorAll("label").map((row) => row.textContent);
   for (const gone of [
@@ -2495,8 +2482,9 @@ test("panneau Export — plus aucun réglage d'en-tête ni de pied de page", wit
       `« ${gone} » ne doit plus être réglable depuis l'aperçu : c'est le rôle du modal Mise en page visuelle`
     );
   }
-  // Ces réglages restent bel et bien accessibles — dans le modal visuel.
-  assert.ok(view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]'));
+  // Le réglage visuel de la page de titre n'est plus dans Export non plus —
+  // il vit désormais avec « Première page » (Édition → Composition).
+  assert.equal(view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]'), null);
 }));
 
 test("panneau Export — le bouton d’actualisation force un rendu", withRender(async () => {
@@ -2550,181 +2538,16 @@ function addFrontPages(manuscript, specs) {
   return front.children;
 }
 
-/** Ouvre la vue avec un dossier Front peuplé et le panneau Export déplié. */
-async function openWithFrontPages(specs = [{ name: "Page de titre" }]) {
-  const ctx = await openLoadedView("manuscript");
-  const files = addFrontPages(ctx.manuscript, specs);
-  ctx.view.btnExport.click();
-  await flush();
-  await flush();
-  return { ...ctx, files };
-}
-
-/** Champ « Première page » repéré par son libellé accessible. */
-function firstPageField(view, label) {
-  return view.exportPanelEl.querySelector(`[aria-label="${label}"]`);
-}
-
-test("première page — inclusion, exclusion et conservation du fichier Front", withRender(async () => {
-  const { view, files } = await openWithFrontPages();
-  const [titlePage] = files;
-
-  const include = firstPageField(view, "Inclure la page de titre");
-  assert.equal(include.checked, true, "une page Front de type titre est incluse par défaut");
-
-  include.checked = false;
-  include.dispatch("change");
-  await flush();
-  await flush();
-  assert.equal(titlePage._fm.compile, false, "l'exclusion passe par l'indicateur compile du frontmatter");
-  assert.equal(titlePage._fm.type, "titre", "le type et les métadonnées sont conservés");
-  assert.match(titlePage.content, /:::titre: Grand Roman/, "le contenu de la page est conservé");
-  assert.ok(view.app.vault.getAbstractFileByPath(titlePage.path), "le fichier Front n'est jamais supprimé");
-
-  // Aucune page de titre générée ne vient remplacer celle qu'on exclut.
-  assert.equal(view.frontTitleCandidates().length, 1);
-  assert.equal(firstPageField(view, "Inclure la page de titre").checked, false);
-
-  firstPageField(view, "Inclure la page de titre").checked = true;
-  firstPageField(view, "Inclure la page de titre").dispatch("change");
-  await flush();
-  await flush();
-  assert.equal(titlePage._fm.compile, true, "la réinclusion rétablit exactement la même page");
-}));
-
-test("première page — inclure/exclure ne referme pas la sous-section ni ne reconstruit le reste du panneau", withRender(async () => {
-  const { view } = await openWithFrontPages();
-
-  const details = view.exportPanelEl.querySelector("details");
-  details.open = true;
-  const scopeBefore = view.exportPanelEl.querySelectorAll("select")[0];
-  const bodyBefore = view.firstPageBodyEl;
-
-  const include = firstPageField(view, "Inclure la page de titre");
-  include.checked = false;
-  include.dispatch("change");
-  await flush();
-  await flush();
-
-  assert.equal(view.exportPanelEl.querySelector("details"), details, "le même <details> reste en place");
-  assert.equal(details.open, true, "la sous-section ne se referme pas toute seule");
-  assert.equal(view.exportPanelEl.querySelectorAll("select")[0], scopeBefore, "le reste du panneau n'est pas reconstruit");
-  assert.equal(view.firstPageBodyEl, bodyBefore, "seul le contenu de la sous-section est rafraîchi, pas son conteneur");
-}));
-
-test("première page — le bouton Actualiser resynchronise les champs depuis le fichier Front", withRender(async () => {
-  const { view, files } = await openWithFrontPages();
-  const [titlePage] = files;
-
-  // Le fichier est modifié AILLEURS (éditeur) pendant que le panneau reste ouvert.
-  titlePage.content = setTitleRoleValue(titlePage.content, "titre", "Modifié dans l’éditeur");
-  assert.equal(firstPageField(view, "Titre").value, "Grand Roman", "le panneau affiche encore l'ancienne valeur");
-
-  const refresh = view.exportPanelEl.querySelector('[aria-label="Actualiser l’aperçu"]');
-  refresh.click();
-  await flush();
-  await flush();
-
-  assert.equal(firstPageField(view, "Titre").value, "Modifié dans l’éditeur", "le clic relit bien le fichier Front");
-}));
-
-test("première page — le fichier Front affiché est le fichier réellement utilisé, et peut changer", withRender(async () => {
-  const { view, files } = await openWithFrontPages([
-    { name: "Page de titre" },
-    { name: "Page de titre — variante", compile: false, content: frontTitleContent("Variante") },
-  ]);
-  const [main, variant] = files;
-
-  const picker = firstPageField(view, "Fichier Front utilisé");
-  assert.deepEqual(picker.children.map((o) => o.value), [main.path, variant.path]);
-  assert.equal(picker.value, main.path, "le fichier montré est celui que la compilation retient");
-
-  picker.value = variant.path;
-  picker.dispatch("change");
-  await flush();
-  await flush();
-  assert.equal(variant._fm.compile, true);
-  assert.equal(main._fm.compile, false, "un seul fichier Front sert de première page");
-  assert.equal(firstPageField(view, "Fichier Front utilisé").value, variant.path);
-  assert.equal(firstPageField(view, "Titre").value, "Variante", "les champs suivent le fichier choisi");
-}));
-
-test("première page — ouverture du fichier Front dans l'éditeur et sélection dans le Binder", withRender(async () => {
-  const { view, plugin, files } = await openWithFrontPages();
-  let opened = null;
-  const leaf = { openFile: async (file) => { opened = file; } };
-  plugin.getLeafForOpeningFile = () => leaf;
-
-  const open = view.exportPanelEl.querySelector('[aria-label="Ouvrir le fichier Front"]');
-  assert.ok(open, "une icône plate ouvre le fichier Front");
-  assert.equal(open.hasClass("clickable-icon"), true);
-  open.click();
-  await flush();
-  await flush();
-  assert.equal(opened, files[0]);
-  assert.equal(plugin.settings.binderSelectedPath, "Manuscrit/Front", "le Binder suit le fichier ouvert");
-}));
-
-test("première page — titre, sous-titre et auteur sont écrits dans le fichier Front, sans état concurrent", withRender(async () => {
-  const { view, plugin, viewport, files } = await openWithFrontPages();
-  const [titlePage] = files;
-  viewport.scrollTop = 640;
-  view.zoomScale = 1.3;
-  let refreshes = 0;
-  view.refreshPreview = async () => { refreshes++; };
-
-  for (const [label, expected] of [["Titre", "NEFES"], ["Sous-titre", "Roman"], ["Auteur", "Halim"]]) {
-    const input = firstPageField(view, label);
-    input.value = expected;
-    input.dispatch("change");
-    await flush();
-    await flush();
-  }
-
-  assert.match(titlePage.content, /:::titre: NEFES/);
-  assert.match(titlePage.content, /:::sous-titre: Roman/);
-  assert.match(titlePage.content, /:::auteur: Halim/);
-  assert.match(titlePage.content, /^---\ntitle: Grand Roman/, "le frontmatter existant est laissé intact");
-  assert.equal(refreshes, 3, "chaque champ actualise immédiatement l'aperçu");
-  assert.equal(viewport.scrollTop, 640, "le scroll est conservé");
-  assert.equal(view.zoomScale, 1.3, "le zoom est conservé");
-  // Le titre et l'auteur du manuscrit restent alignés sur le fichier Front.
-  assert.equal(plugin.settings.manuscriptTitle, "NEFES");
-  assert.equal(plugin.settings.manuscriptAuthor, "Halim");
-}));
-
-test("première page — mention complémentaire et image passent par les mêmes rôles Front", withRender(async () => {
-  const { view, files } = await openWithFrontPages();
-  const [titlePage] = files;
-
-  const mention = firstPageField(view, "Mention complémentaire");
-  mention.value = "71 800 mots";
-  mention.dispatch("change");
-  await flush();
-  await flush();
-  const image = firstPageField(view, "Image ou logo");
-  image.value = "![[logo.png]]";
-  image.dispatch("change");
-  await flush();
-  await flush();
-
-  assert.match(titlePage.content, /:::mots: 71 800 mots/);
-  assert.match(titlePage.content, /:::image: !\[\[logo\.png\]\]/);
-}));
-
-test("première page — sans feuillet Front, la section reste utilisable et le repli générique subsiste", withRender(async () => {
-  const { view } = await openLoadedView("manuscript");
-  view.btnExport.click();
-  await flush();
-  assert.equal(view.frontTitleCandidates().length, 0);
-  assert.ok(firstPageField(view, "Inclure la page de titre"), "l'inclusion reste affichée");
-  assert.equal(firstPageField(view, "Fichier Front utilisé"), null, "aucun fichier à choisir");
-  assert.ok(
-    view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]'),
-    "la mise en page visuelle reste accessible"
-  );
-}));
-
+/* Phase 3 : « Première page » a quitté ExportPanel (panneau Export de
+   l'Aperçu comme mode embedded d'Édition) pour Édition → Composition de
+   l'ouvrage (voir ui/first-page-panel.ts, views/edition-composition-view.ts,
+   test/first-page-panel.test.js). Les tests d'inclusion/exclusion, de
+   lecture/écriture des champs, d'ouverture du fichier Front et du modal
+   visuel vivent désormais dans test/first-page-panel.test.js. Seul reste ici
+   le test qui porte sur un comportement RÉEL de PreviewView (le rendu et
+   l'export n'affichent ni ne régénèrent la page de titre exclue) —
+   adapté pour basculer `compile` directement via processFrontMatter plutôt
+   que par un champ d'ExportPanel qui n'existe plus. */
 test("première page — exclue, elle disparaît de l'aperçu ET de l'export, sans page générée de remplacement", withCapture(async (dom, rendered) => {
   const ctx = await openView("manuscript");
   ctx.viewport._rectTop = VIEWPORT_SCREEN_TOP;
@@ -2742,9 +2565,6 @@ test("première page — exclue, elle disparaît de l'aperçu ET de l'export, sa
     await flush();
   };
 
-  view.btnExport.click();
-  await flush();
-  await flush();
   await renderOnce();
   assert.match(
     rendered.at(-1),
@@ -2752,9 +2572,7 @@ test("première page — exclue, elle disparaît de l'aperçu ET de l'export, sa
     "la page de titre incluse fait bien partie du manuscrit rendu"
   );
 
-  const include = firstPageField(view, "Inclure la page de titre");
-  include.checked = false;
-  include.dispatch("change");
+  await view.app.fileManager.processFrontMatter(titlePage, (data) => { data.compile = false; });
   for (let i = 0; i < 8; i++) await flush();
   await renderOnce();
 
@@ -2770,20 +2588,6 @@ test("première page — exclue, elle disparaît de l'aperçu ET de l'export, sa
     "aucune page de titre générée ne vient remplacer celle qu'on exclut"
   );
   assert.match(titlePage.content, /:::titre: Grand Roman/, "le contenu du feuillet Front est conservé");
-}));
-
-test("première page — le modal visuel écrit les mêmes valeurs que celles lues par l'aperçu et l'export", withRender(async () => {
-  const { view, plugin } = await openWithFrontPages();
-  const previousLayoutOpen = LayoutModal.prototype.open;
-  let layout = null;
-  LayoutModal.prototype.open = function openLayout() { layout = this; };
-  try {
-    view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]').click();
-  } finally {
-    LayoutModal.prototype.open = previousLayoutOpen;
-  }
-  assert.ok(layout, "le bouton ouvre bien le modal de mise en page");
-  assert.equal(layout.templateKey, plugin.settings.exportTemplate, "le modal règle le gabarit actif, pas une copie");
 }));
 
 test("barre — l'indicateur de fichier suivi reflète la synchronisation de portée", withRender(async () => {

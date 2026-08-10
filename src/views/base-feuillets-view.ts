@@ -14,7 +14,6 @@ import { isResearchFile, isImageFile, isPdfFile, researchFolderPath } from "../s
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { addOpenWithPreviewItem, openScopeWithPreview } from "./preview-view.js";
 import { createFolderScope, createSelectionScope } from "../services/compile-scope.js";
-import type { ExportFormat } from "../services/compile-export.js";
 import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
 import { t } from "../i18n/index.js";
@@ -2269,7 +2268,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setIcon("download")
         .onClick(async () => {
           const { ExportModal } = await import("../ui/export-modal.js");
-          const { exportWithScope } = await import("../services/compile-export.js");
+          const { runExportWorkflow } = await import("../services/export-workflow.js");
 
           if (isGroup) {
             // Compiler la sélection (tous les fichiers sélectionnés)
@@ -2288,7 +2287,7 @@ export abstract class BaseFeuilletsView extends ItemView {
             });
             modal.setOnSubmit(async (format: string, name: string) => {
               const scope = createSelectionScope(projectRoot.path, selectedFiles.map((f) => f.path));
-              await exportWithScope(this.app, plugin.settings, scope, format as ExportFormat, name);
+              await runExportWorkflow(this.app, plugin, scope, format, name);
             });
             modal.open();
           } else {
@@ -2305,7 +2304,7 @@ export abstract class BaseFeuilletsView extends ItemView {
             });
             modal.setOnSubmit(async (format: string, name: string) => {
               const scope = createFileScope(projectRoot.path, file.path);
-              await exportWithScope(this.app, plugin.settings, scope, format as ExportFormat, name);
+              await runExportWorkflow(this.app, plugin, scope, format, name);
             });
             modal.open();
           }
@@ -2479,7 +2478,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setIcon("download")
         .onClick(async () => {
           const { ExportModal } = await import("../ui/export-modal.js");
-          const { exportWithScope } = await import("../services/compile-export.js");
+          const { runExportWorkflow } = await import("../services/export-workflow.js");
           const { createFolderScope } = await import("../services/compile-scope.js");
           const projectRoot = plugin.getProjectFolder();
           if (!projectRoot) {
@@ -2493,7 +2492,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           });
           modal.setOnSubmit(async (format: string, name: string) => {
             const scope = createFolderScope(projectRoot.path, folder.path);
-            await exportWithScope(this.app, plugin.settings, scope, format as ExportFormat, name);
+            await runExportWorkflow(this.app, plugin, scope, format, name);
           });
           modal.open();
         }));

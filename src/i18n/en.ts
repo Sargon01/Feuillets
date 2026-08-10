@@ -775,6 +775,17 @@ export const en = {
   "docxReview.trace.footnotesTransferred": "{count} footnote(s) transferred",
   "docxReview.trace.footnotesTransferredRenamed": "{count} footnote(s) transferred, {renamed} renamed",
 
+  // ---------- Book composition (edition-composition-view.js) — subsection of the Edition space (Phase 2, structural) ----------
+  "editionComposition.displayText": "Book composition",
+  "editionComposition.description": "Title page, front matter, table of contents, lists, bibliography, appendices and index.",
+
+  // ---------- Layout (edition-layout-view.js) — subsection of the Edition space (Phase 2, structural) ----------
+  "editionLayout.displayText": "Layout",
+  "editionLayout.description": "Template, typography, margins, headers and footers.",
+
+  // ---------- Export (edition-export-view.js) — subsection of the Edition space (Phase 1) ----------
+  "editionExport.displayText": "Export",
+
   // ---------- Editorial documents (edition-docs-view.js) — subsection of the Edition space ----------
   "editionDocs.displayText": "Editorial documents",
   "editionDocs.notCreatedBody": "No Edition folder for this project yet. Create it to prepare a synopsis, note of intent, biography, cover letter, and submission tracking.",

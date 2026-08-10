@@ -12,7 +12,8 @@ import { resolveExportTemplate, updateTemplateTitlePage } from "../services/expo
 import { paginateManuscript } from "../services/export-pdf.js";
 import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
-import { activePresetConfig, compile, exportFile, exportWithScope, resolvedFileTitleMarkdown } from "../services/compile-export.js";
+import { activePresetConfig, compile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
+import { rememberExportScope, runExportWorkflow } from "../services/export-workflow.js";
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
 import { compiledTitleFor, fmOf, shortTitleFor, stripFrontmatter } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
@@ -20,6 +21,7 @@ import { promptText } from "../ui/basic-modals.js";
 import { t } from "../i18n/index.js";
 import { mountTemplatePreview } from "../ui/template-preview.js";
 import { ExportPanel } from "../ui/export-panel.js";
+import { frontTitleCandidates } from "../ui/first-page-panel.js";
 import {
   applyBlockSourceMarkers,
   applySourceMarkers,
@@ -90,6 +92,9 @@ export type PreviewViewPlugin = {
   /* Optionnel : la vue reste utilisable avec un plugin minimal (tests),
      mais mémorise ses réglages dès que le vrai plugin est fourni. */
   saveSettings?(): Promise<void>;
+  /** Portée d'export de session, partagée avec le Binder et Édition — voir
+   * services/export-workflow.ts. */
+  activeExportScope?: CompileScope | null;
 };
 
 export type ZoomMode = "fit-width" | "fit-page" | "manual";
@@ -203,10 +208,11 @@ export function previewModeLabel(mode: PreviewMode): string {
 
 const MODE_ORDER: PreviewMode[] = ["scene", "chapter", "part", "manuscript"];
 
-/** Champs de la première page — définis dans export-panel.ts (panneau qui
- * les affiche et les édite) et réexportés ici pour compatibilité de l'API
+/** Champs de la première page — définis dans ui/first-page-panel.ts (Phase 3
+ * : composant qui les affiche et les édite désormais, monté par Édition →
+ * Composition de l'ouvrage) et réexportés ici pour compatibilité de l'API
  * publique de ce module. */
-export { previewFirstPageFields } from "../ui/export-panel.js";
+export { previewFirstPageFields } from "../ui/first-page-panel.js";
 
 /** Libellé de statut dépendant du mode : « à actualiser » n'a de sens que
  * là où l'actualisation est manuelle. */
@@ -342,11 +348,6 @@ export class PreviewView extends ItemView {
    * transmis. PreviewView continue de décider portée, actualisation et
    * export réel. */
   private exportPanel: ExportPanel | null = null;
-  /** Délégation pure vers le panneau Export, pour compatibilité de l'API
-   * publique de PreviewView (tests, éventuels appelants externes). */
-  get firstPageBodyEl(): HTMLElement | null {
-    return this.exportPanel?.firstPageBodyEl ?? null;
-  }
   statusEl: HTMLElement | null = null;
   followedEl: HTMLElement | null = null;
   /** Dernier menu ouvert — pour le refermer sur un double-clic de zoom. */
@@ -430,6 +431,7 @@ export class PreviewView extends ItemView {
   async setCompileScope(scope: CompileScope): Promise<void> {
     this.rememberScopedNavigation(scope);
     this.compileScope = scope;
+    rememberExportScope(this.plugin, scope);
     this.updateUI();
     await this.refreshPreview();
   }
@@ -614,9 +616,9 @@ export class PreviewView extends ItemView {
 
     this.exportPanelEl = view.createDiv({ cls: "feuillets-preview-export is-hidden" });
     this.exportPanel = new ExportPanel(this.app, this.plugin, this.exportPanelEl, {
-      getScopeLabel: () => this.scopeDisplayLabel(),
-      refreshPreview: () => this.refreshPreview(),
-      onExport: () => this.doExport(),
+      getScope: () => this.effectiveExportScope(),
+      onPresentationChanged: () => this.refreshPreview(),
+      embedded: false,
     });
     await this.exportPanel.render();
 
@@ -2394,12 +2396,14 @@ export class PreviewView extends ItemView {
     openFeuilletsExportSettings(this.app);
   }
 
-  /** Délégation pure vers le panneau Export (voir ui/export-panel.ts), pour
-   * compatibilité de l'API publique de PreviewView (tests, éventuels
-   * appelants externes). La logique elle-même — liste des feuillets Front
-   * « titre » — vit désormais dans ExportPanel.frontTitleCandidates(). */
+  /** Délégation vers la fonction libre du composant Première page (Phase 3,
+   * voir ui/first-page-panel.ts) : PreviewView a un vrai besoin d'exécution
+   * (décider si une page de titre générique doit être ajoutée au rendu, voir
+   * plus haut) indépendant de toute instance FirstPagePanel — plus aucune ne
+   * vit dans PreviewView, la sous-section ayant quitté ExportPanel pour
+   * Édition → Composition de l'ouvrage. */
   frontTitleCandidates(): TFile[] {
-    return this.exportPanel?.frontTitleCandidates() ?? [];
+    return frontTitleCandidates(this.app, this.plugin);
   }
 
   private async updateTitlePageStyles(change: (styles: Record<string, TitlePageStyle>) => void): Promise<void> {
@@ -2410,18 +2414,34 @@ export class PreviewView extends ItemView {
     await this.refreshPreview();
   }
 
-  private exportFileName(): string {
-    return activePresetConfig(this.plugin.settings).fileName || `${t("preview.export.defaultFileName")}.md`;
-  }
+  /** Traduit exactement l'état actuel de l'Aperçu en CompileScope — remplace
+   * l'ancien raisonnement d'export fondé sur `exportScopePath()`.
+   *
+   * Règles :
+   *  1. une portée CompileScope explicite (`this.compileScope`) prime
+   *     toujours ;
+   *  2. sans projet actif : `null` ;
+   *  3. mode Manuscrit : portée Projet ;
+   *  4. mode Scène : portée du feuillet actuellement utilisé par l'Aperçu ;
+   *  5. mode Chapitre/Partie : `scopeForMode()` — TFolder → portée Dossier,
+   *     TFile → portée Feuillet (Chapitre peut être un feuillet unique). */
+  effectiveExportScope(): CompileScope | null {
+    if (this.compileScope) return this.compileScope;
+    const root = this.plugin.getProjectFolder();
+    if (!root) return null;
+    if (this.mode === "manuscript") return createProjectScope(root.path);
 
-  private exportScopePath(): string | null {
-    if (this.mode === "manuscript") return null;
     const active = this.visibleFeuilletPath
       ? this.app.vault.getAbstractFileByPath(this.visibleFeuilletPath)
       : this.app.workspace.getActiveFile();
     if (!(active instanceof TFile)) return null;
-    if (this.mode === "scene") return active.path;
-    return this.scopeForMode(this.mode, active)?.path || null;
+
+    if (this.mode === "scene") return createFileScope(root.path, active.path);
+
+    const node = this.scopeForMode(this.mode, active);
+    if (node instanceof TFile) return createFileScope(root.path, node.path);
+    if (node instanceof TFolder) return createFolderScope(root.path, node.path);
+    return null;
   }
 
   get exportFormat(): string {
@@ -2429,42 +2449,14 @@ export class PreviewView extends ItemView {
     return typeof format === "string" && format ? format : "docx";
   }
 
-  /** Libellé de portée affiché dans le panneau Export. CompileScope avant
-   * tout ; le mode historique n'est qu'un repli quand aucune portée
-   * explicite n'est posée. */
-  private scopeDisplayLabel(): string {
-    const scope = this.compileScope;
-    if (scope) {
-      switch (scope.type) {
-        case "file":
-          return t("preview.scope.file");
-        case "folder":
-          return t("preview.scope.folder");
-        case "project":
-          return t("preview.scope.project");
-        case "selection":
-          return t("preview.scope.selection", { count: String(scope.paths.length) });
-      }
-    }
-    return previewModeLabel(this.mode);
-  }
-
+  /** Conservée pour compatibilité (tests, éventuels appelants externes) :
+   * délègue intégralement au workflow commun (services/export-workflow.ts),
+   * le même que Binder et Édition. N'appelle plus directement
+   * exportWithScope, exportFile, ni compile() pour exporter — compile()
+   * reste utilisé PAR AILLEURS dans cette classe pour construire l'Aperçu
+   * (collectSource), jamais retiré. */
   async doExport(): Promise<void> {
-    const format = this.exportFormat;
-    /* Portée explicite : on passe par exportWithScope, qui route chaque
-       format vers le même moteur que l'Aperçu — c'est LE point d'écriture
-       exclusif des fichiers de sortie. */
-    if (this.compileScope) {
-      const baseName = this.exportFileName().replace(/\.md$/i, "");
-      await exportWithScope(this.app, this.plugin.settings, this.compileScope, format as never, baseName);
-      return;
-    }
-    const scopePath = this.exportScopePath();
-    if (format === "md") {
-      await compile(this.app, this.plugin.settings, scopePath);
-      return;
-    }
-    await exportFile(this.app, this.plugin.settings, format, scopePath);
+    await runExportWorkflow(this.app, this.plugin, this.effectiveExportScope());
   }
 
   /* ========================== Barre d'outils ========================== */
@@ -2519,8 +2511,8 @@ export class PreviewView extends ItemView {
     this.openVisibleEl?.toggleClass("is-hidden", !canOpenVisible);
     this.openVisibleEl?.setAttribute("aria-hidden", canOpenVisible ? "false" : "true");
     /* Le libellé de portée du panneau Export suit la même portée que le
-       rendu et le fil d'Ariane (une seule source de vérité) ; ExportPanel
-       relit scopeDisplayLabel() via son callback getScopeLabel. */
+       rendu et le fil d'Ariane (une seule source de vérité) ; ExportPanel le
+       dérive lui-même de effectiveExportScope() via son callback getScope. */
     this.exportPanel?.refreshScopeLabel();
     this.renderBreadcrumb();
     const collapsed = this.barCollapsed;

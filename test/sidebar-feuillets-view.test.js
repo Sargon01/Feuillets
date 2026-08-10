@@ -63,6 +63,9 @@ function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels =
     project: createSubView("project", calls),
     docx: createSubView("docx", calls),
     editionDocs: createSubView("editionDocs", calls),
+    editionComposition: createSubView("editionComposition", calls),
+    editionLayout: createSubView("editionLayout", calls),
+    editionExport: createSubView("editionExport", calls),
     analyse: {
       ...createSubView("analyse", calls),
       _chaptersCache: "chapters",
@@ -146,13 +149,46 @@ test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné
   }
 });
 
-test("SidebarFeuilletsView rend Révision DOCX et les documents éditoriaux dans le nouvel onglet Édition", async () => {
+test("SidebarFeuilletsView rend les cinq sections de l'espace Édition dans l'ordre, dans un seul conteneur feuillets-edition-workspace", async () => {
   const { sidebar, calls } = createSidebar("project");
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
 
-  assert.deepEqual(calls.map((call) => call.name), ["editionDocs", "docx"]);
-  assert.equal(container.children.length, 2);
+  // Ordre Phase 2 : Documents éditoriaux → Composition de l'ouvrage → Mise
+  // en page → Exporter → Révision DOCX.
+  assert.deepEqual(
+    calls.map((call) => call.name),
+    ["editionDocs", "editionComposition", "editionLayout", "editionExport", "docx"]
+  );
+  assert.equal(container.children.length, 1, "un seul conteneur .feuillets-edition-workspace");
+  const workspace = container.children[0];
+  assert.ok(workspace.classes.has("feuillets-edition-workspace"));
+  assert.equal(workspace.children.length, 5, "les cinq sous-vues, sans wrapper feuillets-merged-section");
+});
+
+test("SidebarFeuilletsView : correctif alignement — les cinq sections partagent le même conteneur .feuillets-edition-section-container", async () => {
+  const { sidebar } = createSidebar("project");
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const workspace = container.children[0];
+  for (const sectionContainer of workspace.children) {
+    assert.ok(
+      sectionContainer.classes.has("feuillets-edition-section-container"),
+      "chaque sous-vue de l'espace Édition reçoit le conteneur frère commun"
+    );
+  }
+  assert.ok(
+    workspace.children[0].classes.has("is-first-edition-section"),
+    "seule la toute première section (Documents éditoriaux) porte is-first-edition-section"
+  );
+  for (const sectionContainer of workspace.children.slice(1)) {
+    assert.equal(
+      sectionContainer.classes.has("is-first-edition-section"),
+      false,
+      "les sections suivantes ne portent pas is-first-edition-section"
+    );
+  }
 });
 
 test("SidebarFeuilletsView ne rafraîchit au file-open que les onglets liés au feuillet", async () => {
@@ -184,10 +220,13 @@ test("SidebarFeuilletsView invalide les caches Analyse à la modification", asyn
   assert.equal(sidebar.subViews.notes.targetContainer, null);
 });
 
-test("SidebarFeuilletsView rend Révision DOCX et documents éditoriaux pour l'onglet Édition, une seule sous-vue pour les autres", async () => {
+test("SidebarFeuilletsView rend les cinq sous-vues de l'espace Édition, une seule sous-vue pour les autres onglets", async () => {
   const { sidebar, calls } = createSidebar("project");
   await sidebar.renderAllSubViews(true);
-  assert.deepEqual(calls.map((call) => call.name), ["docx", "editionDocs"]);
+  assert.deepEqual(
+    calls.map((call) => call.name),
+    ["docx", "editionDocs", "editionComposition", "editionLayout", "editionExport"]
+  );
 
   calls.length = 0;
   sidebar.activeTab = "research";
@@ -200,5 +239,8 @@ test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide san
   await sidebar.render();
 
   assert.equal(settings.activeRightPanelTab, "invalide");
-  assert.deepEqual(calls.map((call) => call.name), ["editionDocs", "docx"]);
+  assert.deepEqual(
+    calls.map((call) => call.name),
+    ["editionDocs", "editionComposition", "editionLayout", "editionExport", "docx"]
+  );
 });

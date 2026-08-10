@@ -2245,6 +2245,178 @@ body.feuillets-concentration
   opacity: 1;
 }
 
+/* ===================== Mode embedded (Édition, Phase 2) =====================
+   Même panneau, même DOM, même comportement — SEULE la géométrie change pour
+   tenir dans une barre latérale étroite : colonne unique plutôt que la
+   grille responsive pensée pour le grand panneau Aperçu. Le panneau Aperçu
+   (sans .is-embedded) garde exactement son rendu actuel, réglé ci-dessus. */
+.feuillets-preview-export.is-embedded {
+  margin-top: 0;
+  padding: 0;
+  border-bottom: none;
+  background: transparent;
+  gap: var(--size-4-3);
+}
+
+.feuillets-preview-export.is-embedded .feuillets-preview-export-main {
+  grid-template-columns: 1fr;
+  gap: var(--size-4-2);
+  padding: 0;
+}
+
+.feuillets-preview-export.is-embedded .feuillets-preview-export-label {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium, 500);
+  color: var(--text-muted);
+}
+
+/* Correctif compaction : select/input/valeur de portée en lecture seule
+   partagent tous la classe .feuillets-preview-export-control — ce bloc les
+   ramène à une hauteur et un habillage sobres, cohérents avec les petits
+   contrôles du reste du panneau latéral, au lieu des select trop massifs
+   observés en Édition. */
+.feuillets-preview-export.is-embedded .feuillets-preview-export-control {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  box-sizing: border-box;
+}
+
+.feuillets-preview-export.is-embedded .feuillets-preview-export-control:hover {
+  border-color: var(--interactive-accent);
+}
+
+.feuillets-preview-export.is-embedded .feuillets-preview-export-control:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+  box-shadow: none;
+}
+
+/* Éléments inclus : action secondaire normale, alignée comme les autres
+   contrôles — jamais un CTA (voir la correction de button[class*="export"]
+   dans le bloc d'harmonisation globale, plus bas). */
+.feuillets-preview-export.is-embedded .feuillets-preview-export-action-btn {
+  width: 100%;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--size-4-1);
+  padding: 0 8px;
+  color: var(--text-normal);
+  opacity: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  font-weight: 400;
+}
+
+.feuillets-preview-export.is-embedded .feuillets-preview-export-action-btn:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border);
+}
+
+/* ===================== Première page (Édition → Composition, Phase 3) =====
+   Sous-section repliable de EditionCompositionView, montée par
+   ui/first-page-panel.ts — ce composant n'appartient plus à Preview (voir
+   FirstPagePanel), d'où le nom .feuillets-first-page* plutôt que
+   preview-export-*. Il réutilise en interne les classes de contrôle
+   génériques du panneau Export pour ses champs (mêmes petits contrôles
+   compacts partout dans le plugin, sans dupliquer leur CSS) : ce bloc leur
+   donne, ICI SEULEMENT, le même habillage sobre que le mode embedded
+   d'ExportPanel — sans dépendre de l'ancêtre .feuillets-preview-export qui
+   n'existe pas à cet endroit. */
+.feuillets-first-page {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: var(--size-4-2);
+}
+
+.feuillets-first-page-summary {
+  cursor: pointer;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold, 600);
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) 0;
+}
+
+.feuillets-first-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding-top: var(--size-4-2);
+  margin-top: var(--size-4-1);
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-first-page-body .feuillets-preview-export-label {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium, 500);
+  color: var(--text-muted);
+}
+
+.feuillets-first-page-body .feuillets-preview-export-control {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  box-sizing: border-box;
+}
+
+.feuillets-first-page-body .feuillets-preview-export-control:hover {
+  border-color: var(--interactive-accent);
+}
+
+.feuillets-first-page-body .feuillets-preview-export-control:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+  box-shadow: none;
+}
+
+.feuillets-first-page-body .feuillets-preview-export-visual-btn {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 8px;
+}
+
+.feuillets-preview-export.is-embedded .feuillets-preview-export-details {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  padding: var(--size-4-2) 0 0;
+  margin-top: var(--size-4-1);
+}
+
+.feuillets-preview-export.is-embedded .feuillets-preview-export-footer {
+  border-top: none;
+  padding-top: var(--size-4-2);
+  margin-top: var(--size-4-1);
+}
+
+/* Seul accent visuel fort de la section embedded. */
+.feuillets-preview-export.is-embedded .feuillets-preview-export-launch {
+  width: 100%;
+  justify-content: center;
+  height: 30px;
+}
+
 .feuillets-preview-breadcrumb {
   display: flex;
   align-items: center;
@@ -3900,13 +4072,64 @@ body.feuillets-text-width
   box-shadow: none;
 }
 
-/* Onglet fusionné Export & révision : deux sous-vues empilées (voir
-   sidebar-feuillets-view.js, renderProjectTab) — séparateur visuel entre
-   les deux, pas de bordure sur la première. */
-.feuillets-merged-section + .feuillets-merged-section {
-  border-top: 1px solid var(--background-modifier-border);
-  margin-top: var(--size-4-3);
-  padding-top: var(--size-4-3);
+/* Espace Édition (Phase 2) : cinq sous-vues empilées (voir
+   sidebar-feuillets-view.js, renderProjectTab) dans un seul conteneur — le
+   séparateur entre sections vient de .feuillets-project-section elle-même
+   (bordure haute), pas d'un wrapper dédié.
+   Correctif alignement (2e passe) : le wrapper frère commun ne pose plus
+   AUCUN padding horizontal — poser le padding à ce niveau intermédiaire
+   était lui-même le niveau de retrait en trop. Le padding horizontal des
+   cinq sections vit désormais exclusivement au même niveau DOM que
+   Documents éditoriaux/Révision DOCX l'ont toujours fait : sur la classe
+   propre à chaque sous-vue (.feuillets-edition-docs-container,
+   .feuillets-docx-review-container, .feuillets-edition-composition-
+   container, .feuillets-edition-layout-container, .feuillets-edition-
+   export-container — règle commune plus bas). */
+.feuillets-edition-workspace {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+/* Conteneur frère commun aux cinq sous-vues de l'espace Édition (posé par
+   renderProjectTab en plus de la classe propre à chaque sous-vue, sur le
+   même élément) : sert uniquement de point d'ancrage pour l'espacement
+   vertical haut/bas de l'espace (règles is-first-edition-section /
+   :last-child ci-dessous) — plus aucun padding horizontal ici. */
+.feuillets-edition-section-container {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+}
+
+.feuillets-edition-section-container.is-first-edition-section {
+  padding-top: var(--size-4-2);
+}
+
+.feuillets-edition-workspace > .feuillets-edition-section-container:last-child {
+  padding-bottom: var(--size-4-4);
+}
+
+/* La toute première section de l'espace ne doit pas porter de bordure/
+   marge haute inutile — ciblée directement via .is-first-edition-section
+   (posée explicitement par renderProjectTab) plutôt que *:first-child, pour
+   ne pas dépendre du nombre de wrappers intermédiaires. */
+.feuillets-edition-workspace > .is-first-edition-section > .feuillets-project-section {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
+}
+
+/* Ligne descriptive discrète des sections encore vides structurellement
+   (Composition de l'ouvrage, Mise en page — Phase 2) : pas de boîte, pas de
+   fond, juste un texte muted. */
+.feuillets-edition-section-description {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: var(--size-4-1) 0;
 }
 
 .feuillets-container {
@@ -4061,13 +4284,16 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   outline: none;
 }
 
-/* Bouton Exporter minimaliste pilule contour */
+/* Bouton Exporter minimaliste pilule contour — classes EXPLICITES
+   uniquement (Phase 2) : l'ancien `button[class*="export"]` traitait
+   n'importe quel bouton dont la classe contient « export » (Éléments
+   inclus, Régler visuellement…) comme un CTA pleine largeur. */
 .feuillets-sidebar-content button.feuillets-export-cta,
 .feuillets-sidebar-content .feuillets-compile-export-btn,
-.feuillets-sidebar-content button[class*="export"],
+.feuillets-sidebar-content .feuillets-preview-export-launch,
 .feuillets-sidebar-container button.feuillets-export-cta,
 .feuillets-sidebar-container .feuillets-compile-export-btn,
-.feuillets-sidebar-container button[class*="export"] {
+.feuillets-sidebar-container .feuillets-preview-export-launch {
   background: transparent;
   border: 1px solid var(--interactive-accent);
   color: var(--interactive-accent);
@@ -4085,10 +4311,10 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 
 .feuillets-sidebar-content button.feuillets-export-cta:hover,
 .feuillets-sidebar-content .feuillets-compile-export-btn:hover,
-.feuillets-sidebar-content button[class*="export"]:hover,
+.feuillets-sidebar-content .feuillets-preview-export-launch:hover,
 .feuillets-sidebar-container button.feuillets-export-cta:hover,
 .feuillets-sidebar-container .feuillets-compile-export-btn:hover,
-.feuillets-sidebar-container button[class*="export"]:hover {
+.feuillets-sidebar-container .feuillets-preview-export-launch:hover {
   background: var(--interactive-accent);
   color: var(--text-on-accent, #ffffff);
 }
@@ -4127,10 +4353,10 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-tree-pane .is-active,
 .feuillets-sidebar-content .feuillets-compile-export-btn,
 .feuillets-sidebar-content button.feuillets-export-cta,
-.feuillets-sidebar-content button[class*="export"],
+.feuillets-sidebar-content .feuillets-preview-export-launch,
 .feuillets-sidebar-container .feuillets-compile-export-btn,
 .feuillets-sidebar-container button.feuillets-export-cta,
-.feuillets-sidebar-container button[class*="export"],
+.feuillets-sidebar-container .feuillets-preview-export-launch,
 .feuillets-search-bar button.feuillets-btn-replace-all,
 .feuillets-search-bar button.feuillets-replace-all-btn,
 .feuillets-search-bar button[class*="replace"],
@@ -4150,8 +4376,8 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 /* Effet survol (Hover) unifié à 30 % */
 .feuillets-list-pane .feuillets-item.is-active:hover,
 .feuillets-tree-pane .is-selected:hover,
-.feuillets-sidebar-content button[class*="export"]:hover,
-.feuillets-sidebar-container button[class*="export"]:hover,
+.feuillets-sidebar-content .feuillets-preview-export-launch:hover,
+.feuillets-sidebar-container .feuillets-preview-export-launch:hover,
 .feuillets-search-bar button[class*="replace"]:hover,
 .modal .feuillets-btn-primary:hover,
 .modal button.mod-cta:hover {
@@ -4161,10 +4387,10 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 /* Formatage structurel du bouton Exporter (Pleine largeur) */
 .feuillets-sidebar-content .feuillets-compile-export-btn,
 .feuillets-sidebar-content button.feuillets-export-cta,
-.feuillets-sidebar-content button[class*="export"],
+.feuillets-sidebar-content .feuillets-preview-export-launch,
 .feuillets-sidebar-container .feuillets-compile-export-btn,
 .feuillets-sidebar-container button.feuillets-export-cta,
-.feuillets-sidebar-container button[class*="export"] {
+.feuillets-sidebar-container .feuillets-preview-export-launch {
   display: block;
   width: 100%;
   margin-top: var(--size-4-4);
@@ -4181,11 +4407,16 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   cursor: pointer;
 }
 
-/* 2. NEUTRALISATION ET TRANSPARENCE TOTALE DES ICÔNES SECONDAIRES (Y COMPRIS AU SURVOL) */
+/* 2. NEUTRALISATION ET TRANSPARENCE TOTALE DES ICÔNES SECONDAIRES (Y COMPRIS AU SURVOL)
+   Négation par classes EXPLICITES (Phase 2) : les seuls boutons CTA Export
+   sont .feuillets-export-cta / .feuillets-compile-export-btn /
+   .feuillets-preview-export-launch — tout le reste (Éléments inclus,
+   Régler visuellement, Actualiser, fermer…) est une action secondaire
+   normale, même si sa classe contient le mot « export ». */
 .feuillets-sidebar-tab-bar .feuillets-tab-btn,
 .feuillets-sidebar-tab-bar button,
-.feuillets-sidebar-content button:not([class*="export"]),
-.feuillets-sidebar-container button:not([class*="export"]),
+.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch),
+.feuillets-sidebar-container button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch),
 .feuillets-sidebar-content .clickable-icon,
 .feuillets-search-bar .feuillets-search-settings-btn,
 .feuillets-search-bar .feuillets-search-icon-btn,
@@ -4201,7 +4432,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-sidebar-tab-bar .feuillets-tab-btn:hover,
-.feuillets-sidebar-content button:not([class*="export"]):hover,
+.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):hover,
 .feuillets-sidebar-content .clickable-icon:hover,
 .feuillets-search-bar .feuillets-search-settings-btn:hover,
 .feuillets-search-bar .feuillets-search-icon-btn:hover,
@@ -5381,19 +5612,20 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
    (icône + contenu + boutons icône au survol, comme .feuillets-project-row),
    .feuillets-research-section/-list pour le regroupement par feuillet,
    renderCollapsibleHead pour les en-têtes (voir docx-review-view.js). */
-.feuillets-docx-review-container {
-  /* Même padding horizontal que .feuillets-project-container : les deux
-     partagent maintenant l'onglet "Export & révision" l'un sous l'autre
-     (voir renderProjectTab, sidebar-feuillets-view.js) — un padding
-     différent les décalait visuellement l'un par rapport à l'autre. */
-  padding: var(--size-4-2) 10px 10px;
-}
-
-/* Documents éditoriaux (edition-docs-view.js) — même padding que
-   .feuillets-docx-review-container juste au-dessus, dans le même onglet
-   "Édition" (voir renderProjectTab, sidebar-feuillets-view.js). */
-.feuillets-edition-docs-container {
-  padding: var(--size-4-2) 10px 10px;
+/* Padding horizontal unique des cinq sections de l'espace Édition (2e
+   correctif d'alignement) : posé directement sur la classe propre à chaque
+   sous-vue — le même niveau DOM que Documents éditoriaux/Révision DOCX
+   l'ont toujours utilisé — plutôt que sur un wrapper intermédiaire. Les
+   cinq classes doivent rester STRICTEMENT identiques ici ; toute valeur
+   différente sur l'une d'elles recrée le décalage. */
+.feuillets-edition-docs-container,
+.feuillets-docx-review-container,
+.feuillets-edition-composition-container,
+.feuillets-edition-layout-container,
+.feuillets-edition-export-container {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 10px;
 }
 
 .feuillets-edition-docs-empty {

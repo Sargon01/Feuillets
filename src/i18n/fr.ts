@@ -775,6 +775,17 @@ export const fr = {
   "docxReview.trace.footnotesTransferred": "{count} note(s) de bas de page transférée(s)",
   "docxReview.trace.footnotesTransferredRenamed": "{count} note(s) de bas de page transférée(s), dont {renamed} renommée(s)",
 
+  // ---------- Composition de l'ouvrage (edition-composition-view.js) — sous-section de l'espace Édition (Phase 2, structurelle) ----------
+  "editionComposition.displayText": "Composition de l’ouvrage",
+  "editionComposition.description": "Première page, pages liminaires, sommaire, tables, bibliographie, annexes et index.",
+
+  // ---------- Mise en page (edition-layout-view.js) — sous-section de l'espace Édition (Phase 2, structurelle) ----------
+  "editionLayout.displayText": "Mise en page",
+  "editionLayout.description": "Gabarit, typographie, marges, en-têtes et pieds de page.",
+
+  // ---------- Exporter (edition-export-view.js) — sous-section de l'espace Édition (Phase 1) ----------
+  "editionExport.displayText": "Exporter",
+
   // ---------- Documents éditoriaux (edition-docs-view.js) — sous-section de l'espace Édition ----------
   "editionDocs.displayText": "Documents éditoriaux",
   "editionDocs.notCreatedBody": "Aucun dossier Edition pour ce projet. Crée-le pour préparer synopsis, note d'intention, biographie, lettre d'accompagnement et suivi des envois.",
