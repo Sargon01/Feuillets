@@ -2,6 +2,16 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.0.4
+
+### Maintenance et conformité
+
+- Suppression des derniers avertissements de la Community Review Obsidian.
+- Remplacement des créations DOM signalées dans les services d’export.
+- Suppression d’une assertion TypeScript redondante.
+- Réduction des accès globaux au coffre sans limiter l’association de dossiers de Recherche externes au projet.
+- Aucun changement fonctionnel des exports, de la revue DOCX ou du flux d’écriture.
+
 ## 2.0.3
 
 ### Maintenance et conformité
