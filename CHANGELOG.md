@@ -2,6 +2,12 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.0.5
+
+### Maintenance
+
+- Suppression du dernier avertissement signalé par la Community Review Obsidian.
+
 ## 2.0.4
 
 ### Maintenance et conformité
