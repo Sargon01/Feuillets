@@ -3691,6 +3691,109 @@ test("compileScope — affichage d'une portée project explicite assemblée en m
   assert.ok(idx1 < idx2, "l'ordre du Binder doit être conservé");
 }));
 
+/* ------ Synchronisation de l'Aperçu selon la portée CompileScope réelle ---
+   CompileScope, quand elle est posée, prime TOUJOURS sur `previewMode` pour
+   décider si l'Aperçu doit détecter/ouvrir automatiquement le feuillet visible
+   pendant un rendu long (Dossier/Projet) — y compris si `previewMode` vaut
+   encore "scene", ce qui était précisément le bug : le rendu affichait un
+   dossier ou le projet, mais le scroll restait câblé sur l'ancien mode. */
+for (const scopeType of ["folder", "project"]) {
+  test(`compileScope ${scopeType} — le feuillet visible s'ouvre automatiquement après le scroll même si previewMode vaut "scene"`, withBlockRender(async (dom) => {
+    const { view, app, viewport, chapterDir } = await openLoadedView("scene");
+    const scope = scopeType === "folder"
+      ? { type: "folder", projectRoot: "Manuscrit", path: chapterDir.path }
+      : { type: "project", projectRoot: "Manuscrit" };
+
+    await view.setCompileScope(scope);
+    await flush();
+    fireLoad(placeFrame(latestFrame(view.scaledContainer), viewport));
+
+    const marks = view.previewFrame.contentDocument.querySelectorAll("[data-source-path]");
+    assert.equal(marks.length, 2, "les deux scènes du dossier/projet doivent être repérées");
+    marks.forEach((mark, index) => {
+      mark.offsetTop = 0;
+      mark._rectTop = index * 1000;
+    });
+    view.naturalPagesHeight = marks.length * 1000;
+    viewport.clientHeight = 700;
+    view.setZoom(1.3, "manual");
+
+    const opened = [];
+    const editorHost = element("div");
+    const editor = editorHost.createDiv({ cls: "cm-scroller" });
+    editor.scrollHeight = 2000;
+    editor.clientHeight = 600;
+    const leaf = {
+      view: { file: null, contentEl: editorHost },
+      openFile: async (file, options) => {
+        opened.push({ file, options });
+        leaf.view.file = file;
+      },
+    };
+    app.workspace.getLeaf = () => leaf;
+    let focused = 0;
+    app.workspace.setActiveLeaf = () => { focused++; };
+
+    viewport.scrollTop = 1500; // au-delà de la première scène (0-1000) : vise la seconde
+    const expectedPath = view.visibleFeuilletPathAtViewport();
+    assert.equal(expectedPath, "Manuscrit/Chapitre 1/02-scene.md", "le deuxième feuillet doit être sous les yeux");
+    const generationBefore = view.refreshGeneration;
+    const compiles = countCompiles(app);
+
+    viewport.dispatch("scroll");
+    assert.equal(view.visibleFeuilletPath, expectedPath, "le feuillet visible est détecté pendant le scroll");
+    dom.runTimers(); // écoule le délai d'ouverture automatique
+    await flush();
+
+    assert.equal(opened.length, 1, "le feuillet visible s'ouvre automatiquement après l'arrêt du scroll");
+    assert.equal(opened[0].file.path, expectedPath);
+    assert.deepEqual(opened[0].options, { active: false }, "l'ouverture automatique ne vole jamais le focus");
+    assert.equal(focused, 0, "aucun appel à setActiveLeaf : le focus reste où il était");
+    assert.equal(view.synchronizedFeuilletPath, expectedPath);
+    assert.equal(view.syncScroller, editor, "l'éditeur ouvert devient la source suivie");
+    assert.notEqual(editor.scrollTop, 0, "l'éditeur est aligné sur la position lue dans l'aperçu");
+
+    assert.deepEqual(view.compileScope, scope, `compileScope reste ${scopeType}, jamais transformé`);
+    assert.equal(view.mode, "scene", "previewMode historique n'est jamais modifié par ce suivi");
+    assert.equal(view.zoomScale, 1.3, "zoom inchangé");
+    assert.equal(view.refreshGeneration, generationBefore, "aucun nouveau rendu déclenché par le scroll/l'ouverture");
+    assert.equal(compiles(), 0, "aucune compilation déclenchée par le scroll/l'ouverture");
+  }));
+}
+
+test("compileScope file — garde le comportement d'un feuillet unique même si previewMode est Chapitre", withRender(async () => {
+  const { view, sceneFile } = await openLoadedView("chapter");
+
+  await view.setCompileScope({ type: "file", projectRoot: "Manuscrit", path: sceneFile.path });
+  await flush();
+
+  assert.equal(view.compileScope.type, "file");
+  assert.equal(view.mode, "chapter", "previewMode n'est jamais changé par une portée CompileScope");
+  assert.equal(view.syncScrollEnabled, true, "une portée file synchronise en continu, comme un feuillet unique");
+  assert.equal(view.isLongFormPreview, false, "une portée file n'entre jamais dans le suivi long format Dossier/Projet");
+  assert.equal(view.isAutoOpenPreview, false);
+  assert.equal(view.openVisibleEl.hasClass("is-hidden"), true, "« Ouvrir ce feuillet » n'a pas de sens pour un feuillet unique");
+}));
+
+test("compileScope selection — ne gagne pas le suivi long format de Dossier/Projet", withRender(async () => {
+  const { view, sceneFile, sceneFile2 } = await openLoadedView("scene");
+
+  await view.setCompileScope({ type: "selection", projectRoot: "Manuscrit", paths: [sceneFile.path, sceneFile2.path] });
+  await flush();
+
+  assert.equal(view.compileScope.type, "selection");
+  assert.equal(
+    view.isLongFormPreview,
+    false,
+    "une sélection ne bascule jamais dans le suivi long format, contrairement à Dossier/Projet"
+  );
+  assert.equal(view.isAutoOpenPreview, false);
+  // Comportement historique inchangé : sans branche dédiée, la sélection
+  // retombe sur previewMode, exactement comme avant ce chantier.
+  assert.equal(view.syncScrollEnabled, true, "repli sur previewMode (\"scene\") : comportement inchangé pour une sélection");
+  assert.equal(view.openVisibleEl.hasClass("is-hidden"), true);
+}));
+
 test("compileScope — sélection multiple non contiguë dans des dossiers différents (un.md et trois.md)", withCapture(async (_dom, rendered) => {
   const { view } = await openLoadedView("manuscript");
   let writeCalled = false;

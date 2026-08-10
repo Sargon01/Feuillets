@@ -463,9 +463,45 @@ export class PreviewView extends ItemView {
   }
 
   /** Le suivi est actif soit pour la compatibilité de l'ancien mode
-   * Feuillet, soit après « Ouvrir ce feuillet » depuis une portée longue. */
+   * Feuillet, soit après « Ouvrir ce feuillet » depuis une portée longue.
+   *
+   * Quand une portée CompileScope est posée, c'est ELLE qui décide, jamais
+   * `previewMode` (qui peut valoir n'importe quoi, y compris "scene", pendant
+   * qu'un dossier ou le projet est affiché) :
+   *  - Dossier/Projet : rendu long — le suivi continu ne démarre qu'après un
+   *    « Ouvrir ce feuillet » explicite, exactement comme Chapitre/Partie/
+   *    Manuscrit historiques.
+   *  - Feuillet : comportement d'un feuillet unique, suivi continu.
+   *  - Sélection : inchangé dans ce chantier — repli sur `previewMode`. */
   get syncScrollEnabled(): boolean {
+    const scope = this.compileScope;
+    if (scope) {
+      if (scope.type === "folder" || scope.type === "project") return this.synchronizedFeuilletPath !== null;
+      if (scope.type === "file") return true;
+    }
     return this.mode === "scene" || this.synchronizedFeuilletPath !== null;
+  }
+
+  /** Vrai quand l'aperçu affiche un contenu à défilement long où plusieurs
+   * feuillets se succèdent — sert à détecter le feuillet visible pendant le
+   * scroll. Une portée CompileScope, quand elle existe, prime sur
+   * `previewMode` : Dossier et Projet s'y comportent à l'identique (règle 3),
+   * une Sélection ou un Feuillet n'y entrent jamais. Sans portée, comportement
+   * historique inchangé (Chapitre/Partie/Manuscrit). */
+  private get isLongFormPreview(): boolean {
+    const scope = this.compileScope;
+    if (scope) return scope.type === "folder" || scope.type === "project";
+    return this.mode === "chapter" || this.mode === "part" || this.mode === "manuscript";
+  }
+
+  /** Sous-ensemble de `isLongFormPreview` qui déclenche en plus l'ouverture
+   * automatique du feuillet visible après l'arrêt du scroll. Historiquement
+   * réservé à Partie/Manuscrit (Chapitre ne l'a jamais fait) ; les portées
+   * Dossier/Projet en héritent intégralement (règles 2 et 3). */
+  private get isAutoOpenPreview(): boolean {
+    const scope = this.compileScope;
+    if (scope) return scope.type === "folder" || scope.type === "project";
+    return this.mode === "part" || this.mode === "manuscript";
   }
 
   /* ----------------------- Barre masquable --------------------------- */
@@ -1661,8 +1697,8 @@ export class PreviewView extends ItemView {
     // jour source → aperçu qui vient justement de le provoquer.
     const programmatic = this.syncingFromEditor;
     if (!programmatic) this.lastPreviewScrollAt = Date.now();
-    if (this.mode === "chapter" || this.mode === "part" || this.mode === "manuscript") this.scheduleVisibleFeuilletUpdate();
-    if (!programmatic && (this.mode === "part" || this.mode === "manuscript")) this.scheduleAutoOpenVisibleFeuillet();
+    if (this.isLongFormPreview) this.scheduleVisibleFeuilletUpdate();
+    if (!programmatic && this.isAutoOpenPreview) this.scheduleAutoOpenVisibleFeuillet();
     if (!this.syncScrollEnabled) return;
     if (programmatic) return;
     this.scheduleSync(() => this.applyPreviewToSource());
@@ -1711,7 +1747,7 @@ export class PreviewView extends ItemView {
     if (this.autoOpenVisibleTimer !== null) window.clearTimeout(this.autoOpenVisibleTimer);
     this.autoOpenVisibleTimer = window.setTimeout(() => {
       this.autoOpenVisibleTimer = null;
-      if (this.closed || (this.mode !== "part" && this.mode !== "manuscript")) return;
+      if (this.closed || !this.isAutoOpenPreview) return;
       const path = this.visibleFeuilletPathAtViewport();
       if (!path || path === this.synchronizedFeuilletPath) return;
       void this.openVisibleFeuillet({ focusEditor: false, alignFromPreview: true });
@@ -1720,7 +1756,7 @@ export class PreviewView extends ItemView {
 
   /** Détermine le feuillet lu au tiers supérieur du viewport, sans rendu. */
   private updateVisibleFeuillet(): void {
-    if (this.mode !== "chapter" && this.mode !== "part" && this.mode !== "manuscript") return;
+    if (!this.isLongFormPreview) return;
     const path = this.visibleFeuilletPathAtViewport();
     if (path === this.visibleFeuilletPath) return;
     this.visibleFeuilletPath = path;
@@ -2344,7 +2380,7 @@ export class PreviewView extends ItemView {
       this.zoomLabelEl.setAttribute("aria-label", label);
       this.zoomLabelEl.setAttribute("title", label);
     }
-    const canOpenVisible = (this.mode === "chapter" || this.mode === "part" || this.mode === "manuscript") && !!this.visibleFeuilletPath;
+    const canOpenVisible = this.isLongFormPreview && !!this.visibleFeuilletPath;
     this.openVisibleEl?.toggleClass("is-hidden", !canOpenVisible);
     this.openVisibleEl?.setAttribute("aria-hidden", canOpenVisible ? "false" : "true");
     /* Le libellé de portée du panneau Export suit la même portée que le
@@ -2375,7 +2411,7 @@ export class PreviewView extends ItemView {
   private async openVisibleFeuillet(
     { focusEditor = true, alignFromPreview = false }: { focusEditor?: boolean; alignFromPreview?: boolean } = {}
   ): Promise<void> {
-    if (this.mode !== "chapter" && this.mode !== "part" && this.mode !== "manuscript") return;
+    if (!this.isLongFormPreview) return;
     // Ne jamais réemployer l'état affiché : la cible est relue depuis la
     // section `data-source-path` effectivement sous les yeux au clic.
     const path = this.visibleFeuilletPathAtViewport();
