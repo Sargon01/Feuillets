@@ -1071,11 +1071,22 @@
 
 body.feuillets-indent
   .workspace-leaf-content[data-type="markdown"]
-  .markdown-preview-view p,
+  .markdown-preview-view p::before,
 body.feuillets-indent
   .workspace-leaf-content[data-type="markdown"]
-  .markdown-rendered p {
-  text-indent: 1.5em;
+  .markdown-rendered p::before {
+  content: "";
+  display: inline-block;
+  width: 1.5em;
+}
+
+body.feuillets-indent
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-preview-view p.feuillets-empty-paragraph::before,
+body.feuillets-indent
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-rendered p.feuillets-empty-paragraph::before {
+  display: none;
 }
 
 body.feuillets-indent
@@ -1087,21 +1098,14 @@ body.feuillets-indent
   --p-spacing: 0px !important;
 }
 
-/* PERFORMANCE : la version précédente chaînait six :not() sur chaque
-   .cm-line, réévalués à chaque frappe. Règle générale + remises à zéro
-   par classe simple : même résultat, évaluation bien plus légère. */
-body.feuillets-indent
-  .workspace-leaf-content[data-type="markdown"]
-  .markdown-source-view.mod-cm6 .cm-line {
-  text-indent: 1.5em;
+/* alinéa en Live Preview via widget CodeMirror */
+.feuillets-indent-widget {
+  display: inline-block;
+  width: 1.5em;
 }
-body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-header,
-body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-list-line,
-body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-quote,
-body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock,
-body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.cm-hmd-frontmatter,
-body.feuillets-indent .workspace-leaf-content[data-type="markdown"] .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row {
-  text-indent: 0;
+
+body:not(.feuillets-indent) .feuillets-indent-widget {
+  display: none;
 }
 
 /* barre d'état : mots / objectif */
@@ -2425,27 +2429,18 @@ body.feuillets-concentration
 
 /* ===== typographie à la frappe : affichage des lignes vides ===== */
 
-/* invisible : les lignes vides disparaissent visuellement (fichier intact),
-   sauf la ligne active pour pouvoir y travailler */
 body.feuillets-lignesvides-invisible
   .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6.is-live-preview
-  .cm-line:has(> br) {
+  .cm-line.feuillets-empty-line:not(.cm-active) {
   display: none;
-}
-
-body.feuillets-lignesvides-invisible
-  .workspace-leaf-content[data-type="markdown"]
-  .markdown-source-view.mod-cm6.is-live-preview
-  .cm-active:has(> br) {
-  display: block !important;
 }
 
 /* réduit : les lignes vides deviennent fines */
 body.feuillets-lignesvides-reduit
   .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6.is-live-preview
-  .cm-line:has(> br) {
+  .cm-line.feuillets-empty-line {
   height: 0.6rem;
 }
 
@@ -2517,22 +2512,22 @@ body.feuillets-lecture-comme-live .workspace-leaf-content[data-type="markdown"] 
 body.feuillets-lignesvides-invisible
   .workspace-leaf-content[data-type="markdown"]
   .markdown-preview-view
-  p:has(> br:only-child),
+  p.feuillets-empty-paragraph,
 body.feuillets-lignesvides-invisible
   .workspace-leaf-content[data-type="markdown"]
   .markdown-rendered
-  p:has(> br:only-child) {
+  p.feuillets-empty-paragraph {
   display: none !important;
 }
 
 body.feuillets-lignesvides-reduit
   .workspace-leaf-content[data-type="markdown"]
   .markdown-preview-view
-  p:has(> br:only-child),
+  p.feuillets-empty-paragraph,
 body.feuillets-lignesvides-reduit
   .workspace-leaf-content[data-type="markdown"]
   .markdown-rendered
-  p:has(> br:only-child) {
+  p.feuillets-empty-paragraph {
   line-height: 0.6rem !important;
   margin: 0 !important;
   height: 0.6rem !important;
@@ -6065,21 +6060,8 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   margin: var(--size-4-1) 0;
 }
 
-/* Distinction par la FORME du trait, pas seulement la couleur — rouge et
-   orange (les deux teintes utilisées ici) sont la confusion la plus fréquente
-   chez les daltoniens (deutéranomalie/protanomalie) : la couleur seule ne
-   suffit pas à distinguer les deux types de signalement. */
 .feuillets-grammar-underline {
-  text-decoration-thickness: 1.5px;
   text-underline-offset: 3px;
-}
-
-.feuillets-grammar-underline-grammar {
-  text-decoration: underline wavy var(--color-blue, #3b82f6);
-}
-
-.feuillets-grammar-underline-spelling {
-  text-decoration: underline wavy var(--text-error, red);
 }
 
 .feuillets-grammar-row-flash {
@@ -6224,7 +6206,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-diff-added {
   background-color: rgba(46, 204, 113, 0.25);
   color: var(--text-normal);
-  text-decoration: underline var(--color-green, #2ecc71);
   border-radius: 2px;
   padding: 0 2px;
 }
@@ -6232,7 +6213,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-diff-removed {
   background-color: rgba(231, 76, 60, 0.25);
   color: var(--text-muted);
-  text-decoration: line-through var(--color-red, #e74c3c);
   border-radius: 2px;
   padding: 0 2px;
 }
@@ -6757,7 +6737,12 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 
 .feuillets-pdf-sheet-body p {
   margin-bottom: var(--size-4-2);
-  text-indent: 1.2em;
+}
+
+.feuillets-pdf-sheet-body p::before {
+  content: "";
+  display: inline-block;
+  width: 1.2em;
 }
 
 .feuillets-pdf-sheet-footer {

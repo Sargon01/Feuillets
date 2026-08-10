@@ -85,6 +85,8 @@ import { FileStatsModal } from "./ui/stats-modal.js";
 
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
+import { emptyLinesPlugin } from "./utils/cm-empty-lines.js";
+import { paragraphIndentPlugin } from "./utils/cm-paragraph-indent.js";
 import {
   grammarIssuesField,
   grammarContextMenuExtension,
@@ -339,6 +341,20 @@ class FeuilletsPlugin extends Plugin {
     this.registerAutoBackup();
     this.registerEditorExtension(searchHighlightField);
     this.registerEditorExtension([grammarIssuesField, grammarContextMenuExtension(this)]);
+    this.registerEditorExtension(emptyLinesPlugin);
+    this.registerEditorExtension(paragraphIndentPlugin);
+
+    this.registerMarkdownPostProcessor((element) => {
+      const paragraphs = element.matches("p")
+        ? [element as HTMLParagraphElement]
+        : Array.from(element.querySelectorAll<HTMLParagraphElement>("p"));
+
+      for (const p of paragraphs) {
+        if (p.children.length === 1 && p.firstElementChild?.tagName === "BR" && p.textContent?.trim() === "") {
+          p.classList.add("feuillets-empty-paragraph");
+        }
+      }
+    });
 
     cleanupLegacyEnginesOnDisk(this.app, this.manifest);
 
