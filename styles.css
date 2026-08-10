@@ -1615,7 +1615,7 @@ body:not(.feuillets-indent) .feuillets-indent-widget {
 body.feuillets-concentration .workspace-ribbon.mod-left,
 body.feuillets-concentration .workspace-tab-header-container,
 body.feuillets-concentration .status-bar {
-  display: none !important;
+  display: none;
 }
 
 /* estompage : par défaut tout est atténué, seule la zone de focus reste nette */
@@ -2152,9 +2152,9 @@ body.feuillets-concentration
 .feuillets-preview-export .clickable-icon:hover,
 .feuillets-preview-export .clickable-icon:focus,
 .feuillets-preview-export .clickable-icon:active {
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   outline: 0;
 }
 
@@ -2281,19 +2281,19 @@ body.feuillets-concentration
 .feuillets-preview-view .feuillets-preview-breadcrumb-item:active,
 .feuillets-preview-view .feuillets-preview-breadcrumb-item.is-current,
 .feuillets-preview-view .feuillets-preview-breadcrumb-item[aria-current="page"] {
-  background: none !important;
-  box-shadow: none !important;
-  border: none !important;
+  background: none;
+  box-shadow: none;
+  border: none;
   outline: none;
 }
 
-.feuillets-preview-open-visible:hover,
-.feuillets-preview-open-visible:focus,
-.feuillets-preview-open-visible:focus-visible,
-.feuillets-preview-open-visible:active {
-  background: none !important;
-  box-shadow: none !important;
-  border: none !important;
+.feuillets-preview-view .feuillets-preview-open-visible:hover,
+.feuillets-preview-view .feuillets-preview-open-visible:focus,
+.feuillets-preview-view .feuillets-preview-open-visible:focus-visible,
+.feuillets-preview-view .feuillets-preview-open-visible:active {
+  background: none;
+  box-shadow: none;
+  border: none;
   outline: none;
 }
 
@@ -3866,17 +3866,9 @@ body.feuillets-transparent-panels .feuillets-sidebar-container {
 body.feuillets-transparent-tabbar .workspace-tab-header-container,
 body.feuillets-transparent-tabbar .workspace-tab-header-container-inner,
 body.feuillets-transparent-tabbar .workspace-tab-header {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-/* Réglage "Masquer le sélecteur de coffre" (settings.uiHideVaultSwitcher) :
-   nom du vault + accès aux réglages/changement de vault, en bas du binder.
-   Élément natif d'Obsidian, pas de vault.getConfig équivalent — même
-   sélecteur que le plugin Hider. */
-body.feuillets-hide-vault-switcher .workspace-sidedock-vault-profile {
-  display: none !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 /* Réglage "Estomper les icônes d'action des onglets" (settings.
@@ -3886,11 +3878,11 @@ body.feuillets-hide-vault-switcher .workspace-sidedock-vault-profile {
    plutôt que de cibler un bouton précis. Même motif que les boutons des
    panneaux Feuillets ci-dessous (opacité réduite, pleine au survol). */
 body.feuillets-dim-tab-actions .workspace-tab-header-inner-icon {
-  opacity: 0.25 !important;
-  transition: opacity 0.2s ease !important;
+  opacity: 0.25;
+  transition: opacity 0.2s ease;
 }
 body.feuillets-dim-tab-actions .workspace-tab-header-container:hover .workspace-tab-header-inner-icon {
-  opacity: 1 !important;
+  opacity: 1;
 }
 /* Onglets du panneau latéral Feuillets (Binder/Tableau/Notes/Recherche…) :
    même traitement, sauf l'onglet actif (déjà mis en avant par sa propre
@@ -3940,8 +3932,8 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-sidebar-content .clickable-icon,
 .feuillets-sidebar-container .clickable-icon,
 .feuillets-section-header button {
-  opacity: 0.25 !important;
-  transition: opacity 0.2s ease !important;
+  opacity: 0.25;
+  transition: opacity 0.2s ease;
 }
 
 .feuillets-binder-header:hover .feuillets-binder-action-bar button,
@@ -3952,7 +3944,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-binder-action-bar button:hover,
 .feuillets-header .feuillets-actions button:hover,
 .feuillets-sidebar-content .clickable-icon:hover {
-  opacity: 1 !important;
+  opacity: 1;
 }
 
 /* 4. CHAMPS DE SAISIE & BOUTONS D'ACTION (iA WRITER STYLE) */

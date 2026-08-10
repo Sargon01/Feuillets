@@ -1808,7 +1808,6 @@ class FeuilletsPlugin extends Plugin {
   applyLeanInterfaceClasses() {
     document.body.toggleClass("feuillets-transparent-panels", !!this.settings.uiTransparentPanels);
     document.body.toggleClass("feuillets-transparent-tabbar", !!this.settings.uiTransparentTabBar);
-    document.body.toggleClass("feuillets-hide-vault-switcher", !!this.settings.uiHideVaultSwitcher);
     document.body.toggleClass("feuillets-dim-tab-actions", !!this.settings.uiDimTabActions);
   }
 

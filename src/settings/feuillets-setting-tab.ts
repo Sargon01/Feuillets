@@ -931,17 +931,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     new Setting(container)
-      .setName(t("settings.hideVaultSwitcher.name"))
-      .setDesc(t("settings.hideVaultSwitcher.desc"))
-      .addToggle((t2) =>
-        t2.setValue(!!S.uiHideVaultSwitcher).onChange(async (v) => {
-          S.uiHideVaultSwitcher = v;
-          await this.plugin.saveSettings();
-          this.plugin.applyLeanInterfaceClasses();
-        })
-      );
-
-    new Setting(container)
       .setName(t("settings.dimTabActions.name"))
       .setDesc(t("settings.dimTabActions.desc"))
       .addToggle((t2) =>

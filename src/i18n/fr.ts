@@ -951,8 +951,6 @@ export const fr = {
   "settings.transparentPanels.desc": "Remplace le fond des panneaux Feuillets (binder, tableau, notes…) par de la transparence, laissant apparaître le fond de la fenêtre.",
   "settings.transparentTabBar.name": "Fond transparent pour la bande d'onglets",
   "settings.transparentTabBar.desc": "Retire le fond opaque de la bande d'onglets d'Obsidian (la garde visible, contrairement à « Masquer la barre d'onglet » ci-dessus qui masque le titre du feuillet).",
-  "settings.hideVaultSwitcher.name": "Masquer le sélecteur de coffre",
-  "settings.hideVaultSwitcher.desc": "Masque le nom du vault en bas du binder. ⚠ Masque aussi l'accès rapide aux réglages et au changement de vault — reste accessible via la palette de commandes ou un raccourci clavier.",
   "settings.dimTabActions.name": "Estomper les icônes d'action des onglets",
   "settings.dimTabActions.desc": "Icônes natives d'Obsidian de part et d'autre de la bande d'onglets, plus les onglets non actifs du panneau latéral Feuillets (Binder/Tableau/Notes/Recherche…) : opacité réduite au repos, pleine opacité au survol — restent cliquables, juste moins visibles.",
   "settings.leanInterface.goFurther": "Pour aller plus loin — Feuillets ne peut pas installer un thème ou un plugin à ta place (aucune API ne le permet), mais ces raccourcis ouvrent le navigateur Obsidian avec la recherche pré-remplie :",

@@ -951,8 +951,6 @@ export const en = {
   "settings.transparentPanels.desc": "Replaces Feuillets panels' background (binder, board, notes…) with transparency, letting the window's background show through.",
   "settings.transparentTabBar.name": "Transparent tab bar background",
   "settings.transparentTabBar.desc": "Removes the opaque background of Obsidian's tab bar (keeps it visible, unlike \"Hide the tab title bar\" above which hides the sheet's title).",
-  "settings.hideVaultSwitcher.name": "Hide the vault switcher",
-  "settings.hideVaultSwitcher.desc": "Hides the vault name at the bottom of the binder. ⚠ Also hides quick access to Settings and vault switching — still reachable via the command palette or a keyboard shortcut.",
   "settings.dimTabActions.name": "Dim tab action icons",
   "settings.dimTabActions.desc": "Obsidian's native icons on both sides of the tab bar, plus Feuillets' own inactive side-panel tabs (Binder/Board/Notes/Recherche…): reduced opacity at rest, full opacity on hover — still clickable, just less prominent.",
   "settings.leanInterface.goFurther": "Going further — Feuillets can't install a theme or plugin for you (no API allows it), but these open Obsidian's browser with the search pre-filled:",
