@@ -1095,7 +1095,7 @@ body.feuillets-indent
 body.feuillets-indent
   .workspace-leaf-content[data-type="markdown"]
   .markdown-rendered {
-  --p-spacing: 0px !important;
+  --p-spacing: 0px;
 }
 
 /* alinéa en Live Preview via widget CodeMirror */
@@ -2282,8 +2282,6 @@ body.feuillets-concentration
 .feuillets-preview-view .feuillets-preview-breadcrumb-item.is-current,
 .feuillets-preview-view .feuillets-preview-breadcrumb-item[aria-current="page"] {
   background: none !important;
-  background-color: transparent !important;
-  background-image: none !important;
   box-shadow: none !important;
   border: none !important;
   outline: none;
@@ -2294,7 +2292,6 @@ body.feuillets-concentration
 .feuillets-preview-open-visible:focus-visible,
 .feuillets-preview-open-visible:active {
   background: none !important;
-  background-color: transparent !important;
   box-shadow: none !important;
   border: none !important;
   outline: none;
@@ -2457,8 +2454,8 @@ body.feuillets-lignesvides-reduit
    déjà text-align sur les paragraphes de lecture avec la même spécificité. */
 body.feuillets-cesure .workspace-leaf-content[data-type="markdown"] .markdown-preview-view p,
 body.feuillets-cesure .workspace-leaf-content[data-type="markdown"] .markdown-rendered p {
-  text-align: justify !important;
-  hyphens: auto !important;
+  text-align: justify;
+  hyphens: auto;
   word-wrap: break-word;
   hyphenate-limit-chars: 6 3 3;
 }
@@ -2517,7 +2514,7 @@ body.feuillets-lignesvides-invisible
   .workspace-leaf-content[data-type="markdown"]
   .markdown-rendered
   p.feuillets-empty-paragraph {
-  display: none !important;
+  display: none;
 }
 
 body.feuillets-lignesvides-reduit
@@ -2528,9 +2525,9 @@ body.feuillets-lignesvides-reduit
   .workspace-leaf-content[data-type="markdown"]
   .markdown-rendered
   p.feuillets-empty-paragraph {
-  line-height: 0.6rem !important;
-  margin: 0 !important;
-  height: 0.6rem !important;
+  line-height: 0.6rem;
+  margin: 0;
+  height: 0.6rem;
 }
 
 /* et les <br> de fin de paragraphe issus des lignes vides adjacentes */
@@ -2553,14 +2550,14 @@ body.feuillets-lignesvides-invisible
    margin-top/bottom, parce que les thèmes utilisent l'un ou l'autre. */
 body.feuillets-lecture-comme-live .workspace-leaf-content[data-type="markdown"] .markdown-preview-view p,
 body.feuillets-lecture-comme-live .workspace-leaf-content[data-type="markdown"] .markdown-rendered p {
-  line-height: var(--line-height-normal, 1.5) !important;
+  line-height: var(--line-height-normal, 1.5);
 }
 
 /* taille de texte du mode lecture, indépendante du Live Preview — la
    variable est posée sur body par applyLiveTypoClasses(), ce qui la fait
    descendre à travers .markdown-preview-view sans toucher .cm-content */
 body.feuillets-reading-fs .workspace-leaf-content[data-type="markdown"] .markdown-preview-view {
-  font-size: var(--feuillets-reading-fs) !important;
+  font-size: var(--feuillets-reading-fs);
 }
 
 /* Interlignage réglable (settings.lineHeight) : contrairement à la taille de
@@ -2574,7 +2571,7 @@ body.feuillets-line-height
 body.feuillets-line-height
   .workspace-leaf-content[data-type="markdown"]
   .markdown-preview-view {
-  line-height: var(--feuillets-line-height) !important;
+  line-height: var(--feuillets-line-height);
 }
 
 /* Largeur de texte réglable (settings.textWidth) : contrairement à
@@ -2586,9 +2583,9 @@ body.feuillets-text-width
 body.feuillets-text-width
   .workspace-leaf-content[data-type="markdown"]
   .markdown-preview-view {
-  max-width: var(--feuillets-text-width) !important;
-  margin-left: auto !important;
-  margin-right: auto !important;
+  max-width: var(--feuillets-text-width);
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* ===== contrôles natifs ===== */
@@ -6844,26 +6841,26 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 
 /* Boutons-icônes centrés et de taille fixe dans chaque barre. Le filtre
    `#tag…` du tableau est un <input> (pas un <button>) : jamais réduit. */
-.feuillets-header .clickable-icon,
-.feuillets-board-bar .clickable-icon,
-.feuillets-board-bar button,
-.feuillets-sidebar-tab-bar .feuillets-tab-btn,
-.feuillets-sidebar-tab-bar button {
-  height: 28px !important;
-  width: 28px !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+.workspace-leaf-content .feuillets-header .clickable-icon,
+.workspace-leaf-content .feuillets-board-bar .clickable-icon,
+.workspace-leaf-content .feuillets-board-bar button,
+.workspace-leaf-content .feuillets-sidebar-tab-bar .feuillets-tab-btn,
+.workspace-leaf-content .feuillets-sidebar-tab-bar button {
+  height: 28px;
+  width: 28px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Icônes SVG normalisées à 16px partout dans ces barres. */
-.feuillets-header svg,
-.feuillets-board-bar svg,
-.feuillets-sidebar-tab-bar svg {
-  width: 16px !important;
-  height: 16px !important;
+.workspace-leaf-content .feuillets-header svg,
+.workspace-leaf-content .feuillets-board-bar svg,
+.workspace-leaf-content .feuillets-sidebar-tab-bar svg {
+  width: 16px;
+  height: 16px;
 }
 
 
