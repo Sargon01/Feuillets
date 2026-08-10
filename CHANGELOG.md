@@ -2,6 +2,14 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.0.2
+
+### Maintenance et conformité
+
+- Suppression d’un accès au presse-papiers système devenu inutile.
+- Suppression du code dynamique historique `new Function` provenant des polyfills embarqués par JSZip/docx.
+- Aucune modification du comportement des exports EPUB/DOCX.
+
 ## 2.0.1
 
 ### Corrigé
