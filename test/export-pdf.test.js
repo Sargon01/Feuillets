@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { MarkdownRenderer, Notice, Platform } from "obsidian";
 import { exportPdf, paginateManuscript } from "../src/services/export-pdf.js";
 
@@ -167,6 +168,12 @@ function installDom() {
 function element(tag, text, height = 30) { const el = new FakeElement(tag, text); el.offsetHeight = height; return el; }
 
 const template = { fontFamily: "Serif", fontSizePt: 12, lineHeight: 1.5, pageOrientation: "portrait", key: "classique", label: "Classique" };
+
+test("exportPdf : ne fournit pas la surcharge de césure propre à l’aperçu", async () => {
+  const source = await readFile(new URL("../src/services/export-pdf.js", import.meta.url), "utf8");
+  assert.match(source, /paginateManuscript\(containerEl, footnotes, settings, tpl, title, author\)/);
+  assert.doesNotMatch(source, /paginateManuscript\(containerEl, footnotes, settings, tpl, title, author, \{[\s\S]*hyphenationOverride/);
+});
 
 test("paginateManuscript : isole titres et pages Front, nettoie la mesure et rend options de page", () => {
   const dom = installDom();

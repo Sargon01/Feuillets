@@ -82,6 +82,9 @@ export function mountTemplatePreview(
        neutralisées juste en dessous, à spécificité égale et donc par
        simple ordre de cascade. */
     css,
+    /* L'aperçu ne césure pas : la règle vient après celle du gabarit afin que
+       la composition mesurée avec hyphenationOverride:false lui corresponde. */
+    "body, .pdf-page-content { hyphens: none; }",
     "html { margin: 0; padding: 0; width: 100%; }",
     "body { margin: 0; padding: 0; width: 100%; overflow: hidden; background: var(--background-secondary, #f0f2f5); }",
     ".feuillets-preview-pages-wrapper {",

@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
+import { paginateDom } from "./pagination-engine.js";
 
 type PdfFootnote = {
   id: string;
@@ -27,16 +28,35 @@ type PaginationResult = {
   totalPages: number;
 };
 
+export type PaginationOptions = {
+  /** Consumer-level override; Preview can opt out without changing templates. */
+  hyphenationOverride?: boolean;
+};
+
+export function effectiveHyphenation(tpl: ResolvedExportTemplate, options: PaginationOptions = {}): boolean {
+  return options.hyphenationOverride ?? !!tpl.hyphenation;
+}
+
 type PdfPageSize = string;
 type PdfOrientation = string;
 type PdfPageNumberPosition = "left" | "center" | "right";
 
-function isPageElement(node: Node): node is Element {
-  return "outerHTML" in node && "classList" in node;
-}
-
-function measuredHeight(node: Element): number {
-  return "offsetHeight" in node && typeof node.offsetHeight === "number" ? node.offsetHeight || 30 : 30;
+/** Zone de composition exacte de la page finale, sans arrondi intermédiaire. */
+export function pageContentGeometry(
+  pageWmm: number,
+  pageHmm: number,
+  mTopCm: number,
+  mBottomCm: number,
+  mLeftCm: number,
+  mRightCm: number
+): { widthPx: number; heightPx: number } {
+  const mmToPx = 3.7795;
+  const contentWidthMm = pageWmm - (mLeftCm + mRightCm) * 10;
+  const contentHeightMm = pageHmm - (mTopCm + mBottomCm) * 10;
+  return {
+    widthPx: contentWidthMm * mmToPx,
+    heightPx: contentHeightMm * mmToPx,
+  };
 }
 
 function isPrintableIframe(iframe: HTMLIFrameElement): iframe is HTMLIFrameElement & { contentDocument: Document; contentWindow: Window } {
@@ -52,7 +72,8 @@ export function paginateManuscript(
   settings: FeuilletsSettings,
   tpl: ResolvedExportTemplate,
   title = "",
-  author = ""
+  author = "",
+  options: PaginationOptions = {}
 ): PaginationResult {
   const pageSize: PdfPageSize = settings.pdfPageSize || "A4";
   const orientation: PdfOrientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
@@ -71,25 +92,11 @@ export function paginateManuscript(
   const pageWmm = pageSize === "A5" ? (isLandscape ? 210 : 148) : pageSize === "letter" ? (isLandscape ? 279 : 216) : (isLandscape ? 297 : 210);
   const pageHmm = pageSize === "A5" ? (isLandscape ? 148 : 210) : pageSize === "letter" ? (isLandscape ? 216 : 279) : (isLandscape ? 210 : 297);
 
-  const mmToPx = 3.7795;
-  const pageHpx = Math.round(pageHmm * mmToPx);
-  const pageWpx = Math.round(pageWmm * mmToPx);
-
-  const topPx = Math.round(mTop * 10 * mmToPx);
-  const bottomPx = Math.round(mBottom * 10 * mmToPx);
-  const contentMaxH = pageHpx - topPx - bottomPx;
-
-  // Conteneur de mesure des éléments HTML — élément du document principal
-  // Obsidian (ajouté à document.body ci-dessous).
-  const measureHost = document.body.createDiv({ cls: "feuillets-pdf-measure-host" });
-  measureHost.style.width = `${pageWpx - Math.round((mLeft + mRight) * 10 * mmToPx)}px`;
-  measureHost.style.fontFamily = tpl.fontFamily;
-  measureHost.style.fontSize = `${tpl.fontSizePt}pt`;
-  measureHost.style.lineHeight = String(tpl.lineHeight);
+  const contentGeometry = pageContentGeometry(pageWmm, pageHmm, mTop, mBottom, mLeft, mRight);
 
   const elements = Array.from(containerEl.children)
     .map((el) => el.cloneNode(true))
-    .filter(isPageElement);
+    .filter((node): node is Element => "tagName" in node && "classList" in node);
   if (footnotes && footnotes.length > 0) {
     // Détaché tant qu'il n'est pas poussé dans `elements` ci-dessous — élément
     // du document principal Obsidian (ses enfants sont déjà créés via createEl).
@@ -116,44 +123,17 @@ export function paginateManuscript(
     elements.push(fnDiv);
   }
 
-  const rawPages: Element[][] = [];
-  let currentPageNodes: Element[] = [];
-  let currentH = 0;
-
-  for (let i = 0; i < elements.length; i++) {
-    const node = elements[i];
-    const tag = node.tagName ? node.tagName.toLowerCase() : "";
-
-    measureHost.appendChild(node);
-    const nodeH = measuredHeight(node);
-    measureHost.removeChild(node);
-
-    const isHeading = ["h1", "h2", "h3", "h4"].includes(tag);
-    // Saut de page systématique pour H1 (partie) et H2 (chapitre)
-    const isTitle = tag === "h1" || tag === "h2";
-    // Page Front (titre/dédicace/épigraphe, voir export-render.js) : sur sa
-    // propre page, jamais partagée avec ce qui précède OU ce qui suit.
-    const isFrontPage = !!(node.classList && node.classList.contains("feuillets-frontpage"));
-    const prevWasFrontPage = i > 0 && elements[i - 1].classList && elements[i - 1].classList.contains("feuillets-frontpage");
-    const forceNewPage = isTitle || isFrontPage || prevWasFrontPage || (isHeading && currentH + nodeH + 50 > contentMaxH);
-
-    if ((forceNewPage || currentH + nodeH > contentMaxH) && currentPageNodes.length > 0) {
-      rawPages.push(currentPageNodes);
-      currentPageNodes = [];
-      currentH = 0;
-    }
-
-    currentPageNodes.push(node);
-    currentH += nodeH;
-  }
-
-  if (currentPageNodes.length > 0) {
-    rawPages.push(currentPageNodes);
-  }
-
-  if (document.body.contains(measureHost)) {
-    document.body.removeChild(measureHost);
-  }
+  const rawPages = paginateDom(elements, {
+    widthPx: contentGeometry.widthPx,
+    heightPx: contentGeometry.heightPx,
+    fontFamily: tpl.fontFamily,
+    fontSizePt: tpl.fontSizePt,
+    lineHeight: tpl.lineHeight,
+    textAlign: tpl.align,
+    hyphens: effectiveHyphenation(tpl, options),
+    // Scoped in a shadow root by the engine, never injected into Obsidian's document.
+    css: templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl),
+  });
 
   const totalPages = Math.max(1, rawPages.length);
   const replaceBandVars = (value: string, pageNum: number, part: string, chapter: string): string => value

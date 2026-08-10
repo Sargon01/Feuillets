@@ -411,9 +411,15 @@ test("iframe d’aperçu — l’écouteur de chargement est branché avant l’
     );
     assert.equal(loaded, frame);
     assert.equal(container.children[0], frame);
+    assert.ok(frame.srcdoc.indexOf("body { color: black; }") < frame.srcdoc.indexOf("body, .pdf-page-content { hyphens: none; }"));
   } finally {
     dom.restore();
   }
+});
+
+test("PreviewView : demande explicitement une pagination sans césure", async () => {
+  const source = await readFile(new URL("../src/views/preview-view.js", import.meta.url), "utf8");
+  assert.match(source, /paginateManuscript\([\s\S]*?hyphenationOverride: false/);
 });
 
 class FakeResizeObserver {
@@ -5124,4 +5130,3 @@ test("clic bloc — le scroll manuel de l'éditeur resynchronise l'Aperçu juste
 
   assert.notEqual(viewport.scrollTop, 1500, "l'Aperçu suit de nouveau le scroll manuel de l'éditeur");
 }));
-

@@ -1394,7 +1394,9 @@ export class PreviewView extends ItemView {
       }
     }
 
-    const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, source.title, author);
+    const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, source.title, author, {
+      hyphenationOverride: false,
+    });
     if (generation !== this.refreshGeneration) return;
 
     this.displayedPath = this.mode === "manuscript" ? null : source.subtitle;
