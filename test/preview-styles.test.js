@@ -133,12 +133,44 @@ test("styles — la barre de contexte reste utilisable en colonne étroite", () 
   assert.equal(declarations.get("display"), "flex");
   assert.equal(declarations.get("flex-wrap"), "wrap", "la barre doit pouvoir passer à la ligne");
 
-  // Fond pris dans la variable du thème : clair ET sombre.
-  assert.match(declarations.get("background") || "", /var\(--background-secondary\)/);
+  /* Deuxième essai (barre flottante en deux groupes) : le CONTENEUR ne peint
+     plus de fond continu — sinon il redessinerait la « grande barre » entre
+     le fil d'Ariane et les icônes, ce qui masquait le texte de la page. La
+     variable de fond du thème (clair ET sombre) vit désormais sur le groupe
+     de gauche, .feuillets-preview-breadcrumb, seul élément à porter une
+     pastille visible. */
+  assert.equal(declarations.get("background"), "none", "le conteneur ne doit plus peindre de fond continu entre les deux groupes");
+
+  const breadcrumbGroup = RULES.find((rule) => rule.selector.split(",").some((sel) => sel.trim() === ".feuillets-preview-breadcrumb"));
+  assert.ok(breadcrumbGroup, ".feuillets-preview-breadcrumb (groupe de gauche) doit être stylée");
+  assert.match(
+    new Map(breadcrumbGroup.declarations).get("background") || "",
+    /var\(--background-secondary\)/,
+    "le fil d'Ariane porte désormais lui-même le fond thémé, clair ET sombre"
+  );
 
   const breadcrumb = RULES.find((rule) => rule.selector.trim() === ".feuillets-preview-breadcrumb-item");
   assert.ok(breadcrumb, "les niveaux du fil d'Ariane doivent être stylés");
   assert.equal(new Map(breadcrumb.declarations).get("text-overflow"), "ellipsis");
+});
+
+test("styles — la barre flottante reste discrète hors survol et se révèle au survol/focus", () => {
+  const bar = RULES.find((rule) => rule.selector.split(",").some((sel) => sel.trim() === ".feuillets-preview-toolbar"));
+  const declarations = new Map(bar.declarations);
+  assert.equal(declarations.get("position"), "absolute", "la barre ne doit plus consommer une ligne de hauteur dans le flux");
+  assert.equal(declarations.get("opacity"), "0", "discrète par défaut, hors survol");
+  assert.ok((declarations.get("transition") || "").includes("opacity"), "seule une transition d'opacité est autorisée");
+
+  const revealRules = RULES.filter((rule) =>
+    rule.selector.split(",").some((sel) => {
+      const trimmed = sel.trim();
+      return trimmed === ".feuillets-preview-toolbar:hover" || trimmed === ".feuillets-preview-toolbar:focus-within";
+    })
+  );
+  assert.ok(revealRules.length > 0, "un survol ou un focus clavier doit révéler la barre");
+  for (const rule of revealRules) {
+    assert.equal(new Map(rule.declarations).get("opacity"), "1");
+  }
 });
 
 test("styles — aucun contrôle de barre séparé ne subsiste", () => {

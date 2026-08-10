@@ -1744,20 +1744,87 @@ body.feuillets-concentration
   margin: 0;
 }
 
-/* Barre compacte, tout en icônes Lucide (voir PreviewView.iconBtn). Mêmes
-   variables d'espacement et même fond que .feuillets-research-toolbar : la
-   vue ne doit pas se distinguer visuellement des autres vues Feuillets. Le
-   retour à la ligne est autorisé pour rester lisible en colonne étroite. */
+/* Barre compacte, tout en icônes Lucide (voir PreviewView.iconBtn). Flottante
+   au-dessus du viewport (voir .feuillets-preview-view, position: relative) :
+   elle ne réserve plus sa propre ligne de hauteur dans la mise en page, la
+   feuille peut donc occuper tout l'onglet jusqu'en haut.
+   Quatrième essai : CE CONTENEUR ne peint TOUJOURS rien lui-même (pas de
+   fond, pas de bordure, pas d'ombre) — il ne fait que positionner/espacer,
+   en flex, DEUX groupes qui se lisent comme deux capsules VRAIMENT
+   indépendantes, chacune un VRAI conteneur DOM (plus de largeur CSS
+   devinée) :
+     - à gauche, .feuillets-preview-breadcrumb (span, posé par PreviewView) ;
+     - à droite, .feuillets-preview-toolbar-controls (div, posé par
+       PreviewView autour d'« Ouvrir ce feuillet », zoom et Export — voir
+       onOpen) — un vrai conteneur qui englobe naturellement ses trois
+       commandes, sa largeur suit leur contenu réel.
+   Ni l'un ni l'autre groupe ne peut peindre de fond derrière un
+   .clickable-icon/.feuillets-preview-chip individuel (règle absolue
+   inchangée) : c'est le CONTENEUR de chaque groupe qui porte le fond, pas
+   les boutons.
+   Padding/gap resserrés au minimum lisible (au lieu de var(--size-4-2)/
+   var(--size-4-3)) : les deux capsules doivent rester compactes, pas juste
+   transparentes au milieu.
+   Discrétion et apparition INCHANGÉES : conteneur quasi invisible au repos
+   (opacity: 0), révélé au survol de cette zone ou au focus clavier d'un de
+   ses boutons, seule transition sur l'opacité, aucun timer ni logique JS. */
 .feuillets-preview-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--size-4-1);
-  padding: var(--size-4-2) var(--size-4-3);
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  gap: 3px;
+  padding: 3px var(--size-4-1);
+  background: none;
+  border: none;
+  box-shadow: none;
   flex-shrink: 0;
   user-select: none;
+  position: absolute;
+  top: var(--size-4-2);
+  left: var(--size-4-2);
+  right: var(--size-4-2);
+  z-index: 20;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.feuillets-preview-toolbar:hover,
+.feuillets-preview-toolbar:focus-within {
+  opacity: 1;
+}
+
+/* Les DEUX capsules partagent exactement le même habillage — même hauteur
+   (elles doivent être identiques), même fond, bordure et ombre.
+   `--background-secondary-alt` plutôt que `--background-secondary` : un
+   cran de contraste en plus, même principe que .feuillets-header/
+   .feuillets-board-bar plus haut dans ce fichier, donc toujours thémé clair
+   ET sombre. Bordure `--background-modifier-border` : la bordure standard
+   déjà utilisée partout ailleurs dans le plugin. Ombre `--shadow-m` : le
+   palier « un peu plus net » déjà utilisé ailleurs dans ce fichier, jamais
+   la valeur la plus forte du thème. `box-sizing: border-box` pour que la
+   bordure morde sur le padding au lieu de s'y ajouter (aucun changement de
+   dimension rendue). */
+.feuillets-preview-breadcrumb,
+.feuillets-preview-toolbar-controls {
+  box-sizing: border-box;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  background: var(--background-secondary-alt, var(--background-secondary));
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-m, 0 3px 10px rgba(0, 0, 0, 0.3));
+}
+
+.feuillets-preview-breadcrumb {
+  padding: 2px 6px;
+}
+
+/* Groupe de DROITE : gap minimal entre les trois commandes, padding réduit
+   (les boutons portent déjà leur propre zone cliquable). */
+.feuillets-preview-toolbar-controls {
+  gap: 2px;
+  padding: 0 4px;
 }
 
 /* « Mise à jour… » pendant une recompilation : discret, et surtout SANS
@@ -1808,7 +1875,14 @@ body.feuillets-concentration
      zoom manuel (classe posée par PreviewView.updateOverflowMode). */
   overflow-x: hidden;
   box-sizing: border-box;
-  padding: 20px 20px;
+  /* Petite respiration entre la feuille et le bord de l'onglet — la marge
+     grise n'a plus besoin d'absorber la hauteur de la barre, qui flotte
+     désormais par-dessus (voir .feuillets-preview-toolbar). `padding-top`
+     réserve seulement la place de cette barre flottante (rétrécie au
+     troisième essai) + un petit espace, pour qu'elle ne recouvre jamais le
+     haut de la page. */
+  padding: 14px;
+  padding-top: 44px;
   background: var(--background-secondary, #f0f2f5);
 }
 
@@ -1896,6 +1970,13 @@ body.feuillets-concentration
   background: var(--background-primary);
   flex: 0 0 auto;
   box-sizing: border-box;
+  /* La barre flotte désormais par-dessus (position: absolute), donc ne
+     réserve plus sa hauteur en flux normal : ce panneau, qui la suit
+     immédiatement dans le flux, doit réserver lui-même cette place pour ne
+     pas s'ouvrir sous la barre flottante (rétrécie au troisième essai).
+     Sans effet quand le panneau est masqué (.is-hidden passe en
+     display: none). */
+  margin-top: 44px;
 }
 
 .feuillets-preview-export.is-hidden {

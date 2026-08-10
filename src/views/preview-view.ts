@@ -5,10 +5,10 @@ import {
   resolveCompileScopeFiles,
   type CompileScope,
 } from "../services/compile-scope.js";
-import { ItemView, MarkdownView, Menu, Notice, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_BOARD, VIEW_PREVIEW } from "../constants.js";
 import { openFeuilletsExportSettings } from "../settings/open-export-settings.js";
-import { listExportTemplates, resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
+import { resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
 import { paginateManuscript } from "../services/export-pdf.js";
 import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
@@ -19,8 +19,7 @@ import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
 import { promptText } from "../ui/basic-modals.js";
 import { t } from "../i18n/index.js";
 import { mountTemplatePreview } from "../ui/template-preview.js";
-import { CompileSelectionModal } from "../ui/selection-modals.js";
-import { LayoutModal } from "../ui/layout-modal.js";
+import { ExportPanel } from "../ui/export-panel.js";
 import {
   applyBlockSourceMarkers,
   applySourceMarkers,
@@ -204,18 +203,10 @@ export function previewModeLabel(mode: PreviewMode): string {
 
 const MODE_ORDER: PreviewMode[] = ["scene", "chapter", "part", "manuscript"];
 
-/** Champs de la première page réellement pris en charge, dans l'ordre où ils
- * apparaissent sur la page. Chacun est un RÔLE du feuillet Front (voir
- * utils/title-roles.ts) : aucun champ n'a de stockage propre à PreviewView. */
-export function previewFirstPageFields(): Array<{ label: string; role: string }> {
-  return [
-    { label: t("preview.firstPageField.title"), role: "titre" },
-    { label: t("preview.firstPageField.subtitle"), role: "sous-titre" },
-    { label: t("preview.firstPageField.author"), role: "auteur" },
-    { label: t("preview.firstPageField.additionalMention"), role: "mots" },
-    { label: t("preview.firstPageField.imageOrLogo"), role: "image" },
-  ];
-}
+/** Champs de la première page — définis dans export-panel.ts (panneau qui
+ * les affiche et les édite) et réexportés ici pour compatibilité de l'API
+ * publique de ce module. */
+export { previewFirstPageFields } from "../ui/export-panel.js";
 
 /** Libellé de statut dépendant du mode : « à actualiser » n'a de sens que
  * là où l'actualisation est manuelle. */
@@ -334,28 +325,28 @@ export class PreviewView extends ItemView {
   previewViewport: HTMLElement | null = null;
   scaledContainer: HTMLElement | null = null;
   viewEl: HTMLElement | null = null;
-  /** Barre volontairement réduite au fil d'Ariane, au zoom et à deux icônes. */
+  /** Barre volontairement réduite au fil d'Ariane et à trois commandes
+   * (Ouvrir ce feuillet, zoom, Export) — pas de bouton Réglages. */
   breadcrumbEl: HTMLElement | null = null;
+  /** Groupe de DROITE : conteneur DOM réel qui englobe Ouvrir ce feuillet,
+   * zoom et Export — pour que styles.css puisse leur donner un fond commun
+   * (une vraie « capsule ») sans deviner une largeur en CSS. */
+  toolbarControlsEl: HTMLElement | null = null;
   zoomLabelEl: HTMLElement | null = null;
   btnExport: HTMLElement | null = null;
-  btnSettings: HTMLElement | null = null;
-  exportScopeLabelEl: HTMLElement | null = null;
   openVisibleEl: HTMLElement | null = null;
   btnBarToggle: HTMLElement | null = null;
   exportPanelEl: HTMLElement | null = null;
-  /** État d'interface de session uniquement ; aucun réglage d'export n'est
-   * dupliqué dans PreviewView. */
-  private exportPanelCollapsed = true;
-  /** Corps de la sous-section « Première page », gardé en référence pour
-   * pouvoir la réactualiser SEULE : inclure/exclure ou changer de fichier
-   * Front ne doit pas reconstruire tout le panneau Export (portée, format,
-   * gabarit…), ce qui refermerait la sous-section et déplacerait le focus
-   * hors de tout contrôle. */
-  private firstPageBodyEl: HTMLElement | null = null;
-  private firstPageTemplates: Array<{ key: string; label: string }> = [];
-  /** État repliée/dépliée de « Première page », conservé même à travers un
-   * réel rebuild complet du panneau (bouton Actualiser, réouverture). */
-  private firstPageOpen = false;
+  /** Panneau Export : composant extrait (voir ui/export-panel.ts), qui ne
+   * connaît ni n'importe PreviewView — seuls des callbacks lui sont
+   * transmis. PreviewView continue de décider portée, actualisation et
+   * export réel. */
+  private exportPanel: ExportPanel | null = null;
+  /** Délégation pure vers le panneau Export, pour compatibilité de l'API
+   * publique de PreviewView (tests, éventuels appelants externes). */
+  get firstPageBodyEl(): HTMLElement | null {
+    return this.exportPanel?.firstPageBodyEl ?? null;
+  }
   statusEl: HTMLElement | null = null;
   followedEl: HTMLElement | null = null;
   /** Dernier menu ouvert — pour le refermer sur un double-clic de zoom. */
@@ -515,7 +506,7 @@ export class PreviewView extends ItemView {
     if (!wasSheetMode && mode === "scene") this.bindSourcePane();
     this.cancelSceneRefresh();
     this.updateUI();
-    await this.renderExportPanel();
+    await this.exportPanel?.render();
     await this.refreshPreview();
   }
 
@@ -597,28 +588,37 @@ export class PreviewView extends ItemView {
     const view = container.createDiv({ cls: "feuillets-preview-view" });
     this.viewEl = view;
 
-    /* Barre de contexte, réduite à cinq éléments : fil d'Ariane, « Ouvrir ce
-       feuillet », zoom, Export et Réglages. Aucun menu « ⋯ » : ce qui n'est
-       pas du contexte de lecture vit dans le panneau Export ou dans l'onglet
+    /* Barre de contexte, réduite à quatre éléments : fil d'Ariane, puis un
+       groupe de DROITE — « Ouvrir ce feuillet », zoom, Export — regroupé
+       dans un vrai conteneur DOM (this.toolbarControlsEl) pour que
+       styles.css puisse lui donner un fond commun sans largeur devinée.
+       Aucun menu « ⋯ », aucun bouton Réglages : ce qui n'est pas du
+       contexte de lecture vit dans le panneau Export ou dans l'onglet
        Export des paramètres Feuillets. */
     const toolbar = view.createDiv({ cls: "feuillets-preview-toolbar" });
     this.breadcrumbEl = toolbar.createSpan({ cls: "feuillets-preview-breadcrumb" });
-    this.openVisibleEl = this.iconBtn(toolbar, "file-edit", t("preview.openVisibleSheet"), () => void this.openVisibleFeuillet());
+
+    this.toolbarControlsEl = toolbar.createDiv({ cls: "feuillets-preview-toolbar-controls" });
+    this.openVisibleEl = this.iconBtn(this.toolbarControlsEl, "file-edit", t("preview.openVisibleSheet"), () => void this.openVisibleFeuillet());
     this.openVisibleEl.addClass("feuillets-preview-open-visible");
     this.statusEl = view.createSpan({ cls: "feuillets-preview-status feuillets-preview-status-hidden" });
     this.followedEl = view.createSpan({ cls: "feuillets-preview-status-hidden" });
 
     /* UN SEUL contrôle de zoom : le pourcentage lui-même. Clic = menu,
        double-clic = retour à 100 %, Cmd/Ctrl + molette dans l'aperçu. */
-    this.zoomLabelEl = this.chipBtn(toolbar, `${Math.round(this.zoomScale * 100)} %`, t("preview.zoom.tooltip"), (e) => this.openZoomMenu(e));
+    this.zoomLabelEl = this.chipBtn(this.toolbarControlsEl, `${Math.round(this.zoomScale * 100)} %`, t("preview.zoom.tooltip"), (e) => this.openZoomMenu(e));
     this.zoomLabelEl.addClass("feuillets-preview-zoom-val");
     this.zoomLabelEl.addEventListener("dblclick", () => this.resetZoom());
 
-    this.btnExport = this.iconBtn(toolbar, "download", t("project.compilation.exportBtn"), () => this.toggleExportPanel());
-    this.btnSettings = this.iconBtn(toolbar, "settings", t("preview.exportSettings"), () => void this.openManuscriptSettings());
+    this.btnExport = this.iconBtn(this.toolbarControlsEl, "download", t("project.compilation.exportBtn"), () => this.exportPanel?.toggle());
 
     this.exportPanelEl = view.createDiv({ cls: "feuillets-preview-export is-hidden" });
-    await this.renderExportPanel();
+    this.exportPanel = new ExportPanel(this.app, this.plugin, this.exportPanelEl, {
+      getScopeLabel: () => this.scopeDisplayLabel(),
+      refreshPreview: () => this.refreshPreview(),
+      onExport: () => this.doExport(),
+    });
+    await this.exportPanel.render();
 
     this.previewViewport = view.createDiv({ cls: "feuillets-preview-viewport" });
     this.scaledContainer = this.previewViewport.createDiv({ cls: "feuillets-preview-scaled-container" });
@@ -1933,7 +1933,8 @@ export class PreviewView extends ItemView {
   /* ========================== Menu de la barre ========================
      Le zoom est le SEUL menu restant. La portée se choisit au fil d'Ariane
      ou dans le panneau Export ; les réglages détaillés vivent dans l'onglet
-     Export des paramètres Feuillets, ouvert par l'icône Réglages. */
+     Export des paramètres Feuillets (openManuscriptSettings, sans bouton
+     dédié dans cette barre — voir onOpen). */
 
   /** UN seul contrôle de zoom : ce menu remplace les cinq boutons séparés
    * (−, +, largeur, page entière, 100 %) qui encombraient la barre. */
@@ -2391,330 +2392,12 @@ export class PreviewView extends ItemView {
     openFeuilletsExportSettings(this.app);
   }
 
-  /** Panneau contextuel compact : aucune valeur propre à PreviewView. Tous
-   * les contrôles lisent et écrivent les réglages déjà consommés par
-   * compile()/exportFile(), tandis que la portée est le mode courant. */
-  private async renderExportPanel(): Promise<void> {
-    const panel = this.exportPanelEl;
-    if (!panel) return;
-    panel.empty();
-    panel.toggleClass("is-hidden", this.exportPanelCollapsed);
-
-    const header = panel.createDiv({ cls: "feuillets-preview-export-header" });
-    header.createSpan({ cls: "feuillets-preview-export-title", text: t("project.compilation.exportBtn") });
-    const headerActions = header.createDiv({ cls: "feuillets-preview-export-header-actions" });
-    /* Resynchronise TOUT le panneau — y compris les champs de la première
-       page, relus dans le feuillet Front — avec l'aperçu. Utile si le
-       fichier a été modifié ailleurs (éditeur, autre onglet) pendant que ce
-       panneau restait ouvert. */
-    this.iconBtn(headerActions, "refresh-cw", t("preview.export.refreshPreview"), () => void this.reloadExportPanel());
-    this.iconBtn(headerActions, "x", t("preview.export.collapsePanel"), () => this.toggleExportPanel(true));
-
-    const main = panel.createDiv({ cls: "feuillets-preview-export-main" });
-    const field = (label: string, control: HTMLElement): HTMLElement => {
-      const wrap = main.createDiv({ cls: "feuillets-preview-export-field" });
-      wrap.createSpan({ cls: "feuillets-preview-export-label", text: label });
-      wrap.appendChild(control);
-      return control;
-    };
-
-    /* La portée est AFFICHÉE, jamais modifiable ici : le fil d'Ariane est le
-       seul endroit qui change la portée (règle 3 et 4 du chantier). */
-    const scopeLabel = createSpan({ cls: "feuillets-preview-export-control feuillets-preview-export-scope-value" });
-    scopeLabel.setAttribute("aria-label", t("preview.export.scopeAriaLabel"));
-    scopeLabel.textContent = this.scopeDisplayLabel();
-    this.exportScopeLabelEl = scopeLabel;
-    field(t("preview.export.scope"), scopeLabel);
-
-    const included = createEl("button");
-    included.className = "clickable-icon feuillets-preview-export-control feuillets-preview-export-action-btn";
-    setIcon(included, "list-checks");
-    included.createSpan({ text: t("preview.export.includedItems") });
-    included.setAttribute("aria-label", t("preview.export.chooseIncludedItems"));
-    included.addEventListener("click", () => {
-      new CompileSelectionModal(
-        this.app,
-        this.plugin as unknown as ConstructorParameters<typeof CompileSelectionModal>[1]
-      ).open();
-    });
-    field(t("preview.export.content"), included);
-
-    const format = createEl("select");
-    format.className = "feuillets-preview-export-control";
-    for (const [value, label] of [["docx", "DOCX"], ["pdf", "PDF"], ["epub", "EPUB"], ["odt", "ODT"]]) {
-      format.createEl("option", { value, text: label });
-    }
-    format.value = this.exportFormat === "md" ? "docx" : this.exportFormat;
-    format.setAttribute("aria-label", t("preview.export.outputFormat"));
-    format.addEventListener("change", () => {
-      this.plugin.settings.exportFormat = format.value;
-      void this.plugin.saveSettings?.();
-    });
-    field(t("preview.export.format"), format);
-
-    const template = createEl("select");
-    template.className = "feuillets-preview-export-control";
-    const templates = await listExportTemplates(this.app, this.plugin.settings);
-    for (const tpl of templates) template.createEl("option", { value: tpl.key, text: tpl.label });
-    template.value = this.plugin.settings.exportTemplate;
-    template.setAttribute("aria-label", t("preview.export.templateAriaLabel"));
-    template.addEventListener("change", () => {
-      this.plugin.settings.exportTemplate = template.value;
-      void this.plugin.saveSettings?.();
-      void this.refreshPreview();
-    });
-    field(t("preview.export.template"), template);
-
-    const name = createEl("input");
-    name.className = "feuillets-preview-export-control";
-    name.type = "text";
-    name.value = this.exportFileName().replace(/\.md$/i, "");
-    name.setAttribute("aria-label", t("preview.export.outputFileName"));
-    name.setAttribute("placeholder", t("preview.export.manuscriptPlaceholder"));
-    name.addEventListener("change", () => {
-      const fileName = `${name.value.trim() || t("preview.export.defaultFileName")}.md`;
-      const index = typeof this.plugin.settings.activePreset === "number" ? this.plugin.settings.activePreset : -1;
-      const candidate = index >= 0 ? this.plugin.settings.compilePresets?.[index] : null;
-      const preset = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : null;
-      if (preset) preset.fileName = fileName;
-      else this.plugin.settings.compileFileName = fileName;
-      void this.plugin.saveSettings?.();
-    });
-    field(t("preview.export.fileName"), name);
-
-    await this.renderFirstPageSection(panel, templates);
-
-    const footer = panel.createDiv({ cls: "feuillets-preview-export-footer" });
-    const launch = footer.createEl("button", { cls: "clickable-icon mod-cta feuillets-preview-export-launch" });
-    setIcon(launch, "download");
-    launch.createSpan({ text: t("project.compilation.exportBtn") });
-    launch.setAttribute("aria-label", t("preview.export.launch"));
-    launch.addEventListener("click", () => void this.doExport());
-  }
-
-  /* ======================== Première page =============================
-     CONTENU et INCLUSION de la page de titre, jamais sa mise en page fine :
-     marges, distances, typographie, en-têtes et pieds appartiennent au modal
-     « Mise en page visuelle » (et à l'onglet Export des paramètres), qui
-     écrit dans le gabarit et les réglages centraux lus à l'identique par
-     l'aperçu et par les exports.
-
-     Source de vérité unique : le feuillet Front lui-même. Les champs
-     ci-dessous LISENT ce fichier et y RÉÉCRIVENT — aucune copie locale, donc
-     aucun état concurrent possible entre l'aperçu et l'export. */
-
-  /** Feuillets Front pouvant servir de première page : les pages Front de
-   * type « titre ». `compile: false` n'exclut pas de cette liste — un
-   * feuillet exclu reste choisissable, c'est justement l'intérêt. */
-  private frontTitleCandidates(): TFile[] {
-    const root = this.plugin.getProjectFolder();
-    if (!root) return [];
-    const out: TFile[] = [];
-    const walk = (folder: TFolder): void => {
-      for (const child of folder.children || []) {
-        if (child instanceof TFolder) walk(child);
-        else if (child instanceof TFile && child.extension === "md" && isFrontMatter(this.app, this.plugin.settings, child)) {
-          const type = fmOf(this.app, child).type;
-          if (typeof type === "string" && type.trim().toLowerCase() === "titre") out.push(child);
-        }
-      }
-    };
-    walk(root);
-    return out;
-  }
-
-  /** État de la première page, lu à chaque rendu du panneau : le feuillet
-   * retenu par la compilation est le premier Front « titre » non exclu —
-   * exactement la règle qu'applique `compile()`. */
-  private frontTitleState(): { files: TFile[]; selected: TFile | null; included: boolean } {
-    const files = this.frontTitleCandidates();
-    const included = files.find((file) => fmOf(this.app, file).compile !== false) || null;
-    return { files, selected: included || files[0] || null, included: !!included };
-  }
-
-  /** Inclut ou exclut la page de titre. Le fichier Front et ses métadonnées
-   * restent intacts : seul l'indicateur `compile` du frontmatter change,
-   * celui-là même que lisent `compile()` et « Éléments inclus ». */
-  private async setFirstPageIncluded(included: boolean): Promise<void> {
-    const { selected } = this.frontTitleState();
-    if (!selected) return;
-    await this.app.fileManager?.processFrontMatter?.(selected, (data: Record<string, unknown>) => {
-      data.compile = included;
-    });
-    await this.reloadFirstPageSection();
-  }
-
-  /** Choisit un autre feuillet Front. Les autres candidats sont exclus, pas
-   * supprimés : revenir en arrière ne coûte qu'un second choix. */
-  private async chooseFrontTitleFile(path: string): Promise<void> {
-    for (const file of this.frontTitleCandidates()) {
-      const wanted = file.path === path;
-      if ((fmOf(this.app, file).compile !== false) === wanted) continue;
-      await this.app.fileManager?.processFrontMatter?.(file, (data: Record<string, unknown>) => {
-        data.compile = wanted;
-      });
-    }
-    await this.reloadFirstPageSection();
-  }
-
-  /** Ouvre le feuillet Front dans l'éditeur, comme n'importe quel feuillet du
-   * Binder — et le sélectionne au passage dans le Binder. */
-  private async openFrontFile(path: string): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) return;
-    const leaf = this.plugin.getLeafForOpeningFile?.() || this.app.workspace.getLeaf(false);
-    if (!leaf) return;
-    await leaf.openFile(file, { active: true });
-    if (file.parent) this.plugin.settings.binderSelectedPath = file.parent.path;
-    await this.plugin.saveSettings?.();
-  }
-
-  /** Écrit un champ dans le feuillet Front puis réactualise l'aperçu. Le HTML
-   * rendu n'est jamais retouché à la main : c'est le fichier qui change, et
-   * le rendu qui en découle (zoom et position de lecture conservés par
-   * refreshPreview). */
-  private async setFirstPageField(path: string, role: string, value: string): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) return;
-    const content = await this.app.vault.cachedRead(file);
-    const next = setTitleRoleValue(content, role, value);
-    if (next !== content) await this.app.vault.modify(file, next);
-    if (role === "titre") this.plugin.settings.manuscriptTitle = value.trim();
-    if (role === "auteur") this.plugin.settings.manuscriptAuthor = value.trim();
-    await this.plugin.saveSettings?.();
-    await this.refreshPreview();
-  }
-
-  /** Reconstruit le panneau ENTIER (les valeurs affichées viennent du
-   * fichier) puis l'aperçu, sans toucher au zoom ni à la position de
-   * lecture. Réservé aux actions qui justifient de tout redessiner —
-   * ouverture du panneau, bouton « Actualiser » — jamais déclenché en
-   * silence par un simple changement de champ : reconstruire le <details>
-   * de la première page le refermerait et en chasserait le focus. */
-  private async reloadExportPanel(): Promise<void> {
-    /* Un échec pendant la reconstruction du panneau (lecture d'un fichier
-       Front supprimé entre-temps, gabarit personnalisé invalide…) ne doit
-       jamais faire disparaître le bouton « Actualiser » en silence : sans
-       ce filet, une exception ici empêchait même l'appel à
-       refreshPreview() qui suit — vu de l'utilisatrice, un clic qui ne fait
-       plus jamais rien tant que l'onglet n'est pas rouvert. */
-    try {
-      await this.renderExportPanel();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      new Notice(t("preview.notice.exportPanelError", { message: msg }));
-      console.error("Feuillets : échec de renderExportPanel", e);
-    }
-    await this.refreshPreview();
-  }
-
-  /** Réactualise SEULEMENT le contenu de « Première page », sans toucher au
-   * reste du panneau ni recréer son <details> : l'inclusion/exclusion et le
-   * choix d'un autre fichier Front ne doivent ni refermer la sous-section ni
-   * faire sauter le focus ailleurs dans l'écran. Même filet qu'au-dessus. */
-  private async reloadFirstPageSection(): Promise<void> {
-    try {
-      if (this.firstPageBodyEl) await this.renderFirstPageFields(this.firstPageBodyEl, this.firstPageTemplates);
-      else await this.renderExportPanel();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      new Notice(t("preview.notice.firstPageError", { message: msg }));
-      console.error("Feuillets : échec de renderFirstPageFields", e);
-    }
-    await this.refreshPreview();
-  }
-
-  private async renderFirstPageSection(panel: HTMLElement, templates: Array<{ key: string; label: string }>): Promise<void> {
-    const details = panel.createEl("details", { cls: "feuillets-preview-export-details" });
-    details.open = this.firstPageOpen;
-    details.addEventListener("toggle", () => { this.firstPageOpen = details.open; });
-    const summary = details.createEl("summary", { cls: "feuillets-preview-export-summary" });
-    summary.createSpan({ text: t("preview.export.firstPage") });
-    const body = details.createDiv({ cls: "feuillets-preview-export-details-body" });
-    this.firstPageBodyEl = body;
-    this.firstPageTemplates = templates;
-    await this.renderFirstPageFields(body, templates);
-  }
-
-  /** Contenu de « Première page » — jamais le <details>/<summary> qui
-   * l'enveloppe : appelée seule pour un rafraîchissement ciblé
-   * (`reloadFirstPageSection`), ou depuis `renderFirstPageSection` lors
-   * d'un rebuild complet du panneau. */
-  private async renderFirstPageFields(body: HTMLElement, templates: Array<{ key: string; label: string }>): Promise<void> {
-    body.empty();
-    const { files, selected, included } = this.frontTitleState();
-
-    const row1 = body.createDiv({ cls: "feuillets-preview-export-row feuillets-preview-export-row-1" });
-    const row2 = body.createDiv({ cls: "feuillets-preview-export-row feuillets-preview-export-row-2" });
-
-    const includeWrap = row1.createDiv({ cls: "feuillets-preview-export-field feuillets-preview-export-field-checkbox" });
-    const includeRow = includeWrap.createEl("label", { cls: "feuillets-preview-export-inline-field" });
-    const includeInput = includeRow.createEl("input", { type: "checkbox" });
-    includeInput.checked = included;
-    includeInput.setAttribute("aria-label", t("preview.export.includeTitlePage"));
-    includeInput.addEventListener("change", () => void this.setFirstPageIncluded(includeInput.checked));
-    includeRow.createSpan({ text: t("preview.export.includeTitlePage") });
-
-    if (selected) {
-      /* Un <div>, pas un <label> : le bouton « ouvrir » qui suit ne doit pas
-         être avalé par le libellé (un clic dedans activerait la liste). */
-      const fileWrap = row1.createDiv({ cls: "feuillets-preview-export-field feuillets-preview-export-field-front" });
-      fileWrap.createSpan({ cls: "feuillets-preview-export-label", text: t("preview.export.frontFile") });
-      const fileControls = fileWrap.createDiv({ cls: "feuillets-preview-export-file-controls" });
-      const picker = fileControls.createEl("select", { cls: "feuillets-preview-export-control" });
-      for (const file of files) picker.createEl("option", { value: file.path, text: file.basename });
-      picker.value = selected.path;
-      picker.setAttribute("aria-label", t("preview.export.usedFrontFile"));
-      picker.addEventListener("change", () => void this.chooseFrontTitleFile(picker.value));
-      this.iconBtn(fileControls, "pencil", t("preview.export.openFrontFile"), () => void this.openFrontFile(selected.path));
-
-      const content = await this.app.vault.cachedRead(selected);
-      for (const { label, role } of previewFirstPageFields()) {
-        const isRow1 = role === "titre" || role === "sous-titre";
-        const targetRow = isRow1 ? row1 : row2;
-
-        const wrap = targetRow.createDiv({
-          cls: `feuillets-preview-export-field feuillets-preview-export-field-${role}`,
-        });
-        wrap.createSpan({ cls: "feuillets-preview-export-label", text: label });
-        const input = wrap.createEl("input", { type: "text", cls: "feuillets-preview-export-control" });
-        input.value = readTitleRoleValue(content, role);
-        input.setAttribute("aria-label", label);
-        input.addEventListener("change", () => void this.setFirstPageField(selected.path, role, input.value));
-      }
-    } else {
-      row2.createDiv({
-        cls: "setting-item-description",
-        text: t("preview.export.noTitleFrontFile"),
-      });
-    }
-
-    /* Le réglage visuel n'est pas une seconde configuration : LayoutModal
-     * modifie le même gabarit actif que le rendu et les exports, et c'est le
-     * seul endroit où se règlent en-têtes, pieds, numéros de page, distances
-     * aux bords et positionnement. */
-    const visualLayout = body.createEl("button", { cls: "clickable-icon feuillets-preview-export-visual-btn" });
-    const visualLeft = visualLayout.createDiv({ cls: "feuillets-preview-export-visual-left" });
-    const iconSpan = visualLeft.createSpan({ cls: "feuillets-preview-export-visual-icon" });
-    setIcon(iconSpan, "panel-top");
-    visualLeft.createSpan({ text: t("preview.export.visualLayout") });
-
-    const chevron = visualLayout.createSpan({ cls: "feuillets-preview-export-chevron" });
-    setIcon(chevron, "chevron-right");
-    visualLayout.setAttribute("aria-label", t("preview.export.adjustTitlePageLayout"));
-    visualLayout.addEventListener("click", () => {
-      // La valeur persistée est la référence : le panneau peut être en train
-      // de se reconstruire après un changement de gabarit.
-      const activeKey = this.plugin.settings.exportTemplate;
-      const activeLabel = templates.find((item) => item.key === activeKey)?.label || activeKey;
-      new LayoutModal(
-        this.app,
-        this.plugin as unknown as ConstructorParameters<typeof LayoutModal>[1],
-        activeKey,
-        activeLabel,
-        () => { void this.refreshPreview(); }
-      ).open();
-    });
+  /** Délégation pure vers le panneau Export (voir ui/export-panel.ts), pour
+   * compatibilité de l'API publique de PreviewView (tests, éventuels
+   * appelants externes). La logique elle-même — liste des feuillets Front
+   * « titre » — vit désormais dans ExportPanel.frontTitleCandidates(). */
+  frontTitleCandidates(): TFile[] {
+    return this.exportPanel?.frontTitleCandidates() ?? [];
   }
 
   private async updateTitlePageStyles(change: (styles: Record<string, TitlePageStyle>) => void): Promise<void> {
@@ -2723,15 +2406,6 @@ export class PreviewView extends ItemView {
     change(styles);
     await updateTemplateTitlePage(this.app, this.plugin.settings, this.plugin.settings.exportTemplate, styles);
     await this.refreshPreview();
-  }
-
-  private toggleExportPanel(collapsed?: boolean): void {
-    this.exportPanelCollapsed = collapsed ?? !this.exportPanelCollapsed;
-    this.exportPanelEl?.toggleClass("is-hidden", this.exportPanelCollapsed);
-    /* À l'ouverture, les champs de la première page sont relus dans le
-       feuillet Front : il a pu être modifié dans l'éditeur entre-temps, et
-       l'écran ne doit jamais montrer une valeur que le fichier n'a plus. */
-    if (!this.exportPanelCollapsed) void this.renderExportPanel();
   }
 
   private exportFileName(): string {
@@ -2843,8 +2517,9 @@ export class PreviewView extends ItemView {
     this.openVisibleEl?.toggleClass("is-hidden", !canOpenVisible);
     this.openVisibleEl?.setAttribute("aria-hidden", canOpenVisible ? "false" : "true");
     /* Le libellé de portée du panneau Export suit la même portée que le
-       rendu et le fil d'Ariane (une seule source de vérité). */
-    if (this.exportScopeLabelEl) this.exportScopeLabelEl.textContent = this.scopeDisplayLabel();
+       rendu et le fil d'Ariane (une seule source de vérité) ; ExportPanel
+       relit scopeDisplayLabel() via son callback getScopeLabel. */
+    this.exportPanel?.refreshScopeLabel();
     this.renderBreadcrumb();
     const collapsed = this.barCollapsed;
     this.viewEl?.toggleClass("is-bar-collapsed", collapsed);
@@ -3342,15 +3017,14 @@ export class PreviewView extends ItemView {
     this.statusEl = null;
     this.viewEl = null;
     this.breadcrumbEl = null;
+    this.toolbarControlsEl = null;
     this.btnExport = null;
-    this.btnSettings = null;
-    this.exportScopeLabelEl = null;
     this.compileScope = null;
     this.lastScopedNav = null;
     this.openVisibleEl = null;
     this.btnBarToggle = null;
     this.exportPanelEl = null;
-    this.firstPageBodyEl = null;
+    this.exportPanel = null;
     this.openMenu = null;
     this.contentEl.empty();
   }

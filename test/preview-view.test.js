@@ -166,6 +166,11 @@ class FakeElement {
   removeClass(name) { this.classes.delete(name); }
   hasClass(name) { return this.classes.has(name); }
   setText(value) { this.textContent = value; }
+  // Comme Obsidian (voir export-pdf.js/applyMeasurementGeometry, qui n'assigne
+  // jamais `el.style.xxx = "…"` directement — interdit par la revue Obsidian,
+  // voir obsidianmd/no-static-styles-assignment) : fusionne les propriétés
+  // dans `style`.
+  setCssStyles(styles) { Object.assign(this.style, styles); }
   get parentElement() { return this.parentNode; }
   get nextElementSibling() {
     const siblings = this.parentNode ? this.parentNode.children : [];
@@ -1280,7 +1285,7 @@ test("PreviewView : la fermeture nettoie les rafraîchissements différés", asy
     assert.equal(dom.pendingTimers(), 0, "aucun rafraîchissement différé ne doit survivre à la fermeture");
     assert.equal(view.previewFrame, null);
     assert.equal(view.previewViewport, null);
-    assert.equal(view.btnSettings, null);
+    assert.equal(view.toolbarControlsEl, null);
     assert.equal(view.openVisibleEl, null);
     assert.equal(view.btnBarToggle, null);
   } finally {
@@ -1306,16 +1311,21 @@ function countCompiles(app) {
   return () => n;
 }
 
-test("barre — fil d'Ariane, Ouvrir ce feuillet, zoom, Export et Réglages seulement", withRender(async () => {
+test("barre — fil d'Ariane, groupe de droite (Ouvrir ce feuillet, zoom, Export) seulement, pas de Réglages", withRender(async () => {
   const { view, toolbar } = await openLoadedView("manuscript");
 
-  const chips = toolbar.children.filter((c) => c.classes.has("feuillets-preview-chip"));
+  /* Ouvrir ce feuillet/zoom/Export vivent maintenant dans un vrai conteneur
+     DOM (.feuillets-preview-toolbar-controls, voir onOpen) plutôt que comme
+     enfants directs de la barre : on cherche donc par descendance
+     (querySelectorAll), pas par .children, pour rester correct quelle que
+     soit la profondeur d'imbrication. */
+  const chips = toolbar.querySelectorAll(".feuillets-preview-chip");
   assert.equal(chips.length, 1, "un seul contrôle de zoom");
-  const icons = toolbar.children.filter((c) => c.classes.has("clickable-icon"));
+  const icons = toolbar.querySelectorAll(".clickable-icon");
   assert.deepEqual(
     icons.map((icon) => icon.icon),
-    ["file-edit", "download", "settings"],
-    "trois icônes Obsidian : Ouvrir ce feuillet, Export, Réglages — et aucun « ⋯ »"
+    ["file-edit", "download"],
+    "deux icônes Obsidian : Ouvrir ce feuillet, Export — aucun Réglages, aucun « ⋯ »"
   );
   assert.equal(view.btnMore, undefined, "le menu ⋯ n'existe plus");
   assert.equal(typeof view.openMoreMenu, "undefined", "son code a disparu avec lui");
@@ -1324,32 +1334,47 @@ test("barre — fil d'Ariane, Ouvrir ce feuillet, zoom, Export et Réglages seul
     false,
     "aucune icône ⋯ ne subsiste dans la barre"
   );
-  assert.equal(toolbar.children.filter((c) => c.tagName === "BUTTON").length, 4, "le bouton contextuel est présent mais masqué hors Chapitre/Partie");
+  assert.equal(view.btnSettings, undefined, "le bouton Réglages n'existe plus du tout");
+  assert.equal(typeof view.openManuscriptSettings, "function", "la capacité elle-même (sans bouton dédié) reste disponible");
+  // Scindé sur le conteneur du groupe de droite, pas sur toute la barre : le
+  // fil d'Ariane rend lui aussi ses niveaux en BUTTON (voir plus bas).
+  assert.equal(
+    view.toolbarControlsEl.children.filter((c) => c.tagName === "BUTTON").length,
+    3,
+    "Ouvrir ce feuillet, zoom, Export — le bouton contextuel est présent mais masqué hors Chapitre/Partie"
+  );
   assert.equal(view.openVisibleEl.classes.has("is-hidden"), true, "aucun bouton visible en mode Manuscrit");
   assert.equal(view.openVisibleEl.getAttribute("aria-label"), "Ouvrir ce feuillet");
   assert.equal(view.openVisibleEl.textContent, "", "une icône, plus un bouton texte");
-  assert.equal(view.btnSettings.getAttribute("aria-label"), "Réglages d’export");
+
+  /* Le groupe de droite est un VRAI conteneur DOM qui englobe naturellement
+     ses trois commandes — pas une largeur CSS devinée. */
+  assert.ok(view.toolbarControlsEl, "le conteneur du groupe de droite existe");
+  assert.ok(toolbar.children.includes(view.toolbarControlsEl), "posé directement dans la barre");
+  for (const btn of [view.openVisibleEl, view.zoomLabelEl, view.btnExport]) {
+    assert.ok(view.toolbarControlsEl.children.includes(btn), "chaque commande du groupe de droite est un enfant réel de ce conteneur");
+  }
 
   assert.ok(toolbar.children.some((c) => c.classes.has("feuillets-preview-breadcrumb")));
   assert.equal(view.zoomLabelEl.textContent, `${Math.round(view.zoomScale * 100)} %`);
-  assert.equal(toolbar.children.filter((c) => c.tagName === "SELECT").length, 0, "aucun réglage visible");
+  assert.equal(toolbar.querySelectorAll("SELECT").length, 0, "aucun réglage visible");
 
   // Aucun contrôle de zoom séparé ne subsiste dans la barre.
   for (const gone of ["Zoom avant (+10 %)", "Zoom arrière (-10 %)", "Taille réelle (100 %)", "Ajuster à la largeur", "Page entière"]) {
     assert.equal(
-      toolbar.children.some((c) => c.getAttribute("aria-label") === gone),
-      false,
+      toolbar.querySelectorAll(`[aria-label="${gone}"]`).length,
+      0,
       `« ${gone} » ne doit plus occuper la barre`
     );
   }
   // Ni séparateurs, ni barre du bas : il n'y a plus de groupes à séparer.
-  assert.equal(toolbar.children.filter((c) => c.classes.has("feuillets-bar-sep")).length, 0);
+  assert.equal(toolbar.querySelectorAll(".feuillets-bar-sep").length, 0);
   assert.equal(view.contentEl.querySelector(".feuillets-preview-stylebar"), null);
 
   assert.equal(view.btnBarToggle, null, "aucun ancien bouton séparé");
 }));
 
-test("réglages — aucun panneau dupliqué ; l'icône ouvre directement l'onglet Export central", withRender(async () => {
+test("réglages — aucun panneau dupliqué ; openManuscriptSettings() ouvre directement l'onglet Export central", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
 
   // Le panneau local a disparu, avec sa seconde source de vérité.
@@ -1366,9 +1391,9 @@ test("réglages — aucun panneau dupliqué ; l'icône ouvre directement l'ongle
     openTabById: (id) => { selectedTab = id; },
     activeTab: settingsTab,
   };
-  assert.equal(view.btnSettings.icon, "settings");
-  view.btnSettings.click();
-  await flush();
+  // Le bouton Réglages n'existe plus dans la barre flottante, mais la
+  // capacité elle-même reste intacte et directement appelable.
+  await view.openManuscriptSettings();
   assert.equal(settingsOpened, 1);
   assert.equal(selectedTab, "feuillets", "doit ouvrir les paramètres Feuillets, pas une vue locale");
   assert.equal(settingsTab._activeSettingsTab, "Export", "l'onglet Export est sélectionné sans étape intermédiaire");
@@ -1729,10 +1754,10 @@ test("menu — le zoom est le seul menu restant de la barre", withRender(async (
   assert.deepEqual(titles.slice(0, 2), ["Ajuster à la largeur", "Afficher la page entière"]);
   assert.equal(titles.includes(CENTER_LABEL), false);
   assert.equal(titles.includes(SYNC_LABEL), false, "la synchronisation découle désormais de la portée Feuillet");
-  assert.equal(titles.includes("Réglages du manuscrit"), false, "les réglages ont leur propre icône");
+  assert.equal(titles.includes("Réglages du manuscrit"), false, "les réglages ne vivent pas dans ce menu");
 
   // Aucun autre contrôle de la barre n'ouvre de menu.
-  for (const btn of [view.btnExport, view.btnSettings, view.openVisibleEl]) {
+  for (const btn of [view.btnExport, view.openVisibleEl]) {
     Menu.lastShown = null;
     btn.click();
     await flush();
@@ -2772,10 +2797,14 @@ test("boutons — aucun style de fond en ligne, aucune classe maison, état lisi
      zoom AFFICHENT leur valeur en toutes lettres, et les états cochés
      vivent dans les menus. Reste à garantir qu'aucun fond n'est posé
      depuis le TypeScript, quel que soit le contrôle. */
-  const controls = [...toolbar.children].filter(
-    (el) => el && (el.hasClass?.("clickable-icon") || el.hasClass?.("feuillets-preview-chip"))
-  );
-  assert.equal(controls.length, 4, "Ouvrir ce feuillet, zoom, Export et Réglages");
+  /* Ouvrir ce feuillet/zoom/Export vivent dans .feuillets-preview-toolbar-
+     controls (voir onOpen), pas comme enfants directs de la barre : on
+     cherche donc par descendance. */
+  const controls = [
+    ...toolbar.querySelectorAll(".clickable-icon"),
+    ...toolbar.querySelectorAll(".feuillets-preview-chip"),
+  ];
+  assert.equal(controls.length, 3, "Ouvrir ce feuillet, zoom et Export — pas de Réglages");
 
   for (const el of controls) {
     for (const prop of ["background", "background-color", "box-shadow", "border"]) {
