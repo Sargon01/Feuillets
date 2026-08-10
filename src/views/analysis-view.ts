@@ -493,17 +493,6 @@ export class AnalysisView extends BaseFeuilletsView {
       row(t("analysis.dashboard.taggedScenes"), `${dash.tagged}/${dash.scenes} (${dash.taggedPct} %)`);
 
       const bar = section.createDiv({ cls: "feuillets-analysis-export-bar" });
-      const copyBtn = bar.createEl("button", { text: t("analysis.dashboard.copySummary") });
-      copyBtn.addEventListener("click", () => {
-        void (async () => {
-          try {
-            await navigator.clipboard.writeText(this.dashboardMarkdown(dash));
-            new Notice(t("analysis.dashboard.summaryCopied"));
-          } catch {
-            new Notice(t("analysis.dashboard.copyFailed"));
-          }
-        })();
-      });
       const saveBtn = bar.createEl("button", { text: t("analysis.dashboard.saveMd") });
       saveBtn.addEventListener("click", () => { void this.exportDashboardFile(dash); });
     });

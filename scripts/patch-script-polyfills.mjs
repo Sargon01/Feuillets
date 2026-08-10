@@ -53,6 +53,14 @@ function patchFile(relPath, replacements, label) {
 
 patchFile("../node_modules/jszip/dist/jszip.js", [
   {
+    before: `      if (typeof callback !== "function") {
+        callback = new Function("" + callback);
+      }`,
+    after: `      if (typeof callback !== "function") {
+        throw new TypeError("setImmediate callback must be a function");
+      }`,
+  },
+  {
     before: `    function installReadyStateChangeImplementation() {
         var html = doc.documentElement;
         registerImmediate = function(handle) {
@@ -85,6 +93,10 @@ patchFile("../node_modules/jszip/dist/jszip.js", [
 
 patchFile("../node_modules/jszip/dist/jszip.min.js", [
   {
+    before: `"function"!=typeof e&&(e=new Function(""+e));`,
+    after: `if("function"!=typeof e)throw new TypeError("setImmediate callback must be a function");`,
+  },
+  {
     before: `"onreadystatechange"in t.document.createElement("script")?function(){var e=t.document.createElement("script");e.onreadystatechange=function(){u(),e.onreadystatechange=null,e.parentNode.removeChild(e),e=null},t.document.documentElement.appendChild(e)}:function(){setTimeout(u,0)}`,
     after: `false?function(){}:function(){setTimeout(u,0)}`,
   },
@@ -95,6 +107,10 @@ patchFile("../node_modules/jszip/dist/jszip.min.js", [
 ], "jszip/dist/jszip.min.js");
 
 patchFile("../node_modules/docx/dist/index.mjs", [
+  {
+    before: `"function" != typeof e && (e = new Function("" + e));`,
+    after: `if ("function" != typeof e) throw new TypeError("setImmediate callback must be a function");`,
+  },
   {
     before: `} else if (t.setImmediate || void 0 === t.MessageChannel) r = "document" in t && "onreadystatechange" in t.document.createElement("script") ? function() {
 						var e = t.document.createElement("script");
