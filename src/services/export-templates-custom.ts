@@ -288,7 +288,7 @@ async function uniqueTemplateKey(app: App, folderPath: string, baseKey: string):
   return key;
 }
 
-async function createCustomTemplateFromV2(
+export async function createCustomTemplateFromV2(
   app: App,
   settings: FeuilletsSettings,
   baseKey: string,
