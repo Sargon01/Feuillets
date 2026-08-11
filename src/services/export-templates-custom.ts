@@ -4,6 +4,7 @@ import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from ".
 import { fmOf } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
 import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
+import { normalizeLegacyTemplate } from "./export-template-v2.js";
 
 /**
  * @typedef {import("obsidian").App} App
@@ -61,6 +62,77 @@ function validTemplateOverrides(frontmatter: Record<string, unknown>): Record<st
   return overrides;
 }
 
+function templateV2FromFrontmatter(frontmatter: Record<string, unknown>): ExportTemplateV2 | null {
+  if (frontmatter.version !== 2 || !frontmatter.page || !frontmatter.body) return null;
+  // Le frontmatter est lu comme données utilisateur : la copie évite que la
+  // normalisation V2 ou son appelant ne puisse modifier le cache Obsidian.
+  return JSON.parse(JSON.stringify(frontmatter)) as ExportTemplateV2;
+}
+
+function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" | "label" | "custom"> {
+  return {
+    fontFamily: tpl.body.fontFamily,
+    fontSizePt: tpl.body.fontSizePt,
+    lineHeight: tpl.body.lineHeight,
+    align: tpl.body.align,
+    indent: tpl.body.firstLineIndentPt > 0,
+    indentPt: tpl.body.firstLineIndentPt || undefined,
+    paragraphSpacing: tpl.body.paragraphSpacingAfterPt > 0,
+    paragraphSpacingPt: tpl.body.paragraphSpacingBeforePt || undefined,
+    hyphenation: tpl.body.hyphenation,
+    marginsCm: { ...tpl.page.marginsCm },
+    pageOrientation: tpl.page.orientation,
+    ...(tpl.page.columns ? { columns: { ...tpl.page.columns } } : {}),
+    ...(tpl.blockquote ? { blockquote: { ...tpl.blockquote } } : {}),
+    ...(tpl.sceneDivider !== undefined ? { sceneDivider: tpl.sceneDivider } : {}),
+    headings: Object.fromEntries(Object.entries(tpl.headings).map(([level, style]) => [level, style ? { ...style } : style])),
+    ...(tpl.titlePage ? { titlePage: JSON.parse(JSON.stringify(tpl.titlePage)) } : {}),
+  };
+}
+
+function v2FileFields(tpl: ExportTemplateV2, label: string): Record<string, unknown> {
+  // Les champs legacy plats gardent le fichier lisible par l'API actuelle,
+  // qui ne consomme pas encore V2. Ils sont une projection explicite de V2,
+  // jamais une fusion implicite avec « classique ».
+  return { version: 2, profile: tpl.profile, page: tpl.page, body: tpl.body, headings: tpl.headings,
+    ...(tpl.blockquote ? { blockquote: tpl.blockquote } : {}),
+    ...(tpl.sceneDivider !== undefined ? { sceneDivider: tpl.sceneDivider } : {}),
+    ...(tpl.header ? { header: tpl.header } : {}), ...(tpl.footer ? { footer: tpl.footer } : {}),
+    ...(tpl.firstPage ? { firstPage: tpl.firstPage } : {}), ...(tpl.titlePage ? { titlePage: tpl.titlePage } : {}),
+    ...legacyFieldsFromV2(tpl), label };
+}
+
+/** Lit les gabarits personnalisés sous leur forme V2. Les anciens fichiers
+ * restent en lecture seule : ils sont normalisés en mémoire sans être
+ * réécrits et sans hériter implicitement du gabarit « classique ». */
+export async function loadCustomTemplatesV2(app: App, settings: FeuilletsSettings): Promise<Record<string, ExportTemplateV2>> {
+  const folder = customTemplatesFolder(app, settings);
+  if (!folder) return {};
+  const custom: Record<string, ExportTemplateV2> = {};
+  for (const file of folder.children) {
+    if (!(file instanceof TFile) || file.extension !== "md") continue;
+    try {
+      const fm = fmOf(app, file);
+      if (!fm || Object.keys(fm).length === 0) continue;
+      const existingV2 = templateV2FromFrontmatter(fm);
+      custom[file.basename] = existingV2 ?? normalizeLegacyTemplate({
+        ...validTemplateOverrides(fm), key: file.basename,
+        label: typeof fm.label === "string" && fm.label.trim() ? fm.label.trim() : file.basename,
+      });
+    } catch (e) {
+      console.error(`Feuillets: modèle d'export personnalisé V2 illisible (${file.path})`, e);
+    }
+  }
+  return custom;
+}
+
+/** Résolution V2 séparée, volontairement non utilisée par les exporteurs
+ * pendant la migration. */
+export async function resolveExportTemplateV2(app: App, settings: FeuilletsSettings, key: string): Promise<ExportTemplateV2> {
+  const custom = await loadCustomTemplatesV2(app, settings);
+  return custom[key] ?? normalizeLegacyTemplate(EXPORT_TEMPLATES[key] || EXPORT_TEMPLATES.classique);
+}
+
 /** Modèles d'export personnalisés : des fiches .md avec frontmatter dans
  * Resources/Layouts — même forme que les modèles intégrés
  * (utils/export-templates.js), lue via fmOf() (déjà utilisée partout
@@ -89,7 +161,13 @@ export async function loadCustomTemplates(app: App, settings: FeuilletsSettings)
          telle quelle dans le <option> du sélecteur d'export. Même garde
          défensive que partout ailleurs sur le frontmatter (voir titleFor). */
       const label = typeof fm.label === "string" && fm.label.trim() ? fm.label.trim() : file.basename;
-      custom[key] = Object.assign({}, EXPORT_TEMPLATES.classique, validTemplateOverrides(fm), {
+      const v2 = templateV2FromFrontmatter(fm);
+      custom[key] = v2 ? {
+        ...legacyFieldsFromV2(v2),
+        key,
+        label,
+        custom: true,
+      } : Object.assign({}, EXPORT_TEMPLATES.classique, validTemplateOverrides(fm), {
         key,
         label,
         custom: true,
@@ -213,6 +291,25 @@ async function uniqueTemplateKey(app: App, folderPath: string, baseKey: string):
   return key;
 }
 
+async function createCustomTemplateFromV2(
+  app: App,
+  settings: FeuilletsSettings,
+  baseKey: string,
+  label: string,
+  template: ExportTemplateV2
+): Promise<{ key: string; label: string } | null> {
+  const path = customTemplatesFolderPath(app, settings);
+  if (!path) {
+    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    return null;
+  }
+  await ensureFolder(app, path);
+  const key = await uniqueTemplateKey(app, path, baseKey);
+  await app.vault.create(normalizePath(`${path}/${key}.md`), `---\n${stringifyYaml(v2FileFields(template, label)).trim()}\n---\n`);
+  (settings as { exportTemplate: string }).exportTemplate = key;
+  return { key, label };
+}
+
 /** Écrit un nouveau modèle personnalisé dans Layouts et le rend
  * IMMÉDIATEMENT actif (`settings.exportTemplate`) — le même format
  * Markdown/frontmatter que les modèles existants (voir
@@ -267,8 +364,8 @@ export async function duplicateExportTemplate(
   const sourceKey = (settings as { exportTemplate?: string }).exportTemplate || "classique";
   const source = await resolveExportTemplate(app, settings, sourceKey);
   const label = `${source.label} — copie`;
-  const { key: _key, label: _label, custom: _custom, ...fields } = source;
-  return createCustomTemplateFromFields(app, settings, `${sourceKey}-copie`, label, fields);
+  const sourceV2 = await resolveExportTemplateV2(app, settings, sourceKey);
+  return createCustomTemplateFromV2(app, settings, `${sourceKey}-copie`, label, sourceV2);
 }
 
 /** Écrit `titlePage.styles` (objet {rôle: {fontSizePt, bold, italic, align,

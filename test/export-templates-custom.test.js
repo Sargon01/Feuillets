@@ -8,6 +8,8 @@ import {
   duplicateExportTemplate,
   listExportTemplates,
   resolveExportTemplate,
+  loadCustomTemplatesV2,
+  resolveExportTemplateV2,
 } from "../src/services/export-templates-custom.js";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
 
@@ -96,6 +98,29 @@ test("export templates custom : un gabarit personnalisé de même clé est réso
   assert.equal(resolved.custom, true);
   assert.equal(resolved.fontFamily, EXPORT_TEMPLATES.classique.fontFamily, "le personnalisé conserve sa résolution actuelle depuis Classique");
   assert.notEqual(resolved, EXPORT_TEMPLATES.apa);
+});
+
+test("export templates custom V2 : un ancien fichier reste lisible sans fusion implicite avec Classique", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const resources = new TFolder("Projet/Resources");
+  const layouts = new TFolder("Projet/Resources/Layouts");
+  const custom = new TFile("Projet/Resources/Layouts/ancien.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; custom.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [custom];
+  const frontmatter = { label: "Ancien", fontFamily: "Georgia, serif", fontSizePt: 11, hyphenation: false };
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, custom]);
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter }) } };
+  const settings = { projectFolder: manuscript.path };
+
+  const legacy = await loadCustomTemplates(app, settings);
+  const v2 = await loadCustomTemplatesV2(app, settings);
+
+  assert.equal(legacy.ancien.fontFamily, "Georgia, serif", "la voie legacy conserve sa compatibilité publique");
+  assert.equal(v2.ancien.body.fontFamily, "Georgia, serif");
+  assert.deepEqual(v2.ancien.headings, {}, "V2 ne récupère jamais les titres de Classique");
+  assert.equal(v2.ancien.profile, "document");
+  assert.deepEqual(frontmatter, { label: "Ancien", fontFamily: "Georgia, serif", fontSizePt: 11, hyphenation: false });
 });
 
 /* ---------------------- duplicateExportTemplate (Phase 11) --------------- */
@@ -190,6 +215,39 @@ test("duplicateExportTemplate : préserve les champs du gabarit dupliqué (pas d
   assert.equal(custom[result.key].fontFamily, EXPORT_TEMPLATES.classique.fontFamily);
   assert.equal(custom[result.key].fontSizePt, EXPORT_TEMPLATES.classique.fontSizePt);
   assert.equal(custom[result.key].lineHeight, EXPORT_TEMPLATES.classique.lineHeight);
+});
+
+test("duplicateExportTemplate : écrit une copie V2 de Classique avec le profil manuscript", async () => {
+  const { app, settings } = buildFixture();
+
+  const result = await duplicateExportTemplate(app, settings);
+  const file = app.vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Layout/${result.key}.md`);
+
+  assert.match(file.content, /version: 2/);
+  assert.match(file.content, /profile: manuscript/);
+});
+
+test("duplicateExportTemplate : conserve le profil document d'un gabarit intégré", async () => {
+  const { app, settings } = buildFixture();
+  settings.exportTemplate = "romanSimple";
+
+  const result = await duplicateExportTemplate(app, settings);
+  const file = app.vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Layout/${result.key}.md`);
+
+  assert.match(file.content, /profile: document/);
+});
+
+test("resolveExportTemplateV2 : APA et Thèse conservent leur profil académique sans muter les sources", async () => {
+  const { app, settings } = buildFixture();
+  const before = structuredClone(EXPORT_TEMPLATES);
+
+  const apa = await resolveExportTemplateV2(app, settings, "apa");
+  const these = await resolveExportTemplateV2(app, settings, "these");
+  apa.page.marginsCm.left = 99;
+
+  assert.equal(apa.profile, "academic");
+  assert.equal(these.profile, "academic");
+  assert.deepEqual(EXPORT_TEMPLATES, before);
 });
 
 test("duplicateExportTemplate : aucun dossier projet -> null, sans lever", async () => {
