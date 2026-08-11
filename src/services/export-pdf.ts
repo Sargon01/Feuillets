@@ -93,6 +93,8 @@ export function paginateManuscript(
   const pageHmm = pageSize === "A5" ? (isLandscape ? 148 : 210) : pageSize === "letter" ? (isLandscape ? 216 : 279) : (isLandscape ? 210 : 297);
 
   const contentGeometry = pageContentGeometry(pageWmm, pageHmm, mTop, mBottom, mLeft, mRight);
+  const columnCount = Math.max(1, Math.round(tpl.columns?.count ?? 1));
+  const columnGapPt = Math.max(0, tpl.columns?.gutterPt ?? 0);
 
   const elements = Array.from(containerEl.children)
     .map((el) => el.cloneNode(true))
@@ -131,6 +133,8 @@ export function paginateManuscript(
     lineHeight: tpl.lineHeight,
     textAlign: tpl.align,
     hyphens: effectiveHyphenation(tpl, options),
+    columnCount,
+    columnGapPt,
     // Scoped in a shadow root by the engine, never injected into Obsidian's document.
     css: templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl),
   });
@@ -189,6 +193,10 @@ export function paginateManuscript(
     const showHeader = settings.pdfEnableHeaders !== false && !(isFirst && hideFirst);
     const showFooter = settings.pdfEnableFooters !== false && !(isFirst && hideFirst);
     const nodesHtml = nodes.map((n) => n.outerHTML).join("\n");
+    const isFrontPage = nodes.some((node) => node.classList?.contains("feuillets-frontpage"));
+    const columnsStyle = !isFrontPage && columnCount > 1
+      ? ` column-count: ${columnCount}; column-gap: ${columnGapPt}pt; column-fill: auto;`
+      : "";
 
     return `
       <div class="pdf-page ${isEven ? "page-even" : "page-odd"}" style="
@@ -228,7 +236,7 @@ export function paginateManuscript(
         `
             : ""
         }
-        <div class="pdf-page-content" style="height: 100%; overflow: hidden;">
+        <div class="pdf-page-content" style="height: 100%; overflow: hidden;${columnsStyle}">
           ${nodesHtml}
         </div>
         ${

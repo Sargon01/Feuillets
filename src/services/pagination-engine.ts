@@ -13,6 +13,8 @@ export type PaginationGeometry = {
   textAlign?: string;
   hyphens?: boolean;
   css?: string;
+  columnCount?: number;
+  columnGapPt?: number;
 };
 
 export type PaginationPage = Element[];
@@ -131,7 +133,8 @@ function isFrontPage(node: Element): boolean {
 }
 
 function styleComposition(content: HTMLElement, geometry: PaginationGeometry) {
-  applyCss(content, {
+  const columnCount = Math.max(1, Math.round(geometry.columnCount ?? 1));
+  const props: Record<string, string> = {
     "box-sizing": "border-box",
     width: `${geometry.widthPx}px`,
     height: `${geometry.heightPx}px`,
@@ -141,16 +144,24 @@ function styleComposition(content: HTMLElement, geometry: PaginationGeometry) {
     "line-height": String(geometry.lineHeight),
     "text-align": geometry.textAlign || "initial",
     hyphens: geometry.hyphens ? "auto" : "none",
-  });
+  };
+  if (columnCount > 1) {
+    props["column-count"] = String(columnCount);
+    props["column-gap"] = `${Math.max(0, geometry.columnGapPt ?? 0)}pt`;
+    props["column-fill"] = "auto";
+  }
+  applyCss(content, props);
 }
 
 function overflows(content: HTMLElement): boolean {
-  return content.scrollHeight > content.clientHeight;
+  return content.scrollHeight > content.clientHeight || content.scrollWidth > content.clientWidth;
 }
 
 /**
  * Paginate top-level manuscript blocks.  Overflow is determined solely by
- * scrollHeight/clientHeight after each candidate is actually laid out.
+ * scrollHeight/clientHeight or scrollWidth/clientWidth after each candidate
+ * is actually laid out. The horizontal check is essential for page-height
+ * multi-column composition, which creates an additional column on overflow.
  */
 export function paginateDom(nodes: Element[], geometry: PaginationGeometry): PaginationPage[] {
   const host = createDiv();
@@ -166,10 +177,10 @@ export function paginateDom(nodes: Element[], geometry: PaginationGeometry): Pag
   }
 
   const pages: CompositionPage[] = [];
-  const createPage = (): CompositionPage => {
+  const createPage = (singleColumn = false): CompositionPage => {
     const content = createDiv();
     content.className = "pagination-engine-page-content";
-    styleComposition(content, geometry);
+    styleComposition(content, singleColumn ? { ...geometry, columnCount: 1 } : geometry);
     root.appendChild(content);
     const page = { content, nodes: [] };
     pages.push(page);
@@ -188,13 +199,14 @@ export function paginateDom(nodes: Element[], geometry: PaginationGeometry): Pag
     page.nodes.push(candidate);
   };
   const retain = (candidate: Element) => { page.nodes.push(candidate); };
-  const nextPage = () => { page = createPage(); };
+  const nextPage = (singleColumn = false) => { page = createPage(singleColumn); };
 
   try {
     for (const original of nodes) {
       const source = original.cloneNode(true) as Element;
       const front = isFrontPage(source);
-      if (isForcedPage(source) && page.nodes.length) nextPage();
+      if (isForcedPage(source) && page.nodes.length) nextPage(front);
+      else if (front) page = createPage(true);
 
       if (appendIfFits(source)) {
         place(source);

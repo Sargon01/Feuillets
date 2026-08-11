@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { effectiveHyphenation, pageContentGeometry } from "../src/services/export-pdf.js";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
 import {
@@ -70,6 +71,14 @@ test("pagination-engine : la pagination réelle ne décide pas avec getClientRec
   const implementation = paginateDom.toString();
   assert.doesNotMatch(implementation, /getClientRects|firstOverflowWordStart/);
   assert.match(implementation, /overflows/);
+});
+
+test("pagination-engine : la mesure multicolonne compose à hauteur de page et détecte le débordement horizontal", async () => {
+  const implementation = await readFile(new URL("../src/services/pagination-engine.js", import.meta.url), "utf8");
+  assert.match(implementation, /"column-count"/);
+  assert.match(implementation, /"column-gap"/);
+  assert.match(implementation, /"column-fill"/);
+  assert.match(implementation, /scrollWidth > content\.clientWidth/);
 });
 
 test("pagination-engine : la zone A4 à marges 2,5 cm garde ses pixels fractionnaires", () => {

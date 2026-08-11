@@ -242,6 +242,41 @@ test("paginateManuscript : mêmes réglages centraux pour zones centrales, dista
   } finally { dom.restore(); }
 });
 
+test("paginateManuscript : une colonne conserve le contenu PDF historique sans style de colonnes", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(element("p", "Corps", 100));
+    const result = paginateManuscript(container, [], {}, { ...template, columns: { count: 1, gutterPt: 18 } });
+    assert.doesNotMatch(result.pagesHtml, /column-count|column-gap|column-fill/);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : transmet les deux colonnes et la gouttière à la mesure puis à la page PDF finale", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(element("p", "Corps", 100));
+    const result = paginateManuscript(container, [], {}, { ...template, columns: { count: 2, gutterPt: 18 } });
+    assert.match(paginateManuscript.toString(), /columnCount,\s*columnGapPt/);
+    assert.match(result.pagesHtml, /class="pdf-page-content" style="height: 100%; overflow: hidden; column-count: 2; column-gap: 18pt; column-fill: auto;"/);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : une page Front conserve sa composition à une colonne", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    const front = element("div", "Dédicace", 100); front.addClass("feuillets-frontpage");
+    container.appendChild(front);
+    container.appendChild(element("p", "Corps", 100));
+    const result = paginateManuscript(container, [], {}, { ...template, columns: { count: 2, gutterPt: 18 } });
+    const pages = result.pagesHtml.split('class="pdf-page-content"');
+    assert.doesNotMatch(pages[1], /column-count/, "la page Front reste inchangée");
+    assert.match(pages[2], /column-count: 2/, "le corps suivant conserve deux colonnes");
+  } finally { dom.restore(); }
+});
+
 test("exportPdf : sur mobile notifie sans rendre ni charger le DOM", async () => {
   const previousMobile = Platform.isMobile;
   const previousNotice = Notice.onCreate;
