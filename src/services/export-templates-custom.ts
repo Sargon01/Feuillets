@@ -91,13 +91,12 @@ function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" |
 }
 
 function v2FileFields(tpl: ExportTemplateV2, label: string): Record<string, unknown> {
-  // Les champs legacy plats gardent le fichier lisible par l'API actuelle,
-  // qui ne consomme pas encore V2. Ils sont une projection explicite de V2,
-  // jamais une fusion implicite avec « classique ».
+  // Un fichier produit par l'éditeur canonique est V2 seulement. Les
+  // consommateurs legacy obtiennent leur projection en mémoire dans
+  // loadCustomTemplates(), sans réintroduire de dette dans le fichier.
   return { version: 2, profile: tpl.profile, page: tpl.page, body: tpl.body, headings: tpl.headings,
     blockquote: tpl.blockquote, sceneDivider: tpl.sceneDivider, header: tpl.header, footer: tpl.footer,
-    firstPage: tpl.firstPage, titlePage: tpl.titlePage,
-    ...legacyFieldsFromV2(tpl), label };
+    firstPage: tpl.firstPage, titlePage: tpl.titlePage, label };
 }
 
 /** Lit les gabarits personnalisés sous leur forme V2. Les anciens fichiers
@@ -233,8 +232,8 @@ export async function exportBuiltInTemplates(app: App, settings: FeuilletsSettin
   for (const t of Object.values(EXPORT_TEMPLATES)) {
     const filePath = normalizePath(`${path}/${t.key}.md`);
     if (app.vault.getAbstractFileByPath(filePath)) continue;
-    const { key: _key, ...fields } = t;
-    const content = `---\n${stringifyYaml(fields).trim()}\n---\n`;
+    const v2 = normalizeLegacyTemplate(t);
+    const content = `---\n${stringifyYaml(v2FileFields(v2, t.label)).trim()}\n---\n`;
     await app.vault.create(filePath, content);
     count++;
   }
@@ -261,8 +260,8 @@ export async function ensureTemplateFile(app: App, settings: FeuilletsSettings, 
     const builtin = EXPORT_TEMPLATES[key];
     let content = "---\n---\n";
     if (builtin) {
-      const { key: _k, ...fields } = builtin;
-      content = `---\n${stringifyYaml(fields).trim()}\n---\n`;
+      const v2 = normalizeLegacyTemplate(builtin);
+      content = `---\n${stringifyYaml(v2FileFields(v2, builtin.label)).trim()}\n---\n`;
     }
     file = await app.vault.create(filePath, content);
   }
@@ -378,14 +377,24 @@ export async function duplicateExportTemplate(
  * @returns {Promise<void>}
  */
 export async function updateTemplateTitlePage(app: App, settings: FeuilletsSettings, key: string, styles: Record<string, TitlePageStyle>): Promise<void> {
+  const template = await resolveExportTemplateV2(app, settings, key);
+  template.titlePage.styles = JSON.parse(JSON.stringify(styles)) as Record<string, TitlePageStyle>;
+  await saveExportTemplateV2(app, settings, key, template);
+}
+
+/** Sauvegarde atomiquement la forme canonique V2 du gabarit sélectionné.
+ * Toute écriture d'édition efface les clés legacy du frontmatter, mais une
+ * simple lecture d'un ancien fichier ne l'écrit jamais. */
+export async function saveExportTemplateV2(app: App, settings: FeuilletsSettings, key: string, template: ExportTemplateV2): Promise<void> {
   const file = await ensureTemplateFile(app, settings, key);
   if (!file) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return;
   }
+  const normalized = normalizeV2Template(JSON.parse(JSON.stringify(template)) as ExportTemplateV2);
+  const label = (await resolveExportTemplate(app, settings, key)).label || key;
   await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-    const titlePage = (fm.titlePage && typeof fm.titlePage === "object" ? fm.titlePage : {}) as Record<string, unknown>;
-    titlePage.styles = styles;
-    fm.titlePage = titlePage;
+    for (const field of Object.keys(fm)) delete fm[field];
+    Object.assign(fm, v2FileFields(normalized, label));
   });
 }

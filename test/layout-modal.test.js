@@ -183,14 +183,14 @@ test("LayoutModal reconstruit la maquette, sélectionne ses zones et préserve l
   }
 });
 
-test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs sans écriture prématurée", async () => {
+test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs V2 sans écriture dans les réglages globaux", async () => {
   const restoreSetting = installSettingStub();
   try {
     await withFakeDocument(async (listeners) => {
       const { modal, settings, calls } = createModal();
       await modal.onOpen();
-      settings.pdfEnableHeaders = false;
-      settings.pdfHideFirstPageHeader = true;
+      modal.template.header.enabled = false;
+      modal.template.firstPage.hideHeader = true;
       modal.renderBands();
       assert.equal(modal.headerBand.classes.has("is-muted"), true);
       assert.equal(modal.footerBand.classes.has("is-muted"), true);
@@ -209,14 +209,15 @@ test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs sans 
       modal.select("header");
       const headerToggle = controls(modal.inspectorEl, "toggle")[0];
       await headerToggle.change(true);
-      assert.equal(calls.save > 0, true);
+      assert.equal(modal.template.header.enabled, true);
+      assert.equal(calls.save, 0, "l'éditeur ne persiste jamais settings.pdf…");
       assert.equal(calls.notify, 2, "les bandes en-tête/pied avertissent aussi l’aperçu");
 
       modal.select(role);
       const sizeInput = controls(modal.inspectorEl, "text")[0];
       await sizeInput.change("18");
       assert.equal(modal.styles[role].fontSizePt, 18);
-      assert.equal(calls.frontmatter.length, 2);
+      assert.equal(calls.frontmatter.length, 3);
       assert.equal(calls.notify, 3);
     });
   } finally {
@@ -224,14 +225,11 @@ test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs sans 
   }
 });
 
-/* Ces réglages vivaient dans le panneau Export de l'aperçu, qui n'en garde
-   plus aucun : le modal visuel est désormais leur unique interface. Ils
-   écrivent les MÊMES clés que celles lues par l'aperçu et par les exports
-   PDF/DOCX/ODT — aucune valeur n'a été perdue au déménagement. */
-test("LayoutModal — en-têtes, pieds, distances et espacements sont réglables ici et nulle part ailleurs", async () => {
+test("LayoutModal — en-têtes, pieds, distances et espacements sont sauvegardés dans le V2, jamais dans settings.pdf…", async () => {
   const restoreSetting = installSettingStub();
   try {
     const { modal, settings, calls } = createModal();
+    const pdfBefore = JSON.stringify(Object.fromEntries(Object.entries(settings).filter(([key]) => key.startsWith("pdf"))));
     await modal.onOpen();
 
     modal.select("header");
@@ -239,35 +237,41 @@ test("LayoutModal — en-têtes, pieds, distances et espacements sont réglables
     // gauche, centre, droite, distance au bord, espace en-tête/corps
     assert.equal(headerTexts.length, 5, "les cinq champs d'en-tête sont présents");
     await headerTexts[1].change("{title} — {author}");
-    assert.equal(settings.pdfHeaderCenter, "{title} — {author}");
+    assert.equal(modal.template.header.center, "{title} — {author}");
     await headerTexts[3].change("1.2");
-    assert.equal(settings.pdfHeaderDistanceCm, 1.2);
+    assert.equal(modal.template.header.distanceCm, 1.2);
     await headerTexts[4].change("6");
-    assert.equal(settings.pdfHeaderBodyGapPt, 6);
+    assert.equal(modal.template.header.bodyGapPt, 6);
 
     modal.select("footer");
     const footerToggle = controls(modal.inspectorEl, "toggle")[0];
     await footerToggle.change(false);
-    assert.equal(settings.pdfEnableFooters, false);
+    assert.equal(modal.template.footer.enabled, false);
     const footerTexts = controls(modal.inspectorEl, "text");
     // format du numéro, pied gauche, pied centre, distance, espace corps/pied
     assert.equal(footerTexts.length, 5);
     await footerTexts[1].change("Brouillon");
-    assert.equal(settings.pdfFooterLeft, "Brouillon");
+    assert.equal(modal.template.footer.left, "Brouillon");
     await footerTexts[2].change("{chapter}");
-    assert.equal(settings.pdfFooterCenter, "{chapter}");
+    assert.equal(modal.template.footer.center, "{chapter}");
     await footerTexts[3].change("1.5");
-    assert.equal(settings.pdfFooterDistanceCm, 1.5);
+    assert.equal(modal.template.footer.distanceCm, 1.5);
     await footerTexts[4].change("9");
-    assert.equal(settings.pdfFooterBodyGapPt, 9);
+    assert.equal(modal.template.footer.bodyGapPt, 9);
 
-    // Première page différente : le même unique réglage, côté en-tête.
-    modal.select("header");
-    const headerToggles = controls(modal.inspectorEl, "toggle");
-    await headerToggles.at(-1).change(false);
-    assert.equal(settings.pdfHideFirstPageHeader, false);
-    assert.equal(calls.save > 0, true, "chaque changement est persisté dans les réglages centraux");
-    assert.equal(calls.notify > 0, true, "et l'aperçu ouvert est prévenu");
+    modal.select("firstPage");
+    await controls(modal.inspectorEl, "toggle")[0].change(false);
+    assert.equal(modal.template.firstPage.hideHeader, false);
+    assert.equal(JSON.stringify(Object.fromEntries(Object.entries(settings).filter(([key]) => key.startsWith("pdf")))), pdfBefore);
+    assert.equal(calls.frontmatter.length > 0, true);
+    const saved = calls.frontmatter.at(-1).frontmatter;
+    assert.equal(saved.version, 2);
+    assert.equal(saved.header.center, "{title} — {author}");
+    assert.equal(saved.footer.left, "Brouillon");
+    assert.equal(saved.firstPage.hideHeader, false);
+    for (const legacy of ["indent", "indentPt", "paragraphSpacing", "paragraphSpacingPt", "marginCm", "pageOrientation", "chapterTitle", "pageNumbers", "pageNumberPosition"]) {
+      assert.equal(legacy in saved, false, `${legacy} ne doit pas être réintroduit`);
+    }
   } finally {
     restoreSetting();
   }

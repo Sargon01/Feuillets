@@ -10,8 +10,10 @@ import {
   resolveExportTemplate,
   loadCustomTemplatesV2,
   resolveExportTemplateV2,
+  saveExportTemplateV2,
 } from "../src/services/export-templates-custom.js";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
+import { normalizeLegacyTemplate } from "../src/services/export-template-v2.js";
 
 test("export templates custom : lit un modèle et crée un modèle manquant", async () => {
   const project = new TFolder("Projet");
@@ -30,6 +32,43 @@ test("export templates custom : lit un modèle et crée un modèle manquant", as
 
   assert.equal(templates.perso.label, "Mon modèle");
   assert.equal(created?.path, "Projet/Resources/Layouts/classique.md");
+});
+
+test("export templates custom V2 : la sauvegarde matérialise un builtin complet sans champs legacy ni réglages pdf", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  manuscript.parent = project; project.children = [manuscript];
+  const { vault, fileManager } = createFakeVault([project, manuscript]);
+  const writes = [];
+  fileManager.processFrontMatter = async (file, update) => {
+    const fm = { indent: true, pdfHeaderLeft: "Ancien", pageNumbers: true };
+    update(fm);
+    writes.push({ file, fm });
+  };
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const settings = { projectFolder: manuscript.path, exportTemplate: "classique", pdfHeaderLeft: "Global inchangé" };
+  const template = normalizeLegacyTemplate(EXPORT_TEMPLATES.classique);
+  template.profile = "manuscript";
+  template.page.marginsCm.left = 3.2;
+  template.body.firstLineIndentPt = 24;
+  template.headings.h6 = { fontSizePt: 9, italic: true };
+  template.header.center = "{page}";
+  template.footer.right = "{page}";
+  template.titlePage.styles = { titre: { fontSizePt: 22, bold: true } };
+
+  await saveExportTemplateV2(app, settings, "classique", template);
+
+  const saved = writes[0].fm;
+  assert.equal(saved.version, 2);
+  assert.equal(saved.profile, "manuscript");
+  assert.equal(saved.page.marginsCm.left, 3.2);
+  assert.equal(saved.body.firstLineIndentPt, 24);
+  assert.deepEqual(saved.headings.h6, { fontSizePt: 9, italic: true });
+  assert.equal(saved.header.center, "{page}");
+  assert.equal(saved.footer.right, "{page}");
+  assert.deepEqual(saved.titlePage.styles.titre, { fontSizePt: 22, bold: true });
+  for (const key of ["indent", "pdfHeaderLeft", "pageNumbers", "pageNumberPosition", "chapterTitle"]) assert.equal(key in saved, false);
+  assert.equal(settings.pdfHeaderLeft, "Global inchangé");
 });
 
 test("export templates custom : un nouveau projet sans dossier existant crée dans Layout (nouveau nom)", async () => {

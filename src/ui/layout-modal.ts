@@ -1,7 +1,7 @@
 import {
   listExportTemplates,
-  resolveExportTemplate,
-  updateTemplateTitlePage,
+  resolveExportTemplateV2,
+  saveExportTemplateV2,
 } from "../services/export-templates-custom.js";
 
 import { Modal, Setting } from "obsidian";
@@ -31,16 +31,16 @@ const SCALE = (MOCKUP_H_PX - HEADER_PX - FOOTER_PX) / PAGE_USABLE_PT;
 /** Éditeur visuel de MISE EN PAGE (option A) : une seule maquette A4 réunit
  * l'en-tête (bande haute), les blocs de la page de titre (milieu, glissables)
  * et le pied de page (bande basse). Cliquer une zone l'ouvre dans
- * l'inspecteur. En-tête/pied de page sont GLOBAUX (réglages du plugin, toutes
- * les pages) ; les blocs de titre sont propres au MODÈLE (écrits dans son .md,
- * option A). La page de titre masque normalement en-tête/pied (réglage
- * « Masquer p.1 ») : les bandes sont alors grisées avec la mention. */
+ * l'inspecteur. En-tête, pied et blocs de titre appartiennent au MODÈLE V2
+ * écrit dans son .md. La première page peut masquer les bandes : elles sont
+ * alors grisées dans la maquette. */
 export class LayoutModal extends Modal {
   plugin: LayoutPlugin;
   templateKey: string;
   templateLabel: string;
   onChange: OnLayoutChange | undefined;
   styles: TitlePageStyles;
+  template!: ExportTemplateV2;
   roles: string[];
   selected: LayoutSelection;
   blockEls: BlockElements;
@@ -92,11 +92,16 @@ export class LayoutModal extends Modal {
     c.empty();
     this.selected = null;
 
-    const tpl = await resolveExportTemplate(this.app, this.plugin.settings, this.templateKey);
-    this.styles = (tpl.titlePage && tpl.titlePage.styles ? JSON.parse(JSON.stringify(tpl.titlePage.styles)) : {}) as TitlePageStyles;
+    this.template = await resolveExportTemplateV2(this.app, this.plugin.settings, this.templateKey);
+    this.styles = JSON.parse(JSON.stringify(this.template.titlePage.styles)) as TitlePageStyles;
     this.roles = Object.keys(this.styles);
 
     const wrap = c.createDiv({ cls: "feuillets-tp-editor" });
+    const navigation = wrap.createDiv({ cls: "feuillets-tp-navigation" });
+    for (const [key, label] of [["page", "Page"], ["body", "Corps de texte"], ["headings", "Titres"], ["blockquote", "Citation et séparateur"], ["firstPage", "Première page"]]) {
+      const button = navigation.createEl("button", { text: label });
+      button.addEventListener("click", () => this.select(key));
+    }
     this.pageEl = wrap.createDiv({ cls: "feuillets-tp-page" });
     this.pageEl.style.height = `${MOCKUP_H_PX}px`;
 
@@ -152,9 +157,8 @@ export class LayoutModal extends Modal {
 
   /** Contenu et état (grisé) des bandes en-tête/pied selon les réglages. */
   renderBands(): void {
-    const S = this.plugin.settings;
-    const off = S["pdfEnableHeaders"] === false;
-    const hideP1 = S.pdfHideFirstPageHeader !== false;
+    const off = !this.template.header.enabled;
+    const hideP1 = this.template.firstPage.hideHeader;
 
     this.headerBand.empty();
     this.headerBand.toggleClass("is-selected", this.selected === "header");
@@ -162,17 +166,17 @@ export class LayoutModal extends Modal {
     if (off) {
       this.headerBand.createSpan().setText(t("modal.layout.headerDisabled"));
     } else {
-      this.headerBand.createSpan({ cls: "feuillets-tp-band-l" }).setText(S.pdfHeaderLeft || "{title}");
-      this.headerBand.createSpan({ cls: "feuillets-tp-band-r" }).setText(S.pdfHeaderRight || "{author}");
+      this.headerBand.createSpan({ cls: "feuillets-tp-band-l" }).setText(this.template.header.left || "{title}");
+      this.headerBand.createSpan({ cls: "feuillets-tp-band-r" }).setText(this.template.header.right || "{author}");
     }
     if (hideP1) this.headerBand.createSpan({ cls: "feuillets-tp-band-note" }).setText(t("modal.layout.hiddenOnP1"));
 
     this.footerBand.empty();
     this.footerBand.toggleClass("is-selected", this.selected === "footer");
     this.footerBand.toggleClass("is-muted", hideP1);
-    const pos = S.pdfPageNumberPosition || "right";
+    const pos = this.template.firstPage.pageNumberPosition;
     const span = this.footerBand.createSpan({ cls: `feuillets-tp-band-${pos === "right" ? "r" : pos === "left" ? "l" : "c"}` });
-    span.setText(S.pdfFooterRight || "Page {page} sur {pages}");
+    span.setText(this.template.footer.right || "Page {page} sur {pages}");
   }
 
   startDrag(e: PointerEvent, role: string): void {
@@ -220,6 +224,11 @@ export class LayoutModal extends Modal {
   renderInspector(): void {
     const insp = this.inspectorEl;
     insp.empty();
+    if (this.selected === "page") return this.renderPageInspector(insp);
+    if (this.selected === "body") return this.renderBodyInspector(insp);
+    if (this.selected === "headings") return this.renderHeadingsInspector(insp);
+    if (this.selected === "blockquote") return this.renderBlockquoteInspector(insp);
+    if (this.selected === "firstPage") return this.renderFirstPageInspector(insp);
     if (this.selected === "header") return this.renderHeaderInspector(insp);
     if (this.selected === "footer") return this.renderFooterInspector(insp);
     if (this.selected && this.styles[this.selected]) return this.renderBlockInspector(insp, this.selected);
@@ -228,123 +237,89 @@ export class LayoutModal extends Modal {
     );
   }
 
-  /** Champ numérique d'un réglage de bande (distances, espacements). Les
-   * clés écrites sont celles que lisent PDF, DOCX, ODT et la pagination de
-   * l'aperçu : ce modal est leur unique interface visuelle. */
+  /** Champ numérique V2 partagé par les inspecteurs compacts. */
   private bandNumber(
     insp: HTMLElement,
     name: string,
-    key: "pdfHeaderDistanceCm" | "pdfHeaderBodyGapPt" | "pdfFooterDistanceCm" | "pdfFooterBodyGapPt",
-    fallback: number,
-    save: () => Promise<void>
+    value: () => number,
+    set: (value: number) => void,
   ): void {
-    const S = this.plugin.settings;
     new Setting(insp).setName(name).addText((t2) => {
       t2.inputEl.type = "number";
-      t2.setValue(String(S[key] ?? fallback)).onChange(async (v) => {
+      t2.setValue(String(value())).onChange(async (v) => {
         const n = parseFloat(v);
         if (!Number.isFinite(n)) return;
-        S[key] = Math.max(0, n);
-        await save();
+        set(Math.max(0, n));
+        await this.saveTemplate();
       });
     });
   }
 
   renderHeaderInspector(insp: HTMLElement): void {
-    const S = this.plugin.settings;
     insp.createEl("h4", { text: t("modal.layout.headerAllPages") });
-    const saveBands = async () => {
-      await this.plugin.saveSettings();
-      this.renderBands();
-      this.notifyChange();
-    };
     new Setting(insp).setName(t("modal.layout.enableHeader")).addToggle((t2) =>
-      t2.setValue(S["pdfEnableHeaders"] !== false).onChange(async (v) => {
-        S["pdfEnableHeaders"] = v;
-        await saveBands();
+      t2.setValue(this.template.header.enabled).onChange(async (v) => {
+        this.template.header.enabled = v;
+        await this.saveTemplate();
       })
     );
-    new Setting(insp).setName(t("settings.pdfHeaderLeft.name")).addText((t2) =>
-      t2.setValue(S.pdfHeaderLeft || "{title}").onChange(async (v) => {
-        S.pdfHeaderLeft = v;
-        await saveBands();
+    new Setting(insp).setName("Gauche").addText((t2) =>
+      t2.setValue(this.template.header.left).onChange(async (v) => {
+        this.template.header.left = v;
+        await this.saveTemplate();
       })
     );
     new Setting(insp).setName(t("modal.layout.headerCenter")).addText((t2) =>
-      t2.setValue(S.pdfHeaderCenter || "").onChange(async (v) => {
-        S.pdfHeaderCenter = v;
-        await saveBands();
+      t2.setValue(this.template.header.center).onChange(async (v) => {
+        this.template.header.center = v;
+        await this.saveTemplate();
       })
     );
-    new Setting(insp).setName(t("settings.pdfHeaderRight.name")).addText((t2) =>
-      t2.setValue(S.pdfHeaderRight || "{author}").onChange(async (v) => {
-        S.pdfHeaderRight = v;
-        await saveBands();
+    new Setting(insp).setName("Droite").addText((t2) =>
+      t2.setValue(this.template.header.right).onChange(async (v) => {
+        this.template.header.right = v;
+        await this.saveTemplate();
       })
     );
-    this.bandNumber(insp, t("modal.layout.distanceToEdge"), "pdfHeaderDistanceCm", 0.75, saveBands);
-    this.bandNumber(insp, t("modal.layout.headerBodyGap"), "pdfHeaderBodyGapPt", 3, saveBands);
+    this.bandNumber(insp, t("modal.layout.distanceToEdge"), () => this.template.header.distanceCm, (v) => this.template.header.distanceCm = v);
+    this.bandNumber(insp, t("modal.layout.headerBodyGap"), () => this.template.header.bodyGapPt, (v) => this.template.header.bodyGapPt = v);
     new Setting(insp).setName(t("modal.layout.alternating")).addToggle((t2) =>
-      t2.setValue(!!S.pdfDiffHeaders).onChange(async (v) => {
-        S.pdfDiffHeaders = v;
-        await saveBands();
-      })
-    );
-    new Setting(insp).setName(t("modal.layout.hideOnTitlePage")).addToggle((t2) =>
-      t2.setValue(S.pdfHideFirstPageHeader !== false).onChange(async (v) => {
-        S.pdfHideFirstPageHeader = v;
-        await saveBands();
+      t2.setValue(this.template.header.differentOddEven).onChange(async (v) => {
+        this.template.header.differentOddEven = v;
+        await this.saveTemplate();
       })
     );
     insp.createDiv({ cls: "setting-item-description", text: t("modal.layout.variables") });
   }
 
   renderFooterInspector(insp: HTMLElement): void {
-    const S = this.plugin.settings;
     insp.createEl("h4", { text: t("modal.layout.footerNumber") });
-    const saveBands = async () => {
-      await this.plugin.saveSettings();
-      this.renderBands();
-      this.notifyChange();
-    };
     new Setting(insp).setName(t("modal.layout.enableFooter")).addToggle((t2) =>
-      t2.setValue(S.pdfEnableFooters !== false).onChange(async (v) => {
-        S.pdfEnableFooters = v;
-        await saveBands();
+      t2.setValue(this.template.footer.enabled).onChange(async (v) => {
+        this.template.footer.enabled = v;
+        await this.saveTemplate();
       })
     );
-    new Setting(insp).setName(t("modal.pdfStyle.numberPosition")).addDropdown((d) =>
-      d
-        .addOption("right", t("settings.pdfPageNumberPosition.right"))
-        .addOption("center", t("settings.pdfPageNumberPosition.center"))
-        .addOption("left", t("settings.pdfPageNumberPosition.left"))
-        .setValue(S.pdfPageNumberPosition || "right")
-        .onChange(async (v) => {
-          if (v !== "right" && v !== "center" && v !== "left") return;
-          S.pdfPageNumberPosition = v;
-          await saveBands();
-        })
-    );
     new Setting(insp).setName(t("modal.layout.formatWithVars")).addText((t2) =>
-      t2.setValue(S.pdfFooterRight || "Page {page} sur {pages}").onChange(async (v) => {
-        S.pdfFooterRight = v;
-        await saveBands();
+      t2.setValue(this.template.footer.right).onChange(async (v) => {
+        this.template.footer.right = v;
+        await this.saveTemplate();
       })
     );
     new Setting(insp).setName(t("modal.layout.footerLeft")).addText((t2) =>
-      t2.setValue(S.pdfFooterLeft || "").onChange(async (v) => {
-        S.pdfFooterLeft = v;
-        await saveBands();
+      t2.setValue(this.template.footer.left).onChange(async (v) => {
+        this.template.footer.left = v;
+        await this.saveTemplate();
       })
     );
     new Setting(insp).setName(t("modal.layout.footerCenter")).addText((t2) =>
-      t2.setValue(S.pdfFooterCenter || "").onChange(async (v) => {
-        S.pdfFooterCenter = v;
-        await saveBands();
+      t2.setValue(this.template.footer.center).onChange(async (v) => {
+        this.template.footer.center = v;
+        await this.saveTemplate();
       })
     );
-    this.bandNumber(insp, t("modal.layout.distanceToEdge"), "pdfFooterDistanceCm", 0.75, saveBands);
-    this.bandNumber(insp, t("modal.layout.footerBodyGap"), "pdfFooterBodyGapPt", 3, saveBands);
+    this.bandNumber(insp, t("modal.layout.distanceToEdge"), () => this.template.footer.distanceCm, (v) => this.template.footer.distanceCm = v);
+    this.bandNumber(insp, t("modal.layout.footerBodyGap"), () => this.template.footer.bodyGapPt, (v) => this.template.footer.bodyGapPt = v);
     insp.createDiv({ cls: "setting-item-description", text: t("modal.layout.variables") });
   }
 
@@ -383,6 +358,92 @@ export class LayoutModal extends Modal {
     num(t("modal.layout.marginBelow"), () => st.marginBottomPt, (n) => (n == null ? delete st.marginBottomPt : (st.marginBottomPt = n)));
   }
 
+  private numberField(insp: HTMLElement, name: string, value: () => number, set: (value: number) => void): void {
+    new Setting(insp).setName(name).addText((control) => {
+      control.inputEl.type = "number";
+      control.setValue(String(value())).onChange(async (raw) => {
+        const next = Number.parseFloat(raw);
+        if (!Number.isFinite(next)) return;
+        set(next);
+        await this.saveTemplate();
+      });
+    });
+  }
+
+  private textField(insp: HTMLElement, name: string, value: () => string, set: (value: string) => void): void {
+    new Setting(insp).setName(name).addText((control) =>
+      control.setValue(value()).onChange(async (next) => { set(next); await this.saveTemplate(); })
+    );
+  }
+
+  renderPageInspector(insp: HTMLElement): void {
+    insp.createEl("h4", { text: "Page" });
+    this.textField(insp, "Format", () => this.template.page.size, (v) => this.template.page.size = v);
+    new Setting(insp).setName("Orientation").addDropdown((d) => d
+      .addOption("portrait", "Portrait").addOption("landscape", "Paysage")
+      .setValue(this.template.page.orientation).onChange(async (v) => {
+        if (v === "portrait" || v === "landscape") this.template.page.orientation = v;
+        await this.saveTemplate();
+      }));
+    for (const side of ["top", "bottom", "left", "right"] as const) {
+      this.numberField(insp, `Marge ${side}`, () => this.template.page.marginsCm[side], (v) => this.template.page.marginsCm[side] = Math.max(0, v));
+    }
+    new Setting(insp).setName("Marges miroir").addToggle((control) => control.setValue(this.template.page.mirrorMargins).onChange(async (v) => {
+      this.template.page.mirrorMargins = v; await this.saveTemplate();
+    }));
+    this.numberField(insp, "Colonnes", () => this.template.page.columns.count, (v) => this.template.page.columns.count = Math.max(1, Math.round(v)));
+    this.numberField(insp, "Gouttière (pt)", () => this.template.page.columns.gutterPt, (v) => this.template.page.columns.gutterPt = Math.max(0, v));
+  }
+
+  renderBodyInspector(insp: HTMLElement): void {
+    const body = this.template.body;
+    insp.createEl("h4", { text: "Corps de texte" });
+    this.textField(insp, "Police", () => body.fontFamily, (v) => body.fontFamily = v);
+    this.numberField(insp, "Taille (pt)", () => body.fontSizePt, (v) => body.fontSizePt = Math.max(1, v));
+    this.numberField(insp, "Interligne", () => body.lineHeight, (v) => body.lineHeight = Math.max(0.1, v));
+    new Setting(insp).setName("Alignement").addDropdown((d) => d
+      .addOption("left", "Gauche").addOption("center", "Centré").addOption("right", "Droite").addOption("justify", "Justifié")
+      .setValue(body.align).onChange(async (v) => { body.align = v; await this.saveTemplate(); }));
+    this.numberField(insp, "Retrait première ligne (pt)", () => body.firstLineIndentPt, (v) => body.firstLineIndentPt = Math.max(0, v));
+    this.numberField(insp, "Espacement avant (pt)", () => body.paragraphSpacingBeforePt, (v) => body.paragraphSpacingBeforePt = Math.max(0, v));
+    this.numberField(insp, "Espacement après (pt)", () => body.paragraphSpacingAfterPt, (v) => body.paragraphSpacingAfterPt = Math.max(0, v));
+    new Setting(insp).setName("Césure").addToggle((control) => control.setValue(body.hyphenation).onChange(async (v) => { body.hyphenation = v; await this.saveTemplate(); }));
+    new Setting(insp).setName("Profil").addDropdown((d) => d
+      .addOption("manuscript", "Manuscrit").addOption("document", "Document").addOption("academic", "Académique")
+      .setValue(this.template.profile).onChange(async (v) => {
+        if (v === "manuscript" || v === "document" || v === "academic") this.template.profile = v;
+        await this.saveTemplate();
+      }));
+  }
+
+  renderHeadingsInspector(insp: HTMLElement): void {
+    insp.createEl("h4", { text: "Titres" });
+    for (const level of ["h1", "h2", "h3", "h4", "h5", "h6"] as const) {
+      const style = this.template.headings[level];
+      const row = insp.createDiv({ cls: "feuillets-heading-editor" });
+      row.createEl("h5", { text: level.toUpperCase() });
+      this.numberField(row, "Taille (pt)", () => style.fontSizePt ?? 0, (v) => style.fontSizePt = v || undefined);
+      new Setting(row).setName("Gras").addToggle((c) => c.setValue(!!style.bold).onChange(async (v) => { style.bold = v; await this.saveTemplate(); }));
+      new Setting(row).setName("Italique").addToggle((c) => c.setValue(!!style.italic).onChange(async (v) => { style.italic = v; await this.saveTemplate(); }));
+      this.textField(row, "Alignement", () => style.align || "left", (v) => style.align = v);
+      this.numberField(row, "Espace avant", () => style.marginTopPt ?? 0, (v) => style.marginTopPt = v || undefined);
+      this.numberField(row, "Espace après", () => style.marginBottomPt ?? 0, (v) => style.marginBottomPt = v || undefined);
+      new Setting(row).setName("Saut de page avant").addToggle((c) => c.setValue(!!style.pageBreakBefore).onChange(async (v) => { style.pageBreakBefore = v; await this.saveTemplate(); }));
+    }
+  }
+
+  renderBlockquoteInspector(insp: HTMLElement): void {
+    insp.createEl("h4", { text: "Citation et séparateur" });
+    new Setting(insp).setName("Citation en italique").addToggle((c) => c.setValue(!!this.template.blockquote.italic).onChange(async (v) => { this.template.blockquote.italic = v; await this.saveTemplate(); }));
+    this.textField(insp, "Couleur citation", () => this.template.blockquote.colorHex || "", (v) => this.template.blockquote.colorHex = v || undefined);
+    this.textField(insp, "Séparateur de scène", () => this.template.sceneDivider, (v) => this.template.sceneDivider = v);
+  }
+
+  renderFirstPageInspector(insp: HTMLElement): void {
+    insp.createEl("h4", { text: "Première page" });
+    new Setting(insp).setName("Masquer en-tête et pied").addToggle((c) => c.setValue(this.template.firstPage.hideHeader).onChange(async (v) => { this.template.firstPage.hideHeader = v; await this.saveTemplate(); }));
+  }
+
   /** Met à jour le champ « marge au-dessus » pendant un glisser, sans
    * reconstruire l'inspecteur (garde le focus des autres champs). */
   syncInspectorValues(): void {
@@ -394,7 +455,13 @@ export class LayoutModal extends Modal {
   }
 
   async saveModel(): Promise<void> {
-    await updateTemplateTitlePage(this.app, this.plugin.settings, this.templateKey, this.styles);
+    this.template.titlePage.styles = JSON.parse(JSON.stringify(this.styles)) as TitlePageStyles;
+    await this.saveTemplate();
+  }
+
+  async saveTemplate(): Promise<void> {
+    await saveExportTemplateV2(this.app, this.plugin.settings, this.templateKey, this.template);
+    this.renderBands();
     this.notifyChange();
   }
 
