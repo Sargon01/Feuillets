@@ -218,9 +218,9 @@ export class SidebarFeuilletsView extends ItemView {
   async renderProjectTab(element: HTMLElement): Promise<void> {
     const workspace = element.createDiv({ cls: "feuillets-edition-workspace" });
     const editionSubViews: SidebarSubView[] = [
-      this.subViews.editionDocs,
       this.subViews.editionComposition,
       this.subViews.editionLayout,
+      this.subViews.editionDocs,
       this.subViews.docx,
     ];
     for (const [index, subView] of editionSubViews.entries()) {

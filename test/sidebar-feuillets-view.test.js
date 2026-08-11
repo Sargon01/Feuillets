@@ -154,11 +154,11 @@ test("SidebarFeuilletsView rend les quatre sections de l'espace Édition dans l'
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
 
-  // Ordre Phase 2 : Documents éditoriaux → Composition de l'ouvrage → Mise
-  // en page & export → Révision DOCX.
+  // Ordre : Composition de l'ouvrage → Mise en page & export → Documents
+  // éditoriaux → Révision DOCX.
   assert.deepEqual(
     calls.map((call) => call.name),
-    ["editionDocs", "editionComposition", "editionLayout", "docx"]
+    ["editionComposition", "editionLayout", "editionDocs", "docx"]
   );
   assert.equal(container.children.length, 1, "un seul conteneur .feuillets-edition-workspace");
   const workspace = container.children[0];
@@ -180,7 +180,7 @@ test("SidebarFeuilletsView : correctif alignement — les quatre sections partag
   }
   assert.ok(
     workspace.children[0].classes.has("is-first-edition-section"),
-    "seule la toute première section (Documents éditoriaux) porte is-first-edition-section"
+    "seule la toute première section (Composition de l'ouvrage) porte is-first-edition-section"
   );
   for (const sectionContainer of workspace.children.slice(1)) {
     assert.equal(
@@ -241,6 +241,6 @@ test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide san
   assert.equal(settings.activeRightPanelTab, "invalide");
   assert.deepEqual(
     calls.map((call) => call.name),
-    ["editionDocs", "editionComposition", "editionLayout", "docx"]
+    ["editionComposition", "editionLayout", "editionDocs", "docx"]
   );
 });
