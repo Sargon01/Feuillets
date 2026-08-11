@@ -278,16 +278,16 @@ export function marginsFor(tpl: ExportTemplate): Margins {
  */
 export function templateToCss(tpl: ExportTemplate) {
   const m = marginsFor(tpl);
-  const headingFont = tpl.headingFontFamily || tpl.fontFamily;
   const headings = normalizeHeadings(tpl);
 
-  const headingRules = (["h1", "h2", "h3"] as const).map((level) => {
+  const headingRules = (["h1", "h2", "h3", "h4", "h5", "h6"] as const).map((level) => {
     const h = headings[level];
     // repli historique : toujours un saut de page, police héritée, ni
     // taille ni graisse imposées — comportement des modèles qui ne
     // définissent aucun style de titre particulier (classique/moderne/
     // tapuscrit).
     const pageBreak = h ? !!h.pageBreakBefore : true;
+    const headingFont = h?.fontFamily || tpl.headingFontFamily || tpl.fontFamily;
     const rules = [`font-family: ${headingFont};`, `page-break-before: ${pageBreak ? "always" : "avoid"};`];
     if (h) {
       if (h.fontSizePt) rules.push(`font-size: ${h.fontSizePt}pt;`);

@@ -1,4 +1,5 @@
 import { Modal, Notice, type App } from "obsidian";
+import JSZip from "jszip";
 import { t } from "../i18n/index.js";
 import { importUlyssesStyleText } from "../services/ulysses-style-import.js";
 
@@ -7,8 +8,17 @@ type UlyssesImportPlugin = {
   saveSettings(): Promise<void>;
 };
 
+/** Lit le texte ULSS, directement ou depuis l'archive .ulstyle déposée. */
+export async function ulyssesStyleTextFromFile(file: Pick<File, "name" | "text" | "arrayBuffer">): Promise<string> {
+  if (/\.ulss$/i.test(file.name)) return file.text();
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const ulss = zip.file("Style.ulss") || Object.values(zip.files).find((entry) => !entry.dir && /\.ulss$/i.test(entry.name));
+  if (!ulss) throw new Error("L’archive .ulstyle ne contient aucun fichier ULSS.");
+  return ulss.async("text");
+}
+
 /** Import navigateur exclusivement : aucun picker ni accès filesystem, le
- * texte d'un File déposé est transmis au service ULSS existant. */
+ * texte ULSS d'un File déposé est transmis au service existant. */
 export class UlyssesImportModal extends Modal {
   constructor(
     app: App,
@@ -40,7 +50,7 @@ export class UlyssesImportModal extends Modal {
       return;
     }
     try {
-      const result = await importUlyssesStyleText(this.app, this.plugin.settings, await file.text(), file.name);
+      const result = await importUlyssesStyleText(this.app, this.plugin.settings, await ulyssesStyleTextFromFile(file), file.name);
       if (!result) throw new Error("Dossier projet introuvable.");
       await this.plugin.saveSettings();
       new Notice(t("editionLayout.imported", { label: result.label }));

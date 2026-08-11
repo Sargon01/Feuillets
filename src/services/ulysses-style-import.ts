@@ -48,8 +48,9 @@ function declarations(body: string, vars: Record<string, string>): Record<string
     }); out[m[1]] = unquote(v);
   } return out;
 }
-function apply(style: HeadingStyleV2, r: Record<string, string>, base: number): void {
+function apply(style: HeadingStyleV2, r: Record<string, string>, base: number, headingFontFamily?: string): void {
   const size = length(r["font-size"], base); if (size !== undefined) style.fontSizePt = Math.round(size);
+  if (headingFontFamily?.trim()) style.fontFamily = headingFontFamily.trim();
   const a = align(r["text-alignment"]); if (a) style.align = a;
   if (r["font-weight"]) style.bold = /^(bold|[6-9]\d\d)$/i.test(r["font-weight"]);
   if (r["font-style"] || r["font-slant"]) style.italic = /italic|oblique/i.test(r["font-style"] || r["font-slant"]);
@@ -64,11 +65,17 @@ export function parseUlyssesStyle(content: string): ExportTemplateV2 {
   const lh = length(p["line-height"], size); if (lh !== undefined) tpl.body.lineHeight = /%$/.test(p["line-height"] || "") || /(pt|mm|cm|em)$/.test(p["line-height"] || "") ? lh / size : lh;
   for (const [k, out] of [["first-line-indent", "firstLineIndentPt"], ["margin-top", "paragraphSpacingBeforePt"], ["margin-bottom", "paragraphSpacingAfterPt"]] as const) { const v = length(p[k], size); if (v !== undefined) tpl.body[out] = Math.round(v); }
   if (p.hyphenation) tpl.body.hyphenation = !!bool(p.hyphenation);
-  for (let n = 1; n <= 6; n++) apply(tpl.headings[`h${n}` as keyof typeof tpl.headings], { ...d, ...(r["heading-all"] || {}), ...(r[`heading-${n}`] || {}) }, size);
+  for (let n = 1; n <= 6; n++) {
+    const headingAll = r["heading-all"] || {};
+    const heading = r[`heading-${n}`] || {};
+    apply(tpl.headings[`h${n}` as keyof typeof tpl.headings], { ...d, ...headingAll, ...heading }, size, heading["font-family"] || headingAll["font-family"]);
+  }
   const doc = r["document-settings"] || {}; const m = [cm(doc["page-inset-top"]), cm(doc["page-inset-bottom"]), cm(doc["page-inset-inner"]), cm(doc["page-inset-outer"])];
   if (m.every((x) => x !== undefined)) { const leftBinding = doc["page-binding"] !== "right"; tpl.page.marginsCm = { top: m[0]!, bottom: m[1]!, left: leftBinding ? m[2]! : m[3]!, right: leftBinding ? m[3]! : m[2]! }; }
   tpl.page.mirrorMargins = !!bool(doc["two-sided"]); const w = length(doc["page-width"]), h = length(doc["page-height"]); if (w && h) { tpl.page.orientation = w > h ? "landscape" : "portrait"; const close = (a:number,b:number)=>Math.abs(a-b)<8; if (close(Math.min(w,h), 595) && close(Math.max(w,h),842)) tpl.page.size="A4"; else if (close(Math.min(w,h),420)&&close(Math.max(w,h),595)) tpl.page.size="A5"; else if (close(Math.min(w,h),612)&&close(Math.max(w,h),792)) tpl.page.size="Letter"; }
   if (/^(portrait|landscape)$/.test(doc["page-orientation"] || "")) tpl.page.orientation = doc["page-orientation"] as "portrait"; const count=Number(doc["column-count"]); if (count>=1) tpl.page.columns.count=count; const gutter=length(doc["column-spacing-width"]); if(gutter!==undefined) tpl.page.columns.gutterPt=Math.round(gutter);
+  const sectionBreak = doc["section-break"]?.match(/^heading-([1-6])$/);
+  if (sectionBreak) tpl.headings[`h${sectionBreak[1]}` as keyof typeof tpl.headings].pageBreakBefore = true;
   if (r["paragraph-divider"]?.content) tpl.sceneDivider=r["paragraph-divider"].content; const q=r.blockquote||{}; if(q["font-style"]) tpl.blockquote.italic=/italic/i.test(q["font-style"]); if(q.color&&/^#([\da-f]{3}|[\da-f]{6})$/i.test(q.color)) tpl.blockquote.colorHex=q.color;
   for (const [name, band] of [["area-header", tpl.header], ["area-footer", tpl.footer]] as const) { const x=r[name]; if(!x) continue; band.enabled=x.content!=="none"; const text=x.content==="page-number"?"{page}":(x.content||"").replace(/%p/g,"{page}").replace(/%heading-1/g,"{chapter}"); const a=align(x["text-alignment"]); if(a) band[a as "left"] = text; else band.right=text; }
   return tpl;

@@ -189,7 +189,9 @@ test("LayoutModal indique la rubrique active et Ã©dite un seul niveau de titre Ã
     const { modal, calls } = createModal();
     await modal.onOpen();
     modal.template.headings.h1.fontSizePt = 31;
+    modal.template.headings.h1.fontFamily = "Futura";
     modal.template.headings.h2.fontSizePt = 19;
+    modal.template.headings.h2.fontFamily = "Futura";
 
     modal.select("headings");
     assert.equal(modal.navigationButtons.headings.classes.has("is-active"), true);
@@ -201,19 +203,27 @@ test("LayoutModal indique la rubrique active et Ã©dite un seul niveau de titre Ã
     assert.equal(headingChoices[0].text, "H1");
     assert.equal(headingChoices[0].classes.has("is-active"), true);
     assert.equal(allElements(modal.inspectorEl).filter((el) => el.classes.has("feuillets-heading-editor")).length, 1);
-    assert.equal(controls(modal.inspectorEl, "text")[0].value, "31");
+    assert.equal(controls(modal.inspectorEl, "text")[0].value, "Futura");
+    assert.equal(controls(modal.inspectorEl, "text")[1].value, "31");
 
     const h2 = headingChoices.find((el) => el.text === "H2");
     h2.events.get("click")();
     assert.equal(modal.selectedHeading, "h2");
-    assert.equal(controls(modal.inspectorEl, "text")[0].value, "19");
+    assert.equal(controls(modal.inspectorEl, "text")[0].value, "Futura");
+    assert.equal(controls(modal.inspectorEl, "text")[1].value, "19");
     assert.equal(modal.template.headings.h1.fontSizePt, 31);
 
-    await controls(modal.inspectorEl, "text")[0].change("22");
+    await controls(modal.inspectorEl, "text")[1].change("22");
     assert.equal(modal.template.headings.h2.fontSizePt, 22);
     assert.equal(modal.template.headings.h1.fontSizePt, 31);
     assert.equal(calls.frontmatter.at(-1).frontmatter.version, 2);
     assert.equal(calls.frontmatter.at(-1).frontmatter.headings.h2.fontSizePt, 22);
+    await controls(modal.inspectorEl, "text")[0].change("Arial");
+    assert.equal(modal.template.headings.h2.fontFamily, "Arial");
+    assert.equal(calls.frontmatter.at(-1).frontmatter.headings.h2.fontFamily, "Arial");
+    await controls(modal.inspectorEl, "text")[0].change("");
+    assert.equal(modal.template.headings.h2.fontFamily, undefined);
+    assert.equal(calls.frontmatter.at(-1).frontmatter.headings.h2.fontFamily, undefined);
   } finally {
     restoreSetting();
   }

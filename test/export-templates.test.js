@@ -146,6 +146,17 @@ test("templateToCss", async (t) => {
     assert.ok(css.includes('content: "***"'));
   });
 
+  await t.test("chaque niveau de titre utilise sa police propre puis retombe sur celle du corps", () => {
+    const css = templateToCss({
+      ...EXPORT_TEMPLATES.classique,
+      fontFamily: "Cochin",
+      headings: { h1: { fontFamily: "Futura", fontSizePt: 33 }, h2: { fontFamily: "Futura", fontSizePt: 22 } },
+    });
+    assert.ok(css.includes("h1 { font-family: Futura; page-break-before: avoid; font-size: 33pt; }"));
+    assert.ok(css.includes("h2 { font-family: Futura; page-break-before: avoid; font-size: 22pt; }"));
+    assert.ok(css.includes("h3 { font-family: Cochin; page-break-before: always; }"));
+  });
+
   await t.test("apa : pas de saut de page systématique, 3 niveaux de titres distincts", () => {
     const css = templateToCss(EXPORT_TEMPLATES.apa);
     assert.ok(css.includes("h1 { font-family: 'Times New Roman', Times, serif; page-break-before: avoid;"));

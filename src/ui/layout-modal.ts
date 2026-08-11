@@ -450,6 +450,7 @@ export class LayoutModal extends Modal {
     const style = this.template.headings[this.selectedHeading];
     const editor = insp.createDiv({ cls: "feuillets-heading-editor" });
     editor.createEl("h5", { text: this.selectedHeading.toUpperCase() });
+    this.textField(editor, "Police", () => style.fontFamily || "", (v) => style.fontFamily = v.trim() || undefined);
     this.numberField(editor, "Taille (pt)", () => style.fontSizePt ?? 0, (v) => style.fontSizePt = v || undefined);
     new Setting(editor).setName("Gras").addToggle((c) => c.setValue(!!style.bold).onChange(async (v) => { style.bold = v; await this.saveTemplate(); }));
     new Setting(editor).setName("Italique").addToggle((c) => c.setValue(!!style.italic).onChange(async (v) => { style.italic = v; await this.saveTemplate(); }));
