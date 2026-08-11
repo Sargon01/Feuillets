@@ -69,6 +69,14 @@ function createPlugin() {
   };
 }
 
+test("ScenesEditor n'enregistre aucune icône de ruban", () => {
+  const plugin = createPlugin();
+
+  initScenesEditor(plugin);
+
+  assert.deepEqual(plugin._ribbons, []);
+});
+
 function modalContent(modal) {
   modal.contentEl = new FakeElement();
   modal.setTitle = (title) => { modal.title = title; };

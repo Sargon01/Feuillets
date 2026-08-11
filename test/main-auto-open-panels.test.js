@@ -89,3 +89,20 @@ test("les activateurs d'onglets Inspecteur délèguent au point central", async 
 
   assert.deepEqual(calls, ["notes", "research", "journal", "project"]);
 });
+
+test("registerRibbonIcons enregistre uniquement Binder, Tableau et Mode concentration", () => {
+  const registered = [];
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  plugin.settings = { hiddenPanels: [] };
+  plugin.addRibbonIcon = (icon) => {
+    registered.push(icon);
+    return { remove() {} };
+  };
+
+  plugin.registerRibbonIcons();
+
+  assert.deepEqual(Object.keys(plugin._ribbonEls), ["sidebar", "board", "concentration"]);
+  assert.deepEqual(registered, ["files", "layout-grid", "focus"]);
+  assert.equal("journal" in plugin._ribbonEls, false);
+  assert.equal("project" in plugin._ribbonEls, false);
+});

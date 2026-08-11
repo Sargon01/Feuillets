@@ -397,8 +397,6 @@ class FeuilletsPlugin extends Plugin {
     this._ribbonDefs = [
       { key: "sidebar", icon: "files", labelKey: "main.ribbon.binder", action: () => { void this.activateSidebar(); } },
       { key: "board", icon: "layout-grid", labelKey: "main.ribbon.board", action: () => { void this.activateBoard(); } },
-      { key: "journal", icon: "calendar", labelKey: "main.ribbon.journal", action: () => { void this.activateJournal(); }, hideable: true },
-      { key: "project", icon: "folder-cog", labelKey: "main.ribbon.project", action: () => { void this.activateProject(); }, hideable: true },
       { key: "concentration", icon: "focus", labelKey: "settings.section.focusMode", action: () => this.toggleConcentration() },
     ];
     this._ribbonEls = {};

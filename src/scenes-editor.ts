@@ -1110,20 +1110,6 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
     new Notice(t("scenesEditor.notice.mergeCompleted", { target: plugin.shortTitleFor(target) }));
   };
 
-  // 2. Register Ribbon Icon
-  plugin.addRibbonIcon(
-    "scissors-square-dashed-bottom",
-    t("scenesEditor.ribbon.actions"),
-    (evt) => {
-      const file = plugin.getActiveFile();
-      if (!file || !plugin.isSceneFile(file)) {
-        new Notice(t("scenesEditor.notice.openFeuilletsScene"));
-        return;
-      }
-      plugin.openSceneMenu(file, evt);
-    }
-  );
-
   // 3. Register Commands
   plugin.addCommand({
     id: "split-scene",
