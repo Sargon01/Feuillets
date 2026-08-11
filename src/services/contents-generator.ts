@@ -6,7 +6,7 @@
  * composition (services/book-composition.ts), rien n'est dupliqué. Pas de
  * numéros de page ici : ils dépendent de la mise en page (Phase 11).
  */
-import { generatedContentsEntries, type GeneratedContentsEntry } from "./generated-contents.js";
+import { generatedContentsEntries } from "./generated-contents.js";
 
 /** Un titre Markdown réellement présent dans le manuscrit compilé, avec son
  * niveau (nombre de `#`, 1 à 6) et son texte, dans l'ordre où il apparaît. */

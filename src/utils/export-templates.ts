@@ -10,7 +10,7 @@
  * "header-right" — DOCX uniquement, voir export-docx.js), hyphenation.
  * Champs optionnels (repli sensé si absents — voir marginsFor) :
  * sceneDivider (texte affiché à la place d'un <hr>, ex. "* * *"),
- * headings ({h1?, h2?, h3?}, chacun {fontSizePt, align, bold, italic,
+ * headings ({h1?, h2?, h3?, h4?, h5?, h6?}, chacun {fontSizePt, align, bold, italic,
  * marginTopPt, marginBottomPt, pageBreakBefore} — style par niveau de
  * titre, distinct du corps de texte ; niveau absent = repli historique
  * "saut de page systématique, police héritée" — voir normalizeHeadings).
@@ -227,16 +227,16 @@ export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
  * projet. L'ordre est contractuel pour les sélecteurs de gabarits. */
 export const BUILTIN_TEMPLATE_CATALOG = ["classique", "romanSimple", "moderne", "apa", "these"] as const;
 
-/** Traduit un modèle vers une carte {h1?,h2?,h3?} uniforme : priorité au
+/** Traduit un modèle vers une carte {h1?,h2?,h3?,h4?,h5?,h6?} uniforme : priorité au
  * champ `headings` (nouveau, plusieurs niveaux) ; à défaut, traduit
  * l'ancien `chapterTitle` (H1 seul, saut de page implicite) pour ne rien
  * casser sur les modèles existants ; à défaut des deux, carte vide — la
  * consommatrice applique alors son repli historique (saut de page
  * systématique, police héritée, pas de taille/graisse imposée).
  * @param {ExportTemplate} tpl
- * @returns {{ h1?: HeadingStyle, h2?: HeadingStyle, h3?: HeadingStyle }}
+ * @returns {{ h1?: HeadingStyle, h2?: HeadingStyle, h3?: HeadingStyle, h4?: HeadingStyle, h5?: HeadingStyle, h6?: HeadingStyle }}
  */
-export function normalizeHeadings(tpl: ExportTemplate): { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle } {
+export function normalizeHeadings(tpl: ExportTemplate): { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle; h4?: HeadingStyle; h5?: HeadingStyle; h6?: HeadingStyle } {
   if (tpl.headings) return tpl.headings;
   if (tpl.chapterTitle) {
     return { h1: { ...tpl.chapterTitle, bold: false, pageBreakBefore: true } };

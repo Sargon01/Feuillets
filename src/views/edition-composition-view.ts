@@ -125,7 +125,7 @@ export class EditionCompositionView extends BaseFeuilletsView {
     setIcon(button, "chevron-right");
     button.setAttribute("aria-label", "Contenu du manuscrit");
     button.addEventListener("click", () => {
-      new CompileSelectionModal(this.app, this.plugin as unknown as ConstructorParameters<typeof CompileSelectionModal>[1]).open();
+      new CompileSelectionModal(this.app, this.plugin).open();
     });
   }
 }

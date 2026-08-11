@@ -29,7 +29,7 @@ export class UlyssesImportModal extends Modal {
   onOpen(): void {
     this.modalEl.addClass("feuillets-ulysses-import-modal");
     const { contentEl } = this;
-    contentEl.createEl("h3", { text: "Importer un style Ulysses" });
+    contentEl.createEl("h3", { text: "Importer un style ulysses" });
     contentEl.createEl("p", { cls: "feuillets-notes-sub", text: "Déposez ici un fichier .ulstyle ou .ulss" });
     const dropZone = contentEl.createDiv({ cls: "feuillets-ulysses-drop-zone", text: "Déposer un fichier Ulysses ici\n.ulstyle ou .ulss" });
     dropZone.addEventListener("dragenter", (event) => { event.preventDefault(); dropZone.addClass("is-dragging"); });

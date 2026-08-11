@@ -139,6 +139,7 @@ declare type Margins = {
  * = repli du moteur concerné ; niveau entièrement absent = repli historique
  * « saut de page systématique, police héritée » (normalizeHeadings). */
 declare type HeadingStyle = {
+  fontFamily?: string;
   fontSizePt?: number;
   align?: string;
   bold?: boolean;
@@ -235,7 +236,7 @@ declare type ExportTemplate = {
   pageOrientation?: string;
   columns?: { count: number; gutterPt: number };
 
-  headings?: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle };
+  headings?: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle; h4?: HeadingStyle; h5?: HeadingStyle; h6?: HeadingStyle; [key: string]: HeadingStyle | undefined };
   /** Ancien champ, H1 uniquement — normalizeHeadings le traduit en headings.h1. */
   chapterTitle?: HeadingStyle;
 

@@ -41,8 +41,8 @@ function parse(content: string): Rules {
 function declarations(body: string, vars: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const m of body.matchAll(/([\w-]+)\s*:\s*([^\n;}]+)/g)) {
-    let v = m[2].trim().replace(/\$([\w-]+)/g, (_, n) => vars[n] || "0");
-    v = v.replace(/([\d.]+(?:pt|mm|cm|em|%)?)\s*([+*/-])\s*([\d.]+(?:pt|mm|cm|em|%)?)/g, (_x, a, op, b) => {
+    let v = m[2].trim().replace(/\$([\w-]+)/g, (_: string, n: string) => vars[n] || "0");
+    v = v.replace(/([\d.]+(?:pt|mm|cm|em|%)?)\s*([+*/-])\s*([\d.]+(?:pt|mm|cm|em|%)?)/g, (_x: string, a: string, op: string, b: string) => {
       const av = length(a), bv = length(b); if (av === undefined || bv === undefined) return v;
       return String(op === "+" ? av + bv : op === "-" ? av - bv : op === "*" ? av * bv : av / bv) + "pt";
     }); out[m[1]] = unquote(v);
@@ -71,9 +71,11 @@ export function parseUlyssesStyle(content: string): ExportTemplateV2 {
     apply(tpl.headings[`h${n}` as keyof typeof tpl.headings], { ...d, ...headingAll, ...heading }, size, heading["font-family"] || headingAll["font-family"]);
   }
   const doc = r["document-settings"] || {}; const m = [cm(doc["page-inset-top"]), cm(doc["page-inset-bottom"]), cm(doc["page-inset-inner"]), cm(doc["page-inset-outer"])];
-  if (m.every((x) => x !== undefined)) { const leftBinding = doc["page-binding"] !== "right"; tpl.page.marginsCm = { top: m[0]!, bottom: m[1]!, left: leftBinding ? m[2]! : m[3]!, right: leftBinding ? m[3]! : m[2]! }; }
+  if (m.every((x) => x !== undefined)) { const leftBinding = doc["page-binding"] !== "right"; tpl.page.marginsCm = { top: m[0], bottom: m[1], left: leftBinding ? m[2] : m[3], right: leftBinding ? m[3] : m[2] }; }
   tpl.page.mirrorMargins = !!bool(doc["two-sided"]); const w = length(doc["page-width"]), h = length(doc["page-height"]); if (w && h) { tpl.page.orientation = w > h ? "landscape" : "portrait"; const close = (a:number,b:number)=>Math.abs(a-b)<8; if (close(Math.min(w,h), 595) && close(Math.max(w,h),842)) tpl.page.size="A4"; else if (close(Math.min(w,h),420)&&close(Math.max(w,h),595)) tpl.page.size="A5"; else if (close(Math.min(w,h),612)&&close(Math.max(w,h),792)) tpl.page.size="Letter"; }
-  if (/^(portrait|landscape)$/.test(doc["page-orientation"] || "")) tpl.page.orientation = doc["page-orientation"] as "portrait"; const count=Number(doc["column-count"]); if (count>=1) tpl.page.columns.count=count; const gutter=length(doc["column-spacing-width"]); if(gutter!==undefined) tpl.page.columns.gutterPt=Math.round(gutter);
+  const orientation = doc["page-orientation"];
+  if (orientation === "portrait" || orientation === "landscape") tpl.page.orientation = orientation;
+  const count=Number(doc["column-count"]); if (count>=1) tpl.page.columns.count=count; const gutter=length(doc["column-spacing-width"]); if(gutter!==undefined) tpl.page.columns.gutterPt=Math.round(gutter);
   const sectionBreak = doc["section-break"]?.match(/^heading-([1-6])$/);
   if (sectionBreak) tpl.headings[`h${sectionBreak[1]}` as keyof typeof tpl.headings].pageBreakBefore = true;
   if (r["paragraph-divider"]?.content) tpl.sceneDivider=r["paragraph-divider"].content; const q=r.blockquote||{}; if(q["font-style"]) tpl.blockquote.italic=/italic/i.test(q["font-style"]); if(q.color&&/^#([\da-f]{3}|[\da-f]{6})$/i.test(q.color)) tpl.blockquote.colorHex=q.color;

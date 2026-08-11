@@ -1,4 +1,4 @@
-import { Notice, setIcon, setTooltip, TFile, TFolder, type App } from "obsidian";
+import { Notice, setIcon, setTooltip, TFolder, type App } from "obsidian";
 import { t } from "../i18n/index.js";
 import { ANNEXES, defaultComposition, readGeneratedIncluded, writeGeneratedIncluded } from "../services/book-composition.js";
 import { annexesFolder, annexesFiles } from "../services/compile-export.js";
