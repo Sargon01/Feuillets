@@ -5,6 +5,7 @@ import { listExportTemplates, duplicateExportTemplate } from "../services/export
 import { LayoutModal } from "../ui/layout-modal.js";
 import { ExportPanel } from "../ui/export-panel.js";
 import { UlyssesImportModal } from "../ui/ulysses-import-modal.js";
+import { WordTemplateImportModal } from "../ui/word-template-import-modal.js";
 
 type EditionLayoutPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
   settings: FeuilletsSettings & { exportTemplate: string };
@@ -81,6 +82,7 @@ export class EditionLayoutView extends BaseFeuilletsView {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("editionLayout.duplicate")).onClick(() => void this.duplicate()));
       menu.addItem((item) => item.setTitle(t("editionLayout.importUlysses")).onClick(() => this.openUlyssesImportModal()));
+      menu.addItem((item) => item.setTitle(t("editionLayout.importWord")).onClick(() => this.openWordImportModal()));
       menu.showAtMouseEvent(event);
     });
 
@@ -137,4 +139,5 @@ export class EditionLayoutView extends BaseFeuilletsView {
   private openUlyssesImportModal(): void {
     new UlyssesImportModal(this.app, this.plugin, () => this.render()).open();
   }
+  private openWordImportModal(): void { new WordTemplateImportModal(this.app, this.plugin, () => this.render()).open(); }
 }
