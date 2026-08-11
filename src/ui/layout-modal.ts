@@ -28,6 +28,14 @@ const HEADER_PX = 26;
 const FOOTER_PX = 26;
 const SCALE = (MOCKUP_H_PX - HEADER_PX - FOOTER_PX) / PAGE_USABLE_PT;
 
+function isTemplatePageSize(value: string): value is TemplatePageSize {
+  return value === "A4" || value === "A5" || value === "Letter";
+}
+
+function isTemplateAlign(value: string): value is TemplateAlign {
+  return value === "left" || value === "center" || value === "right" || value === "justify";
+}
+
 /** Éditeur visuel de MISE EN PAGE (option A) : une seule maquette A4 réunit
  * l'en-tête (bande haute), les blocs de la page de titre (milieu, glissables)
  * et le pied de page (bande basse). Cliquer une zone l'ouvre dans
@@ -378,7 +386,9 @@ export class LayoutModal extends Modal {
 
   renderPageInspector(insp: HTMLElement): void {
     insp.createEl("h4", { text: "Page" });
-    this.textField(insp, "Format", () => this.template.page.size, (v) => this.template.page.size = v);
+    this.textField(insp, "Format", () => this.template.page.size, (v) => {
+      if (isTemplatePageSize(v)) this.template.page.size = v;
+    });
     new Setting(insp).setName("Orientation").addDropdown((d) => d
       .addOption("portrait", "Portrait").addOption("landscape", "Paysage")
       .setValue(this.template.page.orientation).onChange(async (v) => {
@@ -403,7 +413,7 @@ export class LayoutModal extends Modal {
     this.numberField(insp, "Interligne", () => body.lineHeight, (v) => body.lineHeight = Math.max(0.1, v));
     new Setting(insp).setName("Alignement").addDropdown((d) => d
       .addOption("left", "Gauche").addOption("center", "Centré").addOption("right", "Droite").addOption("justify", "Justifié")
-      .setValue(body.align).onChange(async (v) => { body.align = v; await this.saveTemplate(); }));
+      .setValue(body.align).onChange(async (v) => { if (isTemplateAlign(v)) body.align = v; await this.saveTemplate(); }));
     this.numberField(insp, "Retrait première ligne (pt)", () => body.firstLineIndentPt, (v) => body.firstLineIndentPt = Math.max(0, v));
     this.numberField(insp, "Espacement avant (pt)", () => body.paragraphSpacingBeforePt, (v) => body.paragraphSpacingBeforePt = Math.max(0, v));
     this.numberField(insp, "Espacement après (pt)", () => body.paragraphSpacingAfterPt, (v) => body.paragraphSpacingAfterPt = Math.max(0, v));
@@ -425,7 +435,9 @@ export class LayoutModal extends Modal {
       this.numberField(row, "Taille (pt)", () => style.fontSizePt ?? 0, (v) => style.fontSizePt = v || undefined);
       new Setting(row).setName("Gras").addToggle((c) => c.setValue(!!style.bold).onChange(async (v) => { style.bold = v; await this.saveTemplate(); }));
       new Setting(row).setName("Italique").addToggle((c) => c.setValue(!!style.italic).onChange(async (v) => { style.italic = v; await this.saveTemplate(); }));
-      this.textField(row, "Alignement", () => style.align || "left", (v) => style.align = v);
+      this.textField(row, "Alignement", () => style.align || "left", (v) => {
+        if (isTemplateAlign(v)) style.align = v;
+      });
       this.numberField(row, "Espace avant", () => style.marginTopPt ?? 0, (v) => style.marginTopPt = v || undefined);
       this.numberField(row, "Espace après", () => style.marginBottomPt ?? 0, (v) => style.marginBottomPt = v || undefined);
       new Setting(row).setName("Saut de page avant").addToggle((c) => c.setValue(!!style.pageBreakBefore).onChange(async (v) => { style.pageBreakBefore = v; await this.saveTemplate(); }));

@@ -12,7 +12,11 @@ const length = (raw: string | undefined, base = 12): number | undefined => {
 };
 const cm = (raw?: string) => { const v = length(raw); return v === undefined ? undefined : Math.round(v / 28.3465 * 100) / 100; };
 const bool = (v?: string) => v && /^(yes|true)$/i.test(v);
-const align = (v?: string) => v === "justified" ? "justify" : /^(left|right|center|justify)$/.test(v || "") ? v : undefined;
+const align = (v?: string): TemplateAlign | undefined => {
+  if (v === "justified") return "justify";
+  if (v === "left" || v === "right" || v === "center" || v === "justify") return v;
+  return undefined;
+};
 const unquote = (v: string) => v.trim().replace(/^(["'])(.*)\1$/, "$2");
 
 /** Sous-ensemble ULSS à accolades : variables, mixins et cascade plate. */
@@ -44,7 +48,7 @@ function declarations(body: string, vars: Record<string, string>): Record<string
     }); out[m[1]] = unquote(v);
   } return out;
 }
-function apply(style: HeadingStyle, r: Record<string, string>, base: number): void {
+function apply(style: HeadingStyleV2, r: Record<string, string>, base: number): void {
   const size = length(r["font-size"], base); if (size !== undefined) style.fontSizePt = Math.round(size);
   const a = align(r["text-alignment"]); if (a) style.align = a;
   if (r["font-weight"]) style.bold = /^(bold|[6-9]\d\d)$/i.test(r["font-weight"]);

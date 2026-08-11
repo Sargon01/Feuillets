@@ -148,6 +148,32 @@ declare type HeadingStyle = {
   pageBreakBefore?: boolean;
 };
 
+/** Profil fonctionnel d'un modèle d'export V2. */
+declare type TemplateProfile = "manuscript" | "document" | "academic";
+
+/** Formats de page pris en charge par les modèles d'export V2. `letter`
+ * est conservé pour les réglages PDF legacy déjà persistés. */
+declare type TemplatePageSize = "A4" | "A5" | "Letter" | "letter";
+
+/** Orientation d'une page dans un modèle d'export V2. */
+declare type TemplateOrientation = "portrait" | "landscape";
+
+/** Alignement horizontal pris en charge par les modèles d'export V2. */
+declare type TemplateAlign = "left" | "center" | "right" | "justify";
+
+/** Style d'un niveau de titre dans un modèle d'export V2. Il est séparé du
+ * type legacy pour permettre à V2 d'exprimer sa police propre. */
+declare type HeadingStyleV2 = {
+  fontFamily?: string;
+  fontSizePt?: number;
+  align?: TemplateAlign;
+  bold?: boolean;
+  italic?: boolean;
+  marginTopPt?: number;
+  marginBottomPt?: number;
+  pageBreakBefore?: boolean;
+};
+
 /** Style d'un rôle de page de titre (titre, sous-titre, mots, auteur,
  * adresse, coordonnées — rôles libres, voir titleRoleCss). */
 declare type TitlePageStyle = {
@@ -231,10 +257,10 @@ declare type ResolvedExportTemplate = ExportTemplate & {
  * les réglages PDF historiques. */
 declare type ExportTemplateV2 = {
   version: 2;
-  profile: "manuscript" | "document" | "academic";
+  profile: TemplateProfile;
   page: {
-    size: string;
-    orientation: "portrait" | "landscape";
+    size: TemplatePageSize;
+    orientation: TemplateOrientation;
     marginsCm: Margins;
     mirrorMargins: boolean;
     columns: { count: number; gutterPt: number };
@@ -243,13 +269,13 @@ declare type ExportTemplateV2 = {
     fontFamily: string;
     fontSizePt: number;
     lineHeight: number;
-    align: string;
+    align: TemplateAlign;
     firstLineIndentPt: number;
     paragraphSpacingBeforePt: number;
     paragraphSpacingAfterPt: number;
     hyphenation: boolean;
   };
-  headings: { h1: HeadingStyle; h2: HeadingStyle; h3: HeadingStyle; h4: HeadingStyle; h5: HeadingStyle; h6: HeadingStyle };
+  headings: { h1: HeadingStyleV2; h2: HeadingStyleV2; h3: HeadingStyleV2; h4: HeadingStyleV2; h5: HeadingStyleV2; h6: HeadingStyleV2 };
   blockquote: { italic?: boolean; colorHex?: string };
   sceneDivider: string;
   header: {
@@ -274,6 +300,22 @@ declare type ExportTemplateV2 = {
     pageNumberPosition: "right" | "center" | "left";
   };
   titlePage: { styles: Record<string, TitlePageStyle> };
+};
+
+/** Variante partielle d'un modèle V2, destinée aux entrées qui ne
+ * renseignent qu'une partie des blocs avant normalisation. */
+declare type ExportTemplateV2Draft = {
+  version?: 2;
+  profile?: TemplateProfile;
+  page?: Partial<ExportTemplateV2["page"]>;
+  body?: Partial<ExportTemplateV2["body"]>;
+  headings?: Partial<ExportTemplateV2["headings"]>;
+  blockquote?: Partial<ExportTemplateV2["blockquote"]>;
+  sceneDivider?: string;
+  header?: Partial<ExportTemplateV2["header"]>;
+  footer?: Partial<ExportTemplateV2["footer"]>;
+  firstPage?: Partial<ExportTemplateV2["firstPage"]>;
+  titlePage?: Partial<ExportTemplateV2["titlePage"]>;
 };
 
 /** État persistant des fils narratifs. Les clés sont les valeurs de `thread`

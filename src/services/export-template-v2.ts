@@ -24,10 +24,22 @@ function profileFor(key: string): ExportTemplateV2["profile"] {
   return "document";
 }
 
+function normalizedPageSize(value: string | undefined): TemplatePageSize {
+  if (value === "A4" || value === "A5" || value === "Letter" || value === "letter") return value;
+  return "A4";
+}
+
+function normalizedAlign(value: string | undefined): TemplateAlign {
+  if (value === "left" || value === "center" || value === "right" || value === "justify") return value;
+  return "left";
+}
+
 const HEADING_LEVELS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
 
-function cloneStyle(style: HeadingStyle | undefined): HeadingStyle {
-  return style ? { ...style } : {};
+function cloneStyle(style: HeadingStyle | HeadingStyleV2 | undefined): HeadingStyleV2 {
+  if (!style) return {};
+  const { align, ...rest } = style;
+  return align === undefined ? rest : { ...rest, align: normalizedAlign(align) };
 }
 
 function normalizedHeadings(tpl: ExportTemplate): ExportTemplateV2["headings"] {
@@ -51,7 +63,7 @@ export function normalizeV2Template(tpl: ExportTemplateV2): ExportTemplateV2 {
     version: 2,
     profile: tpl.profile || "document",
     page: {
-      size: page.size || "A4",
+      size: normalizedPageSize(page.size),
       orientation: page.orientation === "landscape" ? "landscape" : "portrait",
       marginsCm: cloneMargins(page.marginsCm || DEFAULT_MARGINS),
       mirrorMargins: !!page.mirrorMargins,
@@ -61,7 +73,7 @@ export function normalizeV2Template(tpl: ExportTemplateV2): ExportTemplateV2 {
       fontFamily: body.fontFamily || "'Times New Roman', Times, serif",
       fontSizePt: body.fontSizePt ?? 12,
       lineHeight: body.lineHeight ?? 1.5,
-      align: body.align || "left",
+      align: normalizedAlign(body.align),
       firstLineIndentPt: body.firstLineIndentPt ?? 0,
       paragraphSpacingBeforePt: body.paragraphSpacingBeforePt ?? 0,
       paragraphSpacingAfterPt: body.paragraphSpacingAfterPt ?? 0,
@@ -109,7 +121,7 @@ export function normalizeLegacyTemplate(
     version: 2,
     profile: profileFor(tpl.key),
     page: {
-      size: legacySettings.pdfPageSize ?? "A4",
+      size: normalizedPageSize(legacySettings.pdfPageSize),
       orientation: legacySettings.pdfOrientation ?? (tpl.pageOrientation === "landscape" ? "landscape" : "portrait"),
       marginsCm,
       mirrorMargins: legacySettings.pdfMirrorMargins ?? false,
@@ -119,7 +131,7 @@ export function normalizeLegacyTemplate(
       fontFamily: tpl.fontFamily ?? "'Times New Roman', Times, serif",
       fontSizePt,
       lineHeight: tpl.lineHeight ?? 1.5,
-      align: tpl.align ?? "left",
+      align: normalizedAlign(tpl.align),
       firstLineIndentPt: tpl.indent ? (tpl.indentPt ?? fontSizePt * 1.5) : 0,
       paragraphSpacingBeforePt: tpl.paragraphSpacingPt ?? 0,
       paragraphSpacingAfterPt: tpl.paragraphSpacing ? fontSizePt : 0,
