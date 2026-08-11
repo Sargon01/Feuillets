@@ -252,6 +252,24 @@ test("paginateManuscript : une colonne conserve le contenu PDF historique sans s
   } finally { dom.restore(); }
 });
 
+test("paginateManuscript : une surcharge de marges adapte la mesure et la page sans changer le PDF par défaut", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(element("p", "Corps", 100));
+    const settings = { pdfMarginTop: 1, pdfMarginBottom: 1, pdfMarginLeft: 1, pdfMarginRight: 1 };
+    const normal = paginateManuscript(container, [], settings, template);
+    const preview = paginateManuscript(container, [], settings, template, "", "", {
+      marginsOverrideCm: { top: 3, bottom: 4, left: 5, right: 6 },
+    });
+    assert.match(normal.pagesHtml, /padding-left: 1cm/);
+    assert.match(preview.pagesHtml, /padding-top: 3cm/);
+    assert.match(preview.pagesHtml, /padding-bottom: 4cm/);
+    assert.match(preview.pagesHtml, /padding-left: 5cm/);
+    assert.match(preview.pagesHtml, /padding-right: 6cm/);
+  } finally { dom.restore(); }
+});
+
 test("paginateManuscript : transmet les deux colonnes et la gouttière à la mesure puis à la page PDF finale", () => {
   const dom = installDom();
   try {

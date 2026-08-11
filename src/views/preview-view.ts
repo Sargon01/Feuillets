@@ -271,10 +271,9 @@ function verticalPaddingOf(el: HTMLElement): number {
  * tous de `templateToCss()`, le générateur partagé avec les exports PDF et
  * EPUB (jamais réécrit à la main ici).
  *
- * Limite connue, identique dans les trois modes : la TAILLE DE PAGE et les
- * MARGES de la page imprimée viennent des réglages `pdfPageSize`/`pdfMargin*`
- * appliqués par `paginateManuscript()`, pas de `marginsCm` du gabarit —
- * changer de gabarit modifie donc la typographie, pas la géométrie de page. */
+ * La géométrie de la zone de texte est calculée par `paginateManuscript()` :
+ * l'aperçu lui transmet les marges du gabarit actif, comme pour ses colonnes.
+ * La taille de page reste issue des réglages PDF historiques. */
 export function previewTemplateCss(tpl: ResolvedExportTemplate): string {
   return templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl);
 }
@@ -1380,6 +1379,7 @@ export class PreviewView extends ItemView {
 
     const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, source.title, author, {
       hyphenationOverride: false,
+      marginsOverrideCm: tpl.marginsCm,
     });
     if (generation !== this.refreshGeneration) return;
 

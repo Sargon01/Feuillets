@@ -414,9 +414,11 @@ test("iframe d’aperçu — l’écouteur de chargement est branché avant l’
   }
 });
 
-test("PreviewView : demande explicitement une pagination sans césure", async () => {
+test("PreviewView : transmet la géométrie du gabarit au paginateur sans césure", async () => {
   const source = await readFile(new URL("../src/views/preview-view.js", import.meta.url), "utf8");
+  assert.match(source, /paginateManuscript\(containerEl, footnotes, settings, tpl, source\.title, author,/);
   assert.match(source, /paginateManuscript\([\s\S]*?hyphenationOverride: false/);
+  assert.match(source, /paginateManuscript\([\s\S]*?marginsOverrideCm: tpl\.marginsCm/);
   assert.doesNotMatch(source, /tpl\.hyphenation\s*=/);
 });
 

@@ -31,6 +31,8 @@ type PaginationResult = {
 export type PaginationOptions = {
   /** Consumer-level override; Preview can opt out without changing templates. */
   hyphenationOverride?: boolean;
+  /** Consumer-level page geometry; Preview uses the active template margins. */
+  marginsOverrideCm?: Margins;
 };
 
 export function effectiveHyphenation(tpl: ResolvedExportTemplate, options: PaginationOptions = {}): boolean {
@@ -77,10 +79,10 @@ export function paginateManuscript(
 ): PaginationResult {
   const pageSize: PdfPageSize = settings.pdfPageSize || "A4";
   const orientation: PdfOrientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
-  const mTop = settings.pdfMarginTop ?? 2.5;
-  const mBottom = settings.pdfMarginBottom ?? 2.5;
-  const mLeft = settings.pdfMarginLeft ?? 2.5;
-  const mRight = settings.pdfMarginRight ?? 2.5;
+  const mTop = options.marginsOverrideCm?.top ?? settings.pdfMarginTop ?? 2.5;
+  const mBottom = options.marginsOverrideCm?.bottom ?? settings.pdfMarginBottom ?? 2.5;
+  const mLeft = options.marginsOverrideCm?.left ?? settings.pdfMarginLeft ?? 2.5;
+  const mRight = options.marginsOverrideCm?.right ?? settings.pdfMarginRight ?? 2.5;
 
   const mirror = !!settings.pdfMirrorMargins;
   const diffHeaders = !!settings.pdfDiffHeaders;
