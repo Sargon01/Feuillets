@@ -1,8 +1,8 @@
 import JSZip from "jszip";
 import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
-import { templateToCss } from "../utils/export-templates.js";
-import { resolveExportTemplate } from "./export-templates-custom.js";
+import { resolveExportTemplateV2 } from "./export-templates-custom.js";
+import { templateV2ToEpubCss } from "./export-template-v2-css.js";
 import { escapeXml } from "../utils/xml.js";
 
 type ExportSegment = {
@@ -58,10 +58,10 @@ function footnotesXhtml(footnotes: ExportFootnote[]): string {
  * découpage par chapitre en v1 (portée assumée — voir plan). Utilise
  * jszip (pur JS, aucune dépendance Node) : fonctionne desktop et mobile. */
 export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Uint8Array> {
-  const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
+  const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
   const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
   const bodyXhtml = serializeXhtmlBody(containerEl);
-  const css = templateToCss(tpl) + FRONT_PAGE_CSS;
+  const css = templateV2ToEpubCss(template) + FRONT_PAGE_CSS;
   const lang = settings.epubLanguage || "fr";
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre
      page Front de type "titre" — voir même choix dans export-docx.js. */

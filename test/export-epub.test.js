@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import JSZip from "jszip";
 import { MarkdownRenderer } from "obsidian";
 import { exportEpub } from "../src/services/export-epub.js";
+import { templateV2ToEpubCss } from "../src/services/export-template-v2-css.js";
+import { normalizeLegacyTemplate } from "../src/services/export-template-v2.js";
 
 /* Chantier « Compilation professionnelle — Lot 2 » (fidélité visuelle
  * aperçu/export) : avant ce lot, aucun test ne portait sur le CSS/la
@@ -121,12 +123,44 @@ test("export EPUB : le CSS du gabarit choisi (police, taille, interligne) est bi
     assert.match(xhtml, /<style type="text\/css">/);
     assert.match(xhtml, /Baskerville/);
     assert.match(xhtml, /font-size: 14pt/);
-    // Le séparateur de scène du gabarit ("* * *") doit être injecté en CSS.
+    // Le séparateur de scène du gabarit ("* * *") doit être injecté en CSS V2.
     assert.match(xhtml, /hr::before \{ content: "\* \* \*"; \}/);
   } finally {
     restoreRenderer();
     restoreDom();
   }
+});
+
+test("CSS EPUB V2 : corps, retrait, espacements, césure, titres et page de titre sont reflowables", () => {
+  const template = normalizeLegacyTemplate({
+    key: "epub", label: "EPUB", fontFamily: "Georgia", fontSizePt: 13, lineHeight: 1.4, align: "justify",
+    indent: true, indentPt: 22, paragraphSpacingPt: 3, hyphenation: true, sceneDivider: "***",
+    blockquote: { italic: true, colorHex: "#333333" },
+    headings: { h1: { fontSizePt: 20, bold: true, pageBreakBefore: true }, h6: { fontSizePt: 9, italic: true } },
+    titlePage: { styles: { titre: { fontSizePt: 28, bold: true, align: "center" } } },
+  });
+  template.body.paragraphSpacingAfterPt = 7;
+  const css = templateV2ToEpubCss(template);
+
+  assert.match(css, /font-family: Georgia; font-size: 13pt; line-height: 1\.4; text-align: justify; hyphens: auto;/);
+  assert.match(css, /text-indent: 22pt; margin: 3pt 0 7pt;/);
+  assert.match(css, /h1 \{ font-size: 20pt; font-weight: bold; break-before: page; \}/);
+  assert.match(css, /h6 \{ font-size: 9pt; font-style: italic; \}/);
+  assert.match(css, /blockquote \{ font-style: italic; color: #333333; \}/);
+  assert.match(css, /hr::before \{ content: "\*\*\*"; \}/);
+  assert.match(css, /\[data-fp-role="titre"\] \{ font-size: 28pt; text-align: center; font-weight: bold; \}/);
+});
+
+test("CSS EPUB V2 : hyphenation false force hyphens none", () => {
+  const template = normalizeLegacyTemplate({ key: "sans-cesure", label: "Sans césure", hyphenation: false });
+  assert.match(templateV2ToEpubCss(template), /hyphens: none;/);
+});
+
+test("export EPUB : consomme V2 sans appeler le CSS historique partagé", async () => {
+  const source = await (await import("node:fs/promises")).readFile(new URL("../src/services/export-epub.js", import.meta.url), "utf8");
+  assert.match(source, /resolveExportTemplateV2/);
+  assert.match(source, /templateV2ToEpubCss/);
+  assert.doesNotMatch(source, /templateToCss/);
 });
 
 test("export EPUB : un gabarit sans séparateur de scène défini a quand même un repli visuel (\"* * *\")", async () => {
@@ -167,8 +201,8 @@ test("export EPUB : les règles de titres (h1/h2/h3) et les unités relatives so
       segments: [],
     });
     const xhtml = await chaptersXhtml(bytes);
-    assert.match(xhtml, /h1 \{[^}]*page-break-before: always;/);
-    assert.match(xhtml, /h2 \{[^}]*page-break-before: always;/);
+    assert.match(xhtml, /h1 \{[^}]*break-before: page;/);
+    assert.match(xhtml, /h2 \{[^}]*break-before: page;/);
     // Fidélité e-liseuse : pas de largeur/hauteur en px imposée dans le CSS
     // du modèle (voir templateToCss, export-templates.js) — les tailles
     // d'image restent relatives (max-width en %).
