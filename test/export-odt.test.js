@@ -224,6 +224,44 @@ test("exportOdt : la police/taille/interligne du gabarit choisi pilotent le styl
   }
 });
 
+test("exportOdt : le corps V2 applique retrait et espacements explicites", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => container.appendChild(element("p", "Texte.")));
+  try {
+    const bytes = await exportOdt({}, { exportTemplate: "apa" }, {
+      markdown: "Texte.", title: "Mon livre", author: "Autrice", sourcePath: "Manuscrit.md", segments: [],
+    });
+    const zip = await JSZip.loadAsync(bytes);
+    const stylesXml = await zip.file("styles.xml").async("string");
+    assert.match(stylesXml, /fo:text-indent="36pt"/);
+    assert.match(stylesXml, /fo:margin-top="0pt" fo:margin-bottom="0pt"/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
+test("exportOdt : page, colonnes, en-tête et pied V2 ne sont pas écrasés par les réglages pdf legacy", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => container.appendChild(element("p", "Texte.")));
+  try {
+    const bytes = await exportOdt({}, {
+      exportTemplate: "romanFrancais", pdfPageSize: "letter", pdfOrientation: "portrait",
+      pdfHeaderLeft: "Titre V2", pdfFooterRight: "Page {page}", pdfEnableHeaders: true, pdfEnableFooters: true,
+    }, { markdown: "Texte.", title: "Mon livre", author: "Autrice", sourcePath: "Manuscrit.md", segments: [] });
+    const zip = await JSZip.loadAsync(bytes);
+    const stylesXml = await zip.file("styles.xml").async("string");
+    assert.match(stylesXml, /fo:page-width="29\.7cm" fo:page-height="21cm"/);
+    assert.match(stylesXml, /fo:column-count="2" fo:column-gap="45pt"/);
+    assert.doesNotMatch(stylesXml, /Titre V2/);
+    assert.match(stylesXml, /Mon livre<text:tab\/><text:tab\/>Autrice/);
+    assert.match(stylesXml, /Page <text:page-number\/> sur <text:page-count\/>/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
 test("exportOdt : les titres (h1/h2/h3) reprennent taille/graisse/saut de page du gabarit", async () => {
   const restoreDom = installDom();
   const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
@@ -245,6 +283,28 @@ test("exportOdt : les titres (h1/h2/h3) reprennent taille/graisse/saut de page d
     assert.match(contentXml, /style:name="Heading_20_1"[\s\S]*?fo:break-before="page"/);
     assert.match(contentXml, /style:name="Heading_20_2"[\s\S]*?fo:font-size="16pt" fo:font-weight="bold"/);
     assert.doesNotMatch(contentXml.match(/<style:style style:name="Heading_20_2"[\s\S]*?<\/style:style>/)[0], /fo:break-before/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
+test("exportOdt : H4 à H6 utilisent aussi les styles V2", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("h4", "Niveau 4"));
+    container.appendChild(element("h5", "Niveau 5"));
+    container.appendChild(element("h6", "Niveau 6"));
+  });
+  try {
+    const bytes = await exportOdt({}, { exportTemplate: "these" }, {
+      markdown: "#### Niveau 4", title: "Mon livre", author: "Autrice", sourcePath: "Manuscrit.md", segments: [],
+    });
+    const zip = await JSZip.loadAsync(bytes);
+    const contentXml = await zip.file("content.xml").async("string");
+    assert.match(contentXml, /text:style-name="Heading_20_4" text:outline-level="4">Niveau 4/);
+    assert.match(contentXml, /text:style-name="Heading_20_5" text:outline-level="5">Niveau 5/);
+    assert.match(contentXml, /text:style-name="Heading_20_6" text:outline-level="6">Niveau 6/);
   } finally {
     restoreRenderer();
     restoreDom();

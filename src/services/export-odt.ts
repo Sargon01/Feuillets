@@ -1,8 +1,7 @@
 import JSZip from "jszip";
 import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages } from "./export-render.js";
-import { resolveExportTemplate } from "./export-templates-custom.js";
-import { marginsFor, normalizeHeadings } from "../utils/export-templates.js";
+import { resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { escapeXml } from "../utils/xml.js";
 
 /** Premier nom de la liste `fontFamily` CSS du modèle (ex. "'Times New
@@ -12,8 +11,17 @@ function primaryFontName(fontFamily: string): string {
   return (fontFamily.split(",")[0] || "").trim().replace(/^['"]|['"]$/g, "") || "Times New Roman";
 }
 
-/** Style de titre de niveau h1/h2/h3 dérivé du modèle (voir
- * normalizeHeadings, export-templates.js) — reprend les mêmes valeurs que
+/** Les trois formats de page déjà reconnus par les réglages d'export. Les
+ * marges miroir et la première page demanderaient des pages maîtres ODT
+ * distinctes : elles restent volontairement hors du moteur actuel. */
+function pageSize(size: string, orientation: "portrait" | "landscape"): { width: string; height: string } {
+  const portrait = size === "A5" ? { width: "14.8cm", height: "21cm" }
+    : size === "letter" ? { width: "21.6cm", height: "27.9cm" }
+      : { width: "21cm", height: "29.7cm" };
+  return orientation === "landscape" ? { width: portrait.height, height: portrait.width } : portrait;
+}
+
+/** Style de titre V2 (h1 à h6) — reprend les mêmes valeurs que
  * PDF/EPUB/DOCX (taille, graisse, italique, alignement, marges, saut de
  * page), avec un repli sensé (18/15/13pt, gras) quand le modèle ne définit
  * aucun style de titre pour ce niveau (ex. "Classique (manuscrit)" pour h1). */
@@ -91,14 +99,9 @@ function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
     const href = element.getAttribute("href") || "#";
     return `<text:a xlink:type="simple" xlink:href="${escapeXml(href)}">${childrenXml}</text:a>`;
   }
-  if (tag === "h1") {
-    return `<text:h text:style-name="Heading_20_1" text:outline-level="1">${childrenXml}</text:h>`;
-  }
-  if (tag === "h2") {
-    return `<text:h text:style-name="Heading_20_2" text:outline-level="2">${childrenXml}</text:h>`;
-  }
-  if (tag === "h3") {
-    return `<text:h text:style-name="Heading_20_3" text:outline-level="3">${childrenXml}</text:h>`;
+  if (/^h[1-6]$/.test(tag)) {
+    const level = tag.slice(1);
+    return `<text:h text:style-name="Heading_20_${level}" text:outline-level="${level}">${childrenXml}</text:h>`;
   }
   if (tag === "p") {
     return `<text:p text:style-name="${opts.frontStyle || "Standard"}">${childrenXml}</text:p>`;
@@ -144,23 +147,18 @@ function footnotesEndSectionXml(footnotes: RenderedFootnote[]): string {
 
 /** Export ODT (OpenDocument Text pour LibreOffice / OpenOffice) natif sans conversion intermédiaire. */
 export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Uint8Array> {
-  const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
+  const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
   const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
 
-  const fontName = primaryFontName(tpl.fontFamily);
-  const m = marginsFor(tpl);
-  const headings = normalizeHeadings(tpl);
-  const bodyAlign = tpl.align || "justify";
-  const indentRule = tpl.indent ? `fo:text-indent="${tpl.indentPt ? `${tpl.indentPt}pt` : "1.25cm"}"` : 'fo:text-indent="0cm"';
-  const paragraphSpacingRule = tpl.paragraphSpacing
-    ? `fo:margin-top="0cm" fo:margin-bottom="0.3cm"`
-    : tpl.paragraphSpacingPt
-      ? `fo:margin-top="${tpl.paragraphSpacingPt}pt" fo:margin-bottom="0cm"`
-      : `fo:margin-top="0cm" fo:margin-bottom="0cm"`;
-  const blockquoteItalic = tpl.blockquote?.italic !== false;
-  const blockquoteColor = tpl.blockquote?.colorHex || "#000000";
+  const fontName = primaryFontName(template.body.fontFamily);
+  const { body, page, headings } = template;
+  const bodyAlign = body.align;
+  const indentRule = `fo:text-indent="${body.firstLineIndentPt}pt"`;
+  const paragraphSpacingRule = `fo:margin-top="${body.paragraphSpacingBeforePt}pt" fo:margin-bottom="${body.paragraphSpacingAfterPt}pt"`;
+  const blockquoteItalic = template.blockquote?.italic !== false;
+  const blockquoteColor = template.blockquote?.colorHex || "#000000";
 
-  const sceneDividerOpts: OdtOptions = { sceneDivider: tpl.sceneDivider };
+  const sceneDividerOpts: OdtOptions = { sceneDivider: template.sceneDivider };
   const bodyXml =
     Array.from(containerEl.childNodes).map((node) => domToOdtContent(node, sceneDividerOpts)).join("\n") +
     footnotesEndSectionXml(footnotes);
@@ -171,9 +169,9 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   const bandText = (value: string): string => value
     .replace(/\{title\}/gi, title)
     .replace(/\{author\}/gi, author);
-  const headerParts = [settings.pdfHeaderLeft || "{title}", settings.pdfHeaderCenter || "", settings.pdfHeaderRight || "{author}"]
+  const headerParts = [template.header?.left ?? "{title}", template.header?.center ?? "", template.header?.right ?? "{author}"]
     .map(bandText);
-  const footerParts = [settings.pdfFooterLeft || "", settings.pdfFooterCenter || "", settings.pdfFooterRight || "Page {page} sur {pages}"]
+  const footerParts = [template.footer?.left ?? "", template.footer?.center ?? "", template.footer?.right ?? "Page {page} sur {pages}"]
     .map(bandText);
   const odtBand = (parts: string[]): string => parts.map((part) => escapeXml(part)).join("<text:tab/>")
     .replace(/\{page\}/gi, '<text:page-number/>')
@@ -201,21 +199,23 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
 <office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.2">
   <office:styles>
     <style:default-style style:family="paragraph">
-      <style:paragraph-properties fo:line-height="${Math.round(tpl.lineHeight * 100)}%" ${indentRule} ${paragraphSpacingRule} fo:text-align="${bodyAlign}"/>
-      <style:text-properties fo:font-name="${fontName}" fo:font-size="${tpl.fontSizePt}pt" fo:color="#000000"/>
+      <style:paragraph-properties fo:line-height="${Math.round(body.lineHeight * 100)}%" ${indentRule} ${paragraphSpacingRule} fo:text-align="${bodyAlign}"/>
+      <style:text-properties fo:font-name="${fontName}" fo:font-size="${body.fontSizePt}pt" fo:color="#000000"/>
     </style:default-style>
   </office:styles>
   <office:automatic-styles>
     <style:page-layout style:name="pm1">
-      <style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="${m.top}cm" fo:margin-bottom="${m.bottom}cm" fo:margin-left="${m.left}cm" fo:margin-right="${m.right}cm"/>
+      <style:page-layout-properties fo:page-width="${pageSize(page.size, page.orientation).width}" fo:page-height="${pageSize(page.size, page.orientation).height}" fo:margin-top="${page.marginsCm.top}cm" fo:margin-bottom="${page.marginsCm.bottom}cm" fo:margin-left="${page.marginsCm.left}cm" fo:margin-right="${page.marginsCm.right}cm">
+        ${page.columns ? `<style:columns fo:column-count="${page.columns.count}" fo:column-gap="${page.columns.gutterPt}pt"/>` : ""}
+      </style:page-layout-properties>
     </style:page-layout>
   </office:automatic-styles>
   <office:master-styles>
     <style:master-page style:name="Standard" style:page-layout-name="pm1">
-      ${settings.pdfEnableHeaders === false ? "" : `<style:header>
+      ${template.header?.enabled === false ? "" : `<style:header>
         <text:p text:style-name="Header">${odtBand(headerParts)}</text:p>
       </style:header>`}
-      ${settings.pdfEnableFooters === false ? "" : `<style:footer>
+      ${template.footer?.enabled === false ? "" : `<style:footer>
         <text:p text:style-name="Footer">${odtBand(footerParts)}</text:p>
       </style:footer>`}
     </style:master-page>
@@ -236,18 +236,20 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
     </style:style>
     <style:style style:name="Title" style:family="paragraph">
       <style:paragraph-properties fo:text-align="center" fo:margin-bottom="1cm"/>
-      <style:text-properties fo:font-size="${Math.round(tpl.fontSizePt * 2)}pt" fo:font-weight="bold"/>
+      <style:text-properties fo:font-size="${Math.round(body.fontSizePt * 2)}pt" fo:font-weight="bold"/>
     </style:style>
     <style:style style:name="Subtitle" style:family="paragraph">
       <style:paragraph-properties fo:text-align="center" fo:margin-bottom="2cm"/>
-      <style:text-properties fo:font-size="${Math.round(tpl.fontSizePt * 1.2)}pt" fo:font-style="italic"/>
+      <style:text-properties fo:font-size="${Math.round(body.fontSizePt * 1.2)}pt" fo:font-style="italic"/>
     </style:style>
-    <!-- Titres (h1/h2/h3) dérivés du même modèle que PDF/EPUB/DOCX (voir
-         normalizeHeadings, export-templates.js) — reprennent taille,
-         graisse, italique, alignement, marges et saut de page. -->
+    <!-- Titres V2 (h1 à h6) : taille, graisse, italique, alignement,
+         marges et saut de page. -->
     ${headingStyleXml("Heading_20_1", headings.h1, 20)}
     ${headingStyleXml("Heading_20_2", headings.h2, 16)}
     ${headingStyleXml("Heading_20_3", headings.h3, 13)}
+    ${headingStyleXml("Heading_20_4", headings.h4, 12)}
+    ${headingStyleXml("Heading_20_5", headings.h5, 11)}
+    ${headingStyleXml("Heading_20_6", headings.h6, 10)}
     <style:style style:name="Quotations" style:family="paragraph">
       <style:paragraph-properties fo:margin-left="1cm" fo:margin-right="1cm"/>
       <style:text-properties fo:font-style="${blockquoteItalic ? "italic" : "normal"}" fo:color="${blockquoteColor}"/>
