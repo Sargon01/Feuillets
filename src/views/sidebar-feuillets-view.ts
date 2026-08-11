@@ -6,7 +6,6 @@ import { DocxReviewView } from "./docx-review-view.js";
 import { EditionDocsView } from "./edition-docs-view.js";
 import { EditionCompositionView } from "./edition-composition-view.js";
 import { EditionLayoutView } from "./edition-layout-view.js";
-import { EditionExportView } from "./edition-export-view.js";
 import { JournalView } from "./journal-view.js";
 import { NotesView } from "./notes-view.js";
 import type { ProjectView } from "./project-view.js";
@@ -31,7 +30,6 @@ type SidebarSubViews = {
   editionDocs: SidebarSubView;
   editionComposition: SidebarSubView;
   editionLayout: SidebarSubView;
-  editionExport: SidebarSubView;
   analyse: AnalysisSidebarSubView;
   relecture: SidebarSubView;
 };
@@ -75,7 +73,6 @@ export class SidebarFeuilletsView extends ItemView {
       editionDocs: new EditionDocsView(this.leaf, this.plugin),
       editionComposition: new EditionCompositionView(this.leaf, this.plugin),
       editionLayout: new EditionLayoutView(this.leaf, this.plugin),
-      editionExport: new EditionExportView(this.leaf, this.plugin),
       analyse: new AnalysisView(this.leaf, this.plugin),
       relecture: new TextAnalysisView(this.leaf, this.plugin),
     };
@@ -205,7 +202,7 @@ export class SidebarFeuilletsView extends ItemView {
      biographie, lettre d'accompagnement, soumissions…). L'export vit
      toujours exclusivement dans PreviewView. L'identifiant `project` est
      gardé pour migrer sans casser les préférences existantes. */
-  /* Espace Édition (Phase 2) : cinq sections empilées dans un seul
+  /* Espace Édition : quatre sections empilées dans un seul
      conteneur — chaque sous-vue reste responsable de SA propre section
      (.feuillets-project-section, voir renderSectionHead), le séparateur
      visuel entre elles venant de cette classe elle-même (styles.css), sans
@@ -224,7 +221,6 @@ export class SidebarFeuilletsView extends ItemView {
       this.subViews.editionDocs,
       this.subViews.editionComposition,
       this.subViews.editionLayout,
-      this.subViews.editionExport,
       this.subViews.docx,
     ];
     for (const [index, subView] of editionSubViews.entries()) {
@@ -250,7 +246,6 @@ export class SidebarFeuilletsView extends ItemView {
       await this.subViews.editionDocs.render(force);
       await this.subViews.editionComposition.render(force);
       await this.subViews.editionLayout.render(force);
-      await this.subViews.editionExport.render(force);
       return;
     }
     await this.subViews[this.activeTab].render(force);

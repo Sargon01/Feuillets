@@ -88,10 +88,29 @@ export class Modal {
   open() {}
 }
 
-/* Setting : API fluide minimale, suffisante pour vérifier qu'un panneau
-   déclare bien les bons contrôles ET pour déclencher leurs onChange —
-   c'est ce que testent les suites de PreviewView (le réglage doit atteindre
-   les settings réels, pas une copie locale). */
+/* Setting : réplique légère mais RÉELLE (DOM factice construit via
+   containerEl.createDiv/createEl, comme le vrai Obsidian) de l'API fluide —
+   nécessaire depuis que plusieurs panneaux (ui/*-panel.ts, ui/export-
+   panel.ts, views/edition-layout-view.ts) l'utilisent pour leur rendu
+   natif (Phase 11B). Deux contraintes historiques à respecter à l'identique
+   pour ne rien casser ailleurs :
+   - `container._settings` (tableau des instances Setting posées sur ce
+     conteneur) et `.controls` (tableau des contrôles ajoutés, dans l'ordre)
+     restent alimentés exactement comme avant — test/scenes-editor-i18n.js
+     et test/edition-composition-view.js (settingNames()) en dépendent.
+   - `setDesc`/`addToggle`/`addButton`/`addDropdown` restent utilisables
+     SANS qu'un test doive fournir son propre DOM factice enrichi : le
+     constructeur crée lui-même settingEl/infoEl/nameEl/descEl/controlEl via
+     `container.createDiv(...)` (présent sur tous les FakeElement du dépôt),
+     et chaque addXxx() crée à son tour un élément réel (toggleEl, buttonEl,
+     selectEl, inputEl, extraSettingsEl) qu'un test peut retrouver par
+     querySelector (ex. `[aria-label="…"]`), exactement comme pour un champ
+     construit à la main. Un test qui préfère monkey-patcher Setting.prototype
+     (voir installSettingStub(), test/layout-modal.test.js et test/edition-
+     composition-view.test.js) reste libre de le faire : ces addXxx() sont
+     alors simplement remplacées, `controlEl` (posé au constructeur, jamais
+     patché) continue lui d'exister — export-panel.ts s'appuie dessus
+     directement pour "Portée", en dehors de tout addXxx(). */
 export class Setting {
   constructor(container) {
     this.container = container;
@@ -100,43 +119,134 @@ export class Setting {
     this.controls = [];
     if (container && Array.isArray(container._settings)) container._settings.push(this);
     else if (container) container._settings = [this];
+
+    this.settingEl = container?.createDiv ? container.createDiv({ cls: "setting-item" }) : container;
+    this.infoEl = this.settingEl.createDiv ? this.settingEl.createDiv({ cls: "setting-item-info" }) : this.settingEl;
+    this.nameEl = this.infoEl.createDiv ? this.infoEl.createDiv({ cls: "setting-item-name" }) : this.infoEl;
+    this.descEl = this.infoEl.createDiv ? this.infoEl.createDiv({ cls: "setting-item-description" }) : this.infoEl;
+    this.controlEl = this.settingEl.createDiv ? this.settingEl.createDiv({ cls: "setting-item-control" }) : this.settingEl;
   }
-  setName(name) { this.name = name; return this; }
-  setDesc(desc) { this.desc = desc; return this; }
+  setName(name) {
+    this.name = name;
+    if (this.nameEl?.setText) this.nameEl.setText(name); else if (this.nameEl) this.nameEl.textContent = name;
+    return this;
+  }
+  setDesc(desc) {
+    this.desc = desc;
+    if (this.descEl?.setText) this.descEl.setText(desc); else if (this.descEl) this.descEl.textContent = desc;
+    return this;
+  }
+  setClass(cls) { this.settingEl?.addClass?.(cls); return this; }
+  setTooltip(text) { this.settingEl?.setAttribute?.("aria-label", text); return this; }
+  then(cb) { cb(this); return this; }
   addDropdown(cb) {
+    const selectEl = this.controlEl?.createEl ? this.controlEl.createEl("select", { cls: "dropdown" }) : undefined;
     const control = {
       type: "dropdown",
+      selectEl,
       options: [],
       value: "",
-      addOption(v, label) { this.options.push({ value: v, label }); return this; },
-      setValue(v) { this.value = v; return this; },
-      onChange(fn) { this.changeHandler = fn; return this; },
-      select(v) { this.value = v; return this.changeHandler ? this.changeHandler(v) : undefined; },
+      addOption(v, label) {
+        this.options.push({ value: v, label });
+        selectEl?.createEl?.("option", { value: v, text: label });
+        return this;
+      },
+      setValue(v) { this.value = v; if (selectEl) selectEl.value = v; return this; },
+      setDisabled(v) { this.disabled = v; return this; },
+      onChange(fn) {
+        this.changeHandler = fn;
+        selectEl?.addEventListener?.("change", () => fn(selectEl.value));
+        return this;
+      },
+      select(v) { this.value = v; if (selectEl) selectEl.value = v; return this.changeHandler ? this.changeHandler(v) : undefined; },
     };
     cb(control);
     this.controls.push(control);
     return this;
   }
   addToggle(cb) {
+    const toggleEl = this.controlEl?.createEl ? this.controlEl.createEl("div", { cls: "checkbox-container" }) : undefined;
     const control = {
       type: "toggle",
+      toggleEl,
       value: false,
-      setValue(v) { this.value = v; return this; },
+      setValue(v) { this.value = v; toggleEl?.toggleClass?.("is-enabled", v); return this; },
+      setTooltip(text) { this.tooltip = text; toggleEl?.setAttribute?.("aria-label", text); return this; },
+      setDisabled(v) { this.disabled = v; return this; },
       onChange(fn) { this.changeHandler = fn; return this; },
-      toggle(v) { this.value = v; return this.changeHandler ? this.changeHandler(v) : undefined; },
+      toggle(v) { this.value = v; toggleEl?.toggleClass?.("is-enabled", v); return this.changeHandler ? this.changeHandler(v) : undefined; },
     };
+    /* Comme le vrai ToggleComponent d'Obsidian : cliquer sur toggleEl
+       inverse l'état ET déclenche onChange — un test peut donc simuler un
+       clic utilisateur avec `toggleEl.click()`/`toggleEl.dispatch("click")`
+       plutôt que de passer par le contrôle renvoyé par addToggle(). */
+    toggleEl?.addEventListener?.("click", () => {
+      control.value = !control.value;
+      toggleEl.toggleClass?.("is-enabled", control.value);
+      control.changeHandler?.(control.value);
+    });
     cb(control);
     this.controls.push(control);
     return this;
   }
   addButton(cb) {
+    const buttonEl = this.controlEl?.createEl ? this.controlEl.createEl("button", { cls: "clickable-icon" }) : undefined;
     const control = {
       type: "button",
+      buttonEl,
       text: "",
-      setButtonText(text) { this.text = text; return this; },
-      setCta() { return this; },
-      onClick(fn) { this.clickHandler = fn; return this; },
+      setButtonText(text) { this.text = text; buttonEl?.setText?.(text); return this; },
+      setIcon(icon) { this.icon = icon; if (buttonEl) buttonEl.icon = icon; return this; },
+      setTooltip(text) { this.tooltip = text; buttonEl?.setAttribute?.("aria-label", text); return this; },
+      setCta() { this.cta = true; buttonEl?.addClass?.("mod-cta"); return this; },
+      setWarning() { this.warning = true; buttonEl?.addClass?.("mod-warning"); return this; },
+      setDisabled(v) { this.disabled = v; return this; },
+      onClick(fn) {
+        this.clickHandler = fn;
+        buttonEl?.addEventListener?.("click", () => fn());
+        return this;
+      },
       click() { return this.clickHandler ? this.clickHandler() : undefined; },
+    };
+    cb(control);
+    this.controls.push(control);
+    return this;
+  }
+  addExtraButton(cb) {
+    const extraSettingsEl = this.controlEl?.createEl
+      ? this.controlEl.createEl("div", { cls: "clickable-icon extra-setting-button" })
+      : undefined;
+    const control = {
+      type: "extra",
+      extraSettingsEl,
+      setIcon(icon) { this.icon = icon; if (extraSettingsEl) extraSettingsEl.icon = icon; return this; },
+      setTooltip(text) { this.tooltip = text; extraSettingsEl?.setAttribute?.("aria-label", text); return this; },
+      setDisabled(v) { this.disabled = v; return this; },
+      onClick(fn) {
+        this.clickHandler = fn;
+        extraSettingsEl?.addEventListener?.("click", () => fn());
+        return this;
+      },
+      click() { return this.clickHandler ? this.clickHandler() : undefined; },
+    };
+    cb(control);
+    this.controls.push(control);
+    return this;
+  }
+  addText(cb) {
+    const inputEl = this.controlEl?.createEl ? this.controlEl.createEl("input", { type: "text" }) : undefined;
+    const control = {
+      type: "text",
+      inputEl,
+      value: "",
+      setValue(v) { this.value = v; if (inputEl) inputEl.value = v; return this; },
+      setPlaceholder(p) { this.placeholder = p; inputEl?.setAttribute?.("placeholder", p); return this; },
+      setDisabled(v) { this.disabled = v; return this; },
+      onChange(fn) {
+        this.changeHandler = fn;
+        inputEl?.addEventListener?.("change", () => fn(inputEl.value));
+        return this;
+      },
     };
     cb(control);
     this.controls.push(control);

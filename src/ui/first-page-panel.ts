@@ -1,10 +1,8 @@
 import { Notice, TFile, TFolder, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
-import { listExportTemplates } from "../services/export-templates-custom.js";
 import { isFrontMatter } from "../services/folder-structure.js";
 import { fmOf } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
 import { t } from "../i18n/index.js";
-import { LayoutModal } from "./layout-modal.js";
 
 /** Champs de la première page réellement pris en charge, dans l'ordre où ils
  * apparaissent sur la page. Chacun est un RÔLE du feuillet Front (voir
@@ -22,7 +20,6 @@ export function previewFirstPageFields(): Array<{ label: string; role: string }>
 }
 
 type FirstPagePanelSettings = FeuilletsSettings & {
-  exportTemplate: string;
   manuscriptTitle?: string;
   manuscriptAuthor?: string;
 };
@@ -93,8 +90,7 @@ export function frontTitleCandidates(app: App, plugin: FirstPagePanelPlugin): TF
  */
 export class FirstPagePanel {
   private bodyEl: HTMLElement | null = null;
-  private templates: Array<{ key: string; label: string }> = [];
-  private isOpen = false;
+  private expanded = false;
 
   constructor(
     private app: App,
@@ -175,17 +171,24 @@ export class FirstPagePanel {
   async render(): Promise<void> {
     const container = this.container;
     container.empty();
-    const templates = await listExportTemplates(this.app, this.plugin.settings);
-    this.templates = templates;
+    const head = container.createDiv({ cls: "feuillets-project-row feuillets-edition-action-row" });
+    head.setAttribute("role", "button");
+    head.setAttribute("tabindex", "0");
+    head.setAttribute("aria-expanded", String(this.expanded));
+    head.createSpan({ cls: "feuillets-project-row-label", text: t("preview.export.firstPage") });
+    const actions = head.createDiv({ cls: "feuillets-project-row-actions" });
+    const toggleExpanded = async () => { this.expanded = !this.expanded; await this.render(); };
+    head.addEventListener("click", () => void toggleExpanded());
+    head.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void toggleExpanded(); }
+    });
+    const toggle = this.iconButton(actions, this.expanded ? "chevron-down" : "chevron-right", t("preview.export.firstPage"));
+    toggle.setAttribute("aria-expanded", String(this.expanded));
+    toggle.addEventListener("click", (event) => { event.stopPropagation?.(); void toggleExpanded(); });
 
-    const details = container.createEl("details", { cls: "feuillets-first-page" });
-    details.open = this.isOpen;
-    details.addEventListener("toggle", () => { this.isOpen = details.open; });
-    const summary = details.createEl("summary", { cls: "feuillets-first-page-summary" });
-    summary.createSpan({ text: t("preview.export.firstPage") });
-    const body = details.createDiv({ cls: "feuillets-first-page-body" });
+    const body = container.createDiv({ cls: "feuillets-first-page-body" });
     this.bodyEl = body;
-    await this.renderFields(body, templates);
+    if (this.expanded) await this.renderFields(body);
   }
 
   /** Réactualise SEULEMENT le contenu, sans toucher au <details> qui
@@ -193,7 +196,7 @@ export class FirstPagePanel {
    * ne doivent ni refermer la sous-section ni faire sauter le focus. */
   private async reloadFields(): Promise<void> {
     try {
-      if (this.bodyEl) await this.renderFields(this.bodyEl, this.templates);
+      if (this.bodyEl) await this.renderFields(this.bodyEl);
       else await this.render();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -203,103 +206,56 @@ export class FirstPagePanel {
     await this.callbacks.onPresentationChanged?.();
   }
 
-  /** Contenu de « Première page » — jamais le <details>/<summary> qui
-   * l'enveloppe : appelée seule pour un rafraîchissement ciblé
-   * (`reloadFields`), ou depuis `render` lors d'une reconstruction complète.
-   * Réutilise les classes de contrôle génériques du panneau Export
-   * (`.feuillets-preview-export-control` etc.) : mêmes petits champs
-   * compacts partout dans le plugin, sans dupliquer leur CSS — voir
-   * styles.css pour le réglage de compacité propre à ce composant. */
-  private async renderFields(body: HTMLElement, templates: Array<{ key: string; label: string }>): Promise<void> {
+  /** Contenu de « Première page », conservé lors des rafraîchissements et
+   * rendu avec les lignes latérales compactes du plugin. */
+  private async renderFields(body: HTMLElement): Promise<void> {
     body.empty();
     const { files, selected, included } = this.frontTitleState();
 
-    const row1 = body.createDiv({ cls: "feuillets-preview-export-row feuillets-preview-export-row-1" });
-    const row2 = body.createDiv({ cls: "feuillets-preview-export-row feuillets-preview-export-row-2" });
-
-    const includeWrap = row1.createDiv({ cls: "feuillets-preview-export-field feuillets-preview-export-field-checkbox" });
-    const includeRow = includeWrap.createEl("label", { cls: "feuillets-preview-export-inline-field" });
+    const includeRow = this.propertyRow(body, t("preview.export.includeTitlePage"));
     const includeInput = includeRow.createEl("input", { type: "checkbox" });
     includeInput.checked = included;
     includeInput.setAttribute("aria-label", t("preview.export.includeTitlePage"));
     includeInput.addEventListener("change", () => void this.setFirstPageIncluded(includeInput.checked));
-    includeRow.createSpan({ text: t("preview.export.includeTitlePage") });
 
     if (selected) {
-      /* Un <div>, pas un <label> : le bouton « ouvrir » qui suit ne doit pas
-         être avalé par le libellé (un clic dedans activerait la liste). */
-      const fileWrap = row1.createDiv({ cls: "feuillets-preview-export-field feuillets-preview-export-field-front" });
-      fileWrap.createSpan({ cls: "feuillets-preview-export-label", text: t("preview.export.frontFile") });
-      const fileControls = fileWrap.createDiv({ cls: "feuillets-preview-export-file-controls" });
-      const picker = fileControls.createEl("select", { cls: "feuillets-preview-export-control" });
+      const frontControl = this.propertyRow(body, t("preview.export.frontFile"));
+      const picker = frontControl.createEl("select");
       for (const file of files) picker.createEl("option", { value: file.path, text: file.basename });
       picker.value = selected.path;
       picker.setAttribute("aria-label", t("preview.export.usedFrontFile"));
       picker.addEventListener("change", () => void this.chooseFrontTitleFile(picker.value));
-      this.iconBtn(fileControls, "pencil", t("preview.export.openFrontFile"), () => void this.openFrontFile(selected.path));
+      const open = this.iconButton(frontControl, "pencil", t("preview.export.openFrontFile"));
+      open.addEventListener("click", () => void this.openFrontFile(selected.path));
 
       const content = await this.app.vault.cachedRead(selected);
       for (const { label, role } of previewFirstPageFields()) {
-        const isRow1 = role === "titre" || role === "sous-titre";
-        const targetRow = isRow1 ? row1 : row2;
-
-        const wrap = targetRow.createDiv({
-          cls: `feuillets-preview-export-field feuillets-preview-export-field-${role}`,
-        });
-        wrap.createSpan({ cls: "feuillets-preview-export-label", text: label });
-        const input = wrap.createEl("input", { type: "text", cls: "feuillets-preview-export-control" });
+        const control = this.propertyRow(body, label);
+        const input = control.createEl("input", { type: "text" });
         input.value = readTitleRoleValue(content, role);
         input.setAttribute("aria-label", label);
         input.addEventListener("change", () => void this.setFirstPageField(selected.path, role, input.value));
       }
     } else {
-      row2.createDiv({
-        cls: "setting-item-description",
+      body.createDiv({
+        cls: "feuillets-edition-empty",
         text: t("preview.export.noTitleFrontFile"),
       });
     }
 
-    /* Le réglage visuel n'est pas une seconde configuration : LayoutModal
-     * modifie le même gabarit actif que le rendu et les exports, et c'est le
-     * seul endroit où se règlent en-têtes, pieds, numéros de page, distances
-     * aux bords et positionnement. */
-    const visualLayout = body.createEl("button", { cls: "clickable-icon feuillets-preview-export-visual-btn" });
-    const visualLeft = visualLayout.createDiv({ cls: "feuillets-preview-export-visual-left" });
-    const iconSpan = visualLeft.createSpan({ cls: "feuillets-preview-export-visual-icon" });
-    setIcon(iconSpan, "panel-top");
-    visualLeft.createSpan({ text: t("preview.export.visualLayout") });
-
-    const chevron = visualLayout.createSpan({ cls: "feuillets-preview-export-chevron" });
-    setIcon(chevron, "chevron-right");
-    visualLayout.setAttribute("aria-label", t("preview.export.adjustTitlePageLayout"));
-    visualLayout.addEventListener("click", () => {
-      // La valeur persistée est la référence : le composant peut être en
-      // train de se reconstruire après un changement de gabarit.
-      const activeKey = this.plugin.settings.exportTemplate;
-      const activeLabel = templates.find((item) => item.key === activeKey)?.label || activeKey;
-      new LayoutModal(
-        this.app,
-        this.plugin as unknown as ConstructorParameters<typeof LayoutModal>[1],
-        activeKey,
-        activeLabel,
-        () => { void this.callbacks.onPresentationChanged?.(); }
-      ).open();
-    });
   }
 
-  /* ========================== Bouton-icône ========================== */
+  private propertyRow(parent: HTMLElement, label: string): HTMLElement {
+    const row = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
+    row.createSpan({ cls: "feuillets-properties-key", text: label });
+    return row.createDiv({ cls: "feuillets-edition-row-control" });
+  }
 
-  /** Bouton-icône, calqué sur BaseFeuilletsView.iconBtn / ExportPanel.iconBtn
-   * : même classe `clickable-icon`, mêmes icônes Lucide. Le style (taille,
-   * couleur, survol, arrondi) vient du THÈME — styles.css ne fait qu'aligner
-   * et gérer l'opacité, comme pour les autres barres du plugin. */
-  private iconBtn(parent: HTMLElement, icon: string, label: string, onClick?: (e: MouseEvent) => void): HTMLElement {
-    const btn = parent.createEl("button", { cls: "clickable-icon" });
-    setIcon(btn, icon);
-    setTooltip(btn, label);
-    btn.setAttribute("aria-label", label);
-    btn.setAttribute("title", label);
-    if (onClick) btn.addEventListener("click", (e) => onClick(e));
-    return btn;
+  private iconButton(parent: HTMLElement, icon: string, label: string): HTMLButtonElement {
+    const button = parent.createEl("button", { cls: "clickable-icon" });
+    setIcon(button, icon);
+    setTooltip(button, label);
+    button.setAttribute("aria-label", label);
+    return button;
   }
 }

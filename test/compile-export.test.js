@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { compile, activePresetConfig, getOutputFolder, listCompiledFilePaths, projectMetaFor } from "../src/services/compile-export.js";
+import { writeGeneratedIncluded } from "../src/services/book-composition.js";
 
 test("compile : respecte l'ordre, les pages Front et compile: false", async () => {
   const volume = new TFolder("Projet");
@@ -382,6 +383,798 @@ test("projectMetaFor : renvoie {} si pas de dossier ou pas de meta", () => {
 
   assert.deepEqual(projectMetaFor(settings, null), {});
   assert.deepEqual(projectMetaFor(settings, { path: "Autre" }), {});
+});
+
+// ─── Sommaire / Table des matières générés (Phase 6) ──────────────────────────
+
+/** Même fixture que "compile : respecte l'ordre, les pages Front et
+ * compile: false" (premier test du fichier) : un dossier Front avec sa page
+ * de titre, un Chapitre 1 avec deux scènes — de quoi obtenir au moins un
+ * titre réel dans le manuscrit compilé. */
+function buildContentsFixture() {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const front = new TFolder("Projet/Manuscrit/Front");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const titlePage = new TFile("Projet/Manuscrit/Front/Page de titre.md", "---\ntitle: Mon livre\ntype: titre\n---\n:::titre: Mon livre\n");
+  const first = new TFile("Projet/Manuscrit/Chapitre 1/Scène 1.md", "---\ntitle: Départ\n---\nPremier texte.");
+  const second = new TFile("Projet/Manuscrit/Chapitre 1/Scène 2.md", "---\ntitle: Secret\n---\nDeuxième texte.");
+  volume.children = [manuscript];
+  manuscript.parent = volume;
+  manuscript.children = [front, chapter];
+  front.parent = manuscript;
+  chapter.parent = manuscript;
+  front.children = [titlePage];
+  chapter.children = [first, second];
+  titlePage.parent = front;
+  first.parent = chapter;
+  second.parent = chapter;
+
+  const { vault } = createFakeVault([volume, manuscript, front, chapter, titlePage, first, second]);
+  vault.cachedRead = vault.read;
+  const frontmatter = new Map([
+    [titlePage.path, { title: "Mon livre", type: "titre", compile: true }],
+    [first.path, { title: "Départ", compile: true }],
+    [second.path, { title: "Secret", compile: true }],
+  ]);
+  const app = {
+    vault,
+    metadataCache: { getFileCache: (file) => ({ frontmatter: frontmatter.get(file.path) || {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: [front.name, chapter.name] },
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: {},
+  };
+  return { app, settings, manuscript, titlePage, first, second };
+}
+
+test("compile portée project : Sommaire après Front, TDM en toute fin", async () => {
+  const { app, settings, manuscript } = buildContentsFixture();
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "summary", true);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path], "toc", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  // Page Front (titre) en tête, puis Sommaire, puis le corps ; TDM termine.
+  assert.equal(result.segments[0].frontType, "titre");
+  assert.match(result.segments[1].text, /^# Sommaire/);
+  assert.equal(result.segments[1].path, null);
+  assert.equal(result.segments[1].frontType, null);
+  assert.ok(result.segments.slice(2).some((s) => /Départ/.test(s.text)));
+  assert.match(result.segments.at(-1).text, /^# Table des matières/);
+  // Sommaire/TDM apparaissent bien dans le manuscrit final aussi.
+  assert.match(result.manuscript, /# Sommaire/);
+  assert.match(result.manuscript, /# Table des matières/);
+});
+
+test("compile : parts et segments restent synchronisés après insertion du Sommaire/TDM", async () => {
+  const { app, settings, manuscript } = buildContentsFixture();
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "summary", true);
+  writeGeneratedIncluded(meta, "toc", true);
+
+  const result = await compile(app, settings, null, null, null, { writeOutput: false });
+
+  assert.ok(result);
+  // segments.text doit correspondre EXACTEMENT au manuscrit reconstitué en
+  // joignant chaque segment (même ordre, même longueur — voir le
+  // commentaire de compile() sur cette contrainte).
+  assert.equal(result.manuscript, result.segments.map((s) => s.text).join("\n\n"));
+});
+
+test("compile portée project : seul Sommaire inclus -> TDM absente", async () => {
+  const { app, settings, manuscript } = buildContentsFixture();
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "summary", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.match(result.manuscript, /# Sommaire/);
+  assert.doesNotMatch(result.manuscript, /# Table des matières/);
+});
+
+test("compile portée project : ni Sommaire ni TDM réglés -> aucun des deux (exclus par défaut)", async () => {
+  const { app, settings } = buildContentsFixture();
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Sommaire/);
+  assert.doesNotMatch(result.manuscript, /# Table des matières/);
+});
+
+test("compile portée file : jamais de Sommaire/TDM même si inclus dans projectMeta", async () => {
+  const { app, settings, manuscript, first } = buildContentsFixture();
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "summary", true);
+  writeGeneratedIncluded(meta, "toc", true);
+
+  const result = await compile(app, settings, first.path);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Sommaire/);
+  assert.doesNotMatch(result.manuscript, /# Table des matières/);
+});
+
+test("compile portée folder : jamais de Sommaire/TDM même si inclus dans projectMeta", async () => {
+  const { app, settings, manuscript } = buildContentsFixture();
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "summary", true);
+  writeGeneratedIncluded(meta, "toc", true);
+  const chapterPath = "Projet/Manuscrit/Chapitre 1";
+
+  const result = await compile(app, settings, chapterPath);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Sommaire/);
+  assert.doesNotMatch(result.manuscript, /# Table des matières/);
+});
+
+test("compile portée selection : jamais de Sommaire/TDM même si inclus dans projectMeta", async () => {
+  const { app, settings, manuscript, first, second } = buildContentsFixture();
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "summary", true);
+  writeGeneratedIncluded(meta, "toc", true);
+  const scope = { type: "selection", projectRoot: manuscript.path, paths: [first.path, second.path] };
+
+  const result = await compile(app, settings, null, scope);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Sommaire/);
+  assert.doesNotMatch(result.manuscript, /# Table des matières/);
+});
+
+// ─── Table des illustrations générée (Phase 7) ────────────────────────────────
+
+/** Même fixture que buildContentsFixture(), avec une image légendée dans la
+ * seconde scène — de quoi obtenir une illustration réelle dans le
+ * manuscrit compilé. */
+function buildTablesFixture(withIllustration = true) {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const front = new TFolder("Projet/Manuscrit/Front");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const titlePage = new TFile("Projet/Manuscrit/Front/Page de titre.md", "---\ntitle: Mon livre\ntype: titre\n---\n:::titre: Mon livre\n");
+  const first = new TFile("Projet/Manuscrit/Chapitre 1/Scène 1.md", "---\ntitle: Départ\n---\nPremier texte.");
+  const secondContent = withIllustration
+    ? "---\ntitle: Secret\n---\nDeuxième texte.\n\n![Carte du royaume](carte.png)\n"
+    : "---\ntitle: Secret\n---\nDeuxième texte.";
+  const second = new TFile("Projet/Manuscrit/Chapitre 1/Scène 2.md", secondContent);
+  volume.children = [manuscript];
+  manuscript.parent = volume;
+  manuscript.children = [front, chapter];
+  front.parent = manuscript;
+  chapter.parent = manuscript;
+  front.children = [titlePage];
+  chapter.children = [first, second];
+  titlePage.parent = front;
+  first.parent = chapter;
+  second.parent = chapter;
+
+  const { vault } = createFakeVault([volume, manuscript, front, chapter, titlePage, first, second]);
+  vault.cachedRead = vault.read;
+  const frontmatter = new Map([
+    [titlePage.path, { title: "Mon livre", type: "titre", compile: true }],
+    [first.path, { title: "Départ", compile: true }],
+    [second.path, { title: "Secret", compile: true }],
+  ]);
+  const app = {
+    vault,
+    metadataCache: { getFileCache: (file) => ({ frontmatter: frontmatter.get(file.path) || {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: [front.name, chapter.name] },
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: {},
+  };
+  return { app, settings, manuscript, titlePage, first, second };
+}
+
+test("compile portée project : Table des illustrations incluse -> insérée après le manuscrit", async () => {
+  const { app, settings, manuscript } = buildTablesFixture(true);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "tables", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.match(result.manuscript, /# Table des illustrations[\s\S]*- Carte du royaume/);
+  // Dernier segment du manuscrit : après tout le corps (titres/scènes).
+  const last = result.segments.at(-1);
+  assert.match(last.text, /^# Table des illustrations/);
+  assert.equal(last.path, null);
+  assert.equal(last.frontType, null);
+});
+
+test("compile portée project : aucune illustration légendée -> pas de Table des illustrations, même incluse", async () => {
+  const { app, settings, manuscript } = buildTablesFixture(false);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "tables", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Table des illustrations/);
+});
+
+test("compile portée project : tables non incluse (par défaut) -> jamais générée même avec une illustration", async () => {
+  const { app, settings } = buildTablesFixture(true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Table des illustrations/);
+});
+
+test("compile : parts et segments restent synchronisés après insertion de la Table des illustrations", async () => {
+  const { app, settings, manuscript } = buildTablesFixture(true);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "tables", true);
+
+  const result = await compile(app, settings, null, null, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.equal(result.manuscript, result.segments.map((s) => s.text).join("\n\n"));
+});
+
+test("compile portée project : Sommaire au début, TDM à la fin et Table des illustrations après le corps", async () => {
+  const { app, settings, manuscript } = buildTablesFixture(true);
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "summary", true);
+  writeGeneratedIncluded(meta, "toc", true);
+  writeGeneratedIncluded(meta, "tables", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  // Seul Sommaire suit la page Front ; la TDM termine l'ouvrage.
+  assert.equal(result.segments[0].frontType, "titre");
+  assert.match(result.segments[1].text, /^# Sommaire/);
+  // « Table des illustrations » n'est jamais listée dans le Sommaire/TDM
+  // (elle vient après le corps, générée depuis un instantané antérieur).
+  assert.doesNotMatch(result.segments[1].text, /Table des illustrations/);
+  assert.match(result.segments.at(-2).text, /^# Table des illustrations/);
+  assert.match(result.segments.at(-1).text, /^# Table des matières/);
+});
+
+test("compile portée file : jamais de Table des illustrations même si incluse dans projectMeta", async () => {
+  const { app, settings, manuscript, first } = buildTablesFixture(true);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "tables", true);
+
+  const result = await compile(app, settings, first.path);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Table des illustrations/);
+});
+
+test("compile portée folder : jamais de Table des illustrations même si incluse dans projectMeta", async () => {
+  const { app, settings, manuscript } = buildTablesFixture(true);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "tables", true);
+
+  const result = await compile(app, settings, "Projet/Manuscrit/Chapitre 1");
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Table des illustrations/);
+});
+
+test("compile portée selection : jamais de Table des illustrations même si incluse dans projectMeta", async () => {
+  const { app, settings, manuscript, first, second } = buildTablesFixture(true);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "tables", true);
+  const scope = { type: "selection", projectRoot: manuscript.path, paths: [first.path, second.path] };
+
+  const result = await compile(app, settings, null, scope);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Table des illustrations/);
+});
+
+// ─── Bibliographie générée (Phase 8) ───────────────────────────────────────────
+
+/** Même fixture que buildTablesFixture(), avec en plus un dossier
+ * `_Recherche/Bibliographie` FRÈRE de Manuscrit (getResearchRoot reconnaît
+ * `_Recherche` comme frère, jamais comme descendant) contenant `refCount`
+ * fiches valides. */
+function buildBibliographyFixture(refCount = 1) {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const front = new TFolder("Projet/Manuscrit/Front");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const research = new TFolder("Projet/_Recherche");
+  const biblio = new TFolder("Projet/_Recherche/Bibliographie");
+  const titlePage = new TFile("Projet/Manuscrit/Front/Page de titre.md", "---\ntitle: Mon livre\ntype: titre\n---\n:::titre: Mon livre\n");
+  const first = new TFile("Projet/Manuscrit/Chapitre 1/Scène 1.md", "---\ntitle: Départ\n---\nPremier texte.");
+  const second = new TFile("Projet/Manuscrit/Chapitre 1/Scène 2.md", "---\ntitle: Secret\n---\nDeuxième texte.");
+  volume.children = [manuscript, research];
+  manuscript.parent = volume;
+  research.parent = volume;
+  manuscript.children = [front, chapter];
+  front.parent = manuscript;
+  chapter.parent = manuscript;
+  front.children = [titlePage];
+  chapter.children = [first, second];
+  titlePage.parent = front;
+  first.parent = chapter;
+  second.parent = chapter;
+  research.children = [biblio];
+  biblio.parent = research;
+
+  const refs = [];
+  const frontmatter = new Map([
+    [titlePage.path, { title: "Mon livre", type: "titre", compile: true }],
+    [first.path, { title: "Départ", compile: true }],
+    [second.path, { title: "Secret", compile: true }],
+  ]);
+  for (let i = 0; i < refCount; i++) {
+    const ref = new TFile(`Projet/_Recherche/Bibliographie/Réf ${i}.md`, `---\ntitle: Titre ${i}\nauthor: Auteur ${i}\n---\n`);
+    ref.parent = biblio;
+    refs.push(ref);
+    frontmatter.set(ref.path, { title: `Titre ${i}`, author: `Auteur ${i}` });
+  }
+  biblio.children = refs;
+
+  const { vault } = createFakeVault([volume, manuscript, front, chapter, research, biblio, titlePage, first, second, ...refs]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: (file) => ({ frontmatter: frontmatter.get(file.path) || {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: [front.name, chapter.name] },
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: {},
+  };
+  return { app, settings, manuscript, first, second };
+}
+
+test("compile portée project : bibliographie incluse -> insérée après Tables", async () => {
+  const { app, settings, manuscript } = buildBibliographyFixture(2);
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "tables", true); // aucune illustration -> pas de bloc Tables ici
+  writeGeneratedIncluded(meta, "bibliography", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.match(result.manuscript, /# Bibliographie[\s\S]*Auteur 0[\s\S]*Auteur 1/);
+  const last = result.segments.at(-1);
+  assert.match(last.text, /^# Bibliographie/);
+  assert.equal(last.path, null);
+  assert.equal(last.frontType, null);
+});
+
+test("compile portée project : Table des illustrations ET bibliographie -> bibliographie APRÈS Tables", async () => {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const front = new TFolder("Projet/Manuscrit/Front");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const research = new TFolder("Projet/_Recherche");
+  const biblio = new TFolder("Projet/_Recherche/Bibliographie");
+  const titlePage = new TFile("Projet/Manuscrit/Front/Page de titre.md", "---\ntitle: Mon livre\ntype: titre\n---\n:::titre: Mon livre\n");
+  const first = new TFile("Projet/Manuscrit/Chapitre 1/Scène 1.md", "---\ntitle: Départ\n---\nPremier texte.\n\n![Carte du royaume](carte.png)\n");
+  const ref = new TFile("Projet/_Recherche/Bibliographie/Réf 0.md", "---\ntitle: Titre 0\nauthor: Auteur 0\n---\n");
+  volume.children = [manuscript, research];
+  manuscript.parent = volume;
+  research.parent = volume;
+  manuscript.children = [front, chapter];
+  front.parent = manuscript;
+  chapter.parent = manuscript;
+  front.children = [titlePage];
+  chapter.children = [first];
+  titlePage.parent = front;
+  first.parent = chapter;
+  research.children = [biblio];
+  biblio.parent = research;
+  ref.parent = biblio;
+  biblio.children = [ref];
+
+  const { vault } = createFakeVault([volume, manuscript, front, chapter, research, biblio, titlePage, first, ref]);
+  vault.cachedRead = vault.read;
+  const frontmatter = new Map([
+    [titlePage.path, { title: "Mon livre", type: "titre", compile: true }],
+    [first.path, { title: "Départ", compile: true }],
+    [ref.path, { title: "Titre 0", author: "Auteur 0" }],
+  ]);
+  const app = { vault, metadataCache: { getFileCache: (file) => ({ frontmatter: frontmatter.get(file.path) || {} }) } };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: [front.name, chapter.name] },
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: {},
+  };
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "tables", true);
+  writeGeneratedIncluded(meta, "bibliography", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  const tablesIndex = result.segments.findIndex((s) => /^# Table des illustrations/.test(s.text));
+  const bibliographyIndex = result.segments.findIndex((s) => /^# Bibliographie/.test(s.text));
+  assert.ok(tablesIndex >= 0 && bibliographyIndex >= 0);
+  assert.ok(tablesIndex < bibliographyIndex, "la bibliographie vient après Tables");
+  assert.equal(bibliographyIndex, result.segments.length - 1, "la bibliographie est le tout dernier segment");
+});
+
+test("compile portée project : aucune référence bibliographique -> pas de page générée, même incluse", async () => {
+  const { app, settings, manuscript } = buildBibliographyFixture(0);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "bibliography", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Bibliographie/);
+});
+
+test("compile portée project : bibliographie non incluse (par défaut) -> jamais générée même avec des références", async () => {
+  const { app, settings } = buildBibliographyFixture(3);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Bibliographie/);
+});
+
+test("compile : parts et segments restent synchronisés après insertion de la bibliographie", async () => {
+  const { app, settings, manuscript } = buildBibliographyFixture(2);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "bibliography", true);
+
+  const result = await compile(app, settings, null, null, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.equal(result.manuscript, result.segments.map((s) => s.text).join("\n\n"));
+});
+
+test("compile portée file : jamais de bibliographie même incluse dans projectMeta", async () => {
+  const { app, settings, manuscript, first } = buildBibliographyFixture(2);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "bibliography", true);
+
+  const result = await compile(app, settings, first.path);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Bibliographie/);
+});
+
+test("compile portée folder : jamais de bibliographie même incluse dans projectMeta", async () => {
+  const { app, settings, manuscript } = buildBibliographyFixture(2);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "bibliography", true);
+
+  const result = await compile(app, settings, "Projet/Manuscrit/Chapitre 1");
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Bibliographie/);
+});
+
+test("compile portée selection : jamais de bibliographie même incluse dans projectMeta", async () => {
+  const { app, settings, manuscript, first, second } = buildBibliographyFixture(2);
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "bibliography", true);
+  const scope = { type: "selection", projectRoot: manuscript.path, paths: [first.path, second.path] };
+
+  const result = await compile(app, settings, null, scope);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Bibliographie/);
+});
+
+// ─── Annexes (Phase 9) ──────────────────────────────────────────────────────
+
+/** Volume/Manuscrit avec Front (page de titre), un Chapitre 1 (une scène,
+ * avec une illustration légendée pour les tests TDM/Tables) et un dossier
+ * `annexesFolderName` contenant `annexSpecs` fichiers. */
+function buildAnnexesFixture(annexSpecs = [{ title: "Annexe A" }], annexesFolderName = "Annexes") {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const front = new TFolder("Projet/Manuscrit/Front");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const annexes = new TFolder(`Projet/Manuscrit/${annexesFolderName}`);
+  const titlePage = new TFile("Projet/Manuscrit/Front/Page de titre.md", "---\ntitle: Mon livre\ntype: titre\n---\n:::titre: Mon livre\n");
+  const scene = new TFile(
+    "Projet/Manuscrit/Chapitre 1/Scène 1.md",
+    "---\ntitle: Départ\n---\nPremier texte.\n\n![Carte du royaume](carte.png)\n"
+  );
+  volume.children = [manuscript];
+  manuscript.parent = volume;
+  manuscript.children = [front, chapter, annexes];
+  front.parent = manuscript;
+  chapter.parent = manuscript;
+  annexes.parent = manuscript;
+  front.children = [titlePage];
+  chapter.children = [scene];
+  titlePage.parent = front;
+  scene.parent = chapter;
+
+  const annexFiles = annexSpecs.map((spec, i) => {
+    const file = new TFile(
+      `Projet/Manuscrit/${annexesFolderName}/${spec.title}.md`,
+      `---\ntitle: ${spec.title}\n---\nContenu de ${spec.title}.${spec.withIllustration ? `\n\n![${spec.illustrationCaption || spec.title + " (figure)"}](img${i}.png)\n` : ""}`
+    );
+    file.parent = annexes;
+    return file;
+  });
+  annexes.children = annexFiles;
+
+  const { vault } = createFakeVault([volume, manuscript, front, chapter, annexes, titlePage, scene, ...annexFiles]);
+  vault.cachedRead = vault.read;
+  const frontmatter = new Map([
+    [titlePage.path, { title: "Mon livre", type: "titre", compile: true }],
+    [scene.path, { title: "Départ", compile: true }],
+  ]);
+  annexFiles.forEach((file, i) => {
+    const spec = annexSpecs[i];
+    frontmatter.set(file.path, { title: spec.title, compile: spec.compile !== false });
+  });
+  const app = { vault, metadataCache: { getFileCache: (file) => ({ frontmatter: frontmatter.get(file.path) || {} }) } };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: [front.name, chapter.name, annexes.name] },
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: {},
+  };
+  return { app, settings, manuscript, scene, annexFiles };
+}
+
+test("compile portée project : reconnaît le dossier Annexes (FR)", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.match(result.manuscript, /# Annexes[\s\S]*Contenu de Annexe A/);
+});
+
+test("compile portée project : reconnaît le dossier Appendices (EN)", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture([{ title: "Annex A" }], "Appendices");
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.match(result.manuscript, /# Annexes[\s\S]*Contenu de Annex A/);
+});
+
+test("compile portée project : respecte l'ordre getOrderedChildren des annexes", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture(
+    [{ title: "Zèbre" }, { title: "Alpha" }],
+    "Annexes"
+  );
+  // Ordre explicite du Binder — pas alphabétique — pour prouver que c'est
+  // bien getOrderedChildren qui gouverne, pas un tri propre à ce code.
+  settings.orders["Projet/Manuscrit/Annexes"] = ["Zèbre.md", "Alpha.md"];
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  const iZebre = result.manuscript.indexOf("Zèbre");
+  const iAlpha = result.manuscript.indexOf("Alpha");
+  assert.ok(iZebre >= 0 && iAlpha >= 0 && iZebre < iAlpha);
+});
+
+test("compile portée project : respecte compile: false sur une annexe individuelle", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture(
+    [{ title: "Incluse" }, { title: "Exclue", compile: false }],
+    "Annexes"
+  );
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.match(result.manuscript, /Contenu de Incluse/);
+  assert.doesNotMatch(result.manuscript, /Contenu de Exclue/);
+});
+
+test("compile portée project : annexes non incluses (par défaut) -> absentes du corps ET non insérées, sans page vide", async () => {
+  const { app, settings } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Annexes/);
+  assert.doesNotMatch(result.manuscript, /Contenu de Annexe A/);
+});
+
+test("compile portée project : incluses mais toutes compile:false -> pas de # Annexes (page vide interdite)", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture(
+    [{ title: "Une", compile: false }, { title: "Deux", compile: false }],
+    "Annexes"
+  );
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Annexes/);
+});
+
+test("compile portée project : dossier Annexes vide, inclus -> pas de # Annexes", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture([], "Annexes");
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /# Annexes/);
+});
+
+test("compile portée project : annexes retirées du corps principal (jamais compilées inline)", async () => {
+  const { app, settings } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+  // Même NON incluses : jamais compilées comme un dossier ordinaire du corps.
+  const result = await compile(app, settings);
+  assert.ok(result);
+  assert.doesNotMatch(result.manuscript, /Annexe A/);
+});
+
+test("compile portée project : annexes insérées APRÈS Tables et Bibliographie", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "tables", true);
+  writeGeneratedIncluded(meta, "bibliography", true); // aucune fiche Recherche -> pas de bloc, juste tables
+  writeGeneratedIncluded(meta, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  const tablesIndex = result.segments.findIndex((s) => /^# Table des illustrations/.test(s.text));
+  const annexesIndex = result.segments.findIndex((s) => /^# Annexes/.test(s.text));
+  assert.ok(tablesIndex >= 0, "Table des illustrations générée (carte du royaume dans le corps)");
+  assert.ok(annexesIndex > tablesIndex, "les annexes viennent après Tables");
+  assert.equal(annexesIndex, result.segments.length - 2, "# Annexes suivi directement du fichier d'annexe, en toute fin");
+});
+
+test("compile portée project : Table des matières voit aussi les titres des annexes quand elles sont incluses", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "toc", true);
+  writeGeneratedIncluded(meta, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  const toc = result.segments.find((s) => /^# Table des matières/.test(s.text));
+  assert.ok(toc, "TDM générée");
+  assert.match(toc.text, /Annexe A/, "la TDM voit le titre de l'annexe");
+  // Le segment de la TDM lui-même ne contient l'annexe qu'UNE fois (comme
+  // source), le texte de l'annexe n'est jamais dupliqué dans la TDM.
+  assert.equal((toc.text.match(/Annexe A/g) || []).length, 2);
+});
+
+test("compile portée project : Table des matières NE voit PAS les annexes quand elles sont exclues", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "toc", true); // annexes non incluses (défaut)
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  const toc = result.segments.find((s) => /^# Table des matières/.test(s.text));
+  assert.ok(toc);
+  assert.doesNotMatch(toc.text, /Annexe A/);
+});
+
+test("compile portée project : Table des illustrations voit aussi les illustrations légendées des annexes incluses", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture(
+    [{ title: "Annexe A", withIllustration: true, illustrationCaption: "Plan de l'annexe" }],
+    "Annexes"
+  );
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "tables", true);
+  writeGeneratedIncluded(meta, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  const tables = result.segments.find((s) => /^# Table des illustrations/.test(s.text));
+  assert.ok(tables);
+  assert.match(tables.text, /Carte du royaume/, "illustration du corps principal");
+  assert.match(tables.text, /Plan de l'annexe/, "illustration de l'annexe incluse");
+});
+
+test("compile portée project : Sommaire reste centré sur le manuscrit principal, jamais les annexes", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+  const meta = settings.projectMeta[manuscript.path] = {};
+  writeGeneratedIncluded(meta, "summary", true);
+  writeGeneratedIncluded(meta, "annexes", true);
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  const summary = result.segments.find((s) => /^# Sommaire/.test(s.text));
+  assert.ok(summary);
+  assert.doesNotMatch(summary.text, /Annexe A/);
+});
+
+test("compile : parts et segments restent synchronisés après insertion des annexes", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture(
+    [{ title: "Annexe A" }, { title: "Annexe B" }],
+    "Annexes"
+  );
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+
+  const result = await compile(app, settings, null, null, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.equal(result.manuscript, result.segments.map((s) => s.text).join("\n\n"));
+});
+
+test("compile portée file : comportement inchangé — le dossier Annexes reste compilé normalement s'il est ciblé", async () => {
+  const { app, settings, manuscript, annexFiles } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+
+  const result = await compile(app, settings, annexFiles[0].path);
+
+  assert.ok(result);
+  // Compilé comme un fichier normal, PAS précédé de "# Annexes".
+  assert.doesNotMatch(result.manuscript, /# Annexes/);
+  assert.match(result.manuscript, /Contenu de Annexe A/);
+});
+
+test("compile portée folder ciblant Annexes : comportement inchangé — compilée comme un dossier ordinaire (pas via la logique Phase 9)", async () => {
+  const { app, settings, manuscript } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+
+  const result = await compile(app, settings, "Projet/Manuscrit/Annexes");
+
+  assert.ok(result);
+  // Compilée normalement, comme n'importe quel dossier ciblé : un seul
+  // segment de titre de dossier (le nom "Annexes" lui-même, coïncidence de
+  // nommage — pas le marqueur de section généré par la Phase 9, qui
+  // n'existe qu'en portée project) suivi du fichier.
+  assert.equal(result.segments.length, 2);
+  assert.equal(result.segments[1].path, "Projet/Manuscrit/Annexes/Annexe A.md");
+  assert.match(result.manuscript, /Contenu de Annexe A/);
+});
+
+test("compile portée selection : comportement inchangé pour les annexes sélectionnées", async () => {
+  const { app, settings, manuscript, annexFiles } = buildAnnexesFixture([{ title: "Annexe A" }], "Annexes");
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "annexes", true);
+  const scope = { type: "selection", projectRoot: manuscript.path, paths: [annexFiles[0].path] };
+
+  const result = await compile(app, settings, null, scope);
+
+  assert.ok(result);
+  assert.match(result.manuscript, /Contenu de Annexe A/);
 });
 
 // ─── Tests d'émission de titres de dossiers selon la portée ──────────────────

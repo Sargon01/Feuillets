@@ -83,6 +83,8 @@ const HEADING_MAP: Record<string, (typeof HeadingLevel)[keyof typeof HeadingLeve
   H2: HeadingLevel.HEADING_2,
   H3: HeadingLevel.HEADING_3,
   H4: HeadingLevel.HEADING_4,
+  H5: HeadingLevel.HEADING_5,
+  H6: HeadingLevel.HEADING_6,
 };
 
 /* Largeur maximale d'une image dans la page, en points docx. Au-delà, l'image
@@ -260,7 +262,7 @@ export function blockToParagraphs(
   if (!el || el.nodeType !== ELEMENT_NODE) return [];
   const tag = el.tagName;
 
-  if (["H1", "H2", "H3", "H4"].includes(tag)) {
+  if (["H1", "H2", "H3", "H4", "H5", "H6"].includes(tag)) {
     const levelKey = tag.toLowerCase();
     const h = (headings as Record<string, HeadingStyle | undefined>)[levelKey];
     const hasHeadingsConfig = Object.keys(headings).length > 0;

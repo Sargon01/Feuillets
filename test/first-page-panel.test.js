@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFolder } from "obsidian";
 import { FirstPagePanel, frontTitleCandidates, previewFirstPageFields } from "../src/ui/first-page-panel.js";
-import { LayoutModal } from "../src/ui/layout-modal.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 
 /* Même petit DOM factice que test/export-panel.test.js (convention du
@@ -186,7 +185,21 @@ test("previewFirstPageFields : cinq rôles, dans l'ordre d'affichage", () => {
 
 /* ------------------------------- FirstPagePanel --------------------------- */
 
-test("FirstPagePanel : sélectionne le Front inclus, coche l'inclusion, lit les rôles", async () => {
+/** Ouvre la sous-section « Première page » via son chevron (`addExtraButton`,
+ * aria-label = « Première page ») — même patron que
+ * test/edition-composition-view.test.js (« Première page se déplie/replie »)
+ * : repliée par défaut, les champs n'existent pas encore dans le DOM. Le
+ * clic déclenche un `render()` asynchrone (lecture du dossier de gabarits
+ * personnalisés puis du contenu du Front) : un macrotâche laisse le temps à
+ * toute la chaîne de microtâches de se dérouler avant que le corps ne soit
+ * interrogé, même patron que les autres await de ce fichier. */
+async function openFirstPage(container) {
+  container.querySelector('[aria-label="Première page"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+test("FirstPagePanel : repliée par défaut, seule la ligne Setting + chevron existe", async () => {
   const restore = installDom();
   try {
     const { app, plugin, addFrontPage } = buildFixture();
@@ -194,6 +207,25 @@ test("FirstPagePanel : sélectionne le Front inclus, coche l'inclusion, lit les 
     const container = new FakeElement("div");
     const panel = new FirstPagePanel(app, plugin, container);
     await panel.render();
+
+    const name = container.querySelector(".feuillets-project-row-label");
+    assert.equal(name.textContent, "Première page");
+    assert.equal(container.querySelectorAll(".setting-item").length, 0);
+    assert.equal(container.querySelector('[aria-label="Inclure la page de titre"]'), null, "repliée : les champs n'existent pas encore");
+  } finally {
+    restore();
+  }
+});
+
+test("FirstPagePanel : dépliée, sélectionne le Front inclus, coche l'inclusion, lit les rôles", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, addFrontPage } = buildFixture();
+    await addFrontPage("Page de titre", { title: "NEFES", author: "Halim" });
+    const container = new FakeElement("div");
+    const panel = new FirstPagePanel(app, plugin, container);
+    await panel.render();
+    await openFirstPage(container);
 
     const include = container.querySelector('[aria-label="Inclure la page de titre"]');
     assert.equal(include.checked, true);
@@ -212,6 +244,7 @@ test("FirstPagePanel : inclusion écrit compile dans le frontmatter du Front", a
     const container = new FakeElement("div");
     const panel = new FirstPagePanel(app, plugin, container);
     await panel.render();
+    await openFirstPage(container);
 
     const include = container.querySelector('[aria-label="Inclure la page de titre"]');
     include.checked = false;
@@ -234,6 +267,7 @@ test("FirstPagePanel : changer de Front exclut les autres sans les supprimer", a
     const container = new FakeElement("div");
     const panel = new FirstPagePanel(app, plugin, container);
     await panel.render();
+    await openFirstPage(container);
 
     const picker = container.querySelector('[aria-label="Fichier Front utilisé"]');
     assert.deepEqual(picker.children.map((o) => o.value), [main.path, variant.path]);
@@ -261,6 +295,7 @@ test("FirstPagePanel : écriture des rôles — titre synchronise manuscriptTitl
     const container = new FakeElement("div");
     const panel = new FirstPagePanel(app, plugin, container);
     await panel.render();
+    await openFirstPage(container);
 
     const titleInput = container.querySelector('[aria-label="Titre"]');
     titleInput.value = "NEFES";
@@ -291,6 +326,7 @@ test("FirstPagePanel : ouverture du Front dans l'éditeur et sélection dans le 
     const container = new FakeElement("div");
     const panel = new FirstPagePanel(app, plugin, container);
     await panel.render();
+    await openFirstPage(container);
 
     const open = container.querySelector('[aria-label="Ouvrir le fichier Front"]');
     assert.ok(open);
@@ -305,7 +341,7 @@ test("FirstPagePanel : ouverture du Front dans l'éditeur et sélection dans le 
   }
 });
 
-test("FirstPagePanel : « Régler visuellement » ouvre LayoutModal avec le gabarit actif, pas une copie", async () => {
+test("FirstPagePanel : n'offre plus d'accès à la mise en page visuelle", async () => {
   const restore = installDom();
   try {
     const { app, plugin, addFrontPage } = buildFixture();
@@ -314,34 +350,28 @@ test("FirstPagePanel : « Régler visuellement » ouvre LayoutModal avec le gaba
     const container = new FakeElement("div");
     const panel = new FirstPagePanel(app, plugin, container);
     await panel.render();
+    await openFirstPage(container);
 
-    const previousOpen = LayoutModal.prototype.open;
-    let layout = null;
-    LayoutModal.prototype.open = function openLayout() { layout = this; };
-    try {
-      container.querySelector('[aria-label="Régler visuellement la page de titre"]').click();
-    } finally {
-      LayoutModal.prototype.open = previousOpen;
-    }
-    assert.ok(layout, "le bouton ouvre bien le modal");
-    assert.equal(layout.templateKey, "moderne", "le modal règle le gabarit actif, pas une copie");
+    assert.equal(container.querySelector('[aria-label="Régler visuellement la page de titre"]'), null);
+    assert.equal(container.textContent.includes("Mise en page visuelle"), false);
   } finally {
     restore();
   }
 });
 
-test("FirstPagePanel : fonctionne sans aucun feuillet Front — reste utilisable", async () => {
+test("FirstPagePanel : fonctionne sans aucun feuillet Front — reste utilisable, une fois dépliée", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
     const container = new FakeElement("div");
     const panel = new FirstPagePanel(app, plugin, container);
     await panel.render();
+    await openFirstPage(container);
 
     assert.equal(panel.frontTitleCandidates().length, 0);
     assert.ok(container.querySelector('[aria-label="Inclure la page de titre"]'), "l'inclusion reste affichée");
     assert.equal(container.querySelector('[aria-label="Fichier Front utilisé"]'), null, "aucun fichier à choisir");
-    assert.ok(container.querySelector('[aria-label="Régler visuellement la page de titre"]'), "la mise en page visuelle reste accessible");
+    assert.equal(container.querySelector('[aria-label="Régler visuellement la page de titre"]'), null);
   } finally {
     restore();
   }
@@ -355,6 +385,7 @@ test("FirstPagePanel : fonctionne parfaitement SANS callback onPresentationChang
     const container = new FakeElement("div");
     const panel = new FirstPagePanel(app, plugin, container); // pas de callbacks
     await panel.render();
+    await openFirstPage(container);
 
     const titleInput = container.querySelector('[aria-label="Titre"]');
     titleInput.value = "Sans Preview";
@@ -378,6 +409,8 @@ test("FirstPagePanel : callback onPresentationChanged, fourni, est appelé aprè
     let calls = 0;
     const panel = new FirstPagePanel(app, plugin, container, { onPresentationChanged: () => { calls++; } });
     await panel.render();
+    await openFirstPage(container);
+    calls = 0; // ignorer un éventuel appel lié au dépliage lui-même
 
     const titleInput = container.querySelector('[aria-label="Titre"]');
     titleInput.value = "Avec Preview";

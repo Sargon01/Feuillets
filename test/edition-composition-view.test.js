@@ -1,11 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFolder } from "obsidian";
+import { Setting, TFolder } from "obsidian";
 import { EditionCompositionView } from "../src/views/edition-composition-view.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 
 /* Même petit DOM factice que test/edition-export-view.test.js (convention
- * du dépôt : dupliqué, pas partagé). */
+ * du dépôt : dupliqué, pas partagé), complété d'un tableau `.settings` par
+ * nœud — même patron que test/layout-modal.test.js (installSettingStub) —
+ * pour pouvoir inspecter les lignes `Setting` natives rendues par les
+ * panneaux de Composition. */
 class FakeElement {
   constructor(tagName, text = "") {
     this.tagName = tagName.toUpperCase();
@@ -15,6 +18,7 @@ class FakeElement {
     this.classes = new Set();
     this._attributes = new Map();
     this._eventListeners = new Map();
+    this.settings = [];
   }
   addEventListener(type, listener) {
     if (!this._eventListeners.has(type)) this._eventListeners.set(type, []);
@@ -39,7 +43,7 @@ class FakeElement {
   set open(value) { this._open = !!value; }
   addClass(name) { this.classes.add(name); }
   setText(value) { this.textContent = value; }
-  empty() { for (const child of [...this.children]) child.remove(); }
+  empty() { for (const child of [...this.children]) child.remove(); this.settings = []; }
   setAttribute(name, value) { this._attributes.set(name, String(value)); }
   setAttr(name, value) { this.setAttribute(name, value); }
   getAttribute(name) { return this._attributes.get(name) ?? null; }
@@ -87,6 +91,61 @@ function installDom() {
   };
 }
 
+/** Monkey-patch Setting.prototype pour la durée d'un test — même patron
+ * établi par test/layout-modal.test.js (installSettingStub) : chaque
+ * addXxx() pousse un descripteur riche dans `parent.settings[]` (où
+ * `parent` est le FakeElement passé à `new Setting(container)`) plutôt que
+ * de construire un vrai DOM. `setName` reste lisible sur l'instance
+ * `Setting` elle-même (native, non stubbée pour `setDesc`). */
+function installSettingStub() {
+  const methods = ["setName", "addButton", "addDropdown", "addExtraButton", "addToggle", "addText"];
+  const previous = Object.fromEntries(methods.map((name) => [name, Setting.prototype[name]]));
+  const add = (kind, parent, configure) => {
+    const control = {
+      kind,
+      options: [],
+      inputEl: new FakeElement("input"),
+      toggleEl: new FakeElement("div"),
+      buttonEl: new FakeElement("button"),
+      extraSettingsEl: new FakeElement("div"),
+      addOption(value, label) { this.options.push({ value, label }); return this; },
+      setValue(value) { this.value = value; return this; },
+      setButtonText(value) { this.text = value; return this; },
+      setCta() { this.cta = true; return this; },
+      setIcon(value) { this.icon = value; return this; },
+      setTooltip(value) { this.tooltip = value; return this; },
+      setPlaceholder(value) { this.placeholder = value; return this; },
+      onClick(callback) { this.click = callback; return this; },
+      onChange(callback) { this.change = callback; return this; },
+    };
+    parent.settings.push(control);
+    configure(control);
+    return control;
+  };
+  Setting.prototype.setName = function setName(name) { this.name = name; return this; };
+  Setting.prototype.addButton = function addButton(configure) { add("button", this.container, configure); return this; };
+  Setting.prototype.addDropdown = function addDropdown(configure) { add("dropdown", this.container, configure); return this; };
+  Setting.prototype.addExtraButton = function addExtraButton(configure) { add("extra", this.container, configure); return this; };
+  Setting.prototype.addToggle = function addToggle(configure) { add("toggle", this.container, configure); return this; };
+  Setting.prototype.addText = function addText(configure) { add("text", this.container, configure); return this; };
+  return () => Object.assign(Setting.prototype, previous);
+}
+
+function allElements(element) {
+  return [element, ...element.children.flatMap(allElements)];
+}
+
+function controls(element, kind) {
+  return allElements(element).flatMap((item) => item.settings).filter((control) => control.kind === kind);
+}
+
+/** Noms des lignes `Setting` (chaque Setting instancié pousse dans
+ * `container._settings`, comportement natif non stubbé de la classe
+ * Setting) — dans l'ordre exact de rendu. */
+function settingNames(element) {
+  return allElements(element).flatMap((item) => (Array.isArray(item._settings) ? item._settings : [])).map((s) => s.name);
+}
+
 /** Plugin minimal — juste assez pour que FirstPagePanel (Première page) se
  * rende à l'intérieur de Composition. */
 function buildPlugin() {
@@ -108,7 +167,14 @@ function buildPlugin() {
     workspace: { getLeaf: () => null },
   };
   const plugin = {
-    settings: { collapsed: {}, projectFolder: manuscript.path, exportTemplate: "classique" },
+    settings: {
+      collapsed: {},
+      projectFolder: manuscript.path,
+      exportTemplate: "classique",
+      orders: {},
+      folderPositions: {},
+      projectMeta: {},
+    },
     getProjectFolder: () => app.vault.getAbstractFileByPath(manuscript.path),
     saveSettings: async () => {},
   };
@@ -122,8 +188,8 @@ test("EditionCompositionView : titre et icône corrects", () => {
   assert.equal(view.getIcon(), "book-open");
 });
 
-test("EditionCompositionView : Composition reste la section principale, Première page y est réellement présente (Phase 3)", async () => {
-  const restore = installDom();
+test("EditionCompositionView : Composition reste la section principale ; toutes les sous-sections réellement implémentées y sont présentes, une seule ligne Setting native par entrée", async () => {
+  const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
     const contentEl = new FakeElement("div");
@@ -136,13 +202,49 @@ test("EditionCompositionView : Composition reste la section principale, Premièr
     const head = contentEl.querySelector(".feuillets-section-title-text");
     assert.equal(head.textContent, "Composition de l’ouvrage");
 
-    // Première page : le composant partagé (ui/first-page-panel.ts) est
-    // bien monté — même DOM que dans son propre test (feuillets-first-page).
-    const firstPage = contentEl.querySelector(".feuillets-first-page");
-    assert.ok(firstPage, "Première page est présente dans Composition de l'ouvrage");
-    const summary = contentEl.querySelector(".feuillets-first-page-summary");
-    assert.equal(summary.textContent, "Première page");
-    assert.ok(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), "le composant partagé est bien rendu, pas une coquille vide");
+    for (const label of ["Première page", "Pages liminaires", "Sommaire", "Table des matières", "Tables", "Bibliographie", "Annexes"]) {
+      assert.ok(contentEl.textContent.includes(label), `${label} est présent`);
+    }
+    assert.equal(contentEl.querySelectorAll(".setting-item").length, 0);
+
+    // Plus aucun <details>/<summary> nulle part dans Composition : le
+    // correctif remplace intégralement ce patron par des lignes Setting.
+    assert.equal(contentEl.querySelectorAll("details").length, 0);
+    assert.equal(contentEl.querySelectorAll("summary").length, 0);
+    assert.equal(contentEl.querySelectorAll(".feuillets-edition-composition-separator").length, 0);
+    assert.deepEqual(
+      contentEl.querySelectorAll(".feuillets-edition-group-label").map((node) => node.textContent),
+      ["Contenu", "Éléments générés", "Fin d’ouvrage"]
+    );
+    const ordered = ["Contenu", "Première page", "Pages liminaires", "Éléments générés", "Sommaire", "Table des matières", "Tables", "Fin d’ouvrage", "Bibliographie", "Annexes"];
+    let previousIndex = -1;
+    for (const label of ordered) {
+      const index = contentEl.textContent.indexOf(label);
+      assert.ok(index > previousIndex, `${label} apparaît après l'élément précédent`);
+      previousIndex = index;
+    }
+
+    // Première page / Pages liminaires : les composants partagés restent montés.
+    assert.ok(contentEl.querySelector('[aria-label="Première page"]'));
+    assert.ok(contentEl.querySelector('[aria-label="Pages liminaires"]'));
+
+    // Sommaire / Table des matières / Tables / Bibliographie / Annexes :
+    // chacune un seul toggle natif, wiré à la persistance réelle.
+    const checkboxes = contentEl.querySelectorAll("input");
+    assert.equal(checkboxes.length, 5, "une case par élément généré");
+
+    // Annexes porte en plus un bouton compact (Créer le dossier Annexes).
+    assert.ok(contentEl.querySelector('[aria-label="Créer le dossier Annexes"]'));
+
+    // Basculer le toggle Sommaire persiste réellement l'inclusion — même
+    // mécanisme qu'avant (setIncluded → writeGeneratedIncluded), juste
+    // exposé via l'API native `Setting.addToggle` désormais.
+    const summaryCheckbox = contentEl.querySelector('[aria-label="Inclure le sommaire"]');
+    summaryCheckbox.checked = true;
+    summaryCheckbox.dispatch("change");
+    await Promise.resolve();
+    const meta = plugin.settings.projectMeta[plugin.getProjectFolder().path];
+    assert.ok(meta, "le basculement écrit bien dans ProjectMeta");
 
     // L'ancienne phrase provisoire a disparu.
     assert.equal(contentEl.querySelector(".feuillets-edition-section-description"), null);
@@ -152,20 +254,42 @@ test("EditionCompositionView : Composition reste la section principale, Premièr
       "l'ancienne phrase provisoire ne doit plus apparaître"
     );
 
-    // Aucun futur élément de composition factice (Pages liminaires, Sommaire,
-    // Table des matières, Bibliographie, Annexes, Index) n'est ajouté avant
+    // Aucun futur élément de composition factice (Index) n'est ajouté avant
     // sa propre phase.
-    const text = contentEl.textContent;
-    for (const notYet of ["Pages liminaires", "Sommaire", "Table des matières", "Bibliographie", "Annexes", "Index"]) {
-      assert.equal(text.includes(notYet), false, `« ${notYet} » ne doit pas apparaître avant sa propre phase`);
-    }
+    assert.equal(contentEl.textContent.includes("Index"), false, "« Index » ne doit pas apparaître avant sa propre phase");
   } finally {
-    restore();
+    restoreDom();
   }
 });
 
-test("EditionCompositionView : repliée, elle ne montre que l'en-tête (Première page n'est pas rendue)", async () => {
-  const restore = installDom();
+test("EditionCompositionView : Première page se déplie/replie via son chevron, sans perdre le contenu existant", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionView({ app, contentEl }, plugin);
+    await view.onOpen();
+
+    assert.equal(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), null, "repliée par défaut");
+
+    contentEl.querySelector('[aria-label="Première page"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.ok(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), "le composant partagé est bien rendu, pas une coquille vide");
+
+    contentEl.querySelector('[aria-label="Première page"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), null, "repliée à nouveau");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("EditionCompositionView : repliée, elle ne montre que l'en-tête (aucune sous-section n'est rendue)", async () => {
+  const restoreDom = installDom();
+  const restoreSetting = installSettingStub();
   try {
     const { app, plugin } = buildPlugin();
     plugin.settings.collapsed["editionComposition:panel"] = true;
@@ -175,14 +299,18 @@ test("EditionCompositionView : repliée, elle ne montre que l'en-tête (Premièr
     await view.onOpen();
 
     assert.equal(contentEl.querySelector(".feuillets-first-page"), null);
+    assert.equal(contentEl.querySelector('[aria-label="Pages liminaires"]'), null);
+    assert.equal(settingNames(contentEl).length, 0);
     assert.ok(contentEl.querySelector(".feuillets-section-title-text"), "l'en-tête reste visible");
   } finally {
-    restore();
+    restoreSetting();
+    restoreDom();
   }
 });
 
 test("EditionCompositionView : aucune dépendance à PreviewView", async () => {
-  const restore = installDom();
+  const restoreDom = installDom();
+  const restoreSetting = installSettingStub();
   try {
     const { app, plugin } = buildPlugin();
     const view = new EditionCompositionView({ app, contentEl: new FakeElement("div") }, plugin);
@@ -191,6 +319,7 @@ test("EditionCompositionView : aucune dépendance à PreviewView", async () => {
     assert.equal("effectiveExportScope" in view, false);
     await view.onOpen();
   } finally {
-    restore();
+    restoreSetting();
+    restoreDom();
   }
 });

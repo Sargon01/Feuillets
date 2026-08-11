@@ -779,12 +779,53 @@ export const en = {
   "editionComposition.displayText": "Book composition",
   "editionComposition.description": "Title page, front matter, table of contents, lists, bibliography, appendices and index.",
 
-  // ---------- Layout (edition-layout-view.js) — subsection of the Edition space (Phase 2, structural) ----------
-  "editionLayout.displayText": "Layout",
+  // ---------- Front matter (front-matter-panel.js) — subsection of Book composition (Phase 5) ----------
+  "frontMatter.sectionTitle": "Front matter",
+  "frontMatter.empty": "No front matter page.",
+  "frontMatter.includePage": "Include {title}",
+  "frontMatter.openFile": "Open {title}",
+
+  // ---------- Summary / Table of contents (contents-panel.js) — subsections of Book composition (Phase 6) ----------
+  "contents.summary.sectionTitle": "Summary",
+  "contents.summary.include": "Include the summary",
+  "contents.toc.sectionTitle": "Table of contents",
+  "contents.toc.include": "Include the table of contents",
+  "contents.generatedNote": "Automatically generated from the manuscript's structure.",
+
+  // ---------- Tables (tables-panel.js) — subsection of Book composition (Phase 7) ----------
+  "tables.sectionTitle": "Tables",
+  "tables.include": "Include tables",
+  "tables.illustrationsLabel": "List of illustrations",
+  "tables.generatedNote": "Automatically generated from the manuscript's captioned illustrations.",
+
+  // ---------- Bibliography (bibliography-panel.js) — subsection of Book composition (Phase 8) ----------
+  "bibliography.sectionTitle": "Bibliography",
+  "bibliography.include": "Include bibliography",
+  "bibliography.referenceCount": "{count} reference(s)",
+  "bibliography.generatedNote": "Automatically generated from Research → Bibliography.",
+
+  // ---------- Annexes (annexes-panel.js) — subsection of Book composition (Phase 9) ----------
+  "annexes.sectionTitle": "Annexes",
+  "annexes.include": "Include annexes",
+  "annexes.count": "{count} annex(es)",
+  "annexes.empty": "No annex",
+  "annexes.openFolder": "Open folder",
+  "annexes.createFolder": "Create the Annexes folder",
+  "annexes.folderCreated": "Annexes folder created.",
+
+  // ---------- Layout (edition-layout-view.js) — subsection of the Edition space (Phase 11) ----------
+  "editionLayout.displayText": "Layout & export",
   "editionLayout.description": "Template, typography, margins, headers and footers.",
+  "editionLayout.activeTemplate": "Template",
+  "editionLayout.editVisually": "Edit visually",
+  "editionLayout.duplicate": "Duplicate",
+  "editionLayout.importUlysses": "Import Ulysses",
+  "editionLayout.duplicated": "Template duplicated: {label}",
+  "editionLayout.imported": "Ulysses style imported: {label}",
+  "editionLayout.importInvalidFile": "Choose a .ulstyle or .ulss file.",
+  "editionLayout.importError": "Ulysses import failed: {message}",
 
   // ---------- Export (edition-export-view.js) — subsection of the Edition space (Phase 1) ----------
-  "editionExport.displayText": "Export",
 
   // ---------- Editorial documents (edition-docs-view.js) — subsection of the Edition space ----------
   "editionDocs.displayText": "Editorial documents",
@@ -1494,8 +1535,8 @@ export const en = {
   "modal.newFolder.placeholder": "e.g. Part III",
   "modal.captureIdea.placeholder": "Idea…",
 
-  "modal.compileSelection.title": "Sheets to compile",
-  "modal.compileSelection.desc": "Uncheck a sheet with compile: false written in its frontmatter — it stays visible and numbered, but is skipped on export.",
+  "modal.compileSelection.title": "Manuscript content",
+  "modal.compileSelection.desc": "Choose the texts that make up the body of the work. Their order remains that of the binder.",
 
   "modal.stats.characters": "Characters",
   "modal.stats.withoutSpaces": "Without spaces",

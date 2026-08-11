@@ -13,12 +13,14 @@ import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
 
 /** Dossier où le plugin cherche les modèles d'export personnalisés —
  * voisin de Resources/Templates et Resources/Export, jamais dans le
- * dossier projet lui-même.
+ * dossier projet lui-même. Exportée : réutilisée telle quelle par
+ * services/ulysses-style-import.ts (Phase 11), plutôt que de dupliquer la
+ * résolution du dossier Layouts.
  * @param {App} app
  * @param {FeuilletsSettings} settings
  * @returns {string|null} `null` si aucun dossier projet n'est défini.
  */
-function customTemplatesFolderPath(app: App, settings: FeuilletsSettings): string | null {
+export function customTemplatesFolderPath(app: App, settings: FeuilletsSettings): string | null {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const resPath = resourcesFolderPath(app, root);
@@ -189,6 +191,84 @@ export async function ensureTemplateFile(app: App, settings: FeuilletsSettings, 
     file = await app.vault.create(filePath, content);
   }
   return file instanceof TFile ? file : null;
+}
+
+/** Clé de fichier jamais déjà prise dans Layouts, à partir d'une clé de
+ * base : "<base>", puis "<base>-2", "<base>-3"… jusqu'à en trouver une
+ * libre. Ne crée rien elle-même — seulement calcule un nom sûr, pour ne
+ * JAMAIS écraser un fichier existant (Dupliquer comme Importer Ulysses,
+ * Phase 11).
+ * @param {App} app
+ * @param {string} folderPath
+ * @param {string} baseKey
+ * @returns {Promise<string>}
+ */
+async function uniqueTemplateKey(app: App, folderPath: string, baseKey: string): Promise<string> {
+  let key = baseKey;
+  let n = 2;
+  while (app.vault.getAbstractFileByPath(normalizePath(`${folderPath}/${key}.md`))) {
+    key = `${baseKey}-${n}`;
+    n++;
+  }
+  return key;
+}
+
+/** Écrit un nouveau modèle personnalisé dans Layouts et le rend
+ * IMMÉDIATEMENT actif (`settings.exportTemplate`) — le même format
+ * Markdown/frontmatter que les modèles existants (voir
+ * exportBuiltInTemplates), jamais un second système. N'appelle jamais
+ * `saveSettings()` elle-même : `settings` est mutée en mémoire, à
+ * l'appelant (UI) de persister — même convention que le reste du plugin
+ * (services écrivent l'état, les vues déclenchent la sauvegarde).
+ * Partagée par `duplicateExportTemplate` et
+ * services/ulysses-style-import.ts (Phase 11) : un seul chemin d'écriture
+ * de modèle personnalisé.
+ * @param {App} app
+ * @param {FeuilletsSettings} settings
+ * @param {string} baseKey clé de départ — rendue unique ici si besoin.
+ * @param {string} label
+ * @param {Record<string, unknown>} fields champs ExportTemplate (sans key/label/custom).
+ * @returns {Promise<{key:string,label:string}|null>} `null` si aucun dossier projet.
+ */
+export async function createCustomTemplateFromFields(
+  app: App,
+  settings: FeuilletsSettings,
+  baseKey: string,
+  label: string,
+  fields: Record<string, unknown>
+): Promise<{ key: string; label: string } | null> {
+  const path = customTemplatesFolderPath(app, settings);
+  if (!path) {
+    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    return null;
+  }
+  await ensureFolder(app, path);
+  const key = await uniqueTemplateKey(app, path, baseKey);
+  const filePath = normalizePath(`${path}/${key}.md`);
+  const content = `---\n${stringifyYaml({ ...fields, label }).trim()}\n---\n`;
+  await app.vault.create(filePath, content);
+  (settings as { exportTemplate: string }).exportTemplate = key;
+  return { key, label };
+}
+
+/** Duplique le gabarit ACTIF (`settings.exportTemplate`) en un nouveau
+ * modèle personnalisé, dans le même dossier Layouts que les autres —
+ * jamais un second système de gabarits. Clé unique
+ * ("<clé>-copie", "<clé>-copie-2"…), libellé « <nom> — copie », ne
+ * remplace jamais un fichier existant, rend la copie immédiatement active.
+ * @param {App} app
+ * @param {FeuilletsSettings} settings
+ * @returns {Promise<{key:string,label:string}|null>} `null` si aucun dossier projet.
+ */
+export async function duplicateExportTemplate(
+  app: App,
+  settings: FeuilletsSettings
+): Promise<{ key: string; label: string } | null> {
+  const sourceKey = (settings as { exportTemplate?: string }).exportTemplate || "classique";
+  const source = await resolveExportTemplate(app, settings, sourceKey);
+  const label = `${source.label} — copie`;
+  const { key: _key, label: _label, custom: _custom, ...fields } = source;
+  return createCustomTemplateFromFields(app, settings, `${sourceKey}-copie`, label, fields);
 }
 
 /** Écrit `titlePage.styles` (objet {rôle: {fontSizePt, bold, italic, align,

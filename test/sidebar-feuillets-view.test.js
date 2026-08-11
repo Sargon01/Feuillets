@@ -149,24 +149,24 @@ test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné
   }
 });
 
-test("SidebarFeuilletsView rend les cinq sections de l'espace Édition dans l'ordre, dans un seul conteneur feuillets-edition-workspace", async () => {
+test("SidebarFeuilletsView rend les quatre sections de l'espace Édition dans l'ordre, dans un seul conteneur feuillets-edition-workspace", async () => {
   const { sidebar, calls } = createSidebar("project");
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
 
   // Ordre Phase 2 : Documents éditoriaux → Composition de l'ouvrage → Mise
-  // en page → Exporter → Révision DOCX.
+  // en page & export → Révision DOCX.
   assert.deepEqual(
     calls.map((call) => call.name),
-    ["editionDocs", "editionComposition", "editionLayout", "editionExport", "docx"]
+    ["editionDocs", "editionComposition", "editionLayout", "docx"]
   );
   assert.equal(container.children.length, 1, "un seul conteneur .feuillets-edition-workspace");
   const workspace = container.children[0];
   assert.ok(workspace.classes.has("feuillets-edition-workspace"));
-  assert.equal(workspace.children.length, 5, "les cinq sous-vues, sans wrapper feuillets-merged-section");
+  assert.equal(workspace.children.length, 4, "les quatre sous-vues, sans wrapper feuillets-merged-section");
 });
 
-test("SidebarFeuilletsView : correctif alignement — les cinq sections partagent le même conteneur .feuillets-edition-section-container", async () => {
+test("SidebarFeuilletsView : correctif alignement — les quatre sections partagent le même conteneur .feuillets-edition-section-container", async () => {
   const { sidebar } = createSidebar("project");
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
@@ -225,7 +225,7 @@ test("SidebarFeuilletsView rend les cinq sous-vues de l'espace Édition, une seu
   await sidebar.renderAllSubViews(true);
   assert.deepEqual(
     calls.map((call) => call.name),
-    ["docx", "editionDocs", "editionComposition", "editionLayout", "editionExport"]
+    ["docx", "editionDocs", "editionComposition", "editionLayout"]
   );
 
   calls.length = 0;
@@ -241,6 +241,6 @@ test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide san
   assert.equal(settings.activeRightPanelTab, "invalide");
   assert.deepEqual(
     calls.map((call) => call.name),
-    ["editionDocs", "editionComposition", "editionLayout", "editionExport", "docx"]
+    ["editionDocs", "editionComposition", "editionLayout", "docx"]
   );
 });

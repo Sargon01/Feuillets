@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { EditionLayoutView } from "../src/views/edition-layout-view.js";
 
 /* Même petit DOM factice que test/edition-composition-view.test.js
- * (convention du dépôt : dupliqué, pas partagé). */
+ * (convention du dépôt : dupliqué, pas partagé), complété de ce
+ * qu'EditionLayoutView utilise en plus (select/option, input file, click). */
 class FakeElement {
   constructor(tagName, text = "") {
     this.tagName = tagName.toUpperCase();
@@ -13,6 +14,7 @@ class FakeElement {
     this.classes = new Set();
     this._attributes = new Map();
     this._eventListeners = new Map();
+    this.value = "";
   }
   addEventListener(type, listener) {
     if (!this._eventListeners.has(type)) this._eventListeners.set(type, []);
@@ -41,6 +43,9 @@ class FakeElement {
   createEl(tag, options = {}) {
     const child = new FakeElement(tag, options.text || "");
     if (options.cls) child.className = options.cls;
+    if (options.value !== undefined) child.value = options.value;
+    if (options.type !== undefined) child.type = options.type;
+    if (options.attr) for (const [k, v] of Object.entries(options.attr)) child.setAttribute(k, v);
     return this.appendChild(child);
   }
   createDiv(options = {}) { return this.createEl("div", options); }
@@ -62,6 +67,8 @@ class FakeElement {
 }
 
 function matches(node, selector) {
+  const attr = selector.match(/^\[([^=\]]+)="?([^"\]]*)"?\]$/);
+  if (attr) return node.getAttribute(attr[1]) === attr[2];
   if (selector.startsWith(".")) return node.classes.has(selector.slice(1));
   return node.tagName === selector.toUpperCase();
 }
@@ -78,23 +85,23 @@ function installDom() {
   };
 }
 
+/** Plugin minimal — pas de dossier projet configuré : listExportTemplates()
+ * retombe alors sur les seuls modèles intégrés (aucun vault nécessaire). */
 function buildPlugin() {
   return {
-    settings: { collapsed: {} },
-    saveSettings: async () => {
-      throw new Error("EditionLayoutView ne doit écrire aucun réglage en Phase 2");
-    },
+    settings: { collapsed: {}, exportTemplate: "classique" },
+    saveSettings: async () => {},
   };
 }
 
 test("EditionLayoutView : titre et icône corrects", () => {
   const plugin = buildPlugin();
   const view = new EditionLayoutView({ app: {}, contentEl: new FakeElement("div") }, plugin);
-  assert.equal(view.getDisplayText(), "Mise en page");
+  assert.equal(view.getDisplayText(), "Mise en page & export");
   assert.equal(view.getIcon(), "panel-top");
 });
 
-test("EditionLayoutView : section repliable via renderSectionHead, description visible quand ouverte", async () => {
+test("EditionLayoutView : sélecteur Gabarit peuplé par listExportTemplates, valeur = settings.exportTemplate", async () => {
   const restore = installDom();
   try {
     const plugin = buildPlugin();
@@ -106,16 +113,56 @@ test("EditionLayoutView : section repliable via renderSectionHead, description v
     const section = contentEl.querySelector(".feuillets-project-section");
     assert.ok(section, "utilise le langage visuel feuillets-project-section");
     const head = contentEl.querySelector(".feuillets-section-title-text");
-    assert.equal(head.textContent, "Mise en page");
+    assert.equal(head.textContent, "Mise en page & export");
 
-    const description = contentEl.querySelector(".feuillets-edition-section-description");
-    assert.ok(description, "la ligne descriptive est affichée");
-    assert.equal(description.textContent, "Gabarit, typographie, marges, en-têtes et pieds de page.");
+    const select = contentEl.querySelector('[aria-label="Gabarit"]');
+    assert.ok(select, "le sélecteur Gabarit est présent");
+    assert.equal(select.value, "classique");
+    const options = select.children.map((o) => o.value);
+    assert.ok(options.includes("classique"));
+    assert.ok(options.includes("moderne"));
+    assert.ok(options.length >= 7, "tous les modèles intégrés sont listés");
+  } finally {
+    restore();
+  }
+});
 
-    // Ni sélecteur de gabarit, ni LayoutModal, ni réglage — Phase 11 seulement.
-    assert.equal(contentEl.querySelectorAll("button").length, 0);
-    assert.equal(contentEl.querySelectorAll("select").length, 0);
-    assert.equal(contentEl.querySelectorAll("input").length, 0);
+test("EditionLayoutView : changer le sélecteur écrit directement settings.exportTemplate et sauvegarde", async () => {
+  const restore = installDom();
+  try {
+    const plugin = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionLayoutView({ app: {}, contentEl }, plugin);
+    await view.onOpen();
+
+    let saved = false;
+    plugin.saveSettings = async () => { saved = true; };
+
+    const select = contentEl.querySelector('[aria-label="Gabarit"]');
+    select.value = "moderne";
+    select.dispatch("change");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(plugin.settings.exportTemplate, "moderne");
+    assert.equal(saved, true);
+  } finally {
+    restore();
+  }
+});
+
+test("EditionLayoutView : Modifier visuellement et le menu d'options sont présents", async () => {
+  const restore = installDom();
+  try {
+    const plugin = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionLayoutView({ app: {}, contentEl }, plugin);
+    await view.onOpen();
+
+    assert.ok(contentEl.querySelector('[aria-label="Modifier visuellement"]'));
+    assert.ok(contentEl.querySelector('[aria-label="Options du gabarit"]'));
+    assert.equal(contentEl.querySelectorAll(".feuillets-edition-action-row").length, 1);
+    assert.equal(contentEl.querySelectorAll(".setting-item").length, 0);
   } finally {
     restore();
   }
@@ -131,14 +178,14 @@ test("EditionLayoutView : repliée, elle ne montre que l'en-tête", async () => 
 
     await view.onOpen();
 
-    assert.equal(contentEl.querySelector(".feuillets-edition-section-description"), null);
+    assert.equal(contentEl.querySelector('[aria-label="Gabarit"]'), null);
     assert.ok(contentEl.querySelector(".feuillets-section-title-text"), "l'en-tête reste visible");
   } finally {
     restore();
   }
 });
 
-test("EditionLayoutView : aucune dépendance à PreviewView ni écriture Vault", async () => {
+test("EditionLayoutView : aucune dépendance à PreviewView", async () => {
   const restore = installDom();
   try {
     const plugin = buildPlugin();

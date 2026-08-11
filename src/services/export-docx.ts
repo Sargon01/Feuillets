@@ -14,6 +14,8 @@ import {
   bookmarkUniqueNumericIdGen,
   SectionType,
   SimpleField,
+  PageBreak,
+  TableOfContents,
   VerticalAlignSection,
 } from "docx";
 import type { App } from "obsidian";
@@ -22,7 +24,7 @@ import { renderManuscriptHtml } from "./export-render.js";
 
 import { normalizeHeadings } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
-import { markedMarkdownFor, bookmarkMarkerInfoOf } from "../utils/docx-bookmarks.js";
+import { markedMarkdownFor, bookmarkMarkerInfoOf, bookmarkIdFor } from "../utils/docx-bookmarks.js";
 import {
   FRONT_PAGE_LINE_SPACING,
   alignmentFor,
@@ -32,11 +34,21 @@ import {
   frontRoleStyle,
 } from "./export-docx-style.js";
 import { blockToParagraphs } from "./docx-blocks.js";
+import { generatedContentsDescriptor, type GeneratedContentsKind } from "./generated-contents.js";
 
 type ExportSegment = {
+  path?: string | null;
   text: string;
   frontType?: string;
+  generatedType?: GeneratedContentsKind;
+  sourceTitle?: string | null;
+  sourceSubtitle?: string | null;
+  startsWithGeneratedTitle?: boolean;
+  structuralType?: "part";
 };
+
+const headingLevelForTag: Record<string, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = { H1: HeadingLevel.HEADING_1, H2: HeadingLevel.HEADING_2, H3: HeadingLevel.HEADING_3, H4: HeadingLevel.HEADING_4, H5: HeadingLevel.HEADING_5, H6: HeadingLevel.HEADING_6 };
+const normalized = (value: string) => value.trim().replace(/\s+/g, " ");
 
 type ExportInput = {
   markdown: string;
@@ -102,7 +114,12 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
      garde ouverts pendant la migration progressive pour les autres services. */
   const docxSettings = settings as ExportDocxSettings;
   const tpl = await resolveExportTemplate(app, settings, docxSettings.exportTemplate);
-  const renderMarkdown = segments && segments.length ? markedMarkdownFor(segments) : markdown;
+  // « Classique (manuscrit) » est le gabarit natif Manuscrit ; les choix
+  // éditoriaux dédiés ne doivent jamais déborder vers les autres gabarits.
+  const isManuscriptTemplate = docxSettings.exportTemplate === "classique";
+  const allSegments = segments ?? [];
+  const renderSegments = allSegments.filter((segment) => segment.generatedType !== "summary" && segment.generatedType !== "toc");
+  const renderMarkdown = segments && segments.length ? markedMarkdownFor(renderSegments) : markdown;
   const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath);
 
   const footnoteIdByHref = new Map<string, number>();
@@ -120,15 +137,16 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
      l'autrice a déjà composé sa propre page Front de type "titre" — sans
      quoi le document ouvrirait sur DEUX pages de titre à la suite. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));
-  const bodyParagraphs = hasAuthoredTitlePage
+  const genericTitleParagraphs = hasAuthoredTitlePage
     ? []
     : [new Paragraph({ heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, children: [new TextRun(title)] })];
   if (!hasAuthoredTitlePage && author) {
-    bodyParagraphs.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun(author)] }));
+    genericTitleParagraphs.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun(author)] }));
   }
   if (!hasAuthoredTitlePage) {
-    bodyParagraphs.push(new Paragraph({ pageBreakBefore: true, children: [] }));
+    genericTitleParagraphs.push(new Paragraph({ pageBreakBefore: true, children: [] }));
   }
+  const bodyParagraphs: Paragraph[] = [];
 
   /* Chaque page Front (titre/dédicace/épigraphe) devient sa PROPRE section
      Word, centrée verticalement sur la page (voir frontSections plus bas) —
@@ -163,6 +181,12 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   };
 
   const nextBookmarkLinkId = bookmarkUniqueNumericIdGen();
+  const sourceSegmentByBookmark = new Map(allSegments.filter((segment) => segment.path).map((segment) => [bookmarkIdFor(segment.path), segment]));
+  let currentSourceSegment: ExportSegment | null = null;
+  let currentStructuralPart = false;
+  let markerSegmentIndex = -1;
+  let structuralHeadingHandled = false;
+  let subtitleHeadingSkipped = false;
   let openBookmarkLinkId: number | null = null;
   let currentFrontType: string | null = null;
   /* Sur une page de titre spécifiquement, l'autrice compose son titre en
@@ -200,6 +224,11 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
       flushFrontBuffer();
       currentFrontIsRoleTitle = false;
       currentFrontType = markerInfo.frontType;
+      const markerSegment = renderSegments[++markerSegmentIndex] || null;
+      currentStructuralPart = markerSegment?.structuralType === "part";
+      currentSourceSegment = markerInfo.id ? sourceSegmentByBookmark.get(markerInfo.id) || null : null;
+      structuralHeadingHandled = false;
+      subtitleHeadingSkipped = false;
       if (currentFrontType) currentFrontBuffer = [];
       if (markerInfo.id != null) {
         const linkId = nextBookmarkLinkId();
@@ -225,11 +254,46 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
       if (currentFrontType === "titre") currentFrontIsRoleTitle = true;
       continue;
     }
+    const tag = (child as HTMLElement).tagName;
+    if (currentStructuralPart && isManuscriptTemplate && ["H1", "H2", "H3", "H4", "H5", "H6"].includes(tag)) {
+      (currentFrontBuffer || bodyParagraphs).push(new Paragraph({
+        heading: headingLevelForTag[tag],
+        pageBreakBefore: true,
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({ text: (child.textContent || "").toLocaleUpperCase("fr"), bold: true, size: 32, font: (tpl.headingFontFamily || tpl.fontFamily).split(",")[0].replace(/['"]/g, "").trim() }),
+          new PageBreak(),
+        ],
+      }));
+      currentStructuralPart = false;
+      continue;
+    }
+    if (["H1", "H2", "H3", "H4", "H5", "H6"].includes(tag) && currentSourceSegment && !currentFrontType) {
+      const sourceTitle = currentSourceSegment.sourceTitle ? normalized(currentSourceSegment.sourceTitle) : "";
+      const sourceSubtitle = currentSourceSegment.sourceSubtitle ? normalized(currentSourceSegment.sourceSubtitle) : "";
+      if (!structuralHeadingHandled && (sourceTitle || sourceSubtitle)) {
+        structuralHeadingHandled = true;
+        const content = sourceTitle || sourceSubtitle;
+        const runs = [new TextRun(content)];
+        if (sourceTitle && sourceSubtitle) runs.push(new TextRun({ break: 1 }), new TextRun(sourceSubtitle));
+        (currentFrontBuffer || bodyParagraphs).push(new Paragraph({ heading: headingLevelForTag[tag], pageBreakBefore: !!currentSourceSegment.startsWithGeneratedTitle, children: runs }));
+        continue;
+      }
+      if (structuralHeadingHandled && sourceSubtitle && !subtitleHeadingSkipped && normalized(child.textContent || "") === sourceSubtitle) {
+        subtitleHeadingSkipped = true;
+        continue;
+      }
+    }
     let frontOverride: FrontOverride | null = null;
     if (currentFrontType) {
       if (currentRole != null) {
         frontOverride = { role: currentRole, style: frontRoleStyle(tpl, currentRole) };
         currentRole = null;
+      } else if (isManuscriptTemplate && (currentFrontType === "dedicace" || currentFrontType === "epigraphe")) {
+        // Pages Front éditoriales du seul gabarit Manuscrit : la section
+        // existante les centre déjà verticalement ; seul l'alignement du
+        // bloc est ici spécialisé, sans créer de paragraphes artificiels.
+        frontOverride = { style: { align: "right" } };
       } else {
         let isTitleLine = false;
         if (currentFrontType === "titre" && !titleLineEmitted) {
@@ -357,7 +421,29 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
         },
         headers: docHeaders,
         footers: docFooters,
-        children: bodyParagraphs,
+        children: [
+          ...genericTitleParagraphs,
+          ...allSegments.filter((segment) => segment.generatedType === "summary").flatMap((segment) => {
+            const descriptor = generatedContentsDescriptor(segment.generatedType as GeneratedContentsKind);
+            return [
+              new Paragraph({
+                children: [new TextRun({ text: descriptor.title, bold: true, size: "20pt", font: headingFontFamily })],
+              }),
+              new TableOfContents("", { hyperlink: true, headingStyleRange: "1-2" }),
+            ];
+          }),
+          ...(allSegments.some((segment) => segment.generatedType === "summary") && bodyParagraphs.length
+            ? [new Paragraph({ pageBreakBefore: true, children: [] })]
+            : []),
+          ...bodyParagraphs,
+          ...allSegments.filter((segment) => segment.generatedType === "toc").flatMap((segment) => {
+            const descriptor = generatedContentsDescriptor(segment.generatedType as GeneratedContentsKind);
+            return [
+              new Paragraph({ pageBreakBefore: true, children: [new TextRun({ text: descriptor.title, bold: true, size: "20pt", font: headingFontFamily })] }),
+              new TableOfContents("", { hyperlink: true, headingStyleRange: "1-6" }),
+            ];
+          }),
+        ],
       },
     ],
   });

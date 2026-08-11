@@ -25,6 +25,43 @@ import { exportDocx } from "./export-docx.js";
 import { exportPdf } from "./export-pdf.js";
 import { exportOdt } from "./export-odt.js";
 import { type CompileScope, resolveCompileScopeFiles, createProjectScope } from "./compile-scope.js";
+import { SUMMARY, TOC, TABLES, BIBLIOGRAPHY, ANNEXES, readGeneratedIncluded } from "./book-composition.js";
+import { generateSummary, generateTableOfContents } from "./contents-generator.js";
+import type { GeneratedContentsKind } from "./generated-contents.js";
+import { generateTableOfIllustrations } from "./tables-generator.js";
+import { bibliographyEntries, generateBibliography } from "./bibliography-generator.js";
+
+/** Les deux noms reconnus pour le dossier Annexes, à la RACINE du dossier
+ * Manuscrit — même convention de double reconnaissance (FR/EN) que
+ * Bibliographie/Bibliography (services/bibliography-generator.ts). */
+const ANNEXES_FOLDER_NAMES = ["Annexes", "Appendices"];
+
+/** Dossier Annexes/Appendices du projet, s'il existe — utilisé aussi bien
+ * par la compilation (ci-dessous) que par ui/annexes-panel.ts (décompte,
+ * bouton « Ouvrir le dossier »). */
+export function annexesFolder(app: App, projectRoot: TFolder | null): TFolder | null {
+  if (!projectRoot) return null;
+  for (const name of ANNEXES_FOLDER_NAMES) {
+    const f = app.vault.getAbstractFileByPath(normalizePath(`${projectRoot.path}/${name}`));
+    if (f instanceof TFolder) return f;
+  }
+  return null;
+}
+
+/** Feuillets Markdown directement dans Annexes/Appendices, DANS L'ORDRE DU
+ * PROJET (getOrderedChildren — même service que le Binder et la
+ * compilation, aucun second système d'ordre) — sans égard à leur
+ * frontmatter `compile`, qui reste une décision de la compilation elle-
+ * même (voir plus bas), pas de ce décompte. */
+export function annexesFiles(app: App, settings: FeuilletsSettings, projectRoot: TFolder | null): TFile[] {
+  const folder = annexesFolder(app, projectRoot);
+  if (!folder) return [];
+  const out: TFile[] = [];
+  for (const child of getOrderedChildren(app, settings, folder)) {
+    if (child instanceof TFile && child.extension === "md") out.push(child);
+  }
+  return out;
+}
 
 /** Formats d'export réellement implémentés dans Feuillets.
  * À maintenir en synchro avec les branches de exportViaNative(). */
@@ -36,7 +73,7 @@ export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = ["epub", "docx", "odt", 
 /** @typedef {{ filPlaceholders: Record<string, string>; filOrigins: Record<string, string>; filResolved: string[] }} NarrativeThreadState */
 
 /** @typedef {{ name: string; fileName: string; folderTitles: boolean; chapterTitles: boolean; sceneTitles: boolean; separator: string; [key: string]: unknown }} PresetConfig */
-/** @typedef {{ path: string | null; text: string; frontType: string | null }} CompileSegment */
+type CompileSegment = { path: string | null; text: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part" };
 /** @typedef {{ outPath: string; manuscript: string; segments: CompileSegment[] }} CompileResult */
 /** @typedef {{ markdown: string; title: string; author: string; sourcePath: string; segments?: CompileSegment[] }} ExportContext */
 
@@ -44,6 +81,11 @@ type NativeExportSegment = {
   path: string | null;
   text: string;
   frontType?: string;
+  generatedType?: GeneratedContentsKind;
+  sourceTitle?: string | null;
+  sourceSubtitle?: string | null;
+  startsWithGeneratedTitle?: boolean;
+  structuralType?: "part";
 };
 
 type NativeExportContext = {
@@ -304,24 +346,49 @@ export async function compile(
      (contrairement à l'erreur des commentaires HTML pour les citations,
      plus tôt). */
   const segments: CompileSegment[] = [];
+  /* Annexes (Phase 9) : compilées à PART du corps principal (voir walk(),
+     qui les exclut explicitement en portée project) puis insérées après
+     Bibliographie — jamais dans `parts`/`segments` directement, tant que
+     leur insertion réelle n'a pas eu lieu. `push`/`pushFile` acceptent donc
+     un couple de tableaux cible optionnel (par défaut `parts`/`segments`)
+     plutôt que de dupliquer toute la logique de lecture/titre pour elles. */
+  const annexParts: string[] = [];
+  const annexSegments: CompileSegment[] = [];
+
   /**
    * @param {string} text
    * @param {string|null} path
    * @param {string|null|undefined} [frontType]
+   * @param {string[]} [targetParts]
+   * @param {CompileSegment[]} [targetSegments]
    */
-  const push = (text: string, path: string | null, frontType: string | null | undefined = null): void => {
-    parts.push(text);
+  const push = (
+    text: string,
+    path: string | null,
+    frontType: string | null | undefined = null,
+    targetParts: string[] = parts,
+    targetSegments: CompileSegment[] = segments
+  ): void => {
+    targetParts.push(text);
     /** @type {CompileSegment} */
     const seg = { path: path || null, text, frontType: frontType || null };
-    segments.push(seg);
+    targetSegments.push(seg);
   };
 
   /**
    * @param {TFile} file
    * @param {string} role
    * @param {number} depth
+   * @param {string[]} [targetParts]
+   * @param {CompileSegment[]} [targetSegments]
    */
-  const pushFile = async (file: TFile, role: string, depth: number) => {
+  const pushFile = async (
+    file: TFile,
+    role: string,
+    depth: number,
+    targetParts: string[] = parts,
+    targetSegments: CompileSegment[] = segments
+  ) => {
     const fm = fmOf(app, file);
     if (fm.compile === false) return;
 
@@ -334,9 +401,12 @@ export async function compile(
     const normalizedFrontType = typeof fm.type === "string" ? fm.type.trim().toLowerCase() : "";
     const isFront = isFrontMatter(app, settings, file) && FRONT_PAGE_TYPES.includes(normalizedFrontType);
     const body = await readBody(file, isFront ? normalizedFrontType : undefined);
+    const sourceTitle = compiledTitleFor(app, file) || null;
+    const sourceSubtitle = compiledSubtitleFor(app, file) || null;
 
     if (isFront) {
-      push(body, file.path, normalizedFrontType);
+      push(body, file.path, normalizedFrontType, targetParts, targetSegments);
+      Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
       count++;
       return;
     }
@@ -344,10 +414,12 @@ export async function compile(
     const wantTitle = role === "scene" ? P.sceneTitles : P.chapterTitles;
     const title = resolvedFileTitleMarkdown(app, file, body, wantTitle, depth + 1);
     if (title) {
-      push(`${title}\n\n${body}`, file.path, null);
+      push(`${title}\n\n${body}`, file.path, null, targetParts, targetSegments);
     } else {
-      push(body, file.path, null);
+      push(body, file.path, null, targetParts, targetSegments);
     }
+    Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
+    if (title) targetSegments[targetSegments.length - 1].startsWithGeneratedTitle = true;
     count++;
   };
 
@@ -401,6 +473,15 @@ export async function compile(
   }
   // project : allowedTitleFolders reste null → comportement inchangé.
 
+  /* Annexes (Phase 9) : à la RACINE du Manuscrit, EN PORTÉE PROJECT
+     UNIQUEMENT — walk() les exclut ci-dessous et une passe séparée les
+     compile après coup (voir le bloc suivant), pour pouvoir les insérer
+     après Bibliographie plutôt qu'à leur place naturelle dans l'arbre.
+     `null` pour toute autre portée : walk() ne les traite alors pas
+     différemment d'un dossier ordinaire — comportement inchangé pour
+     file/folder/selection, exactement comme demandé. */
+  const annexesFolderRef = compilationScope.type === "project" ? annexesFolder(app, folder) : null;
+
   /**
    * @param {TFolder} f
    * @param {number} depth
@@ -408,6 +489,7 @@ export async function compile(
   const walk = async (f: TFolder, depth: number) => {
     for (const child of getOrderedChildren(app, settings, f)) {
       if (child instanceof TFolder) {
+        if (annexesFolderRef && child.path === annexesFolderRef.path) continue;
         /* Le dossier Front lui-même n'est jamais un titre de partie/chapitre
            à afficher — ses pages (titre/dédicace/épigraphe) précèdent le
            roman, elles n'en font pas narrativement partie. */
@@ -419,10 +501,10 @@ export async function compile(
            - ce dossier fait explicitement partie de l'ensemble autorisé. */
         const titleAllowed = allowedTitleFolders === null || allowedTitleFolders.has(child.path);
         if (role === "partie") {
-          if (P.folderTitles && !isFrontFolder && titleAllowed) push(`${level} ${child.name}`, null, null);
+          if (P.folderTitles && !isFrontFolder && titleAllowed) { push(`${level} ${child.name}`, null, null); Object.assign(segments[segments.length - 1], { startsWithGeneratedTitle: true, structuralType: "part" }); }
           await walk(child, depth + 1);
         } else {
-          if (P.chapterTitles && !isFrontFolder && titleAllowed) push(`${level} ${child.name}`, null, null);
+          if (P.chapterTitles && !isFrontFolder && titleAllowed) { push(`${level} ${child.name}`, null, null); segments[segments.length - 1].startsWithGeneratedTitle = true; }
           for (const sc of flattenFiles(app, settings, child)) {
             await pushFile(sc, "scene", depth + 1);
           }
@@ -432,10 +514,31 @@ export async function compile(
       }
     }
   };
+  /* `meta` : lu une seule fois, avant tout parcours — sert à la fois à
+     décider si les annexes doivent être compilées à part (ci-dessous, DANS
+     le même filet try/catch que le reste) et, plus bas, à Sommaire/TDM/
+     Tables/Bibliographie. */
+  const meta = compilationScope.type === "project" ? projectMetaFor(settings, folder) : null;
+  const wantAnnexes = meta ? readGeneratedIncluded(meta, ANNEXES) ?? false : false;
   try {
     // Compiler en respectant la structure du projet
     // La vérification fileSet dans pushFile() respectera la portée résolue
     await walk(folder, 0);
+
+    /* Annexes, compilées À PART (jamais dans `parts`/`segments` tant
+       qu'elles ne sont pas insérées plus bas) : mêmes transformations
+       normales que n'importe quel feuillet (readBody, titre via
+       resolvedFileTitleMarkdown), même respect de `compile: false`
+       (pushFile() le vérifie déjà), même ordre Binder
+       (getOrderedChildren). `depth = 1` : un cran sous le futur titre
+       `# Annexes`, jamais au même niveau. */
+    if (annexesFolderRef && wantAnnexes) {
+      for (const child of getOrderedChildren(app, settings, annexesFolderRef)) {
+        if (child instanceof TFile) {
+          await pushFile(child, "annexe", 1, annexParts, annexSegments);
+        }
+      }
+    }
   } catch (e) {
     // Jamais une exception non gérée qui remonterait comme un plantage
     // générique : un message contextualisé (feuillet + étape), le reste du
@@ -444,6 +547,92 @@ export async function compile(
     new Notice(err.describe());
     return null;
   }
+
+  /* Sommaire / Table des matières / Table des illustrations / Bibliographie
+     / Annexes (Phases 6, 7, 8 et 9 — services/contents-generator.ts,
+     services/tables-generator.ts, services/bibliography-generator.ts,
+     modèle services/book-composition.ts) : générés/assemblés à la
+     compilation, aucun fichier Markdown source pour les trois premiers,
+     rien d'autre n'est modifié. Seulement pour une portée `project` (aucun
+     sens sur un simple feuillet/dossier/sélection), et seulement si leur
+     inclusion est explicitement activée (projectMeta, voir
+     readGeneratedIncluded) — par défaut exclus (defaultComposition()), sauf
+     `manuscript`.
+     Sommaire/TDM/Tables sont calculés AVANT toute insertion, sur un
+     instantané de `segments` pris ici même (sinon un bloc généré verrait le
+     titre d'un autre bloc généré comme un titre du manuscrit) ; la
+     Bibliographie ne vient pas des segments mais des fiches de Recherche →
+     Bibliographie/Bibliography. Le Sommaire reste centré sur le manuscrit
+     principal seul (`bodySegments`) ; la Table des matières ET la Table des
+     illustrations, elles, voient aussi les annexes quand celles-ci sont
+     incluses (`tocSourceSegments`) — sans jamais les insérer deux fois :
+     `annexSegments` ne sert ici que de SOURCE aux générateurs, leur
+     insertion réelle (plus bas) est un événement séparé.
+     Sommaire/TDM sont insérés ensemble juste après les pages Front et avant
+     le corps ; Table des illustrations, Bibliographie puis Annexes, elles,
+     vont après le corps, DANS CET ORDRE (avant Index — pas encore
+     implémenté, donc simplement en fin de manuscrit pour l'instant), et
+     seulement s'il existe réellement au moins un élément à afficher (jamais
+     de page générée vide — y compris `# Annexes`, omis si la sous-section
+     est désactivée, le dossier vide, ou tous ses fichiers `compile: false`).
+     `parts` et `segments` reçoivent exactement les mêmes inserts, aux mêmes
+     index, pour rester synchronisés (voir le commentaire juste en dessous
+     sur cette contrainte). */
+  if (compilationScope.type === "project" && meta) {
+    const wantSummary = readGeneratedIncluded(meta, SUMMARY) ?? false;
+    const wantToc = readGeneratedIncluded(meta, TOC) ?? false;
+    const wantTables = readGeneratedIncluded(meta, TABLES) ?? false;
+    const wantBibliography = readGeneratedIncluded(meta, BIBLIOGRAPHY) ?? false;
+    const bodySegments = segments.slice();
+    const tocSourceSegments = wantAnnexes ? bodySegments.concat(annexSegments) : bodySegments;
+
+    if (wantSummary) {
+      let insertAt = segments.findIndex((s) => !s.frontType);
+      if (insertAt === -1) insertAt = segments.length;
+      const text = generateSummary(bodySegments);
+      const generatedSegment: CompileSegment = {
+        path: null,
+        text,
+        frontType: null,
+        generatedType: "summary",
+      };
+      parts.splice(insertAt, 0, text);
+      segments.splice(insertAt, 0, generatedSegment);
+    }
+
+    if (wantTables) {
+      const tablesText = generateTableOfIllustrations(tocSourceSegments);
+      if (tablesText) {
+        parts.push(tablesText);
+        segments.push({ path: null, text: tablesText, frontType: null });
+      }
+    }
+
+    if (wantBibliography) {
+      const bibliographyText = generateBibliography(bibliographyEntries(app, settings));
+      if (bibliographyText) {
+        parts.push(bibliographyText);
+        segments.push({ path: null, text: bibliographyText, frontType: null });
+      }
+    }
+
+    /* Annexes : déjà compilées à part (voir plus haut, dans le même filet
+       try/catch que walk()) — reste seulement à les insérer, après
+       Bibliographie. `# Annexes` n'apparaît que s'il existe RÉELLEMENT au
+       moins une annexe compilée (annexSegments non vide couvre à la fois
+       « désactivé », « dossier absent/vide » et « tout compile: false »). */
+    if (wantAnnexes && annexSegments.length) {
+      push("# Annexes", null, null);
+      parts.push(...annexParts);
+      segments.push(...annexSegments);
+    }
+    if (wantToc) {
+      const text = generateTableOfContents(tocSourceSegments);
+      parts.push(text);
+      segments.push({ path: null, text, frontType: null, generatedType: "toc" });
+    }
+  }
+
   /* Chaque feuillet source numérote ses propres notes à partir de 1, sans
      savoir que la compilation les concatène : footnotePrefixFor/
      renamespaceFootnotes (appliqués plus haut, par feuillet, dans readBody)
@@ -495,7 +684,12 @@ export async function compile(
  */
 export function projectMetaFor(settings: FeuilletsSettings, folder: TFolder | null) {
   if (!folder) return {};
-  return settings.projectMeta[folder.path] || {};
+  /* `settings.projectMeta` est un réglage central toujours défini en usage
+     réel (voir DEFAULT_SETTINGS) — mais certaines fixtures de test
+     construisent un `settings` minimal sans lui, notamment celles d'avant
+     Phase 6 : lire ce champ ne doit jamais lever pour autant, ici comme
+     dans le reste du plugin (repli défensif). */
+  return (settings.projectMeta && settings.projectMeta[folder.path]) || {};
 }
 
 /** Liste, sans lire ni construire de texte, les chemins de tous les
@@ -667,8 +861,8 @@ async function exportViaNative(
   const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
   const P = activePresetConfig(settings);
   const baseName = baseNameOverride || (P.fileName || "Manuscrit.md").replace(/\.md$/i, "");
-  const segments: NativeExportSegment[] = result.segments.map(({ path, text, frontType }) =>
-    frontType === null ? { path, text } : { path, text, frontType }
+  const segments: NativeExportSegment[] = result.segments.map(({ path, text, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType }) =>
+    frontType === null ? { path, text, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) } : { path, text, frontType, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) }
   );
   const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments };
 

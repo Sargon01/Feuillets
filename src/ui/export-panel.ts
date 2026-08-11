@@ -1,14 +1,14 @@
-import { Notice, TFolder, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
-import { listExportTemplates } from "../services/export-templates-custom.js";
+import { Notice, Setting, TFile, TFolder, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { t } from "../i18n/index.js";
-import { CompileSelectionModal } from "./selection-modals.js";
 import {
   currentExportScope,
   exportBaseName,
+  rememberExportScope,
   runExportWorkflow,
   type ExportWorkflowPlugin,
 } from "../services/export-workflow.js";
 import { type CompileScope } from "../services/compile-scope.js";
+import { createFileScope, createFolderScope, createProjectScope } from "../services/compile-scope.js";
 
 type ExportPanelSettings = FeuilletsSettings & {
   exportTemplate: string;
@@ -43,10 +43,11 @@ export type ExportPanelCallbacks = {
    * `effectiveExportScope()`). Facultatif — sans lui, le panneau retombe sur
    * `currentExportScope(plugin)`. */
   getScope?: () => CompileScope | null;
-  /** Appelé après tout changement susceptible d'influencer une PRÉSENTATION
-   * déjà affichée ailleurs (gabarit…) — facultatif : depuis Preview il
-   * rafraîchit l'Aperçu, depuis Édition aucune instance PreviewView n'existe
-   * et il peut rester absent. */
+  /** Appelé après le bouton « Actualiser » (Aperçu uniquement) — facultatif :
+   * depuis Preview il rafraîchit l'Aperçu, depuis Édition aucune instance
+   * PreviewView n'existe et il peut rester absent. Le gabarit ne se règle
+   * plus ici (Phase 11, voir Édition → Mise en page) : ExportPanel ne
+   * déclenche donc plus ce callback pour cette raison. */
   onPresentationChanged?: () => Promise<void> | void;
   /** true : panneau toujours visible, sans sa propre barre Actualiser/fermer
    * (utilisé par EditionExportView, dont le conteneur fournit déjà le titre
@@ -142,13 +143,19 @@ export class ExportPanel {
        .feuillets-preview-export…) : posée par le panneau lui-même plutôt
        que supposée déjà présente sur le conteneur fourni par l'appelant —
        PreviewView comme EditionExportView n'ont ainsi rien à dupliquer. */
-    panel.addClass("feuillets-preview-export");
+    panel.toggleClass("feuillets-preview-export", !embedded);
     panel.toggleClass("is-hidden", embedded ? false : this.collapsed);
     /* Seule la présentation change en mode embedded (styles.css,
        .feuillets-preview-export.is-embedded) : même DOM, mêmes classes de
        contrôle, même comportement — le panneau de l'Aperçu (sans cette
        classe) n'est pas affecté. */
     panel.toggleClass("is-embedded", embedded);
+    panel.toggleClass("feuillets-edition-export-panel", embedded);
+
+    if (embedded) {
+      this.renderEditionEmbedded(panel);
+      return;
+    }
 
     if (!embedded) {
       const header = panel.createDiv({ cls: "feuillets-preview-export-header" });
@@ -162,36 +169,78 @@ export class ExportPanel {
     }
 
     const main = panel.createDiv({ cls: "feuillets-preview-export-main" });
-    const field = (label: string, control: HTMLElement): HTMLElement => {
-      const wrap = main.createDiv({ cls: "feuillets-preview-export-field" });
-      wrap.createSpan({ cls: "feuillets-preview-export-label", text: label });
-      wrap.appendChild(control);
-      return control;
-    };
 
     /* La portée est AFFICHÉE, jamais modifiable ici : le fil d'Ariane
        (PreviewView) reste le seul endroit qui la change. */
-    const scopeLabel = createSpan({ cls: "feuillets-preview-export-control feuillets-preview-export-scope-value" });
+    const scopeSetting = new Setting(main).setName(t("preview.export.scope"));
+    const scopeLabel = scopeSetting.controlEl.createSpan();
     scopeLabel.setAttribute("aria-label", t("preview.export.scopeAriaLabel"));
     scopeLabel.textContent = this.scopeLabel();
     this.scopeLabelEl = scopeLabel;
-    field(t("preview.export.scope"), scopeLabel);
 
-    const included = createEl("button");
-    included.className = "clickable-icon feuillets-preview-export-control feuillets-preview-export-action-btn";
-    setIcon(included, "list-checks");
-    included.createSpan({ text: t("preview.export.includedItems") });
-    included.setAttribute("aria-label", t("preview.export.chooseIncludedItems"));
-    included.addEventListener("click", () => {
-      new CompileSelectionModal(
-        this.app,
-        this.plugin as unknown as ConstructorParameters<typeof CompileSelectionModal>[1]
-      ).open();
+    new Setting(main)
+      .setName(t("preview.export.format"))
+      .addDropdown((dropdown) => {
+        for (const [value, label] of [["docx", "DOCX"], ["pdf", "PDF"], ["epub", "EPUB"], ["odt", "ODT"]]) {
+          dropdown.addOption(value, label);
+        }
+        dropdown.setValue(this.exportFormat === "md" ? "docx" : this.exportFormat);
+        dropdown.onChange((value) => {
+          this.plugin.settings.exportFormat = value;
+          void this.plugin.saveSettings?.();
+        });
+        dropdown.selectEl.setAttribute("aria-label", t("preview.export.outputFormat"));
+      });
+
+    new Setting(main)
+      .setName(t("preview.export.fileName"))
+      .addText((text) => {
+        text
+          .setValue(this.exportFileName().replace(/\.md$/i, ""))
+          .setPlaceholder(t("preview.export.manuscriptPlaceholder"))
+          .onChange((value) => {
+            const fileName = `${value.trim() || t("preview.export.defaultFileName")}.md`;
+            const index = typeof this.plugin.settings.activePreset === "number" ? this.plugin.settings.activePreset : -1;
+            const candidate = index >= 0 ? this.plugin.settings.compilePresets?.[index] : null;
+            const preset = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : null;
+            if (preset) preset.fileName = fileName;
+            else this.plugin.settings.compileFileName = fileName;
+            void this.plugin.saveSettings?.();
+          });
+        text.inputEl.setAttribute("aria-label", t("preview.export.outputFileName"));
+      });
+
+    const footer = panel.createDiv({ cls: "feuillets-preview-export-footer" });
+    new Setting(footer).addButton((button) => {
+      button
+        .setIcon("download")
+        .setButtonText(t("project.compilation.exportBtn"))
+        .setCta()
+        .onClick(() => void this.launchExport());
+      button.buttonEl.addClass("feuillets-preview-export-launch");
+      button.buttonEl.setAttribute("aria-label", t("preview.export.launch"));
     });
-    field(t("preview.export.content"), included);
+  }
 
-    const format = createEl("select");
-    format.className = "feuillets-preview-export-control";
+  /** Rendu propre à l'inspecteur Édition. Il ne réutilise délibérément
+   * aucune classe ni aucune cellule `Setting` du panneau Aperçu. */
+  private renderEditionEmbedded(panel: HTMLElement): void {
+    const scopeControl = this.editionPropertyRow(panel, t("preview.export.scope"));
+    const scope = scopeControl.createEl("select");
+    const current = this.resolveScope();
+    const active = this.activeProjectFile();
+    if (current?.type === "selection") scope.createEl("option", { value: "selection", text: t("preview.scope.selection", { count: String(current.paths.length) }) });
+    if (active) {
+      scope.createEl("option", { value: "file", text: t("preview.scope.file") });
+      scope.createEl("option", { value: "folder", text: t("preview.scope.folder") });
+    }
+    scope.createEl("option", { value: "project", text: t("preview.scope.project") });
+    scope.value = current?.type === "selection" ? "selection" : (current?.type || "project");
+    scope.setAttribute("aria-label", t("preview.export.scopeAriaLabel"));
+    scope.addEventListener("change", () => this.setEditionScope(scope.value, active, current));
+
+    const formatControl = this.editionPropertyRow(panel, t("preview.export.format"));
+    const format = formatControl.createEl("select");
     for (const [value, label] of [["docx", "DOCX"], ["pdf", "PDF"], ["epub", "EPUB"], ["odt", "ODT"]]) {
       format.createEl("option", { value, text: label });
     }
@@ -201,44 +250,55 @@ export class ExportPanel {
       this.plugin.settings.exportFormat = format.value;
       void this.plugin.saveSettings?.();
     });
-    field(t("preview.export.format"), format);
 
-    const template = createEl("select");
-    template.className = "feuillets-preview-export-control";
-    const templates = await listExportTemplates(this.app, this.plugin.settings);
-    for (const tpl of templates) template.createEl("option", { value: tpl.key, text: tpl.label });
-    template.value = this.plugin.settings.exportTemplate;
-    template.setAttribute("aria-label", t("preview.export.templateAriaLabel"));
-    template.addEventListener("change", () => {
-      this.plugin.settings.exportTemplate = template.value;
-      void this.plugin.saveSettings?.();
-      void this.callbacks.onPresentationChanged?.();
-    });
-    field(t("preview.export.template"), template);
+    const fileNameControl = this.editionPropertyRow(panel, t("preview.export.fileName"));
+    const fileName = fileNameControl.createEl("input", { type: "text" });
+    fileName.value = this.exportFileName().replace(/\.md$/i, "");
+    fileName.setAttribute("placeholder", t("preview.export.manuscriptPlaceholder"));
+    fileName.setAttribute("aria-label", t("preview.export.outputFileName"));
+    fileName.addEventListener("change", () => this.setExportFileName(fileName.value));
 
-    const name = createEl("input");
-    name.className = "feuillets-preview-export-control";
-    name.type = "text";
-    name.value = this.exportFileName().replace(/\.md$/i, "");
-    name.setAttribute("aria-label", t("preview.export.outputFileName"));
-    name.setAttribute("placeholder", t("preview.export.manuscriptPlaceholder"));
-    name.addEventListener("change", () => {
-      const fileName = `${name.value.trim() || t("preview.export.defaultFileName")}.md`;
-      const index = typeof this.plugin.settings.activePreset === "number" ? this.plugin.settings.activePreset : -1;
-      const candidate = index >= 0 ? this.plugin.settings.compilePresets?.[index] : null;
-      const preset = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : null;
-      if (preset) preset.fileName = fileName;
-      else this.plugin.settings.compileFileName = fileName;
-      void this.plugin.saveSettings?.();
-    });
-    field(t("preview.export.fileName"), name);
-
-    const footer = panel.createDiv({ cls: "feuillets-preview-export-footer" });
-    const launch = footer.createEl("button", { cls: "clickable-icon mod-cta feuillets-preview-export-launch" });
-    setIcon(launch, "download");
-    launch.createSpan({ text: t("project.compilation.exportBtn") });
+    const footer = panel.createDiv({ cls: "feuillets-edition-export-footer" });
+    const launch = footer.createEl("button", { cls: "mod-cta feuillets-edition-export-cta" });
+    launch.setText(t("project.compilation.exportBtn"));
     launch.setAttribute("aria-label", t("preview.export.launch"));
     launch.addEventListener("click", () => void this.launchExport());
+  }
+
+  private editionPropertyRow(parent: HTMLElement, label: string): HTMLElement {
+    const row = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
+    row.createSpan({ cls: "feuillets-properties-key", text: label });
+    return row.createDiv({ cls: "feuillets-edition-row-control" });
+  }
+
+  private activeProjectFile(): TFile | null {
+    const file = this.app.workspace?.getActiveFile?.();
+    const root = this.plugin.getProjectFolder();
+    if (!(file instanceof TFile) || file.extension !== "md" || !root || !file.path.startsWith(`${root.path}/`)) return null;
+    if (file.path.includes("/Front/") || file.path.includes("/Annexes/") || file.path.includes("/Appendices/") || file.path.includes("/_")) return null;
+    return file;
+  }
+
+  private setEditionScope(value: string, active: TFile | null, current: CompileScope | null): void {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return;
+    let scope: CompileScope;
+    if (value === "selection" && current?.type === "selection") scope = current;
+    else if (value === "file" && active) scope = createFileScope(root.path, active.path);
+    else if (value === "folder" && active?.parent) scope = createFolderScope(root.path, active.parent.path);
+    else scope = createProjectScope(root.path);
+    rememberExportScope(this.plugin, scope);
+    this.scopeLabelEl = null;
+  }
+
+  private setExportFileName(value: string): void {
+    const fileName = `${value.trim() || t("preview.export.defaultFileName")}.md`;
+    const index = typeof this.plugin.settings.activePreset === "number" ? this.plugin.settings.activePreset : -1;
+    const candidate = index >= 0 ? this.plugin.settings.compilePresets?.[index] : null;
+    const preset = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : null;
+    if (preset) preset.fileName = fileName;
+    else this.plugin.settings.compileFileName = fileName;
+    void this.plugin.saveSettings?.();
   }
 
   /** Lance l'export réel via le workflow commun (services/export-workflow.ts)

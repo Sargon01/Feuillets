@@ -2245,178 +2245,6 @@ body.feuillets-concentration
   opacity: 1;
 }
 
-/* ===================== Mode embedded (Édition, Phase 2) =====================
-   Même panneau, même DOM, même comportement — SEULE la géométrie change pour
-   tenir dans une barre latérale étroite : colonne unique plutôt que la
-   grille responsive pensée pour le grand panneau Aperçu. Le panneau Aperçu
-   (sans .is-embedded) garde exactement son rendu actuel, réglé ci-dessus. */
-.feuillets-preview-export.is-embedded {
-  margin-top: 0;
-  padding: 0;
-  border-bottom: none;
-  background: transparent;
-  gap: var(--size-4-3);
-}
-
-.feuillets-preview-export.is-embedded .feuillets-preview-export-main {
-  grid-template-columns: 1fr;
-  gap: var(--size-4-2);
-  padding: 0;
-}
-
-.feuillets-preview-export.is-embedded .feuillets-preview-export-label {
-  font-size: var(--font-ui-smaller);
-  font-weight: var(--font-medium, 500);
-  color: var(--text-muted);
-}
-
-/* Correctif compaction : select/input/valeur de portée en lecture seule
-   partagent tous la classe .feuillets-preview-export-control — ce bloc les
-   ramène à une hauteur et un habillage sobres, cohérents avec les petits
-   contrôles du reste du panneau latéral, au lieu des select trop massifs
-   observés en Édition. */
-.feuillets-preview-export.is-embedded .feuillets-preview-export-control {
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  padding: 0 8px;
-  font-size: var(--font-ui-small);
-  color: var(--text-normal);
-  background: var(--background-modifier-form-field);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  box-sizing: border-box;
-}
-
-.feuillets-preview-export.is-embedded .feuillets-preview-export-control:hover {
-  border-color: var(--interactive-accent);
-}
-
-.feuillets-preview-export.is-embedded .feuillets-preview-export-control:focus {
-  border-color: var(--interactive-accent);
-  outline: none;
-  box-shadow: none;
-}
-
-/* Éléments inclus : action secondaire normale, alignée comme les autres
-   contrôles — jamais un CTA (voir la correction de button[class*="export"]
-   dans le bloc d'harmonisation globale, plus bas). */
-.feuillets-preview-export.is-embedded .feuillets-preview-export-action-btn {
-  width: 100%;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: var(--size-4-1);
-  padding: 0 8px;
-  color: var(--text-normal);
-  opacity: 1;
-  background: transparent;
-  border: 1px solid transparent;
-  font-weight: 400;
-}
-
-.feuillets-preview-export.is-embedded .feuillets-preview-export-action-btn:hover {
-  background: var(--background-modifier-hover);
-  border-color: var(--background-modifier-border);
-}
-
-/* ===================== Première page (Édition → Composition, Phase 3) =====
-   Sous-section repliable de EditionCompositionView, montée par
-   ui/first-page-panel.ts — ce composant n'appartient plus à Preview (voir
-   FirstPagePanel), d'où le nom .feuillets-first-page* plutôt que
-   preview-export-*. Il réutilise en interne les classes de contrôle
-   génériques du panneau Export pour ses champs (mêmes petits contrôles
-   compacts partout dans le plugin, sans dupliquer leur CSS) : ce bloc leur
-   donne, ICI SEULEMENT, le même habillage sobre que le mode embedded
-   d'ExportPanel — sans dépendre de l'ancêtre .feuillets-preview-export qui
-   n'existe pas à cet endroit. */
-.feuillets-first-page {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: var(--size-4-2);
-}
-
-.feuillets-first-page-summary {
-  cursor: pointer;
-  color: var(--text-normal);
-  font-size: var(--font-ui-small);
-  font-weight: var(--font-semibold, 600);
-  user-select: none;
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-  padding: var(--size-4-1) 0;
-}
-
-.feuillets-first-page-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-  padding-top: var(--size-4-2);
-  margin-top: var(--size-4-1);
-  border-top: 1px solid var(--background-modifier-border);
-}
-
-.feuillets-first-page-body .feuillets-preview-export-label {
-  font-size: var(--font-ui-smaller);
-  font-weight: var(--font-medium, 500);
-  color: var(--text-muted);
-}
-
-.feuillets-first-page-body .feuillets-preview-export-control {
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  padding: 0 8px;
-  font-size: var(--font-ui-small);
-  color: var(--text-normal);
-  background: var(--background-modifier-form-field);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  box-sizing: border-box;
-}
-
-.feuillets-first-page-body .feuillets-preview-export-control:hover {
-  border-color: var(--interactive-accent);
-}
-
-.feuillets-first-page-body .feuillets-preview-export-control:focus {
-  border-color: var(--interactive-accent);
-  outline: none;
-  box-shadow: none;
-}
-
-.feuillets-first-page-body .feuillets-preview-export-visual-btn {
-  width: 100%;
-  box-sizing: border-box;
-  height: 32px;
-  padding: 0 8px;
-}
-
-.feuillets-preview-export.is-embedded .feuillets-preview-export-details {
-  background: transparent;
-  border: none;
-  border-top: 1px solid var(--background-modifier-border);
-  border-radius: 0;
-  padding: var(--size-4-2) 0 0;
-  margin-top: var(--size-4-1);
-}
-
-.feuillets-preview-export.is-embedded .feuillets-preview-export-footer {
-  border-top: none;
-  padding-top: var(--size-4-2);
-  margin-top: var(--size-4-1);
-}
-
-/* Seul accent visuel fort de la section embedded. */
-.feuillets-preview-export.is-embedded .feuillets-preview-export-launch {
-  width: 100%;
-  justify-content: center;
-  height: 30px;
-}
-
 .feuillets-preview-breadcrumb {
   display: flex;
   align-items: center;
@@ -4415,8 +4243,8 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
    normale, même si sa classe contient le mot « export ». */
 .feuillets-sidebar-tab-bar .feuillets-tab-btn,
 .feuillets-sidebar-tab-bar button,
-.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch),
-.feuillets-sidebar-container button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch),
+.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta),
+.feuillets-sidebar-container button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta),
 .feuillets-sidebar-content .clickable-icon,
 .feuillets-search-bar .feuillets-search-settings-btn,
 .feuillets-search-bar .feuillets-search-icon-btn,
@@ -4432,7 +4260,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-sidebar-tab-bar .feuillets-tab-btn:hover,
-.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):hover,
+.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta):hover,
 .feuillets-sidebar-content .clickable-icon:hover,
 .feuillets-search-bar .feuillets-search-settings-btn:hover,
 .feuillets-search-bar .feuillets-search-icon-btn:hover,
@@ -5344,14 +5172,12 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
    !important nécessaires : Obsidian applique par défaut une bordure aux
    <input> (contrairement aux <textarea>, jamais concernés par cette
    règle-là — c'est pourquoi .feuillets-synopsis n'en avait pas besoin). */
-.feuillets-project-container input,
-.feuillets-project-container input[type="text"],
-.feuillets-project-section input,
-.feuillets-project-section input[type="text"],
-.feuillets-properties-row input,
+.feuillets-project-container input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.feuillets-project-section input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.feuillets-properties-row input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .feuillets-properties-row input[type="text"],
 .feuillets-properties-row .feuillets-properties-value,
-.feuillets-properties-row select {
+.feuillets-properties-row:not(.feuillets-edition-row) select {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
@@ -5373,14 +5199,14 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   cursor: pointer;
 }
 
-.feuillets-project-container input:hover,
-.feuillets-project-container input:focus,
+.feuillets-project-container input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):hover,
+.feuillets-project-container input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
 .feuillets-project-container select:hover,
 .feuillets-project-container select:focus,
-.feuillets-properties-row input:hover,
-.feuillets-properties-row input:focus,
-.feuillets-properties-row select:hover,
-.feuillets-properties-row select:focus,
+.feuillets-properties-row input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):hover,
+.feuillets-properties-row input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
+.feuillets-properties-row:not(.feuillets-edition-row) select:hover,
+.feuillets-properties-row:not(.feuillets-edition-row) select:focus,
 .feuillets-properties-row .feuillets-properties-value:hover,
 .feuillets-properties-row .feuillets-properties-value:focus {
   background: var(--background-modifier-hover);
@@ -5402,22 +5228,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-properties-row input[type="datetime-local"].feuillets-properties-value::-webkit-calendar-picker-indicator {
   margin-left: 6px;
   opacity: 0.6;
-}
-
-/* La règle générale ci-dessus (.feuillets-properties-row input) cible tout
-   <input>, y compris cette case à cocher : flex-shrink seul ne suffisait
-   pas à annuler son flex-grow (flex: 1, hérité du raccourci `flex`), et
-   appearance: none la vidait de son rendu natif — d'où un contrôle
-   étiré et vide plutôt qu'une case compacte. */
-.feuillets-properties-row input[type="checkbox"] {
-  flex: 0 0 auto;
-  width: auto;
-  height: auto;
-  min-width: 16px;
-  padding: 0;
-  appearance: auto;
-  -webkit-appearance: auto;
-  -moz-appearance: auto;
 }
 
 .feuillets-properties-delete {
@@ -5454,6 +5264,135 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   background: transparent;
   padding: 0 6px;
   border-radius: var(--radius-s);
+}
+
+/* Édition réutilise les lignes latérales existantes ; seules leur géométrie
+   de contrôle et l'indentation d'un contenu déplié sont précisées ici. */
+.feuillets-edition-row {
+  padding: 4px 6px;
+}
+
+.feuillets-edition-row .feuillets-properties-key {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  width: auto;
+  white-space: nowrap;
+}
+
+.feuillets-edition-row-control {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.feuillets-edition-count {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+}
+
+.feuillets-edition-action-row {
+  color: var(--text-normal);
+}
+
+.feuillets-first-page-body,
+.feuillets-front-matter-body {
+  padding-left: 8px;
+}
+
+.feuillets-edition-row-control select {
+  max-width: 190px;
+}
+
+.feuillets-edition-export-panel .feuillets-properties-key {
+  white-space: nowrap;
+}
+
+.feuillets-edition-export-panel .feuillets-edition-row-control input[type="text"] {
+  width: min(160px, 50vw);
+}
+
+.feuillets-edition-export-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 0;
+}
+
+.feuillets-edition-empty {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-edition-group-label {
+  margin: var(--size-4-3) 0 var(--size-4-1);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.feuillets-edition-layout-container .feuillets-edition-row-control {
+  flex: 0 1 auto;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.feuillets-edition-layout-container .feuillets-edition-row-control select {
+  width: 180px;
+  max-width: 48%;
+  min-width: 120px;
+}
+
+.feuillets-compile-selection-modal {
+  width: 680px;
+  max-width: 90vw;
+}
+
+.feuillets-compile-selection-modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  min-height: 0;
+}
+
+.feuillets-compile-selection-info {
+  flex: 0 0 auto;
+}
+
+.feuillets-compile-selection-description {
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-compile-selection-counter {
+  color: var(--text-faint);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-compile-selection-modal .feuillets-manuscript-selection {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.feuillets-compile-selection-footer {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-manuscript-selection-folder {
+  color: var(--text-muted);
+  font-weight: var(--font-semibold);
+  font-size: var(--font-ui-small);
 }
 
 /* ===== panneau Projet & export =====

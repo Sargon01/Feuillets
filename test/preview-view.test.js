@@ -13,7 +13,6 @@ import {
   previewZoomModeLabel,
 } from "../src/views/preview-view.js";
 import { resolveCompileScopeFiles } from "../src/services/compile-scope.js";
-import { CompileSelectionModal } from "../src/ui/selection-modals.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
 import { TextPromptModal } from "../src/ui/basic-modals.js";
 import { setLocale } from "../src/i18n/index.js";
@@ -2380,14 +2379,15 @@ test("barre — les réglages de format et de gabarit restent exclusivement cent
 }));
 
 
-test("export contextuel — portée (affichée), inclusions, format, gabarit et nom partagent les réglages centraux", withRender(async () => {
+test("export contextuel — portée, format et nom partagent les réglages centraux (Gabarit : voir Édition → Mise en page & export)", withRender(async () => {
   const { view, app, plugin } = await openLoadedView("scene");
 
   view.btnExport.click();
   await flush();
   assert.equal(view.exportPanelEl.hasClass("is-hidden"), false);
   const selects = view.exportPanelEl.querySelectorAll("select");
-  const [format, template] = selects;
+  const [format] = selects;
+  assert.equal(selects.length, 1, "Gabarit a quitté ExportPanel (Phase 11) : seul Format reste un select");
   /* La portée n'est plus un select : elle s'affiche et ne se change pas
      depuis le panneau (règle 4 du chantier CompileScope). */
   const scopeLabel = view.exportPanelEl.querySelector('[aria-label="Portée de l’export"]');
@@ -2398,26 +2398,13 @@ test("export contextuel — portée (affichée), inclusions, format, gabarit et 
   await flush();
   assert.equal(plugin.settings.exportFormat, "epub");
 
-  template.value = "moderne";
-  template.dispatch("change");
-  await flush();
-  assert.equal(plugin.settings.exportTemplate, "moderne");
-
   const name = view.exportPanelEl.querySelector('[aria-label="Nom du fichier exporté"]');
   name.value = "Mon chapitre";
   name.dispatch("change");
   await flush();
   assert.equal(plugin.settings.compileFileName, "Mon chapitre.md");
 
-  const previousOpen = CompileSelectionModal.prototype.open;
-  let selectionOpened = 0;
-  CompileSelectionModal.prototype.open = () => { selectionOpened++; };
-  try {
-    view.exportPanelEl.querySelectorAll("button").find((el) => el.textContent === "Éléments inclus").click();
-  } finally {
-    CompileSelectionModal.prototype.open = previousOpen;
-  }
-  assert.equal(selectionOpened, 1, "la sélection existante des feuillets est réutilisée");
+  assert.equal(view.exportPanelEl.querySelector('[aria-label="Choisir les éléments inclus"]'), null);
 
   // Phase 1 : le bouton Exporter du panneau appelle directement le workflow
   // commun (services/export-workflow.ts) — plus aucun passage par

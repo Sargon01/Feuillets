@@ -779,12 +779,53 @@ export const fr = {
   "editionComposition.displayText": "Composition de l’ouvrage",
   "editionComposition.description": "Première page, pages liminaires, sommaire, tables, bibliographie, annexes et index.",
 
-  // ---------- Mise en page (edition-layout-view.js) — sous-section de l'espace Édition (Phase 2, structurelle) ----------
-  "editionLayout.displayText": "Mise en page",
+  // ---------- Pages liminaires (front-matter-panel.js) — sous-section de Composition de l'ouvrage (Phase 5) ----------
+  "frontMatter.sectionTitle": "Pages liminaires",
+  "frontMatter.empty": "Aucune page liminaire.",
+  "frontMatter.includePage": "Inclure {title}",
+  "frontMatter.openFile": "Ouvrir {title}",
+
+  // ---------- Sommaire / Table des matières (contents-panel.js) — sous-sections de Composition de l'ouvrage (Phase 6) ----------
+  "contents.summary.sectionTitle": "Sommaire",
+  "contents.summary.include": "Inclure le sommaire",
+  "contents.toc.sectionTitle": "Table des matières",
+  "contents.toc.include": "Inclure la table des matières",
+  "contents.generatedNote": "Généré automatiquement depuis la structure du manuscrit.",
+
+  // ---------- Tables (tables-panel.js) — sous-section de Composition de l'ouvrage (Phase 7) ----------
+  "tables.sectionTitle": "Tables",
+  "tables.include": "Inclure les tables",
+  "tables.illustrationsLabel": "Table des illustrations",
+  "tables.generatedNote": "Générée automatiquement depuis les illustrations légendées du manuscrit.",
+
+  // ---------- Bibliographie (bibliography-panel.js) — sous-section de Composition de l'ouvrage (Phase 8) ----------
+  "bibliography.sectionTitle": "Bibliographie",
+  "bibliography.include": "Inclure la bibliographie",
+  "bibliography.referenceCount": "{count} référence(s)",
+  "bibliography.generatedNote": "Générée automatiquement depuis Recherche → Bibliographie.",
+
+  // ---------- Annexes (annexes-panel.js) — sous-section de Composition de l'ouvrage (Phase 9) ----------
+  "annexes.sectionTitle": "Annexes",
+  "annexes.include": "Inclure les annexes",
+  "annexes.count": "{count} annexe(s)",
+  "annexes.empty": "Aucune annexe",
+  "annexes.openFolder": "Ouvrir le dossier",
+  "annexes.createFolder": "Créer le dossier Annexes",
+  "annexes.folderCreated": "Dossier Annexes créé.",
+
+  // ---------- Mise en page (edition-layout-view.js) — sous-section de l'espace Édition (Phase 11) ----------
+  "editionLayout.displayText": "Mise en page & export",
   "editionLayout.description": "Gabarit, typographie, marges, en-têtes et pieds de page.",
+  "editionLayout.activeTemplate": "Gabarit",
+  "editionLayout.editVisually": "Modifier visuellement",
+  "editionLayout.duplicate": "Dupliquer",
+  "editionLayout.importUlysses": "Importer Ulysses",
+  "editionLayout.duplicated": "Gabarit dupliqué : {label}",
+  "editionLayout.imported": "Style Ulysses importé : {label}",
+  "editionLayout.importInvalidFile": "Choisis un fichier .ulstyle ou .ulss.",
+  "editionLayout.importError": "Import Ulysses impossible : {message}",
 
   // ---------- Exporter (edition-export-view.js) — sous-section de l'espace Édition (Phase 1) ----------
-  "editionExport.displayText": "Exporter",
 
   // ---------- Documents éditoriaux (edition-docs-view.js) — sous-section de l'espace Édition ----------
   "editionDocs.displayText": "Documents éditoriaux",
@@ -1494,8 +1535,8 @@ export const fr = {
   "modal.newFolder.placeholder": "ex. Partie III",
   "modal.captureIdea.placeholder": "Idée…",
 
-  "modal.compileSelection.title": "Feuillets à compiler",
-  "modal.compileSelection.desc": "Décocher un feuillet écrit compile: false dans son frontmatter — il reste visible et numéroté, mais saute à l'export.",
+  "modal.compileSelection.title": "Contenu du manuscrit",
+  "modal.compileSelection.desc": "Choisissez les textes qui constituent le corps de l’ouvrage. L’ordre reste celui du classeur.",
 
   "modal.stats.characters": "Caractères",
   "modal.stats.withoutSpaces": "Sans espaces",
