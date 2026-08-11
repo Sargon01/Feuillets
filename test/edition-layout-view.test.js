@@ -5,6 +5,8 @@ import { EditionLayoutView } from "../src/views/edition-layout-view.js";
 import { TextPromptModal } from "../src/ui/basic-modals.js";
 import { LayoutModal } from "../src/ui/layout-modal.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { createCustomTemplateFromV2 } from "../src/services/export-templates-custom.js";
+import { createDefaultExportTemplateV2 } from "../src/services/export-template-v2.js";
 
 /* Même petit DOM factice que test/edition-composition-view.test.js
  * (convention du dépôt : dupliqué, pas partagé), complété de ce
@@ -203,7 +205,7 @@ test("EditionLayoutView : Nouveau gabarit crée un V2 actif sans écraser une co
 
     contentEl.querySelector('[aria-label="Options du gabarit"]').click();
     const menu = Menu.lastShown;
-    assert.deepEqual(menu.items.map((item) => item.title), ["Nouveau gabarit…", "Dupliquer", "Importer Ulysses", "Importer Word"]);
+    assert.deepEqual(menu.items.filter((item) => !item.separator).map((item) => item.title), ["Nouveau gabarit…", "Dupliquer", "Importer Ulysses", "Importer Word"]);
 
     await view.createNewTemplate();
     assert.equal(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/gabarit.md"), null, "annulation : aucun fichier");
@@ -233,6 +235,24 @@ test("EditionLayoutView : Nouveau gabarit crée un V2 actif sans écraser une co
     LayoutModal.prototype.open = originalLayoutOpen;
     restore();
   }
+});
+
+test("EditionLayoutView : les actions Renommer et Supprimer n'apparaissent que pour un fichier personnalisé actif", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin } = buildCreationFixture();
+    const contentEl = new FakeElement("div");
+    const view = new EditionLayoutView({ app, contentEl }, plugin);
+    await view.onOpen();
+    contentEl.querySelector('[aria-label="Options du gabarit"]').click();
+    assert.equal(Menu.lastShown.items.some((item) => item.title === "Renommer…"), false);
+    assert.equal(Menu.lastShown.items.some((item) => item.title === "Supprimer…"), false);
+
+    await createCustomTemplateFromV2(app, plugin.settings, "perso", "Personnel", createDefaultExportTemplateV2());
+    await view.render();
+    contentEl.querySelector('[aria-label="Options du gabarit"]').click();
+    assert.deepEqual(Menu.lastShown.items.filter((item) => !item.separator).map((item) => item.title), ["Nouveau gabarit…", "Dupliquer", "Renommer…", "Supprimer…", "Importer Ulysses", "Importer Word"]);
+  } finally { restore(); }
 });
 
 test("EditionLayoutView : repliée, elle ne montre que l'en-tête", async () => {

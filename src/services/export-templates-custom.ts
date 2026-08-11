@@ -40,6 +40,39 @@ function customTemplatesFolder(app: App, settings: FeuilletsSettings): TFolder |
   return folder instanceof TFolder ? folder : null;
 }
 
+/** Retourne uniquement le fichier personnalisé exact de cette clé. Un
+ * gabarit intégré, même résolu sous la même clé, ne produit jamais de fichier
+ * ici : cette distinction protège les actions Renommer et Supprimer. */
+export function customTemplateFile(app: App, settings: FeuilletsSettings, key: string): TFile | null {
+  const folder = customTemplatesFolder(app, settings);
+  if (!folder) return null;
+  const file = app.vault.getAbstractFileByPath(normalizePath(`${folder.path}/${key}.md`));
+  return file instanceof TFile ? file : null;
+}
+
+/** Renomme l'affichage d'un gabarit personnalisé sans modifier sa clé ni son
+ * fichier. Les références à `settings.exportTemplate` restent donc stables. */
+export async function renameCustomTemplate(app: App, settings: FeuilletsSettings, key: string, label: string): Promise<boolean> {
+  const file = customTemplateFile(app, settings, key);
+  if (!file) return false;
+  await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
+    frontmatter.label = label;
+  });
+  return true;
+}
+
+/** Envoie le fichier personnalisé à la corbeille. Si la clé n'est pas celle
+ * d'un gabarit intégré, le réglage actif revient à Classique ; pour un
+ * override intégré, la même clé est conservée et l'intégré réapparaît. */
+export async function deleteCustomTemplate(app: App, settings: FeuilletsSettings, key: string): Promise<{ deleted: boolean; activeChanged: boolean }> {
+  const file = customTemplateFile(app, settings, key);
+  if (!file) return { deleted: false, activeChanged: false };
+  await app.fileManager.trashFile(file);
+  if (EXPORT_TEMPLATES[key]) return { deleted: true, activeChanged: false };
+  (settings as { exportTemplate: string }).exportTemplate = "classique";
+  return { deleted: true, activeChanged: true };
+}
+
 /** Une police personnalisée doit rester une chaîne réellement utilisable. */
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;

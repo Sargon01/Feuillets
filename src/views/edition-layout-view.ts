@@ -1,10 +1,10 @@
 import { Menu, Notice, setIcon, setTooltip, type WorkspaceLeaf } from "obsidian";
 import { t } from "../i18n/index.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { listExportTemplates, duplicateExportTemplate, createCustomTemplateFromV2 } from "../services/export-templates-custom.js";
+import { listExportTemplates, duplicateExportTemplate, createCustomTemplateFromV2, customTemplateFile, renameCustomTemplate, deleteCustomTemplate } from "../services/export-templates-custom.js";
 import { createDefaultExportTemplateV2 } from "../services/export-template-v2.js";
 import { LayoutModal } from "../ui/layout-modal.js";
-import { promptText } from "../ui/basic-modals.js";
+import { ConfirmModal, promptText } from "../ui/basic-modals.js";
 import { ExportPanel } from "../ui/export-panel.js";
 import { UlyssesImportModal } from "../ui/ulysses-import-modal.js";
 import { WordTemplateImportModal } from "../ui/word-template-import-modal.js";
@@ -82,8 +82,16 @@ export class EditionLayoutView extends BaseFeuilletsView {
     more.setAttribute("aria-label", "Options du gabarit");
     more.addEventListener("click", (event) => {
       const menu = new Menu();
+      const activeKey = this.plugin.settings.exportTemplate;
+      const activeTemplate = templates.find((tpl) => tpl.key === activeKey);
+      const isCustom = !!customTemplateFile(this.app, this.plugin.settings, activeKey);
       menu.addItem((item) => item.setTitle(t("editionLayout.newTemplate")).onClick(() => void this.createNewTemplate()));
       menu.addItem((item) => item.setTitle(t("editionLayout.duplicate")).onClick(() => void this.duplicate()));
+      if (isCustom) {
+        menu.addItem((item) => item.setTitle(t("editionLayout.renameTemplate")).onClick(() => void this.renameTemplate(activeTemplate?.label || activeKey)));
+        menu.addItem((item) => item.setTitle(t("editionLayout.deleteTemplate")).onClick(() => this.confirmDeleteTemplate(activeTemplate?.label || activeKey)));
+      }
+      menu.addSeparator();
       menu.addItem((item) => item.setTitle(t("editionLayout.importUlysses")).onClick(() => this.openUlyssesImportModal()));
       menu.addItem((item) => item.setTitle(t("editionLayout.importWord")).onClick(() => this.openWordImportModal()));
       menu.showAtMouseEvent(event);
@@ -156,6 +164,31 @@ export class EditionLayoutView extends BaseFeuilletsView {
     await this.plugin.saveSettings();
     await this.render();
     new LayoutModal(this.app, this.plugin, result.key, result.label, () => void this.render()).open();
+  }
+
+  private async renameTemplate(currentLabel: string): Promise<void> {
+    const label = (await promptText(this.app, t("editionLayout.renameTemplate"), currentLabel))?.trim();
+    if (!label) return;
+    const key = this.plugin.settings.exportTemplate;
+    if (!await renameCustomTemplate(this.app, this.plugin.settings, key, label)) return;
+    await this.render();
+  }
+
+  private confirmDeleteTemplate(label: string): void {
+    new ConfirmModal(
+      this.app,
+      t("editionLayout.deleteTemplateTitle", { label }),
+      t("editionLayout.deleteTemplateMessage", { label }),
+      t("editionLayout.deleteTemplate"),
+      () => this.deleteTemplate(),
+    ).open();
+  }
+
+  private async deleteTemplate(): Promise<void> {
+    const result = await deleteCustomTemplate(this.app, this.plugin.settings, this.plugin.settings.exportTemplate);
+    if (!result.deleted) return;
+    if (result.activeChanged) await this.plugin.saveSettings();
+    await this.render();
   }
 
   private openUlyssesImportModal(): void {

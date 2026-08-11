@@ -11,6 +11,9 @@ import {
   loadCustomTemplatesV2,
   resolveExportTemplateV2,
   saveExportTemplateV2,
+  customTemplateFile,
+  renameCustomTemplate,
+  deleteCustomTemplate,
 } from "../src/services/export-templates-custom.js";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
 import { normalizeLegacyTemplate } from "../src/services/export-template-v2.js";
@@ -332,4 +335,51 @@ test("duplicateExportTemplate : aucun dossier projet -> null, sans lever", async
   const result = await duplicateExportTemplate(app, settings);
 
   assert.equal(result, null);
+});
+
+test("gabarit personnalisé : le renommage ne change que le label, jamais la clé ni les propriétés V2", async () => {
+  const project = new TFolder("Projet"); const manuscript = new TFolder("Projet/Manuscrit"); const resources = new TFolder("Projet/Resources"); const layouts = new TFolder("Projet/Resources/Layouts"); const custom = new TFile("Projet/Resources/Layouts/perso.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; custom.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [custom];
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, custom]);
+  const original = { version: 2, label: "Avant", page: { size: "A4" }, body: { fontFamily: "Georgia" }, headings: { h1: { fontSizePt: 24 } } };
+  let saved;
+  fileManager.processFrontMatter = async (_file, update) => { saved = JSON.parse(JSON.stringify(original)); update(saved); };
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: original }) } };
+  const settings = { projectFolder: manuscript.path, exportTemplate: "perso" };
+
+  assert.equal(customTemplateFile(app, settings, "perso"), custom);
+  assert.equal(await renameCustomTemplate(app, settings, "perso", "Après"), true);
+  assert.equal(saved.label, "Après");
+  assert.deepEqual({ ...saved, label: "Avant" }, original);
+  assert.equal(custom.basename, "perso");
+  assert.equal(custom.path, "Projet/Resources/Layouts/perso.md");
+  assert.equal(settings.exportTemplate, "perso");
+});
+
+test("gabarit personnalisé : la suppression envoie un gabarit pur à la corbeille et revient à Classique", async () => {
+  const project = new TFolder("Projet"); const manuscript = new TFolder("Projet/Manuscrit"); const resources = new TFolder("Projet/Resources"); const layouts = new TFolder("Projet/Resources/Layouts"); const custom = new TFile("Projet/Resources/Layouts/perso.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; custom.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [custom];
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, custom]);
+  const settings = { projectFolder: manuscript.path, exportTemplate: "perso" };
+  const result = await deleteCustomTemplate({ vault, fileManager }, settings, "perso");
+  assert.deepEqual(result, { deleted: true, activeChanged: true });
+  assert.equal(vault.getAbstractFileByPath(custom.path), null);
+  assert.equal(settings.exportTemplate, "classique");
+});
+
+test("gabarit intégré : sans fichier custom, ni renommage ni suppression ne sont possibles ; un override supprimé révèle l'intégré", async () => {
+  const project = new TFolder("Projet"); const manuscript = new TFolder("Projet/Manuscrit"); const resources = new TFolder("Projet/Resources"); const layouts = new TFolder("Projet/Resources/Layouts"); const custom = new TFile("Projet/Resources/Layouts/classique.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; custom.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [custom];
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, custom]);
+  const app = { vault, fileManager, metadataCache: { getFileCache: (file) => ({ frontmatter: file === custom ? { label: "Classique maison", fontSizePt: 13 } : {} }) } };
+  const settings = { projectFolder: manuscript.path, exportTemplate: "classique" };
+
+  assert.equal(await renameCustomTemplate(app, settings, "apa", "Interdit"), false);
+  assert.deepEqual(await deleteCustomTemplate(app, settings, "apa"), { deleted: false, activeChanged: false });
+  assert.deepEqual(await deleteCustomTemplate(app, settings, "classique"), { deleted: true, activeChanged: false });
+  assert.equal(settings.exportTemplate, "classique");
+  assert.equal((await resolveExportTemplate(app, settings, "classique")).label, EXPORT_TEMPLATES.classique.label);
 });
