@@ -1321,10 +1321,10 @@ function countCompiles(app) {
   return () => n;
 }
 
-test("barre — fil d'Ariane, ouverture du feuillet et zoom seulement", withRender(async () => {
+test("barre — fil d'Ariane, ouverture du feuillet, actualisation et zoom", withRender(async () => {
   const { view, toolbar } = await openLoadedView("manuscript");
 
-  /* Ouvrir ce feuillet/zoom/Export vivent maintenant dans un vrai conteneur
+  /* Ouvrir ce feuillet/Actualiser/zoom/Export vivent maintenant dans un vrai conteneur
      DOM (.feuillets-preview-toolbar-controls, voir onOpen) plutôt que comme
      enfants directs de la barre : on cherche donc par descendance
      (querySelectorAll), pas par .children, pour rester correct quelle que
@@ -1334,8 +1334,8 @@ test("barre — fil d'Ariane, ouverture du feuillet et zoom seulement", withRend
   const icons = toolbar.querySelectorAll(".clickable-icon");
   assert.deepEqual(
     icons.map((icon) => icon.icon),
-    ["file-edit"],
-    "une icône Obsidian : Ouvrir ce feuillet"
+    ["file-edit", "refresh-cw"],
+    "deux icônes Obsidian : Ouvrir ce feuillet et Actualiser"
   );
   assert.equal(view.btnMore, undefined, "le menu ⋯ n'existe plus");
   assert.equal(typeof view.openMoreMenu, "undefined", "son code a disparu avec lui");
@@ -1349,17 +1349,17 @@ test("barre — fil d'Ariane, ouverture du feuillet et zoom seulement", withRend
   // fil d'Ariane rend lui aussi ses niveaux en BUTTON (voir plus bas).
   assert.equal(
     view.toolbarControlsEl.children.filter((c) => c.tagName === "BUTTON").length,
-    2,
-    "Ouvrir ce feuillet et zoom"
+    3,
+    "Ouvrir ce feuillet, Actualiser et zoom"
   );
   assert.equal(view.openVisibleEl.classes.has("is-hidden"), true, "aucun bouton visible en mode Manuscrit");
   assert.equal(view.openVisibleEl.getAttribute("aria-label"), "Ouvrir ce feuillet");
   assert.equal(view.openVisibleEl.textContent, "", "une icône, plus un bouton texte");
 
-  /* Le groupe de droite contient les deux commandes de lecture. */
+  /* Le groupe de droite contient les trois commandes de lecture. */
   assert.ok(view.toolbarControlsEl, "le conteneur du groupe de droite existe");
   assert.ok(toolbar.children.includes(view.toolbarControlsEl), "posé directement dans la barre");
-  for (const btn of [view.openVisibleEl, view.zoomLabelEl]) {
+  for (const btn of [view.openVisibleEl, ...icons.filter((icon) => icon.icon === "refresh-cw"), view.zoomLabelEl]) {
     assert.ok(view.toolbarControlsEl.children.includes(btn), "chaque commande du groupe de droite est un enfant réel de ce conteneur");
   }
 
@@ -2566,14 +2566,14 @@ test("boutons — aucun style de fond en ligne, aucune classe maison, état lisi
      zoom AFFICHENT leur valeur en toutes lettres, et les états cochés
      vivent dans les menus. Reste à garantir qu'aucun fond n'est posé
      depuis le TypeScript, quel que soit le contrôle. */
-  /* Ouvrir ce feuillet/zoom/Export vivent dans .feuillets-preview-toolbar-
+  /* Ouvrir ce feuillet/Actualiser/zoom/Export vivent dans .feuillets-preview-toolbar-
      controls (voir onOpen), pas comme enfants directs de la barre : on
      cherche donc par descendance. */
   const controls = [
     ...toolbar.querySelectorAll(".clickable-icon"),
     ...toolbar.querySelectorAll(".feuillets-preview-chip"),
   ];
-  assert.equal(controls.length, 2, "Ouvrir ce feuillet et zoom");
+  assert.equal(controls.length, 3, "Ouvrir ce feuillet, Actualiser et zoom");
 
   for (const el of controls) {
     for (const prop of ["background", "background-color", "box-shadow", "border"]) {
@@ -3505,6 +3505,23 @@ test("barre — aucun bouton de repli séparé", withRender(async () => {
   assert.equal(view.btnBarToggle, null);
   assert.equal(view.contentEl.querySelectorAll('[aria-label="Masquer la barre"]').length, 0);
   assert.equal(menuTitles(openMenuVia(view.zoomLabelEl)).includes("Masquer la barre"), false);
+}));
+
+test("barre — le bouton Actualiser traduit appelle refreshPreview", withRender(async () => {
+  setLocale("fr");
+  const { view } = await openLoadedView("manuscript");
+  const controls = view.toolbarControlsEl.children;
+  const refresh = controls.find((button) => button.getAttribute("aria-label") === "Actualiser l’aperçu");
+  assert.ok(refresh, "le bouton Actualiser doit être présent dans le groupe de droite");
+  assert.equal(refresh.getAttribute("title"), "Actualiser l’aperçu");
+  assert.equal(controls.indexOf(refresh), controls.indexOf(view.openVisibleEl) + 1, "Actualiser suit Ouvrir ce feuillet");
+  assert.equal(controls.indexOf(refresh) + 1, controls.indexOf(view.zoomLabelEl), "Actualiser précède le zoom");
+
+  let refreshCalls = 0;
+  view.refreshPreview = async () => { refreshCalls += 1; };
+  refresh.click();
+  await flush();
+  assert.equal(refreshCalls, 1);
 }));
 
 test("compileScope — affichage d'une portée file explicite sans écriture ni export", withCapture(async (_dom, rendered) => {

@@ -1352,6 +1352,7 @@ export const fr = {
 
   // ---------- Aperçu (preview-view.ts) ----------
   "preview.openVisibleSheet": "Ouvrir ce feuillet",
+  "preview.refreshPreview": "Actualiser l’aperçu",
   "preview.exportSettings": "Réglages d’export",
   "preview.collapseBar": "Masquer la barre",
   "preview.expandBar": "Afficher la barre",

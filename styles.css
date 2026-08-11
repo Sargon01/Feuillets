@@ -7109,11 +7109,33 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 
 
 /* ===== Éditeur visuel de page de titre (TitlePageModal) ===== */
-.feuillets-titlepage-modal { width: min(680px, 92vw); }
+.feuillets-titlepage-modal {
+  width: min(980px, 94vw);
+  max-height: 85vh;
+}
 .feuillets-tp-editor {
+  display: grid;
+  grid-template-columns: 160px 320px minmax(280px, 1fr);
+  gap: var(--size-4-4);
+  align-items: stretch;
+  max-height: calc(85vh - 5rem);
+  min-height: 0;
+}
+.feuillets-tp-navigation {
   display: flex;
-  gap: 16px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: var(--size-2-1);
+}
+.feuillets-tp-navigation-item {
+  width: 100%;
+  padding: var(--size-4-1) var(--size-4-2);
+  text-align: left;
+  color: var(--text-muted);
+}
+.feuillets-titlepage-modal .feuillets-tp-navigation-item.is-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+  font-weight: var(--font-semibold);
 }
 .feuillets-tp-page {
   position: relative;
@@ -7145,9 +7167,45 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 .feuillets-tp-block:active { cursor: grabbing; }
 .feuillets-tp-block-label { pointer-events: none; }
-.feuillets-tp-inspector { flex: 1 1 auto; min-width: 0; }
+.feuillets-tp-inspector {
+  min-width: 0;
+  overflow-y: auto;
+  padding-right: var(--size-4-1);
+}
 .feuillets-tp-inspector .clickable-icon.is-active {
   color: var(--interactive-accent);
+}
+.feuillets-heading-level-picker {
+  display: flex;
+  gap: var(--size-2-1);
+  margin: 0 0 var(--size-4-3);
+}
+.feuillets-heading-level {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: var(--size-2-1);
+  color: var(--text-muted);
+}
+.feuillets-titlepage-modal .feuillets-heading-level.is-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+  font-weight: var(--font-semibold);
+}
+@media (max-width: 860px) {
+  .feuillets-titlepage-modal { width: min(680px, 94vw); }
+  .feuillets-tp-editor {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: none;
+  }
+  .feuillets-tp-navigation {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .feuillets-tp-page { justify-self: center; }
+  .feuillets-tp-inspector {
+    max-height: 45vh;
+    padding-right: var(--size-4-2);
+  }
 }
 
 /* Bandes en-tête / pied de page dans la maquette de mise en page */

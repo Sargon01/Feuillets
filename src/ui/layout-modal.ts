@@ -14,6 +14,7 @@ type TitlePageStyles = Record<string, TitlePageStyle>;
 type BlockElements = Record<string, HTMLElement>;
 type OnLayoutChange = () => void;
 type NumberFieldSetter = (value: number | undefined) => void;
+type HeadingLevel = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
 type LayoutPlugin = {
   settings: FeuilletsSettings;
   saveSettings(): Promise<void>;
@@ -59,6 +60,8 @@ export class LayoutModal extends Modal {
   headerBand!: HTMLElement;
   footerBand!: HTMLElement;
   inspectorEl!: HTMLElement;
+  navigationButtons: Record<string, HTMLElement>;
+  selectedHeading: HeadingLevel;
 
   constructor(app: App, plugin: LayoutPlugin, templateKey: string, templateLabel: string, onChange?: OnLayoutChange) {
     super(app);
@@ -70,6 +73,8 @@ export class LayoutModal extends Modal {
     this.roles = [];
     this.selected = null; // "header" | "footer" | <role>
     this.blockEls = {};
+    this.navigationButtons = {};
+    this.selectedHeading = "h1";
   }
 
   async onOpen(): Promise<void> {
@@ -107,8 +112,9 @@ export class LayoutModal extends Modal {
     const wrap = c.createDiv({ cls: "feuillets-tp-editor" });
     const navigation = wrap.createDiv({ cls: "feuillets-tp-navigation" });
     for (const [key, label] of [["page", "Page"], ["body", "Corps de texte"], ["headings", "Titres"], ["blockquote", "Citation et séparateur"], ["firstPage", "Première page"]]) {
-      const button = navigation.createEl("button", { text: label });
+      const button = navigation.createEl("button", { cls: "feuillets-tp-navigation-item", text: label });
       button.addEventListener("click", () => this.select(key));
+      this.navigationButtons[key] = button;
     }
     this.pageEl = wrap.createDiv({ cls: "feuillets-tp-page" });
     this.pageEl.style.height = `${MOCKUP_H_PX}px`;
@@ -224,6 +230,10 @@ export class LayoutModal extends Modal {
 
   select(target: LayoutSelection): void {
     this.selected = target;
+    if (target === "headings") this.selectedHeading = "h1";
+    for (const [key, button] of Object.entries(this.navigationButtons)) {
+      button.toggleClass("is-active", key === target);
+    }
     this.layout();
     this.renderBands();
     this.renderInspector();
@@ -428,20 +438,27 @@ export class LayoutModal extends Modal {
 
   renderHeadingsInspector(insp: HTMLElement): void {
     insp.createEl("h4", { text: "Titres" });
+    const picker = insp.createDiv({ cls: "feuillets-heading-level-picker" });
     for (const level of ["h1", "h2", "h3", "h4", "h5", "h6"] as const) {
-      const style = this.template.headings[level];
-      const row = insp.createDiv({ cls: "feuillets-heading-editor" });
-      row.createEl("h5", { text: level.toUpperCase() });
-      this.numberField(row, "Taille (pt)", () => style.fontSizePt ?? 0, (v) => style.fontSizePt = v || undefined);
-      new Setting(row).setName("Gras").addToggle((c) => c.setValue(!!style.bold).onChange(async (v) => { style.bold = v; await this.saveTemplate(); }));
-      new Setting(row).setName("Italique").addToggle((c) => c.setValue(!!style.italic).onChange(async (v) => { style.italic = v; await this.saveTemplate(); }));
-      this.textField(row, "Alignement", () => style.align || "left", (v) => {
-        if (isTemplateAlign(v)) style.align = v;
+      const button = picker.createEl("button", { cls: "feuillets-heading-level", text: level.toUpperCase() });
+      button.toggleClass("is-active", this.selectedHeading === level);
+      button.addEventListener("click", () => {
+        this.selectedHeading = level;
+        this.renderInspector();
       });
-      this.numberField(row, "Espace avant", () => style.marginTopPt ?? 0, (v) => style.marginTopPt = v || undefined);
-      this.numberField(row, "Espace après", () => style.marginBottomPt ?? 0, (v) => style.marginBottomPt = v || undefined);
-      new Setting(row).setName("Saut de page avant").addToggle((c) => c.setValue(!!style.pageBreakBefore).onChange(async (v) => { style.pageBreakBefore = v; await this.saveTemplate(); }));
     }
+    const style = this.template.headings[this.selectedHeading];
+    const editor = insp.createDiv({ cls: "feuillets-heading-editor" });
+    editor.createEl("h5", { text: this.selectedHeading.toUpperCase() });
+    this.numberField(editor, "Taille (pt)", () => style.fontSizePt ?? 0, (v) => style.fontSizePt = v || undefined);
+    new Setting(editor).setName("Gras").addToggle((c) => c.setValue(!!style.bold).onChange(async (v) => { style.bold = v; await this.saveTemplate(); }));
+    new Setting(editor).setName("Italique").addToggle((c) => c.setValue(!!style.italic).onChange(async (v) => { style.italic = v; await this.saveTemplate(); }));
+    this.textField(editor, "Alignement", () => style.align || "left", (v) => {
+      if (isTemplateAlign(v)) style.align = v;
+    });
+    this.numberField(editor, "Espace avant", () => style.marginTopPt ?? 0, (v) => style.marginTopPt = v || undefined);
+    this.numberField(editor, "Espace après", () => style.marginBottomPt ?? 0, (v) => style.marginBottomPt = v || undefined);
+    new Setting(editor).setName("Saut de page avant").addToggle((c) => c.setValue(!!style.pageBreakBefore).onChange(async (v) => { style.pageBreakBefore = v; await this.saveTemplate(); }));
   }
 
   renderBlockquoteInspector(insp: HTMLElement): void {

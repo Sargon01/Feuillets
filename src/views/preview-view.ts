@@ -327,11 +327,11 @@ export class PreviewView extends ItemView {
   previewViewport: HTMLElement | null = null;
   scaledContainer: HTMLElement | null = null;
   viewEl: HTMLElement | null = null;
-  /** Barre volontairement réduite au fil d'Ariane et à trois commandes
-   * (Ouvrir ce feuillet, zoom, Export) — pas de bouton Réglages. */
+  /** Barre volontairement réduite au fil d'Ariane et à quatre commandes
+   * (Ouvrir ce feuillet, Actualiser, zoom, Export) — pas de bouton Réglages. */
   breadcrumbEl: HTMLElement | null = null;
   /** Groupe de DROITE : conteneur DOM réel qui englobe Ouvrir ce feuillet,
-   * zoom et Export — pour que styles.css puisse leur donner un fond commun
+   * Actualiser, zoom et Export — pour que styles.css puisse leur donner un fond commun
    * (une vraie « capsule ») sans deviner une largeur en CSS. */
   toolbarControlsEl: HTMLElement | null = null;
   zoomLabelEl: HTMLElement | null = null;
@@ -582,7 +582,7 @@ export class PreviewView extends ItemView {
     this.viewEl = view;
 
     /* Barre de contexte, réduite à quatre éléments : fil d'Ariane, puis un
-       groupe de DROITE — « Ouvrir ce feuillet », zoom, Export — regroupé
+       groupe de DROITE — « Ouvrir ce feuillet », « Actualiser », zoom, Export — regroupé
        dans un vrai conteneur DOM (this.toolbarControlsEl) pour que
        styles.css puisse lui donner un fond commun sans largeur devinée.
        Aucun menu « ⋯ », aucun bouton Réglages : ce qui n'est pas du
@@ -594,6 +594,7 @@ export class PreviewView extends ItemView {
     this.toolbarControlsEl = toolbar.createDiv({ cls: "feuillets-preview-toolbar-controls" });
     this.openVisibleEl = this.iconBtn(this.toolbarControlsEl, "file-edit", t("preview.openVisibleSheet"), () => void this.openVisibleFeuillet());
     this.openVisibleEl.addClass("feuillets-preview-open-visible");
+    this.iconBtn(this.toolbarControlsEl, "refresh-cw", t("preview.refreshPreview"), () => void this.refreshPreview());
     this.statusEl = view.createSpan({ cls: "feuillets-preview-status feuillets-preview-status-hidden" });
     this.followedEl = view.createSpan({ cls: "feuillets-preview-status-hidden" });
 

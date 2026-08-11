@@ -183,6 +183,42 @@ test("LayoutModal reconstruit la maquette, sélectionne ses zones et préserve l
   }
 });
 
+test("LayoutModal indique la rubrique active et édite un seul niveau de titre à la fois", async () => {
+  const restoreSetting = installSettingStub();
+  try {
+    const { modal, calls } = createModal();
+    await modal.onOpen();
+    modal.template.headings.h1.fontSizePt = 31;
+    modal.template.headings.h2.fontSizePt = 19;
+
+    modal.select("headings");
+    assert.equal(modal.navigationButtons.headings.classes.has("is-active"), true);
+    assert.equal(modal.navigationButtons.page.classes.has("is-active"), false);
+    assert.equal(modal.selectedHeading, "h1");
+
+    const headingChoices = allElements(modal.inspectorEl).filter((el) => el.classes.has("feuillets-heading-level"));
+    assert.equal(headingChoices.length, 6);
+    assert.equal(headingChoices[0].text, "H1");
+    assert.equal(headingChoices[0].classes.has("is-active"), true);
+    assert.equal(allElements(modal.inspectorEl).filter((el) => el.classes.has("feuillets-heading-editor")).length, 1);
+    assert.equal(controls(modal.inspectorEl, "text")[0].value, "31");
+
+    const h2 = headingChoices.find((el) => el.text === "H2");
+    h2.events.get("click")();
+    assert.equal(modal.selectedHeading, "h2");
+    assert.equal(controls(modal.inspectorEl, "text")[0].value, "19");
+    assert.equal(modal.template.headings.h1.fontSizePt, 31);
+
+    await controls(modal.inspectorEl, "text")[0].change("22");
+    assert.equal(modal.template.headings.h2.fontSizePt, 22);
+    assert.equal(modal.template.headings.h1.fontSizePt, 31);
+    assert.equal(calls.frontmatter.at(-1).frontmatter.version, 2);
+    assert.equal(calls.frontmatter.at(-1).frontmatter.headings.h2.fontSizePt, 22);
+  } finally {
+    restoreSetting();
+  }
+});
+
 test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs V2 sans écriture dans les réglages globaux", async () => {
   const restoreSetting = installSettingStub();
   try {
