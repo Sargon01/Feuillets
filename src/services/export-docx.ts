@@ -22,16 +22,13 @@ import type { App } from "obsidian";
 import type { ISectionOptions, IStylesOptions } from "docx";
 import { renderManuscriptHtml } from "./export-render.js";
 
-import { normalizeHeadings } from "../utils/export-templates.js";
-import { resolveExportTemplate } from "./export-templates-custom.js";
+import { resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { markedMarkdownFor, bookmarkMarkerInfoOf, bookmarkIdFor } from "../utils/docx-bookmarks.js";
 import {
   FRONT_PAGE_LINE_SPACING,
   alignmentFor,
   wordLocale,
-  sectionPageMargin,
   titleRoleOf,
-  frontRoleStyle,
 } from "./export-docx-style.js";
 import { blockToParagraphs } from "./docx-blocks.js";
 import { generatedContentsDescriptor, type GeneratedContentsKind } from "./generated-contents.js";
@@ -87,6 +84,9 @@ type HeadingDefaults = {
   heading1?: NonNullable<IStylesOptions["default"]>["heading1"];
   heading2?: NonNullable<IStylesOptions["default"]>["heading2"];
   heading3?: NonNullable<IStylesOptions["default"]>["heading3"];
+  heading4?: NonNullable<IStylesOptions["default"]>["heading4"];
+  heading5?: NonNullable<IStylesOptions["default"]>["heading5"];
+  heading6?: NonNullable<IStylesOptions["default"]>["heading6"];
 };
 type HeaderGroup = { default: Header; first?: Header };
 type FooterGroup = { default: Footer; first?: Footer };
@@ -113,10 +113,33 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   /* Ces champs sont fournis par DEFAULT_SETTINGS ; FeuilletsSettings les
      garde ouverts pendant la migration progressive pour les autres services. */
   const docxSettings = settings as ExportDocxSettings;
-  const tpl = await resolveExportTemplate(app, settings, docxSettings.exportTemplate);
-  // « Classique (manuscrit) » est le gabarit natif Manuscrit ; les choix
-  // éditoriaux dédiés ne doivent jamais déborder vers les autres gabarits.
-  const isManuscriptTemplate = docxSettings.exportTemplate === "classique";
+  const template = await resolveExportTemplateV2(app, settings, docxSettings.exportTemplate);
+  // L'adaptateur ne sert qu'à blockToParagraphs, dont l'API legacy est
+  // conservée pendant la migration. Toutes les valeurs viennent de V2.
+  const tpl: ExportTemplate = {
+    key: "v2", label: "V2",
+    fontFamily: template.body.fontFamily,
+    fontSizePt: template.body.fontSizePt,
+    lineHeight: template.body.lineHeight,
+    align: template.body.align,
+    indent: template.body.firstLineIndentPt > 0,
+    indentPt: template.body.firstLineIndentPt || undefined,
+    paragraphSpacing: template.body.paragraphSpacingAfterPt > 0,
+    paragraphSpacingPt: template.body.paragraphSpacingBeforePt || undefined,
+    hyphenation: template.body.hyphenation,
+    headings: template.headings,
+    blockquote: template.blockquote,
+    sceneDivider: template.sceneDivider,
+    titlePage: template.titlePage,
+  };
+  const cm = (value: number): `${number}cm` => `${value}cm`;
+  const pageMargin = {
+    top: cm(template.page.marginsCm.top), bottom: cm(template.page.marginsCm.bottom),
+    left: cm(template.page.marginsCm.left), right: cm(template.page.marginsCm.right),
+  };
+  // Les choix éditoriaux dédiés suivent le profil V2, y compris pour une
+  // copie personnalisée de « Classique ».
+  const isManuscriptTemplate = template.profile === "manuscript";
   const allSegments = segments ?? [];
   const renderSegments = allSegments.filter((segment) => segment.generatedType !== "summary" && segment.generatedType !== "toc");
   const renderMarkdown = segments && segments.length ? markedMarkdownFor(renderSegments) : markdown;
@@ -131,7 +154,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     footnoteMap[id] = { children: [new Paragraph({ children: [new TextRun(` ${text}`)] })] };
   });
 
-  const headings = normalizeHeadings(tpl);
+  const headings = template.headings;
 
   /* Pas de page de titre générique (titre + auteur + saut de page) si
      l'autrice a déjà composé sa propre page Front de type "titre" — sans
@@ -169,7 +192,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     if (!currentFrontBuffer) return;
     frontSections.push({
       properties: {
-        page: { margin: sectionPageMargin(tpl) },
+        page: { margin: pageMargin },
         verticalAlign: currentFrontIsRoleTitle ? VerticalAlignSection.TOP : VerticalAlignSection.CENTER,
         type: SectionType.NEXT_PAGE,
       },
@@ -261,7 +284,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
         pageBreakBefore: true,
         alignment: AlignmentType.CENTER,
         children: [
-          new TextRun({ text: (child.textContent || "").toLocaleUpperCase("fr"), bold: true, size: 32, font: (tpl.headingFontFamily || tpl.fontFamily).split(",")[0].replace(/['"]/g, "").trim() }),
+          new TextRun({ text: (child.textContent || "").toLocaleUpperCase("fr"), bold: true, size: 32, font: template.body.fontFamily.split(",")[0].replace(/['"]/g, "").trim() }),
           new PageBreak(),
         ],
       }));
@@ -287,7 +310,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     let frontOverride: FrontOverride | null = null;
     if (currentFrontType) {
       if (currentRole != null) {
-        frontOverride = { role: currentRole, style: frontRoleStyle(tpl, currentRole) };
+        frontOverride = { role: currentRole, style: template.titlePage?.styles?.[currentRole] || null };
         currentRole = null;
       } else if (isManuscriptTemplate && (currentFrontType === "dedicace" || currentFrontType === "epigraphe")) {
         // Pages Front éditoriales du seul gabarit Manuscrit : la section
@@ -314,11 +337,11 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   }
   flushFrontBuffer();
 
-  const fontFamily = tpl.fontFamily.split(",")[0].replace(/['"]/g, "").trim();
-  const headingFontFamily = (tpl.headingFontFamily || tpl.fontFamily).split(",")[0].replace(/['"]/g, "").trim();
+  const fontFamily = template.body.fontFamily.split(",")[0].replace(/['"]/g, "").trim();
+  const headingFontFamily = fontFamily;
 
   const headingStyles: HeadingDefaults = {};
-  for (const [level, styleKey] of [["h1", "heading1"], ["h2", "heading2"], ["h3", "heading3"]] as const) {
+  for (const [level, styleKey] of [["h1", "heading1"], ["h2", "heading2"], ["h3", "heading3"], ["h4", "heading4"], ["h5", "heading5"], ["h6", "heading6"]] as const) {
     const h = headings[level];
     if (!h) continue;
     headingStyles[styleKey] = {
@@ -351,12 +374,12 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     });
   };
 
-  const headerLeftStr = docxSettings.pdfHeaderLeft ?? "{title}";
-  const headerCenterStr = docxSettings.pdfHeaderCenter ?? "";
-  const headerRightStr = docxSettings.pdfHeaderRight ?? "{author}";
-  const footerLeftStr = docxSettings.pdfFooterLeft ?? "";
-  const footerCenterStr = docxSettings.pdfFooterCenter ?? "";
-  const footerRightStr = docxSettings.pdfFooterRight ?? "Page {page} sur {pages}";
+  const headerLeftStr = template.header?.left ?? "{title}";
+  const headerCenterStr = template.header?.center ?? "";
+  const headerRightStr = template.header?.right ?? "{author}";
+  const footerLeftStr = template.footer?.left ?? "";
+  const footerCenterStr = template.footer?.center ?? "";
+  const footerRightStr = template.footer?.right ?? "Page {page} sur {pages}";
   const headerParagraph = new Paragraph({
     alignment: AlignmentType.LEFT,
     tabStops: [{ type: "center", position: 4500 }, { type: "right", position: 9000 }],
@@ -381,10 +404,10 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     ],
   });
 
-  const docHeaders: HeaderGroup = { default: new Header({ children: docxSettings.pdfEnableHeaders === false ? [] : [headerParagraph] }) };
-  const docFooters: FooterGroup = { default: new Footer({ children: docxSettings.pdfEnableFooters === false ? [] : [footerParagraph] }) };
+  const docHeaders: HeaderGroup = { default: new Header({ children: template.header?.enabled === false ? [] : [headerParagraph] }) };
+  const docFooters: FooterGroup = { default: new Footer({ children: template.footer?.enabled === false ? [] : [footerParagraph] }) };
 
-  if (docxSettings.pdfHideFirstPageHeader ?? true) {
+  if (template.firstPage?.hideHeader ?? true) {
     docHeaders.first = new Header({ children: [] });
     docFooters.first = new Footer({ children: [] });
   }
@@ -393,12 +416,12 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     creator: author || "",
     title,
     footnotes: footnoteMap,
-    hyphenation: { autoHyphenation: !!tpl.hyphenation },
+    hyphenation: { autoHyphenation: template.body.hyphenation },
     styles: {
       default: {
         document: {
-          run: { font: fontFamily, size: `${tpl.fontSizePt}pt`, language: { value: wordLocale(docxSettings.epubLanguage) } },
-          paragraph: { spacing: { line: Math.round(tpl.lineHeight * 240) } },
+          run: { font: fontFamily, size: `${template.body.fontSizePt}pt`, language: { value: wordLocale(docxSettings.epubLanguage) } },
+          paragraph: { spacing: { line: Math.round(template.body.lineHeight * 240) } },
         },
         ...headingStyles,
       },
@@ -413,11 +436,11 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
       {
         properties: {
           page: {
-            margin: sectionPageMargin(tpl),
-            size: tpl.pageOrientation === "landscape" ? { orientation: PageOrientation.LANDSCAPE } : undefined,
+            margin: pageMargin,
+            size: template.page.orientation === "landscape" ? { orientation: PageOrientation.LANDSCAPE } : undefined,
           },
-          column: tpl.columns ? { count: tpl.columns.count, space: `${tpl.columns.gutterPt}pt` } : undefined,
-          titlePage: docxSettings.pdfHideFirstPageHeader ?? true,
+          column: template.page.columns ? { count: template.page.columns.count, space: `${template.page.columns.gutterPt}pt` } : undefined,
+          titlePage: template.firstPage?.hideHeader ?? true,
         },
         headers: docHeaders,
         footers: docFooters,
