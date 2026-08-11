@@ -226,6 +226,56 @@ declare type ResolvedExportTemplate = ExportTemplate & {
   lineHeight: number;
 };
 
+/** Modèle de mise en page V2. Il est indépendant des consommateurs legacy :
+ * normalizeLegacyTemplate() le construit sans modifier le modèle source ni
+ * les réglages PDF historiques. */
+declare type ExportTemplateV2 = {
+  version: 2;
+  profile: "manuscript" | "document" | "academic";
+  page: {
+    size: string;
+    orientation: "portrait" | "landscape";
+    marginsCm: Margins;
+    mirrorMargins: boolean;
+    columns?: { count: number; gutterPt: number };
+  };
+  body: {
+    fontFamily: string;
+    fontSizePt: number;
+    lineHeight: number;
+    align: string;
+    firstLineIndentPt: number;
+    paragraphSpacingBeforePt: number;
+    paragraphSpacingAfterPt: number;
+    hyphenation: boolean;
+  };
+  headings: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle; h4?: HeadingStyle; h5?: HeadingStyle; h6?: HeadingStyle };
+  blockquote?: { italic?: boolean; colorHex?: string };
+  sceneDivider?: string;
+  header?: {
+    enabled?: boolean;
+    left?: string;
+    center?: string;
+    right?: string;
+    distanceCm?: number;
+    bodyGapPt?: number;
+    differentOddEven?: boolean;
+  };
+  footer?: {
+    enabled?: boolean;
+    left?: string;
+    center?: string;
+    right?: string;
+    distanceCm?: number;
+    bodyGapPt?: number;
+  };
+  firstPage?: {
+    hideHeader?: boolean;
+    pageNumberPosition?: "right" | "center" | "left";
+  };
+  titlePage?: { styles?: Record<string, TitlePageStyle> };
+};
+
 /** État persistant des fils narratifs. Les clés sont les valeurs de `thread`
  * du frontmatter ; les valeurs sont les chemins du feuillet qui porte le
  * marqueur automatique ou de son origine. Voir services/narrative-threads.js. */
