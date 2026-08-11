@@ -76,7 +76,7 @@ import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { matchesResearchLabel } from "./utils/project-modes.js";
 import { setLocale, detectLocale, t } from "./i18n/index.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
-import { NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
+import { ManageProjectsModal, NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
 import { ScrivenerImportModal } from "./ui/scrivener-import-modal.js";
 import { DocxReviewView } from "./views/docx-review-view.js";
@@ -703,7 +703,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "manage-projects",
       name: t("main.cmd.manageProjects"),
-      callback: () => { void this.activateProject(); },
+      callback: () => new ManageProjectsModal(this.app, this).open(),
     });
     this.addCommand({
       id: "switch-project",

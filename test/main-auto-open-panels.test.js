@@ -4,6 +4,7 @@ import { Notice, TFolder } from "obsidian";
 import FeuilletsPlugin from "../src/main.js";
 import { VIEW_SIDEBAR_FEUILLETS } from "../src/constants.js";
 import { t } from "../src/i18n/index.js";
+import { ManageProjectsModal } from "../src/ui/project-modals.js";
 
 function createPlugin(autoOpenInspector, restoredInspector = false) {
   let onLayoutReady;
@@ -105,4 +106,32 @@ test("registerRibbonIcons enregistre uniquement Binder, Tableau et Mode concentr
   assert.deepEqual(registered, ["files", "layout-grid", "focus"]);
   assert.equal("journal" in plugin._ribbonEls, false);
   assert.equal("project" in plugin._ribbonEls, false);
+});
+
+test("manage-projects ouvre ManageProjectsModal sans activer l'onglet Édition", () => {
+  const commands = [];
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  plugin.app = {};
+  plugin.addCommand = (command) => commands.push(command);
+  let activateProjectCalls = 0;
+  plugin.activateProject = () => { activateProjectCalls++; };
+  const originalOpen = ManageProjectsModal.prototype.open;
+  let openedModal = null;
+  ManageProjectsModal.prototype.open = function open() {
+    openedModal = this;
+    return this;
+  };
+  try {
+    plugin.registerCoreCommands();
+    const command = commands.find(({ id }) => id === "manage-projects");
+
+    assert.ok(command, "la commande manage-projects reste enregistrée");
+    command.callback();
+    assert.ok(openedModal instanceof ManageProjectsModal);
+    assert.equal(openedModal.app, plugin.app);
+    assert.equal(openedModal.plugin, plugin);
+    assert.equal(activateProjectCalls, 0);
+  } finally {
+    ManageProjectsModal.prototype.open = originalOpen;
+  }
 });
