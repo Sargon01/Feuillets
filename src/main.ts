@@ -479,7 +479,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "open-export",
       name: t("main.cmd.openCompileExportPanel"),
-      callback: () => { void this.activateProject(); },
+      callback: () => { void this.activateEditionLayout(); },
     });
     /* Intégration Courrier (Lot 14B) : n'apparaît utilisable que si un
        projet d'écriture est ouvert (même garde que les autres commandes
@@ -800,7 +800,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "pdf-style-modal",
       name: t("main.cmd.openProjectExportPanel"),
-      callback: () => this.activateProject(),
+      callback: () => this.activateEditionLayout(),
     });
     this.addCommand({
       id: "restore-snapshot",
@@ -3270,6 +3270,20 @@ class FeuilletsPlugin extends Plugin {
   async activateDocxReview() { return this.activateSidebarView("project"); }
   async activateJournal() { return this.activateSidebarView("journal"); }
   async activateProject() { return this.activateSidebarView("project"); }
+  async activateEditionLayout(): Promise<void> {
+    const collapseKey = "editionLayout:panel";
+    if (Object.prototype.hasOwnProperty.call(this.settings.collapsed, collapseKey)) {
+      delete this.settings.collapsed[collapseKey];
+      await this.saveSettings();
+    }
+    await this.activateSidebarView("project");
+    const view = this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)[0]?.view as
+      | (View & { contentEl?: HTMLElement })
+      | undefined;
+    view?.contentEl
+      ?.querySelector<HTMLElement>(".feuillets-edition-layout-container")
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
 
   /* `date` reste `Date | null` ici : au moins un appelant (journal-view.ts,
      `viewedDate`) transmet une valeur potentiellement nulle alors que

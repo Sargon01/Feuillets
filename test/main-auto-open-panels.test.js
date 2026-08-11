@@ -135,3 +135,63 @@ test("manage-projects ouvre ManageProjectsModal sans activer l'onglet Édition",
     ManageProjectsModal.prototype.open = originalOpen;
   }
 });
+
+test("les commandes Édition et export conservent leurs destinations", () => {
+  const commands = [];
+  const calls = [];
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  plugin.addCommand = (command) => commands.push(command);
+  plugin.activateProject = () => { calls.push("project"); };
+  plugin.activateEditionLayout = () => { calls.push("layout"); };
+
+  plugin.registerCoreCommands();
+
+  for (const id of ["open-project", "open-export", "pdf-style-modal"]) {
+    const command = commands.find((registered) => registered.id === id);
+    assert.ok(command, `la commande ${id} reste enregistrée`);
+    command.callback();
+  }
+  assert.deepEqual(calls, ["project", "layout", "layout"]);
+});
+
+test("activateEditionLayout déplie seulement Mise en page & export et la fait défiler", async () => {
+  const saved = [];
+  const openedTabs = [];
+  const scrolled = [];
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  plugin.settings = {
+    collapsed: {
+      "editionLayout:panel": true,
+      "editionComposition:panel": true,
+      unrelated: false,
+    },
+  };
+  plugin.saveSettings = async () => { saved.push(true); };
+  plugin.activateSidebarView = async (tab) => { openedTabs.push(tab); };
+  plugin.app = {
+    workspace: {
+      getLeavesOfType() {
+        return [{
+          view: {
+            contentEl: {
+              querySelector(selector) {
+                assert.equal(selector, ".feuillets-edition-layout-container");
+                return { scrollIntoView(options) { scrolled.push(options); } };
+              },
+            },
+          },
+        }];
+      },
+    },
+  };
+
+  await plugin.activateEditionLayout();
+
+  assert.deepEqual(plugin.settings.collapsed, {
+    "editionComposition:panel": true,
+    unrelated: false,
+  });
+  assert.deepEqual(saved, [true]);
+  assert.deepEqual(openedTabs, ["project"]);
+  assert.deepEqual(scrolled, [{ behavior: "smooth", block: "nearest" }]);
+});
