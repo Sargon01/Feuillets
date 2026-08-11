@@ -17,7 +17,7 @@
  * @typedef {Map<any, ExportImage>} ExportImages
  *   Indexée par le nœud `<img>` lui-même — c'est export-render.js qui la
  *   construit ainsi, en remplaçant au passage le `src` par un data: URI.
- * @typedef {{ bold?: boolean, italics?: boolean, color?: string, size?: number }} InlineMarks
+ * @typedef {{ bold?: boolean, italics?: boolean, color?: string, size?: number, font?: string }} InlineMarks
  */
 
 import {
@@ -51,6 +51,7 @@ type InlineMarks = {
   italics?: boolean;
   color?: string;
   size?: number;
+  font?: string;
 };
 
 type ExportDomNode = {
@@ -136,10 +137,12 @@ export function captionParagraphFor(el: ExportDomElement, images: ExportImages =
  * @param {Map<string, number>} footnoteIdByHref
  * @param {ExportImages} [images]
  * @param {InlineMarks} [defaultMarks] marques héritées du contexte (page Front).
+ * @param {boolean} [normalizeAfterBreak] nettoie les blancs techniques des vers de citation.
  * @returns {any[]}
  */
-export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<string, number>, images: ExportImages = new Map(), defaultMarks: InlineMarks = {}) {
+export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<string, number>, images: ExportImages = new Map(), defaultMarks: InlineMarks = {}, normalizeAfterBreak = false) {
   const runs: Array<TextRun | ImageRun | FootnoteReferenceRun> = [];
+  let afterBreak = false;
 
   /**
    * @param {any} node
@@ -148,16 +151,24 @@ export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<strin
   function walk(node: ExportDomNode | ExportDomElement, marks: InlineMarks) {
     if (node.nodeType === TEXT_NODE) {
       const text = node.nodeValue;
-      if (text) {
+      // MarkdownRenderer intercale parfois un nœud "\n" purement décoratif
+      // après <br>. Dans Word, ce nœud devient un espace au début du vers.
+      // On ne l'ignore qu'à cet endroit précis : les espaces inline restent
+      // donc bien du contenu réel.
+      if (afterBreak && !text?.trim()) return;
+      const visibleText = afterBreak ? text?.replace(/^\s+/, "") : text;
+      if (visibleText) {
         runs.push(
           new TextRun({
-            text,
+            text: visibleText,
             bold: marks.bold,
             italics: marks.italics,
             color: marks.color,
             size: marks.size,
+            font: marks.font,
           })
         );
+        if (afterBreak) afterBreak = false;
       }
       return;
     }
@@ -168,6 +179,7 @@ export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<strin
       // Saut de ligne DANS le paragraphe (interligne simple), ex. le « / » d'un
       // bloc de page de titre — pas un nouveau paragraphe.
       runs.push(new TextRun({ break: 1 }));
+      afterBreak = normalizeAfterBreak;
       return;
     }
     const nextMarks = { ...marks };
@@ -318,15 +330,19 @@ export function blockToParagraphs(
     return paragraphs;
   }
   if (tag === "BLOCKQUOTE") {
-    const marks = tpl.blockquote
-      ? { italics: tpl.blockquote.italic, color: tpl.blockquote.colorHex?.replace("#", "") }
-      : {};
-    return Array.from(el.children).flatMap((child) => [
+    const quote = tpl.blockquote;
+    const children = Array.from(el.children);
+    return children.flatMap((child, index) => [
       new Paragraph({
-        indent: frontOverride ? undefined : { left: "1cm" },
+        style: "FeuilletsCitation",
         alignment: frontOverride ? AlignmentType.CENTER : undefined,
-        spacing: frontOverride ? FRONT_PAGE_LINE_SPACING : undefined,
-        children: inlineChildren(child, footnoteIdByHref, images, marks),
+        spacing: frontOverride ? FRONT_PAGE_LINE_SPACING : quote && (quote.marginTopPt != null || quote.marginBottomPt != null)
+          ? {
+            ...(index === 0 && quote.marginTopPt != null ? { before: quote.marginTopPt * 20 } : {}),
+            ...(index === children.length - 1 && quote.marginBottomPt != null ? { after: quote.marginBottomPt * 20 } : {}),
+          }
+          : undefined,
+        children: inlineChildren(child, footnoteIdByHref, images, {}, true),
       }),
     ]);
   }

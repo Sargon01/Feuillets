@@ -155,8 +155,25 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   const bodyAlign = body.align;
   const indentRule = `fo:text-indent="${body.firstLineIndentPt}pt"`;
   const paragraphSpacingRule = `fo:margin-top="${body.paragraphSpacingBeforePt}pt" fo:margin-bottom="${body.paragraphSpacingAfterPt}pt"`;
-  const blockquoteItalic = template.blockquote?.italic !== false;
-  const blockquoteColor = template.blockquote?.colorHex || "#000000";
+  const quote = template.blockquote || {};
+  const blockquoteItalic = quote.italic !== false;
+  const blockquoteColor = quote.colorHex || "#000000";
+  const blockquoteFont = quote.fontFamily ? primaryFontName(quote.fontFamily) : undefined;
+  const blockquoteParagraphRules = [
+    `fo:margin-left="${quote.marginLeftPt != null ? `${quote.marginLeftPt}pt` : "1cm"}"`,
+    `fo:margin-right="${quote.marginRightPt != null ? `${quote.marginRightPt}pt` : "1cm"}"`,
+    quote.firstLineIndentPt != null ? `fo:text-indent="${quote.firstLineIndentPt}pt"` : "",
+    quote.lineHeight != null ? `fo:line-height="${Math.round(quote.lineHeight * 100)}%"` : "",
+    quote.align ? `fo:text-align="${quote.align}"` : "",
+    quote.marginTopPt != null ? `fo:margin-top="${quote.marginTopPt}pt"` : "",
+    quote.marginBottomPt != null ? `fo:margin-bottom="${quote.marginBottomPt}pt"` : "",
+  ].filter(Boolean).join(" ");
+  const blockquoteTextRules = [
+    `fo:font-style="${blockquoteItalic ? "italic" : "normal"}"`,
+    `fo:color="${blockquoteColor}"`,
+    blockquoteFont ? `fo:font-family="${blockquoteFont}"` : "",
+    quote.fontSizePt != null ? `fo:font-size="${quote.fontSizePt}pt"` : "",
+  ].filter(Boolean).join(" ");
 
   const sceneDividerOpts: OdtOptions = { sceneDivider: template.sceneDivider };
   const bodyXml =
@@ -251,8 +268,8 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
     ${headingStyleXml("Heading_20_5", headings.h5, 11)}
     ${headingStyleXml("Heading_20_6", headings.h6, 10)}
     <style:style style:name="Quotations" style:family="paragraph">
-      <style:paragraph-properties fo:margin-left="1cm" fo:margin-right="1cm"/>
-      <style:text-properties fo:font-style="${blockquoteItalic ? "italic" : "normal"}" fo:color="${blockquoteColor}"/>
+      <style:paragraph-properties ${blockquoteParagraphRules}/>
+      <style:text-properties ${blockquoteTextRules}/>
     </style:style>
     <style:style style:name="Horizontal_20_Line" style:family="paragraph">
       <style:paragraph-properties fo:text-align="center" fo:margin-top="0.5cm" fo:margin-bottom="0.5cm"/>

@@ -217,7 +217,7 @@ declare type ExportTemplate = {
   paragraphSpacing?: boolean;
   paragraphSpacingPt?: number;
   hyphenation?: boolean;
-  blockquote?: { italic?: boolean; colorHex?: string };
+  blockquote?: { italic?: boolean; colorHex?: string; fontFamily?: string; fontSizePt?: number; lineHeight?: number; align?: TemplateAlign; firstLineIndentPt?: number; marginTopPt?: number; marginBottomPt?: number; marginLeftPt?: number; marginRightPt?: number };
 
   /** Marge uniforme ; `marginsCm` (asymétrique) prime si présent (marginsFor). */
   marginCm?: number;
@@ -276,7 +276,7 @@ declare type ExportTemplateV2 = {
     hyphenation: boolean;
   };
   headings: { h1: HeadingStyleV2; h2: HeadingStyleV2; h3: HeadingStyleV2; h4: HeadingStyleV2; h5: HeadingStyleV2; h6: HeadingStyleV2 };
-  blockquote: { italic?: boolean; colorHex?: string };
+  blockquote: { italic?: boolean; colorHex?: string; fontFamily?: string; fontSizePt?: number; lineHeight?: number; align?: TemplateAlign; firstLineIndentPt?: number; marginTopPt?: number; marginBottomPt?: number; marginLeftPt?: number; marginRightPt?: number };
   sceneDivider: string;
   header: {
     enabled: boolean;

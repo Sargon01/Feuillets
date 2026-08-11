@@ -3,7 +3,7 @@ import type { App } from "obsidian";
 import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { fmOf } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
-import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
+import { BUILTIN_TEMPLATE_CATALOG, EXPORT_TEMPLATES } from "../utils/export-templates.js";
 import { normalizeLegacyTemplate, normalizeV2Template } from "./export-template-v2.js";
 
 /**
@@ -219,8 +219,18 @@ export async function loadCustomTemplates(app: App, settings: FeuilletsSettings)
 export async function listExportTemplates(app: App, settings: FeuilletsSettings): Promise<Array<{ key: string; label: string }>> {
   const custom = await loadCustomTemplates(app, settings);
   const merged = new Map<string, { key: string; label: string }>();
-  Object.values(EXPORT_TEMPLATES).forEach((t) => merged.set(t.key, { key: t.key, label: t.label }));
-  Object.values(custom).forEach((t) => merged.set(t.key, { key: t.key, label: t.label }));
+  for (const key of BUILTIN_TEMPLATE_CATALOG) {
+    const template = custom[key] || EXPORT_TEMPLATES[key];
+    merged.set(key, { key, label: template.label });
+  }
+  Object.values(custom).forEach((t) => {
+    if (!merged.has(t.key)) merged.set(t.key, { key: t.key, label: t.label });
+  });
+  const activeKey = (settings as { exportTemplate?: string }).exportTemplate;
+  if (activeKey && EXPORT_TEMPLATES[activeKey] && !merged.has(activeKey)) {
+    const template = custom[activeKey] || EXPORT_TEMPLATES[activeKey];
+    merged.set(activeKey, { key: activeKey, label: template.label });
+  }
   return Array.from(merged.values());
 }
 
@@ -262,7 +272,8 @@ export async function exportBuiltInTemplates(app: App, settings: FeuilletsSettin
   }
   await ensureFolder(app, path);
   let count = 0;
-  for (const t of Object.values(EXPORT_TEMPLATES)) {
+  for (const key of BUILTIN_TEMPLATE_CATALOG) {
+    const t = EXPORT_TEMPLATES[key];
     const filePath = normalizePath(`${path}/${t.key}.md`);
     if (app.vault.getAbstractFileByPath(filePath)) continue;
     const v2 = normalizeLegacyTemplate(t);

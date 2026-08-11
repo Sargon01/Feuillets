@@ -388,6 +388,22 @@ export class LayoutModal extends Modal {
     });
   }
 
+  private optionalNumberField(insp: HTMLElement, name: string, value: () => number | undefined, set: (value: number | undefined) => void): void {
+    new Setting(insp).setName(name).addText((control) => {
+      control.inputEl.type = "number";
+      const current = value();
+      control.setValue(current == null ? "" : String(current)).onChange(async (raw) => {
+        if (raw.trim() === "") set(undefined);
+        else {
+          const next = Number.parseFloat(raw);
+          if (!Number.isFinite(next)) return;
+          set(next);
+        }
+        await this.saveTemplate();
+      });
+    });
+  }
+
   private textField(insp: HTMLElement, name: string, value: () => string, set: (value: string) => void): void {
     new Setting(insp).setName(name).addText((control) =>
       control.setValue(value()).onChange(async (next) => { set(next); await this.saveTemplate(); })
@@ -464,8 +480,22 @@ export class LayoutModal extends Modal {
 
   renderBlockquoteInspector(insp: HTMLElement): void {
     insp.createEl("h4", { text: "Citation et séparateur" });
-    new Setting(insp).setName("Citation en italique").addToggle((c) => c.setValue(!!this.template.blockquote.italic).onChange(async (v) => { this.template.blockquote.italic = v; await this.saveTemplate(); }));
-    this.textField(insp, "Couleur citation", () => this.template.blockquote.colorHex || "", (v) => this.template.blockquote.colorHex = v || undefined);
+    const quote = this.template.blockquote;
+    this.textField(insp, "Police", () => quote.fontFamily || "", (v) => quote.fontFamily = v.trim() || undefined);
+    this.optionalNumberField(insp, "Taille (pt)", () => quote.fontSizePt, (v) => quote.fontSizePt = v);
+    this.optionalNumberField(insp, "Interligne", () => quote.lineHeight, (v) => quote.lineHeight = v);
+    new Setting(insp).setName("Alignement").addDropdown((d) => d
+      .addOption("", "Par défaut").addOption("left", "Gauche").addOption("center", "Centré").addOption("right", "Droite").addOption("justify", "Justifié")
+      .setValue(quote.align || "").onChange(async (v) => { quote.align = isTemplateAlign(v) ? v : undefined; await this.saveTemplate(); }));
+    this.optionalNumberField(insp, "Retrait première ligne (pt)", () => quote.firstLineIndentPt, (v) => quote.firstLineIndentPt = v);
+    this.optionalNumberField(insp, "Marge gauche (pt)", () => quote.marginLeftPt, (v) => quote.marginLeftPt = v);
+    this.optionalNumberField(insp, "Marge droite (pt)", () => quote.marginRightPt, (v) => quote.marginRightPt = v);
+    this.optionalNumberField(insp, "Espace avant (pt)", () => quote.marginTopPt, (v) => quote.marginTopPt = v);
+    this.optionalNumberField(insp, "Espace après (pt)", () => quote.marginBottomPt, (v) => quote.marginBottomPt = v);
+    new Setting(insp).setName("Italique").addDropdown((d) => d
+      .addOption("", "Par défaut").addOption("true", "Italique").addOption("false", "Normal")
+      .setValue(quote.italic === undefined ? "" : String(quote.italic)).onChange(async (v) => { quote.italic = v === "" ? undefined : v === "true"; await this.saveTemplate(); }));
+    this.textField(insp, "Couleur", () => quote.colorHex || "", (v) => quote.colorHex = v.trim() || undefined);
     this.textField(insp, "Séparateur de scène", () => this.template.sceneDivider, (v) => this.template.sceneDivider = v);
   }
 

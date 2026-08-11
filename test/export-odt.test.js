@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import JSZip from "jszip";
 import { MarkdownRenderer } from "obsidian";
 import { exportOdt } from "../src/services/export-odt.js";
+import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
 
 /* Même petit DOM factice que export-render.test.js : suffisant pour
    parcourir containerEl.childNodes/querySelectorAll, sans reproduire un
@@ -239,6 +240,19 @@ test("exportOdt : le corps V2 applique retrait et espacements explicites", async
     restoreRenderer();
     restoreDom();
   }
+});
+
+test("exportOdt : Quotations reçoit les surcharges locales de citation", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => container.appendChild(element("blockquote", "Citation.")));
+  const previous = EXPORT_TEMPLATES.romanSimple.blockquote;
+  EXPORT_TEMPLATES.romanSimple.blockquote = { fontFamily: "Futura", fontSizePt: 13, lineHeight: 1.2, align: "center", firstLineIndentPt: 8, marginTopPt: 10, marginBottomPt: 11, marginLeftPt: 12, marginRightPt: 13, italic: false, colorHex: "#123456" };
+  try {
+    const bytes = await exportOdt({}, { exportTemplate: "romanSimple" }, { markdown: "> Citation.", title: "Livre", author: "Autrice", sourcePath: "Manuscrit.md", segments: [] });
+    const zip = await JSZip.loadAsync(bytes);
+    const contentXml = await zip.file("content.xml").async("string");
+    assert.match(contentXml, /style:name="Quotations"[\s\S]*fo:margin-left="12pt"[\s\S]*fo:font-family="Futura"[\s\S]*fo:font-size="13pt"/);
+  } finally { EXPORT_TEMPLATES.romanSimple.blockquote = previous; restoreRenderer(); restoreDom(); }
 });
 
 test("exportOdt : page, colonnes, en-tête et pied V2 ne sont pas écrasés par les réglages pdf legacy", async () => {

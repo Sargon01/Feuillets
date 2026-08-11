@@ -17,9 +17,10 @@ import {
   PageBreak,
   TableOfContents,
   VerticalAlignSection,
+  LineRuleType,
 } from "docx";
 import type { App } from "obsidian";
-import type { ISectionOptions, IStylesOptions } from "docx";
+import type { IParagraphStyleOptions, ISectionOptions, IStylesOptions } from "docx";
 import { renderManuscriptHtml } from "./export-render.js";
 
 import { resolveExportTemplateV2 } from "./export-templates-custom.js";
@@ -46,6 +47,36 @@ type ExportSegment = {
 
 const headingLevelForTag: Record<string, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = { H1: HeadingLevel.HEADING_1, H2: HeadingLevel.HEADING_2, H3: HeadingLevel.HEADING_3, H4: HeadingLevel.HEADING_4, H5: HeadingLevel.HEADING_5, H6: HeadingLevel.HEADING_6 };
 const normalized = (value: string) => value.trim().replace(/\s+/g, " ");
+const firstFontFamily = (value?: string) => value?.split(",")[0]?.trim().replace(/^['"]|['"]$/g, "") || undefined;
+export const FEUILLETS_CITATION_STYLE = "FeuilletsCitation";
+
+/** Style Word stable appliqué aux paragraphes Markdown `>` exportés. */
+export function citationParagraphStyle(template: Pick<ExportTemplateV2, "blockquote">): IParagraphStyleOptions {
+  const quote = template.blockquote || {};
+  return {
+    id: FEUILLETS_CITATION_STYLE,
+    name: "Citation",
+    basedOn: "Normal",
+    next: "Normal",
+    run: {
+      font: firstFontFamily(quote.fontFamily),
+      size: quote.fontSizePt != null ? `${quote.fontSizePt}pt` : undefined,
+      italics: quote.italic,
+      color: quote.colorHex?.replace(/^#/, ""),
+    },
+    paragraph: {
+      alignment: quote.align ? alignmentFor({ align: quote.align }) : undefined,
+      indent: {
+        left: quote.marginLeftPt != null ? quote.marginLeftPt * 20 : undefined,
+        right: quote.marginRightPt != null ? quote.marginRightPt * 20 : undefined,
+        firstLine: quote.firstLineIndentPt != null ? quote.firstLineIndentPt * 20 : undefined,
+      },
+      spacing: quote.lineHeight != null
+        ? { line: Math.round(quote.lineHeight * 240), lineRule: LineRuleType.AUTO }
+        : undefined,
+    },
+  };
+}
 
 type ExportInput = {
   markdown: string;
@@ -425,6 +456,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
         },
         ...headingStyles,
       },
+      paragraphStyles: [citationParagraphStyle(template)],
     },
     /* Les sections Front (voir frontSections plus haut) précèdent toujours
        la section du manuscrit : c'est l'ordre réel dans le coffre (dossier

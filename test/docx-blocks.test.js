@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Document, Packer, AlignmentType } from "docx";
 import JSZip from "jszip";
 import { blockToParagraphs, inlineChildren, captionParagraphFor } from "../src/services/docx-blocks.js";
+import { citationParagraphStyle } from "../src/services/export-docx.js";
 
 /* Faux nœuds DOM : uniquement l'interface réellement consommée par le module. */
 const texte = (s) => ({ nodeType: 3, nodeValue: s });
@@ -63,6 +64,26 @@ test("inlineChildren : <br> devient un saut DANS le paragraphe", () => {
   assert.equal(runs.length, 3);
 });
 
+test("inlineChildren : aligne les vers de citation après <br> sans toucher aux espaces inline", () => {
+  const italic = el("EM", { childNodes: [texte("\n  ligne 2")] });
+  const runs = inlineChildren(p([
+    texte("ligne 1"), el("BR"), texte("\n"), italic,
+    el("BR"), texte("\n  "), texte("\n  ligne 3"),
+  ]), noFootnotes, new Map(), {}, true);
+  assert.equal(runs.length, 5, "trois contenus et deux retours Word");
+  assert.deepEqual(runTexts(runs[0]), ["ligne 1"]);
+  assert.ok(has(runs[1], "w:br"));
+  assert.deepEqual(runTexts(runs[2]), ["ligne 2"], "le premier texte visible dans <em> perd ses blancs techniques");
+  assert.ok(has(runs[2], "w:i"), "la ligne après retour conserve son italique");
+  assert.ok(has(runs[3], "w:br"));
+  assert.deepEqual(runTexts(runs[4]), ["ligne 3"], "le texte normal perd aussi ses blancs techniques initiaux");
+
+  const inline = inlineChildren(p([
+    el("EM", { childNodes: [texte("un")] }), texte(" "), el("STRONG", { childNodes: [texte("mot")] }),
+  ]), noFootnotes);
+  assert.deepEqual(inline.flatMap(runTexts), ["un", " ", "mot"], "l'espace entre éléments inline reste sémantique");
+});
+
 test("inlineChildren : un appel de note devient une référence de note", () => {
   const lien = el("A", { attrs: { href: "#fn-3" }, classes: ["footnote-ref"], childNodes: [texte("3")] });
   const runs = inlineChildren(p([lien]), new Map([["3", 7]]));
@@ -81,6 +102,49 @@ test("blockToParagraphs : un <p> reçoit l'alignement du modèle", () => {
   // régression : "justify" renvoyait undefined (AlignmentType.JUSTIFY inexistant)
   assert.ok(has(para, "w:jc"), "un alignement doit être posé");
   assert.ok(JSON.stringify(para).includes(`"${AlignmentType.JUSTIFIED}"`), "justifié attendu");
+});
+
+test("DOCX : les paragraphes Citation portent le style Word et ses propriétés locales", async () => {
+  const italic = el("EM", { childNodes: [texte("traduction")] });
+  const quote = el("BLOCKQUOTE", { children: [p([texte("turc "), italic, el("BR"), texte("suite")]), p([texte("fin")])] });
+  const tpl = { ...TPL, blockquote: { fontFamily: "'Futura', Arial, sans-serif", fontSizePt: 13, lineHeight: 1.2, align: "center", firstLineIndentPt: 8, marginTopPt: 10, marginBottomPt: 11, marginLeftPt: 12, marginRightPt: 13, italic: false, colorHex: "#123456" } };
+  const paragraphs = blockToParagraphs(quote, noFootnotes, tpl);
+  assert.equal(paragraphs.length, 2);
+  const normal = blockToParagraphs(p([texte("Corps ordinaire")]), noFootnotes, tpl);
+  const doc = new Document({
+    styles: { paragraphStyles: [citationParagraphStyle({ blockquote: tpl.blockquote })] },
+    sections: [{ children: [...normal, ...paragraphs] }],
+  });
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(doc));
+  const documentXml = await zip.file("word/document.xml").async("string");
+  const stylesXml = await zip.file("word/styles.xml").async("string");
+  for (const marker of [
+    'w:ascii="Futura"', 'w:sz w:val="26"', 'w:color w:val="123456"',
+    'w:jc w:val="center"', 'w:line="288"', 'w:lineRule="auto"',
+    'w:left="240"', 'w:right="260"', 'w:firstLine="160"',
+  ]) assert.ok(stylesXml.includes(marker), marker);
+  assert.match(stylesXml, /w:styleId="FeuilletsCitation"[\s\S]*w:name w:val="Citation"[\s\S]*w:basedOn w:val="Normal"[\s\S]*w:next w:val="Normal"/);
+  assert.equal((documentXml.match(/w:pStyle w:val="FeuilletsCitation"/g) || []).length, 2, "tous les paragraphes du blockquote ont le style Citation");
+  const normalXml = (documentXml.match(/<w:p>[\s\S]*?<\/w:p>/g) || []).find((paragraph) => paragraph.includes("Corps ordinaire"));
+  assert.ok(normalXml && !normalXml.includes("FeuilletsCitation"), "le corps reste en style Normal");
+  assert.equal((documentXml.match(/w:before="200"/g) || []).length, 1, "espace avant sur le premier paragraphe seulement");
+  assert.equal((documentXml.match(/w:after="220"/g) || []).length, 1, "espace après sur le dernier paragraphe seulement");
+  assert.ok(documentXml.includes("<w:i/>"), "l'italique Markdown reste prioritaire");
+  assert.ok(documentXml.includes("<w:br/>"), "les <br> restent des retours Word");
+});
+
+test("DOCX : le style Citation sans marge locale ne crée aucun retrait implicite", async () => {
+  const quote = el("BLOCKQUOTE", { children: [p([texte("Citation historique")])] });
+  const paragraphs = blockToParagraphs(quote, noFootnotes, { ...TPL, blockquote: {} });
+  const doc = new Document({
+    styles: { paragraphStyles: [citationParagraphStyle({ blockquote: {} })] },
+    sections: [{ children: paragraphs }],
+  });
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(doc));
+  const stylesXml = await zip.file("word/styles.xml").async("string");
+  const citationStyle = stylesXml.match(/<w:style[^>]*w:styleId="FeuilletsCitation"[\s\S]*?<\/w:style>/)?.[0] || "";
+  assert.ok(!citationStyle.includes("w:left="), "aucun retrait gauche sans marge Citation explicite");
+  assert.ok(!citationStyle.includes("w:lineRule="), "aucun interligne local sans surcharge");
 });
 
 test("blockToParagraphs : H1/H2 démarrent une page si le modèle ne configure rien", () => {

@@ -110,6 +110,13 @@ test("normalizeV2Template : un V2 existant est complété sans perte ni mutation
   assert.deepEqual(input, before);
 });
 
+test("normalizeV2Template : conserve toutes les surcharges locales de citation", () => {
+  const base = createDefaultExportTemplateV2();
+  base.blockquote = { fontFamily: "Futura", fontSizePt: 13, lineHeight: 1.2, align: "center", firstLineIndentPt: 8, marginTopPt: 10, marginBottomPt: 11, marginLeftPt: 12, marginRightPt: 13, italic: false, colorHex: "#112233" };
+  assert.deepEqual(normalizeV2Template(base).blockquote, base.blockquote);
+  assert.deepEqual(normalizeLegacyTemplate({ key: "x", label: "X", blockquote: base.blockquote }).blockquote, base.blockquote);
+});
+
 test("normalizeLegacyTemplate : intègre les réglages legacy de page, en-tête et pied", () => {
   const result = normalizeLegacyTemplate(EXPORT_TEMPLATES.romanFrancais, {
     pdfPageSize: "letter", pdfOrientation: "portrait", pdfMarginTop: 1, pdfMarginBottom: 2,

@@ -45,7 +45,7 @@ const titlePageFor = (bodyPt: number): { styles: Record<string, TitlePageStyle> 
 export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
   classique: {
     key: "classique",
-    label: "Classique (manuscrit)",
+    label: "Manuscrit éditeur",
     titlePage: titlePageFor(12),
     fontFamily: "'Times New Roman', Times, serif",
     fontSizePt: 12,
@@ -89,7 +89,7 @@ export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
   },
   moderne: {
     key: "moderne",
-    label: "Moderne",
+    label: "Document moderne",
     titlePage: titlePageFor(11),
     fontFamily: "Inter, Helvetica, Arial, sans-serif",
     fontSizePt: 11,
@@ -122,7 +122,7 @@ export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
      "* * *"), traduites dans le système de modèles de Feuillets. */
   romanSimple: {
     key: "romanSimple",
-    label: "Roman simple",
+    label: "Roman",
     titlePage: titlePageFor(14),
     fontFamily: "Baskerville, Georgia, serif",
     fontSizePt: 14,
@@ -176,7 +176,7 @@ export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
      l'exige pas au niveau des sous-titres. */
   apa: {
     key: "apa",
-    label: "APA (7e édition)",
+    label: "APA 7 — base",
     titlePage: titlePageFor(12),
     fontFamily: "'Times New Roman', Times, serif",
     fontSizePt: 12,
@@ -203,7 +203,7 @@ export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
      convention normale d'une thèse — mais pas les sous-sections. */
   these: {
     key: "these",
-    label: "Thèse",
+    label: "Thèse — base",
     titlePage: titlePageFor(12),
     fontFamily: "'Times New Roman', Times, serif",
     fontSizePt: 12,
@@ -221,6 +221,11 @@ export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
     },
   },
 };
+
+/** Catalogue intégré proposé dans l'interface, distinct du registre complet
+ * afin que les anciennes clés restent résolubles sans encombrer un nouveau
+ * projet. L'ordre est contractuel pour les sélecteurs de gabarits. */
+export const BUILTIN_TEMPLATE_CATALOG = ["classique", "romanSimple", "moderne", "apa", "these"] as const;
 
 /** Traduit un modèle vers une carte {h1?,h2?,h3?} uniforme : priorité au
  * champ `headings` (nouveau, plusieurs niveaux) ; à défaut, traduit
@@ -319,7 +324,20 @@ export function templateToCss(tpl: ExportTemplate) {
     "}",
     ...headingRules,
     tpl.blockquote
-      ? `blockquote { font-style: ${tpl.blockquote.italic ? "italic" : "normal"}; color: ${tpl.blockquote.colorHex || "inherit"}; }`
+      ? (() => {
+        const quote = tpl.blockquote;
+        const rules = [`font-style: ${quote.italic ? "italic" : "normal"};`, `color: ${quote.colorHex || "inherit"};`];
+        if (quote.fontFamily) rules.push(`font-family: ${quote.fontFamily};`);
+        if (quote.fontSizePt != null) rules.push(`font-size: ${quote.fontSizePt}pt;`);
+        if (quote.lineHeight != null) rules.push(`line-height: ${quote.lineHeight};`);
+        if (quote.align) rules.push(`text-align: ${quote.align};`);
+        if (quote.marginTopPt != null) rules.push(`margin-top: ${quote.marginTopPt}pt;`);
+        if (quote.marginBottomPt != null) rules.push(`margin-bottom: ${quote.marginBottomPt}pt;`);
+        if (quote.marginLeftPt != null) rules.push(`margin-left: ${quote.marginLeftPt}pt;`);
+        if (quote.marginRightPt != null) rules.push(`margin-right: ${quote.marginRightPt}pt;`);
+        const indent = quote.firstLineIndentPt != null ? `\nblockquote p { text-indent: ${quote.firstLineIndentPt}pt; }` : "";
+        return `blockquote { ${rules.join(" ")} }${indent}`;
+      })()
       : "",
     `hr { border: none; text-align: center; margin: 2em 0; } hr::before { content: "${tpl.sceneDivider || "* * *"}"; }`,
     "figure { margin: 1em auto; text-align: center; max-width: 100%; }",

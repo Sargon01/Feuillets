@@ -142,7 +142,7 @@ test("EditionLayoutView : sélecteur Gabarit peuplé par listExportTemplates, va
     const options = select.children.map((o) => o.value);
     assert.ok(options.includes("classique"));
     assert.ok(options.includes("moderne"));
-    assert.ok(options.length >= 7, "tous les modèles intégrés sont listés");
+    assert.equal(options.length, 5, "seuls les cinq gabarits intégrés proposés sont listés");
   } finally {
     restore();
   }

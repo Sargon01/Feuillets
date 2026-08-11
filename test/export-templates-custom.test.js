@@ -14,6 +14,7 @@ import {
   customTemplateFile,
   renameCustomTemplate,
   deleteCustomTemplate,
+  exportBuiltInTemplates,
 } from "../src/services/export-templates-custom.js";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
 import { normalizeLegacyTemplate } from "../src/services/export-template-v2.js";
@@ -382,4 +383,39 @@ test("gabarit intégré : sans fichier custom, ni renommage ni suppression ne so
   assert.deepEqual(await deleteCustomTemplate(app, settings, "classique"), { deleted: true, activeChanged: false });
   assert.equal(settings.exportTemplate, "classique");
   assert.equal((await resolveExportTemplate(app, settings, "classique")).label, EXPORT_TEMPLATES.classique.label);
+});
+
+test("listExportTemplates : catalogue proposé, historiques actifs et personnalisés gardent leur visibilité et leur priorité", async () => {
+  const project = new TFolder("Projet"); const manuscript = new TFolder("Projet/Manuscrit"); const resources = new TFolder("Projet/Resources"); const layouts = new TFolder("Projet/Resources/Layouts");
+  const customApa = new TFile("Projet/Resources/Layouts/apa.md"); const ulysses = new TFile("Projet/Resources/Layouts/ulysses.md"); const word = new TFile("Projet/Resources/Layouts/word.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; customApa.parent = layouts; ulysses.parent = layouts; word.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [customApa, ulysses, word];
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, customApa, ulysses, word]);
+  const app = { vault, fileManager, metadataCache: { getFileCache: (file) => ({ frontmatter: file === customApa ? { label: "APA maison", fontSizePt: 13 } : file === ulysses ? { label: "Import Ulysses", fontSizePt: 11 } : file === word ? { label: "Import Word", fontSizePt: 11 } : {} }) } };
+  const settings = { projectFolder: manuscript.path, exportTemplate: "classique" };
+
+  const fresh = await listExportTemplates(app, settings);
+  assert.deepEqual(fresh.map((tpl) => tpl.key), ["classique", "romanSimple", "moderne", "apa", "these", "ulysses", "word"]);
+  assert.equal(fresh.find((tpl) => tpl.key === "apa").label, "APA maison");
+  assert.equal(fresh.some((tpl) => tpl.key === "tapuscrit"), false);
+  assert.equal(fresh.some((tpl) => tpl.key === "romanFrancais"), false);
+
+  settings.exportTemplate = "tapuscrit";
+  assert.ok((await listExportTemplates(app, settings)).some((tpl) => tpl.key === "tapuscrit"));
+  settings.exportTemplate = "romanFrancais";
+  assert.ok((await listExportTemplates(app, settings)).some((tpl) => tpl.key === "romanFrancais"));
+  assert.equal((await resolveExportTemplate(app, settings, "tapuscrit")).key, "tapuscrit");
+  assert.equal((await resolveExportTemplateV2(app, settings, "romanFrancais")).body.fontFamily, EXPORT_TEMPLATES.romanFrancais.fontFamily);
+});
+
+test("exportBuiltInTemplates : ne matérialise que les cinq gabarits proposés", async () => {
+  const project = new TFolder("Projet"); const manuscript = new TFolder("Projet/Manuscrit"); manuscript.parent = project; project.children = [manuscript];
+  const { vault, fileManager } = createFakeVault([project, manuscript]);
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const count = await exportBuiltInTemplates(app, { projectFolder: manuscript.path });
+  assert.equal(count, 5);
+  for (const key of ["classique", "romanSimple", "moderne", "apa", "these"]) assert.ok(vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Layout/${key}.md`));
+  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/tapuscrit.md"), null);
+  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/romanFrancais.md"), null);
+  assert.equal((await ensureTemplateFile(app, { projectFolder: manuscript.path }, "tapuscrit"))?.basename, "tapuscrit");
 });

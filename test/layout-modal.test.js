@@ -229,6 +229,36 @@ test("LayoutModal indique la rubrique active et édite un seul niveau de titre �
   }
 });
 
+test("LayoutModal : l'inspecteur Citation enregistre et efface les surcharges locales", async () => {
+  const restoreSetting = installSettingStub();
+  try {
+    const { modal, calls } = createModal();
+    await modal.onOpen();
+    modal.select("blockquote");
+    const texts = controls(modal.inspectorEl, "text");
+    const dropdowns = controls(modal.inspectorEl, "dropdown");
+    assert.equal(texts.length, 10);
+    assert.equal(dropdowns.length, 2);
+    await texts[0].change("Futura");
+    await texts[1].change("13");
+    await texts[2].change("1.2");
+    await texts[3].change("8");
+    await texts[4].change("12");
+    await texts[5].change("13");
+    await texts[6].change("10");
+    await texts[7].change("11");
+    await dropdowns[0].change("center");
+    await dropdowns[1].change("false");
+    await texts[8].change("#123456");
+    assert.deepEqual(modal.template.blockquote, { fontFamily: "Futura", fontSizePt: 13, lineHeight: 1.2, firstLineIndentPt: 8, marginLeftPt: 12, marginRightPt: 13, marginTopPt: 10, marginBottomPt: 11, align: "center", italic: false, colorHex: "#123456" });
+    assert.deepEqual(calls.frontmatter.at(-1).frontmatter.blockquote, modal.template.blockquote);
+    await texts[0].change("");
+    await texts[1].change("");
+    assert.equal(modal.template.blockquote.fontFamily, undefined);
+    assert.equal(modal.template.blockquote.fontSizePt, undefined);
+  } finally { restoreSetting(); }
+});
+
 test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs V2 sans écriture dans les réglages globaux", async () => {
   const restoreSetting = installSettingStub();
   try {

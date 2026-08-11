@@ -6,6 +6,7 @@ import {
   cmToPt,
   templateToCss,
   templatePrintCss,
+  BUILTIN_TEMPLATE_CATALOG,
   marginsFor,
   normalizeHeadings,
   titleRoleCss,
@@ -95,6 +96,13 @@ test("gabarits intégrés de référence : classique, APA et thèse", () => {
   );
 });
 
+test("catalogue intégré : cinq gabarits proposés dans l'ordre et avec les libellés attendus", () => {
+  assert.deepEqual(BUILTIN_TEMPLATE_CATALOG, ["classique", "romanSimple", "moderne", "apa", "these"]);
+  assert.deepEqual(BUILTIN_TEMPLATE_CATALOG.map((key) => EXPORT_TEMPLATES[key].label), ["Manuscrit éditeur", "Roman", "Document moderne", "APA 7 — base", "Thèse — base"]);
+  assert.ok(EXPORT_TEMPLATES.tapuscrit);
+  assert.ok(EXPORT_TEMPLATES.romanFrancais);
+});
+
 test("templateToCss", async (t) => {
   await t.test("reflète la police et l'alignement du modèle", () => {
     const css = templateToCss(EXPORT_TEMPLATES.classique);
@@ -155,6 +163,12 @@ test("templateToCss", async (t) => {
     assert.ok(css.includes("h1 { font-family: Futura; page-break-before: avoid; font-size: 33pt; }"));
     assert.ok(css.includes("h2 { font-family: Futura; page-break-before: avoid; font-size: 22pt; }"));
     assert.ok(css.includes("h3 { font-family: Cochin; page-break-before: always; }"));
+  });
+
+  await t.test("citation : les surcharges locales sont traduites sans changer le repli historique", () => {
+    const css = templateToCss({ ...EXPORT_TEMPLATES.classique, blockquote: { fontFamily: "Futura", fontSizePt: 13, lineHeight: 1.2, align: "center", firstLineIndentPt: 9, marginTopPt: 10, marginBottomPt: 11, marginLeftPt: 12, marginRightPt: 13, italic: false, colorHex: "#123456" } });
+    for (const rule of ["font-family: Futura;", "font-size: 13pt;", "line-height: 1.2;", "text-align: center;", "margin-top: 10pt;", "margin-bottom: 11pt;", "margin-left: 12pt;", "margin-right: 13pt;", "font-style: normal;", "color: #123456;", "blockquote p { text-indent: 9pt; }"]) assert.ok(css.includes(rule), rule);
+    assert.equal(templateToCss({ ...EXPORT_TEMPLATES.classique, blockquote: {} }).includes("blockquote { font-style: normal; color: inherit; }"), true);
   });
 
   await t.test("apa : pas de saut de page systématique, 3 niveaux de titres distincts", () => {
