@@ -24,17 +24,63 @@ function profileFor(key: string): ExportTemplateV2["profile"] {
   return "document";
 }
 
-function cloneHeadings(tpl: ExportTemplate): ExportTemplateV2["headings"] {
-  if (tpl.headings) {
-    return Object.fromEntries(
-      Object.entries(tpl.headings).map(([level, style]) => [level, style ? { ...style } : style])
-    ) as ExportTemplateV2["headings"];
-  }
-  return tpl.chapterTitle ? { h1: { ...tpl.chapterTitle } } : {};
+const HEADING_LEVELS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
+
+function cloneStyle(style: HeadingStyle | undefined): HeadingStyle {
+  return style ? { ...style } : {};
 }
 
-function hasAny(settings: Partial<FeuilletsSettings> | undefined, keys: Array<keyof FeuilletsSettings>): boolean {
-  return !!settings && keys.some((key) => settings[key] !== undefined);
+function normalizedHeadings(tpl: ExportTemplate): ExportTemplateV2["headings"] {
+  const source = tpl.headings || (tpl.chapterTitle ? { h1: tpl.chapterTitle } : null);
+  const defaults = source ? {} : { h1: { pageBreakBefore: true }, h2: { pageBreakBefore: true } };
+  return Object.fromEntries(HEADING_LEVELS.map((level) => [level, cloneStyle(source?.[level as keyof typeof source] || defaults[level as keyof typeof defaults])])) as ExportTemplateV2["headings"];
+}
+
+function cloneTitlePage(titlePage: ExportTemplate["titlePage"] | ExportTemplateV2["titlePage"] | undefined): ExportTemplateV2["titlePage"] {
+  return { styles: Object.fromEntries(Object.entries(titlePage?.styles ?? {}).map(([role, style]) => [role, { ...style }])) };
+}
+
+/** Rend un V2 existant complet, même s'il provient d'une première version
+ * partielle du format. Cette normalisation est pure et ne relit jamais un
+ * gabarit intégré. */
+export function normalizeV2Template(tpl: ExportTemplateV2): ExportTemplateV2 {
+  const page = tpl.page || {} as ExportTemplateV2["page"];
+  const body = tpl.body || {} as ExportTemplateV2["body"];
+  const suppliedHeadings = tpl.headings || {};
+  return {
+    version: 2,
+    profile: tpl.profile || "document",
+    page: {
+      size: page.size || "A4",
+      orientation: page.orientation === "landscape" ? "landscape" : "portrait",
+      marginsCm: cloneMargins(page.marginsCm || DEFAULT_MARGINS),
+      mirrorMargins: !!page.mirrorMargins,
+      columns: { count: page.columns?.count ?? 1, gutterPt: page.columns?.gutterPt ?? 0 },
+    },
+    body: {
+      fontFamily: body.fontFamily || "'Times New Roman', Times, serif",
+      fontSizePt: body.fontSizePt ?? 12,
+      lineHeight: body.lineHeight ?? 1.5,
+      align: body.align || "left",
+      firstLineIndentPt: body.firstLineIndentPt ?? 0,
+      paragraphSpacingBeforePt: body.paragraphSpacingBeforePt ?? 0,
+      paragraphSpacingAfterPt: body.paragraphSpacingAfterPt ?? 0,
+      hyphenation: !!body.hyphenation,
+    },
+    headings: Object.fromEntries(HEADING_LEVELS.map((level) => [level, cloneStyle(suppliedHeadings[level])])) as ExportTemplateV2["headings"],
+    blockquote: tpl.blockquote ? { ...tpl.blockquote } : {},
+    sceneDivider: tpl.sceneDivider ?? "",
+    header: {
+      enabled: tpl.header?.enabled !== false, left: tpl.header?.left ?? "{title}", center: tpl.header?.center ?? "", right: tpl.header?.right ?? "{author}",
+      distanceCm: tpl.header?.distanceCm ?? 0.75, bodyGapPt: tpl.header?.bodyGapPt ?? 3, differentOddEven: !!tpl.header?.differentOddEven,
+    },
+    footer: {
+      enabled: tpl.footer?.enabled !== false, left: tpl.footer?.left ?? "", center: tpl.footer?.center ?? "", right: tpl.footer?.right ?? "Page {page} sur {pages}",
+      distanceCm: tpl.footer?.distanceCm ?? 0.75, bodyGapPt: tpl.footer?.bodyGapPt ?? 3,
+    },
+    firstPage: { hideHeader: tpl.firstPage?.hideHeader !== false, pageNumberPosition: tpl.firstPage?.pageNumberPosition ?? "right" },
+    titlePage: cloneTitlePage(tpl.titlePage),
+  };
 }
 
 /** Transforme une définition legacy et, facultativement, ses réglages PDF
@@ -59,17 +105,7 @@ export function normalizeLegacyTemplate(
     }
     : baseMargins;
 
-  const headerKeys: Array<keyof FeuilletsSettings> = [
-    "pdfEnableHeaders", "pdfHeaderLeft", "pdfHeaderCenter", "pdfHeaderRight",
-    "pdfHeaderDistanceCm", "pdfHeaderBodyGapPt", "pdfDiffHeaders",
-  ];
-  const footerKeys: Array<keyof FeuilletsSettings> = [
-    "pdfEnableFooters", "pdfFooterLeft", "pdfFooterCenter", "pdfFooterRight",
-    "pdfFooterDistanceCm", "pdfFooterBodyGapPt",
-  ];
-  const firstPageKeys: Array<keyof FeuilletsSettings> = ["pdfHideFirstPageHeader", "pdfPageNumberPosition"];
-
-  return {
+  return normalizeV2Template({
     version: 2,
     profile: profileFor(tpl.key),
     page: {
@@ -77,7 +113,7 @@ export function normalizeLegacyTemplate(
       orientation: legacySettings.pdfOrientation ?? (tpl.pageOrientation === "landscape" ? "landscape" : "portrait"),
       marginsCm,
       mirrorMargins: legacySettings.pdfMirrorMargins ?? false,
-      ...(tpl.columns ? { columns: { ...tpl.columns } } : {}),
+      columns: tpl.columns ? { ...tpl.columns } : { count: 1, gutterPt: 0 },
     },
     body: {
       fontFamily: tpl.fontFamily ?? "'Times New Roman', Times, serif",
@@ -89,36 +125,18 @@ export function normalizeLegacyTemplate(
       paragraphSpacingAfterPt: tpl.paragraphSpacing ? fontSizePt : 0,
       hyphenation: !!tpl.hyphenation,
     },
-    headings: cloneHeadings(tpl),
-    ...(tpl.blockquote ? { blockquote: { ...tpl.blockquote } } : {}),
-    ...(tpl.sceneDivider !== undefined ? { sceneDivider: tpl.sceneDivider } : {}),
-    ...(hasAny(legacySettings, headerKeys) ? {
-      header: {
-        enabled: legacySettings.pdfEnableHeaders,
-        left: legacySettings.pdfHeaderLeft,
-        center: legacySettings.pdfHeaderCenter,
-        right: legacySettings.pdfHeaderRight,
-        distanceCm: legacySettings.pdfHeaderDistanceCm,
-        bodyGapPt: legacySettings.pdfHeaderBodyGapPt,
-        differentOddEven: legacySettings.pdfDiffHeaders,
-      },
-    } : {}),
-    ...(hasAny(legacySettings, footerKeys) ? {
-      footer: {
-        enabled: legacySettings.pdfEnableFooters,
-        left: legacySettings.pdfFooterLeft,
-        center: legacySettings.pdfFooterCenter,
-        right: legacySettings.pdfFooterRight,
-        distanceCm: legacySettings.pdfFooterDistanceCm,
-        bodyGapPt: legacySettings.pdfFooterBodyGapPt,
-      },
-    } : {}),
-    ...(hasAny(legacySettings, firstPageKeys) ? {
-      firstPage: {
-        hideHeader: legacySettings.pdfHideFirstPageHeader,
-        pageNumberPosition: legacySettings.pdfPageNumberPosition,
-      },
-    } : {}),
-    ...(tpl.titlePage ? { titlePage: { styles: Object.fromEntries(Object.entries(tpl.titlePage.styles ?? {}).map(([role, style]) => [role, { ...style }])) } } : {}),
-  };
+    headings: normalizedHeadings(tpl),
+    blockquote: tpl.blockquote ? { ...tpl.blockquote } : {},
+    sceneDivider: tpl.sceneDivider ?? "",
+    header: {
+      enabled: legacySettings.pdfEnableHeaders !== false, left: legacySettings.pdfHeaderLeft ?? "{title}", center: legacySettings.pdfHeaderCenter ?? "", right: legacySettings.pdfHeaderRight ?? "{author}",
+      distanceCm: legacySettings.pdfHeaderDistanceCm ?? 0.75, bodyGapPt: legacySettings.pdfHeaderBodyGapPt ?? 3, differentOddEven: !!legacySettings.pdfDiffHeaders,
+    },
+    footer: {
+      enabled: legacySettings.pdfEnableFooters !== false, left: legacySettings.pdfFooterLeft ?? "", center: legacySettings.pdfFooterCenter ?? "", right: legacySettings.pdfFooterRight ?? "Page {page} sur {pages}",
+      distanceCm: legacySettings.pdfFooterDistanceCm ?? 0.75, bodyGapPt: legacySettings.pdfFooterBodyGapPt ?? 3,
+    },
+    firstPage: { hideHeader: legacySettings.pdfHideFirstPageHeader !== false, pageNumberPosition: legacySettings.pdfPageNumberPosition ?? "right" },
+    titlePage: cloneTitlePage(tpl.titlePage),
+  });
 }

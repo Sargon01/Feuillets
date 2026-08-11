@@ -237,7 +237,7 @@ declare type ExportTemplateV2 = {
     orientation: "portrait" | "landscape";
     marginsCm: Margins;
     mirrorMargins: boolean;
-    columns?: { count: number; gutterPt: number };
+    columns: { count: number; gutterPt: number };
   };
   body: {
     fontFamily: string;
@@ -249,31 +249,31 @@ declare type ExportTemplateV2 = {
     paragraphSpacingAfterPt: number;
     hyphenation: boolean;
   };
-  headings: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle; h4?: HeadingStyle; h5?: HeadingStyle; h6?: HeadingStyle };
-  blockquote?: { italic?: boolean; colorHex?: string };
-  sceneDivider?: string;
-  header?: {
-    enabled?: boolean;
-    left?: string;
-    center?: string;
-    right?: string;
-    distanceCm?: number;
-    bodyGapPt?: number;
-    differentOddEven?: boolean;
+  headings: { h1: HeadingStyle; h2: HeadingStyle; h3: HeadingStyle; h4: HeadingStyle; h5: HeadingStyle; h6: HeadingStyle };
+  blockquote: { italic?: boolean; colorHex?: string };
+  sceneDivider: string;
+  header: {
+    enabled: boolean;
+    left: string;
+    center: string;
+    right: string;
+    distanceCm: number;
+    bodyGapPt: number;
+    differentOddEven: boolean;
   };
-  footer?: {
-    enabled?: boolean;
-    left?: string;
-    center?: string;
-    right?: string;
-    distanceCm?: number;
-    bodyGapPt?: number;
+  footer: {
+    enabled: boolean;
+    left: string;
+    center: string;
+    right: string;
+    distanceCm: number;
+    bodyGapPt: number;
   };
-  firstPage?: {
-    hideHeader?: boolean;
-    pageNumberPosition?: "right" | "center" | "left";
+  firstPage: {
+    hideHeader: boolean;
+    pageNumberPosition: "right" | "center" | "left";
   };
-  titlePage?: { styles?: Record<string, TitlePageStyle> };
+  titlePage: { styles: Record<string, TitlePageStyle> };
 };
 
 /** État persistant des fils narratifs. Les clés sont les valeurs de `thread`

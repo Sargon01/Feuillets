@@ -4,7 +4,7 @@ import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from ".
 import { fmOf } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
 import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
-import { normalizeLegacyTemplate } from "./export-template-v2.js";
+import { normalizeLegacyTemplate, normalizeV2Template } from "./export-template-v2.js";
 
 /**
  * @typedef {import("obsidian").App} App
@@ -66,7 +66,7 @@ function templateV2FromFrontmatter(frontmatter: Record<string, unknown>): Export
   if (frontmatter.version !== 2 || !frontmatter.page || !frontmatter.body) return null;
   // Le frontmatter est lu comme données utilisateur : la copie évite que la
   // normalisation V2 ou son appelant ne puisse modifier le cache Obsidian.
-  return JSON.parse(JSON.stringify(frontmatter)) as ExportTemplateV2;
+  return normalizeV2Template(JSON.parse(JSON.stringify(frontmatter)) as ExportTemplateV2);
 }
 
 function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" | "label" | "custom"> {
@@ -82,11 +82,11 @@ function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" |
     hyphenation: tpl.body.hyphenation,
     marginsCm: { ...tpl.page.marginsCm },
     pageOrientation: tpl.page.orientation,
-    ...(tpl.page.columns ? { columns: { ...tpl.page.columns } } : {}),
+    columns: { ...tpl.page.columns },
     ...(tpl.blockquote ? { blockquote: { ...tpl.blockquote } } : {}),
-    ...(tpl.sceneDivider !== undefined ? { sceneDivider: tpl.sceneDivider } : {}),
-    headings: Object.fromEntries(Object.entries(tpl.headings).map(([level, style]) => [level, style ? { ...style } : style])),
-    ...(tpl.titlePage ? { titlePage: JSON.parse(JSON.stringify(tpl.titlePage)) } : {}),
+    sceneDivider: tpl.sceneDivider,
+    headings: Object.fromEntries(Object.entries(tpl.headings).map(([level, style]) => [level, { ...style }])),
+    titlePage: JSON.parse(JSON.stringify(tpl.titlePage)),
   };
 }
 
@@ -95,10 +95,8 @@ function v2FileFields(tpl: ExportTemplateV2, label: string): Record<string, unkn
   // qui ne consomme pas encore V2. Ils sont une projection explicite de V2,
   // jamais une fusion implicite avec « classique ».
   return { version: 2, profile: tpl.profile, page: tpl.page, body: tpl.body, headings: tpl.headings,
-    ...(tpl.blockquote ? { blockquote: tpl.blockquote } : {}),
-    ...(tpl.sceneDivider !== undefined ? { sceneDivider: tpl.sceneDivider } : {}),
-    ...(tpl.header ? { header: tpl.header } : {}), ...(tpl.footer ? { footer: tpl.footer } : {}),
-    ...(tpl.firstPage ? { firstPage: tpl.firstPage } : {}), ...(tpl.titlePage ? { titlePage: tpl.titlePage } : {}),
+    blockquote: tpl.blockquote, sceneDivider: tpl.sceneDivider, header: tpl.header, footer: tpl.footer,
+    firstPage: tpl.firstPage, titlePage: tpl.titlePage,
     ...legacyFieldsFromV2(tpl), label };
 }
 

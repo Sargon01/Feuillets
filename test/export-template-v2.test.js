@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
-import { normalizeLegacyTemplate } from "../src/services/export-template-v2.js";
+import { normalizeLegacyTemplate, normalizeV2Template } from "../src/services/export-template-v2.js";
 
 test("normalizeLegacyTemplate : classique devient un manuscrit V2", () => {
   const result = normalizeLegacyTemplate(EXPORT_TEMPLATES.classique);
@@ -14,6 +14,13 @@ test("normalizeLegacyTemplate : classique devient un manuscrit V2", () => {
     align: "justify", firstLineIndentPt: 18, paragraphSpacingBeforePt: 0,
     paragraphSpacingAfterPt: 0, hyphenation: true,
   });
+  assert.deepEqual(result.page.columns, { count: 1, gutterPt: 0 });
+  assert.deepEqual(Object.keys(result.headings), ["h1", "h2", "h3", "h4", "h5", "h6"]);
+  assert.deepEqual(result.headings.h4, {});
+  assert.deepEqual(result.header, { enabled: true, left: "{title}", center: "", right: "{author}", distanceCm: 0.75, bodyGapPt: 3, differentOddEven: false });
+  assert.deepEqual(result.footer, { enabled: true, left: "", center: "", right: "Page {page} sur {pages}", distanceCm: 0.75, bodyGapPt: 3 });
+  assert.deepEqual(result.firstPage, { hideHeader: true, pageNumberPosition: "right" });
+  assert.deepEqual(result.titlePage, { styles: EXPORT_TEMPLATES.classique.titlePage.styles });
 });
 
 test("normalizeLegacyTemplate : APA et Thèse deviennent des profils académiques", () => {
@@ -34,14 +41,57 @@ test("normalizeLegacyTemplate : chapterTitle ne devient h1 que sans headings", (
     key: "roman", label: "Roman", chapterTitle: { fontSizePt: 24 }, headings: { h1: { fontSizePt: 18 }, h2: { bold: true } },
   });
 
-  assert.deepEqual(chapterOnly.headings, { h1: { fontSizePt: 24, align: "center" } });
-  assert.deepEqual(headingsWin.headings, { h1: { fontSizePt: 18 }, h2: { bold: true } });
+  assert.deepEqual(chapterOnly.headings, { h1: { fontSizePt: 24, align: "center" }, h2: {}, h3: {}, h4: {}, h5: {}, h6: {} });
+  assert.deepEqual(headingsWin.headings, { h1: { fontSizePt: 18 }, h2: { bold: true }, h3: {}, h4: {}, h5: {}, h6: {} });
 });
 
 test("normalizeLegacyTemplate : conserve les titres H1-H3 existants", () => {
   const result = normalizeLegacyTemplate(EXPORT_TEMPLATES.these);
 
-  assert.deepEqual(result.headings, EXPORT_TEMPLATES.these.headings);
+  assert.deepEqual(result.headings.h1, EXPORT_TEMPLATES.these.headings.h1);
+  assert.deepEqual(result.headings.h2, EXPORT_TEMPLATES.these.headings.h2);
+  assert.deepEqual(result.headings.h3, EXPORT_TEMPLATES.these.headings.h3);
+  assert.deepEqual(result.headings.h4, {});
+});
+
+test("normalizeLegacyTemplate : la sortie V2 ne contient aucun champ legacy", () => {
+  const result = normalizeLegacyTemplate({
+    key: "ancien", label: "Ancien", marginCm: 2, indent: true, indentPt: 24,
+    paragraphSpacing: true, paragraphSpacingPt: 8, pageOrientation: "landscape", columns: { count: 2, gutterPt: 12 },
+  });
+  const serialized = JSON.stringify(result);
+
+  for (const field of ["indent", "indentPt", "paragraphSpacing", "paragraphSpacingPt", "marginCm", "pageOrientation", "chapterTitle"]) {
+    assert.equal(serialized.includes(`\"${field}\"`), false, `${field} ne doit jamais sortir en V2`);
+  }
+  assert.equal(result.body.firstLineIndentPt, 24);
+  assert.equal(result.body.paragraphSpacingBeforePt, 8);
+  assert.equal(result.body.paragraphSpacingAfterPt, 12);
+  assert.deepEqual(result.page.columns, { count: 2, gutterPt: 12 });
+});
+
+test("normalizeV2Template : un V2 existant est complété sans perte ni mutation", () => {
+  const input = {
+    version: 2, profile: "manuscript", page: { size: "A5", orientation: "landscape", marginsCm: { top: 1, bottom: 2, left: 3, right: 4 }, mirrorMargins: true, columns: { count: 2, gutterPt: 18 } },
+    body: { fontFamily: "Georgia", fontSizePt: 13, lineHeight: 1.4, align: "justify", firstLineIndentPt: 20, paragraphSpacingBeforePt: 2, paragraphSpacingAfterPt: 4, hyphenation: true },
+    headings: { h1: { bold: true }, h2: {}, h3: {}, h4: {}, h5: {}, h6: { italic: true } },
+    blockquote: { italic: true, colorHex: "#123456" }, sceneDivider: "***",
+    header: { enabled: true, left: "L", center: "C", right: "R", distanceCm: 1, bodyGapPt: 4, differentOddEven: true },
+    footer: { enabled: false, left: "", center: "", right: "F", distanceCm: 2, bodyGapPt: 5 },
+    firstPage: { hideHeader: false, pageNumberPosition: "center" }, titlePage: { styles: { titre: { fontSizePt: 30 } } },
+  };
+  const before = structuredClone(input);
+  const result = normalizeV2Template(input);
+  result.page.marginsCm.left = 99;
+  result.headings.h1.bold = false;
+  result.titlePage.styles.titre.fontSizePt = 10;
+
+  assert.equal(result.version, 2);
+  assert.equal(result.profile, "manuscript");
+  assert.equal(result.page.size, "A5");
+  assert.equal(result.body.fontFamily, "Georgia");
+  assert.equal(result.headings.h6.italic, true);
+  assert.deepEqual(input, before);
 });
 
 test("normalizeLegacyTemplate : intègre les réglages legacy de page, en-tête et pied", () => {

@@ -118,7 +118,9 @@ test("export templates custom V2 : un ancien fichier reste lisible sans fusion i
 
   assert.equal(legacy.ancien.fontFamily, "Georgia, serif", "la voie legacy conserve sa compatibilité publique");
   assert.equal(v2.ancien.body.fontFamily, "Georgia, serif");
-  assert.deepEqual(v2.ancien.headings, {}, "V2 ne récupère jamais les titres de Classique");
+  assert.deepEqual(v2.ancien.headings, {
+    h1: { pageBreakBefore: true }, h2: { pageBreakBefore: true }, h3: {}, h4: {}, h5: {}, h6: {},
+  }, "V2 ne récupère jamais les titres de Classique");
   assert.equal(v2.ancien.profile, "document");
   assert.deepEqual(frontmatter, { label: "Ancien", fontFamily: "Georgia, serif", fontSizePt: 11, hyphenation: false });
 });
@@ -225,6 +227,9 @@ test("duplicateExportTemplate : écrit une copie V2 de Classique avec le profil 
 
   assert.match(file.content, /version: 2/);
   assert.match(file.content, /profile: manuscript/);
+  for (const field of ["page", "body", "headings", "header", "footer", "firstPage", "titlePage", "blockquote", "sceneDivider"]) {
+    assert.match(file.content, new RegExp(`${field}:`), `${field} doit être écrit dans la copie V2`);
+  }
 });
 
 test("duplicateExportTemplate : conserve le profil document d'un gabarit intégré", async () => {
@@ -248,6 +253,36 @@ test("resolveExportTemplateV2 : APA et Thèse conservent leur profil académique
   assert.equal(apa.profile, "academic");
   assert.equal(these.profile, "academic");
   assert.deepEqual(EXPORT_TEMPLATES, before);
+});
+
+test("loadCustomTemplatesV2 : un fichier V2 complet est conservé et isolé des données source", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const resources = new TFolder("Projet/Resources");
+  const layouts = new TFolder("Projet/Resources/Layouts");
+  const custom = new TFile("Projet/Resources/Layouts/complet.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; custom.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [custom];
+  const frontmatter = {
+    version: 2, profile: "document", page: { size: "A5", orientation: "portrait", marginsCm: { top: 1, bottom: 1, left: 1, right: 1 }, mirrorMargins: false, columns: { count: 1, gutterPt: 0 } },
+    body: { fontFamily: "Georgia", fontSizePt: 11, lineHeight: 1.5, align: "left", firstLineIndentPt: 0, paragraphSpacingBeforePt: 0, paragraphSpacingAfterPt: 0, hyphenation: false },
+    headings: { h1: {}, h2: {}, h3: {}, h4: {}, h5: {}, h6: {} }, blockquote: {}, sceneDivider: "",
+    header: { enabled: true, left: "L", center: "", right: "R", distanceCm: 1, bodyGapPt: 2, differentOddEven: false },
+    footer: { enabled: true, left: "", center: "", right: "F", distanceCm: 1, bodyGapPt: 2 },
+    firstPage: { hideHeader: true, pageNumberPosition: "right" }, titlePage: { styles: { titre: { fontSizePt: 22 } } },
+  };
+  const before = structuredClone(frontmatter);
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, custom]);
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter }) } };
+
+  const templates = await loadCustomTemplatesV2(app, { projectFolder: manuscript.path });
+  templates.complet.body.fontSizePt = 99;
+  templates.complet.titlePage.styles.titre.fontSizePt = 9;
+
+  assert.equal(templates.complet.profile, "document");
+  assert.equal(templates.complet.page.size, "A5");
+  assert.equal(templates.complet.header.left, "L");
+  assert.deepEqual(frontmatter, before);
 });
 
 test("duplicateExportTemplate : aucun dossier projet -> null, sans lever", async () => {
