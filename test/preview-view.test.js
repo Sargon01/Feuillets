@@ -417,6 +417,13 @@ test("iframe d’aperçu — l’écouteur de chargement est branché avant l’
 test("PreviewView : demande explicitement une pagination sans césure", async () => {
   const source = await readFile(new URL("../src/views/preview-view.js", import.meta.url), "utf8");
   assert.match(source, /paginateManuscript\([\s\S]*?hyphenationOverride: false/);
+  assert.doesNotMatch(source, /tpl\.hyphenation\s*=/);
+});
+
+test("Preview : le CSS final neutralise la césure sans modifier le gabarit", async () => {
+  const source = await readFile(new URL("../src/ui/template-preview.js", import.meta.url), "utf8");
+  assert.match(source, /body, \.pdf-page-content \{ hyphens: none; \}/);
+  assert.doesNotMatch(source, /tpl\.hyphenation\s*=/);
 });
 
 class FakeResizeObserver {

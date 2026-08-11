@@ -7,6 +7,7 @@ import {
   loadCustomTemplates,
   duplicateExportTemplate,
   listExportTemplates,
+  resolveExportTemplate,
 } from "../src/services/export-templates-custom.js";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
 
@@ -69,6 +70,32 @@ test("export templates custom : conserve les valeurs valides et ignore les valeu
   assert.equal(templates.invalide.fontFamily, EXPORT_TEMPLATES.classique.fontFamily);
   assert.equal(templates.invalide.fontSizePt, EXPORT_TEMPLATES.classique.fontSizePt);
   assert.equal(templates.invalide.lineHeight, EXPORT_TEMPLATES.classique.lineHeight);
+});
+
+test("export templates custom : un gabarit personnalisé de même clé est résolu avant l'intégré", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const resources = new TFolder("Projet/Resources");
+  const layouts = new TFolder("Projet/Resources/Layouts");
+  const customApa = new TFile("Projet/Resources/Layouts/apa.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; customApa.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [customApa];
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, customApa]);
+  const app = {
+    vault,
+    fileManager,
+    metadataCache: { getFileCache: (file) => ({ frontmatter: file === customApa ? { label: "APA maison", fontSizePt: 13, hyphenation: true } : {} }) },
+  };
+
+  const resolved = await resolveExportTemplate(app, { projectFolder: manuscript.path }, "apa");
+
+  assert.equal(resolved.key, "apa");
+  assert.equal(resolved.label, "APA maison");
+  assert.equal(resolved.fontSizePt, 13);
+  assert.equal(resolved.hyphenation, true);
+  assert.equal(resolved.custom, true);
+  assert.equal(resolved.fontFamily, EXPORT_TEMPLATES.classique.fontFamily, "le personnalisé conserve sa résolution actuelle depuis Classique");
+  assert.notEqual(resolved, EXPORT_TEMPLATES.apa);
 });
 
 /* ---------------------- duplicateExportTemplate (Phase 11) --------------- */

@@ -27,6 +27,74 @@ test("cmToPt", () => {
   assert.equal(cmToPt(0), 0);
 });
 
+test("gabarits intégrés de référence : classique, APA et thèse", () => {
+  const classique = EXPORT_TEMPLATES.classique;
+  assert.deepEqual(
+    {
+      fontFamily: classique.fontFamily,
+      fontSizePt: classique.fontSizePt,
+      lineHeight: classique.lineHeight,
+      align: classique.align,
+      indent: classique.indent,
+      hyphenation: classique.hyphenation,
+    },
+    {
+      fontFamily: "'Times New Roman', Times, serif",
+      fontSizePt: 12,
+      lineHeight: 2,
+      align: "justify",
+      indent: true,
+      hyphenation: true,
+    }
+  );
+
+  const apa = EXPORT_TEMPLATES.apa;
+  assert.deepEqual(
+    {
+      fontFamily: apa.fontFamily,
+      fontSizePt: apa.fontSizePt,
+      lineHeight: apa.lineHeight,
+      align: apa.align,
+      marginCm: apa.marginCm,
+      headings: apa.headings,
+    },
+    {
+      fontFamily: "'Times New Roman', Times, serif",
+      fontSizePt: 12,
+      lineHeight: 2,
+      align: "left",
+      marginCm: 2.54,
+      headings: {
+        h1: { fontSizePt: 12, align: "center", bold: true, marginTopPt: 12, marginBottomPt: 12, pageBreakBefore: false },
+        h2: { fontSizePt: 12, align: "left", bold: true, marginTopPt: 12, marginBottomPt: 6, pageBreakBefore: false },
+        h3: { fontSizePt: 12, align: "left", bold: true, italic: true, marginTopPt: 12, marginBottomPt: 6, pageBreakBefore: false },
+      },
+    }
+  );
+
+  const these = EXPORT_TEMPLATES.these;
+  assert.deepEqual(
+    {
+      fontFamily: these.fontFamily,
+      fontSizePt: these.fontSizePt,
+      lineHeight: these.lineHeight,
+      marginsCm: these.marginsCm,
+      headings: these.headings,
+    },
+    {
+      fontFamily: "'Times New Roman', Times, serif",
+      fontSizePt: 12,
+      lineHeight: 1.5,
+      marginsCm: { top: 2.5, bottom: 2.5, left: 3.5, right: 2.5 },
+      headings: {
+        h1: { fontSizePt: 20, align: "left", bold: true, marginTopPt: 0, marginBottomPt: 36, pageBreakBefore: true },
+        h2: { fontSizePt: 16, align: "left", bold: true, marginTopPt: 24, marginBottomPt: 12, pageBreakBefore: false },
+        h3: { fontSizePt: 13, align: "left", bold: true, italic: true, marginTopPt: 18, marginBottomPt: 6, pageBreakBefore: false },
+      },
+    }
+  );
+});
+
 test("templateToCss", async (t) => {
   await t.test("reflète la police et l'alignement du modèle", () => {
     const css = templateToCss(EXPORT_TEMPLATES.classique);
