@@ -95,6 +95,40 @@ export function normalizeV2Template(tpl: ExportTemplateV2): ExportTemplateV2 {
   };
 }
 
+/** Gabarit V2 neuf, neutre et complet pour la création utilisateur.
+ * Cette fabrique ne lit ni n'écrit aucun réglage : l'UI la transmet telle
+ * quelle au chemin canonique createCustomTemplateFromV2(). */
+export function createDefaultExportTemplateV2(): ExportTemplateV2 {
+  return normalizeV2Template({
+    version: 2,
+    profile: "document",
+    page: {
+      size: "A4",
+      orientation: "portrait",
+      marginsCm: cloneMargins(DEFAULT_MARGINS),
+      mirrorMargins: false,
+      columns: { count: 1, gutterPt: 0 },
+    },
+    body: {
+      fontFamily: "'Times New Roman', Times, serif",
+      fontSizePt: 12,
+      lineHeight: 1.5,
+      align: "left",
+      firstLineIndentPt: 0,
+      paragraphSpacingBeforePt: 0,
+      paragraphSpacingAfterPt: 0,
+      hyphenation: false,
+    },
+    headings: { h1: {}, h2: {}, h3: {}, h4: {}, h5: {}, h6: {} },
+    blockquote: {},
+    sceneDivider: "",
+    header: { enabled: true, left: "{title}", center: "", right: "{author}", distanceCm: 0.75, bodyGapPt: 3, differentOddEven: false },
+    footer: { enabled: true, left: "", center: "", right: "Page {page} sur {pages}", distanceCm: 0.75, bodyGapPt: 3 },
+    firstPage: { hideHeader: true, pageNumberPosition: "right" },
+    titlePage: { styles: {} },
+  });
+}
+
 /** Transforme une définition legacy et, facultativement, ses réglages PDF
  * en V2. Les deux entrées sont seulement lues ; tous les objets retournés
  * sont des copies indépendantes. */

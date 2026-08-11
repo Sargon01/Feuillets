@@ -1,7 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
-import { normalizeLegacyTemplate, normalizeV2Template } from "../src/services/export-template-v2.js";
+import { createDefaultExportTemplateV2, normalizeLegacyTemplate, normalizeV2Template } from "../src/services/export-template-v2.js";
+
+test("createDefaultExportTemplateV2 : produit le gabarit document neutre complet", () => {
+  const result = createDefaultExportTemplateV2();
+
+  assert.equal(result.version, 2);
+  assert.equal(result.profile, "document");
+  assert.deepEqual(result.page, {
+    size: "A4", orientation: "portrait", marginsCm: { top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 },
+    mirrorMargins: false, columns: { count: 1, gutterPt: 0 },
+  });
+  assert.deepEqual(result.body, {
+    fontFamily: "'Times New Roman', Times, serif", fontSizePt: 12, lineHeight: 1.5, align: "left",
+    firstLineIndentPt: 0, paragraphSpacingBeforePt: 0, paragraphSpacingAfterPt: 0, hyphenation: false,
+  });
+  assert.deepEqual(result.headings, { h1: {}, h2: {}, h3: {}, h4: {}, h5: {}, h6: {} });
+});
 
 test("normalizeLegacyTemplate : classique devient un manuscrit V2", () => {
   const result = normalizeLegacyTemplate(EXPORT_TEMPLATES.classique);

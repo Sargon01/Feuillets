@@ -1,8 +1,10 @@
 import { Menu, Notice, setIcon, setTooltip, type WorkspaceLeaf } from "obsidian";
 import { t } from "../i18n/index.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { listExportTemplates, duplicateExportTemplate } from "../services/export-templates-custom.js";
+import { listExportTemplates, duplicateExportTemplate, createCustomTemplateFromV2 } from "../services/export-templates-custom.js";
+import { createDefaultExportTemplateV2 } from "../services/export-template-v2.js";
 import { LayoutModal } from "../ui/layout-modal.js";
+import { promptText } from "../ui/basic-modals.js";
 import { ExportPanel } from "../ui/export-panel.js";
 import { UlyssesImportModal } from "../ui/ulysses-import-modal.js";
 import { WordTemplateImportModal } from "../ui/word-template-import-modal.js";
@@ -80,6 +82,7 @@ export class EditionLayoutView extends BaseFeuilletsView {
     more.setAttribute("aria-label", "Options du gabarit");
     more.addEventListener("click", (event) => {
       const menu = new Menu();
+      menu.addItem((item) => item.setTitle(t("editionLayout.newTemplate")).onClick(() => void this.createNewTemplate()));
       menu.addItem((item) => item.setTitle(t("editionLayout.duplicate")).onClick(() => void this.duplicate()));
       menu.addItem((item) => item.setTitle(t("editionLayout.importUlysses")).onClick(() => this.openUlyssesImportModal()));
       menu.addItem((item) => item.setTitle(t("editionLayout.importWord")).onClick(() => this.openWordImportModal()));
@@ -134,6 +137,25 @@ export class EditionLayoutView extends BaseFeuilletsView {
     await this.plugin.saveSettings();
     new Notice(t("editionLayout.duplicated", { label: result.label }));
     await this.render();
+  }
+
+  private async createNewTemplate(): Promise<void> {
+    const label = (await promptText(this.app, t("editionLayout.newTemplate")))?.trim();
+    if (!label) return;
+    const baseKey = label.toLocaleLowerCase().normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "gabarit";
+    const result = await createCustomTemplateFromV2(
+      this.app,
+      this.plugin.settings,
+      baseKey,
+      label,
+      createDefaultExportTemplateV2(),
+    );
+    if (!result) return;
+    await this.plugin.saveSettings();
+    await this.render();
+    new LayoutModal(this.app, this.plugin, result.key, result.label, () => void this.render()).open();
   }
 
   private openUlyssesImportModal(): void {

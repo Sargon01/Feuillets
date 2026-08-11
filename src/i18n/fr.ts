@@ -818,6 +818,7 @@ export const fr = {
   "editionLayout.description": "Gabarit, typographie, marges, en-têtes et pieds de page.",
   "editionLayout.activeTemplate": "Gabarit",
   "editionLayout.editVisually": "Modifier visuellement",
+  "editionLayout.newTemplate": "Nouveau gabarit…",
   "editionLayout.duplicate": "Dupliquer",
   "editionLayout.importUlysses": "Importer Ulysses",
   "editionLayout.importWord": "Importer Word",

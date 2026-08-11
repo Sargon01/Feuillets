@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Menu, TFolder } from "obsidian";
 import { EditionLayoutView } from "../src/views/edition-layout-view.js";
+import { TextPromptModal } from "../src/ui/basic-modals.js";
+import { LayoutModal } from "../src/ui/layout-modal.js";
+import { createFakeVault } from "./helpers/fake-vault.js";
 
 /* Même petit DOM factice que test/edition-composition-view.test.js
  * (convention du dépôt : dupliqué, pas partagé), complété de ce
@@ -94,6 +98,21 @@ function buildPlugin() {
   };
 }
 
+function buildCreationFixture() {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  manuscript.parent = project;
+  project.children = [manuscript];
+  const { vault, fileManager } = createFakeVault([project, manuscript]);
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  let saves = 0;
+  const plugin = {
+    settings: { collapsed: {}, exportTemplate: "classique", projectFolder: manuscript.path },
+    saveSettings: async () => { saves += 1; },
+  };
+  return { app, plugin, saves: () => saves };
+}
+
 test("EditionLayoutView : titre et icône corrects", () => {
   const plugin = buildPlugin();
   const view = new EditionLayoutView({ app: {}, contentEl: new FakeElement("div") }, plugin);
@@ -164,6 +183,54 @@ test("EditionLayoutView : Modifier visuellement et le menu d'options sont prése
     assert.equal(contentEl.querySelectorAll(".feuillets-edition-action-row").length, 1);
     assert.equal(contentEl.querySelectorAll(".setting-item").length, 0);
   } finally {
+    restore();
+  }
+});
+
+test("EditionLayoutView : Nouveau gabarit crée un V2 actif sans écraser une collision et ouvre l'éditeur", async () => {
+  const restore = installDom();
+  const originalPromptOpen = TextPromptModal.prototype.open;
+  const originalLayoutOpen = LayoutModal.prototype.open;
+  let promptResult = null;
+  const opened = [];
+  TextPromptModal.prototype.open = function openPrompt() { this.onResult(promptResult); };
+  LayoutModal.prototype.open = function openLayout() { opened.push({ key: this.templateKey, label: this.templateLabel }); return this; };
+  try {
+    const { app, plugin, saves } = buildCreationFixture();
+    const contentEl = new FakeElement("div");
+    const view = new EditionLayoutView({ app, contentEl }, plugin);
+    await view.onOpen();
+
+    contentEl.querySelector('[aria-label="Options du gabarit"]').click();
+    const menu = Menu.lastShown;
+    assert.deepEqual(menu.items.map((item) => item.title), ["Nouveau gabarit…", "Dupliquer", "Importer Ulysses", "Importer Word"]);
+
+    await view.createNewTemplate();
+    assert.equal(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/gabarit.md"), null, "annulation : aucun fichier");
+    promptResult = "   ";
+    await view.createNewTemplate();
+    assert.equal(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/gabarit.md"), null, "nom vide : aucun fichier");
+
+    promptResult = "Mon modèle";
+    await view.createNewTemplate();
+    const created = app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/mon-modele.md");
+    assert.ok(created, "le nouveau fichier est créé dans Resources/Layout");
+    assert.match(created.content, /version: 2/);
+    assert.match(created.content, /profile: document/);
+    assert.equal(plugin.settings.exportTemplate, "mon-modele");
+    assert.equal(saves(), 1);
+    assert.deepEqual(opened, [{ key: "mon-modele", label: "Mon modèle" }]);
+
+    const firstContent = created.content;
+    await view.createNewTemplate();
+    assert.equal(created.content, firstContent, "la collision ne remplace jamais le premier fichier");
+    assert.ok(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/mon-modele-2.md"));
+    assert.equal(plugin.settings.exportTemplate, "mon-modele-2");
+    assert.equal(saves(), 2);
+    assert.deepEqual(opened.at(-1), { key: "mon-modele-2", label: "Mon modèle" });
+  } finally {
+    TextPromptModal.prototype.open = originalPromptOpen;
+    LayoutModal.prototype.open = originalLayoutOpen;
     restore();
   }
 });

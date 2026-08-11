@@ -818,6 +818,7 @@ export const en = {
   "editionLayout.description": "Template, typography, margins, headers and footers.",
   "editionLayout.activeTemplate": "Template",
   "editionLayout.editVisually": "Edit visually",
+  "editionLayout.newTemplate": "New template…",
   "editionLayout.duplicate": "Duplicate",
   "editionLayout.importUlysses": "Import Ulysses",
   "editionLayout.importWord": "Import Word",
