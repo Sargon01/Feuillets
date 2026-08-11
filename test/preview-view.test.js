@@ -1314,7 +1314,7 @@ function countCompiles(app) {
   return () => n;
 }
 
-test("barre — fil d'Ariane, groupe de droite (Ouvrir ce feuillet, zoom, Export) seulement, pas de Réglages", withRender(async () => {
+test("barre — fil d'Ariane, ouverture du feuillet et zoom seulement", withRender(async () => {
   const { view, toolbar } = await openLoadedView("manuscript");
 
   /* Ouvrir ce feuillet/zoom/Export vivent maintenant dans un vrai conteneur
@@ -1327,8 +1327,8 @@ test("barre — fil d'Ariane, groupe de droite (Ouvrir ce feuillet, zoom, Export
   const icons = toolbar.querySelectorAll(".clickable-icon");
   assert.deepEqual(
     icons.map((icon) => icon.icon),
-    ["file-edit", "download"],
-    "deux icônes Obsidian : Ouvrir ce feuillet, Export — aucun Réglages, aucun « ⋯ »"
+    ["file-edit"],
+    "une icône Obsidian : Ouvrir ce feuillet"
   );
   assert.equal(view.btnMore, undefined, "le menu ⋯ n'existe plus");
   assert.equal(typeof view.openMoreMenu, "undefined", "son code a disparu avec lui");
@@ -1338,23 +1338,21 @@ test("barre — fil d'Ariane, groupe de droite (Ouvrir ce feuillet, zoom, Export
     "aucune icône ⋯ ne subsiste dans la barre"
   );
   assert.equal(view.btnSettings, undefined, "le bouton Réglages n'existe plus du tout");
-  assert.equal(typeof view.openManuscriptSettings, "function", "la capacité elle-même (sans bouton dédié) reste disponible");
   // Scindé sur le conteneur du groupe de droite, pas sur toute la barre : le
   // fil d'Ariane rend lui aussi ses niveaux en BUTTON (voir plus bas).
   assert.equal(
     view.toolbarControlsEl.children.filter((c) => c.tagName === "BUTTON").length,
-    3,
-    "Ouvrir ce feuillet, zoom, Export — le bouton contextuel est présent mais masqué hors Chapitre/Partie"
+    2,
+    "Ouvrir ce feuillet et zoom"
   );
   assert.equal(view.openVisibleEl.classes.has("is-hidden"), true, "aucun bouton visible en mode Manuscrit");
   assert.equal(view.openVisibleEl.getAttribute("aria-label"), "Ouvrir ce feuillet");
   assert.equal(view.openVisibleEl.textContent, "", "une icône, plus un bouton texte");
 
-  /* Le groupe de droite est un VRAI conteneur DOM qui englobe naturellement
-     ses trois commandes — pas une largeur CSS devinée. */
+  /* Le groupe de droite contient les deux commandes de lecture. */
   assert.ok(view.toolbarControlsEl, "le conteneur du groupe de droite existe");
   assert.ok(toolbar.children.includes(view.toolbarControlsEl), "posé directement dans la barre");
-  for (const btn of [view.openVisibleEl, view.zoomLabelEl, view.btnExport]) {
+  for (const btn of [view.openVisibleEl, view.zoomLabelEl]) {
     assert.ok(view.toolbarControlsEl.children.includes(btn), "chaque commande du groupe de droite est un enfant réel de ce conteneur");
   }
 
@@ -1375,34 +1373,6 @@ test("barre — fil d'Ariane, groupe de droite (Ouvrir ce feuillet, zoom, Export
   assert.equal(view.contentEl.querySelector(".feuillets-preview-stylebar"), null);
 
   assert.equal(view.btnBarToggle, null, "aucun ancien bouton séparé");
-}));
-
-test("réglages — aucun panneau dupliqué ; openManuscriptSettings() ouvre directement l'onglet Export central", withRender(async () => {
-  const { view } = await openLoadedView("manuscript");
-
-  // Le panneau local a disparu, avec sa seconde source de vérité.
-  assert.equal(view.contentEl.querySelector(".feuillets-preview-settings"), null);
-  assert.equal(typeof view.renderSettingsPanel, "undefined");
-  assert.equal(typeof view.settingsPanel, "undefined");
-
-  let settingsOpened = 0;
-  let selectedTab = null;
-  let rendered = 0;
-  const settingsTab = { _activeSettingsTab: "Projet", refreshForExternalCallers: () => { rendered++; } };
-  view.app.setting = {
-    open: () => { settingsOpened++; },
-    openTabById: (id) => { selectedTab = id; },
-    activeTab: settingsTab,
-  };
-  // Le bouton Réglages n'existe plus dans la barre flottante, mais la
-  // capacité elle-même reste intacte et directement appelable.
-  await view.openManuscriptSettings();
-  assert.equal(settingsOpened, 1);
-  assert.equal(selectedTab, "feuillets", "doit ouvrir les paramètres Feuillets, pas une vue locale");
-  assert.equal(settingsTab._activeSettingsTab, "Export", "l'onglet Export est sélectionné sans étape intermédiaire");
-  assert.equal(rendered, 1, "l'instance déjà ouverte est réaffichée, jamais dupliquée");
-  assert.equal(typeof view.app.workspace.getRightLeaf, "function", "aucune feuille latérale n'est créée");
-  assert.equal(view.contentEl.querySelectorAll("dialog").length, 0, "aucun modal intermédiaire");
 }));
 
 test("mode Scène — rend le feuillet actif SANS jamais appeler compile()", async () => {
@@ -1545,23 +1515,11 @@ test("mode Manuscrit — la frappe déclenche une seule compilation différée",
   assert.equal(view.statusEl.textContent, "Manuscrit à jour");
 }));
 
-test("modes — la portée s'AFFICHE dans Export mais ne s'y change plus (seul le fil d'Ariane la modifie)", withRender(async () => {
+test("modes — Preview ne contient aucun contrôle d’export", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
 
-  view.btnExport.click();
-  await flush();
-  const label = view.exportPanelEl.querySelector('[aria-label="Portée de l’export"]');
-  assert.ok(label, "le libellé de portée est affiché");
-  /* Phase 1 : le libellé vient directement du CompileScope réel
-     (effectiveExportScope), plus d'un texte de mode — en mode Manuscrit sans
-     portée explicite, effectiveExportScope() résout la portée Projet. */
-  assert.equal(label.textContent, "Projet");
-  /* Plus aucun select capable de changer la portée depuis le panneau */
-  assert.equal(
-    view.exportPanelEl.querySelectorAll('select[aria-label="Portée de l’export"]').length,
-    0,
-    "la portée n'est pas un select dans Export"
-  );
+  assert.equal(view.contentEl.querySelector(".feuillets-preview-export"), null);
+  assert.equal(view.toolbarControlsEl.querySelector('[aria-label="Exporter"]'), null);
 }));
 
 test("suivi de scène — défile vers le feuillet actif en mode Manuscrit, sans bouger si déjà visible", async () => {
@@ -1763,7 +1721,7 @@ test("menu — le zoom est le seul menu restant de la barre", withRender(async (
   assert.equal(titles.includes("Réglages du manuscrit"), false, "les réglages ne vivent pas dans ce menu");
 
   // Aucun autre contrôle de la barre n'ouvre de menu.
-  for (const btn of [view.btnExport, view.openVisibleEl]) {
+  for (const btn of [view.openVisibleEl]) {
     Menu.lastShown = null;
     btn.click();
     await flush();
@@ -2368,19 +2326,20 @@ test("zoom — aucun rendu, aucune compilation, et aucun écouteur hors du viewp
 
 /* ------------------- Barre compacte de style et export ----------------- */
 
-test("barre — les réglages de format et de gabarit restent exclusivement centraux", withRender(async () => {
+test("barre — aucun réglage export dans Preview", withRender(async () => {
   const { view, plugin, toolbar } = await openLoadedView("scene");
   assert.equal(toolbar.children.some((child) => child.tagName === "SELECT"), false);
   assert.equal(view.templateSelectEl, undefined);
   assert.equal(view.formatNoteEl, undefined);
   assert.equal(typeof view.setExportFormat, "undefined");
-  assert.equal(view.exportFormat, "docx");
   assert.equal(plugin.settings.exportTemplate, "classique");
 }));
 
 
-test("export contextuel — portée, format et nom partagent les réglages centraux (Gabarit : voir Édition → Mise en page & export)", withRender(async () => {
-  const { view, app, plugin } = await openLoadedView("scene");
+test("Preview — aucun export contextuel", withRender(async () => {
+  const { view } = await openLoadedView("scene");
+  assert.equal(view.contentEl.querySelector(".feuillets-preview-export"), null);
+  return;
 
   view.btnExport.click();
   await flush();
@@ -2424,8 +2383,10 @@ test("export contextuel — portée, format et nom partagent les réglages centr
   assert.ok(compilesAgain() > 0, "doExport() doit lui aussi déléguer au workflow commun");
 }));
 
-test("panneau Export — repli et réouverture de session ne perdent aucun choix", withRender(async () => {
-  const { view, plugin } = await openLoadedView("manuscript");
+test("Preview — aucun panneau Export", withRender(async () => {
+  const { view } = await openLoadedView("manuscript");
+  assert.equal(view.contentEl.querySelector(".feuillets-preview-export"), null);
+  return;
   view.btnExport.click();
   await flush();
   assert.equal(view.exportPanelEl.hasClass("is-hidden"), false);
@@ -2451,8 +2412,10 @@ test("panneau Export — repli et réouverture de session ne perdent aucun choix
   assert.equal(view.contentEl.querySelector(".feuillets-preview-settings"), null, "aucune vue de réglages supplémentaire");
 }));
 
-test("panneau Export — plus aucun réglage d'en-tête ni de pied de page, ni de sous-section Première page (Phase 3 : déplacée dans Édition)", withRender(async () => {
+test("Preview — les réglages export n’existent plus", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
+  assert.equal(view.contentEl.querySelector(".feuillets-preview-export"), null);
+  return;
   view.btnExport.click();
   await flush();
 
@@ -2474,8 +2437,10 @@ test("panneau Export — plus aucun réglage d'en-tête ni de pied de page, ni d
   assert.equal(view.exportPanelEl.querySelector('[aria-label="Régler visuellement la page de titre"]'), null);
 }));
 
-test("panneau Export — le bouton d’actualisation force un rendu", withRender(async () => {
+test("Preview — rafraîchissement sans panneau Export", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
+  assert.equal(view.contentEl.querySelector(".feuillets-preview-export"), null);
+  return;
   view.btnExport.click();
   await flush();
   let refreshes = 0;
@@ -2601,7 +2566,7 @@ test("boutons — aucun style de fond en ligne, aucune classe maison, état lisi
     ...toolbar.querySelectorAll(".clickable-icon"),
     ...toolbar.querySelectorAll(".feuillets-preview-chip"),
   ];
-  assert.equal(controls.length, 3, "Ouvrir ce feuillet, zoom et Export — pas de Réglages");
+  assert.equal(controls.length, 2, "Ouvrir ce feuillet et zoom");
 
   for (const el of controls) {
     for (const prop of ["background", "background-color", "box-shadow", "border"]) {
@@ -2623,6 +2588,7 @@ test("boutons — aucun style de fond en ligne, aucune classe maison, état lisi
   }
 
   assert.equal(toolbar.children.some((el) => el.hasClass?.("feuillets-preview-breadcrumb")), true);
+  return;
 
   /* Le panneau Export applique la même règle : icônes plates, croix plate,
      aucun fond posé depuis le TypeScript. */

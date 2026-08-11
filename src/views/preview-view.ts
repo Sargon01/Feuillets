@@ -7,20 +7,17 @@ import {
 } from "../services/compile-scope.js";
 import { ItemView, MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_BOARD, VIEW_PREVIEW } from "../constants.js";
-import { openFeuilletsExportSettings } from "../settings/open-export-settings.js";
 import { resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
 import { paginateManuscript } from "../services/export-pdf.js";
 import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
-import { rememberExportScope, runExportWorkflow } from "../services/export-workflow.js";
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
 import { compiledTitleFor, fmOf, shortTitleFor, stripFrontmatter } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
 import { promptText } from "../ui/basic-modals.js";
 import { t } from "../i18n/index.js";
 import { mountTemplatePreview } from "../ui/template-preview.js";
-import { ExportPanel } from "../ui/export-panel.js";
 import { frontTitleCandidates } from "../ui/first-page-panel.js";
 import {
   applyBlockSourceMarkers,
@@ -74,7 +71,6 @@ type PreviewCompileResult = {
 
 type PreviewViewSettings = FeuilletsSettings & {
   exportTemplate: string;
-  exportFormat?: string;
   compileFileName?: string;
   activePreset?: number;
   compilePresets?: unknown[];
@@ -339,15 +335,12 @@ export class PreviewView extends ItemView {
    * (une vraie « capsule ») sans deviner une largeur en CSS. */
   toolbarControlsEl: HTMLElement | null = null;
   zoomLabelEl: HTMLElement | null = null;
-  btnExport: HTMLElement | null = null;
   openVisibleEl: HTMLElement | null = null;
   btnBarToggle: HTMLElement | null = null;
-  exportPanelEl: HTMLElement | null = null;
   /** Panneau Export : composant extrait (voir ui/export-panel.ts), qui ne
    * connaît ni n'importe PreviewView — seuls des callbacks lui sont
    * transmis. PreviewView continue de décider portée, actualisation et
    * export réel. */
-  private exportPanel: ExportPanel | null = null;
   statusEl: HTMLElement | null = null;
   followedEl: HTMLElement | null = null;
   /** Dernier menu ouvert — pour le refermer sur un double-clic de zoom. */
@@ -431,7 +424,6 @@ export class PreviewView extends ItemView {
   async setCompileScope(scope: CompileScope): Promise<void> {
     this.rememberScopedNavigation(scope);
     this.compileScope = scope;
-    rememberExportScope(this.plugin, scope);
     this.updateUI();
     await this.refreshPreview();
   }
@@ -508,7 +500,6 @@ export class PreviewView extends ItemView {
     if (!wasSheetMode && mode === "scene") this.bindSourcePane();
     this.cancelSceneRefresh();
     this.updateUI();
-    await this.exportPanel?.render();
     await this.refreshPreview();
   }
 
@@ -611,16 +602,6 @@ export class PreviewView extends ItemView {
     this.zoomLabelEl = this.chipBtn(this.toolbarControlsEl, `${Math.round(this.zoomScale * 100)} %`, t("preview.zoom.tooltip"), (e) => this.openZoomMenu(e));
     this.zoomLabelEl.addClass("feuillets-preview-zoom-val");
     this.zoomLabelEl.addEventListener("dblclick", () => this.resetZoom());
-
-    this.btnExport = this.iconBtn(this.toolbarControlsEl, "download", t("project.compilation.exportBtn"), () => this.exportPanel?.toggle());
-
-    this.exportPanelEl = view.createDiv({ cls: "feuillets-preview-export is-hidden" });
-    this.exportPanel = new ExportPanel(this.app, this.plugin, this.exportPanelEl, {
-      getScope: () => this.effectiveExportScope(),
-      onPresentationChanged: () => this.refreshPreview(),
-      embedded: false,
-    });
-    await this.exportPanel.render();
 
     this.previewViewport = view.createDiv({ cls: "feuillets-preview-viewport" });
     this.scaledContainer = this.previewViewport.createDiv({ cls: "feuillets-preview-scaled-container" });
@@ -1935,10 +1916,7 @@ export class PreviewView extends ItemView {
   }
 
   /* ========================== Menu de la barre ========================
-     Le zoom est le SEUL menu restant. La portée se choisit au fil d'Ariane
-     ou dans le panneau Export ; les réglages détaillés vivent dans l'onglet
-     Export des paramètres Feuillets (openManuscriptSettings, sans bouton
-     dédié dans cette barre — voir onOpen). */
+     Le zoom est le SEUL menu restant. La portée se choisit au fil d'Ariane. */
 
   /** UN seul contrôle de zoom : ce menu remplace les cinq boutons séparés
    * (−, +, largeur, page entière, 100 %) qui encombraient la barre. */
@@ -2386,21 +2364,11 @@ export class PreviewView extends ItemView {
     this.releaseAfterFrame(() => { this.syncingFromPreview = false; });
   }
 
-  /* ======================= Réglages & export ==========================
-     Aucun réglage de compilation n'est défini ici : l'onglet Export des
-     paramètres Feuillets reste la source unique. L'export appelle le point
-     d'entrée existant `exportFile()`, qui gère le titre
-     repris de la page de titre, le dossier de sortie et les notices. */
-
-  async openManuscriptSettings(): Promise<void> {
-    openFeuilletsExportSettings(this.app);
-  }
-
   /** Délégation vers la fonction libre du composant Première page (Phase 3,
    * voir ui/first-page-panel.ts) : PreviewView a un vrai besoin d'exécution
    * (décider si une page de titre générique doit être ajoutée au rendu, voir
    * plus haut) indépendant de toute instance FirstPagePanel — plus aucune ne
-   * vit dans PreviewView, la sous-section ayant quitté ExportPanel pour
+   * vit dans PreviewView, la sous-section ayant quitté l’interface pour
    * Édition → Composition de l'ouvrage. */
   frontTitleCandidates(): TFile[] {
     return frontTitleCandidates(this.app, this.plugin);
@@ -2412,51 +2380,6 @@ export class PreviewView extends ItemView {
     change(styles);
     await updateTemplateTitlePage(this.app, this.plugin.settings, this.plugin.settings.exportTemplate, styles);
     await this.refreshPreview();
-  }
-
-  /** Traduit exactement l'état actuel de l'Aperçu en CompileScope — remplace
-   * l'ancien raisonnement d'export fondé sur `exportScopePath()`.
-   *
-   * Règles :
-   *  1. une portée CompileScope explicite (`this.compileScope`) prime
-   *     toujours ;
-   *  2. sans projet actif : `null` ;
-   *  3. mode Manuscrit : portée Projet ;
-   *  4. mode Scène : portée du feuillet actuellement utilisé par l'Aperçu ;
-   *  5. mode Chapitre/Partie : `scopeForMode()` — TFolder → portée Dossier,
-   *     TFile → portée Feuillet (Chapitre peut être un feuillet unique). */
-  effectiveExportScope(): CompileScope | null {
-    if (this.compileScope) return this.compileScope;
-    const root = this.plugin.getProjectFolder();
-    if (!root) return null;
-    if (this.mode === "manuscript") return createProjectScope(root.path);
-
-    const active = this.visibleFeuilletPath
-      ? this.app.vault.getAbstractFileByPath(this.visibleFeuilletPath)
-      : this.app.workspace.getActiveFile();
-    if (!(active instanceof TFile)) return null;
-
-    if (this.mode === "scene") return createFileScope(root.path, active.path);
-
-    const node = this.scopeForMode(this.mode, active);
-    if (node instanceof TFile) return createFileScope(root.path, node.path);
-    if (node instanceof TFolder) return createFolderScope(root.path, node.path);
-    return null;
-  }
-
-  get exportFormat(): string {
-    const format = this.plugin?.settings?.exportFormat;
-    return typeof format === "string" && format ? format : "docx";
-  }
-
-  /** Conservée pour compatibilité (tests, éventuels appelants externes) :
-   * délègue intégralement au workflow commun (services/export-workflow.ts),
-   * le même que Binder et Édition. N'appelle plus directement
-   * exportWithScope, exportFile, ni compile() pour exporter — compile()
-   * reste utilisé PAR AILLEURS dans cette classe pour construire l'Aperçu
-   * (collectSource), jamais retiré. */
-  async doExport(): Promise<void> {
-    await runExportWorkflow(this.app, this.plugin, this.effectiveExportScope());
   }
 
   /* ========================== Barre d'outils ========================== */
@@ -2510,10 +2433,6 @@ export class PreviewView extends ItemView {
     const canOpenVisible = this.isLongFormPreview && !!this.visibleFeuilletPath;
     this.openVisibleEl?.toggleClass("is-hidden", !canOpenVisible);
     this.openVisibleEl?.setAttribute("aria-hidden", canOpenVisible ? "false" : "true");
-    /* Le libellé de portée du panneau Export suit la même portée que le
-       rendu et le fil d'Ariane (une seule source de vérité) ; ExportPanel le
-       dérive lui-même de effectiveExportScope() via son callback getScope. */
-    this.exportPanel?.refreshScopeLabel();
     this.renderBreadcrumb();
     const collapsed = this.barCollapsed;
     this.viewEl?.toggleClass("is-bar-collapsed", collapsed);
@@ -3012,13 +2931,10 @@ export class PreviewView extends ItemView {
     this.viewEl = null;
     this.breadcrumbEl = null;
     this.toolbarControlsEl = null;
-    this.btnExport = null;
     this.compileScope = null;
     this.lastScopedNav = null;
     this.openVisibleEl = null;
     this.btnBarToggle = null;
-    this.exportPanelEl = null;
-    this.exportPanel = null;
     this.openMenu = null;
     this.contentEl.empty();
   }
