@@ -38,11 +38,16 @@ export const FEUILLETS_AUXILIARY_FOLDERS = {
   versions: "Versions",
 } as const;
 
+export function isStructuredManuscriptRoot(root: TFolder | null | undefined): boolean {
+  if (!root) return false;
+  return root.name === MANUSCRIPT_FOLDER_NAME;
+}
+
 /** Base unique des nouveaux dossiers auxiliaires. Les emplacements
  * historiques restent traités par les résolveurs propres à chaque dossier. */
 export function feuilletsAuxiliaryRootPath(root: TFolder): string {
   const parent = root.parent;
-  const base = root.name === MANUSCRIPT_FOLDER_NAME
+  const base = isStructuredManuscriptRoot(root)
     && parent instanceof TFolder
     && parent.path !== ""
     && parent.path !== "/"
@@ -91,11 +96,9 @@ export const getManuscriptRoot = getProjectFolder;
 
 /** Racine réelle du projet : le dossier qui contient Manuscrit, Recherche
  * et Ressources en frères — un cran au-dessus de ce que `getManuscriptRoot`
- * renvoie. C'est sous cette racine qu'un nouveau projet est créé
- * (createMinimalProject). Pour un ancien projet sans dossier de volume
- * distinct (Manuscrit directement à la racine du coffre), il n'y a pas de
- * racine "réelle" différente à trouver : le parent de Manuscrit est renvoyé
- * tel quel, sans rien déplacer ni renommer sur le disque.
+ * renvoie si le dossier s'appelle exactement "Manuscrit" (projet structuré).
+ * Pour un dossier adopté (nom différent de "Manuscrit"), la racine du projet
+ * est le dossier adopté lui-même.
  *
  * Important : on exclut explicitement la racine du coffre (path vide ou "/")
  * pour éviter que `base` vaille "" et que les dossiers soient créés à la
@@ -104,7 +107,7 @@ export function getProjectRoot(app: App, settings: FeuilletsSettings | null | un
   const manuscrit = getManuscriptRoot(app, settings);
   if (!manuscrit) return null;
   const parent = manuscrit.parent;
-  return (parent instanceof TFolder && parent.path !== "" && parent.path !== "/")
+  return (isStructuredManuscriptRoot(manuscrit) && parent instanceof TFolder && parent.path !== "" && parent.path !== "/")
     ? parent
     : manuscrit;
 }
@@ -132,7 +135,7 @@ export function getEditionRoot(app: App, root: TFolder | null | undefined): TFol
   if (!root) return null;
   const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "edition"));
   if (canonical instanceof TFolder) return canonical;
-  const base = root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
+  const base = isStructuredManuscriptRoot(root) && root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
     ? root.parent.path
     : root.path;
   /* "_Edition" (nouveau nom, source centrale) puis "Edition" (variante

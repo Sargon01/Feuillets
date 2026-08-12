@@ -6,6 +6,8 @@ import {
   getProjectFolder,
   getManuscriptRoot,
   getProjectRoot,
+  isStructuredManuscriptRoot,
+  feuilletsAuxiliaryRootPath,
   getOrderedChildren,
   hasKnownProject,
   getEditionRoot,
@@ -135,4 +137,54 @@ test("Binder/compilation : getOrderedChildren(Manuscrit) exclut le dossier Editi
   // Manuscrit — au même titre que Recherche/Ressources — jamais dedans.
   const volumeChildNames = getOrderedChildren(app, settings, volume).map((c) => c.name).sort();
   assert.deepEqual(volumeChildNames, ["Manuscrit", EDITION_FOLDER_NAME, RESEARCH_FOLDER_NAME, RESOURCES_FOLDER_NAME].sort());
+});
+
+test("Phase 1A : isStructuredManuscriptRoot identifie la racine éditoriale 'Manuscrit'", () => {
+  const manuscrit = new TFolder("Projet/Manuscrit");
+  const adoptedRoot = new TFolder("Mes textes");
+  const nestedAdopted = new TFolder("Collection/Mes textes");
+
+  assert.equal(isStructuredManuscriptRoot(manuscrit), true);
+  assert.equal(isStructuredManuscriptRoot(adoptedRoot), false);
+  assert.equal(isStructuredManuscriptRoot(nestedAdopted), false);
+  assert.equal(isStructuredManuscriptRoot(null), false);
+});
+
+test("Phase 1A : Projet structuré Feuillets (Projet/Manuscrit)", () => {
+  const volume = new TFolder("Projet");
+  const manuscrit = new TFolder("Projet/Manuscrit");
+  manuscrit.parent = volume;
+  volume.children = [manuscrit];
+
+  const { vault } = createFakeVault([volume, manuscrit]);
+  const app = { vault };
+  const settings = { projectFolder: "Projet/Manuscrit" };
+
+  assert.equal(getProjectRoot(app, settings)?.path, "Projet");
+  assert.equal(feuilletsAuxiliaryRootPath(manuscrit), "Projet/_Feuillets");
+});
+
+test("Phase 1A : Dossier existant adopté comme projet (Mes textes)", () => {
+  const adopted = new TFolder("Mes textes");
+  const { vault } = createFakeVault([adopted]);
+  const app = { vault };
+  const settings = { projectFolder: "Mes textes" };
+
+  assert.equal(getProjectRoot(app, settings)?.path, "Mes textes");
+  assert.equal(feuilletsAuxiliaryRootPath(adopted), "Mes textes/_Feuillets");
+});
+
+test("Phase 1A : Dossier adopté imbriqué (Collection/Mes textes) ne remonte jamais au parent", () => {
+  const collection = new TFolder("Collection");
+  const adopted = new TFolder("Collection/Mes textes");
+  adopted.parent = collection;
+  collection.children = [adopted];
+
+  const { vault } = createFakeVault([collection, adopted]);
+  const app = { vault };
+  const settings = { projectFolder: "Collection/Mes textes" };
+
+  assert.equal(getProjectRoot(app, settings)?.path, "Collection/Mes textes");
+  assert.notEqual(getProjectRoot(app, settings)?.path, "Collection");
+  assert.equal(feuilletsAuxiliaryRootPath(adopted), "Collection/Mes textes/_Feuillets");
 });
