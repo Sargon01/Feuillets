@@ -380,15 +380,13 @@ export class NotesView extends BaseFeuilletsView {
     const showSynopsis = projectType === "fiction";
     const showResume = !showSynopsis;
 
-    // Références du passage (renderCitedEntities) rendu APRÈS Synopsis/
-    // Résumé — juste derrière la section qui s'affiche réellement, avant
-    // Notes de travail — pour obtenir l'ordre visuel cible : Propriétés →
-    // Synopsis/Résumé → Références → Notes de travail → Notes de bas de
-    // page. `entitiesRendered` garde ce rendu unique même si l'ordre
-    // personnalisé de l'utilisateur (S.notesSectionOrder) place Synopsis et
-    // Résumé à des positions différentes — un seul des deux s'affiche de
-    // toute façon (showSynopsis/showResume). Aucun moteur de contexte n'est
-    // modifié ici, seul l'emplacement de son appel change.
+    // Références du passage (renderCitedEntities, libellé UI « Contexte »)
+    // rendu APRÈS toute la boucle Synopsis/Résumé/Notes — pour obtenir
+    // l'ordre visuel cible : Propriétés → Synopsis/Résumé → Notes de
+    // travail → Contexte → Notes de bas de page. `entitiesRendered` garde
+    // ce rendu unique quel que soit l'ordre personnalisé de l'utilisateur
+    // (S.notesSectionOrder). Aucun moteur de contexte n'est modifié ici,
+    // seul l'emplacement de son appel change.
     let entitiesRendered = false;
     const renderEntitiesOnce = async (): Promise<void> => {
       if (entitiesRendered || !S.notesShowEntities) return;
@@ -400,17 +398,14 @@ export class NotesView extends BaseFeuilletsView {
     for (const sectionName of order) {
       if (sectionName === "Synopsis" && S.notesShowSynopsis && showSynopsis) {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.synopsis"), "synopsis", file, fm, t("notes.section.synopsisPlaceholder"), 3);
-        await renderEntitiesOnce();
       } else if (sectionName === "Résumé" && S.notesShowResume && showResume) {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.summary"), "summary", file, fm, t("notes.section.summaryPlaceholder"), 5);
-        await renderEntitiesOnce();
       } else if (sectionName === "Notes" && S.notesShowNotes) {
         this.renderWorkingNotesRow(wrapper);
       }
     }
-    // Repli : ni Synopsis ni Résumé ne s'est affiché (section masquée ou
-    // absente de l'ordre personnalisé) — Références doit tout de même
-    // apparaître, avant Sources/Notes de bas de page.
+    // Contexte rendu une fois la boucle Synopsis/Résumé/Notes terminée,
+    // avant Sources/Notes de bas de page.
     await renderEntitiesOnce();
 
     if (this.plugin.hasSources()) {

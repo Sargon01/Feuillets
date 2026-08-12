@@ -1262,27 +1262,14 @@ export class FeuilletsView extends BaseFeuilletsView {
       () => new OpenExistingFolderModal(this.app, this.plugin).open()
     );
 
-    /* Même menu Elira/Candide que le bouton "sparkles" de ManageProjectsModal
-       (voir project-modals.js) — réutilisé tel quel, pas réécrit. */
     this.hubCard(
       cards,
       "sparkles",
       t("binder.onboarding.card.demo.title"),
       t("binder.onboarding.card.demo.desc"),
       t("binder.onboarding.card.demo.btn"),
-      (e) => {
-        const menu = new Menu();
-        menu.addItem((item) =>
-          item.setTitle(t("settings.demoProject.elira")).onClick(() => {
-            void this.plugin.createDemoProject("elira");
-          })
-        );
-        menu.addItem((item) =>
-          item.setTitle(t("settings.demoProject.candide")).onClick(() => {
-            void this.plugin.createDemoProject("candide");
-          })
-        );
-        menu.showAtMouseEvent(e);
+      () => {
+        void this.plugin.createDemoProject();
       }
     );
 

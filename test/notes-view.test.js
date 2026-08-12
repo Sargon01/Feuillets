@@ -794,7 +794,7 @@ test("NotesView : notesShowFootnotes=false masque la ligne d'accès et la page",
   assert.equal(allElements(contentEl).some((el) => el.classes.has("feuillets-notes-back-bar")), false);
 });
 
-test("NotesView : ordre de la vue principale — Propriétés → Synopsis/Résumé → Références → Notes de travail → Notes de bas de page", async () => {
+test("NotesView : ordre de la vue principale — Propriétés → Synopsis/Résumé → Notes de travail → Contexte → Notes de bas de page", async () => {
   const active = makeFile("Projet/scene.md", "Texte.[^a]\n\n[^a]: Une note");
   const { view, contentEl, plugin } = createNotesView({
     activeFile: active,
@@ -818,5 +818,5 @@ test("NotesView : ordre de la vue principale — Propriétés → Synopsis/Résu
 
   await view.render(true);
 
-  assert.deepEqual(order, ["properties", "synopsis", "entities", "notes", "footnotes"]);
+  assert.deepEqual(order, ["properties", "synopsis", "notes", "entities", "footnotes"]);
 });

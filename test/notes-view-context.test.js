@@ -1111,7 +1111,7 @@ function pinnedSection(contentEl) {
 }
 
 function reliableSection(contentEl) {
-  return sectionByTitlePrefix(contentEl, "Références du passage") || sectionByTitlePrefix(contentEl, "Correspondances fiables");
+  return sectionByTitlePrefix(contentEl, "Contexte") || sectionByTitlePrefix(contentEl, "Correspondances fiables");
 }
 
 function namesIn(section, { visibleOnly = false } = {}) {
@@ -1792,11 +1792,11 @@ test("Lot 6 — Hiérarchie Références du passage : date sous l'en-tête, év�
   await view.renderCitedEntities(contentEl, project.activeFile, sceneDate, []);
 
   const section = reliableSection(contentEl);
-  assert.ok(section, "la section Références du passage doit exister");
+  assert.ok(section, "la section Contexte doit exister");
 
   // Date affichée sous l'en-tête de section
   const dateLine = allElements(section).find((el) => el.classes.has("feuillets-context-date-line"));
-  assert.ok(dateLine, "la date doit être présente sous l'en-tête Références du passage");
+  assert.ok(dateLine, "la date doit être présente sous l'en-tête Contexte");
   assert.equal(dateLine.text, "1826");
 
   // Ordre strict : 1. Événement, 2. Alertes (Deli, Montre-bracelet, Futuriste), 3. Référence ordinaire

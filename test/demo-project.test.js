@@ -12,8 +12,6 @@ const { createFakeVault } = await import(modulePath("test/helpers/fake-vault.js"
 const { DEFAULT_SETTINGS } = await import(modulePath("src/default-settings.js"));
 const { createDemoProject } = await import(modulePath("src/services/demo-project.js"));
 
-const ELIRA_ROOT = "Feuillets — Exemple";
-const ELIRA_MANUSCRIPT = `${ELIRA_ROOT}/Manuscrit`;
 const CANDIDE_ROOT = "Candide, ou l'Optimisme — Exemple";
 const CANDIDE_MANUSCRIPT = `${CANDIDE_ROOT}/Manuscrit`;
 
@@ -96,100 +94,118 @@ test("createDemoProject conserve les métadonnées créées après une générat
   const previousNotice = Notice.onCreate;
   Notice.onCreate = (message) => notices.push(message);
   try {
-    await createDemoProject(app, settings, plugin, "elira");
+    await createDemoProject(app, settings, plugin);
   } finally {
     Notice.onCreate = previousNotice;
   }
 
-  assert.deepEqual(settings.projectMeta[ELIRA_MANUSCRIPT], {
+  assert.deepEqual(settings.projectMeta[CANDIDE_MANUSCRIPT], {
     type: "fiction",
-    author: "Auteur d'exemple",
-    description: "Projet généré automatiquement pour explorer toutes les fonctionnalités de Feuillets.",
+    author: "Voltaire",
+    description: "Candide, ou l'Optimisme (1759) — domaine public — projet d'exemple pour explorer le panneau Chemin de fer (labels, fils, personnages) sur un vrai texte plutôt qu'un squelette minimal.",
   });
-  assert.deepEqual(settings.projects, [ELIRA_MANUSCRIPT]);
+  assert.deepEqual(settings.projects, [CANDIDE_MANUSCRIPT]);
   assert.equal(settings.projectFolder, "Projet actif");
   assert.deepEqual(globalSettings(settings), previousGlobals);
-  assert.ok(files.get(ELIRA_ROOT) instanceof TFolder);
-  assert.ok(files.get(ELIRA_MANUSCRIPT) instanceof TFolder);
-  expectFile(files, `${ELIRA_MANUSCRIPT}/Front/Dédicace.md`);
-  expectFile(files, `${ELIRA_MANUSCRIPT}/Partie 1 - Les commencements/Chapitre 1 - Le départ/1. Ouverture.md`);
-  expectFile(files, `${ELIRA_ROOT}/_Feuillets/Recherche/Characters/Elira Voskan.md`);
-  for (const path of ["_Feuillets/Recherche", "_Feuillets/Ressources", "_Feuillets/Journal", "_Feuillets/Snapshots", "Manuscrit/Front"]) {
-    assert.ok(files.get(`${ELIRA_ROOT}/${path}`) instanceof TFolder, `dossier attendu : ${path}`);
-  }
-  assert.ok([...files.keys()].some((path) => path.startsWith(`${ELIRA_ROOT}/_Feuillets/Journal/`)));
-  assert.ok([...files.keys()].some((path) => path.startsWith(`${ELIRA_ROOT}/_Feuillets/Snapshots/1. Ouverture/`)));
-  assert.match(expectFile(files, `${ELIRA_MANUSCRIPT}/Front/Dédicace.md`).content, /^---\ntitle: Dédicace\n/m);
-  assert.match(expectFile(files, `${ELIRA_MANUSCRIPT}/Partie 1 - Les commencements/Chapitre 1 - Le départ/1. Ouverture.md`).content, /^---\ntitle: Ouverture\n[\s\S]*?order: 1\n/m);
-  assert.ok(calls.folders.includes(`${ELIRA_ROOT}/_Feuillets/Recherche`));
-  assert.ok(calls.folders.includes(`${ELIRA_ROOT}/_Feuillets/Journal`));
-  assert.equal(calls.frontmatters.length, 2);
+  assert.ok(files.get(CANDIDE_ROOT) instanceof TFolder);
+  assert.ok(files.get(CANDIDE_MANUSCRIPT) instanceof TFolder);
+  expectFile(files, `${CANDIDE_MANUSCRIPT}/Front/00. Note d'édition.md`);
+  expectFile(files, `${CANDIDE_MANUSCRIPT}/Partie 1 - L'Ancien Monde/01. Chapitre 1 — Éducation de Candide.md`);
+  expectFile(files, `${CANDIDE_ROOT}/_Feuillets/Recherche/Personnages/Candide.md`);
   assert.ok(calls.save > 0);
   assert.equal(calls.render, 1);
   assert.equal(notices.some((message) => message.startsWith("Projet d'exemple créé")), true);
+
+  // Aucun dossier auxiliaire lazy (Journal, Snapshots) n'est créé au démarrage.
+  assert.equal(files.has(`${CANDIDE_ROOT}/_Feuillets/Journal`), false);
+  assert.equal(files.has(`${CANDIDE_ROOT}/_Feuillets/Snapshots`), false);
 });
 
-test("createDemoProject (elira) : structure conforme aux nouveaux projets, avec parcours guidé", async () => {
+test("createDemoProject : structure conforme aux projets canoniques", async () => {
   const { app, settings, plugin, files } = createContext();
   const previousGlobals = setDistinctGlobals(settings);
   const previousNotice = Notice.onCreate;
   Notice.onCreate = () => {};
 
   try {
-    await createDemoProject(app, settings, plugin, "elira");
+    await createDemoProject(app, settings, plugin);
   } finally {
     Notice.onCreate = previousNotice;
   }
   void previousGlobals;
 
-  // Racine réelle : Recherche et Ressources en frères de Manuscrit, jamais
-  // sous l'ancien nom anglais, jamais à l'intérieur de Manuscrit.
-  assert.ok(files.get(`${ELIRA_ROOT}/_Feuillets/Recherche`) instanceof TFolder);
-  assert.ok(files.get(`${ELIRA_ROOT}/_Feuillets/Ressources`) instanceof TFolder);
-  assert.equal(files.has(`${ELIRA_ROOT}/Research`), false);
-  assert.equal(files.has(`${ELIRA_ROOT}/Resources`), false);
-  assert.equal(files.has(`${ELIRA_MANUSCRIPT}/_Recherche`), false);
-  assert.equal(files.has(`${ELIRA_MANUSCRIPT}/_Ressources`), false);
+  // Racine réelle : Recherche et Ressources sous _Feuillets, jamais sous
+  // l'ancien nom anglais, jamais à l'intérieur de Manuscrit.
+  assert.ok(files.get(`${CANDIDE_ROOT}/_Feuillets/Recherche`) instanceof TFolder);
+  assert.ok(files.get(`${CANDIDE_ROOT}/_Feuillets/Ressources`) instanceof TFolder);
+  assert.equal(files.has(`${CANDIDE_ROOT}/Research`), false);
+  assert.equal(files.has(`${CANDIDE_ROOT}/Resources`), false);
+  assert.equal(files.has(`${CANDIDE_MANUSCRIPT}/_Recherche`), false);
+  assert.equal(files.has(`${CANDIDE_MANUSCRIPT}/_Ressources`), false);
 
   // Les 5 sous-dossiers Ressources exacts.
   for (const sub of ["Images", "Modèles", "Mises en page", "Exports", "Ressources internes"]) {
-    assert.ok(files.get(`${ELIRA_ROOT}/_Feuillets/Ressources/${sub}`) instanceof TFolder, `Ressources/${sub} manquant`);
+    assert.ok(files.get(`${CANDIDE_ROOT}/_Feuillets/Ressources/${sub}`) instanceof TFolder, `Ressources/${sub} manquant`);
   }
 
-  // Page de titre du Front.
-  expectFile(files, `${ELIRA_MANUSCRIPT}/Front/Page de titre.md`);
+  // Catégories de Recherche sous leur nom physique canonique uniquement —
+  // jamais de doublon Characters/Places à côté de Personnages/Lieux.
+  assert.equal(files.has(`${CANDIDE_ROOT}/_Feuillets/Recherche/Characters`), false);
+  assert.equal(files.has(`${CANDIDE_ROOT}/_Feuillets/Recherche/Places`), false);
+  assert.ok(files.get(`${CANDIDE_ROOT}/_Feuillets/Recherche/Personnages`) instanceof TFolder);
+  assert.ok(files.get(`${CANDIDE_ROOT}/_Feuillets/Recherche/Lieux`) instanceof TFolder);
+  for (const name of ["Cacambo", "Candide", "Cunégonde", "Docteur Pangloss", "Jacques", "La Vieille", "Martin"]) {
+    expectFile(files, `${CANDIDE_ROOT}/_Feuillets/Recherche/Personnages/${name}.md`);
+  }
+  for (const name of ["Château de Thunder-ten-tronckh", "Eldorado", "La Métairie", "Lisbonne"]) {
+    expectFile(files, `${CANDIDE_ROOT}/_Feuillets/Recherche/Lieux/${name}.md`);
+  }
+  // Événements, Glossaire, Lore restent présents (posés par la structure
+  // canonique par défaut, indépendamment du correctif Personnages/Lieux).
+  assert.ok(files.get(`${CANDIDE_ROOT}/_Feuillets/Recherche/Événements`) instanceof TFolder);
+  assert.ok(files.get(`${CANDIDE_ROOT}/_Feuillets/Recherche/Glossaire`) instanceof TFolder);
+  assert.ok(files.get(`${CANDIDE_ROOT}/_Feuillets/Recherche/Lore`) instanceof TFolder);
+  expectFile(files, `${CANDIDE_ROOT}/_Feuillets/Recherche/Lore/Il faut cultiver notre jardin.md`);
 
-  // Mini-parcours guidé : présent dans le Lisez-moi, avec les 4 étapes et
-  // les libellés réels de l'interface.
-  const readme = expectFile(files, `${ELIRA_ROOT}/Lisez-moi.md`);
-  assert.match(readme.content, /Parcours guidé en 4 étapes/);
-  assert.match(readme.content, /Créer une scène/);
+  // Aucun dossier Backups n'est créé directement par la génération Candide
+  // (bootstrap lazy — voir feuilletsAuxiliaryPath/FEUILLETS_AUXILIARY_FOLDERS).
+  assert.equal(files.has(`${CANDIDE_ROOT}/_Feuillets/Backups`), false);
+
+  // Page de titre / Note d'édition du Front.
+  expectFile(files, `${CANDIDE_MANUSCRIPT}/Front/00. Note d'édition.md`);
+
+  // Lisez-moi réduit à une introduction courte : ce qu'est Candide, où
+  // écrire, Binder/Recherche, Aperçu/Édition/export — pas de catalogue
+  // exhaustif des fonctions de Feuillets.
+  const readme = expectFile(files, `${CANDIDE_ROOT}/Lisez-moi.md`);
+  assert.match(readme.content, /Candide/);
+  assert.match(readme.content, /Où écrire/);
+  assert.match(readme.content, /Binder/);
+  assert.match(readme.content, /Recherche/);
   assert.match(readme.content, /Compiler le manuscrit/);
-  assert.match(readme.content, /Dupliquer comme nouvelle version/);
-  assert.match(readme.content, /facultatif/i);
-  assert.match(readme.content, /Ouvrir un dossier existant/);
+  assert.match(readme.content, /Exporter/);
 });
 
 test("createDemoProject retire les métadonnées créées après un échec", async () => {
   const { app, settings, plugin, files, calls } = createContext({
-    failCreate: (path) => path.endsWith("Front/Dédicace.md"),
+    failCreate: (path) => path.endsWith("Front/00. Note d'édition.md"),
   });
   const previousGlobals = setDistinctGlobals(settings);
   const notices = [];
   const previousNotice = Notice.onCreate;
   Notice.onCreate = (message) => notices.push(message);
   try {
-    await createDemoProject(app, settings, plugin, "elira");
+    await createDemoProject(app, settings, plugin);
   } finally {
     Notice.onCreate = previousNotice;
   }
 
-  assert.equal(Object.hasOwn(settings.projectMeta, ELIRA_MANUSCRIPT), false);
-  assert.equal(settings.projects.includes(ELIRA_MANUSCRIPT), false);
+  assert.equal(Object.hasOwn(settings.projectMeta, CANDIDE_MANUSCRIPT), false);
+  assert.equal(settings.projects.includes(CANDIDE_MANUSCRIPT), false);
   assert.equal(settings.projectFolder, "Projet actif");
   assert.deepEqual(globalSettings(settings), previousGlobals);
-  assert.ok(files.has(ELIRA_ROOT));
-  assert.ok(files.has(ELIRA_MANUSCRIPT));
+  assert.ok(files.has(CANDIDE_ROOT));
+  assert.ok(files.has(CANDIDE_MANUSCRIPT));
   assert.equal(calls.deletes, 0);
   assert.ok(calls.save > 0);
   assert.equal(calls.render, 1);
@@ -199,24 +215,24 @@ test("createDemoProject retire les métadonnées créées après un échec", asy
 test("createDemoProject restaure la métadonnée existante après un échec", async () => {
   const previous = { type: "nonfiction", author: "Ancien auteur", description: "Ancien projet" };
   const { app, settings, plugin } = createContext({
-    projectMeta: { [ELIRA_MANUSCRIPT]: previous },
-    failCreate: (path) => path.endsWith("Front/Dédicace.md"),
+    projectMeta: { [CANDIDE_MANUSCRIPT]: previous },
+    failCreate: (path) => path.endsWith("Front/00. Note d'édition.md"),
   });
   const previousGlobals = setDistinctGlobals(settings);
 
-  await createDemoProject(app, settings, plugin, "elira");
+  await createDemoProject(app, settings, plugin);
 
-  assert.strictEqual(settings.projectMeta[ELIRA_MANUSCRIPT], previous);
-  assert.equal(settings.projects.includes(ELIRA_MANUSCRIPT), false);
+  assert.strictEqual(settings.projectMeta[CANDIDE_MANUSCRIPT], previous);
+  assert.equal(settings.projects.includes(CANDIDE_MANUSCRIPT), false);
   assert.equal(settings.projectFolder, "Projet actif");
   assert.deepEqual(globalSettings(settings), previousGlobals);
 });
 
-test("createDemoProject génère Candide avec ses chapitres, son Front et sa Recherche", async () => {
+test("createDemoProject génère Candide avec ses 30 chapitres, son Front et sa Recherche", async () => {
   const { app, settings, plugin, files } = createContext();
   const previousGlobals = setDistinctGlobals(settings);
 
-  await createDemoProject(app, settings, plugin, "candide");
+  await createDemoProject(app, settings, plugin);
 
   assert.deepEqual(settings.projectMeta[CANDIDE_MANUSCRIPT], {
     type: "fiction",
@@ -233,17 +249,17 @@ test("createDemoProject génère Candide avec ses chapitres, son Front et sa Rec
   const chapter = expectFile(files, `${CANDIDE_MANUSCRIPT}/Partie 1 - L'Ancien Monde/01. Chapitre 1 — Éducation de Candide.md`);
   assert.match(chapter.content, /^---\ntitle: "Chapitre 1 — Éducation de Candide"\n/m);
   assert.match(chapter.content, /Il y avait en Vestphalie/);
-  expectFile(files, `${CANDIDE_ROOT}/_Feuillets/Recherche/Characters/Candide.md`);
+  expectFile(files, `${CANDIDE_ROOT}/_Feuillets/Recherche/Personnages/Candide.md`);
   assert.equal([...files.keys()].filter((path) => path.includes(`${CANDIDE_MANUSCRIPT}/Partie `) && path.endsWith(".md")).length, 30);
 });
 
 test("createDemoProject refuse un dossier cible existant sans écrire", async () => {
-  const { app, settings, plugin, calls } = createContext({ entries: [new TFolder(ELIRA_ROOT)] });
+  const { app, settings, plugin, calls } = createContext({ entries: [new TFolder(CANDIDE_ROOT)] });
   const notices = [];
   const previousNotice = Notice.onCreate;
   Notice.onCreate = (message) => notices.push(message);
   try {
-    await createDemoProject(app, settings, plugin, "elira");
+    await createDemoProject(app, settings, plugin);
   } finally {
     Notice.onCreate = previousNotice;
   }
@@ -257,12 +273,12 @@ test("createDemoProject refuse un dossier cible existant sans écrire", async ()
 });
 
 test("createDemoProject ne remplace pas un fichier d'exemple existant", async () => {
-  const dedication = new TFile(`${ELIRA_MANUSCRIPT}/Front/Dédicace.md`, "contenu existant");
-  const { app, settings, plugin, files, calls } = createContext({ entries: [dedication] });
+  const editionNote = new TFile(`${CANDIDE_MANUSCRIPT}/Front/00. Note d'édition.md`, "contenu existant");
+  const { app, settings, plugin, files, calls } = createContext({ entries: [editionNote] });
 
-  await createDemoProject(app, settings, plugin, "elira");
+  await createDemoProject(app, settings, plugin);
 
-  assert.strictEqual(files.get(dedication.path), dedication);
-  assert.equal(dedication.content, "contenu existant");
-  assert.equal(calls.modifies.includes(dedication.path), false);
+  assert.strictEqual(files.get(editionNote.path), editionNote);
+  assert.equal(editionNote.content, "contenu existant");
+  assert.equal(calls.modifies.includes(editionNote.path), false);
 });

@@ -616,18 +616,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "create-demo-project",
       name: t("main.cmd.createDemoProject"),
-      callback: () => {
-        const menu = new Menu();
-        menu.addItem((item) =>
-          item.setTitle(t("settings.demoProject.elira")).onClick(() => this.createDemoProject("elira"))
-        );
-        menu.addItem((item) =>
-          item
-            .setTitle(t("settings.demoProject.candide"))
-            .onClick(() => this.createDemoProject("candide"))
-        );
-        menu.showAtPosition({ x: window.innerWidth / 2, y: 80 });
-      },
+      callback: () => this.createDemoProject(),
     });
     this.addCommand({
       id: "import-scrivener",
@@ -2867,13 +2856,8 @@ class FeuilletsPlugin extends Plugin {
     const m = versionFolderName.match(/\(([^)]*)\)\s*$/);
     return (m ? m[1] : versionFolderName).trim() || null;
   }
-  /* `kind` reste `string` ici (et pas DemoKind) : ui/project-modals.ts
-     déclare `createDemoProject(kind: string)` dans son propre contrat
-     structurel ProjectModalsPlugin — le rétrécir casserait cette
-     assignabilité pour toutes les vues qui l'utilisent (contravariance des
-     paramètres de fonction). Le cast se fait ici, juste avant l'appel réel. */
-  async createDemoProject(kind = "elira"): Promise<void> {
-    return createDemoProject(this.app, this.settings, this, kind as Parameters<typeof createDemoProject>[3]);
+  async createDemoProject(): Promise<void> {
+    return createDemoProject(this.app, this.settings, this);
   }
 
   async generateCanvasBoard(): Promise<void> {

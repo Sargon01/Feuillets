@@ -1,4 +1,4 @@
-import { App, Menu, Modal, Notice, normalizePath, setIcon, TAbstractFile, TFile, TFolder } from "obsidian";
+import { App, Modal, Notice, normalizePath, setIcon, TAbstractFile, TFile, TFolder } from "obsidian";
 import { PROJECT_MODES, projectBoardDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
@@ -23,7 +23,7 @@ type ProjectModalsPlugin = {
   renderAllViews(force?: boolean): void;
   updateStatusBar(): void;
   getProjectFolder(): TFolder | null;
-  createDemoProject(kind: string): Promise<void>;
+  createDemoProject(): Promise<void>;
   projectDisplayName(path: string): string;
   duplicateProject(path: string, label: string): Promise<string | null>;
   writeOrder(parent: TFolder, orderedChildren: (TFile | TFolder)[]): Promise<void>;
@@ -372,23 +372,8 @@ export class ManageProjectsModal extends Modal {
     this.iconBtn(actions, "import", t("main.cmd.importScrivener"), () =>
       new ScrivenerImportModal(this.app, this.plugin).open()
     );
-    this.iconBtn(actions, "sparkles", t("modal.manageProjects.createDemoTooltip"), (e) => {
-      const menu = new Menu();
-      menu.addItem((item) =>
-        item.setTitle(t("settings.demoProject.elira")).onClick(async () => {
-          await this.plugin.createDemoProject("elira");
-          this.render();
-        })
-      );
-      menu.addItem((item) =>
-        item
-          .setTitle(t("settings.demoProject.candide"))
-          .onClick(async () => {
-            await this.plugin.createDemoProject("candide");
-            this.render();
-          })
-      );
-      menu.showAtMouseEvent(e);
+    this.iconBtn(actions, "sparkles", t("modal.manageProjects.createDemoTooltip"), () => {
+      void this.plugin.createDemoProject().then(() => this.render());
     });
 
     const root = this.plugin.getProjectFolder();
