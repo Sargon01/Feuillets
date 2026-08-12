@@ -5,6 +5,7 @@ import { createFakeVault } from "./helpers/fake-vault.js";
 import { createMinimalProject, CreateProjectError, duplicateProjectFolder, getVersionsRoot, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, EDITION_DOCUMENTS, EDITION_SUBFOLDERS, editionDocumentForName } from "../src/services/project-files.js";
 import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
 import { setLocale } from "../src/i18n/index.js";
+import { PROJECT_MODES, researchFolderNames } from "../src/utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 import { BoardView } from "../src/views/board-view.js";
 
@@ -353,7 +354,7 @@ test("createMinimalProject (non-fiction) : Partie 1 et Chapitre 1.md sont class�
   assert.equal(roleOfFile(app, settings, chapterFile), "chapitre");
 });
 
-test("createMinimalProject (non-fiction) : crée Recherche/Notes, Bibliographie, Sources uniquement", async () => {
+test("createMinimalProject (non-fiction) : crée Recherche/Notes, Sources uniquement", async () => {
   setLocale("fr");
   const { vault } = createFakeVault([]);
   const app = { vault };
@@ -364,7 +365,7 @@ test("createMinimalProject (non-fiction) : crée Recherche/Notes, Bibliographie,
   // Vérifie les sous-dossiers du mode non-fiction
   assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche") instanceof TFolder, "Recherche créé");
   assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Notes") instanceof TFolder, "Notes créé");
-  assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Bibliographie") instanceof TFolder, "Bibliographie créé");
+  assert.equal(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Bibliographie"), null, "pas de Bibliographie automatique");
   assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche/Sources") instanceof TFolder, "Sources créé");
 
   // Vérifie qu'aucune catégorie fiction n'est créée
@@ -696,7 +697,7 @@ test("initProjectStructure (FR, projet imbriqué) : dossiers sous la racine du p
   const base = "Projets/Mon recueil";
   // _Recherche et ses sous-dossiers sous la racine du projet (mode fiction)
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche`) instanceof TFolder, "Recherche sous _Feuillets");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Bibliographie`) instanceof TFolder, "Bibliographie");
+  assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Bibliographie`), null, "pas de Bibliographie automatique");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Glossaire`) instanceof TFolder, "Glossaire");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Événements`) instanceof TFolder, "Événements");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Personnages`) instanceof TFolder, "Personnages");
@@ -718,7 +719,7 @@ test("initProjectStructure (FR, projet imbriqué) : dossiers sous la racine du p
 });
 
 // -------------------------------------------------------------------------
-// Test 4 — transformation d'un dossier existant : contenu strictement inchangé
+// Test 4 — transformation d'un dossier existant : contenu strictly inchangé
 // -------------------------------------------------------------------------
 test("OpenExistingFolder (simulation) : S.projectFolder = path, aucune structure ajoutée", () => {
   // La transformation se limite à enregistrer le chemin dans settings.
@@ -794,16 +795,16 @@ test("initProjectStructure (FR) : structure partielle — seuls les dossiers man
   assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Personnages") instanceof TFolder, "Personnages toujours là");
   assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Lieux") instanceof TFolder, "Lieux toujours là");
   // Dossiers manquants créés (mode fiction)
-  assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Bibliographie") instanceof TFolder, "Bibliographie créée");
+  assert.equal(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Bibliographie"), null, "pas de Bibliographie automatique");
   assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Glossaire") instanceof TFolder, "Glossaire créé");
   assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Événements") instanceof TFolder, "Événements créés");
   assert.ok(vault.getAbstractFileByPath("Projets/Partiel/Recherche/Lore") instanceof TFolder, "Lore créé");
 });
 
 // -------------------------------------------------------------------------
-// Test 6b — mode non-fiction : Notes, Bibliographie, Sources créés
+// Test 6b — mode non-fiction : Notes, Sources créés (aucune Bibliographie)
 // -------------------------------------------------------------------------
-test("initProjectStructure (FR) : mode non-fiction crée Notes, Bibliographie, Sources", async () => {
+test("initProjectStructure (FR) : mode non-fiction crée Notes, Sources", async () => {
   setLocale("fr");
   const { projets, volume, manuscript } = makeNestedProject("Projets/Essai");
   const { vault } = createFakeVault([projets, volume, manuscript]);
@@ -815,7 +816,7 @@ test("initProjectStructure (FR) : mode non-fiction crée Notes, Bibliographie, S
   const base = "Projets/Essai";
   // _Recherche et ses sous-dossiers en mode non-fiction
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche`) instanceof TFolder, "Recherche sous _Feuillets");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Bibliographie`) instanceof TFolder, "Bibliographie");
+  assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Bibliographie`), null, "pas de Bibliographie automatique");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Notes`) instanceof TFolder, "Notes");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Sources`) instanceof TFolder, "Sources");
   // Pas de catégories fiction
@@ -927,9 +928,12 @@ test("initResearchSubfolders (FR, mode fiction) : dossier transformé crée cat�
 
   // Vérifier les catégories fiction
   assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}`) instanceof TFolder, "_Recherche existe");
-  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Bibliographie`) instanceof TFolder, "Bibliographie");
+  assert.equal(vault.getAbstractFileByPath(`Existant/${names.research}/Bibliographie`), null, "pas de Bibliographie automatique");
   assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Personnages`) instanceof TFolder, "Personnages");
   assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Lieux`) instanceof TFolder, "Lieux");
+  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Événements`) instanceof TFolder, "Événements");
+  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Lore`) instanceof TFolder, "Lore");
+  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Glossaire`) instanceof TFolder, "Glossaire");
   // Pas de catégories non-fiction
   assert.equal(vault.getAbstractFileByPath(`Existant/${names.research}/Notes`), null, "pas de Notes en fiction");
 });
@@ -967,7 +971,7 @@ test("initResearchSubfolders (FR, mode non-fiction) : dossier transformé crée 
 
   // Vérifier les catégories non-fiction uniquement
   assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}`) instanceof TFolder, "_Recherche existe");
-  assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}/Bibliographie`) instanceof TFolder, "Bibliographie");
+  assert.equal(vault.getAbstractFileByPath(`Essai/${names.research}/Bibliographie`), null, "pas de Bibliographie automatique");
   assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}/Notes`) instanceof TFolder, "Notes");
   assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}/Sources`) instanceof TFolder, "Sources");
   // Pas de catégories fiction
@@ -1107,4 +1111,114 @@ test("Phase 1B - Test E : aucun dossier _Research, Research, _Resources, Resourc
   for (const p of prohibitedPaths) {
     assert.equal(vault.getAbstractFileByPath(p), null, `${p} ne doit pas être créé sur un projet neuf`);
   }
+});
+
+// =========================================================================
+// Tests — Phase 1C : Catégories Recherche créées par défaut
+// =========================================================================
+
+test("Phase 1C : nouveau Fiction crée exactement Personnages, Lieux, Événements, Lore, Glossaire (aucune Bibliographie), identique en FR et EN", async () => {
+  for (const lang of ["fr", "en"]) {
+    setLocale(lang);
+    const { vault } = createFakeVault([]);
+    const app = { vault };
+    const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };
+
+    await createMinimalProject(app, settings, { name: `Fiction_${lang}`, type: "fiction" });
+
+    const expected = [
+      `Fiction_${lang}/_Feuillets/Recherche/Personnages`,
+      `Fiction_${lang}/_Feuillets/Recherche/Lieux`,
+      `Fiction_${lang}/_Feuillets/Recherche/Événements`,
+      `Fiction_${lang}/_Feuillets/Recherche/Lore`,
+      `Fiction_${lang}/_Feuillets/Recherche/Glossaire`,
+    ];
+    for (const p of expected) {
+      assert.ok(vault.getAbstractFileByPath(p) instanceof TFolder, `${p} créé en locale ${lang}`);
+    }
+
+    assert.equal(vault.getAbstractFileByPath(`Fiction_${lang}/_Feuillets/Recherche/Bibliographie`), null, "pas de Bibliographie automatique");
+    assert.equal(vault.getAbstractFileByPath(`Fiction_${lang}/_Feuillets/Recherche/Bibliography`), null, "pas de Bibliography automatique");
+    assert.equal(vault.getAbstractFileByPath(`Fiction_${lang}/_Feuillets/Recherche/Characters`), null, "pas de Characters anglais concurrent");
+  }
+});
+
+test("Phase 1C : nouveau Non-fiction crée exactement Notes + Sources (aucune Bibliographie), identique en FR et EN", async () => {
+  for (const lang of ["fr", "en"]) {
+    setLocale(lang);
+    const { vault } = createFakeVault([]);
+    const app = { vault };
+    const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };
+
+    await createMinimalProject(app, settings, { name: `NonFiction_${lang}`, type: "nonfiction" });
+
+    const expected = [
+      `NonFiction_${lang}/_Feuillets/Recherche/Notes`,
+      `NonFiction_${lang}/_Feuillets/Recherche/Sources`,
+    ];
+    for (const p of expected) {
+      assert.ok(vault.getAbstractFileByPath(p) instanceof TFolder, `${p} créé en locale ${lang}`);
+    }
+
+    assert.equal(vault.getAbstractFileByPath(`NonFiction_${lang}/_Feuillets/Recherche/Bibliographie`), null, "pas de Bibliographie automatique");
+    assert.equal(vault.getAbstractFileByPath(`NonFiction_${lang}/_Feuillets/Recherche/Personnages`), null, "pas de Personnages en non-fiction");
+  }
+});
+
+test("Phase 1C : nouveau Libre laisse le dossier Recherche vide", async () => {
+  const { vault } = createFakeVault([]);
+  const app = { vault };
+  const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };
+
+  await createMinimalProject(app, settings, { name: "ProjetLibre", type: "free" });
+
+  const resFolder = vault.getAbstractFileByPath("ProjetLibre/_Feuillets/Recherche");
+  assert.ok(resFolder instanceof TFolder, "_Feuillets/Recherche existe");
+  assert.equal(resFolder.children.length, 0, "Recherche est strictly vide");
+});
+
+test("Phase 1C : réutilisation des anciennes variantes (Characters, Places, Events, Timeline) sans doublon", async () => {
+  setLocale("fr");
+  const volume = new TFolder("Projet");
+  const manuscrit = new TFolder("Projet/Manuscrit");
+  const aux = new TFolder("Projet/_Feuillets");
+  const rech = new TFolder("Projet/_Feuillets/Recherche");
+  const characters = new TFolder("Projet/_Feuillets/Recherche/Characters");
+  const places = new TFolder("Projet/_Feuillets/Recherche/Places");
+  const events = new TFolder("Projet/_Feuillets/Recherche/Events");
+
+  volume.children = [manuscrit, aux];
+  aux.parent = volume;
+  aux.children = [rech];
+  rech.parent = aux;
+  rech.children = [characters, places, events];
+  characters.parent = rech;
+  places.parent = rech;
+  events.parent = rech;
+  manuscrit.parent = volume;
+
+  const { vault } = createFakeVault([volume, manuscrit, aux, rech, characters, places, events]);
+  const app = { vault };
+
+  await initResearchSubfolders(app, rech.path, "fiction");
+
+  assert.ok(vault.getAbstractFileByPath("Projet/_Feuillets/Recherche/Characters") instanceof TFolder, "Characters conservé");
+  assert.ok(vault.getAbstractFileByPath("Projet/_Feuillets/Recherche/Places") instanceof TFolder, "Places conservé");
+  assert.ok(vault.getAbstractFileByPath("Projet/_Feuillets/Recherche/Events") instanceof TFolder, "Events conservé");
+
+  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Recherche/Personnages"), null, "aucun Personnages concurrent");
+  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Recherche/Lieux"), null, "aucun Lieux concurrent");
+  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Recherche/Événements"), null, "aucun Événements concurrent");
+});
+
+test("Phase 1C : ancienne Bibliographie (fiction et non-fiction) toujours reconnue dans researchFolders", () => {
+  const fictionMode = PROJECT_MODES.fiction;
+  const nonfictionMode = PROJECT_MODES.nonfiction;
+
+  assert.ok(fictionMode.researchFolders.bibliographie, "bibliographie toujours définie en fiction pour compatibilité");
+  assert.ok(nonfictionMode.researchFolders.bibliographie, "bibliographie toujours définie en non-fiction pour compatibilité");
+
+  const fictionNames = researchFolderNames(fictionMode.researchFolders, "bibliographie");
+  assert.ok(fictionNames.includes("Bibliographie"), "reconnaît Bibliographie");
+  assert.ok(fictionNames.includes("Bibliography"), "reconnaît Bibliography");
 });

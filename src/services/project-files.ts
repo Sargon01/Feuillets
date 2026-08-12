@@ -520,14 +520,16 @@ export async function createMinimalProject(
 }
 
 /** Crée les dossiers _ et les fichiers Bases (personnages, lieux). */
-/** Crée les sous-dossiers Recherche selon le mode du projet.
+/** Crée les sous-dossiers Recherche par défaut selon le mode du projet :
+ * - Fiction : crée Personnages, Lieux, Événements, Lore, Glossaire
+ * - Non-fiction : crée Notes, Sources
+ * - Libre : ne crée aucune rubrique par défaut
  *
- * - Fiction : crée toutes les catégories de FICTION_RESEARCH
- * - Non-fiction : crée Notes, Bibliographie, Sources uniquement
- * - Libre : ne crée aucun sous-dossier métier (l'utilisateur les crée via le bouton "Nouvelle rubrique")
+ * Bibliographie est une rubrique de compatibilité historique : elle reste reconnue
+ * en lecture mais n'est jamais créée par défaut.
  *
  * Cette fonction ne crée JAMAIS les dossiers existants — elle reconnaît les variantes
- * historiques et les réutilise, jamais elle ne les renomme ou les duplique. */
+ * canoniques et historiques et les réutilise, sans jamais les renommer ni les dupliquer. */
 export async function initResearchSubfolders(
   app: App,
   researchPath: string,
@@ -537,15 +539,11 @@ export async function initResearchSubfolders(
   const projectMode = PROJECT_MODES[resolvedMode];
   if (!projectMode) return;
 
-  // Récupérer les catégories à créer selon le mode
-  const researchFolders = projectMode.researchFolders;
+  const defaultKeys = projectMode.defaultResearchFolders ?? [];
 
-  // Créer uniquement les catégories présentes dans ce mode
-  for (const [key] of Object.entries(researchFolders)) {
-    // Utiliser les noms reconnus selon la locale (nouveau + ancien)
-    const names = researchFolderNames(researchFolders, key);
+  for (const key of defaultKeys) {
+    const names = researchFolderNames(projectMode.researchFolders, key);
 
-    // Chercher si le dossier existe déjà sous un des noms possibles
     let exists = false;
     for (const name of names) {
       const path = normalizePath(`${researchPath}/${name}`);
@@ -556,7 +554,6 @@ export async function initResearchSubfolders(
       }
     }
 
-    // Si le dossier n'existe pas, le créer avec le nom préféré (selon locale)
     if (!exists && names.length > 0) {
       const newFolderPath = normalizePath(`${researchPath}/${names[0]}`);
       await ensureFolder(app, newFolderPath);

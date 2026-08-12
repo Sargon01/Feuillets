@@ -2,14 +2,13 @@ import { getLocale } from "../i18n/index.js";
 
 /** Un mode = un type de document. Ne change ni la structure de dossiers
  * ni les champs de frontmatter lus — seulement le vocabulaire affiché et
- * les réglages de départ appliqués une fois à la création du projet. */
-
-/* Noms de dossiers en anglais depuis cette version (voir services/
-   folder-structure.js pour Front/Ressources/Recherche) — l'ancien nom
-   français de chaque catégorie reste reconnu indéfiniment sur les
-   projets déjà créés, voir LEGACY_RESEARCH_LABELS/matchesResearchLabel
-   plus bas. Seuls les nouveaux projets créent des dossiers avec le
-   nouveau nom. */
+ * les réglages de départ appliqués une fois à la création du projet.
+ *
+ * Noms physiques canoniques des sous-dossiers de Recherche (Personnages, Lieux,
+ * Événements, Lore, Glossaire, Notes, Sources) créés de manière autonome sans
+ * dépendre de la locale de l'interface. Les variantes anglaises et historiques
+ * restent reconnues indéfiniment sur les projets existants (voir LEGACY_RESEARCH_LABELS
+ * et researchFolderNames plus bas). */
 const bibliographie = { label: "Bibliography", newName: "Nouvelle référence", tag: "bibliographie" };
 
 type ResearchFolderDef = { label: string; newName: string; tag: string };
@@ -27,16 +26,13 @@ type ResearchFolders = {
   notes?: ResearchFolderDef;
 };
 
-/** Personnages/Lieux/Lore/Glossaire/Événements sont des catégories nées
- * pour la fiction (personnages, lieux d'une histoire) — elles ne
- * généralisent pas à la non-fiction (une thèse de droit n'a pas besoin
- * d'"Acteurs", une thèse de diplomatie a besoin de "Traités" plutôt que de
- * "Géographie"). Plutôt que d'imposer un jeu de rubriques figé qui ne
- * correspond à aucun sujet réel, la non-fiction ne crée plus que Sources
- * et Bibliographie automatiquement — tout le reste se fait via le bouton
- * "Nouvelle rubrique" (dossier de recherche personnalisé, voir
- * renderResearchBody), qui s'adapte à CE sujet précis plutôt qu'à un
- * gabarit générique. */
+/** Catégories Recherche par défaut selon le mode du projet :
+ * - Fiction : Personnages, Lieux, Événements, Lore, Glossaire
+ * - Non-fiction : Notes, Sources
+ * - Libre : aucune rubrique créée par défaut
+ *
+ * Bibliographie est conservée pour la compatibilité historique (reconnaissance
+ * et affichage des anciens dossiers), mais n'est créée automatiquement dans aucun mode. */
 const FICTION_RESEARCH: ResearchFolders = {
   bibliographie,
   glossaire: { label: "Glossary", newName: "Nouveau terme", tag: "glossaire" },
@@ -98,10 +94,30 @@ export const LEGACY_RESEARCH_LABELS = {
   personnages: "Personnages",
   lieux: "Lieux",
   notes: "Notes",
+  codex: "Lore",
+  sources: "Sources",
 };
 
-const RESEARCH_FOLDER_VARIANTS: Partial<Record<keyof typeof LEGACY_RESEARCH_LABELS, string[]>> = {
-  evenements: ["Chronologie", "Timeline", "Chronology"],
+export const CANONICAL_RESEARCH_LABELS: Record<string, string> = {
+  personnages: "Personnages",
+  lieux: "Lieux",
+  evenements: "Événements",
+  codex: "Lore",
+  glossaire: "Glossaire",
+  notes: "Notes",
+  sources: "Sources",
+  bibliographie: "Bibliographie",
+};
+
+const RESEARCH_FOLDER_VARIANTS: Record<string, string[]> = {
+  personnages: ["Personnages", "Characters"],
+  lieux: ["Lieux", "Places", "Locations"],
+  evenements: ["Événements", "Events", "Chronologie", "Timeline", "Chronology"],
+  codex: ["Lore", "Codex"],
+  glossaire: ["Glossaire", "Glossary"],
+  notes: ["Notes"],
+  sources: ["Sources"],
+  bibliographie: ["Bibliographie", "Bibliography"],
 };
 
 /** Libellé affiché d'une catégorie de recherche selon la langue active :
@@ -123,32 +139,35 @@ export function researchFolderLabel(
 }
 
 /** Noms sous lesquels le dossier d'une catégorie de recherche peut déjà
- * exister, libellé de la langue active en premier : le nom actuel (anglais)
- * et l'ancien nom français — permet de réutiliser un dossier existant créé
- * dans l'autre langue au lieu d'en créer un doublon. */
+ * exister, nom canonique en premier : le nom canonique (français/Lore), le nom
+ * actuel (anglais) et les anciens noms — permet de réutiliser un dossier
+ * existant créé sous une variante au lieu d'en créer un doublon. */
 export function researchFolderNames(
   researchFolders: Record<string, { label: string }>,
   key: string
 ): string[] {
   const entry = researchFolders[key];
   if (!entry) return [];
-  const preferred = researchFolderLabel(researchFolders, key);
+
+  const canonical = CANONICAL_RESEARCH_LABELS[key];
   const legacy = LEGACY_RESEARCH_LABELS[key as keyof typeof LEGACY_RESEARCH_LABELS];
-  const other = preferred === entry.label ? legacy : entry.label;
-  const names = [preferred];
-  if (other && !names.includes(other)) names.push(other);
-  for (const variant of RESEARCH_FOLDER_VARIANTS[key as keyof typeof LEGACY_RESEARCH_LABELS] || []) {
-    if (!names.includes(variant)) names.push(variant);
+  const variants = RESEARCH_FOLDER_VARIANTS[key] || [];
+  const names: string[] = [];
+
+  if (canonical) names.push(canonical);
+  if (entry.label && !names.includes(entry.label)) names.push(entry.label);
+  if (legacy && !names.includes(legacy)) names.push(legacy);
+  for (const v of variants) {
+    if (!names.includes(v)) names.push(v);
   }
   return names;
 }
 
 /** `name` correspond-il à la catégorie `key` de `researchFolders`, sous
- * son nom actuel (anglais) OU son ancien nom (français) ? */
+ * son nom canonique, son nom anglais OU son ancien nom ? */
 export function matchesResearchLabel(researchFolders: Record<string, { label: string }>, key: string, name: string) {
-  const entry = researchFolders[key];
-  if (!entry) return false;
-  return name === entry.label || name === LEGACY_RESEARCH_LABELS[key];
+  const names = researchFolderNames(researchFolders, key);
+  return names.includes(name);
 }
 
 export const PROJECT_MODES = {
@@ -159,6 +178,7 @@ export const PROJECT_MODES = {
     unitPlural: "scènes",
     hasSources: false,
     researchFolders: FICTION_RESEARCH,
+    defaultResearchFolders: ["personnages", "lieux", "evenements", "codex", "glossaire"],
     defaults: {
       level1Role: "parties",
       chapterNumbering: "continu",
@@ -175,6 +195,7 @@ export const PROJECT_MODES = {
     unitPlural: "sections",
     hasSources: true,
     researchFolders: NONFICTION_RESEARCH,
+    defaultResearchFolders: ["notes", "sources"],
     defaults: {
       level1Role: "chapitres",
       chapterNumbering: "continu",
@@ -191,6 +212,7 @@ export const PROJECT_MODES = {
     unitPlural: "sections",
     hasSources: false,
     researchFolders: FREE_RESEARCH,
+    defaultResearchFolders: [],
     defaults: {
       level1Role: "chapitres",
       chapterNumbering: "continu",
