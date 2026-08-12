@@ -199,47 +199,144 @@ test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné
   }
 });
 
-test("SidebarFeuilletsView rend les trois sections de l'espace Édition dans l'ordre, dans un seul conteneur feuillets-edition-workspace, sans DocxReviewView", async () => {
+test("SidebarFeuilletsView : espace Édition s'ouvre sur la page d'accueil, trois entrées verticales dans l'ordre, aucune sous-vue rendue", async () => {
   const { sidebar, calls } = createSidebar("project");
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
 
-  // Ordre : Composition de l'ouvrage → Mise en page & export → Documents
-  // éditoriaux. Révision DOCX a déménagé vers Relecture (voir plus bas).
-  assert.deepEqual(
-    calls.map((call) => call.name),
-    ["editionComposition", "editionLayout", "editionDocs"]
-  );
+  assert.equal(sidebar.editionPage, "home", "page par défaut");
+  // Aucune sous-vue complète rendue sur l'accueil — même règle que
+  // l'accueil Relecture (renderRelectureHome).
+  assert.deepEqual(calls.map((call) => call.name), []);
   assert.equal(calls.some((call) => call.name === "docx"), false, "l'espace Édition ne rend plus DocxReviewView");
-  assert.equal(container.children.length, 1, "un seul conteneur .feuillets-edition-workspace");
-  const workspace = container.children[0];
-  assert.ok(workspace.classes.has("feuillets-edition-workspace"));
-  assert.equal(workspace.children.length, 3, "les trois sous-vues, sans wrapper feuillets-merged-section");
+
+  // Trois lignes compactes cliquables, PAS une tablist horizontale : même
+  // gabarit que l'accueil Relecture (.feuillets-notes-section-head +
+  // .feuillets-clickable), une sous chaque autre (aucun conteneur flex
+  // horizontal commun ne les regroupe).
+  const heads = allElements(container).filter(
+    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
+  );
+  assert.equal(heads.length, 3, "trois lignes compactes cliquables");
+  assert.equal(allElements(container).some((el) => el.attrs.get("role") === "tablist"), false, "pas de tablist horizontale");
+
+  const titles = allElements(container)
+    .filter((el) => el.classes.has("feuillets-notes-section-title"))
+    .map((el) => el.text);
+  assert.deepEqual(titles, [
+    t("editionComposition.displayText"),
+    t("editionLayout.displayText"),
+    t("editionDocs.displayText"),
+  ], "ordre : Composition de l’ouvrage → Mise en page & export → Documents éditoriaux");
 });
 
-test("SidebarFeuilletsView : correctif alignement — les sections de l'espace Édition partagent le même conteneur .feuillets-edition-section-container", async () => {
-  const { sidebar } = createSidebar("project");
-  const container = new FakeElement();
-  await sidebar.renderProjectTab(container);
+test("SidebarFeuilletsView : cliquer Composition de l'ouvrage affiche uniquement Composition, Retour ramène à l'accueil", async () => {
+  const { sidebar, contentEl, calls } = createSidebar("project");
+  await sidebar.render();
 
-  const workspace = container.children[0];
-  for (const sectionContainer of workspace.children) {
-    assert.ok(
-      sectionContainer.classes.has("feuillets-edition-section-container"),
-      "chaque sous-vue de l'espace Édition reçoit le conteneur frère commun"
-    );
-  }
-  assert.ok(
-    workspace.children[0].classes.has("is-first-edition-section"),
-    "seule la toute première section (Composition de l'ouvrage) porte is-first-edition-section"
+  const [compositionHead] = allElements(contentEl.children[1]).filter(
+    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
   );
-  for (const sectionContainer of workspace.children.slice(1)) {
-    assert.equal(
-      sectionContainer.classes.has("is-first-edition-section"),
-      false,
-      "les sections suivantes ne portent pas is-first-edition-section"
-    );
-  }
+
+  let renders = 0;
+  sidebar.render = async () => { renders += 1; };
+  compositionHead.events.get("click")();
+  assert.equal(sidebar.editionPage, "composition");
+  assert.equal(renders, 1);
+
+  delete sidebar.render;
+  calls.length = 0;
+  await sidebar.render();
+  assert.deepEqual(calls.map((call) => call.name), ["editionComposition"], "uniquement EditionCompositionView");
+
+  const backBtn = allElements(contentEl.children[1]).find((el) => el.classes.has("feuillets-back-btn"));
+  assert.ok(backBtn, "barre Retour visible");
+
+  renders = 0;
+  sidebar.render = async () => { renders += 1; };
+  backBtn.events.get("click")();
+  assert.equal(sidebar.editionPage, "home");
+  assert.equal(renders, 1);
+});
+
+test("SidebarFeuilletsView : cliquer Mise en page & export affiche uniquement Mise en page, Retour ramène à l'accueil", async () => {
+  const { sidebar, contentEl, calls } = createSidebar("project");
+  await sidebar.render();
+
+  const [, layoutHead] = allElements(contentEl.children[1]).filter(
+    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
+  );
+
+  let renders = 0;
+  sidebar.render = async () => { renders += 1; };
+  layoutHead.events.get("click")();
+  assert.equal(sidebar.editionPage, "layout");
+  assert.equal(renders, 1);
+
+  delete sidebar.render;
+  calls.length = 0;
+  await sidebar.render();
+  assert.deepEqual(calls.map((call) => call.name), ["editionLayout"], "uniquement EditionLayoutView");
+
+  const backBtn = allElements(contentEl.children[1]).find((el) => el.classes.has("feuillets-back-btn"));
+  assert.ok(backBtn, "barre Retour visible");
+
+  renders = 0;
+  sidebar.render = async () => { renders += 1; };
+  backBtn.events.get("click")();
+  assert.equal(sidebar.editionPage, "home");
+  assert.equal(renders, 1);
+});
+
+test("SidebarFeuilletsView : cliquer Documents éditoriaux affiche uniquement Documents, Retour ramène à l'accueil", async () => {
+  const { sidebar, contentEl, calls } = createSidebar("project");
+  await sidebar.render();
+
+  const [, , docsHead] = allElements(contentEl.children[1]).filter(
+    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
+  );
+
+  let renders = 0;
+  sidebar.render = async () => { renders += 1; };
+  docsHead.events.get("click")();
+  assert.equal(sidebar.editionPage, "docs");
+  assert.equal(renders, 1);
+
+  delete sidebar.render;
+  calls.length = 0;
+  await sidebar.render();
+  assert.deepEqual(calls.map((call) => call.name), ["editionDocs"], "uniquement EditionDocsView");
+
+  const backBtn = allElements(contentEl.children[1]).find((el) => el.classes.has("feuillets-back-btn"));
+  assert.ok(backBtn, "barre Retour visible");
+
+  renders = 0;
+  sidebar.render = async () => { renders += 1; };
+  backBtn.events.get("click")();
+  assert.equal(sidebar.editionPage, "home");
+  assert.equal(renders, 1);
+});
+
+test("SidebarFeuilletsView : la barre Retour de l'espace Édition survit au vidage de son propre conteneur par la sous-vue", async () => {
+  const { sidebar, contentEl, calls } = createSidebar("project");
+  sidebar.subViews.editionComposition = createEmptyingSubView("editionComposition", calls);
+  sidebar.editionPage = "composition";
+
+  await sidebar.render();
+
+  let content = contentEl.children[1];
+  let backBtn = allElements(content).find((el) => el.classes.has("feuillets-back-btn"));
+  assert.ok(backBtn, "barre Retour visible pour Édition");
+  assert.equal(
+    allElements(sidebar.subViews.editionComposition.targetContainer).includes(backBtn),
+    false,
+    "la barre Retour n'est pas dans le targetContainer de la sous-vue"
+  );
+
+  await sidebar.render();
+  content = contentEl.children[1];
+  backBtn = allElements(content).find((el) => el.classes.has("feuillets-back-btn"));
+  assert.ok(backBtn, "barre Retour toujours visible après un second rendu");
 });
 
 test("SidebarFeuilletsView ne rafraîchit au file-open que Notes et Analyse du texte, jamais l'accueil Relecture ni Révision DOCX", async () => {
@@ -281,13 +378,22 @@ test("SidebarFeuilletsView invalide les caches Analyse à la modification", asyn
   assert.equal(sidebar.subViews.notes.targetContainer, null);
 });
 
-test("SidebarFeuilletsView renderAllSubViews respecte la nouvelle organisation : Édition sans DOCX, Relecture selon sa page, une seule sous-vue pour les autres onglets", async () => {
+test("SidebarFeuilletsView renderAllSubViews respecte la nouvelle organisation : Édition selon sa page (rien sur l'accueil, une seule sous-vue sinon), Relecture selon sa page, une seule sous-vue pour les autres onglets", async () => {
   const { sidebar, calls } = createSidebar("project");
+  // Accueil Édition par défaut : rien à rafraîchir (pas de sous-vue affichée).
   await sidebar.renderAllSubViews(true);
-  assert.deepEqual(
-    calls.map((call) => call.name),
-    ["editionDocs", "editionComposition", "editionLayout"]
-  );
+  assert.deepEqual(calls.map((call) => call.name), [], "rien sur l'accueil Édition");
+
+  calls.length = 0;
+  sidebar.editionPage = "composition";
+  await sidebar.renderAllSubViews(true);
+  assert.deepEqual(calls.map((call) => call.name), ["editionComposition"], "seule la page Édition active est rafraîchie");
+
+  calls.length = 0;
+  sidebar.editionPage = "layout";
+  await sidebar.renderAllSubViews(true);
+  assert.deepEqual(calls.map((call) => call.name), ["editionLayout"], "seule la page Édition active est rafraîchie");
+  sidebar.editionPage = "home";
 
   calls.length = 0;
   sidebar.activeTab = "research";
@@ -319,10 +425,9 @@ test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide san
   await sidebar.render();
 
   assert.equal(settings.activeRightPanelTab, "invalide");
-  assert.deepEqual(
-    calls.map((call) => call.name),
-    ["editionComposition", "editionLayout", "editionDocs"]
-  );
+  // Édition retombe sur sa page d'accueil : aucune sous-vue rendue.
+  assert.deepEqual(calls.map((call) => call.name), []);
+  assert.equal(sidebar.editionPage, "home");
 });
 
 test("SidebarFeuilletsView : l'accueil Relecture affiche Analyse du texte et Révision DOCX sans rendre leurs sous-vues", async () => {

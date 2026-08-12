@@ -110,9 +110,13 @@ export class EditionDocsView extends BaseFeuilletsView {
   declare targetContainer?: HTMLElement;
 
   private folderStates = new Map<string, boolean>(); // path -> isCollapsed (persisted in settings.collapsed)
+  /** Voir EditionCompositionView.embedded (edition-composition-view.ts) :
+   * même flag, même raison, local à chaque vue. */
+  private embedded: boolean;
 
-  constructor(leaf: WorkspaceLeaf, plugin: EditionDocsPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: EditionDocsPlugin, opts: { embedded?: boolean } = {}) {
     super(leaf, plugin);
+    this.embedded = !!opts.embedded;
   }
 
   private isFolderCollapsed(folderPath: string): boolean {
@@ -160,14 +164,16 @@ export class EditionDocsView extends BaseFeuilletsView {
     container.addClass("feuillets-edition-docs-container");
 
     const section = container.createDiv({ cls: "feuillets-project-section" });
-    const collapsed = this.renderSectionHead(
-      section,
-      "folder-cog",
-      t("editionDocs.displayText"),
-      "editionDocs",
-      "documents"
-    );
-    if (collapsed) return;
+    if (!this.embedded) {
+      const collapsed = this.renderSectionHead(
+        section,
+        "folder-cog",
+        t("editionDocs.displayText"),
+        "editionDocs",
+        "documents"
+      );
+      if (collapsed) return;
+    }
 
     const root = this.plugin.getProjectFolder();
     if (!root) {

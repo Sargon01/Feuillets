@@ -188,6 +188,29 @@ test("EditionCompositionView : titre et icône corrects", () => {
   assert.equal(view.getIcon(), "book-open");
 });
 
+test("EditionCompositionView : { embedded: true } masque le grand en-tête repliable mais garde groupes et contenu intacts", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionView({ app, contentEl }, plugin, { embedded: true });
+
+    await view.onOpen();
+
+    assert.equal(contentEl.querySelector(".feuillets-section-title-text"), null, "pas d'en-tête repliable en mode intégré");
+    // Les groupes et le contenu restent identiques au mode autonome.
+    assert.deepEqual(
+      contentEl.querySelectorAll(".feuillets-edition-group-label").map((node) => node.textContent),
+      ["Contenu", "Éléments générés", "Fin d’ouvrage"]
+    );
+    for (const label of ["Première page", "Pages liminaires", "Sommaire", "Tables", "Bibliographie", "Annexes"]) {
+      assert.ok(contentEl.textContent.includes(label), `${label} est présent`);
+    }
+  } finally {
+    restoreDom();
+  }
+});
+
 test("EditionCompositionView : Composition reste la section principale ; toutes les sous-sections réellement implémentées y sont présentes, une seule ligne Setting native par entrée", async () => {
   const restoreDom = installDom();
   try {

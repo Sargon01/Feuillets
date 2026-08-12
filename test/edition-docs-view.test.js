@@ -61,7 +61,7 @@ function rowWithLabel(container, label) {
   return rowsOf(container).find((row) => allElements(row).some((el) => el.text === label));
 }
 
-function createView({ root = null, editionFolder = null, frontmatterByPath = {}, courrierApi = null, revealAvailable = false } = {}) {
+function createView({ root = null, editionFolder = null, frontmatterByPath = {}, courrierApi = null, revealAvailable = false, embedded = false } = {}) {
   const openedFiles = [];
   const revealedFiles = [];
   const leaf = {
@@ -108,7 +108,7 @@ function createView({ root = null, editionFolder = null, frontmatterByPath = {},
     saveSettings: async () => {},
   };
   const contentEl = new FakeElement();
-  const view = new EditionDocsView({ app, contentEl }, plugin);
+  const view = new EditionDocsView({ app, contentEl }, plugin, { embedded });
   return { view, app, contentEl, openedFiles, revealedFiles };
 }
 
@@ -128,6 +128,23 @@ test("EditionDocsView : sans dossier projet, affiche un message vide sans plante
   const { view, contentEl } = createView({ root: null });
   await view.render();
   assert.ok(textsOf(contentEl).some((t) => t.length > 0));
+});
+
+test("EditionDocsView : { embedded: true } masque le grand en-tête repliable, le reste du contenu est inchangé", async () => {
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = new TFolder("Projet");
+  const { view, contentEl } = createView({ root, embedded: true });
+
+  await view.render();
+
+  assert.equal(
+    allElements(contentEl).some((el) => el.classes.has("feuillets-section-head")),
+    false,
+    "pas d'en-tête repliable en mode intégré"
+  );
+  // Même invite qu'en mode autonome (test "propose de le créer" ci-dessous).
+  const texts = textsOf(contentEl);
+  assert.ok(texts.some((t) => /Edition/i.test(t)), "invite à créer le dossier Edition, inchangée");
 });
 
 test("EditionDocsView : projet sans dossier Edition — propose de le créer plutôt que d'afficher une liste vide silencieuse", async () => {

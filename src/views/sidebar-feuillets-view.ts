@@ -20,6 +20,16 @@ type SidebarTab = "notes" | "research" | "journal" | "project" | "relecture";
  * sous-vues complètes (TextAnalysisView/DocxReviewView), en remplacement
  * total de la page d'accueil, dans le même panneau. */
 type RelecturePage = "home" | "analysis" | "docx";
+/** Page affichée dans l'espace Édition ("project") — état PUREMENT en
+ * mémoire, jamais persisté (même règle que `relecturePage` ci-dessus) :
+ * survit tant que le panneau existe, repart de "home" à chaque rechargement
+ * du plugin. "home" affiche les trois entrées compactes (Composition/Mise
+ * en page/Documents) ; les trois autres valeurs affichent l'une des trois
+ * sous-vues complètes déjà en place (EditionCompositionView/
+ * EditionLayoutView/EditionDocsView), en remplacement total de la page
+ * d'accueil — exactement le même gabarit que `relecturePage`/
+ * renderProofreadingTab ci-dessus, voir renderProjectTab. */
+type EditionPage = "home" | "composition" | "layout" | "docs";
 type SidebarPlugin = ConstructorParameters<typeof ProjectView>[1];
 type SidebarSubView = {
   targetContainer?: HTMLElement;
@@ -71,6 +81,7 @@ export class SidebarFeuilletsView extends ItemView {
   plugin: SidebarPlugin;
   activeTab: SidebarTab;
   relecturePage: RelecturePage;
+  editionPage: EditionPage;
   subViews: SidebarSubViews;
 
   constructor(leaf: WorkspaceLeaf, plugin: SidebarPlugin) {
@@ -85,14 +96,21 @@ export class SidebarFeuilletsView extends ItemView {
        relecturePage n'est ensuite JAMAIS réécrit dans les réglages (aucun
        nouveau réglage persistant, conformément à la mission). */
     this.relecturePage = legacyTab === "docx" ? "docx" : legacyTab === "analyse" ? "analysis" : "home";
+    // Jamais lu depuis les réglages (aucun nouveau réglage persistant) :
+    // repart toujours de "home" à la création du panneau.
+    this.editionPage = "home";
     this.subViews = {
       notes: new NotesView(this.leaf, this.plugin),
       research: new ResearchView(this.leaf, this.plugin),
       journal: new JournalView(this.leaf, this.plugin),
       docx: new DocxReviewView(this.leaf, this.plugin),
-      editionDocs: new EditionDocsView(this.leaf, this.plugin),
-      editionComposition: new EditionCompositionView(this.leaf, this.plugin),
-      editionLayout: new EditionLayoutView(this.leaf, this.plugin),
+      // { embedded: true } : ces trois sous-vues vivent maintenant chacune
+      // sur sa propre page secondaire de l'espace Édition (voir
+      // renderProjectTab) — leur grand en-tête repliable devient redondant
+      // sous la barre « Retour à Édition », voir Edition*View.embedded.
+      editionDocs: new EditionDocsView(this.leaf, this.plugin, { embedded: true }),
+      editionComposition: new EditionCompositionView(this.leaf, this.plugin, { embedded: true }),
+      editionLayout: new EditionLayoutView(this.leaf, this.plugin, { embedded: true }),
       analyse: new AnalysisView(this.leaf, this.plugin),
       relecture: new TextAnalysisView(this.leaf, this.plugin),
     };
@@ -226,35 +244,78 @@ export class SidebarFeuilletsView extends ItemView {
      L'identifiant `project` est gardé pour migrer sans casser les
      préférences existantes. Les révisions/commentaires DOCX (ex-Révision
      DOCX de cet espace) ont déménagé vers la page secondaire "docx" de
-     Relecture — voir renderProofreadingTab. */
-  /* Espace Édition : trois sections empilées dans un seul
-     conteneur — chaque sous-vue reste responsable de SA propre section
-     (.feuillets-project-section, voir renderSectionHead), le séparateur
-     visuel entre elles venant de cette classe elle-même (styles.css), sans
-     wrapper .feuillets-merged-section devenu inutile.
-     Correctif alignement (Phase 2) : les sous-vues partagent en plus
-     un même conteneur frère .feuillets-edition-section-container, seule
-     source de padding horizontal pour l'espace Édition — voir styles.css.
-     Sans lui, chaque sous-vue posait (ou pas) son propre padding, d'où le
-     décalage visuel entre Documents éditoriaux (historique) et
-     Composition/Mise en page (nouvelles). La première section reçoit en
-     plus .is-first-edition-section, ciblée directement en CSS plutôt que
-     via un sélecteur *:first-child fragile. */
+     Relecture — voir renderProofreadingTab.
+     Correctif UI : page d'accueil à trois entrées compactes + page secondaire
+     avec barre Retour — EXACTEMENT le même gabarit que l'espace Relecture
+     ci-dessous (renderProofreadingTab/renderRelectureHome/
+     renderRelectureBackBar), pas une seconde navigation. La barre de
+     sous-onglets horizontale du chantier précédent (illisible dans un
+     panneau de 250–300px) est retirée. */
   async renderProjectTab(element: HTMLElement): Promise<void> {
-    const workspace = element.createDiv({ cls: "feuillets-edition-workspace" });
-    // Révision DOCX (this.subViews.docx) n'habite plus l'espace Édition —
-    // elle est rendue uniquement depuis la page secondaire "docx" de
-    // Relecture (voir renderProofreadingTab).
-    const editionSubViews: SidebarSubView[] = [
-      this.subViews.editionComposition,
-      this.subViews.editionLayout,
-      this.subViews.editionDocs,
-    ];
-    for (const [index, subView] of editionSubViews.entries()) {
-      const sectionContainer = workspace.createDiv({ cls: "feuillets-edition-section-container" });
-      if (index === 0) sectionContainer.addClass("is-first-edition-section");
-      await this.renderSubView(subView, sectionContainer);
+    if (this.editionPage === "home") {
+      this.renderEditionHome(element);
+      return;
     }
+    // Même raison que renderProofreadingTab : la barre Retour vit dans
+    // `element`, JAMAIS dans le conteneur passé en targetContainer à la
+    // sous-vue (les Edition*View vident intégralement leur conteneur au
+    // début de leur propre render()) — un second conteneur dédié, enfant de
+    // `element` mais frère de la barre, encaisse ce vidage sans jamais
+    // l'emporter avec lui.
+    this.renderEditionBackBar(element);
+    const workspace = element.createDiv({ cls: "feuillets-edition-workspace" });
+    const sectionContainer = workspace.createDiv({
+      cls: "feuillets-edition-section-container is-first-edition-section",
+    });
+    await this.renderSubView(this.editionSubViewFor(this.editionPage), sectionContainer);
+  }
+
+  /** Sous-vue de l'espace Édition associée à une page secondaire — jamais
+   * Révision DOCX (this.subViews.docx), qui n'habite plus cet espace (voir
+   * renderProjectTab), jamais appelée pour "home" (aucune sous-vue à cette
+   * page, voir renderProjectTab). */
+  private editionSubViewFor(page: Exclude<EditionPage, "home">): SidebarSubView {
+    if (page === "layout") return this.subViews.editionLayout;
+    if (page === "docs") return this.subViews.editionDocs;
+    return this.subViews.editionComposition;
+  }
+
+  /** Page d'accueil de l'espace Édition : trois entrées compactes, aucune
+   * des trois sous-vues complètes affichée — même gabarit que
+   * renderRelectureHome (icône native à gauche, chevron à droite, une
+   * sous-titre descriptif, pleine largeur), réutilisé via renderHomeRow
+   * plutôt que redéfini. Icônes alignées sur getIcon() de chaque sous-vue
+   * (edition-composition-view.ts/edition-layout-view.ts/edition-docs-
+   * view.ts). Libellés et sous-titres tirés des clés i18n existantes de
+   * ces trois vues (displayText/description), aucune nouvelle clé de
+   * contenu créée. */
+  private renderEditionHome(element: HTMLElement): void {
+    this.renderHomeRow(
+      element, "book-open",
+      t("editionComposition.displayText"), t("editionComposition.description"),
+      () => { this.editionPage = "composition"; void this.render(); }
+    );
+    this.renderHomeRow(
+      element, "panel-top",
+      t("editionLayout.displayText"), t("editionLayout.description"),
+      () => { this.editionPage = "layout"; void this.render(); }
+    );
+    this.renderHomeRow(
+      element, "folder-cog",
+      t("editionDocs.displayText"), t("editionDocs.description"),
+      () => { this.editionPage = "docs"; void this.render(); }
+    );
+  }
+
+  /** Même gabarit de barre de retour que Relecture (renderRelectureBackBar)
+   * et NotesView (notes-view.ts, Notes de travail) : `.feuillets-notes-
+   * back-bar`/`.feuillets-back-btn`/`.feuillets-back-icon`, réutilisés tels
+   * quels via renderBackBar plutôt que redéfinis. */
+  private renderEditionBackBar(element: HTMLElement): void {
+    this.renderBackBar(element, t("editionHub.backToHome"), () => {
+      this.editionPage = "home";
+      void this.render();
+    });
   }
 
 
@@ -289,27 +350,37 @@ export class SidebarFeuilletsView extends ItemView {
    * Notes de travail) : `.feuillets-notes-back-bar`/`.feuillets-back-btn`/
    * `.feuillets-back-icon`, réutilisés tels quels plutôt que redéfinis. */
   private renderRelectureBackBar(element: HTMLElement): void {
-    const backBar = element.createDiv({ cls: "feuillets-notes-back-bar" });
-    const backBtn = backBar.createEl("button", {
-      cls: "feuillets-back-btn",
-      text: ` ${t("relecture.backToHome")}`
-    });
-    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" });
-    setIcon(iconSpan, "arrow-left");
-    backBtn.prepend(iconSpan);
-    backBtn.addEventListener("click", () => {
+    this.renderBackBar(element, t("relecture.backToHome"), () => {
       this.relecturePage = "home";
       void this.render();
     });
   }
 
+  /** Barre de retour compacte partagée par Relecture (renderRelectureBackBar)
+   * et Édition (renderEditionBackBar) — un seul gabarit visuel pour « page
+   * secondaire → page d'accueil du même onglet », jamais une seconde
+   * grammaire par onglet. */
+  private renderBackBar(element: HTMLElement, label: string, onClick: () => void): void {
+    const backBar = element.createDiv({ cls: "feuillets-notes-back-bar" });
+    const backBtn = backBar.createEl("button", {
+      cls: "feuillets-back-btn",
+      text: ` ${label}`
+    });
+    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" });
+    setIcon(iconSpan, "arrow-left");
+    backBtn.prepend(iconSpan);
+    backBtn.addEventListener("click", () => {
+      onClick();
+    });
+  }
+
   private renderRelectureHome(element: HTMLElement): void {
-    this.renderRelectureHomeRow(
+    this.renderHomeRow(
       element, "spell-check",
       t("relecture.home.analysis.title"), t("relecture.home.analysis.sub"),
       () => { this.relecturePage = "analysis"; void this.render(); }
     );
-    this.renderRelectureHomeRow(
+    this.renderHomeRow(
       element, "file-check",
       t("relecture.home.docx.title"), t("relecture.home.docx.sub"),
       () => { this.relecturePage = "docx"; void this.render(); }
@@ -330,7 +401,7 @@ export class SidebarFeuilletsView extends ItemView {
     if (!activeFile || activeFile.extension !== "md" || !root || !activeFile.path.startsWith(root.path + "/")) {
       return;
     }
-    this.renderRelectureHomeRow(
+    this.renderHomeRow(
       element, "history",
       t("relecture.home.diff.title"), t("relecture.home.diff.sub"),
       () => { new DiffModal(this.app, this.plugin, activeFile).open(); }
@@ -345,8 +416,10 @@ export class SidebarFeuilletsView extends ItemView {
    * déjà utilisée ailleurs dans le panneau). `onClick` porte l'action
    * ENTIÈRE (changement de page + render(), ou simple ouverture de modale
    * pour Comparer une version) : cette méthode ne décide plus elle-même de
-   * redessiner le panneau. */
-  private renderRelectureHomeRow(container: HTMLElement, icon: string, title: string, sub: string, onClick: () => void): void {
+   * redessiner le panneau. Partagée par Relecture (renderRelectureHome/
+   * renderRelectureDiffRow) et Édition (renderEditionHome) — un seul
+   * gabarit de page d'accueil à entrées compactes pour tout le panneau. */
+  private renderHomeRow(container: HTMLElement, icon: string, title: string, sub: string, onClick: () => void): void {
     const section = container.createDiv({ cls: "feuillets-notes-section" });
     const head = section.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable" });
 
@@ -373,9 +446,12 @@ export class SidebarFeuilletsView extends ItemView {
 
   async renderAllSubViews(force = false): Promise<void> {
     if (this.activeTab === "project") {
-      await this.subViews.editionDocs.render(force);
-      await this.subViews.editionComposition.render(force);
-      await this.subViews.editionLayout.render(force);
+      // Une seule page de l'espace Édition est affichée à la fois (voir
+      // renderProjectTab) : rien à rafraîchir sur l'accueil (pas de
+      // sous-vue affichée), comme Relecture sur sa propre page d'accueil
+      // (relecturePage === "home", ci-dessous).
+      if (this.editionPage === "home") return;
+      await this.editionSubViewFor(this.editionPage).render(force);
       return;
     }
     if (this.activeTab === "relecture") {

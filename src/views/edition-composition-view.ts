@@ -37,9 +37,16 @@ export class EditionCompositionView extends BaseFeuilletsView {
   private tablesPanel: TablesPanel | null = null;
   private bibliographyPanel: BibliographyPanel | null = null;
   private annexesPanel: AnnexesPanel | null = null;
+  /** Intégrée dans un onglet déjà navigable (sidebar-feuillets-view.ts,
+   * barre de sous-onglets de l'espace Édition) : son propre grand en-tête
+   * repliable ("Composition de l'ouvrage") devient redondant avec le
+   * libellé du sous-onglet. `false` par défaut pour tout autre usage futur
+   * de cette vue hors de cet onglet. */
+  private embedded: boolean;
 
-  constructor(leaf: WorkspaceLeaf, plugin: EditionCompositionPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: EditionCompositionPlugin, opts: { embedded?: boolean } = {}) {
     super(leaf, plugin);
+    this.embedded = !!opts.embedded;
   }
 
   getViewType(): string {
@@ -64,21 +71,23 @@ export class EditionCompositionView extends BaseFeuilletsView {
     container.addClass("feuillets-edition-composition-container");
 
     const section = container.createDiv({ cls: "feuillets-project-section" });
-    const collapsed = this.renderSectionHead(
-      section,
-      "book-open",
-      t("editionComposition.displayText"),
-      "editionComposition",
-      "panel"
-    );
-    if (collapsed) {
-      this.firstPagePanel = null;
-      this.frontMatterPanel = null;
-      this.contentsPanel = null;
-      this.tablesPanel = null;
-      this.bibliographyPanel = null;
-      this.annexesPanel = null;
-      return;
+    if (!this.embedded) {
+      const collapsed = this.renderSectionHead(
+        section,
+        "book-open",
+        t("editionComposition.displayText"),
+        "editionComposition",
+        "panel"
+      );
+      if (collapsed) {
+        this.firstPagePanel = null;
+        this.frontMatterPanel = null;
+        this.contentsPanel = null;
+        this.tablesPanel = null;
+        this.bibliographyPanel = null;
+        this.annexesPanel = null;
+        return;
+      }
     }
 
     section.createDiv({ cls: "feuillets-edition-group-label", text: "Contenu" });

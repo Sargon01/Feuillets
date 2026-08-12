@@ -26,9 +26,13 @@ export class EditionLayoutView extends BaseFeuilletsView {
   declare plugin: EditionLayoutPlugin;
   declare targetContainer?: HTMLElement;
   private exportPanel: ExportPanel | null = null;
+  /** Voir EditionCompositionView.embedded (edition-composition-view.ts) :
+   * même flag, même raison, local à chaque vue. */
+  private embedded: boolean;
 
-  constructor(leaf: WorkspaceLeaf, plugin: EditionLayoutPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: EditionLayoutPlugin, opts: { embedded?: boolean } = {}) {
     super(leaf, plugin);
+    this.embedded = !!opts.embedded;
   }
 
   getViewType(): string {
@@ -53,14 +57,16 @@ export class EditionLayoutView extends BaseFeuilletsView {
     container.addClass("feuillets-edition-layout-container");
 
     const section = container.createDiv({ cls: "feuillets-project-section" });
-    const collapsed = this.renderSectionHead(
-      section,
-      "panel-top",
-      t("editionLayout.displayText"),
-      "editionLayout",
-      "panel"
-    );
-    if (collapsed) return;
+    if (!this.embedded) {
+      const collapsed = this.renderSectionHead(
+        section,
+        "panel-top",
+        t("editionLayout.displayText"),
+        "editionLayout",
+        "panel"
+      );
+      if (collapsed) return;
+    }
 
     /* Le sélecteur utilise directement listExportTemplates() et écrit
        directement settings.exportTemplate — même source et même réglage

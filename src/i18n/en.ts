@@ -485,6 +485,11 @@ export const en = {
   "relecture.home.docx.sub": "Word feedback, corrections and comments",
   "relecture.home.diff.title": "Compare a version",
   "relecture.home.diff.sub": "Compare the sheet with a snapshot",
+
+  /* Edition tab home page (three entries into Composition/Layout/Docs) and
+     the back bar of their secondary views — same pattern as Proofreading
+     above (renderProjectTab, sidebar-feuillets-view.ts). */
+  "editionHub.backToHome": "Edition",
   "editionDocs.folderFiles": "Files in the Edition folder",
   "analysisResults.repetitions": "Close repetitions",
   "analysisResults.noRepetitions": "No close repetitions detected.",
@@ -853,6 +858,7 @@ export const en = {
 
   // ---------- Editorial documents (edition-docs-view.js) — subsection of the Edition space ----------
   "editionDocs.displayText": "Editorial documents",
+  "editionDocs.description": "Synopsis, note of intent, biography, cover letter, submissions.",
   "editionDocs.notCreatedBody": "No Edition folder for this project yet. Create it to prepare a synopsis, note of intent, biography, cover letter, and submission tracking.",
   "editionDocs.createFolder": "Create the Edition folder",
   "editionDocs.newDocument": "New document",

@@ -485,6 +485,12 @@ export const fr = {
   "relecture.home.docx.sub": "Retours, corrections et commentaires Word",
   "relecture.home.diff.title": "Comparer une version",
   "relecture.home.diff.sub": "Comparer le feuillet avec un snapshot",
+
+  /* Page d'accueil de l'onglet Édition (trois entrées vers Composition/Mise
+     en page/Documents) et barre de retour de leurs vues secondaires — même
+     gabarit que Relecture ci-dessus (renderProjectTab, sidebar-feuillets-
+     view.ts). */
+  "editionHub.backToHome": "Édition",
   "editionDocs.folderFiles": "Fichiers du dossier Édition",
   "analysisResults.repetitions": "Répétitions rapprochées",
   "analysisResults.noRepetitions": "Aucune répétition rapprochée détectée.",
@@ -853,6 +859,7 @@ export const fr = {
 
   // ---------- Documents éditoriaux (edition-docs-view.js) — sous-section de l'espace Édition ----------
   "editionDocs.displayText": "Documents éditoriaux",
+  "editionDocs.description": "Synopsis, note d'intention, biographie, lettre d'accompagnement, soumissions.",
   "editionDocs.notCreatedBody": "Aucun dossier Edition pour ce projet. Crée-le pour préparer synopsis, note d'intention, biographie, lettre d'accompagnement et suivi des envois.",
   "editionDocs.createFolder": "Créer le dossier Edition",
   "editionDocs.newDocument": "Nouveau document",

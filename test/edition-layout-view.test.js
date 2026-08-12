@@ -122,6 +122,24 @@ test("EditionLayoutView : titre et icône corrects", () => {
   assert.equal(view.getIcon(), "panel-top");
 });
 
+test("EditionLayoutView : { embedded: true } masque le grand en-tête repliable mais garde le sélecteur Gabarit", async () => {
+  const restore = installDom();
+  try {
+    const plugin = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionLayoutView({ app: {}, contentEl }, plugin, { embedded: true });
+
+    await view.onOpen();
+
+    assert.equal(contentEl.querySelector(".feuillets-section-title-text"), null, "pas d'en-tête repliable en mode intégré");
+    const select = contentEl.querySelector('[aria-label="Gabarit"]');
+    assert.ok(select, "le sélecteur Gabarit reste présent");
+    assert.equal(select.value, "classique");
+  } finally {
+    restore();
+  }
+});
+
 test("EditionLayoutView : sélecteur Gabarit peuplé par listExportTemplates, valeur = settings.exportTemplate", async () => {
   const restore = installDom();
   try {
