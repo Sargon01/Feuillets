@@ -196,7 +196,9 @@ test("NotesView ne rerend pas pendant une édition sauf avec force", async () =>
     await view.render();
     assert.deepEqual(calls.sections, []);
     await view.render(true);
-    assert.deepEqual(calls.sections, ["synopsis", "summary", "notes"]);
+    // Projet fiction par repli (aucun projectFolder défini) : Synopsis
+    // s'affiche, Résumé reste masqué même si notesShowResume est activé.
+    assert.deepEqual(calls.sections, ["synopsis", "notes"]);
   } finally {
     globalThis.document = previousDocument;
   }
@@ -241,6 +243,35 @@ test("NotesView respecte les réglages et l'ordre des sections", async () => {
   assert.deepEqual(calls.sections, ["notes", "synopsis", "sources"]);
   assert.equal(calls.entities, 1);
   assert.equal(calls.footnotes, 1);
+});
+
+test("NotesView n'affiche jamais Synopsis et Résumé ensemble, selon le mode du projet", async () => {
+  const cases = [
+    { type: "fiction", expected: ["synopsis", "notes"] },
+    { type: "nonfiction", expected: ["summary", "notes"] },
+    { type: "libre", expected: ["summary", "notes"] },
+  ];
+  for (const { type, expected } of cases) {
+    const root = new TFolder("Projet");
+    const active = makeFile("Projet/scene.md");
+    const { view, files } = createNotesView({
+      activeFile: active,
+      root,
+      settings: {
+        projectFolder: root.path,
+        projectMeta: { [root.path]: { type } },
+        notesShowSynopsis: true,
+        notesShowResume: true,
+        notesShowNotes: true,
+      },
+    });
+    files.set(root.path, root);
+    const calls = { sections: [], entities: 0, footnotes: 0 };
+    isolateBodySections(view, calls);
+
+    await view.render(true);
+    assert.deepEqual(calls.sections, expected, `mode ${type}`);
+  }
 });
 
 test("NotesView n'affiche ni entités ni notes de bas de page lorsqu'elles sont désactivées", async () => {

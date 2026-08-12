@@ -20,6 +20,7 @@ import {
   type ContentCacheableFile,
   type ContentSourceKind,
 } from "../services/context-content-cache.js";
+import { getProjectType } from "../services/project-mode.js";
 
 /** Délai de latence avant de recalculer la section « Contexte » après un
  * déplacement du curseur ou une frappe dans l'éditeur suivi — voir
@@ -314,11 +315,19 @@ export class NotesView extends BaseFeuilletsView {
       await this.renderCitedEntities(wrapper, file, sceneDate, jalons);
     }
 
+    /* Fiction affiche Synopsis, Non-fiction/Libre affichent Résumé — jamais
+       les deux ensemble (voir getProjectType/PROJECT_MODES). Les réglages
+       notesShowSynopsis/notesShowResume restent respectés en plus, pour la
+       compatibilité avec un utilisateur qui aurait désactivé la section. */
+    const projectType = getProjectType(this.app, this.plugin.settings);
+    const showSynopsis = projectType === "fiction";
+    const showResume = !showSynopsis;
+
     const order = S.notesSectionOrder || ["Synopsis", "Résumé", "Notes"];
     for (const sectionName of order) {
-      if (sectionName === "Synopsis" && S.notesShowSynopsis) {
+      if (sectionName === "Synopsis" && S.notesShowSynopsis && showSynopsis) {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.synopsis"), "synopsis", file, fm, t("notes.section.synopsisPlaceholder"), 3);
-      } else if (sectionName === "Résumé" && S.notesShowResume) {
+      } else if (sectionName === "Résumé" && S.notesShowResume && showResume) {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.summary"), "summary", file, fm, t("notes.section.summaryPlaceholder"), 5);
       } else if (sectionName === "Notes" && S.notesShowNotes) {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.notes"), "notes", file, fm, t("notes.section.notesPlaceholder"), 8);
