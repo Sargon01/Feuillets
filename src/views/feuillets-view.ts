@@ -23,7 +23,7 @@ function asFolder(af: TAbstractFile | null): TFolder {
   return af;
 }
 
-type RenderFileRowOpts = { showPreview?: boolean; outOfProject?: boolean };
+type RenderFileRowOpts = { showPreview?: boolean };
 type RenderFileRow = (
   host: HTMLElement,
   file: TFile,
@@ -40,6 +40,16 @@ type SplitBodyCtx = {
   binderFilterActive: boolean;
   folderHasMatch: (f: TFolder) => boolean;
   renderFileRow: RenderFileRow;
+  /** Vraie racine du projet, distincte de `root` (la racine de travail
+   * passée à renderHierarchyBody) dès qu'un dossier est isolé — voir
+   * FeuilletsView._binderWorkingRootPath. Sert à l'en-tête d'isolation et
+   * au menu contextuel de la ligne racine. */
+  projectRoot: TFolder;
+  /** Densité EFFECTIVE déjà résolue par render() (override de session du
+   * dossier isolé, sinon settings.binderCompact) — voir
+   * FeuilletsView.getEffectiveBinderCompact. Ne JAMAIS relire
+   * S.binderCompact directement ici pour cette décision. */
+  binderCompact: boolean;
 };
 
 /* _binderMultiSelect est attaché dynamiquement au plugin par
@@ -68,6 +78,90 @@ export class FeuilletsView extends BaseFeuilletsView {
   _renderGen?: number;
   _binderSearchOpen?: boolean;
   _suppressSearchBlurClose?: boolean;
+  /** Racine de travail isolée temporairement dans le Binder (chantier
+   * « isoler un dossier ») : état de SESSION uniquement — jamais enregistré
+   * dans settings, jamais lu/écrit ailleurs, ne touche jamais
+   * settings.projectFolder ni le vrai dossier projet. Disparaît au
+   * redémarrage d'Obsidian ou dès que ce chemin ne pointe plus vers un
+   * dossier du projet actif (voir getBinderWorkingRoot). */
+  _binderWorkingRootPath?: string;
+  /** Densité (compact/standard) propre à une racine de travail isolée,
+   * pour la durée de la SESSION uniquement — jamais dans settings, jamais
+   * de nouvelle clé DEFAULT_SETTINGS, jamais de système de workspace par
+   * dossier. Indexée par chemin de dossier isolé ; un dossier sans entrée
+   * ici suit `settings.binderCompact` (voir getEffectiveBinderCompact). */
+  _binderCompactOverrides?: Map<string, boolean>;
+
+  /** Racine à afficher dans le Binder : le dossier isolé s'il existe
+   * encore et appartient toujours au projet actif, sinon la racine réelle
+   * du projet. Ne modifie jamais `projectRoot` ni les réglages — se
+   * contente de réinitialiser l'isolation devenue invalide (dossier
+   * supprimé/déplacé hors projet, ou changement de projet actif). */
+  getBinderWorkingRoot(projectRoot: TFolder | null): TFolder | null {
+    if (!projectRoot) return null;
+    if (!this._binderWorkingRootPath) return projectRoot;
+    const candidate = this.app.vault.getAbstractFileByPath(this._binderWorkingRootPath);
+    const inScope =
+      candidate instanceof TFolder &&
+      (candidate.path === projectRoot.path || candidate.path.startsWith(projectRoot.path + "/"));
+    if (!inScope) {
+      this._binderWorkingRootPath = undefined;
+      return projectRoot;
+    }
+    return candidate;
+  }
+
+  /** Mécanisme d'isolation UNIQUE (chantier "isoler un dossier" +
+   * micro-chantier "double-clic pour isoler") : bascule
+   * _binderWorkingRootPath et redemande un rendu. Appelé aussi bien par le
+   * menu contextuel (binderIsolateExtras) que par le double-clic sur le nom
+   * d'un dossier (renderTreeFolders) — jamais dupliqué. Ne déplace, ne
+   * renomme, ne modifie aucun fichier. `resetScroll: true` : on entre dans
+   * une branche différente, la position de défilement de l'ancienne vue n'a
+   * plus de sens ici — la nouvelle racine s'affiche depuis son début plutôt
+   * que de conserver un décalage de pixels devenu arbitraire (voir render,
+   * _resetScroll). */
+  isolateFolder(folder: TFolder): void {
+    this._binderWorkingRootPath = folder.path;
+    void this.render(true, { resetScroll: true });
+  }
+
+  /** Entrée « Isoler ce dossier » ajoutée au menu contextuel standard d'un
+   * dossier (showFolderContextMenu, extraItems) — jamais un second menu. */
+  binderIsolateExtras(folder: TFolder): (menu: Menu) => void {
+    return (menu: Menu) => {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.isolateFolder"))
+          .setIcon("focus")
+          .onClick(() => this.isolateFolder(folder))
+      );
+    };
+  }
+
+  /** Clé de l'éventuel override de densité de session : le chemin de la
+   * racine de travail isolée si elle diffère de la vraie racine du projet,
+   * sinon `null` (Binder normal — la densité suit `settings.binderCompact`
+   * directement, sans jamais consulter la Map). */
+  getBinderCompactScope(): string | null {
+    const projectRoot = this.getProjectFolder();
+    if (!projectRoot) return null;
+    const workingRoot = this.getBinderWorkingRoot(projectRoot);
+    return workingRoot && workingRoot.path !== projectRoot.path ? workingRoot.path : null;
+  }
+
+  /** Densité EFFECTIVE à appliquer au rendu : l'override de session du
+   * dossier isolé s'il en a un, sinon `settings.binderCompact` — que ce
+   * soit parce qu'aucun dossier n'est isolé, ou qu'il l'est mais n'a encore
+   * aucun override (il « hérite » alors simplement de la valeur globale,
+   * sans qu'aucune entrée ne soit créée dans la Map avant un premier
+   * bascule — voir le bouton Densité dans render()). */
+  getEffectiveBinderCompact(scopeKey: string | null): boolean {
+    if (scopeKey && this._binderCompactOverrides?.has(scopeKey)) {
+      return !!this._binderCompactOverrides.get(scopeKey);
+    }
+    return !!this.plugin.settings.binderCompact;
+  }
 
   getViewType(): string {
     return VIEW_SIDEBAR;
@@ -256,6 +350,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
   showSplitPaneOptionsMenu(e: MouseEvent): void {
     const S = this.plugin.settings;
+    const effectiveBinderCompact = this.getEffectiveBinderCompact(this.getBinderCompactScope());
     const menu = new Menu();
 
     /* Pas de choix de densité ici : bascule directe sur le bouton Densité
@@ -283,7 +378,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     }
     menu.addSeparator();
 
-    if (!S.binderCompact && S.listPanePreviewField !== "none") {
+    if (!effectiveBinderCompact && S.listPanePreviewField !== "none") {
       menu.addItem((item) => item.setTitle(t("binder.preview.linesHeader")).setDisabled(true));
       for (let n = 1; n <= 6; n++) {
         menu.addItem((item) =>
@@ -304,27 +399,44 @@ export class FeuilletsView extends BaseFeuilletsView {
     menu.showAtMouseEvent(e);
   }
 
-  async render(force = false): Promise<void> {
+  /** `resetScroll: true` (voir isolateFolder) : n'essaie pas de restaurer la
+   * position de défilement d'AVANT ce rendu — sur un changement de branche
+   * (isolation), ce décalage en pixels ne correspond plus à rien de sensé
+   * dans la nouvelle liste ; on affiche son tout début à la place. Par
+   * défaut (repli/dépli, simple clic, rafraîchissement de fond…), la
+   * position actuelle est toujours conservée — voir _captureScroll/
+   * _restoreScroll. */
+  async render(force = false, opts: { resetScroll?: boolean } = {}): Promise<void> {
     const container = this.contentEl;
     if (!force && isEditing(container)) return;
     /* Position de défilement mémorisée AVANT de vider le DOM, restaurée en
        fin de reconstruction : un rafraîchissement de fond (modification dans
        le coffre, changement de fichier actif…) reconstruit tout le binder et
        renvoyait sinon la liste tout en haut alors qu'on lisait plus bas. */
-    const savedScroll = this._captureScroll();
+    const savedScroll = opts.resetScroll ? [] : this._captureScroll();
     const myGen = (this._renderGen = (this._renderGen || 0) + 1);
     container.empty();
     container.addClass("feuillets-container");
 
     const folder = this.getProjectFolder();
     const S = this.plugin.settings;
+    /* Racine de travail (projet complet, ou dossier isolé — voir
+       _binderWorkingRootPath) calculée UNE SEULE FOIS ici et réutilisée
+       plus bas pour renderHierarchyBody : getBinderWorkingRoot a un effet
+       de bord (réinitialise l'isolation devenue invalide), la rappeler
+       plusieurs fois par rendu serait inutilement redondant. */
+    const workingRoot = folder ? (this.getBinderWorkingRoot(folder) || folder) : null;
+    const binderCompactScope = folder && workingRoot && workingRoot.path !== folder.path ? workingRoot.path : null;
+    const effectiveBinderCompact = this.getEffectiveBinderCompact(binderCompactScope);
+    /* Isolé dès que binderCompactScope est renseigné (racine de travail
+       différente de la vraie racine du projet) — réutilisé plus bas pour
+       l'indentation des feuillets (voir renderFileRow) : légèrement plus
+       marquée dans la vue PRINCIPALE seulement, jamais en vue isolée, sans
+       toucher à l'indentation des dossiers ni à la profondeur réelle. */
+    const isIsolatedView = !!binderCompactScope;
 
     const header = container.createDiv({ cls: "feuillets-header" });
     const actions = header.createDiv({ cls: "feuillets-actions" });
-    /* Accès direct, détaché de l'interaction sur la ligne racine du volet
-       dossiers (qui restait cachée dans un mode d'affichage précis) —
-       toujours disponible en premier, quel que soit le mode du Binder
-       (arbre, double volet, fichiers seuls). */
     this.iconBtn(actions, "folder-cog", t("binder.manageProjects"), () => {
       new ManageProjectsModal(this.app, this.plugin).open();
     });
@@ -345,36 +457,22 @@ export class FeuilletsView extends BaseFeuilletsView {
        réglages à part : "Double volet" répond au clic droit
        (showSplitPaneOptionsMenu : densité, aperçu de la fiche, affichage
        transversal). */
-    /* Un seul bouton, à bascule : double volet -> fichiers seuls -> double
-       volet -> ... — un bouton en moins que l'ancien "Double volet" +
-       "Fichiers seuls" séparés. "Dossiers seuls" reste accessible au clic
-       droit (showSplitPaneOptionsMenu) si besoin. Vue arbre classique
-       retirée : avec les sous-dossiers inclus (récursif, par défaut), la
-       racine du double volet donne déjà la même vue d'ensemble — la vue
-       arbre n'apportait plus rien de distinct, juste un second chemin
-       vers le même résultat. */
-    const isSplit = () => S.binderLayout === "split";
-    const splitBtn = this.iconBtn(actions, "columns-2", t("binder.splitPane.tooltip"), async () => {
-      const next = isSplit() && this.currentSplitMode() === "both" ? "files" : "both";
-      await this.applySplitPaneMode(next);
+    const densityBtn = this.iconBtn(actions, "rows-3", t("binder.density.tooltip", { mode: effectiveBinderCompact ? t("binder.density.compact") : t("binder.density.standard") }), async () => {
+      /* Isolé : bascule un override de SESSION propre à cette racine de
+         travail (jamais settings.binderCompact, jamais persisté) — le
+         Binder normal et les autres dossiers isolés restent inchangés.
+         Non isolé : comportement actuel exact, settings.binderCompact. */
+      if (binderCompactScope) {
+        if (!this._binderCompactOverrides) this._binderCompactOverrides = new Map();
+        this._binderCompactOverrides.set(binderCompactScope, !effectiveBinderCompact);
+        void this.render(true);
+      } else {
+        S.binderCompact = !S.binderCompact;
+        await this.plugin.saveSettings();
+        void this.render(true);
+      }
     });
-    if (isSplit()) splitBtn.addClass("feuillets-mode-active");
-    splitBtn.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      this.showSplitPaneOptionsMenu(e);
-    });
-    this.barSep(actions);
-
-    /* Reprend l'emplacement de l'ancien bouton "Vue arbre" : bascule
-       directe Standard/Compact (voir showSplitPaneOptionsMenu pour le
-       détail des deux — clic droit y donne accès en plus des lignes
-       d'aperçu et de l'affichage transversal). */
-    const densityBtn = this.iconBtn(actions, "rows-3", t("binder.density.tooltip", { mode: S.binderCompact ? t("binder.density.compact") : t("binder.density.standard") }), async () => {
-      S.binderCompact = !S.binderCompact;
-      await this.plugin.saveSettings();
-      void this.render(true);
-    });
-    if (S.binderCompact) densityBtn.addClass("feuillets-mode-active");
+    if (effectiveBinderCompact) densityBtn.addClass("feuillets-mode-active");
     densityBtn.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this.showSplitPaneOptionsMenu(e);
@@ -431,7 +529,12 @@ export class FeuilletsView extends BaseFeuilletsView {
       (S.binderLabelFilter && S.binderLabelFilter !== "Tous") ||
       (S.binderProgressFilter && S.binderProgressFilter !== "Tous"));
 
-    if (binderFilterIsActive()) searchBtn.addClass("feuillets-mode-active");
+    const filterBtn = this.iconBtn(
+      filterBar,
+      binderFilterIsActive() ? "filter" : "list-filter",
+      t("binder.filter.tooltip")
+    );
+    if (binderFilterIsActive()) filterBtn.addClass("feuillets-mode-active");
     const filterSentinelLabel = (v: string) =>
       v === "Tous" ? t("binder.filter.all")
       : v === "Sans statut" ? t("binder.filter.noStatus")
@@ -440,9 +543,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       : v === "En dessous" ? t("binder.filter.progressUnder")
       : v === "Dépassé" ? t("binder.filter.progressOver")
       : v;
-    /* Une seule entrée Recherche/Filtres : le clic gauche ouvre la recherche
-       existante et ce popover de filtres, sans geste secondaire caché. */
-    searchBtn.addEventListener("click", (e: MouseEvent) => {
+    filterBtn.addEventListener("click", (e: MouseEvent) => {
       const menu = new Menu();
 
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
@@ -470,8 +571,8 @@ export class FeuilletsView extends BaseFeuilletsView {
           }
         }
       };
-      walkLabels(folder);
-      const meta = S.projectMeta ? S.projectMeta[folder.path] : null;
+      if (folder) walkLabels(folder);
+      const meta = folder && S.projectMeta ? S.projectMeta[folder.path] : null;
       const labelsList = (meta && meta.labels) ? meta.labels : (S.labels || []);
       labelsList.forEach((l) => {
         if (l.name) activeLabels.add(l.name);
@@ -610,7 +711,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     const searchTerm = foldAccents((S.binderSearch || "").trim());
     let contentIndex: Map<string, { text: string }> | null = null;
-    if (searchTerm && S.binderSearchContent) {
+    if (searchTerm && S.binderSearchContent && folder) {
       contentIndex = await this.buildSearchIndex(
         this.plugin.flattenFiles(folder)
       );
@@ -666,8 +767,8 @@ export class FeuilletsView extends BaseFeuilletsView {
       return false;
     };
 
-    const numbering = this.plugin.buildNumbering(folder);
-    const allFiles = this.plugin.flattenFiles(folder);
+    const numbering = folder ? this.plugin.buildNumbering(folder) : new Map<string, string>();
+    const allFiles = folder ? this.plugin.flattenFiles(folder) : [];
     const wcCache = await this.plugin.getWordCounts(allFiles);
     if (this._renderGen !== myGen) return;
 
@@ -699,7 +800,16 @@ export class FeuilletsView extends BaseFeuilletsView {
             ? "feuillets-item feuillets-hidden"
             : "feuillets-item",
       });
-      item.style.paddingLeft = `${20 + depth * 14}px`;
+      /* Retrait des feuillets par rapport à leur dossier parent : voir
+         renderTreeFolders (paddingLeft du dossier = 6 + depth * 10). Le
+         `depth` reçu ici vaut (profondeur d'itération du dossier parent + 1)
+         — lui-même déjà à (profondeur du dossier parent + 1) — donc
+         10 * depth - 6 retombe systématiquement à ~8px de plus que la ligne
+         du dossier parent, quel que soit le niveau. +4px seulement dans la
+         vue PRINCIPALE (jamais isolée — voir isIsolatedView) : ni la
+         profondeur réelle ni l'indentation des dossiers ne changent, juste
+         un peu plus de distance visuelle dossier → feuillet. */
+      item.style.paddingLeft = `${10 * depth - 6 + (isIsolatedView ? 0 : 4)}px`;
       item.setAttr("data-path", file.path);
       /* Focusable (sans entrer dans l'ordre de tabulation) : un clic sur
          la ligne lui donne le focus DOM, condition nécessaire pour que les
@@ -732,10 +842,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       }
 
-      const num =
-        hidden || opts.outOfProject
-          ? ""
-          : `${numbering.get(file.path) || ""} `;
+      const num = hidden ? "" : `${numbering.get(file.path) || ""} `;
       nameRow
         .createSpan({ cls: "feuillets-item-name" })
         .setText(`${num}${this.plugin.shortTitleFor(file)}`);
@@ -754,7 +861,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       /* Mode compact (voir showSplitPaneOptionsMenu) : aucun aperçu, quel
          que soit le champ choisi — la densité prime, l'aperçu se consulte
          en mode standard. */
-      if (!hidden && !S.binderCompact && opts.showPreview && S.listPanePreviewField !== "none") {
+      if (!hidden && !effectiveBinderCompact && opts.showPreview && S.listPanePreviewField !== "none") {
         const field = S.listPanePreviewField;
         const lines = S.listPanePreviewLines || 2;
         if (field === "extrait") {
@@ -836,26 +943,41 @@ export class FeuilletsView extends BaseFeuilletsView {
       return true;
     };
 
-    this.renderSplitBody(container, folder, {
-      S,
-      binderFilterActive,
-      folderHasMatch,
-      renderFileRow,
-    });
+    if (folder && workingRoot) {
+      this.renderHierarchyBody(container, workingRoot, {
+        S,
+        binderFilterActive,
+        folderHasMatch,
+        renderFileRow,
+        projectRoot: folder,
+        binderCompact: effectiveBinderCompact,
+      });
+    }
 
+    /* updateActiveHighlight() peut déplacer le défilement (scrollIntoView
+       sur le fichier actif — voir utils/dom.ts, highlightActive) : appelé
+       APRÈS, _restoreScroll/_resetScroll a toujours le dernier mot, pour
+       qu'un simple clic sur un dossier (repli/dépli, sélection…) ne fasse
+       jamais sauter le Binder loin de sa position — voir _captureScroll. */
     this.updateActiveHighlight();
-    this._restoreScroll(savedScroll);
+    if (opts.resetScroll) this._resetScroll();
+    else this._restoreScroll(savedScroll);
   }
 
   /** Zones défilantes du binder, selon la mise en page : la liste racine
    * (vue arbre, enfant direct du conteneur) ou les deux volets (double
-   * volet). On ne mémorise que celles réellement défilées (scrollTop > 0). */
+   * volet). Mémorise la position même à 0 : ne pas le faire laisserait
+   * highlightActive() (scrollIntoView sur le fichier actif, appelé par
+   * updateActiveHighlight à la fin de render) déplacer silencieusement le
+   * défilement sans que rien ne le corrige ensuite — c'est précisément ce
+   * qui faisait "sauter" le Binder en fin de liste sur un simple clic de
+   * dossier alors qu'on était tout en haut. */
   _captureScroll(): { sel: string; top: number }[] {
     const out: { sel: string; top: number }[] = [];
     const sels = [":scope > .feuillets-list", ".feuillets-tree-pane", ".feuillets-list-pane"];
     for (const sel of sels) {
       const el = this.contentEl.querySelector(sel);
-      if (el && el.scrollTop > 0) out.push({ sel, top: el.scrollTop });
+      if (el) out.push({ sel, top: el.scrollTop });
     }
     return out;
   }
@@ -873,6 +995,22 @@ export class FeuilletsView extends BaseFeuilletsView {
        volet peut n'être finalisée qu'après le prochain calcul de mise en
        page (largeur de barre latérale ajustée, images…), auquel cas le
        premier scrollTop serait plafonné trop bas. */
+    window.requestAnimationFrame(apply);
+  }
+
+  /** Symétrique de _restoreScroll, pour une entrée en isolation (voir
+   * isolateFolder) : la nouvelle racine de travail s'affiche depuis son
+   * tout début plutôt que de conserver un décalage devenu arbitraire, et
+   * annule là aussi tout scrollIntoView parasite de updateActiveHighlight. */
+  _resetScroll(): void {
+    const sels = [":scope > .feuillets-list", ".feuillets-tree-pane", ".feuillets-list-pane"];
+    const apply = () => {
+      for (const sel of sels) {
+        const el = this.contentEl.querySelector(sel);
+        if (el) el.scrollTop = 0;
+      }
+    };
+    apply();
     window.requestAnimationFrame(apply);
   }
 
@@ -1314,51 +1452,18 @@ export class FeuilletsView extends BaseFeuilletsView {
     renderChildren(researchRoot, 1);
   }
 
-  renderSplitBody(container: HTMLElement, root: TFolder, ctx: SplitBodyCtx): void {
+  renderHierarchyBody(container: HTMLElement, root: TFolder, ctx: SplitBodyCtx): void {
     const {
       S,
       binderFilterActive,
       folderHasMatch,
       renderFileRow,
+      projectRoot,
+      binderCompact,
     } = ctx;
 
-    const split = container.createDiv({ cls: "feuillets-split" });
-    split.style.setProperty("--feuillets-tree-w", `${S.binderTreeWidth}px`);
-
-    const treePane = split.createDiv({ cls: "feuillets-tree-pane" });
-    const resizer = split.createDiv({ cls: "feuillets-split-resizer" });
-    const listPane = split.createDiv({ cls: "feuillets-list-pane" });
-    if (S.binderCompact) listPane.addClass("feuillets-compact");
-
-    if (S.binderTreeCollapsed) {
-      split.addClass("is-tree-collapsed");
-      treePane.addClass("is-tree-collapsed");
-      resizer.addClass("is-tree-collapsed");
-    } else if (S.binderListCollapsed) {
-      split.addClass("is-list-collapsed");
-      listPane.addClass("is-list-collapsed");
-      resizer.addClass("is-list-collapsed");
-    }
-
-    resizer.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      const startX = e.clientX;
-      const startW = S.binderTreeWidth;
-      const onMove = (ev: MouseEvent) => {
-        S.binderTreeWidth = Math.min(360, Math.max(120, startW + ev.clientX - startX));
-        split.style.setProperty("--feuillets-tree-w", `${S.binderTreeWidth}px`);
-      };
-      const onUpAsync = async () => {
-        await this.plugin.saveSettings();
-      };
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        void onUpAsync();
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    });
+    const treePane = container.createDiv({ cls: "feuillets-list" });
+    if (binderCompact) treePane.addClass("feuillets-compact");
 
     const treeRoot = root;
 
@@ -1377,31 +1482,125 @@ export class FeuilletsView extends BaseFeuilletsView {
       void this.render(true);
     };
 
-    /* Racine du volet dossiers : la gestion des projets (créer/importer/
-       basculer/retirer) est passée dans son propre bouton de la barre
-       d'actions ("Gérer les projets…", tout en premier — voir render()),
-       détachée de cette ligne et disponible quel que soit le mode
-       d'affichage du binder. Cette ligne se contente d'afficher/sélectionner
-       la racine, comme n'importe quelle autre ligne du volet dossiers. */
     const rootRow = treePane.createDiv({
       cls: "feuillets-folder-row feuillets-tree-root",
     });
     if (selectedFolder.path === treeRoot.path) rootRow.addClass("is-selected");
-    const rootIcon = rootRow.createDiv({ cls: "feuillets-cell-icon" });
-    setIcon(rootIcon, "book-marked");
-    // Nom du projet (pas le nom brut du dossier : un projet structuré en
-    // <NomDuProjet>/Manuscrit/ afficherait sinon juste "Manuscrit" pour
-    // tous les projets — projectDisplayName remonte au vrai nom).
-    rootRow.createSpan({ cls: "feuillets-folder-name" }).setText(
-      this.plugin.projectDisplayName(treeRoot.path)
-    );
 
-    const rootAdd = rootRow.createSpan({ cls: "feuillets-folder-add" });
-    rootAdd.setText("+");
-    rootAdd.setAttr("title", t("binder.newFolder"));
-    rootAdd.addEventListener("click", (e) => {
+    /* En-tête d'isolation (chantier "isoler un dossier" —
+       _binderWorkingRootPath) : réutilise EXACTEMENT la même ligne "nom du
+       projet", sans bandeau ni encadrement nouveau. Non isolé, comportement
+       identique à avant (nom du projet seul). Isolé, une seule ligne
+       compacte : [icône manuscrit] ‹ nom réel du dossier courant — jamais
+       de fil d'Ariane complet, jamais de chemin affiché. */
+    const isIsolated = treeRoot.path !== projectRoot.path;
+
+    /* Clic sur le nom courant (isolé ou non) : replie/déplie la branche de
+       treeRoot — comportement "tout replier/déplier" existant, inchangé,
+       juste scopé à la racine de travail. */
+    const toggleCollapseCurrentRoot = (e: MouseEvent) => {
       e.stopPropagation();
+      const isCollapsed = !!S.collapsed[treeRoot.path];
+      S.collapsed[treeRoot.path] = !isCollapsed;
+      if (!isCollapsed) {
+        for (const child of this.plugin.getOrderedChildren(treeRoot)) {
+          if (child instanceof TFolder) S.collapsed[child.path] = true;
+        }
+      } else {
+        const expandAllFolders = (folder: TFolder) => {
+          delete S.collapsed[folder.path];
+          for (const child of this.plugin.getOrderedChildren(folder)) {
+            if (child instanceof TFolder) expandAllFolders(child);
+          }
+        };
+        expandAllFolders(treeRoot);
+      }
+      void (async () => {
+        await this.plugin.saveSettings();
+        void this.render(true);
+      })();
+    };
+
+    if (isIsolated) {
+      // Icône manuscrit (réutilise "files", déjà l'icône du Binder — voir
+      // getIcon()/registerRibbonIcons — plutôt qu'un SVG maison) : clic =
+      // retour immédiat au projet complet.
+      const backIcon = rootRow.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+      setIcon(backIcon, "files");
+      backIcon.setAttr("aria-label", t("binder.isolation.backToProject"));
+      backIcon.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this._binderWorkingRootPath = undefined;
+        void this.render(true);
+      });
+
+      // Chevron : remonte exactement d'un dossier. Si le parent est la
+      // racine du projet, revenir au Binder complet (équivalent : la racine
+      // de travail redevient le projet, donc l'en-tête isolé disparaît).
+      const upChevron = rootRow.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+      setIcon(upChevron, "chevron-left");
+      upChevron.setAttr("aria-label", t("binder.isolation.up"));
+      upChevron.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const parent = treeRoot.parent;
+        this._binderWorkingRootPath = (!parent || parent.path === projectRoot.path) ? undefined : parent.path;
+        void this.render(true);
+      });
+
+      // Nom réel du dossier isolé : casse conservée (pas d'uppercase — voir
+      // styles.css), ellipsis sur nom long, tooltip natif via `title`.
+      const nameEl = rootRow.createSpan({ cls: "feuillets-folder-name feuillets-isolation-current" });
+      nameEl.setText(treeRoot.name);
+      nameEl.setAttr("title", treeRoot.name);
+      nameEl.addEventListener("click", toggleCollapseCurrentRoot);
+    } else {
+      // Nom du projet (pas le nom brut du dossier : un projet structuré en
+      // <NomDuProjet>/Manuscrit/ afficherait sinon juste "Manuscrit" pour
+      // tous les projets — projectDisplayName remonte au vrai nom).
+      const rootName = rootRow.createSpan({ cls: "feuillets-folder-name" });
+      rootName.setText(this.plugin.projectDisplayName(treeRoot.path));
+      rootName.addEventListener("click", toggleCollapseCurrentRoot);
+    }
+
+    rootRow.addEventListener("click", (e) => {
+      void selectFolder(treeRoot);
+    });
+
+    /* Clic droit sur la ligne racine : si elle représente le vrai dossier
+       projet (pas d'isolation, ou isolation revenue au projet), même menu
+       qu'avant — "dupliquer comme nouvelle version" comprise (voir plus
+       bas). Isolée sur un sous-dossier, la racine affichée est un dossier
+       ordinaire : son clic droit ouvre le menu contextuel standard des
+       dossiers (showFolderContextMenu), avec "Isoler ce dossier" en plus —
+       jamais un second menu créé pour l'occasion. */
+    rootRow.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      if (treeRoot.path !== projectRoot.path) {
+        const workingParent = treeRoot.parent;
+        const workingSiblings = workingParent ? this.plugin.getOrderedChildren(workingParent) : [treeRoot];
+        const workingIndex = Math.max(0, workingSiblings.indexOf(treeRoot));
+        this.ensureSelectionForContextMenu(treeRoot.path, treePane);
+        this.showFolderContextMenu(e, treeRoot, workingParent ?? treeRoot, workingIndex, workingSiblings, this.binderIsolateExtras(treeRoot));
+        return;
+      }
       const menu = new Menu();
+      const menuTitle = t("shared.contextMenu.openWithPreview");
+      menu.addItem((item) =>
+        item
+          .setTitle(menuTitle)
+          .setIcon("eye")
+          .onClick(async () => {
+            const scope = createProjectScope(treeRoot.path);
+            await openScopeWithPreview(this.app, scope);
+          })
+      );
+      menu.addSeparator();
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.newSheetHere"))
+          .setIcon("file-plus")
+          .onClick(() => this.plugin.newSheet(root))
+      );
       menu.addItem((item) =>
         item
           .setTitle(t("binder.newFolder"))
@@ -1413,34 +1612,6 @@ export class FeuilletsView extends BaseFeuilletsView {
           .setTitle(t("binder.importOutline"))
           .setIcon("list-tree")
           .onClick(() => new ImportOutlineModal(this.app, this.plugin).open())
-      );
-      menu.showAtMouseEvent(e);
-    });
-
-    rootRow.addEventListener("click", (e) => {
-      if (e.target === rootAdd || rootAdd.contains(e.target as Node)) return;
-      void selectFolder(treeRoot);
-    });
-
-    /* Clic droit sur la racine du manuscrit : dupliquer comme nouvelle
-       version — même fonction que la commande "duplicate-project" et le
-       bouton "copy-plus" de "Gérer les projets" (voir project-modals.js,
-       DuplicateVersionModal), juste rendue visible ici aussi, sur la seule
-       ligne du binder toujours présente à l'écran quel que soit le mode
-       d'affichage. Rien de nouveau : un troisième accès à la même action,
-       au geste le plus naturel pour "plus d'options sur cet élément". */
-    rootRow.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      const menu = new Menu();
-      const menuTitle = t("shared.contextMenu.openWithPreview");
-      menu.addItem((item) =>
-        item
-          .setTitle(menuTitle)
-          .setIcon("eye")
-          .onClick(async () => {
-            const scope = createProjectScope(treeRoot.path);
-            await openScopeWithPreview(this.app, scope);
-          })
       );
       menu.addSeparator();
       menu.addItem((item) =>
@@ -1519,11 +1690,31 @@ export class FeuilletsView extends BaseFeuilletsView {
     let treeRowCount = 0;
     let treeTruncated = false;
 
+    /* Repli/dépli d'un dossier au simple clic (voir renderTreeFolders,
+       ci-dessous) : programmé après ce court délai plutôt qu'exécuté tout de
+       suite, pour qu'un double-clic (isolation, voir isolateFolder) ait le
+       temps de l'annuler avant qu'il ne parte — un double-clic ne doit
+       jamais aussi replier/déplier au passage. */
+    const BINDER_CLICK_DELAY_MS = 220;
+    let pendingCollapseTimer: number | null = null;
+
     const renderTreeFolders = (parent: TFolder, depth: number) => {
       if (treeTruncated) return;
       const siblings = this.plugin.getOrderedChildren(parent);
       for (let i = 0; i < siblings.length; i++) {
         const child = siblings[i];
+        if (parent === treeRoot && S.collapsed[treeRoot.path] && child instanceof TFile) continue;
+        if (child instanceof TFile) {
+          if (treeRowCount >= MAX_TREE_ROWS) {
+            treeTruncated = true;
+            treePane.createDiv({ cls: "feuillets-empty" }).setText(t("binder.tree.truncated", { max: String(MAX_TREE_ROWS) }));
+            return;
+          }
+          if (renderFileRow(treePane, child, parent, i, siblings, depth + 1, treePane, { showPreview: true })) {
+            treeRowCount++;
+          }
+          continue;
+        }
         if (!(child instanceof TFolder)) continue;
         const hidden = child.name.startsWith("_") || parent.path.includes("/_");
         if (hidden) continue;
@@ -1537,10 +1728,9 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
         treeRowCount++;
 
-        const role = this.plugin.roleOfFolder(child);
         const row = treePane.createDiv({ cls: "feuillets-folder-row" });
         if (depth === 0) row.addClass("is-depth-0");
-        row.style.paddingLeft = `${6 + depth * 14}px`;
+        row.style.paddingLeft = `${6 + depth * 10}px`;
         if (selectedFolder.path === child.path) row.addClass("is-active");
 
         row.setAttr("data-path", child.path);
@@ -1552,56 +1742,53 @@ export class FeuilletsView extends BaseFeuilletsView {
         const grip = row.createSpan({ cls: "feuillets-drag-grip" });
         setIcon(grip, "grip-vertical");
 
-        const icon = row.createDiv({ cls: "feuillets-cell-icon" });
-        setIcon(icon, role === "partie" ? "folder" : "folder-open");
-
         row.createSpan({ cls: "feuillets-folder-name" }).setText(child.name);
 
-        const addBtn = row.createSpan({ cls: "feuillets-folder-add" });
-        addBtn.setText("+");
-        addBtn.setAttr("title", t("binder.addToFolder", { name: child.name }));
-        addBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const menu = new Menu();
-          menu.addItem((item) =>
-            item
-              .setTitle(t("binder.newSubfolder"))
-              .setIcon("folder-plus")
-              .onClick(() => this.plugin.newFolder(child))
-          );
-          menu.addItem((item) =>
-            item
-              .setTitle(t("binder.newSheetHere"))
-              .setIcon("file-plus")
-              .onClick(async () => {
-                await selectFolder(child);
-                this.plugin.newSheet(child);
-              })
-          );
-          menu.showAtMouseEvent(e);
-        });
-
+        /* Simple clic = replie/déplie ce dossier, comme avant l'essai des
+           chevrons (retiré : aspect sobre du Binder — aucun chevron
+           permanent). Pour laisser un double-clic s'annoncer d'abord, le
+           repli/dépli est programmé après un court délai plutôt qu'exécuté
+           immédiatement — `dblclick` annule ce délai avant d'isoler, un
+           double-clic ne doit donc JAMAIS aussi replier/déplier au passage.
+           `pendingCollapseTimer` est partagé par tout l'arbre de CE rendu :
+           un seul geste utilisateur (clic ou double-clic) a lieu à la fois,
+           inutile d'en garder un par ligne. */
         row.addEventListener("click", (e) => {
-          if (e.target === addBtn || addBtn.contains(e.target as Node)) return;
-          if (this.handleMultiSelectClick(e, child, parent, i, siblings, split)) {
-            return;
+          if (this.handleMultiSelectClick(e, child, parent, i, siblings, treePane)) return;
+          if (pendingCollapseTimer !== null) window.clearTimeout(pendingCollapseTimer);
+          pendingCollapseTimer = window.setTimeout(() => {
+            pendingCollapseTimer = null;
+            void (async () => {
+              if (S.collapsed[child.path]) delete S.collapsed[child.path];
+              else S.collapsed[child.path] = true;
+              await this.plugin.saveSettings();
+              await selectFolder(child);
+            })();
+          }, BINDER_CLICK_DELAY_MS);
+        });
+        row.addEventListener("dblclick", (e) => {
+          e.preventDefault();
+          if (pendingCollapseTimer !== null) {
+            window.clearTimeout(pendingCollapseTimer);
+            pendingCollapseTimer = null;
           }
-          void (async () => {
-            // Toggle collapse
-            if (S.collapsed[child.path]) delete S.collapsed[child.path];
-            else S.collapsed[child.path] = true;
-            await this.plugin.saveSettings();
-            await selectFolder(child);
-          })();
+          this.isolateFolder(child);
         });
         row.addEventListener("contextmenu", (e) => {
           e.preventDefault();
-          this.ensureSelectionForContextMenu(child.path, split);
-          this.showFolderContextMenu(e, child, parent, i, siblings);
+          this.ensureSelectionForContextMenu(child.path, treePane);
+          this.showFolderContextMenu(e, child, parent, i, siblings, this.binderIsolateExtras(child));
         });
 
-        this.attachDragHandlers(grip, row, parent, i, siblings, split);
+        this.attachDragHandlers(grip, row, parent, i, siblings, treePane);
 
+        /* Le repli du nom du projet (S.collapsed[treeRoot.path]) ne masque
+           que les feuillets posés directement à la racine (voir plus haut) —
+           il ne doit jamais empêcher un dossier de se déplier via son PROPRE
+           état S.collapsed[child.path], sans quoi "tout replier" fige
+           l'arborescence : un dossier redevenait cliquable en apparence mais
+           son contenu ne se rendait plus jamais tant que la racine restait
+           repliée. */
         if (!S.collapsed[child.path] || binderFilterActive) {
           renderTreeFolders(child, depth + 1);
         }
@@ -1610,105 +1797,22 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     renderTreeFolders(treeRoot, 0);
 
-    const researchRoot = this.plugin.getResearchRoot();
-    if (!treeTruncated && researchRoot instanceof TFolder) {
-      this.renderResearchSection(treePane, researchRoot);
-    }
-
     const versionsRoot = this.plugin.getVersionsRoot();
     if (!treeTruncated && versionsRoot instanceof TFolder) {
       this.renderResearchSection(treePane, versionsRoot, "history", (f: TFile) => this.plugin.shortTitleFor(f));
     }
 
-    const listBody = listPane.createDiv({ cls: "feuillets-list" });
-    let any = false;
-
-    // Même filet de sécurité que côté dossiers : la liste récursive de tout
-    // un vault de plusieurs milliers de notes pouvait construire un DOM
-    // énorme d'un coup et planter Obsidian.
-    const MAX_LIST_ROWS = 2000;
-    let listRowCount = 0;
-    let listTruncated = false;
-
-    const renderFilesOf = (folder: TFolder, depth: number) => {
-      if (listTruncated) return;
-      const kids = this.plugin.getOrderedChildren(folder);
-      // Le nom du dossier (sous-titre) enroule/déroule ses feuillets ET ses
-      // sous-dossiers dans CE volet — indépendant du repli du volet dossiers
-      // (même S.collapsed, mais rien n'oblige les deux volets à s'accorder
-      // visuellement, seul l'état logique est partagé).
-      const isCollapsed = depth > 0 && !!S.collapsed[folder.path];
-      if (depth > 0) {
-        const heading = listBody.createDiv({ cls: "feuillets-list-subheading" });
-        heading.setText(folder.name);
-        heading.addClass("feuillets-clickable");
-        heading.addEventListener("click", () => {
-          void (async () => {
-            if (S.collapsed[folder.path]) delete S.collapsed[folder.path];
-            else S.collapsed[folder.path] = true;
-            await this.plugin.saveSettings();
-            void this.render(true);
-          })();
-        });
-      }
-
-      if (!isCollapsed) {
-        for (let i = 0; i < kids.length; i++) {
-          const child = kids[i];
-          if (!(child instanceof TFile)) continue;
-
-          if (listRowCount >= MAX_LIST_ROWS) {
-            listTruncated = true;
-            listBody
-              .createDiv({ cls: "feuillets-empty" })
-              .setText(t("binder.list.truncated", { max: String(MAX_LIST_ROWS) }));
-            return;
-          }
-
-          const shown = renderFileRow(listBody, child, folder, i, kids, 0, split, {
-            showPreview: true,
-            outOfProject:
-              !child.path.startsWith(root.path + "/") && child.path !== root.path,
-          });
-          if (shown) {
-            any = true;
-            listRowCount++;
-          }
-        }
-      }
-
-      if (!isCollapsed && S.binderSplitRecursive !== false) {
-        for (const c of kids) {
-          if (listTruncated) return;
-          if (c instanceof TFolder) renderFilesOf(c, depth + 1);
-        }
-      }
-    };
-
-    renderFilesOf(selectedFolder, 0);
-
-    if (!any) {
-      const emptyEl = listBody.createDiv({ cls: "feuillets-empty" });
-      emptyEl.setText(
-        S.binderSplitRecursive !== false
-          ? t("binder.list.emptyRecursive")
-          : t("binder.list.emptyDirect")
-      );
-      this.attachEmptyFolderDropHandler(emptyEl, selectedFolder);
-    }
-
     // Vider la sélection quand on clique dans une zone vide du Binder
-    split.addEventListener("click", (e) => {
+    treePane.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       // Ne vider que si le clic est dans la zone vide ou pas sur un élément avec data-path
       if (
         !target.closest("[data-path]") &&
-        !target.closest(".feuillets-folder-add") &&
         !target.closest(".feuillets-drag-grip")
       ) {
         if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.size > 0) {
           this.plugin._binderMultiSelect.clear();
-          this.refreshMultiSelectClasses(split);
+          this.refreshMultiSelectClasses(treePane);
         }
       }
     });

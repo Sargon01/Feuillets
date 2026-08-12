@@ -340,6 +340,12 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setIcon("file-plus")
         .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file))
     );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.research.openSplit"))
+        .setIcon("columns-2")
+        .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file))
+    );
     menu.addSeparator();
     menu.addItem((item) =>
       item
@@ -2326,7 +2332,12 @@ export abstract class BaseFeuilletsView extends ItemView {
     menu.showAtMouseEvent(e);
   }
 
-  showFolderContextMenu(e: MouseEvent, folder: TFolder, _parent: ProjectNode, _index: number, _siblings: ProjectNode[]): void {
+  /** `extraItems`, optionnel : permet à une vue appelante d'ajouter des
+   * entrées propres à son contexte (ex. « Isoler ce dossier » dans le
+   * Binder — voir FeuilletsView.binderIsolateExtras) sans dupliquer tout ce
+   * menu ni en créer un second. BoardView (l'autre appelant) ne le passe
+   * jamais : son menu reste identique à avant. */
+  showFolderContextMenu(e: MouseEvent, folder: TFolder, _parent: ProjectNode, _index: number, _siblings: ProjectNode[], extraItems?: (menu: Menu) => void): void {
     const menu = new Menu();
     const plugin = this.plugin;
 
@@ -2341,6 +2352,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           await openScopeWithPreview(this.app, scope);
         })
     );
+    extraItems?.(menu);
     menu.addSeparator();
 
     menu.addItem((item) => item.setTitle("Nouveau…").setIcon("plus").onClick((evt) => showChoices(evt, e, (choices) => {

@@ -2141,9 +2141,7 @@ class FeuilletsPlugin extends Plugin {
     if (leftSplit && !leftSplit.collapsed) {
       const activeSidebarLeaf = this.app.workspace.getLeavesOfType(VIEW_SIDEBAR)[0];
       if (activeSidebarLeaf) {
-        const isSinglePane = this.settings.binderTreeCollapsed || this.settings.binderListCollapsed;
-        const width = !isSinglePane ? 400 : 250;
-        this.safeSetSize(leftSplit, width);
+        this.safeSetSize(leftSplit, 250);
       }
     }
     const rightSplit = this.app.workspace.rightSplit;

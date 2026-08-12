@@ -840,6 +840,33 @@
   margin-bottom: var(--size-4-1);
 }
 
+.feuillets-list > .feuillets-tree-root .feuillets-folder-name {
+  font-weight: var(--font-semibold, 600);
+  text-transform: uppercase;
+}
+
+/* En-tête d'isolation (voir FeuilletsView._binderWorkingRootPath) : même
+   ligne "nom du projet", juste [icône manuscrit] ‹ nom réel du dossier —
+   jamais de fil d'Ariane complet. Casse réelle conservée : contrairement au
+   nom du projet, ce nom n'est jamais mis en capitales. min-width: 0 permet
+   à ce span flex de rétrécir sous sa largeur de contenu pour que l'ellipsis
+   agisse plutôt que de faire déborder la ligne. */
+.feuillets-list > .feuillets-tree-root .feuillets-folder-name.feuillets-isolation-current {
+  text-transform: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-list > .feuillets-folder-row:not(.feuillets-tree-root) .feuillets-folder-name {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold, 600);
+  text-transform: uppercase;
+}
+
 .feuillets-item-preview {
   overflow: hidden;
   color: var(--text-muted);
