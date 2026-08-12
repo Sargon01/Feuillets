@@ -123,11 +123,11 @@ function createNotesView({ activeFile = null, root = new TFolder("Projet"), sett
 
 function isolateBodySections(view, calls) {
   view.renderFolderNoteLinks = () => {};
-  view.renderFilePropertiesSection = () => {};
+  view.renderPropertiesRow = () => {};
   view.renderCitedEntities = async () => { calls.entities += 1; };
   view.renderCollapsibleTextarea = (_wrapper, _label, key) => { calls.sections.push(key); };
   view.renderWorkingNotesRow = () => { calls.sections.push("notes"); };
-  view.renderFootnotesSection = async () => { calls.footnotes += 1; };
+  view.renderFootnotesRow = async () => { calls.footnotes += 1; };
 }
 
 test("NotesView remet currentPath à null sans fichier, sans projet ou hors projet", async () => {
@@ -149,8 +149,8 @@ test("NotesView suit le fichier actif valide et revient au fichier actif si la n
   const viewed = makeFile("Projet/Chapitre.md");
   const { view, files } = createNotesView({ activeFile: active });
   const rendered = [];
-  view.renderFolderNoteLinks = () => {};
-  view.renderFilePropertiesSection = (_wrapper, file) => rendered.push(file);
+  view.renderFolderNoteLinks = (_wrapper, file) => rendered.push(file);
+  view.renderPropertiesRow = () => {};
   view.renderCitedEntities = async () => {};
   view.renderCollapsibleTextarea = () => {};
 
@@ -359,9 +359,9 @@ test("NotesView n'affiche jamais Synopsis et Résumé ensemble, selon le mode du
 
 function stubAuxSections(view) {
   view.renderFolderNoteLinks = () => {};
-  view.renderFilePropertiesSection = () => {};
+  view.renderPropertiesRow = () => {};
   view.renderCitedEntities = async () => {};
-  view.renderFootnotesSection = async () => {};
+  view.renderFootnotesRow = async () => {};
 }
 
 /** Enregistre les clés passées à renderCollapsibleTextarea tout en
@@ -415,7 +415,7 @@ test("NotesView : cliquer sur la ligne Notes de travail ouvre la vue secondaire 
   view.render = async () => { renders += 1; };
   head.events.get("click")();
 
-  assert.equal(view.workingNotesOpen, true);
+  assert.equal(view.notesPage, "working-notes");
   assert.equal(renders, 1);
 });
 
@@ -424,7 +424,7 @@ test("NotesView : la vue secondaire Notes de travail lit/écrit toujours la prop
   const { view, contentEl, frontmatters, writes } = createNotesView({ activeFile: active });
   frontmatters.set(active.path, { notes: "Contenu existant" });
   stubAuxSections(view);
-  view.workingNotesOpen = true;
+  view.notesPage = "working-notes";
   const textareaCalls = spyOnCollapsibleTextarea(view);
 
   await view.render(true);
@@ -456,7 +456,7 @@ test("NotesView : Retour depuis Notes de travail restaure la vue principale du f
   const active = makeFile("Projet/scene.md");
   const { view, contentEl } = createNotesView({ activeFile: active });
   stubAuxSections(view);
-  view.workingNotesOpen = true;
+  view.notesPage = "working-notes";
 
   await view.render(true);
   const backBtn = allElements(contentEl).find((el) => el.classes.has("feuillets-back-btn"));
@@ -466,21 +466,21 @@ test("NotesView : Retour depuis Notes de travail restaure la vue principale du f
   view.render = async () => { renders += 1; };
   backBtn.events.get("click")();
 
-  assert.equal(view.workingNotesOpen, false);
+  assert.equal(view.notesPage, "home");
   assert.equal(renders, 1);
 });
 
-test("NotesView : un changement de fichier actif réinitialise la vue secondaire Notes de travail", async () => {
+test("NotesView : un changement de fichier actif réinitialise la page secondaire", async () => {
   const active = makeFile("Projet/scene.md");
   const { view, handlers } = createNotesView({ activeFile: active });
   view.render = async () => {};
   view.registerEvent = () => {};
-  view.workingNotesOpen = true;
+  view.notesPage = "working-notes";
 
   await view.onOpen();
   handlers.workspace.get("file-open")(active);
 
-  assert.equal(view.workingNotesOpen, false);
+  assert.equal(view.notesPage, "home");
 });
 
 test("NotesView : note de dossier → Notes de travail → Retour revient à la note de dossier", async () => {
@@ -490,7 +490,7 @@ test("NotesView : note de dossier → Notes de travail → Retour revient à la 
   files.set(folderNote.path, folderNote);
   stubAuxSections(view);
   view.viewedFile = folderNote;
-  view.workingNotesOpen = true;
+  view.notesPage = "working-notes";
 
   await view.render(true);
   // Une seule barre de retour affichée pendant les Notes de travail —
@@ -505,7 +505,30 @@ test("NotesView : note de dossier → Notes de travail → Retour revient à la 
 
   // Le Retour ferme seulement les Notes de travail : la note de dossier
   // consultée reste affichée.
-  assert.equal(view.workingNotesOpen, false);
+  assert.equal(view.notesPage, "home");
+  assert.equal(view.viewedFile, folderNote);
+  assert.equal(renders, 1);
+});
+
+test("NotesView : note de dossier → Propriétés → Retour revient à la note de dossier", async () => {
+  const active = makeFile("Projet/scene.md");
+  const folderNote = makeFile("Projet/Chapitre.md");
+  const { view, contentEl, files } = createNotesView({ activeFile: active });
+  files.set(folderNote.path, folderNote);
+  stubAuxSections(view);
+  view.viewedFile = folderNote;
+  view.notesPage = "properties";
+
+  await view.render(true);
+  const backBars = allElements(contentEl).filter((el) => el.classes.has("feuillets-notes-back-bar"));
+  assert.equal(backBars.length, 1);
+  const backBtn = allElements(contentEl).find((el) => el.classes.has("feuillets-back-btn"));
+
+  let renders = 0;
+  view.render = async () => { renders += 1; };
+  backBtn.events.get("click")();
+
+  assert.equal(view.notesPage, "home");
   assert.equal(view.viewedFile, folderNote);
   assert.equal(renders, 1);
 });
@@ -572,4 +595,228 @@ test("NotesView ouvre les deux actions de propriétés sans écrire ni modifier 
   } finally {
     [ProjectPropertiesModal.prototype.open, ProjectTagsModal.prototype.open] = originals;
   }
+});
+
+function stubHomeNoise(view) {
+  // N'isole que ce qui n'est pas sous test (fil d'Ariane, Contexte) —
+  // laisse les vraies implémentations de la ligne Propriétés et de la
+  // ligne Notes de bas de page tourner, contrairement à stubAuxSections.
+  view.renderFolderNoteLinks = () => {};
+  view.renderCitedEntities = async () => {};
+}
+
+test("NotesView : la vue principale n'affiche que la ligne compacte Propriétés, jamais l'éditeur YAML complet", async () => {
+  const active = makeFile("Projet/scene.md");
+  const { view, contentEl, frontmatters } = createNotesView({ activeFile: active });
+  frontmatters.set(active.path, { titre: "Chapitre 1" });
+  stubHomeNoise(view);
+  view.renderCollapsibleTextarea = () => {};
+  view.renderWorkingNotesRow = () => {};
+
+  await view.render(true);
+
+  const all = allElements(contentEl);
+  // La ligne compacte est bien là…
+  assert.ok(all.some((el) => el.text === "Propriétés"));
+  // … mais aucune trace de l'éditeur YAML complet (ligne de propriété ni
+  // champ d'ajout) tant qu'on ne clique pas dessus.
+  assert.equal(all.some((el) => el.classes.has("feuillets-properties-row")), false);
+  assert.equal(all.some((el) => el.classes.has("feuillets-properties-add-row")), false);
+});
+
+test("NotesView : cliquer sur la ligne Propriétés ouvre l'éditeur YAML complet dans le même panneau", async () => {
+  const active = makeFile("Projet/scene.md");
+  const { view, contentEl, frontmatters } = createNotesView({ activeFile: active });
+  frontmatters.set(active.path, { titre: "Chapitre 1" });
+  stubHomeNoise(view);
+  view.renderCollapsibleTextarea = () => {};
+  view.renderWorkingNotesRow = () => {};
+
+  await view.render(true);
+  const head = allElements(contentEl).find(
+    (el) =>
+      el.classes.has("feuillets-notes-section-head") &&
+      el.classes.has("feuillets-clickable") &&
+      el.children.some((child) => child.text === "Propriétés")
+  );
+  assert.ok(head, "ligne compacte « Propriétés » attendue");
+
+  // Le gestionnaire de clic déclenche lui-même un render() en tâche de
+  // fond (`void this.render()`) : neutralisé le temps du clic pour piloter
+  // nous-mêmes le rendu déterministe qui suit, sans double rendu concurrent
+  // qui traînerait après la fin du test.
+  const realRender = view.render.bind(view);
+  view.render = async () => {};
+  head.events.get("click")();
+  view.render = realRender;
+
+  assert.equal(view.notesPage, "properties");
+  await view.render(true);
+  const all = allElements(contentEl);
+  assert.ok(all.some((el) => el.classes.has("feuillets-notes-back-bar")));
+  const row = all.find((el) => el.classes.has("feuillets-properties-row"));
+  assert.ok(row, "éditeur YAML complet attendu dans la page secondaire");
+});
+
+test("NotesView : Retour depuis Propriétés restaure la vue principale du feuillet", async () => {
+  const active = makeFile("Projet/scene.md");
+  const { view, contentEl } = createNotesView({ activeFile: active });
+  stubAuxSections(view);
+  view.notesPage = "properties";
+
+  await view.render(true);
+  const backBtn = allElements(contentEl).find((el) => el.classes.has("feuillets-back-btn"));
+  assert.ok(backBtn);
+
+  let renders = 0;
+  view.render = async () => { renders += 1; };
+  backBtn.events.get("click")();
+
+  assert.equal(view.notesPage, "home");
+  assert.equal(renders, 1);
+});
+
+test("NotesView : aucune ligne Notes de bas de page quand le feuillet n'en contient aucune", async () => {
+  const active = makeFile("Projet/scene.md", "Texte sans note.");
+  const { view, contentEl } = createNotesView({
+    activeFile: active,
+    settings: { notesShowFootnotes: true },
+  });
+  stubHomeNoise(view);
+  view.renderCollapsibleTextarea = () => {};
+  view.renderWorkingNotesRow = () => {};
+
+  await view.render(true);
+
+  const all = allElements(contentEl);
+  assert.equal(all.some((el) => el.text === "Notes de bas de page"), false);
+});
+
+test("NotesView : la ligne Notes de bas de page affiche le nombre réel de définitions", async () => {
+  const active = makeFile(
+    "Projet/scene.md",
+    "Texte.[^a] Suite.[^b]\n\n[^a]: Première note\n[^b]: Deuxième note"
+  );
+  const { view, contentEl } = createNotesView({
+    activeFile: active,
+    settings: { notesShowFootnotes: true },
+  });
+  stubHomeNoise(view);
+  view.renderCollapsibleTextarea = () => {};
+  view.renderWorkingNotesRow = () => {};
+
+  await view.render(true);
+
+  const all = allElements(contentEl);
+  const title = all.find((el) => el.text === "Notes de bas de page");
+  assert.ok(title, "ligne « Notes de bas de page » attendue");
+  const head = title.parentNode;
+  const count = head.children.find((el) => el.classes.has("feuillets-notes-section-count"));
+  assert.ok(count);
+  assert.equal(count.text, "2");
+  // Aucune mention « (Relecture) » dans cette interface.
+  assert.equal(all.some((el) => typeof el.text === "string" && el.text.includes("Relecture")), false);
+});
+
+test("NotesView : cliquer sur la ligne Notes de bas de page ouvre la page secondaire avec les N notes", async () => {
+  const active = makeFile(
+    "Projet/scene.md",
+    "Texte.[^a] Suite.[^b]\n\n[^a]: Première note\n[^b]: Deuxième note"
+  );
+  const { view, contentEl } = createNotesView({
+    activeFile: active,
+    settings: { notesShowFootnotes: true },
+  });
+  stubHomeNoise(view);
+  view.renderCollapsibleTextarea = () => {};
+  view.renderWorkingNotesRow = () => {};
+
+  await view.render(true);
+  const title = allElements(contentEl).find((el) => el.text === "Notes de bas de page");
+  const head = title.parentNode;
+  // Même précaution que pour la ligne Propriétés : neutraliser le render()
+  // interne déclenché par le clic pour piloter nous-mêmes un rendu
+  // déterministe, sans double rendu concurrent.
+  const realRender = view.render.bind(view);
+  view.render = async () => {};
+  head.events.get("click")();
+  view.render = realRender;
+
+  assert.equal(view.notesPage, "footnotes");
+  await view.render(true);
+  const all = allElements(contentEl);
+  assert.ok(all.some((el) => el.classes.has("feuillets-notes-back-bar")));
+  const entries = all.filter((el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(entries.length, 2);
+  assert.ok(entries.some((el) => el.children.some((c) => c.text === "[^a] ")));
+  assert.ok(entries.some((el) => el.children.some((c) => c.text === "[^b] ")));
+});
+
+test("NotesView : Retour depuis Notes de bas de page restaure la vue principale du feuillet", async () => {
+  const active = makeFile("Projet/scene.md", "Texte.[^a]\n\n[^a]: Une note");
+  const { view, contentEl } = createNotesView({
+    activeFile: active,
+    settings: { notesShowFootnotes: true },
+  });
+  stubAuxSections(view);
+  view.notesPage = "footnotes";
+
+  await view.render(true);
+  const backBtn = allElements(contentEl).find((el) => el.classes.has("feuillets-back-btn"));
+  assert.ok(backBtn);
+
+  let renders = 0;
+  view.render = async () => { renders += 1; };
+  backBtn.events.get("click")();
+
+  assert.equal(view.notesPage, "home");
+  assert.equal(renders, 1);
+});
+
+test("NotesView : notesShowFootnotes=false masque la ligne d'accès et la page", async () => {
+  const active = makeFile("Projet/scene.md", "Texte.[^a]\n\n[^a]: Une note");
+  const { view, contentEl } = createNotesView({
+    activeFile: active,
+    settings: { notesShowFootnotes: false },
+  });
+  stubAuxSections(view);
+  view.renderCollapsibleTextarea = () => {};
+  view.renderWorkingNotesRow = () => {};
+
+  await view.render(true);
+  assert.equal(allElements(contentEl).some((el) => el.text === "Notes de bas de page"), false);
+
+  // Même en forçant la page secondaire (ex. réglage désactivé après
+  // navigation), elle ne doit pas s'afficher.
+  view.notesPage = "footnotes";
+  await view.render(true);
+  assert.equal(view.notesPage, "home");
+  assert.equal(allElements(contentEl).some((el) => el.classes.has("feuillets-notes-back-bar")), false);
+});
+
+test("NotesView : ordre de la vue principale — Propriétés → Synopsis/Résumé → Références → Notes de travail → Notes de bas de page", async () => {
+  const active = makeFile("Projet/scene.md", "Texte.[^a]\n\n[^a]: Une note");
+  const { view, contentEl, plugin } = createNotesView({
+    activeFile: active,
+    settings: {
+      notesShowEntities: true,
+      notesShowSynopsis: true,
+      notesShowResume: false,
+      notesShowNotes: true,
+      notesShowFootnotes: true,
+      notesSectionOrder: ["Synopsis", "Résumé", "Notes"],
+    },
+  });
+  plugin.hasSources = () => false;
+  view.renderFolderNoteLinks = () => {};
+  const order = [];
+  view.renderPropertiesRow = () => order.push("properties");
+  view.renderCitedEntities = async () => { order.push("entities"); };
+  view.renderCollapsibleTextarea = (_wrapper, _label, key) => order.push(key);
+  view.renderWorkingNotesRow = () => order.push("notes");
+  view.renderFootnotesRow = async () => { order.push("footnotes"); };
+
+  await view.render(true);
+
+  assert.deepEqual(order, ["properties", "synopsis", "entities", "notes", "footnotes"]);
 });

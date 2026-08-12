@@ -40,6 +40,13 @@ type NotesFrontmatter = Record<string, unknown> & {
 };
 type StoryDate = { sort: number; display: string; y: number; mo: number; d: number };
 type Footnote = { label: string; text: string };
+/** Page actuellement affichée dans le panneau Feuillet — état PUREMENT en
+ * mémoire, jamais persisté dans settings (voir `notesPage`) : "home" est la
+ * vue principale du Feuillet, les trois autres sont des pages secondaires
+ * qui remplacent tout le reste du panneau (comme l'ancien
+ * `workingNotesOpen`, désormais généralisé à Propriétés et Notes de bas de
+ * page). */
+type NotesPage = "home" | "working-notes" | "properties" | "footnotes";
 type BaseNotesViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type NotesSettings = FeuilletsSettings & {
   collapsed: Record<string, boolean>;
@@ -132,19 +139,35 @@ export function stripLeadingTitleFromExcerpt(excerpt: string, title: string): st
   return rest || excerpt;
 }
 
+/** Détection des notes de bas de page (`[^label]: texte`) définies dans le
+ * corps d'un feuillet — extraite en helper pour être partagée entre le
+ * compteur de la ligne d'accès de la vue principale et le rendu complet de
+ * la page secondaire, sans dupliquer l'algorithme. Détection INCHANGÉE
+ * (même expression régulière qu'avant ce chantier) : seul le contenu vit
+ * dans le corps du texte, jamais dans le frontmatter. */
+function extractFootnotes(body: string): Footnote[] {
+  const footnotes: Footnote[] = [];
+  const re = /^\[\^([^\]]+)\]:[ \t]*(.+)$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    footnotes.push({ label: m[1], text: m[2].trim() });
+  }
+  return footnotes;
+}
+
 export class NotesView extends BaseFeuilletsView {
   declare plugin: NotesViewPlugin;
   declare targetContainer?: HTMLElement;
   viewedFile: TFile | null;
   currentPath: string | null;
-  /** Vue secondaire « Notes de travail » actuellement affichée à la place
-   * de la vue principale du Feuillet — purement en mémoire, jamais
-   * persisté (voir onOpen : réinitialisé à chaque changement de fichier
-   * actif) et indépendant de `viewedFile` : ouvrir les Notes de travail
-   * depuis une note de dossier laisse `viewedFile` inchangé, pour que le
-   * Retour de CE panneau revienne à la note de dossier, et le Retour de
-   * la note de dossier ramène ensuite au feuillet. */
-  workingNotesOpen: boolean;
+  /** Page secondaire actuellement affichée à la place de la vue principale
+   * du Feuillet — purement en mémoire, jamais persisté (voir onOpen :
+   * réinitialisé à "home" à chaque changement de fichier actif) et
+   * indépendant de `viewedFile` : ouvrir une page secondaire depuis une
+   * note de dossier laisse `viewedFile` inchangé, pour que le Retour de
+   * CE panneau revienne à la note de dossier, et le Retour de la note de
+   * dossier ramène ensuite au feuillet. */
+  notesPage: NotesPage;
 
   /* ===== Fenêtre de contexte autour du curseur (section « Contexte ») =====
      Élément DOM actuellement écouté (keyup/mouseup) pour détecter un
@@ -184,7 +207,7 @@ export class NotesView extends BaseFeuilletsView {
     super(leaf, plugin);
     this.viewedFile = null; // note de dossier consultée
     this.currentPath = null;
-    this.workingNotesOpen = false;
+    this.notesPage = "home";
   }
 
   getViewType(): string {
@@ -212,9 +235,10 @@ export class NotesView extends BaseFeuilletsView {
           this.viewedFile = null;
         }
         // Changement de fichier actif : revient toujours à la vue
-        // principale du Feuillet, même si on consultait les Notes de
-        // travail d'une note de dossier restée affichée ci-dessus.
-        this.workingNotesOpen = false;
+        // principale du Feuillet, même si une page secondaire (Notes de
+        // travail, Propriétés, Notes de bas de page) d'une note de dossier
+        // restait affichée ci-dessus.
+        this.notesPage = "home";
         void this.render(true);
       })
     );
@@ -279,15 +303,29 @@ export class NotesView extends BaseFeuilletsView {
     this.currentPath = file.path;
     const fm: NotesFrontmatter = this.fm(file);
 
-    // Vue secondaire Notes de travail : remplace tout le reste du panneau
-    // (rien d'autre du Feuillet — Propriétés, Contexte, Synopsis/Résumé,
-    // Sources, Notes de bas de page — ne doit apparaître pendant qu'elle
-    // est ouverte). `viewedFile` reste intact en dessous : le Retour d'ICI
-    // ne fait que fermer cette vue, jamais quitter la note de dossier
-    // consultée.
-    if (this.workingNotesOpen) {
+    // Pages secondaires : chacune remplace tout le reste du panneau (rien
+    // d'autre du Feuillet — Propriétés, Contexte, Synopsis/Résumé, Sources,
+    // Notes de bas de page — ne doit apparaître pendant qu'une page
+    // secondaire est ouverte). `viewedFile` reste intact en dessous : le
+    // Retour d'ICI ne fait que fermer cette page, jamais quitter la note de
+    // dossier consultée.
+    if (this.notesPage === "working-notes") {
       this.renderWorkingNotesPanel(wrapper, file, fm);
       return;
+    }
+    if (this.notesPage === "properties") {
+      this.renderPropertiesPanel(wrapper, file);
+      return;
+    }
+    if (this.notesPage === "footnotes" && S.notesShowFootnotes) {
+      await this.renderFootnotesPanel(wrapper, file);
+      return;
+    }
+    if (this.notesPage === "footnotes") {
+      // Réglage désactivé entre-temps (ou page atteinte alors qu'il l'était
+      // déjà) : ni la ligne d'accès ni la page ne doivent apparaître, on
+      // retombe silencieusement sur la vue principale.
+      this.notesPage = "home";
     }
 
     // Barre de retour si on consulte une note de dossier
@@ -307,7 +345,7 @@ export class NotesView extends BaseFeuilletsView {
     }
 
     this.renderFolderNoteLinks(wrapper, file);
-    this.renderFilePropertiesSection(wrapper, file);
+    this.renderPropertiesRow(wrapper);
 
     /* plugin.parseStoryDate() normalise directement `fm.date`, quel que soit
        son type reçu du cache Obsidian (string, number ou objet Date — voir
@@ -334,10 +372,6 @@ export class NotesView extends BaseFeuilletsView {
       }
     }
 
-    if (S.notesShowEntities) {
-      await this.renderCitedEntities(wrapper, file, sceneDate, jalons);
-    }
-
     /* Fiction affiche Synopsis, Non-fiction/Libre affichent Résumé — jamais
        les deux ensemble (voir getProjectType/PROJECT_MODES). Les réglages
        notesShowSynopsis/notesShowResume restent respectés en plus, pour la
@@ -346,23 +380,45 @@ export class NotesView extends BaseFeuilletsView {
     const showSynopsis = projectType === "fiction";
     const showResume = !showSynopsis;
 
+    // Références du passage (renderCitedEntities) rendu APRÈS Synopsis/
+    // Résumé — juste derrière la section qui s'affiche réellement, avant
+    // Notes de travail — pour obtenir l'ordre visuel cible : Propriétés →
+    // Synopsis/Résumé → Références → Notes de travail → Notes de bas de
+    // page. `entitiesRendered` garde ce rendu unique même si l'ordre
+    // personnalisé de l'utilisateur (S.notesSectionOrder) place Synopsis et
+    // Résumé à des positions différentes — un seul des deux s'affiche de
+    // toute façon (showSynopsis/showResume). Aucun moteur de contexte n'est
+    // modifié ici, seul l'emplacement de son appel change.
+    let entitiesRendered = false;
+    const renderEntitiesOnce = async (): Promise<void> => {
+      if (entitiesRendered || !S.notesShowEntities) return;
+      entitiesRendered = true;
+      await this.renderCitedEntities(wrapper, file, sceneDate, jalons);
+    };
+
     const order = S.notesSectionOrder || ["Synopsis", "Résumé", "Notes"];
     for (const sectionName of order) {
       if (sectionName === "Synopsis" && S.notesShowSynopsis && showSynopsis) {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.synopsis"), "synopsis", file, fm, t("notes.section.synopsisPlaceholder"), 3);
+        await renderEntitiesOnce();
       } else if (sectionName === "Résumé" && S.notesShowResume && showResume) {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.summary"), "summary", file, fm, t("notes.section.summaryPlaceholder"), 5);
+        await renderEntitiesOnce();
       } else if (sectionName === "Notes" && S.notesShowNotes) {
         this.renderWorkingNotesRow(wrapper);
       }
     }
+    // Repli : ni Synopsis ni Résumé ne s'est affiché (section masquée ou
+    // absente de l'ordre personnalisé) — Références doit tout de même
+    // apparaître, avant Sources/Notes de bas de page.
+    await renderEntitiesOnce();
 
     if (this.plugin.hasSources()) {
       this.renderCollapsibleTextarea(wrapper, t("notes.section.sources"), "sources", file, fm, t("notes.section.sourcesPlaceholder"), 4);
     }
 
     if (S.notesShowFootnotes) {
-      await this.renderFootnotesSection(wrapper, file);
+      await this.renderFootnotesRow(wrapper, file);
     }
   }
 
@@ -1018,15 +1074,66 @@ export class NotesView extends BaseFeuilletsView {
     }, CONTEXT_WINDOW_DEBOUNCE_MS);
   }
 
-  /** Propriétés du fichier ouvert — reprise de l'ancien onglet Propriétés
-   * (properties-view.js), placée en première section pour ne plus avoir à
-   * basculer entre l'onglet Notes et l'onglet Propriétés en permanence.
-   * Les deux icônes ("Propriétés du projet"/"Tags du projet") ouvrent en
-   * fenêtre flottante ce qui restait de cet onglet (vue project-wide,
-   * navigable jusqu'aux fichiers). */
+  /** Ligne compacte « Propriétés » de la vue principale — icône + libellé +
+   * chevron, un clic ouvre la page secondaire Propriétés (voir
+   * renderPropertiesPanel). Même patron que renderWorkingNotesRow : aucun
+   * aperçu du contenu ici, seulement la navigation. */
+  renderPropertiesRow(container: HTMLElement): void {
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable" });
+
+    const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(iconSpan, "file-text");
+
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.properties.title"));
+
+    const chevronSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    chevronSpan.setAttr("style", "margin-left: auto;");
+    setIcon(chevronSpan, "chevron-right");
+
+    head.addEventListener("click", () => {
+      this.notesPage = "properties";
+      void this.render();
+    });
+  }
+
+  /** Page secondaire Propriétés — même barre de retour que les autres
+   * pages secondaires du panneau (« Retour au feuillet »), suivie de
+   * l'éditeur YAML complet (renderFilePropertiesSection, INCHANGÉ). Le
+   * Retour ferme seulement CETTE page (`notesPage = "home"`) : si une note
+   * de dossier était consultée (`viewedFile`), on y retombe, et son propre
+   * bouton Retour ramène ensuite au feuillet — même mécanique que
+   * renderWorkingNotesPanel. */
+  renderPropertiesPanel(container: HTMLElement, file: TFile): void {
+    const backBar = container.createDiv({ cls: "feuillets-notes-back-bar" });
+    const backBtn = backBar.createEl("button", {
+      cls: "feuillets-back-btn",
+      text: ` ${t("notes.backToSheet")}`
+    });
+    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" });
+    setIcon(iconSpan, "arrow-left");
+    backBtn.prepend(iconSpan);
+    backBtn.addEventListener("click", () => {
+      this.notesPage = "home";
+      void this.render();
+    });
+
+    this.renderFilePropertiesSection(container, file);
+  }
+
+  /** Éditeur YAML complet du fichier ouvert — reprise de l'ancien onglet
+   * Propriétés (properties-view.js), désormais rendu UNIQUEMENT dans la
+   * page secondaire Propriétés (voir renderPropertiesPanel), toujours
+   * ouvert : le corps ci-dessous n'est plus masqué par
+   * S.collapsed["notes:proprietes-fichier"] (l'ancien réglage reste dans
+   * settings pour compatibilité, simplement plus lu ici pour cacher quoi
+   * que ce soit — la page secondaire est déjà ouverte volontairement par
+   * l'utilisateur). Les deux icônes ("Propriétés du projet"/"Tags du
+   * projet") ouvrent toujours en fenêtre flottante ce qui restait de cet
+   * onglet (vue project-wide, navigable jusqu'aux fichiers). */
   renderFilePropertiesSection(wrapper: HTMLElement, file: TFile): void {
     const section = wrapper.createDiv({ cls: "feuillets-notes-section" });
-    const collapsed = this.renderSectionHead(
+    this.renderSectionHead(
       section,
       "file-text",
       t("notes.properties.title"),
@@ -1041,7 +1148,6 @@ export class NotesView extends BaseFeuilletsView {
         );
       }
     );
-    if (collapsed) return;
 
     const fm: NotesFrontmatter = this.fm(file);
     const isFront = this.plugin.isFrontMatter(file);
@@ -1451,42 +1557,78 @@ export class NotesView extends BaseFeuilletsView {
   /** Notes de bas de page (`[^label]: texte`) définies dans le corps du
    * feuillet — lecture seule (le contenu vit dans le corps du texte, pas
    * dans le frontmatter, contrairement aux autres rubriques de ce
-   * panneau) : cliquer une entrée ouvre le feuillet à l'endroit de sa
-   * définition plutôt que de proposer une édition qui serait trompeuse. */
-  async renderFootnotesSection(container: HTMLElement, file: TFile): Promise<void> {
-    const S = this.plugin.settings;
-    const collapseKey = "notes:field:footnotes";
-    const collapsed = !!S.collapsed[collapseKey];
-
+   * panneau). Détection déléguée à extractFootnotes() (helper de module,
+   * INCHANGÉE) pour ne jamais dupliquer l'algorithme entre le compteur de
+   * la ligne d'accès et la page secondaire. */
+  private async readFootnotes(file: TFile): Promise<Footnote[]> {
     const raw = await this.app.vault.cachedRead(file);
     const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+    return extractFootnotes(body);
+  }
 
-    const footnotes: Footnote[] = [];
-    const re = /^\[\^([^\]]+)\]:[ \t]*(.+)$/gm;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(body)) !== null) {
-      footnotes.push({ label: m[1], text: m[2].trim() });
-    }
+  /** Ligne compacte « Notes de bas de page » de la vue principale — icône +
+   * libellé + compteur + chevron, un clic ouvre la page secondaire (voir
+   * renderFootnotesPanel). N'apparaît pas du tout si le feuillet ne
+   * contient aucune définition `[^label]: texte` — le nombre affiché est
+   * toujours le compte réel des définitions détectées par
+   * extractFootnotes(). Aucune mention « (Relecture) » ici : cette page
+   * appartient au panneau Feuillet, pas au panneau Relecture (voir
+   * notes.section.footnotes, distinct de shared.footnotes.title). */
+  private async renderFootnotesRow(container: HTMLElement, file: TFile): Promise<void> {
+    const footnotes = await this.readFootnotes(file);
     if (footnotes.length === 0) return;
 
     const section = container.createDiv({ cls: "feuillets-notes-section" });
-    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable" });
 
     const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
     setIcon(iconSpan, "list");
 
-    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("shared.footnotes.title"));
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.footnotes"));
+
+    const countSpan = head.createSpan({ cls: "feuillets-notes-section-count" });
+    countSpan.setAttr("style", "margin-left: auto;");
+    countSpan.setText(String(footnotes.length));
+
+    const chevronSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(chevronSpan, "chevron-right");
 
     head.addEventListener("click", () => {
-      void (async () => {
-        if (collapsed) delete S.collapsed[collapseKey];
-        else S.collapsed[collapseKey] = true;
-        await this.plugin.saveSettings();
-        void this.render();
-      })();
+      this.notesPage = "footnotes";
+      void this.render();
+    });
+  }
+
+  /** Page secondaire Notes de bas de page — barre de retour identique aux
+   * autres pages secondaires, puis la liste complète des définitions,
+   * TOUJOURS ouverte (plus de repli/dépli : la page l'est déjà
+   * volontairement par l'utilisateur, voir chantier). Réutilise TEL QUEL
+   * le rendu et le comportement de clic d'une entrée (ouvre le feuillet à
+   * l'endroit de sa définition) — aucun changement du Markdown ni du
+   * moteur de compilation/export des notes. */
+  private async renderFootnotesPanel(container: HTMLElement, file: TFile): Promise<void> {
+    const backBar = container.createDiv({ cls: "feuillets-notes-back-bar" });
+    const backBtn = backBar.createEl("button", {
+      cls: "feuillets-back-btn",
+      text: ` ${t("notes.backToSheet")}`
+    });
+    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" });
+    setIcon(iconSpan, "arrow-left");
+    backBtn.prepend(iconSpan);
+    backBtn.addEventListener("click", () => {
+      this.notesPage = "home";
+      void this.render();
     });
 
-    if (collapsed) return;
+    const footnotes = await this.readFootnotes(file);
+
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+
+    const titleIcon = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(titleIcon, "list");
+
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.footnotes"));
 
     const list = section.createDiv({ cls: "feuillets-notes-field-container" });
     for (const fn of footnotes) {
@@ -1519,7 +1661,7 @@ export class NotesView extends BaseFeuilletsView {
     setIcon(chevronSpan, "chevron-right");
 
     head.addEventListener("click", () => {
-      this.workingNotesOpen = true;
+      this.notesPage = "working-notes";
       void this.render();
     });
   }
@@ -1528,8 +1670,8 @@ export class NotesView extends BaseFeuilletsView {
    * notes de dossier (`feuillets-notes-back-bar`/`feuillets-back-btn`,
    * même libellé « Retour au feuillet ») et même composant de champ que
    * l'ancien affichage direct (renderCollapsibleTextarea, propriété
-   * frontmatter `notes` inchangée). Le Retour ferme seulement CETTE vue
-   * (`workingNotesOpen = false`) : si une note de dossier était consultée
+   * frontmatter `notes` inchangée). Le Retour ferme seulement CETTE page
+   * (`notesPage = "home"`) : si une note de dossier était consultée
    * (`viewedFile`), on y retombe, et son propre bouton Retour ramène
    * ensuite au feuillet. */
   renderWorkingNotesPanel(container: HTMLElement, file: TFile, fm: NotesFrontmatter): void {
@@ -1542,7 +1684,7 @@ export class NotesView extends BaseFeuilletsView {
     setIcon(iconSpan, "arrow-left");
     backBtn.prepend(iconSpan);
     backBtn.addEventListener("click", () => {
-      this.workingNotesOpen = false;
+      this.notesPage = "home";
       void this.render();
     });
 

@@ -370,6 +370,7 @@ export const fr = {
   "notes.section.workingNotes": "Notes de travail",
   "notes.section.sources": "Sources",
   "notes.section.sourcesPlaceholder": "Références, lectures, entretiens…",
+  "notes.section.footnotes": "Notes de bas de page",
 
   "notes.context.title": "Références du passage",
   "notes.context.titleWithDate": "Références du passage",
