@@ -199,8 +199,8 @@ test("createMinimalProject (fiction) : crée la racine réelle, Manuscrit, Front
   assert.ok(titlePage instanceof TFile);
   assert.match(titlePage.content, /title: Roman1/);
   assert.match(titlePage.content, /author: Camille Autrice/);
-  assert.match(titlePage.content, /# Roman1/);
-  assert.match(titlePage.content, /Camille Autrice/);
+  assert.match(titlePage.content, /:::titre: Roman1/);
+  assert.match(titlePage.content, /:::auteur: Camille Autrice/);
 
   // Chapitre 1 / Scène 1.md.
   assert.ok(vault.getAbstractFileByPath("Roman1/Manuscrit/Chapitre 1") instanceof TFolder);
@@ -1221,4 +1221,211 @@ test("Phase 1C : ancienne Bibliographie (fiction et non-fiction) toujours reconn
   const fictionNames = researchFolderNames(fictionMode.researchFolders, "bibliographie");
   assert.ok(fictionNames.includes("Bibliographie"), "reconnaît Bibliographie");
   assert.ok(fictionNames.includes("Bibliography"), "reconnaît Bibliography");
+});
+
+// =========================================================================
+// Tests — Phase 1D : Identité du projet et page de titre
+// =========================================================================
+
+test("Phase 1D : global manuscriptTitle = 'NEFES', création projet 'Alpha' → Page de titre = Alpha", async () => {
+  const { vault } = createFakeVault([]);
+  const app = { vault };
+  const settings = { ...DEFAULT_SETTINGS, manuscriptTitle: "NEFES", orders: {}, folderPositions: {}, projectMeta: {} };
+
+  await createMinimalProject(app, settings, { name: "Alpha", type: "fiction" });
+
+  const titleFile = vault.getAbstractFileByPath("Alpha/Manuscrit/Front/Page de titre.md");
+  assert.ok(titleFile instanceof TFile, "Page de titre créée");
+  assert.match(titleFile.content, /^title: Alpha$/m, "frontmatter title vaut Alpha");
+  assert.match(titleFile.content, /^:::titre: Alpha$/m, "rôle titre vaut Alpha");
+  assert.doesNotMatch(titleFile.content, /^# /m, "pas de titre H1 dupliqué dans le corps");
+  assert.doesNotMatch(titleFile.content, /NEFES/, "ne contient jamais NEFES");
+});
+
+test("Phase 1D : initProjectStructure sur Alpha avec global 'NEFES' → Alpha, jamais NEFES", async () => {
+  const alpha = new TFolder("Alpha");
+  const manuscrit = new TFolder("Alpha/Manuscrit");
+  manuscrit.parent = alpha;
+  alpha.children = [manuscrit];
+
+  const { vault } = createFakeVault([alpha, manuscrit]);
+  const app = { vault };
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    manuscriptTitle: "NEFES",
+    projectFolder: "Alpha/Manuscrit",
+    projects: ["Alpha/Manuscrit"],
+    projectMeta: { "Alpha/Manuscrit": { type: "fiction" } },
+  };
+
+  await initProjectStructure(app, settings);
+
+  const titleFile = vault.getAbstractFileByPath("Alpha/Manuscrit/Front/Page de titre.md");
+  assert.ok(titleFile instanceof TFile, "Page de titre créée");
+  assert.match(titleFile.content, /^title: Alpha$/m, "title vaut Alpha");
+  assert.doesNotMatch(titleFile.content, /NEFES/, "ne contient jamais NEFES");
+});
+
+test("Phase 1D : Scrivener ProjectTitle = 'Candide', dossier choisi = 'Import test' → title = Candide", async () => {
+  const importFolder = new TFolder("Import test");
+  const manuscrit = new TFolder("Import test/Manuscrit");
+  manuscrit.parent = importFolder;
+  importFolder.children = [manuscrit];
+
+  const { vault } = createFakeVault([importFolder, manuscrit]);
+  const app = { vault };
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    manuscriptTitle: "NEFES",
+    projectFolder: "Import test/Manuscrit",
+    projects: ["Import test/Manuscrit"],
+    projectMeta: { "Import test/Manuscrit": { type: "fiction" } },
+  };
+
+  await initProjectStructure(app, settings, { title: "Candide" });
+
+  const titleFile = vault.getAbstractFileByPath("Import test/Manuscrit/Front/Page de titre.md");
+  assert.ok(titleFile instanceof TFile, "Page de titre créée");
+  assert.match(titleFile.content, /^title: Candide$/m, "title vaut Candide");
+  assert.doesNotMatch(titleFile.content, /Import test/, "ne contient pas le nom du dossier quand ProjectTitle est fourni");
+});
+
+test("Phase 1D : Scrivener sans ProjectTitle → title = 'Import test'", async () => {
+  const importFolder = new TFolder("Import test");
+  const manuscrit = new TFolder("Import test/Manuscrit");
+  manuscrit.parent = importFolder;
+  importFolder.children = [manuscrit];
+
+  const { vault } = createFakeVault([importFolder, manuscrit]);
+  const app = { vault };
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    manuscriptTitle: "NEFES",
+    projectFolder: "Import test/Manuscrit",
+    projects: ["Import test/Manuscrit"],
+    projectMeta: { "Import test/Manuscrit": { type: "fiction" } },
+  };
+
+  await initProjectStructure(app, settings, { title: "Import test" });
+
+  const titleFile = vault.getAbstractFileByPath("Import test/Manuscrit/Front/Page de titre.md");
+  assert.ok(titleFile instanceof TFile, "Page de titre créée");
+  assert.match(titleFile.content, /^title: Import test$/m, "title vaut Import test");
+});
+
+test("Phase 1D : une Page de titre existante n'est jamais remplacée", async () => {
+  const alpha = new TFolder("Alpha");
+  const manuscrit = new TFolder("Alpha/Manuscrit");
+  const front = new TFolder("Alpha/Manuscrit/Front");
+  const existingTitlePage = new TFile("Alpha/Manuscrit/Front/Page de titre.md");
+  existingTitlePage.content = "---\ntitle: Mon Titre Existant\n---\n# Mon Titre Existant";
+
+  alpha.children = [manuscrit];
+  manuscrit.parent = alpha;
+  manuscrit.children = [front];
+  front.parent = manuscrit;
+  front.children = [existingTitlePage];
+
+  const { vault } = createFakeVault([alpha, manuscrit, front, existingTitlePage]);
+  const app = { vault };
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    projectFolder: "Alpha/Manuscrit",
+    projects: ["Alpha/Manuscrit"],
+    projectMeta: { "Alpha/Manuscrit": { type: "fiction" } },
+  };
+
+  await initProjectStructure(app, settings);
+
+  const titleFile = vault.getAbstractFileByPath("Alpha/Manuscrit/Front/Page de titre.md");
+  assert.equal(titleFile.content, "---\ntitle: Mon Titre Existant\n---\n# Mon Titre Existant", "contenu inchangé");
+});
+
+test("Phase 1D : le wrapper plugin transmet l'identité sans perte à initProjectStructure", async () => {
+  const importFolder = new TFolder("Dossier Import");
+  const manuscrit = new TFolder("Dossier Import/Manuscrit");
+  manuscrit.parent = importFolder;
+  importFolder.children = [manuscrit];
+
+  const { vault } = createFakeVault([importFolder, manuscrit]);
+  const app = { vault };
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    manuscriptTitle: "NEFES",
+    projectFolder: "Dossier Import/Manuscrit",
+    projects: ["Dossier Import/Manuscrit"],
+    projectMeta: { "Dossier Import/Manuscrit": { type: "fiction" } },
+  };
+
+  const pluginInstance = {
+    app,
+    settings,
+    async initProjectStructure(identity) {
+      return initProjectStructure(this.app, this.settings, identity);
+    },
+  };
+
+  await pluginInstance.initProjectStructure({ title: "Titre Scrivener Real" });
+
+  const titleFile = vault.getAbstractFileByPath("Dossier Import/Manuscrit/Front/Page de titre.md");
+  assert.ok(titleFile instanceof TFile, "Page de titre créée");
+  assert.match(titleFile.content, /^title: Titre Scrivener Real$/m, "le wrapper a bien transmis le titre");
+  assert.doesNotMatch(titleFile.content, /NEFES/, "le wrapper n'a pas utilisé NEFES");
+});
+
+test("Phase 1D : import titre AKSAK → fichier physique Front/Page de titre.md et affichage Binder 'Page de titre'", async () => {
+  const { titleFor, shortTitleFor } = await import("../src/services/frontmatter.js");
+  const { buildScrivenerImportPlan, isScrivenerTitlePageNode } = await import("../src/services/scrivener-import.js");
+
+  // 1. isScrivenerTitlePageNode reconnaît "AKSAK" sous un dossier Front Matter
+  assert.ok(isScrivenerTitlePageNode("AKSAK", "Front Matter", "AKSAK"), "AKSAK est reconnu comme page de titre");
+  assert.ok(!isScrivenerTitlePageNode("Dedication", "Front Matter", "AKSAK"), "Dedication n'est pas une page de titre");
+
+  // 2. Le plan d'import réutilise le chemin canonique Front/Page de titre.md
+  const parsedScrivx = {
+    projectTitle: "AKSAK",
+    draft: {
+      uuid: "draft-1",
+      title: "Draft",
+      isFolder: true,
+      children: [
+        {
+          uuid: "front-folder",
+          title: "Front Matter",
+          isFolder: true,
+          children: [
+            { uuid: "title-node", title: "AKSAK", isFolder: false, children: [] },
+            { uuid: "dedic-node", title: "Dedication", isFolder: false, children: [] },
+          ],
+        },
+      ],
+    },
+    research: null,
+    trash: null,
+    others: [],
+  };
+
+  const plan = buildScrivenerImportPlan(parsedScrivx, {
+    manuscritPath: "Projet/Manuscrit",
+    projectTitle: "AKSAK",
+  });
+
+  const titleTarget = plan.targets.find((t) => t.uuid === "title-node");
+  const dedicTarget = plan.targets.find((t) => t.uuid === "dedic-node");
+
+  assert.ok(titleTarget, "cible pour node titre trouvée");
+  assert.equal(titleTarget.markdownPath, "Projet/Manuscrit/Front/Page de titre.md", "le fichier physique est canoniquement Page de titre.md");
+  assert.ok(dedicTarget, "cible pour dédicace trouvée");
+  assert.equal(dedicTarget.markdownPath, "Projet/Manuscrit/Front/Dedication.md", "autre document Front préservé sous Front/Dedication.md");
+
+  // 3. titleFor / shortTitleFor retournent "Page de titre" pour le Binder
+  const titleFile = new TFile("Projet/Manuscrit/Front/Page de titre.md");
+  const app = {
+    metadataCache: {
+      getFileCache: (file) => ({ frontmatter: { title: "AKSAK", type: "titre" } }),
+    },
+  };
+
+  assert.equal(titleFor(app, titleFile), "Page de titre", "titleFor affiche Page de titre dans le Binder");
+  assert.equal(shortTitleFor(app, titleFile), "Page de titre", "shortTitleFor affiche Page de titre dans le Binder");
 });

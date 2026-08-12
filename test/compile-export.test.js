@@ -1824,3 +1824,67 @@ test("exportWithScope : la meme portee folder est transmise pour chaque format",
   assert.match(file.content, /Texte A/, "la portee folder doit inclure sceneA");
   assert.doesNotMatch(file.content, /Texte B/, "la portee folder ne doit pas inclure sceneB");
 });
+
+// =========================================================================
+// Tests — Phase 1D : Identité à l'export
+// =========================================================================
+
+test("Phase 1D : export : title/author de Page de titre prioritaires", async () => {
+  const { resolveExportIdentity } = await import("../src/services/compile-export.js");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const frontPageFile = new TFile("Projet/Manuscrit/Front/Page de titre.md");
+  const { vault } = createFakeVault([manuscript, frontPageFile]);
+  const app = {
+    vault,
+    metadataCache: {
+      getFileCache: (file) => {
+        if (file.path === frontPageFile.path) {
+          return { frontmatter: { title: "Titre Sur Mesure", author: "Auteur Sur Mesure", type: "titre" } };
+        }
+        return { frontmatter: {} };
+      },
+    },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    manuscriptTitle: "Titre Global Legacy",
+    manuscriptAuthor: "Auteur Global Legacy",
+    projectMeta: { [manuscript.path]: { type: "fiction", author: "Auteur Meta" } },
+  };
+
+  const segments = [{ frontType: "titre", path: frontPageFile.path }];
+  const identity = resolveExportIdentity(app, settings, manuscript, segments);
+
+  assert.equal(identity.title, "Titre Sur Mesure", "title de la page de titre prioritaire");
+  assert.equal(identity.author, "Auteur Sur Mesure", "author de la page de titre prioritaire");
+});
+
+test("Phase 1D : sans auteur dans Page de titre, projectMeta.author prioritaire sur le global", async () => {
+  const { resolveExportIdentity } = await import("../src/services/compile-export.js");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const frontPageFile = new TFile("Projet/Manuscrit/Front/Page de titre.md");
+  const { vault } = createFakeVault([manuscript, frontPageFile]);
+  const app = {
+    vault,
+    metadataCache: {
+      getFileCache: (file) => {
+        if (file.path === frontPageFile.path) {
+          return { frontmatter: { title: "Titre Sur Mesure", author: "", type: "titre" } };
+        }
+        return { frontmatter: {} };
+      },
+    },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    manuscriptTitle: "Titre Global Legacy",
+    manuscriptAuthor: "Auteur Global Legacy",
+    projectMeta: { [manuscript.path]: { type: "fiction", author: "Auteur Meta" } },
+  };
+
+  const segments = [{ frontType: "titre", path: frontPageFile.path }];
+  const identity = resolveExportIdentity(app, settings, manuscript, segments);
+
+  assert.equal(identity.title, "Titre Sur Mesure", "title de la page de titre prioritaire");
+  assert.equal(identity.author, "Auteur Meta", "projectMeta.author prioritaire sur le global");
+});

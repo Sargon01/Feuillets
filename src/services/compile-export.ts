@@ -8,6 +8,7 @@ import { CompileError, toCompileError } from "./compile-errors.js";
 import { fmOf, compiledTitleFor, compiledSubtitleFor, stripFrontmatter } from "./frontmatter.js";
 import {
   getProjectFolder,
+  getProjectRoot,
   getOrderedChildren,
   roleOfFolder,
   roleOfFile,
@@ -808,6 +809,38 @@ export async function exportEditorialDocumentDocxToFolder(
  * fonctionne desktop et mobile (sauf PDF, desktop uniquement — voir
  * export-pdf.js). Réutilise `compile()` tel quel : seule la conversion
  * finale change de moteur. */
+export function resolveExportIdentity(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder,
+  segments: { frontType?: string | null; path?: string | null }[]
+): { title: string; author: string } {
+  const meta = projectMetaFor(settings, folder);
+  const realProjectRoot = getProjectRoot(app, settings);
+  const realProjectName = realProjectRoot ? realProjectRoot.name : folder.name;
+
+  let pageTitle = "";
+  let pageAuthor = "";
+
+  const titrePageSeg = segments.find((s) => s.frontType === "titre" && s.path);
+  if (titrePageSeg && titrePageSeg.path) {
+    const titreFile = app.vault.getAbstractFileByPath(titrePageSeg.path);
+    if (titreFile instanceof TFile) {
+      const titreFm = fmOf(app, titreFile);
+      if (typeof titreFm.title === "string" && titreFm.title.trim()) {
+        pageTitle = titreFm.title.trim();
+      }
+      if (typeof titreFm.author === "string" && titreFm.author.trim()) {
+        pageAuthor = titreFm.author.trim();
+      }
+    }
+  }
+
+  const title = pageTitle || realProjectName;
+  const author = pageAuthor || toValue(meta.author) || toValue(settings.manuscriptAuthor) || "";
+  return { title, author };
+}
+
 /**
  * @param {import("obsidian").App} app
  * @param {import("./types.d.ts").FeuilletsSettings} settings
@@ -833,25 +866,7 @@ async function exportViaNative(
   const result = await compile(app, settings, scopePath, scope ?? null);
   if (!result) return;
 
-  const meta = projectMetaFor(settings, folder);
-  let title = toValue(settings.manuscriptTitle) || folder.name;
-  const author = toValue(settings.manuscriptAuthor) || toValue(meta.author);
-  /* Le titre affiché en en-tête (et dans les métadonnées du fichier) doit
-     rester celui réellement composé sur la page de titre — une seule
-     source de vérité — plutôt que le nom du dossier projet ou un titre
-     réglé séparément dans les paramètres, qu'on oublierait facilement de
-     synchroniser. Repli sur le titre des paramètres si la page de titre
-     n'a pas encore de champ `titre` renseigné. */
-  const titrePageSeg = result.segments.find((s) => s.frontType === "titre" && s.path);
-  if (titrePageSeg && titrePageSeg.path) {
-    const titreFile = app.vault.getAbstractFileByPath(titrePageSeg.path);
-    if (titreFile instanceof TFile) {
-      const titreFm = fmOf(app, titreFile);
-      if (typeof titreFm.title === "string" && titreFm.title.trim()) {
-        title = titreFm.title.trim();
-      }
-    }
-  }
+  const { title, author } = resolveExportIdentity(app, settings, folder, result.segments);
   /* Le fichier compilé réel (result.outPath) plutôt que le dossier projet :
      la résolution des embeds (![[image.png]]) par Obsidian a besoin d'un
      chemin de FICHIER pour son contexte de répertoire — un chemin de

@@ -348,7 +348,7 @@ export class CreateProjectError extends Error {
  * frontmatter. Le YAML reste un simple ajout de métadonnées, jamais une
  * condition : un Markdown sans aucun frontmatter continue de fonctionner
  * partout ailleurs dans Feuillets (compilation, Binder, Cartes, Plan). */
-function titlePageContent(projectTitle: string, author: string): string {
+export function titlePageContent(projectTitle: string, author: string): string {
   const lines = [
     "---",
     `title: ${projectTitle}`,
@@ -370,10 +370,6 @@ function titlePageContent(projectTitle: string, author: string): string {
     `:::auteur: ${author}`,
     ":::adresse: ",
     ":::coordonnées: ",
-    "",
-    `# ${projectTitle}`,
-    "",
-    author,
     "",
   ];
   return lines.join("\n");
@@ -561,7 +557,11 @@ export async function initResearchSubfolders(
   }
 }
 
-export async function initProjectStructure(app: App, settings: FeuilletsSettings): Promise<void> {
+export async function initProjectStructure(
+  app: App,
+  settings: FeuilletsSettings,
+  identity?: { title?: string; author?: string }
+): Promise<void> {
   /* Racine réelle = dossier qui contient Manuscrit (ex. Projets/Mon recueil).
      getProjectRoot exclut la racine du coffre (path vide) : les dossiers ne
      sont jamais créés à la racine du coffre, toujours sous le projet actif. */
@@ -834,37 +834,25 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
     /* Front — enfant direct de Manuscrit (pas un voisin), paraît dans le
        Binder au même niveau que les Parties, juste avant elles. */
     const manuscritForFront = getProjectFolder(app, settings)!;
-    await ensureFolder(app, normalizePath(`${manuscritForFront.path}/Front`));
+    const frontFolderPath = normalizePath(`${manuscritForFront.path}/Front`);
+    await ensureFolder(app, frontFolderPath);
 
-    /* Page de titre pré-remplie : structure à rôles (:::titre:, :::sous-titre:…
-       — voir utils/title-roles.js) prête à compléter, seul le titre étant
-       rempli d'emblée avec le nom du projet (même source que le titre du
-       manuscrit, settings.manuscriptTitle sinon le nom du dossier). Écrite via
-       writeTemplate : idempotent, ne réécrit jamais une page de titre déjà
-       composée. */
-    const projectTitle = settings.manuscriptTitle || manuscritForFront.name;
-    await writeTemplate(`${manuscritForFront.path}/Front/Page de titre.md`, [
-      "---",
-      `title: ${projectTitle}`,
-      "short_title: ",
-      "order: 1",
-      "synopsis: ",
-      "status: ",
-      "label: ",
-      "tags: ",
-      "date: ",
-      "notes: ",
-      "compile: true",
-      "type: titre",
-      "---",
-      `:::titre: ${projectTitle}`,
-      ":::sous-titre: ",
-      ":::mots: ",
-      ":::auteur: ",
-      ":::adresse: ",
-      ":::coordonnées: ",
-      "",
-    ].join("\n"));
+    /* Page de titre pré-remplie : générée via le seul générateur titlePageContent()
+       sans jamais utiliser settings.manuscriptTitle.
+       Sans identité explicite, le titre est le nom de la racine réelle du projet,
+       et l'auteur est issu de projectMeta si présent.
+       Jamais réécrite si une page de titre existe déjà. */
+    const realRoot = getProjectRoot(app, settings);
+    const realRootName = realRoot ? realRoot.name : manuscritForFront.name;
+    const projectTitle = identity?.title?.trim() || realRootName;
+    const projectAuthor = identity?.author?.trim() || settings.projectMeta[manuscritForFront.path]?.author || "";
+
+    const titlePagePath = normalizePath(`${frontFolderPath}/Page de titre.md`);
+    const titlePageEnPath = normalizePath(`${frontFolderPath}/Title Page.md`);
+
+    if (!app.vault.getAbstractFileByPath(titlePagePath) && !app.vault.getAbstractFileByPath(titlePageEnPath)) {
+      await writeTemplate(titlePagePath, titlePageContent(projectTitle, projectAuthor));
+    }
   }
 
   const listParts = [

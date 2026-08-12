@@ -1,7 +1,8 @@
-import { App, Modal, Notice, Platform, normalizePath, TAbstractFile, TFolder } from "obsidian";
+import { App, Modal, Notice, Platform, normalizePath, TAbstractFile, TFolder, TFile } from "obsidian";
 import JSZip from "jszip";
 
 import { PROJECT_MODES, applyModeDefaults } from "../utils/project-modes.js";
+import { titlePageContent } from "../services/project-files.js";
 import {
   checkScrivenerFormat,
   parseScrivx,
@@ -35,7 +36,7 @@ type ScrivenerImportPlugin = {
   settings: FeuilletsSettings;
   ensureFolder(path: string): Promise<TAbstractFile>;
   saveSettings(): Promise<void>;
-  initProjectStructure(): Promise<void>;
+  initProjectStructure(identity?: { title?: string; author?: string }): Promise<void>;
   writeOrder(parent: TAbstractFile, orderedChildren: TAbstractFile[]): Promise<void>;
   renderAllViews(force?: boolean): void;
   updateStatusBar(): void;
@@ -651,7 +652,11 @@ export class ScrivenerImportModal extends Modal {
        Feuillets (services/research.ts, services/folder-structure.ts) —
        fonctionne en FR, en EN, et avec les variantes historiques déjà
        reconnues (_Recherche, Research, _Resources, Ressources…). */
-    await plugin.initProjectStructure();
+    const defaultImportedTitle = t("modal.scrivenerImport.importedProject");
+    const scrivenerTitle = (parsed.projectTitle && parsed.projectTitle.trim() && parsed.projectTitle.trim() !== defaultImportedTitle)
+      ? parsed.projectTitle.trim()
+      : name;
+    await plugin.initProjectStructure({ title: scrivenerTitle });
 
     const manuscritFolder = app.vault.getAbstractFileByPath(manuscritPath);
     if (!(manuscritFolder instanceof TFolder)) {
@@ -868,9 +873,11 @@ export class ScrivenerImportModal extends Modal {
        valable pour toute la hiérarchie). Le champ d'options s'appelle
        toujours `manuscriptFolderNoteUuids` côté buildScrivenerImportPlan
        (voir son commentaire) pour ne pas casser les tests S1 existants. */
+    const projectAuthor = S.projectMeta[manuscritPath]?.author || "";
     const unclassifiedFolderLabel = t("modal.scrivenerImport.unclassifiedFolder");
     const plan = buildScrivenerImportPlan(parsed, {
       manuscritPath,
+      projectTitle: scrivenerTitle,
       researchRootPath: researchRoot ? researchRoot.path : null,
       mode: modeKey,
       unclassifiedFolderLabel,
@@ -1185,6 +1192,23 @@ export class ScrivenerImportModal extends Modal {
         body += "\n\n" + footnotes.map((f, idx) => `[^${idx + 1}]: ${f}`).join("\n");
       }
       if (item.labelTitle) encounteredLabels.add(item.labelTitle);
+
+      const isTitlePage = target.markdownPath && target.markdownPath.endsWith("/Front/Page de titre.md");
+      if (isTitlePage) {
+        const cleanBody = body.replace(/^#\s+.*(?:\r?\n)+/, "").trim();
+        const initialContent = titlePageContent(scrivenerTitle, projectAuthor);
+        const finalContent = cleanBody ? `${initialContent.trim()}\n\n${cleanBody}\n` : initialContent;
+        const existingFile = app.vault.getAbstractFileByPath(target.markdownPath);
+        if (existingFile instanceof TFile) {
+          await app.vault.modify(existingFile, finalContent);
+        } else {
+          requireFreePath(app, target.markdownPath);
+          await app.vault.create(target.markdownPath, finalContent);
+        }
+        report.markdownFilesCreated++;
+        return;
+      }
+
       const fm = buildSceneFrontmatter({
         titre: chapterTitle || item.title,
         titreCourt: titreCourtFallback,

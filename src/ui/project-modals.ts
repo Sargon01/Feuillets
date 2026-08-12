@@ -19,7 +19,7 @@ type ProjectModalsPlugin = {
      requis structurellement par ScrivenerImportPlugin — ManageProjectsModal
      instancie ScrivenerImportModal avec ce même this.plugin. */
   ensureFolder(path: string): Promise<TAbstractFile>;
-  initProjectStructure(): Promise<void>;
+  initProjectStructure(identity?: { title?: string; author?: string }): Promise<void>;
   saveSettings(): Promise<void>;
   renderAllViews(force?: boolean): void;
   updateStatusBar(): void;

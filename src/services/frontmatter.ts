@@ -92,6 +92,9 @@ function withLegacyFieldAliases(fm: SceneFrontmatter): SceneFrontmatter {
 export function titleFor(app: App, file: TFile): string {
   if (!file) return "";
   const fm = fmOf(app, file);
+  if (fm.type === "titre") {
+    return file.basename || "Page de titre";
+  }
   const t = fm.title;
   if (typeof t === "string" && t.trim()) return t.trim();
   /* repli sur `last_name` (+ `first_name` s'il existe) : les fiches

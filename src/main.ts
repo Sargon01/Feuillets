@@ -2804,7 +2804,7 @@ class FeuilletsPlugin extends Plugin {
 
   async ensureFolder(path: string): Promise<TAbstractFile> { return ensureFolder(this.app, path); }
   async snapshotFile(file: TFile, root: TFolder): Promise<string> { return snapshotFile(this.app, file, root); }
-  async initProjectStructure(): Promise<void> { return initProjectStructure(this.app, this.settings); }
+  async initProjectStructure(identity?: { title?: string; author?: string }): Promise<void> { return initProjectStructure(this.app, this.settings, identity); }
 
   /** Duplique le dossier manuscrit d'un projet existant (identifié par son
    * chemin) en dossier de référence figé — volontairement PAS ajouté à

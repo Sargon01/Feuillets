@@ -666,6 +666,7 @@ export type ScrivenerImportPlan = {
 
 export type ScrivenerImportPlanOptions = {
   manuscritPath: string;
+  projectTitle?: string;
   researchRootPath?: string | null;
   mode: keyof typeof PROJECT_MODES;
   unclassifiedFolderLabel: string;
@@ -695,6 +696,19 @@ export type ScrivenerImportPlanOptions = {
  * même dossier parent) sont résolues ici, une fois pour toutes, dans
  * l'ordre du binder Scrivener — jamais au hasard au moment de
  * app.vault.create() (voir §3 et §7). */
+export function isScrivenerTitlePageNode(title: string, parentTitle?: string, projectTitle?: string): boolean {
+  const norm = (title || "").trim().toLowerCase();
+  if (norm === "page de titre" || norm === "title page" || norm === "cover") return true;
+  if (parentTitle) {
+    const parentNorm = parentTitle.trim().toLowerCase();
+    if (parentNorm === "front" || parentNorm === "front matter" || parentNorm === "_front" || parentNorm === "pages initiales") {
+      if (norm === "title" || norm === "titre") return true;
+      if (projectTitle && norm === projectTitle.trim().toLowerCase()) return true;
+    }
+  }
+  return false;
+}
+
 export function buildScrivenerImportPlan(
   parsed: ParsedScrivx,
   opts: ScrivenerImportPlanOptions
@@ -702,6 +716,11 @@ export function buildScrivenerImportPlan(
   const used = new Set<string>();
   const namedFolders = new Map<string, string>();
   const targets: ScrivenerImportTarget[] = [];
+
+  const canonicalFrontPath = joinImportPath(opts.manuscritPath, "Front");
+  const canonicalTitlePagePath = joinImportPath(canonicalFrontPath, "Page de titre.md");
+  used.add(canonicalFrontPath);
+  used.add(canonicalTitlePagePath);
 
   // Dossier "connu" (Personnages, Lieux, Non classé…) : réutilisé tel quel
   // à chaque référence, jamais dédoublonné — même principe que
@@ -715,10 +734,12 @@ export function buildScrivenerImportPlan(
     return path;
   };
 
-  const planManuscriptNode = (item: ScrivenerNode, destPath: string): void => {
+  const planManuscriptNode = (item: ScrivenerNode, destPath: string, parentTitle?: string): void => {
     const safe = sanitizeScrivenerTitle(item.title);
     if (item.isFolder) {
-      const folderPath = allocateImportPath(used, joinImportPath(destPath, safe));
+      const normTitle = item.title.trim().toLowerCase();
+      const isFrontFolder = normTitle === "front" || normTitle === "front matter" || normTitle === "_front" || normTitle === "pages initiales";
+      const folderPath = isFrontFolder ? canonicalFrontPath : allocateImportPath(used, joinImportPath(destPath, safe));
       const willHaveNote = opts.manuscriptFolderNoteUuids?.has(item.uuid) ?? false;
       // Le nom de la note n'est réservé dans `used` QUE si elle sera
       // réellement créée : sinon un enfant portant le même titre que le
@@ -737,7 +758,7 @@ export function buildScrivenerImportPlan(
         folderPath,
         ...(notePath ? { markdownPath: notePath } : {}),
       });
-      for (const child of item.children) planManuscriptNode(child, folderPath);
+      for (const child of item.children) planManuscriptNode(child, folderPath, item.title);
       return;
     }
     if (item.children.length > 0) {
@@ -745,10 +766,11 @@ export function buildScrivenerImportPlan(
       const folderName = folderPath.slice(folderPath.lastIndexOf("/") + 1);
       const filePath = allocateImportPath(used, joinImportPath(folderPath, `00-${folderName}.md`));
       targets.push({ uuid: item.uuid, sourceTitle: item.title, kind: "manuscriptContainer", folderPath, markdownPath: filePath });
-      for (const child of item.children) planManuscriptNode(child, folderPath);
+      for (const child of item.children) planManuscriptNode(child, folderPath, item.title);
       return;
     }
-    const filePath = allocateImportPath(used, joinImportPath(destPath, `${safe}.md`));
+    const isTitlePage = isScrivenerTitlePageNode(item.title, parentTitle, opts.projectTitle);
+    const filePath = isTitlePage ? canonicalTitlePagePath : allocateImportPath(used, joinImportPath(destPath, `${safe}.md`));
     targets.push({ uuid: item.uuid, sourceTitle: item.title, kind: "manuscriptScene", markdownPath: filePath });
   };
 
