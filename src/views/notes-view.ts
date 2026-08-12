@@ -7,7 +7,6 @@ import { latestStateBefore } from "../utils/entity-states.js";
 import { isEditing, openFileActivating } from "../utils/dom.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "../ui/project-properties-modals.js";
 import { FRONT_PAGE_TYPES } from "../services/folder-structure.js";
-import { DiffModal } from "../ui/diff-modal.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 import { buildContextIndex, type ContextDocument, type ContextSource } from "../services/context-index.js";
@@ -1040,9 +1039,6 @@ export class NotesView extends BaseFeuilletsView {
         this.iconBtn(actions, "tags", t("notes.properties.projectTagsTooltip"), () =>
           new ProjectTagsModal(this.app, this.plugin).open()
         );
-        this.iconBtn(actions, "history", t("notes.properties.compareSnapshotTooltip"), () =>
-          new DiffModal(this.app, this.plugin, file).open()
-        );
       }
     );
     if (collapsed) return;
@@ -1221,18 +1217,16 @@ export class NotesView extends BaseFeuilletsView {
   }
 
   /** Fil d'Ariane vers les notes de dossier (Partie/Chapitre) au-dessus du
-   * feuillet actif — pastilles façon tag (fond + couleur d'accent) plutôt
-   * que texte atténué : trop discret pour être remarqué dans certains
-   * thèmes (confondu avec "n'apparaît pas" alors que le contenu était bien
-   * là, juste illisible). */
-  /** Fil d'Ariane vers les notes de dossier (Partie/Chapitre) au-dessus du
-   * feuillet actif. Style forcé en ligne (pas via styles.css) et SANS
-   * `overflow: hidden` sur le conteneur : c'est cette propriété qui
-   * rendait tout le bloc invisible (coupé à zéro par un ancêtre flex plus
-   * haut dans la mise en page) — un `overflow: hidden` semblait raisonnable
-   * ici (éviter le retour à la ligne) mais coupait bien plus que prévu.
-   * Confirmé par diagnostic direct (Notice + document.body.contains) avant
-   * de conclure, pas par supposition. */
+   * feuillet actif — texte discret séparé par un chevron (Manuscrit ›
+   * Partie 1…), pas des pastilles façon tag : la détection/le stockage des
+   * notes de dossier et la navigation (viewedFile) sont inchangés, seul le
+   * rendu change. Une seule note de dossier = son nom seul, sans chevron.
+   * Le conteneur garde `overflow: visible` (styles.css) : c'est cette
+   * propriété qui, mise à `hidden`, rendait jadis tout le bloc invisible
+   * (coupé à zéro par un ancêtre flex plus haut dans la mise en page) —
+   * confirmé par diagnostic direct à l'époque, pas par supposition. Chaque
+   * maillon gère sa propre troncature (text-overflow/min-width/flex-shrink)
+   * pour les noms longs / panneaux étroits, sans jamais déborder. */
   renderFolderNoteLinks(container: HTMLElement, file: TFile): void {
     const root = this.plugin.getProjectFolder();
     if (!root) return;
@@ -1251,8 +1245,10 @@ export class NotesView extends BaseFeuilletsView {
     chain.reverse(); // partie d'abord, puis chapitre
 
     const box = container.createDiv({ cls: "feuillets-notes-folder-links" });
-    for (const folder of chain) {
-      const link = box.createDiv({ cls: "feuillets-notes-folder-link" });
+    chain.forEach((folder, index) => {
+      if (index > 0) box.createSpan({ cls: "feuillets-notes-folder-sep", text: "›" });
+
+      const link = box.createSpan({ cls: "feuillets-notes-folder-link" });
       link.setText(folder.name);
       link.setAttr("title", t("notes.folderNoteTooltip", { name: folder.name }));
       link.addEventListener("click", (e: MouseEvent) => {
@@ -1265,7 +1261,7 @@ export class NotesView extends BaseFeuilletsView {
           }
         })();
       });
-    }
+    });
   }
 
   /** Bloc Contexte du panneau Notes — trois sections distinctes et

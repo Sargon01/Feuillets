@@ -1,18 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SidebarFeuilletsView } from "../src/views/sidebar-feuillets-view.js";
+import { t } from "../src/i18n/index.js";
+import { DiffModal } from "../src/ui/diff-modal.js";
 
 class FakeElement {
   constructor(options = {}) {
+    this.tag = options.tag || "div";
     this.children = [];
     this.classes = new Set();
     this.events = new Map();
     this.attrs = new Map();
+    this.text = options.text ?? "";
+    this.parentNode = null;
     if (options.cls) this.addClass(options.cls);
+    if (options.attr) {
+      for (const [key, value] of Object.entries(options.attr)) this.attrs.set(key, value);
+    }
   }
 
-  createDiv(options = {}) {
-    const child = new FakeElement(options);
+  createDiv(options = {}) { return this.createEl("div", options); }
+  createSpan(options = {}) { return this.createEl("span", options); }
+
+  createEl(tag, options = {}) {
+    const child = new FakeElement({ ...options, tag });
+    child.parentNode = this;
     this.children.push(child);
     return child;
   }
@@ -22,8 +34,20 @@ class FakeElement {
   }
 
   setAttr(name, value) { this.attrs.set(name, value); }
+  setText(text) { this.text = String(text); return this; }
   addEventListener(type, callback) { this.events.set(type, callback); }
   empty() { this.children = []; }
+  prepend(child) { this.children = [child, ...this.children.filter((c) => c !== child)]; }
+  remove() {
+    if (this.parentNode) {
+      this.parentNode.children = this.parentNode.children.filter((c) => c !== this);
+      this.parentNode = null;
+    }
+  }
+}
+
+function allElements(element) {
+  return [element, ...element.children.flatMap(allElements)];
 }
 
 function createSubView(name, calls) {
@@ -33,7 +57,7 @@ function createSubView(name, calls) {
   };
 }
 
-function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels = []) {
+function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels = [], { activeFile = null, projectFolder = null } = {}) {
   const contentEl = new FakeElement();
   const listeners = { workspace: new Map(), vault: new Map() };
   const settings = new Proxy(
@@ -47,12 +71,16 @@ function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels =
     }
   );
   const app = {
-    workspace: { on(name, callback) { listeners.workspace.set(name, callback); return { name }; } },
+    workspace: {
+      on(name, callback) { listeners.workspace.set(name, callback); return { name }; },
+      getActiveFile() { return activeFile; },
+    },
     vault: { on(name, callback) { listeners.vault.set(name, callback); return { name }; } },
   };
   const plugin = {
     settings,
     async saveSettings() { order.push("save"); },
+    getProjectFolder() { return projectFolder; },
   };
   const sidebar = new SidebarFeuilletsView({ app, contentEl }, plugin);
   const calls = [];
@@ -79,8 +107,30 @@ function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels =
 }
 
 test("SidebarFeuilletsView remplace les onglets historiques docx et metadata", () => {
-  assert.equal(createSidebar("docx").sidebar.activeTab, "project");
+  // DocxReviewView n'habite plus l'espace Édition ("project") : l'ancien
+  // activeRightPanelTab "docx" ouvre désormais Relecture, directement sur
+  // sa page secondaire Révision DOCX (voir tests dédiés plus bas).
+  const docx = createSidebar("docx").sidebar;
+  assert.equal(docx.activeTab, "relecture");
+  assert.equal(docx.relecturePage, "docx");
+
+  const analyse = createSidebar("analyse").sidebar;
+  assert.equal(analyse.activeTab, "relecture");
+  assert.equal(analyse.relecturePage, "analysis");
+
   assert.equal(createSidebar("metadata").sidebar.activeTab, "notes");
+});
+
+test("SidebarFeuilletsView : l'ancien activeRightPanelTab \"docx\" ouvre Relecture directement sur Révision DOCX", async () => {
+  const { sidebar, calls } = createSidebar("docx");
+  await sidebar.render();
+  assert.deepEqual(calls.map((call) => call.name), ["docx"]);
+});
+
+test("SidebarFeuilletsView : l'ancien activeRightPanelTab \"analyse\" ouvre Relecture directement sur Analyse du texte", async () => {
+  const { sidebar, calls } = createSidebar("analyse");
+  await sidebar.render();
+  assert.deepEqual(calls.map((call) => call.name), ["relecture"]);
 });
 
 test("SidebarFeuilletsView démarre sur l'onglet Recherche mémorisé", () => {
@@ -149,24 +199,25 @@ test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné
   }
 });
 
-test("SidebarFeuilletsView rend les quatre sections de l'espace Édition dans l'ordre, dans un seul conteneur feuillets-edition-workspace", async () => {
+test("SidebarFeuilletsView rend les trois sections de l'espace Édition dans l'ordre, dans un seul conteneur feuillets-edition-workspace, sans DocxReviewView", async () => {
   const { sidebar, calls } = createSidebar("project");
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
 
   // Ordre : Composition de l'ouvrage → Mise en page & export → Documents
-  // éditoriaux → Révision DOCX.
+  // éditoriaux. Révision DOCX a déménagé vers Relecture (voir plus bas).
   assert.deepEqual(
     calls.map((call) => call.name),
-    ["editionComposition", "editionLayout", "editionDocs", "docx"]
+    ["editionComposition", "editionLayout", "editionDocs"]
   );
+  assert.equal(calls.some((call) => call.name === "docx"), false, "l'espace Édition ne rend plus DocxReviewView");
   assert.equal(container.children.length, 1, "un seul conteneur .feuillets-edition-workspace");
   const workspace = container.children[0];
   assert.ok(workspace.classes.has("feuillets-edition-workspace"));
-  assert.equal(workspace.children.length, 4, "les quatre sous-vues, sans wrapper feuillets-merged-section");
+  assert.equal(workspace.children.length, 3, "les trois sous-vues, sans wrapper feuillets-merged-section");
 });
 
-test("SidebarFeuilletsView : correctif alignement — les quatre sections partagent le même conteneur .feuillets-edition-section-container", async () => {
+test("SidebarFeuilletsView : correctif alignement — les sections de l'espace Édition partagent le même conteneur .feuillets-edition-section-container", async () => {
   const { sidebar } = createSidebar("project");
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
@@ -191,19 +242,29 @@ test("SidebarFeuilletsView : correctif alignement — les quatre sections partag
   }
 });
 
-test("SidebarFeuilletsView ne rafraîchit au file-open que les onglets liés au feuillet", async () => {
+test("SidebarFeuilletsView ne rafraîchit au file-open que Notes et Analyse du texte, jamais l'accueil Relecture ni Révision DOCX", async () => {
   const { sidebar, listeners, calls } = createSidebar();
   const registered = [];
   sidebar.registerEvent = (event) => registered.push(event);
   sidebar.render = async () => {};
   await sidebar.onOpen();
 
-  for (const tab of ["notes", "research", "journal", "project", "relecture"]) {
+  const cases = [
+    { tab: "notes", page: "home", expected: ["notes"] },
+    { tab: "research", page: "home", expected: [] },
+    { tab: "journal", page: "home", expected: [] },
+    { tab: "project", page: "home", expected: [] },
+    { tab: "relecture", page: "home", expected: [] },
+    { tab: "relecture", page: "analysis", expected: ["relecture"] },
+    { tab: "relecture", page: "docx", expected: [] },
+  ];
+  for (const { tab, page, expected } of cases) {
     calls.length = 0;
     sidebar.activeTab = tab;
+    sidebar.relecturePage = page;
     listeners.workspace.get("file-open")();
     await Promise.resolve();
-    assert.deepEqual(calls.map((call) => call.name), ["notes", "relecture"].includes(tab) ? [tab] : []);
+    assert.deepEqual(calls.map((call) => call.name), expected, `${tab}/${page}`);
   }
   assert.equal(registered.length, 2);
 });
@@ -220,18 +281,37 @@ test("SidebarFeuilletsView invalide les caches Analyse à la modification", asyn
   assert.equal(sidebar.subViews.notes.targetContainer, null);
 });
 
-test("SidebarFeuilletsView rend les cinq sous-vues de l'espace Édition, une seule sous-vue pour les autres onglets", async () => {
+test("SidebarFeuilletsView renderAllSubViews respecte la nouvelle organisation : Édition sans DOCX, Relecture selon sa page, une seule sous-vue pour les autres onglets", async () => {
   const { sidebar, calls } = createSidebar("project");
   await sidebar.renderAllSubViews(true);
   assert.deepEqual(
     calls.map((call) => call.name),
-    ["docx", "editionDocs", "editionComposition", "editionLayout"]
+    ["editionDocs", "editionComposition", "editionLayout"]
   );
 
   calls.length = 0;
   sidebar.activeTab = "research";
   await sidebar.renderAllSubViews(true);
   assert.deepEqual(calls.map((call) => call.name), ["research"]);
+
+  // Relecture : rien à rafraîchir sur l'accueil (pas de sous-vue affichée),
+  // uniquement TextAnalysisView sur "analysis", uniquement DocxReviewView
+  // sur "docx".
+  calls.length = 0;
+  sidebar.activeTab = "relecture";
+  sidebar.relecturePage = "home";
+  await sidebar.renderAllSubViews(true);
+  assert.deepEqual(calls.map((call) => call.name), []);
+
+  calls.length = 0;
+  sidebar.relecturePage = "analysis";
+  await sidebar.renderAllSubViews(true);
+  assert.deepEqual(calls.map((call) => call.name), ["relecture"]);
+
+  calls.length = 0;
+  sidebar.relecturePage = "docx";
+  await sidebar.renderAllSubViews(true);
+  assert.deepEqual(calls.map((call) => call.name), ["docx"]);
 });
 
 test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide sans écrire les réglages", async () => {
@@ -241,6 +321,210 @@ test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide san
   assert.equal(settings.activeRightPanelTab, "invalide");
   assert.deepEqual(
     calls.map((call) => call.name),
-    ["editionComposition", "editionLayout", "editionDocs", "docx"]
+    ["editionComposition", "editionLayout", "editionDocs"]
   );
+});
+
+test("SidebarFeuilletsView : l'accueil Relecture affiche Analyse du texte et Révision DOCX sans rendre leurs sous-vues", async () => {
+  const { sidebar, contentEl, calls } = createSidebar("relecture");
+  await sidebar.render();
+
+  assert.equal(sidebar.relecturePage, "home");
+  assert.deepEqual(calls.map((call) => call.name), [], "aucune des deux sous-vues complètes n'est rendue");
+
+  const content = contentEl.children[1];
+  const heads = allElements(content).filter(
+    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
+  );
+  assert.equal(heads.length, 2, "deux lignes compactes cliquables");
+
+  const titles = allElements(content)
+    .filter((el) => el.classes.has("feuillets-notes-section-title"))
+    .map((el) => el.text);
+  assert.deepEqual(titles, [t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
+
+  const subs = allElements(content)
+    .filter((el) => el.classes.has("feuillets-notes-sub"))
+    .map((el) => el.text);
+  assert.deepEqual(subs, [t("relecture.home.analysis.sub"), t("relecture.home.docx.sub")]);
+
+  // Pas de carte lourde : aucun .feuillets-hub-card sur cette page.
+  assert.equal(allElements(content).some((el) => el.classes.has("feuillets-hub-card")), false);
+});
+
+test("SidebarFeuilletsView : cliquer sur Analyse du texte puis Révision DOCX ouvre chaque fois la sous-vue correspondante, seule", async () => {
+  const { sidebar, contentEl, calls } = createSidebar("relecture");
+  await sidebar.render();
+
+  const [analysisHead] = allElements(contentEl.children[1]).filter(
+    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
+  );
+
+  let renders = 0;
+  sidebar.render = async () => { renders += 1; };
+  analysisHead.events.get("click")();
+  assert.equal(sidebar.relecturePage, "analysis");
+  assert.equal(renders, 1);
+
+  delete sidebar.render;
+  calls.length = 0;
+  await sidebar.render();
+  assert.deepEqual(calls.map((call) => call.name), ["relecture"], "uniquement TextAnalysisView");
+
+  // Retour à l'accueil pour rejouer le même scénario avec Révision DOCX.
+  sidebar.relecturePage = "home";
+  await sidebar.render();
+  const heads = allElements(contentEl.children[1]).filter(
+    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
+  );
+
+  renders = 0;
+  sidebar.render = async () => { renders += 1; };
+  heads[1].events.get("click")();
+  assert.equal(sidebar.relecturePage, "docx");
+  assert.equal(renders, 1);
+
+  delete sidebar.render;
+  calls.length = 0;
+  await sidebar.render();
+  assert.deepEqual(calls.map((call) => call.name), ["docx"], "uniquement DocxReviewView");
+});
+
+test("SidebarFeuilletsView : le bouton Retour des pages secondaires de Relecture revient à l'accueil", async () => {
+  for (const legacyTab of ["docx", "analyse"]) {
+    const { sidebar, contentEl } = createSidebar(legacyTab);
+    await sidebar.render();
+
+    const backBtn = allElements(contentEl.children[1]).find((el) => el.classes.has("feuillets-back-btn"));
+    assert.ok(backBtn, `barre de retour attendue pour ${legacyTab}`);
+
+    let renders = 0;
+    sidebar.render = async () => { renders += 1; };
+    backBtn.events.get("click")();
+
+    assert.equal(sidebar.relecturePage, "home");
+    assert.equal(renders, 1);
+  }
+});
+
+/** Sous-vue factice qui reproduit le comportement réel de TextAnalysisView/
+ * DocxReviewView : elle vide ENTIÈREMENT son propre targetContainer au
+ * début de render() (comme leur `container.empty()`), puis y pose un
+ * marqueur. Sert à prouver que la barre Retour — postée ailleurs — survit
+ * à ce vidage plutôt que de le supposer. */
+function createEmptyingSubView(name, calls) {
+  return {
+    targetContainer: null,
+    async render(force) {
+      calls.push({ name, force, targetContainer: this.targetContainer });
+      if (this.targetContainer) {
+        this.targetContainer.empty();
+        this.targetContainer.createDiv({ cls: `feuillets-${name}-marker` });
+      }
+    },
+  };
+}
+
+test("SidebarFeuilletsView : la barre Retour des pages Analyse/Révision DOCX survit au vidage de leur propre conteneur par la sous-vue", async () => {
+  for (const [legacyTab, subViewKey] of [["analyse", "relecture"], ["docx", "docx"]]) {
+    const { sidebar, contentEl, calls } = createSidebar(legacyTab);
+    sidebar.subViews[subViewKey] = createEmptyingSubView(subViewKey, calls);
+
+    await sidebar.render();
+
+    let content = contentEl.children[1];
+    let backBtn = allElements(content).find((el) => el.classes.has("feuillets-back-btn"));
+    assert.ok(backBtn, `barre Retour visible pour ${legacyTab}`);
+    // La barre Retour n'habite jamais le conteneur que la sous-vue a le
+    // droit de vider : elle ne peut donc structurellement pas l'effacer.
+    assert.equal(
+      allElements(sidebar.subViews[subViewKey].targetContainer).includes(backBtn),
+      false,
+      "la barre Retour n'est pas dans le targetContainer de la sous-vue"
+    );
+    let marker = allElements(content).find((el) => el.classes.has(`feuillets-${subViewKey}-marker`));
+    assert.ok(marker, `contenu de la sous-vue rendu pour ${legacyTab}`);
+
+    // Un second rendu (ex. changement de feuillet actif) revide de nouveau
+    // le même conteneur — la barre Retour, elle, reste intacte.
+    await sidebar.render();
+    content = contentEl.children[1];
+    backBtn = allElements(content).find((el) => el.classes.has("feuillets-back-btn"));
+    assert.ok(backBtn, `barre Retour toujours visible après un second rendu (${legacyTab})`);
+    marker = allElements(content).find((el) => el.classes.has(`feuillets-${subViewKey}-marker`));
+    assert.ok(marker, `contenu de la sous-vue toujours rendu après un second rendu (${legacyTab})`);
+
+    // Et le clic Retour fonctionne toujours.
+    let renders = 0;
+    sidebar.render = async () => { renders += 1; };
+    backBtn.events.get("click")();
+    assert.equal(sidebar.relecturePage, "home");
+    assert.equal(renders, 1);
+  }
+});
+
+test("SidebarFeuilletsView : l'accueil Relecture propose Comparer une version pour un feuillet Markdown valide du projet actif", async () => {
+  const projectFolder = { path: "Projet" };
+  const activeFile = { path: "Projet/scene.md", extension: "md" };
+  const { sidebar, contentEl } = createSidebar("relecture", [], [], { activeFile, projectFolder });
+
+  await sidebar.render();
+  const content = contentEl.children[1];
+  const titles = allElements(content)
+    .filter((el) => el.classes.has("feuillets-notes-section-title"))
+    .map((el) => el.text);
+  assert.deepEqual(titles, [
+    t("relecture.home.analysis.title"),
+    t("relecture.home.docx.title"),
+    t("relecture.home.diff.title"),
+  ]);
+  const subs = allElements(content)
+    .filter((el) => el.classes.has("feuillets-notes-sub"))
+    .map((el) => el.text);
+  assert.deepEqual(subs, [
+    t("relecture.home.analysis.sub"),
+    t("relecture.home.docx.sub"),
+    t("relecture.home.diff.sub"),
+  ]);
+});
+
+test("SidebarFeuilletsView : Comparer une version n'apparaît pas sans feuillet Markdown valide du projet actif", async () => {
+  const cases = [
+    { activeFile: null, projectFolder: { path: "Projet" } },
+    { activeFile: { path: "Projet/image.png", extension: "png" }, projectFolder: { path: "Projet" } },
+    { activeFile: { path: "Ailleurs/scene.md", extension: "md" }, projectFolder: { path: "Projet" } },
+    { activeFile: { path: "Projet/scene.md", extension: "md" }, projectFolder: null },
+  ];
+  for (const options of cases) {
+    const { sidebar, contentEl } = createSidebar("relecture", [], [], options);
+    await sidebar.render();
+    const titles = allElements(contentEl.children[1])
+      .filter((el) => el.classes.has("feuillets-notes-section-title"))
+      .map((el) => el.text);
+    assert.deepEqual(titles, [t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
+  }
+});
+
+test("SidebarFeuilletsView : cliquer sur Comparer une version ouvre DiffModal avec le feuillet actif, sans créer de troisième page", async () => {
+  const projectFolder = { path: "Projet" };
+  const activeFile = { path: "Projet/scene.md", extension: "md" };
+  const { sidebar, contentEl } = createSidebar("relecture", [], [], { activeFile, projectFolder });
+  await sidebar.render();
+
+  const original = DiffModal.prototype.open;
+  let opened = null;
+  DiffModal.prototype.open = function () { opened = this; };
+  try {
+    const rows = allElements(contentEl.children[1]).filter(
+      (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
+    );
+    assert.equal(rows.length, 3);
+    rows[2].events.get("click")();
+
+    assert.ok(opened, "DiffModal.open() appelé");
+    assert.equal(opened.currentFile, activeFile);
+    assert.equal(sidebar.relecturePage, "home", "aucune troisième page secondaire créée");
+  } finally {
+    DiffModal.prototype.open = original;
+  }
 });

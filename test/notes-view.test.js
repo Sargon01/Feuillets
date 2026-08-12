@@ -8,7 +8,6 @@ const modulePath = (path) => isCompiledTest ? `../${path}` : compiledModule(path
 const { TFile, TFolder } = await import(
   isCompiledTest ? "obsidian" : compiledModule("node_modules/obsidian/index.js")
 );
-const { DiffModal } = await import(modulePath("src/ui/diff-modal.js"));
 const { ProjectPropertiesModal, ProjectTagsModal } = await import(modulePath("src/ui/project-properties-modals.js"));
 const { NotesView } = await import(modulePath("src/views/notes-view.js"));
 
@@ -230,6 +229,80 @@ test("NotesView affiche le retour d'une note de dossier et revient au fichier ac
   backButton.events.get("click")();
   assert.equal(view.viewedFile, null);
   assert.equal(renders, 1);
+});
+
+test("NotesView.renderFolderNoteLinks : fil d'Ariane dans l'ordre hiérarchique, un clic par niveau ouvre la bonne note de dossier (viewedFile inchangé)", async () => {
+  const root = new TFolder("Projet");
+  const partie = new TFolder("Projet/Partie 1");
+  partie.parent = root;
+  const chapitre = new TFolder("Projet/Partie 1/Chapitre 1");
+  chapitre.parent = partie;
+  const scene = makeFile("Projet/Partie 1/Chapitre 1/scene.md");
+  scene.parent = chapitre;
+
+  const { view, contentEl, plugin } = createNotesView({ activeFile: scene, root });
+  plugin.roleOfFolder = (folder) => (folder === partie ? "partie" : folder === chapitre ? "chapitre" : null);
+  const notes = new Map([
+    [partie.path, makeFile("Projet/Partie 1/_note.md")],
+    [chapitre.path, makeFile("Projet/Partie 1/Chapitre 1/_note.md")],
+  ]);
+  plugin.getOrCreateFolderNote = async (folder) => notes.get(folder.path);
+  view.render = async () => {};
+
+  view.renderFolderNoteLinks(contentEl, scene);
+
+  const box = contentEl.children.find((el) => el.classes.has("feuillets-notes-folder-links"));
+  assert.ok(box, "conteneur du fil d'Ariane présent");
+
+  // Ordre hiérarchique conservé (Partie avant Chapitre), un seul chevron
+  // entre les deux maillons, aucune pastille.
+  assert.deepEqual(box.children.map((el) => el.text), ["Partie 1", "›", "Chapitre 1"]);
+  const items = box.children.filter((el) => el.classes.has("feuillets-notes-folder-link"));
+  const seps = box.children.filter((el) => el.classes.has("feuillets-notes-folder-sep"));
+  assert.equal(items.length, 2);
+  assert.equal(seps.length, 1);
+
+  // Chaque niveau reste cliquable et ouvre sa propre note de dossier dans
+  // ce même panneau (viewedFile), sans toucher au document de l'éditeur.
+  items[0].events.get("click")({ preventDefault() {} });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(view.viewedFile, notes.get(partie.path));
+
+  items[1].events.get("click")({ preventDefault() {} });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(view.viewedFile, notes.get(chapitre.path));
+});
+
+test("NotesView.renderFolderNoteLinks : une seule note de dossier affiche seulement son nom, sans séparateur", () => {
+  const root = new TFolder("Projet");
+  const chapitre = new TFolder("Projet/Chapitre 1");
+  chapitre.parent = root;
+  const scene = makeFile("Projet/Chapitre 1/scene.md");
+  scene.parent = chapitre;
+
+  const { view, contentEl, plugin } = createNotesView({ activeFile: scene, root });
+  plugin.roleOfFolder = (folder) => (folder === chapitre ? "chapitre" : null);
+
+  view.renderFolderNoteLinks(contentEl, scene);
+
+  const box = contentEl.children.find((el) => el.classes.has("feuillets-notes-folder-links"));
+  assert.ok(box);
+  assert.deepEqual(box.children.map((el) => el.text), ["Chapitre 1"]);
+  assert.equal(box.children.some((el) => el.classes.has("feuillets-notes-folder-sep")), false);
+});
+
+test("NotesView.renderFolderNoteLinks n'affiche rien sans note de dossier dans la hiérarchie", () => {
+  const root = new TFolder("Projet");
+  const scene = makeFile("Projet/scene.md");
+  scene.parent = root;
+  const { view, contentEl, plugin } = createNotesView({ activeFile: scene, root });
+  plugin.roleOfFolder = () => null;
+
+  view.renderFolderNoteLinks(contentEl, scene);
+
+  assert.equal(contentEl.children.some((el) => el.classes.has("feuillets-notes-folder-links")), false);
 });
 
 test("NotesView respecte les réglages et l'ordre des sections", async () => {
@@ -476,15 +549,14 @@ test("NotesView ajoute une propriété non vide et ignore une clé vide", async 
   }
 });
 
-test("NotesView ouvre les trois actions de propriétés sans écrire ni modifier les réglages", () => {
+test("NotesView ouvre les deux actions de propriétés sans écrire ni modifier les réglages (plus de bouton Diff)", () => {
   const active = makeFile("Projet/scene.md");
   const { view, contentEl, plugin, writes } = createNotesView({ activeFile: active });
   const settingsBefore = JSON.stringify(plugin.settings);
-  const originals = [ProjectPropertiesModal.prototype.open, ProjectTagsModal.prototype.open, DiffModal.prototype.open];
+  const originals = [ProjectPropertiesModal.prototype.open, ProjectTagsModal.prototype.open];
   let openings = 0;
   ProjectPropertiesModal.prototype.open = () => { openings += 1; };
   ProjectTagsModal.prototype.open = () => { openings += 1; };
-  DiffModal.prototype.open = () => { openings += 1; };
   view.renderSectionHead = (_section, _icon, _title, _namespace, _key, renderActions) => {
     renderActions(contentEl);
     return true;
@@ -492,12 +564,12 @@ test("NotesView ouvre les trois actions de propriétés sans écrire ni modifier
   try {
     view.renderFilePropertiesSection(contentEl, active);
     const buttons = allElements(contentEl).filter((element) => element.tag === "button");
-    assert.equal(buttons.length, 3);
+    assert.equal(buttons.length, 2, "le bouton history (Diff) a déménagé vers Relecture");
     for (const button of buttons) button.events.get("click")();
-    assert.equal(openings, 3);
+    assert.equal(openings, 2);
     assert.deepEqual(writes, []);
     assert.equal(JSON.stringify(plugin.settings), settingsBefore);
   } finally {
-    [ProjectPropertiesModal.prototype.open, ProjectTagsModal.prototype.open, DiffModal.prototype.open] = originals;
+    [ProjectPropertiesModal.prototype.open, ProjectTagsModal.prototype.open] = originals;
   }
 });

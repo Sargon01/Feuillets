@@ -475,6 +475,17 @@ export const en = {
   "sidebar.tab.project": "Edition",
   "sidebar.tab.analysis": "Analysis",
   "sidebar.tab.proofreading": "Proofreading",
+
+  /* Proofreading tab home page (two entries into the full Text
+     analysis/DOCX review sub-views) and the back bar of their secondary
+     views — see renderProofreadingTab, sidebar-feuillets-view.ts. */
+  "relecture.backToHome": "Proofreading",
+  "relecture.home.analysis.title": "Text analysis",
+  "relecture.home.analysis.sub": "Repetitions and linguistic analysis",
+  "relecture.home.docx.title": "DOCX review",
+  "relecture.home.docx.sub": "Word feedback, corrections and comments",
+  "relecture.home.diff.title": "Compare a version",
+  "relecture.home.diff.sub": "Compare the sheet with a snapshot",
   "editionDocs.folderFiles": "Files in the Edition folder",
   "analysisResults.repetitions": "Close repetitions",
   "analysisResults.noRepetitions": "No close repetitions detected.",

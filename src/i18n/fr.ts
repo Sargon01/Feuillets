@@ -475,6 +475,17 @@ export const fr = {
   "sidebar.tab.project": "Édition",
   "sidebar.tab.analysis": "Analyse",
   "sidebar.tab.proofreading": "Relecture",
+
+  /* Page d'accueil de l'onglet Relecture (deux entrées vers les sous-vues
+     complètes Analyse du texte/Révision DOCX) et barre de retour de leurs
+     vues secondaires — voir renderProofreadingTab, sidebar-feuillets-view.ts. */
+  "relecture.backToHome": "Relecture",
+  "relecture.home.analysis.title": "Analyse du texte",
+  "relecture.home.analysis.sub": "Répétitions et analyse linguistique",
+  "relecture.home.docx.title": "Révision DOCX",
+  "relecture.home.docx.sub": "Retours, corrections et commentaires Word",
+  "relecture.home.diff.title": "Comparer une version",
+  "relecture.home.diff.sub": "Comparer le feuillet avec un snapshot",
   "editionDocs.folderFiles": "Fichiers du dossier Édition",
   "analysisResults.repetitions": "Répétitions rapprochées",
   "analysisResults.noRepetitions": "Aucune répétition rapprochée détectée.",

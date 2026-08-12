@@ -1330,38 +1330,31 @@ body:not(.feuillets-indent) .feuillets-indent-widget {
   margin-bottom: 10px;
 }
 
-/* Rendu réel en style inline forcé depuis notes-view.js (voir
-   renderFolderNoteLinks) — overflow: visible, pas hidden : un overflow
-   hidden ici (compréhensible pour empêcher le retour à la ligne, mais
-   fautif) coupait tout le bloc à zéro selon la mise en page ambiante,
-   le rendant invisible. Ces règles restent surtout pour :last-child et
-   :hover, qu'un style inline ne peut pas exprimer. */
-/* Idem : valeurs reprises du style.cssText en !important qui écrasait
-   cette règle (voir .feuillets-notes-folder-link plus bas). */
+/* Fil d'Ariane natif (Manuscrit › Partie 1…) — remplace les anciennes
+   pastilles façon tag (fond + couleur codée en dur). `overflow: visible`
+   conservé à dessein sur le conteneur : un overflow hidden ici
+   (compréhensible pour empêcher le retour à la ligne, mais fautif) coupait
+   tout le bloc à zéro selon la mise en page ambiante, le rendant invisible
+   (diagnostiqué directement, pas supposé) — la troncature des noms longs
+   reste entièrement gérée par chaque maillon (.feuillets-notes-folder-link,
+   text-overflow/min-width/flex-shrink), jamais par le conteneur. */
 .feuillets-notes-folder-links {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   margin: 0 0 4px 0;
   overflow: visible;
   position: relative;
   z-index: 1;
+  font-size: var(--font-ui-smaller);
+  min-width: 0;
 }
 
-/* Ces valeurs étaient jusqu'ici posées en ligne via style.cssText, toutes
-   en !important : cette règle-ci existait mais n'était donc jamais
-   appliquée. Elles sont reprises telles quelles pour que le rendu ne bouge
-   pas — le fond et la couleur sont codés en dur (héritage), ils gagneraient
-   à passer sur les variables de thème (--tag-background / --tag-color). */
+/* Maillon de texte discret — couleurs natives Obsidian, aucun fond ni
+   bordure : une navigation contextuelle, pas des tags. */
 .feuillets-notes-folder-link {
-  font-size: 11px;
-  background: #888888;
-  color: #ffffff;
-  border-radius: var(--tag-radius, 999px);
-  padding: 0 5px;
-  line-height: 14px;
-  display: inline-block;
+  color: var(--text-muted);
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1375,10 +1368,18 @@ body:not(.feuillets-indent) .feuillets-indent-widget {
 .feuillets-notes-folder-link:last-child {
   flex-shrink: 0;
   max-width: 65%;
+  color: var(--text-normal);
 }
 
 .feuillets-notes-folder-link:hover {
-  filter: brightness(1.15);
+  color: var(--text-accent);
+}
+
+/* Séparateur chevron entre deux maillons — jamais posé avant le premier
+   (une seule note de dossier = aucun séparateur, voir renderFolderNoteLinks). */
+.feuillets-notes-folder-sep {
+  color: var(--text-faint);
+  flex-shrink: 0;
 }
 
 .feuillets-notes-area {
