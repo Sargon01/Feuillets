@@ -31,7 +31,7 @@ export function resolveCompileScopeFiles(
   }
 
   // Dossiers techniques à exclure
-  const technicalFolders = new Set(["_Recherche", "_Ressources", "_Edition", "_Sortie", "_Snapshots", "_Backups"]);
+  const technicalFolders = new Set(["_Feuillets", "_Recherche", "_Ressources", "_Edition", "_Sortie", "_Snapshots", "_Backups"]);
 
   // Utilitaire: récursif pour collecter tous les fichiers Markdown d'un dossier
   const getAllMarkdownFiles = (folder: TFolder, visited = new Set<string>()): TFile[] => {

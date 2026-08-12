@@ -9,17 +9,13 @@ import {
   resourcesSubfolderPath,
   editionFolderPath,
   getEditionRoot,
-  getFeuilletsFolderNames,
   feuilletsAuxiliaryPath,
   feuilletsAuxiliaryRootPath,
-  FEUILLETS_AUXILIARY_FOLDERS,
   FEUILLETS_RESOURCE_SUBFOLDERS,
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
-import { getResearchRoot } from "./research.js";
 import { getProjectMode } from "./project-mode.js";
-import { getLocale } from "../i18n/index.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyModeDefaults, resolveType, PROJECT_MODES, projectBoardDefaults, researchFolderNames } from "../utils/project-modes.js";
 
@@ -32,21 +28,51 @@ export async function ensureFolder(app: App, path: string): Promise<TAbstractFil
   return f;
 }
 
-/** Crée l'espace auxiliaire V2 complet autour d'un dossier déjà utilisé
- * comme projet, sans jamais toucher à son contenu. Une Recherche legacy
- * reconnue est conservée ; les autres catégories suivent la source de
- * vérité FEUILLETS_AUXILIARY_FOLDERS. */
-export async function ensureFeuilletsAuxiliaryFolders(
-  app: App,
-  root: TFolder,
-  existingResearchPath?: string | null
-): Promise<void> {
-  for (const kind of Object.keys(FEUILLETS_AUXILIARY_FOLDERS) as Array<keyof typeof FEUILLETS_AUXILIARY_FOLDERS>) {
-    const path = kind === "research" && existingResearchPath
-      ? existingResearchPath
-      : feuilletsAuxiliaryPath(root, kind);
-    await ensureFolder(app, path);
+/** Helper minimal unique de bootstrap pour les projets Feuillets (nouveau projet
+ * ou adoption d'un dossier existant).
+ *
+ * Garantit UNIQUEMENT :
+ * - _Feuillets/Recherche
+ * - _Feuillets/Ressources
+ * - les 5 sous-dossiers canoniques de Ressources (Images, Modèles, Mises en page, Exports, Ressources internes)
+ *
+ * Ne crée JAMAIS lors du bootstrap les dossiers lazy :
+ * Edition, Journal, Snapshots, Backups, Versions, Sortie.
+ */
+function findExistingResearchFolder(app: App, manuscritRoot: TFolder): TFolder | null {
+  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(manuscritRoot, "research"));
+  if (canonical instanceof TFolder) return canonical;
+  const legacyNames = ["_Recherche", "_Research", "Recherche", "Research"];
+  const bases = [
+    manuscritRoot.path,
+    manuscritRoot.parent && manuscritRoot.parent.path !== "" ? manuscritRoot.parent.path : null,
+  ].filter((p): p is string => p !== null);
+  for (const base of bases) {
+    for (const name of legacyNames) {
+      const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/${name}`));
+      if (f instanceof TFolder) return f;
+    }
   }
+  return null;
+}
+
+export async function ensureCanonicalProjectBase(
+  app: App,
+  manuscritRoot: TFolder
+): Promise<{ researchPath: string; resourcesPath: string }> {
+  const existingResearch = findExistingResearchFolder(app, manuscritRoot);
+  const researchPath = existingResearch ? existingResearch.path : feuilletsAuxiliaryPath(manuscritRoot, "research");
+  await ensureFolder(app, researchPath);
+
+  const existingResources = getResourcesRoot(app, manuscritRoot);
+  const resourcesPath = existingResources ? existingResources.path : feuilletsAuxiliaryPath(manuscritRoot, "resources");
+  await ensureFolder(app, resourcesPath);
+
+  for (const { name, variants } of FEUILLETS_RESOURCE_SUBFOLDERS) {
+    await ensureFolder(app, resourcesSubfolderPath(app, resourcesPath, name, ...variants));
+  }
+
+  return { researchPath, resourcesPath };
 }
 
 /** Base canonique des snapshots : le parent de Manuscrit pour un projet
@@ -320,12 +346,7 @@ export async function ensureProjectBaseFolders(
   await ensureFolder(app, manuscritPath);
   const virtualRoot = app.vault.getAbstractFileByPath(manuscritPath);
   if (!(virtualRoot instanceof TFolder)) throw new Error("Manuscrit introuvable après création.");
-  await ensureFolder(app, feuilletsAuxiliaryPath(virtualRoot, "research"));
-  const resourcesPath = feuilletsAuxiliaryPath(virtualRoot, "resources");
-  await ensureFolder(app, resourcesPath);
-  for (const { name, variants } of FEUILLETS_RESOURCE_SUBFOLDERS) {
-    await ensureFolder(app, resourcesSubfolderPath(app, resourcesPath, name, ...variants));
-  }
+  await ensureCanonicalProjectBase(app, virtualRoot);
   const frontPath = withFront ? normalizePath(`${manuscritPath}/${FRONT_FOLDER_NAME}`) : null;
   if (frontPath) await ensureFolder(app, frontPath);
   return { frontPath };
@@ -570,61 +591,16 @@ export async function initProjectStructure(
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return;
   }
-  const base = projectRoot.path;
-  const names = getFeuilletsFolderNames(getLocale());
   const manuscritRoot = getProjectFolder(app, settings);
+  if (!manuscritRoot) return;
 
-  /* === Recherche ===
-     getResearchRoot reconnaît _Recherche, Recherche, Research ; on vérifie
-     aussi _Research (EN avec préfixe) non couvert par getResearchRoot. */
-  let existingResearch = getResearchRoot(app, settings);
-  if (!existingResearch) {
-    const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/_Research`));
-    if (f instanceof TFolder) existingResearch = f;
-  }
-  const researchPath = existingResearch
-    ? existingResearch.path
-    : manuscritRoot
-      ? feuilletsAuxiliaryPath(manuscritRoot, "research")
-      : normalizePath(`${base}/_Feuillets/Recherche`);
-  await ensureFolder(app, researchPath);
+  const { researchPath, resourcesPath: resPath } = await ensureCanonicalProjectBase(app, manuscritRoot);
 
   /* Sous-dossiers de Recherche selon le mode du projet — variantes historiques
      reconnues avant toute création pour éviter les doublons. */
-  const projectMode = manuscritRoot ? settings.projectMeta[manuscritRoot.path]?.type : null;
+  const projectMode = settings.projectMeta[manuscritRoot.path]?.type;
   await initResearchSubfolders(app, researchPath, projectMode);
 
-  /* === Snapshots, Backups, Journal ===
-     Chacun est créé sous la racine réelle avec son préfixe `_`.
-     Si une variante sans préfixe existe déjà (projet legacy), elle est
-     reconnue et réutilisée — jamais renommée, jamais dupliquée. */
-  const pickOrCreate = (preferred: string, ...legacyNames: string[]): string => {
-    for (const v of legacyNames) {
-      const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/${v}`));
-      if (f instanceof TFolder) return f.path;
-    }
-    return preferred;
-  };
-  const auxiliaryRoot = manuscritRoot ? feuilletsAuxiliaryRootPath(manuscritRoot) : normalizePath(`${base}/_Feuillets`);
-  await ensureFolder(app, pickOrCreate(normalizePath(`${auxiliaryRoot}/Snapshots`), "Snapshots", "_Snapshots"));
-  await ensureFolder(app, pickOrCreate(normalizePath(`${auxiliaryRoot}/Backups`), "Backups", "_Backups"));
-  await ensureFolder(app, pickOrCreate(normalizePath(`${auxiliaryRoot}/Journal`), "Journal", "_Journal"));
-
-  /* === Ressources ===
-     getResourcesRoot reconnaît _Ressources, _Resources, Ressources, Resources.
-     Sous-dossiers créés avec les nouveaux noms FR/EN, variantes historiques
-     reconnues pour éviter les doublons (Templates→Modèles, Layout→Mises en
-     page, Assets→Ressources internes…). */
-  const existingRes = manuscritRoot ? getResourcesRoot(app, manuscritRoot) : null;
-  const resPath = existingRes
-    ? existingRes.path
-    : manuscritRoot
-      ? feuilletsAuxiliaryPath(manuscritRoot, "resources")
-      : normalizePath(`${base}/_Feuillets/Ressources`);
-  await ensureFolder(app, resPath);
-  for (const { name, variants } of FEUILLETS_RESOURCE_SUBFOLDERS) {
-    await ensureFolder(app, resourcesSubfolderPath(app, resPath, name, ...variants));
-  }
   /* Paths stables pour les writeTemplate ci-dessous. */
   const templateSub = FEUILLETS_RESOURCE_SUBFOLDERS.find((s) => s.key === "templates")!;
   const layoutSub = FEUILLETS_RESOURCE_SUBFOLDERS.find((s) => s.key === "layouts")!;
@@ -858,11 +834,8 @@ export async function initProjectStructure(
   const listParts = [
     ...(initializedProjectType === "free" ? [] : ["Front"]),
     researchPath.split("/").pop(),
-    names.snapshots,
-    names.backups,
-    names.journal,
     resPath.split("/").pop(),
-  ].join(", ");
+  ].filter(Boolean).join(", ");
   new Notice(`Structure initialisée : ${listParts}.`);
 }
 

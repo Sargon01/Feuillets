@@ -15,7 +15,7 @@ type SelectionPlugin = {
   saveSettings(): Promise<void>;
 };
 
-const EXCLUDED_BODY_FOLDERS = new Set(["Annexes", "Appendices", "_Recherche", "_Ressources", "_Edition", "_Sortie", "_Snapshots", "_Backups"]);
+const EXCLUDED_BODY_FOLDERS = new Set(["_Feuillets", "Annexes", "Appendices", "_Recherche", "_Ressources", "_Edition", "_Sortie", "_Snapshots", "_Backups"]);
 
 export function manuscriptBodyFiles(app: App, settings: FeuilletsSettings, root: TFolder | null): TFile[] {
   if (!root) return [];

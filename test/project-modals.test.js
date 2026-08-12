@@ -311,8 +311,10 @@ test("TransformToProjectModal : préserve le dossier existant et initialise le m
 
       assert.equal(vault.getAbstractFileByPath(article.path), article);
       assert.equal(vault.getAbstractFileByPath(archives.path), archives);
-      for (const name of ["Recherche", "Ressources", "Edition", "Journal", "Snapshots", "Backups", "Sortie"]) {
-        assert.ok(vault.getAbstractFileByPath(`Mes textes/_Feuillets/${name}`) instanceof TFolder, name);
+      assert.ok(vault.getAbstractFileByPath(`Mes textes/_Feuillets/Recherche`) instanceof TFolder, "Recherche");
+      assert.ok(vault.getAbstractFileByPath(`Mes textes/_Feuillets/Ressources`) instanceof TFolder, "Ressources");
+      for (const name of ["Edition", "Journal", "Snapshots", "Backups", "Sortie"]) {
+        assert.equal(vault.getAbstractFileByPath(`Mes textes/_Feuillets/${name}`), null, `pas de ${name} lazy au bootstrap`);
       }
       assert.equal(vault.getAbstractFileByPath("Mes textes/_Recherche"), null);
       assert.equal(vault.getAbstractFileByPath("Mes textes/Manuscrit"), null);
@@ -343,7 +345,6 @@ test("TransformToProjectModal : conserve une Recherche legacy sans migration", a
   await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
 
   assert.equal(vault.getAbstractFileByPath("Ancien/_Recherche"), legacyResearch);
-  assert.equal(vault.getAbstractFileByPath("Ancien/_Feuillets/Recherche"), null);
 });
 
 test("TransformToProjectModal : garde la Recherche V2 prioritaire lorsqu'elle coexiste avec le legacy", async () => {

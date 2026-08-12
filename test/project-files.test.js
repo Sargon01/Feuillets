@@ -705,9 +705,9 @@ test("initProjectStructure (FR, projet imbriqué) : dossiers sous la racine du p
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche/Lore`) instanceof TFolder, "Lore");
   assert.ok(vault.getAbstractFileByPath(`${base}/Manuscrit/Front/Page de titre.md`) instanceof TFile, "page de titre Fiction");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Modèles/Characters.md`) instanceof TFile, "template Fiction");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Snapshots`) instanceof TFolder, "Snapshots sous _Feuillets");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Backups`) instanceof TFolder, "Backups sous _Feuillets");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Journal`) instanceof TFolder, "Journal sous _Feuillets");
+  assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Snapshots`), null, "pas de Snapshots au bootstrap");
+  assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Backups`), null, "pas de Backups au bootstrap");
+  assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Journal`), null, "pas de Journal au bootstrap");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources`) instanceof TFolder, "Ressources sous _Feuillets");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Modèles`) instanceof TFolder, "Modèles");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Mises en page`) instanceof TFolder, "Mises en page");
@@ -842,9 +842,9 @@ test("initProjectStructure (FR) : mode libre crée seulement les éléments tech
   const base = "Projets/Libre";
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Recherche`) instanceof TFolder, "Recherche technique");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources`) instanceof TFolder, "Ressources techniques");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Snapshots`) instanceof TFolder, "Snapshots");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Backups`) instanceof TFolder, "Backups");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Journal`) instanceof TFolder, "Journal");
+  assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Snapshots`), null, "pas de Snapshots au bootstrap");
+  assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Backups`), null, "pas de Backups au bootstrap");
+  assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Journal`), null, "pas de Journal au bootstrap");
   assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Mises en page/Exemple.md`) instanceof TFile, "modèle générique");
   assert.equal(vault.getAbstractFileByPath(`${base}/Manuscrit/Front`), null);
   for (const name of ["Characters.md", "Places.md", "Lore.md", "Sources.md", "Acteurs.md", "Geographie.md", "Concepts.md", "Bibliography.md", "Glossary.md", "Events.md"]) {
@@ -915,19 +915,19 @@ test("initProjectStructure (FR) : variantes historiques Templates/Layouts/Export
 test("initResearchSubfolders (FR, mode fiction) : dossier transformé crée catégories fiction", async () => {
   setLocale("fr");
   const existingFolder = new TFolder("Existant");
-  const research = new TFolder("Existant/_Recherche");
+  const research = new TFolder("Existant/Recherche");
   research.parent = existingFolder;
   existingFolder.children = [research];
   const { vault } = createFakeVault([existingFolder, research]);
   const app = { vault };
-  const names = getFeuilletsFolderNames("fr");
+  const names = getFeuilletsFolderNames();
   const researchPath = `Existant/${names.research}`;
 
   // Appeler initResearchSubfolders avec le mode fiction
   await initResearchSubfolders(app, researchPath, "fiction");
 
   // Vérifier les catégories fiction
-  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}`) instanceof TFolder, "_Recherche existe");
+  assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}`) instanceof TFolder, "Recherche existe");
   assert.equal(vault.getAbstractFileByPath(`Existant/${names.research}/Bibliographie`), null, "pas de Bibliographie automatique");
   assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Personnages`) instanceof TFolder, "Personnages");
   assert.ok(vault.getAbstractFileByPath(`Existant/${names.research}/Lieux`) instanceof TFolder, "Lieux");
@@ -958,19 +958,19 @@ test("initResearchSubfolders : réutilise une rubrique Chronologie existante pou
 test("initResearchSubfolders (FR, mode non-fiction) : dossier transformé crée catégories non-fiction", async () => {
   setLocale("fr");
   const existingFolder = new TFolder("Essai");
-  const research = new TFolder("Essai/_Recherche");
+  const research = new TFolder("Essai/Recherche");
   research.parent = existingFolder;
   existingFolder.children = [research];
   const { vault } = createFakeVault([existingFolder, research]);
   const app = { vault };
-  const names = getFeuilletsFolderNames("fr");
+  const names = getFeuilletsFolderNames();
   const researchPath = `Essai/${names.research}`;
 
   // Appeler initResearchSubfolders avec le mode non-fiction
   await initResearchSubfolders(app, researchPath, "nonfiction");
 
   // Vérifier les catégories non-fiction uniquement
-  assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}`) instanceof TFolder, "_Recherche existe");
+  assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}`) instanceof TFolder, "Recherche existe");
   assert.equal(vault.getAbstractFileByPath(`Essai/${names.research}/Bibliographie`), null, "pas de Bibliographie automatique");
   assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}/Notes`) instanceof TFolder, "Notes");
   assert.ok(vault.getAbstractFileByPath(`Essai/${names.research}/Sources`) instanceof TFolder, "Sources");
@@ -983,7 +983,7 @@ test("initResearchSubfolders (FR, mode non-fiction) : dossier transformé crée 
 test("initResearchSubfolders (FR, mode libre) : dossier transformé crée seulement _Recherche", async () => {
   setLocale("fr");
   const existingFolder = new TFolder("Libre");
-  const research = new TFolder("Libre/_Recherche");
+  const research = new TFolder("Libre/Recherche");
   research.parent = existingFolder;
   existingFolder.children = [research];
   const { vault } = createFakeVault([existingFolder, research]);

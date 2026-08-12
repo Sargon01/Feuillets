@@ -3,8 +3,7 @@ import { PROJECT_MODES, projectBoardDefaults, resolveType } from "../utils/proje
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
 import { FolderSuggest } from "./folder-suggest.js";
-import { createMinimalProject, CreateProjectError, ensureFeuilletsAuxiliaryFolders, initResearchSubfolders } from "../services/project-files.js";
-import { getResearchRoot, researchFolderPath } from "../services/research.js";
+import { createMinimalProject, CreateProjectError, ensureCanonicalProjectBase, initResearchSubfolders } from "../services/project-files.js";
 import { openFileActivatingWithCursor } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
 
@@ -304,11 +303,7 @@ export class TransformToProjectModal extends Modal {
       S.projectFolder = this.folderPath;
       await this.plugin.saveSettings();
 
-      // Espace auxiliaire V2 : aucun dossier personnel n'est restructuré.
-      const existingResearch = getResearchRoot(this.app, S);
-      const researchPath = researchFolderPath(this.app, S, folder);
-      await ensureFeuilletsAuxiliaryFolders(this.app, folder, existingResearch?.path);
-      if (!researchPath) throw new Error("Dossier Recherche introuvable.");
+      const { researchPath } = await ensureCanonicalProjectBase(this.app, folder);
       await initResearchSubfolders(this.app, researchPath, chosenMode);
 
       this.plugin.renderAllViews(true);

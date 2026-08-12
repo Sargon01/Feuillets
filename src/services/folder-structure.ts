@@ -1,7 +1,6 @@
 import { TFolder, TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { fmOf } from "./frontmatter.js";
-import { getLocale } from "../i18n/index.js";
 
 type ProjectNode = TFile | TFolder;
 
@@ -203,19 +202,11 @@ export function getResourcesRoot(app: App, root: TFolder | null | undefined): TF
   return null;
 }
 
-/** Source de vérité unique pour les noms de dossiers Feuillets selon la
- * langue active. Utilisée par ensureProjectBaseFolders (createMinimalProject)
- * et initProjectStructure — jamais trois listes différentes.
- *
- * Préfixe `_` : les dossiers auxiliaires (Recherche, Ressources, Snapshots…)
- * commencent par `_` pour être exclus du Binder sans configuration
- * supplémentaire (getOrderedChildren filtre !name.startsWith("_")).
- *
- * Règle d'invariance historique : les champs `variants` listent les noms
- * reconnus à la LECTURE — variantes sans préfixe, variantes en anglais ou
- * en français, anciens noms courts — jamais re-créés, seulement reconnus
- * pour éviter les doublons sur les projets déjà créés. */
-export function getFeuilletsFolderNames(locale?: "fr" | "en"): {
+/** Source de vérité pour les noms de dossiers Feuillets.
+ * Les dossiers créés sur le disque sont canoniques et fixes.
+ * Les variantes historiques restent reconnues uniquement pour la rétrocompatibilité
+ * en lecture sur les anciens projets. */
+export function getFeuilletsFolderNames(): {
   research: string;
   researchSubs: Array<{ name: string; variants: string[] }>;
   resources: string;
@@ -225,45 +216,43 @@ export function getFeuilletsFolderNames(locale?: "fr" | "en"): {
   journal: string;
   edition: string;
 } {
-  const lang = locale ?? getLocale();
-  const isFr = lang === "fr";
   return {
-    research: isFr ? "_Recherche" : "_Research",
+    research: "Recherche",
     researchSubs: [
       {
-        name: isFr ? "Personnages" : "Characters",
-        variants: isFr ? ["Characters", "Personnages"] : ["Personnages", "Characters"],
+        name: "Personnages",
+        variants: ["Characters", "_Personnages"],
       },
       {
-        name: isFr ? "Lieux" : "Locations",
-        variants: isFr ? ["Locations", "Lieux"] : ["Lieux", "Locations"],
+        name: "Lieux",
+        variants: ["Places", "Locations", "_Lieux"],
       },
       {
-        name: isFr ? "Chronologie" : "Timeline",
-        variants: isFr ? ["Timeline", "Chronology", "Chronologie"] : ["Chronologie", "Chronology", "Timeline"],
+        name: "Événements",
+        variants: ["Events", "Timeline", "Chronology", "Chronologie", "_Chronologie"],
       },
       {
         name: "Sources",
         variants: [],
       },
       {
-        name: isFr ? "Bibliographie" : "Bibliography",
-        variants: isFr ? ["Bibliography"] : ["Bibliographie"],
+        name: "Bibliographie",
+        variants: ["Bibliography"],
       },
       {
         name: "Notes",
         variants: [],
       },
     ],
-    resources: isFr ? "_Ressources" : "_Resources",
+    resources: "Ressources",
     resourcesSubs: FEUILLETS_RESOURCE_SUBFOLDERS.map((sub) => ({
       name: sub.name,
       variants: [...sub.variants],
     })),
-    snapshots: "_Snapshots",
-    backups: "_Backups",
-    journal: "_Journal",
-    edition: "_Edition",
+    snapshots: "Snapshots",
+    backups: "Backups",
+    journal: "Journal",
+    edition: "Edition",
   };
 }
 
