@@ -429,3 +429,5 @@ export function getChapters(app: App, settings: FeuilletsSettings, root: TFolder
   walk(root);
   return chapters;
 }
+
+export { detectLegacyProjectStructure, LEGACY_PROJECT_INVENTORY, type LegacyDetectionResult, type LegacyConflict } from "./project-migration.js";
