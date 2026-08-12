@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { TFile, TFolder } from "obsidian";
 import { ResearchView } from "../src/views/research-view.js";
+import { NewResearchFileModal } from "../src/ui/basic-modals.js";
+import { titleFor } from "../src/services/frontmatter.js";
 
 class FakeElement {
   constructor(options = {}) {
@@ -647,6 +649,171 @@ test("annuler la création ne crée rien", async () => {
 
   // Simuler une annulation : ne jamais appeler vault.create
   assert.equal(created.length, 0, "aucun fichier créé si la modal est annulée");
+});
+
+/** Construit une ResearchView réelle avec un `app.workspace` minimal (en
+ * plus du vault) — nécessaire pour exercer promptCreateResearchFile() en
+ * entier (openFileActivating() a besoin de workspace.getLeaf/setActiveLeaf,
+ * absents de createView() ci-dessus qui ne fournit qu'un vault). */
+function createResearchFileFlowView(plugin, vault) {
+  const contentEl = new FakeElement();
+  const workspace = {
+    getLeaf: () => ({ openFile: async () => {} }),
+    setActiveLeaf: () => {},
+  };
+  const leaf = { app: { vault, workspace }, contentEl };
+  const view = new ResearchView(leaf, plugin);
+  view.render = async () => {}; // hors du périmètre de ce chantier
+  return view;
+}
+
+/** Simule la saisie utilisateur dans NewResearchFileModal sans passer par le
+ * DOM : remplace open() pour appeler directement le callback onSubmit avec
+ * `submittedName`, le temps de l'appel fourni. */
+function withSimulatedResearchFileSubmit(submittedName, fn) {
+  const original = NewResearchFileModal.prototype.open;
+  NewResearchFileModal.prototype.open = function () {
+    void this.onSubmit(submittedName);
+  };
+  try {
+    return fn();
+  } finally {
+    NewResearchFileModal.prototype.open = original;
+  }
+}
+
+test("promptCreateResearchFile (dossier personnalisé) : le nom saisi remplace le title générique du modèle", async () => {
+  const folder = new TFolder("Projet/_Recherche/Nouveau");
+  const created = [];
+  const vault = {
+    getAbstractFileByPath: () => null,
+    create: async (path, content) => {
+      created.push({ path, content });
+      return new TFile(path, content);
+    },
+  };
+  const plugin = { async ensureFolder() {}, renderAllViews() {} };
+  const view = createResearchFileFlowView(plugin, vault);
+
+  const defaultName = "Nouveau nouveau"; // "Nouveau ${folder.name.toLowerCase()}"
+  const template = [
+    "---",
+    `title: "${defaultName}"`,
+    "synopsis: ",
+    "tags:",
+    "  - nouveau",
+    "---",
+    "",
+  ].join("\n");
+
+  await withSimulatedResearchFileSubmit("Mon document", () =>
+    view.promptCreateResearchFile(folder, defaultName, template)
+  );
+
+  assert.equal(created.length, 1);
+  assert.match(created[0].content, /title:\s*"Mon document"/);
+  assert.doesNotMatch(created[0].content, /Nouveau nouveau/);
+});
+
+test("promptCreateResearchFile : le vrai nom saisi est ensuite affichable par titleFor()", async () => {
+  const folder = new TFolder("Projet/_Recherche/Nouveau");
+  const created = [];
+  const vault = {
+    getAbstractFileByPath: () => null,
+    create: async (path, content) => {
+      created.push({ path, content });
+      return new TFile(path, content);
+    },
+  };
+  const plugin = { async ensureFolder() {}, renderAllViews() {} };
+  const view = createResearchFileFlowView(plugin, vault);
+
+  const defaultName = "Nouveau nouveau";
+  const template = ["---", `title: "${defaultName}"`, "---", ""].join("\n");
+
+  await withSimulatedResearchFileSubmit("Mon document", () =>
+    view.promptCreateResearchFile(folder, defaultName, template)
+  );
+
+  const [{ path, content }] = created;
+  const file = new TFile(path, content);
+  const titleMatch = content.match(/title:\s*"(.*)"/);
+  assert.ok(titleMatch, "title attendu dans le frontmatter écrit");
+
+  // titleFor() lit app.metadataCache.getFileCache(file).frontmatter — ici
+  // simulé avec la valeur RÉELLEMENT écrite par promptCreateResearchFile,
+  // pas une valeur choisie arbitrairement par le test.
+  const fakeApp = { metadataCache: { getFileCache: () => ({ frontmatter: { title: titleMatch[1] } }) } };
+  assert.equal(titleFor(fakeApp, file), "Mon document");
+});
+
+test("promptCreateResearchFile : un template sans title: reste inchangé", async () => {
+  const folder = new TFolder("Projet/_Recherche/Personnages");
+  const created = [];
+  const vault = {
+    getAbstractFileByPath: () => null,
+    create: async (path, content) => {
+      created.push({ path, content });
+      return new TFile(path, content);
+    },
+  };
+  const plugin = { async ensureFolder() {}, renderAllViews() {} };
+  const view = createResearchFileFlowView(plugin, vault);
+
+  // Fiche personnage : first_name/last_name, jamais title (voir titleFor).
+  const template = ["---", "first_name: ", "last_name: ", "---", ""].join("\n");
+
+  await withSimulatedResearchFileSubmit("Ada Lovelace", () =>
+    view.promptCreateResearchFile(folder, "Nouveau personnage", template)
+  );
+
+  assert.equal(created[0].content, template, "contenu strictement inchangé sans title:");
+});
+
+test("promptCreateResearchFile : un title: déjà personnalisé (différent du defaultName) n'est jamais écrasé", async () => {
+  const folder = new TFolder("Projet/_Recherche/Nouveau");
+  const created = [];
+  const vault = {
+    getAbstractFileByPath: () => null,
+    create: async (path, content) => {
+      created.push({ path, content });
+      return new TFile(path, content);
+    },
+  };
+  const plugin = { async ensureFolder() {}, renderAllViews() {} };
+  const view = createResearchFileFlowView(plugin, vault);
+
+  const defaultName = "Nouveau nouveau";
+  const template = ["---", `title: "Mon Modèle Perso"`, "---", ""].join("\n");
+
+  await withSimulatedResearchFileSubmit("Autre Nom", () =>
+    view.promptCreateResearchFile(folder, defaultName, template)
+  );
+
+  assert.equal(created[0].content, template, "title personnalisé préservé tel quel");
+});
+
+test("promptCreateResearchFile : le chemin/nom réel du fichier créé reste celui saisi, indépendamment du title", async () => {
+  const folder = new TFolder("Projet/_Recherche/Nouveau");
+  const created = [];
+  const vault = {
+    getAbstractFileByPath: () => null,
+    create: async (path, content) => {
+      created.push({ path, content });
+      return new TFile(path, content);
+    },
+  };
+  const plugin = { async ensureFolder() {}, renderAllViews() {} };
+  const view = createResearchFileFlowView(plugin, vault);
+
+  const defaultName = "Nouveau nouveau";
+  const template = ["---", `title: "${defaultName}"`, "---", ""].join("\n");
+
+  await withSimulatedResearchFileSubmit("Mon document", () =>
+    view.promptCreateResearchFile(folder, defaultName, template)
+  );
+
+  assert.equal(created[0].path, "Projet/_Recherche/Nouveau/Mon document.md");
 });
 
 test("le menu contextuel d'un fichier contient Renommer", () => {

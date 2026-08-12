@@ -33,6 +33,38 @@ function getResearchSectionIcon(key: string): string {
   )[key] || "info";
 }
 
+/** Synchronise le `title:` du frontmatter d'un template de fiche Recherche
+ * (texte brut, AVANT création du fichier) avec le nom réellement saisi par
+ * l'utilisateur — voir promptCreateResearchFile(). `defaultName` est le
+ * nom générique passé à getResearchTemplate() (ex. "Nouveau nouveau" pour
+ * un dossier personnalisé nommé "Nouveau") qui a servi à générer ce
+ * `title:` par défaut ; `cleanName` est le nom que l'utilisateur a
+ * effectivement tapé dans la modale (ex. "Mon document"). Ne remplace la
+ * valeur QUE si elle correspond EXACTEMENT à `defaultName` — un template
+ * sans `title:` n'est jamais modifié, et un `title:` déjà personnalisé
+ * (différent de `defaultName`, ex. un modèle utilisateur volontairement
+ * titré, ou une fiche personnage qui n'utilise pas `title`) n'est jamais
+ * écrasé. N'agit que sur ce texte brut — ne touche ni titleFor() ni
+ * fmOf(), et ne lit/écrit rien via metadataCache. */
+function syncResearchFileTitle(template: string, defaultName: string, cleanName: string): string {
+  const fmMatch = template.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fmMatch) return template;
+
+  const titleLineMatch = fmMatch[1].match(/^title:[ \t]*(.*)$/m);
+  if (!titleLineMatch) return template;
+
+  const rawValue = titleLineMatch[1].trim();
+  const quotedMatch = rawValue.match(/^"(.*)"$/) || rawValue.match(/^'(.*)'$/);
+  const currentValue = quotedMatch ? quotedMatch[1] : rawValue;
+  if (currentValue !== defaultName) return template;
+
+  const quoteChar = quotedMatch ? rawValue[0] : "";
+  const escapedName = quoteChar === '"' ? cleanName.replace(/"/g, '\\"') : cleanName;
+  const newValue = quoteChar ? `${quoteChar}${escapedName}${quoteChar}` : cleanName;
+
+  return template.replace(titleLineMatch[0], `title: ${newValue}`);
+}
+
 import {
   ItemView,
   TFile,
@@ -301,7 +333,11 @@ export abstract class BaseFeuilletsView extends ItemView {
         return;
       }
       await this.plugin.ensureFolder(folder.path);
-      const file = await this.app.vault.create(destPath, template);
+      // Le nom saisi doit remplacer le title générique du modèle (voir
+      // syncResearchFileTitle) — sinon Recherche/Recherche contextuelle
+      // continuent d'afficher l'ancien nom générique via titleFor().
+      const content = syncResearchFileTitle(template, defaultName, cleanName);
+      const file = await this.app.vault.create(destPath, content);
       openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       void this.render(true);
     }).open();
