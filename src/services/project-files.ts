@@ -13,6 +13,7 @@ import {
   feuilletsAuxiliaryPath,
   feuilletsAuxiliaryRootPath,
   FEUILLETS_AUXILIARY_FOLDERS,
+  FEUILLETS_RESOURCE_SUBFOLDERS,
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
@@ -321,10 +322,9 @@ export async function ensureProjectBaseFolders(
   if (!(virtualRoot instanceof TFolder)) throw new Error("Manuscrit introuvable après création.");
   await ensureFolder(app, feuilletsAuxiliaryPath(virtualRoot, "research"));
   const resourcesPath = feuilletsAuxiliaryPath(virtualRoot, "resources");
-  const names = getFeuilletsFolderNames(getLocale());
   await ensureFolder(app, resourcesPath);
-  for (const { name } of names.resourcesSubs) {
-    await ensureFolder(app, normalizePath(`${resourcesPath}/${name}`));
+  for (const { name, variants } of FEUILLETS_RESOURCE_SUBFOLDERS) {
+    await ensureFolder(app, resourcesSubfolderPath(app, resourcesPath, name, ...variants));
   }
   const frontPath = withFront ? normalizePath(`${manuscritPath}/${FRONT_FOLDER_NAME}`) : null;
   if (frontPath) await ensureFolder(app, frontPath);
@@ -625,15 +625,17 @@ export async function initProjectStructure(app: App, settings: FeuilletsSettings
       ? feuilletsAuxiliaryPath(manuscritRoot, "resources")
       : normalizePath(`${base}/_Feuillets/Ressources`);
   await ensureFolder(app, resPath);
-  for (const { name, variants } of names.resourcesSubs) {
+  for (const { name, variants } of FEUILLETS_RESOURCE_SUBFOLDERS) {
     await ensureFolder(app, resourcesSubfolderPath(app, resPath, name, ...variants));
   }
   /* Paths stables pour les writeTemplate ci-dessous. */
+  const templateSub = FEUILLETS_RESOURCE_SUBFOLDERS.find((s) => s.key === "templates")!;
+  const layoutSub = FEUILLETS_RESOURCE_SUBFOLDERS.find((s) => s.key === "layouts")!;
   const templateFolderPath = resourcesSubfolderPath(
-    app, resPath, names.resourcesSubs[1].name, ...names.resourcesSubs[1].variants
+    app, resPath, templateSub.name, ...templateSub.variants
   );
   const layoutsPath = resourcesSubfolderPath(
-    app, resPath, names.resourcesSubs[2].name, ...names.resourcesSubs[2].variants
+    app, resPath, layoutSub.name, ...layoutSub.variants
   );
 
   const writeTemplate = async (path: string, content: string): Promise<void> => {

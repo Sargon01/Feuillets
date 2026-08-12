@@ -62,13 +62,23 @@ export function feuilletsAuxiliaryPath(
 ): string {
   return normalizePath(`${feuilletsAuxiliaryRootPath(root)}/${FEUILLETS_AUXILIARY_FOLDERS[kind]}`);
 }
-export const RESOURCES_SUBFOLDER_NAMES = {
+export const FEUILLETS_RESOURCE_FOLDERS = {
   images: "Images",
-  template: "Template",
-  layout: "Layout",
-  export: "Export",
-  assets: "Assets",
+  templates: "Modèles",
+  layouts: "Mises en page",
+  exports: "Exports",
+  assets: "Ressources internes",
 } as const;
+
+export const FEUILLETS_RESOURCE_SUBFOLDERS = [
+  { key: "images", name: FEUILLETS_RESOURCE_FOLDERS.images, variants: [] },
+  { key: "templates", name: FEUILLETS_RESOURCE_FOLDERS.templates, variants: ["Templates", "Template"] },
+  { key: "layouts", name: FEUILLETS_RESOURCE_FOLDERS.layouts, variants: ["Layouts", "Layout"] },
+  { key: "exports", name: FEUILLETS_RESOURCE_FOLDERS.exports, variants: ["Export"] },
+  { key: "assets", name: FEUILLETS_RESOURCE_FOLDERS.assets, variants: ["Assets", "Visuels", "Internal resources"] },
+] as const;
+
+export const RESOURCES_SUBFOLDER_NAMES = FEUILLETS_RESOURCE_FOLDERS;
 
 /** Dossier "Edition" (synopsis, note d'intention, biographie, lettre
  * d'accompagnement, soumissions, versions envoyées…) : facultatif, voisin
@@ -246,32 +256,10 @@ export function getFeuilletsFolderNames(locale?: "fr" | "en"): {
       },
     ],
     resources: isFr ? "_Ressources" : "_Resources",
-    resourcesSubs: [
-      {
-        name: "Images",
-        variants: [],
-      },
-      {
-        // index 1 — utilisé pour le chemin des templates dans initProjectStructure
-        name: isFr ? "Modèles" : "Templates",
-        variants: isFr ? ["Templates", "Template"] : ["Modèles", "Template"],
-      },
-      {
-        // index 2 — utilisé pour le chemin des mises en page (layouts)
-        name: isFr ? "Mises en page" : "Layouts",
-        variants: isFr ? ["Layouts", "Layout"] : ["Mises en page", "Layout"],
-      },
-      {
-        name: "Exports",
-        variants: ["Export"],
-      },
-      {
-        name: isFr ? "Ressources internes" : "Internal resources",
-        variants: isFr
-          ? ["Assets", "Visuels", "Internal resources"]
-          : ["Assets", "Visuels", "Ressources internes"],
-      },
-    ],
+    resourcesSubs: FEUILLETS_RESOURCE_SUBFOLDERS.map((sub) => ({
+      name: sub.name,
+      variants: [...sub.variants],
+    })),
     snapshots: "_Snapshots",
     backups: "_Backups",
     journal: "_Journal",

@@ -1001,3 +1001,110 @@ test("initResearchSubfolders (FR, mode libre) : dossier transformé crée seulem
   assert.equal(vault.getAbstractFileByPath(`Libre/${names.research}/Bibliographie`), null, "pas de Bibliographie");
   assert.equal(vault.getAbstractFileByPath(`Libre/${names.research}/Sources`), null, "pas de Sources");
 });
+
+// =========================================================================
+// Tests — Phase 1B : Noms physiques canoniques des dossiers Feuillets
+// =========================================================================
+
+test("Phase 1B - Test A & B : création en locale FR et EN produit des chemins physiques identiques", async () => {
+  const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };
+
+  // A. Création en FR
+  setLocale("fr");
+  const vaultFR = createFakeVault([]).vault;
+  const appFR = { vault: vaultFR };
+  await createMinimalProject(appFR, settings, { name: "ProjetFR", type: "fiction" });
+
+  const pathsFR = [
+    "ProjetFR/_Feuillets/Recherche",
+    "ProjetFR/_Feuillets/Ressources/Images",
+    "ProjetFR/_Feuillets/Ressources/Modèles",
+    "ProjetFR/_Feuillets/Ressources/Mises en page",
+    "ProjetFR/_Feuillets/Ressources/Exports",
+    "ProjetFR/_Feuillets/Ressources/Ressources internes",
+  ];
+  for (const p of pathsFR) {
+    assert.ok(vaultFR.getAbstractFileByPath(p) instanceof TFolder, `FR a bien créé ${p}`);
+  }
+
+  // B. Création en EN
+  setLocale("en");
+  const vaultEN = createFakeVault([]).vault;
+  const appEN = { vault: vaultEN };
+  await createMinimalProject(appEN, settings, { name: "ProjetEN", type: "fiction" });
+
+  for (const p of pathsFR.map((path) => path.replace("ProjetFR", "ProjetEN"))) {
+    assert.ok(vaultEN.getAbstractFileByPath(p) instanceof TFolder, `EN a créé exactement le même chemin canonique ${p}`);
+  }
+});
+
+test("Phase 1B - Test C : un ancien dossier Layouts existant est réutilisé sans créer Mises en page", async () => {
+  setLocale("fr");
+  const volume = new TFolder("ProjetLegacy");
+  const manuscrit = new TFolder("ProjetLegacy/Manuscrit");
+  const aux = new TFolder("ProjetLegacy/_Feuillets");
+  const res = new TFolder("ProjetLegacy/_Feuillets/Ressources");
+  const layouts = new TFolder("ProjetLegacy/_Feuillets/Ressources/Layouts");
+  volume.children = [manuscrit, aux];
+  aux.parent = volume;
+  aux.children = [res];
+  res.parent = aux;
+  res.children = [layouts];
+  layouts.parent = res;
+  manuscrit.parent = volume;
+
+  const { vault } = createFakeVault([volume, manuscrit, aux, res, layouts]);
+  const app = { vault };
+  const settings = { projectFolder: "ProjetLegacy/Manuscrit", orders: {}, folderPositions: {}, projectMeta: {} };
+
+  await initProjectStructure(app, settings);
+
+  assert.ok(vault.getAbstractFileByPath("ProjetLegacy/_Feuillets/Ressources/Layouts") instanceof TFolder, "Layouts réutilisé");
+  assert.equal(vault.getAbstractFileByPath("ProjetLegacy/_Feuillets/Ressources/Mises en page"), null, "aucun Mises en page concurrent créé");
+});
+
+test("Phase 1B - Test D : un ancien dossier Template existant est réutilisé sans créer Modèles", async () => {
+  setLocale("fr");
+  const volume = new TFolder("ProjetLegacy");
+  const manuscrit = new TFolder("ProjetLegacy/Manuscrit");
+  const aux = new TFolder("ProjetLegacy/_Feuillets");
+  const res = new TFolder("ProjetLegacy/_Feuillets/Ressources");
+  const template = new TFolder("ProjetLegacy/_Feuillets/Ressources/Template");
+  volume.children = [manuscrit, aux];
+  aux.parent = volume;
+  aux.children = [res];
+  res.parent = aux;
+  res.children = [template];
+  template.parent = res;
+  manuscrit.parent = volume;
+
+  const { vault } = createFakeVault([volume, manuscrit, aux, res, template]);
+  const app = { vault };
+  const settings = { projectFolder: "ProjetLegacy/Manuscrit", orders: {}, folderPositions: {}, projectMeta: {} };
+
+  await initProjectStructure(app, settings);
+
+  assert.ok(vault.getAbstractFileByPath("ProjetLegacy/_Feuillets/Ressources/Template") instanceof TFolder, "Template réutilisé");
+  assert.equal(vault.getAbstractFileByPath("ProjetLegacy/_Feuillets/Ressources/Modèles"), null, "aucun Modèles concurrent créé");
+});
+
+test("Phase 1B - Test E : aucun dossier _Research, Research, _Resources, Resources, Templates ou Layouts sur projet neuf", async () => {
+  setLocale("en");
+  const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };
+  const { vault } = createFakeVault([]);
+  const app = { vault };
+
+  await createMinimalProject(app, settings, { name: "ProjetNeuf", type: "fiction" });
+
+  const prohibitedPaths = [
+    "ProjetNeuf/_Research",
+    "ProjetNeuf/Research",
+    "ProjetNeuf/_Resources",
+    "ProjetNeuf/Resources",
+    "ProjetNeuf/_Feuillets/Ressources/Templates",
+    "ProjetNeuf/_Feuillets/Ressources/Layouts",
+  ];
+  for (const p of prohibitedPaths) {
+    assert.equal(vault.getAbstractFileByPath(p), null, `${p} ne doit pas être créé sur un projet neuf`);
+  }
+});
