@@ -1195,8 +1195,15 @@ test("Binder : renderOnboarding — les trois actions ouvrent les bons flux", as
 
   try {
     view.renderOnboarding(contentEl);
+    const wrap = contentEl.children.find((c) => c.classes.has("feuillets-onboarding"));
+    assert.ok(wrap, "Le conteneur onboarding porte la classe feuillets-onboarding");
+
     const buttons = findElements(contentEl, (el) => el.tag === "button");
     assert.equal(buttons.length, 3);
+    for (const btn of buttons) {
+      assert.ok(btn.classes.has("mod-small"), "Les boutons d'onboarding ont la classe mod-small d'Obsidian");
+    }
+
     buttons[0].events.get("click")({ stopPropagation() {} });
     buttons[1].events.get("click")({ stopPropagation() {} });
 

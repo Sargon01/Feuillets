@@ -603,12 +603,8 @@ export async function initProjectStructure(
 
   /* Paths stables pour les writeTemplate ci-dessous. */
   const templateSub = FEUILLETS_RESOURCE_SUBFOLDERS.find((s) => s.key === "templates")!;
-  const layoutSub = FEUILLETS_RESOURCE_SUBFOLDERS.find((s) => s.key === "layouts")!;
   const templateFolderPath = resourcesSubfolderPath(
     app, resPath, templateSub.name, ...templateSub.variants
-  );
-  const layoutsPath = resourcesSubfolderPath(
-    app, resPath, layoutSub.name, ...layoutSub.variants
   );
 
   const writeTemplate = async (path: string, content: string): Promise<void> => {
@@ -617,36 +613,6 @@ export async function initProjectStructure(
       await app.vault.create(norm, content).catch(() => {});
     }
   };
-
-  /* Exemple de modèle d'export personnalisé — un point de départ concret
-     à dupliquer plutôt qu'une page blanche. Même format que les modèles
-     intégrés (src/utils/export-templates.js), lu via le frontmatter
-     (voir services/export-templates-custom.js), pas de format à part. */
-  await writeTemplate(`${layoutsPath}/Exemple.md`, [
-    "---",
-    "label: Mon modèle",
-    "fontFamily: Georgia, serif",
-    "fontSizePt: 12",
-    "lineHeight: 1.5",
-    "align: justify",
-    "indent: true",
-    "marginCm: 2.5",
-    "paragraphSpacing: false",
-    "pageNumbers: true",
-    "hyphenation: true",
-    'sceneDivider: "* * *"',
-    "---",
-    "",
-    "Ce fichier est un modèle d'export personnalisé — il apparaît dans le",
-    "menu « Compiler et exporter » sous le nom « Mon modèle ». Modifie les",
-    "champs ci-dessus (dans le panneau Propriétés ou en texte) pour créer",
-    "ton propre style, et duplique ce fichier pour en créer d'autres.",
-    "",
-    "Champs avancés possibles (voir src/utils/export-templates.js pour la",
-    "liste complète) : headings (styles par niveau de titre), marginsCm",
-    "(marges asymétriques), pageOrientation, columns, blockquote...",
-    ""
-  ].join("\n"));
 
   const initializedProjectType = resolveType(projectMode);
 

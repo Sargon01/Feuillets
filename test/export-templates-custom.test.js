@@ -75,7 +75,7 @@ test("export templates custom V2 : la sauvegarde matérialise un builtin complet
   assert.equal(settings.pdfHeaderLeft, "Global inchangé");
 });
 
-test("export templates custom : un nouveau projet sans dossier existant crée dans Layout (nouveau nom)", async () => {
+test("export templates custom : un nouveau projet sans dossier existant crée dans Mises en page (nom canonique)", async () => {
   const project = new TFolder("Projet");
   const manuscript = new TFolder("Projet/Manuscrit");
   manuscript.parent = project;
@@ -86,7 +86,7 @@ test("export templates custom : un nouveau projet sans dossier existant crée da
 
   const created = await ensureTemplateFile(app, settings, "classique");
 
-  assert.equal(created?.path, "Projet/_Feuillets/Ressources/Layout/classique.md");
+  assert.equal(created?.path, "Projet/_Feuillets/Ressources/Mises en page/classique.md");
 });
 
 test("export templates custom : conserve les valeurs valides et ignore les valeurs de police invalides", async () => {
@@ -214,7 +214,7 @@ test("duplicateExportTemplate : résout le gabarit actif, crée une copie avec l
   assert.ok(result);
   assert.equal(result.key, "classique-copie");
   assert.equal(result.label, `${EXPORT_TEMPLATES.classique.label} — copie`);
-  const file = app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/classique-copie.md");
+  const file = app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/classique-copie.md");
   assert.ok(file instanceof TFile);
 });
 
@@ -238,8 +238,8 @@ test("duplicateExportTemplate : ne remplace jamais un fichier existant — clé 
   assert.equal(first.key, "classique-copie");
   assert.equal(second.key, "classique-copie-2");
   // Le premier fichier existe toujours, intact.
-  assert.ok(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/classique-copie.md") instanceof TFile);
-  assert.ok(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/classique-copie-2.md") instanceof TFile);
+  assert.ok(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/classique-copie.md") instanceof TFile);
+  assert.ok(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/classique-copie-2.md") instanceof TFile);
 });
 
 test("duplicateExportTemplate : la copie est immédiatement disponible via listExportTemplates", async () => {
@@ -266,7 +266,7 @@ test("duplicateExportTemplate : écrit une copie V2 de Classique avec le profil 
   const { app, settings } = buildFixture();
 
   const result = await duplicateExportTemplate(app, settings);
-  const file = app.vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Layout/${result.key}.md`);
+  const file = app.vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Mises en page/${result.key}.md`);
 
   assert.match(file.content, /version: 2/);
   assert.match(file.content, /profile: manuscript/);
@@ -280,7 +280,7 @@ test("duplicateExportTemplate : conserve le profil document d'un gabarit intégr
   settings.exportTemplate = "romanSimple";
 
   const result = await duplicateExportTemplate(app, settings);
-  const file = app.vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Layout/${result.key}.md`);
+  const file = app.vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Mises en page/${result.key}.md`);
 
   assert.match(file.content, /profile: document/);
 });
@@ -408,14 +408,30 @@ test("listExportTemplates : catalogue proposé, historiques actifs et personnali
   assert.equal((await resolveExportTemplateV2(app, settings, "romanFrancais")).body.fontFamily, EXPORT_TEMPLATES.romanFrancais.fontFamily);
 });
 
-test("exportBuiltInTemplates : ne matérialise que les cinq gabarits proposés", async () => {
+test("exportBuiltInTemplates : ne matérialise que les cinq gabarits proposés dans Mises en page", async () => {
   const project = new TFolder("Projet"); const manuscript = new TFolder("Projet/Manuscrit"); manuscript.parent = project; project.children = [manuscript];
   const { vault, fileManager } = createFakeVault([project, manuscript]);
   const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
   const count = await exportBuiltInTemplates(app, { projectFolder: manuscript.path });
   assert.equal(count, 5);
-  for (const key of ["classique", "romanSimple", "moderne", "apa", "these"]) assert.ok(vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Layout/${key}.md`));
-  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/tapuscrit.md"), null);
-  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/romanFrancais.md"), null);
+  for (const key of ["classique", "romanSimple", "moderne", "apa", "these"]) assert.ok(vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Mises en page/${key}.md`));
+  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/tapuscrit.md"), null);
+  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/romanFrancais.md"), null);
   assert.equal((await ensureTemplateFile(app, { projectFolder: manuscript.path }, "tapuscrit"))?.basename, "tapuscrit");
+});
+
+test("export templates custom : un fichier placé dans Ressources/Modèles n'est PAS reconnu comme mise en page", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const resources = new TFolder("Projet/_Feuillets/Ressources");
+  const modeles = new TFolder("Projet/_Feuillets/Ressources/Modèles");
+  const fakeLayout = new TFile("Projet/_Feuillets/Ressources/Modèles/fake.md");
+  manuscript.parent = project; resources.parent = project; modeles.parent = resources; fakeLayout.parent = modeles;
+  project.children = [manuscript, resources]; resources.children = [modeles]; modeles.children = [fakeLayout];
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, modeles, fakeLayout]);
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: { label: "Fake Layout" } }) } };
+  const settings = { projectFolder: manuscript.path };
+
+  const templates = await loadCustomTemplates(app, settings);
+  assert.equal(templates.fake, undefined, "Modèles ne doit pas servir de dossier de mises en page");
 });

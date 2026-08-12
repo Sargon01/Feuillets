@@ -325,3 +325,49 @@ test("research appearances : conserve la détection par tag", async () => {
   assert.equal(appearances.length, 1);
   assert.equal(appearances[0].via, "tag");
 });
+
+test("getResearchTemplate : lit le modèle personnalisé depuis Modèles, avec fallback legacy Templates", async () => {
+  const { getResearchTemplate } = await import("../src/services/research-templates.js");
+
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const auxiliary = new TFolder("Projet/_Feuillets");
+  const resources = new TFolder("Projet/_Feuillets/Ressources");
+  const modeles = new TFolder("Projet/_Feuillets/Ressources/Modèles");
+  const customChar = new TFile("Projet/_Feuillets/Ressources/Modèles/Characters.md", "---\nrole: Héros\ncustom: true\n---\n");
+
+  manuscript.parent = project;
+  auxiliary.parent = project;
+  resources.parent = auxiliary;
+  modeles.parent = resources;
+  customChar.parent = modeles;
+
+  const { vault } = createFakeVault([project, manuscript, auxiliary, resources, modeles, customChar]);
+  const app = { vault };
+  const settings = { projectFolder: manuscript.path };
+
+  const content = await getResearchTemplate(app, settings, { yamlPreset: "roman" }, "personnages", "Hero");
+  assert.match(content, /custom: true/);
+  assert.match(content, /role: Héros/);
+
+  // Fallback legacy : Templates
+  const legProject = new TFolder("LegProjet");
+  const legManuscript = new TFolder("LegProjet/Manuscrit");
+  const legAuxiliary = new TFolder("LegProjet/_Feuillets");
+  const legResources = new TFolder("LegProjet/_Feuillets/Ressources");
+  const legTemplates = new TFolder("LegProjet/_Feuillets/Ressources/Templates");
+  const legCustomChar = new TFile("LegProjet/_Feuillets/Ressources/Templates/Characters.md", "---\nlegacy: true\n---\n");
+
+  legManuscript.parent = legProject;
+  legAuxiliary.parent = legProject;
+  legResources.parent = legAuxiliary;
+  legTemplates.parent = legResources;
+  legCustomChar.parent = legTemplates;
+
+  const { vault: legVault } = createFakeVault([legProject, legManuscript, legAuxiliary, legResources, legTemplates, legCustomChar]);
+  const legApp = { vault: legVault };
+  const legSettings = { projectFolder: legManuscript.path };
+
+  const legContent = await getResearchTemplate(legApp, legSettings, { yamlPreset: "roman" }, "personnages", "Hero");
+  assert.match(legContent, /legacy: true/);
+});

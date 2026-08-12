@@ -208,15 +208,15 @@ test("EditionLayoutView : Nouveau gabarit crée un V2 actif sans écraser une co
     assert.deepEqual(menu.items.filter((item) => !item.separator).map((item) => item.title), ["Nouveau gabarit…", "Dupliquer", "Importer Ulysses", "Importer Word"]);
 
     await view.createNewTemplate();
-    assert.equal(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/gabarit.md"), null, "annulation : aucun fichier");
+    assert.equal(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/gabarit.md"), null, "annulation : aucun fichier");
     promptResult = "   ";
     await view.createNewTemplate();
-    assert.equal(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/gabarit.md"), null, "nom vide : aucun fichier");
+    assert.equal(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/gabarit.md"), null, "nom vide : aucun fichier");
 
     promptResult = "Mon modèle";
     await view.createNewTemplate();
-    const created = app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/mon-modele.md");
-    assert.ok(created, "le nouveau fichier est créé dans Resources/Layout");
+    const created = app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/mon-modele.md");
+    assert.ok(created, "le nouveau fichier est créé dans Resources/Mises en page");
     assert.match(created.content, /version: 2/);
     assert.match(created.content, /profile: document/);
     assert.equal(plugin.settings.exportTemplate, "mon-modele");
@@ -226,7 +226,7 @@ test("EditionLayoutView : Nouveau gabarit crée un V2 actif sans écraser une co
     const firstContent = created.content;
     await view.createNewTemplate();
     assert.equal(created.content, firstContent, "la collision ne remplace jamais le premier fichier");
-    assert.ok(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Layout/mon-modele-2.md"));
+    assert.ok(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/mon-modele-2.md"));
     assert.equal(plugin.settings.exportTemplate, "mon-modele-2");
     assert.equal(saves(), 2);
     assert.deepEqual(opened.at(-1), { key: "mon-modele-2", label: "Mon modèle" });

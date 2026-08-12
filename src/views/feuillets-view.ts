@@ -1217,7 +1217,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     const cardDesc = textWrap.createDiv({ cls: "feuillets-notes-sub" });
     cardDesc.setText(desc);
 
-    const btn = card.createEl("button", { text: btnText });
+    const btn = card.createEl("button", { cls: "mod-small", text: btnText });
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       onClick(e);

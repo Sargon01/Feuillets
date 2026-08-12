@@ -1,6 +1,6 @@
 import { TFile, TFolder, Notice, normalizePath, stringifyYaml } from "obsidian";
 import type { App } from "obsidian";
-import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
+import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, FEUILLETS_RESOURCE_FOLDERS } from "./folder-structure.js";
 import { fmOf } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
 import { BUILTIN_TEMPLATE_CATALOG, EXPORT_TEMPLATES } from "../utils/export-templates.js";
@@ -25,7 +25,7 @@ export function customTemplatesFolderPath(app: App, settings: FeuilletsSettings)
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const resPath = resourcesFolderPath(app, root);
-  return resourcesSubfolderPath(app, resPath, "Layout", "Layouts", "Modèles");
+  return resourcesSubfolderPath(app, resPath, FEUILLETS_RESOURCE_FOLDERS.layouts, "Layouts", "Layout");
 }
 
 /** Le dossier s'il existe déjà dans le coffre — jamais créé ici.

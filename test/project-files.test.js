@@ -845,7 +845,7 @@ test("initProjectStructure (FR) : mode libre crée seulement les éléments tech
   assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Snapshots`), null, "pas de Snapshots au bootstrap");
   assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Backups`), null, "pas de Backups au bootstrap");
   assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Journal`), null, "pas de Journal au bootstrap");
-  assert.ok(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Mises en page/Exemple.md`) instanceof TFile, "modèle générique");
+  assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Mises en page/Exemple.md`), null, "pas d'Exemple.md créé automatiquement");
   assert.equal(vault.getAbstractFileByPath(`${base}/Manuscrit/Front`), null);
   for (const name of ["Characters.md", "Places.md", "Lore.md", "Sources.md", "Acteurs.md", "Geographie.md", "Concepts.md", "Bibliography.md", "Glossary.md", "Events.md"]) {
     assert.equal(vault.getAbstractFileByPath(`${base}/_Feuillets/Ressources/Modèles/${name}`), null, name);

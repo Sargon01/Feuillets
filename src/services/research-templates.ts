@@ -1,6 +1,6 @@
 import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
-import { getProjectFolder, getResourcesRoot } from "./folder-structure.js";
+import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, FEUILLETS_RESOURCE_FOLDERS } from "./folder-structure.js";
 
 type ResearchMode = {
   yamlPreset?: string;
@@ -15,40 +15,46 @@ export async function getResearchTemplate(
 ): Promise<string> {
   const root = getProjectFolder(app, settings);
   if (root) {
-    const resourcesRoot = getResourcesRoot(app, root);
-    const resPath = resourcesRoot ? resourcesRoot.path : normalizePath(`${root.parent ? root.parent.path : root.path}/Resources`);
+    const resPath = resourcesFolderPath(app, root);
+    if (resPath) {
+      const templatesPath = resourcesSubfolderPath(
+        app,
+        resPath,
+        FEUILLETS_RESOURCE_FOLDERS.templates,
+        "Templates",
+        "Template"
+      );
 
-    const isFiction = mode.yamlPreset === "roman" || mode.yamlPreset === "nouvelle";
+      const isFiction = mode.yamlPreset === "roman" || mode.yamlPreset === "nouvelle";
 
-    /* Nom (anglais) du fichier modèle, avec repli sur l'ancien nom français
-       si l'utilisateur a personnalisé ce fichier avant ce renommage — voir
-       le même principe pour les champs frontmatter (LEGACY_FIELD_ALIASES). */
-    const fileNames: Record<string, string[]> = {
-      sources: ["Sources.md"],
-      bibliographie: ["Bibliography.md", "Bibliographie.md"],
-      personnages: isFiction ? ["Characters.md", "Personnages.md"] : ["Acteurs.md"],
-      lieux: isFiction ? ["Places.md", "Lieux.md"] : ["Geographie.md"],
-      codex: isFiction ? ["Lore.md"] : ["Concepts.md"],
-      glossaire: ["Glossary.md", "Glossaire.md"],
-      evenements: ["Events.md", "Evenements.md"],
-    };
+      /* Nom (anglais) du fichier modèle, avec repli sur l'ancien nom français
+         si l'utilisateur a personnalisé ce fichier avant ce renommage — voir
+         le même principe pour les champs frontmatter (LEGACY_FIELD_ALIASES). */
+      const fileNames: Record<string, string[]> = {
+        sources: ["Sources.md"],
+        bibliographie: ["Bibliography.md", "Bibliographie.md"],
+        personnages: isFiction ? ["Characters.md", "Personnages.md"] : ["Acteurs.md"],
+        lieux: isFiction ? ["Places.md", "Lieux.md"] : ["Geographie.md"],
+        codex: isFiction ? ["Lore.md"] : ["Concepts.md"],
+        glossaire: ["Glossary.md", "Glossaire.md"],
+        evenements: ["Events.md", "Evenements.md"],
+      };
 
-    const fileName = (fileNames[sectionKey] || []).find((name) =>
-      app.vault.getAbstractFileByPath(normalizePath(`${resPath}/Templates/${name}`))
-    );
-    if (fileName) {
-      const templatePath = normalizePath(`${resPath}/Templates/${fileName}`);
-      const file = app.vault.getAbstractFileByPath(templatePath);
-      if (file instanceof TFile) {
-        try {
-          let content = await app.vault.read(file);
-          // Remplacement dynamique du titre générique si présent
-          if (content.includes(`title: "Nouveau`) || content.includes("title: Nouvelle") || content.includes("title: Nouvel")) {
-            content = content.replace(/title:\s*["']?Nouvel[le]?\s+\w+["']?/g, `title: "${defaultName}"`);
+      const candidates = fileNames[sectionKey] || [];
+      for (const name of candidates) {
+        const templatePath = normalizePath(`${templatesPath}/${name}`);
+        const file = app.vault.getAbstractFileByPath(templatePath);
+        if (file instanceof TFile) {
+          try {
+            let content = await app.vault.read(file);
+            // Remplacement dynamique du titre générique si présent
+            if (content.includes(`title: "Nouveau`) || content.includes("title: Nouvelle") || content.includes("title: Nouvel")) {
+              content = content.replace(/title:\s*["']?Nouvel[le]?\s+\w+["']?/g, `title: "${defaultName}"`);
+            }
+            return content;
+          } catch (err) {
+            console.error("Feuillets: Failed to read user template:", err);
           }
-          return content;
-        } catch (err) {
-          console.error("Feuillets: Failed to read user template:", err);
         }
       }
     }
