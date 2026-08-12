@@ -165,21 +165,42 @@ function copyOrderSettings(settings: FeuilletsSettings, origFolder: TFolder, des
   }
 }
 
-/** Dossier des versions archivées d'un projet — même convention que
- * _Recherche/_Snapshots (voisin du dossier manuscrit s'il y en a un, sinon
- * enfant du dossier projet), caché de l'arborescence normale (préfixe "_")
- * mais accessible via sa propre section dans le volet dossiers du binder. */
+/** Dossier des versions archivées d'un projet — rangé sous l'espace
+ * auxiliaire commun (`_Feuillets/Versions`, même convention que
+ * Recherche/Ressources/Edition, voir FEUILLETS_AUXILIARY_FOLDERS), caché de
+ * l'arborescence normale (préfixe "_") mais accessible via sa propre
+ * section dans le volet dossiers du binder.
+ *
+ * Résolveur pur : ne crée ni ne déplace jamais rien. Trois emplacements
+ * possibles, dans cet ordre, pour qu'aucun projet déjà créé ne perde
+ * l'accès à ses versions après cette migration :
+ *   1. le chemin canonique `_Feuillets/Versions` ;
+ *   2. la variante `_Feuillets/_Versions` (nom historique avec préfixe,
+ *      déplacé manuellement sous `_Feuillets` sans être renommé) ;
+ *   3. l'ancien dossier frère `_Versions` (avant migration vers
+ *      `_Feuillets`) — jamais déplacé automatiquement à l'ouverture du
+ *      projet, voir duplicateProjectFolder pour ce qui change réellement
+ *      sur le disque. */
 export function getVersionsRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
-  /* Même base que duplicateProjectFolder : le voisin (racine du projet
-     réel) quand il existe et n'est pas la racine du coffre, sinon le
-     dossier projet lui-même — jamais la racine du coffre. */
-  const base =
+
+  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "versions"));
+  if (canonical instanceof TFolder) return canonical;
+
+  const prefixedInAuxiliary = app.vault.getAbstractFileByPath(
+    normalizePath(`${feuilletsAuxiliaryRootPath(root)}/_Versions`)
+  );
+  if (prefixedInAuxiliary instanceof TFolder) return prefixedInAuxiliary;
+
+  /* Même base que l'ancien duplicateProjectFolder : le voisin (racine du
+     projet réel) quand il existe et n'est pas la racine du coffre, sinon
+     le dossier projet lui-même — jamais la racine du coffre. */
+  const legacyBase =
     root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
       ? root.parent.path
       : root.path;
-  const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/_Versions`));
-  return f instanceof TFolder ? f : null;
+  const legacy = app.vault.getAbstractFileByPath(normalizePath(`${legacyBase}/_Versions`));
+  return legacy instanceof TFolder ? legacy : null;
 }
 
 /** Documents conventionnels du dossier Edition — créés vides (un simple
@@ -245,24 +266,24 @@ export async function ensureEditionFolder(app: App, root: TFolder): Promise<TFol
 /** Duplique le dossier manuscrit d'un projet (chapitres/parties/scènes,
  * PAS la Recherche — les fiches personnages/lieux restent partagées entre
  * versions, comme le "Duplicate Manuscript" de Scrivener) dans
- * _Versions/<nom> (<étiquette>) — visible et consultable depuis le volet
- * dossiers du binder (section "Versions"), mais jamais mêlé au manuscrit
- * actif (compilation, numérotation, statistiques, Tableau). Sert à figer
- * une version (premier jet, etc.) avant de continuer à écrire sur
+ * _Feuillets/Versions/<nom> (<étiquette>) — visible et consultable depuis
+ * le volet dossiers du binder (section "Versions"), mais jamais mêlé au
+ * manuscrit actif (compilation, numérotation, statistiques, Tableau). Sert
+ * à figer une version (premier jet, etc.) avant de continuer à écrire sur
  * l'original. Retourne le chemin du dossier créé, ou lève une erreur si le
- * nom est déjà pris. */
+ * nom est déjà pris.
+ *
+ * N'écrit plus jamais dans l'ancien dossier frère `_Versions` : seul le
+ * chemin canonique (feuilletsAuxiliaryPath(root, "versions"), même
+ * convention que Recherche/Ressources/Edition) reçoit les NOUVELLES
+ * versions. Les versions déjà présentes dans `_Versions` (ou
+ * `_Feuillets/_Versions`) restent lisibles via getVersionsRoot — voir cette
+ * fonction pour l'ordre de résolution — mais ne sont jamais déplacées
+ * automatiquement ici. */
 export async function duplicateProjectFolder(app: App, root: TFolder, label: string, settings?: FeuilletsSettings | null): Promise<string> {
-  /* Base : le voisin (racine du projet réel) quand il existe et n'est pas
-     la racine du coffre, sinon le dossier projet lui-même — jamais la
-     racine du coffre (règle : aucun dossier technique créé hors du projet
-     actif). */
-  const base =
-    root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
-      ? root.parent.path
-      : root.path;
   const safeLabel = String(label || "").trim().replace(/[\\/:*?"<>|]/g, "-");
   const destName = `${root.name} (${safeLabel || "copie"})`;
-  const destPath = normalizePath(`${base}/_Versions/${destName}`);
+  const destPath = normalizePath(`${feuilletsAuxiliaryPath(root, "versions")}/${destName}`);
   if (app.vault.getAbstractFileByPath(destPath)) {
     throw new Error(`« ${destName} » existe déjà.`);
   }

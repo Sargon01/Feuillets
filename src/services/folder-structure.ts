@@ -35,6 +35,7 @@ export const FEUILLETS_AUXILIARY_FOLDERS = {
   snapshots: "Snapshots",
   backups: "Backups",
   output: "Sortie",
+  versions: "Versions",
 } as const;
 
 /** Base unique des nouveaux dossiers auxiliaires. Les emplacements

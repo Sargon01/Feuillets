@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { createMinimalProject, CreateProjectError, duplicateProjectFolder, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, EDITION_DOCUMENTS, EDITION_SUBFOLDERS, editionDocumentForName } from "../src/services/project-files.js";
+import { createMinimalProject, CreateProjectError, duplicateProjectFolder, getVersionsRoot, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, EDITION_DOCUMENTS, EDITION_SUBFOLDERS, editionDocumentForName } from "../src/services/project-files.js";
 import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
 import { setLocale } from "../src/i18n/index.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
@@ -450,7 +450,7 @@ test("createMinimalProject : conserve l'ancien projet actif dans la liste", asyn
   assert.equal(settings.projectFolder, "Roman1/Manuscrit");
 });
 
-test("duplicateProjectFolder : copie le manuscrit et son ordre", async () => {
+test("duplicateProjectFolder : copie le manuscrit et son ordre dans _Feuillets/Versions (chemin canonique)", async () => {
   const { volume, manuscript, chapter, scene } = projectFixture();
   const { vault } = createFakeVault([volume, manuscript, chapter, scene]);
   const app = { vault };
@@ -461,7 +461,7 @@ test("duplicateProjectFolder : copie le manuscrit et son ordre", async () => {
 
   const path = await duplicateProjectFolder(app, manuscript, "Premier jet", settings);
 
-  assert.equal(path, "Projet/_Versions/Manuscrit (Premier jet)");
+  assert.equal(path, "Projet/_Feuillets/Versions/Manuscrit (Premier jet)");
   assert.equal(await vault.read(vault.getAbstractFileByPath(`${path}/Chapitre 1/Scène.md`)), "Texte original");
   assert.deepEqual(settings.orders[path], [chapter.name]);
   assert.equal(settings.folderPositions[`${path}/Chapitre 1`], 2);
@@ -469,11 +469,14 @@ test("duplicateProjectFolder : copie le manuscrit et son ordre", async () => {
   // L'original n'a pas bougé : toujours au même chemin, contenu inchangé.
   assert.equal(manuscript.path, "Projet/Manuscrit");
   assert.equal(await vault.read(scene), "Texte original");
+
+  // Plus aucune écriture dans l'ancien dossier frère _Versions.
+  assert.equal(vault.getAbstractFileByPath("Projet/_Versions"), null);
 });
 
-test("duplicateProjectFolder : refuse d'écraser une version déjà existante sous le même nom", async () => {
+test("duplicateProjectFolder : refuse d'écraser une version déjà existante sous le même nom (chemin canonique)", async () => {
   const { volume, manuscript, chapter, scene } = projectFixture();
-  const existingVersion = new TFolder("Projet/_Versions/Manuscrit (V1)");
+  const existingVersion = new TFolder("Projet/_Feuillets/Versions/Manuscrit (V1)");
   const { vault } = createFakeVault([volume, manuscript, chapter, scene, existingVersion]);
   const app = { vault };
 
@@ -482,8 +485,8 @@ test("duplicateProjectFolder : refuse d'écraser une version déjà existante so
     /existe déjà/
   );
   // Rien n'a été touché dans la version déjà en place.
-  assert.ok(vault.getAbstractFileByPath("Projet/_Versions/Manuscrit (V1)") instanceof TFolder);
-  assert.equal(vault.getAbstractFileByPath("Projet/_Versions/Manuscrit (V1)/Chapitre 1"), null);
+  assert.ok(vault.getAbstractFileByPath("Projet/_Feuillets/Versions/Manuscrit (V1)") instanceof TFolder);
+  assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Versions/Manuscrit (V1)/Chapitre 1"), null);
 });
 
 test("duplicateProjectFolder : deux versions distinctes peuvent coexister et s'ouvrir séparément", async () => {
@@ -503,6 +506,113 @@ test("duplicateProjectFolder : deux versions distinctes peuvent coexister et s'o
   assert.equal(await vault.read(sceneV1), "Texte original");
   assert.equal(await vault.read(sceneV2), "Texte original");
 });
+
+// =========================================================================
+// Tests ciblés — getVersionsRoot : résolveur pur, ordre de résolution
+// =========================================================================
+
+test("getVersionsRoot : préfère le chemin canonique _Feuillets/Versions quand plusieurs emplacements existent", () => {
+  const { volume, manuscript } = projectFixture();
+  const canonical = new TFolder("Projet/_Feuillets/Versions");
+  const prefixedInAuxiliary = new TFolder("Projet/_Feuillets/_Versions");
+  const legacy = new TFolder("Projet/_Versions");
+  const { vault } = createFakeVault([volume, manuscript, canonical, prefixedInAuxiliary, legacy]);
+  const app = { vault };
+
+  const resolved = getVersionsRoot(app, manuscript);
+
+  assert.equal(resolved, canonical);
+});
+
+test("getVersionsRoot : l'ancien dossier frère _Versions reste lisible s'il n'y a rien de plus récent", () => {
+  const { volume, manuscript } = projectFixture();
+  const legacy = new TFolder("Projet/_Versions");
+  const legacyVersion = new TFolder("Projet/_Versions/Manuscrit (V1)");
+  legacy.children = [legacyVersion];
+  legacyVersion.parent = legacy;
+  const { vault } = createFakeVault([volume, manuscript, legacy, legacyVersion]);
+  const app = { vault };
+
+  const resolved = getVersionsRoot(app, manuscript);
+
+  assert.equal(resolved, legacy);
+  assert.deepEqual(resolved.children, [legacyVersion]);
+});
+
+test("getVersionsRoot : la variante _Feuillets/_Versions reste lisible si elle est présente (sans canonique ni ancien frère)", () => {
+  const { volume, manuscript } = projectFixture();
+  const prefixedInAuxiliary = new TFolder("Projet/_Feuillets/_Versions");
+  const { vault } = createFakeVault([volume, manuscript, prefixedInAuxiliary]);
+  const app = { vault };
+
+  const resolved = getVersionsRoot(app, manuscript);
+
+  assert.equal(resolved, prefixedInAuxiliary);
+});
+
+test("getVersionsRoot : après un déplacement manuel _Versions → _Feuillets/Versions, les versions sont immédiatement reconnues au chemin canonique", () => {
+  const { volume, manuscript } = projectFixture();
+  // « Déplacement manuel » simulé directement : la version vit désormais
+  // au chemin canonique (getVersionsRoot ne crée ni ne déplace jamais rien
+  // lui-même — voir le test dédié à ce résolveur pur ci-dessous).
+  const movedRoot = new TFolder("Projet/_Feuillets/Versions");
+  const moved = new TFolder("Projet/_Feuillets/Versions/Manuscrit (V1)");
+  movedRoot.children = [moved];
+  moved.parent = movedRoot;
+  const { vault } = createFakeVault([volume, manuscript, movedRoot, moved]);
+  const app = { vault };
+
+  const resolved = getVersionsRoot(app, manuscript);
+
+  assert.equal(resolved, movedRoot);
+  assert.deepEqual(resolved.children, [moved]);
+});
+
+test("getVersionsRoot : ne crée ni ne déplace jamais rien sur le disque (résolveur pur)", () => {
+  const { volume, manuscript } = projectFixture();
+  const { vault } = createFakeVault([volume, manuscript]);
+  const app = { vault };
+  const writes = [];
+  const guard = (name) => (...args) => { writes.push(name); throw new Error(`${name} ne doit jamais être appelé par getVersionsRoot`); };
+  vault.createFolder = guard("createFolder");
+  vault.create = guard("create");
+  vault.rename = guard("rename");
+
+  const resolved = getVersionsRoot(app, manuscript);
+
+  assert.equal(resolved, null);
+  assert.deepEqual(writes, []);
+});
+
+// =========================================================================
+// Tests ciblés — Diff (PickFileModal) : retrouve les versions via
+// getVersionsRoot, sans logique métier propre à réécrire.
+// =========================================================================
+
+test("Diff : getVersionsRoot expose bien les versions dupliquées (nouvelles ET historiques) à un consommateur comme PickFileModal", async () => {
+  const { volume, manuscript, chapter, scene } = projectFixture();
+  // _Feuillets/Versions déjà présent (comme après un premier
+  // duplicateProjectFolder, ou après ensureFeuilletsAuxiliaryFolders) : le
+  // point exercé ici est que getVersionsRoot le retrouve et que ses
+  // enfants — les versions elles-mêmes — restent la bonne source pour un
+  // consommateur comme PickFileModal.getOrigins (diff-modal.ts, non
+  // modifié par ce chantier).
+  const versionsRoot = new TFolder("Projet/_Feuillets/Versions");
+  const { vault } = createFakeVault([volume, manuscript, chapter, scene, versionsRoot]);
+  const app = { vault };
+
+  const v1 = await duplicateProjectFolder(app, manuscript, "V1");
+  const v2 = await duplicateProjectFolder(app, manuscript, "V2");
+
+  const resolved = getVersionsRoot(app, manuscript);
+  assert.equal(resolved, versionsRoot);
+  const originPaths = resolved.children
+    .filter((child) => child instanceof TFolder)
+    .map((child) => child.path)
+    .sort();
+  assert.deepEqual(originPaths, [v1, v2].sort());
+});
+
 // =========================================================================
 // Tests ciblés — initProjectStructure : racine, locale, variantes, doublons
 // =========================================================================
