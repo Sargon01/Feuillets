@@ -222,3 +222,90 @@ test("bibliographyEntries -> generateBibliography : intégration bout en bout, t
     "# Bibliographie\n\nAlbert Camus. *La Peste*. 1947.\n\nVictor Hugo. *Les Misérables*. Gallimard, 1862.\n"
   );
 });
+
+/* ------------------------- Phase 7 : Sources canonique --------------------- */
+
+/** Fixture Sources : deux fiches, l'une citée (`cite_count > 0`), l'autre
+ * pas, plus optionnellement un dossier Bibliographie legacy à côté — pour
+ * vérifier la priorité de Sources quand les deux existent. */
+function buildSourcesFixture({ withLegacyBibliographie = false } = {}) {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const research = new TFolder("Projet/_Recherche");
+  const sources = new TFolder("Projet/_Recherche/Sources");
+  const cited = new TFile(
+    "Projet/_Recherche/Sources/Hugo.md",
+    "---\ntitle: Les Misérables\nauthor: Victor Hugo\ncite_count: 2\n---\n"
+  );
+  const uncited = new TFile(
+    "Projet/_Recherche/Sources/Camus.md",
+    "---\ntitle: La Peste\nauthor: Albert Camus\n---\n"
+  );
+  volume.children = [manuscript, research];
+  manuscript.parent = volume;
+  research.parent = volume;
+  research.children = [sources];
+  sources.children = [cited, uncited];
+  sources.parent = research;
+  cited.parent = sources;
+  uncited.parent = sources;
+
+  const allFiles = [volume, manuscript, research, sources, cited, uncited];
+  const frontmatter = new Map([
+    [cited.path, { title: "Les Misérables", author: "Victor Hugo", cite_count: 2 }],
+    [uncited.path, { title: "La Peste", author: "Albert Camus" }],
+  ]);
+
+  if (withLegacyBibliographie) {
+    const biblio = new TFolder("Projet/_Recherche/Bibliographie");
+    const legacyEntry = new TFile(
+      "Projet/_Recherche/Bibliographie/Legacy.md",
+      "---\ntitle: Ancien titre\nauthor: Ancien Auteur\n---\n"
+    );
+    research.children.push(biblio);
+    biblio.children = [legacyEntry];
+    biblio.parent = research;
+    legacyEntry.parent = biblio;
+    allFiles.push(biblio, legacyEntry);
+    frontmatter.set(legacyEntry.path, { title: "Ancien titre", author: "Ancien Auteur" });
+  }
+
+  const { vault } = createFakeVault(allFiles);
+  const app = {
+    vault,
+    metadataCache: { getFileCache: (f) => ({ frontmatter: frontmatter.get(f.path) || {} }) },
+  };
+  const settings = { projectFolder: manuscript.path };
+  return { app, settings };
+}
+
+test("bibliographyEntries : Sources canonique — une fiche avec cite_count=0 (absent) est exclue", () => {
+  const { app, settings } = buildSourcesFixture();
+  const entries = bibliographyEntries(app, settings);
+  assert.equal(entries.some((e) => e.author === "Albert Camus"), false);
+});
+
+test("bibliographyEntries : Sources canonique — une fiche avec cite_count>0 est incluse", () => {
+  const { app, settings } = buildSourcesFixture();
+  const entries = bibliographyEntries(app, settings);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].author, "Victor Hugo");
+});
+
+test("bibliographyEntries : Sources est prioritaire sur Bibliographie legacy quand les deux existent — jamais de fusion", () => {
+  const { app, settings } = buildSourcesFixture({ withLegacyBibliographie: true });
+  const entries = bibliographyEntries(app, settings);
+  // Seule la fiche Sources citée apparaît ; la fiche legacy (sans cite_count,
+  // dans un dossier différent) n'est jamais mélangée.
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].author, "Victor Hugo");
+  assert.equal(entries.some((e) => e.author === "Ancien Auteur"), false);
+});
+
+test("bibliographyEntries : repli Bibliographie legacy quand Sources n'existe pas — fiche sans cite_count incluse quand même", () => {
+  const { app, settings } = buildResearchFixture("Bibliographie");
+  const entries = bibliographyEntries(app, settings);
+  // Comportement historique préservé : les deux fiches de la fixture legacy
+  // (aucune n'a de cite_count) comptent toutes les deux.
+  assert.equal(entries.length, 2);
+});

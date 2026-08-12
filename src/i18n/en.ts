@@ -368,8 +368,6 @@ export const en = {
   "notes.section.notes": "Notes",
   "notes.section.notesPlaceholder": "Working notes — never compiled or counted.",
   "notes.section.workingNotes": "Working notes",
-  "notes.section.sources": "Sources",
-  "notes.section.sourcesPlaceholder": "References, readings, interviews…",
   "notes.section.footnotes": "Footnotes",
 
   "notes.context.title": "Context",

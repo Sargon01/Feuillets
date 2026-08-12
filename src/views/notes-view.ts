@@ -29,7 +29,7 @@ const CONTEXT_WINDOW_DEBOUNCE_MS = 300;
 
 type NotesPropertyType = "text" | "list" | "number" | "checkbox" | "date" | "datetime";
 type EntityKind = "personnage" | "lieu" | "evenement" | "codex";
-type NotesSectionKey = "synopsis" | "summary" | "notes" | "sources";
+type NotesSectionKey = "synopsis" | "summary" | "notes";
 type NotesFrontmatter = Record<string, unknown> & {
   aliases?: string | string[];
   birth?: unknown;
@@ -304,7 +304,7 @@ export class NotesView extends BaseFeuilletsView {
     const fm: NotesFrontmatter = this.fm(file);
 
     // Pages secondaires : chacune remplace tout le reste du panneau (rien
-    // d'autre du Feuillet — Propriétés, Contexte, Synopsis/Résumé, Sources,
+    // d'autre du Feuillet — Propriétés, Contexte, Synopsis/Résumé,
     // Notes de bas de page — ne doit apparaître pendant qu'une page
     // secondaire est ouverte). `viewedFile` reste intact en dessous : le
     // Retour d'ICI ne fait que fermer cette page, jamais quitter la note de
@@ -387,6 +387,14 @@ export class NotesView extends BaseFeuilletsView {
     // ce rendu unique quel que soit l'ordre personnalisé de l'utilisateur
     // (S.notesSectionOrder). Aucun moteur de contexte n'est modifié ici,
     // seul l'emplacement de son appel change.
+    //
+    // Correctif Sources/Bibliographie (Phase 7) : l'ancienne rubrique
+    // « Sources » de ce panneau (champ frontmatter `sources` en simple
+    // zone de texte, renderCollapsibleTextarea) est retirée — elle prêtait
+    // à confusion depuis que `Recherche/Sources` est devenu la bibliothèque
+    // structurée canonique (services/bibliography-generator.ts). Le champ
+    // `sources` legacy n'est ni supprimé ni migré : il reste lisible tel
+    // quel dans les fiches déjà écrites, simplement plus affiché ici.
     let entitiesRendered = false;
     const renderEntitiesOnce = async (): Promise<void> => {
       if (entitiesRendered || !S.notesShowEntities) return;
@@ -405,12 +413,8 @@ export class NotesView extends BaseFeuilletsView {
       }
     }
     // Contexte rendu une fois la boucle Synopsis/Résumé/Notes terminée,
-    // avant Sources/Notes de bas de page.
+    // avant Notes de bas de page.
     await renderEntitiesOnce();
-
-    if (this.plugin.hasSources()) {
-      this.renderCollapsibleTextarea(wrapper, t("notes.section.sources"), "sources", file, fm, t("notes.section.sourcesPlaceholder"), 4);
-    }
 
     if (S.notesShowFootnotes) {
       await this.renderFootnotesRow(wrapper, file);

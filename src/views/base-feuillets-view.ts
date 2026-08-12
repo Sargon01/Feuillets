@@ -717,12 +717,10 @@ export abstract class BaseFeuilletsView extends ItemView {
     /* Rationalisation : en non-fiction, Sources reste la SEULE
        bibliothèque de travail — Bibliographie devient la vue agrégée des
        sources citées (voir plus bas), plus un dossier de fiches
-       manuelles. Migration automatique, idempotente (ne fait rien une
-       fois les fiches déjà déplacées) : ne s'exécute jamais en fiction,
-       où Bibliographie garde son sens d'origine. */
-    if (rf.sources && sourcesFolder && bibliographieFolder) {
-      await this.plugin.migrateBibliographieIntoSources(bibliographieFolder, sourcesFolder);
-    }
+       manuelles. Aucune migration automatique des fichiers utilisateur
+       (Phase 7) : Sources l'emporte simplement en lecture dès qu'il
+       existe (services/bibliography-generator.ts, resolveBibliographySource)
+       — les deux dossiers peuvent coexister sur le disque indéfiniment. */
     /* rf.personnages/lieux/codex/glossaire/evenements n'existent plus en
        non-fiction (voir utils/project-modes.js) — plus de dossier imposé
        ni auto-créé pour ces catégories : à l'utilisateur de créer les

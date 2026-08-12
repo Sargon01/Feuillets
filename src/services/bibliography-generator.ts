@@ -2,17 +2,22 @@ import { TFile, TFolder, normalizePath, type App } from "obsidian";
 import { getResearchRoot } from "./research.js";
 import { toValue } from "../utils/scene-fields.js";
 
-/** Génération de la Bibliographie (Phase 8).
+/** Génération de la Bibliographie (Phase 7).
  *
  * Même principe que Sommaire/TDM (services/contents-generator.ts) et Table
  * des illustrations (services/tables-generator.ts) : élément "generated" du
  * modèle commun de composition (services/book-composition.ts), calculé à la
- * compilation, jamais stocké dans un fichier propre. À la différence des
- * autres générateurs, sa source n'est PAS le manuscrit compilé mais les
- * fiches déjà présentes dans Recherche → Bibliographie/Bibliography — le
- * même système bibliographique que la commande « Insérer une citation »
- * (services/citations.ts) : aucun second système, aucun nouveau fichier
- * source, les fiches restent éditées dans Recherche.
+ * compilation, jamais stocké dans un fichier propre.
+ *
+ * Source des fiches — contrat final Phase 7, jamais de fusion des deux :
+ * - `Recherche → Sources` (bibliothèque canonique éditable) si ce dossier
+ *   existe : seules les fiches avec `cite_count > 0` (citées via « Insérer
+ *   une citation », services/citations.ts) entrent dans la bibliographie.
+ * - sinon `Recherche → Bibliographie/Bibliography` (legacy) par repli :
+ *   comportement historique conservé — une fiche exploitable y compte même
+ *   sans `cite_count`.
+ * Aucun second système, aucune migration physique automatique des fichiers
+ * utilisateur ici : voir `resolveBibliographySource`.
  */
 
 /** Champs d'une fiche Bibliographie réellement utilisés — le frontmatter
@@ -26,11 +31,20 @@ export type BibliographyEntry = {
   url?: string;
 };
 
-/** Les deux noms de dossier reconnus, quelle que soit la langue active du
- * projet (voir getFeuilletsFolderNames, services/folder-structure.ts) — la
- * lecture reconnaît toujours les deux, contrairement à la création qui ne
- * pose que celui de la langue courante. */
+/** Nom canonique, fixe quelle que soit la langue de l'interface (voir
+ * utils/project-modes.ts : RESEARCH_FOLDER_VARIANTS.sources = ["Sources"]). */
+const SOURCES_FOLDER_NAME = "Sources";
+
+/** Les deux noms de dossier legacy reconnus, quelle que soit la langue
+ * active du projet (voir getFeuilletsFolderNames, services/folder-
+ * structure.ts) — la lecture reconnaît toujours les deux, contrairement à
+ * la création qui ne pose que celui de la langue courante. */
 const BIBLIOGRAPHY_FOLDER_NAMES = ["Bibliographie", "Bibliography"];
+
+function sourcesFolder(app: App, researchRoot: TFolder): TFolder | null {
+  const f = app.vault.getAbstractFileByPath(normalizePath(`${researchRoot.path}/${SOURCES_FOLDER_NAME}`));
+  return f instanceof TFolder ? f : null;
+}
 
 function bibliographyFolder(app: App, researchRoot: TFolder): TFolder | null {
   for (const name of BIBLIOGRAPHY_FOLDER_NAMES) {
@@ -40,23 +54,43 @@ function bibliographyFolder(app: App, researchRoot: TFolder): TFolder | null {
   return null;
 }
 
+/** Résout LA bibliothèque de fiches à utiliser — jamais les deux à la fois,
+ * jamais de fusion : Sources (canonique) l'emporte dès qu'elle existe, la
+ * Bibliographie/Bibliography legacy ne sert que de repli quand Sources est
+ * absent. Utilisé par `bibliographyEntries` ici et par la commande
+ * « Insérer une citation » (main.ts, getCitationFolders). */
+export function resolveBibliographySource(
+  app: App,
+  settings: FeuilletsSettings
+): { folder: TFolder; canonical: boolean } | null {
+  const researchRoot = getResearchRoot(app, settings);
+  if (!researchRoot) return null;
+  const sources = sourcesFolder(app, researchRoot);
+  if (sources) return { folder: sources, canonical: true };
+  const legacy = bibliographyFolder(app, researchRoot);
+  if (legacy) return { folder: legacy, canonical: false };
+  return null;
+}
+
 function fieldOf(fm: Record<string, unknown>, key: string): string | undefined {
   const value = toValue(fm[key]).trim();
   return value || undefined;
 }
 
-/** Fiches du dossier Bibliographie/Bibliography, dans l'ordre où le dossier
- * les liste — le TRI RÉEL de la bibliographie générée (par auteur, puis par
- * titre) est décidé par `generateBibliography`, pas ici. */
+/** Fiches de la bibliothèque résolue (`resolveBibliographySource`), dans
+ * l'ordre où le dossier les liste — le TRI RÉEL de la bibliographie générée
+ * (par auteur, puis par titre) est décidé par `generateBibliography`, pas
+ * ici. Dans Sources canonique, seules les fiches avec `cite_count > 0`
+ * sont retenues ; dans le repli Bibliographie/Bibliography legacy, toute
+ * fiche exploitable compte, `cite_count` ou non (comportement historique). */
 export function bibliographyEntries(app: App, settings: FeuilletsSettings): BibliographyEntry[] {
-  const researchRoot = getResearchRoot(app, settings);
-  if (!researchRoot) return [];
-  const folder = bibliographyFolder(app, researchRoot);
-  if (!folder) return [];
+  const resolved = resolveBibliographySource(app, settings);
+  if (!resolved) return [];
   const out: BibliographyEntry[] = [];
-  for (const child of folder.children || []) {
+  for (const child of resolved.folder.children || []) {
     if (!(child instanceof TFile) || child.extension !== "md") continue;
     const fm = app.metadataCache.getFileCache(child)?.frontmatter || {};
+    if (resolved.canonical && !(Number(fm.cite_count) > 0)) continue;
     out.push({
       author: fieldOf(fm, "author"),
       title: fieldOf(fm, "title"),

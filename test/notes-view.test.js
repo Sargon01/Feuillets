@@ -307,7 +307,7 @@ test("NotesView.renderFolderNoteLinks n'affiche rien sans note de dossier dans l
 
 test("NotesView respecte les réglages et l'ordre des sections", async () => {
   const active = makeFile("Projet/scene.md", "Texte\n[^a]: note");
-  const { view, plugin } = createNotesView({
+  const { view } = createNotesView({
     activeFile: active,
     settings: {
       notesShowEntities: true,
@@ -318,12 +318,11 @@ test("NotesView respecte les réglages et l'ordre des sections", async () => {
       notesSectionOrder: ["Notes", "Résumé", "Synopsis"],
     },
   });
-  plugin.hasSources = () => true;
   const calls = { sections: [], entities: 0, footnotes: 0 };
   isolateBodySections(view, calls);
 
   await view.render(true);
-  assert.deepEqual(calls.sections, ["notes", "synopsis", "sources"]);
+  assert.deepEqual(calls.sections, ["notes", "synopsis"]);
   assert.equal(calls.entities, 1);
   assert.equal(calls.footnotes, 1);
 });
@@ -796,7 +795,7 @@ test("NotesView : notesShowFootnotes=false masque la ligne d'accès et la page",
 
 test("NotesView : ordre de la vue principale — Propriétés → Synopsis/Résumé → Notes de travail → Contexte → Notes de bas de page", async () => {
   const active = makeFile("Projet/scene.md", "Texte.[^a]\n\n[^a]: Une note");
-  const { view, contentEl, plugin } = createNotesView({
+  const { view } = createNotesView({
     activeFile: active,
     settings: {
       notesShowEntities: true,
@@ -807,7 +806,6 @@ test("NotesView : ordre de la vue principale — Propriétés → Synopsis/Résu
       notesSectionOrder: ["Synopsis", "Résumé", "Notes"],
     },
   });
-  plugin.hasSources = () => false;
   view.renderFolderNoteLinks = () => {};
   const order = [];
   view.renderPropertiesRow = () => order.push("properties");

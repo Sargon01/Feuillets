@@ -368,8 +368,6 @@ export const fr = {
   "notes.section.notes": "Notes",
   "notes.section.notesPlaceholder": "Notes de travail — jamais compilées ni comptées.",
   "notes.section.workingNotes": "Notes de travail",
-  "notes.section.sources": "Sources",
-  "notes.section.sourcesPlaceholder": "Références, lectures, entretiens…",
   "notes.section.footnotes": "Notes de bas de page",
 
   "notes.context.title": "Contexte",

@@ -35,6 +35,7 @@ import { ProjectView } from "./views/project-view.js";
 import { PreviewView, openWithPreview } from "./views/preview-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
 import { formatCitation } from "./services/citations.js";
+import { bibliographyEntries, generateBibliography, resolveBibliographySource } from "./services/bibliography-generator.js";
 import { getResearchTemplate } from "./services/research-templates.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
@@ -2173,70 +2174,16 @@ class FeuilletsPlugin extends Plugin {
     ) ?? null;
   }
 
-  getCitationFolders() {
+  /** Dossier(s) proposés par « Insérer une citation » — réservé à la
+   * non-fiction (`rf.sources` défini). Réutilise `resolveBibliographySource`
+   * (services/bibliography-generator.ts) : Sources canonique si présent,
+   * sinon repli Bibliographie/Bibliography legacy, jamais les deux à la
+   * fois — même règle que la bibliographie générée. */
+  getCitationFolders(): TFolder[] {
     const mode = this.projectMode();
-    const rf = mode.researchFolders;
-    if (!rf.sources) return [];
-    const researchRoot = this.getResearchRoot();
-    const root = this.getProjectFolder();
-    const baseResearch = researchRoot ? researchRoot.path : root ? `${root.path}/_Recherche` : null;
-    if (!baseResearch) return [];
-    const labels = [rf.sources.label];
-    if (rf.bibliographie) labels.push(rf.bibliographie.label);
-    return labels
-      .map((label) => this.app.vault.getAbstractFileByPath(normalizePath(`${baseResearch}/${label}`)))
-      .filter((f): f is TFolder => f instanceof TFolder);
-  }
-
-  async migrateBibliographieIntoSources(bibliographieFolder: TFolder, sourcesFolder: TFolder): Promise<void> {
-    const files = bibliographieFolder.children.filter((c): c is TFile => c instanceof TFile && c.extension === "md");
-    if (files.length === 0) return;
-    let migrated = 0;
-    let failed = 0;
-    for (const f of files) {
-      try {
-        await this.app.fileManager.processFrontMatter(f, (fm: SceneFrontmatter) => {
-          if (fm.annee !== undefined && fm.date === undefined) {
-            /* `annee` (héritage Bibliographie) peut être un nombre ou une
-               chaîne en YAML — copié tel quel, sans coercion, pour ne pas
-               changer la représentation YAML des fiches déjà écrites. */
-            fm.date = fm.annee as string;
-            delete fm.annee;
-          }
-          // edition/editeur (vocabulaire Bibliographie) -> publisher (voir
-          // services/frontmatter.js, LEGACY_FIELD_ALIASES)
-          if (fm.publisher === undefined) {
-            if (fm.editeur !== undefined) fm.publisher = fm.editeur;
-            else if (fm.edition !== undefined) fm.publisher = fm.edition;
-          }
-          delete fm.editeur;
-          delete fm.edition;
-        });
-        let name = f.name;
-        let destPath = normalizePath(`${sourcesFolder.path}/${name}`);
-        let n = 2;
-        while (this.app.vault.getAbstractFileByPath(destPath)) {
-          name = `${f.basename} ${n++}.${f.extension}`;
-          destPath = normalizePath(`${sourcesFolder.path}/${name}`);
-        }
-        await this.app.fileManager.renameFile(f, destPath);
-        migrated++;
-      } catch {
-        /* Migration fichier par fichier : un fichier qui résiste ne doit pas
-           interrompre la boucle — les suivants doivent quand même être
-           migrés. On compte l'échec pour pouvoir le signaler après coup. */
-        failed++;
-      }
-    }
-    /* Une migration silencieusement partielle est le pire cas : l'autrice
-       croit son dossier Bibliographie vidé alors qu'il en reste. On ne fait
-       pas de Notice (la migration est automatique, au démarrage, elle ne doit
-       pas interrompre), mais la console garde une trace exploitable. */
-    if (failed > 0) {
-      console.warn(
-        `Feuillets : migration Bibliographie → Sources incomplète — ${migrated} fiche(s) déplacée(s), ${failed} en échec.`
-      );
-    }
+    if (!mode.researchFolders.sources) return [];
+    const resolved = resolveBibliographySource(this.app, this.settings);
+    return resolved ? [resolved.folder] : [];
   }
 
   openInsertCitation(editor?: Editor | null): void {
@@ -2404,31 +2351,24 @@ class FeuilletsPlugin extends Plugin {
     });
   }
 
+  /** Écrit `Bibliographie.md` — même sélection et même formatage EXACTEMENT
+   * que la bibliographie générée dans Composition (services/compile-
+   * export.ts) : `bibliographyEntries()` + `generateBibliography()`
+   * (services/bibliography-generator.ts), aucun second moteur ici. Ce
+   * qu'on ajoute par rapport à Composition : l'écriture du fichier, la
+   * Notice et la gestion d'erreur. */
   async generateBibliographyFile(): Promise<void> {
     const root = this.getProjectFolder();
     if (!root) return;
-    const folders = this.getCitationFolders();
-    if (folders.length === 0) return;
-    const files = folders.flatMap((f) => f.children.filter((c): c is TFile => c instanceof TFile && c.extension === "md"));
-    const cited = files.filter((f) => (this.fmOf(f).cite_count || 0) > 0);
-    if (cited.length === 0) {
+    const content = generateBibliography(bibliographyEntries(this.app, this.settings));
+    if (!content) {
       new Notice(t("main.notice.noSourceCitedYet"));
       return;
     }
-    const entries = cited
-      .map((f) => {
-        const raw = this.fmOf(f);
-        const fields = { author: asString(raw.author), title: raw.title, date: raw.date || raw.annee, publisher: asString(raw.publisher), url: asString(raw.url) };
-        return { author: asString(raw.author) || "", text: formatCitation(fields, "", "footnote", false) };
-      })
-      .filter((e) => e.text);
-    entries.sort((a, b) => a.author.localeCompare(b.author, "fr"));
-    const lines = [`# ${t("shared.bibliography.title")}`, "", ...entries.map((e) => e.text)];
     try {
       const outputFolder = await getOutputFolder(this.app, this.settings);
       const outBase = outputFolder ? outputFolder.path : root.path;
       const path = normalizePath(`${outBase}/Bibliographie.md`);
-      const content = lines.join("\n\n") + "\n";
       const existing = this.app.vault.getAbstractFileByPath(path);
       if (existing instanceof TFile) await this.app.vault.modify(existing, content);
       else await this.app.vault.create(path, content);
