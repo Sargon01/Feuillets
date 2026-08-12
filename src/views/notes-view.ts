@@ -138,6 +138,14 @@ export class NotesView extends BaseFeuilletsView {
   declare targetContainer?: HTMLElement;
   viewedFile: TFile | null;
   currentPath: string | null;
+  /** Vue secondaire « Notes de travail » actuellement affichée à la place
+   * de la vue principale du Feuillet — purement en mémoire, jamais
+   * persisté (voir onOpen : réinitialisé à chaque changement de fichier
+   * actif) et indépendant de `viewedFile` : ouvrir les Notes de travail
+   * depuis une note de dossier laisse `viewedFile` inchangé, pour que le
+   * Retour de CE panneau revienne à la note de dossier, et le Retour de
+   * la note de dossier ramène ensuite au feuillet. */
+  workingNotesOpen: boolean;
 
   /* ===== Fenêtre de contexte autour du curseur (section « Contexte ») =====
      Élément DOM actuellement écouté (keyup/mouseup) pour détecter un
@@ -177,6 +185,7 @@ export class NotesView extends BaseFeuilletsView {
     super(leaf, plugin);
     this.viewedFile = null; // note de dossier consultée
     this.currentPath = null;
+    this.workingNotesOpen = false;
   }
 
   getViewType(): string {
@@ -203,6 +212,10 @@ export class NotesView extends BaseFeuilletsView {
         if (newFile && (!this.viewedFile || newFile.path !== this.viewedFile.path)) {
           this.viewedFile = null;
         }
+        // Changement de fichier actif : revient toujours à la vue
+        // principale du Feuillet, même si on consultait les Notes de
+        // travail d'une note de dossier restée affichée ci-dessus.
+        this.workingNotesOpen = false;
         void this.render(true);
       })
     );
@@ -267,6 +280,17 @@ export class NotesView extends BaseFeuilletsView {
     this.currentPath = file.path;
     const fm: NotesFrontmatter = this.fm(file);
 
+    // Vue secondaire Notes de travail : remplace tout le reste du panneau
+    // (rien d'autre du Feuillet — Propriétés, Contexte, Synopsis/Résumé,
+    // Sources, Notes de bas de page — ne doit apparaître pendant qu'elle
+    // est ouverte). `viewedFile` reste intact en dessous : le Retour d'ICI
+    // ne fait que fermer cette vue, jamais quitter la note de dossier
+    // consultée.
+    if (this.workingNotesOpen) {
+      this.renderWorkingNotesPanel(wrapper, file, fm);
+      return;
+    }
+
     // Barre de retour si on consulte une note de dossier
     if (this.viewedFile && activeFile && this.viewedFile.path !== activeFile.path) {
       const backBar = wrapper.createDiv({ cls: "feuillets-notes-back-bar" });
@@ -330,7 +354,7 @@ export class NotesView extends BaseFeuilletsView {
       } else if (sectionName === "Résumé" && S.notesShowResume && showResume) {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.summary"), "summary", file, fm, t("notes.section.summaryPlaceholder"), 5);
       } else if (sectionName === "Notes" && S.notesShowNotes) {
-        this.renderCollapsibleTextarea(wrapper, t("notes.section.notes"), "notes", file, fm, t("notes.section.notesPlaceholder"), 8);
+        this.renderWorkingNotesRow(wrapper);
       }
     }
 
@@ -1478,6 +1502,55 @@ export class NotesView extends BaseFeuilletsView {
         openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
     }
+  }
+
+  /** Ligne compacte remplaçant le textarea « Notes » dans la vue
+   * principale du Feuillet : icône + libellé + chevron, un clic ouvre la
+   * vue secondaire Notes de travail (voir renderWorkingNotesPanel). Ne
+   * lit ni n'affiche le contenu de `notes` ici — seul un aperçu de
+   * navigation, exactement comme une note de dossier. */
+  renderWorkingNotesRow(container: HTMLElement): void {
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable" });
+
+    const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(iconSpan, getNotesSectionIcon("notes"));
+
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.workingNotes"));
+
+    const chevronSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    chevronSpan.setAttr("style", "margin-left: auto;");
+    setIcon(chevronSpan, "chevron-right");
+
+    head.addEventListener("click", () => {
+      this.workingNotesOpen = true;
+      void this.render();
+    });
+  }
+
+  /** Vue secondaire Notes de travail — même barre de retour que celle des
+   * notes de dossier (`feuillets-notes-back-bar`/`feuillets-back-btn`,
+   * même libellé « Retour au feuillet ») et même composant de champ que
+   * l'ancien affichage direct (renderCollapsibleTextarea, propriété
+   * frontmatter `notes` inchangée). Le Retour ferme seulement CETTE vue
+   * (`workingNotesOpen = false`) : si une note de dossier était consultée
+   * (`viewedFile`), on y retombe, et son propre bouton Retour ramène
+   * ensuite au feuillet. */
+  renderWorkingNotesPanel(container: HTMLElement, file: TFile, fm: NotesFrontmatter): void {
+    const backBar = container.createDiv({ cls: "feuillets-notes-back-bar" });
+    const backBtn = backBar.createEl("button", {
+      cls: "feuillets-back-btn",
+      text: ` ${t("notes.backToSheet")}`
+    });
+    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" });
+    setIcon(iconSpan, "arrow-left");
+    backBtn.prepend(iconSpan);
+    backBtn.addEventListener("click", () => {
+      this.workingNotesOpen = false;
+      void this.render();
+    });
+
+    this.renderCollapsibleTextarea(container, t("notes.section.workingNotes"), "notes", file, fm, t("notes.section.notesPlaceholder"), 8);
   }
 
   renderCollapsibleTextarea(container: HTMLElement, label: string, key: NotesSectionKey, file: TFile, fm: NotesFrontmatter, placeholder: string, rows: number): void {

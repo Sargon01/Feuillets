@@ -367,6 +367,7 @@ export const en = {
   "notes.section.summaryPlaceholder": "Long summary…",
   "notes.section.notes": "Notes",
   "notes.section.notesPlaceholder": "Working notes — never compiled or counted.",
+  "notes.section.workingNotes": "Working notes",
   "notes.section.sources": "Sources",
   "notes.section.sourcesPlaceholder": "References, readings, interviews…",
 
