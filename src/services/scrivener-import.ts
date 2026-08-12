@@ -1,6 +1,6 @@
 /** Import d'un projet Scrivener (.scriv) dans Feuillets — fonctions pures. */
 
-import { PROJECT_MODES } from "../utils/project-modes.js";
+import { PROJECT_MODES, CANONICAL_RESEARCH_LABELS } from "../utils/project-modes.js";
 import { extractTag, extractAllTags, getAttr, decodeXmlEntities } from "../utils/xml.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
@@ -670,6 +670,17 @@ export type ScrivenerImportPlanOptions = {
   researchRootPath?: string | null;
   mode: keyof typeof PROJECT_MODES;
   unclassifiedFolderLabel: string;
+  /** Nom physique RÉEL (déjà présent sur le disque, ou nom canonique à
+   * défaut) du dossier Recherche cible pour chaque catégorie reconnue par
+   * classifyResearchFolder (ex. "personnages" -> "Personnages", ou une
+   * variante legacy déjà existante) — résolu par l'appelant (lecture disque
+   * hors de cette fonction pure, voir researchFolderNames/CANONICAL_RESEARCH_LABELS
+   * dans utils/project-modes.ts). Un Folder Scrivener "Characters" classifié
+   * "personnages" est ainsi toujours écrit dans le dossier Personnages
+   * existant, jamais dans un second dossier "Characters" recréé sous son
+   * libellé anglais interne. Absent ou clé manquante = repli sur le nom
+   * canonique (CANONICAL_RESEARCH_LABELS), jamais sur folderDef.label. */
+  researchCategoryFolderNames?: Partial<Record<string, string>>;
   /** UUID de TOUT nœud Folder (au sens large : dossier du manuscrit, racine
    * Draft, racine Research, dossier Research classifié ou imbriqué, racine
    * "other") dont l'import va RÉELLEMENT créer une note propre — décidé par
@@ -832,8 +843,13 @@ export function buildScrivenerImportPlan(
       for (const child of parsed.research.children) {
         const key = child.isFolder ? classifyResearchFolder(child.title) : null;
         const folderDef = key ? researchFolders[key] : null;
-        if (folderDef) {
-          const targetFolder = reusableFolder(folderDef.label);
+        if (folderDef && key) {
+          /* Nom physique CANONIQUE Feuillets (Personnages, Lieux…), jamais
+             folderDef.label (libellé anglais interne "Characters"/"Places") :
+             voir le commentaire de researchCategoryFolderNames ci-dessus. */
+          const categoryFolderName =
+            opts.researchCategoryFolderNames?.[key] || CANONICAL_RESEARCH_LABELS[key] || folderDef.label;
+          const targetFolder = reusableFolder(categoryFolderName);
           /* §12 : le dossier classifié (Characters, Places…) reçoit sa
              propre note SEULEMENT s'il a du contenu propre — jamais de
              tag structurel personnage/lieu sur CETTE note (portée par ses
@@ -973,7 +989,10 @@ export function researchTargetLabel(title: string | null | undefined, mode: keyo
   const key = classifyResearchFolder(title);
   if (!key) return null;
   const folders = PROJECT_MODES[mode].researchFolders;
-  return folders[key] ? folders[key].label : null;
+  if (!folders[key]) return null;
+  // Nom physique CANONIQUE Feuillets (Personnages, Lieux…) — jamais le
+  // libellé anglais interne (folders[key].label), voir researchCategoryFolderNames.
+  return CANONICAL_RESEARCH_LABELS[key] || folders[key].label;
 }
 
 // ============================ Mapping des statuts ===========================

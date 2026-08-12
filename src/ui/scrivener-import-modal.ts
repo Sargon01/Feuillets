@@ -1,7 +1,7 @@
 import { App, Modal, Notice, Platform, normalizePath, TAbstractFile, TFolder, TFile } from "obsidian";
 import JSZip from "jszip";
 
-import { PROJECT_MODES, applyModeDefaults } from "../utils/project-modes.js";
+import { PROJECT_MODES, applyModeDefaults, researchFolderNames, CANONICAL_RESEARCH_LABELS } from "../utils/project-modes.js";
 import { titlePageContent } from "../services/project-files.js";
 import {
   checkScrivenerFormat,
@@ -875,12 +875,34 @@ export class ScrivenerImportModal extends Modal {
        (voir son commentaire) pour ne pas casser les tests S1 existants. */
     const projectAuthor = S.projectMeta[manuscritPath]?.author || "";
     const unclassifiedFolderLabel = t("modal.scrivenerImport.unclassifiedFolder");
+    /* Résolution du nom physique RÉEL de chaque rubrique Recherche AVANT le
+       plan (voir le commentaire de researchCategoryFolderNames dans
+       services/scrivener-import.ts) : initProjectStructure vient de créer
+       (ou de réutiliser, jamais de dupliquer — voir initResearchSubfolders)
+       les dossiers Recherche par défaut du projet importé. Un Folder
+       Scrivener "Characters" classifié "personnages" doit rejoindre CE
+       dossier déjà présent (canonique "Personnages", ou une variante legacy
+       déjà en place), jamais recréer un second dossier "Characters" sous le
+       libellé anglais interne de researchFolders. Seule lecture disque de
+       toute la logique de classification — le plan lui-même reste pur. */
+    const researchCategoryFolderNames: Partial<Record<string, string>> = {};
+    if (researchRoot) {
+      const modeResearchFolders = PROJECT_MODES[modeKey].researchFolders as Record<string, { label: string; tag: string }>;
+      for (const key of Object.keys(modeResearchFolders)) {
+        const names = researchFolderNames(modeResearchFolders, key);
+        const existingName = names.find(
+          (nm) => app.vault.getAbstractFileByPath(normalizePath(`${researchRoot.path}/${nm}`)) instanceof TFolder
+        );
+        researchCategoryFolderNames[key] = existingName || names[0] || CANONICAL_RESEARCH_LABELS[key];
+      }
+    }
     const plan = buildScrivenerImportPlan(parsed, {
       manuscritPath,
       projectTitle: scrivenerTitle,
       researchRootPath: researchRoot ? researchRoot.path : null,
       mode: modeKey,
       unclassifiedFolderLabel,
+      researchCategoryFolderNames,
       manuscriptFolderNoteUuids: folderNoteUuids,
     });
     const cursor = new ScrivenerPlanCursor(plan.targets);
@@ -1441,9 +1463,16 @@ export class ScrivenerImportModal extends Modal {
       for (const child of parsed.research.children) {
         const key = child.isFolder ? classifyResearchFolder(child.title) : null;
         const folderDef = key ? researchFolders[key] : null;
-        if (folderDef) {
+        if (folderDef && key) {
+          /* Même nom physique résolu que le plan (researchCategoryFolderNames,
+             voir plus haut) — jamais folderDef.label recalculé seul ici :
+             un dossier "Characters" ne doit jamais réapparaître à côté de
+             "Personnages" (voir le commentaire au-dessus de la construction
+             du plan). */
+          const categoryFolderName =
+            researchCategoryFolderNames[key] || CANONICAL_RESEARCH_LABELS[key] || folderDef.label;
           const targetFolder = await plugin.ensureFolder(
-            normalizePath(`${researchRoot.path}/${folderDef.label}`)
+            normalizePath(`${researchRoot.path}/${categoryFolderName}`)
           );
           /* §12 : le dossier classifié lui-même (Characters, Places…) a
              une entrée dans le plan UNIQUEMENT s'il a du contenu propre —
