@@ -7,6 +7,7 @@ import { completeNativeReviewSession, listNativeReviewSessions, receiveNativeRev
 import { createNativeReviewReviewerReturn } from "../services/native-review-reviewer-return.js";
 import { loadNativeReviewThreads, addNativeReviewThread, replyNativeReviewThread, setNativeReviewThreadResolved, type NativeReviewThread } from "../services/native-review-threads.js";
 import { currentReviewRound, reviewRoundsRootPath, type ReviewSession } from "../services/native-review-session.js";
+import { t } from "../i18n/index.js";
 
 type NativeReviewPlugin = { app: App; settings: FeuilletsSettings; manifest?: { version?: string } };
 
@@ -19,25 +20,26 @@ function download(data: ArrayBuffer | Uint8Array, name: string): void {
   const anchor = document.body.createEl("a"); anchor.href = url; anchor.download = name; anchor.click(); anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
-function packageName(session: ReviewSession): string { const round = currentReviewRound(session); return `relecture-${session.reviewId}-tour-${round.round}-${session.localRole === "author" ? "auteur" : "relecteur"}.feuillets`; }
+function packageName(session: ReviewSession): string { const round = currentReviewRound(session); return `review-${session.reviewId}-round-${round.round}-${t(session.localRole === "author" ? "nativeReview.file.author" : "nativeReview.file.reviewer")}.feuillets`; }
+function roleLabel(role: ReviewSession["localRole"]): string { return t(role === "author" ? "nativeReview.role.author" : "nativeReview.role.reviewer"); }
 function state(session: ReviewSession): string {
-  if (session.status === "completed") return "Terminé";
+  if (session.status === "completed") return t("nativeReview.state.completed");
   const round = currentReviewRound(session);
-  if (session.localRole === "author") return round.received ? "À traiter" : "En attente";
-  return round.sent ? "En attente" : "À envoyer";
+  if (session.localRole === "author") return round.received ? t("nativeReview.state.toProcess") : t("nativeReview.state.waiting");
+  return round.sent ? t("nativeReview.state.waiting") : t("nativeReview.state.toSend");
 }
 
 class NewReviewModal extends Modal {
   constructor(app: App, private readonly onSubmit: (author: string, reviewer: string, scope: "file" | "folder" | "project") => Promise<void>) { super(app); }
   onOpen(): void {
     let author = ""; let reviewer = ""; let scope: "file" | "folder" | "project" = "file";
-    this.contentEl.createEl("h3", { text: "Nouvelle relecture collaborative" });
-    new Setting(this.contentEl).setName("Nom auteur").addText((input) => input.onChange((value) => { author = value; }));
-    new Setting(this.contentEl).setName("Nom relecteur").addText((input) => input.onChange((value) => { reviewer = value; }));
-    new Setting(this.contentEl).setName("Portée").addDropdown((input) => input
-      .addOption("file", "Ce feuillet").addOption("folder", "Ce dossier").addOption("project", "Tout le projet")
+    this.contentEl.createEl("h3", { text: t("nativeReview.new.title") });
+    new Setting(this.contentEl).setName(t("nativeReview.new.authorName")).addText((input) => input.onChange((value) => { author = value; }));
+    new Setting(this.contentEl).setName(t("nativeReview.new.reviewerName")).addText((input) => input.onChange((value) => { reviewer = value; }));
+    new Setting(this.contentEl).setName(t("nativeReview.new.scope")).addDropdown((input) => input
+      .addOption("file", t("nativeReview.scope.file")).addOption("folder", t("nativeReview.scope.folder")).addOption("project", t("nativeReview.scope.project"))
       .onChange((value) => { scope = value as typeof scope; }));
-    new Setting(this.contentEl).addButton((button) => button.setButtonText("Créer et télécharger").setCta().onClick(() => {
+    new Setting(this.contentEl).addButton((button) => button.setButtonText(t("nativeReview.new.createDownload")).setCta().onClick(() => {
       void this.onSubmit(author, reviewer, scope).then(() => this.close());
     }));
   }
@@ -48,7 +50,7 @@ class TextReviewModal extends Modal {
   onOpen(): void {
     let text = ""; this.contentEl.createEl("h3", { text: this.title });
     new Setting(this.contentEl).setName(this.title).addText((input) => input.onChange((value) => { text = value; }));
-    new Setting(this.contentEl).addButton((button) => button.setButtonText("Envoyer").setCta().onClick(() => { if (text.trim()) void this.onSubmit(text.trim()).then(() => this.close()); }));
+    new Setting(this.contentEl).addButton((button) => button.setButtonText(t("nativeReview.action.send")).setCta().onClick(() => { if (text.trim()) void this.onSubmit(text.trim()).then(() => this.close()); }));
   }
 }
 
@@ -74,20 +76,20 @@ export class NativeReviewView {
   }
   private section(parent: HTMLElement, title: string): HTMLElement { const section = parent.createDiv({ cls: "feuillets-project-section" }); section.createEl("h4", { text: title }); return section; }
   private async renderHome(container: HTMLElement): Promise<void> {
-    const actions = this.section(container, "Relecture collaborative");
-    this.button(actions, "Nouvelle relecture", () => new NewReviewModal(this.app, async (author, reviewer, scope) => this.create(author, reviewer, scope)).open(), "plus");
-    this.button(actions, "Importer un paquet .feuillets", () => this.pickFile(), "upload");
-    const list = this.section(container, "Sessions existantes");
+    const actions = this.section(container, t("nativeReview.title"));
+    this.button(actions, t("nativeReview.action.new"), () => new NewReviewModal(this.app, async (author, reviewer, scope) => this.create(author, reviewer, scope)).open(), "plus");
+    this.button(actions, t("nativeReview.action.importPackage"), () => this.pickFile(), "upload");
+    const list = this.section(container, t("nativeReview.sessions.title"));
     let sessions: NativeReviewSessionEntry[];
     try { sessions = await listNativeReviewSessions(this.app); } catch (error) { list.createEl("p", { text: errorMessage(error) }); return; }
-    if (!sessions.length) list.createEl("p", { text: "Aucune session de relecture." });
+    if (!sessions.length) list.createEl("p", { text: t("nativeReview.sessions.empty") });
     for (const item of sessions) {
       const row = list.createDiv({ cls: "feuillets-notes-section feuillets-clickable" });
       if (item.error) { row.setText(`${item.reviewId} — ${item.error}`); continue; }
       const session = item.session;
-      if (!session) { row.setText(`${item.reviewId} — Session illisible`); continue; }
+      if (!session) { row.setText(`${item.reviewId} — ${t("nativeReview.sessions.unreadable")}`); continue; }
       const names = session.participants.map((person) => person.name).join(" ↔ ");
-      row.createDiv({ text: names }); row.createDiv({ cls: "feuillets-notes-sub", text: `${session.localRole === "author" ? "Auteur" : "Relecteur"} · tour ${currentReviewRound(session).round} · ${state(session)} · ${session.documents.length} documents` });
+      row.createDiv({ text: names }); row.createDiv({ cls: "feuillets-notes-sub", text: `${roleLabel(session.localRole)} · ${t("nativeReview.round", { number: String(currentReviewRound(session).round) })} · ${state(session)} · ${t("nativeReview.documents", { count: String(session.documents.length) })}` });
       row.addEventListener("click", () => { this.selectedReviewId = session.reviewId; void this.render(); });
     }
   }
@@ -95,8 +97,8 @@ export class NativeReviewView {
     const active = this.app.workspace.getActiveFile();
     let scope: AuthorReviewScope;
     if (choice === "project") scope = { type: "project" };
-    else if (!active || active.extension !== "md") { new Notice("Ouvrez un feuillet du manuscrit avant de créer une relecture."); return; }
-    else if (choice === "folder") { const parent = active.parent; if (!(parent instanceof TFolder)) { new Notice("Le dossier du feuillet est invalide."); return; } scope = { type: "folder", path: parent.path }; }
+    else if (!active || active.extension !== "md") { new Notice(t("nativeReview.notice.openSheet")); return; }
+    else if (choice === "folder") { const parent = active.parent; if (!(parent instanceof TFolder)) { new Notice(t("nativeReview.notice.invalidFolder")); return; } scope = { type: "folder", path: parent.path }; }
     else scope = { type: "file", path: active.path };
     try { const result = await createNativeReviewAuthor(this.app, this.plugin.settings, { authorName, reviewerName, scope, createdByVersion: version(this.plugin) }); this.selectedReviewId = result.session.reviewId; download(result.packageData, packageName(result.session)); await this.render(); }
     catch (error) { new Notice(errorMessage(error)); }
@@ -106,63 +108,73 @@ export class NativeReviewView {
     input.addEventListener("change", () => { const file = input.files?.[0]; if (file) void this.receive(file); }); input.click();
   }
   private async receive(file: File): Promise<void> {
-    try { const session = await receiveNativeReviewExchange(this.app, await file.arrayBuffer()); this.selectedReviewId = session.reviewId; new Notice("Paquet de relecture importé."); await this.render(); }
+    try { const session = await receiveNativeReviewExchange(this.app, await file.arrayBuffer()); this.selectedReviewId = session.reviewId; new Notice(t("nativeReview.notice.imported")); await this.render(); }
     catch (error) { new Notice(errorMessage(error)); }
   }
   private async resend(session: ReviewSession): Promise<void> {
     const round = currentReviewRound(session); const path = `${reviewRoundsRootPath(session.reviewId)}/round-${round.round}-sent.feuillets`; const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) { new Notice("Archive du dernier paquet introuvable."); return; }
+    if (!(file instanceof TFile)) { new Notice(t("nativeReview.notice.archiveMissing")); return; }
     download(await this.app.vault.readBinary(file), packageName(session));
   }
   private async renderDetail(container: HTMLElement, reviewId: string): Promise<void> {
-    const back = container.createDiv({ cls: "feuillets-notes-back-bar" }); this.button(back, "Relecture", () => { this.selectedReviewId = null; return this.render(); }, "arrow-left");
+    const back = container.createDiv({ cls: "feuillets-notes-back-bar" }); this.button(back, t("nativeReview.back"), () => { this.selectedReviewId = null; return this.render(); }, "arrow-left");
     const loaded = (await listNativeReviewSessions(this.app)).find((item) => item.reviewId === reviewId);
-    if (!loaded?.session) { container.createEl("p", { text: loaded?.error || "Session introuvable." }); return; }
+    if (!loaded?.session) { container.createEl("p", { text: loaded?.error || t("nativeReview.notice.sessionMissing") }); return; }
     const session = loaded.session; const head = this.section(container, session.participants.map((p) => p.name).join(" ↔ "));
-    head.createEl("p", { text: `${session.localRole === "author" ? "Auteur" : "Relecteur"} · tour ${currentReviewRound(session).round} · ${state(session)}` });
-    if (session.status === "completed") { this.button(head, "Renvoyer le dernier paquet", () => this.resend(session)); await this.renderThreads(container, session, true); return; }
+    head.createEl("p", { text: `${roleLabel(session.localRole)} · ${t("nativeReview.round", { number: String(currentReviewRound(session).round) })} · ${state(session)}` });
+    if (session.status === "completed") { await this.renderCompleted(container, session); return; }
     if (session.localRole === "author") await this.renderAuthor(container, session); else await this.renderReviewer(container, session);
   }
   private async renderAuthor(container: HTMLElement, session: ReviewSession): Promise<void> {
-    const round = currentReviewRound(session); const section = this.section(container, "Échange auteur");
-    if (!round.received) { section.createEl("p", { text: "En attente du relecteur" }); this.button(section, "Renvoyer le paquet", () => this.resend(session)); this.button(section, "Importer un retour", () => this.pickFile()); return; }
+    const round = currentReviewRound(session); const section = this.section(container, t("nativeReview.authorExchange"));
+    if (!round.received) { section.createEl("p", { text: t("nativeReview.state.waitingReviewer") }); this.button(section, t("nativeReview.action.resendPackage"), () => this.resend(session)); this.button(section, t("nativeReview.action.importReturn"), () => this.pickFile()); return; }
     const [analysis, decisions] = await Promise.all([loadNativeReviewAuthorAnalysis(this.app, session.reviewId), loadNativeReviewAuthorDecisionState(this.app, session.reviewId)]);
     for (const document of analysis.analyses) for (let index = 0; index < document.changes.length; index += 1) {
-      const change = document.changes[index]; const item = section.createDiv({ cls: "feuillets-notes-section" }); item.createEl("strong", { text: document.title }); item.createDiv({ text: `${change.oldText} → ${change.newText}` }); item.createDiv({ cls: "feuillets-notes-sub", text: change.confidence === "safe" ? "Sûr" : change.confidence === "review" ? "À vérifier" : "Ambigu" });
+      const change = document.changes[index]; const item = section.createDiv({ cls: "feuillets-notes-section" }); item.createEl("strong", { text: document.title }); item.createDiv({ text: `${change.oldText} → ${change.newText}` }); item.createDiv({ cls: "feuillets-notes-sub", text: t(change.confidence === "safe" ? "nativeReview.confidence.safe" : change.confidence === "review" ? "nativeReview.confidence.review" : "nativeReview.confidence.ambiguous") });
       const decided = decisions.store.documents.find((d) => d.documentId === document.documentId)?.decisions.some((d) => d.changeIndex === index) || false;
       if (!decided) {
-        if (change.confidence === "safe" && change.reason === "non-overlapping") this.button(item, "Accepter", () => this.decide(session.reviewId, document.documentId, index, "accepted"));
-        if (change.reason === "already-applied") this.button(item, "Accepter", () => this.decide(session.reviewId, document.documentId, index, "accepted"));
-        this.button(item, "Refuser", () => this.decide(session.reviewId, document.documentId, index, "rejected"));
+        if (change.confidence === "safe" && change.reason === "non-overlapping") { this.button(item, t("nativeReview.action.accept"), () => this.decide(session.reviewId, document.documentId, index, "accepted")); this.button(item, t("nativeReview.action.reject"), () => this.decide(session.reviewId, document.documentId, index, "rejected")); }
+        else if (change.reason === "already-applied") this.button(item, t("nativeReview.action.accept"), () => this.decide(session.reviewId, document.documentId, index, "accepted"));
+        else this.button(item, t("nativeReview.action.reject"), () => this.decide(session.reviewId, document.documentId, index, "rejected"));
         const localSourcePath = document.localSourcePath;
-        if (change.confidence !== "safe" && localSourcePath) this.button(item, "Ouvrir le feuillet", () => this.open(localSourcePath));
-      } else item.createDiv({ cls: "feuillets-notes-sub", text: "Décision enregistrée" });
+        if ((change.confidence === "review" || change.confidence === "ambiguous") && localSourcePath) this.button(item, t("nativeReview.action.openSheet"), () => this.open(localSourcePath));
+      } else item.createDiv({ cls: "feuillets-notes-sub", text: t("nativeReview.decisionRecorded") });
     }
     await this.renderThreads(container, session, false);
-    if (decisions.complete) { this.button(section, "Nouveau tour", () => this.nextAuthor(session.reviewId)); this.button(section, "Terminer", () => this.complete(session.reviewId)); }
+    if (decisions.complete) { this.button(section, t("nativeReview.action.nextRound"), () => this.nextAuthor(session.reviewId)); this.button(section, t("nativeReview.action.complete"), () => this.complete(session.reviewId)); }
   }
   private async decide(reviewId: string, documentId: string, index: number, decision: "accepted" | "rejected"): Promise<void> { try { await decideNativeReviewAuthorChange(this.app, this.plugin.settings, reviewId, documentId, index, decision); await this.render(); } catch (error) { new Notice(errorMessage(error)); } }
   private async nextAuthor(reviewId: string): Promise<void> { try { const result = await createNativeReviewAuthorNextRound(this.app, this.plugin.settings, reviewId, version(this.plugin)); download(result.packageData, packageName(result.session)); await this.render(); } catch (error) { new Notice(errorMessage(error)); } }
   private async renderReviewer(container: HTMLElement, session: ReviewSession): Promise<void> {
-    const round = currentReviewRound(session); const section = this.section(container, "Échange relecteur");
-    if (round.sent) { section.createEl("p", { text: "En attente de l’auteur" }); this.button(section, "Renvoyer le dernier paquet", () => this.resend(session)); this.button(section, "Importer le tour suivant", () => this.pickFile()); this.button(section, "Terminer", () => this.complete(session.reviewId)); return; }
-    for (const document of session.documents) { const row = section.createDiv({ cls: "feuillets-notes-section" }); row.setText(document.title); if (document.localSourcePath) this.button(row, "Ouvrir", () => this.open(document.localSourcePath!)); }
-    this.button(section, "Commenter la sélection", () => this.commentSelection(session)); await this.renderThreads(container, session, false); this.button(section, "Renvoyer à l’auteur", () => this.returnReviewer(session.reviewId));
+    const round = currentReviewRound(session); const section = this.section(container, t("nativeReview.reviewerExchange"));
+    if (round.sent) { section.createEl("p", { text: t("nativeReview.state.waitingAuthor") }); this.button(section, t("nativeReview.action.resendLastPackage"), () => this.resend(session)); this.button(section, t("nativeReview.action.importNextRound"), () => this.pickFile()); this.button(section, t("nativeReview.action.complete"), () => this.complete(session.reviewId)); return; }
+    for (const document of session.documents) { const row = section.createDiv({ cls: "feuillets-notes-section" }); row.setText(document.title); if (document.localSourcePath) this.button(row, t("nativeReview.action.open"), () => this.open(document.localSourcePath!)); }
+    this.button(section, t("nativeReview.action.commentSelection"), () => this.commentSelection(session)); await this.renderThreads(container, session, false); this.button(section, t("nativeReview.action.returnAuthor"), () => this.returnReviewer(session.reviewId));
   }
   private async open(path: string): Promise<void> { const file = this.app.vault.getAbstractFileByPath(path); if (file instanceof TFile) await this.app.workspace.getLeaf(true).openFile(file); }
   private async commentSelection(session: ReviewSession): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView); const file = view?.file; const document = session.documents.find((item) => item.localSourcePath === file?.path);
-    if (!view || !file || !document) { new Notice("Ouvrez un document de travail de cette session et sélectionnez du texte."); return; }
-    const from = view.editor.getCursor("from"); const to = view.editor.getCursor("to"); const start = view.editor.posToOffset(from); const end = view.editor.posToOffset(to); if (start === end) { new Notice("Sélectionnez un passage à commenter."); return; }
-    new TextReviewModal(this.app, "Commentaire", async (text) => {
+    if (!view || !file || !document) { new Notice(t("nativeReview.notice.openWorkingSelection")); return; }
+    const from = view.editor.getCursor("from"); const to = view.editor.getCursor("to"); const start = view.editor.posToOffset(from); const end = view.editor.posToOffset(to); if (start === end) { new Notice(t("nativeReview.notice.selectPassage")); return; }
+    new TextReviewModal(this.app, t("nativeReview.comment"), async (text) => {
       try { await addNativeReviewThread(this.app, session.reviewId, document.documentId, start, end, text); await this.render(); } catch (error) { new Notice(errorMessage(error)); }
     }).open();
   }
   private async renderThreads(container: HTMLElement, session: ReviewSession, readOnly: boolean): Promise<void> {
-    const section = this.section(container, "Commentaires"); let threads: NativeReviewThread[]; try { threads = (await loadNativeReviewThreads(this.app, session.reviewId)).threads; } catch { threads = []; }
-    if (!threads.length) section.createEl("p", { text: "Aucun commentaire." });
+    const section = this.section(container, t("nativeReview.threads.title")); let threads: NativeReviewThread[];
+    try { threads = (await loadNativeReviewThreads(this.app, session.reviewId)).threads; } catch { section.createEl("p", { text: t("nativeReview.threads.unreadable") }); return; }
+    if (!threads.length) section.createEl("p", { text: t("nativeReview.threads.empty") });
     const names = new Map(session.participants.map((person) => [person.id, person.name]));
-    for (const thread of threads) { const item = section.createDiv({ cls: "feuillets-notes-section" }); item.createDiv({ text: `« ${thread.anchor.quote} » · ${thread.status === "resolved" ? "résolu" : "ouvert"}` }); for (const message of thread.messages) item.createDiv({ cls: "feuillets-notes-sub", text: `${names.get(message.participantId) || message.participantId} : ${message.text}` }); if (!readOnly) { const input = item.createEl("input", { type: "text", placeholder: "Répondre" }); this.button(item, "Répondre", async () => { if (!input.value.trim()) return; await replyNativeReviewThread(this.app, session.reviewId, thread.threadId, input.value.trim()); await this.render(); }); this.button(item, thread.status === "resolved" ? "Rouvrir" : "Résoudre", async () => { await setNativeReviewThreadResolved(this.app, session.reviewId, thread.threadId, thread.status !== "resolved"); await this.render(); }); } }
+    for (const thread of threads) { const item = section.createDiv({ cls: "feuillets-notes-section" }); item.createDiv({ text: `« ${thread.anchor.quote} » · ${t(thread.status === "resolved" ? "nativeReview.thread.resolved" : "nativeReview.thread.open")}` }); for (const message of thread.messages) item.createDiv({ cls: "feuillets-notes-sub", text: `${names.get(message.participantId) || message.participantId} : ${message.text}` }); if (!readOnly) { const input = item.createEl("input", { type: "text", placeholder: t("nativeReview.action.reply") }); this.button(item, t("nativeReview.action.reply"), async () => { if (!input.value.trim()) return; try { await replyNativeReviewThread(this.app, session.reviewId, thread.threadId, input.value.trim()); await this.render(); } catch { new Notice(t("nativeReview.notice.threadActionFailed")); } }); this.button(item, t(thread.status === "resolved" ? "nativeReview.action.reopen" : "nativeReview.action.resolve"), async () => { try { await setNativeReviewThreadResolved(this.app, session.reviewId, thread.threadId, thread.status !== "resolved"); await this.render(); } catch { new Notice(t("nativeReview.notice.threadActionFailed")); } }); } }
+  }
+  private async renderCompleted(container: HTMLElement, session: ReviewSession): Promise<void> {
+    const details = this.section(container, t("nativeReview.completed.details"));
+    details.createEl("p", { text: `${roleLabel(session.localRole)} · ${session.participants.map((person) => person.name).join(" ↔ ")}` });
+    for (const document of session.documents) details.createDiv({ cls: "feuillets-notes-section", text: document.title });
+    const history = this.section(container, t("nativeReview.completed.history"));
+    for (const round of session.rounds) history.createDiv({ cls: "feuillets-notes-section", text: `${t("nativeReview.round", { number: String(round.round) })} · ${t("nativeReview.completed.sent", { value: round.sent ? t("nativeReview.yes") : t("nativeReview.no") })} · ${t("nativeReview.completed.received", { value: round.received ? t("nativeReview.yes") : t("nativeReview.no") })}` });
+    this.button(details, t("nativeReview.action.resendLastPackage"), () => this.resend(session));
+    await this.renderThreads(container, session, true);
   }
   private async returnReviewer(reviewId: string): Promise<void> { try { const result = await createNativeReviewReviewerReturn(this.app, reviewId, version(this.plugin)); download(result.packageData, packageName(result.session)); await this.render(); } catch (error) { new Notice(errorMessage(error)); } }
   private async complete(reviewId: string): Promise<void> { try { await completeNativeReviewSession(this.app, reviewId); await this.render(); } catch (error) { new Notice(errorMessage(error)); } }
