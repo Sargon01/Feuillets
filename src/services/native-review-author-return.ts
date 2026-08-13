@@ -45,6 +45,13 @@ export interface NativeReviewAuthorReturnResult {
   localPackagePath: string;
   analyses: NativeReviewAuthorAnalysis[];
 }
+export interface NativeReviewAuthorLoadedAnalysis {
+  session: ReviewSession;
+  round: ReturnType<typeof currentReviewRound>;
+  sentPackage: NativeReviewPackage;
+  reviewPackage: NativeReviewPackage;
+  analyses: NativeReviewAuthorAnalysis[];
+}
 
 export class NativeReviewAuthorReturnError extends Error {
   constructor(message: string) { super(message); this.name = "NativeReviewAuthorReturnError"; }
@@ -137,6 +144,36 @@ async function authorMarkdown(app: App, path: string | undefined): Promise<strin
   const entry = app.vault.getAbstractFileByPath(path);
   if (!(entry instanceof TFile) || entry.extension !== "md") return undefined;
   try { return stripFrontmatter(await app.vault.read(entry)); } catch { return undefined; }
+}
+
+async function readAuthorAnalysis(app: App, reviewId: string, requireReceived: boolean): Promise<NativeReviewAuthorLoadedAnalysis> {
+  let session: ReviewSession | null;
+  try { session = await loadReviewSession(app, reviewId); } catch (error) { throw new NativeReviewAuthorReturnError(`Session de relecture illisible : ${error instanceof Error ? error.message : String(error)}`); }
+  if (!session) fail(`Session introuvable : ${reviewId}`);
+  if (session.localRole !== "author" || session.status !== "active") fail("La session auteur doit être active");
+  let round: ReturnType<typeof currentReviewRound>;
+  try { round = currentReviewRound(session); } catch (error) { throw new NativeReviewAuthorReturnError(`Tour de relecture invalide : ${error instanceof Error ? error.message : String(error)}`); }
+  if (!round.sent || (requireReceived && !round.received)) fail("Le tour courant doit être envoyé et reçu");
+  const readArchive = async (path: string, label: string): Promise<NativeReviewPackage> => {
+    const entry = app.vault.getAbstractFileByPath(path);
+    if (!(entry instanceof TFile)) fail(`${label} absente : ${path}`);
+    try { return await readNativeReviewPackage(await app.vault.readBinary(entry)); } catch (error) { throw new NativeReviewAuthorReturnError(`${label} invalide : ${error instanceof Error ? error.message : String(error)}`); }
+  };
+  const sentPackage = await readArchive(normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-sent.feuillets`), "Archive auteur");
+  const reviewPackage = await readArchive(normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-received.feuillets`), "Archive retour");
+  assertReturnPackage(session, round, reviewPackage); assertSameBase(session, round, sentPackage, reviewPackage);
+  const analyses: NativeReviewAuthorAnalysis[] = [];
+  for (const document of reviewPackage.documents) {
+    const local = session.documents.find((item) => item.documentId === document.documentId);
+    if (!local) fail(`Document de session absent : ${document.documentId}`);
+    analyses.push(analyseDocument(document, local.localSourcePath, await authorMarkdown(app, local.localSourcePath)));
+  }
+  return { session, round, sentPackage, reviewPackage, analyses };
+}
+
+/** Reloads the archived exchange and current local sources without writing. */
+export async function loadNativeReviewAuthorAnalysis(app: App, reviewId: string): Promise<NativeReviewAuthorLoadedAnalysis> {
+  return readAuthorAnalysis(app, reviewId, true);
 }
 
 function analyseDocument(
