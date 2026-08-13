@@ -8,6 +8,7 @@ import { EditionDocsView } from "./edition-docs-view.js";
 import { EditionCompositionView } from "./edition-composition-view.js";
 import { EditionLayoutView } from "./edition-layout-view.js";
 import { JournalView } from "./journal-view.js";
+import { NativeReviewView } from "./native-review-view.js";
 import { NotesView } from "./notes-view.js";
 import type { ProjectView } from "./project-view.js";
 import { ResearchView } from "./research-view.js";
@@ -19,7 +20,7 @@ type SidebarTab = "notes" | "research" | "journal" | "project" | "relecture";
  * les deux entrées compactes ; "analysis"/"docx" affichent l'une des deux
  * sous-vues complètes (TextAnalysisView/DocxReviewView), en remplacement
  * total de la page d'accueil, dans le même panneau. */
-type RelecturePage = "home" | "analysis" | "docx";
+type RelecturePage = "home" | "native" | "analysis" | "docx";
 /** Page affichée dans l'espace Édition ("project") — état PUREMENT en
  * mémoire, jamais persisté (même règle que `relecturePage` ci-dessus) :
  * survit tant que le panneau existe, repart de "home" à chaque rechargement
@@ -49,6 +50,7 @@ type SidebarSubViews = {
   editionLayout: SidebarSubView;
   analyse: AnalysisSidebarSubView;
   relecture: SidebarSubView;
+  nativeReview: SidebarSubView;
 };
 type SidebarTabDefinition = { id: SidebarTab; icon: string; titleKey: string };
 
@@ -113,6 +115,7 @@ export class SidebarFeuilletsView extends ItemView {
       editionLayout: new EditionLayoutView(this.leaf, this.plugin, { embedded: true }),
       analyse: new AnalysisView(this.leaf, this.plugin),
       relecture: new TextAnalysisView(this.leaf, this.plugin),
+      nativeReview: new NativeReviewView(this.leaf, this.plugin),
     };
   }
 
@@ -342,7 +345,7 @@ export class SidebarFeuilletsView extends ItemView {
     // vidage sans jamais l'emporter avec lui.
     this.renderRelectureBackBar(element);
     const content = element.createDiv();
-    const subView = this.relecturePage === "docx" ? this.subViews.docx : this.subViews.relecture;
+    const subView = this.relecturePage === "docx" ? this.subViews.docx : this.relecturePage === "native" ? this.subViews.nativeReview : this.subViews.relecture;
     await this.renderSubView(subView, content);
   }
 
@@ -375,6 +378,11 @@ export class SidebarFeuilletsView extends ItemView {
   }
 
   private renderRelectureHome(element: HTMLElement): void {
+    this.renderHomeRow(
+      element, "messages-square",
+      t("relecture.home.native.title"), t("relecture.home.native.sub"),
+      () => { this.relecturePage = "native"; void this.render(); }
+    );
     this.renderHomeRow(
       element, "spell-check",
       t("relecture.home.analysis.title"), t("relecture.home.analysis.sub"),
@@ -457,6 +465,7 @@ export class SidebarFeuilletsView extends ItemView {
     if (this.activeTab === "relecture") {
       if (this.relecturePage === "docx") await this.subViews.docx.render(force);
       else if (this.relecturePage === "analysis") await this.subViews.relecture.render(force);
+      else if (this.relecturePage === "native") await this.subViews.nativeReview.render(force);
       return;
     }
     await this.subViews[this.activeTab].render(force);

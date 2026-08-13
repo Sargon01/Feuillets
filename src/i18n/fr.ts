@@ -488,6 +488,8 @@ export const fr = {
      complètes Analyse du texte/Révision DOCX) et barre de retour de leurs
      vues secondaires — voir renderProofreadingTab, sidebar-feuillets-view.ts. */
   "relecture.backToHome": "Relecture",
+  "relecture.home.native.title": "Relecture collaborative",
+  "relecture.home.native.sub": "échange de manuscrit et commentaires avec un relecteur",
   "relecture.home.analysis.title": "Analyse du texte",
   "relecture.home.analysis.sub": "Répétitions et analyse linguistique",
   "relecture.home.docx.title": "Révision DOCX",

@@ -430,7 +430,7 @@ test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide san
   assert.equal(sidebar.editionPage, "home");
 });
 
-test("SidebarFeuilletsView : l'accueil Relecture affiche Analyse du texte et Révision DOCX sans rendre leurs sous-vues", async () => {
+test("SidebarFeuilletsView : l'accueil Relecture affiche la relecture collaborative, Analyse du texte et Révision DOCX sans rendre leurs sous-vues", async () => {
   const { sidebar, contentEl, calls } = createSidebar("relecture");
   await sidebar.render();
 
@@ -441,17 +441,17 @@ test("SidebarFeuilletsView : l'accueil Relecture affiche Analyse du texte et Ré
   const heads = allElements(content).filter(
     (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
   );
-  assert.equal(heads.length, 2, "deux lignes compactes cliquables");
+  assert.equal(heads.length, 3, "trois lignes compactes cliquables");
 
   const titles = allElements(content)
     .filter((el) => el.classes.has("feuillets-notes-section-title"))
     .map((el) => el.text);
-  assert.deepEqual(titles, [t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
+  assert.deepEqual(titles, [t("relecture.home.native.title"), t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
 
   const subs = allElements(content)
     .filter((el) => el.classes.has("feuillets-notes-sub"))
     .map((el) => el.text);
-  assert.deepEqual(subs, [t("relecture.home.analysis.sub"), t("relecture.home.docx.sub")]);
+  assert.deepEqual(subs, [t("relecture.home.native.sub"), t("relecture.home.analysis.sub"), t("relecture.home.docx.sub")]);
 
   // Pas de carte lourde : aucun .feuillets-hub-card sur cette page.
   assert.equal(allElements(content).some((el) => el.classes.has("feuillets-hub-card")), false);
@@ -461,7 +461,7 @@ test("SidebarFeuilletsView : cliquer sur Analyse du texte puis Révision DOCX ou
   const { sidebar, contentEl, calls } = createSidebar("relecture");
   await sidebar.render();
 
-  const [analysisHead] = allElements(contentEl.children[1]).filter(
+  const [, analysisHead] = allElements(contentEl.children[1]).filter(
     (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
   );
 
@@ -485,7 +485,7 @@ test("SidebarFeuilletsView : cliquer sur Analyse du texte puis Révision DOCX ou
 
   renders = 0;
   sidebar.render = async () => { renders += 1; };
-  heads[1].events.get("click")();
+  heads[2].events.get("click")();
   assert.equal(sidebar.relecturePage, "docx");
   assert.equal(renders, 1);
 
@@ -579,6 +579,7 @@ test("SidebarFeuilletsView : l'accueil Relecture propose Comparer une version po
     .filter((el) => el.classes.has("feuillets-notes-section-title"))
     .map((el) => el.text);
   assert.deepEqual(titles, [
+    t("relecture.home.native.title"),
     t("relecture.home.analysis.title"),
     t("relecture.home.docx.title"),
     t("relecture.home.diff.title"),
@@ -587,6 +588,7 @@ test("SidebarFeuilletsView : l'accueil Relecture propose Comparer une version po
     .filter((el) => el.classes.has("feuillets-notes-sub"))
     .map((el) => el.text);
   assert.deepEqual(subs, [
+    t("relecture.home.native.sub"),
     t("relecture.home.analysis.sub"),
     t("relecture.home.docx.sub"),
     t("relecture.home.diff.sub"),
@@ -606,7 +608,7 @@ test("SidebarFeuilletsView : Comparer une version n'apparaît pas sans feuillet 
     const titles = allElements(contentEl.children[1])
       .filter((el) => el.classes.has("feuillets-notes-section-title"))
       .map((el) => el.text);
-    assert.deepEqual(titles, [t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
+    assert.deepEqual(titles, [t("relecture.home.native.title"), t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
   }
 });
 
@@ -623,8 +625,8 @@ test("SidebarFeuilletsView : cliquer sur Comparer une version ouvre DiffModal av
     const rows = allElements(contentEl.children[1]).filter(
       (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
     );
-    assert.equal(rows.length, 3);
-    rows[2].events.get("click")();
+    assert.equal(rows.length, 4);
+    rows[3].events.get("click")();
 
     assert.ok(opened, "DiffModal.open() appelé");
     assert.equal(opened.currentFile, activeFile);

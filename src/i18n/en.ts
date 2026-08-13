@@ -488,6 +488,8 @@ export const en = {
      analysis/DOCX review sub-views) and the back bar of their secondary
      views — see renderProofreadingTab, sidebar-feuillets-view.ts. */
   "relecture.backToHome": "Proofreading",
+  "relecture.home.native.title": "Collaborative review",
+  "relecture.home.native.sub": "manuscript exchange and comments with a reviewer",
   "relecture.home.analysis.title": "Text analysis",
   "relecture.home.analysis.sub": "Repetitions and linguistic analysis",
   "relecture.home.docx.title": "DOCX review",
