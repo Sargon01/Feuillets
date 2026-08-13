@@ -369,6 +369,11 @@ export const en = {
   "notes.section.notesPlaceholder": "Working notes — never compiled or counted.",
   "notes.section.workingNotes": "Working notes",
   "notes.section.footnotes": "Footnotes",
+  "notes.section.annotations": "Annotations",
+  "notes.section.notesAndAnnotations": "Notes and annotations",
+  "notes.section.textMarks": "Text marks",
+  "notes.section.addNote": "Add…",
+  "notes.menu.open": "Open",
 
   "notes.context.title": "Context",
   "notes.context.titleWithDate": "Context",
@@ -1838,4 +1843,18 @@ export const en = {
 
   "settings.grammarExternal.name": "Grammar checker",
   "settings.grammarExternal.desc": "Feuillets no longer bundles or downloads a grammar checker. For spelling and grammar, install a dedicated plugin from Obsidian's Community Plugins browser — for example Harper for English, or LanguageTool. Those plugins are independent: Feuillets does not configure them or access their data.",
+
+  "main.cmd.addAnnotation": "Add an annotation",
+  "annotation.notice.noSelection": "Select some text in the Manuscript first to annotate it.",
+  "annotation.notice.corrupted": "annotations.json is invalid — fix it before continuing.",
+  "annotation.popover.textPlaceholder": "Comment (optional)",
+  "annotation.popover.color.yellow": "Yellow",
+  "annotation.popover.color.green": "Green",
+  "annotation.popover.color.blue": "Blue",
+  "annotation.popover.color.pink": "Pink",
+  "annotation.popover.delete": "Delete",
+  "annotation.panel.empty": "No annotations in this project.",
+  "annotation.panel.notFound": "Passage not found",
+  "annotation.panel.edit": "Edit",
+  "annotation.panel.withoutNote": "Annotation without note",
 } satisfies Record<keyof typeof fr, string>;

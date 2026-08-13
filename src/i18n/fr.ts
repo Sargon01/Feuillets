@@ -369,6 +369,11 @@ export const fr = {
   "notes.section.notesPlaceholder": "Notes de travail — jamais compilées ni comptées.",
   "notes.section.workingNotes": "Notes de travail",
   "notes.section.footnotes": "Notes de bas de page",
+  "notes.section.annotations": "Annotations",
+  "notes.section.notesAndAnnotations": "Notes et annotations",
+  "notes.section.textMarks": "Marques dans le texte",
+  "notes.section.addNote": "Ajouter…",
+  "notes.menu.open": "Ouvrir",
 
   "notes.context.title": "Contexte",
   "notes.context.titleWithDate": "Contexte",
@@ -1839,4 +1844,18 @@ export const fr = {
 
   "settings.grammarExternal.name": "Correcteur grammatical",
   "settings.grammarExternal.desc": "Feuillets n'inclut plus de correcteur grammatical et n'en télécharge aucun. Pour relire l'orthographe et la grammaire, installe un greffon dédié depuis la galerie communautaire d'Obsidian — par exemple Harper pour l'anglais, ou LanguageTool. Ces greffons sont indépendants : Feuillets ne les configure pas et n'accède pas à leurs données.",
+
+  "main.cmd.addAnnotation": "Ajouter une annotation",
+  "annotation.notice.noSelection": "Sélectionne d'abord du texte dans le Manuscrit pour l'annoter.",
+  "annotation.notice.corrupted": "Le fichier annotations.json est invalide — corrige-le avant de continuer.",
+  "annotation.popover.textPlaceholder": "Commentaire (facultatif)",
+  "annotation.popover.color.yellow": "Jaune",
+  "annotation.popover.color.green": "Vert",
+  "annotation.popover.color.blue": "Bleu",
+  "annotation.popover.color.pink": "Rose",
+  "annotation.popover.delete": "Supprimer",
+  "annotation.panel.empty": "Aucune annotation dans ce projet.",
+  "annotation.panel.notFound": "Passage introuvable",
+  "annotation.panel.edit": "Modifier",
+  "annotation.panel.withoutNote": "Annotation sans note",
 } as const;

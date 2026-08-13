@@ -26,7 +26,7 @@ import {
   findDefinition,
   findReferences,
 } from "./utils/footnotes.js";
-import { openFileActivating, selectRange } from "./utils/dom.js";
+import { openFileActivating, openFileAndSelectRange, selectRange } from "./utils/dom.js";
 import { NotesView } from "./views/notes-view.js";
 import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
@@ -84,9 +84,32 @@ import { DocxReviewView } from "./views/docx-review-view.js";
 import { NewSheetModal, ConfirmModal } from "./ui/basic-modals.js";
 import { FootnoteCheckModal } from "./ui/footnote-modals.js";
 import { FileStatsModal } from "./ui/stats-modal.js";
+import { AnnotationPopover } from "./ui/annotation-popover.js";
+import {
+  loadAnnotations,
+  addAnnotation,
+  updateAnnotation,
+  deleteAnnotation,
+  annotationsForFile,
+  resolveAnnotation,
+  toManuscriptRelativePath,
+  type AnnotationsStore,
+} from "./services/annotations.js";
+import { addWorkNote, deleteWorkNote, updateWorkNote } from "./services/work-notes.js";
 
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
+import {
+  annotationHighlightField,
+  annotationDoubleClickExtension,
+  applyAnnotationHighlights,
+  clearAnnotationHighlights,
+  coordsAtOffset,
+  type AnnotationHighlightInput,
+  type AnnotationDecorationTarget,
+  type AnchorRect,
+  type EditorViewInstance as AnnotationEditorViewInstance,
+} from "./utils/cm-annotation-highlighter.js";
 import { emptyLinesPlugin } from "./utils/cm-empty-lines.js";
 import { paragraphIndentPlugin } from "./utils/cm-paragraph-indent.js";
 import {
@@ -343,12 +366,19 @@ class FeuilletsPlugin extends Plugin {
     this.registerStatusBar();
     this.registerTextEditingCommands();
     this.registerFootnoteContextMenu();
+    this.registerAnnotationCommands();
+    this.registerAnnotationContextMenu();
+    this.registerAnnotationHighlightSync();
     this.registerVaultEvents();
     this.patchTabTitles();
     this.registerSwipeGestures();
     this.registerAutoBackup();
     this.registerEditorExtension(searchHighlightField);
     this.registerEditorExtension([grammarIssuesField, grammarContextMenuExtension(this)]);
+    this.registerEditorExtension([
+      annotationHighlightField,
+      annotationDoubleClickExtension((id, target) => void this.openAnnotationEditor(id, undefined, target)),
+    ]);
     this.registerEditorExtension(emptyLinesPlugin);
     this.registerEditorExtension(paragraphIndentPlugin);
 
@@ -1535,6 +1565,249 @@ class FeuilletsPlugin extends Plugin {
         }
       })
     );
+  }
+
+  /* ---------- Annotations de relecture (surlignage éditeur, lot 3) ----------
+     Stockage/ancrage : services/annotations.ts (lot 1). Décorations
+     CodeMirror : utils/cm-annotation-highlighter.ts (lot 2). Ici : la
+     commande de création, l'entrée de menu contextuel, le modal, et le
+     chargement/rafraîchissement des surlignages du fichier actif — jamais
+     d'écriture dans le Markdown, jamais de nouveau système de stockage. */
+
+  /** L'instance EditorView de CodeMirror 6 (view.editor.cm) — même accès
+   * non typé que runAnalysisCommand pour applyGrammarHighlights : `cm`
+   * n'est pas déclaré dans obsidian.d.ts. */
+  annotationCmView(editor: Editor | null): AnnotationEditorViewInstance | null {
+    if (!editor) return null;
+    const cm = (editor as unknown as Record<string, unknown>).cm;
+    return (cm as AnnotationEditorViewInstance) ?? null;
+  }
+
+  /** Disponible seulement avec une sélection non vide, dans un fichier
+   * Markdown du Manuscrit d'un projet Feuillets (voir
+   * toManuscriptRelativePath) — jamais hors de ce sous-arbre. */
+  canAnnotateSelection(): boolean {
+    const editor = this.activeEditorAnywhere();
+    if (!editor || !editor.somethingSelected()) return false;
+    const file = this.app.workspace.getActiveFile();
+    return !!file && toManuscriptRelativePath(this.app, this.settings, file) !== null;
+  }
+
+  registerAnnotationCommands(): void {
+    this.addCommand({
+      id: "add-annotation",
+      name: t("main.cmd.addAnnotation"),
+      checkCallback: (checking) => {
+        if (!this.canAnnotateSelection()) return false;
+        if (!checking) void this.createAnnotationFromSelection();
+        return true;
+      },
+    });
+  }
+
+  /** Entrée identique à la commande, dans le menu contextuel de l'éditeur —
+   * seulement quand une sélection existe dans un feuillet du Manuscrit. */
+  registerAnnotationContextMenu(): void {
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        if (!(view instanceof MarkdownView) || !view.file) return;
+        if (!editor.somethingSelected()) return;
+        if (toManuscriptRelativePath(this.app, this.settings, view.file) === null) return;
+        menu.addItem((item) =>
+          item
+            .setTitle(t("main.cmd.addAnnotation"))
+            .setIcon("highlighter")
+            .onClick(() => void this.createAnnotationFromSelection())
+        );
+      })
+    );
+  }
+
+  /** Position de repli du popover d'annotation quand aucune ancre réelle
+   * n'a pu être calculée (ex. « Modifier » depuis la page centralisée
+   * Annotations, où aucune décoration n'est visible à l'écran) — un coin
+   * raisonnable plutôt qu'un crash ou un refus d'ouvrir. */
+  static readonly DEFAULT_ANNOTATION_ANCHOR: AnchorRect = { left: 24, right: 24, top: 24, bottom: 24 };
+
+  /** Capture le texte sélectionné, ses offsets et un peu de contexte
+   * avant/après (utilisés par resolveAnnotation si le texte bouge un peu
+   * plus tard), puis ouvre le popover ancré près de la sélection —
+   * n'écrit dans annotations.json qu'à la fermeture du popover (voir
+   * AnnotationPopover.close), jamais avant, jamais dans le Markdown. */
+  async createAnnotationFromSelection(): Promise<void> {
+    const editor = this.activeEditorAnywhere();
+    const file = this.app.workspace.getActiveFile();
+    const relPath = file ? toManuscriptRelativePath(this.app, this.settings, file) : null;
+    const selection = this.currentSelectionRange();
+    if (!editor || relPath === null || !selection) {
+      new Notice(t("annotation.notice.noSelection"));
+      return;
+    }
+
+    const content = editor.getValue();
+    const CONTEXT_LENGTH = 30;
+    const quote = content.slice(selection.start, selection.end);
+    const prefix = content.slice(Math.max(0, selection.start - CONTEXT_LENGTH), selection.start);
+    const suffix = content.slice(selection.end, Math.min(content.length, selection.end + CONTEXT_LENGTH));
+
+    const cm = this.annotationCmView(editor);
+    const anchor =
+      coordsAtOffset(cm, selection.end) ??
+      coordsAtOffset(cm, selection.start) ??
+      FeuilletsPlugin.DEFAULT_ANNOTATION_ANCHOR;
+
+    new AnnotationPopover({
+      parentEl: document.body,
+      anchor,
+      text: "",
+      color: "yellow",
+      onSave: async (text, color, style) => {
+        await addAnnotation(this.app, this.settings, {
+          file: relPath,
+          start: selection.start,
+          end: selection.end,
+          quote,
+          prefix,
+          suffix,
+          text,
+          color,
+          style,
+        });
+        await this.refreshAnnotationHighlights();
+      },
+    }).open();
+  }
+
+  /** Ouvre le popover en modification pour l'annotation `id`, près de
+   * `anchor` — appelé par le double-clic sur une décoration
+   * (annotationDoubleClickExtension, qui transmet l'élément décoré comme
+   * ancre) et, depuis le lot 4, par l'action « Modifier » de la page
+   * centralisée Annotations (NotesView.renderAnnotationRow, sans ancre :
+   * repli sur DEFAULT_ANNOTATION_ANCHOR). `onChange` est un point
+   * d'extension MINIMAL pour ce second appelant : NotesView n'a besoin de
+   * rien de plus que d'être prévenue une fois la sauvegarde/suppression
+   * effectuée, pour rerendre sa propre liste — le popover, la persistance
+   * (update/deleteAnnotation) et le rafraîchissement CodeMirror restent
+   * ICI, jamais dupliqués ailleurs. */
+  async openAnnotationEditor(
+    id: string,
+    onChange?: () => void,
+    anchor?: AnchorRect | AnnotationDecorationTarget
+  ): Promise<void> {
+    let store: AnnotationsStore;
+    try {
+      store = await loadAnnotations(this.app, this.settings);
+    } catch {
+      new Notice(t("annotation.notice.corrupted"));
+      return;
+    }
+    const annotation = store.annotations.find((a) => a.id === id);
+    if (!annotation) return;
+
+    let resolvedAnchor = anchor;
+    if (!resolvedAnchor) {
+      const root = this.getProjectFolder();
+      const targetFile = root ? this.app.vault.getAbstractFileByPath(`${root.path}/${annotation.file}`) : null;
+      if (targetFile instanceof TFile && this.app.workspace.getLeaf) {
+        const content = await (this.app.vault.cachedRead?.(targetFile) ?? this.app.vault.read(targetFile));
+        const range = resolveAnnotation(annotation, content);
+        if (range) {
+          await openFileAndSelectRange(this.app, this.app.workspace.getLeaf(false), targetFile, range.start, range.end);
+          await this.refreshAnnotationHighlights();
+          await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+          const candidates = Array.from(document.querySelectorAll<HTMLElement>(`[data-annotation-id="${CSS.escape(id)}"]`));
+          resolvedAnchor = candidates.find((el) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; }) ?? this.app.workspace.getActiveViewOfType(MarkdownView)?.contentEl.querySelector<HTMLElement>(".cm-editor") ?? undefined;
+        }
+      }
+    }
+    new AnnotationPopover({
+      parentEl: document.body,
+      anchor: resolvedAnchor ?? FeuilletsPlugin.DEFAULT_ANNOTATION_ANCHOR,
+      text: annotation.text,
+      color: annotation.color,
+      style: annotation.style ?? "highlight",
+      onStyleChange: async (style) => {
+        await updateAnnotation(this.app, this.settings, id, { style });
+        await this.refreshAnnotationHighlights();
+      },
+      onSave: async (text, color, style) => {
+        await updateAnnotation(this.app, this.settings, id, { text, color, style });
+        await this.refreshAnnotationHighlights();
+        onChange?.();
+      },
+      onDelete: async () => {
+        await deleteAnnotation(this.app, this.settings, id);
+        await this.refreshAnnotationHighlights();
+        onChange?.();
+      },
+    }).open();
+  }
+
+  async openWorkNoteEditor(file: TFile, id: string | null, initialText: string, onChange: () => void, legacy = false, sidebarAnchor?: HTMLElement): Promise<void> {
+    const anchor = sidebarAnchor ?? FeuilletsPlugin.DEFAULT_ANNOTATION_ANCHOR;
+    new AnnotationPopover({ parentEl: document.body, anchor, text: initialText, color: "yellow", showColors: false, showStyles: false,
+      onSave: async (text) => {
+        if (legacy) await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => { frontmatter.notes = text; });
+        else if (id) await updateWorkNote(this.app, this.settings, id, text);
+        else { const relative = toManuscriptRelativePath(this.app, this.settings, file); if (relative !== null) await addWorkNote(this.app, this.settings, relative, text); }
+        onChange();
+      },
+      onDelete: legacy ? undefined : async () => { if (id) await deleteWorkNote(this.app, this.settings, id); onChange(); },
+    }).open();
+  }
+
+  /** Recharge les annotations du fichier actif, les résout avec
+   * resolveAnnotation() et transmet uniquement les annotations résolues au
+   * highlighter — nettoie si le fichier n'a aucune annotation ou n'est pas
+   * dans le Manuscrit. Appelé au changement de fichier/feuillet actif
+   * seulement (voir registerAnnotationHighlightSync) : jamais à chaque
+   * frappe, CodeMirror mappe déjà les décorations existantes via
+   * tr.changes. */
+  async refreshAnnotationHighlights(): Promise<void> {
+    const editor = this.activeEditorAnywhere();
+    const cm = this.annotationCmView(editor);
+    if (!cm) return;
+
+    const file = this.app.workspace.getActiveFile();
+    const relPath = file ? toManuscriptRelativePath(this.app, this.settings, file) : null;
+    if (relPath === null) {
+      clearAnnotationHighlights(cm);
+      return;
+    }
+
+    let store: AnnotationsStore;
+    try {
+      store = await loadAnnotations(this.app, this.settings);
+    } catch {
+      clearAnnotationHighlights(cm);
+      return;
+    }
+
+    const list = annotationsForFile(store, relPath);
+    if (list.length === 0) {
+      clearAnnotationHighlights(cm);
+      return;
+    }
+
+    const content = editor ? editor.getValue() : "";
+    const inputs: AnnotationHighlightInput[] = list.map((a) => ({
+      id: a.id,
+      color: a.color,
+      style: a.style ?? "highlight",
+      range: resolveAnnotation(a, content),
+    }));
+    applyAnnotationHighlights(cm, inputs);
+  }
+
+  /** Événements Workspace déjà utilisés ailleurs dans main.ts pour ce genre
+   * de resynchronisation (voir registerStatusBar, registerLiveTypography) —
+   * pas d'écoute "editor-change" ici : ce serait un scan à chaque frappe,
+   * inutile puisque CodeMirror mappe déjà les décorations existantes. La
+   * gestion de plusieurs panneaux ouverts simultanément reste au lot 5. */
+  registerAnnotationHighlightSync(): void {
+    const refresh = () => void this.refreshAnnotationHighlights();
+    this.registerEvent(this.app.workspace.on("file-open", refresh));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", refresh));
   }
 
   async maybeAutoInitializeResearchFile(file) {

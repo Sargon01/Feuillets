@@ -1,10 +1,18 @@
-import { MarkdownView, TFile, TFolder, setIcon, type Editor, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, type Editor, type WorkspaceLeaf } from "obsidian";
 
 import { VIEW_NOTES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { foldAccents } from "../utils/core.js";
 import { latestStateBefore } from "../utils/entity-states.js";
-import { isEditing, openFileActivating } from "../utils/dom.js";
+import { isEditing, openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
+import {
+  loadAnnotations,
+  deleteAnnotation,
+  resolveAnnotation,
+  toManuscriptRelativePath,
+  type Annotation,
+  type AnnotationsStore,
+} from "../services/annotations.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "../ui/project-properties-modals.js";
 import { FRONT_PAGE_TYPES } from "../services/folder-structure.js";
 import { t } from "../i18n/index.js";
@@ -20,6 +28,7 @@ import {
   type ContentSourceKind,
 } from "../services/context-content-cache.js";
 import { getProjectType } from "../services/project-mode.js";
+import { addWorkNote, deleteWorkNote, loadWorkNotes } from "../services/work-notes.js";
 
 /** Délai de latence avant de recalculer la section « Contexte » après un
  * déplacement du curseur ou une frappe dans l'éditeur suivi — voir
@@ -45,8 +54,10 @@ type Footnote = { label: string; text: string };
  * vue principale du Feuillet, les trois autres sont des pages secondaires
  * qui remplacent tout le reste du panneau (comme l'ancien
  * `workingNotesOpen`, désormais généralisé à Propriétés et Notes de bas de
- * page). */
-type NotesPage = "home" | "working-notes" | "properties" | "footnotes";
+ * page). "annotations" (chantier annotations, lot 4) suit exactement le
+ * même patron : ligne d'accès compacte dans la vue principale, page
+ * secondaire dédiée, retour à "home" au changement de fichier actif. */
+type NotesPage = "home" | "properties" | "footnotes" | "notes-and-annotations";
 type BaseNotesViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type NotesSettings = FeuilletsSettings & {
   collapsed: Record<string, boolean>;
@@ -61,6 +72,10 @@ type NotesSettings = FeuilletsSettings & {
 type NotesViewPlugin = Omit<BaseNotesViewPlugin, "parseStoryDate" | "settings"> & {
   settings: NotesSettings;
   parseStoryDate(raw: unknown, file?: TFile | null): StoryDate | null;
+  openAnnotationEditor(id: string, onChange?: () => void): Promise<void>;
+  refreshAnnotationHighlights(): Promise<void>;
+  createAnnotationFromSelection(): Promise<void>;
+  openWorkNoteEditor(file: TFile, id: string | null, text: string, onChange: () => void, legacy?: boolean, anchor?: HTMLElement): Promise<void>;
 };
 
 const SECTION_ICONS: Partial<Record<NotesSectionKey, string>> = {
@@ -309,12 +324,12 @@ export class NotesView extends BaseFeuilletsView {
     // secondaire est ouverte). `viewedFile` reste intact en dessous : le
     // Retour d'ICI ne fait que fermer cette page, jamais quitter la note de
     // dossier consultée.
-    if (this.notesPage === "working-notes") {
-      this.renderWorkingNotesPanel(wrapper, file, fm);
-      return;
-    }
     if (this.notesPage === "properties") {
       this.renderPropertiesPanel(wrapper, file);
+      return;
+    }
+    if (this.notesPage === "notes-and-annotations") {
+      await this.renderNotesAndAnnotationsPanel(wrapper, file, fm);
       return;
     }
     if (this.notesPage === "footnotes" && S.notesShowFootnotes) {
@@ -408,10 +423,14 @@ export class NotesView extends BaseFeuilletsView {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.synopsis"), "synopsis", file, fm, t("notes.section.synopsisPlaceholder"), 3);
       } else if (sectionName === "Résumé" && S.notesShowResume && showResume) {
         this.renderCollapsibleTextarea(wrapper, t("notes.section.summary"), "summary", file, fm, t("notes.section.summaryPlaceholder"), 5);
-      } else if (sectionName === "Notes" && S.notesShowNotes) {
-        this.renderWorkingNotesRow(wrapper);
       }
     }
+    // Annotations (chantier annotations, lot 4) : après Notes de travail,
+    // avant Contexte — même emplacement quel que soit l'ordre personnalisé
+    // de Synopsis/Résumé/Notes ci-dessus (S.notesSectionOrder), puisque
+    // Contexte lui-même n'en fait jamais partie.
+    this.renderNotesAndAnnotationsRow(wrapper);
+
     // Contexte rendu une fois la boucle Synopsis/Résumé/Notes terminée,
     // avant Notes de bas de page.
     await renderEntitiesOnce();
@@ -1641,6 +1660,218 @@ export class NotesView extends BaseFeuilletsView {
     }
   }
 
+  /* ---------- Annotations de relecture (page centralisée, lot 4) ----------
+     Stockage/ancrage : services/annotations.ts (lot 1). Modal + logique de
+     modification/suppression/rafraîchissement CodeMirror : main.ts (lot 3,
+     openAnnotationEditor) — jamais dupliqués ici, seulement appelés. */
+
+  /** Ligne compacte, même patron que renderFootnotesRow : icône + libellé +
+   * compteur + chevron, un clic ouvre la page secondaire Annotations. Le
+   * compteur porte sur TOUT le projet (pas seulement le feuillet affiché),
+   * et la ligne n'apparaît pas du tout si le projet ne contient aucune
+   * annotation — pas de nouveau réglage pour la masquer, contrairement à
+   * Notes de bas de page (S.notesShowFootnotes). Un annotations.json
+   * corrompu (lot 1, AnnotationsFileCorruptedError) ne doit pas faire
+   * planter la vue principale : la ligne est simplement omise, comme s'il
+   * n'y avait aucune annotation. */
+  private renderNotesAndAnnotationsRow(container: HTMLElement): void {
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable" });
+
+    const iconSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(iconSpan, "sticky-note");
+
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.notesAndAnnotations"));
+
+    const chevronSpan = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(chevronSpan, "chevron-right");
+
+    head.addEventListener("click", () => {
+      this.notesPage = "notes-and-annotations";
+      void this.render();
+    });
+  }
+
+  /** Page secondaire Annotations — même barre de retour que les autres
+   * pages secondaires. Liste TOUTES les annotations du projet : celles du
+   * feuillet actuellement affiché d'abord, puis les autres regroupées par
+   * fichier (un sous-titre par fichier, dans l'ordre alphabétique — pas de
+   * catégorie, filtre ni recherche). Chaque fichier concerné n'est lu
+   * qu'une seule fois (cachedRead) pour résoudre toutes ses annotations
+   * d'un coup avec resolveAnnotation() (lot 1). */
+  private async renderNotesAndAnnotationsPanel(container: HTMLElement, file: TFile, fm: NotesFrontmatter): Promise<void> {
+    const backBar = container.createDiv({ cls: "feuillets-notes-back-bar" });
+    const backBtn = backBar.createEl("button", {
+      cls: "feuillets-back-btn",
+      text: ` ${t("notes.backToSheet")}`
+    });
+    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" });
+    setIcon(iconSpan, "arrow-left");
+    backBtn.prepend(iconSpan);
+    backBtn.addEventListener("click", () => {
+      this.notesPage = "home";
+      void this.render();
+    });
+
+    const notesSection = container.createDiv({ cls: "feuillets-notes-section" });
+    const notesHead = notesSection.createDiv({ cls: "feuillets-notes-section-head" });
+    const notesIcon = notesHead.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(notesIcon, "sticky-note");
+    notesHead.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.workingNotes"));
+    const notesList = notesSection.createDiv({ cls: "feuillets-work-notes-list" });
+    const legacy = typeof fm.notes === "string" ? fm.notes : "";
+    if (legacy) this.renderWorkNoteText(notesList, file, null, legacy, true);
+    try {
+      const relative = toManuscriptRelativePath(this.app, this.plugin.settings, file);
+      const store = await loadWorkNotes(this.app, this.plugin.settings);
+      for (const note of relative === null ? [] : store.notes.filter((n) => n.file === relative)) this.renderWorkNoteText(notesList, file, note.id, note.text, false);
+    } catch { notesList.createDiv({ cls: "feuillets-empty" }).setText("work-notes.json invalide"); }
+    const addLine = notesList.createEl("button", { cls: "feuillets-work-note-add clickable-icon" });
+    setIcon(addLine, "plus"); addLine.setAttr("aria-label", t("notes.section.addNote"));
+    addLine.addEventListener("click", () => this.renderInlineWorkNote(addLine, file));
+
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+    const titleIcon = head.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(titleIcon, "highlighter");
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.annotations"));
+
+    let store: AnnotationsStore;
+    try {
+      store = await loadAnnotations(this.app, this.plugin.settings);
+    } catch {
+      section.createDiv({ cls: "feuillets-empty" }).setText(t("annotation.notice.corrupted"));
+      await this.renderTextMarks(container, file);
+      return;
+    }
+    if (store.annotations.length === 0) {
+      section.createDiv({ cls: "feuillets-empty" }).setText(t("annotation.panel.empty"));
+      await this.renderTextMarks(container, file);
+      return;
+    }
+
+    const root = this.plugin.getProjectFolder();
+    const currentRelPath = root ? toManuscriptRelativePath(this.app, this.plugin.settings, file) : null;
+
+    const byFile = new Map<string, Annotation[]>();
+    for (const a of store.annotations) {
+      const list = byFile.get(a.file);
+      if (list) list.push(a);
+      else byFile.set(a.file, [a]);
+    }
+
+    const otherPaths = [...byFile.keys()]
+      .filter((p) => p !== currentRelPath)
+      .sort((a, b) => a.localeCompare(b, "fr"));
+    const orderedPaths = currentRelPath && byFile.has(currentRelPath) ? [currentRelPath, ...otherPaths] : otherPaths;
+
+    const list = section.createDiv({ cls: "feuillets-notes-field-container" });
+    for (const relPath of orderedPaths) {
+      const annotations = byFile.get(relPath) || [];
+      const targetFile = root
+        ? this.app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${relPath}`))
+        : null;
+      const resolvedFile = targetFile instanceof TFile ? targetFile : null;
+
+      if (relPath !== currentRelPath) {
+        list.createDiv({ cls: "feuillets-notes-section-title feuillets-annotation-file-heading" })
+          .setText(resolvedFile ? this.plugin.titleFor(resolvedFile) : relPath);
+      }
+
+      let content: string | null = null;
+      if (resolvedFile) {
+        try {
+          content = await this.app.vault.cachedRead(resolvedFile);
+        } catch {
+          content = null;
+        }
+      }
+
+      for (const annotation of annotations) {
+        const resolved = content !== null ? resolveAnnotation(annotation, content) : null;
+        this.renderAnnotationRow(list, annotation, resolvedFile, resolved, content);
+      }
+    }
+    await this.renderTextMarks(container, file);
+  }
+
+  private renderWorkNoteText(container: HTMLElement, file: TFile, id: string | null, text: string, legacy: boolean): void {
+    const row = container.createDiv({ cls: "feuillets-work-note" }); row.setText(text);
+    row.addEventListener("contextmenu", (event: MouseEvent) => {
+      event.preventDefault();
+      const menu = new Menu();
+      menu.addItem((item) => item.setTitle(t("notes.menu.open")).setIcon("pencil").onClick(() => void this.plugin.openWorkNoteEditor(file, id, text, () => void this.render(), legacy, row)));
+      menu.addItem((item) => item.setTitle(t("annotation.popover.delete")).setIcon("trash-2").onClick(() => void this.deleteWorkNote(file, id, legacy)));
+      menu.showAtMouseEvent(event);
+    });
+  }
+
+  private renderInlineWorkNote(addLine: HTMLElement, file: TFile): void {
+    const textarea = addLine.parentElement!.createEl("textarea", { cls: "feuillets-work-note-input" });
+    addLine.before(textarea); addLine.remove(); textarea.focus();
+    let done = false;
+    const finish = (): void => { if (done) return; done = true; void (async () => { const relative = toManuscriptRelativePath(this.app, this.plugin.settings, file); if (relative && textarea.value.trim()) await addWorkNote(this.app, this.plugin.settings, relative, textarea.value); void this.render(); })(); };
+    textarea.addEventListener("blur", finish); textarea.addEventListener("keydown", (event: KeyboardEvent) => { if (event.key === "Escape") { done = true; void this.render(); } else if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); textarea.blur(); } });
+  }
+
+  private async deleteWorkNote(file: TFile, id: string | null, legacy: boolean): Promise<void> {
+    if (legacy) await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => { delete frontmatter.notes; });
+    else if (id) await deleteWorkNote(this.app, this.plugin.settings, id);
+    await this.render();
+  }
+
+  private async renderTextMarks(container: HTMLElement, file: TFile): Promise<void> {
+    const content = await this.app.vault.cachedRead(file); const bodyStart = content.match(/^---\n[\s\S]*?\n---\n?/)?.[0].length ?? 0;
+    const re = /%%([\s\S]*?)%%|==([\s\S]*?)==/g; let match: RegExpExecArray | null;
+    const marks: Array<{ text: string; start: number; end: number; comment: boolean }> = [];
+    while ((match = re.exec(content))) { if (match.index >= bodyStart) { const text = match[1] ?? match[2] ?? ""; const start = match.index + 2; marks.push({ text, start, end: start + text.length, comment: match[1] !== undefined }); } }
+    if (!marks.length) return;
+    const section = container.createDiv({ cls: "feuillets-notes-section" }); const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+    const icon = head.createSpan({ cls: "feuillets-notes-section-icon" }); setIcon(icon, "message-square");
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.textMarks")); const list = section.createDiv({ cls: "feuillets-notes-field-container" });
+    for (const mark of marks) { const row = list.createDiv({ cls: `feuillets-flat-text-cell feuillets-clickable feuillets-text-mark ${mark.comment ? "feuillets-text-mark-comment" : "feuillets-text-mark-highlight"}` }); const markIcon = row.createSpan({ cls: "feuillets-text-mark-icon" }); setIcon(markIcon, mark.comment ? "message-square" : "highlighter"); row.createSpan({ cls: "feuillets-text-mark-content" }).setText(mark.text); row.addEventListener("click", () => void openFileAndSelectRange(this.app, this.app.workspace.getLeaf(false), file, mark.start, mark.end)); }
+  }
+
+  /** Une ligne d'annotation : pastille de couleur, extrait court du passage
+   * (ou « Passage introuvable » si le fichier a disparu ou que le passage
+   * n'a pas pu être résolu — jamais de navigation dans ce cas, voir
+   * resolveAnnotation), texte de l'annotation, action discrète Modifier.
+   * Le clic sur la ligne navigue (openFileAndSelectRange, lot 1 pour la
+   * résolution + utils/dom.ts pour la navigation, rien de recréé ici) ;
+   * Modifier réutilise TEL QUEL plugin.openAnnotationEditor (lot 3) — ni le
+   * modal, ni la persistance, ni le rafraîchissement CodeMirror ne sont
+   * dupliqués. Le callback passé en second argument fait juste rerendre
+   * CETTE page après une modification/suppression. */
+  private renderAnnotationRow(
+    container: HTMLElement,
+    annotation: Annotation,
+    file: TFile | null,
+    resolved: { start: number; end: number } | null,
+    content: string | null
+  ): void {
+    const canNavigate = !!file && !!resolved;
+    const row = container.createDiv({ cls: "feuillets-flat-text-cell feuillets-annotation-row" });
+
+    row.createSpan({ cls: `feuillets-annotation-dot feuillets-annotation-dot-${annotation.color}` });
+
+    row.createSpan({ cls: "feuillets-annotation-text" }).setText(annotation.text || t("annotation.panel.withoutNote"));
+
+    if (canNavigate && file && resolved) {
+      row.addClass("feuillets-clickable");
+      row.addEventListener("click", () => {
+        void this.plugin.openAnnotationEditor(annotation.id, () => void this.render());
+      });
+    }
+
+    const deleteBtn = row.createSpan({ cls: "feuillets-annotation-edit feuillets-clickable" });
+    setIcon(deleteBtn, "trash-2");
+    deleteBtn.setAttr("aria-label", t("annotation.popover.delete"));
+    deleteBtn.addEventListener("click", (e: MouseEvent) => {
+      e.stopPropagation(); // ne pas déclencher la navigation de la ligne
+      void (async () => { await deleteAnnotation(this.app, this.plugin.settings, annotation.id); await this.plugin.refreshAnnotationHighlights(); void this.render(); })();
+    });
+  }
+
   /** Ligne compacte remplaçant le textarea « Notes » dans la vue
    * principale du Feuillet : icône + libellé + chevron, un clic ouvre la
    * vue secondaire Notes de travail (voir renderWorkingNotesPanel). Ne
@@ -1660,7 +1891,7 @@ export class NotesView extends BaseFeuilletsView {
     setIcon(chevronSpan, "chevron-right");
 
     head.addEventListener("click", () => {
-      this.notesPage = "working-notes";
+      this.notesPage = "notes-and-annotations";
       void this.render();
     });
   }

@@ -3029,6 +3029,194 @@ body.feuillets-text-width
   color: var(--text-on-accent);
 }
 
+/* ===== annotations de relecture : surlignage dans l'éditeur =====
+   Classes posées par applyAnnotationHighlights (cm-annotation-highlighter.js)
+   sur les décorations CodeMirror 6 — quatre couleurs fixes (chantier
+   annotations, lot 1), superposition semi-transparente comme pour la
+   recherche : le texte garde --text-normal, lisible sur les deux thèmes. */
+
+.cm-annotation-highlight {
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.cm-annotation-highlight-yellow {
+  background: rgba(255, 213, 0, 0.35);
+}
+
+.cm-annotation-highlight-green {
+  background: rgba(76, 175, 80, 0.3);
+}
+
+.cm-annotation-highlight-blue {
+  background: rgba(33, 150, 243, 0.28);
+}
+
+.cm-annotation-highlight-pink {
+  background: rgba(233, 30, 99, 0.25);
+}
+
+.cm-annotation-style-underline { background: transparent; text-decoration-line: underline; text-decoration-color: currentColor; text-decoration-thickness: 2px; }
+.cm-annotation-style-strikethrough { background: transparent; text-decoration-line: line-through; text-decoration-color: currentColor; text-decoration-thickness: 2px; }
+.cm-annotation-style-underline.cm-annotation-highlight-yellow, .cm-annotation-style-strikethrough.cm-annotation-highlight-yellow { color: #b89600; }
+.cm-annotation-style-underline.cm-annotation-highlight-green, .cm-annotation-style-strikethrough.cm-annotation-highlight-green { color: #3b8c3f; }
+.cm-annotation-style-underline.cm-annotation-highlight-blue, .cm-annotation-style-strikethrough.cm-annotation-highlight-blue { color: #1976c0; }
+.cm-annotation-style-underline.cm-annotation-highlight-pink, .cm-annotation-style-strikethrough.cm-annotation-highlight-pink { color: #c2185b; }
+
+/* ===== annotations : popover de création/modification (correctif UI) =====
+   Remplace l'ancien AnnotationModal (Modal Obsidian plein overlay) par une
+   petite carte flottante ancrée près du passage — jamais un overlay, juste
+   un élément position:fixed positionné par ui/annotation-popover.ts.
+   Variables Obsidian natives uniquement, mêmes conventions que
+   .feuillets-search-popover (couleurs, rayon, ombre) un peu plus haut dans
+   ce fichier. */
+
+.feuillets-annotation-popover {
+  position: fixed;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2, 8px);
+  padding: var(--size-4-3, 12px);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s);
+  z-index: 101;
+}
+
+.feuillets-annotation-popover-textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  color: var(--text-normal);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+  padding: 0;
+}
+
+.feuillets-annotation-popover-textarea:hover,
+.feuillets-annotation-popover-textarea:focus,
+.feuillets-annotation-popover-textarea:focus-visible { background: transparent; border: none; border-radius: 0; box-shadow: none; outline: none; }
+
+.feuillets-annotation-popover-textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.feuillets-annotation-popover-colors {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2, 8px);
+}
+.feuillets-annotation-popover-styles { display: flex; align-items: center; gap: var(--size-4-1, 4px); margin-right: var(--size-4-2, 8px); }
+.feuillets-annotation-popover-style { display: inline-flex; color: var(--text-muted); padding: 1px; border-radius: var(--radius-s); }
+.feuillets-annotation-popover-style.is-selected { color: var(--text-normal); background: var(--background-modifier-hover); }
+
+.feuillets-annotation-popover-footer {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+}
+
+.feuillets-annotation-popover-footer .feuillets-annotation-popover-delete {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.feuillets-annotation-popover-color {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+}
+
+.feuillets-annotation-popover-color.is-selected {
+  box-shadow: 0 0 0 2px var(--background-primary), 0 0 0 3px var(--text-normal);
+}
+
+.feuillets-annotation-popover-delete {
+  align-self: flex-start;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.feuillets-annotation-popover-delete:hover {
+  color: var(--text-normal);
+}
+
+/* ===== annotations : page centralisée (NotesView, lot 4) =====
+   Une ligne par annotation, même cellule que les autres listes plates du
+   panneau Feuillet (.feuillets-flat-text-cell — Notes de bas de page,
+   Documents associés…), simplement mise en ligne pour accueillir la
+   pastille de couleur et l'action Modifier. */
+
+.feuillets-annotation-file-heading {
+  margin-top: var(--size-4-3, 12px);
+  color: var(--text-muted);
+  font-weight: var(--font-semibold, 600);
+}
+
+.feuillets-annotation-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2, 8px);
+}
+
+.feuillets-annotation-dot {
+  width: 10px;
+  height: 10px;
+  min-width: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--background-modifier-border-hover, var(--text-faint));
+}
+
+.feuillets-annotation-dot-yellow { background: #ffd500; }
+.feuillets-annotation-dot-green { background: #4caf50; }
+.feuillets-annotation-dot-blue { background: #2196f3; }
+.feuillets-annotation-dot-pink { background: #e91e63; }
+
+.feuillets-annotation-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-annotation-edit {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.feuillets-annotation-edit:hover {
+  color: var(--text-normal);
+}
+
+/* Notes de travail : blocs de texte continus, sans cartes ni contrôles
+   visibles. Le séparateur est la seule structure entre deux notes. */
+.feuillets-work-notes-list { display: flex; flex-direction: column; }
+.feuillets-work-note { white-space: pre-wrap; padding: var(--size-4-2, 8px) 0; color: var(--text-normal); font-size: var(--font-ui-small); line-height: var(--line-height-normal); }
+.feuillets-work-note + .feuillets-work-note { border-top: 1px solid var(--background-modifier-border); }
+.feuillets-work-note-add { align-self: center; margin: var(--size-4-2, 8px) auto 0; color: var(--text-muted); }
+.feuillets-work-note-input { width: 100%; min-height: 3em; resize: vertical; border: none; outline: none; box-shadow: none; background: transparent; color: var(--text-normal); font: inherit; padding: var(--size-4-2, 8px) 0; }
+.feuillets-work-note-input:focus, .feuillets-work-note-input:focus-visible { border: none; outline: none; box-shadow: none; background: transparent; }
+
+.feuillets-text-mark { display: flex; align-items: flex-start; gap: var(--size-4-2, 8px); }
+.feuillets-text-mark-icon { color: var(--text-muted); display: inline-flex; flex: 0 0 auto; margin-top: 2px; }
+.feuillets-text-mark-content { white-space: pre-wrap; }
+.feuillets-text-mark-highlight .feuillets-text-mark-content { background: color-mix(in srgb, var(--text-highlight-bg) 60%, transparent); }
+
 /* ===== lisibilité du binder ===== */
 
 /* fichier actif : accent net, pas un simple soulignement */
