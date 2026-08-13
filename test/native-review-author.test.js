@@ -24,11 +24,11 @@ test("crée le premier envoi auteur, archive les octets exacts et conserve les s
   const { app, vault, first } = fixture(); const before = await vault.read(first);
   const result = await createNativeReviewAuthor(app, fixture().settings, input({ type: "file", path: first.path }));
   assert.deepEqual(result.files, [first]); assert.match(result.session.reviewId, /^review-[a-f0-9]{32}$/); assert.match(result.session.rounds[0].sent.packageId, /^package-[a-f0-9]{32}$/);
-  assert.equal(result.session.documents[0].originalPath, "Chapitre/Un.md"); assert.equal(result.session.documents[0].localSourcePath, first.path);
+  assert.equal(result.session.documents[0].originalPath, "Chapitre/Un.md"); assert.equal(result.session.documents[0].localSourcePath, first.path); assert.equal(result.session.documents[0].title, "Premier");
   const archive = vault.getAbstractFileByPath(result.localPackagePath); assert.ok(archive instanceof TFile);
   const archived = await vault.readBinary(archive); assert.deepEqual(new Uint8Array(archived), result.packageData);
   const parsed = await readNativeReviewPackage(archived); assert.equal(parsed.manifest.reviewId, result.session.reviewId); assert.equal(parsed.manifest.packageId, result.session.rounds[0].sent.packageId);
-  assert.equal(parsed.manifest.documents[0].title, "Premier"); assert.equal(parsed.documents[0].baseMarkdown, parsed.documents[0].workingMarkdown); assert.equal(parsed.documents[0].baseMarkdown.includes("private:"), false);
+  assert.equal(parsed.manifest.documents[0].title, "Premier"); assert.equal(result.session.documents[0].title, parsed.manifest.documents[0].title); assert.equal(parsed.documents[0].baseMarkdown, parsed.documents[0].workingMarkdown); assert.equal(parsed.documents[0].baseMarkdown.includes("private:"), false);
   assert.equal(JSON.stringify(parsed).includes(first.path), false); assert.equal(await vault.read(first), before);
   assert.ok(vault.getAbstractFileByPath(`_Feuillets/Relectures/${result.session.reviewId}/working`));
   assert.equal(vault.getAbstractFileByPath(`_Feuillets/Relectures/${result.session.reviewId}/working`).children.length, 0);
@@ -43,7 +43,7 @@ test("résout dossier, sélection et projet dans l’ordre Binder", async () => 
 
 test("refuse les portées hors Manuscrit, vides et non Markdown avant toute session", async () => {
   for (const makeScope of [
-    ({ outside }) => ({ type: "file", path: outside.path }), ({ outside }) => ({ type: "folder", path: "Roman/Recherche" }),
+    ({ outside }) => ({ type: "file", path: outside.path }), () => ({ type: "folder", path: "Roman/Recherche" }),
     ({ first, outside }) => ({ type: "selection", paths: [first.path, outside.path] }), () => ({ type: "selection", paths: [] }),
     ({ image }) => ({ type: "file", path: image.path }),
   ]) {

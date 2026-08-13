@@ -4,7 +4,7 @@ import { FEUILLETS_AUXILIARY_FOLDER_NAME } from "./folder-structure.js";
 
 export type ReviewParticipantRole = "author" | "reviewer";
 export interface ReviewParticipant { id: string; name: string; role: ReviewParticipantRole; }
-export interface ReviewDocument { documentId: string; originalPath: string; localSourcePath?: string; }
+export interface ReviewDocument { documentId: string; originalPath: string; title: string; localSourcePath?: string; }
 export interface ReviewPackageRef { packageId: string; at: string; }
 export interface ReviewRound { round: number; createdAt: string; sent?: ReviewPackageRef; received?: ReviewPackageRef; }
 export interface ReviewSession {
@@ -72,6 +72,7 @@ export function validateReviewSession(value: unknown): asserts value is ReviewSe
   for (const document of value.documents) {
     if (!isRecord(document)) invalid("Document invalide");
     safeId(document.documentId, "documentId"); safeRelativePath(document.originalPath, "originalPath");
+    if (typeof document.title !== "string" || document.title.trim() === "") invalid("title invalide");
     if (document.localSourcePath !== undefined) safeRelativePath(document.localSourcePath, "localSourcePath");
     if (documentIds.has(document.documentId)) invalid("documentId dupliqué");
     documentIds.add(document.documentId);

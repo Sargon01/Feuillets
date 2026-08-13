@@ -134,7 +134,7 @@ export async function createNativeReviewAuthor(
   }, documents);
   const session: ReviewSession = {
     version: 1, reviewId, localRole: "author", status: "active", createdAt, updatedAt: createdAt, participants,
-    documents: documents.map(({ documentId, originalPath, localSourcePath }) => ({ documentId, originalPath, localSourcePath })),
+    documents: documents.map(({ documentId, originalPath, title, localSourcePath }) => ({ documentId, originalPath, title, localSourcePath })),
     rounds: [{ round: 1, createdAt, sent: { packageId, at: createdAt } }],
   };
   const localPackagePath = normalizePath(`${reviewRoundsRootPath(reviewId)}/round-1-sent.feuillets`);

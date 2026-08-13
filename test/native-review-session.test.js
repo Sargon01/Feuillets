@@ -15,7 +15,7 @@ function session(reviewId = "review-1", localRole = "author") {
   return {
     version: 1, reviewId, localRole, status: "active", createdAt: at, updatedAt: at,
     participants: [{ id: "alice", name: "Alice", role: "author" }, { id: "bob", name: "Bob", role: "reviewer" }],
-    documents: [{ documentId: "chapter-1", originalPath: "Roman/Manuscrit/Chapitre 1.md" }],
+    documents: [{ documentId: "chapter-1", originalPath: "Roman/Manuscrit/Chapitre 1.md", title: "Chapitre 1" }],
     rounds: [{ round: 1, createdAt: at, [localRole === "author" ? "sent" : "received"]: pkg("package-1") }],
   };
 }
@@ -64,6 +64,8 @@ test("validation refuse participants, documents, IDs et chemins dangereux", () =
   const badId = session("../bad"); assert.throws(() => validateReviewSession(badId), InvalidReviewSessionError);
   const badPath = session(); badPath.documents[0].originalPath = "../secret.md"; assert.throws(() => validateReviewSession(badPath), InvalidReviewSessionError);
   const windowsPath = session(); windowsPath.documents[0].originalPath = "C:\\secret.md"; assert.throws(() => validateReviewSession(windowsPath), InvalidReviewSessionError);
+  const absentTitle = session(); delete absentTitle.documents[0].title; assert.throws(() => validateReviewSession(absentTitle), InvalidReviewSessionError);
+  const emptyTitle = session(); emptyTitle.documents[0].title = "  "; assert.throws(() => validateReviewSession(emptyTitle), InvalidReviewSessionError);
 });
 
 test("auteur : le second package complète le tour courant avant append", () => {
@@ -111,7 +113,7 @@ test("sauvegarde et recharge sans toucher aux autres fichiers", async () => {
   const { app, vault } = appWith(); const value = session(); await createReviewSession(app, value);
   recordReviewRoundPackage(value, pkg("package-2")); appendReviewRound(value, pkg("package-3")); value.updatedAt = "2026-08-13T11:00:00.000Z";
   await saveReviewSession(app, value); const loaded = await loadReviewSession(app, "review-1");
-  assert.deepEqual(loaded, value); assert.equal(vault.getAbstractFileByPath("_Feuillets/Relectures/review-1/working") instanceof TFolder, true);
+  assert.deepEqual(loaded, value); assert.equal(loaded.documents[0].title, "Chapitre 1"); assert.equal(vault.getAbstractFileByPath("_Feuillets/Relectures/review-1/working") instanceof TFolder, true);
 });
 
 test("absence, JSON corrompu et reviewId incohérent sont explicitement gérés", async () => {
