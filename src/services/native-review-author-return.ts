@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import * as Diff from "diff";
 import { stripFrontmatter } from "./frontmatter.js";
 import { readNativeReviewPackage, type NativeReviewPackage } from "./native-review-package.js";
+import { assertNativeReviewThreadEvolution, nativeReviewThreadsPath } from "./native-review-threads.js";
 import {
   currentReviewRound,
   loadReviewSession,
@@ -58,6 +59,7 @@ export class NativeReviewAuthorReturnError extends Error {
 }
 
 function fail(message: string): never { throw new NativeReviewAuthorReturnError(message); }
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean { return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]); }
 function sameJson(left: unknown, right: unknown): boolean { return JSON.stringify(left) === JSON.stringify(right); }
 
 /** Produces base-coordinate replacements, without attempting any fuzzy matching. */
@@ -243,6 +245,7 @@ export async function receiveNativeReviewReturnForAuthor(
     throw new NativeReviewAuthorReturnError(`Archive auteur invalide : ${error instanceof Error ? error.message : String(error)}`);
   }
   assertSameBase(session, round, sentPackage, reviewPackage);
+  assertNativeReviewThreadEvolution(sentPackage.threads, reviewPackage.threads, session.participants, session.documents, "reviewer");
 
   const analyses: NativeReviewAuthorAnalysis[] = [];
   for (const document of reviewPackage.documents) {
@@ -252,16 +255,19 @@ export async function receiveNativeReviewReturnForAuthor(
   }
 
   const localPackagePath = normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-received.feuillets`);
-  if (app.vault.getAbstractFileByPath(localPackagePath)) fail(`Le paquet retour existe déjà : ${localPackagePath}`);
+  const existingArchive = app.vault.getAbstractFileByPath(localPackagePath);
+  if (existingArchive && (!(existingArchive instanceof TFile) || !equalBytes(new Uint8Array(await app.vault.readBinary(existingArchive)), new Uint8Array(packageData)))) fail(`Le paquet retour existe déjà et diffère : ${localPackagePath}`);
   const receivedAt = new Date().toISOString();
   const nextSession = sessionCopy(session);
   nextSession.updatedAt = receivedAt;
   try { recordReviewRoundPackage(nextSession, { packageId: reviewPackage.manifest.packageId, at: receivedAt }); } catch (error) {
     throw new NativeReviewAuthorReturnError(`Préparation de session impossible : ${error instanceof Error ? error.message : String(error)}`);
   }
-  try { await app.vault.createBinary(localPackagePath, archiveBytes(packageData)); } catch (error) {
+  if (!existingArchive) try { await app.vault.createBinary(localPackagePath, archiveBytes(packageData)); } catch (error) {
     throw new NativeReviewAuthorReturnError(`Archivage du paquet retour impossible : ${error instanceof Error ? error.message : String(error)}`);
   }
+  const threadsPath = nativeReviewThreadsPath(reviewId); const localThreads = app.vault.getAbstractFileByPath(threadsPath); const threadsJson = JSON.stringify({ version: 1, threads: reviewPackage.threads }, null, 2);
+  try { if (localThreads instanceof TFile) await app.vault.modify(localThreads, threadsJson); else if (localThreads) fail("threads.json local invalide"); else await app.vault.create(threadsPath, threadsJson); } catch (error) { if (error instanceof NativeReviewAuthorReturnError) throw error; throw new NativeReviewAuthorReturnError(`Persistance des fils impossible : ${error instanceof Error ? error.message : String(error)}`); }
   try { await saveReviewSession(app, nextSession); } catch (error) {
     throw new NativeReviewAuthorReturnError(`Mise à jour de session impossible : ${error instanceof Error ? error.message : String(error)}`);
   }

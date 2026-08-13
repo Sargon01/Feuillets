@@ -1,6 +1,7 @@
 import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { readNativeReviewPackage, type NativeReviewPackage } from "./native-review-package.js";
+import { assertNativeReviewThreadEvolution, loadNativeReviewThreads, nativeReviewThreadsPath } from "./native-review-threads.js";
 import { appendReviewRound, currentReviewRound, loadReviewSession, reviewRoundsRootPath, saveReviewSession, type ReviewSession } from "./native-review-session.js";
 
 export class NativeReviewReviewerNextRoundError extends Error {
@@ -22,6 +23,7 @@ function sameDocuments(a: Array<{ documentId: string; originalPath: string; titl
 function workingPath(reviewId: string, documentId: string): string { return normalizePath(`_Feuillets/Relectures/${reviewId}/working/${documentId}.md`); }
 function archivePath(reviewId: string, round: number): string { return normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round}-received.feuillets`); }
 function equalBytes(a: Uint8Array, b: Uint8Array): boolean { return a.byteLength === b.byteLength && a.every((value, index) => value === b[index]); }
+function sameThreads(a: unknown, b: unknown): boolean { return JSON.stringify(a) === JSON.stringify(b); }
 function usedPackageId(session: ReviewSession, packageId: string): boolean {
   return session.rounds.some((round) => round.sent?.packageId === packageId || round.received?.packageId === packageId);
 }
@@ -61,6 +63,8 @@ export async function receiveNativeReviewNextRoundForReviewer(app: App, packageD
     if (!(previousFile instanceof TFile)) fail("Archive d'envoi reviewer introuvable");
     const previous = await readNativeReviewPackage(new Uint8Array(await app.vault.readBinary(previousFile)));
     if (previous.manifest.senderRole !== "reviewer" || previous.manifest.reviewId !== session.reviewId || previous.manifest.round !== current.round || previous.manifest.packageId !== current.sent.packageId || !samePeople(previous.manifest.participants, session.participants) || !sameDocuments(previous.documents, session.documents)) fail("Archive d'envoi reviewer incohérente");
+    assertNativeReviewThreadEvolution(previous.threads, incoming.threads, session.participants, session.documents, "author");
+    const localThreads = await loadNativeReviewThreads(app, session.reviewId);
 
     const workingFiles: TFile[] = [];
     const workingContents: string[] = [];
@@ -81,6 +85,7 @@ export async function receiveNativeReviewNextRoundForReviewer(app: App, packageD
       const next = incoming.documents[index]?.workingMarkdown;
       if (prior === undefined || next === undefined || (resuming ? workingContents[index] !== prior && workingContents[index] !== next : workingContents[index] !== prior)) fail("Working local non archivé");
     }
+    if (resuming ? !sameThreads(localThreads.threads, previous.threads) && !sameThreads(localThreads.threads, incoming.threads) : !sameThreads(localThreads.threads, previous.threads)) fail("Fils locaux non archivés");
 
     const receivedAt = new Date().toISOString();
     const nextSession = copySession(session);
@@ -92,6 +97,8 @@ export async function receiveNativeReviewNextRoundForReviewer(app: App, packageD
       await app.vault.createBinary(localPackagePath, bytes.buffer);
     }
     for (let index = 0; index < workingFiles.length; index += 1) await app.vault.modify(workingFiles[index], incoming.documents[index].workingMarkdown);
+    const threadsPath = nativeReviewThreadsPath(session.reviewId); const threadsFile = app.vault.getAbstractFileByPath(threadsPath); const threadsJson = JSON.stringify({ version: 1, threads: incoming.threads }, null, 2);
+    if (threadsFile instanceof TFile) await app.vault.modify(threadsFile, threadsJson); else if (threadsFile) fail("threads.json local invalide"); else await app.vault.create(threadsPath, threadsJson);
     await saveReviewSession(app, nextSession);
     return { session: nextSession, reviewPackage: incoming, localPackagePath, workingFiles };
   } catch (error) {

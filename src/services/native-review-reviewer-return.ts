@@ -1,6 +1,7 @@
 import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { createNativeReviewPackage, readNativeReviewPackage } from "./native-review-package.js";
+import { assertNativeReviewThreadEvolution, loadNativeReviewThreads } from "./native-review-threads.js";
 import {
   currentReviewRound,
   loadReviewSession,
@@ -90,6 +91,8 @@ export async function createNativeReviewReviewerReturn(
     throw new NativeReviewReviewerReturnError(`Archive reçue invalide : ${error instanceof Error ? error.message : String(error)}`);
   }
   assertReceivedPackage(session, round, receivedPackage);
+  const threads = await loadNativeReviewThreads(app, reviewId);
+  assertNativeReviewThreadEvolution(receivedPackage.threads, threads.threads, session.participants, session.documents, "reviewer");
 
   const workingFiles: TFile[] = [];
   const workingMarkdown: string[] = [];
@@ -113,7 +116,7 @@ export async function createNativeReviewReviewerReturn(
     }, session.documents.map((document, index) => ({
       documentId: document.documentId, originalPath: document.originalPath, title: document.title,
       baseMarkdown: receivedPackage.documents[index].baseMarkdown, workingMarkdown: workingMarkdown[index],
-    })));
+    })), threads.threads);
   } catch (error) {
     if (error instanceof NativeReviewReviewerReturnError) throw error;
     throw new NativeReviewReviewerReturnError(`Création du paquet retour impossible : ${error instanceof Error ? error.message : String(error)}`);

@@ -2,7 +2,8 @@ import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { getManuscriptRoot } from "./folder-structure.js";
 import { stripFrontmatter } from "./frontmatter.js";
-import { createNativeReviewPackage, type NativeReviewPackage } from "./native-review-package.js";
+import { createNativeReviewPackage, readNativeReviewPackage, type NativeReviewPackage } from "./native-review-package.js";
+import { assertNativeReviewThreadEvolution, loadNativeReviewThreads } from "./native-review-threads.js";
 import { appendReviewRound, currentReviewRound, loadReviewSession, reviewRoundsRootPath, saveReviewSession, type ReviewSession } from "./native-review-session.js";
 import { loadNativeReviewAuthorDecisionState } from "./native-review-author-decisions.js";
 
@@ -16,6 +17,9 @@ export async function createNativeReviewAuthorNextRound(app: App, settings: Feui
   const session = await loadReviewSession(app, reviewId); if (!session || session.localRole !== "author" || session.status !== "active") fail("Session auteur active introuvable");
   const round = currentReviewRound(session); if (!round.sent || !round.received) fail("Le tour courant doit être complet");
   const state = await loadNativeReviewAuthorDecisionState(app, reviewId); if (!state.complete) fail("Toutes les décisions du tour doivent être prises");
+  const receivedPath = normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-received.feuillets`); const receivedFile = app.vault.getAbstractFileByPath(receivedPath); if (!(receivedFile instanceof TFile)) fail("Archive reviewer reçue introuvable");
+  const receivedPackage = await readNativeReviewPackage(new Uint8Array(await app.vault.readBinary(receivedFile)));
+  const threads = await loadNativeReviewThreads(app, reviewId); assertNativeReviewThreadEvolution(receivedPackage.threads, threads.threads, session.participants, session.documents, "author");
   const root = getManuscriptRoot(app, settings); if (!(root instanceof TFolder)) fail("Manuscrit actif introuvable");
   const sources = await Promise.all(session.documents.map(async (document) => {
     const entry = document.localSourcePath ? app.vault.getAbstractFileByPath(document.localSourcePath) : null;
@@ -25,7 +29,7 @@ export async function createNativeReviewAuthorNextRound(app: App, settings: Feui
     return { document, markdown: stripFrontmatter(await app.vault.read(entry)) };
   }));
   const sentAt = new Date().toISOString(); const packageId = id(); const nextRound = round.round + 1;
-  const packageData = await createNativeReviewPackage({ packageId, createdAt: sentAt, createdByVersion, reviewId, round: nextRound, senderRole: "author", participants: session.participants }, sources.map(({ document, markdown }) => ({ documentId: document.documentId, originalPath: document.originalPath, title: document.title, baseMarkdown: markdown })));
+  const packageData = await createNativeReviewPackage({ packageId, createdAt: sentAt, createdByVersion, reviewId, round: nextRound, senderRole: "author", participants: session.participants }, sources.map(({ document, markdown }) => ({ documentId: document.documentId, originalPath: document.originalPath, title: document.title, baseMarkdown: markdown })), threads.threads);
   const nextSession = copy(session); appendReviewRound(nextSession, { packageId, at: sentAt }); nextSession.updatedAt = sentAt;
   const localPackagePath = normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${nextRound}-sent.feuillets`); if (app.vault.getAbstractFileByPath(localPackagePath)) fail("Archive du tour suivant déjà présente");
   const bytes = new Uint8Array(packageData.byteLength); bytes.set(packageData);

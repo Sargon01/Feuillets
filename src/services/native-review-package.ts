@@ -6,6 +6,7 @@ import {
 } from "./feuillets-package.js";
 import { stripFrontmatter } from "./frontmatter.js";
 import type { ReviewParticipant, ReviewParticipantRole } from "./native-review-session.js";
+import { validateNativeReviewThreads, type NativeReviewThread } from "./native-review-threads.js";
 
 export interface NativeReviewManifestDocument {
   documentId: string;
@@ -49,6 +50,7 @@ export interface NativeReviewPackageDocument extends NativeReviewManifestDocumen
 export interface NativeReviewPackage {
   manifest: NativeReviewManifest;
   documents: NativeReviewPackageDocument[];
+  threads: NativeReviewThread[];
 }
 
 export class NativeReviewPackageError extends Error {
@@ -99,6 +101,7 @@ function validateParticipants(value: unknown): asserts value is ReviewParticipan
 
 export function reviewBaseEntryPath(documentId: string): string { safeId(documentId, "documentId"); return `review/base/${documentId}.md`; }
 export function reviewWorkingEntryPath(documentId: string): string { safeId(documentId, "documentId"); return `review/working/${documentId}.md`; }
+export function reviewThreadsEntryPath(): string { return "review/threads.json"; }
 
 export function validateNativeReviewManifest(value: unknown): asserts value is NativeReviewManifest {
   try { validateFeuilletsManifest(value); } catch { fail("Manifest de relecture invalide"); }
@@ -130,6 +133,7 @@ export async function hashReviewText(text: string): Promise<string> {
 export async function createNativeReviewPackage(
   input: NativeReviewPackageInput,
   sourceDocuments: NativeReviewSourceDocument[],
+  threads: NativeReviewThread[] = [],
 ): Promise<Uint8Array> {
   if (!isRecord(input)) fail("Entrée de paquet invalide");
   validateParticipants(input.participants);
@@ -163,6 +167,8 @@ export async function createNativeReviewPackage(
     documents,
   };
   validateNativeReviewManifest(manifest);
+  validateNativeReviewThreads({ version: 1, threads }, manifest.participants, manifest.documents);
+  if (threads.length > 0) files[reviewThreadsEntryPath()] = JSON.stringify({ version: 1, threads: threads.map((thread) => ({ threadId: thread.threadId, documentId: thread.documentId, anchor: { start: thread.anchor.start, end: thread.anchor.end, quote: thread.anchor.quote, prefix: thread.anchor.prefix, suffix: thread.anchor.suffix }, createdByParticipantId: thread.createdByParticipantId, createdAt: thread.createdAt, status: thread.status, ...(thread.status === "resolved" ? { resolvedAt: thread.resolvedAt, resolvedByParticipantId: thread.resolvedByParticipantId } : {}), messages: thread.messages.map((message) => ({ messageId: message.messageId, participantId: message.participantId, text: message.text, createdAt: message.createdAt })) })) });
   if (manifest.senderRole === "author" && documents.some((document) => files[reviewBaseEntryPath(document.documentId)] !== files[reviewWorkingEntryPath(document.documentId)])) {
     fail("Le working d’un paquet auteur doit être identique à base");
   }
@@ -185,6 +191,7 @@ export async function readNativeReviewPackage(data: ArrayBuffer | Uint8Array): P
   for (const document of manifest.documents) {
     expected.add(reviewBaseEntryPath(document.documentId)); expected.add(reviewWorkingEntryPath(document.documentId));
   }
+  const hasThreads = packageData.entries.some((entry) => entry.path === reviewThreadsEntryPath()); if (hasThreads) expected.add(reviewThreadsEntryPath());
   if (packageData.entries.length !== expected.size || packageData.entries.some((entry) => !expected.has(entry.path))) fail("Entrées ZIP de relecture invalides");
   const byPath = new Map(packageData.entries.map((entry) => [entry.path, entry.data]));
   const documents: NativeReviewPackageDocument[] = [];
@@ -198,5 +205,7 @@ export async function readNativeReviewPackage(data: ArrayBuffer | Uint8Array): P
     if (manifest.senderRole === "author" && workingMarkdown !== baseMarkdown) fail("Le working d’un paquet auteur doit être identique à base");
     documents.push({ ...document, baseMarkdown, workingMarkdown });
   }
-  return { manifest, documents };
+  let threads: NativeReviewThread[] = [];
+  if (hasThreads) { const raw = byPath.get(reviewThreadsEntryPath()); if (!raw) fail("threads.json absent"); let parsed: unknown; try { parsed = JSON.parse(decodeUtf8(raw, reviewThreadsEntryPath())); } catch { fail("threads.json corrompu"); } try { validateNativeReviewThreads(parsed, manifest.participants, manifest.documents); } catch (error) { fail(`threads.json invalide : ${error instanceof Error ? error.message : String(error)}`); } threads = parsed.threads; }
+  return { manifest, documents, threads };
 }
