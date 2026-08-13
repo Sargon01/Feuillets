@@ -3,8 +3,6 @@ import type { App } from "obsidian";
 import { FEUILLETS_AUXILIARY_FOLDER_NAME } from "./folder-structure.js";
 
 export type ReviewParticipantRole = "author" | "reviewer";
-export type ReviewPackageDirection = "sent" | "received";
-
 export interface ReviewParticipant { id: string; name: string; role: ReviewParticipantRole; }
 export interface ReviewDocument { documentId: string; originalPath: string; localSourcePath?: string; }
 export interface ReviewPackageRef { packageId: string; at: string; }
@@ -27,7 +25,7 @@ export class InvalidReviewSessionError extends Error {
 }
 
 const REVIEWS_FOLDER_NAME = "Relectures";
-const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 function invalid(message: string): never { throw new InvalidReviewSessionError(message); }
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,11 +77,20 @@ export function validateReviewSession(value: unknown): asserts value is ReviewSe
     documentIds.add(document.documentId);
   }
   if (!Array.isArray(value.rounds) || value.rounds.length === 0) invalid("Au moins un tour est requis");
+  const rounds = value.rounds;
   const packageIds = new Set<string>();
-  value.rounds.forEach((round, index) => {
+  rounds.forEach((round, index) => {
     if (!isRecord(round) || round.round !== index + 1) invalid("Les tours doivent être continus à partir de 1");
     timestamp(round.createdAt, "round.createdAt");
     if (round.sent === undefined && round.received === undefined) invalid("Chaque tour doit contenir un échange");
+    const firstDirection = value.localRole === "author" ? "sent" : "received";
+    if (round[firstDirection] === undefined) invalid(`Le tour doit commencer par ${firstDirection}`);
+    if (index < rounds.length - 1 && (round.sent === undefined || round.received === undefined)) {
+      invalid("Tous les tours antérieurs au dernier doivent être complets");
+    }
+    if (value.status === "completed" && index === rounds.length - 1 && (round.sent === undefined || round.received === undefined)) {
+      invalid("Une session terminée doit avoir un dernier tour complet");
+    }
     for (const direction of ["sent", "received"] as const) {
       if (round[direction] === undefined) continue;
       packageRef(round[direction], `round.${direction}`);
@@ -154,22 +161,26 @@ export function currentReviewRound(session: ReviewSession): ReviewRound {
   validateReviewSession(session); return session.rounds[session.rounds.length - 1];
 }
 
-export function appendReviewRound(session: ReviewSession, direction: ReviewPackageDirection, firstPackage: ReviewPackageRef): ReviewRound {
+export function appendReviewRound(session: ReviewSession, firstPackage: ReviewPackageRef): ReviewRound {
   validateReviewSession(session); packageRef(firstPackage, "package");
-  if (direction !== "sent" && direction !== "received") invalid("Direction de package invalide");
+  if (session.status !== "active") invalid("Une session terminée ne peut pas être modifiée");
+  const current = currentReviewRound(session);
+  if (current.sent === undefined || current.received === undefined) invalid("Le tour courant doit être complet avant d'en créer un autre");
   if (session.rounds.some((round) => round.sent?.packageId === firstPackage.packageId || round.received?.packageId === firstPackage.packageId)) invalid("packageId réutilisé");
+  const direction = session.localRole === "author" ? "sent" : "received";
   const round: ReviewRound = { round: session.rounds.length + 1, createdAt: firstPackage.at, [direction]: firstPackage };
   session.rounds.push(round); validateReviewSession(session); return round;
 }
 
-export function recordReviewRoundPackage(session: ReviewSession, roundNumber: number, direction: ReviewPackageDirection, reference: ReviewPackageRef): ReviewRound {
+export function recordReviewRoundPackage(session: ReviewSession, reference: ReviewPackageRef): ReviewRound {
   validateReviewSession(session); packageRef(reference, "package");
-  if (!Number.isInteger(roundNumber) || roundNumber < 1 || direction !== "sent" && direction !== "received") invalid("Tour ou direction invalide");
-  const round = session.rounds[roundNumber - 1]; if (!round) invalid(`Tour absent : ${roundNumber}`);
+  if (session.status !== "active") invalid("Une session terminée ne peut pas être modifiée");
+  const round = currentReviewRound(session);
+  const direction = session.localRole === "author" ? "received" : "sent";
   const existing = round[direction];
   if (existing) {
     if (existing.packageId === reference.packageId) return round;
-    invalid(`Le package ${direction} du tour ${roundNumber} ne peut pas être remplacé`);
+    invalid(`Le package ${direction} du tour ${round.round} ne peut pas être remplacé`);
   }
   if (session.rounds.some((item) => item.sent?.packageId === reference.packageId || item.received?.packageId === reference.packageId)) invalid("packageId réutilisé");
   round[direction] = reference; validateReviewSession(session); return round;
@@ -177,8 +188,10 @@ export function recordReviewRoundPackage(session: ReviewSession, roundNumber: nu
 
 export function isNativeReviewPath(path: string): boolean { return reviewIdFromNativeReviewPath(path) !== null; }
 export function reviewIdFromNativeReviewPath(path: string): string | null {
-  if (typeof path !== "string" || path.includes("\\")) return null;
+  if (typeof path !== "string" || path.startsWith("/") || path.includes("\\")) return null;
+  const rawParts = path.split("/");
+  if (rawParts.some((part) => part === "" || part === "." || part === "..")) return null;
   const parts = normalizePath(path).split("/");
-  if (parts[0] !== FEUILLETS_AUXILIARY_FOLDER_NAME || parts[1] !== REVIEWS_FOLDER_NAME || parts.length < 3 || !SAFE_ID.test(parts[2])) return null;
+  if (parts[0] !== FEUILLETS_AUXILIARY_FOLDER_NAME || parts[1] !== REVIEWS_FOLDER_NAME || parts.length < 4 || !SAFE_ID.test(parts[2])) return null;
   return parts[2];
 }
