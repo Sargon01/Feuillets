@@ -149,7 +149,19 @@ export async function createNativeReviewPackage(
     files[reviewBaseEntryPath(source.documentId)] = baseMarkdown;
     files[reviewWorkingEntryPath(source.documentId)] = workingMarkdown;
   }
-  const manifest: NativeReviewManifest = { format: "feuillets", version: 1, kind: "review", ...input, documents };
+  const manifest: NativeReviewManifest = {
+    format: "feuillets",
+    version: 1,
+    kind: "review",
+    packageId: input.packageId,
+    createdAt: input.createdAt,
+    createdByVersion: input.createdByVersion,
+    reviewId: input.reviewId,
+    round: input.round,
+    senderRole: input.senderRole,
+    participants: input.participants.map(({ id, name, role }) => ({ id, name, role })),
+    documents,
+  };
   validateNativeReviewManifest(manifest);
   if (manifest.senderRole === "author" && documents.some((document) => files[reviewBaseEntryPath(document.documentId)] !== files[reviewWorkingEntryPath(document.documentId)])) {
     fail("Le working d’un paquet auteur doit être identique à base");

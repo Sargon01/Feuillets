@@ -78,3 +78,21 @@ test("création refuse les IDs dangereux/longs et un auteur avec working différ
   await rejects(() => createNativeReviewPackage(input(), [source({ documentId: "a".repeat(129) })]));
   await rejects(() => createNativeReviewPackage(input(), [source({ workingMarkdown: "Modification interdite." })]));
 });
+
+test("la création locale sérialise uniquement la whitelist de confidentialité", async () => {
+  const privateInput = {
+    ...input(), notes: "notes privées", annotations: "annotations privées", settings: "réglages privés", localSourcePath: "local/source.md", secret: "secret global",
+    participants: [
+      { ...participants[0], email: "alice@example.test", privateNote: "note Alice", token: "token Alice" },
+      { ...participants[1], email: "bob@example.test", privateNote: "note Bob", token: "token Bob" },
+    ],
+  };
+  const privateDocument = source({ localSourcePath: "Roman/local.md", privateMetadata: "métadonnée privée", annotations: "annotations document" });
+  const rawManifest = (await readFeuilletsPackage(await createNativeReviewPackage(privateInput, [privateDocument]))).manifest;
+  const serialized = JSON.stringify(rawManifest);
+  for (const forbidden of ["notes", "notes privées", "annotations", "annotations privées", "settings", "réglages privés", "localSourcePath", "local/source.md", "secret", "secret global", "email", "alice@example.test", "privateNote", "note Alice", "token", "token Alice", "privateMetadata", "métadonnée privée", "annotations document"]) {
+    assert.equal(serialized.includes(forbidden), false, `${forbidden} ne doit pas être sérialisé`);
+  }
+  assert.equal(rawManifest.packageId, "package-1"); assert.equal(rawManifest.participants[0].name, "Alice");
+  assert.equal(rawManifest.documents[0].title, "Chapitre 1"); assert.ok(rawManifest.documents[0].baseHash.startsWith("sha256:"));
+});
