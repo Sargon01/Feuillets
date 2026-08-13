@@ -3,6 +3,7 @@ import JSZip from "jszip";
 /** Current limits for untrusted .feuillets archives. */
 export const FEUILLETS_PACKAGE_LIMITS = {
   maxEntries: 1_000,
+  maxManifestBytes: 256 * 1024,
   maxDecompressedBytes: 50 * 1024 * 1024,
 } as const;
 
@@ -111,7 +112,8 @@ function zipEntries(zip: JSZip): Array<[string, JSZip.JSZipObject]> {
 
 function archiveSize(entry: JSZip.JSZipObject): number | undefined {
   const data = (entry as unknown as { _data?: { uncompressedSize?: unknown } })._data;
-  return typeof data?.uncompressedSize === "number" ? data.uncompressedSize : undefined;
+  const size = data?.uncompressedSize;
+  return typeof size === "number" && Number.isSafeInteger(size) && size >= 0 ? size : undefined;
 }
 
 /** Creates an in-memory .feuillets ZIP. No filesystem or Vault API is used. */
@@ -122,10 +124,13 @@ export async function createFeuilletsPackage(
   const validatedManifest = validateFeuilletsManifest(manifest);
   const fileEntries = Object.entries(files);
   if (fileEntries.length + 1 > FEUILLETS_PACKAGE_LIMITS.maxEntries) fail("Trop d’entrées .feuillets.");
+  const manifestJson = JSON.stringify(validatedManifest);
+  const manifestBytes = new TextEncoder().encode(manifestJson).byteLength;
+  if (manifestBytes > FEUILLETS_PACKAGE_LIMITS.maxManifestBytes) fail("manifest.json .feuillets trop volumineux.");
 
   const zip = new JSZip();
-  zip.file(MANIFEST_PATH, JSON.stringify(validatedManifest));
-  let totalBytes = new TextEncoder().encode(JSON.stringify(validatedManifest)).byteLength;
+  zip.file(MANIFEST_PATH, manifestJson);
+  let totalBytes = manifestBytes;
   for (const [path, data] of fileEntries) {
     validateEntryPath(path);
     assertFileData(data);
@@ -146,18 +151,35 @@ export async function readFeuilletsPackage(data: ArrayBuffer | Uint8Array): Prom
     fail("Archive .feuillets invalide.");
   }
 
+  const allEntries = Object.entries(zip.files);
+  if (allEntries.length > FEUILLETS_PACKAGE_LIMITS.maxEntries) fail("Trop d’entrées .feuillets.");
   const entries = zipEntries(zip);
-  if (entries.length > FEUILLETS_PACKAGE_LIMITS.maxEntries) fail("Trop d’entrées .feuillets.");
-  for (const [path, entry] of Object.entries(zip.files)) {
+  let declaredTotalBytes = 0;
+  for (const [path, entry] of allEntries) {
     const originalPath = entry.unsafeOriginalName ?? path;
     if (originalPath !== MANIFEST_PATH) validateArchiveEntryPath(originalPath, entry.dir);
+    const declaredSize = archiveSize(entry);
+    if (declaredSize !== undefined) {
+      declaredTotalBytes += declaredSize;
+      if (declaredTotalBytes > FEUILLETS_PACKAGE_LIMITS.maxDecompressedBytes) {
+        fail("Archive .feuillets trop volumineuse.");
+      }
+    }
   }
   const manifestEntry = entries.find(([path]) => path === MANIFEST_PATH)?.[1];
   if (!manifestEntry) fail("manifest.json .feuillets absent.");
+  const declaredManifestBytes = archiveSize(manifestEntry);
+  if (declaredManifestBytes === undefined || declaredManifestBytes > FEUILLETS_PACKAGE_LIMITS.maxManifestBytes) {
+    fail("manifest.json .feuillets trop volumineux.");
+  }
 
   let manifest: FeuilletsManifest;
   try {
-    manifest = validateFeuilletsManifest(JSON.parse(await manifestEntry.async("text")));
+    const manifestText = await manifestEntry.async("text");
+    if (new TextEncoder().encode(manifestText).byteLength > FEUILLETS_PACKAGE_LIMITS.maxManifestBytes) {
+      fail("manifest.json .feuillets trop volumineux.");
+    }
+    manifest = validateFeuilletsManifest(JSON.parse(manifestText));
   } catch (error) {
     if (error instanceof FeuilletsPackageError) throw error;
     fail("manifest.json .feuillets invalide.");
@@ -166,17 +188,10 @@ export async function readFeuilletsPackage(data: ArrayBuffer | Uint8Array): Prom
   let totalBytes = 0;
   const validatedEntries: FeuilletsPackageEntry[] = [];
   for (const [path, entry] of entries) {
-    const declaredSize = archiveSize(entry);
-    if (declaredSize !== undefined) {
-      totalBytes += declaredSize;
-      if (totalBytes > FEUILLETS_PACKAGE_LIMITS.maxDecompressedBytes) fail("Archive .feuillets trop volumineuse.");
-    }
     if (path === MANIFEST_PATH) continue;
     const entryData = await entry.async("uint8array");
-    if (declaredSize === undefined) {
-      totalBytes += entryData.byteLength;
-      if (totalBytes > FEUILLETS_PACKAGE_LIMITS.maxDecompressedBytes) fail("Archive .feuillets trop volumineuse.");
-    }
+    totalBytes += entryData.byteLength;
+    if (totalBytes > FEUILLETS_PACKAGE_LIMITS.maxDecompressedBytes) fail("Archive .feuillets trop volumineuse.");
     validatedEntries.push({ path, data: entryData });
   }
   return { manifest, entries: validatedEntries };

@@ -78,6 +78,20 @@ test(".feuillets : refuse ZIP corrompu et les limites de sécurité", async () =
   await rejectsPackage(createFeuilletsPackage(manifest(), { "large.bin": new Uint8Array(FEUILLETS_PACKAGE_LIMITS.maxDecompressedBytes) }));
 });
 
+test(".feuillets : compte aussi les dossiers dans la limite d’entrées", async () => {
+  const zip = new JSZip();
+  zip.file("manifest.json", JSON.stringify(manifest()));
+  for (let index = 0; index < FEUILLETS_PACKAGE_LIMITS.maxEntries; index += 1) zip.folder(`dossier-${index}`);
+
+  await rejectsPackage(readFeuilletsPackage(await zip.generateAsync({ type: "uint8array" })));
+});
+
+test(".feuillets : borne manifest.json à 256 Ko avant parsing", async () => {
+  const oversizedManifest = manifest({ futureField: "x".repeat(FEUILLETS_PACKAGE_LIMITS.maxManifestBytes) });
+  await rejectsPackage(createFeuilletsPackage(oversizedManifest, {}));
+  await rejectsPackage(readFeuilletsPackage(await zipWith({ "manifest.json": JSON.stringify(oversizedManifest) })));
+});
+
 test(".feuillets : validation ne touche jamais au Vault", () => {
   assert.deepEqual(validateFeuilletsManifest(manifest()), manifest());
 });
