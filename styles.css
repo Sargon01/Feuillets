@@ -3202,6 +3202,8 @@ body.feuillets-text-width
 .feuillets-annotation-edit:hover {
   color: var(--text-normal);
 }
+.feuillets-notes-inline-action { margin-left: auto; border: none; background: transparent; color: var(--text-muted); font-size: var(--font-ui-smaller); cursor: pointer; }
+.feuillets-notes-inline-action:hover { color: var(--text-normal); }
 
 /* Notes de travail : blocs de texte continus, sans cartes ni contrôles
    visibles. Le séparateur est la seule structure entre deux notes. */

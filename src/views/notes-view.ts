@@ -58,6 +58,7 @@ type Footnote = { label: string; text: string };
  * même patron : ligne d'accès compacte dans la vue principale, page
  * secondaire dédiée, retour à "home" au changement de fichier actif. */
 type NotesPage = "home" | "properties" | "footnotes" | "notes-and-annotations";
+type AnnotationScope = "sheet" | "folder" | "project";
 type BaseNotesViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type NotesSettings = FeuilletsSettings & {
   collapsed: Record<string, boolean>;
@@ -183,6 +184,7 @@ export class NotesView extends BaseFeuilletsView {
    * CE panneau revienne à la note de dossier, et le Retour de la note de
    * dossier ramène ensuite au feuillet. */
   notesPage: NotesPage;
+  private annotationScope: AnnotationScope = "sheet";
 
   /* ===== Fenêtre de contexte autour du curseur (section « Contexte ») =====
      Élément DOM actuellement écouté (keyup/mouseup) pour détecter un
@@ -1735,6 +1737,20 @@ export class NotesView extends BaseFeuilletsView {
     const titleIcon = head.createSpan({ cls: "feuillets-notes-section-icon" });
     setIcon(titleIcon, "highlighter");
     head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.annotations"));
+    const scopeButton = head.createEl("button", { cls: "feuillets-notes-inline-action" });
+    scopeButton.setText(`${t(`notes.annotationScope.${this.annotationScope}`)} ▾`);
+    scopeButton.addEventListener("click", (event: MouseEvent) => {
+      event.stopPropagation();
+      const menu = new Menu();
+      const options: Array<[AnnotationScope, string]> = [["sheet", "notes.annotationScope.sheet"], ["folder", "notes.annotationScope.folder"], ["project", "notes.annotationScope.project"]];
+      const currentRelPath = toManuscriptRelativePath(this.app, this.plugin.settings, file) || "";
+      const inRoot = !currentRelPath.includes("/");
+      for (const [scope, key] of options) {
+        if (scope === "folder" && inRoot) continue;
+        menu.addItem((item) => item.setTitle(t(key)).setChecked(this.annotationScope === scope).onClick(() => { this.annotationScope = scope; void this.render(); }));
+      }
+      menu.showAtMouseEvent(event);
+    });
 
     let store: AnnotationsStore;
     try {
@@ -1750,49 +1766,62 @@ export class NotesView extends BaseFeuilletsView {
       return;
     }
 
+    const currentRelPath = toManuscriptRelativePath(this.app, this.plugin.settings, file);
     const root = this.plugin.getProjectFolder();
-    const currentRelPath = root ? toManuscriptRelativePath(this.app, this.plugin.settings, file) : null;
-
-    const byFile = new Map<string, Annotation[]>();
-    for (const a of store.annotations) {
-      const list = byFile.get(a.file);
-      if (list) list.push(a);
-      else byFile.set(a.file, [a]);
-    }
-
-    const otherPaths = [...byFile.keys()]
-      .filter((p) => p !== currentRelPath)
-      .sort((a, b) => a.localeCompare(b, "fr"));
-    const orderedPaths = currentRelPath && byFile.has(currentRelPath) ? [currentRelPath, ...otherPaths] : otherPaths;
-
+    const folderPrefix = currentRelPath?.includes("/") ? currentRelPath.slice(0, currentRelPath.lastIndexOf("/") + 1) : "";
+    const inScope = (annotation: Annotation): boolean => {
+      if (this.annotationScope === "sheet") return annotation.file === currentRelPath;
+      if (this.annotationScope === "project") return true;
+      return annotation.file.startsWith(folderPrefix);
+    };
+    const scoped = store.annotations.filter(inScope);
     const list = section.createDiv({ cls: "feuillets-notes-field-container" });
-    for (const relPath of orderedPaths) {
-      const annotations = byFile.get(relPath) || [];
-      const targetFile = root
-        ? this.app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${relPath}`))
-        : null;
-      const resolvedFile = targetFile instanceof TFile ? targetFile : null;
-
-      if (relPath !== currentRelPath) {
-        list.createDiv({ cls: "feuillets-notes-section-title feuillets-annotation-file-heading" })
-          .setText(resolvedFile ? this.plugin.titleFor(resolvedFile) : relPath);
-      }
-
-      let content: string | null = null;
-      if (resolvedFile) {
-        try {
-          content = await this.app.vault.cachedRead(resolvedFile);
-        } catch {
-          content = null;
-        }
-      }
-
-      for (const annotation of annotations) {
-        const resolved = content !== null ? resolveAnnotation(annotation, content) : null;
-        this.renderAnnotationRow(list, annotation, resolvedFile, resolved, content);
-      }
+    const grouped = this.annotationScope === "sheet" ? new Map([[currentRelPath || "", scoped]]) : new Map<string, Annotation[]>();
+    if (this.annotationScope !== "sheet") for (const annotation of scoped) grouped.set(annotation.file, [...(grouped.get(annotation.file) || []), annotation]);
+    const paths = [...grouped.keys()].sort((a, b) => a.localeCompare(b, "fr"));
+    if (this.annotationScope !== "sheet" && currentRelPath && grouped.has(currentRelPath)) { paths.splice(paths.indexOf(currentRelPath), 1); paths.unshift(currentRelPath); }
+    for (const relPath of paths) {
+      const target = root ? this.app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${relPath}`)) : null;
+      const targetFile = target instanceof TFile ? target : null;
+      if (this.annotationScope !== "sheet" && relPath !== currentRelPath) list.createDiv({ cls: "feuillets-notes-section-title feuillets-annotation-file-heading" }).setText(targetFile ? this.plugin.titleFor(targetFile) : relPath);
+      if (!targetFile) continue;
+      const content = await this.app.vault.cachedRead(targetFile);
+      for (const annotation of grouped.get(relPath) || []) this.renderAnnotationRow(list, annotation, targetFile, resolveAnnotation(annotation, content), content);
     }
     await this.renderTextMarks(container, file);
+  }
+
+  /** Vue globale historique : toutes les annotations du projet, groupées par fichier. */
+  private async renderAnnotationsPanel(container: HTMLElement, file: TFile): Promise<void> {
+    const backBar = container.createDiv({ cls: "feuillets-notes-back-bar" });
+    const backBtn = backBar.createEl("button", { cls: "feuillets-back-btn", text: ` ${t("notes.backToSheet")}` });
+    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" }); setIcon(iconSpan, "arrow-left"); backBtn.prepend(iconSpan);
+    backBtn.addEventListener("click", () => { this.notesPage = "notes-and-annotations"; void this.render(); });
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+    const titleIcon = head.createSpan({ cls: "feuillets-notes-section-icon" }); setIcon(titleIcon, "highlighter");
+    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.allAnnotations"));
+    let store: AnnotationsStore;
+    try { store = await loadAnnotations(this.app, this.plugin.settings); }
+    catch { section.createDiv({ cls: "feuillets-empty" }).setText(t("annotation.notice.corrupted")); return; }
+    const root = this.plugin.getProjectFolder();
+    const currentRelPath = toManuscriptRelativePath(this.app, this.plugin.settings, file);
+    const byFile = new Map<string, Annotation[]>();
+    for (const annotation of store.annotations) byFile.set(annotation.file, [...(byFile.get(annotation.file) || []), annotation]);
+    const paths = [...byFile.keys()].sort((a, b) => a.localeCompare(b, "fr"));
+    if (currentRelPath && byFile.has(currentRelPath)) {
+      paths.splice(paths.indexOf(currentRelPath), 1);
+      paths.unshift(currentRelPath);
+    }
+    const list = section.createDiv({ cls: "feuillets-notes-field-container" });
+    for (const relPath of paths) {
+      const target = root ? this.app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${relPath}`)) : null;
+      const targetFile = target instanceof TFile ? target : null;
+      if (relPath !== currentRelPath) list.createDiv({ cls: "feuillets-notes-section-title feuillets-annotation-file-heading" }).setText(targetFile ? this.plugin.titleFor(targetFile) : relPath);
+      let content: string | null = null;
+      if (targetFile) { try { content = await this.app.vault.cachedRead(targetFile); } catch { content = null; } }
+      for (const annotation of byFile.get(relPath) || []) this.renderAnnotationRow(list, annotation, targetFile, content === null ? null : resolveAnnotation(annotation, content), content);
+    }
   }
 
   private renderWorkNoteText(container: HTMLElement, file: TFile, id: string | null, text: string, legacy: boolean): void {

@@ -342,3 +342,32 @@ test.skip("ordre ancien remplacé par une entrée unique", async () => {
   assert.ok(notesIdx >= 0 && annotationsIdx >= 0 && footnotesIdx >= 0);
   assert.ok(notesIdx < annotationsIdx && annotationsIdx < footnotesIdx, "Annotations reste entre Notes de travail et Notes de bas de page");
 });
+
+test("vue locale : seules les annotations du feuillet courant sont rendues", async () => {
+  const { view, app, settings, scene, other } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "local", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation A", color: "yellow" },
+    { id: "other", file: "Chapitre/Autre.md", start: 0, end: 2, quote: "Un", prefix: "", suffix: "", text: "annotation B", color: "blue" },
+  ] });
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  const text = allElements(wrapper).map((element) => element.text);
+  assert.ok(text.includes("annotation A"));
+  assert.equal(text.includes("annotation B"), false);
+  assert.equal(allElements(wrapper).some((element) => element.classes.has("feuillets-annotation-file-heading")), false);
+  void other;
+});
+
+test("le sélecteur de portée permet d'afficher le projet groupé", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "local", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation A", color: "yellow" },
+    { id: "other", file: "Chapitre/Autre.md", start: 0, end: 2, quote: "Un", prefix: "", suffix: "", text: "annotation B", color: "blue" },
+  ] });
+  const local = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(local, scene, {});
+  const action = allElements(local).find((element) => element.text === "Feuillet ▾");
+  assert.ok(action);
+  assert.equal(typeof action.events.get("click"), "function");
+  assert.equal(view.annotationScope, "sheet");
+});
