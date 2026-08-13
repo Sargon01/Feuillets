@@ -49,21 +49,31 @@ export async function decideNativeReviewAuthorChange(app: App, settings: Feuille
   if (!record) { record = { documentId, decisions: [] }; loaded.store.documents.push(record); }
   const control = signature(change, changeIndex); const existing = record.decisions.find((item) => item.changeIndex === changeIndex);
   if (existing && !same(existing, control)) fail("Signature de décision incohérente");
+  if (change.reason === "already-applied") {
+    if (decision === "rejected") fail("Une modification déjà appliquée ne peut pas être rejetée");
+    if (existing?.decision === "accepted" && existing.applied) return;
+    record.decisions = record.decisions.filter((item) => item.changeIndex !== changeIndex);
+    record.decisions.push({ ...control, decision: "accepted", applied: true, decidedAt: new Date().toISOString() });
+    try { await saveStore(app, loaded); } catch (error) { throw new NativeReviewAuthorDecisionError(`Enregistrement décision impossible : ${error instanceof Error ? error.message : String(error)}`); }
+    return;
+  }
   if (existing?.decision === "accepted" && existing.applied) {
     if (decision === "rejected") fail("Une modification déjà appliquée ne peut pas être rejetée");
     return;
   }
   const now = new Date().toISOString();
   if (decision === "rejected") { if (existing?.decision === "rejected") return; record.decisions = record.decisions.filter((item) => item.changeIndex !== changeIndex); record.decisions.push({ ...control, decision, applied: false, decidedAt: now }); await saveStore(app, loaded); return; }
-  if (change.confidence !== "safe" || (change.reason !== "already-applied" && change.reason !== "non-overlapping")) fail("Modification non applicable automatiquement");
-  if (change.reason === "already-applied") { record.decisions = record.decisions.filter((item) => item.changeIndex !== changeIndex); record.decisions.push({ ...control, decision, applied: true, decidedAt: now }); await saveStore(app, loaded); return; }
+  if (change.confidence !== "safe" || change.reason !== "non-overlapping") fail("Modification non applicable automatiquement");
   if (change.currentStart === undefined || change.currentEnd === undefined || document.authorMarkdown === undefined) fail("Coordonnées d’application absentes");
   const root = getManuscriptRoot(app, settings); if (!(root instanceof TFolder)) fail("Manuscrit actif introuvable");
   const source = document.localSourcePath ? app.vault.getAbstractFileByPath(document.localSourcePath) : null;
   if (!(source instanceof TFile) || source.extension !== "md" || !under(root, source)) fail("Source locale hors Manuscrit actif");
   const raw = await app.vault.read(source); const body = stripFrontmatter(raw);
   if (body !== document.authorMarkdown || body.slice(change.currentStart, change.currentEnd) !== change.oldText) fail("Source modifiée depuis l’analyse");
-  if (!record.snapshotStamp) { try { record.snapshotStamp = await snapshotFile(app, source, root); await saveStore(app, loaded); } catch (error) { throw new NativeReviewAuthorDecisionError(`Snapshot impossible : ${error instanceof Error ? error.message : String(error)}`); } }
+  if (!record.snapshotStamp) {
+    try { record.snapshotStamp = await snapshotFile(app, source, root); } catch (error) { throw new NativeReviewAuthorDecisionError(`Snapshot impossible : ${error instanceof Error ? error.message : String(error)}`); }
+    try { await saveStore(app, loaded); } catch (error) { throw new NativeReviewAuthorDecisionError(`Enregistrement du snapshot impossible : ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const beforeWrite = await app.vault.read(source); if (beforeWrite !== raw) fail("Source modifiée depuis l’analyse");
   const prefix = raw.slice(0, raw.length - body.length); const newRaw = prefix + body.slice(0, change.currentStart) + change.newText + body.slice(change.currentEnd);
   try { await app.vault.modify(source, newRaw); } catch (error) { throw new NativeReviewAuthorDecisionError(`Écriture Manuscrit impossible : ${error instanceof Error ? error.message : String(error)}`); }

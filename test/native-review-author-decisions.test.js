@@ -44,3 +44,21 @@ test("accepted appliqué est idempotent et ne peut plus être rejeté", async ()
   assert.equal(await app.vault.read(file), written);
   await assert.rejects(() => decideNativeReviewAuthorChange(app, settings, "r", "one", 0, "rejected"), NativeReviewAuthorDecisionError);
 });
+test("already-applied refuse toujours rejected, même après un refus ancien", async () => {
+  const first = await fixture("Salut monde.");
+  await assert.rejects(() => decideNativeReviewAuthorChange(first.app, first.settings, "r", "one", 0, "rejected"), NativeReviewAuthorDecisionError);
+
+  const second = await fixture();
+  await decideNativeReviewAuthorChange(second.app, second.settings, "r", "one", 0, "rejected");
+  await second.vault.modify(second.file, "Salut monde.");
+  await assert.rejects(() => decideNativeReviewAuthorChange(second.app, second.settings, "r", "one", 0, "rejected"), NativeReviewAuthorDecisionError);
+  await decideNativeReviewAuthorChange(second.app, second.settings, "r", "one", 0, "accepted");
+  const store = JSON.parse(await second.vault.read(second.vault.getAbstractFileByPath(`${reviewRoundsRootPath("r")}/round-1-decisions.json`)));
+  assert.equal(store.documents[0].decisions[0].applied, true);
+});
+test("reject normal ne crée ni snapshot ni modification", async () => {
+  const { app, vault, file, settings } = await fixture(); const raw = await vault.read(file);
+  await decideNativeReviewAuthorChange(app, settings, "r", "one", 0, "rejected");
+  assert.equal(await vault.read(file), raw);
+  assert.equal(vault.getAbstractFileByPath("Roman/_Feuillets/Snapshots"), null);
+});
