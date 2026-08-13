@@ -10,6 +10,7 @@ type Decision = "accepted" | "rejected";
 interface StoredDecision { changeIndex: number; baseStart: number; baseEnd: number; oldText: string; newText: string; decision: Decision; applied: boolean; decidedAt: string; }
 interface StoredDocument { documentId: string; snapshotStamp?: string; decisions: StoredDecision[]; }
 interface DecisionStore { version: 1; documents: StoredDocument[]; }
+export interface NativeReviewAuthorDecisionState { round: number; store: DecisionStore; complete: boolean; unresolved: Array<{ documentId: string; changeIndex: number }>; }
 export class NativeReviewAuthorDecisionError extends Error { constructor(message: string) { super(message); this.name = "NativeReviewAuthorDecisionError"; } }
 function fail(message: string): never { throw new NativeReviewAuthorDecisionError(message); }
 function pathFor(reviewId: string, round: number): string { return normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round}-decisions.json`); }
@@ -35,6 +36,19 @@ async function loadStore(app: App, reviewId: string, round: number): Promise<{ s
 async function saveStore(app: App, loaded: Awaited<ReturnType<typeof loadStore>>): Promise<void> {
   const text = JSON.stringify(loaded.store, null, 2);
   if (loaded.file) await app.vault.modify(loaded.file, text); else await app.vault.create(loaded.path, text);
+}
+export async function loadNativeReviewAuthorDecisionState(app: App, reviewId: string): Promise<NativeReviewAuthorDecisionState> {
+  const analysis = await loadNativeReviewAuthorAnalysis(app, reviewId); const loaded = await loadStore(app, reviewId, analysis.round.round);
+  const unresolved: Array<{ documentId: string; changeIndex: number }> = [];
+  for (const document of analysis.analyses) for (let index = 0; index < document.changes.length; index += 1) {
+    const found = loaded.store.documents.find((item) => item.documentId === document.documentId)?.decisions.find((item) => item.changeIndex === index);
+    if (found && !same(found, signature(document.changes[index], index))) fail("Signature de décision incohérente");
+    if (!found) unresolved.push({ documentId: document.documentId, changeIndex: index });
+  }
+  for (const doc of loaded.store.documents) for (const decision of doc.decisions) {
+    const analysisDoc = analysis.analyses.find((item) => item.documentId === doc.documentId); if (!analysisDoc || !analysisDoc.changes[decision.changeIndex]) fail("Décision orpheline");
+  }
+  return { round: analysis.round.round, store: loaded.store, complete: unresolved.length === 0, unresolved };
 }
 function same(a: StoredDecision, b: ReturnType<typeof signature>): boolean { return a.changeIndex === b.changeIndex && a.baseStart === b.baseStart && a.baseEnd === b.baseEnd && a.oldText === b.oldText && a.newText === b.newText; }
 function under(root: TFolder, file: TFile): boolean { return file.path.startsWith(`${root.path}/`); }
