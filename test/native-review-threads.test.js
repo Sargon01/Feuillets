@@ -14,3 +14,14 @@ test("valide le store strict et l’append-only", () => {
   assert.throws(() => assertNativeReviewThreadEvolution([initial], [modified], people, docs, "author"));
   assert.throws(() => validateNativeReviewThreads({ version: 1, threads: [{ ...initial, documentId: "unknown" }] }, people, docs));
 });
+
+test("un nouveau fil résolu est attribué au participant émetteur", () => {
+  const reviewerResolved = thread(); reviewerResolved.status = "resolved"; reviewerResolved.resolvedAt = "2026-08-13T10:02:00.000Z"; reviewerResolved.resolvedByParticipantId = "bob";
+  assert.doesNotThrow(() => assertNativeReviewThreadEvolution([], [reviewerResolved], people, docs, "reviewer"));
+  const reviewerForged = JSON.parse(JSON.stringify(reviewerResolved)); reviewerForged.resolvedByParticipantId = "alice";
+  assert.throws(() => assertNativeReviewThreadEvolution([], [reviewerForged], people, docs, "reviewer"));
+  const authorResolved = JSON.parse(JSON.stringify(reviewerResolved)); authorResolved.threadId = `thread-${"d".repeat(32)}`; authorResolved.messages[0].messageId = `message-${"e".repeat(32)}`; authorResolved.createdByParticipantId = "alice"; authorResolved.messages[0].participantId = "alice"; authorResolved.resolvedByParticipantId = "alice";
+  assert.doesNotThrow(() => assertNativeReviewThreadEvolution([], [authorResolved], people, docs, "author"));
+  authorResolved.resolvedByParticipantId = "bob";
+  assert.throws(() => assertNativeReviewThreadEvolution([], [authorResolved], people, docs, "author"));
+});
