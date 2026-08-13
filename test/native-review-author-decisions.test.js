@@ -30,3 +30,17 @@ test("refuse une application ambiguous sans modifier la source", async () => {
   const { app, file, settings } = await fixture(); file.path = "Autre/Un.md";
   await assert.rejects(() => decideNativeReviewAuthorChange(app, settings, "r", "one", 0, "accepted"), NativeReviewAuthorDecisionError);
 });
+test("refuse une archive retour remplacée avec un autre packageId", async () => {
+  const { app, vault } = await fixture(); const at = "2026-08-13T10:00:00.000Z";
+  const other = await createNativeReviewPackage({ packageId: "other", createdAt: at, createdByVersion: "2", reviewId: "r", round: 1, senderRole: "reviewer", participants: people }, [{ documentId: "one", originalPath: "Un.md", title: "Un", baseMarkdown: "Bonjour monde.", workingMarkdown: "Salut monde." }]);
+  const received = vault.getAbstractFileByPath(`${reviewRoundsRootPath("r")}/round-1-received.feuillets`);
+  received.content = other.buffer;
+  await assert.rejects(() => loadNativeReviewAuthorAnalysis(app, "r"));
+});
+test("accepted appliqué est idempotent et ne peut plus être rejeté", async () => {
+  const { app, file, settings } = await fixture();
+  await decideNativeReviewAuthorChange(app, settings, "r", "one", 0, "accepted"); const written = await app.vault.read(file);
+  await decideNativeReviewAuthorChange(app, settings, "r", "one", 0, "accepted");
+  assert.equal(await app.vault.read(file), written);
+  await assert.rejects(() => decideNativeReviewAuthorChange(app, settings, "r", "one", 0, "rejected"), NativeReviewAuthorDecisionError);
+});

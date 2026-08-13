@@ -118,6 +118,7 @@ function assertReturnPackage(session: ReviewSession, round: ReturnType<typeof cu
   const { manifest } = returned;
   if (manifest.senderRole !== "reviewer") fail("Le paquet retour doit provenir du relecteur");
   if (manifest.reviewId !== session.reviewId || manifest.round !== round.round) fail("Paquet retour incohérent avec la session");
+  if (round.received && manifest.packageId !== round.received.packageId) fail("packageId retour incohérent avec la session");
 }
 
 function assertSameBase(session: ReviewSession, round: ReturnType<typeof currentReviewRound>, sent: NativeReviewPackage, returned: NativeReviewPackage): void {

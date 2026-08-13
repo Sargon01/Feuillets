@@ -16,8 +16,14 @@ function pathFor(reviewId: string, round: number): string { return normalizePath
 function signature(change: NativeReviewAuthorChange, index: number): Pick<StoredDecision, "changeIndex" | "baseStart" | "baseEnd" | "oldText" | "newText"> { return { changeIndex: index, baseStart: change.baseStart, baseEnd: change.baseEnd, oldText: change.oldText, newText: change.newText }; }
 function validStore(value: unknown): value is DecisionStore {
   if (!value || typeof value !== "object" || (value as { version?: unknown }).version !== 1 || !Array.isArray((value as { documents?: unknown }).documents)) return false;
-  return (value as DecisionStore).documents.every((doc) => doc && typeof doc.documentId === "string" && Array.isArray(doc.decisions)
-    && doc.decisions.every((d) => Number.isInteger(d.changeIndex) && typeof d.baseStart === "number" && typeof d.baseEnd === "number" && typeof d.oldText === "string" && typeof d.newText === "string" && (d.decision === "accepted" || d.decision === "rejected") && typeof d.applied === "boolean" && typeof d.decidedAt === "string"));
+  const ids = new Set<string>();
+  return (value as DecisionStore).documents.every((doc) => doc && typeof doc.documentId === "string" && doc.documentId.trim() !== "" && !ids.has(doc.documentId) && (ids.add(doc.documentId), true)
+    && (doc.snapshotStamp === undefined || typeof doc.snapshotStamp === "string" && doc.snapshotStamp.trim() !== "") && Array.isArray(doc.decisions) && (() => {
+      const indexes = new Set<number>(); return doc.decisions.every((d) => Number.isSafeInteger(d.changeIndex) && d.changeIndex >= 0 && !indexes.has(d.changeIndex) && (indexes.add(d.changeIndex), true)
+        && Number.isSafeInteger(d.baseStart) && d.baseStart >= 0 && Number.isSafeInteger(d.baseEnd) && d.baseEnd >= d.baseStart && typeof d.oldText === "string" && typeof d.newText === "string"
+        && (d.decision === "accepted" || d.decision === "rejected") && typeof d.applied === "boolean" && (d.decision === "accepted" ? d.applied : !d.applied)
+        && typeof d.decidedAt === "string" && d.decidedAt.trim() !== "" && !Number.isNaN(Date.parse(d.decidedAt)));
+    })());
 }
 async function loadStore(app: App, reviewId: string, round: number): Promise<{ store: DecisionStore; file: TFile | null; path: string }> {
   const path = pathFor(reviewId, round); const entry = app.vault.getAbstractFileByPath(path);
@@ -43,6 +49,10 @@ export async function decideNativeReviewAuthorChange(app: App, settings: Feuille
   if (!record) { record = { documentId, decisions: [] }; loaded.store.documents.push(record); }
   const control = signature(change, changeIndex); const existing = record.decisions.find((item) => item.changeIndex === changeIndex);
   if (existing && !same(existing, control)) fail("Signature de décision incohérente");
+  if (existing?.decision === "accepted" && existing.applied) {
+    if (decision === "rejected") fail("Une modification déjà appliquée ne peut pas être rejetée");
+    return;
+  }
   const now = new Date().toISOString();
   if (decision === "rejected") { if (existing?.decision === "rejected") return; record.decisions = record.decisions.filter((item) => item.changeIndex !== changeIndex); record.decisions.push({ ...control, decision, applied: false, decidedAt: now }); await saveStore(app, loaded); return; }
   if (change.confidence !== "safe" || (change.reason !== "already-applied" && change.reason !== "non-overlapping")) fail("Modification non applicable automatiquement");
