@@ -117,8 +117,13 @@ function assertSameBase(session: ReviewSession, round: ReturnType<typeof current
   if (sent.manifest.senderRole !== "author" || sent.manifest.reviewId !== session.reviewId || sent.manifest.round !== round.round
     || !round.sent || sent.manifest.packageId !== round.sent.packageId) fail("Archive auteur incohérente avec la session");
   const sentParticipants = sent.manifest.participants.map(({ id, name, role }) => ({ id, name, role }));
+  const sessionParticipants = session.participants.map(({ id, name, role }) => ({ id, name, role }));
+  if (!sameJson(sessionParticipants, sentParticipants)) fail("Participants de session incohérents avec la base auteur");
   const returnedParticipants = returned.manifest.participants.map(({ id, name, role }) => ({ id, name, role }));
   if (!sameJson(sentParticipants, returnedParticipants)) fail("Participants du retour incohérents avec la base auteur");
+  const sessionDocuments = session.documents.map(({ documentId, originalPath, title }) => ({ documentId, originalPath, title }));
+  const sentSessionDocuments = sent.documents.map(({ documentId, originalPath, title }) => ({ documentId, originalPath, title }));
+  if (!sameJson(sessionDocuments, sentSessionDocuments)) fail("Documents de session incohérents avec la base auteur");
   const sentDocuments = sent.documents.map(({ documentId, originalPath, title, baseHash }) => ({ documentId, originalPath, title, baseHash }));
   const returnedDocuments = returned.documents.map(({ documentId, originalPath, title, baseHash }) => ({ documentId, originalPath, title, baseHash }));
   if (!sameJson(sentDocuments, returnedDocuments)) fail("Documents du retour incohérents avec la base auteur");
