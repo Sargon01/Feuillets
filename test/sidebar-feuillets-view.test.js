@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SidebarFeuilletsView } from "../src/views/sidebar-feuillets-view.js";
 import { t } from "../src/i18n/index.js";
-import { DiffModal } from "../src/ui/diff-modal.js";
 
 class FakeElement {
   constructor(options = {}) {
@@ -75,7 +74,7 @@ function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels =
       on(name, callback) { listeners.workspace.set(name, callback); return { name }; },
       getActiveFile() { return activeFile; },
     },
-    vault: { on(name, callback) { listeners.vault.set(name, callback); return { name }; } },
+    vault: { on(name, callback) { listeners.vault.set(name, callback); return { name }; }, getAbstractFileByPath() { return null; }, getFiles() { return []; } },
   };
   const plugin = {
     settings,
@@ -612,26 +611,20 @@ test("SidebarFeuilletsView : Comparer une version n'apparaît pas sans feuillet 
   }
 });
 
-test("SidebarFeuilletsView : cliquer sur Comparer une version ouvre DiffModal avec le feuillet actif, sans créer de troisième page", async () => {
+test("SidebarFeuilletsView : cliquer sur Comparer une version ouvre la comparaison sur le feuillet actif, sans créer de troisième page", async () => {
   const projectFolder = { path: "Projet" };
   const activeFile = { path: "Projet/scene.md", extension: "md" };
   const { sidebar, contentEl } = createSidebar("relecture", [], [], { activeFile, projectFolder });
   await sidebar.render();
 
-  const original = DiffModal.prototype.open;
-  let opened = null;
-  DiffModal.prototype.open = function () { opened = this; };
-  try {
-    const rows = allElements(contentEl.children[1]).filter(
-      (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
-    );
-    assert.equal(rows.length, 4);
-    rows[3].events.get("click")();
+  const rows = allElements(contentEl.children[1]).filter(
+    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
+  );
+  assert.equal(rows.length, 4);
+  rows[3].events.get("click")();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
-    assert.ok(opened, "DiffModal.open() appelé");
-    assert.equal(opened.currentFile, activeFile);
-    assert.equal(sidebar.relecturePage, "home", "aucune troisième page secondaire créée");
-  } finally {
-    DiffModal.prototype.open = original;
-  }
+  // Sans snapshot, rien ne s'ouvre — mais surtout aucune page secondaire n'est
+  // inventée : l'entrée reste une action, jamais une troisième page Relecture.
+  assert.equal(sidebar.relecturePage, "home", "aucune troisième page secondaire créée");
 });

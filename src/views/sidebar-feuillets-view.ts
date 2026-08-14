@@ -1,7 +1,7 @@
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import { VIEW_SIDEBAR_FEUILLETS } from "../constants.js";
 import { t } from "../i18n/index.js";
-import { DiffModal } from "../ui/diff-modal.js";
+import { openSnapshotComparison } from "./comparison-view.js";
 import { AnalysisView } from "./analysis-view.js";
 import { DocxReviewView } from "./docx-review-view.js";
 import { EditionDocsView } from "./edition-docs-view.js";
@@ -412,7 +412,7 @@ export class SidebarFeuilletsView extends ItemView {
     this.renderHomeRow(
       element, "history",
       t("relecture.home.diff.title"), t("relecture.home.diff.sub"),
-      () => { new DiffModal(this.app, this.plugin, activeFile).open(); }
+      () => { void openSnapshotComparison(this.app, this.plugin, activeFile); }
     );
   }
 

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import {
-  InvalidReviewSessionError, appendReviewRound, createReviewSession, currentReviewRound,
-  isNativeReviewPath, loadReviewSession, recordReviewRoundPackage, reviewIdFromNativeReviewPath,
+  InvalidReviewSessionError, createReviewSession, currentReviewRound,
+  isNativeReviewPath, loadReviewSession, nativeReviewWorkingContext, recordReviewRoundPackage, reviewIdFromNativeReviewPath,
   reviewRoundsRootPath, reviewSessionFilePath, reviewSessionRootPath, reviewSessionsRootPath,
   reviewWorkingRootPath, saveReviewSession, validateReviewSession,
 } from "../src/services/native-review-session.js";
@@ -68,26 +68,20 @@ test("validation refuse participants, documents, IDs et chemins dangereux", () =
   const emptyTitle = session(); emptyTitle.documents[0].title = "  "; assert.throws(() => validateReviewSession(emptyTitle), InvalidReviewSessionError);
 });
 
-test("auteur : le second package complète le tour courant avant append", () => {
+test("auteur : l'unique aller-retour est complété par le retour du relecteur", () => {
   const value = session();
   assert.equal(currentReviewRound(value).round, 1);
-  assert.throws(() => appendReviewRound(value, pkg("package-2")), InvalidReviewSessionError);
   recordReviewRoundPackage(value, pkg("package-2"));
   assert.equal(value.rounds[0].received.packageId, "package-2");
   assert.equal(recordReviewRoundPackage(value, pkg("package-2")), value.rounds[0]);
   assert.throws(() => recordReviewRoundPackage(value, pkg("replacement")), InvalidReviewSessionError);
-  const second = appendReviewRound(value, pkg("package-3", "2026-08-13T11:00:00.000Z"));
-  assert.equal(second.round, 2); assert.equal(second.sent.packageId, "package-3");
-  assert.equal(currentReviewRound(value), second);
 });
 
-test("relecteur : le tour commence par received et est complété par sent", () => {
+test("relecteur : l'échange commence par received et est complété par sent", () => {
   const value = session("reviewer-round", "reviewer");
   assert.equal(value.rounds[0].received.packageId, "package-1");
   recordReviewRoundPackage(value, pkg("package-2"));
   assert.equal(value.rounds[0].sent.packageId, "package-2");
-  const second = appendReviewRound(value, pkg("package-3"));
-  assert.equal(second.round, 2); assert.equal(second.received.packageId, "package-3");
 });
 
 test("validation impose les transitions des tours et les sessions completed", () => {
@@ -99,19 +93,18 @@ test("validation impose les transitions des tours et les sessions completed", ()
   assert.throws(() => validateReviewSession(incompletePrior), InvalidReviewSessionError);
   const completed = session(); completed.status = "completed"; assert.throws(() => validateReviewSession(completed), InvalidReviewSessionError);
   const closed = session(); recordReviewRoundPackage(closed, pkg("package-2")); closed.status = "completed"; validateReviewSession(closed);
-  assert.throws(() => appendReviewRound(closed, pkg("package-3")), InvalidReviewSessionError);
   assert.throws(() => recordReviewRoundPackage(closed, pkg("package-3")), InvalidReviewSessionError);
 });
 
 test("tours continus et packageId ne sont jamais réutilisés", () => {
   const gap = session(); recordReviewRoundPackage(gap, pkg("package-2")); gap.rounds.push({ round: 3, createdAt: at, sent: pkg("package-3") }); assert.throws(() => validateReviewSession(gap), InvalidReviewSessionError);
   const duplicate = session(); recordReviewRoundPackage(duplicate, pkg("package-2")); duplicate.rounds.push({ round: 1, createdAt: at, sent: pkg("package-3") }); assert.throws(() => validateReviewSession(duplicate), InvalidReviewSessionError);
-  const reused = session(); recordReviewRoundPackage(reused, pkg("package-2")); appendReviewRound(reused, pkg("package-3")); assert.throws(() => recordReviewRoundPackage(reused, pkg("package-2")), InvalidReviewSessionError);
+  const reused = session(); recordReviewRoundPackage(reused, pkg("package-2")); reused.rounds.push({ round: 2, createdAt: at, sent: pkg("package-3") }); assert.throws(() => recordReviewRoundPackage(reused, pkg("package-2")), InvalidReviewSessionError);
 });
 
 test("sauvegarde et recharge sans toucher aux autres fichiers", async () => {
   const { app, vault } = appWith(); const value = session(); await createReviewSession(app, value);
-  recordReviewRoundPackage(value, pkg("package-2")); appendReviewRound(value, pkg("package-3")); value.updatedAt = "2026-08-13T11:00:00.000Z";
+  recordReviewRoundPackage(value, pkg("package-2")); value.updatedAt = "2026-08-13T11:00:00.000Z";
   await saveReviewSession(app, value); const loaded = await loadReviewSession(app, "review-1");
   assert.deepEqual(loaded, value); assert.equal(loaded.documents[0].title, "Chapitre 1"); assert.equal(vault.getAbstractFileByPath("_Feuillets/Relectures/review-1/working") instanceof TFolder, true);
 });
@@ -138,6 +131,20 @@ test("reconnaît uniquement les chemins de Relecture native", () => {
   for (const path of ["/_Feuillets/Relectures/review-1/working", "_Feuillets//Relectures/review-1/working", "_Feuillets/Relectures/./review-1/working", "_Feuillets/Relectures/review-1/../working", "_Feuillets\\Relectures\\review-1\\working"]) {
     assert.equal(reviewIdFromNativeReviewPath(path), null);
   }
+});
+
+test("nativeReviewWorkingContext ne reconnaît que working/<documentId>.md, pas les autres entrées de session", () => {
+  assert.deepEqual(nativeReviewWorkingContext("_Feuillets/Relectures/review-1/working/chapter-1.md"), { reviewId: "review-1", documentId: "chapter-1" });
+  assert.deepEqual(nativeReviewWorkingContext("_Feuillets/Relectures/review-1/working/chapter-2.md"), { reviewId: "review-1", documentId: "chapter-2" });
+  for (const path of [
+    "_Feuillets/Relectures/review-1/session.json",
+    "_Feuillets/Relectures/review-1/threads.json",
+    "_Feuillets/Relectures/review-1/rounds/round-1-received.feuillets",
+    "_Feuillets/Relectures/review-1/working",
+    "_Feuillets/Relectures/review-1/working/sub/chapter-1.md",
+    "_Feuillets/Relectures/review-1/working/chapter-1.txt",
+    "Roman/Manuscrit/Chapitre.md",
+  ]) assert.equal(nativeReviewWorkingContext(path), null);
 });
 
 test("refuse les IDs de plus de 128 caractères", () => {

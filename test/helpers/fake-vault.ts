@@ -32,6 +32,7 @@ export function createFakeVault(entries: FakeVaultEntry[] = []) {
   };
 
   const vault = {
+    getFiles(): FakeTFile[] { return [...files.values()].filter((entry): entry is FakeTFile => entry instanceof TFile); },
     getAbstractFileByPath(path: string): FakeVaultEntry | null {
       return files.get(normalizePath(path)) || null;
     },

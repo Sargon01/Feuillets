@@ -33,6 +33,7 @@ import { ResearchView } from "./views/research-view.js";
 import { JournalView } from "./views/journal-view.js";
 import { ProjectView } from "./views/project-view.js";
 import { PreviewView, openWithPreview } from "./views/preview-view.js";
+import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
 import { formatCitation } from "./services/citations.js";
 import { bibliographyEntries, generateBibliography, resolveBibliographySource } from "./services/bibliography-generator.js";
@@ -93,9 +94,10 @@ import {
   annotationsForFile,
   resolveAnnotation,
   toManuscriptRelativePath,
+  remapAnnotationsAfterRename,
   type AnnotationsStore,
 } from "./services/annotations.js";
-import { addWorkNote, deleteWorkNote, updateWorkNote } from "./services/work-notes.js";
+import { addWorkNote, deleteWorkNote, updateWorkNote, remapWorkNotesAfterRename } from "./services/work-notes.js";
 
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
@@ -111,6 +113,13 @@ import {
   type EditorViewInstance as AnnotationEditorViewInstance,
 } from "./utils/cm-annotation-highlighter.js";
 import { emptyLinesPlugin } from "./utils/cm-empty-lines.js";
+import { nativeReviewThreadHighlightField, nativeReviewThreadDoubleClickExtension, applyNativeReviewThreadHighlights, clearNativeReviewThreadHighlights } from "./utils/cm-native-review-highlighter.js";
+import { comparisonDecorationField, comparisonReadOnlyField, comparisonClickExtension } from "./utils/cm-comparison-decorations.js";
+import { listNativeReviewSessions } from "./services/native-review-exchange.js";
+import { currentReviewRound, nativeReviewWorkingContext } from "./services/native-review-session.js";
+import { loadNativeReviewThreads, addNativeReviewThread, setNativeReviewThreadResolved } from "./services/native-review-threads.js";
+import { NativeReviewThreadPopover } from "./ui/native-review-thread-popover.js";
+import { reviewSessionPaths, reviewerReviewStorageLocation, type NativeReviewStorageLocation } from "./services/native-review-storage.js";
 import { paragraphIndentPlugin } from "./utils/cm-paragraph-indent.js";
 import {
   grammarIssuesField,
@@ -227,6 +236,13 @@ function isUnknownArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
+const nativeReviewWorkingTitles = new Map<string, string>();
+/** Titres d'onglet pour la colonne comparée d'une Comparison ouverte (voir
+ * comparison-view.ts#setComparisonDisplayTitle) — jamais mélangés à
+ * `nativeReviewWorkingTitles`, dont le cycle de vie (vidée puis repeuplée à
+ * chaque rafraîchissement des sessions) effacerait ces entrées sans le
+ * savoir. Posée à l'ouverture d'une comparaison, retirée à sa fermeture. */
+const comparisonDisplayTitles = new Map<string, string>();
 class FeuilletsPlugin extends Plugin {
   /**
    * Déclaré explicitement sur la sous-classe, comme le demande la doc
@@ -239,6 +255,8 @@ class FeuilletsPlugin extends Plugin {
    * propriété d'instance sur les versions antérieures).
    */
   settings!: FeuilletsSettings;
+  nativeReviewEditorContext: { reviewId: string; location: NativeReviewStorageLocation; documentId?: string } | null = null;
+  activeNativeReviewThreadPopover: NativeReviewThreadPopover | null = null;
 
   /** Portée d'export courante, mémorisée pour la SEULE durée de la session
    * (Binder, Aperçu et Édition la partagent via services/export-workflow.ts).
@@ -369,6 +387,8 @@ class FeuilletsPlugin extends Plugin {
     this.registerAnnotationCommands();
     this.registerAnnotationContextMenu();
     this.registerAnnotationHighlightSync();
+    this.registerNativeReviewHighlightSync();
+    this.registerNativeReviewContextMenu();
     this.registerVaultEvents();
     this.patchTabTitles();
     this.registerSwipeGestures();
@@ -379,6 +399,8 @@ class FeuilletsPlugin extends Plugin {
       annotationHighlightField,
       annotationDoubleClickExtension((id, target) => void this.openAnnotationEditor(id, undefined, target)),
     ]);
+    this.registerEditorExtension([nativeReviewThreadHighlightField, nativeReviewThreadDoubleClickExtension((id, target) => void this.openNativeReviewThread(id, target))]);
+    this.registerEditorExtension([comparisonDecorationField, comparisonReadOnlyField, comparisonClickExtension()]);
     this.registerEditorExtension(emptyLinesPlugin);
     this.registerEditorExtension(paragraphIndentPlugin);
 
@@ -1089,6 +1111,8 @@ class FeuilletsPlugin extends Plugin {
          suivre le dossier déplacé, sans toucher aux chemins voisins. */
       if (oldPath && file.path && oldPath !== file.path) {
         this.remapResearchFolderLinks(oldPath, file.path);
+        void remapAnnotationsAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
+        void remapWorkNotesAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
       }
     }));
     this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
@@ -1661,6 +1685,7 @@ class FeuilletsPlugin extends Plugin {
       anchor,
       text: "",
       color: "yellow",
+      saveOnClose: false,
       onSave: async (text, color, style) => {
         await addAnnotation(this.app, this.settings, {
           file: relPath,
@@ -1810,6 +1835,76 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("active-leaf-change", refresh));
   }
 
+  /** Titre d'onglet propre pour la colonne comparée d'une Comparison — jamais
+   * un renommage du fichier réel, seulement l'en-tête affiché (même
+   * mécanisme que `nativeReviewWorkingTitles`, voir `patchTabTitles`).
+   * `title: null` efface l'entrée : appelé à la fermeture de la comparaison. */
+  setComparisonDisplayTitle(path: string, title: string | null): void {
+    if (title) comparisonDisplayTitles.set(path, title); else comparisonDisplayTitles.delete(path);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) this.refreshTabHeaderFor(file);
+  }
+
+  /** Synchronise les propositions reçues dans chaque working ouvert. Les widgets
+   * CodeMirror ne sont jamais écrits dans le Markdown et le reviewer ne voit
+   * pas ses propres modifications comme un faux diff. */
+  async refreshNativeReviewDecorations(): Promise<void> {
+    let sessions: Awaited<ReturnType<typeof listNativeReviewSessions>>;
+    try { sessions = await listNativeReviewSessions(this.app, this.settings); } catch { return; }
+    nativeReviewWorkingTitles.clear(); for (const entry of sessions) for (const document of entry.session?.documents ?? []) if (document.localSourcePath) nativeReviewWorkingTitles.set(document.localSourcePath, document.title);
+    this.refreshAllTabHeaders();
+    const context = this.nativeReviewEditorContext;
+    const entry = context ? sessions.find((item) => item.session?.reviewId === context.reviewId && item.location.sessionsRootPath === context.location.sessionsRootPath) : null;
+    const session = entry?.session;
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view as MarkdownView;
+      const path = view.file?.path;
+      const cm = this.annotationCmView(view.editor);
+      if (!path || !cm) continue;
+      const reviewDocument = session?.documents.find((document) => document.localSourcePath === path);
+      if (!session || !reviewDocument || session.status === "completed") { clearNativeReviewThreadHighlights(cm); continue; }
+      try { const threads = (await loadNativeReviewThreads(this.app, session.reviewId, entry.location)).threads.filter((thread) => thread.documentId === reviewDocument.documentId && thread.status === "open"); applyNativeReviewThreadHighlights(cm, threads.map((thread) => ({ ...thread, reviewId: session.reviewId })), view.editor.getValue()); } catch { clearNativeReviewThreadHighlights(cm); }
+    }
+  }
+
+  registerNativeReviewHighlightSync(): void {
+    const refresh = () => { this.closeNativeReviewThreadPopover(); void this.refreshNativeReviewDecorations(); };
+    this.registerEvent(this.app.workspace.on("file-open", refresh));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", refresh));
+    this.registerEvent(this.app.vault.on("modify", refresh));
+  }
+
+  registerNativeReviewContextMenu(): void {
+    this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
+      if (!(view instanceof MarkdownView) || !view.file || !editor.somethingSelected()) return;
+      void listNativeReviewSessions(this.app, this.settings).then((sessions) => {
+        const session = sessions.map((item) => item.session).find((candidate) => candidate?.localRole === "reviewer" && candidate.status === "active" && !currentReviewRound(candidate).sent && currentReviewRound(candidate).received && candidate.documents.some((document) => document.localSourcePath === view.file?.path));
+        if (!session) return;
+        menu.addItem((item) => item.setTitle("Commenter en relecture").setIcon("highlighter").onClick(() => void this.createNativeReviewThread(session.reviewId, view, editor)));
+      }).catch(() => undefined);
+    }));
+  }
+
+  async createNativeReviewThread(reviewId: string, view: MarkdownView, editor: Editor): Promise<void> {
+    const sessions = await listNativeReviewSessions(this.app, this.settings); const entry = sessions.find((item) => item.session?.reviewId === reviewId); const session = entry?.session;
+    const documentInfo = session?.documents.find((document) => document.localSourcePath === view.file?.path); if (!session || !documentInfo) return;
+    const start = editor.posToOffset(editor.getCursor("from")); const end = editor.posToOffset(editor.getCursor("to")); if (start === end) return;
+    const anchor = this.annotationCmView(editor) && coordsAtOffset(this.annotationCmView(editor), end) || FeuilletsPlugin.DEFAULT_ANNOTATION_ANCHOR;
+    new AnnotationPopover({ parentEl: document.body, anchor, text: "", color: "yellow", onSave: async (text, color, style) => { await addNativeReviewThread(this.app, reviewId, documentInfo.documentId, start, end, text, { color, style }, entry?.location); await this.refreshNativeReviewDecorations(); } }).open();
+  }
+
+  setNativeReviewEditorContext(context: { reviewId: string; location: NativeReviewStorageLocation; documentId?: string } | null): void {
+    this.closeNativeReviewThreadPopover(); this.nativeReviewEditorContext = context; void this.refreshNativeReviewDecorations();
+  }
+  clearNativeReviewEditorContext(): void { this.setNativeReviewEditorContext(null); }
+  closeNativeReviewThreadPopover(): void { this.activeNativeReviewThreadPopover?.close(); this.activeNativeReviewThreadPopover = null; document.querySelectorAll(".cm-native-review-thread-active").forEach((element) => element.removeClass("cm-native-review-thread-active")); }
+
+  async openNativeReviewThread(threadId: string, target: { getBoundingClientRect?(): AnchorRect; getAttribute(name: string): string | null }): Promise<void> {
+    const context = this.nativeReviewEditorContext; if (!context) return;
+    const sessions = await listNativeReviewSessions(this.app, this.settings);
+    for (const entry of sessions) { const session = entry.session; if (!session || session.reviewId !== context.reviewId || entry.location.sessionsRootPath !== context.location.sessionsRootPath) continue; const threads = await loadNativeReviewThreads(this.app, session.reviewId, entry.location); const thread = threads.threads.find((candidate) => candidate.threadId === threadId); if (!thread) continue; const names = new Map(session.participants.map((person) => [person.id, person.name])); this.closeNativeReviewThreadPopover(); document.querySelectorAll(`[data-native-review-thread-id="${CSS.escape(threadId)}"]`).forEach((element) => element.addClass("cm-native-review-thread-active")); const popover = new NativeReviewThreadPopover({ parentEl: document.body, anchor: target, thread, names, readOnly: session.localRole !== "author" || session.status !== "active", onHandled: async () => { await setNativeReviewThreadResolved(this.app, session.reviewId, threadId, true, entry.location); this.closeNativeReviewThreadPopover(); await this.refreshNativeReviewDecorations(); } }); this.activeNativeReviewThreadPopover = popover; popover.open(); return; }
+  }
+
   async maybeAutoInitializeResearchFile(file) {
     if (!(file instanceof TFile) || file.extension !== "md" || file.stat.size > 0) return;
     const researchRoot = this.getResearchRoot();
@@ -1838,6 +1933,11 @@ class FeuilletsPlugin extends Plugin {
   }
 
   onunload() {
+    // Une comparaison ouverte tient des décorations et un verrou de lecture
+    // seule sur deux vrais éditeurs : ils doivent redevenir ordinaires même
+    // si le plugin part sans passer par la fermeture normale.
+    void closeFeuilletsComparison();
+    comparisonDisplayTitles.clear();
     window.clearTimeout(this._refreshTimer);
     window.clearTimeout(this._statusTimer);
     window.clearTimeout(this._concTimer);
@@ -1890,6 +1990,10 @@ class FeuilletsPlugin extends Plugin {
     this._patchedGetDisplayText = function (this: MarkdownView): string {
       try {
         if (this.file) {
+          const comparisonTitle = comparisonDisplayTitles.get(this.file.path);
+          if (comparisonTitle) return comparisonTitle;
+          const reviewTitle = nativeReviewWorkingTitles.get(this.file.path);
+          if (reviewTitle) return reviewTitle;
           const fm = plugin.fmOf(this.file);
           const raw = fm && fm.short_title;
           const short = raw ? String(raw).trim() : "";
@@ -2040,6 +2144,14 @@ class FeuilletsPlugin extends Plugin {
   }
 
   isActiveFileInProject() {
+    const file = this.app.workspace.getActiveFile();
+    // Un working/*.md de relecture reçoit la même grammaire d'édition qu'un
+    // feuillet normal le temps que sa session existe — sans dépendre d'un
+    // projet actif : un relecteur pur peut n'en avoir aucun. Reconnaissance
+    // dynamique via la session déjà écrite par Feuillets, jamais via le
+    // fichier lui-même (voir isActiveReviewWorkingFile).
+    if (this.isActiveReviewWorkingFile(file)) return true;
+
     const root = this.getProjectFolder();
     if (!root) return false;
 
@@ -2050,10 +2162,30 @@ class FeuilletsPlugin extends Plugin {
     // désactive à tort les réglages de lecture (lignes vides, justification...).
     if (this.app.workspace.getActiveViewOfType(BoardView)) return true;
 
-    const file = this.app.workspace.getActiveFile();
-    if (!file) return false;
+    // Les deux colonnes d'une Comparaison sont de vraies feuilles Markdown,
+    // mais celle de droite est un document interne (retour du relecteur ou
+    // snapshot) qui n'appartient pas au Manuscrit. Elle hérite donc du
+    // contexte du feuillet de GAUCHE : sans cela, les deux textes ne se
+    // composeraient pas pareil dès que le focus passe à droite — exactement
+    // l'écart de composition que la comparaison doit rendre impossible.
+    const comparison = activeComparisonContext();
+    const target = comparison && file?.path === comparison.comparedPath ? this.app.vault.getAbstractFileByPath(comparison.sourcePath) : file;
+    if (!(target instanceof TFile)) return false;
     if (root.path === "") return true;
-    return file.path.startsWith(root.path + "/");
+    return target.path.startsWith(root.path + "/");
+  }
+
+  /** Un working/*.md n'est reconnu que si sa session de relecture existe
+   * encore sur disque : dès qu'elle est supprimée, ce même fichier (s'il
+   * survit ailleurs) redevient un Markdown ordinaire sans aucune trace
+   * laissée dessus — la reconnaissance ne repose que sur ce test, jamais sur
+   * un marqueur écrit dans le fichier. */
+  isActiveReviewWorkingFile(file: TFile | null): boolean {
+    if (!file) return false;
+    const context = nativeReviewWorkingContext(file.path);
+    if (!context) return false;
+    const sessionFile = reviewSessionPaths(reviewerReviewStorageLocation(), context.reviewId).sessionFile;
+    return this.app.vault.getAbstractFileByPath(sessionFile) instanceof TFile;
   }
 
   applyLiveTypoClasses(): void {

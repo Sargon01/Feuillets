@@ -1,14 +1,14 @@
 import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
-import * as Diff from "diff";
+import { comparisonEdits } from "./comparison-model.js";
 import { stripFrontmatter } from "./frontmatter.js";
 import { readNativeReviewPackage, type NativeReviewPackage } from "./native-review-package.js";
 import { assertNativeReviewThreadEvolution, nativeReviewThreadsPath } from "./native-review-threads.js";
+import { discoverNativeReviewStorageLocation, legacyGlobalAuthorStorageLocation, rememberedNativeReviewStorageLocation, reviewSessionPaths, type NativeReviewStorageLocation } from "./native-review-storage.js";
 import {
   currentReviewRound,
   loadReviewSession,
   recordReviewRoundPackage,
-  reviewRoundsRootPath,
   saveReviewSession,
   type ReviewSession,
 } from "./native-review-session.js";
@@ -62,29 +62,8 @@ function fail(message: string): never { throw new NativeReviewAuthorReturnError(
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean { return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]); }
 function sameJson(left: unknown, right: unknown): boolean { return JSON.stringify(left) === JSON.stringify(right); }
 
-/** Produces base-coordinate replacements, without attempting any fuzzy matching. */
-export function nativeReviewEdits(base: string, changed: string): NativeReviewEdit[] {
-  const edits: NativeReviewEdit[] = [];
-  let baseOffset = 0;
-  let pending: NativeReviewEdit | null = null;
-  for (const part of Diff.diffWordsWithSpace(base, changed)) {
-    if (!part.added && !part.removed) {
-      if (pending) { edits.push(pending); pending = null; }
-      baseOffset += part.value.length;
-      continue;
-    }
-    if (!pending) pending = { baseStart: baseOffset, baseEnd: baseOffset, oldText: "", newText: "" };
-    if (part.removed) {
-      pending.oldText += part.value;
-      pending.baseEnd += part.value.length;
-      baseOffset += part.value.length;
-    } else {
-      pending.newText += part.value;
-    }
-  }
-  if (pending) edits.push(pending);
-  return edits;
-}
+/** Un seul moteur de diff pour Relecture et Snapshots (voir comparison-model.ts). */
+export const nativeReviewEdits: (base: string, changed: string) => NativeReviewEdit[] = comparisonEdits;
 
 function overlaps(left: NativeReviewEdit, right: NativeReviewEdit): boolean {
   const leftEmpty = left.baseStart === left.baseEnd;
@@ -149,9 +128,10 @@ async function authorMarkdown(app: App, path: string | undefined): Promise<strin
   try { return stripFrontmatter(await app.vault.read(entry)); } catch { return undefined; }
 }
 
-async function readAuthorAnalysis(app: App, reviewId: string, requireReceived: boolean): Promise<NativeReviewAuthorLoadedAnalysis> {
+async function readAuthorAnalysis(app: App, reviewId: string, requireReceived: boolean, location?: NativeReviewStorageLocation): Promise<NativeReviewAuthorLoadedAnalysis> {
+  const resolved = location ?? discoverNativeReviewStorageLocation(app, reviewId) ?? rememberedNativeReviewStorageLocation(reviewId) ?? legacyGlobalAuthorStorageLocation(); const paths = reviewSessionPaths(resolved, reviewId);
   let session: ReviewSession | null;
-  try { session = await loadReviewSession(app, reviewId); } catch (error) { throw new NativeReviewAuthorReturnError(`Session de relecture illisible : ${error instanceof Error ? error.message : String(error)}`); }
+  try { session = await loadReviewSession(app, resolved, reviewId); } catch (error) { throw new NativeReviewAuthorReturnError(`Session de relecture illisible : ${error instanceof Error ? error.message : String(error)}`); }
   if (!session) fail(`Session introuvable : ${reviewId}`);
   if (session.localRole !== "author" || session.status !== "active") fail("La session auteur doit être active");
   let round: ReturnType<typeof currentReviewRound>;
@@ -162,8 +142,8 @@ async function readAuthorAnalysis(app: App, reviewId: string, requireReceived: b
     if (!(entry instanceof TFile)) fail(`${label} absente : ${path}`);
     try { return await readNativeReviewPackage(await app.vault.readBinary(entry)); } catch (error) { throw new NativeReviewAuthorReturnError(`${label} invalide : ${error instanceof Error ? error.message : String(error)}`); }
   };
-  const sentPackage = await readArchive(normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-sent.feuillets`), "Archive auteur");
-  const reviewPackage = await readArchive(normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-received.feuillets`), "Archive retour");
+  const sentPackage = await readArchive(normalizePath(`${paths.roundsRoot}/round-${round.round}-sent.feuillets`), "Archive auteur");
+  const reviewPackage = await readArchive(normalizePath(`${paths.roundsRoot}/round-${round.round}-received.feuillets`), "Archive retour");
   assertReturnPackage(session, round, reviewPackage); assertSameBase(session, round, sentPackage, reviewPackage);
   const analyses: NativeReviewAuthorAnalysis[] = [];
   for (const document of reviewPackage.documents) {
@@ -175,8 +155,8 @@ async function readAuthorAnalysis(app: App, reviewId: string, requireReceived: b
 }
 
 /** Reloads the archived exchange and current local sources without writing. */
-export async function loadNativeReviewAuthorAnalysis(app: App, reviewId: string): Promise<NativeReviewAuthorLoadedAnalysis> {
-  return readAuthorAnalysis(app, reviewId, true);
+export async function loadNativeReviewAuthorAnalysis(app: App, reviewId: string, location?: NativeReviewStorageLocation): Promise<NativeReviewAuthorLoadedAnalysis> {
+  return readAuthorAnalysis(app, reviewId, true, location);
 }
 
 function analyseDocument(
@@ -219,9 +199,11 @@ export async function receiveNativeReviewReturnForAuthor(
   app: App,
   reviewId: string,
   packageData: ArrayBuffer | Uint8Array,
+  location?: NativeReviewStorageLocation,
 ): Promise<NativeReviewAuthorReturnResult> {
+  const resolved = location ?? discoverNativeReviewStorageLocation(app, reviewId) ?? rememberedNativeReviewStorageLocation(reviewId) ?? legacyGlobalAuthorStorageLocation(); const paths = reviewSessionPaths(resolved, reviewId);
   let session: ReviewSession | null;
-  try { session = await loadReviewSession(app, reviewId); } catch (error) {
+  try { session = await loadReviewSession(app, resolved, reviewId); } catch (error) {
     throw new NativeReviewAuthorReturnError(`Session de relecture illisible : ${error instanceof Error ? error.message : String(error)}`);
   }
   if (!session) fail(`Session introuvable : ${reviewId}`);
@@ -237,7 +219,7 @@ export async function receiveNativeReviewReturnForAuthor(
     throw new NativeReviewAuthorReturnError(`Paquet retour invalide : ${error instanceof Error ? error.message : String(error)}`);
   }
   assertReturnPackage(session, round, reviewPackage);
-  const sentPath = normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-sent.feuillets`);
+  const sentPath = normalizePath(`${paths.roundsRoot}/round-${round.round}-sent.feuillets`);
   const sentEntry = app.vault.getAbstractFileByPath(sentPath);
   if (!(sentEntry instanceof TFile)) fail(`Archive auteur absente : ${sentPath}`);
   let sentPackage: NativeReviewPackage;
@@ -254,7 +236,7 @@ export async function receiveNativeReviewReturnForAuthor(
     analyses.push(analyseDocument(document, local.localSourcePath, await authorMarkdown(app, local.localSourcePath)));
   }
 
-  const localPackagePath = normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-received.feuillets`);
+  const localPackagePath = normalizePath(`${paths.roundsRoot}/round-${round.round}-received.feuillets`);
   const existingArchive = app.vault.getAbstractFileByPath(localPackagePath);
   if (existingArchive && (!(existingArchive instanceof TFile) || !equalBytes(new Uint8Array(await app.vault.readBinary(existingArchive)), new Uint8Array(packageData)))) fail(`Le paquet retour existe déjà et diffère : ${localPackagePath}`);
   const receivedAt = new Date().toISOString();
@@ -266,9 +248,9 @@ export async function receiveNativeReviewReturnForAuthor(
   if (!existingArchive) try { await app.vault.createBinary(localPackagePath, archiveBytes(packageData)); } catch (error) {
     throw new NativeReviewAuthorReturnError(`Archivage du paquet retour impossible : ${error instanceof Error ? error.message : String(error)}`);
   }
-  const threadsPath = nativeReviewThreadsPath(reviewId); const localThreads = app.vault.getAbstractFileByPath(threadsPath); const threadsJson = JSON.stringify({ version: 1, threads: reviewPackage.threads }, null, 2);
+  const threadsPath = nativeReviewThreadsPath(reviewId, resolved); const localThreads = app.vault.getAbstractFileByPath(threadsPath); const threadsJson = JSON.stringify({ version: 1, threads: reviewPackage.threads }, null, 2);
   try { if (localThreads instanceof TFile) await app.vault.modify(localThreads, threadsJson); else if (localThreads) fail("threads.json local invalide"); else await app.vault.create(threadsPath, threadsJson); } catch (error) { if (error instanceof NativeReviewAuthorReturnError) throw error; throw new NativeReviewAuthorReturnError(`Persistance des fils impossible : ${error instanceof Error ? error.message : String(error)}`); }
-  try { await saveReviewSession(app, nextSession); } catch (error) {
+  try { await saveReviewSession(app, resolved, nextSession); } catch (error) {
     throw new NativeReviewAuthorReturnError(`Mise à jour de session impossible : ${error instanceof Error ? error.message : String(error)}`);
   }
   return { session: nextSession, reviewPackage, localPackagePath, analyses };

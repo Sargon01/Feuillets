@@ -4,7 +4,8 @@ import { resolveCompileScopeFiles, type CompileScope } from "./compile-scope.js"
 import { getManuscriptRoot } from "./folder-structure.js";
 import { titleFor } from "./frontmatter.js";
 import { createNativeReviewPackage } from "./native-review-package.js";
-import { createReviewSession, reviewRoundsRootPath, type ReviewParticipant, type ReviewSession } from "./native-review-session.js";
+import { createReviewSession, type ReviewParticipant, type ReviewSession } from "./native-review-session.js";
+import { authorReviewStorageLocation, reviewSessionPaths } from "./native-review-storage.js";
 
 /** A review scope deliberately has no projectRoot: it always targets the active manuscript. */
 export type AuthorReviewScope =
@@ -137,10 +138,12 @@ export async function createNativeReviewAuthor(
     documents: documents.map(({ documentId, originalPath, title, localSourcePath }) => ({ documentId, originalPath, title, localSourcePath })),
     rounds: [{ round: 1, createdAt, sent: { packageId, at: createdAt } }],
   };
-  const localPackagePath = normalizePath(`${reviewRoundsRootPath(reviewId)}/round-1-sent.feuillets`);
+  const location = authorReviewStorageLocation(app, settings);
+  if (!location) fail("Emplacement de relecture du projet introuvable");
+  const localPackagePath = normalizePath(`${reviewSessionPaths(location, reviewId).roundsRoot}/round-1-sent.feuillets`);
   if (app.vault.getAbstractFileByPath(localPackagePath)) fail(`Le paquet local existe déjà : ${localPackagePath}`);
 
-  await createReviewSession(app, session);
+  await createReviewSession(app, session, location);
   try {
     // Copy into a fresh ArrayBuffer so the Vault receives the exact package bytes
     // without relying on a potentially shared backing buffer.

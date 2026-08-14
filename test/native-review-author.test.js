@@ -30,8 +30,8 @@ test("crée le premier envoi auteur, archive les octets exacts et conserve les s
   const parsed = await readNativeReviewPackage(archived); assert.equal(parsed.manifest.reviewId, result.session.reviewId); assert.equal(parsed.manifest.packageId, result.session.rounds[0].sent.packageId);
   assert.equal(parsed.manifest.documents[0].title, "Premier"); assert.equal(result.session.documents[0].title, parsed.manifest.documents[0].title); assert.equal(parsed.documents[0].baseMarkdown, parsed.documents[0].workingMarkdown); assert.equal(parsed.documents[0].baseMarkdown.includes("private:"), false);
   assert.equal(JSON.stringify(parsed).includes(first.path), false); assert.equal(await vault.read(first), before);
-  assert.ok(vault.getAbstractFileByPath(`_Feuillets/Relectures/${result.session.reviewId}/working`));
-  assert.equal(vault.getAbstractFileByPath(`_Feuillets/Relectures/${result.session.reviewId}/working`).children.length, 0);
+  assert.ok(vault.getAbstractFileByPath(`Roman/_Feuillets/Relectures/${result.session.reviewId}/working`));
+  assert.equal(vault.getAbstractFileByPath(`Roman/_Feuillets/Relectures/${result.session.reviewId}/working`).children.length, 0);
 });
 
 test("résout dossier, sélection et projet dans l’ordre Binder", async () => {

@@ -1,11 +1,15 @@
 import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { FEUILLETS_AUXILIARY_FOLDER_NAME } from "./folder-structure.js";
+import { discoverNativeReviewStorageLocation, legacyGlobalAuthorStorageLocation, rememberNativeReviewStorageLocation, rememberedNativeReviewStorageLocation, reviewSessionPaths, type NativeReviewStorageLocation } from "./native-review-storage.js";
 
 export type ReviewParticipantRole = "author" | "reviewer";
 export interface ReviewParticipant { id: string; name: string; role: ReviewParticipantRole; }
 export interface ReviewDocument { documentId: string; originalPath: string; title: string; localSourcePath?: string; }
 export interface ReviewPackageRef { packageId: string; at: string; }
+/** Un aller-retour. Le tableau `rounds` n'existe plus que pour lire les
+ * sessions écrites avant la simplification : une relecture créée aujourd'hui
+ * n'en contient qu'un seul et l'UX n'expose aucune notion de tour. */
 export interface ReviewRound { round: number; createdAt: string; sent?: ReviewPackageRef; received?: ReviewPackageRef; }
 export interface ReviewSession {
   version: 1;
@@ -103,13 +107,14 @@ export function validateReviewSession(value: unknown): asserts value is ReviewSe
 
 function checkedReviewId(reviewId: string): string { safeId(reviewId, "reviewId"); return reviewId; }
 export function reviewSessionsRootPath(): string { return normalizePath(`${FEUILLETS_AUXILIARY_FOLDER_NAME}/${REVIEWS_FOLDER_NAME}`); }
-export function reviewSessionRootPath(reviewId: string): string { return normalizePath(`${reviewSessionsRootPath()}/${checkedReviewId(reviewId)}`); }
+function knownRoot(reviewId: string): string { const location = rememberedNativeReviewStorageLocation(reviewId); return location ? reviewSessionPaths(location, reviewId).root : normalizePath(`${reviewSessionsRootPath()}/${checkedReviewId(reviewId)}`); }
+export function reviewSessionRootPath(reviewId: string): string { return knownRoot(reviewId); }
 export function reviewSessionFilePath(reviewId: string): string { return normalizePath(`${reviewSessionRootPath(reviewId)}/session.json`); }
 export function reviewWorkingRootPath(reviewId: string): string { return normalizePath(`${reviewSessionRootPath(reviewId)}/working`); }
 export function reviewRoundsRootPath(reviewId: string): string { return normalizePath(`${reviewSessionRootPath(reviewId)}/rounds`); }
 
 /** Crée chaque niveau séparément et refuse explicitement toute collision avec un fichier. */
-async function ensureFolderPath(app: App, path: string): Promise<TFolder> {
+export async function ensureFolderPath(app: App, path: string): Promise<TFolder> {
   const levels = normalizePath(path).split("/");
   let current = "";
   for (const level of levels) {
@@ -124,35 +129,47 @@ async function ensureFolderPath(app: App, path: string): Promise<TFolder> {
   return result;
 }
 
-export async function createReviewSession(app: App, session: ReviewSession): Promise<ReviewSession> {
+export async function createReviewSession(app: App, session: ReviewSession, location: NativeReviewStorageLocation = legacyGlobalAuthorStorageLocation()): Promise<ReviewSession> {
   validateReviewSession(session);
-  const root = reviewSessionRootPath(session.reviewId);
+  const paths = reviewSessionPaths(location, session.reviewId);
+  const root = paths.root;
   if (app.vault.getAbstractFileByPath(root)) invalid(`Session existante : ${session.reviewId}`);
   await ensureFolderPath(app, root);
-  await ensureFolderPath(app, reviewWorkingRootPath(session.reviewId));
-  await ensureFolderPath(app, reviewRoundsRootPath(session.reviewId));
-  await app.vault.create(reviewSessionFilePath(session.reviewId), JSON.stringify(session, null, 2));
+  await ensureFolderPath(app, paths.workingRoot);
+  await ensureFolderPath(app, paths.roundsRoot);
+  await app.vault.create(paths.sessionFile, JSON.stringify(session, null, 2));
+  rememberNativeReviewStorageLocation(session.reviewId, location);
   return session;
 }
 
-export async function loadReviewSession(app: App, reviewId: string): Promise<ReviewSession | null> {
-  const root = reviewSessionRootPath(reviewId); const rootEntry = app.vault.getAbstractFileByPath(root);
+export async function loadReviewSession(app: App, reviewId: string): Promise<ReviewSession | null>;
+export async function loadReviewSession(app: App, location: NativeReviewStorageLocation, reviewId: string): Promise<ReviewSession | null>;
+export async function loadReviewSession(app: App, locationOrReviewId: NativeReviewStorageLocation | string, explicitReviewId?: string): Promise<ReviewSession | null> {
+  const location = typeof locationOrReviewId === "string" ? (discoverNativeReviewStorageLocation(app, locationOrReviewId) ?? rememberedNativeReviewStorageLocation(locationOrReviewId) ?? legacyGlobalAuthorStorageLocation()) : locationOrReviewId;
+  const reviewId = typeof locationOrReviewId === "string" ? locationOrReviewId : explicitReviewId!;
+  const paths = reviewSessionPaths(location, reviewId);
+  const root = paths.root; const rootEntry = app.vault.getAbstractFileByPath(root);
   if (!rootEntry) return null;
   if (!(rootEntry instanceof TFolder)) invalid(`Un fichier bloque la session ${reviewId}`);
-  const entry = app.vault.getAbstractFileByPath(reviewSessionFilePath(reviewId));
+  const entry = app.vault.getAbstractFileByPath(paths.sessionFile);
   if (!(entry instanceof TFile)) invalid(`session.json absent pour ${reviewId}`);
   let parsed: unknown;
   try { parsed = JSON.parse(await app.vault.read(entry)); } catch { invalid(`session.json corrompu pour ${reviewId}`); }
   validateReviewSession(parsed);
   if (parsed.reviewId !== reviewId) invalid("reviewId du fichier session.json incohérent avec le dossier");
+  rememberNativeReviewStorageLocation(reviewId, location);
   return parsed;
 }
 
-export async function saveReviewSession(app: App, session: ReviewSession): Promise<ReviewSession> {
+export async function saveReviewSession(app: App, session: ReviewSession): Promise<ReviewSession>;
+export async function saveReviewSession(app: App, location: NativeReviewStorageLocation, session: ReviewSession): Promise<ReviewSession>;
+export async function saveReviewSession(app: App, locationOrSession: NativeReviewStorageLocation | ReviewSession, explicitSession?: ReviewSession): Promise<ReviewSession> {
+  const session = explicitSession ?? locationOrSession as ReviewSession;
+  const location = explicitSession ? locationOrSession as NativeReviewStorageLocation : (rememberedNativeReviewStorageLocation(session.reviewId) ?? legacyGlobalAuthorStorageLocation());
   validateReviewSession(session);
-  const existing = await loadReviewSession(app, session.reviewId);
+  const existing = await loadReviewSession(app, location, session.reviewId);
   if (!existing) invalid(`Session absente : ${session.reviewId}`);
-  const file = app.vault.getAbstractFileByPath(reviewSessionFilePath(session.reviewId));
+  const file = app.vault.getAbstractFileByPath(reviewSessionPaths(location, session.reviewId).sessionFile);
   if (!(file instanceof TFile)) invalid(`session.json absent pour ${session.reviewId}`);
   await app.vault.modify(file, JSON.stringify(session, null, 2));
   return session;
@@ -160,17 +177,6 @@ export async function saveReviewSession(app: App, session: ReviewSession): Promi
 
 export function currentReviewRound(session: ReviewSession): ReviewRound {
   validateReviewSession(session); return session.rounds[session.rounds.length - 1];
-}
-
-export function appendReviewRound(session: ReviewSession, firstPackage: ReviewPackageRef): ReviewRound {
-  validateReviewSession(session); packageRef(firstPackage, "package");
-  if (session.status !== "active") invalid("Une session terminée ne peut pas être modifiée");
-  const current = currentReviewRound(session);
-  if (current.sent === undefined || current.received === undefined) invalid("Le tour courant doit être complet avant d'en créer un autre");
-  if (session.rounds.some((round) => round.sent?.packageId === firstPackage.packageId || round.received?.packageId === firstPackage.packageId)) invalid("packageId réutilisé");
-  const direction = session.localRole === "author" ? "sent" : "received";
-  const round: ReviewRound = { round: session.rounds.length + 1, createdAt: firstPackage.at, [direction]: firstPackage };
-  session.rounds.push(round); validateReviewSession(session); return round;
 }
 
 export function recordReviewRoundPackage(session: ReviewSession, reference: ReviewPackageRef): ReviewRound {
@@ -195,4 +201,21 @@ export function reviewIdFromNativeReviewPath(path: string): string | null {
   const parts = normalizePath(path).split("/");
   if (parts[0] !== FEUILLETS_AUXILIARY_FOLDER_NAME || parts[1] !== REVIEWS_FOLDER_NAME || parts.length < 4 || !SAFE_ID.test(parts[2])) return null;
   return parts[2];
+}
+
+export interface NativeReviewWorkingContext { reviewId: string; documentId: string }
+/** Reconnaît uniquement un `working/<documentId>.md` de relecture, jamais
+ * session.json, rounds/*.feuillets ou threads.json : c'est ce sous-ensemble
+ * précis qu'isActiveFileInProject (main.ts) traite temporairement comme un
+ * feuillet, le temps que la session existe. Pure lecture de chemin, aucun
+ * accès disque : le contexte vient de la structure déjà écrite par
+ * receiveNativeReviewForReviewer, jamais d'un marqueur ajouté au fichier. */
+export function nativeReviewWorkingContext(path: string): NativeReviewWorkingContext | null {
+  const reviewId = reviewIdFromNativeReviewPath(path);
+  if (!reviewId) return null;
+  const parts = normalizePath(path).split("/");
+  if (parts.length !== 5 || parts[3] !== "working" || !parts[4].endsWith(".md")) return null;
+  const documentId = parts[4].slice(0, -3);
+  if (!SAFE_ID.test(documentId)) return null;
+  return { reviewId, documentId };
 }

@@ -27,7 +27,7 @@ import { t, getLocale } from "../i18n/index.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { writeBinaryFile } from "../services/compile-export.js";
 import { regenerateDocxZip, type RegenerateDecision } from "../services/docx-review-regenerate.js";
-import { DiffModal } from "../ui/diff-modal.js";
+import { openSnapshotComparison } from "./comparison-view.js";
 
 type DocxReviewPluginBase = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type ReviewMode = "picker" | "results";
@@ -598,7 +598,7 @@ export class DocxReviewView extends BaseFeuilletsView {
     const snapshots = listSnapshotFiles(this.app, file, root);
     const stamp = trace?.affectedFiles.find((a) => a.path === file.path)?.snapshotStamp;
     const initial = stamp ? snapshots.find((s) => s.basename === stamp) : undefined;
-    new DiffModal(this.app, this.plugin, file, initial, allowRestore).open();
+    void openSnapshotComparison(this.app, this.plugin, file, initial, allowRestore);
   }
 
   /** CORRECTIF — carte active : source de vérité UNIQUE (mission §2).

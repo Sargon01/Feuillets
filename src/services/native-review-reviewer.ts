@@ -3,12 +3,9 @@ import type { App } from "obsidian";
 import { readNativeReviewPackage, type NativeReviewPackage } from "./native-review-package.js";
 import {
   createReviewSession,
-  reviewRoundsRootPath,
-  reviewSessionRootPath,
-  reviewSessionsRootPath,
-  reviewWorkingRootPath,
   type ReviewSession,
 } from "./native-review-session.js";
+import { reviewSessionPaths, reviewerReviewStorageLocation } from "./native-review-storage.js";
 
 export interface NativeReviewReviewerResult {
   session: ReviewSession;
@@ -30,8 +27,9 @@ function fail(message: string): never { throw new NativeReviewReviewerError(mess
  */
 function assertLocalDestinationAvailable(app: App, reviewId: string): void {
   const auxiliary = "_Feuillets";
-  const reviews = reviewSessionsRootPath();
-  const root = reviewSessionRootPath(reviewId);
+  const paths = reviewSessionPaths(reviewerReviewStorageLocation(), reviewId);
+  const reviews = reviewerReviewStorageLocation().sessionsRootPath;
+  const root = paths.root;
   const auxiliaryEntry = app.vault.getAbstractFileByPath(auxiliary);
   if (auxiliaryEntry instanceof TFile) fail(`Un fichier bloque le dossier ${auxiliary}`);
   const reviewsEntry = app.vault.getAbstractFileByPath(reviews);
@@ -64,7 +62,7 @@ function reviewerSession(reviewPackage: NativeReviewPackage, receivedAt: string)
       documentId,
       originalPath,
       title,
-      localSourcePath: normalizePath(`${reviewWorkingRootPath(manifest.reviewId)}/${documentId}.md`),
+      localSourcePath: normalizePath(`${reviewSessionPaths(reviewerReviewStorageLocation(), manifest.reviewId).workingRoot}/${documentId}.md`),
     })),
     rounds: [{
       round: 1,
@@ -96,10 +94,11 @@ export async function receiveNativeReviewForReviewer(
 
   const receivedAt = new Date().toISOString();
   const session = reviewerSession(reviewPackage, receivedAt);
-  const localPackagePath = normalizePath(`${reviewRoundsRootPath(manifest.reviewId)}/round-1-received.feuillets`);
+  const paths = reviewSessionPaths(reviewerReviewStorageLocation(), manifest.reviewId);
+  const localPackagePath = normalizePath(`${paths.roundsRoot}/round-1-received.feuillets`);
 
   try {
-    await createReviewSession(app, session);
+    await createReviewSession(app, session, reviewerReviewStorageLocation());
   } catch (error) {
     throw new NativeReviewReviewerError(`Création de session impossible : ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -113,7 +112,7 @@ export async function receiveNativeReviewForReviewer(
   const workingFiles: TFile[] = [];
   try {
     for (const document of reviewPackage.documents) {
-      const path = normalizePath(`${reviewWorkingRootPath(manifest.reviewId)}/${document.documentId}.md`);
+      const path = normalizePath(`${paths.workingRoot}/${document.documentId}.md`);
       workingFiles.push(await app.vault.create(path, document.workingMarkdown));
     }
   } catch (error) {

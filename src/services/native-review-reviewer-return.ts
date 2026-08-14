@@ -6,11 +6,10 @@ import {
   currentReviewRound,
   loadReviewSession,
   recordReviewRoundPackage,
-  reviewRoundsRootPath,
-  reviewWorkingRootPath,
   saveReviewSession,
   type ReviewSession,
 } from "./native-review-session.js";
+import { reviewSessionPaths, reviewerReviewStorageLocation } from "./native-review-storage.js";
 
 export interface NativeReviewReviewerReturnResult {
   session: ReviewSession;
@@ -71,8 +70,9 @@ export async function createNativeReviewReviewerReturn(
   reviewId: string,
   createdByVersion: string,
 ): Promise<NativeReviewReviewerReturnResult> {
+  const location = reviewerReviewStorageLocation(); const paths = reviewSessionPaths(location, reviewId);
   let session: ReviewSession | null;
-  try { session = await loadReviewSession(app, reviewId); } catch (error) {
+  try { session = await loadReviewSession(app, location, reviewId); } catch (error) {
     throw new NativeReviewReviewerReturnError(`Session de relecture illisible : ${error instanceof Error ? error.message : String(error)}`);
   }
   if (!session) fail(`Session introuvable : ${reviewId}`);
@@ -83,7 +83,7 @@ export async function createNativeReviewReviewerReturn(
   }
   if (!round.received || round.sent) fail("Le tour courant doit être reçu et non encore envoyé");
 
-  const receivedPath = normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-received.feuillets`);
+  const receivedPath = normalizePath(`${paths.roundsRoot}/round-${round.round}-received.feuillets`);
   const receivedEntry = app.vault.getAbstractFileByPath(receivedPath);
   if (!(receivedEntry instanceof TFile)) fail(`Archive reçue absente : ${receivedPath}`);
   let receivedPackage: Awaited<ReturnType<typeof readNativeReviewPackage>>;
@@ -91,13 +91,13 @@ export async function createNativeReviewReviewerReturn(
     throw new NativeReviewReviewerReturnError(`Archive reçue invalide : ${error instanceof Error ? error.message : String(error)}`);
   }
   assertReceivedPackage(session, round, receivedPackage);
-  const threads = await loadNativeReviewThreads(app, reviewId);
+  const threads = await loadNativeReviewThreads(app, reviewId, location);
   assertNativeReviewThreadEvolution(receivedPackage.threads, threads.threads, session.participants, session.documents, "reviewer");
 
   const workingFiles: TFile[] = [];
   const workingMarkdown: string[] = [];
   for (const document of session.documents) {
-    const path = normalizePath(`${reviewWorkingRootPath(reviewId)}/${document.documentId}.md`);
+    const path = normalizePath(`${paths.workingRoot}/${document.documentId}.md`);
     if (document.localSourcePath !== path) fail(`localSourcePath incohérent : ${document.documentId}`);
     const entry = app.vault.getAbstractFileByPath(path);
     if (!(entry instanceof TFile) || entry.extension !== "md") fail(`Fichier working absent ou invalide : ${path}`);
@@ -122,7 +122,7 @@ export async function createNativeReviewReviewerReturn(
     throw new NativeReviewReviewerReturnError(`Création du paquet retour impossible : ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const localPackagePath = normalizePath(`${reviewRoundsRootPath(reviewId)}/round-${round.round}-sent.feuillets`);
+  const localPackagePath = normalizePath(`${paths.roundsRoot}/round-${round.round}-sent.feuillets`);
   if (app.vault.getAbstractFileByPath(localPackagePath)) fail(`Le paquet retour existe déjà : ${localPackagePath}`);
   const nextSession = sessionCopy(session);
   nextSession.updatedAt = sentAt;
@@ -136,7 +136,7 @@ export async function createNativeReviewReviewerReturn(
   } catch (error) {
     throw new NativeReviewReviewerReturnError(`Archivage du paquet retour impossible : ${error instanceof Error ? error.message : String(error)}`);
   }
-  try { await saveReviewSession(app, nextSession); } catch (error) {
+  try { await saveReviewSession(app, location, nextSession); } catch (error) {
     throw new NativeReviewReviewerReturnError(`Mise à jour de session impossible : ${error instanceof Error ? error.message : String(error)}`);
   }
   return { session: nextSession, packageData, localPackagePath, workingFiles };

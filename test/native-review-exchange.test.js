@@ -5,7 +5,6 @@ import { createFakeVault } from "./helpers/fake-vault.js";
 import { completeNativeReviewSession, listNativeReviewSessions, receiveNativeReviewExchange, NativeReviewExchangeError } from "../src/services/native-review-exchange.js";
 import { createReviewSession, loadReviewSession } from "../src/services/native-review-session.js";
 import { createNativeReviewAuthor } from "../src/services/native-review-author.js";
-import { createNativeReviewAuthorNextRound } from "../src/services/native-review-author-next-round.js";
 import { createNativeReviewReviewerReturn } from "../src/services/native-review-reviewer-return.js";
 import { createNativeReviewPackage } from "../src/services/native-review-package.js";
 import { loadNativeReviewAuthorAnalysis } from "../src/services/native-review-author-return.js";
@@ -31,7 +30,7 @@ async function returnToAuthor(author, reviewer, reviewId) {
   const working = reviewer.vault.getAbstractFileByPath(`_Feuillets/Relectures/${reviewId}/working/${(await loadReviewSession(reviewer.app, reviewId)).documents[0].documentId}.md`);
   await reviewer.vault.modify(working, "Salut monde.");
   const returned = await createNativeReviewReviewerReturn(reviewer.app, reviewId, "test");
-  return receiveNativeReviewExchange(author.app, returned.packageData);
+  return receiveNativeReviewExchange(author.app, returned.packageData, author.settings);
 }
 async function rejectAll(author, reviewId) {
   const analysis = await loadNativeReviewAuthorAnalysis(author.app, reviewId);
@@ -50,14 +49,14 @@ test("exchange: liste vide, triée, et session corrompue signalée", async () =>
   assert.match(listed[2].error, /corrompu/i);
 });
 
-test("exchange: clôture un tour reviewer complet sans supprimer les archives, workings ou fils", async () => {
+test("exchange: le reviewer ne peut pas clôturer protocolitairement une session", async () => {
   const { app, vault } = appWith(); const value = session("finished", "2026-08-13T11:00:00.000Z");
   await createReviewSession(app, value);
   await vault.createBinary("_Feuillets/Relectures/finished/rounds/round-1-sent.feuillets", new ArrayBuffer(1));
   await vault.create("_Feuillets/Relectures/finished/working/doc.md", "travail");
   await vault.create("_Feuillets/Relectures/finished/threads.json", '{"version":1,"threads":[]}');
-  await completeNativeReviewSession(app, "finished");
-  assert.equal((await loadReviewSession(app, "finished")).status, "completed");
+  await assert.rejects(() => completeNativeReviewSession(app, "finished"), /Seul l’auteur/);
+  assert.equal((await loadReviewSession(app, "finished")).status, "active");
   for (const path of ["_Feuillets/Relectures/finished/rounds/round-1-sent.feuillets", "_Feuillets/Relectures/finished/working/doc.md", "_Feuillets/Relectures/finished/threads.json"]) assert.ok(vault.getAbstractFileByPath(path) instanceof TFile);
 });
 
@@ -68,17 +67,26 @@ test("exchange: route auteur round 1 vers un reviewer isolé, sans projet ni set
   assert.equal(reviewer.vault.getAbstractFileByPath("Roman"), null); assert.equal(reviewer.vault.getAbstractFileByPath("Manuscrit"), null);
 });
 
-test("exchange: route auteur round 2 vers la session reviewer existante", async () => {
+test("exchange: un second paquet auteur n'ouvre jamais un tour dans la session reviewer", async () => {
   const author = authorFixture(); const first = await authorRoundOne(author); const reviewerState = createFakeVault(); const reviewer = { app: { vault: reviewerState.vault }, vault: reviewerState.vault };
   await receiveNativeReviewExchange(reviewer.app, first.packageData); await returnToAuthor(author, reviewer, first.session.reviewId); await rejectAll(author, first.session.reviewId);
-  const second = await createNativeReviewAuthorNextRound(author.app, author.settings, first.session.reviewId, "test"); const received = await receiveNativeReviewExchange(reviewer.app, second.packageData);
-  assert.equal(received.reviewId, first.session.reviewId); assert.equal(received.rounds.length, 2); assert.ok(received.rounds[1].received);
+  await assert.rejects(() => receiveNativeReviewExchange(reviewer.app, first.packageData), NativeReviewExchangeError);
+  assert.equal((await loadReviewSession(reviewer.app, first.session.reviewId)).rounds.length, 1);
 });
 
 test("exchange: route un retour reviewer vers l'auteur et conserve son analyse", async () => {
   const author = authorFixture(); const first = await authorRoundOne(author); const reviewerState = createFakeVault(); const reviewer = { app: { vault: reviewerState.vault }, vault: reviewerState.vault };
   await receiveNativeReviewExchange(reviewer.app, first.packageData); const received = await returnToAuthor(author, reviewer, first.session.reviewId);
   assert.equal(received.localRole, "author"); assert.ok(received.rounds[0].received); assert.ok((await loadNativeReviewAuthorAnalysis(author.app, first.session.reviewId)).analyses[0].changes.length > 0);
+});
+
+test("exchange multi-projets: un retour de Roman A est refusé lorsque Roman B est actif", async () => {
+  const author = authorFixture(); const first = await authorRoundOne(author); const reviewerState = createFakeVault(); const reviewer = { app: { vault: reviewerState.vault }, vault: reviewerState.vault };
+  await receiveNativeReviewExchange(reviewer.app, first.packageData); const reviewerSession = await loadReviewSession(reviewer.app, first.session.reviewId); const working = reviewer.vault.getAbstractFileByPath(reviewerSession.documents[0].localSourcePath); await reviewer.vault.modify(working, "Retour Pierre.");
+  const returned = await createNativeReviewReviewerReturn(reviewer.app, first.session.reviewId, "test");
+  await author.vault.createFolder("Roman B"); await author.vault.createFolder("Roman B/Manuscrit"); const settingsB = { ...author.settings, projectFolder: "Roman B/Manuscrit" };
+  await assert.rejects(() => receiveNativeReviewExchange(author.app, returned.packageData, settingsB), /Ouvrez le projet concerné/);
+  assert.equal(author.vault.getAbstractFileByPath(`Roman B/_Feuillets/Relectures/${first.session.reviewId}`), null);
 });
 
 test("exchange: refuse les combinaisons de rôle, tour, session et état invalides", async () => {
@@ -101,5 +109,5 @@ test("exchange: clôture auteur seulement après toutes les décisions, puis res
   await rejectAll(author, first.session.reviewId); await completeNativeReviewSession(author.app, first.session.reviewId);
   assert.equal((await loadReviewSession(author.app, first.session.reviewId)).status, "completed");
   await assert.rejects(() => completeNativeReviewSession(author.app, first.session.reviewId), NativeReviewExchangeError);
-  for (const path of [`_Feuillets/Relectures/${first.session.reviewId}/session.json`, `_Feuillets/Relectures/${first.session.reviewId}/rounds/round-1-sent.feuillets`, `_Feuillets/Relectures/${first.session.reviewId}/rounds/round-1-received.feuillets`, `_Feuillets/Relectures/${first.session.reviewId}/threads.json`]) assert.ok(author.vault.getAbstractFileByPath(path));
+  for (const path of [`Roman/_Feuillets/Relectures/${first.session.reviewId}/session.json`, `Roman/_Feuillets/Relectures/${first.session.reviewId}/rounds/round-1-sent.feuillets`, `Roman/_Feuillets/Relectures/${first.session.reviewId}/rounds/round-1-received.feuillets`, `Roman/_Feuillets/Relectures/${first.session.reviewId}/threads.json`]) assert.ok(author.vault.getAbstractFileByPath(path));
 });

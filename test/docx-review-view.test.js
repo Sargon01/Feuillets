@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+/* Obsidian tourne dans un navigateur : la comparaison passe par
+   `window.setTimeout` (règle obsidianmd/prefer-window-timers, compatibilité
+   des fenêtres détachées). Node n'a pas de `window` — on fournit le strict
+   minimum, comme le font déjà plusieurs tests de ce dépôt. */
+globalThis.window ??= { setTimeout: (...args) => setTimeout(...args), clearTimeout: (handle) => clearTimeout(handle) };
+
+
 const isCompiledTest = import.meta.url.includes("/.test-dist/");
 const compiledModule = (path) => new URL(`../.test-dist/${path}`, import.meta.url).href;
 const modulePath = (path) => isCompiledTest ? `../${path}` : compiledModule(path);
@@ -10,7 +17,7 @@ const { Notice, Platform, TFile, TFolder } = await import(
 );
 const { DocxReviewView } = await import(modulePath("src/views/docx-review-view.js"));
 const { bookmarkIdFor } = await import(modulePath("src/utils/docx-bookmarks.js"));
-const { DiffModal } = await import(modulePath("src/ui/diff-modal.js"));
+const { ComparisonSession } = await import(modulePath("src/views/comparison-view.js"));
 const { default: JSZip } = await import("jszip");
 
 class FakeElement {
@@ -133,6 +140,30 @@ function mockZip(files) {
 }
 
 const documentXml = (body) => `<w:document><w:body>${body}</w:body></w:document>`;
+
+
+/* Comparaison : l'ancien DiffModal a laissé place à un vrai split du
+   workspace. On observe donc la feuille ouverte et l'état qu'elle reçoit,
+   pas un constructeur de modal. */
+/* La comparaison ouvre DEUX vraies feuilles Markdown (voir
+   comparison-view.ts) : on compte les splits réellement demandés, et le
+   « quoi » se lit sur la session ouverte, jamais sur un état de vue. */
+function captureComparison(app) {
+  const opened = [];
+  const makeLeaf = () => ({ view: null, async openFile(target) { this.target = target; }, detach() {} });
+  app.workspace = {
+    ...(app.workspace ?? {}),
+    getLeavesOfType: () => [],
+    getLeaf: () => makeLeaf(),
+    createLeafBySplit: () => { const leaf = makeLeaf(); opened.push(leaf); return leaf; },
+    revealLeaf: () => {},
+    on: () => ({}),
+    offref: () => {},
+  };
+  if (typeof app.vault.on !== "function") { app.vault.on = () => ({}); app.vault.offref = () => {}; }
+  return opened;
+}
+const comparedSpec = () => ComparisonSession.current?.spec ?? null;
 
 test("DocxReviewView — icônes, clés et résolution des feuillets", async () => {
   const direct = file("Projet/Direct.md");
@@ -2005,7 +2036,7 @@ test("LOT 6 — commentaire traité : décision mémorisée, aucune restauration
   assert.equal(allElements(container2).some((el) => el.icon === "git-compare"), false, "aucune restauration proposée pour un commentaire");
 });
 
-test("LOT 6 — Comparer (cas simple) ouvre DiffModal sur le snapshot mémorisé, restauration autorisée", async () => {
+test("LOT 6 — Comparer (cas simple) ouvre la comparaison sur le snapshot mémorisé, restauration autorisée", async () => {
   const root = new TFolder("Projet");
   const scene = file("Projet/Scene.md", "Avant. Cible.");
   const snapFolder = new TFolder("Projet/Snapshots/Scene");
@@ -2027,27 +2058,26 @@ test("LOT 6 — Comparer (cas simple) ouvre DiffModal sur le snapshot mémorisé
   const compareBtn = allElements(container2).find((el) => el.icon === "git-compare");
   assert.ok(compareBtn, "bouton Comparer présent");
 
-  const originalOpen = DiffModal.prototype.open;
-  let captured = null;
-  DiffModal.prototype.open = function () { captured = this; };
-  try {
-    compareBtn.events.get("click")({ stopPropagation() {} });
-  } finally {
-    DiffModal.prototype.open = originalOpen;
-  }
+  const opened = captureComparison(view.app);
+  compareBtn.events.get("click")({ stopPropagation() {} });
+  await flush();
 
-  assert.ok(captured, "DiffModal a bien été ouvert");
-  assert.equal(captured.currentFile, scene);
-  assert.equal(captured.allowRestore, true, "restauration autorisée pour une correction simple");
-  assert.equal(captured.initialSnapshot, snap, "le VRAI snapshot mémorisé est retrouvé via listSnapshotFiles");
+  assert.equal(opened.length, 1, "une seule comparaison ouverte, jamais un modal");
+  assert.equal(comparedSpec().sourcePath, scene.path);
+  assert.equal(comparedSpec().allowRestore, true, "restauration autorisée pour une correction simple");
+  assert.equal(comparedSpec().snapshotPath, snap.path, "le VRAI snapshot mémorisé est retrouvé via listSnapshotFiles");
+  await ComparisonSession.current.close();
 });
 
 test("LOT 6 — déplacement inter-feuillets : aucune restauration directe proposée depuis la carte", async () => {
   const root = new TFolder("Projet");
   const origin = file("Projet/Origine.md", "Début. Passage à couper. Fin.");
   const dest = file("Projet/Destination.md", "Avant. Après.");
+  const snapFolder = new TFolder("Projet/Snapshots/Origine");
+  const snap = file("Projet/Snapshots/Origine/2024-03-03 09h00m00s.md", "Début. Fin.");
+  snapFolder.children = [snap];
   const content = { [origin.path]: origin.content, [dest.path]: dest.content };
-  const { view, plugin } = createView({ files: [origin, dest], content, root, withWorkspace: true });
+  const { view, plugin } = createView({ files: [origin, dest, snapFolder, snap], content, root, withWorkspace: true });
   view.docxName = "retours.docx";
   plugin.snapshotFile = async () => "stamp";
 
@@ -2067,16 +2097,12 @@ test("LOT 6 — déplacement inter-feuillets : aucune restauration directe propo
   const compareBtns = allElements(container2).filter((el) => el.icon === "git-compare");
   assert.equal(compareBtns.length, 2, "Comparer l'origine ET Comparer la destination, jamais un bouton de restauration direct");
 
-  const originalOpen = DiffModal.prototype.open;
-  let captured = null;
-  DiffModal.prototype.open = function () { captured = this; };
-  try {
-    compareBtns[0].events.get("click")({ stopPropagation() {} });
-  } finally {
-    DiffModal.prototype.open = originalOpen;
-  }
-  assert.ok(captured);
-  assert.equal(captured.allowRestore, false, "jamais de restauration directe pour un déplacement inter-feuillets");
+  const opened = captureComparison(view.app);
+  compareBtns[0].events.get("click")({ stopPropagation() {} });
+  await flush();
+  assert.equal(opened.length, 1);
+  assert.equal(comparedSpec().allowRestore, false, "jamais de restauration directe pour un déplacement inter-feuillets");
+  await ComparisonSession.current.close();
 });
 
 test("LOT 6 — état auto-détecté déjà appliqué SANS état enregistré : aucune trace inventée, aucune restauration proposée", async () => {

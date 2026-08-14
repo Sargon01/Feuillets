@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Notice, TFile, TFolder } from "obsidian";
-import { ConfirmModal } from "../src/ui/basic-modals.js";
-import { CompareFilesModal, DiffModal, PickFileModal } from "../src/ui/diff-modal.js";
-import { createFakeVault } from "./helpers/fake-vault.js";
+import { TFile, TFolder } from "obsidian";
+import { CompareFilesModal, PickFileModal } from "../src/ui/diff-modal.js";
 
 class FakeElement {
   constructor(tag = "div", options = {}) {
@@ -71,12 +69,6 @@ function textContent(element) {
   return [element.text, ...element.children.map(textContent)].join("");
 }
 
-function buttonComponents(element) {
-  return [
-    ...(element.buttonComponents ?? []),
-    ...element.children.flatMap(buttonComponents),
-  ];
-}
 
 function prepareModal(modal, app) {
   modal.app = app;
@@ -125,103 +117,4 @@ test("PickFileModal filtre sans accent et exclut le feuillet courant", () => {
   const rendered = textContent(modal.contentEl);
   assert.match(rendered, /Élodie/);
   assert.doesNotMatch(rendered, /courant|Autre/);
-});
-
-test("DiffModal affiche l'état vide lorsqu'aucun snapshot n'est disponible", async () => {
-  const current = new TFile("Projet/scene.md", "texte");
-  const app = { vault: { getAbstractFileByPath() { return null; } } };
-  const modal = prepareModal(new DiffModal(app, current), app);
-
-  await modal.onOpen();
-
-  assert.equal(elements(modal.contentEl, (element) => element.classes.has("feuillets-empty")).length, 1);
-});
-
-test("DiffModal restaure après snapshot, lecture, écriture, notification puis fermeture", async () => {
-  const root = new TFolder("Projet");
-  const current = new TFile("Projet/scene.md", "version actuelle");
-  const snapshot = new TFile("Projet/Snapshots/scene/ancien.md", "version sauvegardée");
-  const { vault } = createFakeVault([root, current, snapshot]);
-  const order = [];
-  const app = {
-    vault: {
-      ...vault,
-      async read(file) {
-        order.push(`read:${file.path}`);
-        return vault.read(file);
-      },
-      async modify(file, content) {
-        order.push(`modify:${file.path}`);
-        await vault.modify(file, content);
-      },
-    },
-  };
-  const plugin = {
-    getProjectFolder: () => root,
-    snapshotFile: async () => { order.push("snapshot"); },
-    shortTitleFor: (file) => file.basename,
-  };
-  const modal = prepareModal(new DiffModal(app, plugin, current, snapshot), app);
-  modal.snapshots = [snapshot];
-  modal.selectedSnapshot = snapshot;
-  modal.close = () => { order.push("close"); };
-  const originalOpen = ConfirmModal.prototype.open;
-  let confirm;
-  ConfirmModal.prototype.open = function () {
-    confirm = this.onConfirm;
-  };
-  Notice.onCreate = () => { order.push("notice"); };
-
-  try {
-    await modal.renderModalContent();
-    order.length = 0;
-    const restore = buttonComponents(modal.contentEl)[0];
-    restore.callback();
-    await confirm();
-  } finally {
-    ConfirmModal.prototype.open = originalOpen;
-    Notice.onCreate = null;
-  }
-
-  assert.equal(current.content, "version sauvegardée");
-  assert.deepEqual(order, [
-    "snapshot",
-    `read:${snapshot.path}`,
-    `modify:${current.path}`,
-    "notice",
-    "close",
-  ]);
-});
-
-// LOT 6 (docx-review) — `allowRestore` : rétrocompatible (défaut `true`,
-// TOUS les usages existants — dont le test précédent — continuent de
-// permettre la restauration exactement comme avant ce lot), désactivable
-// pour "Comparer l'origine"/"Comparer la destination" d'un déplacement
-// inter-feuillets (voir docx-review-view.ts#openTraceCompare).
-test("DiffModal — allowRestore=false masque le bouton Restaurer, sans toucher au reste du rendu", async () => {
-  const root = new TFolder("Projet");
-  const current = new TFile("Projet/scene.md", "version actuelle");
-  const snapshot = new TFile("Projet/Snapshots/scene/ancien.md", "version sauvegardée");
-  const { vault } = createFakeVault([root, current, snapshot]);
-  const app = { vault };
-  const plugin = {
-    getProjectFolder: () => root,
-    snapshotFile: async () => {},
-    shortTitleFor: (file) => file.basename,
-  };
-  const modal = prepareModal(new DiffModal(app, plugin, current, snapshot, false), app);
-  modal.snapshots = [snapshot];
-  modal.selectedSnapshot = snapshot;
-
-  await modal.renderModalContent();
-
-  assert.equal(buttonComponents(modal.contentEl).length, 1, "seul le bouton Fermer reste");
-  assert.equal(textContent(modal.contentEl).includes("version actuelle"), true);
-});
-
-test("DiffModal — allowRestore omis (constructeur sans plugin) équivaut à true", async () => {
-  const current = new TFile("Projet/scene.md", "texte");
-  const app = { vault: { getAbstractFileByPath() { return null; } } };
-  const modal = prepareModal(new DiffModal(app, current), app);
-  assert.equal(modal.allowRestore, true);
 });

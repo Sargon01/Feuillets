@@ -79,6 +79,8 @@ export interface AnnotationPopoverOptions {
   /** Absent en création (rien à supprimer) — présent en modification, ce
    * qui décide seul si l'action « Supprimer » est affichée. */
   onDelete?: () => void | Promise<void>;
+  /** Une création ne doit pas laisser d'annotation vide lors d'Escape. */
+  saveOnClose?: boolean;
 }
 
 function resolveRect(anchor: AnnotationPopoverOptions["anchor"]): AnchorRect {
@@ -110,6 +112,7 @@ export class AnnotationPopover {
   private readonly showColors: boolean;
   private readonly showStyles: boolean;
   private readonly onStyleChange?: AnnotationPopoverOptions["onStyleChange"];
+  private readonly saveOnClose: boolean;
   private el: PopoverElement | null = null;
   private closed = false;
   private deleted = false;
@@ -132,6 +135,7 @@ export class AnnotationPopover {
     this.showColors = options.showColors ?? true;
     this.showStyles = options.showStyles ?? true;
     this.onStyleChange = options.onStyleChange;
+    this.saveOnClose = options.saveOnClose ?? true;
   }
 
   open(): void {
@@ -230,7 +234,7 @@ export class AnnotationPopover {
     this.parentEl.removeEventListener?.("mousedown", this.handleOutsideMouseDown);
     this.parentEl.removeEventListener?.("keydown", this.handleKeyDown);
     this.el?.remove();
-    if (!this.deleted) {
+    if (!this.deleted && this.saveOnClose) {
       void this.onSave(this.text, this.color, this.style);
     }
   }

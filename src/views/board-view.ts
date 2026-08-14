@@ -6,7 +6,7 @@ import { parseStoryDate, stripMarkdown } from "../utils/core.js";
 import { PROJECT_MODES, resolveType } from "../utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
 import { povOf } from "../utils/arc-fields.js";
-import { DiffModal } from "../ui/diff-modal.js";
+import { openSnapshotComparison } from "./comparison-view.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { TagsModal } from "../ui/entity-modals.js";
 import { listSnapshotFiles } from "../services/project-files.js";
@@ -1083,7 +1083,7 @@ export class BoardView extends BaseFeuilletsView {
             return;
           }
 
-          new DiffModal(this.app, this.plugin, file, snapshots[0]).open();
+          await openSnapshotComparison(this.app, this.plugin, file, snapshots[0]);
         })
       );
 
