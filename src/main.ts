@@ -95,6 +95,7 @@ import {
   resolveAnnotation,
   toManuscriptRelativePath,
   remapAnnotationsAfterRename,
+  type Annotation,
   type AnnotationsStore,
 } from "./services/annotations.js";
 import { addWorkNote, deleteWorkNote, updateWorkNote, remapWorkNotesAfterRename } from "./services/work-notes.js";
@@ -152,6 +153,7 @@ import {
   type Editor,
   type WorkspaceSidedock,
   type WorkspaceMobileDrawer,
+  type App,
 } from "obsidian";
 
 const RIGHT_SIDEBAR_WIDTH = 280;
@@ -234,6 +236,41 @@ function isSettingsRecord(value: unknown): value is Record<string, unknown> {
  * de retomber sur `any[]` (signature de la lib standard). */
 function isUnknownArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
+}
+
+/** Longueur du contexte avant/après une annotation (quote exceptée) —
+ * partagée par la création (prefix/suffix initiaux, createAnnotationFromSelection)
+ * et le réancrage d'une modification (voir reanchorAnnotationPatch) : un
+ * seul chiffre, jamais deux longueurs de contexte qui pourraient diverger. */
+const ANNOTATION_CONTEXT_LENGTH = 30;
+
+/**
+ * Réancre une annotation EXISTANTE contre le texte ACTUEL de son fichier —
+ * appelée à la sauvegarde (clic extérieur/Escape en modification, un
+ * changement de couleur ou de style), jamais à la création, jamais pour une
+ * annotation `unresolved` : si `resolveAnnotation` ne peut pas retrouver le
+ * passage avec certitude, aucune position n'est inventée et cette fonction
+ * ne modifie rien (`{}`, fusionné sans effet sur le patch appelant). Ne lit
+ * que le fichier (jamais d'écriture Markdown) ; start/end/quote/prefix/suffix
+ * sont recalculés à partir de CE contenu, jamais de celui capturé à
+ * l'ouverture du popover — le texte a pu changer pendant qu'il restait
+ * ouvert. Fonction libre (pas une méthode de FeuilletsPlugin) : les types
+ * `plugin` structurels utilisés par les autres vues (NotesView, DocxReviewView…)
+ * n'ont ainsi rien de nouveau à déclarer. */
+async function reanchorAnnotationPatch(app: App, settings: FeuilletsSettings | null | undefined, annotation: Annotation): Promise<Partial<Omit<Annotation, "id">>> {
+  const root = getProjectFolder(app, settings);
+  const targetFile = root ? app.vault.getAbstractFileByPath(`${root.path}/${annotation.file}`) : null;
+  if (!(targetFile instanceof TFile)) return {};
+  const content = await (app.vault.cachedRead?.(targetFile) ?? app.vault.read(targetFile));
+  const range = resolveAnnotation(annotation, content);
+  if (!range) return {};
+  return {
+    start: range.start,
+    end: range.end,
+    quote: content.slice(range.start, range.end),
+    prefix: content.slice(Math.max(0, range.start - ANNOTATION_CONTEXT_LENGTH), range.start),
+    suffix: content.slice(range.end, Math.min(content.length, range.end + ANNOTATION_CONTEXT_LENGTH)),
+  };
 }
 
 const nativeReviewWorkingTitles = new Map<string, string>();
@@ -1657,7 +1694,10 @@ class FeuilletsPlugin extends Plugin {
    * avant/après (utilisés par resolveAnnotation si le texte bouge un peu
    * plus tard), puis ouvre le popover ancré près de la sélection —
    * n'écrit dans annotations.json qu'à la fermeture du popover (voir
-   * AnnotationPopover.close), jamais avant, jamais dans le Markdown. */
+   * AnnotationPopover.close), jamais avant, jamais dans le Markdown.
+   * `cancelOnEscape: true` : Escape sur une création ANNULE, aucune
+   * annotation vide n'est créée — un clic extérieur, lui, sauvegarde
+   * toujours (voir le contrat de AnnotationPopover). */
   async createAnnotationFromSelection(): Promise<void> {
     const editor = this.activeEditorAnywhere();
     const file = this.app.workspace.getActiveFile();
@@ -1669,7 +1709,7 @@ class FeuilletsPlugin extends Plugin {
     }
 
     const content = editor.getValue();
-    const CONTEXT_LENGTH = 30;
+    const CONTEXT_LENGTH = ANNOTATION_CONTEXT_LENGTH;
     const quote = content.slice(selection.start, selection.end);
     const prefix = content.slice(Math.max(0, selection.start - CONTEXT_LENGTH), selection.start);
     const suffix = content.slice(selection.end, Math.min(content.length, selection.end + CONTEXT_LENGTH));
@@ -1685,7 +1725,7 @@ class FeuilletsPlugin extends Plugin {
       anchor,
       text: "",
       color: "yellow",
-      saveOnClose: false,
+      cancelOnEscape: true,
       onSave: async (text, color, style) => {
         await addAnnotation(this.app, this.settings, {
           file: relPath,
@@ -1752,11 +1792,15 @@ class FeuilletsPlugin extends Plugin {
       color: annotation.color,
       style: annotation.style ?? "highlight",
       onStyleChange: async (style) => {
-        await updateAnnotation(this.app, this.settings, id, { style });
+        await updateAnnotation(this.app, this.settings, id, { style, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
+        await this.refreshAnnotationHighlights();
+      },
+      onColorChange: async (color) => {
+        await updateAnnotation(this.app, this.settings, id, { color, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
         await this.refreshAnnotationHighlights();
       },
       onSave: async (text, color, style) => {
-        await updateAnnotation(this.app, this.settings, id, { text, color, style });
+        await updateAnnotation(this.app, this.settings, id, { text, color, style, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
         await this.refreshAnnotationHighlights();
         onChange?.();
       },

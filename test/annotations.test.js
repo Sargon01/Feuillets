@@ -12,6 +12,7 @@ import {
   resolveAnnotation,
   annotationsFilePath,
   toManuscriptRelativePath,
+  remapAnnotationsAfterRename,
   AnnotationsFileCorruptedError,
 } from "../src/services/annotations.js";
 
@@ -298,4 +299,46 @@ test("annotationsForFile: filtre par chemin relatif", async () => {
   const forScene = annotationsForFile(store, "Chapitre/Scène.md");
   assert.equal(forScene.length, 1);
   assert.equal(forScene[0].file, "Chapitre/Scène.md");
+});
+
+test("remapAnnotationsAfterRename: un renommage/déplacement du fichier suit son annotation, jamais les voisines", async () => {
+  const { app, settings, root } = fixture();
+  await addAnnotation(app, settings, baseInput({ file: "Chapitre/Scène.md" }));
+  await addAnnotation(app, settings, baseInput({ file: "Chapitre/Voisine.md" }));
+
+  const changed = await remapAnnotationsAfterRename(app, settings, `${root.path}/Chapitre/Scène.md`, `${root.path}/Chapitre/Renommée.md`);
+  assert.equal(changed, true);
+
+  const store = await loadAnnotations(app, settings);
+  const files = store.annotations.map((a) => a.file).sort();
+  assert.deepEqual(files, ["Chapitre/Renommée.md", "Chapitre/Voisine.md"], "seule l'annotation du fichier renommé suit, la voisine reste inchangée");
+});
+
+test("remapAnnotationsAfterRename: un déplacement de DOSSIER suit toutes ses annotations d'un coup", async () => {
+  const { app, settings, root } = fixture();
+  await addAnnotation(app, settings, baseInput({ file: "Chapitre/Scène.md" }));
+  await addAnnotation(app, settings, baseInput({ file: "Chapitre/Autre.md" }));
+
+  const changed = await remapAnnotationsAfterRename(app, settings, `${root.path}/Chapitre`, `${root.path}/NouveauChapitre`);
+  assert.equal(changed, true);
+
+  const store = await loadAnnotations(app, settings);
+  const files = store.annotations.map((a) => a.file).sort();
+  assert.deepEqual(files, ["NouveauChapitre/Autre.md", "NouveauChapitre/Scène.md"]);
+});
+
+test("un fichier supprimé n'efface pas ses annotations : resolveAnnotation reste appelable, rien n'est réécrit tout seul", async () => {
+  const { app, settings, scene } = fixture();
+  await addAnnotation(app, settings, baseInput());
+  const before = await loadAnnotations(app, settings);
+  assert.equal(before.annotations.length, 1);
+
+  // Suppression du fichier : aucun mécanisme d'annotations.ts ne réagit à
+  // cet événement lui-même (voir main.ts, qui ne branche rien sur "delete") —
+  // l'annotation reste donc, telle quelle, jusqu'à ce qu'un appelant la
+  // résolve contre un contenu (voir notes-view-annotations.test.js pour le
+  // rendu "Passage introuvable" côté vue).
+  await app.vault.delete(scene);
+  const after = await loadAnnotations(app, settings);
+  assert.deepEqual(after, before, "l'annotation est conservée telle quelle, jamais supprimée automatiquement");
 });

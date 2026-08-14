@@ -75,12 +75,20 @@ export interface AnnotationPopoverOptions {
   showColors?: boolean;
   showStyles?: boolean;
   onStyleChange?: (style: AnnotationPopoverStyle) => void | Promise<void>;
+  /** Symétrique de `onStyleChange` : la décoration du passage doit refléter
+   * la couleur immédiatement, pas seulement à la fermeture. */
+  onColorChange?: (color: AnnotationPopoverColor) => void | Promise<void>;
   onSave: (text: string, color: AnnotationPopoverColor, style: AnnotationPopoverStyle) => void | Promise<void>;
   /** Absent en création (rien à supprimer) — présent en modification, ce
    * qui décide seul si l'action « Supprimer » est affichée. */
   onDelete?: () => void | Promise<void>;
-  /** Une création ne doit pas laisser d'annotation vide lors d'Escape. */
-  saveOnClose?: boolean;
+  /** Vrai UNIQUEMENT pour une création : Escape doit alors ANNULER (voir
+   * `cancel()`) — aucune annotation vide n'est créée. Un clic extérieur,
+   * lui, sauvegarde TOUJOURS, création comme modification. Absent (donc
+   * `false`) pour toute modification : Escape y sauvegarde, comme un clic
+   * extérieur — le contrat par défaut, inchangé pour tout autre appelant du
+   * popover (notes de travail, fils de relecture). */
+  cancelOnEscape?: boolean;
 }
 
 function resolveRect(anchor: AnnotationPopoverOptions["anchor"]): AnchorRect {
@@ -112,16 +120,18 @@ export class AnnotationPopover {
   private readonly showColors: boolean;
   private readonly showStyles: boolean;
   private readonly onStyleChange?: AnnotationPopoverOptions["onStyleChange"];
-  private readonly saveOnClose: boolean;
+  private readonly onColorChange?: AnnotationPopoverOptions["onColorChange"];
+  private readonly cancelOnEscape: boolean;
   private el: PopoverElement | null = null;
   private closed = false;
-  private deleted = false;
   private readonly handleOutsideMouseDown = (event: Event): void => {
     const target = (event as MouseEvent).target;
     if (this.el && !this.el.contains(target)) this.close();
   };
   private readonly handleKeyDown = (event: Event): void => {
-    if ((event as KeyboardEvent).key === "Escape") this.close();
+    if ((event as KeyboardEvent).key !== "Escape") return;
+    if (this.cancelOnEscape) this.cancel();
+    else this.close();
   };
 
   constructor(options: AnnotationPopoverOptions) {
@@ -135,7 +145,8 @@ export class AnnotationPopover {
     this.showColors = options.showColors ?? true;
     this.showStyles = options.showStyles ?? true;
     this.onStyleChange = options.onStyleChange;
-    this.saveOnClose = options.saveOnClose ?? true;
+    this.onColorChange = options.onColorChange;
+    this.cancelOnEscape = options.cancelOnEscape ?? false;
   }
 
   open(): void {
@@ -183,6 +194,7 @@ export class AnnotationPopover {
           if (c === color) el2.addClass("is-selected");
           else el2.removeClass("is-selected");
         }
+        void this.onColorChange?.(color);
       });
     }
 
@@ -191,8 +203,10 @@ export class AnnotationPopover {
       setIcon(deleteBtn as unknown as HTMLElement, "trash-2");
       deleteBtn.setAttr("aria-label", t("annotation.popover.delete"));
       deleteBtn.addEventListener("click", () => {
-        this.deleted = true;
-        this.close();
+        // Jamais close() : supprimer ne doit jamais sauvegarder le texte en
+        // cours, même en concurrence avec une frappe restée dans le
+        // textarea — cancel() ferme sans jamais appeler onSave.
+        this.cancel();
         void this.onDelete?.();
       });
     }
@@ -223,19 +237,30 @@ export class AnnotationPopover {
     }
   }
 
-  /** Ferme le popover — retire son DOM et ses deux écouteurs, puis
-   * sauvegarde le texte/couleur courants SAUF si l'annotation vient d'être
-   * supprimée (this.deleted) : « Supprimer » n'enregistre jamais le texte
-   * en cours. Appelé par Escape, un clic extérieur, ou explicitement après
-   * suppression — un seul chemin de fermeture, jamais dupliqué. */
-  close(): void {
-    if (this.closed) return;
+  /** Retire le DOM et les deux écouteurs — le seul endroit qui le fait,
+   * partagé par close() et cancel() : jamais dupliqué, jamais oublié dans
+   * l'un des deux chemins. Idempotent via `closed`. */
+  private teardown(): boolean {
+    if (this.closed) return false;
     this.closed = true;
     this.parentEl.removeEventListener?.("mousedown", this.handleOutsideMouseDown);
     this.parentEl.removeEventListener?.("keydown", this.handleKeyDown);
     this.el?.remove();
-    if (!this.deleted && this.saveOnClose) {
-      void this.onSave(this.text, this.color, this.style);
-    }
+    return true;
+  }
+
+  /** Ferme EN SAUVEGARDANT le texte/couleur/style courants — le chemin
+   * normal : toujours un clic extérieur, et Escape sauf en création (voir
+   * `cancelOnEscape`). Jamais appelé après Supprimer (voir `cancel()`). */
+  close(): void {
+    if (!this.teardown()) return;
+    void this.onSave(this.text, this.color, this.style);
+  }
+
+  /** Ferme SANS jamais sauvegarder — Escape en création (aucune annotation
+   * vide créée) et Supprimer (le texte en cours ne doit jamais s'écrire en
+   * concurrence avec la suppression). */
+  cancel(): void {
+    this.teardown();
   }
 }

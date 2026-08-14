@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TFile, TFolder, MarkdownView } from "obsidian";
+import { TFile, TFolder, MarkdownView, Menu } from "obsidian";
 import { NotesView } from "../src/views/notes-view.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { saveAnnotations } from "../src/services/annotations.js";
+import { saveAnnotations, loadAnnotations } from "../src/services/annotations.js";
 
 /* Chantier annotations — lot 4 : page centralisée dans NotesView. Ne
    revalide PAS la persistance/résolution (lot 1) ni le modal/update/delete/
@@ -70,16 +70,21 @@ function fixture() {
   const volume = new TFolder("Projet");
   const root = new TFolder("Projet/Manuscrit");
   const chapter = new TFolder("Projet/Manuscrit/Chapitre");
+  const elsewhereFolder = new TFolder("Projet/Manuscrit/Ailleurs");
   const scene = new TFile("Projet/Manuscrit/Chapitre/Scène.md", SCENE_CONTENT);
   const other = new TFile("Projet/Manuscrit/Chapitre/Autre.md", OTHER_CONTENT);
+  const elsewhere = new TFile("Projet/Manuscrit/Ailleurs/Ailleurs.md", OTHER_CONTENT);
   volume.children = [root];
   root.parent = volume;
-  root.children = [chapter];
+  root.children = [chapter, elsewhereFolder];
   chapter.parent = root;
   chapter.children = [scene, other];
   scene.parent = chapter;
   other.parent = chapter;
-  const { vault } = createFakeVault([volume, root, chapter, scene, other]);
+  elsewhereFolder.parent = root;
+  elsewhereFolder.children = [elsewhere];
+  elsewhere.parent = elsewhereFolder;
+  const { vault } = createFakeVault([volume, root, chapter, elsewhereFolder, scene, other, elsewhere]);
   vault.cachedRead = (file) => vault.read(file);
 
   const settings = { projectFolder: root.path, collapsed: {}, notesSectionOrder: [], projectMeta: {} };
@@ -110,12 +115,13 @@ function fixture() {
     titleFor: (file) => file.basename,
     async saveSettings() {},
     openAnnotationEditor: async () => {},
+    refreshAnnotationHighlights: async () => {},
   };
   const contentEl = new FakeElement();
   const view = new NotesView({ app, contentEl }, plugin);
   view.fm = () => ({});
 
-  return { app, plugin, settings, view, contentEl, root, chapter, scene, other, leafCalls, vault };
+  return { app, plugin, settings, view, contentEl, root, chapter, scene, other, elsewhere, leafCalls, vault };
 }
 
 test.skip("ancienne entrée Annotations séparée remplacée par Notes et annotations", async () => {
@@ -370,4 +376,121 @@ test("le sélecteur de portée permet d'afficher le projet groupé", async () =>
   assert.ok(action);
   assert.equal(typeof action.events.get("click"), "function");
   assert.equal(view.annotationScope, "sheet");
+});
+
+test("portée : Feuillet, Dossier et Projet sont proposées quand le feuillet courant est dans un dossier", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "local", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation A", color: "yellow" },
+  ] });
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  const scopeButton = allElements(wrapper).find((element) => element.text === "Feuillet ▾");
+  scopeButton.events.get("click")({ stopPropagation: () => {} });
+  const titles = Menu.lastShown.items.map((item) => item.title);
+  assert.deepEqual(titles, ["Feuillet", "Dossier", "Projet"], "les trois portées sont proposées");
+});
+
+test("portée Dossier : annotations du dossier courant et de ses sous-dossiers, jamais celles d'un autre dossier", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "local", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation A", color: "yellow" },
+    { id: "same-folder", file: "Chapitre/Autre.md", start: 0, end: 2, quote: "Un", prefix: "", suffix: "", text: "annotation B", color: "blue" },
+    { id: "other-folder", file: "Ailleurs/Ailleurs.md", start: 0, end: 2, quote: "Un", prefix: "", suffix: "", text: "annotation C", color: "green" },
+  ] });
+  const wrapper = new FakeElement();
+  view.annotationScope = "folder";
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  const text = allElements(wrapper).map((element) => element.text);
+  assert.ok(text.includes("annotation A"));
+  assert.ok(text.includes("annotation B"), "même dossier que le feuillet courant");
+  assert.equal(text.includes("annotation C"), false, "dossier différent, jamais inclus");
+});
+
+test("clic sur une annotation résolue délègue à plugin.openAnnotationEditor — navigation + popover restent SA responsabilité", async () => {
+  const { view, app, settings, plugin, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "a1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: " ", text: "note", color: "green" },
+  ] });
+  const calls = [];
+  plugin.openAnnotationEditor = async (id) => { calls.push(id); };
+
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  const row = allElements(wrapper).find((el) => el.classes.has("feuillets-annotation-row"));
+  assert.ok(row.classes.has("feuillets-clickable"));
+
+  await trigger(row, "click");
+  assert.deepEqual(calls, ["a1"]);
+});
+
+test("annotation unresolved dans la liste : « Passage introuvable », mais reste éditable (clic → openAnnotationEditor) et supprimable", async () => {
+  const { view, app, settings, plugin, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [{
+    id: "a1", file: "Chapitre/Scène.md", start: 999, end: 1010,
+    quote: "passage qui n'existe plus du tout", prefix: "inconnu", suffix: "inconnu", text: "", color: "pink",
+  }] });
+  const editCalls = [];
+  plugin.openAnnotationEditor = async (id) => { editCalls.push(id); };
+
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  const row = allElements(wrapper).find((el) => el.classes.has("feuillets-annotation-row"));
+  assert.ok(row, "l'annotation non résolue reste visible");
+  assert.ok(allElements(row).some((el) => el.text === "Passage introuvable"));
+  // Reste éditable : le clic délègue toujours à openAnnotationEditor, jamais
+  // bloqué par l'absence de résolution.
+  assert.ok(row.classes.has("feuillets-clickable"));
+  await trigger(row, "click");
+  assert.deepEqual(editCalls, ["a1"]);
+
+  // Reste supprimable : le bouton Supprimer fonctionne indépendamment de la
+  // résolution. Rendu isolé du clic (comme le reste de cette suite) : seule
+  // la suppression elle-même nous intéresse ici, pas le rerendu complet.
+  view.render = async () => {};
+  const deleteBtn = allElements(row).find((el) => el.classes.has("feuillets-annotation-edit"));
+  assert.ok(deleteBtn);
+  // Le handler du bouton Supprimer est fire-and-forget (void (async () => {...})());
+  // un tour de boucle suffit à laisser la suppression réelle se terminer.
+  await trigger(deleteBtn, "click", { stopPropagation: () => {} });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const store = await loadAnnotations(app, settings);
+  assert.equal(store.annotations.length, 0);
+});
+
+test("état vide : « aucune annotation dans ce feuillet » quand ce feuillet précis n'en a aucune (même si le projet en a)", async () => {
+  const { view, app, settings, scene, other } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "other", file: "Chapitre/Autre.md", start: 0, end: 2, quote: "Un", prefix: "", suffix: "", text: "annotation B", color: "blue" },
+  ] });
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  const empty = allElements(wrapper).find((el) => el.classes.has("feuillets-empty"));
+  assert.ok(empty, "un état vide est bien affiché plutôt qu'une liste silencieusement vide");
+  assert.equal(empty.text, "Aucune annotation dans ce feuillet.");
+  void other;
+});
+
+test("état vide : « aucune annotation dans ce projet » en portée Projet quand le magasin est réellement vide", async () => {
+  const { view, scene } = fixture();
+  view.annotationScope = "project";
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  const empty = allElements(wrapper).find((el) => el.classes.has("feuillets-empty"));
+  assert.ok(empty);
+  assert.equal(empty.text, "Aucune annotation dans ce projet.");
+});
+
+test("état vide : « aucune annotation dans ce dossier » en portée Dossier quand seul un autre dossier en a", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "other-folder", file: "Ailleurs/Ailleurs.md", start: 0, end: 2, quote: "Un", prefix: "", suffix: "", text: "annotation C", color: "green" },
+  ] });
+  view.annotationScope = "folder";
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  const empty = allElements(wrapper).find((el) => el.classes.has("feuillets-empty"));
+  assert.ok(empty);
+  assert.equal(empty.text, "Aucune annotation dans ce dossier.");
 });

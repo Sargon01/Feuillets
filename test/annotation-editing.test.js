@@ -5,7 +5,7 @@ import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import FeuilletsPlugin from "../src/main.js";
 import { AnnotationPopover } from "../src/ui/annotation-popover.js";
-import { loadAnnotations, saveAnnotations } from "../src/services/annotations.js";
+import { loadAnnotations, saveAnnotations, deleteAnnotation } from "../src/services/annotations.js";
 
 /* Chantier annotations — lot 3 (+ correctif UI popover) : commande/menu de
    création, double-clic → modification, sauvegarde/suppression via le
@@ -252,4 +252,92 @@ test("refreshAnnotationHighlights : hors du Manuscrit, nettoie aussi les décora
 
   assert.equal(dispatchCalls.length, 1);
   assert.equal(dispatchCalls[0].effects.value, Decoration.none);
+});
+
+test("changement de couleur en édition : persisté et redessiné immédiatement, sans attendre la fermeture", async () => {
+  const { plugin, app, settings } = fixture();
+  await saveAnnotations(app, settings, {
+    version: 1,
+    annotations: [{
+      id: "ann-1", file: "Chapitre/Scène.md", start: 3, end: 13, quote: "faisait nu", prefix: "Il ", suffix: "it.", text: "note", color: "yellow",
+    }],
+  });
+  const dispatchCalls = [];
+  plugin.activeEditorAnywhere = () => fakeEditor(SCENE_CONTENT, 0, 0, dispatchCalls);
+
+  const opened = await captureAnnotationPopover(() => plugin.openAnnotationEditor("ann-1"));
+  assert.equal(typeof opened.onColorChange, "function", "le popover expose bien un callback de couleur immédiat");
+  dispatchCalls.length = 0; // ignore le rafraîchissement déclenché par l'ouverture elle-même
+
+  await opened.onColorChange("blue");
+
+  const store = await loadAnnotations(app, settings);
+  assert.equal(store.annotations[0].color, "blue", "persisté immédiatement, pas seulement à la fermeture du popover");
+  assert.equal(dispatchCalls.length, 1, "la décoration CodeMirror est redessinée immédiatement");
+});
+
+test("réancrage : sauvegarder une annotation résolue mais déplacée met à jour start/end/quote/prefix/suffix depuis le texte ACTUEL", async () => {
+  const { plugin, app, settings, scene } = fixture();
+  const quote = "Le chat dormait tranquillement";
+  const originalStart = SCENE_CONTENT.indexOf(quote);
+  await saveAnnotations(app, settings, {
+    version: 1,
+    annotations: [{
+      id: "ann-1", file: "Chapitre/Scène.md",
+      start: originalStart, end: originalStart + quote.length, quote,
+      prefix: SCENE_CONTENT.slice(Math.max(0, originalStart - 30), originalStart),
+      suffix: SCENE_CONTENT.slice(originalStart + quote.length, originalStart + quote.length + 30),
+      text: "avant", color: "yellow",
+    }],
+  });
+  // Le texte a changé PENDANT que l'annotation restait ouverte (ou entre deux
+  // ouvertures) : le passage a reculé, mais reste retrouvable avec certitude.
+  const shifted = `PRÉAMBULE AJOUTÉ. ${SCENE_CONTENT}`;
+  scene.content = shifted;
+  plugin.activeEditorAnywhere = () => null;
+
+  const opened = await captureAnnotationPopover(() => plugin.openAnnotationEditor("ann-1"));
+  await opened.onSave("note à jour", "yellow", "highlight");
+
+  const store = await loadAnnotations(app, settings);
+  const updated = store.annotations[0];
+  const expectedStart = shifted.indexOf(quote);
+  assert.equal(updated.start, expectedStart, "start recalculé à partir du texte ACTUEL, jamais l'ancien");
+  assert.equal(updated.end, expectedStart + quote.length);
+  assert.equal(updated.quote, quote);
+  assert.equal(updated.prefix, shifted.slice(Math.max(0, expectedStart - 30), expectedStart));
+  assert.equal(updated.suffix, shifted.slice(expectedStart + quote.length, expectedStart + quote.length + 30));
+  assert.equal(updated.text, "note à jour");
+  assert.equal(scene.content, shifted, "réancrage : jamais une écriture dans le Markdown");
+});
+
+test("annotation unresolved : jamais réancrée, reste éditable et supprimable", async () => {
+  const { plugin, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, {
+    version: 1,
+    annotations: [{
+      id: "ann-1", file: "Chapitre/Scène.md",
+      start: 999, end: 1010, quote: "passage qui n'existe plus du tout", prefix: "inconnu", suffix: "inconnu",
+      text: "avant", color: "yellow",
+    }],
+  });
+  plugin.activeEditorAnywhere = () => null;
+
+  const opened = await captureAnnotationPopover(() => plugin.openAnnotationEditor("ann-1"));
+  await opened.onSave("note modifiée", "blue", "highlight");
+
+  const afterSave = (await loadAnnotations(app, settings)).annotations[0];
+  // Jamais réancrée : start/end/quote inchangés, aucune position inventée.
+  assert.equal(afterSave.start, 999);
+  assert.equal(afterSave.end, 1010);
+  assert.equal(afterSave.quote, "passage qui n'existe plus du tout");
+  // Mais reste éditable (texte/couleur bien pris en compte)…
+  assert.equal(afterSave.text, "note modifiée");
+  assert.equal(afterSave.color, "blue");
+
+  // … et supprimable.
+  const deleted = await deleteAnnotation(app, settings, "ann-1");
+  assert.equal(deleted, true);
+  assert.equal((await loadAnnotations(app, settings)).annotations.length, 0);
+  assert.equal(scene.content, SCENE_CONTENT, "jamais une écriture dans le Markdown, résolue ou non");
 });

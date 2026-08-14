@@ -58,6 +58,7 @@ type Footnote = { label: string; text: string };
  * même patron : ligne d'accès compacte dans la vue principale, page
  * secondaire dédiée, retour à "home" au changement de fichier actif. */
 type NotesPage = "home" | "properties" | "footnotes" | "notes-and-annotations";
+/** Trois portées — Feuillet (défaut), Dossier ou Projet. */
 type AnnotationScope = "sheet" | "folder" | "project";
 type BaseNotesViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type NotesSettings = FeuilletsSettings & {
@@ -1765,8 +1766,8 @@ export class NotesView extends BaseFeuilletsView {
       event.stopPropagation();
       const menu = new Menu();
       const options: Array<[AnnotationScope, string]> = [["sheet", "notes.annotationScope.sheet"], ["folder", "notes.annotationScope.folder"], ["project", "notes.annotationScope.project"]];
-      const currentRelPath = toManuscriptRelativePath(this.app, this.plugin.settings, file) || "";
-      const inRoot = !currentRelPath.includes("/");
+      const currentRelPathForMenu = toManuscriptRelativePath(this.app, this.plugin.settings, file) || "";
+      const inRoot = !currentRelPathForMenu.includes("/");
       for (const [scope, key] of options) {
         if (scope === "folder" && inRoot) continue;
         menu.addItem((item) => item.setTitle(t(key)).setChecked(this.annotationScope === scope).onClick(() => { this.annotationScope = scope; void this.render(); }));
@@ -1782,11 +1783,6 @@ export class NotesView extends BaseFeuilletsView {
       await this.renderTextMarks(container, file);
       return;
     }
-    if (store.annotations.length === 0) {
-      section.createDiv({ cls: "feuillets-empty" }).setText(t("annotation.panel.empty"));
-      await this.renderTextMarks(container, file);
-      return;
-    }
 
     const currentRelPath = toManuscriptRelativePath(this.app, this.plugin.settings, file);
     const root = this.plugin.getProjectFolder();
@@ -1797,6 +1793,16 @@ export class NotesView extends BaseFeuilletsView {
       return annotation.file.startsWith(folderPrefix);
     };
     const scoped = store.annotations.filter(inScope);
+    if (scoped.length === 0) {
+      const emptyKey = this.annotationScope === "sheet"
+        ? "annotation.panel.emptySheet"
+        : this.annotationScope === "folder"
+          ? "annotation.panel.emptyFolder"
+          : "annotation.panel.emptyProject";
+      section.createDiv({ cls: "feuillets-empty" }).setText(t(emptyKey));
+      await this.renderTextMarks(container, file);
+      return;
+    }
     const list = section.createDiv({ cls: "feuillets-notes-field-container" });
     const grouped = this.annotationScope === "sheet" ? new Map([[currentRelPath || "", scoped]]) : new Map<string, Annotation[]>();
     if (this.annotationScope !== "sheet") for (const annotation of scoped) grouped.set(annotation.file, [...(grouped.get(annotation.file) || []), annotation]);
@@ -1813,42 +1819,6 @@ export class NotesView extends BaseFeuilletsView {
       for (const item of resolved) this.renderAnnotationRow(list, item.annotation, targetFile, item.range, content);
     }
     await this.renderTextMarks(container, file);
-  }
-
-  /** Vue globale historique : toutes les annotations du projet, groupées par fichier. */
-  private async renderAnnotationsPanel(container: HTMLElement, file: TFile): Promise<void> {
-    const backBar = container.createDiv({ cls: "feuillets-notes-back-bar" });
-    const backBtn = backBar.createEl("button", { cls: "feuillets-back-btn", text: ` ${t("notes.backToSheet")}` });
-    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" }); setIcon(iconSpan, "arrow-left"); backBtn.prepend(iconSpan);
-    backBtn.addEventListener("click", () => { this.notesPage = "notes-and-annotations"; void this.render(); });
-    const section = container.createDiv({ cls: "feuillets-notes-section" });
-    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
-    const titleIcon = head.createSpan({ cls: "feuillets-notes-section-icon" }); setIcon(titleIcon, "highlighter");
-    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.allAnnotations"));
-    let store: AnnotationsStore;
-    try { store = await loadAnnotations(this.app, this.plugin.settings); }
-    catch { section.createDiv({ cls: "feuillets-empty" }).setText(t("annotation.notice.corrupted")); return; }
-    const root = this.plugin.getProjectFolder();
-    const currentRelPath = toManuscriptRelativePath(this.app, this.plugin.settings, file);
-    const byFile = new Map<string, Annotation[]>();
-    for (const annotation of store.annotations) byFile.set(annotation.file, [...(byFile.get(annotation.file) || []), annotation]);
-    const paths = binderOrderedAnnotationPaths(this.app, this.plugin.settings, root, byFile.keys());
-    if (currentRelPath && byFile.has(currentRelPath)) {
-      paths.splice(paths.indexOf(currentRelPath), 1);
-      paths.unshift(currentRelPath);
-    }
-    const list = section.createDiv({ cls: "feuillets-notes-field-container" });
-    for (const relPath of paths) {
-      const target = root ? this.app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${relPath}`)) : null;
-      const targetFile = target instanceof TFile ? target : null;
-      if (relPath !== currentRelPath) list.createDiv({ cls: "feuillets-notes-section-title feuillets-annotation-file-heading" }).setText(targetFile ? this.plugin.titleFor(targetFile) : relPath);
-      let content: string | null = null;
-      if (targetFile) { try { content = await this.app.vault.cachedRead(targetFile); } catch { content = null; } }
-      const annotations = byFile.get(relPath) || [];
-      const resolved = annotations.map((annotation, index) => ({ annotation, index, range: content === null ? null : resolveAnnotation(annotation, content) }));
-      resolved.sort((a, b) => (a.range?.start ?? Number.MAX_SAFE_INTEGER) - (b.range?.start ?? Number.MAX_SAFE_INTEGER) || a.index - b.index);
-      for (const item of resolved) this.renderAnnotationRow(list, item.annotation, targetFile, item.range, content);
-    }
   }
 
   private renderWorkNoteText(container: HTMLElement, file: TFile, id: string | null, text: string, legacy: boolean): void {
@@ -1888,16 +1858,20 @@ export class NotesView extends BaseFeuilletsView {
     for (const mark of marks) { const row = list.createDiv({ cls: `feuillets-flat-text-cell feuillets-clickable feuillets-text-mark ${mark.comment ? "feuillets-text-mark-comment" : "feuillets-text-mark-highlight"}` }); const markIcon = row.createSpan({ cls: "feuillets-text-mark-icon" }); setIcon(markIcon, mark.comment ? "message-square" : "highlighter"); row.createSpan({ cls: "feuillets-text-mark-content" }).setText(mark.text); row.addEventListener("click", () => void openFileAndSelectRange(this.app, this.app.workspace.getLeaf(false), file, mark.start, mark.end)); }
   }
 
-  /** Une ligne d'annotation : pastille de couleur, extrait court du passage
-   * (ou « Passage introuvable » si le fichier a disparu ou que le passage
-   * n'a pas pu être résolu — jamais de navigation dans ce cas, voir
-   * resolveAnnotation), texte de l'annotation, action discrète Modifier.
-   * Le clic sur la ligne navigue (openFileAndSelectRange, lot 1 pour la
-   * résolution + utils/dom.ts pour la navigation, rien de recréé ici) ;
-   * Modifier réutilise TEL QUEL plugin.openAnnotationEditor (lot 3) — ni le
-   * modal, ni la persistance, ni le rafraîchissement CodeMirror ne sont
-   * dupliqués. Le callback passé en second argument fait juste rerendre
-   * CETTE page après une modification/suppression. */
+  /** Une ligne d'annotation : pastille de couleur, texte du commentaire
+   * (ou « Sans commentaire » si vide, tronqué visuellement à 2-3 lignes en
+   * CSS — voir .feuillets-annotation-text), « Passage introuvable » si le
+   * fichier a disparu ou que le passage n'a pas pu être résolu — jamais de
+   * navigation dans ce cas, voir resolveAnnotation —, action discrète
+   * Modifier. Ne réaffiche plus l'extrait du passage (`quote`) : la pastille
+   * de couleur suffit à le localiser en contexte, l'extrait faisait doublon
+   * avec le surlignage déjà visible dans le texte. Le clic sur la ligne
+   * navigue (openFileAndSelectRange, lot 1 pour la résolution + utils/dom.ts
+   * pour la navigation, rien de recréé ici) ; Modifier réutilise TEL QUEL
+   * plugin.openAnnotationEditor (lot 3) — ni le modal, ni la persistance, ni
+   * le rafraîchissement CodeMirror ne sont dupliqués. Le callback passé en
+   * second argument fait juste rerendre CETTE page après une
+   * modification/suppression. */
   private renderAnnotationRow(
     container: HTMLElement,
     annotation: Annotation,
@@ -1910,17 +1884,19 @@ export class NotesView extends BaseFeuilletsView {
 
     row.createSpan({ cls: `feuillets-annotation-dot feuillets-annotation-dot-${annotation.color}` });
 
-    const quote = resolved && content !== null ? content.slice(resolved.start, resolved.end) : annotation.quote;
-    row.createDiv({ cls: "feuillets-annotation-quote", text: `« ${quote} »` });
     if (annotation.text) row.createDiv({ cls: "feuillets-annotation-text", text: annotation.text });
-    if (!canNavigate) row.createDiv({ cls: "feuillets-notes-sub", text: "Passage ou fichier introuvable" });
+    else row.createDiv({ cls: "feuillets-annotation-text feuillets-annotation-text-empty", text: t("annotation.panel.withoutNote") });
+    if (!canNavigate) row.createDiv({ cls: "feuillets-notes-sub", text: t("annotation.panel.notFound") });
 
-    if (canNavigate && file && resolved) {
-      row.addClass("feuillets-clickable");
-      row.addEventListener("click", () => {
-        void this.plugin.openAnnotationEditor(annotation.id, () => void this.render());
-      });
-    }
+    // Toujours cliquable pour modifier — résolue ou non : openAnnotationEditor
+    // ne navigue QUE si le passage est retrouvé (voir main.ts), jamais de
+    // position inventée. Une annotation non résolue reste ainsi éditable et
+    // supprimable, seule la navigation lui est refusée.
+    row.addClass("feuillets-clickable");
+    row.setAttr("aria-label", t("annotation.panel.edit"));
+    row.addEventListener("click", () => {
+      void this.plugin.openAnnotationEditor(annotation.id, () => void this.render());
+    });
 
     const deleteBtn = row.createSpan({ cls: "feuillets-annotation-edit feuillets-clickable" });
     setIcon(deleteBtn, "trash-2");

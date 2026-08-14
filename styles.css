@@ -3299,7 +3299,7 @@ body.feuillets-text-width
 
 .feuillets-annotation-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--size-4-2, 8px);
 }
 
@@ -3307,6 +3307,7 @@ body.feuillets-text-width
   width: 10px;
   height: 10px;
   min-width: 10px;
+  margin-top: 5px;
   border-radius: 50%;
   border: 1px solid var(--background-modifier-border-hover, var(--text-faint));
 }
@@ -3322,13 +3323,21 @@ body.feuillets-text-width
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.feuillets-annotation-text-empty {
+  color: var(--text-faint);
+  font-style: italic;
 }
 
 .feuillets-annotation-edit {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
+  margin-top: 2px;
   color: var(--text-faint);
 }
 
