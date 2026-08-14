@@ -35,3 +35,22 @@ function id(): string { return typeof crypto !== "undefined" && crypto.randomUUI
 export async function addWorkNote(app: App, settings: FeuilletsSettings | null | undefined, file: string, text: string): Promise<WorkNote | null> { if (!text.trim()) return null; const store = await loadWorkNotes(app, settings); const note = { id: id(), file, text }; store.notes.push(note); await saveWorkNotes(app, settings, store); return note; }
 export async function updateWorkNote(app: App, settings: FeuilletsSettings | null | undefined, id: string, text: string): Promise<void> { const store = await loadWorkNotes(app, settings); const note = store.notes.find((n) => n.id === id); if (!note) return; if (!text.trim()) store.notes = store.notes.filter((n) => n.id !== id); else note.text = text; await saveWorkNotes(app, settings, store); }
 export async function deleteWorkNote(app: App, settings: FeuilletsSettings | null | undefined, id: string): Promise<void> { const store = await loadWorkNotes(app, settings); const before = store.notes.length; store.notes = store.notes.filter((n) => n.id !== id); if (store.notes.length !== before) await saveWorkNotes(app, settings, store); }
+
+/** Même règle que les annotations : remapper un fichier ou tous les
+ * descendants d'un dossier, et ne jamais réécrire un JSON illisible. */
+export async function remapWorkNotesAfterRename(app: App, settings: FeuilletsSettings | null | undefined, oldVaultPath: string, newVaultPath: string): Promise<boolean> {
+  const root = getProjectFolder(app, settings);
+  if (!root || !oldVaultPath || !newVaultPath) return false;
+  const oldPrefix = oldVaultPath === root.path ? "" : oldVaultPath.startsWith(`${root.path}/`) ? oldVaultPath.slice(root.path.length + 1) : null;
+  const newPrefix = newVaultPath === root.path ? "" : newVaultPath.startsWith(`${root.path}/`) ? newVaultPath.slice(root.path.length + 1) : null;
+  if (oldPrefix === null || newPrefix === null || oldPrefix === newPrefix) return false;
+  const store = await loadWorkNotes(app, settings);
+  let changed = false;
+  for (const note of store.notes) {
+    if (note.file !== oldPrefix && !note.file.startsWith(`${oldPrefix}/`)) continue;
+    note.file = `${newPrefix}${note.file.slice(oldPrefix.length)}`;
+    changed = true;
+  }
+  if (changed) await saveWorkNotes(app, settings, store);
+  return changed;
+}

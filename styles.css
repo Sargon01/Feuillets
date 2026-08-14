@@ -3063,6 +3063,139 @@ body.feuillets-text-width
 .cm-annotation-style-underline.cm-annotation-highlight-blue, .cm-annotation-style-strikethrough.cm-annotation-highlight-blue { color: #1976c0; }
 .cm-annotation-style-underline.cm-annotation-highlight-pink, .cm-annotation-style-strikethrough.cm-annotation-highlight-pink { color: #c2185b; }
 
+/* Relecture native : seules les notes sont décorées dans l'éditeur — les
+   changements proposés se traitent dans la comparaison côte à côte. */
+.cm-native-review-thread-active { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: var(--radius-s); }
+.feuillets-native-review-container .feuillets-project-section > h4 { margin-bottom: var(--size-4-2); }
+.feuillets-native-review-container .feuillets-native-review-button { opacity: 1; cursor: pointer; }
+.feuillets-native-review-container .feuillets-native-review-button:disabled { opacity: var(--icon-opacity, 0.45); cursor: default; }
+.feuillets-native-review-context,
+.feuillets-native-review-neutral { color: var(--text-muted); }
+.feuillets-native-review-card { padding: var(--size-4-3); margin-top: var(--size-4-2); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); }
+.feuillets-native-review-session-state { color: var(--text-normal); font-weight: var(--font-medium, 500); }
+.feuillets-native-review-card-label,
+.feuillets-native-review-message-author { font-size: var(--font-ui-small); font-weight: var(--font-semibold, 600); color: var(--text-normal); }
+.feuillets-native-review-status { margin-top: var(--size-4-2); font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.feuillets-native-review-quote { margin: var(--size-4-1) 0 var(--size-4-2); color: var(--text-muted); font-size: var(--font-ui-small); overflow-wrap: anywhere; }
+.feuillets-native-review-message { font-size: var(--font-ui-small); }
+.feuillets-native-review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--size-4-2); margin-top: var(--size-4-3); }
+.feuillets-native-review-treated { margin-top: var(--size-4-3); color: var(--text-muted); font-size: var(--font-ui-small); }
+.feuillets-native-review-document-list .feuillets-native-review-card { padding: var(--size-4-2) var(--size-4-3); }
+.feuillets-native-review-history-row { display: flex; align-items: center; justify-content: space-between; gap: var(--size-4-2); padding: var(--size-4-1) 0; }
+.feuillets-native-review-thread-popover { font-size: var(--font-ui-small); }
+
+/* ===== Espace de comparaison (Relecture et Snapshots) =====
+   Feuillets ne rend JAMAIS le texte comparé : les deux côtés sont de vraies
+   vues Markdown d'Obsidian, qui appliquent d'elles-mêmes le thème, la police,
+   la largeur de rédaction, les alinéas et tous les réglages Feuillets. Il n'y
+   a donc plus rien à imiter ici — aucun `pre-wrap`, aucune reconstruction de
+   paragraphe, aucun padding miroir : changer la composition ne demandera plus
+   jamais de toucher à cette section.
+   Ne restent que deux choses, toutes temporaires : le bandeau (mode
+   Changements | Versions, défilement lié) et les décorations du diff —
+   retirées sans résidu dès le mode Versions ou la fermeture de la
+   comparaison. */
+
+/* Bandeau en surimpression de la feuille de DROITE — jamais entre les deux
+   textes, pour que les deux vues démarrent à la même hauteur sous leur
+   en-tête d'onglet natif. */
+.feuillets-comparison-host { position: relative; }
+.feuillets-comparison-host .feuillets-comparison-toolbar { position: absolute; left: 0; right: 0; bottom: 0; z-index: var(--layer-popover, 30); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--size-4-2); padding: var(--size-4-2) var(--size-4-3); border-top: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
+.feuillets-comparison-toolbar-group { display: flex; align-items: center; gap: var(--size-4-2); min-width: 0; }
+.feuillets-comparison-title { font-size: var(--font-ui-small); font-weight: var(--font-semibold, 600); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feuillets-comparison-arrow { color: var(--text-faint); font-size: var(--font-ui-smaller); }
+.feuillets-comparison-summary,
+.feuillets-comparison-readonly { font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.feuillets-comparison-readonly { padding: 0 var(--size-4-1); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); }
+.feuillets-comparison-button { cursor: pointer; }
+.feuillets-comparison-icon-button { display: inline-flex; align-items: center; justify-content: center; padding: var(--size-4-1); cursor: pointer; background: transparent; box-shadow: none; color: var(--text-muted); }
+.feuillets-comparison-icon-button:disabled { opacity: var(--icon-opacity, 0.45); cursor: default; }
+
+/* Changements | Versions — contrôle discret dans le bandeau existant, jamais
+   une toolbar flottante séparée. */
+.feuillets-comparison-mode-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: var(--radius-s); background: var(--background-modifier-border); }
+.feuillets-comparison-mode-button { font-size: var(--font-ui-smaller); padding: var(--size-4-1) var(--size-4-2); border-radius: var(--radius-s); cursor: pointer; background: transparent; box-shadow: none; color: var(--text-muted); }
+.feuillets-comparison-mode-button.is-active { background: var(--background-primary); color: var(--text-normal); font-weight: var(--font-semibold, 600); }
+
+/* ⛓ Défilement lié — une option, pas un troisième mode : même famille visuelle
+   que les autres icônes du bandeau, distinguée seulement par son état actif. */
+.feuillets-comparison-scroll-link.is-active { color: var(--interactive-accent); }
+
+/* Décorations du diff — posées par cm-comparison-decorations.ts sur les deux
+   éditeurs, retirées intégralement à la fermeture. Aucune n'écrit quoi que ce
+   soit dans le Markdown.
+
+   Grammaire UNIVERSELLE, strictement la même en Snapshot et en Relecture,
+   dans tous les modes :
+     GAUCHE = AVANT                      DROITE = APRÈS
+     rouge barré + […] = parti/supprimé  [+] + vert = arrivé/ajouté
+     rouge → vert = remplacé
+     ligne pointillée + DÉPLACÉ ↑/↓ = couper/coller — jamais présenté comme
+     une suppression d'un côté et un ajout de l'autre.
+
+   Une différence n'est jamais réduite à un vide : quand un côté n'a rien de
+   réel à montrer, un petit repère cliquable ([…] ou [+]) le remplace — jamais
+   un fantôme qui dupliquerait le texte de l'autre côté, jamais une cale. Le
+   texte inchangé reste strictement normal — il n'est ni atténué ni teinté. */
+.cm-comparison-gone, .cm-comparison-arrived, .cm-comparison-note, .cm-comparison-placeholder { cursor: pointer; }
+
+/* Parti : le texte reste lisible, mais visiblement retiré. */
+.cm-comparison-gone {
+  background: color-mix(in srgb, var(--color-red) 16%, transparent);
+  border-radius: 2px;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-red) 70%, transparent);
+  text-decoration-thickness: 1px;
+}
+/* Arrivé : même discrétion, l'autre couleur. */
+.cm-comparison-arrived { background: color-mix(in srgb, var(--color-green) 18%, transparent); border-radius: 2px; }
+
+.cm-comparison-gone.is-active, .cm-comparison-arrived.is-active { outline: 2px solid var(--interactive-accent); outline-offset: 1px; border-radius: var(--radius-s); }
+.cm-comparison-gone.is-handled, .cm-comparison-arrived.is-handled { opacity: 0.45; cursor: default; }
+
+.cm-comparison-note { background: color-mix(in srgb, var(--text-accent) 18%, transparent); border-radius: 2px; box-shadow: inset 0 -2px var(--text-accent); }
+
+/* Placeholder « […] »/« [+] » : le seul repère du côté qui n'a rien de réel
+   à montrer — jamais un vide, jamais le texte de l'autre côté dupliqué. Même
+   teinte que la marque qu'il remplace, en badge discret plutôt qu'en fond de
+   texte (il n'y a pas de texte à teinter). */
+.cm-comparison-placeholder { display: inline-block; padding: 0 3px; border-radius: 3px; font-size: 0.85em; user-select: none; }
+.cm-comparison-placeholder.cm-comparison-tone-gone { background: color-mix(in srgb, var(--color-red) 20%, transparent); color: var(--color-red); }
+.cm-comparison-placeholder.cm-comparison-tone-arrived { background: color-mix(in srgb, var(--color-green) 20%, transparent); color: var(--color-green); }
+.cm-comparison-placeholder.is-active { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }
+.cm-comparison-placeholder.is-handled { opacity: 0.45; cursor: default; }
+
+/* Déplacement : ni rouge ni vert — un couper/coller n'est ni une suppression
+   ni un ajout. Le texte garde un accent discret aux deux emplacements ;
+   l'origine porte une ligne pointillée orientée, la destination porte
+   « Déplacé N ↑/↓ » — le même numéro des deux côtés, sans flèche graphique
+   traversant les colonnes et sans espace réservé pour les tenir face à
+   face. */
+.cm-comparison-move-origin, .cm-comparison-move-destination { box-shadow: inset 0 -2px color-mix(in srgb, var(--text-accent) 60%, transparent); cursor: pointer; }
+.cm-comparison-move-origin.is-active, .cm-comparison-move-destination.is-active { outline: 2px solid var(--interactive-accent); outline-offset: 1px; border-radius: var(--radius-s); }
+.cm-comparison-move-origin.is-handled, .cm-comparison-move-destination.is-handled { opacity: 0.45; cursor: default; }
+
+.cm-comparison-move-label { font-size: 0.75em; color: var(--text-accent); margin: 0 3px; white-space: nowrap; cursor: pointer; user-select: none; }
+.cm-comparison-move-label.is-active { font-weight: var(--font-semibold, 600); }
+.cm-comparison-move-label.is-handled { opacity: 0.45; }
+
+/* La ligne pointillée d'origine : discrète, jamais confondue avec une vraie
+   suppression (rouge barré) — elle matérialise seulement l'endroit quitté,
+   dans le sens du départ. */
+.cm-comparison-move-dashes { font-size: 0.75em; color: var(--text-faint); margin: 0 3px; white-space: nowrap; cursor: pointer; user-select: none; letter-spacing: 0.05em; }
+.cm-comparison-move-dashes.is-active { color: var(--text-accent); font-weight: var(--font-semibold, 600); }
+.cm-comparison-move-dashes.is-handled { opacity: 0.45; }
+
+/* L'action vit toujours à l'APRÈS — jamais posée dans le document en lecture
+   seule. Elle ne sert qu'à décider : ce qui a changé se lit déjà dans le
+   texte, avant même de cliquer. Le bouton × la referme sans rien décider. */
+.cm-comparison-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--size-4-2); margin: 0 var(--size-4-2); padding: var(--size-4-1) var(--size-4-2); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); background: var(--background-secondary-alt); white-space: normal; vertical-align: middle; user-select: none; }
+.cm-comparison-action-label { font-size: var(--font-ui-smaller); font-weight: var(--font-semibold, 600); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.cm-comparison-action-hint { font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.cm-comparison-action-button { font-size: var(--font-ui-smaller); padding: 0 var(--size-4-2); cursor: pointer; }
+.cm-comparison-action-close { margin-left: auto; padding: 0 var(--size-4-1); font-size: var(--font-ui-small); line-height: 1; color: var(--text-faint); background: transparent; box-shadow: none; cursor: pointer; }
+.cm-comparison-action-close:hover { color: var(--text-normal); }
+
 /* ===== annotations : popover de création/modification (correctif UI) =====
    Remplace l'ancien AnnotationModal (Modal Obsidian plein overlay) par une
    petite carte flottante ancrée près du passage — jamais un overlay, juste
@@ -6586,10 +6719,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
-}
-
-.feuillets-diff-snapshot-label {
-  font-weight: 500;
 }
 
 .feuillets-diff-mode-btn {

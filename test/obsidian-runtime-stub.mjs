@@ -34,6 +34,10 @@ export class ItemView {
     this._registeredEvents.push(eventRef);
     return eventRef;
   }
+  /* État de vue : Obsidian les définit sur View, les sous-classes appellent
+     super.setState() après avoir lu le leur. */
+  async setState() {}
+  getState() { return {}; }
   /* Écouteurs DOM : Obsidian les retire à la fermeture de la vue. Conservés
      ici pour que les tests puissent les déclencher et vérifier le nettoyage. */
   registerDomEvent(el, type, handler) {
@@ -255,6 +259,10 @@ export class Setting {
 }
 
 export class MarkdownView {}
+
+/* Sentinelle distincte : les tests construisent leur propre état CM fake et
+   reconnaissent cette valeur exacte pour répondre à `state.field(...)`. */
+export const editorInfoField = { __brand: "editorInfoField" };
 
 export class Menu {
   constructor() {

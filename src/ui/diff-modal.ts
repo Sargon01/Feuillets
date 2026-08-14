@@ -1,13 +1,10 @@
-import { Modal, Notice, ButtonComponent, DropdownComponent, TFile, TFolder, setIcon } from "obsidian";
+import { Modal, ButtonComponent, TFile, TFolder, setIcon } from "obsidian";
 import type { App } from "obsidian";
 /* `import * as` et non un import par défaut : diff v9 est un paquet ESM pur
    qui n'expose que des exports nommés (diffWords, diffLines…). Un
    `import Diff from "diff"` compile chez tsc mais fait échouer esbuild. */
 import * as Diff from "diff";
-import { listSnapshotFiles } from "../services/project-files.js";
-import { ConfirmModal } from "./basic-modals.js";
 import { foldAccents } from "../utils/core.js";
-import { setButtonDestructive } from "../utils/obsidian-compat.js";
 import { t } from "../i18n/index.js";
 
 type DiffMode = "split" | "inline";
@@ -29,11 +26,6 @@ type PickFilePlugin = {
   shortTitleFor(file: TFile): string;
 };
 
-type DiffPlugin = ComparePlugin & {
-  getProjectFolder(): TFolder | null;
-  snapshotFile(file: TFile, root: TFolder): Promise<unknown>;
-};
-
 type FileChooseHandler = (file: TFile) => void | Promise<void>;
 
 type DiffOrigin = {
@@ -41,16 +33,6 @@ type DiffOrigin = {
   label: string;
   icon: string;
 };
-
-type DiffModalArguments =
-  | [plugin: DiffPlugin, currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean]
-  | [currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean];
-
-function isFileOnlyDiffModalArguments(
-  args: DiffModalArguments
-): args is [currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean] {
-  return args[0] instanceof TFile;
-}
 
 /** Rendu partagé du corps de diff (côte à côte / vue unifiée) — utilisé par
  * DiffModal (comparaison avec un snapshot) et CompareFilesModal (comparaison
@@ -323,259 +305,6 @@ export class PickFileModal extends Modal {
       }
     }
     return false;
-  }
-
-  onClose() {
-    this.contentEl.empty();
-  }
-}
-
-export class DiffModal extends Modal {
-  plugin: DiffPlugin | null;
-  currentFile: TFile;
-  initialSnapshot: TFile | undefined;
-  mode: DiffMode;
-  snapshots: TFile[];
-  selectedSnapshot: TFile | null;
-  /** LOT 6 (docx-review) — `false` uniquement pour l'entrée « Comparer
-   * l'origine »/« Comparer la destination » d'un déplacement inter-feuillets
-   * ouverte depuis la trace d'une décision DOCX (voir docx-review-view.ts) :
-   * un seul des deux feuillets restauré créerait un état incohérent (voir
-   * CompareFilesModal, même principe — « rien ne dit lequel des deux devrait
-   * écraser l'autre »). Par défaut `true` : tous les usages existants (le
-   * bouton « Comparer avec le snapshot », commandes générales) continuent de
-   * permettre la restauration exactement comme avant ce lot. */
-  allowRestore: boolean;
-
-  constructor(app: App, plugin: DiffPlugin, currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean);
-  constructor(app: App, currentFile: TFile, initialSnapshot?: TFile, allowRestore?: boolean);
-  constructor(
-    app: App,
-    ...args: DiffModalArguments
-  ) {
-    super(app);
-    if (isFileOnlyDiffModalArguments(args)) {
-      const [currentFile, initialSnapshot, allowRestore] = args;
-      this.plugin = null;
-      this.currentFile = currentFile;
-      this.initialSnapshot = initialSnapshot;
-      this.allowRestore = allowRestore !== false;
-    } else {
-      const [plugin, currentFile, initialSnapshot, allowRestore] = args;
-      this.plugin = plugin;
-      this.currentFile = currentFile;
-      this.initialSnapshot = initialSnapshot;
-      this.allowRestore = allowRestore !== false;
-    }
-    this.mode = "split"; // "split" | "inline"
-    this.snapshots = [];
-    this.selectedSnapshot = null;
-  }
-
-  async onOpen() {
-    const { contentEl, modalEl } = this;
-    modalEl.addClass("feuillets-diff-modal");
-    contentEl.empty();
-
-    const root = this.plugin ? this.plugin.getProjectFolder() : null;
-    this.snapshots = listSnapshotFiles(this.app, this.currentFile, root);
-
-    if (this.snapshots.length === 0) {
-      contentEl.createEl("h3", { text: t("modal.diff.comparisonTitle", { name: this.currentFile.basename }) });
-      contentEl.createDiv({ cls: "feuillets-empty", text: t("modal.diff.noSnapshotAvailable") });
-      return;
-    }
-
-    this.selectedSnapshot = this.initialSnapshot || this.snapshots[0];
-    await this.renderModalContent();
-  }
-
-  async renderModalContent() {
-    const { contentEl } = this;
-    contentEl.empty();
-
-    contentEl.createEl("h3", { text: t("modal.diff.comparisonTitle", { name: this.currentFile.basename }) });
-
-    // Barre d'outils supérieure : Sélecteur de snapshot & Mode de vue
-    const headerBar = contentEl.createDiv({ cls: "feuillets-diff-header-bar" });
-
-    // Sélecteur de snapshot
-    const snapControl = headerBar.createDiv({ cls: "feuillets-diff-controls" });
-    snapControl.createSpan({
-      cls: "feuillets-diff-snapshot-label",
-      text: `${t("modal.diff.snapshotLabel")} `,
-    });
-    const drop = new DropdownComponent(snapControl);
-    this.snapshots.forEach((snap, idx) => {
-      const dateLabel = snap.basename;
-      drop.addOption(snap.path, `${dateLabel}${idx === 0 ? ` ${t("modal.diff.mostRecent")}` : ""}`);
-    });
-    if (this.selectedSnapshot) {
-      drop.setValue(this.selectedSnapshot.path);
-    }
-    drop.onChange(async (path) => {
-      const found = this.snapshots.find((s) => s.path === path);
-      if (found) {
-        this.selectedSnapshot = found;
-        await this.renderDiffBody(bodyContainer);
-      }
-    });
-
-    // Bascule de mode Côte à côte / Vue unifiée
-    const modeControl = headerBar.createDiv({ cls: "feuillets-diff-controls" });
-    const splitBtn = modeControl.createEl("button", {
-      text: t("modal.diff.sideBySide"),
-      cls: `feuillets-diff-mode-btn ${this.mode === "split" ? "mod-cta" : ""}`
-    });
-    const inlineBtn = modeControl.createEl("button", {
-      text: t("modal.diff.unifiedView"),
-      cls: `feuillets-diff-mode-btn ${this.mode === "inline" ? "mod-cta" : ""}`
-    });
-
-    splitBtn.addEventListener("click", () => {
-      if (this.mode !== "split") {
-        this.mode = "split";
-        void this.renderModalContent();
-      }
-    });
-    inlineBtn.addEventListener("click", () => {
-      if (this.mode !== "inline") {
-        this.mode = "inline";
-        void this.renderModalContent();
-      }
-    });
-
-    // Conteneur du corps (Diff)
-    const bodyContainer = contentEl.createDiv();
-    await this.renderDiffBody(bodyContainer);
-
-    // Barre d'actions inférieure
-    const footerBar = contentEl.createDiv({ cls: "feuillets-diff-footer-bar" });
-    
-    /* Action destructive : restaurer un instantané écrase le contenu actuel.
-       setDestructive() (remplacement recommandé) n'existe que depuis Obsidian
-       1.13.0 et minAppVersion reste 1.7.2 : setButtonDestructive() choisit à
-       l'exécution la forme fournie par l'hôte au lieu d'en figer une (voir
-       src/utils/obsidian-compat.ts).
-       `allowRestore` (LOT 6, docx-review) : absent (repli true) pour tout
-       usage existant — seule la comparaison origine/destination d'un
-       déplacement inter-feuillets, ouverte depuis la trace d'une décision
-       DOCX, le désactive (voir sa doc plus haut). */
-    if (this.allowRestore) {
-      setButtonDestructive(
-        new ButtonComponent(footerBar).setButtonText(t("modal.diff.restoreSnapshot"))
-      )
-        .onClick(() => {
-          if (!this.selectedSnapshot) return;
-          /* ConfirmModal plutôt que window.confirm() : cohérence avec le reste
-             de l'UI (cf. src/ui/basic-modals.js) et confirm() est bloquant,
-             donc proscrit par la revue Obsidian. */
-          const snapshot = this.selectedSnapshot;
-          new ConfirmModal(
-            this.app,
-            t("modal.diff.restoreSnapshot"),
-            t("modal.diff.restoreConfirm", { snapshot: snapshot.basename, current: this.currentFile.basename }),
-            t("modal.diff.restoreSnapshot"),
-            async () => {
-              const root = this.plugin ? this.plugin.getProjectFolder() : null;
-              if (this.plugin && root) {
-                await this.plugin.snapshotFile(this.currentFile, root);
-              }
-              const content = await this.app.vault.read(snapshot);
-              await this.app.vault.modify(this.currentFile, content);
-              new Notice(t("modal.diff.restoredNotice", { name: snapshot.basename }));
-              this.close();
-            }
-          ).open();
-        });
-    }
-
-    new ButtonComponent(footerBar)
-      .setButtonText(t("modal.close"))
-      .onClick(() => this.close());
-  }
-
-  async renderDiffBody(container: HTMLElement) {
-    container.empty();
-    if (!this.selectedSnapshot) return;
-
-    const rawCurrent = await this.app.vault.read(this.currentFile);
-    const rawSnapshot = await this.app.vault.read(this.selectedSnapshot);
-
-    const currentText = rawCurrent.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
-    const snapshotText = rawSnapshot.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
-
-    const diffs = Diff.diffWords(snapshotText, currentText);
-
-    if (this.mode === "split") {
-      const splitWrap = container.createDiv({ cls: "feuillets-diff-split-container" });
-
-      // Panneau gauche : Snapshot
-      const leftPane = splitWrap.createDiv({ cls: "feuillets-diff-pane" });
-      leftPane.createDiv({ cls: "feuillets-diff-pane-header", text: t("modal.diff.snapshotPane", { name: this.selectedSnapshot.basename }) });
-      const leftContent = leftPane.createDiv({ cls: "feuillets-diff-pane-content" });
-
-      // Panneau droit : Version actuelle
-      const rightPane = splitWrap.createDiv({ cls: "feuillets-diff-pane" });
-      rightPane.createDiv({ cls: "feuillets-diff-pane-header", text: t("modal.diff.currentVersionPane", { name: this.currentFile.basename }) });
-      const rightContent = rightPane.createDiv({ cls: "feuillets-diff-pane-content" });
-
-      // Synchronisation du défilement
-      let isSyncingLeft = false;
-      let isSyncingRight = false;
-      leftContent.addEventListener("scroll", () => {
-        if (!isSyncingRight) {
-          isSyncingLeft = true;
-          rightContent.scrollTop = leftContent.scrollTop;
-        }
-        isSyncingRight = false;
-      });
-      rightContent.addEventListener("scroll", () => {
-        if (!isSyncingLeft) {
-          isSyncingRight = true;
-          leftContent.scrollTop = rightContent.scrollTop;
-        }
-        isSyncingLeft = false;
-      });
-
-      diffs.forEach((part) => {
-        // En colonne Snapshot : afficher le texte inchangé + les éléments supprimés de la version actuelle (en rouge)
-        if (!part.added) {
-          const span = leftContent.createSpan();
-          span.setText(part.value);
-          if (part.removed) {
-            span.addClass("feuillets-diff-removed");
-          } else {
-            span.addClass("feuillets-diff-unchanged");
-          }
-        }
-
-        // En colonne Actuelle : afficher le texte inchangé + les éléments ajoutés (en vert)
-        if (!part.removed) {
-          const span = rightContent.createSpan();
-          span.setText(part.value);
-          if (part.added) {
-            span.addClass("feuillets-diff-added");
-          } else {
-            span.addClass("feuillets-diff-unchanged");
-          }
-        }
-      });
-    } else {
-      // Mode Unifié (Inline)
-      const inlineContent = container.createDiv({ cls: "feuillets-diff-inline-container" });
-      diffs.forEach((part) => {
-        const span = inlineContent.createSpan();
-        span.setText(part.value);
-        if (part.added) {
-          span.addClass("feuillets-diff-added");
-        } else if (part.removed) {
-          span.addClass("feuillets-diff-removed");
-        } else {
-          span.addClass("feuillets-diff-unchanged");
-        }
-      });
-    }
   }
 
   onClose() {

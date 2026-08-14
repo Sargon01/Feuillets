@@ -8,7 +8,8 @@ import { NewFolderModal, RenameFolderModal, NewResearchFileModal, RenameFileModa
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
 import { promptForPage } from "../ui/citation-modal.js";
-import { DiffModal, CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
+import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
+import { openSnapshotComparison } from "./comparison-view.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile, researchFolderPath } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
@@ -2274,7 +2275,7 @@ export abstract class BaseFeuilletsView extends ItemView {
             new Notice(t("shared.contextMenu.noSnapshotFound", { name: file.basename }));
             return;
           }
-          new DiffModal(this.app, plugin, file, snapshots[0]).open();
+          await openSnapshotComparison(this.app, plugin, file, snapshots[0]);
         })
     );
     })));

@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, type Editor, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, type App, type Editor, type WorkspaceLeaf } from "obsidian";
 
 import { VIEW_NOTES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -14,7 +14,7 @@ import {
   type AnnotationsStore,
 } from "../services/annotations.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "../ui/project-properties-modals.js";
-import { FRONT_PAGE_TYPES } from "../services/folder-structure.js";
+import { FRONT_PAGE_TYPES, getOrderedChildren } from "../services/folder-structure.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 import { buildContextIndex, type ContextDocument, type ContextSource } from "../services/context-index.js";
@@ -78,6 +78,28 @@ type NotesViewPlugin = Omit<BaseNotesViewPlugin, "parseStoryDate" | "settings"> 
   createAnnotationFromSelection(): Promise<void>;
   openWorkNoteEditor(file: TFile, id: string | null, text: string, onChange: () => void, legacy?: boolean, anchor?: HTMLElement): Promise<void>;
 };
+
+function binderOrderedAnnotationPaths(app: App, settings: FeuilletsSettings, root: TFolder | null, paths: Iterable<string>): string[] {
+  const wanted = new Set(paths);
+  if (!root) return [...wanted];
+  const ordered: string[] = [];
+  const visit = (folder: TFolder): void => {
+    let children: Array<TFile | TFolder>;
+    try { children = getOrderedChildren(app, settings, folder); }
+    catch { children = folder.children.filter((child): child is TFile | TFolder => child instanceof TFile || child instanceof TFolder); }
+    for (const child of children) {
+      if (child instanceof TFolder) visit(child);
+      else if (child instanceof TFile) {
+        const relative = child.path.slice(root.path.length + 1);
+        if (wanted.delete(relative)) ordered.push(relative);
+      }
+    }
+  };
+  visit(root);
+  // Fichiers supprimés restent visibles, après le Binder, dans un ordre stable.
+  for (const path of paths) if (wanted.delete(path)) ordered.push(path);
+  return ordered;
+}
 
 const SECTION_ICONS: Partial<Record<NotesSectionKey, string>> = {
   synopsis: "align-left",
@@ -1778,15 +1800,17 @@ export class NotesView extends BaseFeuilletsView {
     const list = section.createDiv({ cls: "feuillets-notes-field-container" });
     const grouped = this.annotationScope === "sheet" ? new Map([[currentRelPath || "", scoped]]) : new Map<string, Annotation[]>();
     if (this.annotationScope !== "sheet") for (const annotation of scoped) grouped.set(annotation.file, [...(grouped.get(annotation.file) || []), annotation]);
-    const paths = [...grouped.keys()].sort((a, b) => a.localeCompare(b, "fr"));
+    const paths = binderOrderedAnnotationPaths(this.app, this.plugin.settings, root, grouped.keys());
     if (this.annotationScope !== "sheet" && currentRelPath && grouped.has(currentRelPath)) { paths.splice(paths.indexOf(currentRelPath), 1); paths.unshift(currentRelPath); }
     for (const relPath of paths) {
       const target = root ? this.app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${relPath}`)) : null;
       const targetFile = target instanceof TFile ? target : null;
       if (this.annotationScope !== "sheet" && relPath !== currentRelPath) list.createDiv({ cls: "feuillets-notes-section-title feuillets-annotation-file-heading" }).setText(targetFile ? this.plugin.titleFor(targetFile) : relPath);
-      if (!targetFile) continue;
-      const content = await this.app.vault.cachedRead(targetFile);
-      for (const annotation of grouped.get(relPath) || []) this.renderAnnotationRow(list, annotation, targetFile, resolveAnnotation(annotation, content), content);
+      const content = targetFile ? await this.app.vault.cachedRead(targetFile) : null;
+      const annotations = grouped.get(relPath) || [];
+      const resolved = annotations.map((annotation, index) => ({ annotation, index, range: content === null ? null : resolveAnnotation(annotation, content) }));
+      resolved.sort((a, b) => (a.range?.start ?? Number.MAX_SAFE_INTEGER) - (b.range?.start ?? Number.MAX_SAFE_INTEGER) || a.index - b.index);
+      for (const item of resolved) this.renderAnnotationRow(list, item.annotation, targetFile, item.range, content);
     }
     await this.renderTextMarks(container, file);
   }
@@ -1808,7 +1832,7 @@ export class NotesView extends BaseFeuilletsView {
     const currentRelPath = toManuscriptRelativePath(this.app, this.plugin.settings, file);
     const byFile = new Map<string, Annotation[]>();
     for (const annotation of store.annotations) byFile.set(annotation.file, [...(byFile.get(annotation.file) || []), annotation]);
-    const paths = [...byFile.keys()].sort((a, b) => a.localeCompare(b, "fr"));
+    const paths = binderOrderedAnnotationPaths(this.app, this.plugin.settings, root, byFile.keys());
     if (currentRelPath && byFile.has(currentRelPath)) {
       paths.splice(paths.indexOf(currentRelPath), 1);
       paths.unshift(currentRelPath);
@@ -1820,7 +1844,10 @@ export class NotesView extends BaseFeuilletsView {
       if (relPath !== currentRelPath) list.createDiv({ cls: "feuillets-notes-section-title feuillets-annotation-file-heading" }).setText(targetFile ? this.plugin.titleFor(targetFile) : relPath);
       let content: string | null = null;
       if (targetFile) { try { content = await this.app.vault.cachedRead(targetFile); } catch { content = null; } }
-      for (const annotation of byFile.get(relPath) || []) this.renderAnnotationRow(list, annotation, targetFile, content === null ? null : resolveAnnotation(annotation, content), content);
+      const annotations = byFile.get(relPath) || [];
+      const resolved = annotations.map((annotation, index) => ({ annotation, index, range: content === null ? null : resolveAnnotation(annotation, content) }));
+      resolved.sort((a, b) => (a.range?.start ?? Number.MAX_SAFE_INTEGER) - (b.range?.start ?? Number.MAX_SAFE_INTEGER) || a.index - b.index);
+      for (const item of resolved) this.renderAnnotationRow(list, item.annotation, targetFile, item.range, content);
     }
   }
 
@@ -1883,7 +1910,10 @@ export class NotesView extends BaseFeuilletsView {
 
     row.createSpan({ cls: `feuillets-annotation-dot feuillets-annotation-dot-${annotation.color}` });
 
-    row.createSpan({ cls: "feuillets-annotation-text" }).setText(annotation.text || t("annotation.panel.withoutNote"));
+    const quote = resolved && content !== null ? content.slice(resolved.start, resolved.end) : annotation.quote;
+    row.createDiv({ cls: "feuillets-annotation-quote", text: `« ${quote} »` });
+    if (annotation.text) row.createDiv({ cls: "feuillets-annotation-text", text: annotation.text });
+    if (!canNavigate) row.createDiv({ cls: "feuillets-notes-sub", text: "Passage ou fichier introuvable" });
 
     if (canNavigate && file && resolved) {
       row.addClass("feuillets-clickable");

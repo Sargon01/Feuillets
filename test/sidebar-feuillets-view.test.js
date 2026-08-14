@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SidebarFeuilletsView } from "../src/views/sidebar-feuillets-view.js";
 import { t } from "../src/i18n/index.js";
-import { DiffModal } from "../src/ui/diff-modal.js";
 
 class FakeElement {
   constructor(options = {}) {
@@ -75,7 +74,7 @@ function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels =
       on(name, callback) { listeners.workspace.set(name, callback); return { name }; },
       getActiveFile() { return activeFile; },
     },
-    vault: { on(name, callback) { listeners.vault.set(name, callback); return { name }; } },
+    vault: { on(name, callback) { listeners.vault.set(name, callback); return { name }; }, getAbstractFileByPath() { return null; }, getFiles() { return []; } },
   };
   const plugin = {
     settings,
@@ -430,7 +429,7 @@ test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide san
   assert.equal(sidebar.editionPage, "home");
 });
 
-test("SidebarFeuilletsView : l'accueil Relecture affiche Analyse du texte et Révision DOCX sans rendre leurs sous-vues", async () => {
+test("SidebarFeuilletsView : l'accueil Relecture affiche la relecture collaborative, Analyse du texte et Révision DOCX sans rendre leurs sous-vues", async () => {
   const { sidebar, contentEl, calls } = createSidebar("relecture");
   await sidebar.render();
 
@@ -441,17 +440,17 @@ test("SidebarFeuilletsView : l'accueil Relecture affiche Analyse du texte et Ré
   const heads = allElements(content).filter(
     (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
   );
-  assert.equal(heads.length, 2, "deux lignes compactes cliquables");
+  assert.equal(heads.length, 3, "trois lignes compactes cliquables");
 
   const titles = allElements(content)
     .filter((el) => el.classes.has("feuillets-notes-section-title"))
     .map((el) => el.text);
-  assert.deepEqual(titles, [t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
+  assert.deepEqual(titles, [t("relecture.home.native.title"), t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
 
   const subs = allElements(content)
     .filter((el) => el.classes.has("feuillets-notes-sub"))
     .map((el) => el.text);
-  assert.deepEqual(subs, [t("relecture.home.analysis.sub"), t("relecture.home.docx.sub")]);
+  assert.deepEqual(subs, [t("relecture.home.native.sub"), t("relecture.home.analysis.sub"), t("relecture.home.docx.sub")]);
 
   // Pas de carte lourde : aucun .feuillets-hub-card sur cette page.
   assert.equal(allElements(content).some((el) => el.classes.has("feuillets-hub-card")), false);
@@ -461,7 +460,7 @@ test("SidebarFeuilletsView : cliquer sur Analyse du texte puis Révision DOCX ou
   const { sidebar, contentEl, calls } = createSidebar("relecture");
   await sidebar.render();
 
-  const [analysisHead] = allElements(contentEl.children[1]).filter(
+  const [, analysisHead] = allElements(contentEl.children[1]).filter(
     (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
   );
 
@@ -485,7 +484,7 @@ test("SidebarFeuilletsView : cliquer sur Analyse du texte puis Révision DOCX ou
 
   renders = 0;
   sidebar.render = async () => { renders += 1; };
-  heads[1].events.get("click")();
+  heads[2].events.get("click")();
   assert.equal(sidebar.relecturePage, "docx");
   assert.equal(renders, 1);
 
@@ -579,6 +578,7 @@ test("SidebarFeuilletsView : l'accueil Relecture propose Comparer une version po
     .filter((el) => el.classes.has("feuillets-notes-section-title"))
     .map((el) => el.text);
   assert.deepEqual(titles, [
+    t("relecture.home.native.title"),
     t("relecture.home.analysis.title"),
     t("relecture.home.docx.title"),
     t("relecture.home.diff.title"),
@@ -587,6 +587,7 @@ test("SidebarFeuilletsView : l'accueil Relecture propose Comparer une version po
     .filter((el) => el.classes.has("feuillets-notes-sub"))
     .map((el) => el.text);
   assert.deepEqual(subs, [
+    t("relecture.home.native.sub"),
     t("relecture.home.analysis.sub"),
     t("relecture.home.docx.sub"),
     t("relecture.home.diff.sub"),
@@ -606,30 +607,24 @@ test("SidebarFeuilletsView : Comparer une version n'apparaît pas sans feuillet 
     const titles = allElements(contentEl.children[1])
       .filter((el) => el.classes.has("feuillets-notes-section-title"))
       .map((el) => el.text);
-    assert.deepEqual(titles, [t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
+    assert.deepEqual(titles, [t("relecture.home.native.title"), t("relecture.home.analysis.title"), t("relecture.home.docx.title")]);
   }
 });
 
-test("SidebarFeuilletsView : cliquer sur Comparer une version ouvre DiffModal avec le feuillet actif, sans créer de troisième page", async () => {
+test("SidebarFeuilletsView : cliquer sur Comparer une version ouvre la comparaison sur le feuillet actif, sans créer de troisième page", async () => {
   const projectFolder = { path: "Projet" };
   const activeFile = { path: "Projet/scene.md", extension: "md" };
   const { sidebar, contentEl } = createSidebar("relecture", [], [], { activeFile, projectFolder });
   await sidebar.render();
 
-  const original = DiffModal.prototype.open;
-  let opened = null;
-  DiffModal.prototype.open = function () { opened = this; };
-  try {
-    const rows = allElements(contentEl.children[1]).filter(
-      (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
-    );
-    assert.equal(rows.length, 3);
-    rows[2].events.get("click")();
+  const rows = allElements(contentEl.children[1]).filter(
+    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
+  );
+  assert.equal(rows.length, 4);
+  rows[3].events.get("click")();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
-    assert.ok(opened, "DiffModal.open() appelé");
-    assert.equal(opened.currentFile, activeFile);
-    assert.equal(sidebar.relecturePage, "home", "aucune troisième page secondaire créée");
-  } finally {
-    DiffModal.prototype.open = original;
-  }
+  // Sans snapshot, rien ne s'ouvre — mais surtout aucune page secondaire n'est
+  // inventée : l'entrée reste une action, jamais une troisième page Relecture.
+  assert.equal(sidebar.relecturePage, "home", "aucune troisième page secondaire créée");
 });

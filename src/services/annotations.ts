@@ -240,6 +240,34 @@ export async function deleteAnnotation(
   return true;
 }
 
+/**
+ * Fait suivre les ancres personnelles après un renommage Obsidian.  Les
+ * chemins stockés sont relatifs au Manuscrit : un renommage de dossier est
+ * donc simplement un changement de préfixe.  `loadAnnotations` est appelé
+ * avant toute écriture afin qu'un JSON corrompu ne soit jamais écrasé.
+ */
+export async function remapAnnotationsAfterRename(
+  app: App,
+  settings: FeuilletsSettings | null | undefined,
+  oldVaultPath: string,
+  newVaultPath: string
+): Promise<boolean> {
+  const root = getProjectFolder(app, settings);
+  if (!root || !oldVaultPath || !newVaultPath) return false;
+  const oldPrefix = oldVaultPath === root.path ? "" : oldVaultPath.startsWith(`${root.path}/`) ? oldVaultPath.slice(root.path.length + 1) : null;
+  const newPrefix = newVaultPath === root.path ? "" : newVaultPath.startsWith(`${root.path}/`) ? newVaultPath.slice(root.path.length + 1) : null;
+  if (oldPrefix === null || newPrefix === null || oldPrefix === newPrefix) return false;
+  const store = await loadAnnotations(app, settings);
+  let changed = false;
+  for (const annotation of store.annotations) {
+    if (annotation.file !== oldPrefix && !annotation.file.startsWith(`${oldPrefix}/`)) continue;
+    annotation.file = `${newPrefix}${annotation.file.slice(oldPrefix.length)}`;
+    changed = true;
+  }
+  if (changed) await saveAnnotations(app, settings, store);
+  return changed;
+}
+
 function findAllIndices(haystack: string, needle: string): number[] {
   if (!needle) return [];
   const out: number[] = [];
