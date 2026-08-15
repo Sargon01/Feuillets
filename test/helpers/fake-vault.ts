@@ -55,6 +55,11 @@ export function createFakeVault(entries: FakeVaultEntry[] = []) {
     async modify(file: FakeTFile, content: string): Promise<void> {
       file.content = content;
     },
+    async process(file: FakeTFile, fn: (data: string) => string): Promise<string> {
+      const next = fn(file.content || "");
+      file.content = next;
+      return next;
+    },
     async readBinary(file: FakeTFile): Promise<string> {
       return file.content || "";
     },

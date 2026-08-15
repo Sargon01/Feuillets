@@ -57,10 +57,27 @@ const LEGACY_FIELD_ALIASES: Record<string, string[]> = {
  *   passer, faisant fuiter deux `---` dans le texte compilé ;
  * - jamais d'écriture : le fichier source n'est pas modifié.
  */
+const FRONTMATTER_BLOCK_RE = /^\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/;
+
 export function stripFrontmatter(content: string): string {
   if (typeof content !== "string" || !content) return "";
   // \uFEFF : BOM d'un fichier importé — sinon le `---` n'est plus en tête.
-  return content.replace(/^\uFEFF?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/, "");
+  return content.replace(FRONTMATTER_BLOCK_RE, "");
+}
+
+/**
+ * Comme `stripFrontmatter`, mais rend AUSSI le bloc YAML retiré (délimiteurs
+ * `---` compris), pour l'appelant qui doit le reposer tel quel ensuite
+ * (Scrivenings : chaque segment garde son frontmatter d'origine pour la
+ * sauvegarde — voir services/scrivenings-document.ts). Mêmes règles que
+ * `stripFrontmatter` (BOM, CRLF, YAML vide) : un seul découpage, jamais une
+ * seconde expression régulière qui pourrait diverger.
+ */
+export function splitFrontmatter(content: string): { frontmatter: string; body: string } {
+  if (typeof content !== "string" || !content) return { frontmatter: "", body: "" };
+  const match = content.match(FRONTMATTER_BLOCK_RE);
+  if (!match) return { frontmatter: "", body: content };
+  return { frontmatter: match[0], body: content.slice(match[0].length) };
 }
 
 export function fmOf(app: App, file: TFile | null | undefined): SceneFrontmatter {

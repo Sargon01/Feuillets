@@ -15,7 +15,7 @@ const prod = process.argv[2] === "production";
 const options = {
   entryPoints: ["src/main.ts"],
   bundle: true,
-  external: ["obsidian", "electron", "@codemirror/state", "@codemirror/view", "@codemirror/language", ...builtins],
+  external: ["obsidian", "electron", "@codemirror/state", "@codemirror/view", "@codemirror/language", "@codemirror/commands", ...builtins],
   format: "cjs",
   target: "es2018",
   outfile: "main.js",

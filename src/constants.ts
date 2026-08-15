@@ -11,6 +11,10 @@ export const VIEW_PROJECT = "feuillets-project";
 export const VIEW_DOCX_REVIEW = "feuillets-docx-review";
 export const VIEW_SIDEBAR_FEUILLETS = "feuillets-sidebar-view";
 export const VIEW_PREVIEW = "feuillets-manuscript-preview";
+/** LOT 1 — cœur technique uniquement (voir views/scrivenings-view.ts) : pas
+ * encore d'entrée Binder/commande, la vue s'ouvre pour l'instant par
+ * `setViewState({ type: VIEW_SCRIVENINGS, ... })`. */
+export const VIEW_SCRIVENINGS = "feuillets-scrivenings";
 
 /** Statuts : entièrement personnalisables (nom + couleur), comme les
  * labels — plus de liste figée ni de couleur déterminée par la position.

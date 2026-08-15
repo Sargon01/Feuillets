@@ -7941,3 +7941,116 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   gap: 10px;
   margin-top: 20px;
 }
+
+/* --- Scrivenings (LOT 1 — cœur technique + micro-correctif 1.1) ---
+ * Un seul EditorView pour tout un scope : le conteneur emprunte les classes
+ * Obsidian réelles (.markdown-source-view.mod-cm6) pour hériter police,
+ * largeur et alinéas du thème actif sans les redéfinir ici. Le retour à la
+ * ligne vient de l'extension CodeMirror `EditorView.lineWrapping` (voir
+ * utils/cm-scrivenings.ts), pas d'une règle CSS. Seuls les titres de
+ * feuillet (non-Markdown, non éditables) sont propres au plugin. */
+.feuillets-scrivenings-container {
+  height: 100%;
+  overflow: hidden;
+}
+
+.feuillets-scrivenings-view {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.feuillets-scrivenings-view .cm-editor {
+  height: 100%;
+}
+
+/* Italique/gras inline (LOT 1.3, cm-scrivenings-markdown.ts) : décorations
+ * CodeMirror seules, jamais une classe qui existerait déjà ailleurs — le
+ * gras emprunte la variable de poids native Obsidian, sans réglage propre
+ * à Feuillets. */
+.cm-scrivenings-emphasis {
+  font-style: italic;
+}
+
+.cm-scrivenings-strong {
+  font-weight: var(--font-bold, 700);
+}
+
+/* Titre discret au-dessus de CHAQUE feuillet (premier compris) — jamais
+ * « Feuillet A → Feuillet B », jamais d'icône. `-divider` (tous les titres
+ * sauf le premier) ajoute la seule ligne de séparation fine du document. */
+.feuillets-scrivenings-title {
+  margin: 1.5em 0 0.35em;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium);
+  user-select: none;
+}
+
+.feuillets-scrivenings-title-divider {
+  margin-top: 2.25em;
+  padding-top: 1.25em;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-scrivenings-title-text {
+  white-space: nowrap;
+}
+
+/* Lignes vides : mêmes réglages que l'éditeur Markdown natif, étendus
+ * PROPREMENT à Scrivenings via SON PROPRE data-type de vue — jamais
+ * data-type="markdown" : cette extension ne doit jamais atteindre une vue
+ * Markdown embarquée sans leaf native (Preview, Comparison… intouchés, voir
+ * test/preview-styles.test.js). */
+body.feuillets-lignesvides-invisible
+  .workspace-leaf-content[data-type="feuillets-scrivenings"]
+  .feuillets-scrivenings-view
+  .cm-line.feuillets-empty-line:not(.cm-active) {
+  display: none;
+}
+
+body.feuillets-lignesvides-reduit
+  .workspace-leaf-content[data-type="feuillets-scrivenings"]
+  .feuillets-scrivenings-view
+  .cm-line.feuillets-empty-line {
+  height: 0.6rem;
+}
+
+/* Parité typographique Feuillets (LOT 1.2) : justification, interligne et
+ * largeur de texte — MÊMES variables et MÊMES déclarations que l'éditeur
+ * Markdown natif (voir ci-dessus, section « césure française et texte
+ * justifié » et « Interlignage réglable » / « Largeur de texte réglable »),
+ * jamais une valeur propre à Scrivenings. Seul change l'ancrage : le
+ * conteneur de Scrivenings porte déjà réellement les classes Obsidian
+ * `.markdown-source-view.mod-cm6` (voir views/scrivenings-view.ts, mêmes
+ * classes que le commentaire d'en-tête de la section Scrivenings explique
+ * emprunter exprès), donc `.markdown-source-view` suffit à cibler le même
+ * élément — seul le sélecteur de LEAF change, SON PROPRE data-type, jamais
+ * data-type="markdown" (même garde que les lignes vides ci-dessus).
+ *
+ * PAS de classe `.is-live-preview` ici, contrairement à la règle Markdown
+ * d'origine : Scrivenings n'exécute jamais l'extension de coloration
+ * syntaxique Live Preview d'Obsidian (hors périmètre de ce lot, voir
+ * utils/cm-scrivenings.ts) — ses `.cm-line` ne portent donc jamais les
+ * classes HyperMD-* que l'exclusion Markdown neutralise ; rien à exclure. */
+body.feuillets-justify-live
+  .workspace-leaf-content[data-type="feuillets-scrivenings"]
+  .markdown-source-view.mod-cm6
+  .cm-line {
+  text-align: justify;
+  word-wrap: break-word;
+}
+
+body.feuillets-line-height
+  .workspace-leaf-content[data-type="feuillets-scrivenings"]
+  .markdown-source-view
+  .cm-content {
+  line-height: var(--feuillets-line-height);
+}
+
+body.feuillets-text-width
+  .workspace-leaf-content[data-type="feuillets-scrivenings"]
+  .markdown-source-view {
+  max-width: var(--feuillets-text-width);
+  margin-left: auto;
+  margin-right: auto;
+}

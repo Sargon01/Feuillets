@@ -180,6 +180,11 @@ test("styles — aucun contrôle de barre séparé ne subsiste", () => {
 
 test("styles — la typographie Feuillets exclut les FileNodes Markdown du Canvas", () => {
   const markdownLeaf = '.workspace-leaf-content[data-type="markdown"]';
+  /* Scrivenings (LOT 1.1) emprunte les classes Markdown réelles
+     (.markdown-source-view.mod-cm6, voir views/scrivenings-view.ts) mais
+     vit dans SON PROPRE leaf natif, jamais data-type="markdown" — une
+     deuxième ancre native légitime, pas un contournement de la garde. */
+  const scriveningsLeaf = '.workspace-leaf-content[data-type="feuillets-scrivenings"]';
   const markdownSurface = /\.(?:markdown-source-view|markdown-preview-view|markdown-rendered|cm-editor|cm-content|cm-line)\b/;
   const feuilletsMarkdownSelectors = RULES.flatMap((rule) =>
     rule.selector
@@ -191,7 +196,7 @@ test("styles — la typographie Feuillets exclut les FileNodes Markdown du Canva
   assert.ok(feuilletsMarkdownSelectors.length > 0, "les réglages typographiques doivent rester présents");
   for (const selector of feuilletsMarkdownSelectors) {
     assert.ok(
-      selector.includes(markdownLeaf),
+      selector.includes(markdownLeaf) || selector.includes(scriveningsLeaf),
       `« ${selector} » pourrait atteindre une vue Markdown embarquée sans leaf native`
     );
   }
@@ -212,4 +217,70 @@ test("styles — la typographie Feuillets exclut les FileNodes Markdown du Canva
     false,
     "la correction doit reposer sur la vraie leaf Markdown, pas sur une compensation Canvas"
   );
+});
+
+/* ---- LOT 1.2 : parité typographique Feuillets pour Scrivenings ---------- */
+
+const scriveningsLeaf = '.workspace-leaf-content[data-type="feuillets-scrivenings"]';
+
+/** Règles dont AU MOINS un sélecteur du groupe (séparé par des virgules)
+ *  vise déjà `body.<bodyClass> ... [data-type="markdown"] ...`. */
+function markdownRulesFor(bodyClass) {
+  return RULES.filter((rule) =>
+    rule.selector.split(",").some((sel) => {
+      const trimmed = sel.trim();
+      return trimmed.startsWith(`body.${bodyClass}`) && trimmed.includes('[data-type="markdown"]');
+    })
+  );
+}
+
+/** Règles dont AU MOINS un sélecteur du groupe vise la leaf Scrivenings. */
+function scriveningsRulesFor(bodyClass) {
+  return RULES.filter((rule) =>
+    rule.selector.split(",").some((sel) => sel.trim().startsWith(`body.${bodyClass}`) && sel.includes(scriveningsLeaf))
+  );
+}
+
+for (const bodyClass of ["feuillets-justify-live", "feuillets-line-height", "feuillets-text-width"]) {
+  test(`styles — body.${bodyClass} s'applique aussi à Scrivenings (SON PROPRE data-type)`, () => {
+    const markdownRules = markdownRulesFor(bodyClass);
+    assert.ok(markdownRules.length > 0, `des règles Markdown existantes doivent porter body.${bodyClass}`);
+
+    const scriveningsRules = scriveningsRulesFor(bodyClass);
+    assert.ok(scriveningsRules.length > 0, `body.${bodyClass} doit aussi être étendu à Scrivenings`);
+
+    // Jamais data-type="markdown" pour cette extension (même garde que les
+    // lignes vides, voir test ci-dessus) : Scrivenings ne vit jamais dans
+    // une leaf native "markdown".
+    for (const rule of scriveningsRules) {
+      for (const sel of rule.selector.split(",")) {
+        const trimmed = sel.trim();
+        if (!trimmed.startsWith(`body.${bodyClass}`)) continue;
+        assert.equal(trimmed.includes('[data-type="markdown"]'), false, `« ${trimmed} » ne doit pas viser la leaf Markdown`);
+      }
+    }
+  });
+
+  test(`styles — body.${bodyClass} : Scrivenings pilote(nt) exactement les mêmes déclarations/variables que Markdown`, () => {
+    const markdownDeclarations = markdownRulesFor(bodyClass).flatMap((rule) => rule.declarations);
+    const scriveningsDeclarations = scriveningsRulesFor(bodyClass).flatMap((rule) => rule.declarations);
+
+    assert.ok(scriveningsDeclarations.length > 0);
+
+    // Toute déclaration posée côté Scrivenings doit déjà exister, telle
+    // quelle (même propriété, même valeur — donc même variable Feuillets
+    // s'il y en a une), côté Markdown : aucune valeur propre à Scrivenings.
+    for (const [prop, value] of scriveningsDeclarations) {
+      assert.ok(
+        markdownDeclarations.some(([mProp, mValue]) => mProp === prop && mValue === value),
+        `« ${prop}: ${value} » (Scrivenings) doit être une déclaration déjà posée pour Markdown, à l'identique`
+      );
+    }
+  });
+}
+
+test("styles — pas de régression : les vues Markdown normales gardent leurs règles feuillets-justify-live / feuillets-line-height / feuillets-text-width d'origine", () => {
+  for (const bodyClass of ["feuillets-justify-live", "feuillets-line-height", "feuillets-text-width"]) {
+    assert.ok(markdownRulesFor(bodyClass).length > 0, `les règles Markdown de body.${bodyClass} doivent toujours exister`);
+  }
 });
