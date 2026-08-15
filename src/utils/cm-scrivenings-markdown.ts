@@ -163,6 +163,13 @@ export interface ScriveningsSegmentFormatting {
    * gardées à part pour que `buildScriveningsMarkdownPlan` puisse garantir
    * qu'AUCUNE décoration ne les recouvre, même indirectement. */
   horizontalRules: { from: number; to: number }[];
+  /** Plages des seuls BACKSLASHES d'une ligne source ENTIÈRE `\*\*\*` (voir
+   * « CORRECTIF `\*\*\*` échappé » ci-dessous, micro-chantier finition
+   * Continu) — jamais les `*` eux-mêmes, jamais un `HorizontalRule` : ce
+   * séparateur reste un texte normal, seuls ses trois marqueurs d'échappement
+   * sont masqués pour que `***` apparaisse à l'écran, exactement comme dans
+   * le rendu Feuillets normal. */
+  escapedSeparators: { from: number; to: number }[];
 }
 
 interface ParseFrame {
@@ -177,6 +184,57 @@ function scriveningsEmphasisTypeOf(nodeName: string): ScriveningsEmphasisType | 
   if (nodeName === "Emphasis") return "emphasis";
   if (nodeName === "StrongEmphasis") return "strong";
   return null;
+}
+
+/** Chaîne EXACTE (après `.trim()` de la ligne) d'un séparateur `***`
+ * intégralement échappé — trois `\*` consécutifs, rien d'autre. Volontairement
+ * une comparaison de chaîne, jamais une regex plus permissive : voir
+ * `findEscapedSeparatorHiddenRanges` ci-dessous pour les deux gardes qui en
+ * découlent (forme de la ligne ET confirmation par la grammaire réelle). */
+const ESCAPED_SEPARATOR_LINE = "\\*\\*\\*";
+
+/**
+ * CORRECTIF `\*\*\*` échappé (micro-chantier finition Continu) : une ligne
+ * source ENTIÈRE `\*\*\*` doit se PERCEVOIR exactement comme `***` — jamais
+ * les trois backslashes visibles, jamais un `<hr>`, jamais une réécriture du
+ * document (les backslashes restent réellement dans le texte composite,
+ * seulement masqués par décoration — voir `buildScriveningsMarkdownPlan`).
+ *
+ * Deux gardes CUMULÉES, jamais une seule — pour ne jamais masquer un `\`
+ * ordinaire (`\*`, `texte \* texte`…) ni une ligne trop large (`*`, `**`,
+ * `***` non échappé, déjà couvert par le correctif `HorizontalRule`) :
+ * - la ligne, une fois `.trim()`ée, doit être EXACTEMENT `ESCAPED_SEPARATOR_LINE` ;
+ * - les trois positions de backslash candidates (au sein de cette ligne)
+ *   doivent CHACUNE correspondre à un vrai nœud `Escape` reconnu par la
+ *   grammaire `@lezer/markdown` (`escapeNodes`, collecté par
+ *   `parseScriveningsSegmentFormatting` ci-dessous) — jamais une simple
+ *   coïncidence de caractères (ex. à l'intérieur d'un bloc de code, où `\*`
+ *   n'est jamais interprété comme un échappement par la grammaire).
+ *
+ * Ne renvoie QUE les trois plages `{from, to}` des backslashes eux-mêmes
+ * (largeur 1 chacune) — jamais celles des `*`, qui restent de simples
+ * caractères de texte affichés tels quels.
+ */
+function findEscapedSeparatorHiddenRanges(
+  text: string,
+  escapeNodes: readonly { from: number; to: number }[]
+): { from: number; to: number }[] {
+  if (escapeNodes.length === 0) return [];
+  const escapeStarts = new Set(escapeNodes.map((node) => node.from));
+  const ranges: { from: number; to: number }[] = [];
+  let lineStart = 0;
+  for (const line of text.split("\n")) {
+    const leading = line.length - line.trimStart().length;
+    if (line.trim() === ESCAPED_SEPARATOR_LINE) {
+      const patternStart = lineStart + leading;
+      const backslashPositions = [patternStart, patternStart + 2, patternStart + 4];
+      if (backslashPositions.every((pos) => escapeStarts.has(pos))) {
+        for (const pos of backslashPositions) ranges.push({ from: pos, to: pos + 1 });
+      }
+    }
+    lineStart += line.length + 1; // +1 pour le `\n` retiré par split("\n")
+  }
+  return ranges;
 }
 
 /**
@@ -202,6 +260,7 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
   const nodes: ScriveningsEmphasisNode[] = [];
   const groups: ScriveningsMarkGroup[] = [];
   const horizontalRules: { from: number; to: number }[] = [];
+  const escapeNodes: { from: number; to: number }[] = [];
   const stack: ParseFrame[] = [];
 
   tree.iterate({
@@ -209,6 +268,13 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
       if (node.name === "HorizontalRule") {
         horizontalRules.push({ from: node.from, to: node.to });
         return false; // jamais descendu : un HorizontalRule n'a rien à offrir à l'emphase
+      }
+      if (node.name === "Escape") {
+        // Collecté pour `findEscapedSeparatorHiddenRanges` ci-dessus (CORRECTIF
+        // `\*\*\*` échappé) — jamais transformé en emphase, jamais descendu
+        // plus loin (un `Escape` n'a rien à offrir à l'emphase non plus).
+        escapeNodes.push({ from: node.from, to: node.to });
+        return false;
       }
       const type = scriveningsEmphasisTypeOf(node.name);
       if (type) {
@@ -245,7 +311,7 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
     },
   });
 
-  return { nodes, groups, horizontalRules };
+  return { nodes, groups, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes) };
 }
 
 /* --- Cache par segment (LOT 1.3 section 3 — jamais un scan global) -------- */
@@ -309,6 +375,7 @@ export function compositeScriveningsFormatting(segment: ScriveningsSegmentRange,
     nodes: local.nodes.map((node) => shiftNode(node, segment.from)),
     groups: local.groups.map((group) => shiftGroup(group, segment.from)),
     horizontalRules: local.horizontalRules.map((range) => shiftRange(range, segment.from)),
+    escapedSeparators: local.escapedSeparators.map((range) => shiftRange(range, segment.from)),
   };
 }
 
@@ -334,9 +401,14 @@ export interface ScriveningsMarkdownDecorationPlan {
    * propres à CE nœud (un nœud imbriqué peut néanmoins retomber dans la
    * portée de son parent, voir `***texte***` en tête de fichier). */
   styleRanges: ScriveningsMarkdownStyleRange[];
-  /** Plages de marqueurs à masquer (`Decoration.replace()`) — uniquement
-   * celles des groupes dont AUCUNE sélection ne touche `[group.from,
-   * group.to]`. */
+  /** Plages à masquer (`Decoration.replace()`) — de deux natures :
+   * - marqueurs d'emphase des groupes dont AUCUNE sélection ne touche
+   *   `[group.from, group.to]` (contextuel, voir `scriveningsGroupIsActive`) ;
+   * - backslashes d'un séparateur `\*\*\*` échappé (voir
+   *   `findEscapedSeparatorHiddenRanges`, cm-scrivenings-markdown.ts) —
+   *   INCONDITIONNEL, jamais réaffiché par le curseur : ce n'est pas une
+   *   emphase, juste le rendu Feuillets normal de ce séparateur.
+   */
    hiddenMarkRanges: { from: number; to: number }[];
 }
 
@@ -362,9 +434,14 @@ export function buildScriveningsMarkdownPlan(params: {
 
   for (const segment of segments) {
     const segmentText = sliceText(segment.from, segment.to);
-    const { nodes, groups, horizontalRules } = compositeScriveningsFormatting(segment, segmentText);
+    const { nodes, groups, horizontalRules, escapedSeparators } = compositeScriveningsFormatting(segment, segmentText);
     const overlapsHorizontalRule = (from: number, to: number): boolean =>
       horizontalRules.some((hr) => from < hr.to && to > hr.from);
+
+    // CORRECTIF `\*\*\*` échappé : masquage INCONDITIONNEL, jamais soumis à
+    // `scriveningsGroupIsActive` (ce n'est pas une emphase) — voir la doc de
+    // `ScriveningsMarkdownDecorationPlan.hiddenMarkRanges` ci-dessus.
+    for (const range of escapedSeparators) hiddenMarkRanges.push(range);
 
     for (const node of nodes) {
       // Garde-fou explicite : un `HorizontalRule` (ligne `***` seule) ne

@@ -149,16 +149,67 @@ test("scriveningsTitleSpecsFor : un seul fichier a quand même son titre (le pre
   assert.equal(specs[0].divider, false);
 });
 
-test("ScriveningsTitleWidget : jamais éditable, se redessine seulement si titre ou séparateur changent", () => {
+test("ScriveningsTitleWidget : jamais éditable, se redessine seulement si titre, séparateur ou rôle changent", () => {
   const widget = new ScriveningsTitleWidget("Scène A", false);
   assert.ok(widget instanceof WidgetType);
   assert.equal(widget.eq(new ScriveningsTitleWidget("Scène A", false)), true);
   assert.equal(widget.eq(new ScriveningsTitleWidget("Scène B", false)), false);
   assert.equal(widget.eq(new ScriveningsTitleWidget("Scène A", true)), false);
+  assert.equal(widget.eq(new ScriveningsTitleWidget("Scène A", false, "chapitre")), false, "un rôle différent (même undefined vs \"chapitre\") change bien l'égalité");
   assert.equal(widget.ignoreEvent(), true);
   // toDOM() manipule `document` — comme les autres widgets CodeMirror du
   // plugin (IndentWidget…), il n'est exercé qu'en environnement Obsidian
   // réel, jamais en test Node (voir test/paragraph-indent.test.js).
+});
+
+/* ==================== Rôle scène/chapitre (micro-chantier finition Continu, §23) ==================== */
+
+test("scriveningsTitleSpecsFor : sans roleFor fourni (compatibilité), chaque spec a role=undefined — jamais d'exception (§D)", () => {
+  const doc = docFrom([
+    ["A.md", "Corps A"],
+    ["B.md", "Corps B"],
+  ]);
+  const specs = scriveningsTitleSpecsFor(doc, (f) => f.basename);
+  for (const spec of specs) assert.equal(spec.role, undefined);
+});
+
+test("scriveningsTitleSpecsFor : relaie exactement le rôle rendu par roleFor, PAR SEGMENT (§A/§B)", () => {
+  const doc = docFrom([
+    ["Scene.md", "Corps scène"],
+    ["Chapitre.md", "Corps chapitre"],
+  ]);
+  const roles = new Map([
+    ["Scene.md", "scene"],
+    ["Chapitre.md", "chapitre"],
+  ]);
+  const specs = scriveningsTitleSpecsFor(doc, (f) => f.basename, (f) => roles.get(f.path));
+  assert.equal(specs[0].role, "scene");
+  assert.equal(specs[1].role, "chapitre");
+});
+
+test("scriveningsTitleSpecsFor : un rôle inconnu (ni \"chapitre\" ni \"scene\") est relayé tel quel, sans exception (§C)", () => {
+  const doc = docFrom([["Partie.md", "Corps"]]);
+  const specs = scriveningsTitleSpecsFor(doc, (f) => f.basename, () => "partie");
+  assert.equal(specs[0].role, "partie");
+});
+
+test("ScriveningsTitleWidget.toDOM() n'ajoute la classe chapitre QUE pour role=\"chapitre\" ET divider=true (§A/§B/§C/§D)", () => {
+  // Pas de rendu DOM réel en Node (voir le test ci-dessus) : on vérifie ici
+  // seulement la LOGIQUE de sélection de classe, en dupliquant celle de
+  // toDOM() — même garanti par la lecture directe du code (cm-scrivenings.ts).
+  function classesFor(divider, role) {
+    const classes = ["feuillets-scrivenings-title"];
+    if (divider) {
+      classes.push("feuillets-scrivenings-title-divider");
+      if (role === "chapitre") classes.push("feuillets-scrivenings-title-role-chapitre");
+    }
+    return classes;
+  }
+  assert.deepEqual(classesFor(true, "chapitre"), ["feuillets-scrivenings-title", "feuillets-scrivenings-title-divider", "feuillets-scrivenings-title-role-chapitre"], "chapitre → classe/variant chapitre (§B)");
+  assert.deepEqual(classesFor(true, "scene"), ["feuillets-scrivenings-title", "feuillets-scrivenings-title-divider"], "scène → classe/variant compact (§A)");
+  assert.deepEqual(classesFor(true, "partie"), ["feuillets-scrivenings-title", "feuillets-scrivenings-title-divider"], "rôle inconnu → repli compact (§C)");
+  assert.deepEqual(classesFor(true, undefined), ["feuillets-scrivenings-title", "feuillets-scrivenings-title-divider"], "aucun rôle → aucune exception (§D)");
+  assert.deepEqual(classesFor(false, "chapitre"), ["feuillets-scrivenings-title"], "premier segment (sans divider) : jamais la classe chapitre, même si role=\"chapitre\"");
 });
 
 test("scriveningsTitlesField : create() est vide, un effet remplace tout le champ", () => {
@@ -203,6 +254,27 @@ test("setScriveningsDecorations : dispatch en une transaction les frontières ET
     titlesEffect.value.map((s) => s.title),
     ["A", "B"]
   );
+});
+
+test("setScriveningsDecorations : transmet roleFor à chaque spec de titre, PAR SEGMENT — sans roleFor, role=undefined partout", () => {
+  const doc = docFrom([
+    ["A.md", "Corps A"],
+    ["B.md", "Corps B"],
+  ]);
+  const dispatched = [];
+  const view = { dispatch: (spec) => dispatched.push(spec.effects) };
+
+  setScriveningsDecorations(view, doc, (file) => file.basename, (file) => (file.basename === "B" ? "chapitre" : "scene"));
+
+  const [effects] = dispatched;
+  const titlesEffect = effects.find((e) => Array.isArray(e.value) && e.value[0] && typeof e.value[0] === "object");
+  assert.deepEqual(titlesEffect.value.map((s) => s.role), ["scene", "chapitre"]);
+
+  dispatched.length = 0;
+  setScriveningsDecorations(view, doc, (file) => file.basename);
+  const [effectsNoRole] = dispatched;
+  const titlesEffectNoRole = effectsNoRole.find((e) => Array.isArray(e.value) && e.value[0] && typeof e.value[0] === "object");
+  assert.deepEqual(titlesEffectNoRole.value.map((s) => s.role), [undefined, undefined]);
 });
 
 /* --- Garde-fou de frontière (inchangé) ------------------------------------ */

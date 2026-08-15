@@ -135,3 +135,42 @@ export function createFolderScope(projectRoot: string, folderPath: string): Comp
 export function createSelectionScope(projectRoot: string, paths: string[]): CompileScope {
   return { type: "selection", projectRoot, paths };
 }
+
+/**
+ * Égalité structurelle de deux CompileScope — jamais une comparaison par
+ * référence ni un JSON.stringify (qui ferait dépendre l'égalité `selection`
+ * de l'ordre reçu, lui-même non significatif : voir resolveCompileScopeFiles,
+ * seul responsable de l'ordre réel du manuscrit).
+ *
+ * - même `type` et même `projectRoot` toujours requis ;
+ * - `project` : rien d'autre à comparer ;
+ * - `file`/`folder` : même `path` ;
+ * - `selection` : mêmes chemins UNIQUES, indépendamment de l'ordre et des
+ *   doublons éventuels de chaque liste.
+ */
+export function compileScopesEqual(a: CompileScope, b: CompileScope): boolean {
+  if (a.type !== b.type || a.projectRoot !== b.projectRoot) return false;
+
+  switch (a.type) {
+    case "project":
+      return true;
+
+    case "file":
+    case "folder":
+      return b.type === a.type && a.path === b.path;
+
+    case "selection": {
+      if (b.type !== "selection") return false;
+      const setA = new Set(a.paths);
+      const setB = new Set(b.paths);
+      if (setA.size !== setB.size) return false;
+      for (const path of setA) {
+        if (!setB.has(path)) return false;
+      }
+      return true;
+    }
+
+    default:
+      return false;
+  }
+}

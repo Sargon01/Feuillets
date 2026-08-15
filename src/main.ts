@@ -13,7 +13,7 @@
  */
 
 import { DEFAULT_SETTINGS } from "./default-settings.js";
-import { createFolderScope, type CompileScope } from "./services/compile-scope.js";
+import type { CompileScope } from "./services/compile-scope.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
@@ -34,6 +34,7 @@ import { JournalView } from "./views/journal-view.js";
 import { ProjectView } from "./views/project-view.js";
 import { PreviewView, openWithPreview } from "./views/preview-view.js";
 import { ScriveningsView } from "./views/scrivenings-view.js";
+import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
 import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
 import { formatCitation } from "./services/citations.js";
@@ -545,31 +546,6 @@ class FeuilletsPlugin extends Plugin {
         return true;
       },
     });
-    /* TEMPORAIRE — LOT 1 Scrivenings uniquement, à supprimer au lot 2 (voir
-       views/scrivenings-view.ts) : aucune entrée Binder/Preview durable ne
-       doit rester après ce point d'entrée de test manuel. */
-    this.addCommand({
-      id: "dev-test-scrivenings-current-folder",
-      name: "Feuillets : Tester Scrivenings sur le dossier courant",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveFile();
-        if (!(file instanceof TFile) || file.extension !== "md") return false;
-        const folder = file.parent;
-        if (!(folder instanceof TFolder)) return false;
-        if (!checking) {
-          void (async () => {
-            const scope = createFolderScope(folder.path, folder.path);
-            const leaf = this.app.workspace.getLeaf("tab");
-            await leaf.setViewState({ type: VIEW_SCRIVENINGS, active: true });
-            const view = leaf.view;
-            if (view instanceof ScriveningsView) await view.openScope(scope);
-            void this.app.workspace.revealLeaf(leaf);
-          })();
-        }
-        return true;
-      },
-    });
-
     this.addCommand({
       id: "open-binder",
       name: t("main.cmd.openBinder"),
@@ -1390,6 +1366,10 @@ class FeuilletsPlugin extends Plugin {
     this.statusEl.addClass("feuillets-status-bar-clickable");
     setTooltip(this.statusEl, t("main.statusBarTooltip"));
     this.statusEl.addEventListener("click", () => {
+      // Continu (§8, lot 2B.2) : la status bar affiche le total du GROUPE,
+      // pas un feuillet précis — un clic ne doit jamais rouvrir
+      // FileStatsModal sur un ancien feuillet actif, jamais utilisé ici.
+      if (this.app.workspace.getActiveViewOfType(ScriveningsView)?.compileScope) return;
       const file = this.app.workspace.getActiveFile();
       const root = this.getProjectFolder();
       if (!file || !root || !file.path.startsWith(root.path + "/")) return;
@@ -2216,6 +2196,35 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
+  /** Résout Continu comme contexte de travail CENTRAL — la dernière leaf du
+   * `rootSplit`, jamais la "vue globalement active" — micro-correctif
+   * "typographie après toggle + Maj+clic en Continu". Même patron que
+   * `FeuilletsView.activeContinuMembershipView` (feuillets-view.ts) : un
+   * clic dans le Binder (sidebar) donne le focus global à la sidebar sans
+   * faire perdre Continu comme leaf de travail affichée au centre —
+   * `getActiveViewOfType(ScriveningsView)` y retournait donc `null` à tort.
+   * Résolution UNIQUE, réutilisée par `isActiveFileInProject()` et
+   * `updateStatusBar()` — jamais une seconde logique de résolution.
+   * Jamais `getActiveFile()`, jamais `getActiveViewOfType`, jamais le
+   * premier résultat de `getLeavesOfType`, jamais un Continu ouvert dans un
+   * AUTRE onglet central ou sur un AUTRE projet. */
+  getCentralContinuView(): ScriveningsView | null {
+    const root = this.getProjectFolder();
+    if (!root) return null;
+    const workspace = this.app.workspace;
+    // Défensif : de nombreux faux `workspace` de tests ne déclarent pas
+    // `getMostRecentLeaf` — jamais absent en Obsidian réel.
+    if (typeof workspace.getMostRecentLeaf !== "function") return null;
+    const leaf = workspace.getMostRecentLeaf(workspace.rootSplit);
+    if (!leaf) return null;
+    if (typeof leaf.getRoot === "function" && leaf.getRoot() !== workspace.rootSplit) return null;
+    const view = leaf.view;
+    if (!(view instanceof ScriveningsView)) return null;
+    if (!view.compileScope) return null;
+    if (view.compileScope.projectRoot !== root.path) return null;
+    return view;
+  }
+
   isActiveFileInProject() {
     const file = this.app.workspace.getActiveFile();
     // Un working/*.md de relecture reçoit la même grammaire d'édition qu'un
@@ -2237,11 +2246,12 @@ class FeuilletsPlugin extends Plugin {
 
     // Idem pour Scrivenings : sa vue n'affiche que du contenu projet (voir
     // resolveCompileScopeFiles), mais n'est jamais non plus le "fichier
-    // actif" au sens Obsidian. Reconnue dès qu'elle est active AVEC un
-    // scope déjà chargé (openScope() passé) — jamais via le dernier vrai
-    // fichier Markdown actif, potentiellement hors projet ou nul.
-    const scrivenings = this.app.workspace.getActiveViewOfType(ScriveningsView);
-    if (scrivenings?.compileScope) return true;
+    // actif" au sens Obsidian. Reconnue dès que sa leaf de travail CENTRALE
+    // porte un scope déjà chargé (openScope() passé) — jamais via le dernier
+    // vrai fichier Markdown actif (potentiellement hors projet ou nul), et
+    // jamais via `getActiveViewOfType` : un clic dans le Binder ne doit pas
+    // faire perdre ce contexte (voir getCentralContinuView ci-dessus).
+    if (this.getCentralContinuView()) return true;
 
     // Les deux colonnes d'une Comparaison sont de vraies feuilles Markdown,
     // mais celle de droite est un document interne (retour du relecteur ou
@@ -2363,6 +2373,22 @@ class FeuilletsPlugin extends Plugin {
 
   async updateStatusBar() {
     if (!this.statusEl) return;
+
+    // Continu (§8, lot 2B.2) : jamais les statistiques du dernier TFile actif
+    // — le total du GROUPE affiché par la vue, tant qu'un scope y est chargé.
+    // Un MarkdownView normal actif retombe intégralement sur le comportement
+    // ci-dessous, strictement inchangé. Résolution via la leaf CENTRALE de
+    // travail (getCentralContinuView, même helper que
+    // isActiveFileInProject) — jamais `getActiveViewOfType` : un clic dans
+    // le Binder ne doit pas vider la status bar du groupe Continu affiché.
+    const scrivenings = this.getCentralContinuView();
+    if (scrivenings?.compileScope) {
+      this.statusEl.setText(formatScriveningsStats(scrivenings.getGroupStats()));
+      this.statusEl.removeClass("feuillets-status-hit");
+      this.statusEl.removeClass("feuillets-status-over");
+      return;
+    }
+
     const file = this.app.workspace.getActiveFile();
     const root = this.getProjectFolder();
     if (!file || !root || !file.path.startsWith(root.path + "/")) {

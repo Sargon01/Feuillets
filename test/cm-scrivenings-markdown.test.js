@@ -184,18 +184,7 @@ test("createScriveningsMarkdownPlugin : une ligne `***` ne produit AUCUNE décor
   assert.deepEqual(instance.decorations, []);
 });
 
-test("buildScriveningsMarkdownPlan : `\\*\\*\\*` (échappé) reste littéral, `***` en code inline/bloc reste littéral", () => {
-  const escaped = "\\*\\*\\*";
-  const escapedPlan = buildScriveningsMarkdownPlan({
-    docLength: escaped.length,
-    sliceText: (from, to) => escaped.slice(from, to),
-    boundaries: [],
-    visibleRanges: [{ from: 0, to: escaped.length }],
-    selections: [],
-  });
-  assert.deepEqual(escapedPlan.styleRanges, []);
-  assert.deepEqual(escapedPlan.hiddenMarkRanges, []);
-
+test("buildScriveningsMarkdownPlan : `***` en code inline/bloc reste littéral (jamais recouvert par aucune décoration)", () => {
   const inlineCode = "Le `***` littéral.";
   const inlineCodePlan = buildScriveningsMarkdownPlan({
     docLength: inlineCode.length,
@@ -217,6 +206,86 @@ test("buildScriveningsMarkdownPlan : `\\*\\*\\*` (échappé) reste littéral, `*
   });
   assert.deepEqual(fencedCodePlan.styleRanges, []);
   assert.deepEqual(fencedCodePlan.hiddenMarkRanges, []);
+});
+
+/* ==================== CORRECTIF `\*\*\*` échappé (micro-chantier finition Continu) ==================== */
+
+test("parseScriveningsSegmentFormatting : une ligne source ENTIÈRE `\\*\\*\\*` masque SEULEMENT ses trois backslashes, jamais les `*`", () => {
+  const { nodes, groups, horizontalRules, escapedSeparators } = parseScriveningsSegmentFormatting("\\*\\*\\*");
+  assert.deepEqual(nodes, [], "jamais interprété comme une emphase");
+  assert.deepEqual(groups, []);
+  assert.deepEqual(horizontalRules, [], "jamais un thematic break — le document composite reste inchangé");
+  assert.deepEqual(escapedSeparators, [
+    { from: 0, to: 1 },
+    { from: 2, to: 3 },
+    { from: 4, to: 5 },
+  ]);
+});
+
+test("buildScriveningsMarkdownPlan : ligne `\\*\\*\\*` seule -> les backslashes sont masqués, les trois `*` restent visibles, aucun `<hr>`", () => {
+  const text = "\\*\\*\\*";
+  const plan = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [],
+  });
+  assert.deepEqual(plan.styleRanges, [], "jamais un style d'emphase");
+  assert.deepEqual(plan.hiddenMarkRanges, [
+    { from: 0, to: 1 },
+    { from: 2, to: 3 },
+    { from: 4, to: 5 },
+  ]);
+  // Le résultat visible (backslashes masqués, `*` restants) reconstruit
+  // exactement « *** » — jamais « \*\*\* ».
+  const hiddenChars = new Set();
+  for (const range of plan.hiddenMarkRanges) for (let i = range.from; i < range.to; i++) hiddenChars.add(i);
+  const visible = [...text].filter((_, i) => !hiddenChars.has(i)).join("");
+  assert.equal(visible, "***");
+});
+
+test("buildScriveningsMarkdownPlan : `\\*\\*\\*` entre deux paragraphes -> seule cette ligne est masquée, le reste du texte n'est jamais affecté", () => {
+  const text = "avant\n\\*\\*\\*\napres";
+  const before = text;
+  const plan = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [],
+  });
+  assert.deepEqual(plan.styleRanges, []);
+  assert.deepEqual(plan.hiddenMarkRanges, [
+    { from: 6, to: 7 },
+    { from: 8, to: 9 },
+    { from: 10, to: 11 },
+  ]);
+  assert.equal(text, before, "le document composite reste STRICTEMENT identique — seules des décorations sont posées");
+});
+
+test("buildScriveningsMarkdownPlan : jamais de règle trop large — `*`, `**`, `***`, `\\*` seuls, et `texte \\* texte` ne produisent AUCUNE plage masquée par ce correctif", () => {
+  const cases = ["*", "**", "***", "\\*", "texte \\* texte"];
+  for (const text of cases) {
+    const plan = buildScriveningsMarkdownPlan({
+      docLength: text.length,
+      sliceText: (from, to) => text.slice(from, to),
+      boundaries: [],
+      visibleRanges: [{ from: 0, to: text.length }],
+      selections: [],
+    });
+    assert.deepEqual(plan.hiddenMarkRanges, [], `cas « ${text} » : aucune plage masquée attendue`);
+  }
+});
+
+test("compositeScriveningsFormatting : les plages `escapedSeparators` sont traduites en offsets composites (segment.from ajouté), comme `horizontalRules`", () => {
+  const segment = { from: 100, to: 106 };
+  const { escapedSeparators } = compositeScriveningsFormatting(segment, "\\*\\*\\*");
+  assert.deepEqual(escapedSeparators, [
+    { from: 100, to: 101 },
+    { from: 102, to: 103 },
+    { from: 104, to: 105 },
+  ]);
 });
 
 test("buildScriveningsMarkdownPlan : `***texte***` (gras + italique) continue de recevoir style et masquage contextuel, sans régression", () => {

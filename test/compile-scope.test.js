@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { resolveCompileScopeFiles } from "../src/services/compile-scope.js";
+import { resolveCompileScopeFiles, compileScopesEqual } from "../src/services/compile-scope.js";
 
 function createFixture(orders = {}) {
   const manuscript = new TFolder("Projet/Manuscrit");
@@ -67,4 +67,72 @@ test("la sélection développée respecte l'ordre du Binder", () => {
   });
 
   assert.deepEqual(files.map((file) => file.path), [second.path, first.path]);
+});
+
+/* ===================== compileScopesEqual (Lot 2A §1) ===================== */
+
+test("compileScopesEqual : deux scopes project sur la même racine sont égaux", () => {
+  const a = { type: "project", projectRoot: "Projet/Manuscrit" };
+  const b = { type: "project", projectRoot: "Projet/Manuscrit" };
+  assert.equal(compileScopesEqual(a, b), true);
+});
+
+test("compileScopesEqual : deux scopes project sur des racines différentes sont différents", () => {
+  const a = { type: "project", projectRoot: "Projet/Manuscrit" };
+  const b = { type: "project", projectRoot: "Autre/Manuscrit" };
+  assert.equal(compileScopesEqual(a, b), false);
+});
+
+test("compileScopesEqual : deux scopes file avec le même path sont égaux", () => {
+  const a = { type: "file", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Scène A.md" };
+  const b = { type: "file", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Scène A.md" };
+  assert.equal(compileScopesEqual(a, b), true);
+});
+
+test("compileScopesEqual : deux scopes file avec un path différent sont différents", () => {
+  const a = { type: "file", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Scène A.md" };
+  const b = { type: "file", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Scène B.md" };
+  assert.equal(compileScopesEqual(a, b), false);
+});
+
+test("compileScopesEqual : deux scopes folder avec le même path sont égaux", () => {
+  const a = { type: "folder", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Chapitre 1" };
+  const b = { type: "folder", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Chapitre 1" };
+  assert.equal(compileScopesEqual(a, b), true);
+});
+
+test("compileScopesEqual : deux scopes folder avec un path différent sont différents", () => {
+  const a = { type: "folder", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Chapitre 1" };
+  const b = { type: "folder", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Chapitre 2" };
+  assert.equal(compileScopesEqual(a, b), false);
+});
+
+test("compileScopesEqual : deux scopes selection avec les mêmes chemins dans un ordre différent sont égaux", () => {
+  const a = { type: "selection", projectRoot: "Projet/Manuscrit", paths: ["A.md", "B.md", "C.md"] };
+  const b = { type: "selection", projectRoot: "Projet/Manuscrit", paths: ["C.md", "A.md", "B.md"] };
+  assert.equal(compileScopesEqual(a, b), true);
+});
+
+test("compileScopesEqual : deux scopes selection avec un contenu différent sont différents", () => {
+  const a = { type: "selection", projectRoot: "Projet/Manuscrit", paths: ["A.md", "B.md"] };
+  const b = { type: "selection", projectRoot: "Projet/Manuscrit", paths: ["A.md", "C.md"] };
+  assert.equal(compileScopesEqual(a, b), false);
+});
+
+test("compileScopesEqual : deux scopes selection de tailles différentes sont différents", () => {
+  const a = { type: "selection", projectRoot: "Projet/Manuscrit", paths: ["A.md", "B.md"] };
+  const b = { type: "selection", projectRoot: "Projet/Manuscrit", paths: ["A.md", "B.md", "C.md"] };
+  assert.equal(compileScopesEqual(a, b), false);
+});
+
+test("compileScopesEqual : deux types de scope différents ne sont jamais égaux", () => {
+  const a = { type: "folder", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Chapitre 1" };
+  const b = { type: "project", projectRoot: "Projet/Manuscrit" };
+  assert.equal(compileScopesEqual(a, b), false);
+});
+
+test("compileScopesEqual : même type mais projectRoot différent → jamais égal", () => {
+  const a = { type: "project", projectRoot: "Projet/Manuscrit" };
+  const b = { type: "project", projectRoot: "Projet/Manuscrit2" };
+  assert.equal(compileScopesEqual(a, b), false);
 });

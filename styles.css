@@ -271,6 +271,112 @@
   color: var(--interactive-accent);
 }
 
+/* ===== LOT FINAL Binder ↔ Continu : hiérarchie visuelle ============
+ * Profondeur (§15) : une seule variable CSS, posée au rendu sur chaque
+ * ligne fichier/dossier de l'arbre unifié (`--feuillets-binder-depth`,
+ * voir feuillets-view.ts) — jamais un jeu de classes depth-1/depth-2/etc.
+ * La profondeur 0 conserve exactement le padding de base existant
+ * (`var(--size-4-2)`, déjà la valeur de `.feuillets-item`/
+ * `.feuillets-folder-row`) : aucun décalage artificiel au premier niveau.
+ * `padding-left` en longhand APRÈS les raccourcis `padding` déjà définis
+ * plus haut : gagne sur ce seul canal, sans toucher au reste. Les autres
+ * usages de ces deux classes (recherche, gestionnaire de projets…) posent
+ * leur propre `paddingLeft` en ligne, qui l'emporte toujours sur cette
+ * règle externe — aucune régression pour eux. */
+.feuillets-item,
+.feuillets-folder-row {
+  padding-left: calc(var(--size-4-2) + var(--feuillets-binder-depth, 0) * 15px);
+}
+
+/* Colonnes chevron/icône (§16) : largeur fixe identique fichiers/dossiers,
+ * pour que chevron + icône + titre restent alignés sans zigzag, qu'une
+ * ligne soit un dossier (chevron parfois actif) ou un feuillet (chevron
+ * toujours réservé, vide). */
+.feuillets-folder-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+  flex-shrink: 0;
+}
+
+.feuillets-folder-chevron:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* Dossier sans enfant, ou colonne réservée sur une ligne fichier (§14/§16) :
+ * espace gardé pour l'alignement, jamais cliquable, jamais d'icône. */
+.feuillets-folder-chevron.is-empty {
+  cursor: default;
+  pointer-events: none;
+}
+
+.feuillets-folder-chevron .svg-icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* Icône de type de nœud (§17) — micro-correctif final "grammaire label" :
+ * validation visuelle réelle, l'icône colorée par le label (tentative du
+ * chantier précédent) faisait doublon avec le liseré historique et restait
+ * moins lisible. Grammaire finale, définitive :
+ * - icône fichier/dossier = nature de l'élément → TOUJOURS neutre
+ *   (`var(--text-muted)`), avec ou sans label ;
+ * - liseré de label (`.feuillets-label-swatch`, voir plus bas) = seule
+ *   représentation de sa couleur ;
+ * - fond de ligne = sélection/actif/appartenance Continu
+ *   (`.is-selected`/`.is-active`/`.is-continu-member`, jamais modifiées
+ *   ici) ;
+ * - texte = jamais recoloré.
+ * `.has-label`/`--feuillets-label-color` restent posées par
+ * `buildBinderNodeIcon` (feuillets-view.ts) mais n'ont plus AUCUN effet
+ * visuel ici — volontairement laissées inoffensives plutôt que retirées
+ * côté TypeScript (elles ne créent aucune donnée, aucun rendu). */
+.feuillets-binder-node-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  position: relative;
+  border-radius: 1px;
+}
+
+.feuillets-binder-node-icon .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Emplacement de label (micro-lot "simplification définitive du Binder",
+ * §4) : remplace l'ancien liseré de LIGNE (`box-shadow` inset posé sur
+ * `.feuillets-item`, trop excentré au bord du panneau) par un petit
+ * emplacement appartenant au NŒUD, juste avant l'icône fichier — réservé sur
+ * toutes les lignes fichiers dès que l'affichage des labels est actif (voir
+ * renderFileRow) pour que les icônes restent parfaitement alignées, qu'une
+ * ligne porte un label ou non. Transparent par défaut (fichier sans label) ;
+ * coloré via `--feuillets-label-color` uniquement avec `.has-label`. Aucun
+ * fond, aucune ombre : seule la petite barre elle-même est visible. */
+.feuillets-label-swatch {
+  width: 3px;
+  min-width: 3px;
+  height: 1.3em;
+  border-radius: 2px;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.feuillets-label-swatch.has-label {
+  background: var(--feuillets-label-color);
+}
 
 .feuillets-empty {
   padding: var(--size-4-4) var(--size-4-3);
@@ -867,6 +973,13 @@
   text-transform: uppercase;
 }
 
+/* Micro-chantier finition Continu, §16-17 : le Binder est un NAVIGATEUR,
+ * jamais une zone de sélection de texte — `user-select: none` (et non plus
+ * `text`) pour que Maj+clic/Cmd+Ctrl+clic sur une ligne ne surligne plus
+ * jamais nativement le texte de l'aperçu au passage. Sans effet sur
+ * `.feuillets-fileview-body` (fiche ouverte en grand, texte réellement
+ * consultable/copiable) ni sur aucune autre vue : cette classe n'est
+ * utilisée que par les deux lignes fichier du Binder (feuillets-view.ts). */
 .feuillets-item-preview {
   overflow: hidden;
   color: var(--text-muted);
@@ -875,7 +988,7 @@
   white-space: pre-wrap;
   margin-top: 1px;
   cursor: default;
-  user-select: text;
+  user-select: none;
 }
 
 .feuillets-tree-pane .feuillets-folder-row.is-active {
@@ -2535,11 +2648,37 @@ body.feuillets-concentration
 
 /* ===== typographie à la frappe : affichage des lignes vides ===== */
 
+/* Micro-correctif final "ligne blanche fantôme à l'ouverture" : la règle
+ * historique `:not(.cm-active)` masquait une ligne vide RÉELLE seulement
+ * quand elle n'était PAS `.cm-active` — or CodeMirror peut donner
+ * `.cm-active` à la ligne où se trouve le curseur dès le MONTAGE de
+ * l'éditeur (position par défaut), sans que l'utilisateur soit réellement
+ * en train d'y taper. Résultat : une ligne vide restait visible à
+ * l'ouverture (espace fantôme avant le premier paragraphe), puis
+ * disparaissait au premier clic ailleurs (tout le texte remontait).
+ * Correctif : masquer TOUJOURS par défaut, ne réafficher QUE lorsque
+ * l'éditeur est réellement focalisé ET que cette ligne précise est active
+ * (règle `.cm-focused` ci-dessous) — jamais au montage, jamais sans focus
+ * réel. `liveDoubleEnter`/`liveTwoEnters` (cm-empty-lines.ts) restent
+ * intégralement inchangés : la ligne qu'ils créent contient ` `, donc
+ * n'est jamais classée `.feuillets-empty-line` (longueur non nulle) — ce
+ * correctif ne les concerne pas. */
 body.feuillets-lignesvides-invisible
   .workspace-leaf-content[data-type="markdown"]
   .markdown-source-view.mod-cm6.is-live-preview
-  .cm-line.feuillets-empty-line:not(.cm-active) {
+  .cm-line.feuillets-empty-line {
   display: none;
+}
+
+/* Réaffiche une vraie ligne vide UNIQUEMENT pendant qu'elle est réellement
+ * en cours d'édition (éditeur focalisé ET ligne active) — jamais au simple
+ * montage/chargement de l'éditeur. */
+body.feuillets-lignesvides-invisible
+  .workspace-leaf-content[data-type="markdown"]
+  .markdown-source-view.mod-cm6.is-live-preview
+  .cm-editor.cm-focused
+  .cm-line.feuillets-empty-line.cm-active {
+  display: block !important;
 }
 
 /* réduit : les lignes vides deviennent fines */
@@ -3393,6 +3532,16 @@ body.feuillets-text-width
 .feuillets-item.is-selected {
   background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
   box-shadow: inset 2px 0 0 var(--interactive-accent);
+}
+
+/* Micro-lot "sélection continu par clic simple" : quand Continu est
+ * réellement actif, le Binder devient temporairement son sélecteur — même
+ * grammaire que .is-selected (teinte translucide d'accent, aucune bordure/
+ * cercle/badge/couleur nouvelle), mais plus discrète pour rester
+ * distinguable d'une sélection multiple Cmd/Ctrl+clic si les deux se
+ * superposent un jour. */
+.feuillets-item.is-continu-member {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
 }
 
 /* ===== entités citées (panneau Notes) ===== */
@@ -7992,6 +8141,24 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   border-top: 1px solid var(--background-modifier-border);
 }
 
+/* Micro-chantier finition Continu, §2-5 (respiration augmentée par le
+ * micro-correctif final §3 — validation visuelle réelle : encore trop
+ * proche du dernier paragraphe) : un feuillet de rôle "chapitre" (roleOfFile
+ * — jamais un second système de rôles) respire DAVANTAGE que la transition
+ * compacte de scène ci-dessus. `margin-top` (l'air AVANT le trait, donc
+ * après le dernier paragraphe du chapitre précédent — priorité #1 du
+ * correctif final) passe de 4em à 5.6em, soit +40%. `padding-top` (le petit
+ * espace ENTRE le trait et le titre, priorité #3 — volontairement inchangé,
+ * déjà cohérent) reste à 2.5em. Jamais le fin trait lui-même (toujours
+ * `border-top: 1px`, posé par `.feuillets-scrivenings-title-divider`) —
+ * pas de nouvelle ligne, pas de `<hr>`, pas de bordure renforcée. Une
+ * scène, un rôle inconnu ou l'absence de rôle gardent la classe ci-dessus
+ * SEULE — comportement compact inchangé. */
+.feuillets-scrivenings-title-divider.feuillets-scrivenings-title-role-chapitre {
+  margin-top: 5.6em;
+  padding-top: 2.5em;
+}
+
 .feuillets-scrivenings-title-text {
   white-space: nowrap;
 }
@@ -8001,11 +8168,22 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
  * data-type="markdown" : cette extension ne doit jamais atteindre une vue
  * Markdown embarquée sans leaf native (Preview, Comparison… intouchés, voir
  * test/preview-styles.test.js). */
+/* Même correctif "ligne blanche fantôme à l'ouverture" que Markdown
+ * ci-dessus, même contrat, seul le sélecteur de LEAF change (SON PROPRE
+ * data-type, jamais data-type="markdown"). */
 body.feuillets-lignesvides-invisible
   .workspace-leaf-content[data-type="feuillets-scrivenings"]
   .feuillets-scrivenings-view
-  .cm-line.feuillets-empty-line:not(.cm-active) {
+  .cm-line.feuillets-empty-line {
   display: none;
+}
+
+body.feuillets-lignesvides-invisible
+  .workspace-leaf-content[data-type="feuillets-scrivenings"]
+  .feuillets-scrivenings-view
+  .cm-editor.cm-focused
+  .cm-line.feuillets-empty-line.cm-active {
+  display: block !important;
 }
 
 body.feuillets-lignesvides-reduit

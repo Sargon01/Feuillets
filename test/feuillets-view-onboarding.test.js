@@ -34,7 +34,11 @@ class FakeElement {
     this.classes = new Set();
     this.events = new Map();
     this.text = options.text ?? "";
-    this.style = { setProperty() {} };
+    // `_props` : seule addition sur le stub `style` — capture les variables
+    // CSS posées via `setProperty` (ex. `--feuillets-binder-depth`, LOT
+    // FINAL Binder ↔ Continu §15) pour des assertions structurelles, jamais
+    // de pixel calculé (§35).
+    this.style = { _props: {}, setProperty(name, value) { this._props[name] = value; } };
     if (options.cls) this.addClass(options.cls);
   }
   createEl(tag, options = {}) {
@@ -396,32 +400,29 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
   assert.deepEqual(folderNames(), ["FRONT", "TARIKAT"], "les dossiers restent visibles et cliquables après repli global");
   assert.deepEqual(itemNames(), [], "les feuillets (y compris ceux de la racine) sont masqués après repli global");
 
-  // Déplier uniquement FRONT : TARIKAT doit rester replié. Le repli/dépli
-  // d'un simple clic sur le dossier est programmé après un court délai (voir
-  // installFakeBinderTimers/BINDER_CLICK_DELAY_MS) — flush() simule ce
-  // délai écoulé sans double-clic entre-temps.
+  // Déplier uniquement FRONT : TARIKAT doit rester replié. LOT FINAL Binder
+  // ↔ Continu : le repli/dépli d'un dossier est désormais la responsabilité
+  // EXCLUSIVE de son chevron (le clic sur le NOM ouvre Continu, voir le test
+  // dédié plus bas) — clic chevron IMMÉDIAT, aucune temporisation, aucun
+  // double-clic à laisser s'annoncer (le chevron n'isole jamais).
   const findFolderRow = (name) =>
     findElements(contentEl, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root"))
       .find((el) => el.children.some((c) => c.classes.has("feuillets-folder-name") && c.text === name));
-  const timers = installFakeBinderTimers();
-  try {
-    findFolderRow("FRONT").events.get("click")({});
-    timers.flush();
-    await realRender(true);
+  const findChevron = (name) =>
+    findFolderRow(name).children.find((c) => c.classes.has("feuillets-folder-chevron"));
 
-    assert.equal(settings.collapsed[front.path], undefined, "FRONT est déplié après son propre clic");
-    assert.equal(settings.collapsed[tarikat.path], true, "TARIKAT reste replié, indépendamment de FRONT");
-    assert.deepEqual(itemNames(), ["Dédicace"], "seul le contenu de FRONT apparaît, toujours sans les feuillets racine");
+  findChevron("FRONT").events.get("click")({ preventDefault() {}, stopPropagation() {} });
+  await realRender(true);
 
-    // Redéplier TARIKAT individuellement : les deux dossiers sont ouverts, la
-    // racine reste marquée repliée (elle ne gère que ses feuillets directs).
-    findFolderRow("TARIKAT").events.get("click")({});
-    timers.flush();
-    await realRender(true);
-    assert.deepEqual(itemNames(), ["Dédicace", "Feuillet 1"], "FRONT et TARIKAT sont tous deux dépliés, la racine masque toujours ses feuillets directs");
-  } finally {
-    timers.restore();
-  }
+  assert.equal(settings.collapsed[front.path], undefined, "FRONT est déplié après son propre chevron");
+  assert.equal(settings.collapsed[tarikat.path], true, "TARIKAT reste replié, indépendamment de FRONT");
+  assert.deepEqual(itemNames(), ["Dédicace"], "seul le contenu de FRONT apparaît, toujours sans les feuillets racine");
+
+  // Redéplier TARIKAT individuellement : les deux dossiers sont ouverts, la
+  // racine reste marquée repliée (elle ne gère que ses feuillets directs).
+  findChevron("TARIKAT").events.get("click")({ preventDefault() {}, stopPropagation() {} });
+  await realRender(true);
+  assert.deepEqual(itemNames(), ["Dédicace", "Feuillet 1"], "FRONT et TARIKAT sont tous deux dépliés, la racine masque toujours ses feuillets directs");
 
   // Reclic sur le nom du projet : déplie tout, y compris les feuillets racine.
   const rootName2 = findElements(contentEl, (el) => el.classes.has("feuillets-tree-root"))[0]
@@ -434,7 +435,7 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
   assert.deepEqual(itemNames(), ["Dédicace", "Feuillet 1", "Racine"], "tout déplier réaffiche aussi les feuillets racine");
 });
 
-test("Binder : simple clic replie/déplie un dossier (après un court délai annulable), double-clic isole sans jamais replier au passage", async () => {
+test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron replie/déplie, double-clic isole sans jamais ouvrir Continu ni replier au passage", async () => {
   const root = new TFolder("Projet/Manuscrit");
   const front = new TFolder("Projet/Manuscrit/FRONT");
   const tarikat = new TFolder("Projet/Manuscrit/TARIKAT");
@@ -452,6 +453,11 @@ test("Binder : simple clic replie/déplie un dossier (après un court délai ann
     projectFolder: root.path,
     binderSelectedPath: root.path,
     collapsed: {},
+    // requis par resolveCompileScopeFiles/getOrderedChildren (RÉELS, jamais
+    // mockés) — voir openFolderInContinu, exercé par le simple clic ci-dessous.
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
   });
   const contentEl = new FakeElement();
   const plugin = {
@@ -473,10 +479,17 @@ test("Binder : simple clic replie/déplie un dossier (après un court délai ann
     saveSettings: async () => {},
     generateCanvasBoard() {},
     folderNoteFor: () => null,
+    // `workspace: {}` (pas de getMostRecentLeaf) : activeContinuMembershipView
+    // retombe donc toujours sur `getLeafForOpeningFile()` — `null` ici pour
+    // que l'ouverture Continu programmée par le simple clic reste un no-op
+    // sûr, ce test se concentrant sur le TIMING clic/chevron/dblclic, pas
+    // sur la recomposition Continu elle-même (couverte ailleurs).
+    getLeafForOpeningFile: () => null,
   };
   const view = new FeuilletsView({
     app: {
       vault: { getAbstractFileByPath: (path) => byPath.get(path) || null },
+      metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
       workspace: {},
     },
     contentEl,
@@ -488,13 +501,19 @@ test("Binder : simple clic replie/déplie un dossier (après un court délai ann
   const findFolderRow = (name) =>
     findElements(contentEl, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root"))
       .find((el) => el.children.some((c) => c.classes.has("feuillets-folder-name") && c.text === name));
+  const findChevron = (name) => findFolderRow(name).children.find((c) => c.classes.has("feuillets-folder-chevron"));
   const currentHeaderText = () =>
     findElements(contentEl, (el) => el.classes.has("feuillets-tree-root"))[0]
       .children.find((c) => c.classes.has("feuillets-folder-name"))?.text;
 
   await view.render(true);
   assert.equal(currentHeaderText(), "Projet actif");
-  assert.equal(findElements(contentEl, (el) => el.classes.has("feuillets-folder-chevron")).length, 0, "aucun chevron de dossier rendu — aspect sobre du Binder");
+  // §13-16 : un chevron FONCTIONNEL par dossier ayant des enfants (FRONT,
+  // TARIKAT, CHAPITRE 1) + une colonne chevron RÉSERVÉE (vide) sur chaque
+  // ligne fichier (Dédicace, Feuillet C1) pour l'alignement des colonnes.
+  const allChevrons = findElements(contentEl, (el) => el.classes.has("feuillets-folder-chevron"));
+  assert.equal(allChevrons.filter((c) => !c.classes.has("is-empty")).length, 3, "un chevron actif par dossier avec enfants");
+  assert.equal(allChevrons.filter((c) => c.classes.has("is-empty")).length, 2, "une colonne réservée vide par ligne fichier");
 
   /* Les gestionnaires cliqués ci-dessous déclenchent eux-mêmes un
      this.render(true) en tâche de fond (jamais attendu par l'appelant réel,
@@ -507,31 +526,51 @@ test("Binder : simple clic replie/déplie un dossier (après un court délai ann
   view.render = async () => { renderCalls++; };
   const timers = installFakeBinderTimers();
 
+  const openFolderCalls = [];
+  const realOpenFolderInContinu = view.openFolderInContinu.bind(view);
+  view.openFolderInContinu = async (folder) => {
+    openFolderCalls.push(folder.path);
+    return realOpenFolderInContinu(folder);
+  };
+
   try {
-    // --- Simple clic : programme un repli/dépli différé, n'isole jamais. ---
-    findFolderRow("FRONT").events.get("click")({});
-    assert.equal(timers.pendingCount(), 1, "le repli/dépli est programmé, pas exécuté tout de suite");
-    assert.equal(settings.collapsed[front.path], undefined, "rien n'a encore changé avant l'écoulement du délai");
-    assert.equal(view._binderWorkingRootPath, undefined, "un simple clic n'isole jamais");
-    assert.equal(renderCalls, 0, "programmer le repli/dépli ne redéclenche aucun rendu tout de suite");
-    timers.flush();
+    // --- Chevron : plier/déplier IMMÉDIAT, sans délai, jamais Continu, jamais isolation. ---
+    findChevron("FRONT").events.get("click")({ preventDefault() {}, stopPropagation() {} });
     await realRender(true);
-    assert.equal(settings.collapsed[front.path], true, "le délai écoulé sans double-clic : FRONT se replie");
+    assert.equal(settings.collapsed[front.path], true, "le chevron FRONT replie");
+    assert.equal(openFolderCalls.length, 0, "le chevron n'ouvre jamais Continu");
+    assert.equal(view._binderWorkingRootPath, undefined, "le chevron n'isole jamais");
 
-    // Redéplie FRONT (même mécanisme, différé) pour la suite du test.
-    findFolderRow("FRONT").events.get("click")({});
-    timers.flush();
+    findChevron("FRONT").events.get("click")({ preventDefault() {}, stopPropagation() {} });
     await realRender(true);
-    assert.equal(settings.collapsed[front.path], undefined);
+    assert.equal(settings.collapsed[front.path], undefined, "reclic chevron : FRONT se déplie");
 
-    // --- Double-clic : annule le repli/dépli en attente puis isole — jamais les deux. ---
+    // --- Simple clic sur le NOM : programme l'ouverture Continu, n'isole
+    //     jamais, ne replie/déplie jamais (devenu la responsabilité exclusive
+    //     du chevron ci-dessus). `renderCalls` remis à zéro : les deux clics
+    //     chevron ci-dessus ont chacun légitimement déclenché leur propre
+    //     rendu immédiat, hors sujet pour cette assertion. ---
+    renderCalls = 0;
+    findFolderRow("FRONT").events.get("click")({});
+    assert.equal(timers.pendingCount(), 1, "l'ouverture Continu est programmée, pas exécutée tout de suite");
+    assert.equal(openFolderCalls.length, 0, "rien avant l'écoulement du délai");
+    assert.equal(view._binderWorkingRootPath, undefined, "un simple clic sur le nom n'isole jamais");
+    assert.equal(renderCalls, 0, "programmer l'ouverture Continu ne redéclenche aucun rendu tout de suite");
+    timers.flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.deepEqual(openFolderCalls, [front.path], "le délai écoulé sans double-clic : Continu programmé pour FRONT");
+    assert.equal(settings.collapsed[front.path], undefined, "le simple clic sur le nom ne replie/déplie jamais");
+
+    // --- Double-clic : annule l'ouverture Continu programmée puis isole — jamais les deux. ---
     findFolderRow("TARIKAT").events.get("click")({});
-    assert.equal(timers.pendingCount(), 1, "le premier clic du double-clic programme quand même un repli/dépli");
+    assert.equal(timers.pendingCount(), 1, "le premier clic du double-clic programme quand même l'ouverture Continu");
     findFolderRow("TARIKAT").events.get("dblclick")({ preventDefault() {} });
-    assert.equal(timers.pendingCount(), 0, "le dblclick annule le repli/dépli programmé par le premier clic avant qu'il ne parte");
+    assert.equal(timers.pendingCount(), 0, "le dblclick annule l'ouverture Continu programmée par le premier clic avant qu'elle ne parte");
     await realRender(true);
     assert.equal(view._binderWorkingRootPath, tarikat.path, "double-clic = isolateFolder, exactement comme « Isoler ce dossier »");
     assert.equal(currentHeaderText(), "TARIKAT");
+    assert.deepEqual(openFolderCalls, [front.path], "le double-clic n'a PAS aussi ouvert Continu au passage");
     assert.equal(settings.collapsed[tarikat.path], undefined, "le double-clic n'a PAS aussi replié/déplié TARIKAT au passage");
 
     // --- Depuis cette branche isolée, un sous-dossier peut aussi être isolé par double-clic. ---
@@ -560,7 +599,7 @@ test("Binder : simple clic replie/déplie un dossier (après un court délai ann
   }
 });
 
-test("Binder : indentation réduite — le pas dossier/feuillet reste petit et régulier", async () => {
+test("Binder : profondeur par variable CSS — un feuillet aligne sa colonne sur les dossiers du même niveau", async () => {
   const root = new TFolder("Projet/Manuscrit");
   const front = new TFolder("Projet/Manuscrit/FRONT");
   const sub = new TFolder("Projet/Manuscrit/FRONT/Sous-dossier");
@@ -612,45 +651,124 @@ test("Binder : indentation réduite — le pas dossier/feuillet reste petit et r
 
   await view.render(true);
 
-  const folderPadding = (name) =>
+  // §15-16/§35 : une seule variable CSS de profondeur (`--feuillets-binder-depth`,
+  // via `style.setProperty`), jamais un jeu de classes depth-1/depth-2/etc.,
+  // jamais un pixel calculé testé en dur ici (voir styles.css pour le calc()).
+  const folderDepth = (name) =>
     findElements(contentEl, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root"))
       .find((el) => el.children.some((c) => c.classes.has("feuillets-folder-name") && c.text === name))
-      .style.paddingLeft;
-  const itemPadding = (name) =>
+      .style._props["--feuillets-binder-depth"];
+  const itemDepth = (name) =>
     findElements(contentEl, (el) => el.classes.has("feuillets-item"))
       .find((el) => findElements(el, (n) => n.classes.has("feuillets-item-name") && n.text.trim() === name).length > 0)
-      .style.paddingLeft;
+      .style._props["--feuillets-binder-depth"];
 
-  const frontPad = parseInt(folderPadding("FRONT"), 10);
-  const subPad = parseInt(folderPadding("Sous-dossier"), 10);
-  const dedicacePad = parseInt(itemPadding("Dédicace"), 10);
-  const nestedPad = parseInt(itemPadding("Feuillet"), 10);
+  assert.equal(folderDepth("FRONT"), "0", "dossier de premier niveau : profondeur 0");
+  assert.equal(folderDepth("Sous-dossier"), "1");
+  // Dédicace et Sous-dossier sont SIBLINGS (tous deux enfants directs de
+  // FRONT) : même profondeur, alignement structurel garanti — c'est le
+  // critère exact du §16, pas "un feuillet suit son dossier conteneur".
+  assert.equal(itemDepth("Dédicace"), "1", "feuillet aligné sur Sous-dossier, son frère du même niveau");
+  assert.equal(itemDepth("Feuillet"), "2", "un niveau de plus, comme les enfants de Sous-dossier");
 
-  // Vue PRINCIPALE (non isolée) : les feuillets sont un peu plus indentés
-  // que leur dossier — micro-correctif "+4px", sans toucher à l'indentation
-  // des dossiers ni à la profondeur hiérarchique (dossiers inchangés,
-  // ~8-10px devenus ~12-14px pour les feuillets seulement).
-  assert.ok(frontPad <= 8, `dossier de niveau 1 peu indenté (${frontPad}px)`);
-  assert.ok(subPad - frontPad >= 6 && subPad - frontPad <= 10, `sous-dossier : même petit pas régulier, inchangé (${subPad - frontPad}px)`);
-  assert.ok(dedicacePad - frontPad >= 10 && dedicacePad - frontPad <= 14, `vue principale : feuillet ~12px de plus que son dossier (${dedicacePad - frontPad}px)`);
-  assert.ok(nestedPad - subPad >= 10 && nestedPad - subPad <= 14, `vue principale : feuillet du sous-dossier ~12px de plus (${nestedPad - subPad}px)`);
+  // Aucun jeu de classes depth-1/depth-2/etc. (jamais réintroduit).
+  const depthClasses = findElements(contentEl, (el) =>
+    [...el.classes].some((c) => /^(feuillets-)?depth-\d+$/.test(c) && c !== "is-depth-0")
+  );
+  assert.equal(depthClasses.length, 0, "aucune classe depth-N — seulement la variable CSS");
 
-  // Vue ISOLÉE (FRONT devient la racine de travail — s'appuie sur l'état
-  // d'isolation déjà existant, aucune nouvelle préférence) : indentation des
-  // feuillets INCHANGÉE, le micro-correctif "+4px" ne s'applique qu'à la vue
-  // principale. "Sous-dossier" reste un .feuillets-folder-row normal (même
-  // relation dossier → feuillet qu'avant l'isolation, testable directement) ;
-  // "Dédicace" devient un feuillet RACINE de la vue isolée (plus de dossier
-  // .feuillets-folder-row à comparer — FRONT est maintenant l'en-tête), donc
-  // vérifiée par sa valeur brute attendue.
+  // Vue ISOLÉE (FRONT devient la racine de travail) : la profondeur repart
+  // de 0, exactement comme un nouvel arbre — même mécanisme d'isolation
+  // déjà existant, aucune nouvelle préférence.
   view._binderWorkingRootPath = front.path;
   await view.render(true);
-  const isoSubPad = parseInt(folderPadding("Sous-dossier"), 10);
-  const isoDedicacePad = parseInt(itemPadding("Dédicace"), 10);
-  const isoNestedPad = parseInt(itemPadding("Feuillet"), 10);
-  assert.equal(isoSubPad, 6, "vue isolée : indentation des dossiers inchangée");
-  assert.equal(isoDedicacePad, 4, "vue isolée : feuillet racine de la branche isolée, pas de +4 (10×1 − 6)");
-  assert.ok(isoNestedPad - isoSubPad >= 6 && isoNestedPad - isoSubPad <= 10, `vue isolée : feuillet du sous-dossier ~8-10px de plus, inchangé (${isoNestedPad - isoSubPad}px)`);
+  assert.equal(folderDepth("Sous-dossier"), "0", "vue isolée : Sous-dossier redevient un dossier de premier niveau");
+  assert.equal(itemDepth("Dédicace"), "0", "vue isolée : feuillet racine de la branche isolée, aligné sur Sous-dossier");
+  assert.equal(itemDepth("Feuillet"), "1", "vue isolée : un niveau de plus que Sous-dossier, inchangé");
+});
+
+test("Binder : icônes dossier/feuillet natives + liseré de label sur l'icône, jamais un recolorage de ligne", async () => {
+  const root = new TFolder("Projet/Manuscrit");
+  const front = new TFolder("Projet/Manuscrit/FRONT");
+  const etiquette = new TFile("Projet/Manuscrit/FRONT/Étiquetée.md");
+  const neutre = new TFile("Projet/Manuscrit/FRONT/Neutre.md");
+  front.children = [etiquette, neutre];
+  etiquette.parent = front;
+  neutre.parent = front;
+  root.children = [front];
+  front.parent = root;
+  const byPath = new Map([root, front, etiquette, neutre].map((f) => [f.path, f]));
+
+  const settings = baseSettings({
+    projectFolder: root.path,
+    binderSelectedPath: root.path,
+    collapsed: {},
+    binderShowLabels: true,
+  });
+  const contentEl = new FakeElement();
+  const plugin = {
+    settings,
+    getProjectFolder: () => root,
+    getResearchRoot: () => null,
+    getVersionsRoot: () => null,
+    getOrderedChildren: (folder) => folder.children,
+    flattenFiles: () => [etiquette, neutre],
+    getWordCounts: async () => new Map(),
+    buildNumbering: () => new Map(),
+    fmOf: () => ({}),
+    titleFor: (file) => file.basename,
+    shortTitleFor: (file) => file.basename,
+    labelOf: (file) => (file === etiquette ? "Intrigue" : ""),
+    labelColor: (name) => (name === "Intrigue" ? "#ff8800" : null),
+    labelsOf: () => [],
+    projectDisplayName: () => "Projet",
+    roleOfFile: () => "scene",
+    saveSettings: async () => {},
+    generateCanvasBoard() {},
+  };
+  const view = new FeuilletsView({
+    app: {
+      vault: { getAbstractFileByPath: (path) => byPath.get(path) || null },
+      workspace: {},
+    },
+    contentEl,
+  }, plugin);
+  view.attachDragHandlers = () => {};
+  view.updateActiveHighlight = () => {};
+
+  await view.render(true);
+
+  const folderRow = findElements(contentEl, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root"))
+    .find((el) => el.children.some((c) => c.classes.has("feuillets-folder-name") && c.text === "FRONT"));
+  const folderIcon = folderRow.children.find((c) => c.classes.has("feuillets-binder-node-icon"));
+  assert.ok(folderIcon, "wrapper icône présent sur la ligne dossier");
+  assert.equal(folderIcon.icon, "folder", "icône dossier native, jamais un emoji/SVG maison");
+  assert.equal(folderIcon.classes.has("has-label"), false, "icône dossier neutre : aucun label dossier inventé dans ce lot");
+
+  const itemFor = (name) =>
+    findElements(contentEl, (el) => el.classes.has("feuillets-item"))
+      .find((el) => findElements(el, (n) => n.classes.has("feuillets-item-name") && n.text.trim() === name).length > 0);
+  const iconOf = (item) => item.children.find((c) => c.classes.has("feuillets-binder-node-icon"));
+
+  const labelledIcon = iconOf(itemFor("Étiquetée"));
+  assert.ok(labelledIcon, "wrapper icône présent sur la ligne feuillet");
+  assert.equal(labelledIcon.icon, "file-text", "icône feuillet native");
+  assert.equal(labelledIcon.classes.has("has-label"), true, "feuillet avec label : liseré actif");
+  assert.equal(labelledIcon.style._props["--feuillets-label-color"], "#ff8800", "couleur alimentée par la résolution EXISTANTE (labelColor)");
+
+  const neutralIcon = iconOf(itemFor("Neutre"));
+  assert.equal(neutralIcon.classes.has("has-label"), false, "feuillet sans label : aucune couleur fantôme");
+  assert.equal(neutralIcon.style._props["--feuillets-label-color"], undefined);
+
+  // Le label ne recolore JAMAIS le texte ni la classe active/Continu de la
+  // ligne elle-même — seul le liseré change, jamais la sémantique .is-active/
+  // .is-continu-member (voir styles.css, .feuillets-binder-node-icon.has-label).
+  assert.equal(itemFor("Étiquetée").classes.has("is-active"), false);
+  assert.equal(itemFor("Étiquetée").classes.has("is-continu-member"), false);
+
+  // Aucune icône de membership réintroduite (cercle/check).
+  const membershipIcons = findElements(contentEl, (el) => el.icon === "circle" || el.icon === "circle-check");
+  assert.equal(membershipIcons.length, 0);
 });
 
 test("Binder : isoler un dossier limite l'affichage à sa branche, sans jamais toucher au projet réel", async () => {
@@ -809,8 +927,11 @@ test("Binder : isoler un dossier limite l'affichage à sa branche, sans jamais t
     const findFolderRow2 = (name) =>
       findElements(contentEl, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root"))
         .find((el) => el.children.some((c) => c.classes.has("feuillets-folder-name") && c.text === name));
-    findFolderRow2("CHAPITRE 1").events.get("click")({});
-    timers.flush();
+    // LOT FINAL Binder ↔ Continu : le repli/dépli d'un dossier descendant
+    // est désormais la responsabilité exclusive de son chevron (le clic sur
+    // le nom ouvre Continu, voir le test dédié) — immédiat, sans délai.
+    const findChevron2 = (name) => findFolderRow2(name).children.find((c) => c.classes.has("feuillets-folder-chevron"));
+    findChevron2("CHAPITRE 1").events.get("click")({ preventDefault() {}, stopPropagation() {} });
     await realRender(true);
     assert.equal(settings.collapsed[chapitre1.path], undefined, "CHAPITRE 1 se déplie individuellement");
     assert.equal(settings.collapsed[chapitre2.path], true, "CHAPITRE 2 reste replié");

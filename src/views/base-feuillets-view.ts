@@ -14,6 +14,7 @@ import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile, researchFolderPath } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { addOpenWithPreviewItem, openScopeWithPreview } from "./preview-view.js";
+import { openScopeInContinu } from "./scrivenings-view.js";
 import { createFolderScope, createSelectionScope } from "../services/compile-scope.js";
 import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
@@ -2172,6 +2173,21 @@ export abstract class BaseFeuilletsView extends ItemView {
             if (!projectRoot) return;
             const scope = createSelectionScope(projectRoot.path, Array.from(groupSel || []));
             await openScopeWithPreview(this.app, scope);
+          })
+      );
+      /* « Ouvrir en continu » n'existe QUE pour une multi-sélection — un
+         feuillet unique a déjà son vrai MarkdownView natif (voir
+         showFileContextMenu, cas `else` juste en dessous : Continu n'y
+         apporte rien, Lot 2A §7). */
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.openInContinu"))
+          .setIcon("layers")
+          .onClick(async () => {
+            const projectRoot = plugin.getProjectFolder();
+            if (!projectRoot) return;
+            const scope = createSelectionScope(projectRoot.path, Array.from(groupSel || []));
+            await openScopeInContinu(this.app, scope);
           })
       );
     } else {

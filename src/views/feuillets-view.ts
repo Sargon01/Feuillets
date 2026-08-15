@@ -1,4 +1,4 @@
-import { VIEW_SIDEBAR, getProjectStatuses } from "../constants.js";
+import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, getProjectStatuses } from "../constants.js";
 import { hasKnownProject } from "../services/folder-structure.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
@@ -9,11 +9,74 @@ import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { t } from "../i18n/index.js";
 import { openScopeWithPreview } from "./preview-view.js";
-import { createProjectScope } from "../services/compile-scope.js";
-import { Menu, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile } from "obsidian";
+import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
+import { createProjectScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
+import { Menu, MarkdownView, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
+import {
+  binderPreviewFieldChoices,
+  binderPreviewSemanticField,
+  clampBinderPreviewLines,
+  resolveBinderPreviewField,
+} from "../utils/binder-preview.js";
 
 type ProjectNode = TFile | TFolder;
+
+/** Contrat minimal exposé par une `ScriveningsView` réellement exploitable
+ * comme sélecteur de membership Binder (voir activeContinuMembershipView
+ * ci-dessous) — garde de type sans `instanceof`, même patron que
+ * `isOpenScopeView` (scrivenings-view.ts) : reconnaît la vue par sa surface
+ * publique, ce qui permet des tests avec un faux objet sans monter un vrai
+ * CodeMirror ni importer la classe réelle. */
+type ContinuMembershipView = {
+  compileScope: CompileScope | null;
+  getViewType(): string;
+  getMemberPaths(): readonly string[];
+  hasMember(path: string): boolean;
+  toggleMember(path: string): Promise<boolean>;
+  collapseToSingleMember(path: string): Promise<boolean>;
+  /** Ajout en lot (Maj+clic en Continu, micro-correctif "typographie après
+   * toggle + Maj+clic en Continu", §6) — voir ScriveningsView.addMembers.
+   * Conservée pour compatibilité ascendante ; le LOT FINAL Binder ↔ Continu
+   * (§7) n'en fait plus usage depuis le Binder, voir `setMembers`. */
+  addMembers(paths: readonly string[]): Promise<boolean>;
+  /** LOT FINAL Binder ↔ Continu, §6 : remplace la composition affichée par
+   * exactement ces chemins (Maj+clic §7, Cmd/Ctrl+clic §8) — voir
+   * ScriveningsView.setMembers. */
+  setMembers(paths: readonly string[]): Promise<boolean>;
+  /** LOT FINAL, §4 : ouvre `path` seul, MÊME leaf — chemin unique du clic
+   * simple sur un fichier pendant que Continu est actif (§3). */
+  openSingleMember(path: string): Promise<boolean>;
+  /** Recharge cette MÊME leaf Continu sur un autre scope (dossier, §11) —
+   * voir ScriveningsView.openScope. */
+  openScope(scope: CompileScope): Promise<boolean>;
+};
+
+function isContinuMembershipView(view: unknown): view is ContinuMembershipView {
+  return (
+    typeof view === "object" &&
+    view !== null &&
+    "compileScope" in view &&
+    "getViewType" in view &&
+    typeof view.getViewType === "function" &&
+    "getMemberPaths" in view &&
+    typeof view.getMemberPaths === "function" &&
+    "hasMember" in view &&
+    typeof view.hasMember === "function" &&
+    "toggleMember" in view &&
+    typeof view.toggleMember === "function" &&
+    "collapseToSingleMember" in view &&
+    typeof view.collapseToSingleMember === "function" &&
+    "addMembers" in view &&
+    typeof view.addMembers === "function" &&
+    "setMembers" in view &&
+    typeof view.setMembers === "function" &&
+    "openSingleMember" in view &&
+    typeof view.openSingleMember === "function" &&
+    "openScope" in view &&
+    typeof view.openScope === "function"
+  );
+}
 
 /** Narrowing sans cast direct pour obsidianmd/no-tfile-tfolder-cast — voir
  * base-feuillets-view.ts pour le même patron. Le throw n'est jamais atteint
@@ -139,6 +202,101 @@ export class FeuilletsView extends BaseFeuilletsView {
     };
   }
 
+  /** Scope à transmettre à « Ouvrir en continu » pour ce dossier : la
+   * sélection COMPLÈTE si ce dossier appartient à une multi-sélection
+   * Binder de plus d'un élément, sinon le dossier seul — comble le trou
+   * identifié Lot 2A §6 (un clic droit sur un fichier sélectionné connaît
+   * déjà le groupe via showFileContextMenu ; un dossier sélectionné
+   * retombait jusqu'ici toujours sur son propre scope dossier). */
+  continuScopeForFolder(folder: TFolder): CompileScope | null {
+    const projectRoot = this.plugin.getProjectFolder();
+    if (!projectRoot) return null;
+    const groupSel = this.plugin._binderMultiSelect;
+    if (groupSel && groupSel.size > 1 && groupSel.has(folder.path)) {
+      return createSelectionScope(projectRoot.path, Array.from(groupSel));
+    }
+    return createFolderScope(projectRoot.path, folder.path);
+  }
+
+  /** Entrée « Ouvrir en continu » ajoutée au menu contextuel standard d'un
+   * dossier (showFolderContextMenu, extraItems) — jamais un second menu,
+   * même patron que binderIsolateExtras ci-dessus. N'affecte QUE
+   * FeuilletsView : BoardView (board-view.ts) appelle showFolderContextMenu
+   * sans passer cet extraItems, son menu dossier reste donc strictement
+   * inchangé (Lot 2A §6). */
+  continuExtras(folder: TFolder): (menu: Menu) => void {
+    return (menu: Menu) => {
+      const scope = this.continuScopeForFolder(folder);
+      if (!scope) return;
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.openInContinu"))
+          .setIcon("layers")
+          .onClick(async () => {
+            await openScopeInContinu(this.app, scope);
+          })
+      );
+    };
+  }
+
+  /** LOT FINAL Binder ↔ Continu, §11 : clic simple sur le NOM d'un dossier
+   * → ouvre ce dossier en Continu dans la LEAF DE TRAVAIL CENTRALE, jamais
+   * une nouvelle leaf (jamais `getLeaf("tab")`/`getLeaf("split")`) — même
+   * mécanisme same-leaf déjà validé que la promotion Markdown ↔ Continu
+   * (`openScopeInContinuOnLeaf`) et que la résolution de la leaf centrale
+   * d'un clic fichier normal (`plugin.getLeafForOpeningFile()`, §25).
+   *
+   * Si la leaf centrale est déjà Continu, on recharge simplement ce nouveau
+   * scope dessus (`continu.openScope`) — jamais `openScopeInContinuOnLeaf`,
+   * réservée à la transformation D'UN MarkdownView. Dossier sans feuillet
+   * Markdown admissible (§14) : ne construit jamais un Continu vide, la vue
+   * centrale actuelle reste strictement inchangée. */
+  async openFolderInContinu(folder: TFolder): Promise<void> {
+    const projectRoot = this.getProjectFolder();
+    if (!projectRoot) return;
+
+    const scope = createFolderScope(projectRoot.path, folder.path);
+    const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
+    if (files.length === 0) return;
+
+    const continu = this.activeContinuMembershipView();
+    if (continu) {
+      const applied = await continu.openScope(scope);
+      if (applied) this.refreshContinuMembershipHighlight();
+      return;
+    }
+
+    const leaf = this.plugin.getLeafForOpeningFile();
+    if (!leaf) return;
+    const promoted = await openScopeInContinuOnLeaf(this.app, leaf, scope);
+    if (promoted) this.refreshContinuMembershipHighlight();
+  }
+
+  /** Wrapper d'icône commun aux lignes fichier ET dossier du Binder (§17-20
+   * du LOT FINAL Binder ↔ Continu). Grammaire FINALE (micro-correctif final
+   * "ligne blanche + finition Continu", §2) — un essai précédent avait
+   * coloré l'icône elle-même avec le label ; validation visuelle réelle :
+   * pas assez lisible, doublon avec le liseré. Revenu en arrière côté
+   * styles.css UNIQUEMENT (`.feuillets-binder-node-icon.has-label` neutre) :
+   * l'icône (`setIcon`, natif Obsidian/Lucide — jamais un emoji ni un SVG
+   * maison) porte SEULEMENT le TYPE de nœud, TOUJOURS neutre. `.has-label`/
+   * `--feuillets-label-color` sont encore posées ici (inoffensives, aucun
+   * rendu ni donnée) — le label reste représenté PAR AILLEURS, sur le
+   * liseré HISTORIQUE de ligne (`box-shadow` posé directement sur
+   * `.feuillets-item`, voir plus bas), intégralement préservé. Ne recolore
+   * jamais le texte, le fond de ligne, ni la sélection Continu.
+   * `labelColor` à `null` : aucune classe `.has-label` (sans effet visuel
+   * de toute façon, voir ci-dessus). */
+  buildBinderNodeIcon(host: HTMLElement, iconName: string, labelColor: string | null): HTMLElement {
+    const wrap = host.createSpan({ cls: "feuillets-binder-node-icon" });
+    setIcon(wrap, iconName);
+    if (labelColor) {
+      wrap.addClass("has-label");
+      wrap.style.setProperty("--feuillets-label-color", labelColor);
+    }
+    return wrap;
+  }
+
   /** Clé de l'éventuel override de densité de session : le chemin de la
    * racine de travail isolée si elle diffère de la vraie racine du projet,
    * sinon `null` (Binder normal — la densité suit `settings.binderCompact`
@@ -179,10 +337,24 @@ export class FeuilletsView extends BaseFeuilletsView {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         this.updateActiveHighlight();
+        /* Continu peut devenir (ou cesser d'être) la leaf active sans
+           qu'aucun "layout-change" ne survienne (ex. Alt+Tab entre deux
+           onglets déjà ouverts) — voir §3/§10 du micro-lot "sélection
+           continu par clic simple" : la surbrillance doit suivre. */
+        this.refreshContinuMembershipHighlight();
       })
     );
     this.registerEvent(
       this.app.workspace.on("file-open", () => this.updateActiveHighlight())
+    );
+    /* Ouverture/fermeture de Continu ailleurs (menu Binder d'un AUTRE
+       panneau, fermeture d'onglet…) : "layout-change" est l'événement
+       workspace générique déjà déclenché par Obsidian dans ces cas — pas de
+       scan du Vault, juste une actualisation légère de la surbrillance déjà
+       rendue (voir refreshContinuMembershipHighlight ci-dessous). Jamais
+       "editor-change" : réservé à la status bar (main.ts, §8). */
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => this.refreshContinuMembershipHighlight())
     );
     /* Flèches haut/bas = feuillet suivant/précédent (openNeighbor, déjà
        utilisé par les commandes "Feuillet suivant/précédent") — dès que le
@@ -237,6 +409,167 @@ export class FeuilletsView extends BaseFeuilletsView {
     highlightActive(this.contentEl, getActiveFileSafe(this.app)?.path);
   }
 
+  /** Onglet Continu RÉELLEMENT au travail (dernière leaf CENTRALE, pas la
+   * "vue globalement active") et compatible avec ce Binder, ou `null` —
+   * micro-correctif "focus binder + 2→1 + typographie same-leaf" (§1-2).
+   * Strict à dessein : ne retourne un résultat QUE si (1) cette leaf
+   * appartient bien à `workspace.rootSplit`, (2) sa vue expose réellement
+   * le contrat Continu (`isContinuMembershipView`), (3) `getViewType()`
+   * vaut `VIEW_SCRIVENINGS`, (4) son `compileScope` existe, (5) son
+   * `projectRoot` correspond au projet affiché par CE Binder.
+   *
+   * Volontairement PAS `workspace.getActiveViewOfType(ScriveningsView)` :
+   * un clic dans le Binder (sidebar) donne le focus à la sidebar, la
+   * ScriveningsView centrale cesse alors d'être la vue "active" au sens
+   * Obsidian bien qu'elle reste la leaf de travail visible — cette API
+   * retournait donc `null` à tort pendant l'interaction même que ce
+   * helper doit reconnaître. `getMostRecentLeaf(rootSplit)` ignore le
+   * focus de la sidebar : seule la dernière leaf centrale compte. Jamais
+   * `getActiveFile()`, jamais le premier résultat de `getLeavesOfType`,
+   * jamais une ScriveningsView quelconque ouverte dans un AUTRE onglet. */
+  activeContinuMembershipView(): ContinuMembershipView | null {
+    const root = this.getProjectFolder();
+    if (!root) return null;
+    const workspace = this.app.workspace;
+    // Défensif : de nombreux faux `workspace` de tests (Binder) ne déclarent
+    // pas `getMostRecentLeaf` — jamais absent en Obsidian réel, mais un
+    // Binder sans Continu actif ne doit jamais planter pour autant.
+    if (typeof workspace.getMostRecentLeaf !== "function") return null;
+    const leaf = workspace.getMostRecentLeaf(workspace.rootSplit);
+    if (!leaf) return null;
+    if (typeof leaf.getRoot === "function" && leaf.getRoot() !== workspace.rootSplit) return null;
+    const view = leaf.view;
+    if (!isContinuMembershipView(view)) return null;
+    if (view.getViewType() !== VIEW_SCRIVENINGS) return null;
+    if (!view.compileScope) return null;
+    if (view.compileScope.projectRoot !== root.path) return null;
+    return view;
+  }
+
+  /** Resynchronise `.is-continu-member` sur toutes les lignes fichier déjà
+   * rendues (`.feuillets-item[data-path]`), sans reconstruire le Binder ni
+   * scanner le Vault : appelée après un toggle réussi, à l'ouverture/
+   * fermeture de Continu ailleurs ("layout-change") et au changement de
+   * leaf active ("active-leaf-change" — voir onOpen). La vérité reste
+   * `continu.hasMember(path)`, jamais `_binderMultiSelect`. */
+  refreshContinuMembershipHighlight(): void {
+    const view = this.activeContinuMembershipView();
+    const rows = this.contentEl.querySelectorAll<HTMLElement>(".feuillets-item[data-path]");
+    rows.forEach((el) => {
+      const path = el.getAttr("data-path");
+      if (!path) return;
+      el.toggleClass("is-continu-member", !!view && view.hasMember(path));
+    });
+  }
+
+  /** Promotion automatique Markdown → Continu après un Maj+clic consommé
+   * par `handleMultiSelectClick` (micro-lot delta "bascule Markdown ↔
+   * Continu", §2-7) — appelée UNIQUEMENT quand ce clic portait `shiftKey`,
+   * jamais pour Cmd/Ctrl+clic (chemin historique de multi-sélection
+   * intégralement conservé, voir handleMultiSelectClick). Ne fait RIEN
+   * (sélection multiple historique inchangée) si l'une des conditions
+   * strictes suivantes échoue :
+   * - la résolution RÉELLE du groupe (`resolveCompileScopeFiles`, jamais
+   *   `_binderMultiSelect.size`) produit moins de 2 fichiers (§3) ;
+   * - `plugin.getLeafForOpeningFile()` n'affiche pas RÉELLEMENT un
+   *   `MarkdownView` d'un fichier du groupe résolu, ou est une leaf de
+   *   sidebar (§4) — jamais de nouvelle leaf, jamais deviné une autre leaf.
+   */
+  private async tryPromoteSelectionToContinu(scopeEl: HTMLElement): Promise<void> {
+    // Protection de non-régression (micro-correctif "typographie après
+    // toggle + Maj+clic en Continu", §9) : ce chemin ne concerne QUE la
+    // promotion Markdown → Continu INITIALE. Si un Continu central existe
+    // déjà, un Maj+clic doit l'étendre en lot (voir le handler de clic
+    // ci-dessous, CAS B) — jamais retomber ici, jamais appeler
+    // `getLeafForOpeningFile()` pour un Continu déjà ouvert.
+    if (this.activeContinuMembershipView()) return;
+
+    const root = this.getProjectFolder();
+    if (!root) return;
+
+    const sel = this.plugin._binderMultiSelect;
+    if (!sel || sel.size === 0) return;
+
+    // §3 : le résolveur existant reste seul responsable (dossiers,
+    // descendants, doublons, ordre Binder) — jamais `sel.size` comme
+    // nombre réel de feuillets.
+    const scope = createSelectionScope(root.path, [...sel]);
+    const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
+    if (files.length < 2) return;
+
+    // §4 : identifier STRICTEMENT la leaf Markdown à transformer — celle
+    // que le clic normal aurait utilisée.
+    const leaf = this.plugin.getLeafForOpeningFile();
+    if (!leaf) return;
+    const view = leaf.view;
+    if (!(view instanceof MarkdownView)) return;
+    const activeFile = view.file;
+    if (!activeFile) return;
+    if (!files.some((f) => f.path === activeFile.path)) return;
+    const inSidebar =
+      leaf.getRoot() === this.app.workspace.leftSplit || leaf.getRoot() === this.app.workspace.rightSplit;
+    if (inSidebar) return;
+
+    const promoted = await openScopeInContinuOnLeaf(this.app, leaf, scope);
+    if (!promoted) return;
+
+    // §7 : la sélection temporaire n'a servi qu'à construire le groupe —
+    // plus de `.is-selected`, uniquement `.is-continu-member` désormais.
+    sel.clear();
+    this.refreshMultiSelectClasses(scopeEl);
+    this.refreshContinuMembershipHighlight();
+  }
+
+  /** MarkdownView RÉELLEMENT affiché par la leaf centrale de travail (même
+   * helper `getLeafForOpeningFile()` qu'un clic normal), ou `null` — LOT
+   * FINAL Binder ↔ Continu, §9 : identifie le fichier que Cmd/Ctrl+clic doit
+   * rejoindre pour promouvoir cette MÊME leaf en Continu. Même garde-fous
+   * que `tryPromoteSelectionToContinu` ci-dessus (jamais une leaf de
+   * sidebar), volontairement dupliqués plutôt que factorisés dans le code
+   * déjà validé de cette dernière : aucun refactoring opportuniste de ce
+   * lot sur un mécanisme intact. */
+  private getCmdClickCentralFile(): { leaf: WorkspaceLeaf; file: TFile } | null {
+    const leaf = this.plugin.getLeafForOpeningFile();
+    if (!leaf) return null;
+    const view = leaf.view;
+    if (!(view instanceof MarkdownView)) return null;
+    const activeFile = view.file;
+    if (!activeFile) return null;
+    const inSidebar =
+      leaf.getRoot() === this.app.workspace.leftSplit || leaf.getRoot() === this.app.workspace.rightSplit;
+    if (inSidebar) return null;
+    return { leaf, file: activeFile };
+  }
+
+  /** Promotion Markdown → Continu déclenchée par un Cmd/Ctrl+clic (§9,
+   * exemple : A.md actif, Cmd+clic C → même leaf devient Continu A+C) —
+   * jamais quand un Continu est déjà actif (voir §8, chemin séparé dans le
+   * handler de clic ci-dessous) ni quand la leaf centrale ne montre pas
+   * RÉELLEMENT un `MarkdownView` exploitable. Retourne `false` sans rien
+   * changer dans tous les cas où la promotion ne peut pas avoir lieu — le
+   * clic retombe alors sur le chemin historique `_binderMultiSelect`
+   * (voir le handler de clic, §10). */
+  private async tryPromoteCmdClickToContinu(file: TFile): Promise<boolean> {
+    if (this.activeContinuMembershipView()) return false;
+
+    const root = this.getProjectFolder();
+    if (!root) return false;
+
+    const central = this.getCmdClickCentralFile();
+    if (!central) return false;
+    if (central.file.path === file.path) return false;
+
+    const scope = createSelectionScope(root.path, [central.file.path, file.path]);
+    const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
+    if (files.length < 2) return false;
+
+    const promoted = await openScopeInContinuOnLeaf(this.app, central.leaf, scope);
+    if (!promoted) return false;
+
+    this.refreshContinuMembershipHighlight();
+    return true;
+  }
+
   /** Anime le masquage/affichage du volet dossiers sans reconstruire tout
    * le binder — utilisée par le geste de balayage (main.js), qui ne
    * connaît que ce cycle à 2 états (voir registerSwipeGestures). Ne
@@ -286,6 +619,21 @@ export class FeuilletsView extends BaseFeuilletsView {
     window.setTimeout(() => this.plugin.adjustSidebarWidth(), 60);
   }
 
+  /** Champ sémantique d'aperçu du mode courant (ajustement "aperçu du
+   * Binder") : "synopsis" en Fiction, "summary" en Non-fiction/Libre —
+   * règle EXISTANTE de PROJECT_MODES[...].defaults.cardContent
+   * (utils/project-modes.ts), jamais un nouveau réglage. Utilisée par
+   * render() (résolution de l'aperçu rendu) ET showSplitPaneOptionsMenu
+   * (choix proposés), pour qu'elles restent toujours d'accord.
+   * `typeof … === "function"` : défensif pour les faux plugins de test qui
+   * n'implémentent pas `projectMode()`, sans effet en Obsidian réel où la
+   * méthode existe toujours (voir main.ts). */
+  getBinderPreviewSemanticField(): "synopsis" | "summary" {
+    return binderPreviewSemanticField(
+      typeof this.plugin.projectMode === "function" ? this.plugin.projectMode().defaults.cardContent : undefined
+    );
+  }
+
   /** Réglages d'affichage (Affichage des lignes + accès aux réglages
    * complets) — ajoutés à la suite du contenu propre à showSplitPaneOptionsMenu
    * (densité, aperçu de la fiche), pas dans une icône réglages à part. */
@@ -304,12 +652,14 @@ export class FeuilletsView extends BaseFeuilletsView {
           })
       );
 
+    /* Micro-lot "simplification définitive du Binder", §2 : puces de tags,
+       statut, barres de progression et nombre de mots retirés de ce menu —
+       le Binder ne les rend plus jamais (voir renderFileRow). Leurs clés de
+       réglage restent en place pour compatibilité, simplement plus
+       proposées ici. Ces métadonnées restent réglables/consultables dans
+       Cartes et Plan. */
     menu.addItem((item) => item.setTitle(t("binder.display.header")).setDisabled(true));
     toggle(t("binder.display.labelStripes"), "binderShowLabels");
-    toggle(t("binder.display.tagChips"), "binderShowTags");
-    toggle(t("binder.display.statusDot"), "binderShowStatus");
-    toggle(t("binder.display.progressBars"), "binderShowProgress");
-    toggle(t("binder.display.wordCountNumbers"), "binderShowWords");
     menu.addSeparator();
 
     menu.addItem((item) =>
@@ -356,19 +706,25 @@ export class FeuilletsView extends BaseFeuilletsView {
     /* Pas de choix de densité ici : bascule directe sur le bouton Densité
        lui-même (un clic), inutile de la dupliquer dans ce menu. */
     menu.addItem((item) => item.setTitle(t("binder.preview.header")).setDisabled(true));
-    const previewFields: [string, string][] = [
-      ["none", t("binder.preview.none")],
-      ["extrait", t("binder.preview.excerpt")],
-      ["synopsis", t("binder.preview.synopsis")],
-      ["summary", t("binder.preview.summary")],
-      ["notes", t("binder.preview.notes")],
-      ["tags", t("binder.preview.tags")],
-    ];
-    for (const [key, label] of previewFields) {
+    /* Ajustement "aperçu du Binder" : jamais synopsis ET summary ensemble,
+       jamais notes/tags — seuls "Aucun"/"Extrait"/le champ sémantique du
+       mode courant sont proposés (voir binderPreviewFieldChoices,
+       utils/binder-preview.ts). Une ancienne valeur "tags"/"notes"/l'AUTRE
+       champ sémantique reste en donnée mais se résout ici sur ce même
+       choix affiché (voir resolveBinderPreviewField pour l'état "coché"). */
+    const semanticField = this.getBinderPreviewSemanticField();
+    const fieldLabels: Record<string, string> = {
+      none: t("binder.preview.none"),
+      extrait: t("binder.preview.excerpt"),
+      synopsis: t("binder.preview.synopsis"),
+      summary: t("binder.preview.summary"),
+    };
+    const effectiveField = resolveBinderPreviewField(S.listPanePreviewField, semanticField);
+    for (const key of binderPreviewFieldChoices(semanticField)) {
       menu.addItem((item) =>
         item
-          .setTitle(label)
-          .setChecked((S.listPanePreviewField || "none") === key)
+          .setTitle(fieldLabels[key])
+          .setChecked(effectiveField === key)
           .onClick(async () => {
             S.listPanePreviewField = key;
             await this.plugin.saveSettings();
@@ -378,13 +734,17 @@ export class FeuilletsView extends BaseFeuilletsView {
     }
     menu.addSeparator();
 
-    if (!effectiveBinderCompact && S.listPanePreviewField !== "none") {
+    if (!effectiveBinderCompact && effectiveField !== "none") {
       menu.addItem((item) => item.setTitle(t("binder.preview.linesHeader")).setDisabled(true));
-      for (let n = 1; n <= 6; n++) {
+      /* Ajustement "aperçu du Binder" : au maximum 3 lignes désormais (une
+         ancienne valeur >3 encore en donnée reste simplement bornée au
+         rendu, voir renderFileRow / clampBinderPreviewLines). */
+      const currentLines = clampBinderPreviewLines(S.listPanePreviewLines);
+      for (let n = 1; n <= 3; n++) {
         menu.addItem((item) =>
           item
             .setTitle(String(n))
-            .setChecked((S.listPanePreviewLines || 2) === n)
+            .setChecked(currentLines === n)
             .onClick(async () => {
               S.listPanePreviewLines = n;
               await this.plugin.saveSettings();
@@ -420,6 +780,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     const folder = this.getProjectFolder();
     const S = this.plugin.settings;
+    const binderPreviewSemantic = this.getBinderPreviewSemanticField();
     /* Racine de travail (projet complet, ou dossier isolé — voir
        _binderWorkingRootPath) calculée UNE SEULE FOIS ici et réutilisée
        plus bas pour renderHierarchyBody : getBinderWorkingRoot a un effet
@@ -428,12 +789,6 @@ export class FeuilletsView extends BaseFeuilletsView {
     const workingRoot = folder ? (this.getBinderWorkingRoot(folder) || folder) : null;
     const binderCompactScope = folder && workingRoot && workingRoot.path !== folder.path ? workingRoot.path : null;
     const effectiveBinderCompact = this.getEffectiveBinderCompact(binderCompactScope);
-    /* Isolé dès que binderCompactScope est renseigné (racine de travail
-       différente de la vraie racine du projet) — réutilisé plus bas pour
-       l'indentation des feuillets (voir renderFileRow) : légèrement plus
-       marquée dans la vue PRINCIPALE seulement, jamais en vue isolée, sans
-       toucher à l'indentation des dossiers ni à la profondeur réelle. */
-    const isIsolatedView = !!binderCompactScope;
 
     const header = container.createDiv({ cls: "feuillets-header" });
     const actions = header.createDiv({ cls: "feuillets-actions" });
@@ -772,7 +1127,15 @@ export class FeuilletsView extends BaseFeuilletsView {
     const wcCache = await this.plugin.getWordCounts(allFiles);
     if (this._renderGen !== myGen) return;
 
-
+    /* Instantané capturé UNE FOIS pour tout ce rendu — strict (§3 du
+       micro-lot "sélection continu par clic simple") : Continu compatible
+       uniquement si sa leaf est RÉELLEMENT active, voir
+       activeContinuMembershipView. refreshContinuMembershipHighlight()
+       (appelée par active-leaf-change/layout-change, voir onOpen) reste
+       seule responsable de suivre un changement de leaf active ou une
+       ouverture/fermeture de Continu survenue APRÈS ce rendu, sans
+       reconstruire le Binder. */
+    const continuView = this.activeContinuMembershipView();
 
     const renderFileRow: RenderFileRow = (
       host,
@@ -791,7 +1154,6 @@ export class FeuilletsView extends BaseFeuilletsView {
       if (!hidden && !passesBinderFilter(file)) return false;
 
       const role = hidden ? "cachee" : this.plugin.roleOfFile(file);
-      const goal = this.goalFor(file);
       const item = host.createDiv({
         cls:
           role === "scene"
@@ -800,16 +1162,14 @@ export class FeuilletsView extends BaseFeuilletsView {
             ? "feuillets-item feuillets-hidden"
             : "feuillets-item",
       });
-      /* Retrait des feuillets par rapport à leur dossier parent : voir
-         renderTreeFolders (paddingLeft du dossier = 6 + depth * 10). Le
-         `depth` reçu ici vaut (profondeur d'itération du dossier parent + 1)
-         — lui-même déjà à (profondeur du dossier parent + 1) — donc
-         10 * depth - 6 retombe systématiquement à ~8px de plus que la ligne
-         du dossier parent, quel que soit le niveau. +4px seulement dans la
-         vue PRINCIPALE (jamais isolée — voir isIsolatedView) : ni la
-         profondeur réelle ni l'indentation des dossiers ne changent, juste
-         un peu plus de distance visuelle dossier → feuillet. */
-      item.style.paddingLeft = `${10 * depth - 6 + (isIsolatedView ? 0 : 4)}px`;
+      /* Indentation par profondeur (LOT FINAL Binder ↔ Continu, §15-16) :
+         une seule variable CSS `--feuillets-binder-depth`, calc() en CSS
+         (styles.css) — jamais un jeu de classes depth-1/depth-2/etc. Le
+         `depth` reçu ici est désormais EXACTEMENT le même que celui de la
+         ligne dossier qui le contient (voir renderTreeFolders) : un
+         feuillet aligne sa colonne chevron/icône/titre sur celle d'un
+         dossier du même niveau, jamais un décalage codé en dur en plus. */
+      item.style.setProperty("--feuillets-binder-depth", String(depth));
       item.setAttr("data-path", file.path);
       /* Focusable (sans entrer dans l'ordre de tabulation) : un clic sur
          la ligne lui donne le focus DOM, condition nécessaire pour que les
@@ -821,26 +1181,35 @@ export class FeuilletsView extends BaseFeuilletsView {
       const grip = item.createSpan({ cls: "feuillets-drag-grip" });
       setIcon(grip, "grip-vertical");
 
+      /* Colonne chevron réservée (§16 du LOT FINAL Binder ↔ Continu) : un
+         feuillet n'a pas de chevron fonctionnel, mais réserve la même
+         largeur qu'un dossier du même niveau pour que les colonnes
+         icône/titre restent alignées, jamais de zigzag. */
+      item.createSpan({ cls: "feuillets-folder-chevron is-empty" });
+
+      let labelColor: string | null = null;
       if (!hidden && S.binderShowLabels) {
         const labelName = this.plugin.labelOf(file);
-        const color = labelName ? this.plugin.labelColor(labelName) : null;
-        if (color) item.style.boxShadow = `inset 3px 0 0 ${color}`;
+        labelColor = labelName ? this.plugin.labelColor(labelName) : null;
       }
-
-      const ring = item.createDiv({ cls: "feuillets-ring" });
-      if (hidden || !S.binderShowProgress) ring.hide();
+      /* Micro-lot "simplification définitive du Binder", §4 : le liseré de
+         label appartient désormais au NŒUD (petit emplacement dédié juste
+         avant l'icône fichier), plus au bord du panneau — l'ancien
+         `item.style.boxShadow` posé sur toute la ligne est retiré. Emplacement
+         réservé sur TOUTES les lignes fichiers dès que l'affichage des labels
+         est actif (alignement des icônes identique avec/sans label) ; absent
+         du DOM quand l'affichage des labels est désactivé. */
+      if (S.binderShowLabels) {
+        const swatch = item.createSpan({ cls: "feuillets-label-swatch" });
+        if (labelColor) {
+          swatch.addClass("has-label");
+          swatch.style.setProperty("--feuillets-label-color", labelColor);
+        }
+      }
+      this.buildBinderNodeIcon(item, "file-text", labelColor);
 
       const body = item.createDiv({ cls: "feuillets-item-body" });
       const nameRow = body.createDiv({ cls: "feuillets-item-name-row" });
-
-      if (!hidden && S.binderShowStatus) {
-        const st = toValue(this.fm(file).status);
-        if (st) {
-          const dot = nameRow.createSpan({ cls: "feuillets-status-dot" });
-          dot.style.background = this.plugin.getStatusColor(st) || "var(--text-faint)";
-          dot.setAttr("title", t("binder.item.statusTooltip", { status: st }));
-        }
-      }
 
       const num = hidden ? "" : `${numbering.get(file.path) || ""} `;
       nameRow
@@ -860,11 +1229,19 @@ export class FeuilletsView extends BaseFeuilletsView {
 
       /* Mode compact (voir showSplitPaneOptionsMenu) : aucun aperçu, quel
          que soit le champ choisi — la densité prime, l'aperçu se consulte
-         en mode standard. */
-      if (!hidden && !effectiveBinderCompact && opts.showPreview && S.listPanePreviewField !== "none") {
-        const field = S.listPanePreviewField;
-        const lines = S.listPanePreviewLines || 2;
-        if (field === "extrait") {
+         en mode standard. Ajustement "aperçu du Binder" : la valeur brute
+         sauvegardée (`S.listPanePreviewField`, potentiellement une ancienne
+         donnée "tags"/"notes"/un champ sémantique d'un AUTRE mode) est
+         résolue au rendu vers la grammaire actuelle — jamais migrée sur
+         disque (voir resolveBinderPreviewField, utils/binder-preview.ts). */
+      const effectiveField = resolveBinderPreviewField(S.listPanePreviewField, binderPreviewSemantic);
+      if (!hidden && !effectiveBinderCompact && opts.showPreview && effectiveField !== "none") {
+        /* §5 : le Binder ne doit jamais devenir une fiche — l'aperçu est
+           borné à 3 lignes maximum, quelle que soit une ancienne valeur
+           enregistrée (`listPanePreviewLines` peut encore dépasser 3,
+           donnée non migrée intentionnellement, voir buildDisplayOptionsMenu). */
+        const lines = clampBinderPreviewLines(S.listPanePreviewLines);
+        if (effectiveField === "extrait") {
           const prev = body.createDiv({ cls: "feuillets-item-preview" });
           prev.style.maxHeight = `${lines * 1.3}em`;
           void this.app.vault.cachedRead(file).then((content) => {
@@ -874,12 +1251,10 @@ export class FeuilletsView extends BaseFeuilletsView {
             prev.setText(clean || t("binder.item.emptyPreview"));
           });
         } else {
-          let text = "";
-          if (field === "tags") {
-            text = this.plugin.tagsOf(file).map((tg: string) => `#${tg}`).join(" ");
-          } else {
-            text = toValue(this.fm(file)[field]).trim();
-          }
+          // effectiveField ne peut plus valoir que "synopsis" ou "summary"
+          // ici (jamais "tags"/"notes", retirés de la grammaire Binder —
+          // voir resolveBinderPreviewField).
+          const text = toValue(this.fm(file)[effectiveField]).trim();
           if (text) {
             const prev = body.createDiv({ cls: "feuillets-item-preview" });
             prev.style.maxHeight = `${lines * 1.3}em`;
@@ -888,23 +1263,15 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       }
 
-      if (!hidden && S.binderShowTags) {
-        const tags = this.plugin.tagsOf(file);
-        if (tags.length > 0) {
-          const tagRow = body.createDiv({ cls: "feuillets-tags" });
-          for (const tg of tags) {
-            tagRow.createSpan({ cls: "feuillets-tag-chip" }).setText(`#${tg}`);
-          }
-        }
-      }
-
-      if (!hidden) {
-        const wc = wcCache.get(file.path)?.wc || 0;
-        if (S.binderShowProgress) this.fillRing(ring, wc, goal);
-        if (S.binderShowWords) {
-          body.createDiv({ cls: "feuillets-item-wc" }).setText(t("binder.item.words", { count: String(wc) }));
-        }
-      }
+      /* Micro-lot "simplification définitive du Binder" : la grammaire finale
+         de la ligne s'arrête au titre + aperçu facultatif — puces de tags,
+         pastille de statut, anneau de progression et nombre de mots ne sont
+         plus jamais rendus ici (§1 du lot). Ces métadonnées restent
+         entièrement disponibles ailleurs (Cartes, Plan, filtres, propriétés)
+         et leurs réglages historiques (`binderShowTags`/`binderShowStatus`/
+         `binderShowProgress`/`binderShowWords`) restent en place pour la
+         compatibilité des données sauvegardées, simplement inertes pour ce
+         rendu — voir buildDisplayOptionsMenu. */
 
       item.setAttr("data-path", file.path);
 
@@ -912,8 +1279,127 @@ export class FeuilletsView extends BaseFeuilletsView {
         item.addClass("is-selected");
       }
 
+      /* Surbrillance de session "membre du Continu" (§8 du micro-lot
+         "sélection continu par clic simple") — jamais sur une ligne
+         cachée/dossier, jamais persistée, jamais stockée dans
+         `_binderMultiSelect` : simple reflet de `continuView.hasMember(path)`
+         au moment de CE rendu (`continuView` capturé une fois plus haut, via
+         activeContinuMembershipView — voir §3). Resynchronisée ensuite par
+         refreshContinuMembershipHighlight (active-leaf-change/layout-change,
+         voir onOpen), sans jamais reconstruire cette ligne. */
+      if (!hidden && continuView) {
+        item.toggleClass("is-continu-member", continuView.hasMember(file.path));
+      }
+
+      /* Micro-chantier finition Continu, §16-18 : complément défensif au
+         `user-select: none` déjà posé sur `.feuillets-item-preview`
+         (styles.css) — un Maj+clic ou un Cmd/Ctrl+clic ne doit JAMAIS
+         démarrer, en plus de la sélection Binder, une sélection native du
+         texte de l'aperçu. Purement préventif : ne pilote AUCUNE sélection
+         (toute la logique reste dans le `click` ci-dessous, jamais
+         déclenchée deux fois) et ne s'applique qu'à ces gestes précis —
+         un clic simple, un drag (poignée dédiée) ou un clic droit ne sont
+         jamais concernés. */
+      item.addEventListener("mousedown", (e) => {
+        if (!hidden && (e.shiftKey || e.metaKey || e.ctrlKey)) e.preventDefault();
+      });
+
       item.addEventListener("click", (e) => {
-        if (this.handleMultiSelectClick(e, file, parent, i, siblings, dragScopeEl)) return;
+        /* LOT FINAL Binder ↔ Continu — grammaire Scrivener (§2-10) :
+           - Cmd/Ctrl+clic : toggle individuel (§8), pilote RÉELLEMENT
+             Continu via setMembers() désormais (jamais plus seulement
+             `_binderMultiSelect`) ; depuis un MarkdownView actif, promeut la
+             MÊME leaf en Continu (§9) ;
+           - Maj+clic (Continu actif) : plage qui peut s'agrandir ET se
+             réduire (§5/§7), une seule recomposition via setMembers() ;
+           - clic simple (Continu actif) : ouvre CE fichier seul, MÊME leaf,
+             quelle que soit la taille du groupe ou l'appartenance
+             préalable (§3-4) — n'est plus jamais un toggleMember().
+           Rien de tout cela sur une ligne cachée/dossier : `continu` reste
+           `null` pour elles, le clic retombe alors intégralement sur le
+           chemin historique ci-dessous. */
+        const continu = !hidden ? this.activeContinuMembershipView() : null;
+
+        if (!hidden && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          e.stopPropagation();
+
+          if (continu) {
+            /* §8 : la vérité est `continu.getMemberPaths()`, jamais
+               `_binderMultiSelect` — construit `nextPaths` puis UNE seule
+               recomposition. */
+            const current = continu.getMemberPaths();
+            const next = current.includes(file.path)
+              ? current.filter((p) => p !== file.path)
+              : [...current, file.path];
+            void continu.setMembers(next).then(() => {
+              this.refreshContinuMembershipHighlight();
+            });
+            return;
+          }
+
+          /* §9 : pas de Continu actif — tenter la promotion depuis le
+             MarkdownView réellement affiché par la leaf centrale. Échec
+             (pas de MarkdownView exploitable, même fichier déjà actif…) :
+             retombe sur le chemin historique `_binderMultiSelect` (§10),
+             inchangé. */
+          void this.tryPromoteCmdClickToContinu(file).then((promoted) => {
+            if (!promoted) this.handleMultiSelectClick(e, file, parent, i, siblings, dragScopeEl);
+          });
+          return;
+        }
+
+        if (!hidden && e.shiftKey && continu) {
+          e.preventDefault();
+          e.stopPropagation();
+
+          /* §5/§7 : `handleMultiSelectClick` historique calcule la plage
+             depuis son ancre existante — seulement comme OUTIL TEMPORAIRE :
+             la vérité de la composition Continu reste
+             `session.document.segments`, jamais `_binderMultiSelect`.
+             setMembers() REMPLACE toute la composition par cette plage :
+             peut donc aussi bien l'agrandir QUE la réduire. */
+          this.handleMultiSelectClick(e, file, parent, i, siblings, dragScopeEl);
+          const sel = this.plugin._binderMultiSelect;
+          const root = this.getProjectFolder();
+          if (!sel || sel.size === 0 || !root) return;
+          const scope = createSelectionScope(root.path, [...sel]);
+          const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
+          const paths = files.map((f) => f.path);
+          void continu.setMembers(paths).then(() => {
+            sel.clear();
+            this.refreshMultiSelectClasses(dragScopeEl);
+            this.refreshContinuMembershipHighlight();
+          });
+          return;
+        }
+
+        if (!hidden && !e.shiftKey && continu) {
+          /* §3-4 : clic simple pendant que Continu est actif — abandonne la
+             sélection multiple de travail, ouvre CE fichier seul dans
+             EXACTEMENT la même leaf. Aucune nouvelle leaf, jamais de
+             Continu reconstruit à N-1 segments. */
+          e.preventDefault();
+          e.stopPropagation();
+          void continu.openSingleMember(file.path).then((opened) => {
+            this.refreshContinuMembershipHighlight();
+            if (opened) highlightActive(this.contentEl, file.path);
+          });
+          return;
+        }
+
+        /* Chemin historique (hors Continu, ou ligne cachée) : intégralement
+           inchangé. */
+        const consumed = this.handleMultiSelectClick(e, file, parent, i, siblings, dragScopeEl);
+        if (consumed) {
+          /* §2 du micro-lot delta : seul un Maj+clic (jamais Cmd/Ctrl+clic,
+             qui reste sur son chemin historique intégral) tente la
+             promotion automatique Markdown → Continu quand il vient de
+             produire un groupe de 2+ fichiers — voir
+             tryPromoteSelectionToContinu (conditions strictes §3-4). */
+          if (e.shiftKey) void this.tryPromoteSelectionToContinu(dragScopeEl);
+          return;
+        }
         /* mis en surbrillance immédiatement, sans attendre les événements
            workspace ("active-leaf-change"/"file-open") : ceux-ci arrivent
            parfois après qu'un autre rendu ait déjà eu lieu, ou pendant que
@@ -1567,7 +2053,10 @@ export class FeuilletsView extends BaseFeuilletsView {
         const workingSiblings = workingParent ? this.plugin.getOrderedChildren(workingParent) : [treeRoot];
         const workingIndex = Math.max(0, workingSiblings.indexOf(treeRoot));
         this.ensureSelectionForContextMenu(treeRoot.path, treePane);
-        this.showFolderContextMenu(e, treeRoot, workingParent ?? treeRoot, workingIndex, workingSiblings, this.binderIsolateExtras(treeRoot));
+        this.showFolderContextMenu(e, treeRoot, workingParent ?? treeRoot, workingIndex, workingSiblings, (menu) => {
+          this.continuExtras(treeRoot)(menu);
+          this.binderIsolateExtras(treeRoot)(menu);
+        });
         return;
       }
       const menu = new Menu();
@@ -1579,6 +2068,15 @@ export class FeuilletsView extends BaseFeuilletsView {
           .onClick(async () => {
             const scope = createProjectScope(treeRoot.path);
             await openScopeWithPreview(this.app, scope);
+          })
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.openInContinu"))
+          .setIcon("layers")
+          .onClick(async () => {
+            const scope = createProjectScope(treeRoot.path);
+            await openScopeInContinu(this.app, scope);
           })
       );
       menu.addSeparator();
@@ -1677,13 +2175,19 @@ export class FeuilletsView extends BaseFeuilletsView {
     let treeRowCount = 0;
     let treeTruncated = false;
 
-    /* Repli/dépli d'un dossier au simple clic (voir renderTreeFolders,
-       ci-dessous) : programmé après ce court délai plutôt qu'exécuté tout de
-       suite, pour qu'un double-clic (isolation, voir isolateFolder) ait le
-       temps de l'annuler avant qu'il ne parte — un double-clic ne doit
-       jamais aussi replier/déplier au passage. */
+    /* Ouverture Continu d'un dossier au simple clic sur son NOM (voir
+       renderTreeFolders, ci-dessous ; LOT FINAL Binder ↔ Continu, §11-12) :
+       programmée après ce court délai plutôt qu'exécutée tout de suite,
+       pour qu'un double-clic (isolation, voir isolateFolder) ait le temps
+       de l'annuler avant qu'elle ne parte — un double-clic ne doit JAMAIS
+       aussi ouvrir Continu au passage, seulement isoler. Repli/dépli est
+       désormais la responsabilité EXCLUSIVE du chevron (§13), plus jamais
+       du nom lui-même — `pendingFolderClickTimer` (renommée : sa fonction a
+       changé, elle ne programme plus un repli/dépli) reste partagée par
+       tout l'arbre de CE rendu : un seul geste utilisateur (clic ou
+       double-clic) a lieu à la fois, inutile d'en garder un par ligne. */
     const BINDER_CLICK_DELAY_MS = 220;
-    let pendingCollapseTimer: number | null = null;
+    let pendingFolderClickTimer: number | null = null;
 
     const renderTreeFolders = (parent: TFolder, depth: number) => {
       if (treeTruncated) return;
@@ -1697,7 +2201,11 @@ export class FeuilletsView extends BaseFeuilletsView {
             treePane.createDiv({ cls: "feuillets-empty" }).setText(t("binder.tree.truncated", { max: String(MAX_TREE_ROWS) }));
             return;
           }
-          if (renderFileRow(treePane, child, parent, i, siblings, depth + 1, treePane, { showPreview: true })) {
+          /* §15-16 : même `depth` que la ligne dossier qui contient ce
+             fichier (plus de `depth + 1` artificiel) — un feuillet et un
+             dossier du même niveau alignent désormais leur colonne
+             chevron/icône/titre via la MÊME `--feuillets-binder-depth`. */
+          if (renderFileRow(treePane, child, parent, i, siblings, depth, treePane, { showPreview: true })) {
             treeRowCount++;
           }
           continue;
@@ -1717,7 +2225,10 @@ export class FeuilletsView extends BaseFeuilletsView {
 
         const row = treePane.createDiv({ cls: "feuillets-folder-row" });
         if (depth === 0) row.addClass("is-depth-0");
-        row.style.paddingLeft = `${6 + depth * 10}px`;
+        /* §15-16 : variable CSS de profondeur, calc() en CSS — jamais un
+           jeu de classes depth-1/depth-2/etc., jamais de paddingLeft
+           calculé ici en JS. */
+        row.style.setProperty("--feuillets-binder-depth", String(depth));
         if (selectedFolder.path === child.path) row.addClass("is-active");
 
         row.setAttr("data-path", child.path);
@@ -1729,42 +2240,66 @@ export class FeuilletsView extends BaseFeuilletsView {
         const grip = row.createSpan({ cls: "feuillets-drag-grip" });
         setIcon(grip, "grip-vertical");
 
-        row.createSpan({ cls: "feuillets-folder-name" }).setText(child.name);
-
-        /* Simple clic = replie/déplie ce dossier, comme avant l'essai des
-           chevrons (retiré : aspect sobre du Binder — aucun chevron
-           permanent). Pour laisser un double-clic s'annoncer d'abord, le
-           repli/dépli est programmé après un court délai plutôt qu'exécuté
-           immédiatement — `dblclick` annule ce délai avant d'isoler, un
-           double-clic ne doit donc JAMAIS aussi replier/déplier au passage.
-           `pendingCollapseTimer` est partagé par tout l'arbre de CE rendu :
-           un seul geste utilisateur (clic ou double-clic) a lieu à la fois,
-           inutile d'en garder un par ligne. */
-        row.addEventListener("click", (e) => {
-          if (this.handleMultiSelectClick(e, child, parent, i, siblings, treePane)) return;
-          if (pendingCollapseTimer !== null) window.clearTimeout(pendingCollapseTimer);
-          pendingCollapseTimer = window.setTimeout(() => {
-            pendingCollapseTimer = null;
+        /* Chevron (§13-14) : zone de clic PROPRE, plier/déplier
+           uniquement — jamais Continu, jamais isolation, jamais sélection.
+           Présent seulement si ce dossier a des enfants à déplier/replier ;
+           sinon la colonne reste réservée VIDE pour l'alignement (§16). */
+        const childEntries = this.plugin.getOrderedChildren(child);
+        const childIsCollapsed = !!S.collapsed[child.path];
+        const chevron = row.createSpan({ cls: "feuillets-folder-chevron" });
+        if (childEntries.length > 0) {
+          setIcon(chevron, childIsCollapsed ? "chevron-right" : "chevron-down");
+          chevron.setAttr(
+            "aria-label",
+            t(childIsCollapsed ? "binder.folder.expand" : "binder.folder.collapse")
+          );
+          chevron.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             void (async () => {
               if (S.collapsed[child.path]) delete S.collapsed[child.path];
               else S.collapsed[child.path] = true;
               await this.plugin.saveSettings();
-              await selectFolder(child);
+              void this.render(true);
             })();
+          });
+        } else {
+          chevron.addClass("is-empty");
+        }
+
+        this.buildBinderNodeIcon(row, "folder", null);
+
+        row.createSpan({ cls: "feuillets-folder-name" }).setText(child.name);
+
+        /* Clic simple sur le NOM (§11-12) : ouvre ce dossier en Continu
+           dans la leaf de travail centrale — jamais un repli/dépli, devenu
+           la responsabilité exclusive du chevron ci-dessus. Programmé après
+           un court délai pour laisser un double-clic s'annoncer d'abord ;
+           `dblclick` annule ce délai avant d'isoler, un double-clic ne doit
+           donc JAMAIS aussi ouvrir Continu au passage. */
+        row.addEventListener("click", (e) => {
+          if (this.handleMultiSelectClick(e, child, parent, i, siblings, treePane)) return;
+          if (pendingFolderClickTimer !== null) window.clearTimeout(pendingFolderClickTimer);
+          pendingFolderClickTimer = window.setTimeout(() => {
+            pendingFolderClickTimer = null;
+            void this.openFolderInContinu(child);
           }, BINDER_CLICK_DELAY_MS);
         });
         row.addEventListener("dblclick", (e) => {
           e.preventDefault();
-          if (pendingCollapseTimer !== null) {
-            window.clearTimeout(pendingCollapseTimer);
-            pendingCollapseTimer = null;
+          if (pendingFolderClickTimer !== null) {
+            window.clearTimeout(pendingFolderClickTimer);
+            pendingFolderClickTimer = null;
           }
           this.isolateFolder(child);
         });
         row.addEventListener("contextmenu", (e) => {
           e.preventDefault();
           this.ensureSelectionForContextMenu(child.path, treePane);
-          this.showFolderContextMenu(e, child, parent, i, siblings, this.binderIsolateExtras(child));
+          this.showFolderContextMenu(e, child, parent, i, siblings, (menu) => {
+            this.continuExtras(child)(menu);
+            this.binderIsolateExtras(child)(menu);
+          });
         });
 
         this.attachDragHandlers(grip, row, parent, i, siblings, treePane);

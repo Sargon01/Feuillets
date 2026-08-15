@@ -5,6 +5,13 @@ import { LayoutModal } from "../ui/layout-modal.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
 import { getProjectMode } from "../services/project-mode.js";
 import { EXPORT_TEMPLATES } from "../utils/export-templates.js";
+import {
+  BINDER_PREVIEW_MAX_LINES,
+  binderPreviewFieldChoices,
+  binderPreviewSemanticField,
+  clampBinderPreviewLines,
+  resolveBinderPreviewField,
+} from "../utils/binder-preview.js";
 import type { DefaultSettings } from "../default-settings.js";
 import { renderCategoryTabBar } from "./settings-category-tabs.js";
 import {
@@ -1163,71 +1170,49 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-     new Setting(container)
-      .setName(t("binder.display.tagChips"))
-      .addToggle((t2) =>
-        t2.setValue(S.binderShowTags).onChange(async (v) => {
-          S.binderShowTags = v;
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
+    /* Micro-lot "simplification définitive du Binder" + ajustement "aperçu
+       du Binder" : puces de tags, statut, barres de progression et nombre
+       de mots retirés — devenus sans effet dans le Binder (voir
+       feuillets-view.ts renderFileRow). Leurs clés de réglage restent en
+       place pour compatibilité, simplement plus proposées ici. */
 
-     new Setting(container)
-      .setName(t("binder.display.statusDot"))
-      .addToggle((t2) =>
-        t2.setValue(S.binderShowStatus).onChange(async (v) => {
-          S.binderShowStatus = v;
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
-
-     new Setting(container)
-      .setName(t("binder.display.progressBars"))
-      .addToggle((t2) =>
-        t2.setValue(S.binderShowProgress).onChange(async (v) => {
-          S.binderShowProgress = v;
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
-
-     new Setting(container)
-      .setName(t("binder.display.wordCountNumbers"))
-      .addToggle((t2) =>
-        t2.setValue(S.binderShowWords).onChange(async (v) => {
-          S.binderShowWords = v;
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
+    /* Grammaire d'aperçu partagée avec le menu local du Binder
+       (showSplitPaneOptionsMenu, feuillets-view.ts) : jamais synopsis ET
+       summary ensemble, jamais notes/tags — un seul champ sémantique, celui
+       du mode courant (mode.defaults.cardContent, déjà lu ci-dessus).
+       `mode?.defaults?.cardContent` : défensif pour les faux plugins de
+       test qui ne fournissent pas cette forme complète. */
+    const semanticField = binderPreviewSemanticField(mode?.defaults?.cardContent);
+    const previewFieldLabels: Record<string, string> = {
+      none: t("binder.preview.none"),
+      extrait: t("binder.preview.excerpt"),
+      synopsis: t("binder.preview.synopsis"),
+      summary: t("binder.preview.summary"),
+    };
+    const effectivePreviewField = resolveBinderPreviewField(S.listPanePreviewField, semanticField);
 
      new Setting(container)
       .setName(t("settings.previewField.name"))
       .setDesc(t("settings.previewField.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("none", t("binder.preview.none"))
-          .addOption("extrait", t("binder.preview.excerpt"))
-          .addOption("synopsis", t("binder.preview.synopsis"))
-          .addOption("summary", t("binder.preview.summary"))
-          .addOption("notes", t("binder.preview.notes"))
-          .addOption("tags", t("binder.preview.tags"))
-          .setValue(S.listPanePreviewField)
+      .addDropdown((d) => {
+        for (const key of binderPreviewFieldChoices(semanticField)) {
+          d.addOption(key, previewFieldLabels[key]);
+        }
+        return d
+          .setValue(effectivePreviewField)
           .onChange(async (v) => {
             S.listPanePreviewField = v;
             await this.plugin.saveSettings();
             this.plugin.renderAllViews(true);
-          })
-      );
+          });
+      });
 
      new Setting(container)
       .setName(t("settings.previewLines.name"))
       .addSlider((s) =>
         s
-          .setLimits(1, 6, 1)
-          .setValue(S.listPanePreviewLines)
+          .setLimits(1, BINDER_PREVIEW_MAX_LINES, 1)
+          .setValue(clampBinderPreviewLines(S.listPanePreviewLines))
           .onChange(async (v) => {
             S.listPanePreviewLines = v;
             await this.plugin.saveSettings();

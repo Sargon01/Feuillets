@@ -151,6 +151,16 @@ export const scriveningsHistoryKeymap =
 
 /* --- Titres visuels de feuillet -------------------------------------------- */
 
+/** Rôle déjà connu de Feuillets pour un feuillet (`roleOfFile`,
+ * services/folder-structure.ts) — jamais un second système de rôles inventé
+ * ici. Seule la valeur EXACTE `"chapitre"` déclenche la respiration de
+ * frontière élargie (voir `feuillets-scrivenings-title-role-chapitre`,
+ * styles.css) ; toute autre valeur — `"scene"`, `null`/`undefined` (rôle
+ * inconnu, ou callback non fourni), ou une chaîne quelconque — retombe sans
+ * aucune exception sur le comportement compact existant (micro-chantier
+ * finition Continu, §5/§11). */
+export type ScriveningsSegmentRole = string | null | undefined;
+
 export interface ScriveningsTitleSpec {
   /** Offset composite du DÉBUT du segment (`segment.from`) — jamais la
    * jonction elle-même : cette position reste pleinement éditable. */
@@ -160,29 +170,47 @@ export interface ScriveningsTitleSpec {
   /** Faux uniquement pour le tout premier segment du document : pas de
    * ligne de séparation au-dessus du tout premier titre. */
   divider: boolean;
+  /** Rôle de CE feuillet (celui qui commence ici) — voir `ScriveningsSegmentRole`. */
+  role: ScriveningsSegmentRole;
 }
 
 /** Widget non éditable portant le titre d'UN feuillet (et, sauf pour le
  * premier segment, une ligne de séparation au-dessus). Jamais du Markdown :
  * une simple décoration de bloc, jamais copiée avec le texte, jamais
- * atteinte par le curseur (`ignoreEvent`). */
+ * atteinte par le curseur (`ignoreEvent`). `role` (§2-5 du micro-chantier
+ * finition Continu) ne fait QUE choisir la classe CSS de respiration —
+ * aucune règle de rôle, aucune donnée nouvelle : simple relais de
+ * `ScriveningsTitleSpec.role`, déjà résolu ailleurs (roleOfFile). */
 export class ScriveningsTitleWidget extends BaseWidgetClass {
   constructor(
     public readonly title: string,
-    public readonly divider: boolean
+    public readonly divider: boolean,
+    public readonly role: ScriveningsSegmentRole = undefined
   ) {
     super();
   }
 
   toDOM(): HTMLElement {
-    const cls = this.divider ? "feuillets-scrivenings-title feuillets-scrivenings-title-divider" : "feuillets-scrivenings-title";
-    const el = createDiv({ cls, attr: { "aria-hidden": "true", contenteditable: "false" } });
+    const classes = ["feuillets-scrivenings-title"];
+    if (this.divider) {
+      classes.push("feuillets-scrivenings-title-divider");
+      // Respiration élargie UNIQUEMENT pour un rôle "chapitre" confirmé —
+      // jamais pour le tout premier segment (pas de `divider`), jamais pour
+      // "scene"/inconnu/absent (repli compact, §5/§11 du micro-chantier).
+      if (this.role === "chapitre") classes.push("feuillets-scrivenings-title-role-chapitre");
+    }
+    const el = createDiv({ cls: classes.join(" "), attr: { "aria-hidden": "true", contenteditable: "false" } });
     el.createSpan({ cls: "feuillets-scrivenings-title-text", text: this.title });
     return el;
   }
 
   eq(other: unknown): boolean {
-    return other instanceof ScriveningsTitleWidget && other.title === this.title && other.divider === this.divider;
+    return (
+      other instanceof ScriveningsTitleWidget &&
+      other.title === this.title &&
+      other.divider === this.divider &&
+      other.role === this.role
+    );
   }
 
   ignoreEvent(): boolean {
@@ -193,12 +221,22 @@ export class ScriveningsTitleWidget extends BaseWidgetClass {
 /** Un titre par segment, PREMIER SEGMENT COMPRIS — jamais un libellé de
  * frontière combinant deux titres. `titleFor` doit déjà appliquer le repli
  * `shortTitleFor` puis `basename` (voir ScriveningsView) ; ce module ne
- * décide d'aucune logique de titre, il ne fait que la positionner. */
-export function scriveningsTitleSpecsFor(doc: ScriveningsDocument, titleFor: (file: TFile) => string): ScriveningsTitleSpec[] {
+ * décide d'aucune logique de titre, il ne fait que la positionner. `roleFor`
+ * (optionnel — repli `undefined`, donc compact, si omis : compatibilité des
+ * appelants/tests antérieurs au micro-chantier finition Continu) suit le
+ * même patron d'injection que `titleFor` : la RÉSOLUTION du rôle (roleOfFile)
+ * reste entièrement hors de ce module, jamais un second système inventé
+ * ici. */
+export function scriveningsTitleSpecsFor(
+  doc: ScriveningsDocument,
+  titleFor: (file: TFile) => string,
+  roleFor: (file: TFile) => ScriveningsSegmentRole = () => undefined
+): ScriveningsTitleSpec[] {
   return doc.segments.map((segment, index) => ({
     offset: segment.from,
     title: titleFor(segment.file),
     divider: index > 0,
+    role: roleFor(segment.file),
   }));
 }
 
@@ -220,7 +258,7 @@ export const scriveningsTitlesField = StateFieldTyped.define<ScriveningsTitleSpe
     EditorViewTyped.decorations.from(field, (specs) =>
       DecorationTyped.set(
         (specs as ScriveningsTitleSpec[]).map((spec) =>
-          DecorationTyped.widget({ widget: new ScriveningsTitleWidget(spec.title, spec.divider), side: -1, block: true }).range(spec.offset)
+          DecorationTyped.widget({ widget: new ScriveningsTitleWidget(spec.title, spec.divider, spec.role), side: -1, block: true }).range(spec.offset)
         ),
         true
       )
@@ -298,10 +336,14 @@ export const scriveningsPriorityKeymap =
 export function setScriveningsDecorations(
   view: { dispatch?: (spec: { effects: unknown }) => void } | null | undefined,
   doc: ScriveningsDocument,
-  titleFor: (file: TFile) => string
+  titleFor: (file: TFile) => string,
+  roleFor: (file: TFile) => ScriveningsSegmentRole = () => undefined
 ): void {
   view?.dispatch?.({
-    effects: [setScriveningsBoundaryOffsetsEffect.of(boundaryOffsets(doc)), setScriveningsTitlesEffect.of(scriveningsTitleSpecsFor(doc, titleFor))],
+    effects: [
+      setScriveningsBoundaryOffsetsEffect.of(boundaryOffsets(doc)),
+      setScriveningsTitlesEffect.of(scriveningsTitleSpecsFor(doc, titleFor, roleFor)),
+    ],
   });
 }
 
