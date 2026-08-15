@@ -288,9 +288,11 @@ test("TransformToProjectModal : initialise après le choix explicite d'un type",
 
 test("TransformToProjectModal : préserve le dossier existant et initialise le modèle V2 selon le type", async (t) => {
   for (const [type, hiddenBoardModes, visibleColumns] of [
-    ["fiction", ["timeline"], ["synopsis", "status"]],
+    ["fiction", ["timeline"], ["synopsis", "pov", "status"]],
     ["nonfiction", ["arcs", "timeline"], ["summary"]],
-    ["free", ["arcs", "timeline"], ["synopsis"]],
+    // §7 : Libre planifie désormais avec le résumé long (corrige
+    // l'incohérence historique — voir project-modes.ts).
+    ["free", ["arcs", "timeline"], ["summary"]],
   ]) {
     await t.test(type, async () => {
       const folder = new TFolder("Mes textes");

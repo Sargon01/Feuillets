@@ -47,7 +47,7 @@ export type DefaultSettings = {
   projectWordGoal: number;
   deadlineDate: string;
   stats: Record<string, { start: number; latest: number }>;
-  cardContent: "extrait" | "synopsis";
+  cardContent: "extrait" | "synopsis" | "summary";
   indentParagraphs: boolean;
   outlineCols: Record<string, boolean>;
   outlineWidths: Record<string, number>;
@@ -252,6 +252,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   outlineWidths: {
     title: 260, synopsis: 320, summary: 340, notes: 300, tags: 150, label: 110,
     status: 105, date: 160, compile: 80, filename: 200, words: 85, goal: 85, progress: 90,
+    pov: 110,
   },
   showCardTags: false,
   projects: [],

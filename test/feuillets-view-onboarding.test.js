@@ -51,6 +51,7 @@ class FakeElement {
   createSpan(options = {}) { return this.createEl("span", options); }
   addClass(classNames) { for (const c of classNames.split(" ")) this.classes.add(c); }
   removeClass(className) { this.classes.delete(className); }
+  toggleClass(className, on) { on ? this.classes.add(className) : this.classes.delete(className); }
   hide() { this.hidden = true; }
   setText(text) { this.text = String(text); return this; }
   setAttr() {}

@@ -283,6 +283,7 @@ export const en = {
   "board.options.wholeManuscript": "Whole manuscript",
   "board.options.tagsOnTiles": "Tags on tiles",
   "board.options.bodyExcerpt": "Body: text excerpt",
+  "board.options.bodyContent": "Content",
   "board.options.bodySummary": "Body: summary",
   "board.options.bodySynopsis": "Body: synopsis",
   "board.options.tilesSmall": "Small tiles",
@@ -303,6 +304,7 @@ export const en = {
 
   "board.col.title": "Sheet",
   "board.col.synopsis": "Synopsis",
+  "board.col.pov": "POV",
   "board.col.summary": "Summary",
   "board.col.notes": "Notes",
   "board.col.tags": "Tags",
@@ -330,6 +332,7 @@ export const en = {
   "board.card.summaryPlaceholder": "Summary…",
 
   "board.outline.notesPlaceholder": "Notes…",
+  "board.outline.povPlaceholder": "POV…",
 
 
   "board.arcs.empty": "No label, thread, or POV detected. Add label: Name, thread: hint, or pov: Name in the YAML to build the story arcs view.",

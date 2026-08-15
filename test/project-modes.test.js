@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PROJECT_MODES, resolveType, applyModeDefaults } from "../src/utils/project-modes.js";
+import {
+  PROJECT_MODES,
+  resolveType,
+  applyModeDefaults,
+  semanticPlanningField,
+  resolveBoardCardContent,
+  resolveBoardOutlineColumns,
+} from "../src/utils/project-modes.js";
 import { BOARD_MODES } from "../src/constants.js";
 
 test("la vue centrale Carte/Plan ne propose plus le mode Lecture/Scrivening", () => {
@@ -49,15 +56,17 @@ test("PROJECT_MODES", async (t) => {
     const free = PROJECT_MODES.free.boardDefaults.outlineCols;
     assert.deepEqual(
       Object.keys(fiction).filter((key) => fiction[key]),
-      ["synopsis", "status"]
+      ["synopsis", "pov", "status"]
     );
     assert.deepEqual(
       Object.keys(nonfiction).filter((key) => nonfiction[key]),
       ["summary"]
     );
+    // §7 : corrige l'incohérence historique — Libre planifie avec le résumé
+    // long (sémantique Non-fiction/Libre), jamais le synopsis (Fiction).
     assert.deepEqual(
       Object.keys(free).filter((key) => free[key]),
-      ["synopsis"]
+      ["summary"]
     );
   });
 
@@ -128,5 +137,93 @@ test("applyModeDefaults", async (t) => {
     applyModeDefaults(settings, "recueil");
     assert.equal(settings.boardMode, "board");
     assert.equal(settings.mergeYamlPreset, "roman");
+  });
+});
+
+test("semanticPlanningField — LOT binder isolé/cartes/plan §5", async (t) => {
+  await t.test("fiction/roman → synopsis", () => {
+    assert.equal(semanticPlanningField("fiction"), "synopsis");
+    assert.equal(semanticPlanningField("roman"), "synopsis");
+  });
+
+  await t.test("nonfiction/essai → summary", () => {
+    assert.equal(semanticPlanningField("nonfiction"), "summary");
+    assert.equal(semanticPlanningField("essai"), "summary");
+  });
+
+  await t.test("free/libre → summary", () => {
+    assert.equal(semanticPlanningField("free"), "summary");
+    assert.equal(semanticPlanningField("libre"), "summary");
+  });
+});
+
+test("resolveBoardCardContent — LOT binder isolé/cartes/plan §5", async (t) => {
+  await t.test("fiction + synopsis stocké → synopsis", () => {
+    assert.equal(resolveBoardCardContent("fiction", "synopsis"), "synopsis");
+  });
+
+  await t.test("fiction + ancien summary stocké → synopsis (champ sémantique du mode)", () => {
+    assert.equal(resolveBoardCardContent("fiction", "summary"), "synopsis");
+  });
+
+  await t.test("nonfiction + ancien synopsis stocké → summary (champ sémantique du mode)", () => {
+    assert.equal(resolveBoardCardContent("nonfiction", "synopsis"), "summary");
+  });
+
+  await t.test("free + ancien synopsis stocké → summary (champ sémantique du mode)", () => {
+    assert.equal(resolveBoardCardContent("free", "synopsis"), "summary");
+  });
+
+  await t.test("extrait reste extrait, quel que soit le mode", () => {
+    assert.equal(resolveBoardCardContent("fiction", "extrait"), "extrait");
+    assert.equal(resolveBoardCardContent("nonfiction", "extrait"), "extrait");
+    assert.equal(resolveBoardCardContent("free", "extrait"), "extrait");
+  });
+});
+
+test("resolveBoardOutlineColumns — LOT binder isolé/cartes/plan §6", async (t) => {
+  await t.test("synopsis/summary ne sont jamais activés ensemble", () => {
+    for (const type of ["fiction", "nonfiction", "free"]) {
+      const cols = resolveBoardOutlineColumns(type, { synopsis: true, summary: true });
+      assert.ok(!(cols.synopsis && cols.summary), `${type} : synopsis et summary ensemble`);
+    }
+  });
+
+  await t.test("Fiction : POV par défaut true quand rien n'est stocké", () => {
+    const cols = resolveBoardOutlineColumns("fiction", null);
+    assert.equal(cols.pov, true);
+  });
+
+  await t.test("Fiction : POV stocké à false est respecté", () => {
+    const cols = resolveBoardOutlineColumns("fiction", { pov: false });
+    assert.equal(cols.pov, false);
+  });
+
+  await t.test("Non-fiction/Libre : POV toujours false, même stocké à true", () => {
+    assert.equal(resolveBoardOutlineColumns("nonfiction", { pov: true }).pov, false);
+    assert.equal(resolveBoardOutlineColumns("free", { pov: true }).pov, false);
+  });
+
+  await t.test("ancien synopsis stocké en Libre est relu comme summary (champ sémantique du mode)", () => {
+    const cols = resolveBoardOutlineColumns("free", { synopsis: true });
+    assert.equal(cols.summary, true);
+    assert.equal(cols.synopsis, false);
+  });
+
+  await t.test("aucune des deux clés stockée : utilise le défaut du mode", () => {
+    assert.equal(resolveBoardOutlineColumns("fiction", { label: true }).synopsis, true);
+    assert.equal(resolveBoardOutlineColumns("nonfiction", { label: true }).summary, true);
+  });
+
+  await t.test("anciennes notes/filename/progress/compile n'apparaissent jamais effectivement, même stockées à true", () => {
+    const stored = { notes: true, filename: true, progress: true, compile: true, compiler: true };
+    for (const type of ["fiction", "nonfiction", "free"]) {
+      const cols = resolveBoardOutlineColumns(type, stored);
+      assert.equal(cols.notes, false, type);
+      assert.equal(cols.filename, false, type);
+      assert.equal(cols.progress, false, type);
+      assert.equal(cols.compile, false, type);
+      assert.equal(cols.compiler, false, type);
+    }
   });
 });

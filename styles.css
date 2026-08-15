@@ -378,6 +378,25 @@
   background: var(--feuillets-label-color);
 }
 
+/* Binder isolé (LOT "binder isolé + simplification cartes/plan") : lecture
+ * confortable d'un sous-ensemble déjà isolé (`_binderWorkingRootPath`, voir
+ * feuillets-view.ts § isIsolated / `.feuillets-binder-isolated` posée sur le
+ * `.feuillets-list`). Seules les lignes FICHIER (`.feuillets-item`) sont
+ * concernées : icône de type et chevron réservé disparaissent, la profondeur
+ * ne consomme plus de largeur — le titre et surtout l'aperçu récupèrent tout
+ * l'espace. Les vrais dossiers/sous-dossiers (`.feuillets-folder-row`)
+ * gardent chevron, icône et indentation : l'arborescence n'est jamais
+ * aplatie, seule la présentation des feuillets change. Purement visuel,
+ * aucune donnée touchée. */
+.feuillets-binder-isolated .feuillets-item .feuillets-folder-chevron.is-empty,
+.feuillets-binder-isolated .feuillets-item .feuillets-binder-node-icon {
+  display: none;
+}
+
+.feuillets-binder-isolated .feuillets-item {
+  padding-left: var(--size-4-2);
+}
+
 .feuillets-empty {
   padding: var(--size-4-4) var(--size-4-3);
   color: var(--text-muted);
@@ -676,6 +695,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Statut de la carte (§12 du LOT "binder isolé + simplification
+ * cartes/plan") : toujours visible s'il existe, mais volontairement discret
+ * — jamais de couleur de statut ni de fond, le label reste le seul repère
+ * fortement coloré de la carte (voir liseré `.feuillets-card` déjà posé
+ * plus haut). */
+.feuillets-card-status {
+  flex-shrink: 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
 }
 
 /* C'est la prose du feuillet, pas un libellé d'interface : même

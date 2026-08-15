@@ -3,7 +3,13 @@ import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating } from "../utils/dom.js";
 import { parseStoryDate, stripMarkdown } from "../utils/core.js";
-import { PROJECT_MODES, resolveType } from "../utils/project-modes.js";
+import {
+  PROJECT_MODES,
+  resolveType,
+  resolveBoardCardContent,
+  resolveBoardOutlineColumns,
+  semanticPlanningField,
+} from "../utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
 import { povOf } from "../utils/arc-fields.js";
 import { openSnapshotComparison } from "./comparison-view.js";
@@ -251,9 +257,12 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   gridStyle(el: HTMLElement): void {
+    /* §16 : la taille des Cartes est désormais pilotée uniquement par
+       S.tileSize (Petite/Moyenne/Grande) — l'ancienne propriété S.columns
+       reste stockée pour compatibilité mais n'influence plus jamais ce
+       calcul. */
     const S = this.plugin.settings;
-    if (S.columns > 0) el.style.gridTemplateColumns = `repeat(${S.columns}, 1fr)`;
-    else el.style.gridTemplateColumns = `repeat(auto-fill, minmax(${S.tileSize}px, 1fr))`;
+    el.style.gridTemplateColumns = `repeat(auto-fill, minmax(${S.tileSize}px, 1fr))`;
   }
 
   async _render(force = false): Promise<void> {
@@ -286,7 +295,7 @@ export class BoardView extends BaseFeuilletsView {
     const projectType = resolveType(meta.type);
     const modeConfig = PROJECT_MODES[projectType] || PROJECT_MODES.fiction;
     let mode: string = meta.boardMode || modeConfig.defaults.boardMode;
-    this.currentCardContent = meta.cardContent || modeConfig.defaults.cardContent;
+    this.currentCardContent = resolveBoardCardContent(projectType, meta.cardContent);
 
     let initializedProjectPrefs = false;
     const hiddenModes: string[] = Array.isArray(meta.hiddenBoardModes)
@@ -310,7 +319,11 @@ export class BoardView extends BaseFeuilletsView {
       meta.outlineCols = outlineColumns;
       initializedProjectPrefs = true;
     }
-    this.outlineColumns = outlineColumns;
+    /* §6/§9 : resolveBoardOutlineColumns calcule seulement l'AFFICHAGE
+       effectif (grammaire finale du Plan) à partir de la priorité
+       meta/legacy/defaults ci-dessus — meta.outlineCols garde la donnée
+       brute non migrée. */
+    this.outlineColumns = resolveBoardOutlineColumns(projectType, outlineColumns);
     if (initializedProjectPrefs && typeof this.plugin.saveSettings === "function") void this.plugin.saveSettings();
     const wholeManuscript = meta.boardWholeManuscript !== undefined ? !!meta.boardWholeManuscript : !!S.boardWholeManuscript;
     if (mode === "research") mode = "board";
@@ -618,14 +631,6 @@ export class BoardView extends BaseFeuilletsView {
 
   buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx & { outlineColumns: Record<string, boolean> }): void {
     const { S, meta, pType, wholeManuscript, outlineColumns } = ctx;
-    const addToggleOption = (key: string, label: string) =>
-      menu.addItem((item) =>
-        item.setTitle(label).setChecked(!!S[key]).onClick(async () => {
-          S[key] = !S[key];
-          await this.plugin.saveSettings();
-          void this.render();
-        })
-      );
 
     if (activeMode === "board") {
       menu.addItem((item) => item.setTitle(t("board.options.cardsHeader")).setDisabled(true));
@@ -640,13 +645,18 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
       menu.addSeparator();
-      addToggleOption("showProgress", t("binder.display.progressBars"));
-      addToggleOption("showCardTags", t("board.options.tagsOnTiles"));
-      menu.addSeparator();
-      const contentOptions =
-        pType === "nonfiction"
-          ? [["extrait", t("board.options.bodyExcerpt")], ["summary", t("board.options.bodySummary")]]
-          : [["extrait", t("board.options.bodyExcerpt")], ["synopsis", t("board.options.bodySynopsis")]];
+      /* Grammaire finale des Cartes (§10) : plus aucun toggle Progression ni
+         Tags — ces informations restent disponibles ailleurs (filtres,
+         Plan). Seules 3 options d'affichage subsistent : Portée, Contenu,
+         Taille. */
+      const semanticField = semanticPlanningField(pType);
+      // Le libellé "Résumé long" réutilise EXACTEMENT la traduction déjà
+      // établie pour ce même champ sémantique dans l'aperçu du Binder
+      // (binder.preview.summary) — une seule source de vocabulaire.
+      const contentOptions: [string, string][] =
+        semanticField === "synopsis"
+          ? [[semanticField, t("board.options.bodySynopsis")], ["extrait", t("board.options.bodyContent")]]
+          : [[semanticField, t("binder.preview.summary")], ["extrait", t("board.options.bodyContent")]];
       for (const [val, label] of contentOptions) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(this.currentCardContent === val).onClick(async () => {
@@ -669,8 +679,6 @@ export class BoardView extends BaseFeuilletsView {
       }
     } else if (activeMode === "outline") {
       menu.addItem((item) => item.setTitle(t("board.options.outlineHeader")).setDisabled(true));
-      addToggleOption("showProgress", t("binder.display.progressBars"));
-      menu.addSeparator();
       menu.addItem((item) =>
         item.setTitle(t("board.options.resetColumnWidths")).onClick(async () => {
           S.outlineWidths = Object.assign({}, DEFAULT_SETTINGS.outlineWidths);
@@ -680,20 +688,33 @@ export class BoardView extends BaseFeuilletsView {
       );
       menu.addSeparator();
       menu.addItem((item) => item.setTitle(t("board.options.visibleColumnsHeader")).setDisabled(true));
-      for (const [colKey, label] of [
-        ["synopsis", t("board.col.synopsis")],
-        ["summary", t("board.col.summary")],
-        ["notes", t("board.col.notes")],
-        ["tags", t("board.col.tags")],
-        ["label", t("board.col.label")],
-        ["status", t("board.col.status")],
-        ["date", t("board.col.date")],
-        ["compiler", t("board.col.compiler")],
-        ["filename", t("board.col.filename")],
-        ["words", t("board.col.words")],
-        ["goal", t("board.col.goal")],
-        ["progress", t("board.col.progress")],
-      ]) {
+      /* Grammaire finale du Plan (§17-18) : plus jamais Notes/Nom du
+         fichier/Progression/Compiler dans ce menu, même sur un vieux
+         projet où ces réglages sont encore à `true` en donnée — colonnes
+         allouées par mode (synopsis + POV en Fiction, résumé long en
+         Non-fiction/Libre). */
+      const outlineColumnDefs: [string, string][] =
+        pType === "fiction"
+          ? [
+              ["synopsis", t("board.col.synopsis")],
+              ["pov", t("board.col.pov")],
+              ["label", t("board.col.label")],
+              ["status", t("board.col.status")],
+              ["tags", t("board.col.tags")],
+              ["date", t("board.col.date")],
+              ["words", t("board.col.words")],
+              ["goal", t("board.col.goal")],
+            ]
+          : [
+              ["summary", t("binder.preview.summary")],
+              ["label", t("board.col.label")],
+              ["status", t("board.col.status")],
+              ["tags", t("board.col.tags")],
+              ["date", t("board.col.date")],
+              ["words", t("board.col.words")],
+              ["goal", t("board.col.goal")],
+            ];
+      for (const [colKey, label] of outlineColumnDefs) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(!!outlineColumns[colKey]).onClick(async () => {
             outlineColumns[colKey] = !outlineColumns[colKey];
@@ -934,7 +955,6 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   renderFolderCard(container: HTMLElement, parentFolder: TFolder, folder: TFolder, index: number, siblings: ProjectNode[], _numbering: unknown, _bumpTotal: unknown): void {
-    const S = this.plugin.settings;
     const card = container.createDiv({ cls: "feuillets-card feuillets-card-folder" });
     card.setAttr("title", t("board.folderCard.doubleClickEnter", { name: folder.name }));
     card.addEventListener("contextmenu", (e) => {
@@ -970,15 +990,8 @@ export class BoardView extends BaseFeuilletsView {
       void this.render(true);
     });
 
-    const wcEl = head.createDiv({ cls: "feuillets-card-wc" });
-    const ring = head.createDiv({ cls: "feuillets-ring" });
-    if (!S.showProgress) ring.hide();
-
-    const totalWc = this.plugin.flattenFiles(folder).reduce((acc: number, f: TFile) => acc + (this.wcMap!.get(f.path) || 0), 0);
-    const goal = this.plugin.folderGoal(folder);
-    wcEl.setText(goal > 0 ? `${totalWc} / ${goal}` : String(totalWc));
-    if (S.showProgress) this.fillRing(ring, totalWc, goal);
-
+    /* §15 : plus de nombre de mots, d'objectif affiché ni d'anneau de
+       progression sur la carte dossier — grammaire finale Cartes. */
     const fieldKey = this.currentCardContent === "synopsis" ? "synopsis" : "summary";
     const summary = toValue(folderNote && this.plugin.fmOf(folderNote)[fieldKey]);
     const excerpt = card.createDiv({ cls: "feuillets-card-excerpt" });
@@ -991,7 +1004,6 @@ export class BoardView extends BaseFeuilletsView {
   renderCard(container: HTMLElement, parentFolder: TFolder, file: TFile, index: number, siblings: ProjectNode[], numbering: Map<string, string>, bumpTotal: (n?: number) => void): void {
     const S = this.plugin.settings;
     const role = this.plugin.roleOfFile(file);
-    const goal = this.goalFor(file);
     const card = container.createDiv({ cls: role === "scene" ? "feuillets-card feuillets-card-scene" : "feuillets-card" });
     card.setAttr("title", file.basename);
     card.addEventListener("contextmenu", (e) => {
@@ -1033,6 +1045,17 @@ export class BoardView extends BaseFeuilletsView {
       const povEl = head.createDiv({ cls: "feuillets-card-pov" });
       povEl.setText(pov);
       povEl.setAttr("title", t("board.card.povTooltip", { pov }));
+    }
+
+    /* §12 : statut toujours visible s'il existe — petit, discret, neutre
+       (`.feuillets-card-status`, voir styles.css), jamais de couleur de
+       statut ni de badge : le label reste le seul repère fortement coloré
+       de la carte. */
+    const statusValue = toValue(this.fm(file).status);
+    if (statusValue) {
+      const statusEl = head.createDiv({ cls: "feuillets-card-status" });
+      statusEl.setText(statusValue);
+      statusEl.setAttr("title", statusValue);
     }
 
     const more = head.createDiv({ cls: "feuillets-card-more clickable-icon" });
@@ -1090,10 +1113,6 @@ export class BoardView extends BaseFeuilletsView {
       menu.showAtMouseEvent(e);
     });
 
-    const wcEl = head.createDiv({ cls: "feuillets-card-wc" });
-    const ring = head.createDiv({ cls: "feuillets-ring" });
-    if (!S.showProgress) ring.hide();
-
     if (this.currentCardContent === "synopsis") {
       this.makeClickToEditFmArea(card, file, "synopsis", t("board.card.synopsisPlaceholder"), 6);
     } else if (this.currentCardContent === "summary") {
@@ -1114,12 +1133,12 @@ export class BoardView extends BaseFeuilletsView {
       });
     }
 
-    if (S.showCardTags) this.makeTagsEditor(card, file);
-
+    /* §13 : plus de nombre de mots, d'anneau de progression ni de tags/chips
+       sous la carte — grammaire finale Cartes. Le calcul du nombre de mots
+       reste fait (bumpTotal alimente le total de la barre, les filtres de
+       progression et les objectifs restent fonctionnels ailleurs). */
     const wc = this.wcMap!.get(file.path) || 0;
     bumpTotal(wc);
-    wcEl.setText(String(wc));
-    if (S.showProgress) this.fillRing(ring, wc, goal);
 
     if (!this.filterActive()) this.attachDragHandlers(head, card, parentFolder, index, siblings, container);
   }
@@ -1420,20 +1439,22 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   visibleCols(): { id: string; label: string }[] {
+    /* §18 : grammaire finale du Plan — Titre toujours présent, puis
+       synopsis+POV en Fiction OU résumé long en Non-fiction/Libre, jamais
+       les deux familles ensemble. Notes/nom du fichier/progression/compiler
+       ne sont plus jamais rendus, même si un vieux projet les a encore à
+       `true` en donnée (voir resolveBoardOutlineColumns). */
     const cols = this.outlineColumns || this.plugin.settings.outlineCols;
     const res = [{ id: "title", label: t("board.col.title") }];
     if (cols.synopsis) res.push({ id: "synopsis", label: t("board.col.synopsis") });
+    if (cols.pov) res.push({ id: "pov", label: t("board.col.pov") });
     if (cols.summary) res.push({ id: "summary", label: t("board.col.summary") });
-    if (cols.notes) res.push({ id: "notes", label: t("board.col.notes") });
-    if (cols.tags) res.push({ id: "tags", label: t("board.col.tags") });
     if (cols.label) res.push({ id: "label", label: t("board.col.label") });
     if (cols.status) res.push({ id: "status", label: t("board.col.status") });
+    if (cols.tags) res.push({ id: "tags", label: t("board.col.tags") });
     if (cols.date) res.push({ id: "date", label: t("board.col.date") });
-    if (cols.compile) res.push({ id: "compile", label: t("board.col.compiler") });
-    if (cols.filename) res.push({ id: "filename", label: t("board.col.filename") });
     if (cols.words) res.push({ id: "words", label: t("board.col.words") });
     if (cols.goal) res.push({ id: "goal", label: t("board.col.goal") });
-    if (cols.progress) res.push({ id: "progress", label: t("board.col.progress") });
     return res;
   }
 
@@ -1573,6 +1594,7 @@ export class BoardView extends BaseFeuilletsView {
 
       this.emptyCells(row, cols, {
         synopsis: (cell) => this.makeClickToEditFmArea(cell, child, "synopsis", t("board.card.synopsisPlaceholder"), 1),
+        pov: (cell) => this.makeClickToEditFmArea(cell, child, "pov", t("board.outline.povPlaceholder"), 1),
         summary: (cell) => this.makeClickToEditFmArea(cell, child, "summary", t("board.card.summaryPlaceholder"), 1),
         notes: (cell) => this.makeClickToEditFmArea(cell, child, "notes", t("board.outline.notesPlaceholder"), 1),
         tags: (cell) => this.makeTagsEditor(cell, child),

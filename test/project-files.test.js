@@ -230,9 +230,11 @@ test("createMinimalProject (fiction) : crée la racine réelle, Manuscrit, Front
 
 test("createMinimalProject : initialise les préférences Board du type avant le premier rendu", async (t) => {
   for (const [type, name, hiddenBoardModes, columns, visibleIcons] of [
-    ["fiction", "Roman", ["timeline"], ["synopsis", "status"], ["layout-grid", "list-tree", "git-branch"]],
+    ["fiction", "Roman", ["timeline"], ["synopsis", "pov", "status"], ["layout-grid", "list-tree", "git-branch"]],
     ["nonfiction", "Essai", ["arcs", "timeline"], ["summary"], ["layout-grid", "list-tree"]],
-    ["free", "Carnet", ["arcs", "timeline"], ["synopsis"], ["layout-grid", "list-tree"]],
+    // §7 : Libre planifie désormais avec le résumé long, comme Non-fiction
+    // (corrige l'incohérence historique — voir project-modes.ts).
+    ["free", "Carnet", ["arcs", "timeline"], ["summary"], ["layout-grid", "list-tree"]],
   ]) {
     await t.test(type, async () => {
       const { vault } = createFakeVault([]);
@@ -263,7 +265,7 @@ test("premier rendu Board : distingue les defaults globaux d'un réglage legacy 
     await visibleModesAtFirstBoardRender(vault, settings);
     const meta = settings.projectMeta[result.manuscritPath];
     assert.deepEqual(meta.hiddenBoardModes, ["arcs", "timeline"]);
-    assert.deepEqual(Object.keys(meta.outlineCols).filter((key) => meta.outlineCols[key]), ["synopsis"]);
+    assert.deepEqual(Object.keys(meta.outlineCols).filter((key) => meta.outlineCols[key]), ["summary"]);
   });
 
   await t.test("un global legacy réellement modifié est repris une seule fois", async () => {
@@ -336,7 +338,7 @@ test("createMinimalProject (libre) : crée uniquement Nouveau texte.md sans stru
     Object.keys(settings.projectMeta["Carnet/Manuscrit"].outlineCols).filter(
       (key) => settings.projectMeta["Carnet/Manuscrit"].outlineCols[key]
     ),
-    ["synopsis"]
+    ["summary"]
   );
 });
 

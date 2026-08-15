@@ -283,6 +283,7 @@ export const fr = {
   "board.options.wholeManuscript": "Tout le manuscrit",
   "board.options.tagsOnTiles": "Tags sur les tuiles",
   "board.options.bodyExcerpt": "Corps : extrait du texte",
+  "board.options.bodyContent": "Contenu",
   "board.options.bodySummary": "Corps : résumé",
   "board.options.bodySynopsis": "Corps : synopsis",
   "board.options.tilesSmall": "Tuiles petites",
@@ -303,6 +304,7 @@ export const fr = {
 
   "board.col.title": "Feuillet",
   "board.col.synopsis": "Synopsis",
+  "board.col.pov": "POV",
   "board.col.summary": "Résumé",
   "board.col.notes": "Notes",
   "board.col.tags": "Tags",
@@ -330,6 +332,7 @@ export const fr = {
   "board.card.summaryPlaceholder": "Résumé…",
 
   "board.outline.notesPlaceholder": "Notes…",
+  "board.outline.povPlaceholder": "POV…",
 
 
   "board.arcs.empty": "Aucun label, fil ni POV détecté. Ajoute label: Nom, thread: indice ou pov: Nom dans le YAML pour construire le chemin de fer.",

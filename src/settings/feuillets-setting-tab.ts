@@ -968,81 +968,12 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       t("settings.boardPanel.arcsIntro", { unit })
     );
 
-    new Setting(container)
-      .setName(t("settings.tileSize.name"))
-      .setDesc(t("settings.tileSize.desc"))
-      .addSlider((s) =>
-        s
-          .setLimits(160, 420, 10)
-          .setValue(S.tileSize)
-          .onChange(async (v) => {
-            S.tileSize = v;
-            await this.plugin.saveSettings();
-            this.plugin.renderAllViews(true);
-          })
-      );
-
-    new Setting(container)
-      .setName(t("settings.columns.name"))
-      .setDesc(t("settings.columns.desc"))
-      .addSlider((s) =>
-        s
-          .setLimits(0, 8, 1)
-          .setValue(S.columns)
-          .onChange(async (v) => {
-            S.columns = v;
-            await this.plugin.saveSettings();
-            this.plugin.renderAllViews(true);
-          })
-      );
-
-    new Setting(container)
-      .setName(t("settings.cardContent.name"))
-      .setDesc(t("settings.cardContent.desc"))
-      .addDropdown((d) =>
-        d
-          .addOption("extrait", t("settings.cardContent.excerpt"))
-          .addOption("synopsis", t("settings.cardContent.synopsis"))
-          .setValue(S.cardContent)
-          .onChange(async (v) => {
-            S.cardContent = v as DefaultSettings["cardContent"];
-            await this.plugin.saveSettings();
-            refresh();
-          })
-      );
-
-    new Setting(container)
-      .setName(t("settings.showCardTags.name"))
-      .setDesc(t("settings.showCardTags.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.showCardTags).onChange(async (v) => {
-          S.showCardTags = v;
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.excerptLength.name"))
-      .addText((t2) =>
-        t2.setValue(String(S.excerptLength)).onChange(async (v) => {
-          const n = parseInt(v, 10);
-          S.excerptLength = isNaN(n) ? 420 : Math.max(80, n);
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.showProgress.name"))
-      .setDesc(t("settings.showProgress.desc"))
-      .addToggle((t2) =>
-        t2.setValue(S.showProgress).onChange(async (v) => {
-          S.showProgress = v;
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
+    /* §23 du LOT "binder isolé + simplification cartes/plan" : la
+       personnalisation des Cartes (Portée/Contenu/Taille) se fait
+       désormais uniquement dans le menu local de la vue Cartes — plus de
+       doublon ici pour tileSize/columns/cardContent/showCardTags/
+       excerptLength/showProgress. Ces propriétés restent en donnée pour
+       compatibilité (anciens réglages), simplement retirées de cette UI. */
 
     container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.startupPanels") });
 

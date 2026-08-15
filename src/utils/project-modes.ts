@@ -60,7 +60,7 @@ export type BoardProjectDefaults = {
 const FICTION_BOARD_DEFAULTS: BoardProjectDefaults = {
   hiddenBoardModes: ["timeline"],
   outlineCols: {
-    synopsis: true, summary: false, notes: false, tags: false, label: false,
+    synopsis: true, summary: false, pov: true, notes: false, tags: false, label: false,
     status: true, date: false, compile: false, filename: false,
     words: false, goal: false, progress: false,
   },
@@ -69,7 +69,7 @@ const FICTION_BOARD_DEFAULTS: BoardProjectDefaults = {
 const NONFICTION_BOARD_DEFAULTS: BoardProjectDefaults = {
   hiddenBoardModes: ["arcs", "timeline"],
   outlineCols: {
-    synopsis: false, summary: true, notes: false, tags: false, label: false,
+    synopsis: false, summary: true, pov: false, notes: false, tags: false, label: false,
     status: false, date: false, compile: false, filename: false,
     words: false, goal: false, progress: false,
   },
@@ -78,7 +78,7 @@ const NONFICTION_BOARD_DEFAULTS: BoardProjectDefaults = {
 const FREE_BOARD_DEFAULTS: BoardProjectDefaults = {
   hiddenBoardModes: ["arcs", "timeline"],
   outlineCols: {
-    synopsis: true, summary: false, notes: false, tags: false, label: false,
+    synopsis: false, summary: true, pov: false, notes: false, tags: false, label: false,
     status: false, date: false, compile: false, filename: false,
     words: false, goal: false, progress: false,
   },
@@ -259,4 +259,79 @@ export function applyModeDefaults(settings: FeuilletsSettings, type: string | nu
   const mode = PROJECT_MODES[resolveType(type)];
   Object.assign(settings, mode.defaults);
   settings.mergeYamlPreset = mode.yamlPreset;
+}
+
+/* ===== LOT "binder isolé + simplification cartes/plan" : sémantique unique
+ * par mode (§5-6) — Fiction planifie avec un synopsis, Non-fiction/Libre
+ * avec un résumé long, jamais les deux à la fois. Aucune migration sur
+ * disque : ces fonctions résolvent seulement l'affichage effectif à partir
+ * d'une éventuelle ancienne donnée (synopsis en Non-fiction/Libre, summary
+ * en Fiction, etc.). */
+
+/** Champ de planification sémantique du mode : "synopsis" en Fiction,
+ * "summary" en Non-fiction/Libre. Jamais les deux simultanément. */
+export type SemanticPlanningField = "synopsis" | "summary";
+
+export function semanticPlanningField(type: string | null | undefined): SemanticPlanningField {
+  return resolveType(type) === "fiction" ? "synopsis" : "summary";
+}
+
+/** Contenu effectif d'une carte (mode Cartes) : soit l'extrait du corps du
+ * fichier, soit le champ de planification sémantique du mode — jamais
+ * "synopsis" ET "summary" comme deux choix distincts proposés à
+ * l'utilisateur (voir §14). */
+export type BoardCardContent = "extrait" | "synopsis" | "summary";
+
+export function resolveBoardCardContent(
+  type: string | null | undefined,
+  stored: unknown
+): BoardCardContent {
+  if (stored === "extrait") return "extrait";
+  return semanticPlanningField(type);
+}
+
+/** Colonnes autorisées du Plan par mode — jamais notes/nom du fichier/
+ * progression/compiler, quel que soit l'ancien réglage stocké (§6/§18). */
+const BOARD_OUTLINE_COMMON_COLS = ["label", "status", "tags", "date", "words", "goal"] as const;
+
+const BOARD_OUTLINE_ALWAYS_HIDDEN = ["notes", "filename", "progress", "compile", "compiler"] as const;
+
+/** Calcule les colonnes Plan effectivement affichables pour un mode donné,
+ * à partir d'un éventuel ancien objet de colonnes stocké. Ne migre rien sur
+ * disque : `stored` n'est jamais modifié, seul le résultat calculé change
+ * d'un rendu à l'autre. */
+export function resolveBoardOutlineColumns(
+  type: string | null | undefined,
+  stored?: Record<string, boolean> | null
+): Record<string, boolean> {
+  const resolvedType = resolveType(type);
+  const isFiction = resolvedType === "fiction";
+  const defaults = PROJECT_MODES[resolvedType].boardDefaults.outlineCols;
+  const s = stored || {};
+
+  const hasSemanticKey = s.synopsis !== undefined || s.summary !== undefined;
+  const semanticEnabled = hasSemanticKey
+    ? !!(s.synopsis || s.summary)
+    : !!(isFiction ? defaults.synopsis : defaults.summary);
+
+  const result: Record<string, boolean> = {};
+
+  result.synopsis = isFiction ? semanticEnabled : false;
+  result.summary = isFiction ? false : semanticEnabled;
+
+  if (isFiction) {
+    result.pov = s.pov !== undefined ? !!s.pov : !!defaults.pov;
+  } else {
+    result.pov = false;
+  }
+
+  for (const key of BOARD_OUTLINE_COMMON_COLS) {
+    result[key] = s[key] !== undefined ? !!s[key] : !!defaults[key];
+  }
+
+  for (const key of BOARD_OUTLINE_ALWAYS_HIDDEN) {
+    result[key] = false;
+  }
+
+  return result;
 }

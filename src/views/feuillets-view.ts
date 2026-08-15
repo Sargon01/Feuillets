@@ -1974,6 +1974,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        compacte : [icône manuscrit] ‹ nom réel du dossier courant — jamais
        de fil d'Ariane complet, jamais de chemin affiché. */
     const isIsolated = treeRoot.path !== projectRoot.path;
+    treePane.toggleClass("feuillets-binder-isolated", isIsolated);
 
     /* Clic sur le nom courant (isolé ou non) : replie/déplie la branche de
        treeRoot — comportement "tout replier/déplier" existant, inchangé,
