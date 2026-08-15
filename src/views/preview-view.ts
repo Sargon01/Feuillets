@@ -1,4 +1,5 @@
 import {
+  compileScopesEqual,
   createProjectScope,
   createFileScope,
   createFolderScope,
@@ -6,14 +7,15 @@ import {
   type CompileScope,
 } from "../services/compile-scope.js";
 import { ItemView, MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
-import { VIEW_BOARD, VIEW_PREVIEW } from "../constants.js";
+import { VIEW_PREVIEW } from "../constants.js";
+import type { ScriveningsScrollAnchor } from "../utils/cm-scrivenings-scroll.js";
 import { resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
 import { paginateManuscript } from "../services/export-pdf.js";
 import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
-import { compiledTitleFor, fmOf, shortTitleFor, stripFrontmatter } from "../services/frontmatter.js";
+import { compiledTitleFor, fmOf, shortTitleFor, splitFrontmatter, stripFrontmatter } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
 import { promptText } from "../ui/basic-modals.js";
 import { t } from "../i18n/index.js";
@@ -34,11 +36,8 @@ import {
   type SourceBlockPosition,
 } from "./preview-source-map.js";
 import {
-  findScriveningsScroller,
   findSourceScroller,
   progressWithinSection,
-  SCRIVENINGS_SCENE_SELECTOR,
-  scriveningsAnchor,
   scrollableAmount,
   scrollProgress,
   scrollTopForProgress,
@@ -78,6 +77,22 @@ type PreviewViewSettings = FeuilletsSettings & {
   manuscriptAuthor?: string;
 };
 
+/** LOT 3 — surface MINIMALE de Continu (ScriveningsView) réellement
+ * consommée par PreviewView, jamais importée comme dépendance runtime
+ * (`import type` uniquement, voir cm-scrivenings-scroll.js pour le même
+ * patron). `getMemberPaths()` renvoie `readonly string[]` : c'est le type
+ * réel exposé par ScriveningsView, une composition affichée ne se modifie
+ * jamais depuis l'extérieur. */
+export type ContinuSourceView = {
+  compileScope: CompileScope | null;
+  getMemberPaths(): readonly string[];
+  getLiveBody(path: string): string | null;
+  getScrollElement(): HTMLElement | null;
+  getScrollAnchor(): ScriveningsScrollAnchor | null;
+  scrollToAnchor(path: string, progress: number): void;
+  openSingleMember(path: string): Promise<boolean>;
+};
+
 export type PreviewViewPlugin = {
   settings: PreviewViewSettings;
   getProjectFolder(): TFolder | null;
@@ -91,6 +106,10 @@ export type PreviewViewPlugin = {
   /** Portée d'export de session, partagée avec le Binder et Édition — voir
    * services/export-workflow.ts. */
   activeExportScope?: CompileScope | null;
+  /** LOT 3 — Continu CENTRAL de travail (main.ts#getCentralContinuView),
+   * l'UNIQUE définition réutilisée par PreviewView.linkedContinuView() —
+   * jamais une seconde résolution ici. */
+  getCentralContinuView?(): ContinuSourceView | null;
 };
 
 export type ZoomMode = "fit-width" | "fit-page" | "manual";
@@ -147,6 +166,12 @@ type PreviewSource = {
  * à chaque frappe, assez court pour suivre l'écriture de près. Ce délai ne
  * déclenche JAMAIS de compilation — seulement le rendu d'un seul fichier. */
 const REFRESH_DELAY_MS: Record<PreviewMode, number> = { scene: 400, chapter: 850, part: 850, manuscript: 1500 };
+
+/** LOT 3 — délai de coalescence du rafraîchissement Preview déclenché par
+ * une frappe dans Continu (voir PreviewView.onContinuDocumentChanged). Ne
+ * déclenche jamais de compilation par frappe : seul le timer est réarmé,
+ * `refreshPreview()` réutilise le pipeline EXISTANT à échéance. */
+const CONTINU_PREVIEW_REFRESH_MS = 850;
 
 /** État affiché discrètement dans la barre d'outils. */
 export type PreviewStatus = "fresh" | "stale" | "rendering" | "error";
@@ -352,9 +377,10 @@ export class PreviewView extends ItemView {
   syncScroller: HTMLElement | null = null;
   /** Fichier réellement suivi — affiché dans la barre du bas. */
   syncSourcePath: string | null = null;
-  private syncKind: "markdown" | "scrivenings" | null = null;
-  /** Conteneur du panneau Scrivening suivi, où relire ses blocs de scène. */
-  private syncHost: HTMLElement | null = null;
+  /** LOT 3 : "scrivenings" (ancienne recherche DOM dans BoardView, jamais le
+   * nouveau Continu CodeMirror) a laissé place à "continu" — voir
+   * linkedContinuView() et bindSourcePane(), seule source de cette valeur. */
+  private syncKind: "markdown" | "continu" | null = null;
   private syncScrollerCleanup: (() => void) | null = null;
   /** Feuillet explicitement ouvert depuis une portée de lecture. Cette
    * sélection déclenche le suivi sans transformer la portée du rendu. */
@@ -383,6 +409,12 @@ export class PreviewView extends ItemView {
    * l'éditeur. Son premier scroll (toujours vers le haut) ne doit surtout
    * pas être renvoyé vers l'aperçu. */
   private preservingPreviewScrollRequestId: number | null = null;
+  /** LOT 3 : ancre reçue par followCompileScope(), appliquée par
+   * onFrameLoad() une fois le nouveau rendu réellement chargé — `await
+   * setCompileScope()` ne garantit PAS que l'iframe ait fini de charger
+   * (l'événement `load` est asynchrone, voir mountTemplatePreview), donc
+   * jamais appliquée directement depuis followCompileScope(). */
+  private pendingContinuAnchor: ScriveningsScrollAnchor | null = null;
 
   status: PreviewStatus = "fresh";
   /** Feuillet réellement affiché (modes Scène/Chapitre) — sert d'en-tête
@@ -393,9 +425,16 @@ export class PreviewView extends ItemView {
   private pendingZoom: { scale: number; mode: ZoomMode } | null = null;
   private resizeObserver: ResizeObserver | null = null;
 
-  private compileScope: CompileScope | null = null;
+  private _compileScope: CompileScope | null = null;
 
-
+  /** LOT 3 — lecture publique du scope actif, nécessaire à
+   * main.ts#syncExistingPreviewScope (qui doit repérer le Preview du bon
+   * projet SANS passer par cette instance) — même patron que
+   * ScriveningsView.compileScope. Écriture toujours privée : voir
+   * `_compileScope` ci-dessus, jamais assigné hors de cette classe. */
+  get compileScope(): CompileScope | null {
+    return this._compileScope;
+  }
 
   /* Dernier chemin CONCRET (dossier ou feuillet) explicitement ouvert dans
      l'Aperçu via setCompileScope(). Repère de NAVIGATION uniquement : il ne
@@ -422,9 +461,37 @@ export class PreviewView extends ItemView {
 
   async setCompileScope(scope: CompileScope): Promise<void> {
     this.rememberScopedNavigation(scope);
-    this.compileScope = scope;
+    this._compileScope = scope;
     this.updateUI();
     await this.refreshPreview();
+  }
+
+  /** LOT 3 — pont Continu → Preview : pose EXACTEMENT le même CompileScope
+   * que Continu vient de résoudre (via setCompileScope() EXISTANT, aucun
+   * second chemin de compilation), puis, une fois le nouveau rendu
+   * RÉELLEMENT chargé (voir onFrameLoad, qui consomme `pendingContinuAnchor`
+   * — `await setCompileScope()` seul ne garantit pas que l'iframe ait fini
+   * de charger, son événement `load` étant asynchrone), applique `anchor`
+   * si fourni. Ne prend jamais le focus, ne déplace jamais la leaf. */
+  async followCompileScope(scope: CompileScope, anchor?: ScriveningsScrollAnchor | null): Promise<void> {
+    this.pendingContinuAnchor = anchor ?? null;
+    await this.setCompileScope(scope);
+  }
+
+  /** LOT 3 — pont Continu → Preview : signalée par
+   * main.ts#notifyContinuDocumentChanged après une frappe ACCEPTÉE dans
+   * Continu. N'attend ni le disque, ni la sauvegarde différée, ne déclenche
+   * aucun rendu immédiat — coalesce simplement le timer de rafraîchissement
+   * EXISTANT (schedulePreviewRefresh) à ~850 ms, réutilisé tel quel. */
+  onContinuDocumentChanged(paths: readonly string[]): void {
+    if (this.closed) return;
+    const continu = this.linkedContinuView();
+    if (!continu) return;
+    const members = new Set(continu.getMemberPaths());
+    const touched = paths.some((path) => members.has(path));
+    if (!touched) return;
+    this.setStatus("stale");
+    this.schedulePreviewRefresh(CONTINU_PREVIEW_REFRESH_MS);
   }
 
   /**
@@ -698,17 +765,24 @@ export class PreviewView extends ItemView {
     // Même portée : ouvrir le fichier ne déplace pas la lecture en cours.
   }
 
-  private schedulePreviewRefresh(): void {
+  /** LOT 3 : `delay` optionnel — sans argument, comportement historique
+   * EXACT (délai selon `this.mode`). Avec un délai explicite (Continu,
+   * ~850 ms), le MÊME délai est réutilisé si le scroll suspend
+   * temporairement le déclenchement — jamais recalculé depuis `this.mode`
+   * dans ce cas, un SEUL timer de refresh réutilisé (`this.refreshTimer`,
+   * `cancelSceneRefresh` ci-dessous). */
+  private schedulePreviewRefresh(delay?: number): void {
     if (this.closed || typeof window === "undefined") return;
+    const effectiveDelay = delay ?? REFRESH_DELAY_MS[this.mode];
     this.cancelSceneRefresh();
     this.refreshTimer = window.setTimeout(() => {
       this.refreshTimer = null;
       if (Date.now() - this.lastPreviewScrollAt < SCROLL_SYNC_SUSPEND_MS) {
-        this.schedulePreviewRefresh();
+        this.schedulePreviewRefresh(delay);
         return;
       }
       void this.refreshPreview();
-    }, REFRESH_DELAY_MS[this.mode]);
+    }, effectiveDelay);
   }
 
   private cancelSceneRefresh(): void {
@@ -804,12 +878,29 @@ export class PreviewView extends ItemView {
     return this.lastEditorChangeAt > this.lastFileSwitchAt;
   }
 
-  /** Contenu à utiliser pour LE RENDU de l'Aperçu : le tampon vivant quand il
-   * est digne de confiance (voir ci-dessus), `cachedRead()` sinon. */
+  /** Contenu à utiliser pour LE RENDU de l'Aperçu — trois priorités :
+   * 1. LOT 3 — Continu LIÉ (voir linkedContinuView()) : le corps VIVANT de
+   *    `file` dans Continu (getLiveBody), recomposé avec le frontmatter
+   *    DISQUE courant (splitFrontmatter) — jamais une écriture, jamais un
+   *    changement de langue/template/pagination : seule la string Markdown
+   *    fournie au pipeline EXISTANT change (voir §9 du lot, barrière
+   *    hyphenation).
+   * 2. le tampon vivant d'un MarkdownView, quand il est digne de confiance
+   *    (voir liveBufferIsTrustworthy) — comportement historique inchangé.
+   * 3. `cachedRead()` — repli disque historique inchangé. */
   private async readFileForPreview(
     file: TFile,
     fallbackRead: (file: TFile) => Promise<string> = (f) => this.app.vault.cachedRead(f)
   ): Promise<string> {
+    const continu = this.linkedContinuView();
+    if (continu) {
+      const liveBody = continu.getLiveBody(file.path);
+      if (typeof liveBody === "string") {
+        const raw = await fallbackRead(file);
+        const { frontmatter } = splitFrontmatter(raw);
+        return frontmatter + liveBody;
+      }
+    }
     if (this.liveBufferIsTrustworthy()) {
       const editor = this.editorForFile(file);
       if (editor) return editor.getValue();
@@ -1447,6 +1538,16 @@ export class PreviewView extends ItemView {
     } else {
       this.updateVisibleFeuillet();
     }
+
+    // LOT 3 — pont Continu → Preview (followCompileScope) : l'ancre reçue
+    // ne peut être appliquée qu'ICI, une fois l'iframe RÉELLEMENT chargée
+    // (son événement `load` est asynchrone — voir mountTemplatePreview).
+    // A le dernier mot sur la position, après le rebranchement ci-dessus.
+    if (this.pendingContinuAnchor) {
+      const continuAnchor = this.pendingContinuAnchor;
+      this.pendingContinuAnchor = null;
+      this.scrollPreviewToAnchor(continuAnchor);
+    }
   }
 
   /* =================== Clic dans l'Aperçu → éditeur =====================
@@ -1466,6 +1567,15 @@ export class PreviewView extends ItemView {
   }
 
   private onPreviewBlockClick(event: { target: unknown; preventDefault(): void }): void {
+    // LOT 3, §21 : Continu lié → un simple clic de navigation ne doit
+    // JAMAIS ouvrir un Markdown et détruire Continu (openPreviewBlockInEditor
+    // appelle `getLeafForOpeningFile()`, qui peut retomber sur la leaf
+    // CENTRALE actuellement occupée par Continu). Le scroll bidirectionnel
+    // reste la navigation normale ; « Ouvrir ce feuillet » reste l'action
+    // explicite pour quitter Continu vers Markdown (voir openVisibleFeuillet).
+    // Ni les marqueurs, ni le calcul ligne/colonne ci-dessous ne changent.
+    if (this.linkedContinuView()) return;
+
     const target = event.target as Element | null;
     if (!target || typeof target.closest !== "function") return;
 
@@ -1982,22 +2092,14 @@ export class PreviewView extends ItemView {
     return null;
   }
 
-  /** Panneau Scrivening visible, s'il y en a un : plusieurs feuillets dans
-   * un seul défilement, avec un `data-path` par scène. */
-  private activeScriveningsHost(): HTMLElement | null {
-    const workspace = this.app.workspace as unknown as {
-      getLeavesOfType?(type: string): Array<{ view?: { contentEl?: HTMLElement } }>;
-    };
-    for (const leaf of workspace.getLeavesOfType?.(VIEW_BOARD) || []) {
-      const contentEl = leaf?.view?.contentEl;
-      if (contentEl && findScriveningsScroller(contentEl)) return contentEl;
-    }
-    return null;
-  }
-
   /** (Re)branche l'écoute de défilement sur le panneau source pertinent.
    * Idempotent : rebrancher sur le même élément ne pose pas un second
-   * écouteur (fuite classique quand la feuille active change souvent). */
+   * écouteur (fuite classique quand la feuille active change souvent).
+   *
+   * LOT 3, ordre de priorité : 1. Continu LIÉ (linkedContinuView()) —
+   * TOUJOURS vérifié en premier, y compris quand `preferredMarkdown` est
+   * fourni : un clic dans le Binder ne doit jamais déconnecter Continu ;
+   * 2. MarkdownView historique ; 3. aucune source. */
   bindSourcePane(preferredMarkdown?: { file: TFile | null; contentEl: HTMLElement | null }): void {
     if (this.closed) return;
     if (!this.syncScrollEnabled) {
@@ -2005,27 +2107,27 @@ export class PreviewView extends ItemView {
       return;
     }
 
-    let kind: "markdown" | "scrivenings" | null = null;
+    let kind: "markdown" | "continu" | null = null;
     let scroller: HTMLElement | null = null;
     let path: string | null = null;
-    let host: HTMLElement | null = null;
 
-    const markdown = preferredMarkdown || this.activeMarkdownView();
-    if (markdown && this.isPreviewableFile(markdown.file)) {
-      if (this.synchronizedFeuilletPath && markdown.file?.path !== this.synchronizedFeuilletPath) {
-        // Le changement de focus ne doit jamais substituer une autre scène
-        // à celle que l'utilisatrice vient explicitement d'ouvrir.
-        this.stopContinuousSync();
-        return;
-      }
-      kind = "markdown";
-      path = markdown.file?.path ?? null;
-      scroller = findSourceScroller(markdown.contentEl) as HTMLElement | null;
-    } else if (!markdown) {
-      host = this.activeScriveningsHost();
-      if (host) {
-        kind = "scrivenings";
-        scroller = findScriveningsScroller(host) as HTMLElement | null;
+    const continu = this.linkedContinuView();
+    if (continu) {
+      kind = "continu";
+      scroller = continu.getScrollElement();
+      path = continu.getScrollAnchor()?.path ?? null;
+    } else {
+      const markdown = preferredMarkdown || this.activeMarkdownView();
+      if (markdown && this.isPreviewableFile(markdown.file)) {
+        if (this.synchronizedFeuilletPath && markdown.file?.path !== this.synchronizedFeuilletPath) {
+          // Le changement de focus ne doit jamais substituer une autre scène
+          // à celle que l'utilisatrice vient explicitement d'ouvrir.
+          this.stopContinuousSync();
+          return;
+        }
+        kind = "markdown";
+        path = markdown.file?.path ?? null;
+        scroller = findSourceScroller(markdown.contentEl) as HTMLElement | null;
       }
     }
 
@@ -2056,7 +2158,6 @@ export class PreviewView extends ItemView {
     }
     this.syncKind = kind;
     this.syncSourcePath = path;
-    this.syncHost = host;
     if (this.followedEl) this.followedEl.textContent = path || t("preview.noEditorFollowed");
   }
 
@@ -2066,7 +2167,6 @@ export class PreviewView extends ItemView {
     this.syncScrollerCleanup?.();
     this.syncScrollerCleanup = null;
     this.syncScroller = null;
-    this.syncHost = null;
     this.syncKind = null;
     this.syncSourcePath = null;
     this.syncingFromEditor = false;
@@ -2149,13 +2249,17 @@ export class PreviewView extends ItemView {
    * croisées pendant une inertie de trackpad. */
   private scheduleAutoOpenVisibleFeuillet(): void {
     if (typeof window === "undefined") return;
+    // LOT 3, §19 : un scroll Preview lié à Continu déplace Continu, jamais
+    // openFile() — l'ouverture automatique historique ne doit jamais
+    // remplacer Continu par un Markdown ni créer de leaf.
+    if (this.linkedContinuView()) return;
     if (this.autoOpenVisibleTimer !== null) window.clearTimeout(this.autoOpenVisibleTimer);
     this.autoOpenVisibleTimer = window.setTimeout(() => {
       this.autoOpenVisibleTimer = null;
       if (this.closed || !this.isAutoOpenPreview) return;
       const path = this.visibleFeuilletPathAtViewport();
       if (!path || path === this.synchronizedFeuilletPath) return;
-      void this.openVisibleFeuillet({ focusEditor: false, alignFromPreview: true });
+      void this.openVisibleFeuillet({ focusEditor: false, alignFromPreview: true, origin: "auto" });
     }, AUTO_OPEN_VISIBLE_DELAY_MS);
   }
 
@@ -2256,26 +2360,18 @@ export class PreviewView extends ItemView {
     return { top, height: Math.max(0, end - top) };
   }
 
-  /** Position visée dans l'aperçu pour l'état actuel du panneau source. */
+  /** Position visée dans l'aperçu pour l'état actuel du panneau source.
+   * LOT 3 : seulement atteint pour `syncKind === "markdown"` — la branche
+   * "continu" est traitée en amont par applySourceToPreview() via
+   * scrollPreviewToAnchor(), jamais ici (voir linkedContinuView()). */
   private previewTarget(): number | null {
     const viewport = this.previewViewport;
     const scroller = this.syncScroller;
     if (!viewport || !scroller) return null;
 
     const globalProgress = scrollProgress(scroller);
-    let path = this.syncSourcePath;
-    let progress = globalProgress;
-
-    if (this.syncKind === "scrivenings") {
-      const scenes = this.syncHost?.querySelectorAll<HTMLElement>(SCRIVENINGS_SCENE_SELECTOR);
-      const anchor = scriveningsAnchor(scroller, scenes ? Array.from(scenes) : null);
-      if (anchor) {
-        path = anchor.path;
-        progress = anchor.progress;
-      } else {
-        path = null;
-      }
-    }
+    const path = this.syncSourcePath;
+    const progress = globalProgress;
 
     const section = this.sectionForPath(path);
     // Aucun repère : progression relative pure (repli historique).
@@ -2319,6 +2415,62 @@ export class PreviewView extends ItemView {
     return section.height - (this.previewViewport?.clientHeight || 0) > 0;
   }
 
+  /* ========================= LOT 3 — pont Continu ======================
+   * Continu fournit une ENTRÉE différente au pipeline Preview EXISTANT ;
+   * une fois cette entrée fournie, le pipeline (Markdown → HTML, pagination,
+   * hyphenation, templates) reste identique — voir readFileForPreview et
+   * la barrière du lot. Rien ci-dessous ne touche au rendu. */
+
+  /** Continu réellement LIÉ à CET aperçu — l'UNIQUE définition : le Continu
+   * central de travail existe, ET les deux CompileScope (Preview et Continu)
+   * sont structurellement égaux (compileScopesEqual, jamais une comparaison
+   * par référence). `null` dès que l'un des deux scopes est absent ou
+   * qu'ils divergent — par exemple après un clic manuel dans le fil
+   * d'Ariane de l'Aperçu (§22 du lot) : Preview cesse alors de suivre
+   * Continu jusqu'à la prochaine action Binder/Continu qui les réaligne,
+   * jamais l'inverse. */
+  private linkedContinuView(): ContinuSourceView | null {
+    const continu = this.plugin.getCentralContinuView?.();
+    if (!continu) return null;
+    if (!this.compileScope || !continu.compileScope) return null;
+    if (!compileScopesEqual(this.compileScope, continu.compileScope)) return null;
+    return continu;
+  }
+
+  /** Ancre { path, progress } du feuillet réellement visible dans l'Aperçu,
+   * au sens des mêmes repères `data-source-path` que le reste de la
+   * synchronisation — jamais un ratio scrollTop global. `null` si le
+   * viewport, le feuillet visible ou sa section sont indisponibles. */
+  private previewAnchorAtViewport(): ScriveningsScrollAnchor | null {
+    const viewport = this.previewViewport;
+    if (!viewport) return null;
+    const path = this.visibleFeuilletPathAtViewport();
+    if (!path) return null;
+    const section = this.sectionForPath(path);
+    if (!section) return null;
+    return { path, progress: progressWithinSection(viewport.scrollTop, section, viewport.clientHeight || 0) };
+  }
+
+  /** Replace le viewport de l'Aperçu sur `anchor` — même repérage de
+   * section que le reste de la synchronisation (sectionForPath), jamais un
+   * ratio global. Sans effet si `anchor.path` n'a aucune section dans le
+   * rendu courant, ou si la cible est à moins d'1 px de la position
+   * actuelle (aucune écriture inutile de scrollTop). Met à jour le feuillet
+   * visible via le mécanisme EXISTANT après déplacement — aucun breadcrumb
+   * propre à Continu. */
+  private scrollPreviewToAnchor(anchor: ScriveningsScrollAnchor): void {
+    const viewport = this.previewViewport;
+    if (!viewport) return;
+    const section = this.sectionForPath(anchor.path);
+    if (!section) return;
+    const raw = scrollTopWithinSection(section, viewport.clientHeight || 0, anchor.progress);
+    const maxScrollTop = Math.max(0, scrollableAmount(viewport));
+    const target = Math.max(0, Math.min(raw, maxScrollTop));
+    if (Math.abs(target - viewport.scrollTop) < 1) return;
+    viewport.scrollTop = target;
+    this.updateVisibleFeuillet();
+  }
+
   applySourceToPreview(): void {
     if (this.closed || !this.syncScrollEnabled) return;
     const viewport = this.previewViewport;
@@ -2326,6 +2478,21 @@ export class PreviewView extends ItemView {
     // L'utilisatrice défile l'aperçu en ce moment : on ne lui reprend pas
     // la main (reprise automatique après une courte inactivité).
     if (Date.now() - this.lastPreviewScrollAt < SCROLL_SYNC_SUSPEND_MS) return;
+
+    // LOT 3 — Continu → Preview : l'ancre EXACTE de Continu, jamais un ratio
+    // de progression globale (voir scrollPreviewToAnchor, seule écriture de
+    // scrollTop pour cette branche — ses propres garde-fous de seuil/bornage
+    // remplacent SCROLL_SYNC_EPSILON_PX pour ce cas).
+    if (this.syncKind === "continu") {
+      const continu = this.linkedContinuView();
+      if (!continu) return;
+      const anchor = continu.getScrollAnchor();
+      if (!anchor) return;
+      this.syncingFromEditor = true;
+      this.scrollPreviewToAnchor(anchor);
+      this.releaseAfterFrame(() => { this.syncingFromEditor = false; });
+      return;
+    }
 
     const target = this.previewTarget();
     if (target == null) return;
@@ -2344,12 +2511,22 @@ export class PreviewView extends ItemView {
     if (!viewport || !scroller) return;
     if (Date.now() - this.lastSourceScrollAt < SCROLL_SYNC_SUSPEND_MS) return;
 
-    /* Sens retour : seule la source Markdown est traitée finement. Une vue
-       Scrivening reste en progression relative — ses blocs sont bien
-       repérés, mais y écrire une position à partir de l'aperçu supposerait
-       de savoir quelle scène l'aperçu montre en tête, ce que les repères
-       actuels ne garantissent qu'au feuillet près (voir la limite
-       documentée dans preview-scroll-sync.ts). */
+    // LOT 3 — Preview → Continu : ancre EXACTE lue dans le DOM rendu, jamais
+    // un ratio scrollTop global transféré au scroller de Continu.
+    if (this.syncKind === "continu") {
+      const continu = this.linkedContinuView();
+      if (!continu) return;
+      const anchor = this.previewAnchorAtViewport();
+      if (!anchor) return;
+      const current = continu.getScrollAnchor();
+      if (current && current.path === anchor.path && Math.abs(current.progress - anchor.progress) < 0.01) return;
+      this.syncingFromPreview = true;
+      continu.scrollToAnchor(anchor.path, anchor.progress);
+      this.releaseAfterFrame(() => { this.syncingFromPreview = false; });
+      return;
+    }
+
+    /* Sens retour : seule la source Markdown est traitée finement. */
     /* Strictement inverse de previewTarget : même conversion, même repli. */
     const found = this.syncKind === "markdown" ? this.sectionForPath(this.syncSourcePath) : null;
     const section = found && (this.isLongFormPreview || this.sectionHasUsableRange(found)) ? found : null;
@@ -2455,9 +2632,17 @@ export class PreviewView extends ItemView {
 
   /** Ouvre le feuillet actuellement lu sans changer ni l'étendue, ni la
    * position, ni le zoom de l'aperçu. Le Binder suit le dossier parent et
-   * son écoute de `file-open` sélectionne ensuite le fichier actif. */
+   * son écoute de `file-open` sélectionne ensuite le fichier actif.
+   *
+   * LOT 3, §20 — `origin` distingue l'action EXPLICITE (bouton « Ouvrir ce
+   * feuillet ») de l'ouverture AUTOMATIQUE historique (fin de scroll en
+   * portée Partie/Manuscrit/Dossier/Projet) : seule l'action explicite
+   * délègue à Continu quand il est lié — l'automatique n'atteint de toute
+   * façon jamais cette méthode dans ce cas (voir
+   * scheduleAutoOpenVisibleFeuillet, §19). */
   private async openVisibleFeuillet(
-    { focusEditor = true, alignFromPreview = false }: { focusEditor?: boolean; alignFromPreview?: boolean } = {}
+    { focusEditor = true, alignFromPreview = false, origin = "explicit" }:
+      { focusEditor?: boolean; alignFromPreview?: boolean; origin?: "explicit" | "auto" } = {}
   ): Promise<void> {
     if (!this.isLongFormPreview) return;
     // Ne jamais réemployer l'état affiché : la cible est relue depuis la
@@ -2468,6 +2653,19 @@ export class PreviewView extends ItemView {
       this.visibleFeuilletPath = path;
       this.updateUI();
     }
+
+    if (origin === "explicit") {
+      const continu = this.linkedContinuView();
+      if (continu) {
+        // Laisse ScriveningsView gérer intégralement : flush, conflit,
+        // transition dans la MÊME work leaf, vrai Markdown, et son propre
+        // pont vers un fileScope Preview mono-fichier (voir
+        // ScriveningsView.performOpenSingleMember). Aucun nouvel onglet.
+        await continu.openSingleMember(path);
+        return;
+      }
+    }
+
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return;
     const requestId = ++this.openVisibleRequestId;
@@ -2915,7 +3113,6 @@ export class PreviewView extends ItemView {
     this.syncScrollerCleanup?.();
     this.syncScrollerCleanup = null;
     this.syncScroller = null;
-    this.syncHost = null;
     this.cancelFrame(this.syncHandle);
     this.syncHandle = null;
     this.syncJob = null;
@@ -2932,7 +3129,8 @@ export class PreviewView extends ItemView {
     this.viewEl = null;
     this.breadcrumbEl = null;
     this.toolbarControlsEl = null;
-    this.compileScope = null;
+    this._compileScope = null;
+    this.pendingContinuAnchor = null;
     this.lastScopedNav = null;
     this.openVisibleEl = null;
     this.btnBarToggle = null;

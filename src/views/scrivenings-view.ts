@@ -4,7 +4,7 @@ import { EditorView } from "@codemirror/view";
 /* eslint-enable import/no-extraneous-dependencies -- fin des imports fournis par Obsidian */
 import { ItemView, MarkdownView, Notice, TFile, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_SCRIVENINGS } from "../constants.js";
-import { resolveCompileScopeFiles, createSelectionScope, type CompileScope } from "../services/compile-scope.js";
+import { resolveCompileScopeFiles, createSelectionScope, createFileScope, type CompileScope } from "../services/compile-scope.js";
 import {
   applyCompositeChanges,
   loadScriveningsDocument,
@@ -108,6 +108,19 @@ export type ScriveningsViewPlugin = {
   applyLiveTypoClasses?: () => void;
   /** Idem pour la classe `feuillets-indent` — main.ts#applyIndentClass. */
   applyIndentClass?: () => void;
+  /** LOT 3 — pont Continu → Preview (main.ts#syncExistingPreviewScope) :
+   * transmet un scope déjà résolu par Continu au SEUL Preview déjà ouvert
+   * sur ce même projet, sans jamais en créer, activer ni déplacer un —
+   * Continu ne doit JAMAIS ouvrir Preview automatiquement. Optionnel, même
+   * patron que les hooks ci-dessus : les tests peuvent passer un plugin
+   * minimal sans lui. */
+  syncExistingPreviewScope?: (scope: CompileScope, anchor?: ScriveningsScrollAnchor | null) => Promise<void>;
+  /** LOT 3 — pont Continu → Preview (main.ts#notifyContinuDocumentChanged) :
+   * signale une frappe ACCEPTÉE (jamais rejetée par le boundary guard) à un
+   * Preview déjà chargé du même projet, pour son rafraîchissement différé
+   * (~850 ms, voir PreviewView.onContinuDocumentChanged). Ne sauvegarde
+   * rien, ne compile rien ici. */
+  notifyContinuDocumentChanged?: (paths: readonly string[]) => void;
 };
 
 export interface ScriveningsSessionDeps {
@@ -411,6 +424,13 @@ export class ScriveningsView extends ItemView {
     }
 
     void this.plugin.updateStatusBar?.();
+    // LOT 3 — pont Continu → Preview : transmet ce MÊME scope, avec la MÊME
+    // ancre de restauration que celle que Continu vient d'appliquer — jamais
+    // une seconde logique next/previous côté Preview (voir
+    // nextScrollAnchorAfterRecomposition ci-dessus, seule source). Ne jamais
+    // attendre que Preview ait fini son rendu avant de rendre Continu
+    // utilisable : ni `await`, ni blocage du retour de cette méthode.
+    void this.plugin.syncExistingPreviewScope?.(scope, restoreTarget);
     return true;
   }
 
@@ -459,6 +479,12 @@ export class ScriveningsView extends ItemView {
 
     this.wordCounts = updateScriveningsWordCounts(result.document, result.touchedPaths, this.wordCounts);
     void this.plugin.updateStatusBar?.();
+    // LOT 3 — pont Continu → Preview : uniquement pour une modification
+    // ACCEPTÉE (le boundary guard a déjà rejeté toute frappe illégitime en
+    // amont, avant même d'atteindre ce callback — voir handleChanges() et
+    // scriveningsBoundaryGuard, utils/cm-scrivenings.ts). N'attend ni le
+    // disque, ni la sauvegarde différée, ne déclenche aucun rendu ici.
+    this.plugin.notifyContinuDocumentChanged?.(result.touchedPaths);
   }
 
   /* ========================= Composition (§2 et §4) ===================
@@ -479,6 +505,18 @@ export class ScriveningsView extends ItemView {
 
   hasMember(path: string): boolean {
     return this.getMemberPaths().includes(path);
+  }
+
+  /** LOT 3 — pont Continu → Preview : le corps VIVANT actuellement affiché
+   * pour `path` dans Continu (voir PreviewView.readFileForPreview, qui
+   * recompose `frontmatter disque + ce corps`). Jamais le frontmatter,
+   * jamais une mutation, jamais un flush, jamais de changement de dirty
+   * state — une simple lecture de `session.document.segments`. `null` si
+   * aucun scope n'est chargé ou si `path` n'appartient pas à la composition
+   * actuelle. */
+  getLiveBody(path: string): string | null {
+    const segment = this.session.document?.segments.find((s) => s.path === path);
+    return segment ? segment.body : null;
   }
 
   /**
@@ -655,12 +693,25 @@ export class ScriveningsView extends ItemView {
       return false;
     }
 
+    // Capturé AVANT la transition : cette instance de ScriveningsView
+    // devient obsolète dès `leaf.openFile()` (voir plus bas), mais ses
+    // champs restent lisibles — capturer explicitement évite toute
+    // dépendance à cet artefact.
+    const projectRoot = this._compileScope?.projectRoot;
+
     // Même mécanisme que collapseToSingleMember : ouvrir un vrai fichier
     // sur CETTE leaf fait basculer Obsidian vers le MarkdownView
     // correspondant, cette instance devient obsolète (onClose() déjà géré
     // par Obsidian lui-même), jamais besoin de le dupliquer ici.
     await this.leaf.openFile(file, { active: true });
     this.plugin.app.workspace.setActiveLeaf(this.leaf, { focus: true });
+
+    // LOT 3 — pont Continu → Preview : 2+ fichiers → 1 fichier donne le
+    // MÊME Preview, reposé sur un fileScope mono-fichier — createFileScope,
+    // jamais un second résolveur de scope ici.
+    if (projectRoot) {
+      void this.plugin.syncExistingPreviewScope?.(createFileScope(projectRoot, path), null);
+    }
     return true;
   }
 

@@ -14,6 +14,7 @@
 
 import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
+import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
@@ -2223,6 +2224,57 @@ class FeuilletsPlugin extends Plugin {
     if (!view.compileScope) return null;
     if (view.compileScope.projectRoot !== root.path) return null;
     return view;
+  }
+
+  /** LOT 3 — pont Continu → Preview : transmet un CompileScope déjà résolu
+   * par Continu au SEUL Preview déjà ouvert sur ce même projet — jamais de
+   * création, activation, révélation ni déplacement de leaf Preview.
+   * Continu ne doit JAMAIS ouvrir automatiquement Preview : sans Preview du
+   * même projet déjà ouvert, cette méthode ne fait rigoureusement rien.
+   * Au maximum le PREMIER Preview pertinent (même `projectRoot`) est
+   * touché ; tous les autres restent strictement inchangés. */
+  async syncExistingPreviewScope(
+    scope: CompileScope,
+    anchor?: ScriveningsScrollAnchor | null
+  ): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_PREVIEW);
+    if (leaves.length === 0) return;
+
+    let target: WorkspaceLeaf | null = null;
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view instanceof PreviewView && view.compileScope?.projectRoot === scope.projectRoot) {
+        target = leaf;
+        break;
+      }
+    }
+    if (!target) return;
+
+    if (target.isDeferred) await target.loadIfDeferred();
+    const view = target.view;
+    if (!(view instanceof PreviewView)) return;
+    await view.followCompileScope(scope, anchor);
+  }
+
+  /** LOT 3 — pont Continu → Preview : signale à un Preview déjà CHARGÉ du
+   * même projet qu'une frappe ACCEPTÉE dans Continu a touché ces chemins —
+   * jamais pendant qu'une leaf Preview est encore différée (`loadIfDeferred`
+   * n'est JAMAIS appelé ici : forcer le chargement d'une vue pendant la
+   * frappe serait le genre de coût que ce pont doit précisément éviter).
+   * Résolution du Continu via `getCentralContinuView()`, l'UNIQUE définition
+   * du Continu de travail — jamais `getActiveViewOfType`. */
+  notifyContinuDocumentChanged(paths: readonly string[]): void {
+    const continu = this.getCentralContinuView();
+    if (!continu || !continu.compileScope) return;
+
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PREVIEW)) {
+      if (leaf.isDeferred) continue;
+      const view = leaf.view;
+      if (view instanceof PreviewView && view.compileScope?.projectRoot === continu.compileScope.projectRoot) {
+        view.onContinuDocumentChanged(paths);
+        return;
+      }
+    }
   }
 
   isActiveFileInProject() {
