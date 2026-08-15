@@ -1479,6 +1479,7 @@ export const en = {
   "preview.display.manuscript": "Preview — manuscript",
   "preview.display.named": "Preview — {name}",
   "preview.display.mode": "Preview — {mode}",
+  "preview.display.selection": "Preview — selection",
   "scrivenings.display.title": "Continuous",
   "scrivenings.saveConflict": "“{name}” changed elsewhere in the meantime — your Continuous edits were not saved, to avoid overwriting that version.",
   "scrivenings.saveError": "“{name}” could not be saved — your Continuous edits are still pending, a retry will be attempted.",

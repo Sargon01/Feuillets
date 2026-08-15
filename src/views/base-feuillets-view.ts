@@ -1,4 +1,4 @@
-import { getProjectStatuses } from "../constants.js";
+import { getProjectStatuses, VIEW_SCRIVENINGS } from "../constants.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
@@ -13,9 +13,9 @@ import { openSnapshotComparison } from "./comparison-view.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { isResearchFile, isImageFile, isPdfFile, researchFolderPath } from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
-import { addOpenWithPreviewItem, openScopeWithPreview } from "./preview-view.js";
-import { openScopeInContinu } from "./scrivenings-view.js";
-import { createFolderScope, createSelectionScope } from "../services/compile-scope.js";
+import { addOpenWithPreviewItem, openScopeWithPreviewBesideLeaf } from "./preview-view.js";
+import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
+import { createFolderScope, createSelectionScope, compileScopesEqual, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
 import { t } from "../i18n/index.js";
@@ -77,6 +77,7 @@ import {
   setTooltip,
   Menu,
   MarkdownRenderer,
+  MarkdownView,
   Keymap,
   Modal,
   type WorkspaceLeaf,
@@ -84,6 +85,31 @@ import {
   type App,
 } from "obsidian";
 import type FeuilletsPlugin from "../main.js";
+
+/** LOT « ouvrir avec aperçu » — surface MINIMALE d'une vraie vue Continu
+ * (ScriveningsView) telle qu'exploitée par `openScopeWithContinuAndPreview`
+ * ci-dessous. Garde structurelle SANS `instanceof` : même patron que
+ * `isOpenScopeView` (scrivenings-view.ts) et `isScopeableView`
+ * (preview-view.ts) — reconnaît la vraie vue par sa surface publique,
+ * jamais en important la classe `ScriveningsView` ici. */
+interface ContinuWorkView {
+  getViewType(): string;
+  compileScope: CompileScope | null;
+  openScope(scope: CompileScope): Promise<boolean>;
+  refreshHostTypography?(): void;
+}
+
+function isContinuWorkView(view: unknown): view is ContinuWorkView {
+  return (
+    typeof view === "object" &&
+    view !== null &&
+    "getViewType" in view &&
+    typeof (view as { getViewType?: unknown }).getViewType === "function" &&
+    "openScope" in view &&
+    typeof (view as { openScope?: unknown }).openScope === "function" &&
+    (view as { getViewType: () => string }).getViewType() === VIEW_SCRIVENINGS
+  );
+}
 
 /** ensureFolder() garantit toujours un dossier (services/project-files.ts) —
  * ce helper narrowe sans cast direct pour obsidianmd/no-tfile-tfolder-cast ;
@@ -2087,6 +2113,91 @@ export abstract class BaseFeuilletsView extends ItemView {
     }, 2000);
   }
 
+  /**
+   * Micro-correctif « Nouvel onglet parasite » — si un Continu CENTRAL
+   * existe déjà pour le PROJET de `scope` (même `projectRoot`), retrouve sa
+   * VRAIE leaf par identité (`leaf.view === centralContinu`) parmi
+   * `getLeavesOfType(VIEW_SCRIVENINGS)`. Retourne `null` si aucun Continu
+   * central pertinent n'existe — l'appelant doit alors se rabattre sur
+   * `plugin.getLeafForOpeningFile()` (chemin historique, §ci-dessous).
+   * N'appelle JAMAIS `getLeafForOpeningFile()` elle-même : c'est précisément
+   * cet appel, fait à tort quand Continu vivait déjà ailleurs, qui créait
+   * une leaf Markdown/vide neuve avant que le Continu réel soit réutilisé —
+   * laissant cette leaf neuve orpheline sous forme de « Nouvel onglet ».
+   */
+  private centralContinuWorkLeaf(scope: CompileScope): { leaf: WorkspaceLeaf; continu: ContinuWorkView } | null {
+    const centralContinu = this.plugin.getCentralContinuView?.();
+    if (!centralContinu || !centralContinu.compileScope) return null;
+    if (centralContinu.compileScope.projectRoot !== scope.projectRoot) return null;
+    const leaf = this.app.workspace.getLeavesOfType(VIEW_SCRIVENINGS).find((l) => l.view === centralContinu);
+    if (!leaf) return null;
+    return { leaf, continu: centralContinu };
+  }
+
+  /**
+   * Micro-correctif « ouvrir avec aperçu » — coordinateur UNIQUE entre
+   * Continu et Preview pour une portée CompileScope donnée : s'assure que
+   * la leaf de travail affiche Continu sur `scope`, puis ouvre/réutilise
+   * Preview À CÔTÉ d'elle avec EXACTEMENT le même scope. Focus final sur
+   * Continu.
+   *
+   * Résolution de la leaf de travail, PAR PRIORITÉ :
+   *  1. le Continu CENTRAL déjà ouvert pour ce projet (`centralContinuWorkLeaf`)
+   *     — sa propre leaf, retrouvée par identité, JAMAIS
+   *     `plugin.getLeafForOpeningFile()` dans ce cas (micro-correctif
+   *     « Nouvel onglet parasite ») ;
+   *  2. à défaut seulement, le chemin historique via
+   *     `plugin.getLeafForOpeningFile()` :
+   *     - déjà Continu → recompose seulement si le scope diffère (jamais
+   *       inutilement) ; si `openScope()` refuse (sécurité anti-perte), on
+   *       s'arrête SANS toucher Preview — jamais de divergence entre les
+   *       deux vues ;
+   *     - Markdown → transformée EN PLACE via `openScopeInContinuOnLeaf`,
+   *       le chemin déjà validé de la promotion Markdown → Continu ;
+   *     - ni l'un ni l'autre (repli exceptionnel) → `openScopeInContinu`,
+   *       qui résout ou crée l'onglet Continu unique du plugin.
+   */
+  async openScopeWithContinuAndPreview(scope: CompileScope): Promise<void> {
+    const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
+    if (!files.length) return;
+
+    let workLeaf: WorkspaceLeaf;
+
+    const existingCentral = this.centralContinuWorkLeaf(scope);
+    if (existingCentral) {
+      const { leaf, continu } = existingCentral;
+      if (!continu.compileScope || !compileScopesEqual(continu.compileScope, scope)) {
+        const applied = await continu.openScope(scope);
+        if (!applied) return;
+      }
+      this.app.workspace.setActiveLeaf(leaf, { focus: true });
+      continu.refreshHostTypography?.();
+      workLeaf = leaf;
+    } else {
+      workLeaf = this.plugin.getLeafForOpeningFile();
+
+      const currentView = workLeaf.view;
+      if (isContinuWorkView(currentView)) {
+        if (!currentView.compileScope || !compileScopesEqual(currentView.compileScope, scope)) {
+          const applied = await currentView.openScope(scope);
+          if (!applied) return;
+        }
+        this.app.workspace.setActiveLeaf(workLeaf, { focus: true });
+        currentView.refreshHostTypography?.();
+      } else if (currentView instanceof MarkdownView) {
+        const applied = await openScopeInContinuOnLeaf(this.app, workLeaf, scope);
+        if (!applied) return;
+      } else {
+        const fallbackLeaf = await openScopeInContinu(this.app, scope);
+        if (!fallbackLeaf) return;
+        workLeaf = fallbackLeaf;
+      }
+    }
+
+    await openScopeWithPreviewBesideLeaf(this.app, scope, workLeaf);
+    this.app.workspace.setActiveLeaf(workLeaf, { focus: true });
+  }
+
   showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[]): void {
     const menu = new Menu();
     const plugin = this.plugin;
@@ -2162,8 +2273,36 @@ export abstract class BaseFeuilletsView extends ItemView {
        `workspace.on("file-menu")` : le Binder construit son propre Menu et
        ne passe jamais par ce hook — l'entrée y était donc invisible.
        Réservée aux vraies scènes (roleOfFile), pas aux feuillets-chapitres
-       ni aux fiches hors manuscrit. */
-    if (isGroup) {
+       ni aux fiches hors manuscrit.
+       Priorité de la PORTÉE utilisée par cette seule entrée (micro-correctif
+       « ouvrir avec aperçu ») :
+        1. le Continu CENTRAL déjà ouvert, si `file` en est membre — sa
+           propre portée (folder/project/selection), JAMAIS reconstruite ;
+        2. l'ancienne multi-sélection `_binderMultiSelect`, si `file` en fait
+           partie ;
+        3. le feuillet seul (comportement historique inchangé,
+           `addOpenWithPreviewItem`/`openWithPreview`). */
+    const centralContinu = this.plugin.getCentralContinuView?.() || null;
+    const continuProjectRoot = plugin.getProjectFolder();
+    const continuScopeForFile =
+      centralContinu &&
+      centralContinu.compileScope &&
+      continuProjectRoot &&
+      centralContinu.compileScope.projectRoot === continuProjectRoot.path &&
+      centralContinu.getMemberPaths().includes(file.path)
+        ? centralContinu.compileScope
+        : null;
+
+    if (continuScopeForFile) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.contextMenu.openWithPreview"))
+          .setIcon("eye")
+          .onClick(async () => {
+            await this.openScopeWithContinuAndPreview(continuScopeForFile);
+          })
+      );
+    } else if (isGroup) {
       menu.addItem((item) =>
         item
           .setTitle(t("shared.contextMenu.openWithPreview"))
@@ -2172,13 +2311,18 @@ export abstract class BaseFeuilletsView extends ItemView {
             const projectRoot = plugin.getProjectFolder();
             if (!projectRoot) return;
             const scope = createSelectionScope(projectRoot.path, Array.from(groupSel || []));
-            await openScopeWithPreview(this.app, scope);
+            await this.openScopeWithContinuAndPreview(scope);
           })
       );
-      /* « Ouvrir en continu » n'existe QUE pour une multi-sélection — un
-         feuillet unique a déjà son vrai MarkdownView natif (voir
-         showFileContextMenu, cas `else` juste en dessous : Continu n'y
-         apporte rien, Lot 2A §7). */
+    } else {
+      addOpenWithPreviewItem(menu, this.app, plugin, file);
+    }
+    /* « Ouvrir en continu » n'existe QUE pour une multi-sélection — un
+       feuillet unique a déjà son vrai MarkdownView natif (voir
+       showFileContextMenu, cas `else` ci-dessus : Continu n'y apporte rien,
+       Lot 2A §7). Logique et portée INCHANGÉES par le micro-correctif
+       « ouvrir avec aperçu » : `_binderMultiSelect` reste sa seule source. */
+    if (isGroup) {
       menu.addItem((item) =>
         item
           .setTitle(t("binder.openInContinu"))
@@ -2190,8 +2334,6 @@ export abstract class BaseFeuilletsView extends ItemView {
             await openScopeInContinu(this.app, scope);
           })
       );
-    } else {
-      addOpenWithPreviewItem(menu, this.app, plugin, file);
     }
     menu.addItem((item) =>
       item
@@ -2400,7 +2542,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           const projectRoot = plugin.getProjectFolder();
           if (!projectRoot) return;
           const scope = createFolderScope(projectRoot.path, folder.path);
-          await openScopeWithPreview(this.app, scope);
+          await this.openScopeWithContinuAndPreview(scope);
         })
     );
     extraItems?.(menu);

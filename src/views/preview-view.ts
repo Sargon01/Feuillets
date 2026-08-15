@@ -77,6 +77,10 @@ type PreviewViewSettings = FeuilletsSettings & {
   manuscriptAuthor?: string;
 };
 
+/** `updateHeader` : API interne non déclarée dans obsidian.d.ts — même
+ * patron que `LeafWithHeaderUpdate` (main.ts) : voir `PreviewView.refreshTabHeader`. */
+type PreviewLeafWithHeaderUpdate = WorkspaceLeaf & { updateHeader?: () => void };
+
 /** LOT 3 — surface MINIMALE de Continu (ScriveningsView) réellement
  * consommée par PreviewView, jamais importée comme dépendance runtime
  * (`import type` uniquement, voir cm-scrivenings-scroll.js pour le même
@@ -91,6 +95,14 @@ export type ContinuSourceView = {
   getScrollAnchor(): ScriveningsScrollAnchor | null;
   scrollToAnchor(path: string, progress: number): void;
   openSingleMember(path: string): Promise<boolean>;
+  /** LOT « clic Preview → Continu » — place le curseur Continu à la
+   * position source `{line, ch}` (0-based, coordonnées du FICHIER
+   * ORIGINAL — même contrat que `SourceBlockPosition`,
+   * preview-source-map.ts) du feuillet `path`, recentre et donne le focus.
+   * `false` si `path` n'appartient pas à la composition actuelle. N'écrit
+   * jamais, ne change jamais le scope. Voir ScriveningsView pour
+   * l'implémentation réelle. */
+  focusSourcePosition(path: string, position: { line: number; ch: number }): Promise<boolean>;
 };
 
 export type PreviewViewPlugin = {
@@ -416,6 +428,16 @@ export class PreviewView extends ItemView {
    * jamais appliquée directement depuis followCompileScope(). */
   private pendingContinuAnchor: ScriveningsScrollAnchor | null = null;
 
+  /** Micro-correctif « lien Continu ↔ Preview » — LIEN EXPLICITE
+   * transitoire posé par `openScopeWithPreviewBesideLeaf()` (preview-view.ts)
+   * au moment même où cette Preview est ouverte/réutilisée À CÔTÉ d'une
+   * leaf de travail Continu précise. État de SESSION uniquement : jamais
+   * persisté dans les réglages, jamais un ID de leaf enregistré, ne crée
+   * jamais de vue. Ne suffit PAS à lui seul à lier Preview à Continu — voir
+   * `linkedContinuView()`, seule décision, qui exige en plus l'égalité
+   * structurelle des deux CompileScope. */
+  private explicitContinuSource: ContinuSourceView | null = null;
+
   status: PreviewStatus = "fresh";
   /** Feuillet réellement affiché (modes Scène/Chapitre) — sert d'en-tête
    * d'onglet et évite de re-rendre à l'identique. */
@@ -424,6 +446,17 @@ export class PreviewView extends ItemView {
   private frameLoaded = false;
   private pendingZoom: { scale: number; mode: ZoomMode } | null = null;
   private resizeObserver: ResizeObserver | null = null;
+
+  /** Micro-correctif « message Preview résiduel » — référence directe au
+   * message affiché par `showMessage()` (ex. « Aucun feuillet du projet
+   * n'est ouvert »), jamais retrouvée par `querySelector` à chaque rendu.
+   * `mountTemplatePreview()` AJOUTE la nouvelle iframe dans
+   * `scaledContainer` sans jamais vider ce dernier (seul `showMessage()` le
+   * fait) : un message posé par un rendu SANS scope (avant que
+   * `setCompileScope()` soit posé) survivait donc, intact, à côté de
+   * l'iframe montée par le rendu réussi suivant. Voir `clearPreviewMessage`
+   * et son unique site d'appel dans `refreshPreview()`. */
+  private previewMessageEl: HTMLElement | null = null;
 
   private _compileScope: CompileScope | null = null;
 
@@ -462,8 +495,47 @@ export class PreviewView extends ItemView {
   async setCompileScope(scope: CompileScope): Promise<void> {
     this.rememberScopedNavigation(scope);
     this._compileScope = scope;
+    this.refreshTabHeader();
     this.updateUI();
     await this.refreshPreview();
+  }
+
+  /** `updateHeader` : API interne non déclarée dans obsidian.d.ts — même
+   * patron (type local + essai silencieux) que `LeafWithHeaderUpdate` /
+   * `refreshTabHeaderFor` (main.ts) : un changement de scope change le
+   * titre que renvoie `getDisplayText()`, mais Obsidian ne relit ce titre
+   * que si l'en-tête de la leaf est explicitement invalidé. Appelée
+   * UNIQUEMENT après un changement RÉEL de `_compileScope` (voir
+   * `setCompileScope`) — jamais pendant le scroll, une frappe ou un
+   * rafraîchissement live sans changement de scope. */
+  private refreshTabHeader(): void {
+    (this.leaf as PreviewLeafWithHeaderUpdate).updateHeader?.();
+  }
+
+  /** Micro-correctif « lien Continu ↔ Preview » — pose (ou retire, `null`)
+   * le LIEN EXPLICITE transitoire vers l'instance Continu qui vient
+   * d'ouvrir/réutiliser CETTE Preview à côté d'elle (voir
+   * `openScopeWithPreviewBesideLeaf`). État de session uniquement — voir
+   * `explicitContinuSource`.
+   *
+   * Cas important couvert ici (§4 du micro-correctif) : la Preview peut
+   * déjà afficher exactement le bon scope (donc déjà chargée, `frameLoaded`
+   * vrai) au moment où ce lien est posé — sans action supplémentaire, le
+   * scroll resterait débranché jusqu'au prochain événement fortuit. On
+   * réutilise donc ICI le mécanisme EXISTANT (`bindSourcePane` +
+   * `applySourceToPreview`), jamais un rerendu, jamais une recompilation,
+   * jamais un nouveau timer. */
+  setContinuSource(source: ContinuSourceView | null): void {
+    this.explicitContinuSource = source;
+    if (this.closed) return;
+    // Réutilise le mécanisme EXISTANT de branchement/détachement — jamais
+    // un second cleanup : bindSourcePane() recalcule kind/scroller à partir
+    // de linkedContinuView(), qui consulte désormais explicitContinuSource
+    // en priorité (voir linkedContinuView ci-dessous).
+    this.bindSourcePane();
+    if (source && this.frameLoaded && this.syncScrollEnabled && this.linkedContinuView()) {
+      this.applySourceToPreview();
+    }
   }
 
   /** LOT 3 — pont Continu → Preview : pose EXACTEMENT le même CompileScope
@@ -529,12 +601,43 @@ export class PreviewView extends ItemView {
     return VIEW_PREVIEW;
   }
 
+  /** Micro-correctif « titre d'onglet Preview » — quand un CompileScope
+   * explicite est posé (folder/project/selection/file, via « Ouvrir avec
+   * aperçu »), IL a priorité sur `this.mode` pour le titre : sans cela,
+   * l'onglet restait affiché « Aperçu — feuillet » (mode "scene" par
+   * défaut) même pour un dossier ou le projet entier, alors que le CONTENU
+   * suivait déjà correctement le scope. Pure représentation UI : ne
+   * modifie ni `previewMode`, ni le contenu rendu, ni `displayedPath` (qui
+   * reste au service de ses mécanismes historiques). */
   getDisplayText(): string {
+    const scope = this.compileScope;
+    if (scope) {
+      if (scope.type === "project") return t("preview.display.manuscript");
+      if (scope.type === "selection") return t("preview.display.selection");
+      if (scope.type === "folder") {
+        const folder = this.app.vault.getAbstractFileByPath(scope.path);
+        const name = folder instanceof TFolder ? folder.name : this.lastPathSegment(scope.path);
+        return t("preview.display.named", { name });
+      }
+      if (scope.type === "file") {
+        const file = this.app.vault.getAbstractFileByPath(scope.path);
+        const name = file instanceof TFile ? file.basename : this.lastPathSegment(scope.path).replace(/\.md$/i, "");
+        return t("preview.display.named", { name });
+      }
+    }
+
     if (this.mode === "manuscript") return t("preview.display.manuscript");
     const name = this.displayedPath ? this.displayedPath.split("/").pop() : null;
     return name
       ? t("preview.display.named", { name: name.replace(/\.md$/i, "") })
       : t("preview.display.mode", { mode: previewModeLabel(this.mode).toLowerCase() });
+  }
+
+  /** Dernier segment d'un chemin — repli quand le dossier/fichier d'un
+   * CompileScope n'est plus résolvable dans le coffre (voir
+   * `getDisplayText`). */
+  private lastPathSegment(path: string): string {
+    return path.split("/").pop() || path;
   }
 
   getIcon(): string {
@@ -581,6 +684,7 @@ export class PreviewView extends ItemView {
    *  - Feuillet : comportement d'un feuillet unique, suivi continu.
    *  - Sélection : inchangé dans ce chantier — repli sur `previewMode`. */
   get syncScrollEnabled(): boolean {
+    if (this.linkedContinuView()) return true;
     const scope = this.compileScope;
     if (scope) {
       if (scope.type === "folder" || scope.type === "project") return this.synchronizedFeuilletPath !== null;
@@ -1345,6 +1449,13 @@ export class PreviewView extends ItemView {
         return;
       }
 
+      // Rendu réussi qui va réellement être monté : le message éventuel
+      // d'un rendu précédent SANS source (ex. premier rendu automatique
+      // avant que `setCompileScope()` soit posé) n'a plus lieu d'être —
+      // voir `clearPreviewMessage`. Un rendu qui échouerait après ce point
+      // repose son propre message via `showMessage()` (catch englobant),
+      // jamais silencieusement masqué.
+      this.clearPreviewMessage();
       await this.renderPreviewSource(source, generation, anchor, finish);
     } catch (e: unknown) {
       if (generation !== this.refreshGeneration) return;
@@ -1567,15 +1678,6 @@ export class PreviewView extends ItemView {
   }
 
   private onPreviewBlockClick(event: { target: unknown; preventDefault(): void }): void {
-    // LOT 3, §21 : Continu lié → un simple clic de navigation ne doit
-    // JAMAIS ouvrir un Markdown et détruire Continu (openPreviewBlockInEditor
-    // appelle `getLeafForOpeningFile()`, qui peut retomber sur la leaf
-    // CENTRALE actuellement occupée par Continu). Le scroll bidirectionnel
-    // reste la navigation normale ; « Ouvrir ce feuillet » reste l'action
-    // explicite pour quitter Continu vers Markdown (voir openVisibleFeuillet).
-    // Ni les marqueurs, ni le calcul ligne/colonne ci-dessous ne changent.
-    if (this.linkedContinuView()) return;
-
     const target = event.target as Element | null;
     if (!target || typeof target.closest !== "function") return;
 
@@ -1602,7 +1704,39 @@ export class PreviewView extends ItemView {
     }
 
     event.preventDefault();
+
+    // LOT « clic Preview → Continu » : Continu lié → naviguer DANS Continu
+    // (curseur + recentrage + focus), JAMAIS ouvrir un Markdown ni détruire
+    // Continu (openPreviewBlockInEditor appelle `getLeafForOpeningFile()`,
+    // qui peut retomber sur la leaf CENTRALE actuellement occupée par
+    // Continu). « Ouvrir ce feuillet » reste la SEULE action explicite pour
+    // quitter Continu vers Markdown (voir openVisibleFeuillet, inchangée).
+    const continu = this.linkedContinuView();
+    if (continu) {
+      void this.focusContinuFromPreviewClick(continu, path, { line: startLine, ch: startCol });
+      return;
+    }
+
     void this.openPreviewBlockInEditor(path, { line: startLine, ch: startCol }, { line: endLine, ch: endCol });
+  }
+
+  /** LOT « clic Preview → Continu » — place le curseur Continu au début du
+   * passage cliqué (`ContinuSourceView.focusSourcePosition`, implémentée
+   * par ScriveningsView). Le scroll programmatique que cet appel peut
+   * provoquer est protégé par le MÊME garde anti-rebond que le reste de la
+   * synchronisation (`syncingFromPreview` / `releaseAfterFrame` EXISTANTS)
+   * — jamais un second mécanisme anti-boucle, jamais un délai arbitraire. */
+  private async focusContinuFromPreviewClick(
+    continu: ContinuSourceView,
+    path: string,
+    position: { line: number; ch: number }
+  ): Promise<void> {
+    this.syncingFromPreview = true;
+    try {
+      await continu.focusSourcePosition(path, position);
+    } finally {
+      this.releaseAfterFrame(() => { this.syncingFromPreview = false; });
+    }
   }
 
   /** Ouvre le feuillet source dans l'éditeur existant (jamais une nouvelle
@@ -1974,7 +2108,20 @@ export class PreviewView extends ItemView {
     this.frameLoaded = false;
     this.displayedPath = null;
     this.scaledContainer.empty();
-    this.scaledContainer.createDiv({ cls, text });
+    this.previewMessageEl = this.scaledContainer.createDiv({ cls, text });
+  }
+
+  /** Micro-correctif « message Preview résiduel » — retire le message posé
+   * par `showMessage()`, et lui SEUL : `mountTemplatePreview()` ajoute la
+   * nouvelle iframe à côté de lui plutôt que de le remplacer (voir
+   * `previewMessageEl`). N'est appelée qu'au point où `refreshPreview()`
+   * sait déjà qu'un rendu RÉUSSI va être monté — jamais quand le nouveau
+   * rendu échoue ou n'a toujours aucune source, pour ne jamais masquer un
+   * message légitime. */
+  private clearPreviewMessage(): void {
+    if (!this.previewMessageEl) return;
+    this.previewMessageEl.remove();
+    this.previewMessageEl = null;
   }
 
   private setStatus(status: PreviewStatus): void {
@@ -2421,15 +2568,35 @@ export class PreviewView extends ItemView {
    * hyphenation, templates) reste identique — voir readFileForPreview et
    * la barrière du lot. Rien ci-dessous ne touche au rendu. */
 
-  /** Continu réellement LIÉ à CET aperçu — l'UNIQUE définition : le Continu
-   * central de travail existe, ET les deux CompileScope (Preview et Continu)
-   * sont structurellement égaux (compileScopesEqual, jamais une comparaison
-   * par référence). `null` dès que l'un des deux scopes est absent ou
-   * qu'ils divergent — par exemple après un clic manuel dans le fil
-   * d'Ariane de l'Aperçu (§22 du lot) : Preview cesse alors de suivre
-   * Continu jusqu'à la prochaine action Binder/Continu qui les réaligne,
-   * jamais l'inverse. */
+  /** Continu réellement LIÉ à CET aperçu — l'UNIQUE définition. Ordre de
+   * résolution (micro-correctif « lien Continu ↔ Preview ») :
+   *
+   *  1. le LIEN EXPLICITE (`explicitContinuSource`, posé par
+   *     `openScopeWithPreviewBesideLeaf` au moment de l'ouverture côte à
+   *     côte) — retenu SEULEMENT si les deux CompileScope (Preview et cette
+   *     source) restent structurellement égaux (compileScopesEqual, jamais
+   *     une comparaison par référence) : le simple fait d'avoir une
+   *     référence explicite ne suffit jamais seul, une navigation manuelle
+   *     du fil d'Ariane de l'Aperçu sur un autre scope détache donc
+   *     naturellement ce lien ;
+   *  2. à défaut, repli EXACT sur le Continu central de travail
+   *     (`plugin.getCentralContinuView?.()`), avec le même contrôle
+   *     `compileScopesEqual()` ;
+   *  3. sinon `null` — par exemple après un clic manuel dans le fil
+   *     d'Ariane de l'Aperçu (§22 du lot 3) : Preview cesse alors de suivre
+   *     Continu jusqu'à la prochaine action Binder/Continu qui les réaligne,
+   *     jamais l'inverse. */
   private linkedContinuView(): ContinuSourceView | null {
+    const explicit = this.explicitContinuSource;
+    if (
+      explicit &&
+      this.compileScope &&
+      explicit.compileScope &&
+      compileScopesEqual(this.compileScope, explicit.compileScope)
+    ) {
+      return explicit;
+    }
+
     const continu = this.plugin.getCentralContinuView?.();
     if (!continu) return null;
     if (!this.compileScope || !continu.compileScope) return null;
@@ -3135,6 +3302,8 @@ export class PreviewView extends ItemView {
     this.openVisibleEl = null;
     this.btnBarToggle = null;
     this.openMenu = null;
+    this.previewMessageEl = null;
+    this.explicitContinuSource = null;
     this.contentEl.empty();
   }
 }
@@ -3172,6 +3341,43 @@ function isScopeableView(view: unknown): view is ScopeableView {
   );
 }
 
+/** Même garde que `isScopeableView`, étendue à la lecture de `compileScope`
+ * — nécessaire à `openScopeWithPreviewBesideLeaf` pour éviter de reposer un
+ * scope déjà en place (§6 du micro-correctif « ouvrir avec aperçu »).
+ * `setContinuSource` optionnel : présent seulement sur la VRAIE PreviewView
+ * (voir micro-correctif « lien Continu ↔ Preview ») — jamais requis, pour
+ * ne rien casser d'un faux objet de test qui ne l'exposerait pas. */
+interface ScopeableViewWithState extends ScopeableView {
+  compileScope: CompileScope | null;
+  setContinuSource?(source: ContinuSourceView | null): void;
+}
+
+function isScopeableViewWithState(view: unknown): view is ScopeableViewWithState {
+  return isScopeableView(view) && "compileScope" in view;
+}
+
+/** Garde structurelle SANS `instanceof` (jamais `ScriveningsView` importée
+ * en runtime ici) reconnaissant une vraie vue Continu par sa surface
+ * publique complète — même patron que `isOpenScopeView`
+ * (scrivenings-view.ts) et `isContinuWorkView` (base-feuillets-view.ts).
+ * Utilisée par `openScopeWithPreviewBesideLeaf` pour poser (ou retirer) le
+ * lien explicite Preview → Continu (micro-correctif « lien Continu ↔
+ * Preview »). */
+function isContinuSourceView(view: unknown): view is ContinuSourceView {
+  if (typeof view !== "object" || view === null) return false;
+  const v = view as Record<string, unknown>;
+  return (
+    "compileScope" in v &&
+    typeof v.getMemberPaths === "function" &&
+    typeof v.getLiveBody === "function" &&
+    typeof v.getScrollElement === "function" &&
+    typeof v.getScrollAnchor === "function" &&
+    typeof v.scrollToAnchor === "function" &&
+    typeof v.openSingleMember === "function" &&
+    typeof v.focusSourcePosition === "function"
+  );
+}
+
 /**
  * Helper unique pour récupérer ou créer la vue Preview, l'activer et lui transmettre une portée explicite CompileScope.
  */
@@ -3187,6 +3393,68 @@ export async function openScopeWithPreview(app: App, scope: CompileScope): Promi
   if (isScopeableView(view)) {
     await view.setCompileScope(scope);
   }
+}
+
+/**
+ * Micro-correctif « ouvrir avec aperçu » — ouvre ou réutilise Preview
+ * RELATIVEMENT à une leaf de travail déjà déterminée (`workLeaf`, en
+ * pratique la leaf qui vient de devenir Continu). Ce helper ne connaît PAS
+ * Continu : son seul rôle est de placer/réutiliser Preview, jamais de
+ * décider ce qui doit apparaître dans `workLeaf`.
+ *
+ * - Preview déjà ouverte (n'importe où) → réutilisée SANS être déplacée,
+ *   sans split, sans doublon.
+ * - Aucune Preview → `workLeaf` est rendue active AVANT la création, puis
+ *   `workspace.getLeaf("split")` l'ouvre à côté d'elle (jamais
+ *   `getLeaf("tab")`, jamais `activatePreviewView()`).
+ *
+ * Le focus final revient TOUJOURS à `workLeaf` — cette fonction ne laisse
+ * jamais le focus sur Preview.
+ */
+export async function openScopeWithPreviewBesideLeaf(
+  app: App,
+  scope: CompileScope,
+  workLeaf: WorkspaceLeaf
+): Promise<WorkspaceLeaf | null> {
+  const { workspace } = app;
+  const existing = workspace.getLeavesOfType(VIEW_PREVIEW);
+
+  let leaf: WorkspaceLeaf;
+  if (existing.length > 0) {
+    // Preview déjà ouverte : réutilisée telle quelle, jamais déplacée.
+    leaf = existing[0];
+  } else {
+    // `workLeaf` doit être la leaf active AVANT la création du split, pour
+    // que la nouvelle Preview soit créée à CÔTÉ d'elle.
+    workspace.setActiveLeaf(workLeaf, { focus: true });
+    leaf = workspace.getLeaf("split");
+    await leaf.setViewState({ type: VIEW_PREVIEW, active: false });
+  }
+
+  if (leaf.isDeferred) await leaf.loadIfDeferred();
+
+  const view = leaf.view;
+  if (isScopeableViewWithState(view)) {
+    // Micro-correctif « lien Continu ↔ Preview » — cette Preview connaît
+    // ICI la leaf de travail EXACTE : poser (ou retirer) le lien explicite
+    // AVANT le scope, pour que `setContinuSource` puisse immédiatement
+    // rebrancher le scroll si cette Preview affiche déjà ce scope (cas où
+    // `compileScopesEqual` empêche tout appel à `setCompileScope`
+    // ci-dessous, voir PreviewView.setContinuSource). `workLeaf.view` est
+    // reconnu structurellement, jamais en important ScriveningsView ici :
+    // `null` protège intégralement le parcours mono-fichier Markdown.
+    const continuSource = isContinuSourceView(workLeaf.view) ? workLeaf.view : null;
+    view.setContinuSource?.(continuSource);
+
+    if (!view.compileScope || !compileScopesEqual(view.compileScope, scope)) {
+      await view.setCompileScope(scope);
+    }
+  }
+
+  void workspace.revealLeaf(leaf);
+  workspace.setActiveLeaf(workLeaf, { focus: true });
+
+  return leaf;
 }
 
 /**

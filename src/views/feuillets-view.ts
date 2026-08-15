@@ -8,7 +8,6 @@ import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { t } from "../i18n/index.js";
-import { openScopeWithPreview } from "./preview-view.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
 import { createProjectScope, createFileScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { Menu, MarkdownView, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
@@ -2075,7 +2074,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           .setIcon("eye")
           .onClick(async () => {
             const scope = createProjectScope(treeRoot.path);
-            await openScopeWithPreview(this.app, scope);
+            await this.openScopeWithContinuAndPreview(scope);
           })
       );
       menu.addItem((item) =>

@@ -14,6 +14,11 @@ export const EditorView = {
   updateListener: { of: (fn) => ({ facet: "updateListener", fn }) },
   lineWrapping: { facet: "lineWrapping" },
   keymap: { of: (bindings) => ({ facet: "keymap", bindings }) },
+  /* LOT « clic Preview → Continu » (ScriveningsView.focusSourcePosition) —
+     stub minimal de l'API STATIQUE réelle : un vrai CodeMirror renvoie un
+     StateEffect ; ici, un simple objet inspectable suffit aux tests
+     (dispatchCalls[0].effects). */
+  scrollIntoView: (pos, options) => ({ effect: "scrollIntoView", pos, options }),
 };
 
 export const ViewPlugin = {

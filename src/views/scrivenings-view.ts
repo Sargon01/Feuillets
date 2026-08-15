@@ -8,13 +8,14 @@ import { resolveCompileScopeFiles, createSelectionScope, createFileScope, type C
 import {
   applyCompositeChanges,
   loadScriveningsDocument,
+  locationToCompositeOffset,
   resolveScriveningsWrite,
   type ScriveningsChange,
   type ScriveningsDocument,
   type ScriveningsEditResult,
   type ScriveningsSegment,
 } from "../services/scrivenings-document.js";
-import { shortTitleFor } from "../services/frontmatter.js";
+import { shortTitleFor, splitFrontmatter } from "../services/frontmatter.js";
 import { roleOfFile } from "../services/folder-structure.js";
 import { scriveningsChangeListener, scriveningsExtensions, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
 import {
@@ -299,7 +300,11 @@ interface EditorStateStatic {
 }
 interface EditorViewInstance {
   readonly state: EditorStateInstance;
-  dispatch(spec: { effects?: unknown; changes?: unknown }): void;
+  /* `selection` : LOT « clic Preview → Continu » (focusSourcePosition) —
+     un simple `{ anchor, head? }` reste une `TransactionSpec.selection`
+     valide en CodeMirror 6 réel, sans jamais construire d'`EditorSelection`
+     ici (surface locale minimale, même patron que le reste de ce typage). */
+  dispatch(spec: { effects?: unknown; changes?: unknown; selection?: { anchor: number; head?: number } }): void;
   destroy(): void;
   focus(): void;
   /* Surface de géométrie PUBLIQUE CodeMirror utilisée par
@@ -314,10 +319,39 @@ interface EditorViewInstance {
   elementAtHeight(height: number): ScriveningsBlockInfo;
   lineBlockAt(pos: number): ScriveningsBlockInfo;
 }
-type EditorViewCtor = new (config: { state: EditorStateInstance; parent: HTMLElement }) => EditorViewInstance;
+interface EditorViewCtor {
+  new (config: { state: EditorStateInstance; parent: HTMLElement }): EditorViewInstance;
+  /* API STATIQUE (LOT « clic Preview → Continu », focusSourcePosition) :
+     centre le passage cliqué dans le viewport Continu. Même principe que
+     le reste de ce typage manuel — pas un nouveau membre du module
+     `@codemirror/view` (déjà `unknown` dans codemirror-runtime.d.ts),
+     seulement la forme locale prêtée à ce cast. */
+  scrollIntoView(pos: number, options?: { y?: "center" }): unknown;
+}
 
 const EditorStateTyped = EditorState as EditorStateStatic;
 const EditorViewCtorTyped = EditorView as EditorViewCtor;
+
+/** Position `{ line, ch }` (0-based, coordonnées du FICHIER MARKDOWN
+ * ORIGINAL — même contrat que `SourceBlockPosition`, preview-source-map.ts)
+ * → offset dans `text`. Pure, jamais liée à CodeMirror : `text` n'est ici
+ * qu'une chaîne JS ordinaire (voir `ScriveningsView.focusSourcePosition`,
+ * qui l'appelle sur une source virtuelle jamais écrite). Borne toute
+ * position hors limites plutôt que de lever — un repère de source
+ * légèrement périmé (édition externe entre-temps) ne doit jamais faire
+ * échouer la navigation, seulement l'approcher au plus près. CRLF : `\r`
+ * éventuel reste porté par la ligne qui le précède, exactement comme le
+ * compte Obsidian lui-même (`SectionCache.position`) — aucun traitement
+ * spécial requis au-delà du simple découpage sur `\n`. */
+function offsetForLineCol(text: string, line: number, ch: number): number {
+  const lines = text.split("\n");
+  const clampedLine = Math.max(0, Math.min(line, lines.length - 1));
+  let offset = 0;
+  for (let i = 0; i < clampedLine; i++) offset += lines[i].length + 1;
+  const lineText = lines[clampedLine] ?? "";
+  const clampedCh = Math.max(0, Math.min(ch, lineText.length));
+  return offset + clampedCh;
+}
 
 export class ScriveningsView extends ItemView {
   private readonly plugin: ScriveningsViewPlugin;
@@ -797,6 +831,60 @@ export class ScriveningsView extends ItemView {
   scrollToAnchor(path: string, progress: number): void {
     if (!this.cm || !this.session.document) return;
     scrollScriveningsToAnchor(this.cm, this.session.document, path, progress);
+  }
+
+  /* ================ LOT « clic Preview → Continu » (§10-16) ==============
+   * Navigation SEULEMENT : ne modifie jamais le texte, ne change jamais le
+   * scope, ne sauvegarde rien, ne marque rien dirty, ne crée aucune leaf,
+   * ne déplace aucun fichier. */
+
+  /**
+   * Place le curseur Continu à la position SOURCE Markdown `position`
+   * (`{line, ch}`, 0-based — mêmes coordonnées que `SourceBlockPosition`,
+   * preview-source-map.ts : celles du FICHIER MARKDOWN ORIGINAL, jamais
+   * recalculées depuis un rendu), recentre le viewport et donne le focus.
+   * `false` si `path` n'appartient pas à la composition actuellement
+   * chargée, ou si aucun scope n'est chargé (CodeMirror pas encore monté).
+   *
+   * Seul le FRONTMATTER est relu sur disque (il n'est jamais éditable dans
+   * Continu) : le corps utilisé pour la conversion est le corps VIVANT du
+   * segment composite actuellement affiché — même principe que
+   * `PreviewView.readFileForPreview`/`getLiveBody` ci-dessus — pour que le
+   * clic vise la VRAIE position même si Continu a été modifié depuis le
+   * chargement du scope, sans jamais relire le corps sur disque.
+   */
+  async focusSourcePosition(path: string, position: { line: number; ch: number }): Promise<boolean> {
+    const document = this.session.document;
+    if (!document || !this.cm) return false;
+
+    const segment = document.segments.find((s) => s.path === path);
+    if (!segment) return false;
+
+    const raw = await this.app.vault.cachedRead(segment.file);
+    const { frontmatter } = splitFrontmatter(raw);
+    // Source virtuelle JAMAIS écrite : sert uniquement à convertir une
+    // position exprimée dans les coordonnées du FICHIER COMPLET (frontmatter
+    // inclus, voir realSectionsFor/preview-view.ts) vers un offset dans le
+    // corps composite.
+    const virtualSource = frontmatter + segment.body;
+    const fullOffset = offsetForLineCol(virtualSource, position.line, position.ch);
+    const bodyOffset = Math.max(0, Math.min(fullOffset - frontmatter.length, segment.body.length));
+
+    // Réutilise les offsets déjà stockés dans ScriveningsSegment (via
+    // locationToCompositeOffset, services/scrivenings-document.ts) — jamais
+    // une recomposition manuelle en concaténant les fichiers.
+    const compositeOffset = locationToCompositeOffset(document, path, bodyOffset);
+    if (compositeOffset === null) return false;
+
+    // Le curseur SEUL : jamais de sélection du paragraphe entier — même
+    // grammaire que le clic historique Preview → Markdown
+    // (openPreviewBlockInEditor, preview-view.ts).
+    this.cm.dispatch({
+      selection: { anchor: compositeOffset, head: compositeOffset },
+      effects: EditorViewCtorTyped.scrollIntoView(compositeOffset, { y: "center" }),
+    });
+    this.cm.focus();
+    return true;
   }
 
   /* ===================== Typographie de l'hôte (§7) ===================

@@ -1480,6 +1480,7 @@ export const fr = {
   "preview.display.manuscript": "Aperçu — manuscrit",
   "preview.display.named": "Aperçu — {name}",
   "preview.display.mode": "Aperçu — {mode}",
+  "preview.display.selection": "Aperçu — sélection",
   "scrivenings.display.title": "Continu",
   "scrivenings.saveConflict": "« {name} » a changé ailleurs entretemps — vos modifications dans Continu n'ont pas été enregistrées pour éviter d'écraser cette version.",
   "scrivenings.saveError": "« {name} » n'a pas pu être enregistré — vos modifications dans Continu restent en attente, une nouvelle tentative sera faite.",

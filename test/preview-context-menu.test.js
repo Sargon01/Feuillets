@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Menu, TFile, TFolder } from "obsidian";
 import { addOpenWithPreviewItem } from "../src/views/preview-view.js";
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
+import { VIEW_SCRIVENINGS, VIEW_PREVIEW } from "../src/constants.js";
 
 /* Défaut confirmé manuellement : « Ouvrir avec aperçu » n'apparaissait pas
  * au clic droit dans le Binder.
@@ -284,27 +285,76 @@ test("Binder — le menu contextuel d'un DOSSIER propose l'aperçu avec une port
   assert.equal(entry.title, "Ouvrir avec aperçu");
 });
 
-test("Binder — sélection multiple non contiguë transmise intégralement et sans altérer _binderMultiSelect", async () => {
+/* Micro-correctif « ouvrir avec aperçu » — une ancienne multi-sélection
+ * SANS Continu pertinent doit désormais ouvrir explicitement le couple
+ * Continu sélection | Preview sélection (§12 du correctif), plus jamais
+ * Preview seule : ce test exerce le VRAI coordinateur
+ * (`BaseFeuilletsView.openScopeWithContinuAndPreview`) via le menu réel du
+ * Binder, avec un espace de travail conscient du TYPE de leaf demandé
+ * (Continu vs Preview) — condition nécessaire depuis que Preview n'est plus
+ * ouverte seule. */
+test("Binder — sélection multiple non contiguë : Continu + Preview reçoivent le même scope, sans altérer _binderMultiSelect", async () => {
   const project = buildProject();
   const { view, project: proj } = buildBinder(project);
 
   // Fichiers non contigus
   const f1 = proj.scene.path; // Projet/Chapitre 1/01 Été.md
   const f2 = proj.chapterFile.path; // Projet/Prologue.md
-  const nonContiguousPaths = new Set([f1, f2]);
-  view.plugin._binderMultiSelect = new Set(nonContiguousPaths);
+  view.plugin._binderMultiSelect = new Set([f1, f2]);
+  // Aucun Continu central pertinent : priorité 2 (§12), scope reconstruit
+  // depuis `_binderMultiSelect`.
+  view.plugin.getCentralContinuView = () => null;
 
-  let scopePassed = null;
-  let activeLeafCount = 0;
+  // La sélection doit être résolue en vrais TFile par resolveCompileScopeFiles.
+  const registry = new Map([
+    [project.root.path, project.root],
+    [proj.scene.path, proj.scene],
+    [proj.chapterFile.path, proj.chapterFile],
+  ]);
+  view.app.vault.getAbstractFileByPath = (p) => registry.get(p) || null;
+  // Résoudre réellement les fichiers de la sélection (au lieu du repli
+  // `null` du mock partagé) rend admissible le bloc « Ajouter la sélection
+  // au Carnet », inchangé par ce correctif — voir base-feuillets-view.ts.
+  view.plugin.isSceneFile = (f) => f instanceof TFile;
+  view.plugin.flattenFiles = () => [proj.scene, proj.chapterFile];
+  view.plugin.addFilesToNotebook = async () => {};
 
-  view.app.workspace.getLeavesOfType = (type) => [
-    {
-      view: {
-        setCompileScope: async (scope) => { scopePassed = scope; },
+  // Leaf de travail centrale : ni Markdown ni Continu → repli exceptionnel
+  // (openScopeInContinu, §6 du correctif).
+  const workLeaf = { isDeferred: false, loadIfDeferred: async () => {}, view: {} };
+  view.plugin.getLeafForOpeningFile = () => workLeaf;
+
+  const scriveningsLeaves = [];
+  const previewLeaves = [];
+  const setActiveLeafCalls = [];
+  view.app.workspace.getLeavesOfType = (type) => {
+    if (type === VIEW_SCRIVENINGS) return scriveningsLeaves;
+    if (type === VIEW_PREVIEW) return previewLeaves;
+    return [];
+  };
+  view.app.workspace.getLeaf = (_kind) => {
+    const leaf = {
+      isDeferred: false,
+      loadIfDeferred: async () => {},
+      setViewState: async (state) => {
+        if (state.type === VIEW_SCRIVENINGS) {
+          leaf.view = {
+            getViewType: () => VIEW_SCRIVENINGS,
+            compileScope: null,
+            async openScope(scope) { this.compileScope = scope; return true; },
+            refreshHostTypography() {},
+          };
+          scriveningsLeaves.push(leaf);
+        } else if (state.type === VIEW_PREVIEW) {
+          leaf.view = { compileScope: null, async setCompileScope(scope) { this.compileScope = scope; } };
+          previewLeaves.push(leaf);
+        }
       },
-    },
-  ];
-  view.app.workspace.revealLeaf = () => { activeLeafCount++; };
+    };
+    return leaf;
+  };
+  view.app.workspace.setActiveLeaf = (leaf, opts) => { setActiveLeafCalls.push({ leaf, opts }); };
+  view.app.workspace.revealLeaf = () => {};
 
   view.showFileContextMenu({ preventDefault() {} }, proj.scene, proj.chapter, 0, []);
   const menu = Menu.lastShown;
@@ -315,12 +365,25 @@ test("Binder — sélection multiple non contiguë transmise intégralement et s
 
   await entry.callback();
 
-  assert.equal(activeLeafCount, 1, "vue aperçu activée");
+  assert.equal(scriveningsLeaves.length, 1, "un Continu (et un seul) ouvert pour la sélection");
+  const scopePassed = scriveningsLeaves[0].view.compileScope;
   assert.ok(scopePassed);
   assert.equal(scopePassed.type, "selection");
   assert.equal(scopePassed.paths.length, 2, "les 2 chemins non contigus sont transmis");
   assert.ok(scopePassed.paths.includes(f1));
   assert.ok(scopePassed.paths.includes(f2));
+
+  assert.equal(previewLeaves.length, 1, "une Preview (et une seule) ouverte à côté, avec le même scope");
+  assert.deepEqual(previewLeaves[0].view.compileScope, scopePassed);
+
+  // Repli exceptionnel (§6) : la leaf de travail initiale (ni Markdown ni
+  // Continu) n'est jamais transformée en place — `openScopeInContinu` en
+  // crée une nouvelle, qui devient la véritable leaf de travail. Le focus
+  // final doit donc revenir à CETTE leaf-là, pas à l'objet initial.
+  assert.ok(
+    setActiveLeafCalls.some((c) => c.leaf === scriveningsLeaves[0] && c.opts && c.opts.focus),
+    "le focus final revient à la leaf Continu réellement utilisée"
+  );
 
   // Vérification que _binderMultiSelect n'a pas été altéré
   assert.equal(view.plugin._binderMultiSelect.size, 2);

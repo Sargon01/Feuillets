@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile } from "obsidian";
 import { PreviewView } from "../src/views/preview-view.js";
-import { createSelectionScope, createFolderScope } from "../src/services/compile-scope.js";
+import { createSelectionScope, createFolderScope, createFileScope, createProjectScope } from "../src/services/compile-scope.js";
 import { progressWithinSection, scrollTopWithinSection, scrollableAmount } from "../src/views/preview-scroll-sync.js";
 
 /* LOT 3, §12/§14/§15/§16/§18/§19/§20/§23 — pont de défilement Continu ↔
@@ -100,6 +100,39 @@ function fakePreview({
     view.updateVisibleFeuilletCalls++;
     return realUpdateVisibleFeuillet.apply(this, args);
   };
+  return view;
+}
+
+/** Variante de fakePreview qui NE stubbe PAS `syncScrollEnabled` : le vrai
+ * accesseur de PreviewView.prototype reste en place, pour tester le getter
+ * de production lui-même (micro-correctif « scroll Continu ↔ Aperçu pour
+ * Dossier/Projet ») plutôt qu'une valeur imposée par le test. */
+function fakePreviewRealSync({
+  compileScope = SCOPE,
+  continu = null,
+  synchronizedFeuilletPath = null,
+  viewport = fakeViewport(),
+} = {}) {
+  const view = Object.create(PreviewView.prototype);
+  Object.defineProperty(view, "compileScope", { value: compileScope, enumerable: true, configurable: true });
+  view.plugin = { getCentralContinuView: () => continu, settings: { previewMode: "scene" } };
+  view.previewViewport = viewport;
+  view.sectionForPath = () => null;
+  view.visibleFeuilletPathAtViewport = () => null;
+  view.closed = false;
+  view.releaseHandles = [];
+  view.visibleFeuilletPath = null;
+  view.syncScroller = null;
+  view.syncKind = null;
+  view.syncSourcePath = null;
+  view.syncScrollerCleanup = null;
+  view.synchronizedFeuilletPath = synchronizedFeuilletPath;
+  view.explicitContinuSource = null;
+  view.followedEl = null;
+  view.lastPreviewScrollAt = 0;
+  view.lastSourceScrollAt = 0;
+  view.syncingFromEditor = false;
+  view.syncingFromPreview = false;
   return view;
 }
 
@@ -332,4 +365,201 @@ test("bindSourcePane : Continu lié → syncKind=continu, syncScroller=continu.g
   assert.equal(view.syncKind, "continu");
   assert.equal(view.syncScroller, scrollEl);
   assert.equal(view.syncSourcePath, "B.md");
+});
+
+/* ================ Micro-correctif « lien Continu ↔ Preview » (§1-6) ==============
+ * Le Lot 3 ne résolvait le Continu lié QUE via `plugin.getCentralContinuView()`
+ * (résolution GLOBALE, dépendante de la dernière leaf active du workspace) :
+ * la Preview explicitement ouverte à côté d'une leaf Continu précise n'avait
+ * aucun moyen de se rebrancher IMMÉDIATEMENT sur CETTE instance — d'où le
+ * scroll resté débranché malgré un scope identique des deux côtés (bug
+ * manuel constaté). `explicitContinuSource` + `setContinuSource()` couvrent
+ * ce lien ; ces tests vérifient PUREMENT la résolution et le branchement,
+ * jamais la géométrie de scroll (déjà couverte plus haut, réutilisée telle
+ * quelle). */
+
+test("linkedContinuView : le lien EXPLICITE (posé par setContinuSource) est retenu quand les scopes sont égaux", () => {
+  const continu = fakeContinu({ compileScope: SCOPE });
+  const view = fakePreview({ compileScope: SCOPE, continu: null }); // aucun Continu central
+  view.explicitContinuSource = continu;
+
+  assert.equal(view.linkedContinuView(), continu, "le lien explicite suffit, sans Continu central");
+});
+
+test("linkedContinuView : le lien explicite est IGNORÉ si les scopes divergent — jamais un simple test de présence", () => {
+  const explicit = fakeContinu({ compileScope: createFolderScope(PROJECT_ROOT, `${PROJECT_ROOT}/Autre`) });
+  const view = fakePreview({ compileScope: SCOPE, continu: null });
+  view.explicitContinuSource = explicit;
+
+  assert.equal(view.linkedContinuView(), null, "une navigation manuelle du fil d'Ariane détache donc naturellement le lien");
+});
+
+test("linkedContinuView : le lien explicite a priorité sur le Continu central, mais le repli central fonctionne toujours sans lui", () => {
+  const explicit = fakeContinu({ compileScope: SCOPE });
+  const central = fakeContinu({ compileScope: SCOPE });
+  const view = fakePreview({ compileScope: SCOPE, continu: central });
+  view.explicitContinuSource = explicit;
+
+  assert.equal(view.linkedContinuView(), explicit, "priorité au lien explicite");
+
+  view.explicitContinuSource = null;
+  assert.equal(view.linkedContinuView(), central, "repli EXACT sur le Continu central en l'absence de lien explicite");
+});
+
+/* ===================== setContinuSource() (§3-4) ===================== */
+
+test("setContinuSource : Preview déjà rendue sur le MÊME scope — rebranche immédiatement le scroll (bindSourcePane + applySourceToPreview), sans rerendu", () => {
+  const continu = fakeContinu({ compileScope: SCOPE, scrollElement: fakeViewport(), scrollAnchor: { path: "B.md", progress: 0.3 } });
+  const view = fakePreview({ compileScope: SCOPE, continu: null }); // pas encore lié
+  view.app = { workspace: {} };
+  view.frameLoaded = true;
+  view.closed = false;
+  let applySourceToPreviewCalls = 0;
+  const realApply = view.applySourceToPreview;
+  view.applySourceToPreview = function (...args) {
+    applySourceToPreviewCalls++;
+    return realApply.apply(this, args);
+  };
+  view.refreshPreviewCalls = 0;
+  view.refreshPreview = async () => { view.refreshPreviewCalls++; };
+
+  view.setContinuSource(continu);
+
+  assert.equal(view.explicitContinuSource, continu);
+  assert.equal(view.syncKind, "continu", "bindSourcePane a immédiatement reconnu le lien tout juste posé");
+  assert.equal(applySourceToPreviewCalls, 1, "branché ET synchronisé immédiatement, sans attendre un événement fortuit");
+  assert.equal(view.refreshPreviewCalls, 0, "aucun rerendu");
+});
+
+test("setContinuSource : Preview PAS ENCORE chargée (frameLoaded=false) — branche bindSourcePane, mais n'applique aucun scroll tant que le rendu n'est pas prêt", () => {
+  const continu = fakeContinu({ compileScope: SCOPE, scrollElement: fakeViewport(), scrollAnchor: { path: "B.md", progress: 0.3 } });
+  const view = fakePreview({ compileScope: SCOPE, continu: null });
+  view.app = { workspace: {} };
+  view.frameLoaded = false;
+  let applySourceToPreviewCalls = 0;
+  view.applySourceToPreview = () => { applySourceToPreviewCalls++; };
+
+  view.setContinuSource(continu);
+
+  assert.equal(view.syncKind, "continu", "le branchement reste immédiat");
+  assert.equal(applySourceToPreviewCalls, 0, "pas de scroll programmatique avant que l'iframe existe");
+});
+
+test("setContinuSource(null) : détache proprement via le mécanisme EXISTANT (bindSourcePane), sans second cleanup", () => {
+  // `isConnected: false` simule une leaf Continu réellement disparue —
+  // c'est la seule condition sous laquelle bindSourcePane() (mécanisme
+  // EXISTANT, voir son commentaire « Aucun candidat trouvé... ») abandonne
+  // le dernier scroller suivi plutôt que de le garder tant qu'il existe
+  // encore (comportement délibéré, pas une régression de ce test).
+  const scrollEl = fakeViewport();
+  scrollEl.isConnected = false;
+  const continu = fakeContinu({ compileScope: SCOPE, scrollElement: scrollEl, scrollAnchor: { path: "B.md", progress: 0.3 } });
+  const view = fakePreview({ compileScope: SCOPE, continu: null });
+  view.app = { workspace: {} };
+  view.frameLoaded = true;
+  view.setContinuSource(continu);
+  assert.equal(view.syncKind, "continu");
+
+  view.setContinuSource(null);
+
+  assert.equal(view.explicitContinuSource, null);
+  assert.equal(view.syncKind, null, "plus aucune source Continu : bindSourcePane retombe sur son repli habituel (aucun Markdown actif ici)");
+});
+
+test("setContinuSource(null) : tant que l'ancien scroller Continu existe encore, bindSourcePane le CONSERVE (mécanisme EXISTANT inchangé, pas une fuite)", () => {
+  const continu = fakeContinu({ compileScope: SCOPE, scrollElement: fakeViewport(), scrollAnchor: { path: "B.md", progress: 0.3 } });
+  const view = fakePreview({ compileScope: SCOPE, continu: null });
+  view.app = { workspace: {} };
+  view.frameLoaded = true;
+  view.setContinuSource(continu);
+  assert.equal(view.syncKind, "continu");
+
+  view.setContinuSource(null);
+
+  assert.equal(view.explicitContinuSource, null, "le lien explicite est bien retiré");
+  // Comportement historique de bindSourcePane, VOLONTAIREMENT inchangé par
+  // ce micro-correctif : sans candidat de remplacement, le dernier panneau
+  // suivi reste suivi tant qu'il est encore attaché au DOM.
+  assert.equal(view.syncKind, "continu");
+});
+
+/* ================ Micro-correctif « scroll Continu ↔ Aperçu, Dossier/Projet »
+ * (getter syncScrollEnabled) ================
+ * `syncScrollEnabled` exigeait jusqu'ici `synchronizedFeuilletPath !== null`
+ * pour folder/project — règle héritée de l'ancien suivi Markdown, qui
+ * bloquait le scroll une fois un Continu lié sur ces portées. Ces tests
+ * exercent le VRAI accesseur de production (fakePreviewRealSync, aucun
+ * stub) — jamais une valeur imposée. */
+
+test("syncScrollEnabled : Continu lié + folderScope → true", () => {
+  const folderScope = createFolderScope(PROJECT_ROOT, `${PROJECT_ROOT}/Dossier`);
+  const continu = fakeContinu({ compileScope: folderScope });
+  const view = fakePreviewRealSync({ compileScope: folderScope, continu, synchronizedFeuilletPath: null });
+
+  assert.equal(view.syncScrollEnabled, true);
+});
+
+test("syncScrollEnabled : Continu lié + projectScope → true", () => {
+  const projectScope = createProjectScope(PROJECT_ROOT);
+  const continu = fakeContinu({ compileScope: projectScope });
+  const view = fakePreviewRealSync({ compileScope: projectScope, continu, synchronizedFeuilletPath: null });
+
+  assert.equal(view.syncScrollEnabled, true);
+});
+
+test("syncScrollEnabled : Continu lié + selectionScope → true", () => {
+  const continu = fakeContinu({ compileScope: SCOPE });
+  const view = fakePreviewRealSync({ compileScope: SCOPE, continu, synchronizedFeuilletPath: null });
+
+  assert.equal(view.syncScrollEnabled, true);
+});
+
+test("syncScrollEnabled : folderScope SANS Continu lié, synchronizedFeuilletPath null → false (comportement historique inchangé)", () => {
+  const folderScope = createFolderScope(PROJECT_ROOT, `${PROJECT_ROOT}/Dossier`);
+  const view = fakePreviewRealSync({ compileScope: folderScope, continu: null, synchronizedFeuilletPath: null });
+
+  assert.equal(view.syncScrollEnabled, false);
+});
+
+test("syncScrollEnabled : projectScope SANS Continu lié, synchronizedFeuilletPath null → false (comportement historique inchangé)", () => {
+  const projectScope = createProjectScope(PROJECT_ROOT);
+  const view = fakePreviewRealSync({ compileScope: projectScope, continu: null, synchronizedFeuilletPath: null });
+
+  assert.equal(view.syncScrollEnabled, false);
+});
+
+test("bindSourcePane : folderScope lié à Continu → syncKind === \"continu\" (via le vrai syncScrollEnabled)", () => {
+  const folderScope = createFolderScope(PROJECT_ROOT, `${PROJECT_ROOT}/Dossier`);
+  const continu = fakeContinu({ compileScope: folderScope, scrollElement: fakeViewport(), scrollAnchor: { path: "B.md", progress: 0.2 } });
+  const view = fakePreviewRealSync({ compileScope: folderScope, continu, synchronizedFeuilletPath: null });
+  view.app = { workspace: {} };
+
+  view.bindSourcePane();
+
+  assert.equal(view.syncKind, "continu");
+});
+
+test("bindSourcePane : projectScope lié à Continu → syncKind === \"continu\" (via le vrai syncScrollEnabled)", () => {
+  const projectScope = createProjectScope(PROJECT_ROOT);
+  const continu = fakeContinu({ compileScope: projectScope, scrollElement: fakeViewport(), scrollAnchor: { path: "B.md", progress: 0.2 } });
+  const view = fakePreviewRealSync({ compileScope: projectScope, continu, synchronizedFeuilletPath: null });
+  view.app = { workspace: {} };
+
+  view.bindSourcePane();
+
+  assert.equal(view.syncKind, "continu");
+});
+
+test("setContinuSource : mono-fichier — source null protège intégralement le parcours Markdown historique, jamais affecté", () => {
+  const view = fakePreview({ compileScope: createFileScope(PROJECT_ROOT, "A.md"), continu: null });
+  view.app = { workspace: {} };
+  const markdown = { file: { path: "A.md" }, contentEl: {} };
+  view.activeMarkdownView = () => markdown;
+  view.isPreviewableFile = () => true;
+
+  view.setContinuSource(null);
+  view.bindSourcePane();
+
+  assert.equal(view.explicitContinuSource, null);
+  assert.equal(view.syncKind, "markdown", "hors Continu, la résolution Markdown historique reste seule maîtresse");
 });
