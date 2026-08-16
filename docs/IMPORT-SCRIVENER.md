@@ -4,80 +4,32 @@
 
 Feuillets peut reprendre un projet Scrivener et le convertir en fichiers Markdown et dossiers du coffre Obsidian.
 
-![Import Scrivener](feuillets-import-scrivener.png)
+## Ce que l’import cherche à reprendre
 
-## Avant l’import
-
-Travaillez sur une **copie** du projet Scrivener si vous souhaitez conserver un original intact.
-
-L’import ne transforme pas Scrivener lui-même : il lit les éléments sélectionnés puis crée un projet Feuillets dans le coffre.
-
-## Formats d’entrée
-
-L’importeur sait travailler avec la structure d’un projet `.scriv` et avec une archive compatible contenant le `.scrivx` et ses données.
-
-Selon la plateforme et le navigateur intégré à Obsidian, la sélection peut passer par un fichier/archive ou par les entrées de dossier disponibles.
-
-## Ce que Feuillets cherche à reprendre
-
-Lorsque les éléments sont disponibles et compatibles :
+Lorsque disponible et compatible :
 
 - hiérarchie du Binder/Draft ;
-- titres ;
-- textes ;
-- ordre ;
-- statuts compatibles ;
-- synopsis ou informations réutilisables ;
-- commentaires Scrivener pris en charge ;
-- dossiers de Recherche ;
-- images, PDF et autres pièces classées comme ressources ;
-- certaines métadonnées convertibles.
+- titres et textes ;
+- **ordre exact du Binder** ;
+- synopsis/statuts et métadonnées représentables ;
+- commentaires pris en charge ;
+- Recherche ;
+- images, PDF et autres ressources prises en charge.
 
-Les textes RTF sont convertis en Markdown par l’importeur.
+Les textes RTF sont convertis en Markdown.
 
-## Ce qui change
+## Ordre
 
-Scrivener stocke un projet dans son propre bundle. Feuillets produit un ensemble lisible de fichiers et dossiers dans le coffre.
+Feuillets 2.5 enregistre explicitement l’ordre Scrivener dans son système d’ordre. Le tri naturel/alphanumérique du coffre ne remplace donc plus l’ordre du Binder importé.
 
-L’objectif n’est donc pas une copie binaire parfaite du projet Scrivener, mais une **migration de travail** :
+## Structure cible
 
-> structure exploitable + texte lisible + métadonnées utiles + pièces récupérables.
+L’import s’aligne sur la structure canonique Feuillets actuelle et réutilise les résolveurs de projet plutôt que de recréer des chemins historiques. Les anciens chemins restent compatibles lorsqu’ils existent.
 
-## Pendant l’import
+## Import sur ordinateur
 
-1. Ouvrez le gestionnaire de projets ou l’action d’import Scrivener.
-2. Choisissez le projet ou l’archive.
-3. Vérifiez l’aperçu/résumé d’import.
-4. Choisissez le projet cible selon les options proposées.
-5. Lancez l’import.
-6. Lisez le rapport final.
+L’import Scrivener est une action explicite de l’utilisateur et nécessite l’accès aux fichiers du projet sélectionné. Feuillets ne parcourt pas arbitrairement le disque en arrière-plan.
 
 ## Après l’import
 
-Vérifiez :
-
-- ordre des parties et chapitres ;
-- titres ;
-- premiers et derniers paragraphes de plusieurs scènes ;
-- caractères accentués ;
-- listes et emphases ;
-- commentaires importants ;
-- images/PDF attendus ;
-- catégories de Recherche ;
-- statuts et champs que vous utilisez réellement.
-
-Ne supprimez pas immédiatement l’original Scrivener. Travaillez quelques jours dans Feuillets, exportez un document de contrôle puis archivez l’ancien projet lorsque vous êtes satisfait.
-
-## Ce que Feuillets ne promet pas
-
-Scrivener contient des fonctionnalités et formats internes qui n’ont pas toujours un équivalent direct en Markdown/Obsidian.
-
-Une fonction sans équivalent pertinent peut être simplifiée, convertie en texte ou signalée dans le rapport plutôt que simulée artificiellement.
-
-## Après la migration
-
-Poursuivez avec :
-
-- [Découvrir Feuillets](DECOUVRIR.md) ;
-- [Le parcours d’un auteur](PARCOURS-AUTEUR.md) ;
-- [Remplacer Scrivener par Feuillets](Remplacer-Scrivener-par-Feuillets.md).
+Contrôlez quelques chapitres/scènes, l’ordre, les caractères accentués, les ressources, les fiches Recherche et les propriétés importantes. Conservez l’original Scrivener tant que vous n’avez pas validé votre migration.

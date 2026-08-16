@@ -2,86 +2,49 @@
 
 ## Scope
 
-Feuillets is an Obsidian plugin that works with writing projects stored in the user's vault.
+Feuillets is an Obsidian plugin for writing projects stored in the user's vault. Core responsibilities require legitimate read/write access to project files: creating sheets/folders, updating metadata, importing explicitly selected material, generating exports, snapshots/backups, and reintegrating review returns.
 
-Its core responsibilities require legitimate read/write access to project files: creating sheets and folders, updating metadata, importing user-selected material, producing exports, snapshots and backups, and reintegrating reviewed documents.
-
-This document describes the current security model so that users and reviewers can distinguish expected filesystem activity from unexpected behavior.
-
-## Current trust model
+## Trust model
 
 ### No telemetry or remote manuscript service
 
-Feuillets does not require a Feuillets account or server and does not upload manuscript text to a remote analysis service.
+Feuillets requires no account or Feuillets server and does not upload manuscript text to a remote analysis service.
 
-The core plugin contains no bundled grammar engine. Linguistic analysis can be provided by a separately installed companion plugin through the public provider API.
+### No downloaded executable code or shell conversion
 
-### No downloaded executable code
+The plugin does not download executable code at runtime. Native DOCX, EPUB and ODT export is local JavaScript; PDF uses the desktop system print flow. Feuillets does not invoke Pandoc or a shell converter.
 
-Feuillets does not download code and execute it at runtime.
+### User-selected external imports
 
-The production plugin is built from the TypeScript source in this repository and bundled as an unminified `main.js` so that the generated code remains inspectable.
+Scrivener and reviewed-DOCX imports are explicit user actions. Desktop Scrivener import may access the selected project package/files because that is the material the user requested to import; Feuillets does not scan arbitrary external filesystem locations in the background.
 
-### No Pandoc or shell execution
+### Collaborative review packages
 
-The current native export pipeline does not require Pandoc and does not invoke a shell command or external conversion executable.
+Collaborative review is transported through `.feuillets` packages explicitly created, sent and imported by users. A package contains the review scope and session material needed for that exchange, not an automatic copy of the user's whole vault.
 
-DOCX, EPUB and ODT generation is performed locally by JavaScript code/libraries. PDF export uses the system print dialog on desktop.
+### Vault writes and read-only navigation
 
-### User-selected imports
+Normal project writes use Obsidian vault/file APIs. Canonical auxiliary content lives under `_Feuillets` when created. Historical locations remain recognized for compatibility.
 
-Scrivener and reviewed-DOCX imports are explicit user actions.
+Binder split view may browse the vault through a lightweight navigation tree. That surface deliberately exposes opening/navigation rather than create/rename/delete/move operations. External Research folders linked from the Binder are likewise shown as navigation-only sources when they live outside the managed Research space.
 
-Feuillets does not scan arbitrary external filesystem locations in the background. Imported material is processed because the user chose the source and initiated the operation.
+### YAML mapping
 
-### Vault writes
-
-Normal writing-project operations use Obsidian's vault/file APIs.
-
-Technical project folders can include `_Recherche`, `_Ressources`, `_Snapshots`, `_Versions`, `_Backups`, `_Edition`, `_Journal` and `_Sortie`.
-
-The backup/output code distinguishes a structured `Manuscrit` project from a folder used as-is so it does not blindly climb to a parent folder.
+Project YAML property mapping changes how Feuillets reads/writes logical fields but does not automatically migrate or rename all frontmatter when a mapping changes.
 
 ## Backups
 
-Backup scope is deliberately constrained.
+Backup scope remains constrained: an as-is project stays inside that folder; a structured `Manuscrit` project may use the surrounding project root. The backup destination is excluded from its own ZIP.
 
-- If the active manuscript folder is actually named `Manuscrit` and has a real project parent, the project parent is the backup source.
-- Otherwise the active project folder itself is the backup source.
-- The vault root is never selected implicitly by this rule.
-- `_Backups` is excluded from its own ZIP archive.
+## Output replacement
 
-This prevents an as-is project folder from accidentally pulling sibling folders into a backup.
+Export output handles existing files through Obsidian APIs and resolves case-only filename collisions (important on case-insensitive filesystems such as common macOS configurations) rather than creating a competing path.
 
-## PDF printing
+## Companion analyzers
 
-PDF export is desktop-only.
-
-Feuillets builds an isolated print document and hands it to the browser/system print flow. The plugin does not need a separate PDF conversion service.
-
-HTML fragments generated for the print document are handled in an isolated document/DOM pipeline rather than used as arbitrary live application markup.
-
-## Text-analysis providers
-
-`src/api/text-analysis.ts` defines the provider contract used by optional companion plugins.
-
-Feuillets validates:
-
-- that a provider has the required runtime shape;
-- that issue offsets are integers;
-- that ranges are ordered and stay inside the supplied text.
-
-A companion plugin is third-party code installed separately. Its own security and privacy behavior must be evaluated separately from Feuillets core.
-
-## Dependencies
-
-Runtime dependencies are intentionally limited. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-
-The project also runs automated dependency/security checks through its normal development and release process.
+Optional companion plugins can register text-analysis providers. Their own privacy/security behavior must be evaluated separately from Feuillets core.
 
 ## Continuous checks
-
-The repository provides:
 
 ```bash
 npm test
@@ -90,26 +53,6 @@ npm run lint
 npm run lint:obsidian
 ```
 
-The Obsidian-specific lint uses the review rules intended for community-plugin source checks.
+## Reporting
 
-## Supported versions
-
-The plugin manifest currently requires **Obsidian 1.13.0 or newer**.
-
-Only the latest published Feuillets release is supported for security fixes. Please update before reporting a vulnerability against an older build.
-
-## Reporting a vulnerability
-
-Please avoid publishing exploit details in a normal public issue.
-
-Use the repository's **Security → Report a vulnerability** / private security-advisory flow when available.
-
-Include:
-
-- affected Feuillets version;
-- affected Obsidian version/platform;
-- minimal reproduction;
-- files or feature involved;
-- expected impact.
-
-If private reporting is not available in your GitHub interface, open a minimal issue asking for a private contact channel **without including sensitive exploit details**.
+Use GitHub's private security-advisory flow when possible and avoid publishing exploit details in a normal public issue.

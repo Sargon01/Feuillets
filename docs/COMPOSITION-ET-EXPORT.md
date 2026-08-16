@@ -4,156 +4,105 @@
 
 ## Écrire n’est pas mettre en page
 
-Feuillets sépare :
+Feuillets sépare l’apparence confortable de l’éditeur de la composition du document destiné à être lu, imprimé ou envoyé.
 
-- l’apparence confortable de l’éditeur ;
-- la composition du document destiné à être lu, imprimé ou envoyé.
+## L’espace central Édition
 
-![Écriture et composition](feuillets-concentration-apercu.png)
+En 2.5, **Édition** n’est plus un onglet du panneau droit. C’est une surface centrale qui travaille à côté du vrai **Aperçu**.
 
-La police ou la largeur choisie pour écrire ne doit pas vous enfermer dans la mise en page finale.
+Deux modes seulement :
 
-## La portée de composition
+- **Composition** ;
+- **Mise en page**.
+
+L’export n’est plus un troisième onglet. La barre d’Édition conserve en permanence : **portée**, **format**, **Exporter** et **Actualiser l’Aperçu**.
+
+## Composition
+
+La page d’accueil de Composition résume le document :
+
+### Manuscrit
+
+- **Contenu du manuscrit** — ouvre la sélection/inclusion des feuillets ;
+- **Première page** — contenu et présentation ;
+- **Pages liminaires**.
+
+### Éléments générés
+
+- sommaire ;
+- table des matières ;
+- tables.
+
+### Fin d’ouvrage
+
+- bibliographie ;
+- annexes.
+
+### Structure
+
+- structure du manuscrit ;
+- réglages liés aux notes de bas de page.
+
+Les sous-pages reviennent à Composition sans ouvrir de nouvelle vue Obsidian.
+
+## Première page
+
+Il n’existe qu’une seule entrée **Première page** dans Édition : **Composition → Première page**.
+
+Elle réunit le contenu/inclusion et les exceptions de présentation propres à cette page. Elle utilise le même modèle de gabarit et la même miniature que le reste de la chaîne de mise en page.
+
+## Mise en page
+
+Les catégories sont :
+
+- **Page** — format, orientation, marges, marges miroir, colonnes, gouttière, en-tête et pied ;
+- **Corps de texte** — police, taille, interligne, alignement, retraits, espacements, césure, profil et typographie française à l’export ;
+- **Titres** — styles des niveaux de titre, espacements et sauts de page ;
+- **Citation** — citations, retraits, marges, couleur, italique et séparateur de scène.
+
+Les contrôles qui n’ont pas de sens restent masqués : par exemple la gouttière avec une seule colonne ou les détails d’en-tête lorsque l’en-tête est désactivé.
+
+## Gabarits V2
+
+L’Aperçu et les exports partagent le même modèle de gabarit. Vous pouvez :
+
+- utiliser les gabarits intégrés ;
+- créer ou dupliquer un gabarit ;
+- renommer/supprimer un gabarit personnalisé ;
+- importer un style Ulysses ;
+- importer un modèle Word `.docx` ou `.dotx` pour les propriétés représentables.
+
+## Portée
 
 Une composition peut viser :
 
-- **un fichier** ;
-- **un dossier** et tous ses descendants Markdown ;
-- **une sélection** de fichiers et dossiers ;
-- **le projet entier**.
+- un feuillet ;
+- un dossier et ses descendants ;
+- une sélection de fichiers/dossiers ;
+- le projet entier.
 
-Si un dossier et l’un de ses descendants sont sélectionnés en même temps, le descendant n’est inclus qu’une fois.
+Le moteur évite les doublons lorsqu’un dossier et l’un de ses descendants sont tous deux sélectionnés.
 
-L’ordre final suit l’ordre du Classeur.
+## Export
 
-## Ce qui n’entre pas automatiquement dans le manuscrit
+L’export se lance depuis la barre persistante d’Édition ou depuis les commandes d’export. La portée utilise le même modèle `CompileScope` que le reste de la chaîne : feuillet, dossier, sélection ou projet.
 
-Les dossiers techniques sont exclus du parcours de composition. Les fichiers explicitement marqués comme exclus de la compilation restent également hors du document final.
+## Nom du fichier de sortie
 
-Les espaces Recherche, Ressources, Édition, Sauvegardes et autres dossiers techniques ne doivent pas devenir des chapitres par accident.
+Le nom du manuscrit n’est plus un champ normal de l’interface Édition. Feuillets résout un nom à partir du contexte/preset et conserve les anciennes valeurs `compileFileName` pour compatibilité.
+
+L’écriture de sortie gère également les collisions de casse sur macOS : un `Manuscrit.md` existant peut être mis à jour même si une ancienne préférence demande `manuscrit.md`.
 
 ## Aperçu
 
-![Aperçu paginé](feuillets-apercu.png)
+L’Aperçu est la référence visuelle avant export. Il utilise la même logique de composition, de gabarit et de pagination que le PDF lorsque ces notions sont applicables.
 
-L’Aperçu sert à vérifier la composition avant l’export :
+## Formats
 
-- titres ;
-- séparateurs ;
-- pages Front ;
-- modèle ;
-- ordre ;
-- portée ;
-- pagination.
+- **Markdown compilé** — assemblage Markdown local ;
+- **DOCX** — styles Word éditables ;
+- **EPUB** — texte reflowable ;
+- **ODT** — OpenDocument ;
+- **PDF** — desktop, via le document paginé puis la boîte d’impression système.
 
-La scène active peut être actualisée rapidement. Les portées plus longues évitent une recompilation agressive à chaque frappe.
-
-## Pages Front
-
-Le dossier `Front` du manuscrit peut contenir les pages liminaires. La page de titre peut utiliser des rôles spécifiques pour le titre, le sous-titre, l’auteur, une mention supplémentaire ou une image.
-
-L’Aperçu et les exports lisent les mêmes documents Front plutôt que de conserver une seconde page de titre dans un réglage caché.
-
-## Modèles
-
-Feuillets fournit des modèles intégrés et accepte des modèles personnalisés dans les Ressources du projet.
-
-Un modèle peut définir notamment :
-
-- police ;
-- taille ;
-- interligne ;
-- alignement ;
-- retrait ;
-- espacement ;
-- styles de titres ;
-- séparateur de scène ;
-- orientation ;
-- marges et autres paramètres pris en charge.
-
-Les réglages de géométrie PDF restent spécifiques au PDF lorsqu’ils dépendent réellement de la page imprimée.
-
-## Dossier de sortie
-
-Les exports et compilations sont écrits dans `_Sortie`.
-
-### Projet structuré
-
-```text
-Mon projet/
-├── Manuscrit/
-├── _Recherche/
-├── _Ressources/
-└── _Sortie/
-```
-
-### Dossier utilisé tel quel
-
-```text
-Mon dossier/
-├── Chapitre A.md
-├── Sous-dossier/
-└── _Sortie/
-```
-
-Feuillets ne remonte pas au dossier parent dans ce second cas.
-
-## Formats natifs
-
-### DOCX
-
-- vrai document Word ;
-- styles de titres nommés ;
-- images et structures prises en charge par le moteur d’export ;
-- document adapté à l’échange avec éditeurs/relecteurs.
-
-### EPUB
-
-- EPUB pour liseuse ;
-- texte reflowable ;
-- la notion de page physique fixe n’est pas applicable.
-
-### ODT
-
-- format OpenDocument ;
-- utile pour LibreOffice et logiciels compatibles.
-
-### PDF
-
-- **desktop uniquement** ;
-- Feuillets construit la pagination puis ouvre la boîte d’impression du système ;
-- choisissez **Enregistrer au format PDF** dans cette boîte ;
-- A4, A5 ou Letter et orientation selon les réglages ;
-- en-têtes, pieds et pagination selon les options disponibles.
-
-### Markdown compilé
-
-- texte assemblé en Markdown ;
-- utile pour archivage, contrôle ou chaîne éditoriale externe.
-
-## Notes de bas de page
-
-Avant l’export, Feuillets renumérote/namespace les notes lorsque nécessaire afin que deux feuillets contenant localement le même identifiant ne se confondent pas dans le document compilé.
-
-Les formats n’ont pas tous la même représentation des notes : vérifiez le fichier final dans son lecteur cible.
-
-## Typographie
-
-L’option de typographie française à l’export peut normaliser plusieurs signes dans la composition même si le texte a été collé depuis une source externe.
-
-## Contrôle conseillé
-
-Avant un envoi important, vérifiez au minimum :
-
-1. page de titre ;
-2. début de chaque partie ou chapitre ;
-3. séparateurs de scènes ;
-4. images ;
-5. notes de bas de page ;
-6. caractères accentués et Unicode ;
-7. en-têtes/pieds si utilisés ;
-8. fichier final dans Word, LibreOffice, une liseuse ou un lecteur PDF selon le format.
-
-## Une seule règle à retenir
-
-> **L’Aperçu sert à juger le livre avant que le format d’export ne devienne le dernier endroit où l’on découvre un problème.**
+Le Markdown source n’est jamais remplacé par l’artefact exporté.

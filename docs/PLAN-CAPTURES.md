@@ -1,87 +1,38 @@
-# Inventaire et plan des captures
+# Plan des captures — Feuillets 2.5
 
-Les captures documentaires vivent toutes directement dans `docs/`.
+Les captures 2.0/2.0.5 ne doivent pas être conservées lorsqu’elles montrent une surface ou un vocabulaire devenu faux.
 
-Elles ne doivent pas être dupliquées entre la documentation française et anglaise.
+## Captures prioritaires à refaire
 
-## Inventaire actuel
+1. **Écriture** — feuillet Markdown avec Classeur et panneau Feuillet.
+2. **Classeur simple** — navigation 2.5 actuelle.
+3. **Classeur double vue** — Manuscrit + Coffre à gauche, Classeur inchangé à droite.
+4. **Continu** — plusieurs feuillets dans un seul éditeur avec séparations visibles.
+5. **Aperçu** — document paginé à côté du texte/Continu.
+6. **Cartes**.
+7. **Plan** — colonnes actuelles et exemple de retour à la ligne des textes longs.
+8. **Recherche** — dossier externe associé visible sous Dossiers liés.
+9. **Recherche externe** — menu permettant nouvel onglet / côte à côte sans actions d’administration.
+10. **Projet** — page d’administration + sous-page Propriétés YAML.
+11. **Annotations de travail** — passage surligné + popover/liste.
+12. **Relecture** — page d’accueil avec Analyse / Collaborative / DOCX / Comparaison.
+13. **Relecture collaborative** — retour auteur ou comparaison d’un tour.
+14. **Comparateur** — déplacement + `[…]` + modes Changements/Versions.
+15. **Édition / Composition** — sommaire compact.
+16. **Première page** — sous-page unique dans Composition.
+17. **Mise en page** — Page/Corps/Titres/Citation.
+18. **Export** — barre d’Édition avec portée/format/Exporter/rafraîchir.
+19. **Import Scrivener** — écran de choix/import si une capture reste nécessaire.
 
-| Fichier | Sujet | Emplacements recommandés |
-|---|---|---|
-| `feuillets-ecriture-apercu.png` | Classeur + écriture + Aperçu | README FR/EN, Découvrir, index docs, guide Contexte |
-| `creer-premier-projet.gif` | Création d’un projet | README FR/EN, Découvrir, Parcours auteur |
-| `feuillets-classeur.png` | Structure du manuscrit | README FR/EN, Découvrir, Parcours |
-| `feuillets-concentration.png` | Mode Concentration | README FR/EN, Découvrir, Interface |
-| `feuillets-concentration-apercu.png` | Écriture et lecture côte à côte | Interface, Parcours, Composition, guide Ulysses |
-| `feuillets-apercu.png` | Aperçu paginé | README FR/EN, Découvrir, Parcours, Composition |
-| `feuillets-mosaique-narrative.png` | Cartes / Plan / Chemin de fer / Chronologie | README FR/EN, Découvrir, Parcours, fonctionnalités, guides de migration |
-| `feuillets-comparaison.png` | Comparaison de deux états | README FR/EN, Parcours, versionnage, guide Scrivener |
-| `feuillets-import-scrivener.png` | Import Scrivener | README FR/EN, guides d’import/migration |
-| `feuillets-ecosysteme.png` | Feuillets + compagnons | README FR/EN |
+## Captures à supprimer/remplacer si présentes
 
-## Règles
+- ancien Inspecteur avec Notes / Édition / Analyse ;
+- ancienne Révision DOCX sous Édition ;
+- ancien espace Édition à trois onglets incluant Export ;
+- Première page dupliquée dans Mise en page ;
+- ancien bouton export rapide du Classeur ;
+- essai abandonné Vault à gauche filtrant/isolant le Binder.
 
-1. Garder une seule copie de chaque image.
-2. Utiliser des chemins relatifs depuis les fichiers de `docs/`.
-3. Depuis les README racine, utiliser `docs/<nom>`.
-4. Utiliser la même capture dans les pages FR et EN lorsqu’elle illustre le même concept.
-5. Une capture doit expliquer un bénéfice ou une interaction, pas simplement remplir la page.
-6. Masquer toute donnée personnelle.
-7. Utiliser un projet de démonstration cohérent d’une image à l’autre.
-8. Ne pas afficher de panneau devenu obsolète.
+## Règle
 
-## Remplacer une capture
-
-Lorsque l’interface change mais que le rôle documentaire de l’image reste le même, remplacer le fichier **en conservant son nom**.
-
-Exemple :
-
-```text
-docs/feuillets-classeur.png
-```
-
-peut être remplacé par une capture plus récente du Classeur sans modifier tous les guides.
-
-Changer le nom uniquement si le concept illustré change réellement.
-
-## Images prioritaires à maintenir à jour
-
-### `feuillets-ecriture-apercu.png`
-
-Image principale du produit. Elle doit montrer :
-
-- Classeur lisible ;
-- feuillet actif ;
-- Aperçu cohérent ;
-- interface sans données privées.
-
-### `feuillets-classeur.png`
-
-Doit refléter le Classeur actuel : arborescence, indentation, icônes et structure cohérente.
-
-### `feuillets-mosaique-narrative.png`
-
-Doit présenter les quatre représentations actuelles :
-
-- Cartes ;
-- Plan ;
-- Chemin de fer ;
-- Chronologie.
-
-### `feuillets-apercu.png`
-
-Doit refléter l’Aperçu paginé actuel et, si possible, la barre d’outils/export actuelle.
-
-### `feuillets-concentration.png`
-
-Doit rester très lisible et ne montrer que ce que Concentration cherche précisément à faire disparaître.
-
-## Captures qui ne sont plus nécessaires
-
-Ne pas recréer des captures séparées d’anciens panneaux Notes, Recherche, Projet ou Révision comme s’ils étaient encore chacun une barre latérale indépendante.
-
-Si une nouvelle capture de l’Inspecteur est ajoutée un jour, elle doit représenter **l’Inspecteur unifié à onglets**.
-
-## Guides détaillés sans capture dédiée
-
-`HOW-TO-CARNET.md` et `HOW-TO-REVISION-DOCX.md` peuvent rester textuels tant qu’aucune capture actuelle ne montre précisément leur interface. Ne pas réutiliser une image approximative simplement pour remplir la page. Une future capture doit montrer l’interface réelle de la version courante.
+Une capture doit illustrer un workflow stable, pas un réglage temporaire. Les images doivent être refaites **après** le dernier commit fonctionnel et le changement de version, afin qu’aucun détail de pré-release ne reste visible.

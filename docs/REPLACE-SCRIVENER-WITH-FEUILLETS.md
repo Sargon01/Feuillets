@@ -2,35 +2,40 @@
 
 > [Français](Remplacer-Scrivener-par-Feuillets.md) · **English** · [Documentation index](README.md)
 
-You have used Scrivener for a long time. You know the Binder, Corkboard, synopsis, document notes, metadata, snapshots and Compile. You want to know whether Feuillets can reproduce that working method inside Obsidian without forcing you to relearn everything.
-
-The answer is: **yes for most long-form writing work, with one important difference.**
-
-Scrivener is a self-contained application built around its own project model. Feuillets uses ordinary folders and Markdown files inside Obsidian. You gain openness, direct access to your files and the Obsidian ecosystem. In return, some functions have different names or live in different places.
+You use Scrivener for its Binder, index cards, synopsis, metadata, snapshots, Scrivenings mode and Compile system. Feuillets covers most of that workflow inside Obsidian, with one structural difference: **the project remains ordinary folders and Markdown files**.
 
 ![Import a Scrivener project](feuillets-import-scrivener.png)
+
+Feuillets is not a pixel-for-pixel Scrivener clone. It recreates the writing actions that matter — structure, move, read, document, rewrite, compare and export — while keeping the vault open and directly usable by Obsidian.
 
 ---
 
 ## 1. Find the Binder again
 
-In Scrivener, the Binder contains the manuscript hierarchy.
+The Feuillets equivalent is the **Binder**.
 
-In Feuillets, the equivalent is the **Binder**.
+It provides:
 
-You can work with:
-
-- parts;
-- chapters;
-- scenes or sheets;
-- folders;
-- drag and drop;
-- rename;
-- duplicate;
+- parts, chapters, folders and sheets;
+- drag-and-drop reordering;
+- rename, duplicate, split and merge;
 - move back to manuscript root;
-- split and merge scenes.
+- multi-selection;
+- search and filters;
+- opening a folder in **Continuous** mode;
+- temporary folder isolation without changing the project.
 
-The important difference is that this hierarchy corresponds to real folders and Markdown files in the vault.
+The hierarchy maps to real vault folders and files.
+
+### Split view
+
+The Binder can also use a **split view**:
+
+- on the left, a folder-only manuscript tree for reading the structure at a glance;
+- below it, a lightweight read-only **Vault** browser for consulting outside material;
+- on the right, the normal Binder, with the same features as in single-pane mode.
+
+The Vault section is only for finding and opening files. An outside document never becomes a manuscript sheet and is never added to compilation or Continuous mode implicitly.
 
 ### Main equivalents
 
@@ -40,422 +45,267 @@ The important difference is that this hierarchy corresponds to real folders and 
 | Document | Sheet |
 | Folder | Folder |
 | Draft / Manuscript | Manuscript scope |
-| Research | Research tab and project Research folders |
-| Trash | Obsidian trash / file deletion |
-
-A sheet is the movable writing unit. It can represent a scene, article, fragment, section or any other piece you want to write, move, compare or compile independently.
+| Research | Research |
+| Trash | Obsidian trash |
 
 ---
 
 ## 2. Find the Corkboard again
 
-Scrivener's Corkboard displays documents as index cards.
-
-Feuillets uses the **Cards** view.
-
-A card can show:
-
-- title;
-- synopsis;
-- status;
-- label;
-- tags;
-- word count;
-- progress;
-- optional target.
-
-Cards can be filtered and reordered to reshape the manuscript.
-
 ![Cards, Outline, Storyline and Timeline](feuillets-mosaique-narrative.png)
 
-### Difference
-
-Feuillets does not try to reproduce the visual metaphor of a cork board exactly. The working purpose is the same: step back from prose, inspect writing units and reorganize them visually.
+Use **Cards** to step away from prose and inspect writing units visually. Cards can show the title, synopsis, status, label and progress, and can be reordered without creating a second manuscript structure.
 
 ---
 
 ## 3. Find the Outliner again
 
-Scrivener's Outliner presents project documents and metadata in columns.
+Use **Outline** to inspect manuscript hierarchy and metadata in columns.
 
-In Feuillets, use **Outline**.
+Available columns can include title, synopsis or summary, status, label, tags, word count, target, progress, date and other useful project properties. Long synopsis/summary columns can wrap when you need to read them in full.
 
-You can display information such as:
-
-- title;
-- synopsis;
-- status;
-- label;
-- tags;
-- word count;
-- target;
-- progress;
-- date;
-- other project properties.
-
-Outline is useful when you want to inspect the manuscript as an editorial table without opening every scene.
+> **Outline** is where you see and work with manuscript structure. **Edition → Composition → Structure** configures numbering, titles, separators and compilation rules.
 
 ---
 
-## 4. Find synopsis and document notes again
+## 4. Find synopsis, document notes and properties again
 
-Scrivener's Inspector combines synopsis, notes, metadata, comments and bookmarks.
+The right panel is organized by purpose.
 
-Feuillets separates these intentions inside its unified **Inspector**.
+### Sheet
 
-### Notes tab
-
-The Notes tab can contain:
+The **Sheet** tab follows the active text and can contain:
 
 - synopsis;
 - summary;
 - working notes;
-- sources;
-- chapter or part notes;
-- internal outline of the active sheet;
-- sheet properties;
-- automatic Context for the passage around the cursor.
+- properties;
+- footnotes;
+- internal outline;
+- passage **Context**.
 
-### Properties inside Notes
+### Project
 
-Properties describe and classify the active sheet:
+The **Project** tab manages project-level information and settings such as statuses, labels, favorite tags, goals and YAML property mapping.
 
-- status;
-- one or several labels;
-- dates;
-- tags;
-- targets;
-- custom Markdown/YAML properties.
+### Property remapping
 
-### Research tab
+Feuillets can adapt to properties already present in your vault. For example, an existing `State` property can be designated as the Feuillets status without renaming files or migrating YAML.
 
-Research contains the project's reference material:
-
-- characters;
-- places;
-- events;
-- concepts;
-- lore;
-- glossary;
-- bibliography;
-- sources.
-
-Feuillets therefore separates the intentions more explicitly:
-
-- **Notes** accompany writing and contain properties and Context;
-- **Research** documents the subject or story world;
-- **Edition** contains editorial material and DOCX Revision.
+Mappings are non-destructive: they tell Feuillets **where to read and write**, rather than forcing the vault into a new schema.
 
 ---
 
 ## 5. Find labels, statuses and custom metadata again
 
-Scrivener supports labels, statuses and custom metadata.
+Feuillets uses human-readable Markdown properties for status, labels, tags, dates, targets, point of view, narrative thread, characters and custom fields.
 
-Feuillets uses equivalent ideas stored in readable Markdown properties.
-
-You can use:
-
-- status;
-- one or several labels;
-- tags;
-- date;
-- word target;
-- progress;
-- custom properties.
-
-These values can appear in:
-
-- Binder;
-- Cards;
-- Outline;
-- Storyline;
-- Timeline;
-- filters;
-- Notes.
-
-When only one visual color is possible, the first label acts as the primary one.
-
-The difference is that the data remains visible in the files instead of living only in an application-specific project database.
+Those properties can feed Cards, Outline, Storyline, Timeline, filters and Context. YAML remapping lets an established vault keep its existing property names.
 
 ---
 
 ## 6. Find Collections again
 
-Scrivener Collections create temporary groupings without changing the Binder.
+Feuillets does not reproduce Scrivener Collections as a dedicated object. The practical need is covered by:
 
-Feuillets uses a more distributed approach:
-
-- filters by status;
-- filters by label;
-- filters by tag;
-- progress filters;
-- manual multi-selection;
-- custom Preview or composition scope;
-- folders and collections of texts;
+- filters;
+- multi-selection;
+- isolated folders;
+- Continuous scopes;
+- Preview scopes;
+- composition/export scopes;
 - narrative views.
 
-You can isolate, for example:
-
-- all scenes to revise;
-- all sheets with a given label;
-- all scenes in one narrative thread;
-- a manual set of texts for a collection;
-- a temporary selection for export.
-
-It is not a literal copy of the Collections object, but the transversal grouping need is covered.
+You can therefore work temporarily on a chapter, a selection of scenes, a collection or another subset without moving the source files.
 
 ---
 
-## 7. Find Scrivenings again
+## 7. Find Scrivenings again: Continuous mode
 
-Scrivener's Scrivenings mode lets several documents read as one continuous text.
+Feuillets 2.5 provides a real **Continuous** editing mode.
 
-In Feuillets, use continuous reading and **Preview**.
+Open a folder, chapter, part, selection or manuscript and Feuillets presents the member sheets **inside one continuous editable editor**.
 
-You can read:
+Visually you work in one long document. Technically each sheet remains its own Markdown file. Boundaries are protected and edits are distributed back to the source files automatically.
 
-- one sheet;
-- one chapter;
-- one part;
-- one folder;
-- a selection;
-- the entire manuscript.
+There is no hidden composite manuscript file and Feuillets does not simulate the experience by opening dozens of tabs.
 
-Preview uses the same composition logic as export. A correction made in a source sheet is reflected in the composed document.
+### Continuous, Preview and Edition
 
-### Important difference
-
-Continuous reading is for moving through the manuscript. Preview is for judging the composed result and its hierarchy.
+- **Continuous**: write and revise several sheets as one text.
+- **Preview**: read the paginated composed result.
+- **Edition**: configure composition and final layout.
 
 ---
 
 ## 8. Find Research again
 
-Scrivener keeps Research inside the project.
+Feuillets **Research** is separate from the manuscript but still consists of ordinary vault files.
 
-Feuillets has a dedicated **Research** tab and ordinary Markdown folders.
+It can contain characters, places, events, concepts, sources, bibliography, glossary and custom folders.
 
-Research can contain characters, places, events, concepts, sources, bibliography, glossary and custom sections.
+You can also **link an existing folder anywhere in the vault** to a manuscript sheet or folder. Feuillets does not move or rename it. When the linked folder is outside project Research, it appears as a read-only linked folder in the Research panel.
 
-A Research note can be linked from the manuscript, previewed, quoted into the active sheet or surfaced by Context.
-
-Historical French and English Research folder names are recognized so that existing projects do not need destructive renaming.
+Its files can still be opened in a new tab or side by side without Feuillets administering that external folder.
 
 ---
 
 ## 9. Find Project and Document Bookmarks again
 
-Scrivener bookmarks keep important documents close to the active project or document.
+The equivalent workflow combines:
 
-In Feuillets, the equivalent workflow combines:
-
-- Research associated with a sheet;
-- Research associated with its chapter;
+- Research folders linked to a sheet or chapter;
 - Markdown links;
 - folder notes;
-- pinned references in **Notes → Context**.
+- pinned references in **Sheet → Context**;
+- free Vault navigation in Binder split view.
 
-A pinned reference stays visible for the active sheet even when you move to another paragraph.
+A pinned reference stays attached to the active sheet while you move between paragraphs.
 
 ---
 
-## 10. Find Snapshots again
+## 10. Find Snapshots and backups again
 
-Scrivener Snapshots preserve an earlier state of a document before rewriting.
+Feuillets separates several safety layers:
 
-Feuillets also provides snapshots and complementary safety mechanisms:
+- sheet snapshots;
+- manuscript versions;
+- comparison;
+- project ZIP backups;
+- normal vault backup/sync through the tool of your choice.
 
-- snapshot of a sheet;
-- dated copies;
-- project backup;
-- longer-lived versions;
-- comparisons.
-
-The goal is the same: rewrite without losing the previous state.
+The goal is the same as in Scrivener: rewrite without being afraid of losing an earlier state.
 
 ![Compare versions](feuillets-comparaison.png)
-
-The difference is that backups and versions remain accessible as files in the vault.
 
 ---
 
 ## 11. Find version comparison again
 
-Scrivener can compare the current document against a Snapshot.
-
-Feuillets provides a comparison view that makes changes visible.
-
-You can inspect:
+The Feuillets comparison view distinguishes:
 
 - additions;
 - deletions;
-- rewritten wording;
-- other textual differences.
+- replacements;
+- **moved passages** when text was cut and inserted elsewhere.
 
-Comparison complements snapshots and backups rather than replacing them.
+**Changes** mode uses a shared visual grammar with movement arrows and `[…]` placeholders where content exists on only one side. You can navigate with Previous/Next, recenter on a difference and restore a passage when the action is available.
+
+**Versions** mode removes diff decorations for calmer side-by-side reading. Linked scrolling is optional.
 
 ---
 
 ## 12. Find comments and annotations again
 
-Scrivener offers comments, inline annotations and notes.
+Feuillets 2.5 has native **working annotations**.
 
-In Feuillets, several mechanisms can cover those needs:
+Select a passage, attach a note, and the passage remains visually marked in the editor. The annotation can be read, edited and removed when resolved.
 
-- Markdown or HTML comments;
-- working notes in Notes;
-- footnotes;
-- properties;
-- highlighting and annotation supplied by Obsidian or other plugins;
-- comments and tracked revisions returned in an editor's DOCX.
+Working annotations:
 
-Feuillets does not reproduce every proprietary Scrivener annotation type. It leans more heavily on Markdown and the Obsidian ecosystem.
+- do not pollute the Markdown;
+- are not meant for export;
+- remain temporary authoring tools.
 
----
-
-## 13. Find chronology again
-
-Scrivener mainly exposes dates and metadata. Many writers pair it with Aeon Timeline for deeper chronology work.
-
-Feuillets includes a **Timeline** view directly.
-
-It can show:
-
-- dated scenes;
-- historical or narrative events;
-- milestones;
-- chronological order;
-- narrative order;
-- flashbacks and gaps;
-- filters.
-
-The sheet date can also feed **Notes → Context**, which can surface character state and chronological alerts while writing.
+For feedback from another person, Feuillets also provides **collaborative review**, separate from personal annotations and DOCX Revision.
 
 ---
 
-## 14. Find narrative-thread tracking again
+## 13. Find collaborative review again
 
-Scrivener users often represent story arcs through labels, keywords, Collections or metadata.
+Feuillets can prepare a `.feuillets` review package.
 
-Feuillets has a dedicated **Storyline** view.
+The workflow remains local:
 
-It can help observe:
+1. the author prepares a manuscript scope;
+2. the package is sent through any channel the author chooses;
+3. the reviewer works on a local copy and adds comments;
+4. the reviewer returns the package;
+5. the author compares the return against both the sent baseline **and** the current manuscript, then applies, ignores or handles changes manually.
 
-- narrative threads;
-- point-of-view characters;
-- statuses;
-- labels;
-- scenes where a thread appears;
-- open or resolved threads;
-- gaps in a thread.
-
-This gives a structural reading of the same manuscript files.
+This lets the author keep writing while someone reviews the sent version, without a Feuillets server and without automatically overwriting the current manuscript.
 
 ---
 
-## 15. Find Composition Mode again
+## 14. Find DOCX Revision again
 
-Scrivener Composition Mode hides the application around the text.
+Word feedback from an editor or proofreader is handled under **Proofreading → DOCX Revision**.
 
-Feuillets uses **Focus Mode**.
+Feuillets imports supported changes/comments and presents them in its review workflow, keeping review decisions separate until they are applied.
 
-It can provide:
-
-- controlled text width;
-- typewriter scrolling;
-- dimming outside the active area;
-- discreet word count;
-- reduced interface;
-- customizable typography.
-
-The goal is the same: remain in the text while the project tools stay available when needed.
+Collaborative review and DOCX Revision are distinct workflows and are documented separately.
 
 ---
 
-## 16. Find writing targets again
+## 15. Find chronology again
 
-Scrivener provides project and session targets.
+**Timeline** compares dated events with manuscript narrative order and can use both dated sheets and Research events.
 
-Feuillets can track:
-
-- a word target per sheet;
-- progress;
-- project statistics;
-- words written;
-- writing calendar;
-- daily journal.
-
-The Journal can record more than numbers:
-
-- session goal;
-- difficulty;
-- narrative decision;
-- review note;
-- project state.
+Sheet **Context** can also surface continuity information from your own project data, such as character age/state, a character not yet born or already dead, nearby historical events, or an anachronistic object/technique.
 
 ---
 
-## 17. Find Compile again
+## 16. Find narrative-thread tracking again
 
-Compile is one of Scrivener's defining features.
+**Storyline** projects the same manuscript through narrative threads, labels, point-of-view characters and other useful dimensions. It helps inspect thread distribution without imposing a plotting method.
 
-Feuillets also has a composition and export engine.
+---
 
-You can choose:
+## 17. Find Composition Mode again
 
-- content scope;
-- Binder order;
-- title treatment;
-- separators;
+Use **Focus Mode** when the goal is to reduce the interface around the prose: controlled width, typewriter scrolling, dimming and a discreet counter.
+
+Do not confuse it with the central **Edition** workspace, which controls the final document.
+
+---
+
+## 18. Find writing targets again
+
+Feuillets can track per-sheet targets, project target, progress, recent activity, writing calendar and journal. Important settings can be project-specific rather than globally shared by every manuscript.
+
+---
+
+## 19. Find Compile again
+
+The central **Edition** workspace has two modes.
+
+### Composition
+
+Control what the document contains:
+
+- manuscript content;
+- first page;
 - front matter;
-- styles;
-- page layout;
-- output format.
+- contents/table of contents;
+- tables;
+- bibliography;
+- appendices;
+- structure and compilation rules.
 
-The scope can be one file, one folder with descendants, a manual selection, or the entire project. Selecting both a folder and one of its descendants does not duplicate the descendant.
+### Layout
 
-Supported native outputs include:
+Control presentation:
 
-- compiled Markdown;
-- DOCX;
-- EPUB;
-- ODT;
-- PDF through desktop system printing.
+- page;
+- body text;
+- headings;
+- blockquote/separator;
+- margins, orientation, columns, headers and footers;
+- active layout template.
 
-Preview and exports share the same composition logic.
+Export is not a third tab. Scope, format and **Export** controls remain in Edition's top bar.
 
-### Difference
-
-Scrivener's Compile system is exceptionally mature and configurable. Feuillets aims for a more direct workflow. If your production chain depends on highly specialized Compile presets, validate your exact requirements before migrating permanently.
+Native output formats include compiled Markdown, DOCX, EPUB, ODT and PDF through the desktop system print flow. Preview and export share the same composition logic.
 
 ---
 
 # Migrate a Scrivener project
 
-Feuillets can import a Scrivener project on desktop and recover supported elements such as:
+Desktop Scrivener import recovers supported Binder structure, folders, text documents, titles, compatible metadata and supported resources.
 
-- Binder structure;
-- folders;
-- text documents;
-- manuscript order;
-- titles;
-- compatible metadata;
-- supported images or resources.
+Feuillets **explicitly preserves source Binder order** during import. Natural filename sorting is only a fallback when no explicit order exists.
 
-After import, check:
-
-- order of parts, chapters and scenes;
-- titles;
-- synopsis;
-- notes;
-- images;
-- special characters;
-- metadata;
-- non-text documents;
-- elements excluded from compilation.
-
-Keep the original Scrivener project as an archive until you have validated several control exports.
+After import, verify parts/chapters/scenes order, titles, synopsis, notes, metadata, images/resources, non-text documents and compilation exclusions. Keep the original Scrivener project as an archive until several control exports have been validated.
 
 ---
 
@@ -467,11 +317,10 @@ Keep the original Scrivener project as an archive until you have validated sever
 Open project
 → select a scene in Binder
 → write
-→ inspect metadata and notes
+→ inspect synopsis and notes
 → open Research
-→ update synopsis/status
 → create Snapshot
-→ Compile
+→ Scrivenings / Compile
 ```
 
 ## In Feuillets
@@ -479,97 +328,41 @@ Open project
 ```text
 Open project
 → select a sheet in Binder
-→ write
-→ use Notes and Context
-→ open or pin Research
-→ update synopsis/properties
-→ create snapshot when useful
+→ write alone or in Continuous
+→ use Sheet and Context
+→ open or link Research
+→ snapshot when useful
+→ compare / review
 → check Preview
-→ compose and export
+→ compose and export in Edition
 ```
 
 ---
 
-# What actually changes
-
-## You gain
+# What you gain
 
 - ordinary Markdown files;
 - a project readable without Feuillets;
-- deep Obsidian integration;
-- links and backlinks;
-- Canvas;
-- contextual Research;
-- chronological alerts;
-- other Obsidian plugins;
-- no proprietary manuscript database;
-- local operation without a Feuillets subscription;
-- a Notebook for free visual ideation;
-- direct Word-return workflow through DOCX Revision.
+- real editable Continuous mode;
+- the Obsidian ecosystem;
+- linked Research without moving existing folders;
+- YAML property remapping;
+- working annotations outside Markdown;
+- local collaborative review;
+- richer version comparison;
+- integrated Timeline and Storyline;
+- composition/export without a proprietary manuscript database.
 
-## You lose or change
+# What remains different from Scrivener
 
-- Scrivener's completely controlled and homogeneous interface;
-- some very specialized Compile capabilities;
-- proprietary Scrivener annotation types;
-- Collections in their exact Scrivener form;
-- an autonomous application built around one workflow;
-- some simplicity that comes from a closed environment.
+Scrivener retains advantages that come from being a fully dedicated application: a completely controlled interface, an exceptionally mature Compile system, specialized proprietary objects/metadata, exact Collections semantics and some advanced automation.
 
-Obsidian is modular. That creates more freedom, but it also means more optional settings and plugins exist around Feuillets.
-
----
-
-# Can Feuillets really replace Scrivener?
-
-## Probably yes if you mainly use Scrivener to:
-
-- structure a novel or long work;
-- write scene by scene;
-- navigate with Binder;
-- maintain synopsis and notes;
-- track statuses and goals;
-- consult Research;
-- view scenes as cards or a table;
-- keep versions;
-- read the manuscript continuously;
-- export DOCX, EPUB, ODT or PDF.
-
-## Validate carefully if you depend heavily on:
-
-- extremely customized Compile chains;
-- proprietary Scrivener annotations;
-- complex existing Scrivener templates;
-- specialized screenplay formats;
-- a precise Scrivener mobile synchronization workflow;
-- very elaborate saved Collections/searches;
-- project-specific Scrivener automation.
-
----
-
-# Recommended transition
-
-Do not migrate your main project in one irreversible step.
-
-1. Import a copy of the Scrivener project.
-2. Check the Binder in Feuillets.
-3. Open several scenes and verify their text.
-4. Check synopsis, notes and metadata.
-5. Recreate or verify statuses, labels and tags.
-6. Test Cards and Outline.
-7. Test Research and Notes → Context.
-8. Create a snapshot.
-9. Compose a chapter.
-10. Export a DOCX and compare it with your Scrivener output.
-11. Work in parallel for a few days if the manuscript is critical.
-12. Switch permanently only after the complete workflow is satisfactory.
+Feuillets chooses another trade-off: **a complete writing workspace that adapts to the writer's existing Obsidian vault, files and tools**.
 
 ---
 
 # Verdict
 
-Feuillets is not trying to become a pixel-for-pixel copy of Scrivener inside Obsidian.
+Feuillets does not replace Scrivener by copying its project format. It takes Scrivener's most useful long-form principle — a book made of movable writing units that can be drafted, grouped, reread and compiled — and rebuilds it around Markdown and Obsidian.
 
-It takes the major long-form writing principles — Binder, movable writing units, synopsis, metadata, Research, snapshots, continuous reading and composition — and rebuilds them around **ordinary Markdown files and the Obsidian environment**.
-
-For writers whose central need is writing, structuring, revising and exporting a book, that can cover most of the Scrivener workflow while removing project-format lock-in.
+For writers whose main need is to write, structure, document, revise and export a manuscript without proprietary project lock-in, Feuillets now covers most of that workflow, including a true editable Continuous mode comparable in purpose to Scrivenings.

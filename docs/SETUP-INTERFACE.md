@@ -2,95 +2,68 @@
 
 > **Français** · [English](WRITING-INTERFACE.md) · [Index](README.md)
 
-Feuillets peut rendre Obsidian beaucoup plus calme pour l’écriture sans imposer un thème ni modifier le reste du coffre de façon irréversible.
+Feuillets peut rendre Obsidian plus calme pour l’écriture sans imposer un thème ni enfermer le projet dans une interface propriétaire.
 
 ![Mode Concentration](feuillets-concentration.png)
 
-## 1. Distinguer trois niveaux
+## Trois niveaux différents
 
 ### L’éditeur
 
-C’est l’éditeur Markdown natif d’Obsidian. Feuillets applique au manuscrit sa présentation d’écriture.
+Le texte reste dans l’éditeur Markdown natif d’Obsidian. Feuillets peut appliquer au manuscrit sa présentation d’écriture : largeur, typographie, alinéas, interligne et aides de saisie.
 
 ### L’atelier
 
-Classeur à gauche, Inspecteur à droite, onglets et commandes de Feuillets.
+Autour du texte, Feuillets ajoute les surfaces spécialisées : **Classeur**, **Cartes/Plan**, **Continu**, **Aperçu**, panneau droit et **Édition**.
 
 ### Concentration
 
-Un état temporaire qui réduit l’environnement autour du texte.
+Le mode **Concentration** réduit temporairement l’environnement autour du texte sans modifier le fichier.
 
-Cette distinction évite de chercher un unique « mode écriture » qui devrait tout faire à la fois.
+## Le Classeur
 
-## 2. Réglages de l’interface
+Le Classeur 2.5 peut rester très sobre. Sa vue simple donne toute la largeur à la navigation du manuscrit. La **double vue** ajoute uniquement un navigateur à gauche :
 
-Ouvrez :
+- **Manuscrit** pour voir les dossiers et la hiérarchie d’un coup d’œil ;
+- **Coffre** pour consulter d’autres documents du vault sans quitter Feuillets.
 
-> **Réglages → Feuillets → Interface**
+Le volet droit reste le même Classeur. La zone Coffre est volontairement en lecture/navigation seule et ne remplace pas l’Explorateur de fichiers d’Obsidian.
 
-Vous pouvez notamment ajuster :
+Voir [Classeur et navigation](CLASSEUR-ET-NAVIGATION.md).
 
-- police ;
-- taille ;
-- interligne ;
-- largeur du texte ;
-- couleur d’accent ;
-- transparence de certains panneaux ;
-- visibilité de plusieurs éléments d’Obsidian ;
-- discrétion des actions secondaires.
+## Le panneau droit
 
-Le bouton de valeurs suggérées fournit un point de départ ; il ne verrouille aucun réglage.
+Le panneau Feuillets réunit cinq onglets publics :
 
-## 3. Le Classeur peut rester très léger
+- **Feuillet** — synopsis/résumé, notes, propriétés, annotations, notes de bas de page et Contexte ;
+- **Recherche** — documentation, Sources/Bibliographie et dossiers associés ;
+- **Journal** — journal d’écriture et suivi ;
+- **Projet** — informations et réglages propres au projet ;
+- **Relecture** — analyse de texte, relecture collaborative, Révision DOCX et comparaison.
 
-Le Classeur peut afficher uniquement les noms, ou ajouter progressivement :
+**Édition** n’est plus un onglet latéral. C’est une surface centrale pour **Composition** et **Mise en page**.
 
-- liseré de label ;
-- tags ;
-- statut ;
-- progression ;
-- nombre de mots ;
-- extrait/synopsis/résumé/notes.
+## Écrire plusieurs feuillets
 
-Si la structure vous suffit, laissez ces informations masquées.
+Le mode **Continu** remplace le besoin d’ouvrir des dizaines d’onglets pour écrire un chapitre ou un manuscrit. Plusieurs feuillets apparaissent dans un seul éditeur, tout en restant des fichiers Markdown séparés.
 
-## 4. L’Inspecteur est modulaire
-
-Les six onglets sont :
-
-- Notes ;
-- Recherche ;
-- Journal ;
-- Édition ;
-- Analyse ;
-- Relecture.
-
-Masquez les onglets que vous n’utilisez pas. Le Classeur reste indépendant : cacher ou fermer l’Inspecteur ne supprime pas la navigation du manuscrit.
-
-## 5. Concentration
-
-Le mode Concentration peut :
-
-- masquer les panneaux ;
-- recentrer la colonne ;
-- utiliser une largeur propre ;
-- garder la zone active dans une position de type machine à écrire ;
-- estomper la ligne ou le paragraphe non actif ;
-- afficher le compteur.
-
-Il n’ajoute rien au fichier et ne crée aucune copie du texte.
-
-## 6. Écrire et relire côte à côte
+## Écrire et relire côte à côte
 
 ![Écriture et aperçu](feuillets-concentration-apercu.png)
 
-L’Aperçu peut rester ouvert à côté du feuillet pour contrôler le rythme d’un chapitre ou le rendu paginé sans transformer l’éditeur en logiciel de PAO.
+L’**Aperçu** peut rester à côté du texte pour relire la composition paginée. Un document du Coffre ou une fiche Recherche externe peut également être ouvert **côte à côte** sans être intégré au manuscrit.
 
-## 7. Thèmes et extraits CSS
+## Réglages de l’interface
 
-Feuillets n’essaie pas de remplacer le thème complet d’Obsidian. Si vous voulez changer le fond global du coffre, utilisez un thème ou un extrait CSS.
+Les réglages Feuillets permettent notamment d’ajuster la présentation d’écriture, la largeur du texte et certains éléments de l’interface. Les valeurs suggérées restent un point de départ, jamais un verrou.
 
-Exemple minimal :
+## Concentration
+
+Concentration peut réduire les panneaux, recentrer la colonne, utiliser une largeur propre, maintenir la zone active à une position stable et estomper le texte environnant. Aucun de ces effets n’est écrit dans le Markdown.
+
+## Thèmes et extraits CSS
+
+Feuillets ne remplace pas le thème complet d’Obsidian. Pour changer le fond global du coffre ou d’autres variables d’apparence, utilisez un thème ou un extrait CSS Obsidian.
 
 ```css
 .theme-light {
@@ -100,18 +73,14 @@ Exemple minimal :
 }
 ```
 
-Placez l’extrait dans `.obsidian/snippets/` puis activez-le dans **Réglages → Apparence → Extraits CSS**.
+## Modules facultatifs
 
-## 8. Modules facultatifs
+Aucun module supplémentaire n’est requis pour le cœur de Feuillets.
 
-Aucun module supplémentaire n’est requis pour écrire.
+- **Advanced Canvas** peut enrichir le Carnet ;
+- **Feuillets-Grammalecte** peut fournir une analyse linguistique française ;
+- **Courrier** peut compléter le suivi éditorial.
 
-- **Advanced Canvas** enrichit facultativement le Carnet.
-- **Feuillets-Grammalecte** ajoute l’analyse linguistique française.
-- **Courrier** ajoute le suivi éditorial.
+## Principe général
 
-Les thèmes Minimal et les outils de personnalisation d’Obsidian peuvent être utilisés, mais Feuillets ne les exige pas.
-
-## 9. Transporter ses réglages
-
-Les réglages Feuillets peuvent être exportés/importés depuis les commandes prévues. Un éventuel extrait CSS reste un fichier Obsidian séparé et doit être copié séparément.
+La bonne interface Feuillets n’est pas celle qui montre tous les outils à la fois. Le texte reste au centre ; les surfaces apparaissent quand leur fonction devient utile.

@@ -4,78 +4,34 @@ Feuillets is designed as a local writing plugin for Obsidian.
 
 ## What Feuillets collects
 
-**Nothing.**
-
-Feuillets contains no:
-
-- analytics;
-- telemetry;
-- advertising identifiers;
-- crash-reporting service;
-- account system;
-- usage tracking.
-
-The core plugin does not require a Feuillets server or a Feuillets account.
+**Nothing.** Feuillets contains no analytics, telemetry, advertising identifier, crash-reporting service, account system or usage tracking.
 
 ## Manuscript data
 
-Your manuscript remains in your Obsidian vault as ordinary files and folders.
+Your manuscript remains in your vault as ordinary files and folders. Feuillets may create local auxiliary project material under `_Feuillets` (Research, Resources, Edition, Journal, Snapshots, Backups, Output) and continues to recognize historical locations when they already exist.
 
-Depending on the features you use, Feuillets may create local project material such as:
-
-- `_Recherche` / `_Research`;
-- `_Ressources` / `_Resources`;
-- `_Snapshots`;
-- `_Versions`;
-- `_Backups`;
-- `_Edition`;
-- `_Journal`;
-- `_Sortie`.
-
-These are local vault files. They are not uploaded by Feuillets.
-
-A project can also be an existing folder used as-is. Opening such a folder does not move or rename its existing files.
-
-## Plugin settings
-
-Feuillets settings are stored through Obsidian's plugin data mechanism, locally in the vault configuration.
-
-If you use Obsidian Sync, iCloud, Dropbox, Git, a filesystem backup or another synchronization service, that service may copy vault files according to **its** configuration and privacy policy. Feuillets does not control those services.
+Working annotations and collaborative-review session data are local Feuillets working data; working annotations are not written into manuscript Markdown.
 
 ## Network behavior
 
-Feuillets does not need a network service to read, write, analyze structurally, compile or export the manuscript.
+Feuillets does not require a network service to write, analyze structurally, compile or export. It does not upload manuscript text to a Feuillets server.
 
-The core plugin does not send manuscript text to a remote proofreading service and does not download a grammar engine.
+## Collaborative review
 
-Ordinary links displayed in documentation or interface text may of course open a website when **you explicitly click them**. That is different from background manuscript transmission.
+A collaborative review is exchanged through a `.feuillets` package only when a user explicitly creates/sends/imports that file. Feuillets does not transmit it automatically. The package is scoped to the review rather than the whole vault. Any email, cloud drive or messaging service used to transfer that file is separate from Feuillets and follows its own privacy policy.
+
+## Vault and linked-folder navigation
+
+Binder split view can display a lightweight read-only Vault tree, and Research can display explicitly linked vault folders. These navigation features do not upload files, add them to the manuscript, or grant Feuillets ownership of external documentary folders.
 
 ## Imports and exports
 
-Scrivener import and reviewed-DOCX workflows operate on files selected by the user.
+Scrivener and reviewed-DOCX imports operate on material explicitly selected by the user. Exports are generated locally. PDF uses the local system print flow on desktop.
 
-Exports are generated locally. DOCX, EPUB and ODT are built locally from bundled JavaScript libraries; PDF uses the local system print flow on desktop.
+## YAML mapping
 
-Generated output stays in the vault/project output location unless the user later moves, shares or synchronizes it.
-
-## Backups
-
-Project backups are local ZIP files.
-
-For a structured project, the backup may cover the project folder containing `Manuscrit` and its companion folders. For a folder used as-is, backup scope is restricted to that folder and does not implicitly include sibling folders or the whole vault.
+Property mapping is stored in project/plugin settings and is used locally when reading/writing frontmatter. Changing a mapping does not upload or bulk-migrate manuscript data.
 
 ## Companion plugins
 
-Feuillets exposes a local API through which another installed Obsidian plugin can register a text-analysis provider.
-
-For example, Feuillets-Grammalecte can provide linguistic analysis while Feuillets displays the results.
-
-A companion plugin is separate software. Its own data and network behavior are governed by that plugin's implementation and privacy documentation. Installing Feuillets alone does not install or activate such a provider.
-
-## Third-party libraries
-
-The libraries bundled in Feuillets are used locally for document generation, ZIP handling and text comparison. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-
-## Changes
-
-If Feuillets ever introduces telemetry, a required network service, remote manuscript processing, or another material change to this model, this document and the security documentation must be updated in the same release.
+A separately installed companion plugin may register a text-analysis provider. Its data/network behavior belongs to that plugin, not to Feuillets core.

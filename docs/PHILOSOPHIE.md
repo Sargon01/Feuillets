@@ -1,90 +1,94 @@
-# Feuillets — écrire d'abord
+# Feuillets — écrire d’abord
 
 > **Français** · [English](PHILOSOPHY.md) · [Index](README.md)
 
-> Le travail de l'auteur est d'écrire. Le travail du logiciel est de ne pas l'en empêcher.
+> Le travail de l’auteur est d’écrire. Le travail du logiciel est de ne pas l’en empêcher.
 
-Un outil né de l'écriture, pas d'une théorie de l'écriture.
-
----
-
-## Sommaire
-
-- [Les principes](#les-principes)
-- [Obsidian fournit l’environnement ; Feuillets fournit l’atelier](#obsidian-fournit-lenvironnement--feuillets-fournit-latelier)
-- [Un outil né de l'écriture, pas d'une théorie](#un-outil-né-de-lécriture-pas-dune-théorie)
-- [Le carnet et le stylo](#le-carnet-et-le-stylo)
-- [Le projet peut naître après l'écriture](#le-projet-peut-naître-après-lécriture)
-- [Écrire avant de structurer](#écrire-avant-de-structurer--sans-opposer-écriture-et-planification)
-- [Écrire, c'est réécrire](#écrire-cest-réécrire)
-- [Le texte est le centre de gravité](#le-texte-est-le-centre-de-gravité)
-- [Pas d'encyclopédie obligatoire](#pas-dencyclopédie-obligatoire)
-- [Les outils de structure doivent rester des outils](#les-outils-de-structure-doivent-rester-des-outils)
-- [Du jardinier à l'architecte — et retour](#du-jardinier-à-larchitecte--et-retour)
-- [Du texte court au livre](#du-texte-court-au-livre)
-- [Le Carnet : capturer avant d'organiser](#le-carnet--capturer-avant-dorganiser)
-- [Du fragment au livre, puis du livre à l'éditeur](#du-fragment-au-livre-puis-du-livre-à-léditeur)
-- [Ce que les besoins des auteurs montrent](#ce-que-les-besoins-des-auteurs-montrent)
-- [Une puissance progressive](#une-puissance-progressive)
-- [Ce que Feuillets ne doit surtout pas devenir](#ce-que-feuillets-ne-doit-surtout-pas-devenir)
-- [Une conception centrée sur l'auteur](#une-conception-centrée-sur-lauteur)
+Un outil né de l’écriture, pas d’une théorie de l’écriture.
 
 ---
 
 ## Les principes
 
 1. **Le texte avant le système.** Écrire avant de configurer.
-2. **Planifier sans s'enfermer.** Un plan est une hypothèse, pas un contrat.
-3. **La structure au service de l'écriture**, jamais l'inverse.
-4. **L'information quand elle est utile**, pas constamment sous les yeux.
+2. **Planifier sans s’enfermer.** Un plan est une hypothèse, pas un contrat.
+3. **La structure au service de l’écriture**, jamais l’inverse.
+4. **L’information quand elle devient utile**, pas constamment sous les yeux.
 5. **Mesurer ce qui aide**, pas tout ce qui peut être mesuré.
-6. **Réécrire sans perdre.** Les versions permettent d'oser.
-7. **Aucune méthode d'écriture imposée.** Jardinier, architecte, ou les deux à la fois.
-8. **Un texte peut devenir un projet** sans avoir été créé comme un projet.
+6. **Réécrire sans perdre.** Les versions doivent permettre d’oser.
+7. **Aucune méthode d’écriture imposée.** Jardinier, architecte, ou les deux.
+8. **Un texte peut devenir un projet** même s’il n’a pas été créé comme tel.
 
-> Commencez à écrire. Feuillets sera là quand vos textes auront besoin de devenir un projet.
+> Commencez à écrire. Feuillets sera là lorsque vos textes auront besoin de devenir un projet.
 
-C'est la simplicité d'un carnet, avec un atelier d'écriture complet qui n'apparaît que lorsque l'auteur en a besoin.
+L’objectif est la simplicité d’un carnet, avec un atelier complet qui n’apparaît que lorsque l’auteur en a besoin.
 
 ---
 
 ## Obsidian fournit l’environnement ; Feuillets fournit l’atelier
 
-Feuillets n’a pas vocation à devenir une application indépendante cachée dans Obsidian.
+Feuillets n’a pas vocation à devenir une application autonome cachée dans Obsidian.
 
-Obsidian fournit le coffre, Markdown, l’éditeur, les liens, Canvas, la synchronisation choisie par l’utilisateur et l’écosystème de modules. Feuillets ajoute l’atelier spécialisé : le Classeur, les opérations sur le manuscrit, la Recherche, le Carnet, les vues narratives, la réécriture, la composition et les outils éditoriaux.
+Obsidian fournit :
 
-Cette séparation protège un principe essentiel : **un projet doit continuer à avoir du sens lorsque Feuillets est désactivé**. Les textes restent des fichiers Markdown et les dossiers restent de vrais dossiers.
+- le coffre ;
+- Markdown ;
+- les liens et backlinks ;
+- l’éditeur ;
+- Canvas ;
+- la synchronisation choisie par l’utilisateur ;
+- l’écosystème de modules.
+
+Feuillets ajoute ce qui est spécifique au travail d’écriture longue :
+
+- une représentation du manuscrit ;
+- des opérations de structure ;
+- un espace Recherche ;
+- un Contexte de travail ;
+- des vues narratives ;
+- une chaîne de réécriture ;
+- une composition cohérente ;
+- des outils éditoriaux.
+
+Cette séparation est essentielle. Feuillets ne doit pas reconstruire ce qu’Obsidian fait déjà bien.
 
 ---
 
-## Un outil né de l'écriture, pas d'une théorie
+## Un outil né de l’écriture, pas d’une théorie
 
-Feuillets n'est pas né de la volonté de reproduire Scrivener dans Obsidian, ni d'assembler les fonctions que l'on retrouve habituellement dans les logiciels destinés aux auteurs. Il est né d'une expérience beaucoup plus concrète : écrire des livres.
+Feuillets n’est pas né de la volonté de reproduire Scrivener dans Obsidian ni d’une liste de fonctions trouvées dans les logiciels pour auteurs. Il vient d’une expérience plus concrète : écrire des livres.
 
-Après trois romans et l'utilisation de nombreux outils — traitements de texte, logiciels spécialisés comme Scrivener ou Ulysses, solutions construites autour d'Obsidian — un même constat revient : **les logiciels d'écriture demandent souvent trop à l'auteur.**
+Après les traitements de texte, Scrivener, Ulysses et les environnements assemblés dans Obsidian, un même problème revient : **les logiciels d’écriture demandent souvent trop à l’auteur.**
 
-Certains sont puissants mais complexes. D'autres sont élégants mais deviennent limitants dès que le texte prend de l'ampleur. Beaucoup de solutions spécialisées demandent de modéliser le livre avant même de l'écrire : fiches de personnages, lieux, arcs narratifs, chronologies, beats, intrigues secondaires, bases de données, tableaux et propriétés.
+Certains sont puissants mais complexes. D’autres sont élégants mais deviennent limitants lorsque le manuscrit grandit. Beaucoup incitent à modéliser le livre avant même de l’écrire : fiches, lieux, arcs, chronologies, beats, sous-intrigues, bases de données, tableaux, propriétés.
 
-Dans l'univers Obsidian, le problème prend parfois une autre forme : il est possible de construire presque n'importe quel environnement d'écriture, mais au prix d'un assemblage de plugins, de propriétés, de modèles, de requêtes et de conventions. L'auteur finit par concevoir son système avant de pouvoir simplement travailler dans son texte.
+Dans Obsidian, le problème inverse peut apparaître : presque tout est possible, mais après avoir assemblé modules, modèles, propriétés, requêtes et conventions. L’auteur finit par concevoir son système avant de pouvoir simplement travailler dans son texte.
+
+Feuillets doit réduire cette friction, pas ajouter une couche supplémentaire.
+
+---
 
 ## Le carnet et le stylo
 
-L'image la plus juste de Feuillets n'est probablement pas celle du cockpit, du tableau de bord ou de la base de données narrative. **C'est celle du carnet et du stylo.**
+L’image la plus juste de Feuillets n’est probablement pas celle du cockpit, du tableau de bord ou de la base de données narrative.
 
-Un carnet ne demande rien avant d'accepter une phrase. Il ne demande pas le genre du texte, le nombre de personnages, la structure narrative choisie ou la date prévue pour terminer le premier jet. On l'ouvre et on écrit.
+**C’est celle du carnet et du stylo.**
 
-Une phrase. Une liste. Une idée. Quelques lignes de dialogue. Une scène qui ne trouvera peut-être jamais sa place. Un début. Un souvenir. Une note documentaire. Un paragraphe essayé puis abandonné.
+Un carnet ne demande pas le genre, la liste des personnages, la structure narrative ou la date de fin avant d’accepter une phrase. On l’ouvre et on écrit.
 
-Feuillets doit conserver cette liberté fondamentale. L'auteur ne devrait jamais avoir à « préparer son logiciel » avant de commencer son texte.
+Une phrase. Une liste. Une image. Une ligne de dialogue. Une scène qui ne trouvera peut-être jamais sa place. Un début. Un souvenir. Une note documentaire. Un paragraphe essayé puis abandonné.
 
-## Le projet peut naître après l'écriture
+Feuillets doit conserver cette liberté fondamentale. L’auteur ne devrait jamais avoir à « préparer le logiciel » avant de commencer le texte.
 
-C'est l'une des idées essentielles dégagées avec l'évolution vers les projets libres. Un projet Feuillets ne doit pas nécessairement être le point de départ du travail. **Il peut en être la conséquence.**
+---
 
-Quelqu'un peut commencer dans Obsidian avec simplement :
+## Le projet peut naître après l’écriture
 
-```
+Un projet Feuillets ne doit pas nécessairement être le point de départ. **Il peut être la conséquence d’un texte qui commence à prendre forme.**
+
+Quelqu’un peut commencer avec :
+
+```text
 Mon idée/
     Quelques idées.md
     Début possible.md
@@ -93,9 +97,9 @@ Mon idée/
     Essai de dialogue.md
 ```
 
-À côté :
+Et ailleurs :
 
-```
+```text
 Recherches/
     Notes historiques.md
     Article intéressant.md
@@ -103,235 +107,280 @@ Recherches/
     Sources.md
 ```
 
-Pendant plusieurs jours ou plusieurs mois, cela peut rester exactement ainsi. Pas de Classeur obligatoire. Pas de fiche projet. Pas de structure imposée. Pas de métadonnées nécessaires.
+Pendant des jours ou des mois, cela peut rester exactement ainsi : pas de Classeur obligatoire, pas de formulaire projet, pas de métadonnées requises.
 
-Puis arrive éventuellement le moment où ces fragments commencent à former quelque chose. Un article. Une nouvelle. Un essai. Une série de textes. Un recueil. Un roman.
+Puis les fragments deviennent un article, une nouvelle, un essai, un recueil ou un roman. C’est seulement alors qu’un geste simple doit pouvoir signifier : **utiliser ce dossier comme projet Feuillets**.
 
-Et c'est seulement à ce moment qu'un geste aussi simple qu'un clic droit peut signifier : **transformer ce dossier en projet Feuillets.**
+L’auteur ne doit pas recommencer, migrer son travail dans une base propriétaire ou renommer ses fichiers pour obtenir les outils d’écriture.
 
-Il n'est pas nécessaire de recommencer, de déplacer tout son travail dans une nouvelle base ou de convertir ses notes dans un format propriétaire. Feuillets prend ce qui existe. Et le travail continue.
+Le remappage YAML et les dossiers Recherche associés prolongent exactement ce principe : **Feuillets s’adapte au coffre autant que possible, pas l’inverse.**
+
+---
 
 ## Écrire avant de structurer — sans opposer écriture et planification
 
-Cette philosophie ne signifie pas que la planification soit inutile. Les auteurs planifient. Certains beaucoup, d'autres peu. Ils établissent des listes, des chapitres possibles, une chronologie, quelques étapes essentielles, des fiches, des cartes ou un plan très détaillé.
+Cette philosophie ne signifie pas que la planification soit inutile.
 
-Le problème commence lorsque le logiciel transforme cette planification en contrat.
+Les auteurs planifient. Certains beaucoup, d’autres peu. Ils préparent des listes, des chapitres possibles, une chronologie, quelques étapes essentielles, des cartes ou un plan très détaillé.
 
-**Un plan est une hypothèse sur le livre à venir. Le livre réel apparaît en écrivant.**
+Le problème commence lorsque le logiciel transforme ce plan en contrat.
 
-Une scène révèle quelque chose que le plan n'avait pas prévu. Un personnage prend davantage d'importance. Une intrigue devient inutile. Deux chapitres doivent fusionner. Le milieu du roman ne fonctionne plus. Une fin prévue depuis six mois cesse soudain d'être la bonne.
+> **Un plan est une hypothèse sur le livre à venir. Le livre réel apparaît en l’écrivant.**
 
-On revient alors au plan. On le modifie. Puis on retourne écrire. Puis le texte dévie de nouveau. C'est normal.
+Une scène révèle ce que le plan n’avait pas prévu. Un personnage prend davantage d’importance. Une intrigue devient inutile. Deux chapitres doivent fusionner. Une fin préparée depuis des mois cesse soudain d’être la bonne.
 
-L'écriture réelle ressemble moins à :
+On revient au plan, on le modifie, on écrit de nouveau, puis le texte dévie encore.
 
-> Plan → rédaction → révision → terminé
+C’est normal.
 
-qu'à :
+Feuillets doit donc permettre de planifier sérieusement tout en rendant très peu coûteux le fait de changer d’avis.
 
-> imaginer → planifier → écrire → relire → déplacer → réécrire → replanifier → écrire…
+---
 
-Ce processus peut se répéter pendant tout le livre. C'est pourquoi l'opposition traditionnelle entre écrivains « jardiniers » et « architectes » est insuffisante. Un même auteur peut être architecte à l'échelle du roman, jardinier dans une scène, redevenir architecte lorsqu'il découvre que son deuxième acte ne fonctionne plus, puis repartir librement dans l'écriture.
+## Écrire, c’est réécrire
 
-Feuillets doit permettre ces changements de posture. **Planifier sans s'enfermer.**
+Un manuscrit sérieux n’est pas produit en une seule passe.
 
-## Écrire, c'est réécrire
+Écrire signifie aussi :
 
-Un manuscrit n'est pas fabriqué une fois. Il est continuellement transformé. Une scène est déplacée. Une autre disparaît. Une nouvelle apparaît. Un chapitre devient deux chapitres. Le début est réécrit après avoir trouvé la fin. Une version que l'on croyait meilleure ne fonctionne finalement pas.
+- essayer ;
+- couper ;
+- déplacer ;
+- scinder ;
+- fusionner ;
+- réécrire ;
+- abandonner ;
+- restaurer ;
+- comparer ;
+- revenir à une direction antérieure.
 
-Cela explique beaucoup des choix de Feuillets :
+Un système de versions n’est utile que s’il donne assez de confiance pour prendre des risques.
 
-- Le **Classeur** n'est pas seulement un explorateur de fichiers : il permet au livre de rester mobile.
-- Les **Cartes** ne servent pas à analyser l'auteur : elles permettent de regarder autrement une structure que l'on est en train de modifier.
-- L'**Aperçu** ne sert pas seulement à savoir à quoi ressemblera l'export : il permet de sortir momentanément du fragment que l'on écrit pour relire le livre comme un texte continu.
-- Les **snapshots et les versions** permettent d'oser réécrire, parce que ce qui existait avant peut être retrouvé.
+C’est pourquoi instantanés, comparaison, sauvegardes, versions et annotations ont des rôles distincts. Ils doivent protéger le travail sans transformer la réécriture en administration de dépôt de code.
 
-Le manuscrit n'est donc jamais considéré comme une structure définitivement renseignée. Il reste vivant jusqu'au bout.
+Le mode **Continu** répond au même besoin sous un autre angle : pouvoir réviser plusieurs feuillets comme un seul passage long, tout en conservant chaque fichier source séparé.
+
+![Comparaison de versions](feuillets-comparaison.png)
+
+---
 
 ## Le texte est le centre de gravité
 
-Beaucoup d'outils spécialisés en écriture accordent une place considérable aux personnages, aux lieux, au worldbuilding, aux intrigues, aux arcs ou aux systèmes de planification. Ces outils peuvent être utiles. Mais ils ne devraient jamais devenir la condition d'existence du manuscrit.
+Le manuscrit n’est pas le produit accidentel d’une base de données.
 
-Feuillets inverse la relation. **Le centre n'est pas la base de données. Le centre est le texte.**
+**Le texte est le centre du projet.**
 
-Autour du texte peuvent apparaître, lorsque cela devient nécessaire :
+Recherche, chronologie, labels, objectifs et vues existent pour aider à écrire et réviser ce texte. Ils ne sont pas plus « réels » que le feuillet lui-même.
 
-- quelques personnages ;
-- des lieux ;
-- des recherches ;
-- une chronologie ;
-- des sources ;
-- un fil narratif ;
-- un synopsis ;
-- des objectifs ;
-- des notes ;
-- des versions.
+Feuillets garde donc l’éditeur Obsidian au centre. **Continu** reste un éditeur des vrais fichiers sources ; **Aperçu** reste une surface de lecture et de composition, pas une seconde source de vérité.
 
-Mais rien de cela n'est nécessaire pour écrire la première phrase.
+![Écriture et Aperçu](feuillets-concentration-apercu.png)
 
-Une fiche Personnage peut contenir cinquante informations. Elle peut aussi contenir :
+---
 
-> Ibrahim, 57 ans. Boite légèrement. Ne regarde jamais son interlocuteur lorsqu'il ment.
+## Pas d’encyclopédie obligatoire
 
-Et cela peut suffire pendant cent pages. Elle peut même ne jamais exister. Le logiciel n'a pas à décider de ce dont l'auteur doit avoir besoin.
+Un projet de fiction peut contenir une fiche très riche pour chaque personnage, lieu, objet et événement historique.
 
-## Pas d'encyclopédie obligatoire
+Il peut aussi n’en contenir presque aucune.
 
-Certains environnements d'écriture donnent l'impression qu'un roman doit être précédé par la rédaction de sa propre encyclopédie : personnages, histoire familiale, apparence physique, motivation, peur profonde, arc dramatique, lieux, factions, objets, systèmes politiques, relations, intrigue principale, sous-intrigues…
+Recherche doit être disponible lorsque le livre en a besoin, pas comme un devoir imposé avant le chapitre un.
 
-Cela convient très bien à certains auteurs et à certains projets. Cela ne correspond pas à tous les livres.
+Le même principe vaut pour les métadonnées. Statut, labels, dates, fils, objectifs et propriétés peuvent enrichir le projet, mais doivent rester facultatifs.
 
-Une grande partie de ces outils semble naturellement adaptée à des genres qui se prêtent fortement à la modélisation : fantasy, science-fiction de worldbuilding, policier complexe, sagas, séries. Feuillets ne doit pas présumer que toute écriture fonctionne ainsi. Un roman littéraire, une autobiographie, un récit, un essai, une chronique ou un article ne demandent pas nécessairement le même appareillage.
+Un fichier Markdown vide doit rester un point de départ parfaitement valide.
 
-La **Recherche** de Feuillets existe donc comme espace disponible, non comme questionnaire préalable.
+---
 
 ## Les outils de structure doivent rester des outils
 
-Il en va de même des arcs, fils narratifs, chronologies et autres représentations du manuscrit. Un logiciel peut toujours calculer davantage : compter les scènes dans lesquelles apparaît un personnage, mesurer leur longueur moyenne, calculer des répartitions, créer des graphiques, colorer des statistiques, produire des camemberts.
+Classeur, Cartes, Plan, Chemin de fer, Chronologie et Carnet sont utiles parce qu’ils montrent **le même manuscrit sous plusieurs angles**.
 
-**Le fait qu'une donnée soit calculable ne signifie pas qu'elle aide à écrire.** Feuillets ne doit pas confondre information et utilité.
+Ils ne doivent pas devenir des systèmes parallèles qu’il faut maintenir synchronisés.
 
-Cela ne signifie pas rejeter les objectifs ou les mesures. Le nombre de mots est utile. Un objectif de 80 000 mots peut être utile. Un objectif quotidien peut être utile. La progression du manuscrit peut être utile. Le statut d'une scène peut être utile. Une contrainte narrative peut être extrêmement importante.
+> **Une structure, plusieurs représentations.**
 
-Mais il existe une différence entre ces informations et une interface ressemblant au panneau de contrôle d'une centrale électrique.
+Le Plan permet d’inspecter la structure et ses informations. Le Classeur permet de naviguer et déplacer. La double vue permet de lire la hiérarchie d’un coup d’œil. Continu permet d’écrire plusieurs feuillets ensemble. Aucun ne doit créer une seconde vérité du manuscrit.
 
-**Mesurer ce qui aide. Ne pas mesurer pour le plaisir de mesurer.**
+### L’information doit apparaître quand elle devient utile
 
-Les statistiques doivent rester discrètes et disponibles à la demande. Elles ne doivent jamais donner à l'auteur l'impression que son texte est constamment observé par le logiciel.
+La section **Contexte** de l’onglet **Feuillet** illustre bien ce principe : elle fait remonter une Recherche ou une information chronologique lorsque le passage courant la rend pertinente.
 
-### L'information doit apparaître quand elle devient utile
+L’auteur n’a pas besoin de garder toute la bible du projet ouverte en permanence.
 
-Cette même règle s'applique à toute l'interface :
+Un bon logiciel doit savoir se taire.
 
-- La **Chronologie** n'a aucune raison d'envahir le travail d'un auteur qui n'en a pas besoin aujourd'hui. Mais lorsqu'il travaille sur un récit où une personne ne peut pas être présente à une date donnée, elle devient précieuse.
-- La section **Contexte** de Notes ne doit pas transformer l'écran en tableau documentaire permanent. Il doit pouvoir rappeler une information utile lorsque l'auteur en a besoin.
-- Le **Chemin de fer** n'a pas à imposer un système narratif. Il doit simplement offrir une autre manière de regarder le manuscrit.
-- Le **Carnet** ne doit pas devenir une usine à diagrammes. Il doit permettre de jeter une idée, de la déplacer, de la relier à une autre et, éventuellement, de la faire devenir du texte.
+---
 
-Ainsi : **information accessible ne signifie pas information constamment visible.**
+## Du jardinier à l’architecte — et retour
 
-> La puissance de Feuillets doit résider en grande partie dans ce qu'il sait ne pas montrer.
+L’opposition entre « jardinier » et « architecte » n’est utile que si elle reste mobile.
 
-## Du jardinier à l'architecte — et retour
+Un auteur peut découvrir dix scènes librement, construire ensuite un plan précis, puis en abandonner une partie parce que le texte révèle une meilleure direction.
 
-Feuillets doit pouvoir accueillir plusieurs manières d'écrire sans choisir à la place de l'auteur.
+Feuillets doit accompagner ce mouvement.
 
-L'**architecte** peut préparer son projet, construire ses parties, ses chapitres, ses scènes, ses recherches et sa chronologie avant de rédiger. Le **jardinier** peut créer un fichier et commencer.
+Le **Carnet** aide le jardinier à capturer et réorganiser des possibilités. Le **Classeur** aide l’architecte à leur donner un ordre de travail. Le **Plan** permet de contrôler la structure. L’auteur peut passer de l’un à l’autre aussi souvent que nécessaire.
 
-Entre les deux se trouve probablement une population beaucoup plus importante qu'on ne le pense : les auteurs qui planifient suffisamment pour savoir où ils vont, puis découvrent leur véritable livre en l'écrivant. Ils quittent leur plan. Ils y reviennent. Ils le reconstruisent. Puis ils le quittent encore.
+Aucun mode ne doit enfermer le projet dans une doctrine d’écriture.
 
-Feuillets ne doit jamais considérer cela comme une anomalie. **C'est précisément ce que le logiciel doit rendre facile.**
+---
 
 ## Du texte court au livre
 
-La restructuration permettant de transformer des dossiers existants en projets libres donne à Feuillets une portée qui dépasse désormais le roman.
+Un bon environnement d’écriture ne doit pas exiger que l’auteur connaisse la taille finale du texte avant de commencer.
 
-Un article peut rester un article. Une nouvelle peut rester une nouvelle. Dix nouvelles peuvent progressivement devenir un recueil. Des chroniques écrites pendant deux ans peuvent un jour être regroupées. Des notes de recherche peuvent devenir un essai.
+Un feuillet peut rester :
 
-Le logiciel n'a pas à connaître la destination finale du texte lorsqu'il apparaît. Ainsi, le même outil peut accompagner :
+- un article ;
+- une note ;
+- une nouvelle ;
+- un fragment d’essai.
 
-> un fragment → un texte → plusieurs textes → une organisation → un recueil → un livre
+Plusieurs feuillets peuvent ensuite devenir :
 
-sans migration vers un autre environnement.
+- une série ;
+- un recueil ;
+- un chapitre ;
+- un livre.
 
-C'est une différence importante avec une conception dans laquelle on commence nécessairement par *Créer un projet de roman*. **Vous n'avez pas besoin de savoir que vous écrivez un livre pour commencer à écrire.**
+Les portées fichier, dossier, sélection et projet permettent à la forme de publication d’émerger après le début de l’écriture.
 
-## Le Carnet : capturer avant d'organiser
+---
 
-La capture des idées est l'un des besoins les plus simples et pourtant les plus mal servis par certains logiciels spécialisés. Une idée arrive rarement au moment où l'auteur est assis devant la bonne fiche, dans le bon projet, prêt à remplir le bon formulaire. Elle apparaît dans un train, dans une conversation, au milieu d'une autre scène, quelques secondes avant de dormir. Elle doit pouvoir être déposée.
+## Le Carnet : capturer avant d’organiser
 
-Le Carnet de Feuillets répond à cette logique. Une idée peut rester une idée. Elle peut devenir une autre idée. Elle peut être reliée à plusieurs autres. Un groupe peut devenir un plan. Une idée peut devenir un véritable fichier Markdown. Mais aucune transformation n'est obligatoire.
+Le Carnet est l’endroit où la structure peut rester provisoire.
 
-Le Carnet n'est donc pas un planificateur qui précède l'écriture. **C'est une zone de transition entre pensée et texte.**
+Des idées peuvent être capturées sous forme de cartes, regroupées, reliées, scindées, fusionnées et développées en Arbres d’idées avant la création des vrais fichiers du manuscrit.
 
-## Du fragment au livre, puis du livre à l'éditeur
+Quand une structure devient convaincante, l’auteur peut la matérialiser progressivement dans le Classeur.
 
-Le même principe vaut jusqu'à la fin du travail.
+La relation n’est pas une synchronisation permanente.
 
-L'auteur écrit dans un feuillet. Il peut ensuite lire le chapitre. Puis la partie. Puis tout le manuscrit. Il peut le compiler. L'exporter. Préparer les documents éditoriaux. Constituer un dossier de soumission. Puis, avec **Courrier**, suivre ce qui a effectivement été envoyé, à qui, quand et avec quelle version.
-
-L'objectif n'est pas d'enfermer toutes les fonctions possibles dans Feuillets. Il est d'éviter les ruptures inutiles dans un parcours réel :
-
-> idée → texte → structure → recherche → réécriture → manuscrit → document → soumission
-
-Feuillets reste le studio d'écriture. Les fonctions spécialisées qui ne doivent pas alourdir son cœur peuvent rester dans des modules compagnons, comme Grammalecte ou Courrier.
+**Le Carnet aide à penser. Le Classeur reste la structure réelle du manuscrit.**
 
 ![Écosystème Feuillets](feuillets-ecosysteme.png)
 
+---
+
+## Du fragment au livre, puis du livre à l’éditeur
+
+Le travail ne s’arrête pas lorsque le manuscrit devient lisible.
+
+L’auteur doit aussi :
+
+- composer ;
+- exporter ;
+- envoyer ;
+- recevoir des corrections ;
+- décider quels changements accepter ;
+- produire une nouvelle version éditoriale.
+
+Révision DOCX existe parce que le manuscrit doit pouvoir rester Markdown même lorsque l’échange éditorial se fait dans Word.
+
+La **relecture collaborative** répond à un autre cas : échanger une version avec un relecteur Feuillets sans exposer tout le coffre et sans empêcher l’auteur de continuer à écrire pendant ce temps.
+
+Les domaines spécialisés peuvent rester dans des modules compagnons : Grammalecte peut fournir une analyse linguistique, Courrier peut gérer les soumissions et correspondances. Le noyau n’a pas à absorber tous les métiers qui entourent l’écriture.
+
+---
+
 ## Ce que les besoins des auteurs montrent
 
-Les recherches et témoignages examinés ne font pas apparaître une demande universelle pour davantage de tableaux de bord, de scores narratifs ou de systèmes de worldbuilding. Ils font ressortir des difficultés beaucoup plus concrètes :
+Les auteurs ont généralement besoin de moins de gestion logicielle, pas de davantage.
 
-- capturer les idées avant de les perdre ;
-- retrouver ses notes et sa recherche ;
-- écrire de manière non linéaire ;
-- garder une vue d'ensemble sur un texte devenu très long ;
-- déplacer facilement des scènes ou des chapitres ;
-- changer de structure en cours de route ;
-- prendre de la distance pour relire ;
-- conserver des versions ;
-- éviter de disperser le travail entre trop d'outils ;
-- disposer des informations utiles sans subir leur présence en permanence.
+Ils ont besoin de pouvoir :
 
-Les méthodes de planification sont diverses. Certains utilisent des structures complexes, d'autres quelques listes à puces. Il n'existe pas une seule manière correcte d'écrire. C'est précisément pourquoi un logiciel généraliste destiné aux auteurs ne devrait pas en imposer une.
+- commencer vite ;
+- retrouver le bon passage ;
+- comprendre la structure ;
+- déplacer des scènes sans danger ;
+- garder la documentation utile à proximité ;
+- comparer des versions ;
+- repérer des problèmes de continuité ;
+- assembler le vrai livre ;
+- l’exporter ;
+- échanger des révisions sans abandonner le manuscrit source.
+
+Une fonctionnalité est utile lorsqu’elle réduit la friction dans l’un de ces gestes.
+
+---
 
 ## Une puissance progressive
 
-Feuillets peut donc être extrêmement simple ou extrêmement riche sans contradiction.
+Feuillets peut contenir beaucoup d’outils sans les présenter tous à la fois.
 
-| Étape | Ce qui apparaît |
-|---|---|
-| Premier jour | Un fichier Markdown |
-| Quelques semaines plus tard | Plusieurs textes dans un dossier |
-| Puis éventuellement | Classeur |
-| Puis | Quelques recherches |
-| Puis | Carnet |
-| Puis | Aperçu |
-| Peut-être jamais | Chronologie |
-| Peut-être jamais | Fiches Personnages |
-| Peut-être jamais | Cartes |
+Le parcours essentiel peut rester :
 
-Et c'est parfaitement normal. Pour un autre auteur, tout cela sera indispensable.
+> Classeur → feuillet → Concentration → Aperçu
 
-**La sophistication doit venir du projet, pas du logiciel.** Le logiciel ne devient complexe que lorsque le travail lui-même le devient.
+Puis, lorsque le projet grandit :
+
+- Feuillet et ses notes deviennent utiles ;
+- Recherche devient utile ;
+- Cartes ou Plan deviennent utiles ;
+- Continu devient utile ;
+- Chronologie devient utile ;
+- Journal devient utile ;
+- Relecture devient utile ;
+- Révision DOCX devient utile ;
+- les réglages avancés d’Édition deviennent utiles.
+
+La puissance n’est pas la densité permanente de l’interface.
+
+---
 
 ## Ce que Feuillets ne doit surtout pas devenir
 
-Cette philosophie impose aussi des limites. Feuillets possède désormais beaucoup de fonctions. Il existe donc un risque réel : devenir à son tour l'usine à gaz contre laquelle il a été conçu.
+Feuillets ne doit pas devenir :
 
-Chaque nouvelle fonction devrait être confrontée à quelques questions simples :
+- une base narrative obligatoire ;
+- un formulaire à remplir avant d’écrire ;
+- un PKM généraliste en concurrence avec Obsidian ;
+- une application autonome cachée dans Obsidian ;
+- une course aux fonctionnalités de tous les logiciels commerciaux ;
+- un système où les métadonnées comptent davantage que le texte ;
+- un chantier de maintenance qui consomme plus d’énergie que l’écriture.
 
-1. Aide-t-elle réellement à écrire ?
-2. Aide-t-elle à relire ?
-3. Aide-t-elle à retrouver quelque chose ?
-4. Aide-t-elle à réorganiser ou réécrire ?
-5. Aide-t-elle à terminer ou transmettre le texte ?
+Avant d’ajouter quelque chose, demander :
 
-Si sa seule justification est de produire davantage de données, de visualisations ou de contrôle, son utilité doit être sérieusement questionnée.
+1. Est-ce que cela aide à écrire ?
+2. Est-ce que cela aide à relire ?
+3. Est-ce que cela aide à retrouver quelque chose ?
+4. Est-ce que cela aide à réorganiser ou réécrire ?
+5. Est-ce que cela aide à terminer ou transmettre le texte ?
 
-**Le nombre de possibilités de Feuillets ne doit jamais devenir le nombre de choses que l'auteur est obligé de comprendre.**
+Si la seule justification est de produire davantage de données, de visualisation ou de contrôle, son utilité doit être interrogée.
 
-## Maintenance : la stabilité avant la course aux fonctions
+> **Le nombre de possibilités de Feuillets ne doit jamais devenir le nombre de choses que l’auteur doit comprendre.**
 
-Feuillets possède déjà un atelier large. Sa maintenance doit donc privilégier, dans cet ordre :
+---
 
-1. la stabilité ;
-2. la cohérence entre les vues ;
-3. l’ergonomie ;
-4. les petites améliorations réellement utiles à l’auteur.
+## Maintenance : la stabilité avant la course aux fonctionnalités
 
-Une réarchitecture générale ou une nouvelle fonction n’est pas une amélioration par elle-même. Elle ne vaut la peine que si elle simplifie réellement le travail d’écriture, de réécriture ou de transmission du texte.
+Feuillets propose déjà un atelier d’écriture très large.
 
-**La sophistication doit venir du projet, pas de la maintenance du logiciel.**
+La maintenance doit donc privilégier, dans cet ordre :
 
-## Une conception centrée sur l'auteur
+1. stabilité ;
+2. cohérence entre les vues ;
+3. ergonomie et fluidité ;
+4. petites améliorations réellement utiles aux auteurs.
 
-La différence essentielle n'est donc pas que Feuillets aurait davantage de fonctions que tel ou tel autre logiciel. Ce serait une compétition sans fin.
+Une réarchitecture ou une nouvelle fonctionnalité n’est pas une amélioration en soi. Elle ne vaut la peine que si elle rend concrètement l’écriture, la réécriture ou la transmission du manuscrit plus simple.
+
+**La sophistication du logiciel doit venir des besoins du projet, pas de la charge de maintenance de l’outil.**
+
+---
+
+## Une conception centrée sur l’auteur
+
+La différence la plus importante n’est pas que Feuillets possède davantage de fonctions qu’un autre logiciel. Cette compétition n’aurait pas de fin.
 
 Sa différence peut être plus fondamentale :
 
-> Feuillets est conçu à partir du travail de l'écrivain, pas à partir d'un modèle informatique de l'écriture.
+> **Feuillets est conçu à partir du travail de l’auteur, pas à partir d’un modèle informatique de l’écriture.**
 
-Le logiciel ne cherche pas à expliquer à l'auteur comment construire une histoire. Il ne cherche pas à transformer le texte en données. Il ne prétend pas qu'un graphique peut dire si un chapitre fonctionne.
+Le logiciel ne cherche pas à expliquer comment construire une histoire. Il ne cherche pas à transformer le manuscrit en données. Il ne prétend pas qu’un graphique puisse décider si un chapitre fonctionne.
 
-Il fournit un espace dans lequel l'auteur peut écrire, changer d'avis, déplacer, supprimer, recommencer, revenir en arrière et découvrir progressivement la forme de son texte.
+Il fournit un espace où l’auteur peut écrire, changer d’avis, déplacer, supprimer, recommencer, revenir à un état précédent et découvrir progressivement la forme de son texte.

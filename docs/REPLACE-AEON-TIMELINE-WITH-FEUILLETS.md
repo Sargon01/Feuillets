@@ -2,680 +2,168 @@
 
 > [Français](Remplacer-Aeon-Timeline-par-Feuillets.md) · **English** · [Documentation index](README.md)
 
-You use Aeon Timeline to build story chronology, follow characters, compare chronological order with narrative order, verify ages and observe plot lines.
-
-You want to know whether Feuillets can bring that workflow directly into Obsidian without maintaining a separate application and synchronizing two versions of the same project.
-
-The answer is: **yes for a large part of chronology work that is directly tied to a manuscript**, but **Feuillets does not replace the full power of Aeon Timeline as a specialized temporal-modeling application**.
-
-Aeon Timeline is designed first to model events, entities, relationships and complex calendars. Feuillets is designed first to write, structure and revise a book. Its Timeline exists mainly to support narrative continuity.
+You use Aeon Timeline to track events, characters, ages, story threads and the difference between chronological and narrative order. Feuillets covers a large part of that work **when it is directly tied to a manuscript**, but it does not try to replace Aeon's full specialized temporal model.
 
 ![Cards, Outline, Storyline and Timeline](feuillets-mosaique-narrative.png)
+
+Aeon starts from chronology and entities. Feuillets starts from the text: Timeline, Storyline, Research and Context are projections of the same Markdown project.
 
 ---
 
 ## 1. Find Timeline View again
 
-In Feuillets, use **Timeline**.
+Use **Timeline** to compare dated manuscript scenes, Research events, milestones, available dates, characters/places/tags/threads and chronological versus narrative order.
 
-It can bring together:
-
-- dated manuscript scenes;
-- historical or narrative events;
-- milestones;
-- start and end dates when available;
-- associated characters, places or tags;
-- events stored in Research.
-
-### Main equivalents
-
-| Aeon Timeline | Feuillets |
-|---|---|
-| Timeline View | Timeline |
-| Event | Dated scene or Research event |
-| Milestone | Milestone |
-| Grouping | Grouping/filter |
-| Inspector | Properties and Research |
-| Timeline file | Feuillets project |
-| Calendar marker | Milestone or historical event |
-
-The important difference is that a manuscript scene on the Feuillets Timeline is also a real Markdown sheet in the book.
+A scene visible on Timeline remains the same Markdown sheet you edit from Binder or Continuous mode.
 
 ---
 
-## 2. Find events again
+## 2. Represent an event
 
-An event can be represented in two ways.
+An event can be a manuscript scene with date/character/place/thread properties, or a Research event that exists in the story world or historical context without being narrated as a scene.
 
-### A manuscript scene
-
-```yaml
----
-date: 1826-06-15
-date_end: 1826-06-16
-place: Suvasa
-characters:
-  - Kali
-  - Deli
-threads:
-  - tekke-attack
----
-```
-
-The file contains the text actually read in the manuscript.
-
-### A Research event
-
-An event can exist in the story world or historical context without being narrated as a scene:
-
-```yaml
----
-type: event
-date: 1826-06-15
-tags:
-  - janissaries
-  - ottoman-empire
----
-```
-
-This distinction separates **what happens** from **what is actually told**.
-
-Feuillets can reuse historical event-folder names such as `Événements`, `Events`, `Chronologie`, `Timeline`, `Chronology` and `_Chronologie`.
+This separates **what happens** from **what the reader sees in the manuscript**.
 
 ---
 
 ## 3. Find entities again
 
-Characters, places and other entities live in **Research**.
+Characters, places, events and other documentary material live in **Research** as Markdown files.
 
-You can create notes for:
-
-- characters;
-- places;
-- events;
-- organizations;
-- objects;
-- concepts;
-- lore;
-- historical sources;
-- narrative threads.
-
-| Aeon Timeline | Feuillets |
-|---|---|
-| Person | Character Research note |
-| Location | Place Research note |
-| Story Arc | Narrative thread |
-| Project | Project or subplot |
-| Item Type | Research category/type |
-| Entity Properties | Markdown properties |
-| Birth/Death | Birth/Death properties |
-| Relationship | Property, tag or link |
-
-Feuillets uses ordinary Markdown rather than a dedicated relational database.
+You can also link **any existing vault folder** to a manuscript sheet or folder. Feuillets does not move it; when it sits outside project Research, it appears as a read-only linked source in the Research panel.
 
 ---
 
-## 4. Find relationships between events and entities again
+## 4. Find properties and relationships again
 
-Use combinations of:
+Relationships can use YAML properties, Markdown links, tags, characters, places, narrative threads and Research references.
 
-- Markdown links;
-- properties;
-- tags;
-- associated characters;
-- associated places;
-- narrative threads;
-- Research references.
+Feuillets 2.5 can **remap** its logical fields to properties already used in the vault, so an established project does not have to adopt Feuillets' default property names.
 
-Example:
-
-```yaml
----
-characters:
-  - Kali
-  - Deli
-places:
-  - Suvasa
-threads:
-  - disappearance-of-the-janissaries
----
-```
-
-Or in prose:
-
-```markdown
-Kali joins [[Deli]] in the streets of [[Suvasa]].
-```
-
-These relationships can feed:
-
-- Notes → Context;
-- Timeline;
-- Storyline;
-- Outline;
-- Obsidian search;
-- backlinks.
-
-### Difference
-
-Aeon has a configurable formal relationship model with roles.
-
-Feuillets uses a simpler, more readable file-based model. It is easier to inspect outside the application but less sophisticated for complex relationship semantics.
+Aeon remains stronger for formal role-based relationships and complex temporal constraints.
 
 ---
 
-## 5. Find Narrative View again
+## 5. Compare chronological and narrative order
 
-Feuillets separates chronological and narrative order naturally.
+**Timeline** shows chronological order.
 
-### Chronological order
+**Binder** shows the order in which the reader encounters the sheets.
 
-Timeline sorts dated scenes by date.
-
-### Narrative order
-
-Binder stores the order in which the reader encounters those same scenes.
-
-This makes it possible to spot:
-
-- flashbacks;
-- ellipses;
-- anticipations;
-- out-of-order scenes;
-- periods missing from the narrative.
-
-Example:
-
-```text
-Chronological:
-1815 — Deli dies
-1820 — Kali arrives
-1826 — Attack on the tekke
-
-Narrative:
-Chapter 1 — Attack on the tekke
-Chapter 2 — Memory of Kali's arrival
-Chapter 3 — Revelation of Deli's death
-```
-
-This is one of the areas where Feuillets most closely overlaps Aeon's manuscript-oriented workflow.
+This makes flashbacks, ellipses, anticipations and out-of-order scenes visible without maintaining a second chronology database. **Outline** adds a tabular view of structure and properties.
 
 ---
 
-## 6. Find story arcs again
+## 6. Find Story Arcs again
 
-Feuillets uses **narrative threads**.
+Feuillets uses **narrative threads** projected in **Storyline**. The view helps reveal where a thread appears, disappears, resolves or leaves a gap across manuscript order.
 
-A sheet can belong to one or several threads:
-
-```yaml
----
-threads:
-  - hikmet-secret
-  - ramazan-disappearance
-  - kemal-investigation
----
-```
-
-Storyline can then show where a thread appears, disappears, develops, overlaps with others or leaves gaps.
-
-| Aeon Timeline | Feuillets |
-|---|---|
-| Story Arc | Narrative thread |
-| Plotline | Thread / label / tag depending on use |
-| Narrative structure | Binder + Storyline |
-
-### Difference
-
-Aeon can model arcs as first-class entities. Feuillets keeps them closer to manuscript organization and readable metadata.
+Aeon can model arcs as more general temporal entities; Feuillets deliberately keeps them close to the written book.
 
 ---
 
 ## 7. Follow characters through time
 
-Character Research notes can store birth, death and dated states.
+Character Research notes can store birth, death and dated states. If a sheet has a date and mentions the character, **Sheet → Context** can use that information to surface age/state or flag cases such as not-yet-born or already-dead characters.
 
-Scenes can reference characters through properties, links or tags.
-
-Feuillets can then use dates to support:
-
-- age at a scene date;
-- whether a character is alive;
-- known state at that point;
-- appearances across the Timeline.
-
-### Difference
-
-Aeon performs deeper temporal entity modeling. Feuillets focuses on the continuity questions most directly useful while writing.
+The check happens while writing the relevant passage.
 
 ---
 
-## 8. Follow places and movements
+## 8. Places, objects and anachronisms
 
-Scenes can have place properties and Research links.
+Research can hold places, objects, technologies and historical information. Context can surface relevant material and some chronological inconsistencies.
 
-Timeline, Outline, search and Context can help inspect where a character is at a given moment.
-
-### Honest limit
-
-Feuillets is not a dedicated geographic movement simulator. Complex travel constraints, routes or spatial reasoning remain better handled by specialist tools or project-specific notes.
+Feuillets is not a geographic simulator: it does not automatically calculate travel distances, travel time or simultaneous-location impossibilities.
 
 ---
 
-## 9. Find custom calendars again
+## 9. Calendars and durations
 
-Aeon Timeline supports sophisticated custom calendars.
+Feuillets works best with dates that remain readable in project properties.
 
-Feuillets works best when dates can be represented in project properties and parsed consistently.
-
-### Feuillets works well for:
-
-- standard calendar dates;
-- historical chronology;
-- relative narrative sequencing;
-- dated scene continuity;
-- simple project-specific conventions that remain readable.
-
-### Aeon remains stronger for:
-
-- elaborate fictional calendars;
-- custom eras with complex month/day systems;
-- calendar conversion;
-- deeply modeled non-Gregorian systems.
-
-This is a major area where Feuillets should not claim parity.
+Aeon is still much better suited to elaborate fictional calendars, calendar conversion, formal temporal constraints, automatically propagated durations/dependencies and highly detailed non-narrative models.
 
 ---
 
-## 10. Find durations again
+## 10. Find Relationship View again
 
-Sheets and events can have start/end information where the project uses it.
-
-Timeline can represent ranges or ordering according to the data available.
-
-### Difference
-
-Aeon treats duration as a central temporal model. Feuillets treats it as manuscript metadata useful when present.
+There is no single equivalent. Use Obsidian links/backlinks for documentary relationships, Canvas/Notebook for visual thinking, Storyline for narrative relations, Timeline for temporal relations and Sheet → Context for information useful during writing.
 
 ---
 
-## 11. Find dependencies again
+## 11. Find Subway View again
 
-Feuillets can represent dependencies informally through:
+**Storyline** is the closest author-oriented analogue: several narrative threads can be inspected across manuscript sequence.
 
-- links;
-- properties;
-- notes;
-- threads;
-- ordering;
-- Context.
-
-### Example
-
-A scene note might record that Event B cannot happen before Event A.
-
-### Honest limit
-
-Feuillets does not provide a full temporal constraint solver. If your project depends on dependency propagation and automatic date recalculation, Aeon remains stronger.
+It is not a Subway View clone; its primary axis is the actual book.
 
 ---
 
-## 12. Find Relationship View again
+## 12. Find Spreadsheet and Outline again
 
-There is no single identical Feuillets view.
+Use **Outline** for a tabular view of hierarchy and metadata, and **Binder** for hierarchy and navigation.
 
-Use the right tool for the question.
-
-### To inspect one note's links
-
-Use Obsidian links and backlinks.
-
-### To explore relations visually
-
-Use Canvas or the Notebook.
-
-### To inspect narrative relations
-
-Use Storyline, labels, tags and threads.
-
-### To inspect temporal relations
-
-Use Timeline and Context.
-
-### Difference
-
-Aeon centralizes relationships in a specialized model. Feuillets distributes them across Markdown, Obsidian and manuscript-oriented views.
+Binder split view can keep a folder-only manuscript tree visible on the left while the normal Binder remains on the right, making structure readable at a glance.
 
 ---
 
-## 13. Find Subway View again
+## 13. Find Mindmap again
 
-Storyline is the closest manuscript-oriented analogue.
+The **Notebook** uses Canvas for free ideas, groups and Idea Trees. A branch can be turned into an outline and then materialized as real Markdown folders/sheets.
 
-It can make several narrative threads visible across a sequence of scenes.
-
-### Difference
-
-It is not a clone of Aeon's Subway visualization. Its purpose is to help assess the distribution of story threads in the actual manuscript.
+Notebook helps you think; Binder remains the real manuscript structure.
 
 ---
 
-## 14. Find Spreadsheet View again
+## 14. Work side by side
 
-Use **Outline**.
+Obsidian panes can keep manuscript, Timeline, Research, PDF or another document visible together.
 
-Outline can display manuscript hierarchy and selected properties in columns.
-
-This can include:
-
-- dates;
-- characters;
-- places;
-- status;
-- labels;
-- progress;
-- targets;
-- other project properties.
+Files inside externally linked Research folders can open in a new tab or side by side without being moved into the project. Binder split view also provides a lightweight read-only Vault browser for opening outside material.
 
 ---
 
-## 15. Find Outline View again
+## 15. Find continuity checks again
 
-Use the Binder and Outline together.
+**Sheet → Context** can turn chronology into an active writing aid. Depending on project data, it can surface scene date, character age/state, nearby event, relevant Research, an already-dead/not-yet-born character or an anachronistic object/technique.
 
-Binder provides hierarchy and narrative order.
-
-Outline gives a tabular view of the same files.
+These are project-derived checks, not automatic truth claims.
 
 ---
 
-## 16. Find Mindmap View again
+## 16. Revise without losing chronology
 
-Use Obsidian Canvas and the Feuillets **Notebook**.
+Feuillets 2.5 also strengthens rewriting with snapshots/versions, a comparison view that distinguishes additions/deletions/replacements/moves, working annotations outside Markdown, collaborative review and DOCX Revision.
 
-The Notebook can:
-
-- capture free ideas;
-- group cards;
-- build Idea Trees;
-- turn branches into manuscript outlines;
-- keep visual thinking separate from the real Binder until you choose to materialize it.
-
-### Feuillets advantage
-
-The same Canvas can gradually produce real Markdown structure.
-
-### Aeon advantage
-
-Aeon integrates mind mapping into its dedicated temporal/entity model.
+Timeline keeps pointing to the same source files while the manuscript evolves.
 
 ---
 
-## 17. Find split-screen work again
+## 17. Edit several scenes continuously
 
-Obsidian panes can keep Timeline, Research, manuscript and Preview visible in combinations that suit the current task.
+**Continuous** mode opens a chapter, folder, selection or manuscript as one editable document while saving each change back to the corresponding source sheet.
 
-Feuillets does not require a separate application window to compare chronology with prose.
-
----
-
-## 18. Find notes, tags and properties again
-
-A scene or Research note can combine prose and properties.
-
-Example:
-
-```yaml
----
-date: 1826-06-15
-characters:
-  - Kali
-place: Suvasa
-threads:
-  - tekke-attack
-status: revision
----
-```
-
-The data remains human-readable in the Markdown file.
+This is useful for correcting transitions or temporal flow across several scenes without opening many tabs or merging source files.
 
 ---
 
-## 19. Find attachments again
+## 18. Export and share
 
-Images and other resources can remain ordinary vault files under project Resources or another folder.
+Feuillets exports the manuscript as compiled Markdown, DOCX, EPUB, ODT and desktop PDF. Chronological information remains in project files/properties.
 
-Research notes can link or embed them through normal Obsidian mechanisms.
-
----
-
-## 20. Find search and filters again
-
-Use:
-
-- Binder search;
-- title/content search;
-- status filters;
-- label filters;
-- progress filters;
-- tags;
-- Obsidian search;
-- filtered Timeline/Storyline/Outline views.
-
-### Difference
-
-Aeon can query a more formal entity model. Feuillets searches readable project files and their metadata.
-
----
-
-## 21. Find synchronization with Scrivener or Ulysses again
-
-### With Aeon Timeline
-
-The chronology may live in Aeon and require synchronization with the writing application.
-
-### With Feuillets
-
-The chronology and manuscript are already in the same Obsidian project.
-
-A scene date belongs to the same Markdown file whose prose you are writing.
-
-There is no separate chronology database to keep synchronized.
-
----
-
-## 22. Find direct manuscript integration again
-
-In Feuillets, chronology and text live in the same environment.
-
-You can:
-
-- open a scene from Timeline;
-- edit its text;
-- change its date;
-- update characters;
-- inspect synopsis;
-- see narrative order;
-- reread its chapter;
-- export the manuscript.
-
-This is Feuillets' main advantage for writers who do not want to maintain several applications.
-
----
-
-## 23. Find continuity checks again
-
-**Notes → Context** can turn chronology into an active writing aid.
-
-While you write, it can surface:
-
-- scene date;
-- character age;
-- latest known state;
-- nearby historical event;
-- Research related to the passage;
-- character already dead;
-- character not yet born;
-- anachronistic object;
-- technique unavailable at that date.
-
-Example:
-
-```text
-15 June 1826
-
-⚠ Deli
-Dead since 1815
-
-Abolition of the Janissary corps
-Historical event close to this date…
-```
-
-The exact alerts depend on the information stored in your own project.
-
----
-
-## 24. Find character calendars again
-
-A character's appearances can be followed through:
-
-- backlinks;
-- manuscript links;
-- character properties;
-- tags;
-- project search;
-- Outline;
-- filtered Timeline;
-- Storyline.
-
-Filtering Timeline on one character can help follow first appearance, movements, major events and chronological inconsistencies.
-
----
-
-## 25. Compare several chronologies again
-
-Feuillets can approximate this through:
-
-- character filters;
-- thread filters;
-- tags;
-- Storyline;
-- project views;
-- several Feuillets projects;
-- different Timeline scopes;
-- Outline.
-
-### Limit
-
-It is less suited to comparing many fully independent timelines or highly complex non-narrative temporal datasets.
-
-Aeon remains more general and specialized here.
-
----
-
-## 26. Find templates again
-
-Feuillets can use:
-
-- project modes;
-- Research note templates;
-- Markdown properties;
-- Template folders;
-- view configuration;
-- export templates.
-
-Example Character note:
-
-```markdown
----
-type: character
-birth:
-death:
-places:
-tags:
----
-
-# Name
-
-## Description
-
-## Timeline
-
-## Relationships
-
-## Notes
-```
-
-### Difference
-
-Aeon can configure a much more formal data model.
-
-Feuillets templates are more open and portable, but less strict.
-
----
-
-## 27. Find backups again
-
-Feuillets provides:
-
-- sheet snapshots;
-- project snapshots where applicable;
-- ZIP backups;
-- version comparison;
-- restoration workflows;
-- ordinary vault backup;
-- Git or other external systems.
-
-For an as-is project, backup scope remains the active project folder. For a structured project whose active manuscript folder is `Manuscrit`, the backup covers the parent project.
-
----
-
-## 28. Use the project on several devices
-
-Feuillets works inside Obsidian. Availability and comfort depend on the feature and device.
-
-### Aeon advantage
-
-- dedicated standalone application;
-- specialized mobile experience;
-- purpose-built timeline interaction.
-
-### Feuillets advantage
-
-- same Markdown files;
-- compatibility with the user's chosen Obsidian/file synchronization;
-- no separate chronology file detached from the manuscript.
-
-Complex Feuillets views may still be more comfortable on desktop.
-
----
-
-## 29. Export and share
-
-Feuillets can export the manuscript and compiled documents.
-
-Chronological information remains accessible in Markdown and project views.
-
-### Limit
-
-Feuillets does not necessarily offer a direct equivalent of an interactive read-only Aeon timeline file.
-
-For sharing chronology, practical options may include Markdown, PDF, screenshots, tables or a shared Obsidian vault, depending on the intended audience.
+There is not necessarily an equivalent to a standalone interactive Aeon timeline file; share chronology through the vault, tables, captures or derived documents according to need.
 
 ---
 
 # Equivalent daily workflow
 
-## Aeon Timeline with Scrivener
+## Aeon + writing application
 
 ```text
-Open timeline
-→ add or move event
-→ associate characters, places and arcs
-→ check dates and ages
-→ reorder Narrative View
-→ synchronize with Scrivener
-→ open Scrivener
+Update timeline
+→ check dates, characters and arcs
+→ synchronize with writing app
 → write scene
 → synchronize again
 ```
@@ -683,203 +171,30 @@ Open timeline
 ## Feuillets
 
 ```text
-Open project
-→ create or select sheet
-→ add date/properties when useful
-→ observe it in Timeline
-→ check narrative order in Binder
-→ associate characters, places and threads
-→ write the scene
-→ consult Notes → Context alerts
+Choose or write a sheet
+→ add useful date/properties
+→ inspect Timeline / Outline / Storyline
+→ write alone or in Continuous
+→ consult Sheet → Context
+→ correct the same Markdown source
 ```
 
-Chronology is no longer a separate stage from writing.
+Chronology is no longer a separate database from the manuscript.
 
 ---
 
-# Novel-preparation workflow
+# When Feuillets can replace Aeon
 
-## With Aeon Timeline
+Feuillets may be enough when the main need is novel/story chronology, chronological versus narrative order, straightforward character tracking, narrative threads, historical events linked to prose, continuity alerts while writing and keeping everything inside one Obsidian project.
 
-```text
-Create events
-→ create characters and places
-→ link events to entities
-→ define arcs
-→ organize Narrative View
-→ synchronize with writing application
-```
+# When to keep Aeon
 
-## With Feuillets
-
-```text
-Create Research notes
-→ build events or scenes
-→ assign dates, characters, places and threads
-→ compare Timeline and Binder
-→ organize manuscript
-→ write directly in sheets
-```
-
----
-
-# What you gain by moving to Feuillets
-
-## One project
-
-Manuscript, chronology, characters and documentation live in the same vault.
-
-## No intermediate synchronization
-
-The dated scene and the written scene are the same file.
-
-## A Timeline linked to actual prose
-
-Chronological data is not detached from the manuscript unit it describes.
-
-## Continuity checks while writing
-
-Context can surface age, state and anachronism warnings directly beside the current passage.
-
-## Open files
-
-The underlying information remains Markdown and ordinary folders.
-
-## Obsidian ecosystem
-
-Links, backlinks, Canvas, plugins and search remain available.
-
-## The complete book cycle
-
-The same project continues through writing, revision, composition, export and editorial DOCX return.
-
----
-
-# What you lose or change
-
-## A specialized temporal engine
-
-Aeon remains stronger at deep temporal modeling.
-
-## A formal relationship model
-
-Feuillets relationships are more open and less strict.
-
-## Specialized visualizations
-
-Feuillets does not clone every Aeon view.
-
-## Advanced multi-timeline comparison
-
-Aeon remains better for complex independent timelines.
-
-## A dedicated standalone/mobile timeline application
-
-Feuillets inherits Obsidian's environment rather than shipping a separate chronology app.
-
----
-
-# Can Feuillets really replace Aeon Timeline?
-
-## Probably yes when you mainly use Aeon to:
-
-- date scenes;
-- compare chronological and narrative order;
-- follow character ages;
-- associate characters and places;
-- track narrative threads;
-- check continuity;
-- keep historical events beside a manuscript.
-
-## Feuillets may be better suited when you want:
-
-- chronology and prose in one project;
-- no synchronization between timeline and manuscript;
-- Context alerts while writing;
-- open Markdown files;
-- one workflow through export and editorial revision.
-
-## Aeon Timeline will probably remain preferable when you need:
-
-- complex custom calendars;
-- advanced temporal constraints;
-- formal relationship modeling;
-- specialized timeline visualizations;
-- sophisticated comparison of several independent chronologies.
-
----
-
-# Recommended transition
-
-## 1. Do not delete the Aeon timeline
-
-Keep it as reference during migration.
-
-## 2. Export the useful data
-
-Identify dates, events, characters, places and relationships that truly matter to the manuscript.
-
-## 3. Separate scenes from events
-
-Decide which items are manuscript sheets and which should remain Research events.
-
-## 4. Recreate characters and places
-
-Use Research notes with readable properties.
-
-## 5. Recreate essential relationships
-
-Prefer links, properties, tags and threads that are useful during writing.
-
-## 6. Check Timeline
-
-Verify dates and event order.
-
-## 7. Check Binder
-
-Verify narrative order.
-
-## 8. Test one character
-
-Confirm appearances, dates and Context behavior.
-
-## 9. Test one narrative thread
-
-Confirm it remains understandable across Storyline and manuscript order.
-
-## 10. Work in parallel
-
-Keep Aeon available until you are confident that the Feuillets project contains all chronology information you actually use.
-
----
-
-# Quick correspondence table
-
-| Need | Aeon Timeline | Feuillets |
-|---|---|---|
-| Event chronology | Timeline View | Timeline |
-| Narrative order | Narrative View | Binder |
-| Story arcs | Story Arcs | Narrative threads / Storyline |
-| Character age/state | Entity timeline | Research + Context |
-| Entity data | Entity model | Markdown Research notes |
-| Relationships | Relationship model | Links/properties/tags |
-| Spreadsheet | Spreadsheet View | Outline |
-| Mind map | Mindmap | Notebook / Canvas |
-| Manuscript link | Synchronization | Same Markdown sheet |
-| Complex calendar | Strong | Limited |
-| Temporal constraints | Strong | Limited |
-| Open source files | Export/sync needed | Native Markdown |
+Aeon remains preferable for very complex fictional calendars, formal temporal dependencies, rich relationship models, propagated duration calculations and projects where the timeline is more important than the manuscript itself.
 
 ---
 
 # Verdict
 
-Feuillets does **not** aim to become Aeon Timeline inside Obsidian.
+Feuillets does not replace Aeon Timeline as a general temporal-modeling engine. It mainly replaces **the need to maintain a separate chronology database for checking a manuscript**.
 
-For a novelist who mainly uses Aeon to keep a manuscript chronologically coherent, Feuillets can absorb a large part of the workflow because the Timeline, Research, Binder and prose all refer to the same files.
-
-For projects whose primary problem is temporal modeling itself — complex calendars, constraint propagation, formal entity relations or multiple independent chronologies — Aeon Timeline remains the more specialized tool.
-
-The key distinction is simple:
-
-> **Aeon models time first. Feuillets writes the book first and uses time to keep the book coherent.**
+If chronology primarily exists to help you write a coherent book, keeping dates, scenes, Research, threads and prose in the same vault can be more fluid than continuously synchronizing two applications.

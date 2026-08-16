@@ -2,6 +2,51 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.5.0
+
+### Écriture et navigation
+
+- Ajout du **mode Continu** : plusieurs feuillets deviennent un seul document réellement éditable, sans fichier composite ni multiplication d'onglets, avec sauvegarde dans les fichiers Markdown sources.
+- Synchronisation de portée, navigation et corps de texte entre **Continu** et **Aperçu**.
+- Simplification du **Classeur**, des **Cartes** et du **Plan** ; isolation d'un dossier, retour au projet, tri naturel de repli et retour à la ligne optionnel des colonnes longues du Plan.
+- Restauration de la **double vue** historique du Classeur : structure des dossiers du Manuscrit à gauche, Classeur 2.5 inchangé à droite, avec un accès documentaire léger et non destructif au Coffre.
+
+### Projet, propriétés et Recherche
+
+- Réglages **propres au projet** pour objectifs, statuts, labels et tags favoris, avec repli compatible sur les réglages historiques.
+- **Remappage des propriétés YAML** existantes pour synopsis, résumé, statut, POV, label, objectif, fil narratif, personnages et date, sans migration destructive.
+- Les dossiers Recherche existants peuvent être associés à des feuillets/dossiers du Classeur et sont désormais visibles directement dans le panneau Recherche, y compris hors du projet ; leurs fichiers peuvent être ouverts dans un nouvel onglet ou côte à côte sans rendre ces dossiers administrables par Feuillets.
+- Rationalisation de la structure des projets, de Recherche, Sources/Bibliographie, Ressources et chemins legacy.
+
+### Annotations, relecture et versions
+
+- Ajout des **annotations de travail** externes au Markdown : surlignage, édition, suppression et liste centralisée.
+- Ajout de la **relecture collaborative native** par paquets `.feuillets` : portée feuillet/dossier/projet, copie de travail côté relecteur, notes ancrées, retours, analyse à trois états, décisions auteur, fils et plusieurs tours.
+- Nouveau **comparateur** avec ajouts/suppressions/remplacements, détection de déplacements, repères `[…]`, restauration de passage, double-clic de recentrage, navigation précédent/suivant, modes **Changements / Versions** et défilement synchronisé optionnel.
+- Révision DOCX déplacée sous **Relecture** et alignée avec la nouvelle grammaire de comparaison.
+
+### Édition, mise en page et export
+
+- Nouvel espace central **Édition** avec deux modes : **Composition** et **Mise en page** ; l'export devient une action de la barre et non un troisième onglet.
+- Composition réorganisée autour du contenu du manuscrit, de la **Première page** unique, des pages liminaires, éléments générés, bibliographie, annexes et structure.
+- Mise en page simplifiée en **Page / Corps de texte / Titres / Citation**.
+- Nouveau modèle de **gabarits V2** partagé entre Aperçu et exports, avec gabarits personnalisés, import Ulysses et import de modèles Word.
+- Pagination Preview/PDF fiabilisée, prise en charge des colonnes PDF et meilleure fidélité des styles.
+- Export renforcé : résolution unique du nom de sortie, remplacement sûr des fichiers existants malgré les différences de casse sur macOS, gestion d'erreur couvrant la compilation.
+
+### Import et compatibilité
+
+- L'import Scrivener et l'import de plans conservent explicitement **l'ordre de la source** au lieu de dépendre du tri du coffre.
+- Import Scrivener réaligné sur la structure canonique des projets Feuillets.
+- Compatibilité conservée avec les projets et réglages historiques sans migration destructive automatique.
+
+### Interface et qualité
+
+- Panneau droit rationalisé en **Feuillet / Recherche / Journal / Projet / Relecture**.
+- Documents éditoriaux et Édition intégrés comme surfaces centrales plutôt que vues imbriquées.
+- Passe i18n FR/EN sur Mise en page, Première page et menus contextuels.
+- Plus de 3 400 tests automatisés au moment du gel fonctionnel, avec build, lint et règles de revue Obsidian validés.
+
 ## 2.0.5
 
 ### Maintenance

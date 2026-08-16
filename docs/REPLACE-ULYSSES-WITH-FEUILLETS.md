@@ -2,36 +2,17 @@
 
 > [Français](Remplacer-Ulysses-par-Feuillets.md) · **English** · [Documentation index](README.md)
 
-You use Ulysses for its clean writing interface, groups and sheets, goals and polished export. You want to know whether Feuillets can cover that workflow inside Obsidian without turning writing into system administration.
-
-The answer is: **yes, especially for books, collections and documented projects**, but the transition differs from a Scrivener migration.
-
-Ulysses favors a unified library, excellent Apple integration and a highly consistent experience. Feuillets favors accessible Markdown files, an explicit manuscript structure and deeper planning, Research and continuity tools.
+You use Ulysses for clean writing, groups and sheets, goals and polished export. Feuillets covers a similar workflow inside Obsidian while keeping a different foundation: **your writing remains ordinary Markdown files in your vault**.
 
 ![Writing and Preview](feuillets-concentration-apercu.png)
 
+Ulysses offers a unified library and a highly consistent Apple experience. Feuillets favors open files, explicit book structure, project documentation and integration with the rest of Obsidian.
+
 ---
 
-## 1. Find the Ulysses library again
+## 1. Find the library again
 
-Ulysses gathers texts into one central library with projects, groups, filters and sheets.
-
-Feuillets works in an **Obsidian vault** that can contain one or several writing projects.
-
-A project can include:
-
-- manuscript;
-- parts;
-- chapters;
-- sheets;
-- Research;
-- resources;
-- images;
-- templates;
-- exports;
-- backups.
-
-### Main equivalents
+The Obsidian vault is the general library. A Feuillets project can use an existing folder as-is or a structure created by Feuillets.
 
 | Ulysses | Feuillets |
 |---|---|
@@ -39,778 +20,269 @@ A project can include:
 | Project | Feuillets project |
 | Group | Folder |
 | Sheet | Sheet |
-| Material sheet | Research note or excluded sheet |
+| Material Sheet | Research note or excluded sheet |
 | Filter | Filter, selection or view |
-| Trash | Obsidian trash / file deletion |
+| Trash | Obsidian trash |
 
-The essential difference is that Ulysses manages its own library, while Feuillets uses ordinary files and folders visible in Obsidian and the filesystem.
+A project can start as ordinary Markdown notes and become a Feuillets project later without a proprietary conversion step.
 
 ---
 
 ## 2. Find Projects again
 
-A Ulysses Project is a self-contained writing space with main content, extras, keywords and export preferences.
+The **Project** tab holds settings that truly belong to the project: goals, statuses, labels, favorite tags and YAML property mapping.
 
-A Feuillets project can also group:
+### YAML remapping
 
-- manuscript;
-- documentation;
-- settings;
-- templates;
-- goals;
-- backups;
-- composition settings.
-
-You can:
-
-- create a new project;
-- use an existing Markdown folder as-is;
-- initialize an existing folder as a structured project;
-- manage several projects in one vault;
-- import an outline;
-- import a Scrivener project;
-- use the demo project.
-
-### Difference
-
-A Ulysses Project remains part of the Ulysses library.
-
-A Feuillets project remains ordinary Markdown and folders. Even with Feuillets disabled, the files are still accessible.
+If your vault already uses properties such as `State`, `Summary` or `POV`, map them to the corresponding Feuillets logical fields. Mapping does not rename existing properties or launch a destructive migration.
 
 ---
 
 ## 3. Find groups again
 
-Ulysses groups organize sheets and can represent a book, part, chapter, category or archive.
+Groups become real **folders**. The same hierarchy feeds Binder, Cards, Outline, Continuous, Storyline, Timeline, Preview and final composition.
 
-Feuillets uses real **folders**.
-
-For example:
-
-```text
-My novel/
-├── Part I/
-│   ├── Chapter 1/
-│   │   ├── Scene 1.md
-│   │   └── Scene 2.md
-│   └── Chapter 2/
-└── Part II/
-```
-
-Feuillets can use that hierarchy in:
-
-- Binder;
-- Cards;
-- Outline;
-- reading;
-- Timeline;
-- Storyline;
-- Preview;
-- final composition.
-
-### Difference
-
-Ulysses groups are intentionally broad. Feuillets remains flexible but can also understand editorial levels such as part, chapter, scene and sheet.
+Feuillets preserves explicit manuscript order. Natural sorting is only a fallback when no explicit order exists (`Chapter 2` before `Chapter 10`).
 
 ---
 
 ## 4. Find Sheets again
 
-The sheet is Ulysses' basic writing unit.
+The **sheet** is the movable writing unit. It can represent a scene, article, section, fragment, preface or standalone text. You can create, move, rename, duplicate, split, merge or exclude it from composition.
 
-The equivalent in Feuillets is also the **sheet**.
-
-A sheet can represent:
-
-- a scene;
-- an article;
-- a short chapter;
-- a section;
-- a fragment;
-- a preface;
-- a document intended for composition.
-
-You can create, move, rename, duplicate, split, merge or exclude it from composition.
-
-A displayed title can differ from the filename.
+The displayed title can remain different from the filename.
 
 ---
 
 ## 5. Find clean writing again
 
-Ulysses is known for keeping markup light and separating writing from final formatting.
+Feuillets uses Obsidian's native Markdown editor with manuscript-oriented presentation: controlled width, discreet syntax, typographic paragraphs and writing helpers.
 
-Feuillets follows the same general principle:
+**Focus Mode** can further reduce the environment with a dedicated width, typewriter scrolling, dimming and a discreet counter.
 
-- Markdown source;
-- controlled writing width;
-- discreet syntax;
-- configurable typography;
-- manuscript-style paragraphs;
-- rendered headings;
-- typographic helpers;
-- Focus Mode.
-
-In Ulysses, you write in the application's sheet format.
-
-In Feuillets, you write in standard Markdown with Obsidian's native editor.
-
-That text remains usable in Obsidian, another Markdown editor, Git, scripts and future tools.
+The source remains standard Markdown usable without Feuillets.
 
 ---
 
-## 6. Find editor-only mode again
+## 6. Find one-, two- and three-pane work again
 
-Ulysses can switch between three-pane, two-pane and editor-only layouts.
+Feuillets uses Obsidian's pane system rather than forcing one layout.
 
-In Feuillets you can:
+Binder can be used in single view or **split view**:
 
-- hide Obsidian sidebars;
-- use Focus Mode;
-- reduce interface chrome;
-- enable typewriter scrolling;
-- dim paragraphs away from the cursor;
-- keep a discreet word counter.
+- manuscript folder structure on the left;
+- a lightweight read-only Vault browser below it;
+- the normal Binder on the right.
 
-![Focus Mode](feuillets-concentration.png)
-
-| Ulysses | Feuillets |
-|---|---|
-| Editor Only | Focus Mode |
-| Sheet List + Editor | Binder + Writing |
-| Library + Sheet List + Editor | Full Binder + Writing |
-| Full Screen | Obsidian full screen / Focus Mode |
-
-Ulysses remains more immediately uniform here. Feuillets offers more optional control because it lives inside Obsidian.
+You can also hide sidebars or use Focus Mode when only the editor should remain visible.
 
 ---
 
 ## 7. Find keywords again
 
-Ulysses keywords can classify sheets across groups.
-
-Feuillets can use:
-
-- tags;
-- one or several labels;
-- statuses;
-- narrative threads;
-- custom properties.
-
-Example:
-
-```yaml
----
-tags:
-  - character/Kemal
-  - place/Suvasa
-status: revision
-labels:
-  - tension
-threads:
-  - hikmet-secret
----
-```
-
-These values can feed Binder, Cards, Outline, Storyline, Timeline, filters and composition.
-
-### Difference
-
-Ulysses has a particularly simple centralized keyword manager.
-
-Feuillets gains the flexibility of Obsidian tags and properties and can distinguish several meanings: theme, editorial status, narrative thread, character, place or custom category.
+Use tags, labels, statuses, narrative threads, characters, dates and custom properties according to purpose. They can feed filters, Cards, Outline, Storyline, Timeline and Context.
 
 ---
 
 ## 8. Find filters again
 
-Feuillets covers filtering through several mechanisms:
+Ulysses-style filtering needs are covered through Binder search, status/label/progress filters, tags, multi-selection, Outline, Storyline, Timeline and Obsidian search.
 
-- tag filter;
-- status filter;
-- label filter;
-- progress filter;
-- manual selection;
-- manuscript search;
-- Obsidian search;
-- Outline and Storyline views;
-- custom Preview or export scope.
-
-It does not reproduce the Ulysses Filter object exactly. It covers the same practical need through views, metadata and Obsidian.
+Feuillets does not create a proprietary Filter object; the same files and metadata are projected differently depending on the question.
 
 ---
 
 ## 9. Find Material Sheets again
 
-A Ulysses Material Sheet stays in the project but is excluded from normal export and goals.
+Use **Research** or a linked vault folder for material that should not belong to the manuscript.
 
-In Feuillets you can:
+Any existing vault folder can be linked to a manuscript sheet or folder without being moved. When it is outside project Research, it appears read-only in the Research panel; its files can still be opened in a new tab or side by side.
 
-- place documentation in **Research**;
-- exclude a sheet from composition;
-- use a non-compiled folder;
-- choose exactly which files to export;
-- store working notes in Notes.
-
-| Ulysses | Feuillets |
-|---|---|
-| Material Sheet | Research note |
-| Material sheet in a group | Excluded sheet |
-| Project extra | Research or Resources folder |
-| Automatic export exclusion | Composition exclusion |
-
-Feuillets makes a clearer distinction between manuscript text and project documentation.
+For manuscript text that should not be exported, use composition exclusion.
 
 ---
 
 ## 10. Find the Dashboard again
 
-The Ulysses Dashboard gathers keywords, goals, statistics and attachments for the active sheet.
+Dashboard-style information is separated by purpose in the right panel.
 
-Feuillets distributes those functions through the Inspector.
+### Sheet
 
-### Notes
+Synopsis, summary, working notes, properties, footnotes and passage Context.
 
-- synopsis;
-- summary;
-- working notes;
-- sources;
-- Context;
-- folder notes;
-- document outline;
-- properties.
+### Journal
 
-### Statistics and Journal
-
-- word targets;
-- progress;
-- counts;
-- writing calendar;
-- daily notes.
+Activity, goals, writing calendar and session notes.
 
 ### Research
 
-- characters;
-- places;
-- events;
-- concepts;
-- sources;
-- bibliography;
-- glossary.
+Characters, places, events, concepts, sources, bibliography, glossary and linked folders.
 
-The information is split by purpose rather than gathered in one single dashboard.
+### Project
+
+Project-specific settings, statuses/labels, goals and YAML mapping.
 
 ---
 
 ## 11. Find notes and attachments again
 
-Ulysses can attach notes, images and files to a sheet.
-
-Feuillets combines:
-
-- working notes;
-- Research;
-- Markdown links and embeds;
-- vault files;
-- Images under project Resources;
-- Obsidian attachments.
-
-### Difference
-
-Attachments are ordinary vault files rather than objects hidden inside a proprietary library.
+Feuillets combines working notes, Research, Markdown links/embeds, vault files, project Resources, Canvas/Notebook and folder notes. Attachments remain identifiable files instead of objects hidden inside a proprietary library.
 
 ---
 
 ## 12. Find side-by-side consultation again
 
-Obsidian can split the workspace into several panes.
+Research files can open in a new tab or side by side, including files inside linked external Research folders.
 
-A writer can keep:
-
-- the manuscript beside Research;
-- a sheet beside Preview;
-- two scenes side by side;
-- a Research note beside the active sheet.
-
-Feuillets benefits from Obsidian's native pane model instead of creating a separate split-view system.
+Binder split view also lets you browse the Vault read-only and open an outside document without leaving the Feuillets workspace. This never turns the outside file into a manuscript sheet.
 
 ---
 
-## 13. Find documentation linked to the text again
+## 13. Find context linked to the text again
 
-Feuillets' Research and **Notes → Context** go beyond a simple attached note.
+**Sheet → Context** can surface information useful to the current passage: cited titles/aliases, linked Research, documents sharing several significant terms, pinned references and chronological continuity information.
 
-A current passage can surface:
-
-- explicit references;
-- aliases;
-- associated Research;
-- documents sharing significant terms;
-- pinned references;
-- chronological information.
-
-This remains local and deterministic.
+Matching is local and deterministic; it does not depend on an online AI service.
 
 ---
 
-## 14. Find favorites and important references again
+## 14. Find writing goals again
 
-For important material, use combinations of:
-
-- pinned Context references;
-- links;
-- bookmarks supplied by Obsidian;
-- project notes;
-- tags.
-
-A pinned Context item remains attached to the current sheet while you move through its paragraphs.
+Feuillets can track sheet target, project target, progress, recent activity, writing calendar and journal. Project goals can now be project-specific.
 
 ---
 
-## 15. Find writing goals again
+## 15. Find book organization again
 
-Ulysses is strong at writing targets.
+Several views project the **same manuscript**:
 
-Feuillets can provide:
+- **Binder**: hierarchy and navigation;
+- **Cards**: visual thinking;
+- **Outline**: structure and metadata in columns;
+- **Storyline**: narrative threads;
+- **Timeline**: temporal order;
+- **Continuous**: edit multiple sheets as one text;
+- **Preview**: paginated result before export.
 
-- sheet target;
-- project target;
-- progress;
-- statistics;
-- recent activity;
-- writing calendar;
-- writing journal.
-
-### Difference
-
-Ulysses integrates goals very tightly into its interface. Feuillets distributes them across its writing and project tools.
+None creates a second manuscript copy.
 
 ---
 
-## 16. Find statistics again
+## 16. Find continuous writing again
 
-Feuillets can track:
+**Continuous** mode presents several sheets inside one editable editor. Work on a chapter, folder, selection or full manuscript as a long document while each edit is saved back to the corresponding source Markdown file. Boundaries between sheets are protected.
 
-- words;
-- characters;
-- sentences;
-- paragraphs;
-- estimated reading time;
-- progress;
-- recent writing activity.
-
-Statistics are intended to support the work, not turn writing into a measurement exercise.
+This is useful when you want the flow of one long Ulysses sheet while still keeping smaller manuscript units.
 
 ---
 
-## 17. Find outline navigation again
+## 17. Find versions and annotations again
 
-Markdown headings inside a sheet remain usable through Obsidian and Feuillets.
+Feuillets separates snapshots, versions, text comparison, working annotations and ZIP backups.
 
-A document such as:
+**Working annotations** attach notes to passages without adding markers to Markdown and are not exported.
 
-```markdown
-# Chapter
-
-## First section
-
-### A memory
-
-## Back to the present
-```
-
-can keep its internal structure while the Binder handles the larger book structure.
+The comparison view distinguishes additions, deletions, replacements and moved passages, with Changes/Versions modes and optional linked scrolling.
 
 ---
 
-## 18. Find book organization again
+## 18. Find feedback from another person again
 
-For a long manuscript, Feuillets offers several representations.
+Two workflows exist depending on the source:
 
-### Binder
+- **Collaborative review**: local `.feuillets` package exchange, comments and comparison against both the sent baseline and current manuscript;
+- **DOCX Revision**: compatible Word feedback under Proofreading.
 
-The actual hierarchy of files and folders.
-
-### Cards
-
-Visual scene-level reorganization.
-
-### Outline
-
-Tabular inspection of hierarchy and metadata.
-
-### Storyline
-
-Narrative threads.
-
-### Timeline
-
-Chronological order and events.
-
-### Reading
-
-Continuous movement through manuscript text.
-
-### Preview
-
-The composed result before export.
-
-All of them refer to the same manuscript files.
+Personal working annotations remain separate from both.
 
 ---
 
-## 19. Find sheet movement again
+## 19. Find export again
 
-Sheets can be moved by drag and drop in the Binder.
+The central **Edition** workspace separates:
 
-Feuillets preserves custom order and allows moving items back to manuscript root.
+### Composition
 
-Scene tools can also split, merge and duplicate sheets while preserving configured metadata rules.
+What belongs in the document: manuscript content, first page, front matter, generated elements, bibliography, appendices and structure rules.
 
----
+### Layout
 
-## 20. Find versions and backups again
+How the document looks: page, body text, headings, blockquotes/separators, margins, columns, headers and footers.
 
-Feuillets separates several safety tools:
+Edition's top bar always provides scope, format and **Export**. Export is not a third tab.
 
-- snapshots;
-- comparisons;
-- narrative versions;
-- ZIP backups;
-- ordinary vault backups or Git.
-
-The manuscript stays made of files rather than being locked into a single application's history.
+Native formats include compiled Markdown, DOCX, EPUB, ODT and PDF through the desktop system print flow.
 
 ---
 
-## 21. Find Apple synchronization again
+## 20. Find Ulysses styles again
 
-Ulysses has first-class Apple ecosystem synchronization.
+Feuillets can import a Ulysses `.ulstyle` or `.ulss` **style** from the layout-template options in Edition.
 
-Feuillets does not reproduce that service.
+The import creates a Feuillets layout template from representable Ulysses style properties. It does not convert the manuscript into a Ulysses format or rewrite source Markdown.
 
-Instead, the vault can be synchronized with whatever solution the writer chooses, such as Obsidian Sync or another compatible file-sync method.
-
-### Consequence
-
-Ulysses offers a more integrated Apple experience. Feuillets gives the author control over the files and the sync layer.
+The goal is to carry over typographic intent, not reproduce every detail of the Ulysses rendering engine.
 
 ---
 
-## 22. Find external folders again
+## 21. Find output formats again
 
-Because Feuillets works inside an Obsidian vault, project folders are normal filesystem folders.
-
-You can use existing Markdown folders as-is rather than importing every text into a proprietary library.
-
-That is particularly useful when a folder begins as ordinary notes and only later becomes a book or collection.
+Feuillets can generate compiled Markdown, DOCX, EPUB, ODT and desktop PDF. Preview uses the same composition chain so the result can be checked before export.
 
 ---
 
-## 23. Find quick export again
+## 22. What Feuillets does not try to reproduce
 
-You can export:
+Ulysses remains the better fit when your highest priority is a fully uniform Apple application, the exact Ulysses/iCloud workflow, built-in direct publishing to supported web platforms, or a single proprietary library with almost no visible file management.
 
-- one sheet;
-- one folder;
-- a selected set of sheets and folders;
-- the complete project.
-
-This makes Feuillets suitable not only for books but also for articles, essays and collections where output scope changes frequently.
+Feuillets instead prioritizes direct file access and integration with the existing Obsidian vault.
 
 ---
 
-## 24. Find export formats again
+# Equivalent daily workflow
 
-Native formats include:
-
-- compiled Markdown;
-- DOCX;
-- EPUB;
-- ODT;
-- PDF through the desktop system print workflow.
-
-### Difference
-
-Ulysses has a mature export ecosystem and its own style system. Feuillets focuses on an integrated manuscript composition chain whose source remains Markdown.
-
----
-
-## 25. Find export styles again
-
-Feuillets can apply composition rules, titles, separators, fonts, spacing, margins and templates.
-
-DOCX uses named styles where appropriate. EPUB remains adaptable to the reader.
-
-Preview shares composition logic with export, so you can inspect the document before producing the final file.
-
-![Paginated Preview](feuillets-apercu.png)
-
----
-
-## 26. Find web publishing again
-
-Ulysses can publish directly to several web platforms.
-
-Feuillets does not aim to reproduce a built-in blog publishing service.
-
-### Verdict on this point
-
-If direct publishing to a supported blog platform is central to your workflow, Ulysses remains more convenient. Feuillets can still produce Markdown or other outputs for a separate publishing workflow.
-
----
-
-## 27. Find grammar and style checking again
-
-Feuillets core includes local prose **Analysis**, but it deliberately does not embed a grammar engine.
-
-A specialized companion such as **Feuillets-Grammalecte** can feed **Proofreading** through the Feuillets analysis-provider API. Other Obsidian tools can also be used according to language and preference.
-
-### Difference
-
-Ulysses can present language tools as part of one application. Feuillets keeps the writing studio separate from the correction engine.
-
----
-
-## 28. Find comments and annotations again
-
-Depending on the need, use:
-
-- Markdown comments;
-- working notes;
-- footnotes;
-- properties;
-- Obsidian-compatible annotation plugins;
-- DOCX Revision for feedback received from an editor or proofreader.
-
-The model is more open: annotations can come from several tools that share the same vault.
-
----
-
-## 29. Find the novel workflow again
-
-### In Ulysses
+## In Ulysses
 
 ```text
-Create project
-→ create groups
-→ write one sheet per scene/chapter
-→ add keywords
-→ attach material
-→ track target
-→ choose project/sheets
+Choose project/group
+→ write in a sheet
+→ add keywords and target
+→ inspect Dashboard
+→ choose sheets
 → choose export style
 → export
 ```
 
-### In Feuillets
+## In Feuillets
 
 ```text
-Create or open project
-→ build parts and chapters in Binder
-→ write one sheet per scene/section
-→ add synopsis, tags, status and threads
-→ document in Research
-→ use Context while writing
+Choose project/folder
+→ write in a sheet or Continuous
+→ use Sheet and Context
+→ link Research when useful
 → track goals and Journal
-→ reread in Preview
-→ select content
-→ compose and export
+→ inspect Cards/Outline when useful
+→ check Preview
+→ compose and export in Edition
 ```
 
 ---
 
-## 30. Find the article workflow again
+# What you gain
 
-### In Ulysses
-
-```text
-Create sheet
-→ write
-→ add keywords
-→ set length target
-→ correct
-→ export or publish
-```
-
-### In Feuillets
-
-```text
-Create sheet
-→ write
-→ add tags, status and sources when useful
-→ set target
-→ Preview
-→ export the sheet alone
-```
-
-Several articles can later be gathered and composed as a collection.
-
----
-
-## 31. Find the collection workflow again
-
-In Feuillets:
-
-1. each article or short story remains an independent sheet;
-2. sheets can live in different folders;
-3. choose the texts for the collection;
-4. define order;
-5. choose titles and separators;
-6. Preview;
-7. export the collection.
-
-This works for short stories, essays, chronicles or article collections.
-
----
-
-# What you gain by moving to Feuillets
-
-## Truly open files
-
-Your writing remains ordinary Markdown.
-
-## Richer book structure
-
-Parts, chapters, scenes, synopsis, statuses, threads, Timeline, Cards, Outline, Storyline and Preview can all contribute without changing the source format.
-
-## A real project bible
-
-Characters, places, events, concepts and sources become organized Research rather than merely extra sheets in a group.
-
-## Automatic Context
-
-The current passage can surface useful references and continuity alerts without manual searching.
-
-## The Obsidian ecosystem
-
-You keep links, backlinks, graph, Canvas, plugins, properties, templates and commands.
-
-## No Feuillets subscription
-
-Feuillets is local and GPL-3.0.
-
----
-
-# What you lose or change
-
-## Apple's seamless integration
-
-Ulysses remains stronger if the Apple ecosystem is the center of the workflow.
-
-## Extreme simplicity
-
-Feuillets can expose more concepts because it handles larger structured manuscripts and lives inside a modular application.
-
-## One centralized Dashboard
-
-Information is distributed across the Inspector according to purpose.
-
-## Direct blog publishing
-
-Feuillets does not try to be a publishing service.
-
-## Integrated grammar engine
-
-Language correction is delegated to a companion or another plugin.
-
-## Existing Ulysses export styles
-
-They are not directly portable as Ulysses style files.
-
----
-
-# Can Feuillets really replace Ulysses?
-
-## Probably yes if you mainly use Ulysses for:
-
-- distraction-free Markdown writing;
-- groups and sheets;
-- keywords and goals;
-- long-form organization;
-- supporting material;
-- exporting DOCX, EPUB, ODT, PDF or Markdown.
-
-## Feuillets may be better suited if you need:
-
-- explicit book hierarchy;
-- a deep Research bible;
-- narrative threads;
-- Timeline;
-- Context during writing;
+- open Markdown files;
+- projects that adapt to existing folders;
+- property remapping;
+- explicit book structure without a proprietary project format;
+- editable Continuous mode;
+- Research and Context;
+- Notebook/Canvas;
+- working annotations and collaborative review;
 - version comparison;
-- DOCX editorial revision;
-- flexible file/folder/selection compilation;
-- direct access to all source files.
-
-## Ulysses will probably remain preferable if your priority is:
-
-- the most seamless Apple-only experience;
-- direct publishing to supported web platforms;
-- a very uniform closed interface;
-- existing Ulysses-specific style workflows you do not want to rebuild.
-
----
-
-# Recommended transition
-
-## 1. Do not migrate the whole library at once
-
-Choose one active project.
-
-## 2. Export it from Ulysses
-
-Prefer a format that preserves text and structure as cleanly as possible for your project.
-
-## 3. Recreate or reuse the folder structure
-
-Use the existing Markdown folder as-is if it already makes sense, or initialize it as a Feuillets project.
-
-## 4. Convert keywords carefully
-
-Decide which should become tags, labels, statuses or narrative threads.
-
-## 5. Check special elements
-
-Review images, notes, attachments and anything tied to Ulysses-specific markup.
-
-## 6. Recreate goals
-
-Set sheet or project targets where they are still useful.
-
-## 7. Test export
-
-Compose a representative chapter or article and compare the result.
-
-## 8. Work in parallel briefly
-
-Do not delete the Ulysses original until the complete writing and export workflow has been validated.
-
----
-
-# Quick correspondence table
-
-| Need | Ulysses | Feuillets |
-|---|---|---|
-| Main text unit | Sheet | Sheet |
-| Grouping | Group | Folder |
-| Clean editor | Editor / Full Screen | Writing View / Focus Mode |
-| Keywords | Keywords | Tags, labels, status, threads |
-| Material | Material Sheet | Research / excluded sheet |
-| Dashboard | Dashboard | Inspector tabs |
-| Goal | Goal | Target / progress / Journal |
-| Export | Export | Composition + export |
-| Supporting notes | Attachments / notes | Notes + Research |
-| Book structure | Groups | Binder + narrative views |
-| Version safety | Library/version mechanisms | Snapshots, comparison, backups |
-| Web publishing | Integrated services | External workflow |
-
----
+- composition and layout tied to Preview.
 
 # Verdict
 
-Feuillets does not try to reproduce Ulysses' library or Apple integration.
+Ulysses remains a reference for a highly consistent and minimal Apple writing experience. Feuillets chooses a different balance: **the flow of a dedicated writing tool while preserving the freedom of the Obsidian vault**.
 
-It preserves the principle that makes Ulysses attractive — **write in a simple text unit and separate writing from final formatting** — while adding a more explicit manuscript structure, Research, narrative views and editorial workflows.
-
-For a writer whose projects have grown beyond isolated sheets into books, collections or heavily documented works, Feuillets can be a natural next step without giving up Markdown.
+If you value sheets, separation between drafting and final formatting, and a quiet editor, but want open files and deeper tools for long books, Feuillets can cover most of that workflow without locking the project into another library.

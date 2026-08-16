@@ -2,78 +2,71 @@
 
 > [Français](COMPOSITION-ET-EXPORT.md) · **English** · [Documentation index](README.md)
 
-## Writing appearance is not final layout
+## Writing is not layout
 
-Feuillets separates the comfortable editor from the document meant to be read, printed or submitted.
+Feuillets separates the comfortable editor appearance from the composition of the document meant to be read, printed or sent.
 
-![Writing and composition](feuillets-concentration-apercu.png)
+## Central Edition workspace
 
-## Composition scope
+In 2.5, **Edition** is no longer a right-panel tab. It is a central surface working beside the real **Preview**.
 
-A composition can target:
+There are only two modes:
 
-- one file;
-- one folder and all Markdown descendants;
-- a mixed selection of files and folders;
-- the whole project.
+- **Composition**;
+- **Layout**.
 
-If both a folder and one of its descendants are selected, the descendant is included only once. Final order follows Binder order.
+Export is no longer a third tab. Edition always keeps **scope**, **format**, **Export** and **Refresh Preview** in the top bar.
 
-## Technical content stays out
+## Composition
 
-Technical folders are excluded from manuscript traversal. Research, Resources, Edition, Backups and other technical spaces do not become manuscript chapters accidentally.
+The Composition home page summarizes the document:
 
-Sheets explicitly excluded from compilation remain out as well.
+- **Manuscript content** — choose included sheets;
+- **First page** — content and presentation;
+- **Front matter**;
+- generated contents/table of contents and tables;
+- bibliography and appendices;
+- manuscript structure and footnote-related options.
 
-## Preview
+Subpages return to Composition without opening a new Obsidian view.
 
-![Paginated Preview](feuillets-apercu.png)
+## First page
 
-Preview checks titles, separators, Front pages, template, order, scope and pagination before export.
+There is one owner for **First page** in Edition: **Composition → First page**.
 
-The active sheet can refresh quickly; longer scopes prioritize stable reading rather than recompiling aggressively on every keystroke.
+It combines content/inclusion with first-page presentation exceptions and uses the same template model and miniature as the rest of the layout pipeline.
 
-## Front pages
+## Layout
 
-The manuscript `Front` folder contains authored front matter. Title-page roles can represent title, subtitle, author, an additional line or an image.
+Categories are:
 
-Preview and export read the same Front files.
+- **Page** — format, orientation, margins, mirrored margins, columns, gutter, header and footer;
+- **Body text** — font, size, line spacing, alignment, indents, spacing, hyphenation, profile and French typography at export;
+- **Headings** — heading-level styles, spacing and page breaks;
+- **Blockquote** — quotations, indents/margins, color, italic and scene separator.
 
-## Templates
+Controls that do not apply are hidden, such as gutter with one column or header details when the header is disabled.
 
-Built-in and project-specific templates can control font, size, line height, alignment, indent, spacing, headings, scene divider, orientation and other supported layout values.
+## V2 templates
 
-PDF page geometry remains PDF-specific where it represents actual physical page settings.
+Preview and exports share the same template model. You can use built-ins, create/duplicate templates, rename/delete custom templates, import Ulysses styles, or import Word `.docx`/`.dotx` templates for representable properties.
 
-## Output folder
+## Scope
 
-Outputs are written to `_Sortie`.
+Composition can target one sheet, a folder and descendants, a file/folder selection, or the whole project. Descendants are deduplicated when both a parent folder and child are selected.
 
-For a structured project, `_Sortie` sits next to `Manuscrit`. For a folder used as-is, `_Sortie` stays inside that folder and Feuillets does not climb to its parent.
+## Export
 
-## Native formats
+Export is launched from the persistent Edition toolbar or export commands. Scope uses the same `CompileScope` model as the rest of the pipeline: sheet, folder, selection or project.
 
-### DOCX
-Real Word document with named heading styles and editable content.
+## Output name
 
-### EPUB
-Reflowable ebook format; physical page options do not apply.
+The manuscript file name is no longer a normal visible Edition control. Feuillets resolves a name from context/preset while preserving historical `compileFileName` values for compatibility.
 
-### ODT
-OpenDocument output for LibreOffice and compatible applications.
+Output writing also handles case collisions on macOS, so an existing `Manuscrit.md` can be updated even if an old setting requests `manuscrit.md`.
 
-### PDF
-Desktop only. Feuillets builds the paginated print document, then opens the system print dialog; choose the system's PDF-save option.
+## Preview and formats
 
-### Compiled Markdown
-Open text composition for archiving or another publishing pipeline.
+Preview is the visual reference before export and shares composition/template/pagination logic where relevant.
 
-## Footnotes and typography
-
-Footnote IDs are normalized across composed sheets so local identifiers do not collide. Optional French typography transforms can be applied during composition.
-
-## Recommended final check
-
-Inspect title page, chapter starts, scene dividers, images, footnotes, Unicode text, headers/footers and the final file in its target application.
-
-> **Preview should be where you notice layout problems—not the exported file after submission.**
+Native output: compiled Markdown, DOCX, EPUB, ODT and desktop PDF through the system print dialog. Source Markdown is never replaced by the export artifact.

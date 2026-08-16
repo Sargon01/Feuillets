@@ -1,297 +1,101 @@
-# Architecture technique — Feuillets
+# Architecture technique — Feuillets 2.5
 
-> **Document interne de maintenance.**
->
-> Cette page utilise les noms réels du code. Elle n’est pas destinée au parcours de découverte des auteurs.
+> Document de maintenance. Cette page décrit l’architecture fonctionnelle à la fin du chantier 2.5 ; les noms de fichiers sont ceux du code.
 
-## Vue d’ensemble
+## Principe général
 
-Feuillets est aujourd’hui un projet **TypeScript** compilé vers un bundle Obsidian `main.js`.
+Feuillets reste un plugin Obsidian TypeScript. Le manuscrit n’est pas stocké dans un format propriétaire : les fichiers Markdown et les dossiers du coffre restent la source de vérité.
 
-Le point d’entrée est :
+`src/main.ts` orchestre l’instance du plugin, les vues, commandes, migrations de réglages, événements du coffre et façades utilisées par les composants. Les règles métier testables sont déplacées dans `src/services/`, `src/utils/` et les composants DOM de `src/ui/` lorsque possible.
 
-```text
-src/main.ts
-```
+## Surfaces principales
 
-Le build :
+### Classeur — `views/feuillets-view.ts`
 
-1. vérifie TypeScript ;
-2. bundle `src/main.ts` avec esbuild ;
-3. produit un `main.js` CommonJS non minifié.
+Le Classeur gère la navigation du manuscrit : ordre, dossiers, feuillets, sélection multiple, recherche, filtres, drag/drop, isolation et intégration avec Continu.
 
-Le bundle généré n’est pas le fichier source à modifier.
+La 2.5 conserve un mode simple et restaure la double vue historique sans remplacer le rendu principal :
 
-## Arborescence fonctionnelle
+- à gauche, une navigation **Manuscrit** fondée sur les dossiers du projet ;
+- sous celle-ci, un accès **Coffre** limité à la navigation/ouverture des documents ;
+- à droite, le même Classeur 2.5 que dans la vue simple.
 
-```text
-src/
-├── main.ts
-├── api/
-│   └── text-analysis.ts
-├── integrations/
-├── i18n/
-│   ├── fr.ts
-│   ├── en.ts
-│   └── index.ts
-├── services/
-├── settings/
-├── ui/
-├── utils/
-├── views/
-├── default-settings.ts
-├── constants.ts
-└── types.d.ts
-```
+Les réglages historiques `binderLayout`, `binderSelectedPath`, `binderTreeWidth`, `binderTreeCollapsed`, `binderListCollapsed` et `binderSplitRecursive` restent la base de compatibilité du layout. Le volet Coffre ne modifie ni la portée du projet, ni l’isolation, ni la sélection, ni Continu.
 
-## `main.ts` — orchestration du plugin
+### Tableau — `views/board-view.ts`
 
-`src/main.ts` reste le point qui connaît l’instance `Plugin` d’Obsidian.
+Le Tableau projette les mêmes fichiers sous plusieurs modes : **Cartes**, **Plan**, **Chemin de fer** et **Chronologie**. Il accueille également les surfaces centrales telles qu’Édition et Documents éditoriaux ; ces contenus sont montés comme composants DOM, pas comme `ItemView` imbriquées.
 
-Il orchestre notamment :
+Le **Plan** est la représentation structurelle tabulaire du manuscrit. Il ne doit pas être confondu avec `Composition → Structure`, qui configure des règles de numérotation/compilation.
 
-- chargement et migration des réglages ;
-- enregistrement des vues ;
-- commandes ;
-- événements du coffre et du workspace ;
-- raccourcis et intégrations ;
-- façades utilisées par les vues ;
-- sauvegarde automatique ;
-- API publique d’analyse de texte ;
-- rafraîchissement coordonné des surfaces Feuillets.
+### Continu — `views/scrivenings-view.ts` + `services/scrivenings-document.ts`
 
-Une logique métier qui peut recevoir `app`, `settings` et des paramètres explicites doit de préférence vivre dans un service plutôt que grossir `main.ts`.
+Continu assemble une `CompileScope` dans un seul `EditorView` CodeMirror. Les séparations entre fichiers sont protégées ; les modifications sont redistribuées vers les fichiers sources.
 
-## Vues principales
+Il n’existe aucun fichier manuscrit composite persistant. Le modèle continu est un document de travail reconstruit depuis les sources et la portée courante.
 
-### `views/feuillets-view.ts`
+### Aperçu — `views/preview-view.ts`
 
-Le **Classeur**.
+Aperçu rend le document composé/paginé, peut suivre la portée de travail et se synchroniser avec l’éditeur/Continu. La pagination et la géométrie partagée s’appuient notamment sur `services/pagination-engine.ts`, `services/page-geometry.ts` et `services/export-render.ts`.
 
-Responsabilités visibles :
+### Panneau droit — `views/sidebar-feuillets-view.ts`
 
-- navigation du manuscrit ;
-- double volet dossiers/fichiers ;
-- recherche et filtres ;
-- sélection multiple ;
-- menus de dossiers et feuillets ;
-- lancement des portées Aperçu/Compilation ;
-- onboarding et gestion des projets.
-
-### `views/board-view.ts`
-
-Les représentations **Cartes / Plan / Chemin de fer / Chronologie**.
-
-Cette vue ne possède pas un second manuscrit : elle projette les mêmes fichiers selon un autre besoin.
-
-### `views/preview-view.ts`
-
-L’**Aperçu**.
-
-Il gère :
-
-- portées de lecture ;
-- rendu paginé ;
-- barre d’outils ;
-- zoom ;
-- synchronisation avec l’éditeur ;
-- fil d’Ariane ;
-- panneau Export.
-
-### `views/sidebar-feuillets-view.ts`
-
-L’**Inspecteur unifié**.
-
-Les onglets publics courants sont :
+Les cinq onglets publics sont :
 
 ```text
-notes       → libellé public : Feuillet
+notes       → Feuillet
 research    → Recherche
 journal     → Journal
-project     → Édition
+project     → Projet
 relecture   → Relecture
 ```
 
-L’identifiant historique `project` est conservé pour compatibilité de réglages. L’onglet Édition agrège les sous-vues de révision DOCX et de documents éditoriaux.
+Les anciens identifiants persistés sont migrés/redirigés pour compatibilité ; ils ne doivent pas réintroduire l’ancienne organisation publique.
 
-Les anciennes valeurs persistées sont redirigées sans recréer d’onglet public : `docx` → `project`, `metadata` → `notes`, `analyse` → `relecture`. Les anciennes vues individuelles restent enregistrables uniquement là où la compatibilité de workspace l’exige ; elles ne doivent pas redevenir une seconde architecture d’interface.
+- **Feuillet** : synopsis/résumé, notes, propriétés, notes de bas de page, Contexte, annotations ;
+- **Recherche** : catégories documentaires, Sources/Bibliographie et dossiers associés ;
+- **Journal** : journal d’écriture ;
+- **Projet** : administration et réglages propres au projet ;
+- **Relecture** : analyse de texte, relecture collaborative, Révision DOCX et comparaison.
 
-### Sous-vues de l’Inspecteur
+## Édition centralisée
 
-- `notes-view.ts` — Feuillet : synopsis, résumé, notes, propriétés, notes de bas de page, contexte ;
-- `research-view.ts` / `base-feuillets-view.ts` — Recherche ;
-- `journal-view.ts` — Journal ;
-- `docx-review-view.ts` — révisions DOCX ;
-- `edition-docs-view.ts` — documents `_Feuillets/Edition` ;
-- `text-analysis-view.ts` — Relecture : répétitions natives et signalements d’un fournisseur compagnon lorsqu’il existe.
+`ui/edition-workspace-content.ts` monte l’espace central **Édition** avec deux modes visibles :
 
-`analysis-view.ts` reste présent dans le code comme compatibilité/réserve interne, mais ne correspond plus à un onglet public de l’Inspecteur.
+- `composition`
+- `layout`
 
-## Racines de projet
+La valeur historique `export` peut rester acceptée en interne pour compatibilité de commandes, mais elle est normalisée vers Composition. Export n’est plus un troisième onglet : `ExportPanel.renderQuickBar()` fournit la barre persistante de portée/format/export/rafraîchissement.
 
-C’est une zone où les noms historiques peuvent prêter à confusion.
+### Composition — `ui/edition-composition-content.ts`
 
-### Racine du manuscrit
+Composition est une page-sommaire avec sous-pages internes :
 
-`settings.projectFolder` pointe historiquement vers ce que le code appelle souvent `getProjectFolder()`.
+- contenu du manuscrit ;
+- Première page ;
+- pages liminaires/front matter ;
+- éléments générés ;
+- bibliographie/annexes ;
+- structure et règles de compilation.
 
-Pour un projet créé par Feuillets :
+`FirstPagePanel`, `FrontMatterPanel`, `ContentsPanel`, `TablesPanel`, `BibliographyPanel` et `AnnexesPanel` restent les sources de comportement. La présentation de Première page réutilise `LayoutEditor`/`TitlePageMiniature` au lieu d’introduire un second modèle.
 
-```text
-Mon projet/
-└── Manuscrit/   ← settings.projectFolder
-```
+### Mise en page — `ui/layout-editor.ts`
 
-Le Binder et la compilation parcourent cette racine éditoriale.
-
-### Racine réelle du projet
-
-Pour un projet structuré :
+La navigation publique est :
 
 ```text
-Mon projet/
-├── Manuscrit/
-└── _Feuillets/
-    ├── Recherche/
-    ├── Ressources/
-    ├── Edition/
-    ├── Journal/
-    ├── Snapshots/
-    ├── Backups/
-    └── Sortie/
+Page
+Corps de texte / Body text
+Titres / Headings
+Citation / Blockquote
 ```
 
-la racine réelle est `Mon projet`. Certains sous-dossiers auxiliaires sont créés au premier usage plutôt qu’à la création initiale du projet.
+Les gabarits V2 sont partagés entre Aperçu et exports via `services/export-template-v2.ts`, `services/export-template-v2-css.ts` et `services/export-templates-custom.ts`.
 
-`getProjectRoot()` existe pour les opérations qui ont réellement besoin de ce volume.
+## Portées : `services/compile-scope.ts`
 
-### Formes créées par type
-
-La création initiale distingue explicitement les trois types :
-
-- **Fiction** : `Manuscrit/Front` et `Manuscrit/Chapitre 1/Scène 1.md` ;
-- **Non-fiction** : `Manuscrit/Front` et `Manuscrit/Partie 1/Chapitre 1.md` ;
-- **Libre** : uniquement `Manuscrit/Nouveau texte.md`, sans `Front` ni hiérarchie éditoriale imposée.
-
-Le type définit seulement l’état de départ. Il ne doit jamais être réappliqué automatiquement au point d’écraser les choix ultérieurs du projet.
-
-### Dossier existant feuilleté
-
-Lorsqu’un dossier existant est initialisé comme projet, son contenu reste en place et l’utilisateur choisit **Fiction**, **Non-fiction** ou **Libre**. `settings.projectFolder` pointe directement vers ce dossier et `_Feuillets` est créé à l’intérieur :
-
-```text
-Articles/
-├── A.md
-├── B.md
-└── _Feuillets/
-    └── ...
-```
-
-Aucun `Manuscrit`, `Front`, partie, chapitre, scène ou nouveau texte n’est imposé dans ce parcours.
-
-Il ne faut donc **jamais** supposer que `root.parent` est automatiquement la racine du projet.
-
-Cette distinction gouverne en particulier `_Feuillets/Sortie` et `_Feuillets/Backups`.
-
-## Dossiers conventionnels
-
-La création V2 canonique des espaces auxiliaires s’appuie sur `FEUILLETS_AUXILIARY_FOLDER_NAME`, `FEUILLETS_AUXILIARY_FOLDERS`, `feuilletsAuxiliaryRootPath()` et `feuilletsAuxiliaryPath()` dans `services/folder-structure.ts`.
-
-La forme canonique est :
-
-```text
-_Feuillets/
-├── Recherche/
-├── Ressources/
-├── Edition/
-├── Journal/
-├── Snapshots/
-├── Backups/
-└── Sortie/
-```
-
-Les anciens emplacements (`_Recherche`, `_Research`, `Recherche`, `Research`, `_Ressources`, `_Resources`, ainsi que les anciens dossiers Edition, Journal, Snapshots, Backups ou Sortie) restent **reconnus** lorsqu’ils existent. Ils ne sont ni renommés ni déplacés automatiquement. Si canonical et legacy coexistent, le résolveur canonique est prioritaire.
-
-`getFeuilletsFolderNames()` reste utilisé pour des variantes historiques et certains noms de sous-dossiers ; il ne définit plus à lui seul la racine auxiliaire V2.
-
-`_Versions` reste un espace séparé utilisé par la duplication manuelle du manuscrit ; il ne fait pas partie du namespace canonique `_Feuillets`.
-
-Principe :
-
-> création moderne ≠ migration destructive.
-
-## Front matter
-
-`services/frontmatter.ts` est le point central pour :
-
-- lecture du frontmatter ;
-- titres ;
-- titres courts ;
-- labels ;
-- tags ;
-- valeurs héritées/alias ;
-- retrait du frontmatter du corps texte.
-
-Ne pas introduire une regex locale de YAML dans un autre service lorsque ce helper répond déjà au besoin.
-
-`labelOf()` représente le label principal et se fonde sur `labelsOf()`, qui garde l’ensemble des labels.
-
-## Recherche
-
-`services/research.ts` résout notamment :
-
-- racine Recherche ;
-- dossier chronologique/événements ;
-- apparitions ;
-- fichiers de Recherche.
-
-La racine canonique est `_Feuillets/Recherche`. Les résolveurs reconnaissent aussi, pour compatibilité, les variantes historiques :
-
-```text
-_Recherche
-_Research
-Recherche
-Research
-```
-
-avec la restriction historique voulue : les variantes sans underscore ne doivent pas apparaître comme faux dossiers du manuscrit. Une racine legacy existante est conservée ; en l’absence de racine reconnue, toute nouvelle écriture passe par `_Feuillets/Recherche`.
-
-Pour les événements/chronologie, les variantes historiques FR/EN restent reconnues sans création de doublon. Une valeur legacy de `settings.chronoFolder` peut servir à reconnaître un emplacement existant, jamais à fabriquer une nouvelle racine Recherche hors de `_Feuillets`.
-
-`utils/project-modes.ts` définit les catégories proposées par Fiction, Non-fiction et Libre et leurs variantes.
-
-## Contexte
-
-La logique Contexte est distribuée entre services spécialisés :
-
-- `context-index.ts` ;
-- `context-matcher.ts` ;
-- `context-window.ts` ;
-- `context-content-cache.ts` ;
-- `context-content-matcher.ts`.
-
-`notes-view.ts` orchestre leur rendu.
-
-Séparer ces services permet de tester la correspondance et le cache sans devoir rendre l’UI.
-
-## Carnet et Canvas
-
-La famille `services/canvas-*.ts` couvre :
-
-- fichier Canvas du projet ;
-- passerelle d’idées ;
-- arbre d’idées ;
-- création de chapitre ;
-- split/merge ;
-- runtime Canvas.
-
-`integrations/advanced-canvas.ts` ajoute uniquement l’adaptation facultative à Advanced Canvas.
-
-Le Canvas natif reste la base.
-
-## Compilation : `CompileScope`
-
-`services/compile-scope.ts` définit quatre portées :
+Les opérations de lecture/composition/export utilisent une `CompileScope` explicite :
 
 ```ts
 { type: "project", ... }
@@ -300,39 +104,11 @@ Le Canvas natif reste la base.
 { type: "selection", ... }
 ```
 
-Le résolveur :
+Le service résout les descendants admissibles, déduplique et conserve l’ordre canonique. Une vue ne doit pas réimplémenter son propre parcours d’export.
 
-- développe les descendants Markdown d’un dossier ;
-- déduplique les fichiers ;
-- conserve l’ordre du Binder ;
-- exclut les dossiers techniques.
+## Export
 
-Les vues doivent créer une `CompileScope` puis laisser le service résoudre les fichiers, plutôt que réimplémenter leur propre parcours.
-
-## Compilation et export
-
-`services/compile-export.ts` orchestre :
-
-- résolution de la portée ;
-- lecture des feuillets ;
-- retrait du frontmatter ;
-- titres ;
-- pages Front ;
-- transformations textuelles ;
-- notes de bas de page ;
-- appel du moteur de format.
-
-Formats courants :
-
-```text
-md
-epub
-docx
-odt
-pdf
-```
-
-Services de format :
+`services/compile-export.ts` assemble le contenu puis délègue aux moteurs :
 
 - `export-docx.ts`
 - `export-epub.ts`
@@ -340,138 +116,113 @@ Services de format :
 - `export-pdf.ts`
 - `export-render.ts`
 
-Les modèles partagés vivent notamment dans `utils/export-templates.ts` et `services/export-templates-custom.ts`.
+`services/export-workflow.ts` centralise le workflow utilisateur.
 
-### `_Feuillets/Sortie`
+Le nom de sortie est résolu de manière commune et les écritures tiennent compte des collisions de casse de fichiers déjà présents, notamment sur les systèmes macOS insensibles à la casse. Le fichier réellement existant est modifié plutôt qu’un second nom concurrent créé.
 
-Pour un `Manuscrit` structuré, la sortie canonique est `_Feuillets/Sortie` dans la racine réelle du projet.
+PDF reste un flux desktop vers l’impression système ; DOCX/EPUB/ODT sont générés localement.
 
-Pour un dossier existant feuilleté, `_Feuillets/Sortie` reste un enfant du dossier actif.
+## Ordre du manuscrit
 
-L’ancien `_Sortie` est reconnu lorsqu’il existe déjà, mais n’est plus la destination créée par défaut. Cette règle ne doit pas être remplacée par `root.parent || root`.
+L’ordre explicite enregistré reste prioritaire. Le tri naturel n’intervient qu’en repli lorsqu’aucun ordre n’est disponible.
 
-## Sauvegardes
+Les imports de plan et Scrivener persistent explicitement l’ordre de la source. `ui/import-outline-modal.ts` et le flux Scrivener utilisent le mécanisme canonique `writeOrder()`/`getOrderedChildren()` au lieu de dépendre de `folder.children` ou d’un tri alphabétique.
 
-`services/project-backup.ts` centralise la racine de sauvegarde.
+## Frontmatter et mapping YAML
 
-Règle actuelle :
-
-```text
-root.name === "Manuscrit"
-et parent réel hors racine du coffre
-    → sauvegarder le parent
-sinon
-    → sauvegarder root
-```
-
-`_Feuillets/Backups` est la destination canonique et reste exclu du ZIP. Un `_Backups` historique déjà présent est reconnu et réutilisé.
-
-Cette règle protège les dossiers existants feuilletés contre l’inclusion accidentelle de leurs frères ou de la racine du coffre.
-
-## Instantanés et versions
-
-`services/project-files.ts` gère notamment :
-
-- instantanés ;
-- duplication du manuscrit dans `_Versions` ;
-- copie de l’ordre de Binder ;
-- création/initialisation de structure ;
-- `_Feuillets/Edition`.
-
-Une version du manuscrit ne duplique pas automatiquement la Recherche.
-
-## Relecture et analyse linguistique
-
-La surface publique est l’onglet **Relecture**.
-
-`views/text-analysis-view.ts` fournit un premier niveau natif, notamment les répétitions rapprochées. Si aucun fournisseur compagnon n’est installé, Relecture reste donc fonctionnelle et affiche simplement les signalements natifs disponibles.
-
-`views/analysis-view.ts` et ses utilitaires restent dans le code comme compatibilité/réserve interne, mais l’ancien onglet public `analyse` n’existe plus : une valeur persistée `analyse` est redirigée vers `relecture`.
-
-### Fournisseur compagnon
-
-`api/text-analysis.ts` définit `TextAnalysisProvider`. Un compagnon peut ajouter des signalements linguistiques à Relecture sans embarquer son moteur dans le noyau.
-
-Le contrat contient :
-
-- identifiant ;
-- nom ;
-- `analyze()` ;
-- options facultatives d’ignorance/apprentissage ;
-- analyse linguistique facultative.
-
-Les résultats sont validés à l’exécution : un plugin tiers peut être écrit en TypeScript, mais le runtime ne doit jamais faire confiance à ses offsets sans contrôle.
-
-`FEUILLETS_API_VERSION` versionne ce contrat.
-
-## Internationalisation
-
-`i18n/index.ts` choisit la langue.
-
-Les dictionnaires :
+`services/frontmatter.ts` centralise lecture logique et écriture des champs. Le panneau Projet peut définir un mapping par projet pour :
 
 ```text
-src/i18n/fr.ts
-src/i18n/en.ts
+synopsis
+summary
+status
+pov
+label
+goal
+thread
+characters
+date
 ```
 
-Toute chaîne utilisateur nouvelle doit être présente dans les deux.
+La résolution privilégie le mapping explicite, puis les formes canoniques/legacy reconnues. L’écriture passe par `fileManager.processFrontMatter()` et ne migre pas en masse les fichiers lorsqu’un mapping change.
 
-Les identifiants persistés ne doivent pas changer avec la langue.
+`services/project-settings.ts` résout également les réglages propres au projet avec repli sur les valeurs globales historiques.
 
-## Tests
+## Recherche
 
-Les tests vivent dans `test/`.
+`services/research.ts` résout la racine canonique et les variantes legacy. Les nouvelles écritures utilisent `_Feuillets/Recherche` lorsqu’aucune racine reconnue n’existe.
 
-Le flux par défaut :
+`researchFolderLinks` permet d’associer un nœud du Classeur à un dossier existant n’importe où dans le coffre. Le panneau Recherche projette ces dossiers liés sans les déplacer. Les dossiers externes restent navigation-only : leurs fichiers peuvent être ouverts, y compris côte à côte, mais Feuillets n’y expose pas les opérations d’administration du dossier Recherche interne.
+
+La double vue du Classeur comporte aussi un mini-navigateur Coffre ; il est indépendant de `researchFolderLinks` et ne crée aucune association automatiquement.
+
+## Contexte
+
+Les services principaux sont :
+
+- `context-index.ts`
+- `context-matcher.ts`
+- `context-window.ts`
+- `context-content-cache.ts`
+- `context-content-matcher.ts`
+
+Le rendu public vit dans l’onglet **Feuillet**, pas dans un ancien onglet Notes séparé.
+
+## Annotations de travail
+
+`services/annotations.ts` stocke les annotations hors du Markdown et gère leur ancrage/réancrage. Les décorations de l’éditeur restent une représentation UI ; les marqueurs ne sont jamais insérés dans le texte source.
+
+## Comparaison
+
+`services/comparison-model.ts` et `services/comparison-plan.ts` construisent la grammaire de différences utilisée par la vue de comparaison : ajouts, suppressions, remplacements, déplacements, repères de vides, navigation et restauration.
+
+La vue possède des modes **Changements** et **Versions** et un défilement synchronisé optionnel. Une sélection/recentrage synchronise des positions propres à chaque côté ; les deux documents ne partagent pas artificiellement le même offset.
+
+## Relecture collaborative native
+
+La relecture collaborative est séparée des annotations personnelles et de Révision DOCX. Elle s’appuie sur une famille de services dédiée :
+
+- `native-review-package.ts`
+- `native-review-exchange.ts`
+- `native-review-session.ts`
+- `native-review-storage.ts`
+- `native-review-author.ts`
+- `native-review-author-return.ts`
+- `native-review-author-decisions.ts`
+- `native-review-reviewer.ts`
+- `native-review-reviewer-return.ts`
+- `native-review-threads.ts`
+- `native-review-change-groups.ts`
+- `native-review-work.ts`
+- `native-review-local-state.ts`
+
+Le paquet `.feuillets` contient la portée nécessaire au tour de relecture. L’auteur conserve la baseline envoyée afin de comparer le retour du relecteur au texte envoyé et au manuscrit actuel.
+
+## Révision DOCX
+
+`services/docx-review-import.ts`, `docx-blocks.ts` et `docx-review-regenerate.ts` gèrent l’import/rattachement des modifications suivies et commentaires Word. L’entrée publique se trouve sous **Relecture**.
+
+## Projets et dossiers auxiliaires
+
+Pour un projet structuré, `settings.projectFolder` peut pointer vers `Manuscrit` tandis que la racine réelle du projet contient `_Feuillets`. Un dossier existant utilisé tel quel reste lui-même la racine de travail.
+
+Ne jamais supposer que `root.parent` est automatiquement la racine réelle.
+
+Les dossiers auxiliaires canoniques sont sous `_Feuillets` lorsque créés par la génération actuelle : Recherche, Ressources, Edition, Journal, Snapshots, Backups et Sortie. Les emplacements historiques reconnus restent lisibles sans migration destructive.
+
+## Sécurité des accès
+
+Les écritures ordinaires utilisent les API du Vault/`fileManager`. Les workflows d’import qui nécessitent un fichier externe sont déclenchés explicitement par l’utilisateur. Scrivener est desktop-only car son import doit lire le projet choisi hors du Vault.
+
+Aucun moteur de grammaire distant n’est intégré au noyau. L’API de fournisseur linguistique permet à un plugin compagnon distinct d’ajouter des résultats.
+
+## Vérifications de release
 
 ```bash
 npm test
-```
-
-compile le projet de test dans `.test-dist`, prépare le stub Obsidian puis exécute `node:test`.
-
-Les tests privilégient les fonctions/services purs lorsque possible, et utilisent des stubs ciblés pour les contrats Obsidian.
-
-## Build et lint
-
-```bash
 npm run build
 npm run lint
 npm run lint:obsidian
 ```
 
-Le build TypeScript est bloquant avant le bundle de production.
-
-`esbuild.config.mjs` :
-
-- entrée : `src/main.ts` ;
-- format : CommonJS ;
-- cible : ES2018 ;
-- bundle non minifié ;
-- APIs hôtes/Node externes au bundle selon la configuration.
-
-## Règles d’architecture à préserver
-
-1. **Une seule source de vérité pour une règle métier.**
-   - frontmatter → `frontmatter.ts`
-   - portées → `compile-scope.ts`
-   - noms conventionnels → helpers de structure
-   - sauvegarde → `project-backup.ts`
-
-2. **Pas de remontée automatique au parent d’un dossier existant feuilleté.**
-
-3. **Pas de migration destructive de dossiers historiques.**
-
-4. **Une vue ne recrée pas son propre ordre du manuscrit.**
-
-5. **Les modules compagnons restent découplés du noyau.**
-
-6. **Une correction locale ne doit pas devenir un prétexte à réarchitecturer le dépôt.**
-
-## Documentation technique liée
-
-- [Sécurité et ressources externes](SECURITY_AND_EXTERNAL_RESOURCES.md)
-- [Maintenance documentaire](NOTE-DE-MAINTENANCE.md)
-- [Politique de sécurité](../SECURITY.md)
-- [Contribuer](../CONTRIBUTING.md)
+Les tests doivent couvrir le comportement final, pas seulement la présence du DOM : l’incident d’export `File already exists` a notamment montré qu’un fake Vault trop permissif peut masquer une différence réelle du filesystem.

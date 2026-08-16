@@ -2,48 +2,62 @@
 
 > [Français](VERSIONNAGE-ET-SECURITE.md) · **English** · [Documentation index](README.md)
 
-A manuscript does not evolve in a straight line. Feuillets separates several safety mechanisms because they solve different problems.
+Feuillets keeps several mechanisms separate because they solve different problems.
 
-![Compare two states](feuillets-comparaison.png)
+## Backups
 
-## ZIP backups
+ZIP backups protect project files. An as-is folder is backed up within its own scope; a structured project around `Manuscrit` may cover the surrounding project folder. The backup destination is excluded from its own archive.
 
-Automatic or manual backups are local ZIP archives under `_Backups`.
+## Snapshots
 
-For a structured project whose active manuscript folder is actually named `Manuscrit`, the backup covers the surrounding project folder while excluding `_Backups` itself.
+A snapshot marks a precise state of one sheet or the project before risky rewriting. It is a comparison/restoration point.
 
-For a folder used as-is, Feuillets backs up **strictly that folder**. It does not include siblings or climb to the vault root.
+## The 2.5 comparison view
 
-Backup retention rotates older ZIP files according to the configured keep count.
+The comparison view is now a real two-editor surface.
 
-## Sheet snapshots
+### Changes mode
 
-A snapshot preserves the current content of one sheet under `_Snapshots`. Use it before a risky rewrite, cut, merge or experiment.
+It displays additions, deletions, replacements and **moves**, including cut/paste cases that can initially look like a deletion plus insertion.
 
-## Comparison
+Additions/deletions with no visible counterpart use a `[…]` marker. Moves receive stable numbering and direction markers.
 
-Comparison is for understanding additions, removals and replacements between states.
+You can move to previous/next difference, double-click a diff passage to recenter both views, restore a passage from a snapshot, close the action card, and enable/disable **linked scrolling**.
+
+### Versions mode
+
+**Versions** removes diff decorations so both states can be read as ordinary text. Switching mode never changes files.
 
 ## Manuscript versions
 
-**Duplicate as a new version** copies the manuscript under `_Versions`. Research remains shared; the purpose is to branch manuscript work, not clone the entire project bible.
+**Duplicate as new version** copies the manuscript into the versions area and preserves structural order. Research remains shared rather than duplicated.
 
-Custom Binder order is copied with the version.
+## Working annotations
 
-## Reviewed DOCX
+Annotations are not versions. They mark passages to revisit and stay outside Markdown.
 
-Reviewed-DOCX reintegration is a separate workflow. It maps external review changes back to Markdown source and leaves ambiguous cases for explicit author decisions.
+See [Working annotations](WORKING-ANNOTATIONS.md).
 
-See [DOCX review validation](DOCX-REVIEW-VALIDATION.md).
+## Collaborative review
+
+Native reviewer returns reuse the comparison grammar but remain attached to a collaborative review session and its note threads.
+
+See [Collaborative review](COLLABORATIVE-REVIEW.md).
+
+## DOCX Review
+
+Word feedback is a separate workflow: Feuillets analyzes tracked changes/comments and maps them back to Markdown when confidence is sufficient.
+
+See [DOCX Review](HOW-TO-DOCX-REVISION.md).
 
 ## Which tool?
 
 | Need | Tool |
 |---|---|
-| Regular local protection | ZIP backup |
-| Preserve one sheet before editing | Snapshot |
+| Regular safety net | ZIP backup |
+| Mark one precise state | Snapshot |
 | Understand changes | Comparison |
-| Explore an alternate manuscript | New version |
-| Reinstate Word review | DOCX review |
-
-Feuillets backups are a local safety net, not a replacement for a full-vault backup strategy.
+| Explore an alternative direction | New manuscript version |
+| Leave a personal reminder | Working annotation |
+| Exchange natively with a Feuillets reviewer | Collaborative review |
+| Bring Word feedback back | DOCX Review |

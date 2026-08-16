@@ -1,39 +1,41 @@
 # Documentation Feuillets
 
-Cette page est l’index de la documentation du dépôt.
+Cette page indexe la documentation correspondant à **Feuillets 2.5**.
 
 > **Français** · English documentation is linked beside each user-facing French guide.
-
-![Feuillets — écrire et relire](feuillets-ecriture-apercu.png)
 
 ## Pour découvrir
 
 - **[Découvrir Feuillets](DECOUVRIR.md)** · [English](DISCOVER.md)
-  La logique générale : Classeur, feuillets, Inspecteur, Carnet, Aperçu.
 - **[Le parcours d’un auteur](PARCOURS-AUTEUR.md)** · [English](AUTHOR-WORKFLOW.md)
-  Du premier projet à l’export et à la révision.
 - **[Fonctionnalités par usage](FONCTIONNALITES.md)** · [English](FEATURES.md)
-  Référence fonctionnelle sans noms de variables internes.
 - **[Philosophie](PHILOSOPHIE.md)** · [English](PHILOSOPHY.md)
-  Pourquoi Feuillets reste dans Obsidian et garde Markdown comme source de vérité.
 
-## Guides pratiques
+## Écrire et organiser
 
-- **[Créer une interface d’écriture épurée](SETUP-INTERFACE.md)** · [English](WRITING-INTERFACE.md)
-- **[Composition et export](COMPOSITION-ET-EXPORT.md)** · [English](COMPOSITION-AND-EXPORT.md)
-- **[Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md)** · [English](REWRITING-BACKUPS-AND-VERSIONS.md)
-- **[Importer un projet Scrivener](IMPORT-SCRIVENER.md)** · [English](IMPORT-SCRIVENER-EN.md)
+- **[Classeur et navigation](CLASSEUR-ET-NAVIGATION.md)** · [English](BINDER-AND-NAVIGATION.md)
+- **[Mode Continu](MODE-CONTINU.md)** · [English](CONTINUOUS-MODE.md)
+- **[Recherche et dossiers associés](RECHERCHE-ET-DOSSIERS-ASSOCIES.md)** · [English](RESEARCH-AND-LINKED-FOLDERS.md)
+- **[Annotations de travail](ANNOTATIONS-DE-TRAVAIL.md)** · [English](WORKING-ANNOTATIONS.md)
+- **[Projet et propriétés YAML](PROJET-ET-PROPRIETES-YAML.md)** · [English](PROJECT-AND-YAML-PROPERTIES.md)
 - **[Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md)** · [English](HOW-TO-NOTEBOOK.md)
 - **[Utiliser le contexte intelligent local](How-to-Contexte-Feuillets.md)** · [English](HOW-TO-CONTEXT.md)
 
-## Révision et édition
+## Relecture et versions
 
+- **[Relecture collaborative](RELECTURE-COLLABORATIVE.md)** · [English](COLLABORATIVE-REVIEW.md)
+- **[Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md)** · [English](REWRITING-BACKUPS-AND-VERSIONS.md)
 - **[Réviser un manuscrit Word avec Feuillets](HOW-TO-REVISION-DOCX.md)** · [English](HOW-TO-DOCX-REVISION.md)
-  Guide utilisateur du retour Word → Markdown → DOCX révisé.
-- **[Validation du flux de révision DOCX](DOCX-REVIEW-VALIDATION.md)**
-  Document de maintenance et de recette du retour Word → Markdown.
-- Le dossier `_Edition`, lorsqu’il est créé, regroupe les documents éditoriaux : synopsis, note d’intention, biographie, lettre d’accompagnement, soumissions et versions envoyées.
-- Le module compagnon **Courrier** prolonge le suivi des contacts, envois, réponses et relances.
+- **[Validation du flux de révision DOCX](DOCX-REVIEW-VALIDATION.md)** — document de maintenance.
+
+Dans l’interface 2.5, **Relecture** est le point d’entrée pour l’analyse de texte, la relecture collaborative, Révision DOCX et la comparaison avec un instantané.
+
+## Composition et export
+
+- **[Composition et export](COMPOSITION-ET-EXPORT.md)** · [English](COMPOSITION-AND-EXPORT.md)
+- **[Importer un projet Scrivener](IMPORT-SCRIVENER.md)** · [English](IMPORT-SCRIVENER-EN.md)
+
+L’espace central **Édition** contient **Composition** et **Mise en page**. L’export est une action de la barre d’Édition, pas un troisième onglet.
 
 ## Comparer ou migrer depuis un autre outil
 
@@ -41,34 +43,14 @@ Cette page est l’index de la documentation du dépôt.
 - **[Remplacer Ulysses par Feuillets](Remplacer-Ulysses-par-Feuillets.md)** · [English](REPLACE-ULYSSES-WITH-FEUILLETS.md)
 - **[Remplacer Aeon Timeline par Feuillets](Remplacer-Aeon-Timeline-par-Feuillets.md)** · [English](REPLACE-AEON-TIMELINE-WITH-FEUILLETS.md)
 
-Ces documents ne prétendent pas reproduire chaque fonction des logiciels cités. Ils expliquent quelles habitudes peuvent être reprises dans Feuillets, ce qui change, et quelles limites restent normales.
+Ces guides décrivent les équivalences de workflow sans prétendre reproduire les applications d’origine à l’identique. Ils intègrent désormais Continu, le remappage YAML, les dossiers Recherche associés, les annotations, la relecture collaborative et l’espace Édition 2.5.
 
-## Pour les mainteneurs et relecteurs
+## Pour les mainteneurs
 
-- **[Architecture technique](ARCHITECTURE.md)**
-- **[Sécurité et ressources externes](SECURITY_AND_EXTERNAL_RESOURCES.md)**
-- **[Note de maintenance documentaire](NOTE-DE-MAINTENANCE.md)**
-- **[Plan et inventaire des captures](PLAN-CAPTURES.md)**
-- **[Politique de sécurité](../SECURITY.md)**
-- **[Confidentialité](../PRIVACY.md)**
-- **[Contribuer](../CONTRIBUTING.md)**
-- **[Composants tiers](../THIRD_PARTY_NOTICES.md)**
-
-## Captures utilisées dans la documentation
-
-Les captures restent toutes dans `docs/` afin que les liens Markdown soient simples et stables :
-
-| Fichier | Usage principal |
-|---|---|
-| `feuillets-ecriture-apercu.png` | image d’ensemble |
-| `creer-premier-projet.gif` | création d’un projet |
-| `feuillets-classeur.png` | structure et navigation |
-| `feuillets-concentration.png` | mode Concentration |
-| `feuillets-concentration-apercu.png` | écriture et lecture côte à côte |
-| `feuillets-apercu.png` | Aperçu paginé et composition |
-| `feuillets-mosaique-narrative.png` | Cartes, Plan, Chemin de fer, Chronologie |
-| `feuillets-comparaison.png` | comparaison et réécriture |
-| `feuillets-import-scrivener.png` | migration Scrivener |
-| `feuillets-ecosysteme.png` | Feuillets, Grammalecte et Courrier |
-
-Les images ne sont pas dupliquées dans plusieurs sous-dossiers : les guides les référencent depuis cet emplacement unique.
+- [Architecture technique](ARCHITECTURE.md)
+- [Sécurité et ressources externes](SECURITY_AND_EXTERNAL_RESOURCES.md)
+- [Note de maintenance documentaire](NOTE-DE-MAINTENANCE.md)
+- [Plan et inventaire des captures](PLAN-CAPTURES.md)
+- [Politique de sécurité](../SECURITY.md)
+- [Confidentialité](../PRIVACY.md)
+- [Contribuer](../CONTRIBUTING.md)

@@ -2,47 +2,51 @@
 
 > **Français** · [English](REPLACE-SCRIVENER-WITH-FEUILLETS.md) · [Index](README.md)
 
-Vous utilisez Scrivener depuis longtemps. Vous avez vos habitudes : Binder, Corkboard, synopsis, notes de document, métadonnées, instantanés, compilation. Vous vous demandez si Feuillets peut reprendre ce workflow dans Obsidian sans vous obliger à tout réapprendre.
-
-La réponse honnête est : **oui pour l’essentiel du travail d’écriture longue**, avec une différence importante.
+Vous utilisez Scrivener pour son Binder, ses fiches, ses synopsis, ses métadonnées, ses snapshots, son mode Scrivenings et sa compilation. Feuillets reprend l’essentiel de ce workflow dans Obsidian, avec une différence structurante : **le projet reste constitué de dossiers et de fichiers Markdown ordinaires**.
 
 ![Import d’un projet Scrivener](feuillets-import-scrivener.png)
 
-Scrivener est une application fermée conçue autour de son propre format de projet. Feuillets s’appuie sur des dossiers et des fichiers Markdown ordinaires dans Obsidian. Vous gagnez en ouverture, en contrôle sur vos fichiers et en intégration avec l’écosystème Obsidian. En contrepartie, certaines fonctions ne portent pas exactement le même nom et ne se trouvent pas toujours au même endroit.
+Feuillets ne cherche pas à reproduire Scrivener pixel par pixel. Il reprend les gestes qui comptent pour écrire un livre — structurer, déplacer, relire, documenter, réécrire, comparer et exporter — tout en conservant l’ouverture du coffre Obsidian.
 
 ---
 
 ## 1. Retrouver le Binder
 
-Dans Scrivener, le Binder contient le manuscrit, les dossiers, les scènes et la recherche.
-
-Dans Feuillets, le rôle équivalent est assuré par le **Classeur**.
+Dans Feuillets, l’équivalent du Binder est le **Classeur**.
 
 Vous y retrouvez :
 
-- les parties ;
-- les chapitres ;
-- les scènes ou feuillets ;
-- les dossiers ;
-- le déplacement par glisser-déposer ;
-- le renommage ;
-- la duplication ;
-- la fusion ou la division de scènes.
+- parties, chapitres, dossiers et feuillets ;
+- glisser-déposer et réorganisation ;
+- renommage, duplication, scission et fusion ;
+- déplacement vers la racine du manuscrit ;
+- sélection multiple ;
+- recherche et filtres ;
+- ouverture d’un dossier en **Continu** ;
+- isolation temporaire d’un dossier sans modifier le projet.
 
-La différence principale est que la structure de Feuillets correspond à de vrais dossiers et fichiers Markdown dans le coffre Obsidian.
+La hiérarchie correspond à de vrais dossiers et fichiers du coffre.
 
-### Équivalence
+### Double vue
+
+Le Classeur peut aussi afficher une **double vue** :
+
+- à gauche, l’arborescence des dossiers du manuscrit pour lire la structure d’un coup d’œil ;
+- en dessous, un accès léger et en lecture seule au **Coffre** pour ouvrir une documentation extérieure ;
+- à droite, le Classeur normal, avec exactement les mêmes fonctions qu’en vue simple.
+
+Le volet Coffre sert uniquement à trouver et ouvrir un fichier. Il ne transforme jamais un document extérieur en feuillet et ne l’ajoute ni à la compilation ni au Continu.
+
+### Équivalences principales
 
 | Scrivener | Feuillets |
 |---|---|
 | Binder | Classeur |
 | Document | Feuillet |
 | Folder | Dossier |
-| Draft / Manuscript | Manuscrit du projet |
+| Draft / Manuscript | Portée Manuscrit |
 | Research | Recherche |
-| Trash | Corbeille Obsidian ou suppression du fichier |
-
-Le feuillet est l’unité de base. Il peut représenter une scène, un article, un fragment, une section ou tout autre élément que vous souhaitez déplacer et compiler indépendamment.
+| Trash | Corbeille Obsidian |
 
 ---
 
@@ -50,427 +54,325 @@ Le feuillet est l’unité de base. Il peut représenter une scène, un article,
 
 ![Cartes, Plan, Chemin de fer et Chronologie](feuillets-mosaique-narrative.png)
 
-Dans Scrivener, le Corkboard permet de visualiser les scènes sous forme de fiches.
+La vue **Cartes** joue le rôle du Corkboard : elle permet de regarder les unités du manuscrit sans rester dans la prose.
 
-Dans Feuillets, vous utilisez la vue **Cartes**.
-
-Chaque carte peut afficher notamment :
-
-- le titre ;
-- le synopsis ;
-- le statut ;
-- le label ;
-- les tags ;
-- le nombre de mots ;
-- la progression ;
-- l’objectif éventuel.
-
-Vous pouvez filtrer les cartes et déplacer les éléments pour réorganiser le manuscrit.
-
-### Différence
-
-Feuillets ne cherche pas à reproduire exactement l’apparence du tableau en liège de Scrivener. La fonction est la même : prendre du recul sur les unités du manuscrit et les réordonner visuellement.
+Une carte peut notamment montrer le titre, le synopsis, le statut, le label et la progression. Les cartes servent à réorganiser le manuscrit, pas à créer une seconde structure parallèle.
 
 ---
 
 ## 3. Retrouver l’Outliner
 
-Dans Scrivener, l’Outliner affiche le projet sous forme de tableau avec ses métadonnées.
+Utilisez **Plan** pour voir la structure et les métadonnées du manuscrit sous forme de tableau.
 
-Dans Feuillets, utilisez la vue **Plan**.
-
-Elle permet d’afficher des colonnes comme :
+Selon les colonnes activées, vous pouvez afficher par exemple :
 
 - titre ;
-- synopsis ;
+- synopsis ou résumé ;
 - statut ;
 - label ;
 - tags ;
 - nombre de mots ;
-- objectif ;
-- progression ;
+- objectif et progression ;
 - date ;
-- autres propriétés du projet.
+- propriétés utiles au projet.
 
-La vue Plan sert à contrôler le manuscrit comme un tableau éditorial, sans ouvrir chaque scène une par une.
+Le retour à la ligne des champs longs peut être activé lorsque vous avez besoin de lire un synopsis ou un résumé complet.
+
+> **Plan** sert à voir et travailler la structure. **Édition → Composition → Structure** sert, lui, à régler la numérotation, les titres, séparateurs et règles de compilation.
 
 ---
 
-## 4. Retrouver les synopsis et notes de document
+## 4. Retrouver le synopsis, les notes et les propriétés
 
-Dans Scrivener, l’Inspecteur regroupe le synopsis, les notes, les métadonnées, les commentaires et les signets.
+Le panneau droit de Feuillets est organisé par intention.
 
-Dans Feuillets, ces fonctions sont réparties entre plusieurs sections de l’Inspecteur.
+### Feuillet
 
-### Onglet Notes
+L’onglet **Feuillet** accompagne le texte actif :
 
-Vous y trouvez :
+- synopsis ;
+- résumé ;
+- notes de travail ;
+- propriétés ;
+- notes de bas de page ;
+- plan interne ;
+- **Contexte** du passage courant.
 
-- le synopsis ;
-- le résumé ;
-- les notes de travail ;
-- les sources ;
-- les notes du chapitre ou de la partie ;
-- le plan interne du feuillet ;
-- le contexte automatique du passage.
+### Projet
 
-### Propriétés dans l’onglet Notes
+L’onglet **Projet** gère les informations et réglages propres au projet : statuts, labels, tags favoris, objectifs et correspondance des propriétés YAML.
 
-Vous y trouvez :
+### Remappage des propriétés
 
-- les statuts ;
-- les labels ;
-- les dates ;
-- les tags ;
-- les objectifs ;
-- les autres propriétés Markdown ou YAML.
+Feuillets peut s’adapter aux propriétés déjà utilisées dans votre coffre. Par exemple, une propriété existante `State` peut être désignée comme le statut Feuillets sans renommer les fichiers ni migrer le YAML.
 
-### Onglet Recherche
+Les correspondances sont non destructives : elles indiquent à Feuillets **où lire et écrire**, elles ne réécrivent pas le coffre pour lui imposer un schéma.
 
-Vous y trouvez les fiches de référence du projet :
+---
 
+## 5. Retrouver labels, statuts et métadonnées personnalisées
+
+Feuillets utilise des propriétés Markdown lisibles dans les fichiers. Selon le projet, vous pouvez utiliser :
+
+- statut ;
+- un ou plusieurs labels ;
+- tags ;
+- date ;
+- objectif ;
+- point de vue ;
+- fil narratif ;
 - personnages ;
-- lieux ;
-- événements ;
-- concepts ;
-- lore ;
-- glossaire ;
-- bibliographie ;
-- sources.
+- autres propriétés personnalisées.
 
-Feuillets sépare donc davantage les intentions dans l’Inspecteur :
+Ces informations peuvent alimenter Cartes, Plan, Chemin de fer, Chronologie, filtres et Contexte.
 
-- **Notes** pour accompagner l’écriture, afficher les propriétés et le Contexte ;
-- **Recherche** pour documenter l’univers ou le sujet ;
-- **Édition** pour les documents éditoriaux et la Révision DOCX.
-
----
-
-## 5. Retrouver les labels, statuts et métadonnées
-
-Scrivener utilise des labels, des statuts et des métadonnées personnalisées.
-
-Feuillets propose les mêmes principes avec des propriétés enregistrées dans les fichiers Markdown.
-
-Vous pouvez utiliser :
-
-- un statut ;
-- un label ;
-- des tags ;
-- une date ;
-- un objectif de mots ;
-- un pourcentage de progression ;
-- des propriétés personnalisées.
-
-Ces informations peuvent ensuite apparaître dans :
-
-- les Cartes ;
-- le Plan ;
-- le Chemin de fer ;
-- la Chronologie ;
-- les filtres ;
-- la section Propriétés de l’onglet Notes.
-
-La différence est que ces données restent lisibles dans les fichiers eux-mêmes et ne dépendent pas d’une base de données propriétaire.
+Le remappage YAML permet de conserver vos noms de propriétés existants lorsque vous migrez un coffre déjà organisé.
 
 ---
 
 ## 6. Retrouver les Collections
 
-Les Collections de Scrivener permettent de créer des regroupements temporaires sans modifier le Binder.
+Feuillets ne reproduit pas l’objet « Collection » de Scrivener à l’identique. Le besoin est couvert par plusieurs mécanismes complémentaires :
 
-Feuillets utilise une logique différente :
-
-- filtres par statut ;
-- filtres par label ;
-- filtres par tags ;
-- sélections multiples ;
-- portée de lecture ou de compilation ;
-- dossiers et recueils ;
+- filtres ;
+- sélection multiple ;
+- dossier isolé ;
+- portée de Continu ;
+- portée d’Aperçu ;
+- portée de composition/export ;
 - vues narratives.
 
-Vous pouvez ainsi isoler, par exemple :
-
-- toutes les scènes à réviser ;
-- tous les passages d’un personnage ;
-- les scènes d’un fil narratif ;
-- les textes destinés à un recueil ;
-- une sélection manuelle de feuillets.
-
-Ce n’est pas une copie exacte des Collections, mais le besoin de regroupement transversal est couvert.
+Vous pouvez ainsi travailler temporairement sur un chapitre, une sélection de scènes, un recueil ou un ensemble de feuillets sans déplacer les sources.
 
 ---
 
-## 7. Retrouver le mode Scrivenings
+## 7. Retrouver Scrivenings : le mode Continu
 
-Dans Scrivener, le mode Scrivenings permet de lire plusieurs documents comme un texte continu.
+C’est l’une des différences importantes de Feuillets 2.5.
 
-Dans Feuillets, utilisez la vue **Lecture** ou l’**Aperçu**.
+Le mode **Continu** ouvre plusieurs feuillets **dans un seul éditeur continu et réellement éditable**.
 
-Vous pouvez lire :
+Vous pouvez ouvrir :
 
-- un feuillet ;
+- un dossier ;
 - un chapitre ;
 - une partie ;
-- un dossier ;
-- le manuscrit complet ;
-- une sélection de feuillets.
+- une sélection ;
+- le manuscrit.
 
-L’Aperçu utilise la même logique de composition que l’export. Une correction faite dans un feuillet se retrouve dans le document composé.
+Visuellement, vous travaillez dans un long document. Techniquement, chaque feuillet reste son propre fichier Markdown. Les séparations sont protégées et les modifications sont redistribuées automatiquement dans les fichiers sources.
 
-### Différence importante
+Il n’existe aucun fichier composite caché à maintenir et Feuillets n’ouvre pas des dizaines d’onglets pour simuler le résultat.
 
-La vue Lecture sert surtout à parcourir le manuscrit en continu.
+### Continu, Aperçu et Édition
 
-L’Aperçu sert à juger le texte comme un document mis en page et proche du résultat exporté.
-
----
-
-## 8. Retrouver la recherche documentaire
-
-Dans Scrivener, les documents de recherche sont placés dans le Binder et peuvent être ouverts à côté du texte.
-
-Dans Feuillets, l’onglet **Recherche** constitue la bible du projet.
-
-Vous pouvez :
-
-- créer des fiches de personnages, lieux ou événements ;
-- classer les documents par catégories ;
-- utiliser des tags ;
-- rechercher dans les fiches ;
-- ouvrir une fiche à côté du manuscrit ;
-- insérer un lien ou un extrait dans le texte ;
-- associer une recherche à un feuillet ou à un chapitre.
-
-Feuillets ajoute une fonction qui n’est pas centrale dans Scrivener : le **contexte automatique du passage**.
-
-Pendant que vous écrivez, l’onglet Notes peut faire remonter :
-
-- les fiches citées dans le paragraphe courant ;
-- les documents dont le contenu correspond au passage ;
-- l’âge ou l’état d’un personnage à la date de la scène ;
-- des événements historiques pertinents ;
-- des alertes d’anachronisme ;
-- un personnage déjà mort ou pas encore né.
-
-Vous n’avez donc pas toujours besoin de savoir à l’avance quelle fiche ouvrir.
+- **Continu** : écrire et réviser plusieurs feuillets comme un seul texte.
+- **Aperçu** : lire le résultat paginé et composé.
+- **Édition** : régler la composition et la mise en page du document final.
 
 ---
 
-## 9. Retrouver les Project Bookmarks et Document Bookmarks
+## 8. Retrouver Research
 
-Dans Scrivener, les Bookmarks permettent d’attacher des ressources à un document ou au projet.
+La **Recherche** de Feuillets est séparée du manuscrit, mais reste constituée de fichiers ordinaires.
 
-Dans Feuillets, l’équivalent fonctionnel repose sur :
+Elle peut contenir personnages, lieux, événements, concepts, sources, bibliographie, glossaire et dossiers personnalisés.
 
-- les recherches associées au feuillet ;
-- les recherches associées au chapitre ;
-- les liens Markdown ;
-- les notes de dossier ;
-- les références épinglées dans la section Contexte de l’onglet Notes.
+Vous pouvez aussi **associer un dossier existant n’importe où dans le coffre** à un feuillet ou à un dossier du manuscrit. Le dossier n’est ni déplacé ni renommé. Lorsqu’il est extérieur à la Recherche du projet, il apparaît comme dossier lié en lecture seule dans le panneau Recherche.
 
-Une fiche épinglée reste visible pour le feuillet concerné, même lorsque vous changez de paragraphe.
+Ses fichiers peuvent être consultés et ouverts dans un nouvel onglet ou côte à côte, sans que Feuillets n’administre le dossier extérieur.
 
 ---
 
-## 10. Retrouver les Snapshots
+## 9. Retrouver Project Bookmarks et Document Bookmarks
+
+Le workflow équivalent repose sur :
+
+- dossiers Recherche associés à un feuillet ou à un chapitre ;
+- liens Markdown ;
+- notes de dossier ;
+- références épinglées dans **Feuillet → Contexte** ;
+- navigation libre dans le coffre en double vue du Classeur.
+
+Une référence épinglée reste attachée au feuillet actif même lorsque vous changez de paragraphe.
+
+---
+
+## 10. Retrouver les Snapshots et les sauvegardes
+
+Feuillets distingue plusieurs niveaux de sécurité :
+
+- instantané d’un feuillet ;
+- versions du manuscrit ;
+- comparaison ;
+- sauvegardes ZIP du projet ;
+- sauvegarde/synchronisation normale du coffre par l’outil de votre choix.
+
+Le but reste le même : pouvoir réécrire sans craindre de perdre l’état précédent.
 
 ![Comparaison de versions](feuillets-comparaison.png)
-
-Dans Scrivener, les Snapshots permettent de conserver une version antérieure d’un document avant une réécriture.
-
-Feuillets propose également des **instantanés**.
-
-Vous pouvez conserver :
-
-- un instantané du feuillet actif ;
-- une copie datée ;
-- une sauvegarde du projet ;
-- plusieurs versions d’un même texte ;
-- une comparaison entre versions.
-
-Le principe reste le même : réécrire sans perdre ce qui existait auparavant.
-
-La différence est que les sauvegardes et versions reposent sur des fichiers accessibles dans le coffre.
 
 ---
 
 ## 11. Retrouver la comparaison de versions
 
-Scrivener permet de comparer un document courant avec un Snapshot.
+Le comparateur de Feuillets distingue :
 
-Feuillets possède une vue de comparaison qui présente les différences entre deux versions.
+- ajouts ;
+- suppressions ;
+- remplacements ;
+- **déplacements** de passages lorsque du texte a été coupé puis recollé ailleurs.
 
-Vous pouvez ainsi repérer :
+La vue **Changements** utilise une grammaire visuelle commune, avec repères, flèches de déplacement et placeholders `[…]` lorsqu’un passage n’existe que d’un côté. Vous pouvez naviguer avec Précédent/Suivant, recentrer sur une différence et restaurer un passage lorsque l’action est disponible.
 
-- les ajouts ;
-- les suppressions ;
-- les réécritures ;
-- les déplacements de formulation.
-
-Cette fonction complète les instantanés et les sauvegardes automatiques.
+La vue **Versions** retire les décorations de diff pour relire les deux textes plus simplement. Le défilement synchronisé est optionnel.
 
 ---
 
-## 12. Retrouver les commentaires et annotations
+## 12. Retrouver commentaires et annotations
 
-Scrivener propose des commentaires, annotations en ligne et notes.
+Feuillets 2.5 possède désormais ses propres **annotations de travail**.
 
-Dans Feuillets, plusieurs approches sont possibles :
+Vous sélectionnez un passage, ajoutez une remarque et le passage reste visuellement repérable dans l’éditeur. L’annotation peut être relue, modifiée puis supprimée lorsqu’elle est traitée.
 
-- commentaires Markdown ou HTML ;
-- notes de travail dans l’onglet Notes ;
-- notes de bas de page ;
-- propriétés ;
-- surlignage et annotations fournis par Obsidian ou d’autres extensions ;
-- retours DOCX reçus d’un correcteur ou d’un éditeur.
+Ces annotations :
 
-Feuillets ne reproduit pas nécessairement chaque type d’annotation de Scrivener à l’identique. Il s’appuie davantage sur les formats Markdown et les possibilités d’Obsidian.
+- ne polluent pas le Markdown ;
+- ne sont pas destinées à l’export ;
+- restent des outils temporaires de travail.
 
----
-
-## 13. Retrouver la chronologie
-
-Scrivener permet surtout d’utiliser des dates et des métadonnées. Pour une chronologie avancée, beaucoup d’utilisateurs lui associent Aeon Timeline.
-
-Feuillets inclut directement une vue **Chronologie**.
-
-Elle permet de voir :
-
-- les scènes datées ;
-- les événements historiques ;
-- les jalons ;
-- l’ordre chronologique ;
-- l’ordre narratif ;
-- les retours en arrière ;
-- les filtres par tags ou catégories.
-
-Feuillets utilise aussi la date du feuillet dans la section Contexte de l’onglet Notes pour vérifier la cohérence des personnages, objets et événements.
+Pour un échange avec une autre personne, Feuillets dispose aussi de la **relecture collaborative**, distincte des annotations personnelles et de la Révision DOCX.
 
 ---
 
-## 14. Retrouver le suivi des fils narratifs
+## 13. Retrouver une relecture collaborative
 
-Dans Scrivener, les fils narratifs sont généralement gérés avec des labels, des mots-clés, des collections ou des métadonnées.
+Feuillets peut préparer un échange de relecture sous forme de paquet `.feuillets`.
 
-Feuillets possède une vue **Chemin de fer** dédiée.
+Le principe est volontairement local :
 
-Elle permet de suivre :
+1. l’auteur prépare une portée de manuscrit ;
+2. il transmet le paquet au relecteur par le moyen de son choix ;
+3. le relecteur travaille sur sa copie et ajoute ses commentaires ;
+4. il renvoie le paquet ;
+5. l’auteur compare le retour avec l’état envoyé **et** son manuscrit actuel, puis applique, ignore ou traite les changements.
 
-- les fils narratifs ;
-- les personnages point de vue ;
-- les statuts ;
-- les labels ;
-- les scènes où un fil apparaît ;
-- les fils ouverts ou résolus.
-
-Cette vue facilite la vérification de l’équilibre du manuscrit.
+Cela permet de continuer à écrire pendant qu’un tiers relit une version envoyée, sans serveur Feuillets et sans écraser automatiquement le manuscrit courant.
 
 ---
 
-## 15. Retrouver le mode Composition
+## 14. Retrouver la Révision DOCX
 
-Dans Scrivener, le mode Composition masque l’interface pour laisser place au texte.
+Les retours d’un éditeur ou d’un correcteur en Word restent pris en charge sous **Relecture → Révision DOCX**.
 
-Dans Feuillets, utilisez le mode **Concentration**.
+Feuillets importe les modifications et commentaires compatibles, les présente dans son workflow de relecture et garde les décisions séparées du texte jusqu’à leur application.
 
-Il peut proposer :
-
-- une largeur de texte contrôlée ;
-- un défilement machine à écrire ;
-- l’atténuation du texte hors de la zone active ;
-- un compteur de mots discret ;
-- une interface réduite ;
-- une typographie personnalisée.
-
-L’objectif est identique : rester dans le texte sans supprimer les fonctions du projet.
+La relecture collaborative native et la Révision DOCX répondent à deux workflows différents ; elles ne sont pas fusionnées artificiellement.
 
 ---
 
-## 16. Retrouver les objectifs d’écriture
+## 15. Retrouver la chronologie
 
-Scrivener propose des objectifs de projet et de session.
+La vue **Chronologie** confronte les dates du récit à l’ordre narratif du manuscrit. Elle peut utiliser les scènes datées et les événements de Recherche.
 
-Feuillets propose :
+Le **Contexte** du feuillet peut aussi signaler, selon les données du projet :
 
-- un objectif de mots par feuillet ;
-- le suivi de la progression ;
-- les statistiques du projet ;
-- les mots écrits ;
-- un calendrier d’écriture ;
-- un journal quotidien.
+- âge ou état d’un personnage ;
+- personnage déjà mort ou pas encore né ;
+- événement historique proche ;
+- objet ou technique anachronique.
 
-Le journal permet de conserver plus que des chiffres :
-
-- objectif de la séance ;
-- difficulté rencontrée ;
-- décision narrative ;
-- bilan ;
-- note de révision ;
-- état du projet.
+Ces alertes dépendent de vos propres informations : Feuillets ne prétend pas reconstruire l’histoire à votre place.
 
 ---
 
-## 17. Retrouver Compile
+## 16. Retrouver le suivi des fils narratifs
 
-La compilation est l’un des points centraux de Scrivener.
+Le **Chemin de fer** projette les mêmes feuillets selon les fils narratifs, labels, points de vue et autres dimensions utiles. Il sert à observer la distribution d’un fil à travers le manuscrit, pas à imposer une méthode de scénario.
 
-Feuillets propose également un moteur de composition et d’export.
+---
 
-Vous pouvez choisir :
+## 17. Retrouver le mode Composition
 
-- le contenu à inclure ;
-- l’ordre des feuillets ;
-- les titres ;
-- les séparateurs ;
-- la première page ;
-- les styles ;
-- la mise en page ;
-- le format de sortie.
+Le mode **Concentration** correspond au besoin de masquer l’environnement autour du texte : largeur contrôlée, défilement machine à écrire, atténuation du texte non actif et compteur discret.
 
-Les formats peuvent inclure :
+Il ne faut pas le confondre avec l’espace central **Édition**, consacré au document final.
+
+---
+
+## 18. Retrouver les objectifs d’écriture
+
+Feuillets peut suivre :
+
+- objectif par feuillet ;
+- objectif de projet ;
+- progression ;
+- activité récente ;
+- calendrier d’écriture ;
+- journal de travail.
+
+Les réglages importants peuvent être propres à chaque projet plutôt que partagés globalement entre tous les manuscrits.
+
+---
+
+## 19. Retrouver Compile
+
+L’espace central **Édition** comporte deux modes :
+
+### Composition
+
+Vous choisissez et contrôlez le contenu du document :
+
+- contenu du manuscrit ;
+- première page ;
+- pages liminaires ;
+- sommaire/table des matières ;
+- tables ;
+- bibliographie ;
+- annexes ;
+- règles de structure et de compilation.
+
+### Mise en page
+
+Vous réglez la présentation :
+
+- page ;
+- corps de texte ;
+- titres ;
+- citation/séparateur ;
+- marges, orientation, colonnes, en-têtes et pieds ;
+- gabarit actif.
+
+L’export n’est pas un troisième onglet : les contrôles de portée, format et **Exporter** restent dans la barre supérieure d’Édition.
+
+Les formats natifs comprennent :
 
 - Markdown compilé ;
 - DOCX ;
 - EPUB ;
-- PDF ;
-- ODT, selon la version et la configuration du projet.
+- ODT ;
+- PDF via le flux d’impression système sur desktop.
 
-L’Aperçu et les exports utilisent la même logique de composition. Vous pouvez donc vérifier le document avant de l’exporter.
-
-### Différence
-
-Scrivener possède un système Compile extrêmement mature et très paramétrable.
-
-Feuillets vise un parcours plus direct, avec des modèles intégrés et des réglages plus proches du document final. Pour des chaînes éditoriales très complexes, il faut vérifier que les options nécessaires sont bien couvertes avant de migrer définitivement.
+L’Aperçu et l’export partagent la même logique de composition.
 
 ---
 
 # Migrer un projet Scrivener
 
-Feuillets peut importer un projet Scrivener afin de récupérer notamment :
+L’import Scrivener sur desktop récupère les éléments pris en charge du projet : structure Binder, dossiers, textes, titres, métadonnées compatibles et ressources prises en charge.
 
-- la structure du Binder ;
-- les dossiers ;
-- les documents textuels ;
-- l’ordre du manuscrit ;
-- les titres ;
-- certaines métadonnées ;
-- des images ou ressources prises en charge.
+Feuillets **préserve explicitement l’ordre du Binder source** lors de l’import. L’ordre naturel des noms n’intervient qu’en repli lorsqu’aucun ordre explicite n’existe.
 
-Après l’import, vérifiez toujours :
+Après import, contrôlez toujours :
 
-- l’ordre des parties, chapitres et scènes ;
-- les titres ;
-- les synopsis ;
-- les notes ;
-- les images ;
-- les caractères spéciaux ;
-- les métadonnées ;
-- les documents non textuels ;
-- les éléments exclus de la compilation.
+- ordre des parties, chapitres et scènes ;
+- titres et synopsis ;
+- notes et métadonnées ;
+- images et ressources ;
+- documents non textuels ;
+- éléments exclus de la compilation.
 
-Ne supprimez pas immédiatement le projet Scrivener d’origine. Conservez-le comme archive jusqu’à ce que plusieurs exports de contrôle aient été validés.
+Gardez le projet Scrivener original comme archive jusqu’à validation de plusieurs exports de contrôle.
 
 ---
 
@@ -480,128 +382,54 @@ Ne supprimez pas immédiatement le projet Scrivener d’origine. Conservez-le co
 
 ```text
 Ouvrir le projet
-→ sélectionner une scène dans le Binder
+→ choisir une scène dans le Binder
 → écrire
-→ consulter l’Inspecteur
-→ ouvrir une recherche
-→ mettre à jour le synopsis et le statut
+→ consulter synopsis et notes
+→ ouvrir Research
 → créer un Snapshot
-→ compiler
+→ Scrivenings / Compile
 ```
 
 ## Dans Feuillets
 
 ```text
 Ouvrir le projet
-→ sélectionner un feuillet dans le Classeur
-→ écrire
-→ consulter Notes et Contexte
-→ ouvrir ou épingler une fiche Recherche
-→ mettre à jour le synopsis et les propriétés
-→ créer un instantané
-→ vérifier dans l’Aperçu
-→ composer et exporter
+→ choisir un feuillet dans le Classeur
+→ écrire seul ou en Continu
+→ consulter Feuillet et Contexte
+→ ouvrir ou associer une Recherche
+→ créer un instantané quand nécessaire
+→ comparer / relire
+→ contrôler l’Aperçu
+→ composer et exporter dans Édition
 ```
 
 ---
 
-# Ce qui change réellement
-
-## Vous gagnez
+# Ce que vous gagnez
 
 - des fichiers Markdown ordinaires ;
 - un projet lisible sans Feuillets ;
-- l’intégration avec Obsidian ;
-- les liens entre notes ;
-- les backlinks ;
-- Canvas ;
-- une recherche documentaire contextualisée ;
-- des alertes chronologiques ;
-- la possibilité d’utiliser d’autres extensions Obsidian ;
-- l’absence de format propriétaire pour le manuscrit ;
-- un fonctionnement local sans abonnement Feuillets.
+- le mode Continu éditable ;
+- l’écosystème Obsidian ;
+- Recherche liée sans déplacer les dossiers existants ;
+- remappage des propriétés YAML ;
+- annotations de travail sans marquer le Markdown ;
+- relecture collaborative locale ;
+- comparaison de versions enrichie ;
+- Chronologie et Chemin de fer intégrés ;
+- composition/export sans format de projet propriétaire.
 
-## Vous perdez ou changez
+# Ce qui reste différent de Scrivener
 
-- l’interface entièrement contrôlée et homogène de Scrivener ;
-- certaines fonctions très spécialisées de Compile ;
-- certains types d’annotations propres à Scrivener ;
-- les Collections sous leur forme exacte ;
-- une application autonome déjà organisée autour d’un seul workflow ;
-- une partie de la simplicité liée à un environnement fermé.
+Scrivener conserve des avantages propres à une application entièrement dédiée : interface homogène sur toutes ses plateformes, système Compile extrêmement mature, objets et métadonnées propriétaires spécialisés, Collections et certaines automatisations très élaborées.
 
-Obsidian reste un environnement modulaire. Cela donne davantage de liberté, mais aussi davantage de réglages possibles.
-
----
-
-# Feuillets peut-il réellement remplacer Scrivener ?
-
-## Oui, probablement, lorsque vous utilisez surtout Scrivener pour :
-
-- structurer un roman ou un ouvrage ;
-- écrire scène par scène ;
-- utiliser le Binder ;
-- préparer des synopsis ;
-- suivre les statuts et les objectifs ;
-- consulter des recherches ;
-- visualiser les scènes en cartes ou en tableau ;
-- conserver des versions ;
-- lire le manuscrit en continu ;
-- exporter en DOCX, EPUB ou PDF.
-
-## À vérifier avant de migrer lorsque vous dépendez fortement de :
-
-- réglages Compile extrêmement personnalisés ;
-- annotations propriétaires de Scrivener ;
-- modèles complexes déjà construits ;
-- formats de scénarios spécialisés ;
-- synchronisation avec un workflow mobile Scrivener précis ;
-- collections et recherches enregistrées très élaborées ;
-- automatisations propres à votre projet Scrivener.
-
----
-
-# Méthode de transition recommandée
-
-Ne migrez pas votre projet principal en une seule fois.
-
-1. Importez une copie du projet Scrivener.
-2. Vérifiez le Classeur dans Feuillets.
-3. Ouvrez plusieurs scènes et contrôlez leur contenu.
-4. Vérifiez les synopsis, notes et métadonnées.
-5. Reconstituez vos statuts, labels et tags.
-6. Testez les Cartes et le Plan.
-7. Testez l’onglet Recherche et la section Contexte de l’onglet Notes.
-8. Créez un instantané.
-9. Compilez un chapitre.
-10. Exportez un DOCX et comparez-le à celui de Scrivener.
-11. Travaillez quelques jours en parallèle.
-12. Ne basculez définitivement qu’après validation du workflow complet.
+Feuillets privilégie un autre compromis : **un atelier d’écriture complet qui reste compatible avec le coffre, les fichiers et les outils Obsidian déjà utilisés par l’auteur**.
 
 ---
 
 # Verdict
 
-Feuillets ne cherche pas à devenir une copie exacte de Scrivener dans Obsidian.
+Feuillets ne remplace pas Scrivener en copiant son format de projet. Il reprend son idée la plus utile — un livre composé d’unités mobiles que l’on peut écrire, regrouper, relire et compiler — et la reconstruit autour de Markdown et d’Obsidian.
 
-Il reprend ses grands principes :
-
-- un manuscrit structuré ;
-- des unités mobiles ;
-- des synopsis et métadonnées ;
-- une recherche proche du texte ;
-- des vues de planification ;
-- des versions ;
-- une composition finale.
-
-Il les adapte à un environnement ouvert fondé sur Markdown.
-
-La question n’est donc pas seulement :
-
-> « Feuillets possède-t-il les mêmes boutons que Scrivener ? »
-
-La bonne question est :
-
-> « Puis-je retrouver mon cycle de travail complet sans enfermer mon manuscrit dans un format propriétaire ? »
-
-Pour la majorité des auteurs utilisant Scrivener comme atelier de roman, de non-fiction ou de recueil, la réponse peut désormais être **oui**, sous réserve de tester soigneusement l’import et les exigences particulières de compilation.
+Pour un auteur dont le besoin central est d’écrire, structurer, documenter, réviser et exporter un manuscrit sans enfermement dans un format propriétaire, Feuillets couvre désormais l’essentiel du parcours, y compris un véritable mode Continu proche de Scrivenings.
