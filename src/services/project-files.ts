@@ -16,6 +16,7 @@ import {
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
 import { getProjectMode } from "./project-mode.js";
+import { projectWordGoalDefault } from "./project-settings.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyModeDefaults, resolveType, PROJECT_MODES, projectBoardDefaults, researchFolderNames } from "../utils/project-modes.js";
 
@@ -836,7 +837,7 @@ export function newSheet(app: App, settings: FeuilletsSettings, folder: TFolder)
       ...(isFiction ? ["synopsis: "] : ["summary: "]),
       "status: ",
       "label: ",
-      `goal: ${settings.wordGoal}`,
+      `goal: ${projectWordGoalDefault(app, settings)}`,
       "tags: ",
       "date: ",
       "notes: ",

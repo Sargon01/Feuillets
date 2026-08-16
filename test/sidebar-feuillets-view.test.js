@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Menu, Notice, TFile, TFolder } from "obsidian";
 import { SidebarFeuilletsView } from "../src/views/sidebar-feuillets-view.js";
+import { ManageProjectsModal, NewProjectModal, OpenExistingFolderModal } from "../src/ui/project-modals.js";
+import { ScrivenerImportModal } from "../src/ui/scrivener-import-modal.js";
 import { t } from "../src/i18n/index.js";
 
 class FakeElement {
@@ -33,6 +36,8 @@ class FakeElement {
   }
 
   setAttr(name, value) { this.attrs.set(name, value); }
+  getAttribute(name) { return this.attrs.get(name) ?? null; }
+  hasClass(name) { return this.classes.has(name); }
   setText(text) { this.text = String(text); return this; }
   addEventListener(type, callback) { this.events.set(type, callback); }
   empty() { this.children = []; }
@@ -56,11 +61,16 @@ function createSubView(name, calls) {
   };
 }
 
-function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels = [], { activeFile = null, projectFolder = null } = {}) {
+function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels = [], { activeFile = null, projectFolder = null, projects = [], vaultFolders = null, projectFiles = [] } = {}) {
   const contentEl = new FakeElement();
   const listeners = { workspace: new Map(), vault: new Map() };
   const settings = new Proxy(
-    { activeRightPanelTab, hiddenPanels },
+    {
+      activeRightPanelTab, hiddenPanels,
+      projectFolder: projectFolder ? projectFolder.path : "",
+      projects,
+      projectMeta: {},
+    },
     {
       set(target, key, value) {
         if (key === "activeRightPanelTab") order.push("settings");
@@ -69,17 +79,32 @@ function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels =
       },
     }
   );
+  // projectFiles : [{ file: TFile, frontmatter: {...} }] — sert au scan RAW
+  // de la sous-page « Correspondance des propriétés » (§22).
+  const fileCache = new Map(projectFiles.map(({ file, frontmatter }) => [file, { frontmatter }]));
   const app = {
     workspace: {
       on(name, callback) { listeners.workspace.set(name, callback); return { name }; },
       getActiveFile() { return activeFile; },
     },
-    vault: { on(name, callback) { listeners.vault.set(name, callback); return { name }; }, getAbstractFileByPath() { return null; }, getFiles() { return []; } },
+    vault: {
+      on(name, callback) { listeners.vault.set(name, callback); return { name }; },
+      getAbstractFileByPath(path) { return vaultFolders ? (vaultFolders.get(path) ?? null) : null; },
+      getFiles() { return []; },
+    },
+    metadataCache: {
+      getFileCache(file) { return fileCache.get(file) || null; },
+    },
   };
   const plugin = {
     settings,
     async saveSettings() { order.push("save"); },
     getProjectFolder() { return projectFolder; },
+    projectDisplayName(path) { return `Projet ${path}`; },
+    updateStatusBar() { order.push("statusBar"); },
+    renderAllViews() { order.push("renderAll"); },
+    unitLabel() { return "mots"; },
+    flattenFiles() { return projectFiles.map((f) => f.file); },
   };
   const sidebar = new SidebarFeuilletsView({ app, contentEl }, plugin);
   const calls = [];
@@ -89,10 +114,6 @@ function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels =
     journal: createSubView("journal", calls),
     project: createSubView("project", calls),
     docx: createSubView("docx", calls),
-    editionDocs: createSubView("editionDocs", calls),
-    editionComposition: createSubView("editionComposition", calls),
-    editionLayout: createSubView("editionLayout", calls),
-    editionExport: createSubView("editionExport", calls),
     analyse: {
       ...createSubView("analyse", calls),
       _chaptersCache: "chapters",
@@ -142,7 +163,7 @@ test("SidebarFeuilletsView n'affiche pas les onglets masqués", async () => {
   await sidebar.render();
 
   assert.deepEqual(contentEl.children[0].children.map((button) => button.icon), [
-    "file-text", "calendar", "file-edit", "spell-check",
+    "file-text", "calendar", "folder-cog", "spell-check",
   ]);
 });
 
@@ -152,7 +173,7 @@ test("SidebarFeuilletsView conserve l'ordre des quatre onglets visibles", async 
   await sidebar.render();
 
   assert.deepEqual(contentEl.children[0].children.map((button) => button.icon), [
-    "file-text", "calendar", "file-edit", "spell-check",
+    "file-text", "calendar", "folder-cog", "spell-check",
   ]);
 });
 
@@ -164,12 +185,12 @@ test("SidebarFeuilletsView bascule vers le premier onglet visible si l'onglet m�
   assert.equal(sidebar.activeTab, "notes");
 });
 
-test("SidebarFeuilletsView ignore docxReview dans hiddenPanels pour l'onglet Édition", async () => {
+test("SidebarFeuilletsView ignore docxReview dans hiddenPanels pour l'onglet Projet", async () => {
   const { sidebar, contentEl } = createSidebar("project", [], ["docxReview"]);
 
   await sidebar.render();
 
-  assert.ok(contentEl.children[0].children.some((button) => button.icon === "file-edit"));
+  assert.ok(contentEl.children[0].children.some((button) => button.icon === "folder-cog"));
 });
 
 test("SidebarFeuilletsView sauvegarde l'onglet avant de relancer le rendu", async () => {
@@ -198,144 +219,325 @@ test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné
   }
 });
 
-test("SidebarFeuilletsView : espace Édition s'ouvre sur la page d'accueil, trois entrées verticales dans l'ordre, aucune sous-vue rendue", async () => {
-  const { sidebar, calls } = createSidebar("project");
+/* §12/§13 du chantier « espace central » : l'onglet `project` n'héberge plus
+ * ni Documents éditoriaux ni Édition (partis au centre) — c'est désormais la
+ * GESTION DE PROJET, volontairement minimale. */
+test("SidebarFeuilletsView : l'onglet Projet affiche le projet actif et son type · auteur, sans aucune sous-vue Édition", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar, calls } = createSidebar("project", [], [], { projectFolder: root });
+  sidebar.plugin.settings.projectMeta[root.path] = { type: "fiction", author: "Halim Yalcin" };
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
 
-  assert.equal(sidebar.editionPage, "home", "page par défaut");
-  // Aucune sous-vue complète rendue sur l'accueil — même règle que
-  // l'accueil Relecture (renderRelectureHome).
-  assert.deepEqual(calls.map((call) => call.name), []);
-  assert.equal(calls.some((call) => call.name === "docx"), false, "l'espace Édition ne rend plus DocxReviewView");
-
-  // Trois lignes compactes cliquables, PAS une tablist horizontale : même
-  // gabarit que l'accueil Relecture (.feuillets-notes-section-head +
-  // .feuillets-clickable), une sous chaque autre (aucun conteneur flex
-  // horizontal commun ne les regroupe).
-  const heads = allElements(container).filter(
-    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
-  );
-  assert.equal(heads.length, 3, "trois lignes compactes cliquables");
-  assert.equal(allElements(container).some((el) => el.attrs.get("role") === "tablist"), false, "pas de tablist horizontale");
-
+  assert.deepEqual(calls.map((call) => call.name), [], "aucune sous-vue montée dans cet onglet");
+  // Chantier « panneau Projet + métadonnées + mapping YAML » : le sommaire
+  // compact liste désormais Objectifs/Statuts/Labels/Tags/Informations en
+  // plus de la ligne « Gérer les projets… » — même grammaire que le projet
+  // actif (.feuillets-notes-section-title), aucune sous-vue montée.
   const titles = allElements(container)
     .filter((el) => el.classes.has("feuillets-notes-section-title"))
     .map((el) => el.text);
   assert.deepEqual(titles, [
-    t("editionComposition.displayText"),
-    t("editionLayout.displayText"),
-    t("editionDocs.displayText"),
-  ], "ordre : Composition de l’ouvrage → Mise en page & export → Documents éditoriaux");
+    `Projet ${root.path}`,
+    t("sidebar.project.rowGoals"),
+    t("sidebar.project.rowMapping"),
+    t("sidebar.project.rowStatuses"),
+    t("sidebar.project.rowLabels"),
+    t("sidebar.project.rowTags"),
+    t("sidebar.project.rowInfo"),
+    t("sidebar.project.reveal"),
+    t("sidebar.project.manage"),
+  ]);
+  const subs = allElements(container).filter((el) => el.classes.has("feuillets-notes-sub")).map((el) => el.text);
+  assert.deepEqual(subs, ["Fiction · Halim Yalcin"]);
+  assert.equal(allElements(container).some((el) => el.attrs.get("role") === "tablist"), false, "pas de tablist horizontale");
 });
 
-test("SidebarFeuilletsView : cliquer Composition de l'ouvrage affiche uniquement Composition, Retour ramène à l'accueil", async () => {
-  const { sidebar, contentEl, calls } = createSidebar("project");
-  await sidebar.render();
+test("SidebarFeuilletsView : ni EditionDocsView ni EditionLayoutView ne subsistent dans le panneau latéral", () => {
+  const { sidebar } = createSidebar("project");
+  const real = new SidebarFeuilletsView(
+    { app: sidebar.app, contentEl: new FakeElement() },
+    sidebar.plugin
+  );
+  assert.equal("editionDocs" in real.subViews, false);
+  assert.equal("editionLayout" in real.subViews, false);
+  assert.equal("editionPage" in real, false, "plus d'état de page Édition dans le panneau");
+});
 
-  const [compositionHead] = allElements(contentEl.children[1]).filter(
+/* §14 : le choix du projet passe par un Menu Obsidian NATIF. */
+function openProjectMenu(container) {
+  const head = allElements(container).find(
     (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
   );
+  assert.ok(head, "la ligne du projet actif est cliquable");
+  head.events.get("click")({});
+  return Menu.lastShown;
+}
 
-  let renders = 0;
-  sidebar.render = async () => { renders += 1; };
-  compositionHead.events.get("click")();
-  assert.equal(sidebar.editionPage, "composition");
-  assert.equal(renders, 1);
+test("SidebarFeuilletsView : le menu Projet liste tous les projets connus, coche l'actif, puis les quatre actions de gestion", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root, projects: ["Autre/Manuscrit"] });
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
 
-  delete sidebar.render;
-  calls.length = 0;
-  await sidebar.render();
-  assert.deepEqual(calls.map((call) => call.name), ["editionComposition"], "uniquement EditionCompositionView");
-
-  const backBtn = allElements(contentEl.children[1]).find((el) => el.classes.has("feuillets-back-btn"));
-  assert.ok(backBtn, "barre Retour visible");
-
-  renders = 0;
-  sidebar.render = async () => { renders += 1; };
-  backBtn.events.get("click")();
-  assert.equal(sidebar.editionPage, "home");
-  assert.equal(renders, 1);
+  const menu = openProjectMenu(container);
+  const titles = menu.items.filter((item) => !item.separator).map((item) => item.title);
+  assert.deepEqual(titles, [
+    `Projet ${root.path}`,
+    "Projet Autre/Manuscrit",
+    "Nouveau projet…",
+    "Utiliser un dossier existant…",
+    "Importer un projet Scrivener…",
+    "Gérer les projets…",
+  ]);
+  const active = menu.items.find((item) => item.title === `Projet ${root.path}`);
+  assert.equal(active.checked, true, "le projet actif est coché");
+  assert.equal(menu.items.find((item) => item.title === "Projet Autre/Manuscrit").checked, false);
 });
 
-test("SidebarFeuilletsView : cliquer Mise en page & export affiche uniquement Mise en page, Retour ramène à l'accueil", async () => {
-  const { sidebar, contentEl, calls } = createSidebar("project");
-  await sidebar.render();
+/* §15 : changer de projet est DIRECT — aucune modale, même séquence que
+ * ManageProjectsModal (préservation de l'ancien projet, save, statusBar,
+ * renderAllViews). */
+test("SidebarFeuilletsView : cliquer un projet du menu change de projet sans ouvrir la moindre modale", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const other = new TFolder("Autre/Manuscrit");
+  const vaultFolders = new Map([[root.path, root], [other.path, other]]);
+  const order = [];
+  const { sidebar, settings } = createSidebar("project", order, [], {
+    projectFolder: root, projects: [other.path], vaultFolders,
+  });
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+  order.length = 0;
 
-  const [, layoutHead] = allElements(contentEl.children[1]).filter(
-    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
-  );
+  const opened = [];
+  const originals = [ManageProjectsModal, NewProjectModal, OpenExistingFolderModal, ScrivenerImportModal]
+    .map((Klass) => [Klass, Klass.prototype.open]);
+  for (const [Klass] of originals) Klass.prototype.open = function open() { opened.push(Klass.name); };
+  try {
+    const menu = openProjectMenu(container);
+    await menu.items.find((item) => item.title === `Projet ${other.path}`).callback();
+  } finally {
+    for (const [Klass, open] of originals) Klass.prototype.open = open;
+  }
 
-  let renders = 0;
-  sidebar.render = async () => { renders += 1; };
-  layoutHead.events.get("click")();
-  assert.equal(sidebar.editionPage, "layout");
-  assert.equal(renders, 1);
-
-  delete sidebar.render;
-  calls.length = 0;
-  await sidebar.render();
-  assert.deepEqual(calls.map((call) => call.name), ["editionLayout"], "uniquement EditionLayoutView");
-
-  const backBtn = allElements(contentEl.children[1]).find((el) => el.classes.has("feuillets-back-btn"));
-  assert.ok(backBtn, "barre Retour visible");
-
-  renders = 0;
-  sidebar.render = async () => { renders += 1; };
-  backBtn.events.get("click")();
-  assert.equal(sidebar.editionPage, "home");
-  assert.equal(renders, 1);
+  assert.deepEqual(opened, [], "aucune modale ouverte pour un simple changement de projet");
+  assert.equal(settings.projectFolder, other.path);
+  assert.ok(settings.projects.includes(root.path), "l'ancien projet est préservé dans settings.projects");
+  assert.deepEqual(order.filter((entry) => entry !== "settings"), ["save", "statusBar", "renderAll"]);
 });
 
-test("SidebarFeuilletsView : cliquer Documents éditoriaux affiche uniquement Documents, Retour ramène à l'accueil", async () => {
-  const { sidebar, contentEl, calls } = createSidebar("project");
-  await sidebar.render();
+test("SidebarFeuilletsView : les quatre actions de gestion réutilisent les modales existantes", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
 
-  const [, , docsHead] = allElements(contentEl.children[1]).filter(
-    (el) => el.classes.has("feuillets-notes-section-head") && el.classes.has("feuillets-clickable")
-  );
-
-  let renders = 0;
-  sidebar.render = async () => { renders += 1; };
-  docsHead.events.get("click")();
-  assert.equal(sidebar.editionPage, "docs");
-  assert.equal(renders, 1);
-
-  delete sidebar.render;
-  calls.length = 0;
-  await sidebar.render();
-  assert.deepEqual(calls.map((call) => call.name), ["editionDocs"], "uniquement EditionDocsView");
-
-  const backBtn = allElements(contentEl.children[1]).find((el) => el.classes.has("feuillets-back-btn"));
-  assert.ok(backBtn, "barre Retour visible");
-
-  renders = 0;
-  sidebar.render = async () => { renders += 1; };
-  backBtn.events.get("click")();
-  assert.equal(sidebar.editionPage, "home");
-  assert.equal(renders, 1);
+  const cases = [
+    ["Nouveau projet…", NewProjectModal],
+    ["Utiliser un dossier existant…", OpenExistingFolderModal],
+    ["Importer un projet Scrivener…", ScrivenerImportModal],
+    ["Gérer les projets…", ManageProjectsModal],
+  ];
+  for (const [title, Klass] of cases) {
+    let opened = null;
+    const original = Klass.prototype.open;
+    Klass.prototype.open = function open() { opened = this; };
+    try {
+      const menu = openProjectMenu(container);
+      menu.items.find((item) => item.title === title).callback();
+    } finally {
+      Klass.prototype.open = original;
+    }
+    assert.ok(opened instanceof Klass, `${title} ouvre ${Klass.name}`);
+  }
 });
 
-test("SidebarFeuilletsView : la barre Retour de l'espace Édition survit au vidage de son propre conteneur par la sous-vue", async () => {
-  const { sidebar, contentEl, calls } = createSidebar("project");
-  sidebar.subViews.editionComposition = createEmptyingSubView("editionComposition", calls);
-  sidebar.editionPage = "composition";
+/* §13-18 du micro-chantier « finition Édition + sidebar Projet » : la
+ * sidebar Projet devient un vrai panneau compact — Informations/Manuscrit/
+ * Gestion — mais UNIQUEMENT avec des données déjà existantes. */
+test("SidebarFeuilletsView : sous-page « Informations » édite ProjectMeta comme ManageProjectsModal (§10)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  sidebar.plugin.settings.projectMeta[root.path] = { type: "fiction", author: "Halim Yalcin" };
+  sidebar.projectPage = "info";
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
 
-  await sidebar.render();
+  const section = allElements(container).find((el) => Array.isArray(el._settings));
+  assert.ok(section, "la sous-page Informations rend au moins un Setting");
+  const byName = Object.fromEntries(section._settings.map((s) => [s.name, s]));
 
-  let content = contentEl.children[1];
-  let backBtn = allElements(content).find((el) => el.classes.has("feuillets-back-btn"));
-  assert.ok(backBtn, "barre Retour visible pour Édition");
-  assert.equal(
-    allElements(sidebar.subViews.editionComposition.targetContainer).includes(backBtn),
-    false,
-    "la barre Retour n'est pas dans le targetContainer de la sous-vue"
+  // Nom : pas de surcharge -> champ vide, `projectDisplayName` en placeholder
+  // (jamais une valeur inventée dans le champ lui-même).
+  assert.equal(byName[t("modal.manageProjects.nameField")].controls[0].value, "");
+  assert.equal(byName[t("modal.manageProjects.nameField")].controls[0].placeholder, `Projet ${root.path}`);
+  // Auteur : déjà dans ProjectMeta -> repris tel quel.
+  assert.equal(byName[t("modal.manageProjects.authorField")].controls[0].value, "Halim Yalcin");
+  // Type : dropdown sur la valeur ProjectMeta actuelle.
+  assert.equal(byName[t("modal.manageProjects.typeField")].controls[0].value, "fiction");
+  // Description absente de ProjectMeta -> champ vide, rien d'inventé.
+  assert.equal(byName[t("modal.manageProjects.descriptionField")].controls[0].value, "");
+  // Fiction : pas de style de citation (non-fiction uniquement, §10).
+  assert.equal(t("settings.citationStyle.name") in byName, false);
+
+  // Éditer l'Auteur écrit exactement où ManageProjectsModal écrit déjà —
+  // aucun second système de métadonnées (§10).
+  byName[t("modal.manageProjects.authorField")].controls[0].changeHandler("Nouvel auteur");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].author, "Nouvel auteur");
+
+  // Nom/Icône/Type/Description s'écrivent au même endroit (Phase E, §26 :
+  // condition de suppression de Paramètres → Projet — chaque contrôle doit
+  // être RÉELLEMENT écrivable depuis la sidebar).
+  byName[t("modal.manageProjects.nameField")].controls[0].changeHandler("Nom perso");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].name, "Nom perso");
+  byName[t("modal.manageProjects.iconField")].controls[0].changeHandler("book");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].icon, "book");
+  byName[t("modal.manageProjects.descriptionField")].controls[0].changeHandler("Une description");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].description, "Une description");
+  byName[t("modal.manageProjects.typeField")].controls[0].select("nonfiction");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].type, "nonfiction");
+});
+
+test("SidebarFeuilletsView : sous-page « Informations » écrit le style de citation en non-fiction (§10)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  sidebar.plugin.settings.projectMeta[root.path] = { type: "nonfiction" };
+  sidebar.projectPage = "info";
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const section = allElements(container).find((el) => Array.isArray(el._settings));
+  const byName = Object.fromEntries(section._settings.map((s) => [s.name, s]));
+  byName[t("settings.citationStyle.name")].controls[0].select("parenthetical");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].citationStyle, "parenthetical");
+});
+
+test("SidebarFeuilletsView : sous-page « Informations » affiche le style de citation en non-fiction uniquement (§10)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  sidebar.plugin.settings.projectMeta[root.path] = { type: "nonfiction" };
+  sidebar.projectPage = "info";
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const section = allElements(container).find((el) => Array.isArray(el._settings));
+  const byName = Object.fromEntries(section._settings.map((s) => [s.name, s]));
+  assert.ok(t("settings.citationStyle.name") in byName, "le style de citation apparaît en non-fiction");
+});
+
+test("SidebarFeuilletsView : sections Manuscrit/Métadonnées/Informations/Gestion rendues, Gestion ouvre ManageProjectsModal sans dupliquer sa logique", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  // Chantier « panneau Projet + métadonnées + mapping YAML » (§1) : ordre
+  // MANUSCRIT / MÉTADONNÉES / INFORMATIONS / GESTION, mapping YAML absent
+  // pour l'instant (Phase D).
+  const heads = allElements(container)
+    .filter((el) => el.classes.has("feuillets-settings-subhead"))
+    .map((el) => el.text);
+  assert.deepEqual(heads, [
+    t("sidebar.project.header"),
+    t("sidebar.project.manuscriptHeader"),
+    t("sidebar.project.metadataHeader"),
+    t("sidebar.project.infoHeader"),
+    t("sidebar.project.manageHeader"),
+  ]);
+
+  assert.ok(
+    allElements(container).some((el) => el.classes.has("feuillets-sidebar-project")),
+    "toute la surface est scopée sous une racine dédiée (§21, cloisonnement CSS)"
   );
 
-  await sidebar.render();
-  content = contentEl.children[1];
-  backBtn = allElements(content).find((el) => el.classes.has("feuillets-back-btn"));
-  assert.ok(backBtn, "barre Retour toujours visible après un second rendu");
+  const manageRow = allElements(container).find(
+    (el) => el.classes.has("feuillets-notes-section-title") && el.text === t("sidebar.project.manage")
+  )?.parentNode;
+  assert.ok(manageRow, "la ligne « Gérer les projets… » est présente dans Gestion");
+
+  let opened = null;
+  const original = ManageProjectsModal.prototype.open;
+  ManageProjectsModal.prototype.open = function open() { opened = this; };
+  try {
+    manageRow.events.get("click")();
+  } finally {
+    ManageProjectsModal.prototype.open = original;
+  }
+  assert.ok(opened instanceof ManageProjectsModal, "réutilise ManageProjectsModal — aucune logique de gestion dupliquée");
+});
+
+test("SidebarFeuilletsView : « Révéler dans l'Explorateur » appelle le plugin natif file-explorer sans dupliquer de logique", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  const revealed = [];
+  sidebar.app.internalPlugins = {
+    getPluginById: (id) => id === "file-explorer" ? { instance: { revealInFolder: (f) => revealed.push(f) } } : undefined,
+  };
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const revealRow = allElements(container).find(
+    (el) => el.classes.has("feuillets-notes-section-title") && el.text === t("sidebar.project.reveal")
+  )?.parentNode;
+  assert.ok(revealRow, "la ligne « Révéler dans l'Explorateur » est présente dans Gestion");
+  revealRow.events.get("click")();
+  assert.deepEqual(revealed, [root]);
+});
+
+test("SidebarFeuilletsView : les entrées Objectifs/Statuts/Labels/Tags/Informations naviguent vers leur sous-page avec barre Retour", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  const cases = [
+    [t("sidebar.project.rowGoals"), "goals"],
+    [t("sidebar.project.rowStatuses"), "statuses"],
+    [t("sidebar.project.rowLabels"), "labels"],
+    [t("sidebar.project.rowTags"), "tags"],
+    [t("sidebar.project.rowInfo"), "info"],
+  ];
+  for (const [label, page] of cases) {
+    sidebar.projectPage = "home";
+    const container = new FakeElement();
+    await sidebar.renderProjectTab(container);
+    const row = allElements(container).find(
+      (el) => el.classes.has("feuillets-notes-section-title") && el.text === label
+    )?.parentNode;
+    assert.ok(row, `la ligne « ${label} » est présente`);
+    row.events.get("click")();
+    assert.equal(sidebar.projectPage, page, `clic sur « ${label} » ouvre la sous-page ${page}`);
+
+    // La sous-page affiche la barre Retour partagée (renderBackBar) — même
+    // gabarit que Relecture/Édition.
+    const subContainer = new FakeElement();
+    await sidebar.renderProjectTab(subContainer);
+    const backBar = allElements(subContainer).find((el) => el.classes.has("feuillets-notes-back-bar"));
+    assert.ok(backBar, `la sous-page ${page} affiche la barre Retour`);
+    const backBtn = backBar.children.find((el) => el.classes.has("feuillets-back-btn"));
+    backBtn.events.get("click")();
+    assert.equal(sidebar.projectPage, "home", "Retour ramène à l'accueil du panneau Projet");
+  }
+});
+
+test("SidebarFeuilletsView : sans projet actif, aucune section Informations/Manuscrit/Gestion ne s'affiche", async () => {
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: null });
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const heads = allElements(container)
+    .filter((el) => el.classes.has("feuillets-settings-subhead"))
+    .map((el) => el.text);
+  assert.deepEqual(heads, [t("sidebar.project.header")]);
+});
+
+test("SidebarFeuilletsView : la sidebar Projet ne remonte aucun composant Édition/Documents (EditionDocsContent, EditionCompositionContent, EditionWorkspaceContent)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  for (const cls of ["feuillets-edition-docs-container", "feuillets-edition-composition-container", "feuillets-layout-workspace"]) {
+    assert.equal(allElements(container).some((el) => el.classes.has(cls)), false, `${cls} absent de la sidebar`);
+  }
 });
 
 test("SidebarFeuilletsView ne rafraîchit au file-open que Notes et Analyse du texte, jamais l'accueil Relecture ni Révision DOCX", async () => {
@@ -377,22 +579,16 @@ test("SidebarFeuilletsView invalide les caches Analyse à la modification", asyn
   assert.equal(sidebar.subViews.notes.targetContainer, null);
 });
 
-test("SidebarFeuilletsView renderAllSubViews respecte la nouvelle organisation : Édition selon sa page (rien sur l'accueil, une seule sous-vue sinon), Relecture selon sa page, une seule sous-vue pour les autres onglets", async () => {
+test("SidebarFeuilletsView renderAllSubViews respecte la nouvelle organisation : Projet se redessine entièrement, Relecture selon sa page, une seule sous-vue pour les autres onglets", async () => {
   const { sidebar, calls } = createSidebar("project");
-  // Accueil Édition par défaut : rien à rafraîchir (pas de sous-vue affichée).
+  // Gestion de projet : aucune sous-vue montée — un rendu complet du panneau.
+  let fullRenders = 0;
+  const realRender = sidebar.render.bind(sidebar);
+  sidebar.render = async () => { fullRenders += 1; };
   await sidebar.renderAllSubViews(true);
-  assert.deepEqual(calls.map((call) => call.name), [], "rien sur l'accueil Édition");
-
-  calls.length = 0;
-  sidebar.editionPage = "composition";
-  await sidebar.renderAllSubViews(true);
-  assert.deepEqual(calls.map((call) => call.name), ["editionComposition"], "seule la page Édition active est rafraîchie");
-
-  calls.length = 0;
-  sidebar.editionPage = "layout";
-  await sidebar.renderAllSubViews(true);
-  assert.deepEqual(calls.map((call) => call.name), ["editionLayout"], "seule la page Édition active est rafraîchie");
-  sidebar.editionPage = "home";
+  sidebar.render = realRender;
+  assert.deepEqual(calls.map((call) => call.name), []);
+  assert.equal(fullRenders, 1, "l'onglet Projet est intégralement redessiné");
 
   calls.length = 0;
   sidebar.activeTab = "research";
@@ -419,14 +615,13 @@ test("SidebarFeuilletsView renderAllSubViews respecte la nouvelle organisation :
   assert.deepEqual(calls.map((call) => call.name), ["docx"]);
 });
 
-test("SidebarFeuilletsView utilise le rendu Édition pour un onglet invalide sans écrire les réglages", async () => {
+test("SidebarFeuilletsView retombe sur l'onglet Projet pour un onglet invalide sans écrire les réglages", async () => {
   const { sidebar, settings, calls } = createSidebar("invalide");
   await sidebar.render();
 
   assert.equal(settings.activeRightPanelTab, "invalide");
-  // Édition retombe sur sa page d'accueil : aucune sous-vue rendue.
-  assert.deepEqual(calls.map((call) => call.name), []);
-  assert.equal(sidebar.editionPage, "home");
+  assert.equal(sidebar.activeTab, "project");
+  assert.deepEqual(calls.map((call) => call.name), [], "Gestion de projet ne monte aucune sous-vue");
 });
 
 test("SidebarFeuilletsView : l'accueil Relecture affiche la relecture collaborative, Analyse du texte et Révision DOCX sans rendre leurs sous-vues", async () => {
@@ -627,4 +822,238 @@ test("SidebarFeuilletsView : cliquer sur Comparer une version ouvre la comparais
   // Sans snapshot, rien ne s'ouvre — mais surtout aucune page secondaire n'est
   // inventée : l'entrée reste une action, jamais une troisième page Relecture.
   assert.equal(sidebar.relecturePage, "home", "aucune troisième page secondaire créée");
+});
+
+/* Chantier « panneau Projet + métadonnées + mapping YAML », Phase B — §9,
+ * §34 et l'exigence de sécurité additionnelle #4 (reset-to-inherited). */
+test("SidebarFeuilletsView : sous-page « Objectifs » écrit la surcharge projet et propose un retour au réglage global", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  sidebar.plugin.settings.wordGoal = 1500;
+  sidebar.projectPage = "goals";
+  let container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const section = allElements(container).find((el) => Array.isArray(el._settings));
+  const byName = Object.fromEntries(section._settings.map((s) => [s.name, s]));
+  const wordGoalSetting = byName[t("settings.wordGoal.name", { unit: "mots" })];
+  // Aucune surcharge : la valeur affichée EST la valeur globale, et aucun
+  // bouton de réinitialisation n'apparaît encore.
+  assert.equal(wordGoalSetting.controls[0].value, "1500");
+  assert.equal(wordGoalSetting.controls.some((c) => c.type === "extra"), false);
+
+  wordGoalSetting.controls[0].changeHandler("900");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].wordGoal, 900);
+  // Le réglage global n'est JAMAIS muté par le panneau Projet (exigence #2).
+  assert.equal(sidebar.plugin.settings.wordGoal, 1500);
+
+  // Une fois la surcharge posée, le bouton de réinitialisation apparaît et
+  // SUPPRIME la surcharge (jamais une copie de la valeur globale, §4).
+  container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+  const section2 = allElements(container).find((el) => Array.isArray(el._settings));
+  const wordGoalSetting2 = Object.fromEntries(section2._settings.map((s) => [s.name, s]))[t("settings.wordGoal.name", { unit: "mots" })];
+  const resetBtn = wordGoalSetting2.controls.find((c) => c.type === "extra");
+  assert.ok(resetBtn, "le bouton de réinitialisation apparaît une fois la surcharge posée");
+  resetBtn.clickHandler();
+  assert.equal("wordGoal" in sidebar.plugin.settings.projectMeta[root.path], false, "delete, jamais une copie de la valeur globale");
+});
+
+test("SidebarFeuilletsView : sous-page « Objectifs » — tolérance/objectif global/date limite/objectif de session sont réellement écrivables (Phase E, §9)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  Object.assign(sidebar.plugin.settings, { tolerance: 50, projectWordGoal: 80000, deadlineDate: "2027-01-01", sessionGoal: 500 });
+  sidebar.projectPage = "goals";
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+  const section = allElements(container).find((el) => Array.isArray(el._settings));
+  const byName = Object.fromEntries(section._settings.map((s) => [s.name, s]));
+
+  byName[t("settings.tolerance.name")].controls[0].changeHandler("20");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].tolerance, 20);
+
+  byName[t("settings.projectWordGoal.name")].controls[0].changeHandler("60000");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].projectWordGoal, 60000);
+
+  byName[t("settings.sessionGoal.name")].controls[0].changeHandler("300");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].sessionGoal, 300);
+
+  byName[t("settings.deadline.name")].controls[0].changeHandler("2026-06-01");
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].deadlineDate, "2026-06-01");
+
+  // Aucun de ces réglages globaux n'a été muté (exigence de sécurité #2).
+  assert.equal(sidebar.plugin.settings.tolerance, 50);
+  assert.equal(sidebar.plugin.settings.projectWordGoal, 80000);
+  assert.equal(sidebar.plugin.settings.deadlineDate, "2027-01-01");
+  assert.equal(sidebar.plugin.settings.sessionGoal, 500);
+});
+
+test("SidebarFeuilletsView : sous-page « Statuts » clone settings.statuses au premier changement seulement (§6)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  sidebar.plugin.settings.statuses = [{ name: "Idée", color: "#111111" }];
+  sidebar.projectPage = "statuses";
+
+  // Simplement OUVRIR la sous-page ne crée AUCUNE surcharge (§6).
+  let container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path]?.statuses, undefined, "lecture seule : aucune surcharge créée en ouvrant le panneau");
+
+  const section = allElements(container).find((el) => Array.isArray(el._settings));
+  const nameSetting = section._settings[0];
+  nameSetting.controls[0].changeHandler("Brouillon");
+  assert.deepEqual(
+    sidebar.plugin.settings.projectMeta[root.path].statuses,
+    [{ name: "Brouillon", color: "#111111" }],
+    "la surcharge est un CLONE modifié, le tableau global n'est jamais muté"
+  );
+  assert.deepEqual(sidebar.plugin.settings.statuses, [{ name: "Idée", color: "#111111" }], "settings.statuses global intact");
+});
+
+test("SidebarFeuilletsView : sous-page « Labels » clone settings.labels au premier changement seulement (§7)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  sidebar.plugin.settings.labels = [{ name: "Rouge", color: "#e0524f" }];
+  sidebar.projectPage = "labels";
+
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path]?.labels, undefined);
+
+  const section = allElements(container).find((el) => Array.isArray(el._settings));
+  const nameSetting = section._settings[0];
+  nameSetting.controls[0].changeHandler("Urgence");
+  assert.deepEqual(sidebar.plugin.settings.projectMeta[root.path].labels, [{ name: "Urgence", color: "#e0524f" }]);
+  assert.deepEqual(sidebar.plugin.settings.labels, [{ name: "Rouge", color: "#e0524f" }], "settings.labels global intact");
+});
+
+test("SidebarFeuilletsView : sous-page « Tags » édite favoriteTags et propose un retour au réglage global (§8)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  sidebar.plugin.settings.favoriteTags = ["global"];
+  sidebar.projectPage = "tags";
+
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+  const section = allElements(container).find((el) => Array.isArray(el._settings));
+  const tagsSetting = section._settings[0];
+  assert.equal(tagsSetting.controls[0].value, "global");
+
+  tagsSetting.controls[0].changeHandler("un, deux,#trois");
+  assert.deepEqual(sidebar.plugin.settings.projectMeta[root.path].favoriteTags, ["un", "deux", "trois"]);
+  assert.deepEqual(sidebar.plugin.settings.favoriteTags, ["global"], "settings.favoriteTags global intact");
+});
+
+test("SidebarFeuilletsView : changer de projet depuis une sous-page ramène l'accueil du nouveau projet (§38)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const other = new TFolder("Autre/Manuscrit");
+  const vaultFolders = new Map([[root.path, root], [other.path, other]]);
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root, projects: [other.path], vaultFolders });
+  sidebar.projectPage = "statuses";
+
+  await sidebar.switchProject(other.path);
+  assert.equal(sidebar.projectPage, "home", "aucun état résiduel de sous-page après changement de projet");
+  assert.equal(sidebar.plugin.settings.projectFolder, other.path);
+});
+
+/* Chantier « panneau Projet + métadonnées + mapping YAML », Phase D —
+ * §21-24 : sous-page « Correspondance des propriétés ». */
+function openMappingMenu(container, fieldLabel) {
+  const row = allElements(container).find(
+    (el) => el.classes.has("feuillets-notes-section-title") && el.text === fieldLabel
+  )?.parentNode;
+  assert.ok(row, `la ligne « ${fieldLabel} » est présente`);
+  row.events.get("click")({});
+  return Menu.lastShown;
+}
+
+test("SidebarFeuilletsView : « Correspondance des propriétés » propose la clé par défaut puis les propriétés RAW détectées dans le manuscrit actif", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const sceneA = new TFile("Roman/Manuscrit/A.md");
+  const sceneB = new TFile("Roman/Manuscrit/B.md");
+  const { sidebar } = createSidebar("project", [], [], {
+    projectFolder: root,
+    projectFiles: [
+      { file: sceneA, frontmatter: { Synopsis: "x", State: "Draft" } },
+      { file: sceneB, frontmatter: { synopsis: "y" } },
+    ],
+  });
+  sidebar.projectPage = "mapping";
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const menu = openMappingMenu(container, t("sidebar.project.mappingField.synopsis"));
+  const titles = menu.items.filter((i) => !i.separator).map((i) => i.title);
+  const defaultTitle = t("sidebar.project.mappingDefault", { field: t("sidebar.project.mappingField.synopsis") });
+  assert.deepEqual(titles, [defaultTitle, "State", "synopsis", "Synopsis"]);
+  assert.equal(menu.items.find((i) => i.title === defaultTitle).checked, true, "aucun mapping configuré -> l'option par défaut est cochée");
+});
+
+test("SidebarFeuilletsView : choisir une propriété RAW écrit propertyMap, sans modifier aucun fichier (§23)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const scene = new TFile("Roman/Manuscrit/A.md");
+  const { sidebar, order } = createSidebar("project", [], [], {
+    projectFolder: root,
+    projectFiles: [{ file: scene, frontmatter: { State: "Draft" } }],
+  });
+  sidebar.projectPage = "mapping";
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+  order.length = 0;
+
+  const menu = openMappingMenu(container, t("sidebar.project.mappingField.status"));
+  menu.items.find((i) => i.title === "State").callback();
+
+  assert.deepEqual(sidebar.plugin.settings.projectMeta[root.path].propertyMap, { status: "State" });
+  assert.deepEqual(order.filter((e) => e !== "settings"), ["save", "renderAll"]);
+});
+
+test("SidebarFeuilletsView : revenir à « Propriété Feuillets par défaut » supprime la surcharge (et propertyMap devenu vide)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const scene = new TFile("Roman/Manuscrit/A.md");
+  const { sidebar } = createSidebar("project", [], [], {
+    projectFolder: root,
+    projectFiles: [{ file: scene, frontmatter: { State: "Draft" } }],
+  });
+  sidebar.plugin.settings.projectMeta[root.path] = { propertyMap: { status: "State" } };
+  sidebar.projectPage = "mapping";
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const menu = openMappingMenu(container, t("sidebar.project.mappingField.status"));
+  const defaultTitle = t("sidebar.project.mappingDefault", { field: t("sidebar.project.mappingField.status") });
+  menu.items.find((i) => i.title === defaultTitle).callback();
+
+  assert.equal("propertyMap" in sidebar.plugin.settings.projectMeta[root.path], false, "propertyMap vide entièrement supprimé");
+});
+
+test("SidebarFeuilletsView : une collision entre deux champs mappés vers la même propriété est refusée (§24)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const scene = new TFile("Roman/Manuscrit/A.md");
+  const { sidebar } = createSidebar("project", [], [], {
+    projectFolder: root,
+    projectFiles: [{ file: scene, frontmatter: { Description: "x" } }],
+  });
+  sidebar.plugin.settings.projectMeta[root.path] = { propertyMap: { synopsis: "Description" } };
+  sidebar.projectPage = "mapping";
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const notices = [];
+  const original = Notice.onCreate;
+  Notice.onCreate = (msg) => notices.push(msg);
+  try {
+    const menu = openMappingMenu(container, t("sidebar.project.mappingField.summary"));
+    menu.items.find((i) => i.title === "Description").callback();
+  } finally {
+    Notice.onCreate = original;
+  }
+
+  assert.equal(notices.length, 1, "une Notice de collision est affichée");
+  assert.equal(
+    sidebar.plugin.settings.projectMeta[root.path].propertyMap.summary,
+    undefined,
+    "aucune collision silencieuse : le second mapping n'est pas écrit"
+  );
+  assert.equal(sidebar.plugin.settings.projectMeta[root.path].propertyMap.synopsis, "Description", "le premier mapping reste intact");
 });

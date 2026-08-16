@@ -149,6 +149,87 @@ export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
   return base;
 }
 
+/** Nom de base (sans extension) de la sortie compilée : résolu ICI, UNE
+ * SEULE FOIS, puis réutilisé tel quel par compile() (Markdown) et
+ * exportViaNative() (formats binaires) — jamais deux résolutions
+ * concurrentes du même nom qui pourraient diverger. Priorité : nom explicite
+ * transmis par l'appelant pour CETTE compilation/cet export précis (portée
+ * fichier/dossier/sélection avec son propre nom, voir exportWithScope),
+ * sinon le nom du preset actif s'il en définit un — activePresetConfig()
+ * fusionne déjà preset.fileName > compileFileName legacy (réglage conservé
+ * pour compatibilité depuis le retrait du champ « Nom du fichier » de
+ * Édition, voir ui/export-panel.ts) — sinon repli "Manuscrit". */
+function resolveOutputBaseName(settings: FeuilletsSettings, explicit?: string | null): string {
+  if (explicit) return explicit.replace(/\.md$/i, "");
+  const P = activePresetConfig(settings);
+  return P.fileName ? P.fileName.replace(/\.md$/i, "") : "Manuscrit";
+}
+
+/** Une erreur `create()`/`createBinary()` correspondant à une collision de
+ * fichier — jamais une autre erreur masquée derrière ce nom générique
+ * (l'API Obsidian ne définit pas de sous-classe dédiée, seul le message le
+ * dit : "File already exists."). */
+function isFileAlreadyExistsError(e: unknown): boolean {
+  return e instanceof Error && /already exists/i.test(e.message);
+}
+
+/** Cherche, DANS LE MÊME DOSSIER que `path`, un TFile dont le nom est égal
+ * à celui de `path` à la casse près — jamais un fichier d'un autre dossier.
+ * Sert à retrouver, sur un système de fichiers insensible à la casse
+ * (macOS, Windows), le fichier RÉEL déjà écrit sous une casse différente :
+ * l'index Obsidian, lui, reste sensible à la casse et ne le retrouve pas
+ * via un simple `getAbstractFileByPath(path)`. */
+function findCaseInsensitiveMatch(app: App, path: string): TFile | null {
+  const exact = app.vault.getAbstractFileByPath(path);
+  if (exact instanceof TFile) return exact;
+  const slash = path.lastIndexOf("/");
+  const folderPath = slash >= 0 ? path.slice(0, slash) : "";
+  const name = slash >= 0 ? path.slice(slash + 1) : path;
+  const parent = folderPath ? app.vault.getAbstractFileByPath(folderPath) : null;
+  if (!(parent instanceof TFolder)) return null;
+  const lowerName = name.toLowerCase();
+  for (const child of parent.children) {
+    if (child instanceof TFile && child.name.toLowerCase() === lowerName) return child;
+  }
+  return null;
+}
+
+/** Écrit `path` en MODIFIANT le fichier existant plutôt qu'en le recréant,
+ * y compris quand seule sa CASSE diffère (voir findCaseInsensitiveMatch) —
+ * remplace le duo `getAbstractFileByPath` + `create`/`modify` auparavant
+ * dupliqué entre Markdown (compile(), plus bas) et binaire
+ * (writeBinaryFile(), plus bas) : sur un système de fichiers insensible à
+ * la casse, ce duo pouvait rater un fichier existant nommé différemment en
+ * casse et tenter un `create()` qui échoue avec `Error: File already
+ * exists.` (l'index Obsidian, lui, EST sensible à la casse — d'où le
+ * `Uncaught (in promise) Error: File already exists.` réellement observé).
+ * Une collision apparue ENTRE la recherche et `create()` (course : un autre
+ * appel a écrit le fichier entretemps) est elle aussi absorbée — la cible
+ * est retrouvée une seconde fois et modifiée ; toute autre erreur de
+ * `create()`/`createBinary()` est propagée telle quelle, jamais masquée. */
+async function writeResolvingCaseCollision(
+  app: App,
+  path: string,
+  modify: (existing: TFile) => Promise<unknown>,
+  create: (path: string) => Promise<unknown>
+): Promise<{ path: string }> {
+  const existing = findCaseInsensitiveMatch(app, path);
+  if (existing) {
+    await modify(existing);
+    return { path: existing.path };
+  }
+  try {
+    await create(path);
+    return { path };
+  } catch (e) {
+    if (!isFileAlreadyExistsError(e)) throw e;
+    const raced = findCaseInsensitiveMatch(app, path);
+    if (!raced) throw e;
+    await modify(raced);
+    return { path: raced.path };
+  }
+}
+
 /** Dossier de sortie de la compilation et des exports.
  *
  * CAS A — le projet suit la convention (dossier `settings.projectFolder`
@@ -661,21 +742,33 @@ export async function compile(
   if (options?.writeOutput === false) {
     return { outPath: "", manuscript, segments };
   }
-  const fileName = outputFileName || (P.fileName ? P.fileName.replace(/\.md$/i, "") : null) || "Manuscrit";
+  const fileName = resolveOutputBaseName(settings, outputFileName);
   const outputFolder = await getOutputFolder(app, settings);
   const realOutBase = outputFolder ? outputFolder.path : folder.path;
   const realOutPath = normalizePath(`${realOutBase}/${fileName}.md`);
-  const existing = app.vault.getAbstractFileByPath(realOutPath);
-  if (existing instanceof TFile) {
-    await app.vault.modify(existing, manuscript);
-  } else {
-    await app.vault.create(realOutPath, manuscript);
+  let writtenOutPath = realOutPath;
+  try {
+    const written = await writeResolvingCaseCollision(
+      app,
+      realOutPath,
+      (existing) => app.vault.modify(existing, manuscript),
+      (p) => app.vault.create(p, manuscript)
+    );
+    writtenOutPath = written.path;
+  } catch (e) {
+    // Jamais une exception non gérée : un fichier compilé qui ne peut pas
+    // être écrit (collision réelle non résolue, permissions…) doit
+    // s'afficher comme n'importe quelle autre erreur de compilation,
+    // jamais comme une Promise rejetée non gérée dans la console.
+    const err = toCompileError(e, "écriture du manuscrit compilé", { filePath: realOutPath });
+    new Notice(err.describe());
+    return null;
   }
   new Notice(
     `Compilé (${P.name}) : ${count} feuillets → ${fileName}.md`
   );
   /** @type {CompileResult} */
-  return { outPath: realOutPath, manuscript, segments };
+  return { outPath: writtenOutPath, manuscript, segments };
 }
 
 /**
@@ -862,44 +955,50 @@ async function exportViaNative(
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return;
   }
-  /* Utiliser la portée explicite si fournie, sinon le chemin legacy. */
-  const result = await compile(app, settings, scopePath, scope ?? null);
-  if (!result) return;
-
-  const { title, author } = resolveExportIdentity(app, settings, folder, result.segments);
-  /* Le fichier compilé réel (result.outPath) plutôt que le dossier projet :
-     la résolution des embeds (![[image.png]]) par Obsidian a besoin d'un
-     chemin de FICHIER pour son contexte de répertoire — un chemin de
-     dossier peut fausser la résolution des liens relatifs. */
-  const sourcePath = result.outPath;
-  const outputFolder = await getOutputFolder(app, settings);
-  const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
-  const P = activePresetConfig(settings);
-  const baseName = baseNameOverride || (P.fileName || "Manuscrit.md").replace(/\.md$/i, "");
-  const segments: NativeExportSegment[] = result.segments.map(({ path, text, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType }) =>
-    frontType === null ? { path, text, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) } : { path, text, frontType, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) }
-  );
-  const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments };
-
+  /* `compile()` est désormais À L'INTÉRIEUR du même filet try/catch que
+     l'écriture des formats binaires plus bas : une erreur survenant pendant
+     la compilation (y compris l'écriture de Manuscrit.md, voir compile())
+     ne doit jamais devenir une Promise rejetée non gérée — compile() gère
+     déjà elle-même la plupart de ses erreurs (Notice + retour null), mais
+     ce filet reste le dernier recours si une exception lui échappe malgré
+     tout. */
   try {
+    /* Utiliser la portée explicite si fournie, sinon le chemin legacy. */
+    const result = await compile(app, settings, scopePath, scope ?? null);
+    if (!result) return undefined;
+
+    const { title, author } = resolveExportIdentity(app, settings, folder, result.segments);
+    /* Le fichier compilé réel (result.outPath) plutôt que le dossier projet :
+       la résolution des embeds (![[image.png]]) par Obsidian a besoin d'un
+       chemin de FICHIER pour son contexte de répertoire — un chemin de
+       dossier peut fausser la résolution des liens relatifs. */
+    const sourcePath = result.outPath;
+    const outputFolder = await getOutputFolder(app, settings);
+    const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
+    const baseName = resolveOutputBaseName(settings, baseNameOverride);
+    const segments: NativeExportSegment[] = result.segments.map(({ path, text, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType }) =>
+      frontType === null ? { path, text, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) } : { path, text, frontType, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) }
+    );
+    const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments };
+
     if (format === "epub") {
       const data = await exportEpub(app, settings, ctx);
       const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "epub") : normalizePath(`${outBase}/${baseName}.epub`);
-      await writeBinaryFile(app, outPath, data);
-      new Notice(`Export réussi : ${outPath}`);
-      return outPath;
+      const writtenPath = await writeBinaryFile(app, outPath, data);
+      new Notice(`Export réussi : ${writtenPath}`);
+      return writtenPath;
     } else if (format === "docx") {
       const data = await exportDocx(app, settings, ctx);
       const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "docx") : normalizePath(`${outBase}/${baseName}.docx`);
-      await writeBinaryFile(app, outPath, data);
-      new Notice(`Export réussi : ${outPath}`);
-      return outPath;
+      const writtenPath = await writeBinaryFile(app, outPath, data);
+      new Notice(`Export réussi : ${writtenPath}`);
+      return writtenPath;
     } else if (format === "odt") {
       const data = await exportOdt(app, settings, ctx);
       const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "odt") : normalizePath(`${outBase}/${baseName}.odt`);
-      await writeBinaryFile(app, outPath, data);
-      new Notice(`Export réussi : ${outPath}`);
-      return outPath;
+      const writtenPath = await writeBinaryFile(app, outPath, data);
+      new Notice(`Export réussi : ${writtenPath}`);
+      return writtenPath;
     } else if (format === "pdf") {
       await exportPdf(app, settings, ctx);
     } else {
@@ -930,13 +1029,19 @@ function uniqueBinaryPath(app: App, folderPath: string, baseName: string, extens
  * (docx-review-view.ts#generateRevisedDocx), qui écrit ainsi le .docx
  * régénéré exactement comme n'importe quel export natif Feuillets (créer si
  * absent, sinon modifier en place) — jamais un second mécanisme d'écriture
- * binaire inventé pour ce lot.
+ * binaire inventé pour ce lot. Modifie aussi, à la casse près, un fichier
+ * déjà existant sous un autre nom (voir writeResolvingCaseCollision) —
+ * même politique que le Markdown compilé, jamais un `createBinary()` qui
+ * échoue avec `Error: File already exists.` sur un système de fichiers
+ * insensible à la casse. Renvoie le chemin RÉELLEMENT écrit (celui du
+ * fichier existant retrouvé, casse d'origine préservée, si la cible en
+ * différait uniquement par la casse).
  * @param {import("obsidian").App} app
  * @param {string} path
  * @param {Uint8Array|Blob|ArrayBuffer} data
- * @returns {Promise<void>}
+ * @returns {Promise<string>}
  */
-export async function writeBinaryFile(app: App, path: string, data: Uint8Array | Blob | ArrayBuffer) {
+export async function writeBinaryFile(app: App, path: string, data: Uint8Array | Blob | ArrayBuffer): Promise<string> {
   let buf: ArrayBuffer;
   if (data instanceof ArrayBuffer) {
     buf = data;
@@ -945,10 +1050,11 @@ export async function writeBinaryFile(app: App, path: string, data: Uint8Array |
   } else {
     buf = await data.arrayBuffer();
   }
-  const existing = app.vault.getAbstractFileByPath(path);
-  if (existing instanceof TFile) {
-    await app.vault.modifyBinary(existing, buf);
-  } else {
-    await app.vault.createBinary(path, buf);
-  }
+  const written = await writeResolvingCaseCollision(
+    app,
+    path,
+    (existing) => app.vault.modifyBinary(existing, buf),
+    (p) => app.vault.createBinary(p, buf)
+  );
+  return written.path;
 }

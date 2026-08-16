@@ -55,21 +55,53 @@ test("_Feuillets : un emplacement legacy existant reste prioritaire", () => {
   assert.equal(vault.getAbstractFileByPath(canonical.path), null);
 });
 
-test("réglages V2 : six catégories, déplacements et traductions FR/EN", () => {
+/* §19/§40 du chantier « espace central » : plus que CINQ catégories dans les
+ * Paramètres — « Composition & export » a quitté l'interface pour l'espace
+ * central Édition. Aucune clé persistée n'est supprimée pour autant (voir le
+ * test « aucune clé de réglage n'est retirée » ci-dessous).
+ *
+ * Phase E du chantier « panneau Projet + métadonnées + mapping YAML » :
+ * l'onglet « Projet » a lui aussi quitté les Paramètres — QUATRE catégories
+ * restent (§26). Les neuf réglages qu'il exposait vivent désormais dans le
+ * panneau latéral Projet, chacun testé (test/sidebar-feuillets-view.test.js)
+ * avant cette suppression. */
+test("réglages V2 : quatre catégories (plus de Projet), déplacements et traductions FR/EN", () => {
   const source = readFileSync("src/settings/feuillets-setting-tab.ts", "utf8");
   const fr = readFileSync("src/i18n/fr.ts", "utf8");
   const en = readFileSync("src/i18n/en.ts", "utf8");
-  assert.match(source, /const ORDER = \["Projet", "Écriture", "Interface", "Vues", "Sauvegarde & historique", "Composition & export"\]/);
+  assert.match(source, /const ORDER = \["Écriture", "Interface", "Vues", "Sauvegarde & historique"\]/);
+  assert.doesNotMatch(source, /"Composition & export"/);
+  assert.doesNotMatch(source, /renderExportCategory\(/);
   assert.doesNotMatch(source, /"Correction": \(c\)/);
-  assert.match(source, /d\.addOption\("free", t\("settings\.projectType\.free"\)\)/);
+  assert.doesNotMatch(source, /"Projet"/, "l'onglet Projet a quitté les Paramètres (Phase E)");
+  assert.doesNotMatch(source, /private renderProjetCategory/, "renderProjetCategory est supprimée, pas seulement débranchée");
   assert.match(source, /private renderBackupCategory/);
-  assert.match(source, /private renderExportCategory[\s\S]*settings\.section\.numbering/);
   assert.match(source, /private renderPanneauxCategory[\s\S]*settings\.autoAnalyzeInRelecture/);
-  assert.doesNotMatch(source.slice(source.indexOf("private renderProjetCategory"), source.indexOf("private renderEcritureCategory")), /settings\.(activeProject|projectPath|chronoFolder|journalFolder|demoProject)/);
   for (const text of [fr, en]) {
     assert.match(text, /settings\.category\.views/);
     assert.match(text, /settings\.category\.backupHistory/);
-    assert.match(text, /settings\.category\.compositionExport/);
+    // Traduction historique conservée (lue par le panneau Projet, voir
+    // sidebar-feuillets-view.ts renderProjectInfoPage), même si elle n'est
+    // plus référencée depuis les Paramètres.
     assert.match(text, /settings\.projectType\.free/);
+  }
+});
+
+/* §19 : le chantier déplace l'INTERFACE, jamais le stockage — un data.json
+ * legacy doit rester intégralement valide. */
+test("réglages : aucune clé de réglage n'est retirée par le déplacement de l'onglet Composition & export", () => {
+  const defaults = readFileSync("src/default-settings.ts", "utf8");
+  for (const key of [
+    "pdfPageSize", "pdfOrientation", "pdfMarginTop", "pdfMarginBottom", "pdfMarginLeft", "pdfMarginRight",
+    "pdfMirrorMargins", "pdfDiffHeaders", "pdfEnableHeaders", "pdfEnableFooters",
+    "pdfHeaderLeft", "pdfHeaderCenter", "pdfHeaderRight", "pdfFooterLeft", "pdfFooterCenter", "pdfFooterRight",
+    "pdfHeaderDistanceCm", "pdfFooterDistanceCm", "pdfHeaderBodyGapPt", "pdfFooterBodyGapPt",
+    "pdfPageNumberPosition", "pdfHideFirstPageHeader",
+    "level1Role", "chapterNumbering", "sceneNumbering", "autoRename", "renamePrefix",
+    "insertFolderTitles", "insertTitles", "insertSceneTitles", "footnoteRenumberOnCompile",
+    "manuscriptTitle", "manuscriptAuthor", "separator", "compilePresets", "exportFrenchTypography",
+    "epubLanguage", "exportTemplate", "exportFormat",
+  ]) {
+    assert.ok(new RegExp(`\\b${key}:`).test(defaults), `${key} reste déclarée dans DEFAULT_SETTINGS`);
   }
 });

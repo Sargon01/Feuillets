@@ -83,7 +83,7 @@ export function frontTitleCandidates(app: App, plugin: FirstPagePanelPlugin): TF
  * Extrait mécaniquement de ExportPanel (Phase 3) : même DOM (à l'exception
  * du wrapper, renommé hors du vocabulaire « preview-export », voir
  * styles.css), mêmes classes de contrôle, même comportement — seul
- * l'emplacement du code change. Monté aussi bien par EditionCompositionView
+ * l'emplacement du code change. Monté aussi bien par EditionCompositionContent
  * (Édition → Composition de l'ouvrage, sans callback) que par tout futur
  * consommateur qui voudrait informer une présentation déjà affichée
  * (callback facultatif).
@@ -189,6 +189,27 @@ export class FirstPagePanel {
     const body = container.createDiv({ cls: "feuillets-first-page-body" });
     this.bodyEl = body;
     if (this.expanded) await this.renderFields(body);
+  }
+
+  /** Statut bref pour une ligne-résumé externe (Composition → sommaire,
+   * §3-§6 du dernier lot UX avant 2.5) : même calcul que le corps du
+   * panneau (`frontTitleState`), exposé pour qu'aucun appelant n'ait à
+   * réimplémenter cette logique. */
+  statusLabel(): string {
+    const { files, included } = this.frontTitleState();
+    if (!files.length) return t("preview.export.noTitleFrontFile");
+    return included ? t("compositionSummary.firstPageIncluded") : t("compositionSummary.firstPageExcluded");
+  }
+
+  /** Rendu direct du contenu, SANS la ligne-résumé ni son chevron —
+   * utilisé par une sous-page dédiée qui affiche déjà son propre titre
+   * (Composition → Première page, §6 du dernier lot UX avant 2.5) : un
+   * chevron d'accordéon y serait redondant. Mêmes champs, même état, mêmes
+   * callbacks que render() — seule la ligne-résumé disparaît. */
+  async renderExpandedFields(container: HTMLElement): Promise<void> {
+    this.expanded = true;
+    this.bodyEl = container;
+    await this.renderFields(container);
   }
 
   /** Réactualise SEULEMENT le contenu, sans toucher au <details> qui

@@ -1,6 +1,7 @@
 import { TFolder, TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { fmOf } from "./frontmatter.js";
+import { naturalCompare } from "../utils/core.js";
 
 type ProjectNode = TFile | TFolder;
 
@@ -366,7 +367,10 @@ export function getOrderedChildren(
     if (pa !== null && pb !== null && pa !== pb) return pa - pb;
     if (pa !== null && pb === null) return -1;
     if (pa === null && pb !== null) return 1;
-    return a.name.localeCompare(b.name, "fr");
+    /* §Tri naturel : uniquement le fallback final, quand ni l'ordre
+       Binder (savedIndex) ni la position explicite (order/folderPositions)
+       ne départagent — jamais prioritaire sur eux. */
+    return naturalCompare(a.name, b.name);
   });
 }
 

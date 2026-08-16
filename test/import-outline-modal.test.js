@@ -130,18 +130,34 @@ function importFixture() {
   const { vault, files } = createFakeVault([project]);
   const orders = new Map();
   let renderCalls = 0;
-  const app = { vault };
+  const app = { vault, metadataCache: { getFileCache: () => null } };
+  const settings = { wordGoal: 750, orders: {}, folderPositions: {}, compileFileName: "Manuscrit.md" };
   const plugin = {
-    settings: { wordGoal: 750 },
+    settings,
     getProjectFolder: () => project,
     ensureFolder: (path) => vault.createFolder(path),
-    writeOrder: async (parent, children) => orders.set(parent.path, children.map((child) => child.name)),
+    // Même source canonique que le Binder (jamais `folder.children` brut) :
+    // c'est elle que la préservation de l'ordre préexistant (§6 du
+    // micro-correctif) interroge AVANT d'écrire les nouveaux enfants.
+    getOrderedChildren: (folder) => getOrderedChildren(app, settings, folder),
+    // Reflète aussi le VRAI mécanisme d'ordre (settings.orders/folderPositions,
+    // voir main.ts writeOrder) — pas seulement la Map `orders` d'assertion
+    // historique — pour que `getOrderedChildren` (donc le Binder réel) le
+    // restitue fidèlement dans les tests qui le vérifient directement.
+    writeOrder: async (parent, children) => {
+      orders.set(parent.path, children.map((child) => child.name));
+      settings.orders[parent.path] = children.map((c) => c.name);
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (!(child instanceof TFile)) settings.folderPositions[child.path] = i + 1;
+      }
+    },
     renderAllViews: () => { renderCalls++; },
   };
   const modal = Object.create(ImportOutlineModal.prototype);
   modal.app = app;
   modal.plugin = plugin;
-  return { modal, vault, files, orders, renderCalls: () => renderCalls };
+  return { modal, vault, files, orders, settings, app, renderCalls: () => renderCalls };
 }
 
 test("import outline : crée dossiers, scènes et ordre à partir des titres Markdown", async () => {
@@ -174,6 +190,71 @@ test("import outline : ne remplace pas une scène existante, avance au prochain 
   assert.ok(created instanceof TFile, "la ligne du plan n'est jamais perdue à cause d'une collision technique");
   assert.match(await vault.read(created), /title: "Nouvelle scène"/);
   assert.equal(files.size, 3);
+});
+
+/* ===== Micro-correctif « préserver l'ordre source des imports » ===== */
+
+test("import outline : plan source sans numérotation (Zeta, Alpha, Milieu) — ordre EXACT conservé, jamais retrié", async () => {
+  const { modal, vault, orders, settings, app } = importFixture();
+
+  await modal.importOutline("- Zeta\n- Alpha\n- Milieu");
+
+  const sceneZeta = vault.getAbstractFileByPath("Projet/scene-001.md");
+  const sceneAlpha = vault.getAbstractFileByPath("Projet/scene-002.md");
+  const sceneMilieu = vault.getAbstractFileByPath("Projet/scene-003.md");
+  assert.match(await vault.read(sceneZeta), /title: "Zeta"/);
+  assert.match(await vault.read(sceneAlpha), /title: "Alpha"/);
+  assert.match(await vault.read(sceneMilieu), /title: "Milieu"/);
+
+  assert.deepEqual(orders.get("Projet"), ["scene-001.md", "scene-002.md", "scene-003.md"]);
+  // Preuve à travers le VRAI mécanisme d'ordre (celui que le Binder lit) :
+  // le tri naturel, qui donnerait Alpha/Milieu/Zeta, n'est jamais atteint.
+  const project = vault.getAbstractFileByPath("Projet");
+  const names = getOrderedChildren(app, settings, project).map((c) => c.name);
+  assert.deepEqual(names, ["scene-001.md", "scene-002.md", "scene-003.md"]);
+});
+
+test("import outline : hiérarchie (Partie X → Scène C/A/B) — ordre exact conservé à chaque niveau", async () => {
+  const { modal, vault, orders } = importFixture();
+
+  await modal.importOutline("# Partie X\n- Scène C\n- Scène A\n- Scène B");
+
+  const partieX = vault.getAbstractFileByPath("Projet/Partie X");
+  assert.deepEqual(orders.get("Projet"), ["Partie X"]);
+  const sceneList = orders.get(partieX.path);
+  assert.deepEqual(sceneList, ["scene-001.md", "scene-002.md", "scene-003.md"]);
+  const titles = await Promise.all(
+    sceneList.map(async (name) => {
+      const content = await vault.read(vault.getAbstractFileByPath(`${partieX.path}/${name}`));
+      return content.match(/^title: "(.*)"$/m)[1];
+    })
+  );
+  assert.deepEqual(titles, ["Scène C", "Scène A", "Scène B"]);
+});
+
+test("import outline : import partiel — un dossier FRONT préexistant hors périmètre n'est ni déplacé ni retrié", async () => {
+  const { modal, vault, orders } = importFixture();
+  await vault.createFolder("Projet/FRONT");
+
+  await modal.importOutline("# Chapitre A\n# Chapitre B\n# Chapitre C");
+
+  // FRONT reste en tête (position préexistante), les nouveaux chapitres
+  // s'ajoutent ensuite dans l'ordre EXACT du plan — jamais mélangés ni
+  // retriés alphabétiquement (Chapitre A/B/C coïncide ici avec l'ordre
+  // alphabétique, mais c'est bien l'ordre du plan qui est écrit).
+  assert.deepEqual(orders.get("Projet"), ["FRONT", "Chapitre A", "Chapitre B", "Chapitre C"]);
+});
+
+test("import outline : même noms, ordre importé explicite (Chapter 10, Chapter 2, Chapter 1) — l'ordre importé gagne sur le tri naturel", async () => {
+  const { modal, vault, settings, app } = importFixture();
+
+  await modal.importOutline("# Chapter 10\n# Chapter 2\n# Chapter 1");
+
+  const project = vault.getAbstractFileByPath("Projet");
+  const names = getOrderedChildren(app, settings, project).map((c) => c.name);
+  // Le tri naturel donnerait Chapter 1, Chapter 2, Chapter 10 : l'ordre
+  // importé (celui du plan source) doit primer intégralement.
+  assert.deepEqual(names, ["Chapter 10", "Chapter 2", "Chapter 1"]);
 });
 
 test("import outline : constructeur sans initialText — textarea vide, comportement historique", () => {

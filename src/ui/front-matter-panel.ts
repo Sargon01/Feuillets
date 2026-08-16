@@ -112,6 +112,16 @@ export class FrontMatterPanel {
     if (this.expanded) this.renderList(body);
   }
 
+  /** Rendu direct de la liste, SANS la ligne-résumé ni son chevron —
+   * utilisé par une sous-page dédiée qui affiche déjà son propre titre
+   * (Composition → Pages liminaires, §6 du dernier lot UX avant 2.5) : même
+   * contrat que FirstPagePanel.renderExpandedFields(). */
+  async renderExpandedList(container: HTMLElement): Promise<void> {
+    this.expanded = true;
+    this.bodyEl = container;
+    this.renderList(container);
+  }
+
   /** Réactualise SEULEMENT la liste, sans toucher au <details> qui
    * l'enveloppe : basculer une inclusion ne doit ni refermer la
    * sous-section ni faire sauter le focus ailleurs dans l'écran — même

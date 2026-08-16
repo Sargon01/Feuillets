@@ -1,4 +1,6 @@
 import { getProjectStatuses, VIEW_SCRIVENINGS } from "../constants.js";
+import { projectWordGoalDefault, projectTolerance } from "../services/project-settings.js";
+import { writeLogicalFrontmatterField, isMappableField } from "../services/frontmatter.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
@@ -31,6 +33,7 @@ function getResearchSectionIcon(key: string): string {
       glossaire: "spell-check",
       evenements: "calendar",
       coffre: "archive",
+      linked: "link",
     } as Record<string, string>
   )[key] || "info";
 }
@@ -556,7 +559,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   makeStatusSelect(parent: HTMLElement, file: TFile): HTMLSelectElement {
     const fm = this.fm(file);
-    const statuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
+    const statuses = getProjectStatuses(this.app, this.plugin ? this.plugin.settings : null);
     const sel = parent.createEl("select", { cls: "feuillets-status" });
     for (const s of statuses) {
       const opt = sel.createEl("option", { text: s || "—" });
@@ -873,6 +876,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     this.researchFilterActive =
       !!(S.researchSearch || "").trim() || !!S.researchTagFilter;
 
+    this.renderAssociatedResearchFolders(body, baseResearchFolder);
+
     if (rf.sources && sourcesFolder) {
       /* Non-fiction : Sources est la SEULE bibliothèque de travail —
          icône "+" par fiche pour la citer directement (voir aussi le
@@ -985,6 +990,63 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     this.filterEntities();
+  }
+
+  /** Projette dans le panneau Recherche les dossiers associés depuis le
+   * Binder (`researchFolderLinks`, voir plugin.getLinkedResearchFolders())
+   * qui ne sont pas déjà visibles naturellement sous la racine Recherche du
+   * projet — typiquement un dossier hors projet. Aucun nouveau modèle : on
+   * ne fait que RENDRE, en lecture seule (voir le paramètre `external` de
+   * renderSection), une association qui existe déjà. Un même dossier associé
+   * à plusieurs nœuds du Binder n'apparaît qu'une fois, avec ses
+   * associations listées de façon compacte. */
+  private renderAssociatedResearchFolders(
+    container: HTMLElement,
+    baseResearchFolder: TFolder | null
+  ): void {
+    const associated = this.plugin
+      .getLinkedResearchFolders()
+      .filter(({ folder }) => {
+        if (!baseResearchFolder) return true;
+        return (
+          folder.path !== baseResearchFolder.path &&
+          !folder.path.startsWith(`${baseResearchFolder.path}/`)
+        );
+      })
+      .sort((a, b) => a.folder.name.localeCompare(b.folder.name, "fr"));
+    if (associated.length === 0) return;
+
+    const groupHead = container.createDiv({
+      cls: "feuillets-research-linked-group",
+    });
+    groupHead
+      .createSpan({
+        cls: "feuillets-notes-section-title feuillets-research-linked-group-title",
+      })
+      .setText(t("shared.research.linkedFolders"));
+
+    for (const { folder, binderNodes } of associated) {
+      const labels = binderNodes
+        .map((n) => (n instanceof TFile ? this.plugin.titleFor(n) : n.name))
+        .sort((a, b) => a.localeCompare(b, "fr"));
+      this.renderSection(
+        container,
+        folder.name,
+        folder,
+        undefined,
+        "linked",
+        undefined,
+        (head) => {
+          head.setAttr("title", folder.path);
+          if (labels.length > 0) {
+            head
+              .createSpan({ cls: "feuillets-research-linked-badge" })
+              .setText(labels.join(" · "));
+          }
+        },
+        true
+      );
+    }
   }
 
   async renderFileView(container: HTMLElement, file: TFile, _root: TFolder | null): Promise<void> {
@@ -1115,7 +1177,9 @@ export abstract class BaseFeuilletsView extends ItemView {
     folderOrFiles: TFolder | TFile[],
     onCreate?: () => Promise<void>,
     iconKey?: string,
-    rowAction?: (header: HTMLElement, file: TFile) => void
+    rowAction?: (header: HTMLElement, file: TFile) => void,
+    headerExtra?: (head: HTMLElement) => void,
+    external?: boolean
   ): void {
     const collapseKey =
       folderOrFiles instanceof TFolder
@@ -1143,6 +1207,8 @@ export abstract class BaseFeuilletsView extends ItemView {
       onCreate: onCreate ? () => { void onCreate(); } : undefined,
     });
 
+    if (headerExtra) headerExtra(head);
+
     // Ajouter l'attribut data pour identifier le dossier
     if (folderOrFiles instanceof TFolder && typeof head.setAttribute === "function") {
       head.setAttribute("data-research-folder-path", folderOrFiles.path);
@@ -1152,8 +1218,12 @@ export abstract class BaseFeuilletsView extends ItemView {
     /* Chaque rubrique Recherche correspond à un vrai dossier. Le menu rend
        donc accessibles les mêmes opérations d'arborescence que dans le
        Binder, y compris les sous-dossiers utiles à une future association
-       entre une partie du Binder et sa documentation. */
-    if (folderOrFiles instanceof TFolder) {
+       entre une partie du Binder et sa documentation.
+       `external` (dossier associé depuis le Binder mais hors de la racine
+       Recherche du projet — voir renderAssociatedResearchFolders) reste en
+       lecture/navigation seule : ni menu d'actions d'écriture, ni cible de
+       dépôt — on ne modifie jamais un dossier documentaire externe. */
+    if (folderOrFiles instanceof TFolder && !external) {
       const actions = this.iconBtn(head, "more-horizontal", t("shared.research.folderActions"));
       actions.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1167,9 +1237,9 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     /* Glisser-déposer : une rubrique adossée à un vrai dossier (pas la vue
        agrégée "Coffre") devient une cible de dépôt — on y déplace le fichier
-       glissé depuis une autre rubrique. */
+       glissé depuis une autre rubrique. Jamais pour un dossier externe. */
     const destFolder = folderOrFiles instanceof TFolder ? folderOrFiles : null;
-    if (destFolder) this.attachResearchDropTarget(section, destFolder);
+    if (destFolder && !external) this.attachResearchDropTarget(section, destFolder);
 
     if (folderOrFiles instanceof TFolder) {
       /* Afficher les sous-dossiers avant les fichiers (ordre
@@ -1178,7 +1248,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .filter((c): c is TFolder => c instanceof TFolder)
         .sort((a, b) => a.name.localeCompare(b.name, "fr"));
       for (const sf of subfolders) {
-        this.renderResearchSubfolder(list, sf);
+        this.renderResearchSubfolder(list, sf, external);
       }
     }
 
@@ -1205,20 +1275,24 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     for (const f of files) {
-      this.renderResearchFileRow(list, f, folderOrFiles, rowAction);
+      this.renderResearchFileRow(list, f, folderOrFiles, rowAction, external);
     }
   }
 
-  /** Affiche une ligne de fichier dans une rubrique de recherche. */
+  /** Affiche une ligne de fichier dans une rubrique de recherche.
+   * `external` : fichier d'un dossier associé hors racine Recherche — pas
+   * de source de glisser-déposer, pour ne jamais déplacer un fichier hors
+   * de son dossier documentaire d'origine. */
   private renderResearchFileRow(
     list: HTMLElement,
     f: TFile,
     folderOrFiles: TFolder | TFile[],
-    rowAction?: (header: HTMLElement, file: TFile) => void
+    rowAction?: (header: HTMLElement, file: TFile) => void,
+    external?: boolean
   ): void {
     const isMedia = isImageFile(f) || isPdfFile(f);
     const row = list.createDiv({ cls: "feuillets-research-item" });
-    this.attachResearchDragSource(row, f);
+    if (!external) this.attachResearchDragSource(row, f);
     const header = row.createDiv({ cls: "feuillets-research-item-header" });
 
     if (isImageFile(f)) {
@@ -1234,8 +1308,9 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     this.addPreviewBtn(header, f);
 
-    /* Menu contextuel ⋯ sur chaque fichier : Renommer, Dupliquer, Corbeille. */
-    if (!isMedia) {
+    /* Menu contextuel ⋯ sur chaque fichier : Renommer, Dupliquer, Corbeille.
+       Jamais pour un fichier d'un dossier associé externe (lecture seule). */
+    if (!isMedia && !external) {
       const fileActionsBtn = this.iconBtn(header, "more-horizontal", t("shared.research.folderActions"));
       fileActionsBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1311,10 +1386,15 @@ export abstract class BaseFeuilletsView extends ItemView {
    *  son icône, son menu d'actions et son contenu (sous-dossiers d'abord,
    *  puis fichiers). La ligne entière est cliquable pour replier/déplier le
    *  contenu ; l'état est persisté dans S.collapsed sous la clé
-   *  `research-folder:${folder.path}` (même mécanique que les rubriques). */
+   *  `research-folder:${folder.path}` (même mécanique que les rubriques).
+   *  `external` (hérité du dossier racine associé, voir renderSection) :
+   *  ni menu d'actions, ni glisser-déposer, à quelque profondeur que ce
+   *  soit — un sous-dossier d'un dossier externe reste, lui aussi,
+   *  strictement en lecture. */
   private renderResearchSubfolder(
     parentList: HTMLElement,
-    folder: TFolder
+    folder: TFolder,
+    external?: boolean
   ): void {
     const S = this.plugin.settings;
     const collapseKey = `research-folder:${folder.path}`;
@@ -1356,20 +1436,27 @@ export abstract class BaseFeuilletsView extends ItemView {
        permet de le déplacer vers une rubrique principale, vers un autre
        sous-dossier, ou vers son dossier parent (les cas interdits — dans
        lui-même, dans un descendant, conflit de nom, sortie de _Recherche —
-       sont refusés par attachResearchDropTarget). */
-    this.attachResearchDragSource(subItem, folder);
-    this.attachResearchDropTarget(subItem, folder);
+       sont refusés par attachResearchDropTarget). Jamais pour un dossier
+       externe : ni source (le sortir déplacerait le dossier documentaire
+       de l'autrice), ni cible. */
+    if (!external) {
+      this.attachResearchDragSource(subItem, folder);
+      this.attachResearchDropTarget(subItem, folder);
+    }
 
-    /* Menu d'actions (⋮) identique à celui des dossiers racines. */
-    const actions = this.iconBtn(
-      header,
-      "more-horizontal",
-      t("shared.research.folderActions")
-    );
-    actions.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.showResearchFolderContextMenu(e, folder);
-    });
+    /* Menu d'actions (⋮) identique à celui des dossiers racines — absent
+       pour un dossier externe (lecture seule). */
+    if (!external) {
+      const actions = this.iconBtn(
+        header,
+        "more-horizontal",
+        t("shared.research.folderActions")
+      );
+      actions.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showResearchFolderContextMenu(e, folder);
+      });
+    }
 
     if (collapsed) return;
 
@@ -1382,7 +1469,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       .filter((c): c is TFolder => c instanceof TFolder)
       .sort((a, b) => a.name.localeCompare(b.name, "fr"));
     for (const sf of subfolders) {
-      this.renderResearchSubfolder(nestedList, sf);
+      this.renderResearchSubfolder(nestedList, sf, external);
     }
 
     const files = folder.children
@@ -1391,7 +1478,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), "fr")
       );
     for (const f of files) {
-      this.renderResearchFileRow(nestedList, f, folder);
+      this.renderResearchFileRow(nestedList, f, folder, undefined, external);
     }
 
     if (subfolders.length === 0 && files.length === 0) {
@@ -2249,7 +2336,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     } else if (file.extension === "md" && file.path.startsWith(`${this.plugin.getProjectFolder()?.path || "\0"}/`)) {
       menu.addItem((item) =>
         item
-          .setTitle("Ajouter au Carnet")
+          .setTitle(t("shared.contextMenu.addToNotebook"))
           .setIcon("notebook")
           .onClick(() => { void this.plugin.addFileToNotebook(file); })
       );
@@ -2355,7 +2442,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
-    menu.addItem((item) => item.setTitle("Nouveau feuillet…").setIcon("file-plus").onClick((evt) =>
+    menu.addItem((item) => item.setTitle(t("shared.contextMenu.newSheetMenu")).setIcon("file-plus").onClick((evt) =>
       showChoices(evt, e, (choices) => {
         choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetBefore")).setIcon("corner-left-up").onClick(() => plugin.newSheetAt(asFolder(parent), index)));
         choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetAfter")).setIcon("corner-left-down").onClick(() => plugin.newSheetAt(asFolder(parent), index + 1)));
@@ -2364,8 +2451,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     menu.addSeparator();
 
     const currentStatus = (this.fm(file).status as string) || "";
-    const allStatuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
-    menu.addItem((item) => item.setTitle("Changer le statut…").setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
+    const allStatuses = getProjectStatuses(this.app, this.plugin ? this.plugin.settings : null);
+    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const st of allStatuses.filter(Boolean)) {
       choices.addItem((item) =>
         item
@@ -2373,7 +2460,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           .setChecked(!isGroup && st === currentStatus)
           .onClick(async () => {
             if (isGroup) await this.applyBulkStatus(groupFiles, st);
-            else await this.setFm(file, "statut", st === currentStatus ? "" : st);
+            else await this.setFm(file, "status", st === currentStatus ? "" : st);
           })
       );
     }
@@ -2381,7 +2468,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     menu.addSeparator();
 
     const currentLabel = plugin.labelOf(file);
-    menu.addItem((item) => item.setTitle("Changer le label…").setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const l of this.getProjectLabels()) {
       choices.addItem((item) =>
         item
@@ -2406,7 +2493,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       menu.addSeparator();
     }
 
-    menu.addItem((item) => item.setTitle("Recherche associée…").setIcon("search").onClick((evt) =>
+    menu.addItem((item) => item.setTitle(t("binder.research.associatedResearchMenu")).setIcon("search").onClick((evt) =>
       showChoices(evt, e, (choices) => this.addBinderResearchActions(choices, file, researchName))
     ));
     menu.addItem((item) => item.setTitle("Versions…").setIcon("history").onClick((evt) => showChoices(evt, e, (choices) => {
@@ -2476,7 +2563,7 @@ export abstract class BaseFeuilletsView extends ItemView {
               .filter((f): f is TFile => f instanceof TFile);
             const projectRoot = plugin.getProjectFolder();
             if (!projectRoot) {
-              new Notice("Dossier projet introuvable.");
+              new Notice(t("main.notice.projectFolderNotFound"));
               return;
             }
             const { createSelectionScope } = await import("../services/compile-scope.js");
@@ -2493,7 +2580,7 @@ export abstract class BaseFeuilletsView extends ItemView {
             // Compiler ce fichier
             const projectRoot = plugin.getProjectFolder();
             if (!projectRoot) {
-              new Notice("Dossier projet introuvable.");
+              new Notice(t("main.notice.projectFolderNotFound"));
               return;
             }
             const { createFileScope } = await import("../services/compile-scope.js");
@@ -2548,7 +2635,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     extraItems?.(menu);
     menu.addSeparator();
 
-    menu.addItem((item) => item.setTitle("Nouveau…").setIcon("plus").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => item.setTitle(t("shared.contextMenu.newMenu")).setIcon("plus").onClick((evt) => showChoices(evt, e, (choices) => {
       choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetInside")).setIcon("file-plus").onClick(() => plugin.newSheet(folder)));
       choices.addItem((choice) => choice.setTitle(t("binder.newSubfolder")).setIcon("folder-plus").onClick(() => plugin.newFolder(folder)));
     })));
@@ -2593,14 +2680,14 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
-    menu.addItem((item) => item.setTitle("Recherche associée…").setIcon("search").onClick((evt) =>
+    menu.addItem((item) => item.setTitle(t("binder.research.associatedResearchMenu")).setIcon("search").onClick((evt) =>
       showChoices(evt, e, (choices) => this.addBinderResearchActions(choices, folder, folder.name))
     ));
     menu.addSeparator();
 
     const note = plugin.folderNoteFor(folder);
     const currentLabel = note ? plugin.labelOf(note) : "";
-    menu.addItem((item) => item.setTitle("Changer le label…").setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const l of this.getProjectLabels()) {
       choices.addItem((item) =>
         item
@@ -2617,8 +2704,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     })));
     menu.addSeparator();
     const currentStatus = note ? ((this.fm(note).status as string) || "") : "";
-    const allStatuses = getProjectStatuses(plugin ? plugin.settings : null);
-    menu.addItem((item) => item.setTitle("Changer le statut…").setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
+    const allStatuses = getProjectStatuses(this.app, plugin ? plugin.settings : null);
+    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const st of allStatuses.filter(Boolean)) {
       choices.addItem((item) =>
         item
@@ -2627,7 +2714,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           .onClick(async () => {
             const targetNote = note || await plugin.getOrCreateFolderNote(folder);
             if (targetNote) {
-              await this.setFm(targetNote, "statut", st === currentStatus ? "" : st);
+              await this.setFm(targetNote, "status", st === currentStatus ? "" : st);
             }
           })
       );
@@ -2636,7 +2723,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     menu.addSeparator();
 
     menu.addItem((item) => item
-      .setTitle("Organisation…")
+      .setTitle(t("shared.contextMenu.organizationMenu"))
       .setIcon("settings-2")
       .onClick((evt) => showChoices(evt, e, (choices) => {
         choices.addItem((item) => item
@@ -2675,7 +2762,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     // Compilation libre : le sélecteur reste natif, même lorsqu'une seule
     // commande de compilation de dossier est actuellement disponible.
     menu.addItem((item) => item
-      .setTitle("Compilation…")
+      .setTitle(t("shared.contextMenu.compilationMenu"))
       .setIcon("download")
       .onClick((evt) => showChoices(evt, e, (choices) => {
         choices.addItem((item) => item
@@ -2687,7 +2774,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           const { createFolderScope } = await import("../services/compile-scope.js");
           const projectRoot = plugin.getProjectFolder();
           if (!projectRoot) {
-            new Notice("Dossier projet introuvable.");
+            new Notice(t("main.notice.projectFolderNotFound"));
             return;
           }
           const modal = new ExportModal(this.app, plugin, {
@@ -2735,7 +2822,17 @@ export abstract class BaseFeuilletsView extends ItemView {
     return this.plugin.titleFor(file);
   }
 
+  /** §18 du chantier « mapping YAML » : pour les 9 champs logiques
+   * mappables (isMappableField), délègue à l'écrivain logique centralisé
+   * (mapping de projet, variante de casse déjà présente, jamais de clé
+   * dupliquée) — voir services/frontmatter.ts writeLogicalFrontmatterField.
+   * Toute autre clé (tags, colonnes calculées…) continue d'écrire la clé
+   * RAW exacte, exactement comme avant ce chantier. */
   async setFm(file: TFile, key: string, value: unknown): Promise<void> {
+    if (isMappableField(key)) {
+      await writeLogicalFrontmatterField(this.app, this.plugin.settings, file, key, value);
+      return;
+    }
     await this.app.fileManager.processFrontMatter(file, (fm: SceneFrontmatter) => {
       if (
         value === "" ||
@@ -2752,11 +2849,11 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   goalFor(file: TFile): number {
     const g = parseInt(String(this.fm(file).goal), 10);
-    return isNaN(g) ? this.plugin.settings.wordGoal : g;
+    return isNaN(g) ? projectWordGoalDefault(this.app, this.plugin.settings) : g;
   }
 
   ringState(wc: number, goal: number): "none" | "hit" | "over" | "under" {
-    const tol = Number(this.plugin.settings.tolerance);
+    const tol = projectTolerance(this.app, this.plugin.settings);
     if (goal <= 0) return "none";
     if (wc >= goal - tol && wc <= goal + tol) return "hit";
     if (wc > goal + tol) return "over";
@@ -2850,7 +2947,7 @@ export abstract class BaseFeuilletsView extends ItemView {
    * liste de feuillets d'un coup. Centralisé ici pour ne pas avoir deux
    * copies de la même boucle setFm+Notice à maintenir. */
   async applyBulkStatus(files: TFile[], status: string): Promise<void> {
-    for (const f of files) await this.setFm(f, "statut", status);
+    for (const f of files) await this.setFm(f, "status", status);
     new Notice(t("shared.bulk.statusApplied", { status, count: String(files.length), s: files.length > 1 ? "s" : "" }));
   }
 

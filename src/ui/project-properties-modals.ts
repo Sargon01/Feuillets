@@ -4,6 +4,7 @@ import { openFileActivating } from "../utils/dom.js";
 import { buildTagTree, collectFiles, sortTagNodes } from "../utils/tag-tree.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { t } from "../i18n/index.js";
+import { rawFrontmatterOf } from "../services/frontmatter.js";
 
 const STRUCTURAL_TAGS = new Set([
   "personnage", "lieu", "evenement", "codex", "source", "bibliographie", "glossaire",
@@ -13,7 +14,6 @@ type ProjectPropertiesPlugin = {
   getProjectFolder(): TFolder | null;
   getResearchRoot(): TFolder | null;
   flattenFiles(folder: TFolder): TFile[];
-  fmOf(file: TFile): Record<string, unknown>;
   shortTitleFor(file: TFile): string;
   tagsOf(file: TFile): string[];
 };
@@ -82,7 +82,11 @@ export class ProjectPropertiesModal extends Modal {
     const fileIndex = new Map(files.map((f) => [f.path, f]));
     const propMap = new Map<string, Map<string, Set<string>>>();
     for (const f of files) {
-      const fm = this.plugin.fmOf(f);
+      // §19 du chantier « mapping YAML » : cet inspecteur liste les
+      // propriétés PHYSIQUES des fichiers — RAW, jamais fmOf() (qui
+      // appliquerait alias/mapping et ferait apparaître une clé logique en
+      // plus de la clé réelle, ex. « Synopsis » ET « synopsis »).
+      const fm = rawFrontmatterOf(this.app, f);
       for (const [key, value] of Object.entries(fm)) {
         if (key === "tags") continue;
         if (!propMap.has(key)) propMap.set(key, new Map());
@@ -107,7 +111,7 @@ export class ProjectPropertiesModal extends Modal {
       const valMap = propMap.get(key)!;
       const totalFiles = new Set([...valMap.values()].flatMap((s) => [...s])).size;
       const isExpanded = this.expandedProps.has(key);
-      const activeHasKey = activeFile ? key in this.plugin.fmOf(activeFile) : true;
+      const activeHasKey = activeFile ? key in rawFrontmatterOf(this.app, activeFile) : true;
       const canAdd = !!activeFile && !activeHasKey;
 
       const row = list.createDiv({ cls: "feuillets-tags-row" });

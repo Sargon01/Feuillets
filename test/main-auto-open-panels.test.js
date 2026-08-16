@@ -136,13 +136,18 @@ test("manage-projects ouvre ManageProjectsModal sans activer l'onglet Édition",
   }
 });
 
-test("les commandes Édition et export conservent leurs destinations", () => {
+/* §11 du chantier « espace central » : `open-project`, `open-export` et
+ * `pdf-style-modal` passent TOUTES par le point d'entrée unique
+ * `activateCentralSurface(surface, editionMode)` — jamais par une leaf Édition
+ * autonome (supprimée), jamais par un second parcours d'ouverture. */
+test("open-project / open-export / pdf-style-modal passent par activateCentralSurface avec le bon mode", async () => {
   const commands = [];
   const calls = [];
   const plugin = Object.create(FeuilletsPlugin.prototype);
   plugin.addCommand = (command) => commands.push(command);
-  plugin.activateProject = () => { calls.push("project"); };
-  plugin.activateEditionLayout = () => { calls.push("layout"); };
+  let activateProjectCalls = 0;
+  plugin.activateProject = () => { activateProjectCalls += 1; };
+  plugin.activateCentralSurface = async (surface, mode) => { calls.push([surface, mode]); };
 
   plugin.registerCoreCommands();
 
@@ -151,47 +156,76 @@ test("les commandes Édition et export conservent leurs destinations", () => {
     assert.ok(command, `la commande ${id} reste enregistrée`);
     command.callback();
   }
-  assert.deepEqual(calls, ["project", "layout", "layout"]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(calls, [
+    ["edition", "composition"],
+    ["edition", "export"],
+    ["edition", "layout"],
+  ]);
+  assert.equal(activateProjectCalls, 0, "n'ouvre plus le panneau latéral");
 });
 
-test("activateEditionLayout déplie seulement Mise en page & export et la fait défiler", async () => {
-  const saved = [];
-  const openedTabs = [];
-  const scrolled = [];
+/* `open-board` conserve son comportement historique : la surface centrale
+ * n'est jamais forcée par cette commande. */
+test("open-board garde son comportement historique (activateBoard, aucune surface forcée)", () => {
+  const commands = [];
+  const calls = [];
   const plugin = Object.create(FeuilletsPlugin.prototype);
-  plugin.settings = {
-    collapsed: {
-      "editionLayout:panel": true,
-      "editionComposition:panel": true,
-      unrelated: false,
+  plugin.addCommand = (command) => commands.push(command);
+  plugin.activateBoard = () => { calls.push("board"); };
+  plugin.activateCentralSurface = async () => { calls.push("central"); };
+
+  plugin.registerCoreCommands();
+  commands.find((registered) => registered.id === "open-board").callback();
+
+  assert.deepEqual(calls, ["board"]);
+});
+
+/* Correctif "les contrôles Export ne fonctionnent pas" (§3/§5C) : les
+ * commandes directes export-docx/export-pdf/export-epub restent câblées
+ * exactement comme avant le dernier lot UX — this.exportFile(format), le
+ * même moteur qu'avant, jamais un second chemin. */
+test("export-docx / export-pdf / export-epub restent câblées à this.exportFile(format), inchangé par le dernier lot UX", () => {
+  const commands = [];
+  const calls = [];
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  plugin.addCommand = (command) => commands.push(command);
+  plugin.exportFile = (format) => { calls.push(format); };
+
+  plugin.registerCoreCommands();
+
+  for (const [id, expectedFormat] of [["export-docx", "docx"], ["export-epub", "epub"], ["export-pdf", "pdf"]]) {
+    const command = commands.find((registered) => registered.id === id);
+    assert.ok(command, `la commande ${id} reste enregistrée`);
+    calls.length = 0;
+    command.callback();
+    assert.deepEqual(calls, [expectedFormat], `${id} atteint bien exportFile("${expectedFormat}")`);
+  }
+});
+
+/* §11 : activateCentralSurface réutilise la leaf VIEW_BOARD existante — elle
+ * n'en crée jamais une seconde et ne crée aucune leaf « Édition ». */
+test("activateCentralSurface réutilise la leaf Tableau et lui transmet la surface", async () => {
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  const received = [];
+  const boardLeaf = {
+    isDeferred: false,
+    loadIfDeferred: async () => {},
+    view: {
+      async setCentralSurface(surface, mode) { received.push([surface, mode]); },
     },
   };
-  plugin.saveSettings = async () => { saved.push(true); };
-  plugin.activateSidebarView = async (tab) => { openedTabs.push(tab); };
+  let activateBoardCalls = 0;
+  plugin.activateBoard = async () => { activateBoardCalls += 1; };
   plugin.app = {
     workspace: {
-      getLeavesOfType() {
-        return [{
-          view: {
-            contentEl: {
-              querySelector(selector) {
-                assert.equal(selector, ".feuillets-edition-layout-container");
-                return { scrollIntoView(options) { scrolled.push(options); } };
-              },
-            },
-          },
-        }];
-      },
+      getLeavesOfType: (type) => (type === "feuillets-board" ? [boardLeaf] : []),
     },
   };
 
-  await plugin.activateEditionLayout();
+  await plugin.activateCentralSurface("edition", "layout");
 
-  assert.deepEqual(plugin.settings.collapsed, {
-    "editionComposition:panel": true,
-    unrelated: false,
-  });
-  assert.deepEqual(saved, [true]);
-  assert.deepEqual(openedTabs, ["project"]);
-  assert.deepEqual(scrolled, [{ behavior: "smooth", block: "nearest" }]);
+  assert.equal(activateBoardCalls, 1, "la leaf Tableau est révélée/réutilisée par activateBoard");
+  assert.deepEqual(received, [["edition", "layout"]]);
 });

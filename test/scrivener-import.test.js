@@ -1261,6 +1261,73 @@ test("buildScrivenerImportPlan — structure", async (t) => {
   });
 });
 
+/* ===== Micro-correctif « préserver l'ordre source des imports » (Scrivener) =====
+ * Le Binder Scrivener possède déjà un ordre explicite (l'ordre des balises
+ * <BinderItem> dans le .scrivx) : ni parseScrivx (extraction), ni
+ * buildScrivenerImportPlan (planification consommée dans l'ORDRE EXACT par
+ * ScrivenerPlanCursor, voir scrivener-import-modal.ts) ne doivent jamais le
+ * retrier — ni par nom, ni par tri naturel. C'est cet ordre, dans cette
+ * séquence, que writeManuscriptChildren transmet ensuite tel quel à
+ * plugin.writeOrder(). */
+test("Micro-correctif ordre — parseScrivx conserve l'ordre EXACT du Binder (Chapter Z, Chapter A, Chapter M), même lexicalement désordonné", () => {
+  const parsed = parseScrivx(`<ScrivenerProject><Binder>
+    <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+      <Children>
+        <BinderItem UUID="cz" Type="Text"><Title>Chapter Z</Title></BinderItem>
+        <BinderItem UUID="ca" Type="Text"><Title>Chapter A</Title></BinderItem>
+        <BinderItem UUID="cm" Type="Text"><Title>Chapter M</Title></BinderItem>
+      </Children>
+    </BinderItem>
+  </Binder></ScrivenerProject>`);
+
+  const titles = parsed.draft.children.map((c) => c.title);
+  assert.deepEqual(titles, ["Chapter Z", "Chapter A", "Chapter M"]);
+});
+
+test("Micro-correctif ordre — parseScrivx conserve l'ordre EXACT de scènes imbriquées sous un même chapitre", () => {
+  const parsed = parseScrivx(`<ScrivenerProject><Binder>
+    <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+      <Children>
+        <BinderItem UUID="p1" Type="Folder"><Title>Partie X</Title>
+          <Children>
+            <BinderItem UUID="sz" Type="Text"><Title>Scène Z</Title></BinderItem>
+            <BinderItem UUID="sa" Type="Text"><Title>Scène A</Title></BinderItem>
+            <BinderItem UUID="sm" Type="Text"><Title>Scène M</Title></BinderItem>
+          </Children>
+        </BinderItem>
+      </Children>
+    </BinderItem>
+  </Binder></ScrivenerProject>`);
+
+  const partie = parsed.draft.children[0];
+  assert.equal(partie.title, "Partie X");
+  assert.deepEqual(partie.children.map((c) => c.title), ["Scène Z", "Scène A", "Scène M"]);
+});
+
+test("Micro-correctif ordre — buildScrivenerImportPlan restitue les cibles dans l'ordre EXACT du Binder, jamais retrié", () => {
+  const MANUSCRIT = "Mon Roman/Manuscrit";
+  const parsed = parseScrivx(`<ScrivenerProject><Binder>
+    <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+      <Children>
+        <BinderItem UUID="cz" Type="Text"><Title>Chapter Z</Title></BinderItem>
+        <BinderItem UUID="ca" Type="Text"><Title>Chapter A</Title></BinderItem>
+        <BinderItem UUID="cm" Type="Text"><Title>Chapter M</Title></BinderItem>
+      </Children>
+    </BinderItem>
+  </Binder></ScrivenerProject>`);
+  const plan = buildScrivenerImportPlan(parsed, {
+    manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+  });
+
+  // ScrivenerPlanCursor (scrivener-import-modal.ts) consomme plan.targets
+  // dans cet ordre exact, un par un, sans jamais rechercher par titre : la
+  // séquence des cibles EST l'ordre final écrit dans le Binder Feuillets.
+  const order = plan.targets.map((tg) => tg.uuid);
+  assert.deepEqual(order, ["cz", "ca", "cm"]);
+  const titleOrder = plan.targets.map((tg) => tg.sourceTitle);
+  assert.deepEqual(titleOrder, ["Chapter Z", "Chapter A", "Chapter M"]);
+});
+
 test("rtfToMarkdown — liens internes scrivlink://UUID résolus via le plan d'import", async (t) => {
   // Le préfixe scrivlink:// n'accepte que des caractères hexadécimaux (comme
   // les vrais UUID Scrivener) — voir le regex dans rtfToMarkdown. On utilise

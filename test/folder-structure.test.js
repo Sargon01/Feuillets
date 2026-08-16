@@ -174,6 +174,79 @@ test("Phase 1A : Dossier existant adopté comme projet (Mes textes)", () => {
   assert.equal(feuilletsAuxiliaryRootPath(adopted), "Mes textes/_Feuillets");
 });
 
+test("Tri naturel : Chapter 1/2/10 (dossiers) triés dans l'ordre attendu quand aucun ordre éditorial n'existe", () => {
+  const manuscrit = new TFolder("Roman/Manuscrit");
+  const ch1 = new TFolder("Roman/Manuscrit/Chapter 1");
+  const ch2 = new TFolder("Roman/Manuscrit/Chapter 2");
+  const ch10 = new TFolder("Roman/Manuscrit/Chapter 10");
+  const ch11 = new TFolder("Roman/Manuscrit/Chapter 11");
+  // Ordre d'insertion volontairement « naïf » (comme le retournerait un
+  // tri alphabétique classique) pour vérifier que le fallback corrige.
+  manuscrit.children = [ch1, ch10, ch11, ch2];
+  for (const c of manuscrit.children) c.parent = manuscrit;
+
+  const { vault } = createFakeVault([manuscrit, ch1, ch2, ch10, ch11]);
+  const app = { vault };
+  const settings = { projectFolder: "Roman/Manuscrit", orders: {}, folderPositions: {}, compileFileName: "Manuscrit.md" };
+
+  const children = getOrderedChildren(app, settings, manuscrit);
+  assert.deepEqual(children.map((c) => c.name), ["Chapter 1", "Chapter 2", "Chapter 10", "Chapter 11"]);
+});
+
+test("Tri naturel : Scene 1.1/1.2/1.10 (fichiers) triés dans l'ordre attendu quand aucun ordre éditorial n'existe", () => {
+  const chapter = new TFolder("Roman/Manuscrit/Chapter 1");
+  const s1 = new TFile("Roman/Manuscrit/Chapter 1/Scene 1.1.md");
+  const s2 = new TFile("Roman/Manuscrit/Chapter 1/Scene 1.2.md");
+  const s10 = new TFile("Roman/Manuscrit/Chapter 1/Scene 1.10.md");
+  chapter.children = [s10, s1, s2];
+  for (const c of chapter.children) c.parent = chapter;
+
+  const { vault } = createFakeVault([chapter, s1, s2, s10]);
+  const app = { vault, metadataCache: { getFileCache: () => null } };
+  const settings = { projectFolder: "Roman/Manuscrit", orders: {}, folderPositions: {}, compileFileName: "Manuscrit.md" };
+
+  const children = getOrderedChildren(app, settings, chapter);
+  assert.deepEqual(children.map((c) => c.name), ["Scene 1.1.md", "Scene 1.2.md", "Scene 1.10.md"]);
+});
+
+test("Tri naturel : l'ordre manuel persisté (settings.orders) reste TOUJOURS prioritaire", () => {
+  const chapter = new TFolder("Roman/Manuscrit/Chapter 1");
+  const s1 = new TFile("Roman/Manuscrit/Chapter 1/Scene 1.1.md");
+  const s2 = new TFile("Roman/Manuscrit/Chapter 1/Scene 1.2.md");
+  const s10 = new TFile("Roman/Manuscrit/Chapter 1/Scene 1.10.md");
+  chapter.children = [s1, s2, s10];
+  for (const c of chapter.children) c.parent = chapter;
+
+  const { vault } = createFakeVault([chapter, s1, s2, s10]);
+  const app = { vault, metadataCache: { getFileCache: () => null } };
+  // Ordre Binder explicite, délibérément inverse du tri naturel.
+  const settings = {
+    projectFolder: "Roman/Manuscrit",
+    orders: { "Roman/Manuscrit/Chapter 1": ["Scene 1.10.md", "Scene 1.2.md", "Scene 1.1.md"] },
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+  };
+
+  const children = getOrderedChildren(app, settings, chapter);
+  assert.deepEqual(children.map((c) => c.name), ["Scene 1.10.md", "Scene 1.2.md", "Scene 1.1.md"]);
+});
+
+test("Tri naturel : dossiers/fichiers ordinaires non numérotés restent triés correctement", () => {
+  const manuscrit = new TFolder("Roman/Manuscrit");
+  const partieB = new TFolder("Roman/Manuscrit/Partie B");
+  const partieA = new TFolder("Roman/Manuscrit/Partie A");
+  const epilogue = new TFolder("Roman/Manuscrit/Épilogue");
+  manuscrit.children = [partieB, epilogue, partieA];
+  for (const c of manuscrit.children) c.parent = manuscrit;
+
+  const { vault } = createFakeVault([manuscrit, partieB, partieA, epilogue]);
+  const app = { vault };
+  const settings = { projectFolder: "Roman/Manuscrit", orders: {}, folderPositions: {}, compileFileName: "Manuscrit.md" };
+
+  const children = getOrderedChildren(app, settings, manuscrit);
+  assert.deepEqual(children.map((c) => c.name), ["Épilogue", "Partie A", "Partie B"]);
+});
+
 test("Phase 1A : Dossier adopté imbriqué (Collection/Mes textes) ne remonte jamais au parent", () => {
   const collection = new TFolder("Collection");
   const adopted = new TFolder("Collection/Mes textes");

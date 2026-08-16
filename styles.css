@@ -282,10 +282,13 @@
  * plus haut : gagne sur ce seul canal, sans toucher au reste. Les autres
  * usages de ces deux classes (recherche, gestionnaire de projets…) posent
  * leur propre `paddingLeft` en ligne, qui l'emporte toujours sur cette
- * règle externe — aucune régression pour eux. */
+ * règle externe — aucune régression pour eux.
+ * Pas d'indentation (micro-correctif "réduire l'indentation du Binder") :
+ * 9px/niveau au lieu de 15px (-40%), pour rester lisible en arbre profond
+ * (dossiers/sous-dossiers) sans manger la largeur dispo pour les titres. */
 .feuillets-item,
 .feuillets-folder-row {
-  padding-left: calc(var(--size-4-2) + var(--feuillets-binder-depth, 0) * 15px);
+  padding-left: calc(var(--size-4-2) + var(--feuillets-binder-depth, 0) * 9px);
 }
 
 /* Colonnes chevron/icône (§16) : largeur fixe identique fichiers/dossiers,
@@ -395,7 +398,38 @@
 
 .feuillets-binder-isolated .feuillets-item {
   padding-left: var(--size-4-2);
+  /* §7 micro-lot finition : un peu plus de respiration verticale que le
+     Binder normal, pour que les entrées (titre + aperçu 1-3 lignes) restent
+     individualisées sans jamais devenir des cartes. */
+  padding-top: 6px;
+  padding-bottom: 6px;
 }
+
+/* §8 : séparateur très discret entre deux feuillets isolés — pas de
+   contour complet, pas de border-radius, pas de fond individuel, la
+   respiration verticale ci-dessus fait l'essentiel du travail. L'état
+   sélectionné/actif existant (background plein) reste au-dessus et prime
+   visuellement sur ce simple filet. */
+.feuillets-binder-isolated .feuillets-item {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.feuillets-binder-isolated .feuillets-item:last-child {
+  border-bottom: none;
+}
+
+/* §7 : hiérarchie titre / aperçu — le titre doit se lire immédiatement,
+   l'aperçu reste clairement secondaire. Purement visuel : ni le clamp
+   1-3 lignes existant (feuillets-view.ts), ni la donnée, ne changent. */
+.feuillets-binder-isolated .feuillets-item-name {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+/* .feuillets-binder-isolated .feuillets-item-preview (marge titre/aperçu) :
+   posée juste après la règle .feuillets-item-preview d'origine (plus bas
+   dans ce fichier) — test/binder-label-icon-and-native-selection.test.js
+   lit cette dernière par un regex non ancré sur le premier « .feuillets-
+   item-preview { » du fichier ; la garder groupée avec l'originale évite de
+   faire remonter par erreur cette règle compound avant elle. */
 
 .feuillets-empty {
   padding: var(--size-4-4) var(--size-4-3);
@@ -1025,6 +1059,13 @@
   user-select: none;
 }
 
+/* Binder isolé §7 (micro-lot finition UI) : un peu plus d'écart entre le
+   titre et l'aperçu que dans le Binder normal, pour renforcer la hiérarchie
+   visuelle sans toucher au clamp 1-3 lignes ci-dessus. */
+.feuillets-binder-isolated .feuillets-item-preview {
+  margin-top: 4px;
+}
+
 .feuillets-tree-pane .feuillets-folder-row.is-active {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
@@ -1221,6 +1262,34 @@
   resize: none;
   text-align: left;
   font-size: 0.8em;
+}
+
+/* Option Plan « Retour à la ligne des textes longs » (OFF par défaut :
+   comportement historique une ligne + ellipsis inchangé, voir
+   .feuillets-flat-text-cell.feuillets-clamp-text plus bas). Scoped à
+   .feuillets-outline-wrap : ne touche ni les Cartes, ni le Chemin de fer,
+   ni la Chronologie, ni aucune autre vue. Seules les colonnes de texte
+   long (Synopsis, Résumé) sont concernées — les colonnes courtes (statut,
+   POV, label, date, mots, objectif…) gardent leur rendu habituel. */
+.feuillets-outline-wrap .feuillets-row-scene {
+  align-items: flex-start;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.feuillets-outline-wrap .feuillets-cell-synopsis,
+.feuillets-outline-wrap .feuillets-cell-summary {
+  align-items: flex-start;
+}
+
+.feuillets-outline-wrap .feuillets-cell-synopsis .feuillets-flat-text-cell,
+.feuillets-outline-wrap .feuillets-cell-summary .feuillets-flat-text-cell {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .feuillets-cell-words {
@@ -3790,6 +3859,32 @@ body.feuillets-text-width
   margin-bottom: var(--size-4-5);
 }
 
+/* Micro-correctif "Dossiers associés" — même grammaire visuelle que les
+   rubriques Recherche existantes (.feuillets-notes-section-title), pas un
+   nouvel encadré : juste un intitulé discret au-dessus des dossiers
+   associés depuis le Binder, rendus ensuite via .feuillets-research-section
+   comme n'importe quelle autre rubrique (voir renderAssociatedResearchFolders). */
+.feuillets-research-linked-group {
+  padding: 0 var(--size-4-3);
+  margin-bottom: var(--size-4-1);
+}
+
+.feuillets-research-linked-group-title {
+  display: block;
+}
+
+.feuillets-research-linked-badge {
+  font-weight: 500;
+  text-transform: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-left: var(--size-4-2);
+  padding: 1px 6px;
+  background: var(--background-secondary-alt);
+  border-radius: 10px;
+  border: 1px solid var(--background-modifier-border);
+}
+
 .feuillets-research-item {
   padding: var(--size-4-1) 6px;
   cursor: pointer;
@@ -4241,9 +4336,9 @@ body.feuillets-text-width
 /* ===== notes metadata & outline sections ===== */
 
 .feuillets-notes-section {
-  margin-top: var(--size-4-5);
+  margin-top: var(--size-4-4);
   border-top: 1px solid var(--background-modifier-border);
-  padding-top: var(--size-4-4);
+  padding-top: var(--size-4-3);
 }
 
 /* Rien à séparer visuellement quand c'est la toute première section d'un
@@ -4335,7 +4430,7 @@ body.feuillets-text-width
 .feuillets-property-row {
   justify-content: flex-start;
   gap: var(--size-4-2);
-  padding: 3px var(--size-4-1);
+  padding: 2px var(--size-4-1);
   border-radius: var(--radius-s);
 }
 
@@ -4815,6 +4910,46 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   background: transparent;
   color: var(--text-normal);
   box-shadow: none;
+}
+
+/* §13-21 du micro-chantier « finition Édition + sidebar Projet » : panneau
+   compact de gestion de projet — racine `.feuillets-sidebar-project`,
+   montée UNIQUEMENT par renderProjectTab (sidebar-feuillets-view.ts).
+   Cloisonnement strict (§21) : ces règles ne touchent ni `.workspace-*`, ni
+   les vues Cartes/Plan/Chemin de fer/Chronologie ; elles réutilisent la
+   grammaire déjà existante (.feuillets-notes-section, .feuillets-properties-
+   row) sans redéfinir de nouvel accordéon. */
+.feuillets-sidebar-project .feuillets-properties-row .feuillets-properties-value {
+  /* Valeur en lecture seule (pas un champ éditable ici — la modification
+     reste ManageProjectsModal, §15) : pas de curseur "pointer" trompeur. */
+  cursor: default;
+}
+
+/* Micro-correctif « compacter le panneau Projet » : les sous-pages
+   Objectifs/Statuts/Labels/Tags/Informations utilisent des `Setting`
+   natifs Obsidian, qui s'étirent en grandes cartes dans une sidebar
+   étroite. Même resserrement que .feuillets-layout-inspector (Édition) —
+   purement visuel, aucun champ ni comportement n'est touché ici. */
+.feuillets-sidebar-project .setting-item {
+  padding: var(--size-4-1) 0;
+  border-top: 1px solid var(--background-modifier-border);
+  background: transparent;
+  min-height: 0;
+}
+.feuillets-sidebar-project .setting-item:first-of-type { border-top: none; }
+.feuillets-sidebar-project .setting-item-info { margin-right: var(--size-4-2); }
+.feuillets-sidebar-project .setting-item-name {
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  white-space: normal;
+}
+.feuillets-sidebar-project .setting-item-description {
+  font-size: var(--font-ui-smaller);
+  margin-top: 0;
+}
+.feuillets-sidebar-project .setting-item-control {
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 /* 3. BINDER SEARCH INLINE & CONTENUS */
@@ -5670,11 +5805,17 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   gap: 2px;
 }
 
+/* Dernier lot UX avant 2.5, §10 : grammaire compacte COMMUNE — réduction
+ * d'environ 25-35% du padding vertical/hauteur des lignes de propriétés,
+ * partagée par toutes les surfaces de contrôle (Édition, Mise en page,
+ * Composition, Projet, Relecture, Feuillet/Notes…) qui réutilisent déjà
+ * ces mêmes classes. Jamais touché : éditeur Markdown, Continu, Aperçu
+ * paginé, densité Compact/Standard du Binder (hors de ce fichier). */
 .feuillets-properties-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 0;
+  padding: 2px 0;
 }
 
 .feuillets-properties-row > .feuillets-cell-icon {
@@ -5728,7 +5869,9 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   min-width: 0;
   font-size: var(--font-ui-small);
   color: var(--text-normal);
-  height: 24px;
+  /* §10 du dernier lot UX avant 2.5 : 20px au lieu de 24px (-17%),
+     combiné à la réduction de .feuillets-properties-row ci-dessus. */
+  height: 20px;
   border: 0;
   border-width: 0;
   border-style: none;
@@ -5812,7 +5955,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 /* Édition réutilise les lignes latérales existantes ; seules leur géométrie
    de contrôle et l'indentation d'un contenu déplié sont précisées ici. */
 .feuillets-edition-row {
-  padding: 4px 6px;
+  padding: 3px 6px;
 }
 
 .feuillets-edition-row .feuillets-properties-key {
@@ -5872,7 +6015,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-edition-group-label {
-  margin: var(--size-4-3) 0 var(--size-4-1);
+  margin: var(--size-4-2) 0 var(--size-4-1);
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
   font-weight: var(--font-semibold);
@@ -6030,7 +6173,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 6px;
+  padding: 4px 6px;
   border-radius: var(--radius-s);
   cursor: pointer;
   font-size: var(--font-ui-small);
@@ -7813,6 +7956,613 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   justify-content: flex-end;
 }
 .feuillets-tp-footer .setting-item { border: none; padding: 0; }
+
+/* Workspace central « Mise en page » (chantier mise en page centrale + micro-
+   lot finition UI) : la vraie Preview à gauche fait office de visualisation —
+   cette leaf ne montre qu'une ligne « Gabarit » compacte + une navigation
+   verticale par catégories + un inspecteur dense, grammaire native
+   Obsidian (pas de formulaire PDF, pas de cartes) — utilisable jusque vers
+   320-400px de large. */
+/* ===== Espace central Édition — CONTRAT DE LAYOUT (§33) =================
+   La racine ne défile JAMAIS : elle empile une barre de modes figée et un
+   corps qui prend le reste. C'est la surface du mode, tout en bas, qui porte
+   l'unique défilement vertical. Sans ce contrat, Composition et Export
+   étaient clippés en bas et Mise en page rognée horizontalement (deux
+   conteneurs se disputaient le défilement). */
+.feuillets-layout-workspace {
+  padding: var(--size-4-2) var(--size-4-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+/* Surface centrale de BoardView (Documents / Édition) : même contrat, elle
+   occupe tout l'espace laissé par la barre du Tableau et ne défile pas
+   elle-même. */
+.feuillets-central-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.feuillets-central-surface > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+/* Documents éditoriaux au centre : une seule zone défilante, la sienne. */
+.feuillets-central-surface .feuillets-edition-docs-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--size-4-2) var(--size-4-4);
+}
+
+/* Chantier espace central Édition : barre de mode Composition/Mise en page/
+   Export, navigation de PREMIER niveau (remplace « Page/Corps/Titres… »
+   comme entrée principale de la leaf) — grammaire native Obsidian, compacte,
+   jamais de retour à la ligne, utilisable dès 320-400px. */
+.feuillets-edition-mode-nav {
+  display: flex;
+  flex-direction: row;
+  gap: var(--size-4-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: var(--size-4-1);
+  flex: 0 0 auto;
+}
+.feuillets-edition-mode-item {
+  /* Chrome natif du <button> (bezel/fond gris plateforme) : `background:
+     transparent` seul ne suffit pas tant que l'agent applique son rendu
+     "appearance: auto" au-dessus — même correctif déjà appliqué aux <input>/
+     <select> du plugin (styles.css, .feuillets-properties-row input…). Sans
+     ce reset, TOUT sélecteur de fond ci-dessous reste sans effet visuel. */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  white-space: nowrap;
+  padding: 4px var(--size-4-3);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.feuillets-edition-mode-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+/* §34 : état actif DISCRET — pas un rectangle gris plein. Le mode courant se
+   signale par un filet d'accent et une couleur de texte normale, comme une
+   barre d'onglets native. */
+.feuillets-edition-mode-item.is-active {
+  background: transparent;
+  color: var(--text-normal);
+  font-weight: var(--font-semibold, 600);
+  box-shadow: inset 0 -2px 0 var(--interactive-accent);
+}
+.feuillets-edition-mode-item.is-active:hover {
+  background: var(--background-modifier-hover);
+}
+.feuillets-edition-mode-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Surface d'un mode : L'UNIQUE zone défilante de l'espace Édition. */
+.feuillets-edition-mode-surface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Neutralisation des règles pensées pour le panneau latéral, UNIQUEMENT sous
+   le contexte central : la première section ne doit pas garder son filet ni
+   son décalage de tête, et le padding latéral de 10px (calibré pour 250-300px)
+   laisse place à une respiration de lecture. */
+.feuillets-edition-mode-surface .feuillets-edition-composition-container {
+  padding: 0 var(--size-4-2);
+}
+.feuillets-edition-mode-surface .feuillets-project-section:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
+}
+
+/* §2 : ligne « Gabarit [select] » compacte, hauteur proche d'un Setting
+   natif — pas de zone grisée pleine largeur. */
+.feuillets-layout-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: 22px;
+}
+.feuillets-layout-toolbar-title {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.feuillets-layout-toolbar select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+}
+
+/* §3 : navigation verticale (110-130px) à gauche de l'inspecteur, jamais de
+   retour à la ligne, jamais de gros bouton rempli — mise en évidence
+   discrète (filet d'accent + fond léger), grammaire native Obsidian. */
+.feuillets-layout-body {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--size-4-3);
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+/* Maquette « Première page » (§28) : au-dessus de l'inspecteur du rôle, avec
+   la même respiration que les autres blocs de la catégorie. Sa LARGEUR vient
+   du composant (ratio réel de la page), jamais d'ici. */
+.feuillets-layout-miniature {
+  display: flex;
+  justify-content: center;
+  padding: var(--size-4-1) 0 var(--size-4-3);
+}
+.feuillets-layout-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 120px;
+  width: 120px;
+  gap: 1px;
+}
+.feuillets-layout-nav-item {
+  /* Même correctif de chrome natif que .feuillets-edition-mode-item
+     ci-dessus : grammaire commune Composition/Mise en page, réglée UNE
+     fois ici puisque les deux rails partagent cette classe. */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 4px var(--size-4-2);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.feuillets-layout-nav-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+/* §7 du dernier lot UX avant 2.5 : nav Mise en page allégée — l'état actif
+ * se signale par la graisse + un filet d'accent discret, jamais un
+ * rectangle plein (même grammaire que .feuillets-edition-mode-item.is-active
+ * ci-dessus, pour une seule et même nav "légère" dans tout Édition). */
+.feuillets-layout-nav-item.is-active {
+  background: transparent;
+  color: var(--text-normal);
+  font-weight: var(--font-semibold, 600);
+  box-shadow: inset 2px 0 0 var(--interactive-accent);
+}
+.feuillets-layout-nav-item.is-active:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* §5 : inspecteur dense — un panneau de réglages, pas un formulaire PDF.
+   Réglages natifs (.setting-item) resserrés : ~30-34px par ligne, fond
+   transparent, séparateurs très légers, sections respirent un peu plus. */
+.feuillets-layout-inspector {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.feuillets-layout-inspector h4 {
+  margin: var(--size-4-2) 0 var(--size-4-1);
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-normal);
+}
+.feuillets-layout-inspector h4:first-child { margin-top: 0; }
+.feuillets-layout-inspector .setting-item {
+  padding: 3px 0;
+  border-top: 1px solid var(--background-modifier-border);
+  background: transparent;
+  min-height: 0;
+}
+.feuillets-layout-inspector .setting-item:first-of-type { border-top: none; }
+.feuillets-layout-inspector .setting-item-info { margin-right: var(--size-4-2); }
+.feuillets-layout-inspector .setting-item-name {
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+.feuillets-layout-inspector .setting-item-control {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.feuillets-layout-inspector .setting-item-control input[type="text"],
+.feuillets-layout-inspector .setting-item-control input[type="number"] {
+  max-width: 110px;
+}
+.feuillets-layout-section {
+  margin-top: var(--size-4-2);
+  padding-top: var(--size-4-1);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.feuillets-layout-section .setting-item:first-of-type { border-top: none; }
+
+/* Finition locale de l'espace central Édition. Toutes les adaptations de
+   largeur restent attachées à sa racine : aucun panneau historique ne les
+   hérite, y compris l'Export de la Preview et le LayoutModal. */
+.feuillets-layout-workspace {
+  container-name: feuillets-edition-workspace;
+  container-type: inline-size;
+  font-family: var(--font-interface);
+}
+
+.feuillets-layout-workspace .feuillets-edition-mode-nav {
+  gap: 0;
+  padding-bottom: 0;
+  align-items: flex-end;
+}
+
+.feuillets-layout-workspace .feuillets-edition-preview-refresh {
+  flex: 0 0 auto;
+  margin-left: var(--size-4-1);
+  background: transparent;
+  box-shadow: none;
+}
+
+.feuillets-layout-workspace .feuillets-edition-preview-refresh:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* Barre d'export compacte de la barre principale Édition (dernier lot UX
+ * avant 2.5, §1) : [Projet ▾] [PDF ▾] [Exporter], sans étiquette ni champ
+ * nom de fichier — toujours visible, quel que soit l'onglet actif. Prend la
+ * place de l'ancien `margin-left: auto` du bouton Actualiser : c'est
+ * désormais elle qui pousse le groupe [barre d'export + Actualiser] à
+ * droite de la barre de mode. */
+.feuillets-edition-quickexport-host {
+  display: flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.feuillets-edition-quickexport {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+.feuillets-edition-quickexport-scope,
+.feuillets-edition-quickexport-format {
+  height: 26px;
+  font-size: var(--font-ui-small);
+  padding: 0 var(--size-4-1);
+}
+.feuillets-edition-quickexport-cta {
+  white-space: nowrap;
+}
+
+.feuillets-layout-workspace .feuillets-edition-mode-item {
+  min-width: 0;
+  padding: 4px var(--size-4-2);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.feuillets-layout-workspace .feuillets-edition-mode-item.is-active {
+  border-bottom-color: var(--interactive-accent);
+  box-shadow: none;
+}
+
+.feuillets-layout-workspace .feuillets-edition-mode-surface.feuillets-edition-composition-container {
+  width: min(100%, 720px);
+  max-width: 720px;
+  min-width: 0;
+  align-self: flex-start;
+}
+
+.feuillets-layout-workspace .feuillets-edition-mode-surface.feuillets-edition-export-panel {
+  width: min(100%, 400px);
+  max-width: 400px;
+  min-width: 0;
+  align-self: flex-start;
+}
+
+.feuillets-layout-workspace .feuillets-edition-composition-container
+  .feuillets-project-section,
+.feuillets-layout-workspace .feuillets-edition-composition-container
+  .feuillets-project-section > div,
+.feuillets-layout-workspace .feuillets-edition-export-panel,
+.feuillets-layout-workspace .feuillets-layout-body,
+.feuillets-layout-workspace .feuillets-layout-inspector {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.feuillets-layout-workspace .feuillets-edition-group-label {
+  margin-top: var(--size-4-3);
+  margin-bottom: var(--size-4-1);
+  color: var(--text-muted);
+}
+
+.feuillets-layout-workspace .feuillets-edition-group-label:first-child,
+.feuillets-layout-workspace .feuillets-edition-export-title {
+  margin-top: 0;
+}
+
+/* §3 du dernier lot UX avant 2.5 : Composition devient une page-sommaire
+ * compacte — plus de nav latérale à quatre colonnes, un simple flux
+ * vertical (groupes + lignes-résumé), même largeur que l'ancien inspecteur. */
+.feuillets-layout-workspace .feuillets-composition-body {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* En-tête de sous-page (Première page / Pages liminaires / Structure) —
+ * même principe que le panneau Projet : retour compact + titre, jamais de
+ * nav permanente à côté. */
+.feuillets-composition-subpage-header {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-2);
+}
+.feuillets-composition-back {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 3px var(--size-4-1);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+}
+.feuillets-composition-back:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.feuillets-composition-subpage-title {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-normal);
+}
+
+.feuillets-layout-workspace .feuillets-layout-nav-item {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.25;
+}
+
+.feuillets-layout-workspace .feuillets-layout-nav-item.is-active {
+  background: transparent;
+  border-left: 2px solid var(--interactive-accent);
+  box-shadow: none;
+}
+
+.feuillets-layout-workspace .feuillets-layout-nav-item.is-active:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-layout-workspace .feuillets-edition-row {
+  gap: var(--size-4-2);
+  min-width: 0;
+  min-height: 22px;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+}
+
+.feuillets-layout-workspace .feuillets-edition-row .feuillets-properties-key {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.feuillets-layout-workspace .feuillets-edition-row-control,
+.feuillets-layout-workspace .feuillets-edition-row-control select,
+.feuillets-layout-workspace .feuillets-edition-row-control input[type="text"] {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.feuillets-layout-workspace .feuillets-edition-row-control select,
+.feuillets-layout-workspace .feuillets-edition-row-control input[type="text"] {
+  background-color: transparent;
+  border-color: transparent;
+}
+
+.feuillets-layout-workspace .feuillets-edition-row-control select:hover,
+.feuillets-layout-workspace .feuillets-edition-row-control select:focus,
+.feuillets-layout-workspace .feuillets-edition-row-control input[type="text"]:hover,
+.feuillets-layout-workspace .feuillets-edition-row-control input[type="text"]:focus {
+  background-color: var(--background-primary);
+  border-color: var(--background-modifier-border);
+}
+
+.feuillets-layout-workspace .feuillets-edition-preset-add-row {
+  justify-content: flex-start;
+  padding-top: var(--size-4-1);
+}
+
+.feuillets-layout-workspace .feuillets-edition-preset-add-row
+  .feuillets-edition-row-control {
+  margin-left: 0;
+}
+
+.feuillets-layout-workspace .feuillets-edition-export-panel
+  .feuillets-edition-row-control input[type="text"] {
+  width: 160px;
+}
+
+.feuillets-layout-workspace .feuillets-edition-export-footer {
+  padding-top: var(--size-4-3);
+}
+
+.feuillets-layout-workspace .feuillets-layout-toolbar {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.feuillets-layout-workspace .feuillets-layout-toolbar select {
+  max-width: 100%;
+}
+
+.feuillets-layout-workspace .feuillets-layout-inspector select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.feuillets-layout-workspace .feuillets-layout-inspector .setting-item {
+  border-top: 0;
+  background: transparent;
+}
+
+.feuillets-layout-workspace .feuillets-layout-inspector
+  .setting-item-control input[type="text"],
+.feuillets-layout-workspace .feuillets-layout-inspector
+  .setting-item-control input[type="number"],
+.feuillets-layout-workspace .feuillets-layout-inspector
+  .setting-item-control select {
+  background-color: transparent;
+  border-color: transparent;
+}
+
+.feuillets-layout-workspace .feuillets-layout-inspector
+  .setting-item-control input[type="text"]:hover,
+.feuillets-layout-workspace .feuillets-layout-inspector
+  .setting-item-control input[type="text"]:focus,
+.feuillets-layout-workspace .feuillets-layout-inspector
+  .setting-item-control input[type="number"]:hover,
+.feuillets-layout-workspace .feuillets-layout-inspector
+  .setting-item-control input[type="number"]:focus,
+.feuillets-layout-workspace .feuillets-layout-inspector
+  .setting-item-control select:hover,
+.feuillets-layout-workspace .feuillets-layout-inspector
+  .setting-item-control select:focus {
+  background-color: var(--background-primary);
+  border-color: var(--background-modifier-border);
+}
+
+@container feuillets-edition-workspace (max-width: 400px) {
+  .feuillets-layout-workspace .feuillets-edition-mode-item {
+    flex: 0 1 auto;
+    padding-inline: var(--size-4-1);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .feuillets-layout-workspace .feuillets-layout-nav {
+    flex-basis: 96px;
+    width: 96px;
+  }
+
+  .feuillets-layout-workspace .feuillets-layout-nav-item {
+    padding-inline: var(--size-4-1);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .feuillets-layout-workspace .feuillets-layout-inspector .setting-item {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--size-4-1);
+  }
+
+  .feuillets-layout-workspace .feuillets-layout-inspector .setting-item-info {
+    margin-right: 0;
+  }
+
+  .feuillets-layout-workspace .feuillets-layout-inspector .setting-item-control {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .feuillets-layout-workspace .feuillets-layout-inspector
+    .setting-item-control input[type="text"],
+  .feuillets-layout-workspace .feuillets-layout-inspector
+    .setting-item-control input[type="number"],
+  .feuillets-layout-workspace .feuillets-layout-inspector
+    .setting-item-control select {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+@container feuillets-edition-workspace (max-width: 360px) {
+  .feuillets-layout-workspace {
+    padding-inline: var(--size-4-2);
+  }
+
+  .feuillets-layout-workspace .feuillets-edition-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .feuillets-layout-workspace .feuillets-edition-row .feuillets-properties-key,
+  .feuillets-layout-workspace .feuillets-edition-row-control {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .feuillets-layout-workspace .feuillets-edition-row-control {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .feuillets-layout-workspace .feuillets-edition-row-control select,
+  .feuillets-layout-workspace .feuillets-edition-row-control input[type="text"] {
+    width: 100%;
+  }
+
+  .feuillets-layout-workspace .feuillets-layout-toolbar {
+    gap: var(--size-4-1);
+  }
+
+  .feuillets-layout-workspace .feuillets-layout-nav {
+    flex-basis: 88px;
+    width: 88px;
+  }
+}
 
 /* Équilibre des chapitres (onglet Analyse) — barres horizontales sobres,
    couleurs de thème pour se fondre au reste. */

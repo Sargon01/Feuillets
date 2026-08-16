@@ -101,7 +101,7 @@ export class Modal {
    - `container._settings` (tableau des instances Setting posées sur ce
      conteneur) et `.controls` (tableau des contrôles ajoutés, dans l'ordre)
      restent alimentés exactement comme avant — test/scenes-editor-i18n.js
-     et test/edition-composition-view.js (settingNames()) en dépendent.
+     et test/edition-composition-content.js (settingNames()) en dépendent.
    - `setDesc`/`addToggle`/`addButton`/`addDropdown` restent utilisables
      SANS qu'un test doive fournir son propre DOM factice enrichi : le
      constructeur crée lui-même settingEl/infoEl/nameEl/descEl/controlEl via
@@ -245,6 +245,43 @@ export class Setting {
       value: "",
       setValue(v) { this.value = v; if (inputEl) inputEl.value = v; return this; },
       setPlaceholder(p) { this.placeholder = p; inputEl?.setAttribute?.("placeholder", p); return this; },
+      setDisabled(v) { this.disabled = v; return this; },
+      onChange(fn) {
+        this.changeHandler = fn;
+        inputEl?.addEventListener?.("change", () => fn(inputEl.value));
+        return this;
+      },
+    };
+    cb(control);
+    this.controls.push(control);
+    return this;
+  }
+  addTextArea(cb) {
+    const inputEl = this.controlEl?.createEl ? this.controlEl.createEl("textarea", {}) : undefined;
+    const control = {
+      type: "textarea",
+      inputEl,
+      value: "",
+      setValue(v) { this.value = v; if (inputEl) inputEl.value = v; return this; },
+      setPlaceholder(p) { this.placeholder = p; inputEl?.setAttribute?.("placeholder", p); return this; },
+      setDisabled(v) { this.disabled = v; return this; },
+      onChange(fn) {
+        this.changeHandler = fn;
+        inputEl?.addEventListener?.("change", () => fn(inputEl.value));
+        return this;
+      },
+    };
+    cb(control);
+    this.controls.push(control);
+    return this;
+  }
+  addColorPicker(cb) {
+    const inputEl = this.controlEl?.createEl ? this.controlEl.createEl("input", { type: "color" }) : undefined;
+    const control = {
+      type: "color",
+      inputEl,
+      value: "",
+      setValue(v) { this.value = v; if (inputEl) inputEl.value = v; return this; },
       setDisabled(v) { this.disabled = v; return this; },
       onChange(fn) {
         this.changeHandler = fn;

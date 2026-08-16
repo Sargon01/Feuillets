@@ -2501,7 +2501,7 @@ function addFrontPages(manuscript, specs) {
 
 /* Phase 3 : « Première page » a quitté ExportPanel (panneau Export de
    l'Aperçu comme mode embedded d'Édition) pour Édition → Composition de
-   l'ouvrage (voir ui/first-page-panel.ts, views/edition-composition-view.ts,
+   l'ouvrage (voir ui/first-page-panel.ts, ui/edition-composition-content.ts,
    test/first-page-panel.test.js). Les tests d'inclusion/exclusion, de
    lecture/écriture des champs, d'ouverture du fichier Front et du modal
    visuel vivent désormais dans test/first-page-panel.test.js. Seul reste ici

@@ -18,7 +18,7 @@ globalThis.setIcon = function setIcon(element, iconName) {
   }
 };
 
-const { EditionDocsView, revealInFileExplorer } = await import(modulePath("src/views/edition-docs-view.js"));
+const { EditionDocsContent, revealInFileExplorer } = await import(modulePath("src/ui/edition-docs-content.js"));
 const { EDITION_FOLDER_NAME } = await import(modulePath("src/services/folder-structure.js"));
 const { fr } = await import(modulePath("src/i18n/fr.js"));
 const { en } = await import(modulePath("src/i18n/en.js"));
@@ -61,7 +61,7 @@ function rowWithLabel(container, label) {
   return rowsOf(container).find((row) => allElements(row).some((el) => el.text === label));
 }
 
-function createView({ root = null, editionFolder = null, frontmatterByPath = {}, courrierApi = null, revealAvailable = false, embedded = false } = {}) {
+function createView({ root = null, editionFolder = null, frontmatterByPath = {}, courrierApi = null, revealAvailable = false } = {}) {
   const openedFiles = [];
   const revealedFiles = [];
   const leaf = {
@@ -108,7 +108,7 @@ function createView({ root = null, editionFolder = null, frontmatterByPath = {},
     saveSettings: async () => {},
   };
   const contentEl = new FakeElement();
-  const view = new EditionDocsView({ app, contentEl }, plugin, { embedded });
+  const view = new EditionDocsContent(app, plugin, contentEl);
   return { view, app, contentEl, openedFiles, revealedFiles };
 }
 
@@ -124,30 +124,32 @@ function findInFolder(folder, path) {
   return null;
 }
 
-test("EditionDocsView : sans dossier projet, affiche un message vide sans planter", async () => {
+test("EditionDocsContent : sans dossier projet, affiche un message vide sans planter", async () => {
   const { view, contentEl } = createView({ root: null });
   await view.render();
   assert.ok(textsOf(contentEl).some((t) => t.length > 0));
 });
 
-test("EditionDocsView : { embedded: true } masque le grand en-tête repliable, le reste du contenu est inchangé", async () => {
+test("EditionDocsContent : composant DOM pur — jamais de grand en-tête repliable, aucune WorkspaceLeaf", async () => {
   const root = new TFolder("Projet/Manuscrit");
   root.parent = new TFolder("Projet");
-  const { view, contentEl } = createView({ root, embedded: true });
+  const { view, contentEl } = createView({ root });
+
+  assert.equal(typeof view.getViewType, "undefined", "pas de getViewType : ce n'est pas une View");
+  assert.equal(typeof view.leaf, "undefined", "aucune WorkspaceLeaf reçue ni stockée");
 
   await view.render();
 
   assert.equal(
     allElements(contentEl).some((el) => el.classes.has("feuillets-section-head")),
     false,
-    "pas d'en-tête repliable en mode intégré"
+    "pas d'en-tête repliable : le composant est toujours intégré"
   );
-  // Même invite qu'en mode autonome (test "propose de le créer" ci-dessous).
   const texts = textsOf(contentEl);
-  assert.ok(texts.some((t) => /Edition/i.test(t)), "invite à créer le dossier Edition, inchangée");
+  assert.ok(texts.some((t) => /Edition/i.test(t)), "invite à créer le dossier Edition");
 });
 
-test("EditionDocsView : projet sans dossier Edition — propose de le créer plutôt que d'afficher une liste vide silencieuse", async () => {
+test("EditionDocsContent : projet sans dossier Edition — propose de le créer plutôt que d'afficher une liste vide silencieuse", async () => {
   const root = new TFolder("Projet/Manuscrit");
   root.parent = new TFolder("Projet");
   const { view, contentEl } = createView({ root });
@@ -159,7 +161,7 @@ test("EditionDocsView : projet sans dossier Edition — propose de le créer plu
   assert.equal(buttonsOf(contentEl).filter((b) => /Créer/i.test(b.text)).length, 1);
 });
 
-test("EditionDocsView : liste les documents et dossiers présents dans Edition/", async () => {
+test("EditionDocsContent : liste les documents et dossiers présents dans Edition/", async () => {
   const volume = new TFolder("Projet");
   const root = new TFolder("Projet/Manuscrit");
   root.parent = volume;
@@ -185,7 +187,7 @@ test("EditionDocsView : liste les documents et dossiers présents dans Edition/"
   assert.deepEqual(openedFiles, [synopsis]);
 });
 
-test("EditionDocsView : le bouton de révélation retombe sur une Notice si l'explorateur natif est indisponible", async () => {
+test("EditionDocsContent : le bouton de révélation retombe sur une Notice si l'explorateur natif est indisponible", async () => {
   const root = new TFolder("Projet/Manuscrit");
   root.parent = new TFolder("Projet");
   const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
@@ -213,7 +215,7 @@ test("EditionDocsView : le bouton de révélation retombe sur une Notice si l'ex
   }
 });
 
-test("EditionDocsView : clic sur la rangée complète du fichier ouvre le fichier", async () => {
+test("EditionDocsContent : clic sur la rangée complète du fichier ouvre le fichier", async () => {
   const root = new TFolder("Projet/Manuscrit");
   root.parent = new TFolder("Projet");
   const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
@@ -234,7 +236,7 @@ test("EditionDocsView : clic sur la rangée complète du fichier ouvre le fichie
   assert.deepEqual(openedFiles, [synopsis]);
 });
 
-test("EditionDocsView : chevron affiche l'état du dossier (fermé/ouvert)", async () => {
+test("EditionDocsContent : chevron affiche l'état du dossier (fermé/ouvert)", async () => {
   const root = new TFolder("Projet/Manuscrit");
   root.parent = new TFolder("Projet");
   const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
@@ -272,7 +274,7 @@ test("EditionDocsView : chevron affiche l'état du dossier (fermé/ouvert)", asy
   assert.equal(chevronAfter.icon, "chevron-down", "chevron ouvert après clic");
 });
 
-test("EditionDocsView : message 'dossier vide' visible uniquement si le dossier est ouvert et vide", async () => {
+test("EditionDocsContent : message 'dossier vide' visible uniquement si le dossier est ouvert et vide", async () => {
   const root = new TFolder("Projet/Manuscrit");
   root.parent = new TFolder("Projet");
   const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
@@ -303,21 +305,7 @@ test("EditionDocsView : message 'dossier vide' visible uniquement si le dossier 
   assert.ok(emptyMessagesAfter.length > 0, "message vide visible pour dossier ouvert");
 });
 
-test("EditionDocsView : sections repliables (DOCX Review et Documents) cohabitent dans le même onglet Édition", async () => {
-  // Ce test vérifie que les deux sections peuvent être rendues et repliées
-  // indépendamment (testable au niveau de la vue elle-même et du sidbar).
-  const root = new TFolder("Projet/Manuscrit");
-  root.parent = new TFolder("Projet");
-  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
-  edition.parent = root.parent;
-  edition.children = [];
-
-  const { view } = createView({ root, editionFolder: edition });
-  // Simuler la méthode renderSectionHead (elle devrait exister dans BaseFeuilletsView)
-  assert.ok(typeof view.renderSectionHead === "function", "renderSectionHead disponible");
-});
-
-test("EditionDocsView : tri des documents par ordre conventionnel, puis dossiers alphabétiquement", async () => {
+test("EditionDocsContent : tri des documents par ordre conventionnel, puis dossiers alphabétiquement", async () => {
   const root = new TFolder("Projet/Manuscrit");
   root.parent = new TFolder("Projet");
   const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
@@ -356,7 +344,7 @@ test("EditionDocsView : tri des documents par ordre conventionnel, puis dossiers
   assert.deepEqual(labels, expected, "documents triés : conventionnels d'abord, custom et dossiers par ordre alphabétique");
 });
 
-test("EditionDocsView : synthèse une soumission sans doublon ambigu, avec statut, documents, dates et actions", async () => {
+test("EditionDocsContent : synthèse une soumission sans doublon ambigu, avec statut, documents, dates et actions", async () => {
   const volume = new TFolder("Projet");
   const root = new TFolder("Projet/Manuscrit");
   root.parent = volume;

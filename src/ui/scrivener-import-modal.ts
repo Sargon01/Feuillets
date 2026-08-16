@@ -27,7 +27,7 @@ import {
   type ScrivenerImportReport,
 } from "../services/scrivener-import.js";
 import { getResearchRoot } from "../services/research.js";
-import { getFeuilletsFolderNames, resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
+import { getFeuilletsFolderNames, resourcesFolderPath, resourcesSubfolderPath, getOrderedChildren } from "../services/folder-structure.js";
 import { t } from "../i18n/index.js";
 
 type ScrivxItem = NonNullable<ReturnType<typeof parseScrivx>["draft"]>;
@@ -1301,12 +1301,25 @@ export class ScrivenerImportModal extends Modal {
     };
 
     const writeManuscriptChildren = async (children: ScrivxItem[], destFolder: TAbstractFile) => {
+      /* Micro-correctif « préserver l'ordre source des imports », §2/§6 :
+         capturé AVANT toute écriture sous `destFolder` — un dossier cible
+         déjà existant (le dossier Manuscrit lui-même, le plus souvent) peut
+         porter des enfants hors périmètre de cet import (ex. FRONT).
+         `getOrderedChildren` est la même source canonique que le Binder,
+         jamais une deuxième logique d'ordre. */
+      const preSnapshot: TAbstractFile[] = destFolder instanceof TFolder ? getOrderedChildren(app, S, destFolder) : [];
       const created: TAbstractFile[] = [];
       for (const child of children) {
         const node = await writeManuscriptNode(child, destFolder);
         if (node) created.push(node);
       }
-      if (created.length > 0) await plugin.writeOrder(destFolder, created);
+      if (created.length > 0) {
+        // Ordre canonique préexistant d'abord (jamais déplacé/retrié), puis
+        // le Binder Scrivener dans son ordre EXACT — jamais retrié.
+        const preNames = new Set(preSnapshot.map((c) => c.name));
+        const finalOrder = [...preSnapshot, ...created.filter((c) => !preNames.has(c.name))];
+        await plugin.writeOrder(destFolder, finalOrder);
+      }
     };
 
     /* §9 du chantier S2 : note de la racine Draft elle-même, écrite AVANT

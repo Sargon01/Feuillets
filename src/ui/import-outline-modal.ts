@@ -1,12 +1,15 @@
 import { Modal, Notice, TFile, TFolder, normalizePath, type App, type TAbstractFile } from "obsidian";
 import { t } from "../i18n/index.js";
 import { titleFor } from "../services/frontmatter.js";
+import { projectWordGoalDefault } from "../services/project-settings.js";
 
 type ProjectNode = TFile | TFolder;
 
-type ImportOutlineSettings = {
-  wordGoal: number;
-};
+/* FeuilletsSettings entier (pas juste `{wordGoal}`) : projectWordGoalDefault
+ * a besoin de projectMeta/projectFolder pour résoudre la surcharge projet —
+ * voir services/project-settings.ts. Le plugin réel satisfait cette
+ * interface structurellement, comme avant. */
+type ImportOutlineSettings = FeuilletsSettings;
 
 type ImportOutlinePlugin = {
   settings: ImportOutlineSettings;
@@ -152,6 +155,22 @@ export class ImportOutlineModal extends Modal {
     let createdFilesCount = 0;
     const orderMap = new Map<string, TAbstractFile[]>();
 
+    /* Micro-correctif « préserver l'ordre source des imports », §6 : un
+       parent (le dossier projet lui-même, le plus souvent) peut déjà avoir
+       des enfants HORS PÉRIMÈTRE de cet import (ex. FRONT). `orderMap` ne
+       contient que les enfants NOUVELLEMENT créés par cette passe — écrire
+       `plugin.writeOrder(parent, orderMap.get(parent.path))` tel quel
+       écraserait donc l'ordre canonique existant et perdrait ces enfants
+       préexistants. `preSnapshots` capture l'ordre canonique de chaque
+       parent (via `getOrderedChildren`, la même source que le Binder) AU
+       PREMIER USAGE de ce parent dans cette import, donc AVANT que la
+       première ligne du plan n'y ajoute quoi que ce soit. */
+    const preSnapshots = new Map<string, TAbstractFile[]>();
+    const snapshotOnFirstUse = (parent: TAbstractFile): void => {
+      if (preSnapshots.has(parent.path)) return;
+      preSnapshots.set(parent.path, parent instanceof TFolder ? plugin.getOrderedChildren(parent) : []);
+    };
+
     const record = (parent: TAbstractFile, child: TAbstractFile): void => {
       const arr = orderMap.get(parent.path) || [];
       arr.push(child);
@@ -181,6 +200,7 @@ export class ImportOutlineModal extends Modal {
           }
         }
 
+        snapshotOnFirstUse(parent);
         const folderName = this.safeFolderName(title, createdFoldersCount + 1);
         const folder = await plugin.ensureFolder(`${parent.path}/${folderName}`);
 
@@ -210,6 +230,8 @@ export class ImportOutlineModal extends Modal {
           }
         }
 
+        snapshotOnFirstUse(parent);
+
         // Une collision (fichier `scene-NNN.md` déjà présent, par exemple un
         // import précédent dans le même dossier) ne doit jamais faire perdre
         // silencieusement cette ligne du plan : on avance au prochain nom
@@ -230,7 +252,7 @@ export class ImportOutlineModal extends Modal {
           "summary: ",
           "status: ",
           "label: ",
-          `goal: ${plugin.settings.wordGoal}`,
+          `goal: ${projectWordGoalDefault(this.app, plugin.settings)}`,
           "tags: ",
           "date: ",
           "notes: ",
@@ -247,7 +269,14 @@ export class ImportOutlineModal extends Modal {
 
     for (const [parentPath, children] of orderMap) {
       const parentFolder = this.app.vault.getAbstractFileByPath(parentPath);
-      if (parentFolder) await plugin.writeOrder(parentFolder, children);
+      if (!parentFolder) continue;
+      // Ordre canonique préexistant d'ABORD (jamais déplacé/retrié), puis les
+      // éléments importés dans l'ordre EXACT du plan source — jamais le tri
+      // naturel (§4/§6 du micro-correctif « préserver l'ordre source »).
+      const pre = preSnapshots.get(parentPath) || [];
+      const preNames = new Set(pre.map((c) => c.name));
+      const finalOrder = [...pre, ...children.filter((c) => !preNames.has(c.name))];
+      await plugin.writeOrder(parentFolder, finalOrder);
     }
 
     plugin.renderAllViews(true);
@@ -411,7 +440,7 @@ export class ImportOutlineModal extends Modal {
           "summary: ",
           "status: ",
           "label: ",
-          `goal: ${this.plugin.settings.wordGoal}`,
+          `goal: ${projectWordGoalDefault(this.app, this.plugin.settings)}`,
           "tags: ",
           "date: ",
           "notes: ",

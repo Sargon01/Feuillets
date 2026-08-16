@@ -1,5 +1,7 @@
+import type { App } from "obsidian";
+import { projectStatuses as resolveProjectStatuses } from "./services/project-settings.js";
+
 type ProjectStatus = { name?: string; color: string };
-type SettingsWithStatuses = { statuses?: unknown };
 
 export const VIEW_SIDEBAR = "feuillets-view";
 export const VIEW_BOARD = "feuillets-board";
@@ -18,13 +20,21 @@ export const VIEW_SCRIVENINGS = "feuillets-scrivenings";
 
 /** Statuts : entièrement personnalisables (nom + couleur), comme les
  * labels — plus de liste figée ni de couleur déterminée par la position.
- * `settings.statuses` est un tableau de `{name, color}` ; "" (sans statut)
+ * Projet-scoped depuis le chantier « panneau Projet » : `ProjectMeta
+ * .statuses` du projet actif si renseigné, sinon repli sur le réglage
+ * global historique `settings.statuses` (tableau de `{name, color}`) — voir
+ * services/project-settings.ts, seul point de résolution. "" (sans statut)
  * reste implicite, toujours en tête, jamais stocké comme entrée.
- * @param {FeuilletsSettings} settings 
+ * `app`/`settings` optionnels (repli sur le tableau global brut) pour ne
+ * pas casser les rares appelants qui n'ont pas encore d'App sous la main.
+ * @param {App} app
+ * @param {FeuilletsSettings} settings
  * @returns {string[]}
  */
-export function getProjectStatuses(settings: SettingsWithStatuses | null | undefined): string[] {
-  const statuses: ProjectStatus[] = (settings && Array.isArray(settings.statuses)) ? settings.statuses as ProjectStatus[] : [];
+export function getProjectStatuses(app: App | null | undefined, settings: FeuilletsSettings | null | undefined): string[] {
+  const statuses: ProjectStatus[] = app && settings
+    ? resolveProjectStatuses(app, settings)
+    : (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
   const names = statuses
     .map((s) => (s && typeof s.name === "string" ? s.name.trim() : ""))
     .filter(Boolean);
@@ -32,12 +42,15 @@ export function getProjectStatuses(settings: SettingsWithStatuses | null | undef
 }
 
 /**
- * @param {FeuilletsSettings} settings 
- * @param {string} name 
+ * @param {App} app
+ * @param {FeuilletsSettings} settings
+ * @param {string} name
  * @returns {string|null}
  */
-export function getStatusColor(settings: SettingsWithStatuses | null | undefined, name: string): string | null {
-  const statuses: ProjectStatus[] = (settings && Array.isArray(settings.statuses)) ? settings.statuses as ProjectStatus[] : [];
+export function getStatusColor(app: App | null | undefined, settings: FeuilletsSettings | null | undefined, name: string): string | null {
+  const statuses: ProjectStatus[] = app && settings
+    ? resolveProjectStatuses(app, settings)
+    : (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
   const found = statuses.find((s) => s.name === name);
   return found ? found.color : null;
 }
@@ -59,6 +72,6 @@ export const HIDEABLE_PANELS = [
   { key: "research", label: "Recherche", view: VIEW_RESEARCH },
   { key: "notes", label: "Notes", view: VIEW_NOTES },
   { key: "journal", label: "Journal & statistiques", view: VIEW_JOURNAL },
-  { key: "project", label: "Projet & export", view: VIEW_PROJECT },
+  { key: "project", label: "Projet", view: VIEW_PROJECT },
   { key: "docxReview", label: "Édition (révisions .docx + documents)", view: VIEW_DOCX_REVIEW },
 ];

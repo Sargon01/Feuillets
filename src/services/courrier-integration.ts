@@ -53,7 +53,7 @@ export interface SubmissionDraftData {
   pieceJointes?: string[];
   /** Chemin RÉEL du dossier Édition du projet (Lot 14D) — résolu par
    * `getEditionRoot`/`editionFolderPath` (mêmes fonctions que
-   * `detectEditorialDocuments` et `views/edition-docs-view.ts`, jamais une
+   * `detectEditorialDocuments` et `ui/edition-docs-content.ts`, jamais une
    * reconstruction indépendante du chemin côté Courrier). S'il existe déjà
    * sur le disque, c'est exactement ce nom-là qui est transmis — jamais un
    * chemin recalculé qui risquerait de créer un second dossier concurrent

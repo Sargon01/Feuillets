@@ -360,7 +360,7 @@ export async function findAppearances(app: App, settings: FeuilletsSettings, ent
     if (!excerpt) {
       /* pas de lien littéral (ou seulement un tag) : le synopsis de la
          scène sert de repère, à défaut d'un passage précis à montrer */
-      const syn = fmOf(app, f).synopsis;
+      const syn = fmOf(app, f, settings).synopsis;
       if (typeof syn === "string" && syn.trim()) excerpt = syn.trim();
     }
     results.push({ file: f, excerpt, via });

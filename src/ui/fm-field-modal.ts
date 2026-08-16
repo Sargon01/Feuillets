@@ -1,13 +1,21 @@
 import { Modal, type App, type TFile } from "obsidian";
 import { t } from "../i18n/index.js";
+import { writeLogicalFrontmatterField, isMappableField } from "../services/frontmatter.js";
 
 type FrontmatterPlugin = {
+  settings: FeuilletsSettings;
   titleFor(file: TFile): string;
   fmOf(file: TFile): SceneFrontmatter;
 };
 
 type SavedHandler = () => void | Promise<void>;
 
+/** Éditeur générique d'UN champ frontmatter, ouvert sur un feuillet donné —
+ * synopsis/résumé long/POV aujourd'hui (voir les appelants). §18 du
+ * chantier « mapping YAML » : la clé passée ici est TOUJOURS un champ
+ * logique Feuillets, donc l'écriture délègue au writer centralisé
+ * (mapping de projet, variante de casse déjà présente…) — jamais un accès
+ * disque direct pour ces champs. */
 export class FmFieldModal extends Modal {
   plugin: FrontmatterPlugin;
   file: TFile;
@@ -35,10 +43,14 @@ export class FmFieldModal extends Modal {
     ta.focus();
     const save = async () => {
       const v = ta.value.trim();
-      await this.app.fileManager.processFrontMatter(this.file, (x: Record<string, unknown>) => {
-        if (v) x[this.key] = v;
-        else delete x[this.key];
-      });
+      if (isMappableField(this.key)) {
+        await writeLogicalFrontmatterField(this.app, this.plugin.settings, this.file, this.key, v);
+      } else {
+        await this.app.fileManager.processFrontMatter(this.file, (x: Record<string, unknown>) => {
+          if (v) x[this.key] = v;
+          else delete x[this.key];
+        });
+      }
       this.close();
       if (this.onSaved) void this.onSaved();
     };

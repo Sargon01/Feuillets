@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { ExportPanel } from "../src/ui/export-panel.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { t } from "../src/i18n/index.js";
 
 /* Même petit DOM factice que test/preview-view.test.js (convention du
  * dépôt : dupliqué, pas partagé), réduit à ce qu'ExportPanel utilise
@@ -212,7 +213,12 @@ test("ExportPanel : onPresentationChanged est facultatif — changer de format s
   }
 });
 
-test("ExportPanel : mode Preview (embedded par défaut) conserve Actualiser et fermer, et est replié par défaut", async () => {
+/* Dernier lot UX avant 2.5, §1 : le mode `embedded` a disparu — Édition
+ * n'appelle plus jamais `.render()` sur ExportPanel, elle monte
+ * `renderQuickBar()` à la place (voir edition-workspace-content.test.js).
+ * ExportPanel n'a donc plus qu'un seul mode : le panneau repliable de
+ * l'Aperçu, testé ci-dessous. */
+test("ExportPanel : panneau Aperçu — Actualiser/fermer présents, replié par défaut", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
@@ -223,66 +229,13 @@ test("ExportPanel : mode Preview (embedded par défaut) conserve Actualiser et f
     assert.equal(container.hasClass("is-hidden"), true, "replié par défaut, comme dans l'Aperçu");
     assert.ok(container.querySelector('[aria-label="Actualiser l’aperçu"]'), "bouton Actualiser présent");
     assert.ok(container.querySelector('[aria-label="Replier le panneau Export"]'), "bouton fermer présent");
-  } finally {
-    restore();
-  }
-});
-
-test("ExportPanel : mode embedded reste toujours visible et n'affiche ni Actualiser ni fermer", async () => {
-  const restore = installDom();
-  try {
-    const { app, plugin } = buildFixture();
-    const container = new FakeElement("div");
-    const panel = new ExportPanel(app, plugin, container, { embedded: true });
-    await panel.render();
-
-    assert.equal(container.hasClass("is-hidden"), false, "toujours visible en mode embedded");
-    assert.equal(container.querySelector('[aria-label="Actualiser l’aperçu"]'), null);
-    assert.equal(container.querySelector('[aria-label="Replier le panneau Export"]'), null);
-    // Les champs et le bouton Exporter restent identiques.
-    assert.ok(container.querySelector('[aria-label="Portée de l’export"]'));
-    const launch = container.querySelectorAll("button").find((el) => el.textContent === "Exporter");
-    assert.ok(launch);
-    assert.ok(launch.hasClass("mod-cta"));
-    assert.ok(launch.hasClass("feuillets-edition-export-cta"));
-  } finally {
-    restore();
-  }
-});
-
-/* ===================== Phase 2 — présentation embedded ===================== */
-
-test("ExportPanel : embedded:true ajoute la classe is-embedded sur la racine du panneau", async () => {
-  const restore = installDom();
-  try {
-    const { app, plugin } = buildFixture();
-    const container = new FakeElement("div");
-    const panel = new ExportPanel(app, plugin, container, { embedded: true });
-    await panel.render();
-
-    assert.ok(container.hasClass("is-embedded"));
-    assert.equal(container.hasClass("feuillets-preview-export"), false, "Édition n'hérite pas du habillage du panneau Aperçu");
-  } finally {
-    restore();
-  }
-});
-
-test("ExportPanel : le panneau Preview (non embedded) reste inchangé — pas de is-embedded", async () => {
-  const restore = installDom();
-  try {
-    const { app, plugin } = buildFixture();
-    const container = new FakeElement("div");
-    const panel = new ExportPanel(app, plugin, container);
-    await panel.render();
-
-    assert.equal(container.hasClass("is-embedded"), false);
     assert.ok(container.hasClass("feuillets-preview-export"));
   } finally {
     restore();
   }
 });
 
-test("ExportPanel : Gabarit n'existe plus dans aucun mode (Phase 11 : déplacé dans Édition → Mise en page)", async () => {
+test("ExportPanel : Gabarit n'existe plus dans le panneau (Phase 11 : déplacé dans Édition → Mise en page)", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
@@ -291,30 +244,20 @@ test("ExportPanel : Gabarit n'existe plus dans aucun mode (Phase 11 : déplacé 
     await new ExportPanel(app, plugin, previewContainer).render();
     assert.equal(previewContainer.querySelector('[aria-label="Gabarit d’export"]'), null);
     assert.equal(previewContainer.querySelectorAll("select").length, 1, "seul le select Format subsiste");
-
-    const embeddedContainer = new FakeElement("div");
-    await new ExportPanel(app, plugin, embeddedContainer, { embedded: true }).render();
-    assert.equal(embeddedContainer.querySelector('[aria-label="Gabarit d’export"]'), null);
-    assert.equal(embeddedContainer.querySelectorAll("select").length, 2, "Portée et Format sont disponibles dans le panneau intégré");
   } finally {
     restore();
   }
 });
 
-test("ExportPanel : Première page n'existe plus dans aucun mode (Phase 3 : déplacée dans Édition → Composition de l'ouvrage)", async () => {
+test("ExportPanel : Première page n'existe plus dans le panneau (Phase 3 : déplacée dans Édition → Composition de l'ouvrage)", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
 
     const previewContainer = new FakeElement("div");
     await new ExportPanel(app, plugin, previewContainer).render();
-    assert.equal(previewContainer.querySelectorAll(".feuillets-preview-export-summary").length, 0, "aucune sous-section repliable en mode Preview");
+    assert.equal(previewContainer.querySelectorAll(".feuillets-preview-export-summary").length, 0, "aucune sous-section repliable");
     assert.equal(previewContainer.querySelectorAll("details").length, 0);
-
-    const embeddedContainer = new FakeElement("div");
-    await new ExportPanel(app, plugin, embeddedContainer, { embedded: true }).render();
-    assert.equal(embeddedContainer.querySelectorAll(".feuillets-preview-export-summary").length, 0, "aucune sous-section repliable en mode embedded");
-    assert.equal(embeddedContainer.querySelectorAll("details").length, 0);
 
     // Portée / Format / Nom / Exporter restent présents : le contenu appartient
     // désormais à Composition de l’ouvrage.
@@ -328,7 +271,7 @@ test("ExportPanel : Première page n'existe plus dans aucun mode (Phase 3 : dép
   }
 });
 
-test("ExportPanel : le bouton final Exporter garde la classe Preview uniquement hors mode embedded", async () => {
+test("ExportPanel : le bouton final Exporter garde la classe Preview", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
@@ -336,31 +279,49 @@ test("ExportPanel : le bouton final Exporter garde la classe Preview uniquement 
     const previewContainer = new FakeElement("div");
     await new ExportPanel(app, plugin, previewContainer).render();
     assert.ok(previewContainer.querySelector(".feuillets-preview-export-launch"));
-
-    const embeddedContainer = new FakeElement("div");
-    await new ExportPanel(app, plugin, embeddedContainer, { embedded: true }).render();
-    const embeddedLaunch = embeddedContainer.querySelectorAll("button").find((el) => el.textContent === "Exporter");
-    assert.ok(embeddedLaunch);
-    assert.equal(embeddedContainer.querySelector(".feuillets-preview-export-launch"), null);
   } finally {
     restore();
   }
 });
 
-test("ExportPanel : « Éléments inclus » n’est affiché dans aucun mode", async () => {
+test("ExportPanel : « Éléments inclus » n’est jamais affiché", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
 
     const previewContainer = new FakeElement("div");
     await new ExportPanel(app, plugin, previewContainer).render();
-    const previewIncluded = previewContainer.querySelector('[aria-label="Choisir les éléments inclus"]');
-    assert.equal(previewIncluded, null);
+    assert.equal(previewContainer.querySelector('[aria-label="Choisir les éléments inclus"]'), null);
+  } finally {
+    restore();
+  }
+});
 
-    const embeddedContainer = new FakeElement("div");
-    await new ExportPanel(app, plugin, embeddedContainer, { embedded: true }).render();
-    const embeddedIncluded = embeddedContainer.querySelector('[aria-label="Choisir les éléments inclus"]');
-    assert.equal(embeddedIncluded, null);
+/* La barre d'export compacte d'Édition (renderQuickBar) est testée en
+ * détail dans edition-workspace-content.test.js, montée dans son vrai
+ * contexte d'hôte — ici, une vérification directe minimale : mêmes
+ * méthodes réutilisées (resolveScope/exportFormat/launchExport), aucune
+ * étiquette "Portée"/"Format", pas de champ nom de fichier. */
+test("ExportPanel.renderQuickBar : portée + format + Exporter, sans étiquette ni champ nom de fichier", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin } = buildFixture();
+    const bar = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, bar);
+    panel.renderQuickBar(bar);
+
+    const scope = bar.querySelector(".feuillets-edition-quickexport-scope");
+    const format = bar.querySelector(".feuillets-edition-quickexport-format");
+    assert.ok(scope, "sélecteur de portée présent");
+    assert.ok(format, "sélecteur de format présent");
+    assert.equal(format.value, "docx");
+    assert.ok(bar.querySelectorAll("button").some((el) => el.textContent === t("project.compilation.exportBtn")));
+    assert.equal(bar.querySelector('[aria-label="Nom du fichier exporté"]'), null, "pas de champ nom de fichier (§1)");
+    assert.equal(bar.querySelectorAll("span").filter((el) => el.textContent === t("preview.export.scope")).length, 0, "aucune étiquette « Portée »");
+
+    format.value = "epub";
+    format.dispatch("change");
+    assert.equal(plugin.settings.exportFormat, "epub");
   } finally {
     restore();
   }

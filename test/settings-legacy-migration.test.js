@@ -16,7 +16,7 @@ test("loadSettings migre les anciens panneaux droits vers l'Inspecteur", async (
   for (const [legacyKey, expectedTab] of [
     ["autoOpenNotes", "notes"],
     ["autoOpenResearch", "research"],
-    ["autoOpenDocxReview", "project"],
+    ["autoOpenDocxReview", "relecture"],
     ["autoOpenProperties", "notes"],
   ]) {
     const { plugin } = await loadLegacySettings({ [legacyKey]: true });
