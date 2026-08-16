@@ -51,6 +51,11 @@ export type DefaultSettings = {
   indentParagraphs: boolean;
   outlineCols: Record<string, boolean>;
   outlineWidths: Record<string, number>;
+  /** Plan : retour à la ligne des colonnes de texte long (Synopsis,
+   *  Résumé long) au lieu d'une ligne tronquée. Réglage global uniquement
+   *  (comme outlineWidths) — pas de surcharge par projet. OFF par défaut :
+   *  comportement historique inchangé. */
+  outlineWrapLongText: boolean;
   showCardTags: boolean;
   projects: string[];
   manuscriptTitle: string;
@@ -254,6 +259,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
     status: 105, date: 160, compile: 80, filename: 200, words: 85, goal: 85, progress: 90,
     pov: 110,
   },
+  outlineWrapLongText: false,
   showCardTags: false,
   projects: [],
   manuscriptTitle: "",

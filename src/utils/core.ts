@@ -92,6 +92,16 @@ export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Comparateur de tri naturel (« Chapitre 2 » avant « Chapitre 10 »,
+ * « Scène 1.2 » avant « Scène 1.10 ») — utilisé UNIQUEMENT comme fallback
+ * de classement quand aucun ordre éditorial explicite (Binder, `order`
+ * front-matter, `folderPositions`) ne s'applique. Ne jamais l'utiliser
+ * pour transformer/renommer quoi que ce soit. */
+const naturalCollator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
+export function naturalCompare(a: string, b: string): number {
+  return naturalCollator.compare(a, b);
+}
+
 export function embedHardBreaks(text: string): string {
   const structural = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>|```|\||\s*\*{3}\s*$)/;
   return text

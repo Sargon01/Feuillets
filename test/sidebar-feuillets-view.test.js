@@ -222,10 +222,13 @@ test("SidebarFeuilletsView : l'onglet Projet affiche le projet actif et son type
   await sidebar.renderProjectTab(container);
 
   assert.deepEqual(calls.map((call) => call.name), [], "aucune sous-vue montée dans cet onglet");
+  // §13-17 : le panneau enrichi ajoute une seconde ligne au gabarit
+  // « .feuillets-notes-section-title » — la ligne compacte « Gérer les
+  // projets… » de la section Gestion (même grammaire que le projet actif).
   const titles = allElements(container)
     .filter((el) => el.classes.has("feuillets-notes-section-title"))
     .map((el) => el.text);
-  assert.deepEqual(titles, [`Projet ${root.path}`]);
+  assert.deepEqual(titles, [`Projet ${root.path}`, t("sidebar.project.manage")]);
   const subs = allElements(container).filter((el) => el.classes.has("feuillets-notes-sub")).map((el) => el.text);
   assert.deepEqual(subs, ["Fiction · Halim Yalcin"]);
   assert.equal(allElements(container).some((el) => el.attrs.get("role") === "tablist"), false, "pas de tablist horizontale");
@@ -328,6 +331,94 @@ test("SidebarFeuilletsView : les quatre actions de gestion réutilisent les moda
       Klass.prototype.open = original;
     }
     assert.ok(opened instanceof Klass, `${title} ouvre ${Klass.name}`);
+  }
+});
+
+/* §13-18 du micro-chantier « finition Édition + sidebar Projet » : la
+ * sidebar Projet devient un vrai panneau compact — Informations/Manuscrit/
+ * Gestion — mais UNIQUEMENT avec des données déjà existantes. */
+test("SidebarFeuilletsView : « Informations » affiche les champs ProjectMeta existants, sans jamais inventer une valeur absente", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  sidebar.plugin.settings.projectMeta[root.path] = { type: "fiction", author: "Halim Yalcin" };
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const rows = allElements(container).filter((el) => el.classes.has("feuillets-properties-row"));
+  const pairs = rows.map((row) => [
+    row.children.find((c) => c.classes.has("feuillets-properties-key"))?.text,
+    row.children.find((c) => c.classes.has("feuillets-properties-value"))?.text,
+  ]);
+
+  // Nom (dérivé de projectDisplayName, déjà utilisé ailleurs) et Auteur
+  // (présent dans ProjectMeta) sont affichés ; Type suit la même règle que
+  // le sous-titre déjà testé plus haut ("Fiction"). Description est ABSENTE
+  // de ProjectMeta ici : aucune ligne "Description" ne doit apparaître —
+  // rien n'est inventé.
+  assert.deepEqual(pairs, [
+    [t("sidebar.project.fieldName"), `Projet ${root.path}`],
+    [t("sidebar.project.fieldAuthor"), "Halim Yalcin"],
+    [t("sidebar.project.fieldType"), "Fiction"],
+    [t("sidebar.project.fieldFolder"), root.name],
+  ]);
+});
+
+test("SidebarFeuilletsView : sections Informations/Manuscrit/Gestion rendues, Gestion ouvre ManageProjectsModal sans dupliquer sa logique", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const heads = allElements(container)
+    .filter((el) => el.classes.has("feuillets-settings-subhead"))
+    .map((el) => el.text);
+  assert.deepEqual(heads, [
+    t("sidebar.project.header"),
+    t("sidebar.project.infoHeader"),
+    t("sidebar.project.manuscriptHeader"),
+    t("sidebar.project.manageHeader"),
+  ]);
+
+  assert.ok(
+    allElements(container).some((el) => el.classes.has("feuillets-sidebar-project")),
+    "toute la surface est scopée sous une racine dédiée (§21, cloisonnement CSS)"
+  );
+
+  const manageRow = allElements(container).find(
+    (el) => el.classes.has("feuillets-notes-section-title") && el.text === t("sidebar.project.manage")
+  )?.parentNode;
+  assert.ok(manageRow, "la ligne « Gérer les projets… » est présente dans Gestion");
+
+  let opened = null;
+  const original = ManageProjectsModal.prototype.open;
+  ManageProjectsModal.prototype.open = function open() { opened = this; };
+  try {
+    manageRow.events.get("click")();
+  } finally {
+    ManageProjectsModal.prototype.open = original;
+  }
+  assert.ok(opened instanceof ManageProjectsModal, "réutilise ManageProjectsModal — aucune logique de gestion dupliquée");
+});
+
+test("SidebarFeuilletsView : sans projet actif, aucune section Informations/Manuscrit/Gestion ne s'affiche", async () => {
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: null });
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  const heads = allElements(container)
+    .filter((el) => el.classes.has("feuillets-settings-subhead"))
+    .map((el) => el.text);
+  assert.deepEqual(heads, [t("sidebar.project.header")]);
+});
+
+test("SidebarFeuilletsView : la sidebar Projet ne remonte aucun composant Édition/Documents (EditionDocsContent, EditionCompositionContent, EditionWorkspaceContent)", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+  const container = new FakeElement();
+  await sidebar.renderProjectTab(container);
+
+  for (const cls of ["feuillets-edition-docs-container", "feuillets-edition-composition-container", "feuillets-layout-workspace"]) {
+    assert.equal(allElements(container).some((el) => el.classes.has(cls)), false, `${cls} absent de la sidebar`);
   }
 });
 

@@ -225,6 +225,11 @@ export class ExportPanel {
   /** Rendu propre à l'inspecteur Édition. Il ne réutilise délibérément
    * aucune classe ni aucune cellule `Setting` du panneau Aperçu. */
   private renderEditionEmbedded(panel: HTMLElement): void {
+    panel.createDiv({
+      cls: "feuillets-edition-group-label feuillets-edition-export-title",
+      text: "Sortie",
+    });
+
     const scopeControl = this.editionPropertyRow(panel, t("preview.export.scope"));
     const scope = scopeControl.createEl("select");
     const current = this.resolveScope();
@@ -262,6 +267,7 @@ export class ExportPanel {
        relève réellement du geste d'export. Le gabarit, les marges,
        l'orientation, l'en-tête/pied et les styles typographiques appartiennent
        à Mise en page et ne sont volontairement PAS réaffichés ici. */
+    panel.createDiv({ cls: "feuillets-edition-group-label", text: "Options" });
     const typographyControl = this.editionPropertyRow(panel, t("settings.exportFrenchTypography.name"));
     const typography = typographyControl.createEl("input", { type: "checkbox" });
     typography.checked = this.plugin.settings.exportFrenchTypography !== false;

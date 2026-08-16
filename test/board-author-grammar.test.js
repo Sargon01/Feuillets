@@ -184,10 +184,15 @@ function menuItemTitles(menu) {
   return menu.items.filter((i) => !i.separator).map((i) => i.title);
 }
 
-// Colonnes du menu Plan uniquement : exclut séparateurs, en-têtes désactivés
-// (— Plan —, — Colonnes affichées —) et l'action « Réinitialiser… ».
+// Colonnes du menu Plan uniquement : ne garde que les entrées venant APRÈS
+// l'en-tête « — Colonnes affichées — », donc jamais « Réinitialiser… » ni
+// les autres options d'affichage placées au-dessus (ex. retour à la ligne).
 function outlineColumnMenuTitles(menu) {
-  return menu.items.filter((i) => !i.separator && !i.disabled && typeof i.callback === "function" && i.checked !== undefined).map((i) => i.title);
+  const headerIndex = menu.items.findIndex((i) => i.title === "— Colonnes affichées —");
+  return menu.items
+    .slice(headerIndex + 1)
+    .filter((i) => !i.separator && !i.disabled && typeof i.callback === "function" && i.checked !== undefined)
+    .map((i) => i.title);
 }
 
 function buildOptionsHarness() {
@@ -430,4 +435,169 @@ test("Plan — colsTemplate() inclut la largeur POV configurée, mécanisme de r
   assert.equal(parts.length, 1 + view.visibleCols().length);
   // La largeur par défaut de la colonne POV (§8/§21) est bien prise en compte.
   assert.equal(parts[3], `${DEFAULT_SETTINGS.outlineWidths.pov}px`);
+});
+
+/* ===================== PLAN — option « Retour à la ligne des textes longs » ===================== */
+
+function buildOutlineWrapHarness({ children, outlineWrapLongText = false, outlineColumns } = {}) {
+  const root = new TFolder("Projet/Manuscrit");
+  root.children = children;
+  for (const c of children) c.parent = root;
+
+  const app = { workspace: {} };
+  const plugin = {
+    settings: {
+      collapsed: {},
+      statuses: [],
+      wordGoal: 0,
+      outlineWidths: { ...DEFAULT_SETTINGS.outlineWidths },
+      outlineWrapLongText,
+    },
+    getOrderedChildren: (folder) => folder.children,
+    isFrontMatter: () => false,
+    fmOf: (file) => file.__fm || {},
+    shortTitleFor: (file) => file.basename,
+    saveSettings: async () => {},
+  };
+  const view = new BoardView({ app, contentEl: new FakeElement() }, plugin);
+  view.passesFilter = () => true;
+  view.attachDragHandlers = () => {};
+  view.handleMultiSelectClick = () => false;
+  view._renderGen = 1;
+  view.wcMap = new Map();
+  view.outlineColumns = outlineColumns || {
+    synopsis: true, summary: false, pov: false, label: false, status: false,
+    tags: false, date: false, words: false, goal: false,
+  };
+  return { view, root, app, plugin };
+}
+
+test("Plan — wrap OFF : le conteneur Plan garde le comportement historique (pas de classe wrap)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { synopsis: "Un synopsis très long qui serait normalement tronqué sur une seule ligne." };
+  const { view, root } = buildOutlineWrapHarness({ children: [file], outlineWrapLongText: false });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+
+  const outline = findFirst(container, (el) => el.classes.has("feuillets-outline"));
+  assert.ok(outline, "conteneur Plan attendu");
+  assert.equal(outline.classes.has("feuillets-outline-wrap"), false);
+  // La cellule Synopsis existe toujours, avec exactement le même contenu.
+  const synopsisCell = findFirst(container, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(synopsisCell.text, file.__fm.synopsis);
+});
+
+test("Plan — wrap ON : la classe/état de wrap est appliqué au conteneur qui porte Synopsis", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { synopsis: "Un synopsis très long qui devrait maintenant passer à la ligne." };
+  const { view, root } = buildOutlineWrapHarness({ children: [file], outlineWrapLongText: true });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+
+  const outline = findFirst(container, (el) => el.classes.has("feuillets-outline"));
+  assert.ok(outline.classes.has("feuillets-outline-wrap"), "classe de wrap attendue sur le conteneur Plan");
+  const synopsisTitleCell = findFirst(container, (el) => el.classes.has("feuillets-cell-synopsis"));
+  assert.ok(synopsisTitleCell, "cellule Synopsis toujours présente sous le conteneur en wrap");
+});
+
+test("Plan — Résumé long (Non-fiction/Libre) suit le même contrat que Synopsis", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { summary: "Un résumé long qui doit lui aussi passer à la ligne quand l'option est activée." };
+  const outlineColumns = {
+    synopsis: false, summary: true, pov: false, label: false, status: false,
+    tags: false, date: false, words: false, goal: false,
+  };
+  const { view: viewOn, root: rootOn } = buildOutlineWrapHarness({ children: [file], outlineWrapLongText: true, outlineColumns });
+  const containerOn = new FakeElement();
+  await viewOn.renderOutline(containerOn, rootOn, new Map(), () => {}, 1);
+  const outlineOn = findFirst(containerOn, (el) => el.classes.has("feuillets-outline"));
+  assert.ok(outlineOn.classes.has("feuillets-outline-wrap"));
+  assert.ok(findFirst(containerOn, (el) => el.classes.has("feuillets-cell-summary")), "cellule Résumé long attendue");
+
+  const file2 = new TFile("Projet/Manuscrit/Scène 2.md");
+  file2.__fm = { summary: "Idem, avec wrap désactivé cette fois." };
+  const { view: viewOff, root: rootOff } = buildOutlineWrapHarness({ children: [file2], outlineWrapLongText: false, outlineColumns });
+  const containerOff = new FakeElement();
+  await viewOff.renderOutline(containerOff, rootOff, new Map(), () => {}, 1);
+  const outlineOff = findFirst(containerOff, (el) => el.classes.has("feuillets-outline"));
+  assert.equal(outlineOff.classes.has("feuillets-outline-wrap"), false);
+});
+
+test("Plan — les colonnes courtes (statut, mots) restent rendues à l'identique, wrap ON ou OFF", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { status: "Brouillon" };
+  const outlineColumns = {
+    synopsis: false, summary: false, pov: false, label: false, status: true,
+    tags: false, date: false, words: true, goal: false,
+  };
+
+  for (const outlineWrapLongText of [false, true]) {
+    const { view, root } = buildOutlineWrapHarness({ children: [file], outlineWrapLongText, outlineColumns });
+    view.wcMap = new Map([[file.path, 42]]);
+    const container = new FakeElement();
+    await view.renderOutline(container, root, new Map(), () => {}, 1);
+
+    // Les cellules courtes existent et gardent le même contenu — le wrap
+    // (option purement CSS, scopée à Synopsis/Résumé) ne les modifie pas.
+    const statusCell = findFirst(container, (el) => el.classes.has("feuillets-cell-status"));
+    assert.ok(statusCell, `cellule statut attendue (wrap=${outlineWrapLongText})`);
+    const wordsCell = findFirst(container, (el) => el.classes.has("feuillets-cell-words"));
+    assert.equal(wordsCell.text, "42");
+    // Aucune cellule Synopsis/Résumé ne doit apparaître ici : le wrap
+    // n'active jamais ces colonnes de lui-même.
+    assert.equal(findAll(container, (el) => el.classes.has("feuillets-cell-synopsis")).length, 0);
+    assert.equal(findAll(container, (el) => el.classes.has("feuillets-cell-summary")).length, 0);
+  }
+});
+
+test("Plan — basculer wrap ON/OFF ne modifie jamais le front matter (YAML) du feuillet", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  const originalFm = { synopsis: "Contenu original, jamais réécrit par le simple affichage." };
+  file.__fm = originalFm;
+
+  for (const outlineWrapLongText of [false, true]) {
+    const { view, root } = buildOutlineWrapHarness({ children: [file], outlineWrapLongText });
+    const container = new FakeElement();
+    await view.renderOutline(container, root, new Map(), () => {}, 1);
+    assert.deepEqual(file.__fm, originalFm, `wrap=${outlineWrapLongText} : YAML inchangé`);
+  }
+});
+
+test("Menu Plan — bascule « Retour à la ligne des textes longs » : coche l'état courant et persiste via saveSettings (même mécanisme que outlineWidths)", async () => {
+  const { view } = buildOptionsHarness();
+  view.plugin.settings.outlineWrapLongText = false;
+  let saved = 0;
+  view.plugin.saveSettings = async () => { saved++; };
+  view.render = async () => {};
+
+  const menu = new Menu();
+  view.buildModeOptionsMenu(menu, "outline", {
+    S: view.plugin.settings,
+    meta: {},
+    pType: "fiction",
+    wholeManuscript: false,
+    outlineColumns: {},
+  });
+
+  const item = menu.items.find((i) => i.title === "Retour à la ligne des textes longs");
+  assert.ok(item, "option de menu attendue");
+  assert.equal(item.checked, false, "décochée par défaut (OFF historique)");
+
+  await item.callback();
+  assert.equal(view.plugin.settings.outlineWrapLongText, true, "bascule vers ON");
+  assert.equal(saved, 1, "persistée via le même saveSettings() que les autres options Plan");
+
+  // La bascule suit le même mécanisme au rendu suivant du menu (F).
+  const menu2 = new Menu();
+  view.buildModeOptionsMenu(menu2, "outline", {
+    S: view.plugin.settings,
+    meta: {},
+    pType: "fiction",
+    wholeManuscript: false,
+    outlineColumns: {},
+  });
+  const item2 = menu2.items.find((i) => i.title === "Retour à la ligne des textes longs");
+  assert.equal(item2.checked, true, "préférence restaurée à partir de settings.outlineWrapLongText");
 });

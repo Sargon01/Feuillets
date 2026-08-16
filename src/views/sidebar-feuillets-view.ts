@@ -227,13 +227,17 @@ export class SidebarFeuilletsView extends ItemView {
      Aucune carte lourde, aucun cockpit, aucun formulaire permanent — la
      gestion avancée reste ManageProjectsModal (§17). */
   async renderProjectTab(element: HTMLElement): Promise<void> {
-    const section = element.createDiv({ cls: "feuillets-notes-section" });
+    // §21 : cloisonnement CSS — toute règle Projet ajoutée par ce chantier
+    // vit STRICTEMENT sous cette racine (voir styles.css).
+    const container = element.createDiv({ cls: "feuillets-sidebar-project" });
+
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
     section.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.project.header") });
 
     const S = this.plugin.settings;
     const path = S.projectFolder;
     const root = this.plugin.getProjectFolder();
-    const meta = path ? (S.projectMeta[path] || {}) : {};
+    const meta: ProjectMeta = path ? (S.projectMeta[path] || {}) : {};
 
     const head = section.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable" });
     const iconSpan = head.createSpan({ cls: "feuillets-cell-icon" });
@@ -246,6 +250,64 @@ export class SidebarFeuilletsView extends ItemView {
     head.addEventListener("click", (event) => this.showProjectMenu(event));
 
     section.createDiv({ cls: "feuillets-notes-sub" }).setText(this.projectSubtitle(meta));
+
+    // §13-17 : panneau compact de gestion, uniquement si un projet est
+    // réellement actif — pas de section vide à afficher sans projet.
+    if (!root || !path) return;
+
+    this.renderProjectInfoSection(container, path, meta);
+    this.renderProjectManuscriptSection(container, root);
+    this.renderProjectManagementSection(container);
+  }
+
+  /** §15 : « Informations » — UNIQUEMENT les champs déjà présents dans
+   * ProjectMeta (types.d.ts), affichés en lecture seule. Aucune valeur
+   * absente n'est inventée : un champ vide n'affiche tout simplement pas de
+   * ligne. La modification reste le rôle de ManageProjectsModal (§15) — ce
+   * panneau ne crée pas de second éditeur de métadonnées. */
+  private renderProjectInfoSection(container: HTMLElement, path: string, meta: ProjectMeta): void {
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    section.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.project.infoHeader") });
+
+    const typeLabel = PROJECT_MODES[resolveType(meta.type)]?.label || "";
+    const fields: Array<[string, string | undefined]> = [
+      [t("sidebar.project.fieldName"), this.plugin.projectDisplayName(path)],
+      [t("sidebar.project.fieldAuthor"), meta.author],
+      [t("sidebar.project.fieldType"), typeLabel],
+      [t("sidebar.project.fieldDescription"), meta.description],
+    ];
+    for (const [label, rawValue] of fields) {
+      const value = typeof rawValue === "string" ? rawValue.trim() : "";
+      if (!value) continue;
+      const row = section.createDiv({ cls: "feuillets-properties-row" });
+      row.createSpan({ cls: "feuillets-properties-key", text: label });
+      row.createSpan({ cls: "feuillets-properties-value", text: value });
+    }
+  }
+
+  /** §16 : « Manuscrit » — juste le dossier réellement résolu
+   * (`getProjectFolder`, déjà consommé partout ailleurs). Aucune métrique
+   * calculée ici : afficher un chiffre inventé serait pire que rien. */
+  private renderProjectManuscriptSection(container: HTMLElement, root: TFolder): void {
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    section.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.project.manuscriptHeader") });
+    const row = section.createDiv({ cls: "feuillets-properties-row" });
+    row.createSpan({ cls: "feuillets-properties-key", text: t("sidebar.project.fieldFolder") });
+    row.createSpan({ cls: "feuillets-properties-value", text: root.name });
+  }
+
+  /** §17 : « Gestion » — un seul accès compact vers l'administration
+   * avancée déjà existante (ManageProjectsModal, déjà ouverte depuis le menu
+   * du projet actif). Aucune logique dupliquée : ce n'est qu'un second point
+   * d'entrée vers la même modale. */
+  private renderProjectManagementSection(container: HTMLElement): void {
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    section.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.project.manageHeader") });
+    const row = section.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable" });
+    const iconSpan = row.createSpan({ cls: "feuillets-notes-section-icon" });
+    setIcon(iconSpan, "folder-cog");
+    row.createSpan({ cls: "feuillets-notes-section-title", text: t("sidebar.project.manage") });
+    row.addEventListener("click", () => new ManageProjectsModal(this.app, this.plugin).open());
   }
 
   /** Ligne d'information sous le projet actif : « Type · Auteur » — les deux

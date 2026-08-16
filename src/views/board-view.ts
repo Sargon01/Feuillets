@@ -845,6 +845,16 @@ export class BoardView extends BaseFeuilletsView {
           void this.render();
         })
       );
+      /* Présentation uniquement (§3-6 du micro-chantier tri naturel/wrap) :
+         réglage global, même mécanisme de persistance que outlineWidths
+         ci-dessus — ne touche jamais le contenu YAML des feuillets. */
+      menu.addItem((item) =>
+        item.setTitle(t("board.options.wrapLongText")).setChecked(!!S.outlineWrapLongText).onClick(async () => {
+          S.outlineWrapLongText = !S.outlineWrapLongText;
+          await this.plugin.saveSettings();
+          void this.render();
+        })
+      );
       menu.addSeparator();
       menu.addItem((item) => item.setTitle(t("board.options.visibleColumnsHeader")).setDisabled(true));
       /* Grammaire finale du Plan (§17-18) : plus jamais Notes/Nom du
@@ -1623,7 +1633,9 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   async renderOutline(container: HTMLElement, root: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void, gen: number): Promise<void> {
-    const outline = container.createDiv({ cls: "feuillets-outline" });
+    const outline = container.createDiv({
+      cls: "feuillets-outline" + (this.plugin.settings.outlineWrapLongText ? " feuillets-outline-wrap" : ""),
+    });
     outline.style.setProperty("--feuillets-cols", this.colsTemplate());
     const cols = this.visibleCols();
     const head = outline.createDiv({ cls: "feuillets-row feuillets-row-head" });

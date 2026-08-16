@@ -142,6 +142,12 @@ export class EditionWorkspaceContent {
       this.modeNavButtons[key] = button;
     }
 
+    const refresh = nav.createEl("button", { cls: "clickable-icon feuillets-edition-preview-refresh" });
+    setIcon(refresh, "refresh-cw");
+    setTooltip(refresh, t("preview.export.refreshPreview"));
+    refresh.setAttribute("aria-label", t("preview.export.refreshPreview"));
+    refresh.addEventListener("click", () => void this.refreshLinkedPreview());
+
     this.modeBodyEl = container.createDiv({ cls: "feuillets-edition-mode-body" });
     await this.renderModeBody();
   }

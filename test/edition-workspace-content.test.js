@@ -168,7 +168,7 @@ function buildIntegrationFixture() {
     folderPositions: {},
     projectMeta: {},
   });
-  const calls = { save: 0, frontmatter: [] };
+  const calls = { save: 0, frontmatter: [], leafCreates: 0 };
   const frontmatter = new Map();
   fileManager.processFrontMatter = async (file, update) => {
     const data = { ...(frontmatter.get(file.path) || {}) };
@@ -181,7 +181,7 @@ function buildIntegrationFixture() {
     vault,
     fileManager,
     metadataCache: { getFileCache: (f) => ({ frontmatter: frontmatter.get(f.path) || {} }) },
-    workspace: { getLeavesOfType: () => [previewLeaf], getLeaf: () => null },
+    workspace: { getLeavesOfType: () => [previewLeaf], getLeaf: () => { calls.leafCreates += 1; return null; } },
   };
   const plugin = {
     settings,
@@ -234,6 +234,64 @@ test("EditionWorkspaceContent : changer de mode ne recrée jamais de leaf ni de 
     // Le changement de mode seul ne rafraîchit jamais la Preview de lui-même
     // (seule une modification réelle du contenu le fait).
     assert.equal(previewCalls.refresh, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("EditionWorkspaceContent : Actualiser l’aperçu fonctionne dans les trois modes sans changer mode, portée ni leaf", async () => {
+  const restore = installSettingStub();
+  try {
+    const { view, contentEl, plugin, calls, previewCalls } = buildIntegrationFixture();
+    await view.render();
+    const refresh = contentEl.querySelector('[aria-label="Actualiser l’aperçu"]');
+    assert.ok(refresh, "bouton présent dans la barre supérieure");
+    const scopeBefore = JSON.stringify(plugin.settings.lastExportScope ?? null);
+
+    for (const mode of ["composition", "layout", "export"]) {
+      view.setMode(mode);
+      await view["modeRenderPromise"];
+      refresh.dispatch("click");
+      await Promise.resolve();
+      assert.equal(view.mode, mode, `le refresh conserve le mode ${mode}`);
+    }
+
+    assert.equal(previewCalls.refresh, 3, "un refresh exact depuis chaque mode");
+    assert.equal(calls.leafCreates, 0, "aucune leaf créée");
+    assert.equal(JSON.stringify(plugin.settings.lastExportScope ?? null), scopeBefore, "portée inchangée");
+  } finally {
+    restore();
+  }
+});
+
+test("EditionWorkspaceContent : Actualiser sans Preview liée est un no-op propre", async () => {
+  const restore = installSettingStub();
+  try {
+    const { view, contentEl, calls, previewCalls } = buildIntegrationFixture();
+    view.setLinkedPreview(null);
+    await view.render();
+
+    contentEl.querySelector('[aria-label="Actualiser l’aperçu"]').dispatch("click");
+    await Promise.resolve();
+
+    assert.equal(previewCalls.refresh, 0);
+    assert.equal(calls.leafCreates, 0, "aucune Preview créée");
+  } finally {
+    restore();
+  }
+});
+
+test("EditionWorkspaceContent : un rerender de la barre ne duplique pas le listener Actualiser", async () => {
+  const restore = installSettingStub();
+  try {
+    const { view, contentEl, previewCalls } = buildIntegrationFixture();
+    await view.render();
+    await view.render();
+
+    contentEl.querySelector('[aria-label="Actualiser l’aperçu"]').dispatch("click");
+    await Promise.resolve();
+
+    assert.equal(previewCalls.refresh, 1, "un clic produit un seul refresh");
   } finally {
     restore();
   }
@@ -318,8 +376,8 @@ test("EditionWorkspaceContent : en mode Composition, une modification (Sommaire)
     await view.render();
 
     assert.equal(view.mode, "composition");
-    const checkbox = contentEl.querySelectorAll("input").find((el) => el.type === "checkbox");
-    assert.ok(checkbox, "au moins une case (Sommaire/Table des matières/…) est rendue");
+    const checkbox = contentEl.querySelector('[aria-label="Inclure le sommaire"]');
+    assert.ok(checkbox, "la case Sommaire est rendue");
     checkbox.checked = !checkbox.checked;
     checkbox.dispatch("change");
     await Promise.resolve();
@@ -350,4 +408,3 @@ test("EditionWorkspaceContent : mode Export monte ExportPanel en mode embedded �
     restore();
   }
 });
-

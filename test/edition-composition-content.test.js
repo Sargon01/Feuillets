@@ -208,7 +208,7 @@ test("EditionCompositionContent : composant DOM pur — aucune WorkspaceLeaf, au
   assert.equal(typeof view.leaf, "undefined", "aucune WorkspaceLeaf reçue ni stockée");
 });
 
-test("EditionCompositionContent : jamais de grand en-tête repliable — groupes et contenu intacts (seul mode réel, toujours intégré)", async () => {
+test("EditionCompositionContent : menu secondaire à quatre rubriques, sans accordéon redondant", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
@@ -218,9 +218,18 @@ test("EditionCompositionContent : jamais de grand en-tête repliable — groupes
     await view.render();
 
     assert.equal(contentEl.querySelector(".feuillets-section-title-text"), null, "pas d'en-tête repliable — le composant est toujours intégré");
+    const items = contentEl.querySelectorAll(".feuillets-composition-nav-item");
+    assert.deepEqual(
+      items.map((node) => node.textContent),
+      ["Contenu", "Structure", "Notes", "Informations"]
+    );
+    assert.equal(items.filter((node) => node.hasClass("is-active")).length, 1);
+    assert.equal(items[0].hasClass("is-active"), true, "Contenu est actif au premier rendu");
+    // §5-6 : « Éléments générés » et « Fin d'ouvrage » ne sont plus des
+    // rubriques de navigation — ce sont des groupes DANS « Contenu ».
     assert.deepEqual(
       contentEl.querySelectorAll(".feuillets-edition-group-label").map((node) => node.textContent),
-      ["Contenu", "Éléments générés", "Fin d’ouvrage", "Numérotation", "Notes", "Informations de l’ouvrage", "Compilation"]
+      ["Manuscrit", "Éléments générés", "Fin d’ouvrage", "Presets de compilation"]
     );
     for (const label of ["Première page", "Pages liminaires", "Sommaire", "Tables", "Bibliographie", "Annexes"]) {
       assert.ok(contentEl.textContent.includes(label), `${label} est présent`);
@@ -252,17 +261,21 @@ test("EditionCompositionContent : Composition reste la section principale ; tout
     assert.equal(contentEl.querySelectorAll("details").length, 0);
     assert.equal(contentEl.querySelectorAll("summary").length, 0);
     assert.equal(contentEl.querySelectorAll(".feuillets-edition-composition-separator").length, 0);
-    assert.deepEqual(
-      contentEl.querySelectorAll(".feuillets-edition-group-label").map((node) => node.textContent),
-      ["Contenu", "Éléments générés", "Fin d’ouvrage", "Numérotation", "Notes", "Informations de l’ouvrage", "Compilation"]
-    );
-    const ordered = ["Contenu", "Première page", "Pages liminaires", "Éléments générés", "Sommaire", "Table des matières", "Tables", "Fin d’ouvrage", "Bibliographie", "Annexes"];
-    let previousIndex = -1;
-    for (const label of ordered) {
-      const index = contentEl.textContent.indexOf(label);
-      assert.ok(index > previousIndex, `${label} apparaît après l'élément précédent`);
-      previousIndex = index;
+    const contentPanel = contentEl.querySelector('[aria-label="Contenu"]');
+    const structurePanel = contentEl.querySelector('[aria-label="Structure"]');
+    const notesPanel = contentEl.querySelector('[aria-label="Notes"]');
+    const informationPanel = contentEl.querySelector('[aria-label="Informations"]');
+    // §5-6 : Sommaire/Table des matières/Tables/Bibliographie/Annexes vivent
+    // désormais DANS « Contenu » (groupes Éléments générés / Fin d'ouvrage),
+    // il n'existe plus de panneau à part pour eux.
+    assert.equal(contentEl.querySelector('[aria-label="Éléments générés"]'), null);
+    assert.equal(contentEl.querySelector('[aria-label="Fin d’ouvrage"]'), null);
+    for (const label of ["Contenu du manuscrit", "Première page", "Pages liminaires", "Sommaire", "Table des matières", "Tables", "Bibliographie", "Annexes"]) {
+      assert.ok(contentPanel.textContent.includes(label));
     }
+    for (const label of ["Séparateur", "Presets de compilation", "Ajouter un preset"]) assert.ok(structurePanel.textContent.includes(label));
+    assert.ok(notesPanel.querySelector('[aria-label="Renuméroter les notes dans le document compilé"]'));
+    assert.ok(informationPanel.querySelector('[aria-label="Titre du manuscrit"]'));
 
     // Première page / Pages liminaires : les composants partagés restent montés.
     assert.ok(contentEl.querySelector('[aria-label="Première page"]'));
@@ -301,6 +314,35 @@ test("EditionCompositionContent : Composition reste la section principale ; tout
     // Aucun futur élément de composition factice (Index) n'est ajouté avant
     // sa propre phase.
     assert.equal(contentEl.textContent.includes("Index"), false, "« Index » ne doit pas apparaître avant sa propre phase");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("EditionCompositionContent : changer de rubrique conserve données et callbacks, sans créer de leaf ni rafraîchir la Preview", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    let leafCalls = 0;
+    let changeCalls = 0;
+    app.workspace.getLeaf = () => { leafCalls += 1; return null; };
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl, { onChange: () => { changeCalls += 1; } });
+    await view.render();
+    const settingsBefore = JSON.stringify(plugin.settings);
+
+    const items = contentEl.querySelectorAll(".feuillets-composition-nav-item");
+    for (const item of items.slice(1)) {
+      item.click();
+      assert.equal(items.filter((node) => node.hasClass("is-active")).length, 1, "une seule rubrique active");
+      assert.equal(item.hasClass("is-active"), true);
+    }
+    items[0].click();
+
+    assert.equal(items[0].hasClass("is-active"), true, "retour à Contenu fonctionnel");
+    assert.equal(JSON.stringify(plugin.settings), settingsBefore, "aucune donnée modifiée");
+    assert.equal(changeCalls, 0, "aucun callback métier déclenché par la navigation");
+    assert.equal(leafCalls, 0, "aucune leaf créée");
   } finally {
     restoreDom();
   }

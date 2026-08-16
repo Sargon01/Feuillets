@@ -14,6 +14,13 @@ import type { DefaultSettings } from "../default-settings.js";
    référence exhaustive — les réglages déplacés ici (§20) lisent et écrivent
    EXACTEMENT les mêmes propriétés qu'avant, sur le même objet. */
 type CompositionSettings = FeuilletsSettings & DefaultSettings;
+/* §5 du micro-chantier « finition Édition » : QUATRE rubriques, plus deux
+   comme avant. « Éléments générés » et « Fin d'ouvrage » n'ont jamais été
+   des catégories de RÉGLAGES à part entière — ce sont des sous-groupes du
+   CONTENU DU LIVRE, au même titre que Première page/Pages liminaires : ils
+   rejoignent donc "content" (voir renderContentSection ci-dessous) plutôt
+   que de rester des onglets séparés. */
+type CompositionSection = "content" | "structure" | "notes" | "information";
 
 export type EditionCompositionContentPlugin = FirstPagePanelPlugin
   & FrontMatterPanelPlugin
@@ -65,6 +72,9 @@ export class EditionCompositionContent {
   private bibliographyPanel: BibliographyPanel | null = null;
   private annexesPanel: AnnexesPanel | null = null;
   private onChangeOpt: (() => void | Promise<void>) | undefined;
+  private selectedSection: CompositionSection = "content";
+  private navigationButtons: Partial<Record<CompositionSection, HTMLElement>> = {};
+  private sectionEls: Partial<Record<CompositionSection, HTMLElement>> = {};
 
   constructor(
     private app: App,
@@ -86,36 +96,75 @@ export class EditionCompositionContent {
     container.empty();
     container.addClass("feuillets-edition-composition-container");
 
-    const section = container.createDiv({ cls: "feuillets-project-section" });
+    const body = container.createDiv({ cls: "feuillets-layout-body feuillets-composition-body" });
+    const nav = body.createDiv({
+      cls: "feuillets-layout-nav feuillets-composition-nav",
+      attr: { role: "tablist", "aria-label": "Composition" },
+    });
+    const inspector = body.createDiv({ cls: "feuillets-layout-inspector feuillets-composition-inspector" });
+    const sections: Array<[CompositionSection, string]> = [
+      ["content", "Contenu"],
+      ["structure", "Structure"],
+      ["notes", "Notes"],
+      ["information", "Informations"],
+    ];
+    this.navigationButtons = {};
+    this.sectionEls = {};
+    for (const [key, label] of sections) {
+      const button = nav.createEl("button", {
+        cls: "feuillets-layout-nav-item feuillets-composition-nav-item",
+        text: label,
+        attr: { role: "tab", "aria-selected": String(this.selectedSection === key) },
+      });
+      button.addEventListener("click", () => this.selectSection(key));
+      this.navigationButtons[key] = button;
 
-    section.createDiv({ cls: "feuillets-edition-group-label", text: "Contenu" });
-    this.renderManuscriptContentRow(section);
+      const section = inspector.createDiv({
+        cls: "feuillets-project-section feuillets-composition-section",
+        attr: { role: "tabpanel", "aria-label": label },
+      });
+      this.sectionEls[key] = section;
+    }
 
-    const firstPageEl = section.createDiv();
+    const contentSection = this.sectionEls.content;
+    const structureSection = this.sectionEls.structure;
+    const notesSection = this.sectionEls.notes;
+    const informationSection = this.sectionEls.information;
+    if (!contentSection || !structureSection || !notesSection || !informationSection) return;
+
+    /* §6 : « Contenu » regroupe désormais trois familles sémantiques du
+       CONTENU DU LIVRE — Manuscrit / Éléments générés / Fin d'ouvrage —
+       plutôt que de disperser Sommaire/Tables/Bibliographie/Annexes dans
+       leurs propres onglets de premier niveau. Aucun des six composants
+       partagés (FirstPagePanel, FrontMatterPanel, ContentsPanel, TablesPanel,
+       BibliographyPanel, AnnexesPanel) ne change : seul l'endroit où ils sont
+       montés bouge. */
+    this.groupLabel(contentSection, "Manuscrit");
+    this.renderManuscriptContentRow(contentSection);
+
+    const firstPageEl = contentSection.createDiv();
     this.firstPagePanel = new FirstPagePanel(this.app, this.plugin, firstPageEl, this.panelCallbacks());
     await this.firstPagePanel.render();
 
-    const frontMatterEl = section.createDiv();
+    const frontMatterEl = contentSection.createDiv();
     this.frontMatterPanel = new FrontMatterPanel(this.app, this.plugin, frontMatterEl, this.panelCallbacks());
     await this.frontMatterPanel.render();
 
-    section.createDiv({ cls: "feuillets-edition-group-label", text: "Éléments générés" });
-
-    const contentsEl = section.createDiv();
+    this.groupLabel(contentSection, "Éléments générés");
+    const contentsEl = contentSection.createDiv();
     this.contentsPanel = new ContentsPanel(this.app, this.plugin, contentsEl, this.panelCallbacks());
     await this.contentsPanel.render();
 
-    const tablesEl = section.createDiv();
+    const tablesEl = contentSection.createDiv();
     this.tablesPanel = new TablesPanel(this.app, this.plugin, tablesEl, this.panelCallbacks());
     await this.tablesPanel.render();
 
-    section.createDiv({ cls: "feuillets-edition-group-label", text: "Fin d’ouvrage" });
-
-    const bibliographyEl = section.createDiv();
+    this.groupLabel(contentSection, "Fin d’ouvrage");
+    const bibliographyEl = contentSection.createDiv();
     this.bibliographyPanel = new BibliographyPanel(this.app, this.plugin, bibliographyEl, this.panelCallbacks());
     await this.bibliographyPanel.render();
 
-    const annexesEl = section.createDiv();
+    const annexesEl = contentSection.createDiv();
     this.annexesPanel = new AnnexesPanel(this.app, this.plugin, annexesEl, this.panelCallbacks());
     await this.annexesPanel.render();
 
@@ -125,10 +174,24 @@ export class EditionCompositionContent {
        aucun comportement réinventé, seule l'interface a déménagé. Grammaire
        de lignes déjà utilisée par ExportPanel embedded (.feuillets-edition-row),
        jamais une seconde apparence. */
-    this.renderStructureSection(section);
-    this.renderNotesSection(section);
-    this.renderBookInfoSection(section);
-    this.renderCompilationSection(section);
+    this.renderStructureSection(structureSection);
+    this.renderCompilationSection(structureSection);
+    this.renderNotesSection(notesSection);
+    this.renderBookInfoSection(informationSection);
+
+    this.selectSection(this.selectedSection);
+  }
+
+  private selectSection(section: CompositionSection): void {
+    this.selectedSection = section;
+    for (const [key, button] of Object.entries(this.navigationButtons) as Array<[CompositionSection, HTMLElement]>) {
+      const active = key === section;
+      button.toggleClass("is-active", active);
+      button.setAttribute("aria-selected", String(active));
+    }
+    for (const [key, panel] of Object.entries(this.sectionEls) as Array<[CompositionSection, HTMLElement]>) {
+      panel.toggleClass("is-active", key === section);
+    }
   }
 
   /* ============ Réglages déplacés depuis les Paramètres (§20) ============ */
@@ -195,7 +258,6 @@ export class EditionCompositionContent {
        onglet de réglages — la numérotation change l'affichage du Binder. */
     const saveAndRefresh = async (): Promise<void> => { await save(); this.plugin.refreshView(); };
 
-    this.groupLabel(parent, t("settings.section.numbering"));
     this.selectRow(parent, t("settings.level1Role.name"), [
       ["parties", t("settings.level1Role.parts")],
       ["chapitres", t("settings.level1Role.chapters", { unitPlural })],
@@ -228,14 +290,12 @@ export class EditionCompositionContent {
 
   private renderNotesSection(parent: HTMLElement): void {
     const S = this.plugin.settings as CompositionSettings;
-    this.groupLabel(parent, "Notes");
     this.toggleRow(parent, t("settings.footnoteRenumberOnCompile.name"), S.footnoteRenumberOnCompile,
       async (v) => { S.footnoteRenumberOnCompile = v; await this.plugin.saveSettings(); });
   }
 
   private renderBookInfoSection(parent: HTMLElement): void {
     const S = this.plugin.settings as CompositionSettings;
-    this.groupLabel(parent, t("editionComposition.bookInfo"));
     this.textRow(parent, t("settings.manuscriptTitle.name"), S.manuscriptTitle,
       async (v) => { S.manuscriptTitle = v.trim(); await this.plugin.saveSettings(); await this.onChangeOpt?.(); });
     this.textRow(parent, t("settings.manuscriptAuthor.name"), S.manuscriptAuthor,
@@ -245,10 +305,11 @@ export class EditionCompositionContent {
   private renderCompilationSection(parent: HTMLElement): void {
     const S = this.plugin.settings as CompositionSettings;
     const unitPlural = this.plugin.unitLabelPlural();
-    this.groupLabel(parent, t("settings.section.compilation"));
 
     this.textRow(parent, "Séparateur", S.separator,
-      async (v) => { S.separator = v; await this.plugin.saveSettings(); });
+      async (v) => { S.separator = v; await this.plugin.saveSettings(); }, "—");
+
+    this.groupLabel(parent, "Presets de compilation");
 
     const presets = (S.compilePresets as PresetConfig[]) || [];
     presets.forEach((preset, index) => {
@@ -275,7 +336,7 @@ export class EditionCompositionContent {
         async (v) => { preset.sceneTitles = v; await this.plugin.saveSettings(); });
     });
 
-    const addRow = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
+    const addRow = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row feuillets-edition-preset-add-row" });
     const addActions = addRow.createDiv({ cls: "feuillets-edition-row-control" });
     const add = addActions.createEl("button", { text: t("settings.compilePresets.add") });
     add.addEventListener("click", () => void this.addPreset());
