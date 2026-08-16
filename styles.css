@@ -2827,7 +2827,7 @@ body.feuillets-lignesvides-invisible
   .markdown-source-view.mod-cm6.is-live-preview
   .cm-editor.cm-focused
   .cm-line.feuillets-empty-line.cm-active {
-  display: block !important;
+  display: block;
 }
 
 /* réduit : les lignes vides deviennent fines */
@@ -3344,8 +3344,8 @@ body.feuillets-text-width
   background: rgba(233, 30, 99, 0.25);
 }
 
-.cm-annotation-style-underline { background: transparent; text-decoration-line: underline; text-decoration-color: currentColor; text-decoration-thickness: 2px; }
-.cm-annotation-style-strikethrough { background: transparent; text-decoration-line: line-through; text-decoration-color: currentColor; text-decoration-thickness: 2px; }
+.cm-annotation-style-underline { background: transparent; text-decoration: underline; }
+.cm-annotation-style-strikethrough { background: transparent; text-decoration: line-through; }
 .cm-annotation-style-underline.cm-annotation-highlight-yellow, .cm-annotation-style-strikethrough.cm-annotation-highlight-yellow { color: #b89600; }
 .cm-annotation-style-underline.cm-annotation-highlight-green, .cm-annotation-style-strikethrough.cm-annotation-highlight-green { color: #3b8c3f; }
 .cm-annotation-style-underline.cm-annotation-highlight-blue, .cm-annotation-style-strikethrough.cm-annotation-highlight-blue { color: #1976c0; }
@@ -3432,8 +3432,6 @@ body.feuillets-text-width
   background: color-mix(in srgb, var(--color-red) 16%, transparent);
   border-radius: 2px;
   text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--color-red) 70%, transparent);
-  text-decoration-thickness: 1px;
 }
 /* Arrivé : même discrétion, l'autre couleur. */
 .cm-comparison-arrived { background: color-mix(in srgb, var(--color-green) 18%, transparent); border-radius: 2px; }
@@ -9013,7 +9011,7 @@ body.feuillets-lignesvides-invisible
   .feuillets-scrivenings-view
   .cm-editor.cm-focused
   .cm-line.feuillets-empty-line.cm-active {
-  display: block !important;
+  display: block;
 }
 
 body.feuillets-lignesvides-reduit
