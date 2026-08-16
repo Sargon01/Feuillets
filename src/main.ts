@@ -598,6 +598,12 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "open-export",
       name: t("main.cmd.openCompileExportPanel"),
+      /* §1/§12D du dernier lot UX avant 2.5 : l'onglet Export a disparu,
+         normalizeMode() (edition-workspace-content.ts) ramène "export" à
+         "composition" — où la barre d'export compacte est de toute façon
+         toujours visible. L'id et l'intention ("ouvrir Édition avec les
+         contrôles d'export visibles") restent inchangés, seul le libellé
+         affiché a été mis à jour. */
       callback: () => { void this.activateCentralSurface("edition", "export"); },
     });
     /* Intégration Courrier (Lot 14B) : n'apparaît utilisable que si un
@@ -752,7 +758,15 @@ class FeuilletsPlugin extends Plugin {
       id: "open-docx-review",
       name: t("main.cmd.openDocxReview"),
       callback: () => {
-        if (this.isPanelHidden("docxReview")) {
+        /* §12A du dernier lot UX avant 2.5 : activateDocxReview() ouvre
+           désormais l'onglet "relecture" du panneau latéral unifié (voir
+           sidebar-feuillets-view.ts, activeTabFor()) — la clé masquée
+           vérifiée ici doit donc être la MÊME que celle qui masque cet
+           onglet (settings.hiddenPanels, filtré dans SidebarFeuilletsView),
+           pas l'ancienne clé "docxReview" (VIEW_DOCX_REVIEW autonome,
+           devenue obsolète dans ce chemin depuis la fusion dans le panneau
+           latéral). */
+        if (this.isPanelHidden("relecture")) {
           new Notice(t("main.notice.reviewPanelHidden"));
           return;
         }
@@ -907,6 +921,9 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "pdf-style-modal",
+      /* §12D : id conservé pour la compatibilité des raccourcis existants,
+         mais le libellé ne parle plus de "raccourci historique" — la
+         commande ouvre exactement Édition → Mise en page, rien d'autre. */
       name: t("main.cmd.openProjectExportPanel"),
       callback: () => { void this.activateCentralSurface("edition", "layout"); },
     });
@@ -1957,7 +1974,7 @@ class FeuilletsPlugin extends Plugin {
       void listNativeReviewSessions(this.app, this.settings).then((sessions) => {
         const session = sessions.map((item) => item.session).find((candidate) => candidate?.localRole === "reviewer" && candidate.status === "active" && !currentReviewRound(candidate).sent && currentReviewRound(candidate).received && candidate.documents.some((document) => document.localSourcePath === view.file?.path));
         if (!session) return;
-        menu.addItem((item) => item.setTitle("Commenter en relecture").setIcon("highlighter").onClick(() => void this.createNativeReviewThread(session.reviewId, view, editor)));
+        menu.addItem((item) => item.setTitle(t("nativeReview.editorMenu.comment")).setIcon("highlighter").onClick(() => void this.createNativeReviewThread(session.reviewId, view, editor)));
       }).catch(() => undefined);
     }));
   }
@@ -2521,12 +2538,17 @@ class FeuilletsPlugin extends Plugin {
        refuse un cast direct tant que ces 4 propriétés manquent. Le reste de
        la fusion (tout le corps de cette méthode) reste entièrement
        vérifié — ni `any`, ni cast sur `data`. */
-    const legacyAutoOpenPanels: Array<[string, "notes" | "research" | "journal" | "project"]> = [
+    /* §12A du dernier lot UX avant 2.5 : "autoOpenDocxReview" migre vers
+       l'onglet "relecture" — pas "project" — même correction que
+       activateDocxReview() (voir plus bas) : la Révision DOCX vit désormais
+       dans Relecture, "project" reproduirait la même confusion pour les
+       utilisatrices migrant un ancien réglage. */
+    const legacyAutoOpenPanels: Array<[string, "notes" | "research" | "journal" | "project" | "relecture"]> = [
       ["autoOpenNotes", "notes"],
       ["autoOpenResearch", "research"],
       ["autoOpenJournal", "journal"],
       ["autoOpenProject", "project"],
-      ["autoOpenDocxReview", "project"],
+      ["autoOpenDocxReview", "relecture"],
       ["autoOpenProperties", "notes"],
     ];
     const hasOwn = (key: string): boolean => Object.getOwnPropertyDescriptor(data, key) !== undefined;
@@ -2535,7 +2557,7 @@ class FeuilletsPlugin extends Plugin {
     const directLegacyPanels = legacyAutoOpenPanels
       .filter(([key]) => hasOwn(key))
       .map(([key, tab]) => [asBoolean(data[key]) === true, tab] as const);
-    const historicalPanels: Array<[boolean, "notes" | "research" | "journal" | "project"]> = [];
+    const historicalPanels: Array<[boolean, "notes" | "research" | "journal" | "project" | "relecture"]> = [];
     if (directLegacyPanels.length === 0) {
       if (hasOwn("autoOpenHub")) {
         const hubTab = asString(data.hubActiveTab) || "properties";
@@ -2681,6 +2703,28 @@ class FeuilletsPlugin extends Plugin {
       }
     }
     this.adjustSidebarWidth();
+  }
+
+  /** Rafraîchit UNIQUEMENT le Binder (VIEW_SIDEBAR + VIEW_SIDEBAR_FEUILLETS)
+   * — jamais VIEW_BOARD, donc jamais la surface centrale Édition
+   * (Composition/Mise en page) qu'elle héberge parfois. Contrairement à
+   * `refreshView()`/`renderAllViews()` (qui reconstruisent tout, y compris
+   * la sous-page Composition active en cours d'édition), ce chemin ciblé
+   * sert les réglages qui n'affectent QUE l'affichage du Binder — la
+   * numérotation en premier lieu — sans jamais faire perdre le focus, le
+   * défilement ni la sous-page ouverte dans Composition (dernier lot UX
+   * avant 2.5, §9 : bug de perte de focus dans Composition → Structure). */
+  refreshBinderViews(): void {
+    for (const type of [VIEW_SIDEBAR, VIEW_SIDEBAR_FEUILLETS]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+        const view = leaf.view as StaleableView;
+        if (!view) continue;
+        if (!this.leafVisible(leaf)) { view._stale = true; continue; }
+        view._stale = false;
+        if (typeof view.renderAllSubViews === "function") void view.renderAllSubViews(false);
+        else if (typeof view.render === "function") void view.render(false);
+      }
+    }
   }
 
   safeSetSize(split: SplitWithSetSize | null | undefined, width: number): void {
@@ -3063,6 +3107,32 @@ class FeuilletsPlugin extends Plugin {
     if (delete meta.researchFolderLinks[binderNode.path]) {
       await this.saveSettings();
     }
+  }
+
+  /** Dossiers Recherche associés depuis le Binder du projet actif,
+   * regroupés par dossier réel (un même dossier de recherche peut être
+   * associé à plusieurs nœuds du Binder — dossier ou fichier Markdown).
+   * Ignore silencieusement toute association orpheline : dossier
+   * Recherche disparu du disque, ou nœud Binder qui n'existe plus (aucune
+   * entrée n'est modifiée ni supprimée des settings pour autant — voir
+   * remapResearchFolderLinks pour le seul mécanisme de nettoyage). */
+  getLinkedResearchFolders(): { folder: TFolder; binderNodes: TAbstractFile[] }[] {
+    const root = this.getProjectFolder();
+    if (!root) return [];
+    const meta = this.settings.projectMeta[root.path];
+    const links = meta && meta.researchFolderLinks ? meta.researchFolderLinks : null;
+    if (!links) return [];
+    const byPath = new Map<string, { folder: TFolder; binderNodes: TAbstractFile[] }>();
+    for (const [binderPath, folderPath] of Object.entries(links)) {
+      const folder = this.app.vault.getAbstractFileByPath(folderPath);
+      if (!(folder instanceof TFolder)) continue;
+      const binderNode = this.app.vault.getAbstractFileByPath(binderPath);
+      if (!binderNode) continue;
+      const entry = byPath.get(folder.path);
+      if (entry) entry.binderNodes.push(binderNode);
+      else byPath.set(folder.path, { folder, binderNodes: [binderNode] });
+    }
+    return [...byPath.values()];
   }
 
   /** Remappe les liens Binder→Recherche de TOUS les projets connus (pas
@@ -3774,9 +3844,11 @@ class FeuilletsPlugin extends Plugin {
 
   async activateNotes() { return this.activateSidebarView("notes"); }
   async activateResearch() { return this.activateSidebarView("research"); }
-  // "docx" a fusionné avec "project" (voir sidebar-feuillets-view.js) : les
-  // deux mènent au même onglet, qui affiche maintenant les deux sections.
-  async activateDocxReview() { return this.activateSidebarView("project"); }
+  /* §12A du dernier lot UX avant 2.5 : "docx" mène désormais à l'onglet
+   * "relecture" (voir activeTabFor(), sidebar-feuillets-view.ts) — plus à
+   * "project", contrairement à ce que documentait ce commentaire avant une
+   * fusion ultérieure qui a reséparé les deux onglets. */
+  async activateDocxReview() { return this.activateSidebarView("relecture"); }
   async activateJournal() { return this.activateSidebarView("journal"); }
   async activateProject() { return this.activateSidebarView("project"); }
   /** Point d'entrée UNIQUE des commandes vers l'espace central (§11 du

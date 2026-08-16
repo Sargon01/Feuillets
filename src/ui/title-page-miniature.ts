@@ -1,6 +1,6 @@
 import { t } from "../i18n/index.js";
 import { resolvePageGeometry } from "../services/page-geometry.js";
-import type { LayoutEditor, LayoutSelection } from "./layout-editor.js";
+import { titleRoleLabel, type LayoutEditor, type LayoutSelection } from "./layout-editor.js";
 
 /* Hauteur d'affichage de la maquette. La LARGEUR n'est plus figée à 320px :
    elle découle du ratio réel de la page (§30) — A4 portrait, A4 paysage, A5,
@@ -119,7 +119,7 @@ export class TitlePageMiniature {
       const el = this.pageEl.createDiv({ cls: "feuillets-tp-block" });
       el.style.left = `${leftPct}%`;
       el.style.right = `${rightPct}%`;
-      el.createSpan({ cls: "feuillets-tp-block-label" }).setText(role);
+      el.createSpan({ cls: "feuillets-tp-block-label" }).setText(titleRoleLabel(role));
       el.addEventListener("pointerdown", (e) => this.startDrag(e, role));
       this.blockEls[role] = el;
     }
@@ -166,7 +166,7 @@ export class TitlePageMiniature {
     this.footerBand.toggleClass("is-muted", hideP1);
     const pos = this.template.firstPage.pageNumberPosition;
     const span = this.footerBand.createSpan({ cls: `feuillets-tp-band-${pos === "right" ? "r" : pos === "left" ? "l" : "c"}` });
-    span.setText(this.template.footer.right || "Page {page} sur {pages}");
+    span.setText(this.template.footer.right || t("modal.layout.pageOfPages"));
   }
 
   /** Glisser vertical : modifie le `marginTopPt` EXISTANT du rôle, rien

@@ -49,11 +49,6 @@ export type ExportPanelCallbacks = {
    * plus ici (Phase 11, voir Édition → Mise en page) : ExportPanel ne
    * déclenche donc plus ce callback pour cette raison. */
   onPresentationChanged?: () => Promise<void> | void;
-  /** true : panneau toujours visible, sans sa propre barre Actualiser/fermer
-   * (utilisé par EditionExportView, dont le conteneur fournit déjà le titre
-   * de section). Par défaut (false) : comportement historique du panneau
-   * repliable de l'Aperçu. */
-  embedded?: boolean;
 };
 
 /**
@@ -110,7 +105,7 @@ export class ExportPanel {
 
   toggle(collapsed?: boolean): void {
     this.collapsed = collapsed ?? !this.collapsed;
-    if (!this.callbacks.embedded) this.container.toggleClass("is-hidden", this.collapsed);
+    this.container.toggleClass("is-hidden", this.collapsed);
     /* À l'ouverture, les réglages affichés sont relus depuis les réglages
        centraux : ils ont pu être modifiés ailleurs (Édition) entre-temps. */
     if (!this.collapsed) void this.render();
@@ -130,43 +125,27 @@ export class ExportPanel {
      directement runExportWorkflow() (services/export-workflow.ts), point
      d'entrée commun à Binder, Aperçu et Édition. */
 
-  /** Panneau contextuel compact : aucune valeur propre au panneau. Tous les
-   * contrôles lisent et écrivent les réglages déjà consommés par
-   * compile()/exportFile(). En mode `embedded`, toujours visible et sans sa
-   * propre barre Actualiser/fermer — le conteneur parent (EditionExportView)
-   * fournit déjà le titre de section. */
+  /** Panneau contextuel compact de l'Aperçu — seul mode restant depuis que
+   * la barre d'export compacte d'Édition (renderQuickBar) a remplacé le mode
+   * `embedded` (dernier lot UX avant 2.5, §1) : aucun appelant ne construit
+   * plus ExportPanel avec un mode embedded. */
   async render(): Promise<void> {
     const panel = this.container;
-    const embedded = !!this.callbacks.embedded;
     panel.empty();
     /* Classe de base portant tout le CSS du panneau (styles.css,
        .feuillets-preview-export…) : posée par le panneau lui-même plutôt
-       que supposée déjà présente sur le conteneur fourni par l'appelant —
-       PreviewView comme EditionExportView n'ont ainsi rien à dupliquer. */
-    panel.toggleClass("feuillets-preview-export", !embedded);
-    panel.toggleClass("is-hidden", embedded ? false : this.collapsed);
-    /* Seule la présentation change en mode embedded (styles.css,
-       .feuillets-preview-export.is-embedded) : même DOM, mêmes classes de
-       contrôle, même comportement — le panneau de l'Aperçu (sans cette
-       classe) n'est pas affecté. */
-    panel.toggleClass("is-embedded", embedded);
-    panel.toggleClass("feuillets-edition-export-panel", embedded);
+       que supposée déjà présente sur le conteneur fourni par l'appelant. */
+    panel.addClass("feuillets-preview-export");
+    panel.toggleClass("is-hidden", this.collapsed);
 
-    if (embedded) {
-      this.renderEditionEmbedded(panel);
-      return;
-    }
-
-    if (!embedded) {
-      const header = panel.createDiv({ cls: "feuillets-preview-export-header" });
-      header.createSpan({ cls: "feuillets-preview-export-title", text: t("project.compilation.exportBtn") });
-      const headerActions = header.createDiv({ cls: "feuillets-preview-export-header-actions" });
-      /* Resynchronise TOUT le panneau avec l'aperçu. Utile si les réglages
-         ont été modifiés ailleurs (Édition, autre onglet) pendant que ce
-         panneau restait ouvert. */
-      this.iconBtn(headerActions, "refresh-cw", t("preview.export.refreshPreview"), () => void this.reload());
-      this.iconBtn(headerActions, "x", t("preview.export.collapsePanel"), () => this.toggle(true));
-    }
+    const header = panel.createDiv({ cls: "feuillets-preview-export-header" });
+    header.createSpan({ cls: "feuillets-preview-export-title", text: t("project.compilation.exportBtn") });
+    const headerActions = header.createDiv({ cls: "feuillets-preview-export-header-actions" });
+    /* Resynchronise TOUT le panneau avec l'aperçu. Utile si les réglages
+       ont été modifiés ailleurs (Édition, autre onglet) pendant que ce
+       panneau restait ouvert. */
+    this.iconBtn(headerActions, "refresh-cw", t("preview.export.refreshPreview"), () => void this.reload());
+    this.iconBtn(headerActions, "x", t("preview.export.collapsePanel"), () => this.toggle(true));
 
     const main = panel.createDiv({ cls: "feuillets-preview-export-main" });
 
@@ -222,19 +201,28 @@ export class ExportPanel {
     });
   }
 
-  /** Rendu propre à l'inspecteur Édition. Il ne réutilise délibérément
-   * aucune classe ni aucune cellule `Setting` du panneau Aperçu. */
-  private renderEditionEmbedded(panel: HTMLElement): void {
-    panel.createDiv({
-      cls: "feuillets-edition-group-label feuillets-edition-export-title",
-      text: "Sortie",
-    });
+  /** Barre d'export compacte (dernier lot UX avant 2.5, §1) : uniquement
+   * portée + format + bouton Exporter, sans étiquette ("Projet ▾" est déjà
+   * assez explicite pour ne pas dupliquer "Portée"/"Format" à côté) ni champ
+   * nom de fichier — hébergée dans la barre principale d'Édition, visible
+   * quel que soit l'onglet actif (Composition ou Mise en page). Réutilise
+   * EXACTEMENT la même logique que renderEditionEmbedded ci-dessus
+   * (resolveScope/setEditionScope/exportFormat/launchExport) : seul le DOM
+   * diffère, aucune nouvelle portée ni aucun nouveau point d'entrée
+   * d'export. Le champ « Nom du fichier » et les « Options » (typographie
+   * française) ne sont plus affichés ici : le nom continue de fonctionner
+   * via compileFileName/preset (voir setExportFileName, inchangé), la
+   * typographie française vit désormais dans Mise en page → Corps de texte. */
+  renderQuickBar(bar: HTMLElement): void {
+    bar.empty();
+    bar.addClass("feuillets-edition-quickexport");
 
-    const scopeControl = this.editionPropertyRow(panel, t("preview.export.scope"));
-    const scope = scopeControl.createEl("select");
+    const scope = bar.createEl("select", { cls: "feuillets-edition-quickexport-scope" });
     const current = this.resolveScope();
     const active = this.activeProjectFile();
-    if (current?.type === "selection") scope.createEl("option", { value: "selection", text: t("preview.scope.selection", { count: String(current.paths.length) }) });
+    if (current?.type === "selection") {
+      scope.createEl("option", { value: "selection", text: t("preview.scope.selection", { count: String(current.paths.length) }) });
+    }
     if (active) {
       scope.createEl("option", { value: "file", text: t("preview.scope.file") });
       scope.createEl("option", { value: "folder", text: t("preview.scope.folder") });
@@ -244,8 +232,7 @@ export class ExportPanel {
     scope.setAttribute("aria-label", t("preview.export.scopeAriaLabel"));
     scope.addEventListener("change", () => this.setEditionScope(scope.value, active, current));
 
-    const formatControl = this.editionPropertyRow(panel, t("preview.export.format"));
-    const format = formatControl.createEl("select");
+    const format = bar.createEl("select", { cls: "feuillets-edition-quickexport-format" });
     for (const [value, label] of [["docx", "DOCX"], ["pdf", "PDF"], ["epub", "EPUB"], ["odt", "ODT"]]) {
       format.createEl("option", { value, text: label });
     }
@@ -256,39 +243,14 @@ export class ExportPanel {
       void this.plugin.saveSettings?.();
     });
 
-    const fileNameControl = this.editionPropertyRow(panel, t("preview.export.fileName"));
-    const fileName = fileNameControl.createEl("input", { type: "text" });
-    fileName.value = this.exportFileName().replace(/\.md$/i, "");
-    fileName.setAttribute("placeholder", t("preview.export.manuscriptPlaceholder"));
-    fileName.setAttribute("aria-label", t("preview.export.outputFileName"));
-    fileName.addEventListener("change", () => this.setExportFileName(fileName.value));
-
-    /* §21 : seule option de l'ancien onglet « Composition & export » qui
-       relève réellement du geste d'export. Le gabarit, les marges,
-       l'orientation, l'en-tête/pied et les styles typographiques appartiennent
-       à Mise en page et ne sont volontairement PAS réaffichés ici. */
-    panel.createDiv({ cls: "feuillets-edition-group-label", text: "Options" });
-    const typographyControl = this.editionPropertyRow(panel, t("settings.exportFrenchTypography.name"));
-    const typography = typographyControl.createEl("input", { type: "checkbox" });
-    typography.checked = this.plugin.settings.exportFrenchTypography !== false;
-    typography.setAttribute("aria-label", t("settings.exportFrenchTypography.name"));
-    typography.addEventListener("change", () => {
-      this.plugin.settings.exportFrenchTypography = typography.checked;
-      void this.plugin.saveSettings?.();
+    const launch = bar.createEl("button", {
+      cls: "mod-cta feuillets-edition-quickexport-cta",
+      text: t("project.compilation.exportBtn"),
     });
-
-    const footer = panel.createDiv({ cls: "feuillets-edition-export-footer" });
-    const launch = footer.createEl("button", { cls: "mod-cta feuillets-edition-export-cta" });
-    launch.setText(t("project.compilation.exportBtn"));
     launch.setAttribute("aria-label", t("preview.export.launch"));
     launch.addEventListener("click", () => void this.launchExport());
   }
 
-  private editionPropertyRow(parent: HTMLElement, label: string): HTMLElement {
-    const row = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
-    row.createSpan({ cls: "feuillets-properties-key", text: label });
-    return row.createDiv({ cls: "feuillets-edition-row-control" });
-  }
 
   private activeProjectFile(): TFile | null {
     const file = this.app.workspace?.getActiveFile?.();

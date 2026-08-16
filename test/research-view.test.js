@@ -175,6 +175,7 @@ function createResearchHarness({ preexisting = [], mode = "fiction" } = {}) {
     projectMode: () => PROJECT_MODES[mode],
     async migrateBibliographieIntoSources() {},
     newFolder() {},
+    getLinkedResearchFolders: () => [],
     async saveSettings() {},
   };
   return { plugin, vault, created };
@@ -357,6 +358,7 @@ function createRenderHarness(vault = {}, collapseState = {}) {
     labelOf: () => "",
     labelColor: () => null,
     newFolder() {},
+    getLinkedResearchFolders: () => [],
   };
   const contentEl = new FakeElement();
   const leaf = { app: { vault }, contentEl };
@@ -1058,6 +1060,7 @@ function createDropHarness({ vault = {} } = {}) {
     labelOf: () => "",
     labelColor: () => null,
     newFolder() {},
+    getLinkedResearchFolders: () => [],
     renderAllViews() {},
   };
   const renamed = [];

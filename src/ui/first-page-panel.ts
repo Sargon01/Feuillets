@@ -191,6 +191,27 @@ export class FirstPagePanel {
     if (this.expanded) await this.renderFields(body);
   }
 
+  /** Statut bref pour une ligne-résumé externe (Composition → sommaire,
+   * §3-§6 du dernier lot UX avant 2.5) : même calcul que le corps du
+   * panneau (`frontTitleState`), exposé pour qu'aucun appelant n'ait à
+   * réimplémenter cette logique. */
+  statusLabel(): string {
+    const { files, included } = this.frontTitleState();
+    if (!files.length) return t("preview.export.noTitleFrontFile");
+    return included ? t("compositionSummary.firstPageIncluded") : t("compositionSummary.firstPageExcluded");
+  }
+
+  /** Rendu direct du contenu, SANS la ligne-résumé ni son chevron —
+   * utilisé par une sous-page dédiée qui affiche déjà son propre titre
+   * (Composition → Première page, §6 du dernier lot UX avant 2.5) : un
+   * chevron d'accordéon y serait redondant. Mêmes champs, même état, mêmes
+   * callbacks que render() — seule la ligne-résumé disparaît. */
+  async renderExpandedFields(container: HTMLElement): Promise<void> {
+    this.expanded = true;
+    this.bodyEl = container;
+    await this.renderFields(container);
+  }
+
   /** Réactualise SEULEMENT le contenu, sans toucher au <details> qui
    * l'enveloppe : l'inclusion/exclusion et le choix d'un autre fichier Front
    * ne doivent ni refermer la sous-section ni faire sauter le focus. */

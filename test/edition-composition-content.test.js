@@ -25,6 +25,11 @@ class FakeElement {
     this._attributes = new Map();
     this._eventListeners = new Map();
     this.settings = [];
+    // TitlePageMiniature (mountée par LayoutEditor.renderStandaloneFirstPage
+    // dans la sous-page Composition → Première page, §6) assigne directement
+    // des propriétés CSS (`el.style.height = ...`) plutôt que `setProperty` —
+    // un simple objet suffit, aucun rendu réel n'est vérifié ici.
+    this.style = {};
   }
   addEventListener(type, listener) {
     if (!this._eventListeners.has(type)) this._eventListeners.set(type, []);
@@ -137,14 +142,6 @@ function installSettingStub() {
   return () => Object.assign(Setting.prototype, previous);
 }
 
-function allElements(element) {
-  return [element, ...element.children.flatMap(allElements)];
-}
-
-function controls(element, kind) {
-  return allElements(element).flatMap((item) => item.settings).filter((control) => control.kind === kind);
-}
-
 /** Plugin minimal — juste assez pour que FirstPagePanel (Première page) se
  * rende à l'intérieur de Composition. */
 function buildPlugin() {
@@ -197,6 +194,7 @@ function buildPlugin() {
     unitLabel: () => "scène",
     unitLabelPlural: () => "scènes",
     refreshView: () => {},
+    refreshBinderViews: () => {},
   };
   return { app, plugin };
 }
@@ -208,7 +206,11 @@ test("EditionCompositionContent : composant DOM pur — aucune WorkspaceLeaf, au
   assert.equal(typeof view.leaf, "undefined", "aucune WorkspaceLeaf reçue ni stockée");
 });
 
-test("EditionCompositionContent : menu secondaire à quatre rubriques, sans accordéon redondant", async () => {
+/* Dernier lot UX avant 2.5, §3-§4 : plus de nav permanente à quatre
+ * rubriques — Composition est désormais un SOMMAIRE compact (Manuscrit /
+ * Éléments générés / Fin d'ouvrage / Structure), et « Informations » a
+ * disparu (§4 : doublon de Première page/métadonnées projet). */
+test("EditionCompositionContent : plus de nav permanente Contenu/Structure/Notes/Informations", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
@@ -218,28 +220,23 @@ test("EditionCompositionContent : menu secondaire à quatre rubriques, sans acco
     await view.render();
 
     assert.equal(contentEl.querySelector(".feuillets-section-title-text"), null, "pas d'en-tête repliable — le composant est toujours intégré");
-    const items = contentEl.querySelectorAll(".feuillets-composition-nav-item");
-    assert.deepEqual(
-      items.map((node) => node.textContent),
-      ["Contenu", "Structure", "Notes", "Informations"]
-    );
-    assert.equal(items.filter((node) => node.hasClass("is-active")).length, 1);
-    assert.equal(items[0].hasClass("is-active"), true, "Contenu est actif au premier rendu");
-    // §5-6 : « Éléments générés » et « Fin d'ouvrage » ne sont plus des
-    // rubriques de navigation — ce sont des groupes DANS « Contenu ».
+    assert.equal(contentEl.querySelectorAll(".feuillets-composition-nav-item").length, 0, "plus de nav permanente à onglets");
+    assert.equal(contentEl.querySelector('[aria-label="Informations"]'), null, "Informations a disparu (§4)");
+    assert.equal(contentEl.textContent.includes("Informations"), false, "Informations n'apparaît nulle part dans le sommaire");
+
     assert.deepEqual(
       contentEl.querySelectorAll(".feuillets-edition-group-label").map((node) => node.textContent),
-      ["Manuscrit", "Éléments générés", "Fin d’ouvrage", "Presets de compilation"]
+      ["Manuscrit", "Éléments générés", "Fin d’ouvrage", "Structure"]
     );
-    for (const label of ["Première page", "Pages liminaires", "Sommaire", "Tables", "Bibliographie", "Annexes"]) {
-      assert.ok(contentEl.textContent.includes(label), `${label} est présent`);
+    for (const label of ["Contenu du manuscrit", "Première page", "Pages liminaires", "Sommaire", "Table des matières", "Tables", "Bibliographie", "Annexes", "Structure du manuscrit"]) {
+      assert.ok(contentEl.textContent.includes(label), `${label} est présent dans le sommaire`);
     }
   } finally {
     restoreDom();
   }
 });
 
-test("EditionCompositionContent : Composition reste la section principale ; toutes les sous-sections réellement implémentées y sont présentes, une seule ligne Setting native par entrée", async () => {
+test("EditionCompositionContent : Composition reste la section principale ; sommaire compact, une seule ligne Setting native par entrée", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
@@ -248,44 +245,17 @@ test("EditionCompositionContent : Composition reste la section principale ; tout
 
     await view.render();
 
-    const section = contentEl.querySelector(".feuillets-project-section");
-    assert.ok(section, "utilise le langage visuel feuillets-project-section");
+    assert.ok(contentEl.querySelector(".feuillets-composition-body"), "utilise le conteneur de sommaire dédié");
 
-    for (const label of ["Première page", "Pages liminaires", "Sommaire", "Table des matières", "Tables", "Bibliographie", "Annexes"]) {
-      assert.ok(contentEl.textContent.includes(label), `${label} est présent`);
-    }
-    assert.equal(contentEl.querySelectorAll(".setting-item").length, 0);
-
-    // Plus aucun <details>/<summary> nulle part dans Composition : le
-    // correctif remplace intégralement ce patron par des lignes Setting.
+    // Plus aucun <details>/<summary> ni accordéon "Première page" ouvert au
+    // milieu du sommaire (§3).
     assert.equal(contentEl.querySelectorAll("details").length, 0);
     assert.equal(contentEl.querySelectorAll("summary").length, 0);
-    assert.equal(contentEl.querySelectorAll(".feuillets-edition-composition-separator").length, 0);
-    const contentPanel = contentEl.querySelector('[aria-label="Contenu"]');
-    const structurePanel = contentEl.querySelector('[aria-label="Structure"]');
-    const notesPanel = contentEl.querySelector('[aria-label="Notes"]');
-    const informationPanel = contentEl.querySelector('[aria-label="Informations"]');
-    // §5-6 : Sommaire/Table des matières/Tables/Bibliographie/Annexes vivent
-    // désormais DANS « Contenu » (groupes Éléments générés / Fin d'ouvrage),
-    // il n'existe plus de panneau à part pour eux.
-    assert.equal(contentEl.querySelector('[aria-label="Éléments générés"]'), null);
-    assert.equal(contentEl.querySelector('[aria-label="Fin d’ouvrage"]'), null);
-    for (const label of ["Contenu du manuscrit", "Première page", "Pages liminaires", "Sommaire", "Table des matières", "Tables", "Bibliographie", "Annexes"]) {
-      assert.ok(contentPanel.textContent.includes(label));
-    }
-    for (const label of ["Séparateur", "Presets de compilation", "Ajouter un preset"]) assert.ok(structurePanel.textContent.includes(label));
-    assert.ok(notesPanel.querySelector('[aria-label="Renuméroter les notes dans le document compilé"]'));
-    assert.ok(informationPanel.querySelector('[aria-label="Titre du manuscrit"]'));
-
-    // Première page / Pages liminaires : les composants partagés restent montés.
-    assert.ok(contentEl.querySelector('[aria-label="Première page"]'));
-    assert.ok(contentEl.querySelector('[aria-label="Pages liminaires"]'));
+    assert.equal(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), null, "le contenu de Première page n'apparaît pas dans le sommaire");
+    assert.equal(contentEl.querySelector('[aria-label="Renuméroter les notes dans le document compilé"]'), null, "le contenu de Structure n'apparaît pas dans le sommaire");
 
     // Sommaire / Table des matières / Tables / Bibliographie / Annexes :
-    // chacune un seul toggle natif, wiré à la persistance réelle. Filtré sur
-    // le préfixe « Inclure » : Composition héberge désormais aussi les cases
-    // des réglages déplacés depuis les Paramètres (§20), qui ne font pas
-    // partie des éléments générés.
+    // chacune un seul toggle natif, wiré à la persistance réelle.
     const checkboxes = contentEl.querySelectorAll("input")
       .filter((node) => (node.getAttribute("aria-label") || "").startsWith("Inclure "));
     assert.equal(checkboxes.length, 5, "une case par élément généré");
@@ -294,32 +264,19 @@ test("EditionCompositionContent : Composition reste la section principale ; tout
     assert.ok(contentEl.querySelector('[aria-label="Créer le dossier Annexes"]'));
 
     // Basculer le toggle Sommaire persiste réellement l'inclusion — même
-    // mécanisme qu'avant (setIncluded → writeGeneratedIncluded), juste
-    // exposé via l'API native `Setting.addToggle` désormais.
+    // mécanisme qu'avant (setIncluded → writeGeneratedIncluded).
     const summaryCheckbox = contentEl.querySelector('[aria-label="Inclure le sommaire"]');
     summaryCheckbox.checked = true;
     summaryCheckbox.dispatch("change");
     await Promise.resolve();
     const meta = plugin.settings.projectMeta[plugin.getProjectFolder().path];
     assert.ok(meta, "le basculement écrit bien dans ProjectMeta");
-
-    // L'ancienne phrase provisoire a disparu.
-    assert.equal(contentEl.querySelector(".feuillets-edition-section-description"), null);
-    assert.equal(
-      contentEl.textContent.includes("Première page, pages liminaires, sommaire, tables, bibliographie, annexes et index."),
-      false,
-      "l'ancienne phrase provisoire ne doit plus apparaître"
-    );
-
-    // Aucun futur élément de composition factice (Index) n'est ajouté avant
-    // sa propre phase.
-    assert.equal(contentEl.textContent.includes("Index"), false, "« Index » ne doit pas apparaître avant sa propre phase");
   } finally {
     restoreDom();
   }
 });
 
-test("EditionCompositionContent : changer de rubrique conserve données et callbacks, sans créer de leaf ni rafraîchir la Preview", async () => {
+test("EditionCompositionContent : sous-page Première page — CONTENU (FirstPagePanel) + PRÉSENTATION (LayoutEditor), retour au sommaire", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
@@ -329,26 +286,41 @@ test("EditionCompositionContent : changer de rubrique conserve données et callb
     const contentEl = new FakeElement("div");
     const view = new EditionCompositionContent(app, plugin, contentEl, { onChange: () => { changeCalls += 1; } });
     await view.render();
-    const settingsBefore = JSON.stringify(plugin.settings);
 
-    const items = contentEl.querySelectorAll(".feuillets-composition-nav-item");
-    for (const item of items.slice(1)) {
-      item.click();
-      assert.equal(items.filter((node) => node.hasClass("is-active")).length, 1, "une seule rubrique active");
-      assert.equal(item.hasClass("is-active"), true);
+    assert.equal(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), null, "absent tant que la sous-page n'est pas ouverte");
+
+    const firstPageRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Première page"));
+    firstPageRow.click();
+    await view.renderPromise;
+
+    // §6 : sous-page dédiée, jamais un accordéon au milieu du sommaire —
+    // le sommaire lui-même a disparu, remplacé par ‹ Composition + le titre.
+    assert.equal(contentEl.querySelectorAll(".feuillets-composition-nav-item").length, 0);
+    assert.ok(contentEl.querySelector(".feuillets-composition-back"), "bouton de retour vers Composition");
+    assert.ok(contentEl.querySelector(".feuillets-composition-subpage-title").textContent.includes("Première page"));
+
+    // CONTENU (FirstPagePanel réutilisé, pas dupliqué).
+    assert.ok(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), "FirstPagePanel est bien monté, pas une coquille vide");
+    // PRÉSENTATION (LayoutEditor.renderStandaloneFirstPage réutilisé) —
+    // Setting natif (pas de aria-label propre, voir stub Setting.addToggle),
+    // vérifié via le texte affiché.
+    for (const label of ["Masquer en-tête et pied", "Position du numéro"]) {
+      assert.ok(contentEl.textContent.includes(label), `${label} présent (contrôles de présentation ExportTemplateV2 réutilisés)`);
     }
-    items[0].click();
 
-    assert.equal(items[0].hasClass("is-active"), true, "retour à Contenu fonctionnel");
-    assert.equal(JSON.stringify(plugin.settings), settingsBefore, "aucune donnée modifiée");
-    assert.equal(changeCalls, 0, "aucun callback métier déclenché par la navigation");
-    assert.equal(leafCalls, 0, "aucune leaf créée");
+    assert.equal(leafCalls, 0, "aucune leaf créée par la seule navigation");
+    assert.equal(changeCalls, 0, "aucun callback métier déclenché par la seule navigation");
+
+    contentEl.querySelector(".feuillets-composition-back").click();
+    await view.renderPromise;
+    assert.equal(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), null, "retour au sommaire : la sous-page est démontée");
+    assert.ok([...contentEl.querySelectorAll(".feuillets-project-row")].some((row) => row.textContent.includes("Première page")), "la ligne-résumé Première page est de retour");
   } finally {
     restoreDom();
   }
 });
 
-test("EditionCompositionContent : Première page se déplie/replie via son chevron, sans perdre le contenu existant", async () => {
+test("EditionCompositionContent : sous-page Structure — Séparateur/presets + Notes de bas de page, retour au sommaire", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
@@ -356,18 +328,72 @@ test("EditionCompositionContent : Première page se déplie/replie via son chevr
     const view = new EditionCompositionContent(app, plugin, contentEl);
     await view.render();
 
-    assert.equal(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), null, "repliée par défaut");
+    const structureRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Structure du manuscrit"));
+    structureRow.click();
+    await view.renderPromise;
 
-    contentEl.querySelector('[aria-label="Première page"]').click();
+    assert.ok(contentEl.querySelector(".feuillets-composition-subpage-title").textContent.includes("Structure du manuscrit"));
+    for (const label of ["Séparateur", "Presets de compilation", "Ajouter un preset"]) {
+      assert.ok(contentEl.textContent.includes(label), `${label} présent dans la sous-page Structure`);
+    }
+    // §5 : "Notes de bas de page" est désormais EN BAS de Structure, ce
+    // n'est plus une rubrique séparée.
+    assert.deepEqual(
+      contentEl.querySelectorAll(".feuillets-edition-group-label").map((node) => node.textContent).slice(-1),
+      ["Notes de bas de page"]
+    );
+    assert.ok(contentEl.querySelector('[aria-label="Renuméroter les notes dans le document compilé"]'));
+
+    contentEl.querySelector(".feuillets-composition-back").click();
+    await view.renderPromise;
+    assert.equal(contentEl.querySelector('[aria-label="Renuméroter les notes dans le document compilé"]'), null, "retour au sommaire : la sous-page est démontée");
+  } finally {
+    restoreDom();
+  }
+});
+
+/* §9 du dernier lot UX avant 2.5 : un changement de réglage Structure peut
+ * rafraîchir le Binder, mais ne doit JAMAIS reconstruire la surface
+ * Composition active — ni sa sous-page, ni sa position de défilement. Avant
+ * le correctif, saveAndRefresh appelait plugin.refreshView() (→
+ * renderAllViews() → reconstruction globale, y compris cette même
+ * sous-page) ; il appelle désormais plugin.refreshBinderViews(), qui ne
+ * touche jamais VIEW_BOARD (voir main.ts). */
+test("EditionCompositionContent : un changement de réglage Structure appelle refreshBinderViews (jamais refreshView/renderAllViews), sans reconstruire la sous-page", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    let refreshViewCalls = 0;
+    let refreshBinderCalls = 0;
+    let renderAllViewsCalls = 0;
+    plugin.refreshView = () => { refreshViewCalls += 1; };
+    plugin.refreshBinderViews = () => { refreshBinderCalls += 1; };
+    plugin.renderAllViews = () => { renderAllViewsCalls += 1; };
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+
+    const structureRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Structure du manuscrit"));
+    structureRow.click();
+    await view.renderPromise;
+
+    // Repère de la sous-page actuellement montée (un nœud DOM précis) :
+    // s'il survit à l'identique après le changement de réglage, la
+    // sous-page n'a pas été reconstruite.
+    const subpageTitleBefore = contentEl.querySelector(".feuillets-composition-subpage-title");
+
+    const level1RoleSelect = [...contentEl.querySelectorAll("select")].find((select) => select.getAttribute("aria-label") === "Rôle des dossiers de premier niveau");
+    assert.ok(level1RoleSelect, "le sélecteur de rôle de niveau 1 est bien dans la sous-page Structure");
+    level1RoleSelect.value = "parties";
+    level1RoleSelect.dispatch("change");
     await Promise.resolve();
     await Promise.resolve();
 
-    assert.ok(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), "le composant partagé est bien rendu, pas une coquille vide");
-
-    contentEl.querySelector('[aria-label="Première page"]').click();
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.equal(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), null, "repliée à nouveau");
+    assert.equal(plugin.settings.level1Role, "parties", "le réglage est bien sauvegardé");
+    assert.equal(refreshBinderCalls, 1, "refreshBinderViews est appelé");
+    assert.equal(refreshViewCalls, 0, "refreshView (→ renderAllViews global) n'est JAMAIS appelé");
+    assert.equal(renderAllViewsCalls, 0, "renderAllViews n'est jamais appelé directement non plus");
+    assert.equal(contentEl.querySelector(".feuillets-composition-subpage-title"), subpageTitleBefore, "la sous-page Structure n'a pas été reconstruite (même nœud DOM)");
   } finally {
     restoreDom();
   }

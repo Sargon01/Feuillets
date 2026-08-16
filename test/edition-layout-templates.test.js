@@ -102,6 +102,11 @@ function buildPlugin() {
   return {
     settings: { collapsed: {}, exportTemplate: "classique" },
     saveSettings: async () => {},
+    /* §1 du dernier lot UX avant 2.5 : EditionWorkspaceContent monte
+       désormais une barre d'export compacte TOUJOURS visible (quel que soit
+       l'onglet), qui appelle resolveScope()/getProjectFolder() dès le
+       premier rendu — même sans dossier projet actif. */
+    getProjectFolder: () => null,
   };
 }
 

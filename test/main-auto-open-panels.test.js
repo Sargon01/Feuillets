@@ -182,6 +182,28 @@ test("open-board garde son comportement historique (activateBoard, aucune surfac
   assert.deepEqual(calls, ["board"]);
 });
 
+/* Correctif "les contrôles Export ne fonctionnent pas" (§3/§5C) : les
+ * commandes directes export-docx/export-pdf/export-epub restent câblées
+ * exactement comme avant le dernier lot UX — this.exportFile(format), le
+ * même moteur qu'avant, jamais un second chemin. */
+test("export-docx / export-pdf / export-epub restent câblées à this.exportFile(format), inchangé par le dernier lot UX", () => {
+  const commands = [];
+  const calls = [];
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  plugin.addCommand = (command) => commands.push(command);
+  plugin.exportFile = (format) => { calls.push(format); };
+
+  plugin.registerCoreCommands();
+
+  for (const [id, expectedFormat] of [["export-docx", "docx"], ["export-epub", "epub"], ["export-pdf", "pdf"]]) {
+    const command = commands.find((registered) => registered.id === id);
+    assert.ok(command, `la commande ${id} reste enregistrée`);
+    calls.length = 0;
+    command.callback();
+    assert.deepEqual(calls, [expectedFormat], `${id} atteint bien exportFile("${expectedFormat}")`);
+  }
+});
+
 /* §11 : activateCentralSurface réutilise la leaf VIEW_BOARD existante — elle
  * n'en crée jamais une seconde et ne crée aucune leaf « Édition ». */
 test("activateCentralSurface réutilise la leaf Tableau et lui transmet la surface", async () => {

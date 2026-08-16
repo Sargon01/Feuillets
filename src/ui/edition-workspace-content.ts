@@ -51,16 +51,18 @@ function isRefreshableView(view: unknown): view is RefreshableView {
   );
 }
 
-/** Cœur de l'espace « Édition » (Composition / Mise en page / Export), monté
- * DANS la leaf de son hôte — plus aucune ItemView autonome (§7 du chantier) :
+/** Cœur de l'espace « Édition » (Composition / Mise en page), monté DANS la
+ * leaf de son hôte — plus aucune ItemView autonome (§7 du chantier) :
  * BoardView l'installe dans sa propre surface centrale quand
- * `centralSurface === "edition"`.
+ * `centralSurface === "edition"`. L'onglet Export a disparu (dernier lot UX
+ * avant 2.5, §1) : ses contrôles vivent dans une barre d'export compacte
+ * (ExportPanel.renderQuickBar), toujours visible quel que soit l'onglet.
  *
- * Les trois modes réutilisent des composants déjà partagés ailleurs :
+ * Les deux modes réutilisent des composants déjà partagés ailleurs :
  * EditionCompositionContent (composant DOM pur, micro-correctif « ne plus
  * embarquer d'ItemView dans BoardView »), LayoutEditor (cœur extrait du
- * LayoutModal), ExportPanel (rendu `embedded` complet) — aucun nouveau
- * moteur ni duplication de logique. La Preview n'est jamais possédée ici :
+ * LayoutModal) — aucun nouveau moteur ni duplication de logique. La Preview
+ * n'est jamais possédée ici :
  * elle est ouverte/réutilisée par l'hôte et seulement rafraîchie
  * (`refreshLinkedPreview`), jamais recréée silencieusement (§10). */
 export class EditionWorkspaceContent {
@@ -83,6 +85,9 @@ export class EditionWorkspaceContent {
    * Aucun rôle fonctionnel : jamais lu par le reste du plugin. */
   modeRenderPromise: Promise<void> = Promise.resolve();
 
+  private quickExportBarEl: HTMLElement | null = null;
+  private quickExportPanel: ExportPanel | null = null;
+
   constructor(
     app: App,
     plugin: EditionWorkspacePlugin,
@@ -94,9 +99,20 @@ export class EditionWorkspaceContent {
     this.plugin = plugin;
     this.hostLeaf = hostLeaf;
     this.container = container;
-    this.mode = options.initialMode || "composition";
+    this.mode = this.normalizeMode(options.initialMode || "composition");
     this.previewLeaf = options.linkedPreviewLeaf ?? null;
     this.onModeChange = options.onModeChange;
+  }
+
+  /** L'onglet Export a disparu de la navigation Édition (dernier lot UX
+   * avant 2.5, §1) : ses contrôles vivent désormais dans la barre d'export
+   * compacte, toujours visible. `"export"` reste une valeur valide
+   * d'EditionWorkspaceMode UNIQUEMENT pour la compatibilité des appelants
+   * existants (commandes `open-export`/`pdf-style-modal`, voir main.ts) —
+   * elle est immédiatement ramenée à "composition", onglet où la barre
+   * d'export est de toute façon visible. */
+  private normalizeMode(mode: EditionWorkspaceMode): EditionWorkspaceMode {
+    return mode === "export" ? "composition" : mode;
   }
 
   /** Réattache le composant à un nouveau conteneur — l'hôte reconstruit son
@@ -114,9 +130,10 @@ export class EditionWorkspaceContent {
   /** Change de mode sans jamais recréer la Preview ni la moindre leaf — ne
    * reconstruit que `modeBody`. No-op si déjà sur ce mode. */
   setMode(mode: EditionWorkspaceMode): void {
-    if (this.mode === mode) return;
-    this.mode = mode;
-    this.onModeChange?.(mode);
+    const normalized = this.normalizeMode(mode);
+    if (this.mode === normalized) return;
+    this.mode = normalized;
+    this.onModeChange?.(normalized);
     this.modeRenderPromise = this.renderModeBody();
   }
 
@@ -126,10 +143,12 @@ export class EditionWorkspaceContent {
     container.addClass("feuillets-layout-workspace");
 
     const nav = container.createDiv({ cls: "feuillets-edition-mode-nav", attr: { role: "tablist" } });
+    /* §1 du dernier lot UX avant 2.5 : plus que deux onglets — l'Export
+       disparaît de la navigation, ses contrôles rejoignent la barre d'export
+       compacte (toujours visible, voir plus bas). */
     const modes: Array<[EditionWorkspaceMode, string]> = [
       ["composition", t("editionWorkspace.modeComposition")],
       ["layout", t("editionWorkspace.modeLayout")],
-      ["export", t("editionWorkspace.modeExport")],
     ];
     this.modeNavButtons = {};
     for (const [key, label] of modes) {
@@ -141,6 +160,14 @@ export class EditionWorkspaceContent {
       button.addEventListener("click", () => this.setMode(key));
       this.modeNavButtons[key] = button;
     }
+
+    /* Barre d'export compacte : [Projet ▾] [PDF ▾] [Exporter], toujours
+       visible dans la barre principale d'Édition — pas seulement sous un
+       onglet dédié. Réutilise ExportPanel.renderQuickBar() (même portée,
+       même format, même workflow que Composition/Mise en page/Binder). */
+    this.quickExportBarEl = nav.createDiv({ cls: "feuillets-edition-quickexport-host" });
+    this.quickExportPanel = new ExportPanel(this.app, this.plugin, this.quickExportBarEl);
+    this.quickExportPanel.renderQuickBar(this.quickExportBarEl);
 
     const refresh = nav.createEl("button", { cls: "clickable-icon feuillets-edition-preview-refresh" });
     setIcon(refresh, "refresh-cw");
@@ -170,13 +197,6 @@ export class EditionWorkspaceContent {
       });
       this.compositionContent = content;
       await content.render();
-      return;
-    }
-
-    if (this.mode === "export") {
-      const surface = body.createDiv({ cls: "feuillets-edition-mode-surface" });
-      const panel = new ExportPanel(this.app, this.plugin, surface, { embedded: true });
-      await panel.render();
       return;
     }
 

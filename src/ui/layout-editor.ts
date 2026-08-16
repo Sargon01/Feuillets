@@ -16,10 +16,14 @@ type OnLayoutChange = () => void | Promise<void>;
 type NumberFieldSetter = (value: number | undefined) => void;
 type HeadingLevel = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
 export type LayoutEditorMode = "modal" | "workspace";
-type LayoutPlugin = {
+export type LayoutEditorPlugin = {
   settings: FeuilletsSettings;
   saveSettings(): Promise<void>;
 };
+/** Alias interne — LayoutEditor lui-même continue d'utiliser ce nom en
+ * interne, seul le type exporté pour les autres modules (Composition, §6 du
+ * dernier lot UX avant 2.5) change de nom. */
+type LayoutPlugin = LayoutEditorPlugin;
 
 export type LayoutEditorOptions = {
   mode: LayoutEditorMode;
@@ -34,6 +38,34 @@ export type LayoutEditorOptions = {
    * (bandes en-tête/pied, positions des blocs) sans dupliquer l'état. */
   onSaved?: () => void;
 };
+
+/** Étiquette affichée pour un RÔLE de page de titre — utilisée par
+ * l'inspecteur (renderBlockInspector, dropdown « Élément ») et par la
+ * maquette (TitlePageMiniature), jamais par la donnée elle-même : le rôle
+ * stocké dans `titlePage.styles`/`:::rôle:` (voir utils/title-roles.ts)
+ * reste TOUJOURS son nom canonique français ("titre", "sous-titre"…),
+ * verrouillé (classique.md, titlePage.styles finalisé) — seul son
+ * AFFICHAGE change de langue. Mêmes clés que le formulaire « Première
+ * page » (previewFirstPageFields, ui/first-page-panel.ts) pour
+ * titre/sous-titre/auteur/mots/image : une seule traduction par rôle,
+ * jamais deux formulations différentes pour la même chose. Un rôle
+ * inconnu (modèle personnalisé avec un rôle libre, voir title-roles.ts)
+ * retombe sur son nom brut — jamais une clé i18n manquante affichée telle
+ * quelle. */
+const TITLE_ROLE_LABEL_KEYS: Record<string, string> = {
+  "titre": "preview.firstPageField.title",
+  "sous-titre": "preview.firstPageField.subtitle",
+  "auteur": "preview.firstPageField.author",
+  "mots": "preview.firstPageField.additionalMention",
+  "image": "preview.firstPageField.imageOrLogo",
+  "adresse": "modal.layout.roleAddress",
+  "coordonnées": "modal.layout.roleContact",
+};
+
+export function titleRoleLabel(role: string): string {
+  const key = TITLE_ROLE_LABEL_KEYS[role];
+  return key ? t(key) : role;
+}
 
 function isTemplatePageSize(value: string): value is TemplatePageSize {
   return value === "A4" || value === "A5" || value === "Letter";
@@ -117,6 +149,14 @@ export class LayoutEditor {
    * changement de gabarit). En mode "workspace", (re)construit aussi la
    * navigation + l'inspecteur dans `host`. */
   async load(): Promise<void> {
+    await this.loadModel();
+    if (this.mode === "workspace" && this.host) this.renderWorkspace();
+  }
+
+  /** Charge le modèle V2 SANS construire la navigation — factorisé hors de
+   * `load()` pour que `renderStandaloneFirstPage()` (Composition → Première
+   * page, §6) partage exactement le même chargement, sans duplication. */
+  private async loadModel(): Promise<void> {
     const S = this.plugin.settings;
     this.templates = await listExportTemplates(this.app, S);
     this.template = await resolveExportTemplateV2(this.app, S, this.templateKey);
@@ -125,8 +165,20 @@ export class LayoutEditor {
     this.selected = null;
     this.selectedRole = null;
     this.miniature = null;
+  }
 
-    if (this.mode === "workspace" && this.host) this.renderWorkspace();
+  /** Rendu autonome de la seule catégorie « Première page », SANS la
+   * navigation Page/Corps/Titres/Citation — utilisé par Composition →
+   * Première page (§6 du dernier lot UX avant 2.5). Mêmes contrôles, même
+   * TitlePageMiniature, même ExportTemplateV2 que renderFirstPageInspector()
+   * en mode workspace : aucune seconde source de vérité, aucune donnée de
+   * page de titre dupliquée. */
+  async renderStandaloneFirstPage(host: HTMLElement): Promise<void> {
+    await this.loadModel();
+    this.selected = "firstPage";
+    this.inspectorEl = host;
+    host.empty();
+    this.renderFirstPageInspector(host);
   }
 
   async setTemplateKey(key: string, label?: string): Promise<void> {
@@ -142,12 +194,17 @@ export class LayoutEditor {
     this.navigationButtons = {};
 
     this.navEl = host.createDiv({ cls: "feuillets-layout-nav" });
+    /* §6-§7 du dernier lot UX avant 2.5 : "Première page" quitte la
+       navigation Mise en page (renderWorkspace = workspace uniquement,
+       jamais le LayoutModal historique qui construit sa propre nav séparée,
+       voir layout-modal.ts) — elle vit désormais UNIQUEMENT dans
+       Composition → Première page (voir renderStandaloneFirstPage
+       ci-dessous, réutilisée depuis là par EditionCompositionContent). */
     const categories: Array<[string, string]> = [
       ["page", t("modal.layout.categoryPage")],
       ["body", t("modal.layout.categoryBody")],
       ["headings", t("modal.layout.categoryHeadings")],
       ["blockquote", t("modal.layout.categoryBlockquote")],
-      ["firstPage", t("modal.layout.categoryFirstPage")],
     ];
     for (const [key, label] of categories) {
       const button = this.navEl.createEl("button", { cls: "feuillets-layout-nav-item", text: label });
@@ -208,15 +265,28 @@ export class LayoutEditor {
     });
   }
 
+  /* §8 du dernier lot UX avant 2.5 : en-tête/pied désactivés n'affichent
+     plus QUE le seul champ utile — l'interrupteur — au lieu de tous leurs
+     champs grisés. Le bascule ré-affiche/masque le reste EN reconstruisant
+     l'inspecteur (`renderInspector()`), seule façon de faire apparaître ou
+     disparaître les champs suivants — jamais les données du gabarit.
+     UNIQUEMENT en mode "workspace" (Édition → Mise en page, cible réelle du
+     chantier) : le LayoutModal historique (mode "modal", où l'utilisatrice
+     clique directement les bandes en-tête/pied de la maquette) continue
+     d'afficher tous les champs, comportement inchangé — hors du périmètre de
+     ce chantier. */
+
   renderHeaderInspector(insp: HTMLElement): void {
     insp.createEl("h4", { text: t("modal.layout.headerAllPages") });
     new Setting(insp).setName(t("modal.layout.enableHeader")).addToggle((t2) =>
       t2.setValue(this.template.header.enabled).onChange(async (v) => {
         this.template.header.enabled = v;
         await this.saveTemplate();
+        if (this.mode === "workspace") this.renderInspector();
       })
     );
-    new Setting(insp).setName("Gauche").addText((t2) =>
+    if (this.mode === "workspace" && !this.template.header.enabled) return;
+    new Setting(insp).setName(t("modal.layout.headerLeft")).addText((t2) =>
       t2.setValue(this.template.header.left).onChange(async (v) => {
         this.template.header.left = v;
         await this.saveTemplate();
@@ -228,7 +298,7 @@ export class LayoutEditor {
         await this.saveTemplate();
       })
     );
-    new Setting(insp).setName("Droite").addText((t2) =>
+    new Setting(insp).setName(t("modal.layout.headerRight")).addText((t2) =>
       t2.setValue(this.template.header.right).onChange(async (v) => {
         this.template.header.right = v;
         await this.saveTemplate();
@@ -251,8 +321,10 @@ export class LayoutEditor {
       t2.setValue(this.template.footer.enabled).onChange(async (v) => {
         this.template.footer.enabled = v;
         await this.saveTemplate();
+        if (this.mode === "workspace") this.renderInspector();
       })
     );
+    if (this.mode === "workspace" && !this.template.footer.enabled) return;
     new Setting(insp).setName(t("modal.layout.formatWithVars")).addText((t2) =>
       t2.setValue(this.template.footer.right).onChange(async (v) => {
         this.template.footer.right = v;
@@ -278,7 +350,7 @@ export class LayoutEditor {
 
   renderBlockInspector(insp: HTMLElement, role: string): void {
     const st = this.styles[role];
-    insp.createEl("h4", { text: role });
+    insp.createEl("h4", { text: titleRoleLabel(role) });
     const num = (name: string, get: () => number | undefined, set: NumberFieldSetter): Setting =>
       new Setting(insp).setName(name).addText((t2) => {
         t2.inputEl.type = "number";
@@ -347,23 +419,60 @@ export class LayoutEditor {
     /* Pas de titre "Page" ici : la navigation (workspace) ou l'onglet
        (modal) l'affiche déjà juste à côté — doublon évident, §4 du micro-lot
        finition UI. */
-    this.textField(insp, "Format", () => this.template.page.size, (v) => {
-      if (isTemplatePageSize(v)) this.template.page.size = v;
-    });
-    new Setting(insp).setName("Orientation").addDropdown((d) => d
-      .addOption("portrait", "Portrait").addOption("landscape", "Paysage")
+    /* §8 du dernier lot UX avant 2.5 : Format devient un dropdown fermé sur
+       les seules valeurs déjà reconnues par le moteur (isTemplatePageSize) —
+       plus de champ texte libre pouvant contenir une valeur invalide et
+       silencieusement ignorée à l'écriture. */
+    new Setting(insp).setName(t("modal.layout.format")).addDropdown((d) => d
+      .addOption("A4", "A4").addOption("A5", "A5").addOption("Letter", "Letter")
+      .setValue(isTemplatePageSize(this.template.page.size) ? this.template.page.size : "A4")
+      .onChange(async (v) => {
+        if (isTemplatePageSize(v)) this.template.page.size = v;
+        await this.saveTemplate();
+      }));
+    new Setting(insp).setName(t("modal.layout.orientation")).addDropdown((d) => d
+      .addOption("portrait", t("modal.layout.portrait")).addOption("landscape", t("modal.layout.landscape"))
       .setValue(this.template.page.orientation).onChange(async (v) => {
         if (v === "portrait" || v === "landscape") this.template.page.orientation = v;
         await this.saveTemplate();
       }));
+
+    /* §8 : plus de noms internes anglais (top/bottom/left/right) affichés —
+       un groupe "Marges" avec Haut/Bas/Gauche/Droite, via i18n (FR/EN). */
+    insp.createEl("h4", { text: t("modal.layout.marginsGroup") });
+    const marginLabels: Record<"top" | "bottom" | "left" | "right", string> = {
+      top: t("modal.layout.marginTop"),
+      bottom: t("modal.layout.marginBottom"),
+      left: t("modal.layout.marginLeft"),
+      right: t("modal.layout.marginRight"),
+    };
     for (const side of ["top", "bottom", "left", "right"] as const) {
-      this.numberField(insp, `Marge ${side}`, () => this.template.page.marginsCm[side], (v) => this.template.page.marginsCm[side] = Math.max(0, v));
+      this.numberField(insp, marginLabels[side], () => this.template.page.marginsCm[side], (v) => this.template.page.marginsCm[side] = Math.max(0, v));
     }
-    new Setting(insp).setName("Marges miroir").addToggle((control) => control.setValue(this.template.page.mirrorMargins).onChange(async (v) => {
+    new Setting(insp).setName(t("modal.layout.mirrorMargins")).addToggle((control) => control.setValue(this.template.page.mirrorMargins).onChange(async (v) => {
       this.template.page.mirrorMargins = v; await this.saveTemplate();
     }));
-    this.numberField(insp, "Colonnes", () => this.template.page.columns.count, (v) => this.template.page.columns.count = Math.max(1, Math.round(v)));
-    this.numberField(insp, "Gouttière (pt)", () => this.template.page.columns.gutterPt, (v) => this.template.page.columns.gutterPt = Math.max(0, v));
+
+    /* §8 : la Gouttière n'a de sens qu'à partir de 2 colonnes — masquée tant
+       que Colonnes = 1, réaffichée dès que Colonnes > 1. Uniquement une
+       question de présentation : la valeur `gutterPt` du gabarit n'est ni
+       lue ni modifiée par ce masquage. */
+    new Setting(insp).setName(t("modal.layout.columns")).addText((control) => {
+      control.inputEl.type = "number";
+      control.setValue(String(this.template.page.columns.count)).onChange(async (raw) => {
+        const next = Number.parseFloat(raw);
+        if (!Number.isFinite(next)) return;
+        const wasMulti = this.template.page.columns.count > 1;
+        this.template.page.columns.count = Math.max(1, Math.round(next));
+        await this.saveTemplate();
+        // La Gouttière apparaît/disparaît selon le nombre de colonnes :
+        // seul un changement de côté (1 <-> >1) impose de reconstruire.
+        if (wasMulti !== (this.template.page.columns.count > 1)) this.renderInspector();
+      });
+    });
+    if (this.template.page.columns.count > 1) {
+      this.numberField(insp, t("modal.layout.gutterPt"), () => this.template.page.columns.gutterPt, (v) => this.template.page.columns.gutterPt = Math.max(0, v));
+    }
 
     if (this.mode === "workspace") {
       // renderHeaderInspector/renderFooterInspector posent déjà leur propre
@@ -379,22 +488,34 @@ export class LayoutEditor {
     const body = this.template.body;
     /* Pas de titre "Corps de texte" ici : doublon avec la navigation/l'onglet
        — même règle qu'en Page, §4. */
-    this.textField(insp, "Police", () => body.fontFamily, (v) => body.fontFamily = v);
-    this.numberField(insp, "Taille (pt)", () => body.fontSizePt, (v) => body.fontSizePt = Math.max(1, v));
-    this.numberField(insp, "Interligne", () => body.lineHeight, (v) => body.lineHeight = Math.max(0.1, v));
-    new Setting(insp).setName("Alignement").addDropdown((d) => d
-      .addOption("left", "Gauche").addOption("center", "Centré").addOption("right", "Droite").addOption("justify", "Justifié")
+    this.textField(insp, t("modal.layout.font"), () => body.fontFamily, (v) => body.fontFamily = v);
+    this.numberField(insp, t("modal.layout.sizePt"), () => body.fontSizePt, (v) => body.fontSizePt = Math.max(1, v));
+    this.numberField(insp, t("modal.layout.lineHeight"), () => body.lineHeight, (v) => body.lineHeight = Math.max(0.1, v));
+    new Setting(insp).setName(t("modal.layout.alignment")).addDropdown((d) => d
+      .addOption("left", t("modal.layout.alignLeft")).addOption("center", t("modal.layout.alignCenter")).addOption("right", t("modal.layout.alignRight")).addOption("justify", t("modal.layout.alignJustify"))
       .setValue(body.align).onChange(async (v) => { if (isTemplateAlign(v)) body.align = v; await this.saveTemplate(); }));
-    this.numberField(insp, "Retrait première ligne (pt)", () => body.firstLineIndentPt, (v) => body.firstLineIndentPt = Math.max(0, v));
-    this.numberField(insp, "Espacement avant (pt)", () => body.paragraphSpacingBeforePt, (v) => body.paragraphSpacingBeforePt = Math.max(0, v));
-    this.numberField(insp, "Espacement après (pt)", () => body.paragraphSpacingAfterPt, (v) => body.paragraphSpacingAfterPt = Math.max(0, v));
-    new Setting(insp).setName("Césure").addToggle((control) => control.setValue(body.hyphenation).onChange(async (v) => { body.hyphenation = v; await this.saveTemplate(); }));
-    new Setting(insp).setName("Profil").addDropdown((d) => d
-      .addOption("manuscript", "Manuscrit").addOption("document", "Document").addOption("academic", "Académique")
+    this.numberField(insp, t("modal.layout.firstLineIndentPt"), () => body.firstLineIndentPt, (v) => body.firstLineIndentPt = Math.max(0, v));
+    this.numberField(insp, t("modal.layout.spacingBeforePt"), () => body.paragraphSpacingBeforePt, (v) => body.paragraphSpacingBeforePt = Math.max(0, v));
+    this.numberField(insp, t("modal.layout.spacingAfterPt"), () => body.paragraphSpacingAfterPt, (v) => body.paragraphSpacingAfterPt = Math.max(0, v));
+    new Setting(insp).setName(t("modal.layout.hyphenation")).addToggle((control) => control.setValue(body.hyphenation).onChange(async (v) => { body.hyphenation = v; await this.saveTemplate(); }));
+    new Setting(insp).setName(t("modal.layout.profile")).addDropdown((d) => d
+      .addOption("manuscript", t("modal.layout.profileManuscript")).addOption("document", t("modal.layout.profileDocument")).addOption("academic", t("modal.layout.profileAcademic"))
       .setValue(this.template.profile).onChange(async (v) => {
         if (v === "manuscript" || v === "document" || v === "academic") this.template.profile = v;
         await this.saveTemplate();
       }));
+
+    /* §2 du dernier lot UX avant 2.5 : "Typographie française à l'export"
+       vit désormais ici (déplacée depuis Édition) — mais écrit TOUJOURS
+       settings.exportFrenchTypography, JAMAIS le gabarit ExportTemplateV2 :
+       ce réglage reste global au plugin, pas une propriété par gabarit. */
+    new Setting(insp).setName(t("settings.exportFrenchTypography.name")).addToggle((c) =>
+      c.setValue(this.plugin.settings.exportFrenchTypography !== false).onChange(async (v) => {
+        this.plugin.settings.exportFrenchTypography = v;
+        await this.plugin.saveSettings();
+        this.notifyChange();
+      })
+    );
   }
 
   renderHeadingsInspector(insp: HTMLElement): void {
@@ -411,37 +532,37 @@ export class LayoutEditor {
     const style = this.template.headings[this.selectedHeading];
     const editor = insp.createDiv({ cls: "feuillets-heading-editor" });
     editor.createEl("h5", { text: this.selectedHeading.toUpperCase() });
-    this.textField(editor, "Police", () => style.fontFamily || "", (v) => style.fontFamily = v.trim() || undefined);
-    this.numberField(editor, "Taille (pt)", () => style.fontSizePt ?? 0, (v) => style.fontSizePt = v || undefined);
-    new Setting(editor).setName("Gras").addToggle((c) => c.setValue(!!style.bold).onChange(async (v) => { style.bold = v; await this.saveTemplate(); }));
-    new Setting(editor).setName("Italique").addToggle((c) => c.setValue(!!style.italic).onChange(async (v) => { style.italic = v; await this.saveTemplate(); }));
-    this.textField(editor, "Alignement", () => style.align || "left", (v) => {
+    this.textField(editor, t("modal.layout.font"), () => style.fontFamily || "", (v) => style.fontFamily = v.trim() || undefined);
+    this.numberField(editor, t("modal.layout.sizePt"), () => style.fontSizePt ?? 0, (v) => style.fontSizePt = v || undefined);
+    new Setting(editor).setName(t("modal.layout.bold")).addToggle((c) => c.setValue(!!style.bold).onChange(async (v) => { style.bold = v; await this.saveTemplate(); }));
+    new Setting(editor).setName(t("modal.layout.italic")).addToggle((c) => c.setValue(!!style.italic).onChange(async (v) => { style.italic = v; await this.saveTemplate(); }));
+    this.textField(editor, t("modal.layout.alignment"), () => style.align || "left", (v) => {
       if (isTemplateAlign(v)) style.align = v;
     });
-    this.numberField(editor, "Espace avant", () => style.marginTopPt ?? 0, (v) => style.marginTopPt = v || undefined);
-    this.numberField(editor, "Espace après", () => style.marginBottomPt ?? 0, (v) => style.marginBottomPt = v || undefined);
-    new Setting(editor).setName("Saut de page avant").addToggle((c) => c.setValue(!!style.pageBreakBefore).onChange(async (v) => { style.pageBreakBefore = v; await this.saveTemplate(); }));
+    this.numberField(editor, t("modal.layout.headingSpaceBefore"), () => style.marginTopPt ?? 0, (v) => style.marginTopPt = v || undefined);
+    this.numberField(editor, t("modal.layout.headingSpaceAfter"), () => style.marginBottomPt ?? 0, (v) => style.marginBottomPt = v || undefined);
+    new Setting(editor).setName(t("modal.layout.pageBreakBefore")).addToggle((c) => c.setValue(!!style.pageBreakBefore).onChange(async (v) => { style.pageBreakBefore = v; await this.saveTemplate(); }));
   }
 
   renderBlockquoteInspector(insp: HTMLElement): void {
-    insp.createEl("h4", { text: "Citation et séparateur" });
+    insp.createEl("h4", { text: t("modal.layout.blockquoteTitle") });
     const quote = this.template.blockquote;
-    this.textField(insp, "Police", () => quote.fontFamily || "", (v) => quote.fontFamily = v.trim() || undefined);
-    this.optionalNumberField(insp, "Taille (pt)", () => quote.fontSizePt, (v) => quote.fontSizePt = v);
-    this.optionalNumberField(insp, "Interligne", () => quote.lineHeight, (v) => quote.lineHeight = v);
-    new Setting(insp).setName("Alignement").addDropdown((d) => d
-      .addOption("", "Par défaut").addOption("left", "Gauche").addOption("center", "Centré").addOption("right", "Droite").addOption("justify", "Justifié")
+    this.textField(insp, t("modal.layout.font"), () => quote.fontFamily || "", (v) => quote.fontFamily = v.trim() || undefined);
+    this.optionalNumberField(insp, t("modal.layout.sizePt"), () => quote.fontSizePt, (v) => quote.fontSizePt = v);
+    this.optionalNumberField(insp, t("modal.layout.lineHeight"), () => quote.lineHeight, (v) => quote.lineHeight = v);
+    new Setting(insp).setName(t("modal.layout.alignment")).addDropdown((d) => d
+      .addOption("", t("modal.layout.default")).addOption("left", t("modal.layout.alignLeft")).addOption("center", t("modal.layout.alignCenter")).addOption("right", t("modal.layout.alignRight")).addOption("justify", t("modal.layout.alignJustify"))
       .setValue(quote.align || "").onChange(async (v) => { quote.align = isTemplateAlign(v) ? v : undefined; await this.saveTemplate(); }));
-    this.optionalNumberField(insp, "Retrait première ligne (pt)", () => quote.firstLineIndentPt, (v) => quote.firstLineIndentPt = v);
-    this.optionalNumberField(insp, "Marge gauche (pt)", () => quote.marginLeftPt, (v) => quote.marginLeftPt = v);
-    this.optionalNumberField(insp, "Marge droite (pt)", () => quote.marginRightPt, (v) => quote.marginRightPt = v);
-    this.optionalNumberField(insp, "Espace avant (pt)", () => quote.marginTopPt, (v) => quote.marginTopPt = v);
-    this.optionalNumberField(insp, "Espace après (pt)", () => quote.marginBottomPt, (v) => quote.marginBottomPt = v);
-    new Setting(insp).setName("Italique").addDropdown((d) => d
-      .addOption("", "Par défaut").addOption("true", "Italique").addOption("false", "Normal")
+    this.optionalNumberField(insp, t("modal.layout.firstLineIndentPt"), () => quote.firstLineIndentPt, (v) => quote.firstLineIndentPt = v);
+    this.optionalNumberField(insp, t("modal.layout.marginLeftPt"), () => quote.marginLeftPt, (v) => quote.marginLeftPt = v);
+    this.optionalNumberField(insp, t("modal.layout.marginRightPt"), () => quote.marginRightPt, (v) => quote.marginRightPt = v);
+    this.optionalNumberField(insp, t("modal.layout.blockquoteSpaceBeforePt"), () => quote.marginTopPt, (v) => quote.marginTopPt = v);
+    this.optionalNumberField(insp, t("modal.layout.blockquoteSpaceAfterPt"), () => quote.marginBottomPt, (v) => quote.marginBottomPt = v);
+    new Setting(insp).setName(t("modal.layout.italic")).addDropdown((d) => d
+      .addOption("", t("modal.layout.default")).addOption("true", t("modal.layout.italic")).addOption("false", t("modal.layout.italicNormal"))
       .setValue(quote.italic === undefined ? "" : String(quote.italic)).onChange(async (v) => { quote.italic = v === "" ? undefined : v === "true"; await this.saveTemplate(); }));
-    this.textField(insp, "Couleur", () => quote.colorHex || "", (v) => quote.colorHex = v.trim() || undefined);
-    this.textField(insp, "Séparateur de scène", () => this.template.sceneDivider, (v) => this.template.sceneDivider = v);
+    this.textField(insp, t("modal.layout.color"), () => quote.colorHex || "", (v) => quote.colorHex = v.trim() || undefined);
+    this.textField(insp, t("modal.layout.sceneSeparator"), () => this.template.sceneDivider, (v) => this.template.sceneDivider = v);
   }
 
   renderFirstPageInspector(insp: HTMLElement): void {
@@ -452,7 +573,7 @@ export class LayoutEditor {
     if (this.mode === "workspace") this.mountFirstPageMiniature(insp);
 
     // Pas de titre "Première page" ici : doublon avec la navigation/l'onglet, §4.
-    new Setting(insp).setName("Masquer en-tête et pied").addToggle((c) => c.setValue(this.template.firstPage.hideHeader).onChange(async (v) => { this.template.firstPage.hideHeader = v; await this.saveTemplate(); }));
+    new Setting(insp).setName(t("modal.layout.hideHeaderFooter")).addToggle((c) => c.setValue(this.template.firstPage.hideHeader).onChange(async (v) => { this.template.firstPage.hideHeader = v; await this.saveTemplate(); }));
     new Setting(insp).setName(t("modal.layout.pageNumberPosition")).addDropdown((d) => d
       .addOption("left", t("modal.layout.alignLeft"))
       .addOption("center", t("modal.layout.alignCenter"))
@@ -471,7 +592,7 @@ export class LayoutEditor {
     roleSection.createEl("h4", { text: t("modal.layout.elementStyle") });
     new Setting(roleSection).setName(t("modal.layout.element")).addDropdown((d) => {
       d.addOption("", t("modal.layout.chooseElement"));
-      for (const role of this.roles) d.addOption(role, role);
+      for (const role of this.roles) d.addOption(role, titleRoleLabel(role));
       d.setValue(this.selectedRole || "").onChange((v) => {
         this.selectedRole = v || null;
         this.renderInspector();

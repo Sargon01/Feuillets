@@ -10,6 +10,7 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { t } from "../i18n/index.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
 import { createProjectScope, createFileScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
+import { runExportWorkflow } from "../services/export-workflow.js";
 import { Menu, MarkdownView, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import {
@@ -171,6 +172,41 @@ export class FeuilletsView extends BaseFeuilletsView {
       return projectRoot;
     }
     return candidate;
+  }
+
+  /** Portée de l'export rapide du Binder (dernier lot UX avant 2.5, §11) —
+   * priorité STRICTE : sélection Binder multiple > dossier isolé > projet
+   * complet. Jamais le feuillet actif comme portée implicite si rien n'est
+   * sélectionné ni isolé. Recalculée à chaque appel (jamais mise en cache) :
+   * même logique que renderHierarchyBody, exposée en méthode pour rester
+   * testable indépendamment du rendu DOM. */
+  binderQuickExportScope(): CompileScope | null {
+    const folder = this.getProjectFolder();
+    if (!folder) return null;
+    const selection = this.plugin._binderMultiSelect;
+    if (selection && selection.size > 0) return createSelectionScope(folder.path, Array.from(selection));
+    const workingRoot = this.getBinderWorkingRoot(folder);
+    if (workingRoot && workingRoot.path !== folder.path) return createFolderScope(folder.path, workingRoot.path);
+    return createProjectScope(folder.path);
+  }
+
+  /** Libellé affiché pour une portée d'export rapide — mêmes clés i18n que
+   * ExportPanel.scopeLabel() (ui/export-panel.ts), aucune seconde
+   * traduction. */
+  binderQuickExportScopeLabel(scope: CompileScope | null): string {
+    if (!scope) return t("preview.scope.project");
+    if (scope.type === "file") return t("preview.scope.file");
+    if (scope.type === "folder") return t("preview.scope.folder");
+    if (scope.type === "selection") return t("preview.scope.selection", { count: String(scope.paths.length) });
+    return t("preview.scope.project");
+  }
+
+  /** Format actuellement mémorisé (settings.exportFormat) — même repli
+   * "docx" que ExportPanel/EditionWorkspaceContent, jamais une seconde
+   * valeur par défaut. */
+  binderQuickExportFormat(): string {
+    const format = this.plugin.settings.exportFormat;
+    return typeof format === "string" && format && format !== "md" ? format : "docx";
   }
 
   /** Mécanisme d'isolation UNIQUE (chantier "isoler un dossier" +
@@ -797,7 +833,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        palette, écran sans projet, onboarding — tous inchangés). La place est
        VOLONTAIREMENT laissée libre pour un futur bouton Double vue : aucune
        nouvelle icône ne la remplace dans ce chantier. */
-    this.iconBtn(actions, "notebook", "Carnet", () =>
+    this.iconBtn(actions, "notebook", t("binder.notebookTooltip"), () =>
       this.plugin.generateCanvasBoard()
     );
     this.barSep(actions);
@@ -1000,6 +1036,57 @@ export class FeuilletsView extends BaseFeuilletsView {
         })();
       });
     }
+
+    /* Export rapide (dernier lot UX avant 2.5, §11) : DERNIÈRE icône de la
+       barre — rien après elle (Carnet | Tableau | Densité | Recherche |
+       Filtres | Export). Clic simple : export immédiat, même format/gabarit/
+       preset/nom que mémorisés (settings.exportFormat, compileFileName ou
+       preset actif), même runExportWorkflow() que Édition/Aperçu — aucune
+       duplication de logique d'export. Portée/format calculés par des
+       méthodes dédiées (binderQuickExport*, ci-dessous) : testables
+       indépendamment du rendu DOM. */
+    const quickExportBtn = this.iconBtn(
+      filterBar,
+      "download",
+      t("binder.quickExport.tooltip", {
+        scope: this.binderQuickExportScopeLabel(this.binderQuickExportScope()),
+        format: this.binderQuickExportFormat().toUpperCase(),
+      })
+    );
+    quickExportBtn.addEventListener("click", () => {
+      void runExportWorkflow(this.app, this.plugin, this.binderQuickExportScope());
+    });
+    quickExportBtn.addEventListener("contextmenu", (e: MouseEvent) => {
+      e.preventDefault();
+      const menu = new Menu();
+      const formats: Array<[string, string]> = [
+        ["docx", t("binder.quickExport.exportDocx")],
+        ["pdf", t("binder.quickExport.exportPdf")],
+        ["epub", t("binder.quickExport.exportEpub")],
+        ["odt", t("binder.quickExport.exportOdt")],
+      ];
+      for (const [value, label] of formats) {
+        menu.addItem((item) =>
+          item
+            .setTitle(label)
+            .setChecked(this.binderQuickExportFormat() === value)
+            .onClick(() => {
+              void (async () => {
+                S.exportFormat = value;
+                await this.plugin.saveSettings();
+                await runExportWorkflow(this.app, this.plugin, this.binderQuickExportScope(), value);
+              })();
+            })
+        );
+      }
+      menu.addSeparator();
+      menu.addItem((item) =>
+        item.setTitle(t("binder.quickExport.openEdition")).onClick(() => {
+          void this.plugin.activateCentralSurface("edition", "composition");
+        })
+      );
+      menu.showAtMouseEvent(e);
+    });
 
     /* Barre de recherche sur sa propre ligne, sous la barre d'icônes —
        plus lisible qu'un champ étriqué inséré entre les icônes. */
