@@ -101,7 +101,7 @@ function buildView({ root, a }, { mode = "fiction", ...settingsOverrides } = {})
     binderSelectedPath: root.path,
     projects: [],
     projectMeta: {},
-    binderLayout: "split",
+    binderLayout: "tree",
     binderCompact: false,
     binderTreeWidth: 240,
     collapsed: {},

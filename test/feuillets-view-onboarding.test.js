@@ -110,7 +110,7 @@ function baseSettings(overrides = {}) {
     projectFolder: "",
     projects: [],
     projectMeta: {},
-    binderLayout: "split",
+    binderLayout: "tree",
     binderCompact: false,
     binderTreeWidth: 240,
     collapsed: {},
@@ -204,8 +204,8 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
     .map((button) => button.icon);
   assert.ok(searchButton, "l'action Recherche utilise l'icône search");
   assert.ok(filterButton, "l'action Filtres utilise l'icône list-filter sans filtre actif");
-  assert.deepEqual(quickActionIcons, ["notebook", "layout-grid", "rows-3", "search", "list-filter", "download"]);
-  assert.equal(quickActionIcons[quickActionIcons.length - 1], "download", "Export rapide reste la DERNIÈRE icône de la barre (§11)");
+  assert.deepEqual(quickActionIcons, ["notebook", "layout-grid", "columns-2", "rows-3", "search", "list-filter"]);
+  assert.equal(buttons.find((button) => button.icon === "download"), undefined, "l'icône Export rapide reste retirée");
   assert.equal(buttons.find((button) => button.icon === "folder-cog"), undefined, "l'icône Gérer les projets a quitté la barre du Binder");
 
   const rootName = findElements(contentEl, (element) => element.classes.has("feuillets-folder-name"))[0];

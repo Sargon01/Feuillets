@@ -82,7 +82,7 @@ function baseSettings(overrides = {}) {
     projectFolder: "",
     projects: [],
     projectMeta: {},
-    binderLayout: "split",
+    binderLayout: "tree",
     binderCompact: false,
     binderTreeWidth: 240,
     collapsed: {},

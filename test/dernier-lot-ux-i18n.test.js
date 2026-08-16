@@ -12,9 +12,12 @@ import { en } from "../src/i18n/en.js";
  * fichiers source. */
 
 test("dernier lot UX avant 2.5 : toutes les nouvelles clés i18n existent en FR et en EN", () => {
-  const prefixes = ["compositionSummary.", "binder.quickExport.", "settings.separator.", "settings.compilePresets.groupLabel"];
+  // "binder.quickExport." retiré du périmètre : l'icône Export rapide du
+  // Binder a été supprimée par le lot double volet Manuscrit/Coffre (voir
+  // binder-dual-pane-toggle.test.js) — ses clés n'existent plus.
+  const prefixes = ["compositionSummary.", "settings.separator.", "settings.compilePresets.groupLabel"];
   const keys = Object.keys(fr).filter((key) => prefixes.some((p) => key === p || key.startsWith(p)));
-  assert.ok(keys.length >= 15, "les nouvelles clés du chantier sont bien présentes dans fr.ts");
+  assert.ok(keys.length >= 14, "les nouvelles clés du chantier sont bien présentes dans fr.ts");
   for (const key of keys) {
     assert.ok(en[key], `${key} manque en anglais`);
     assert.notEqual(en[key], "", `${key} ne doit pas être vide en anglais`);

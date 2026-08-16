@@ -484,6 +484,7 @@ declare type FeuilletsSettings = {
   povFilter: string;
   tagFilter: string;
 
+  binderLayout: "split" | "tree";
   binderSelectedPath: string;
   binderSearch: string;
   binderSearchContent: boolean;

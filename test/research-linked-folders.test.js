@@ -373,7 +373,7 @@ test("renderAssociatedResearchFolders affiche quand même un dossier associé DI
 
 /* --- 4. Aucune modification du dossier externe (lecture/navigation seule) --- */
 
-test("un dossier associé externe n'a ni menu d'actions ni glisser-déposer", () => {
+test("un dossier associé externe n'a ni menu d'actions (au niveau dossier) ni glisser-déposer", () => {
   const docs = new TFolder("Vault/Docs");
   const note = new TFile("Vault/Docs/Notice.md");
   docs.children = [note];
@@ -387,11 +387,46 @@ test("un dossier associé externe n'a ni menu d'actions ni glisser-déposer", ()
 
   view.renderAssociatedResearchFolders(contentEl, null);
 
-  const actionsLabel = t("shared.research.folderActions");
-  const allButtons = findAll(contentEl, (c) => c.tag === "button");
-  const actionMenuButtons = allButtons.filter((b) => b.tooltip === actionsLabel);
-  assert.equal(actionMenuButtons.length, 0, "pas de menu ⋯ (dossier ou fichier) pour un dossier externe");
+  // Le dossier lui-même reste sans menu d'actions (renommer/déplacer/
+  // supprimer un dossier externe reste interdit) — voir renderSection,
+  // `if (folderOrFiles instanceof TFolder && !external)`.
+  const folderRows = findAll(contentEl, (c) => c.classes.has("feuillets-notes-section-head"));
+  for (const row of folderRows) {
+    const actionButtons = findAll(row, (c) => c.tag === "button" && c.tooltip === t("shared.research.folderActions"));
+    assert.equal(actionButtons.length, 0, "pas de menu ⋯ sur l'en-tête du dossier externe");
+  }
   assert.equal(dropTargetCalls, 0, "un dossier externe n'est jamais cible de dépôt");
+});
+
+/* Micro-correctif "navigation des fichiers Recherche externes" (dernier
+   lot avant 2.5, §16-18) : un FICHIER d'un dossier associé externe garde
+   désormais son bouton ⋯, mais son menu se limite à la navigation — voir
+   showResearchFileContextMenu(navigationOnly) et
+   test/research-external-file-menu.test.js pour la couverture complète du
+   contenu du menu. */
+test("un fichier d'un dossier associé externe garde son bouton ⋯ (menu limité à la navigation)", () => {
+  const docs = new TFolder("Vault/Docs");
+  const note = new TFile("Vault/Docs/Notice.md");
+  note.basename = "Notice";
+  docs.children = [note];
+  const chapitreA = new TFolder(CHAPITRE_A);
+
+  const { view, contentEl } = createResearchViewHarness({
+    linkedFolders: [{ folder: docs, binderNodes: [chapitreA] }],
+  });
+  const calls = [];
+  view.showResearchFileContextMenu = (_e, file, navigationOnly) => calls.push({ file, navigationOnly });
+
+  view.renderAssociatedResearchFolders(contentEl, null);
+
+  const actionsLabel = t("shared.research.folderActions");
+  const fileActionBtn = findAll(contentEl, (c) => c.tag === "button" && c.tooltip === actionsLabel)[0];
+  assert.ok(fileActionBtn, "le bouton ⋯ du fichier externe doit être présent");
+  fileActionBtn.events.get("click")({ stopPropagation() {} });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file.path, note.path);
+  assert.equal(calls[0].navigationOnly, true, "navigationOnly doit être vrai pour un fichier externe");
 });
 
 /* --- E (rendu) : orpheline déjà filtrée en amont, rien à faire ici --- */

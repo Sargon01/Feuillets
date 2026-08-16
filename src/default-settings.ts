@@ -233,7 +233,12 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   readingFontSize: 0,
   lineHeight: 0,
   textWidth: 0,
-  binderLayout: "split",
+  /* "tree" (vue simple, Binder 2.5 actuel) : jusqu'ici cette clé valait
+     "split" par défaut sans jamais être lue pour choisir un mode de rendu
+     (voir renderSplitBody/renderHierarchyBody, feuillets-view.ts) — elle
+     pilote maintenant réellement le rendu, la vue simple reste donc le
+     comportement par défaut inchangé pour tous les vaults existants. */
+  binderLayout: "tree",
   binderSelectedPath: "",
   binderTreeWidth: 170,
   binderTreeCollapsed: false,

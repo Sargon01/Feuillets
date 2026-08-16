@@ -2762,7 +2762,8 @@ class FeuilletsPlugin extends Plugin {
     if (leftSplit && !leftSplit.collapsed) {
       const activeSidebarLeaf = this.app.workspace.getLeavesOfType(VIEW_SIDEBAR)[0];
       if (activeSidebarLeaf) {
-        this.safeSetSize(leftSplit, 250);
+        const width = this.settings.binderLayout === "split" ? 380 : 250;
+        this.safeSetSize(leftSplit, width);
       }
     }
     const rightSplit = this.app.workspace.rightSplit;

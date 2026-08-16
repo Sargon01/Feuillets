@@ -1108,6 +1108,52 @@
   height: 14px;
 }
 
+/* CORRECTIF FINAL — double vue = Library opérable + Binder 2.5 unique.
+ * §20 : Library compacte — lignes légèrement moins hautes que le Binder
+ * droit, gap réduit. N'affecte QUE `.feuillets-tree-pane` (volet gauche de
+ * la double vue) — jamais `.feuillets-list`/`.feuillets-list-pane`
+ * (Binder simple/droit, gelés, voir renderHierarchyContents). Aucune icône
+ * dossier n'étant plus créée pour les dossiers enfants (§17, voir
+ * renderSplitBody), aucun espace n'est réservé pour elle : le gap réduit
+ * ci-dessous s'applique directement entre grip/chevron/nom/+. */
+.feuillets-tree-pane .feuillets-folder-row {
+  padding: 3px var(--size-4-1);
+  gap: 4px;
+}
+
+/* §19 : petits "+" discrets, uniquement dans la Library Double — ne touche
+ * jamais `.feuillets-folder-add` globalement (Binder simple, gestionnaire
+ * de projets…). */
+.feuillets-tree-pane .feuillets-folder-add {
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.4;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+
+.feuillets-tree-pane .feuillets-folder-row:hover .feuillets-folder-add {
+  opacity: 0.75;
+}
+
+.feuillets-tree-pane .feuillets-folder-add:hover {
+  opacity: 1;
+  color: var(--interactive-accent);
+}
+
+/* §11 : le volet droit de la double vue réutilise `.feuillets-list` du
+ * Binder 2.5 (même moteur, voir renderHierarchyContents dans
+ * feuillets-view.ts) — seul son padding gauche/droit est réduit pour que le
+ * premier niveau du dossier choisi (`displayRoot`) commence presque
+ * immédiatement après la séparation, sans le padding généreux de la vue
+ * arbre pleine largeur. Scopé à `.feuillets-list-pane > .feuillets-list` :
+ * ne touche jamais `.feuillets-list` de la vue simple (`container >
+ * .feuillets-list`, hors `.feuillets-list-pane`). */
+.feuillets-list-pane > .feuillets-list {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
 /* ===== plan (outliner façon Scrivener) ===== */
 
 .feuillets-outline {

@@ -398,8 +398,14 @@ export abstract class BaseFeuilletsView extends ItemView {
     }).open();
   }
 
-  /** Menu contextuel d'un fichier de recherche : Renommer, Dupliquer, Corbeille. */
-  showResearchFileContextMenu(e: MouseEvent, file: TFile): void {
+  /** Menu contextuel d'un fichier de recherche : Ouvrir (nouvel onglet/côte
+   * à côte), puis Renommer/Dupliquer/Corbeille.
+   * `navigationOnly` (dossier Recherche EXTERNE associé depuis le Binder,
+   * hors racine Recherche du projet — voir renderAssociatedResearchFolders,
+   * renderSection) : ne garde que les deux premières entrées de navigation
+   * — jamais de renommer/dupliquer/corbeille sur un dossier documentaire
+   * externe, en lecture/navigation seule. */
+  showResearchFileContextMenu(e: MouseEvent, file: TFile, navigationOnly = false): void {
     const menu = new Menu();
     menu.addItem((item) =>
       item
@@ -413,43 +419,45 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setIcon("columns-2")
         .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file))
     );
-    menu.addSeparator();
-    menu.addItem((item) =>
-      item
-        .setTitle(t("binder.research.renameFile"))
-        .setIcon("pencil")
-        .onClick(() => this.promptRenameResearchFile(file))
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.duplicate"))
-        .setIcon("copy")
-        .onClick(async () => {
-          const content = await this.app.vault.read(file);
-          const copySuffix = t("binder.research.copySuffix");
-          let name = `${file.basename} (${copySuffix})`;
-          let dest = normalizePath(`${file.parent!.path}/${name}.md`);
-          let k = 2;
-          while (this.app.vault.getAbstractFileByPath(dest)) {
-            name = `${file.basename} (${copySuffix} ${k++})`;
-            dest = normalizePath(`${file.parent!.path}/${name}.md`);
-          }
-          await this.app.vault.create(dest, content);
-          new Notice(t("shared.duplicated", { name }));
-          void this.render(true);
-        })
-    );
-    menu.addSeparator();
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.trash"))
-        .setIcon("trash")
-        .onClick(async () => {
-          await this.app.fileManager.trashFile(file);
-          new Notice(t("shared.trashed", { name: this.plugin.titleFor(file) || file.basename }));
-          void this.render(true);
-        })
-    );
+    if (!navigationOnly) {
+      menu.addSeparator();
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.research.renameFile"))
+          .setIcon("pencil")
+          .onClick(() => this.promptRenameResearchFile(file))
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.duplicate"))
+          .setIcon("copy")
+          .onClick(async () => {
+            const content = await this.app.vault.read(file);
+            const copySuffix = t("binder.research.copySuffix");
+            let name = `${file.basename} (${copySuffix})`;
+            let dest = normalizePath(`${file.parent!.path}/${name}.md`);
+            let k = 2;
+            while (this.app.vault.getAbstractFileByPath(dest)) {
+              name = `${file.basename} (${copySuffix} ${k++})`;
+              dest = normalizePath(`${file.parent!.path}/${name}.md`);
+            }
+            await this.app.vault.create(dest, content);
+            new Notice(t("shared.duplicated", { name }));
+            void this.render(true);
+          })
+      );
+      menu.addSeparator();
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.trash"))
+          .setIcon("trash")
+          .onClick(async () => {
+            await this.app.fileManager.trashFile(file);
+            new Notice(t("shared.trashed", { name: this.plugin.titleFor(file) || file.basename }));
+            void this.render(true);
+          })
+      );
+    }
     menu.showAtMouseEvent(e);
   }
 
@@ -1309,12 +1317,15 @@ export abstract class BaseFeuilletsView extends ItemView {
     this.addPreviewBtn(header, f);
 
     /* Menu contextuel ⋯ sur chaque fichier : Renommer, Dupliquer, Corbeille.
-       Jamais pour un fichier d'un dossier associé externe (lecture seule). */
-    if (!isMedia && !external) {
+       Pour un fichier d'un dossier associé externe (lecture seule), le
+       bouton reste affiché mais le menu se limite à la navigation (Ouvrir
+       dans un nouvel onglet / côte à côte) — voir showResearchFileContextMenu
+       navigationOnly. */
+    if (!isMedia) {
       const fileActionsBtn = this.iconBtn(header, "more-horizontal", t("shared.research.folderActions"));
       fileActionsBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.showResearchFileContextMenu(e, f);
+        this.showResearchFileContextMenu(e, f, external);
       });
     }
 
