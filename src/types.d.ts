@@ -82,6 +82,30 @@ declare type Label = {
   color: string;
 };
 
+/** Statut personnalisable, tel que stocké dans settings.statuses /
+ * ProjectMeta.statuses — voir constants.ts getProjectStatuses/getStatusColor.
+ * `name` optionnel comme le type historique `ProjectStatus` (constants.ts). */
+declare type ProjectStatusEntry = {
+  name?: string;
+  color: string;
+};
+
+/** Champs frontmatter dont la clé YAML réelle peut être remappée par projet
+ * — voir ProjectMeta.propertyMap et services/frontmatter.ts. Liste fermée
+ * volontairement (chantier « mapping des propriétés » V1) : `title`, `tags`,
+ * `order`, `compile`, `type` et les propriétés techniques/export restent
+ * TOUJOURS les clés canoniques, jamais mappables. */
+declare type MappableFrontmatterField =
+  | "synopsis"
+  | "summary"
+  | "status"
+  | "pov"
+  | "label"
+  | "goal"
+  | "thread"
+  | "characters"
+  | "date";
+
 /** Métadonnées par dossier projet : `settings.projectMeta[cheminDossier]`.
  * À la fois fiche d'identité (nom, icône, type, description) et réglages
  * propres à CE projet, qui priment sur les réglages globaux du même nom.
@@ -115,6 +139,37 @@ declare type ProjectMeta = {
   hiddenBoardModes?: string[];
   /** Colonnes du Plan propres au projet. Absentes sur les projets legacy. */
   outlineCols?: Record<string, boolean>;
+
+  /* Chantier « panneau Projet + métadonnées + mapping YAML » : réglages
+   * globaux historiques, surchargeables par projet. Repli sur le réglage
+   * global du même nom quand absent — voir services/project-settings.ts,
+   * seul point de résolution. Aucun de ces champs n'est créé par une simple
+   * lecture/ouverture du panneau : uniquement au premier réglage MODIFIÉ
+   * depuis le panneau Projet (clone-on-first-edit), jamais en repli
+   * silencieux d'une valeur globale copiée. */
+  /** Statuts propres au projet ; sinon repli sur settings.statuses. */
+  statuses?: ProjectStatusEntry[];
+  /** Tags favoris proposés par Feuillets pour CE projet ; sinon repli sur
+   *  settings.favoriteTags. Les tags eux-mêmes restent la propriété
+   *  Obsidian standard `tags:` — ceci n'administre qu'une liste de
+   *  suggestions, pas un système de tags parallèle. */
+  favoriteTags?: string[];
+  /** Objectif de mots par défaut d'un feuillet ; sinon settings.wordGoal. */
+  wordGoal?: number;
+  /** Tolérance (mots) autour de l'objectif pour l'état « atteint » de
+   *  l'anneau de progression ; sinon settings.tolerance. */
+  tolerance?: number;
+  /** Objectif total de mots du manuscrit ; sinon settings.projectWordGoal. */
+  projectWordGoal?: number;
+  /** Date limite (AAAA-MM-JJ) ; sinon settings.deadlineDate. */
+  deadlineDate?: string;
+  /** Objectif de mots par session d'écriture ; sinon settings.sessionGoal. */
+  sessionGoal?: number;
+  /** Correspondance des propriétés frontmatter mappables → clé YAML réelle
+   *  utilisée dans CE projet (ex. `{ status: "State" }`). Absent ou vide =
+   *  aucun mapping, résolution par défaut (clé canonique Feuillets, repli
+   *  sur les alias hérités) — voir services/frontmatter.ts fmOf(). */
+  propertyMap?: Partial<Record<MappableFrontmatterField, string>>;
 
   [key: string]: unknown;
 };

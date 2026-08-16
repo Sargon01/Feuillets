@@ -1,12 +1,15 @@
 import { Modal, Notice, TFile, TFolder, normalizePath, type App, type TAbstractFile } from "obsidian";
 import { t } from "../i18n/index.js";
 import { titleFor } from "../services/frontmatter.js";
+import { projectWordGoalDefault } from "../services/project-settings.js";
 
 type ProjectNode = TFile | TFolder;
 
-type ImportOutlineSettings = {
-  wordGoal: number;
-};
+/* FeuilletsSettings entier (pas juste `{wordGoal}`) : projectWordGoalDefault
+ * a besoin de projectMeta/projectFolder pour résoudre la surcharge projet —
+ * voir services/project-settings.ts. Le plugin réel satisfait cette
+ * interface structurellement, comme avant. */
+type ImportOutlineSettings = FeuilletsSettings;
 
 type ImportOutlinePlugin = {
   settings: ImportOutlineSettings;
@@ -249,7 +252,7 @@ export class ImportOutlineModal extends Modal {
           "summary: ",
           "status: ",
           "label: ",
-          `goal: ${plugin.settings.wordGoal}`,
+          `goal: ${projectWordGoalDefault(this.app, plugin.settings)}`,
           "tags: ",
           "date: ",
           "notes: ",
@@ -437,7 +440,7 @@ export class ImportOutlineModal extends Modal {
           "summary: ",
           "status: ",
           "label: ",
-          `goal: ${this.plugin.settings.wordGoal}`,
+          `goal: ${projectWordGoalDefault(this.app, this.plugin.settings)}`,
           "tags: ",
           "date: ",
           "notes: ",

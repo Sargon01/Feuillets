@@ -16,6 +16,7 @@ import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
+import { projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import {
@@ -2155,9 +2156,9 @@ class FeuilletsPlugin extends Plugin {
     const wc = countWords(body);
     const fm = this.fmOf(file);
     const g = parseInt(String(fm.goal), 10);
-    const goal = isNaN(g) ? this.settings.wordGoal : g;
+    const goal = isNaN(g) ? projectWordGoalDefault(this.app, this.settings) : g;
     this._concCounterEl.setText(goal > 0 ? `${wc} / ${goal}` : String(wc));
-    const tol = Number(this.settings.tolerance);
+    const tol = projectTolerance(this.app, this.settings);
     this._concCounterEl.removeClass("feuillets-status-hit");
     this._concCounterEl.removeClass("feuillets-status-over");
     if (goal > 0) {
@@ -2477,7 +2478,7 @@ class FeuilletsPlugin extends Plugin {
     const wc = countWords(content);
     const chars = stripWritingNoise(content).length;
     const g = parseInt(String(this.fmOf(file).goal), 10);
-    const goal = isNaN(g) ? this.settings.wordGoal : g;
+    const goal = isNaN(g) ? projectWordGoalDefault(this.app, this.settings) : g;
     let txt = goal > 0 ? t("main.statusBar.wordsWithGoal", { wc: String(wc), goal: String(goal) }) : t("main.statusBar.words", { wc: String(wc) });
     txt += ` · ${t("main.statusBar.chars", { count: formatNumber(chars) })}`;
     const key = todayKey();
@@ -2490,7 +2491,7 @@ class FeuilletsPlugin extends Plugin {
     this.statusEl.setText(txt);
     this.statusEl.removeClass("feuillets-status-hit");
     this.statusEl.removeClass("feuillets-status-over");
-    const tol = Number(this.settings.tolerance);
+    const tol = projectTolerance(this.app, this.settings);
     if (goal > 0) {
       if (wc >= goal - tol && wc <= goal + tol) this.statusEl.addClass("feuillets-status-hit");
       else if (wc > goal + tol) this.statusEl.addClass("feuillets-status-over");
@@ -2977,7 +2978,7 @@ class FeuilletsPlugin extends Plugin {
     const custom = (this.settings.projectMeta[path] || {}).name;
     return custom && custom.trim() ? custom.trim() : projectDisplayName(path);
   }
-  fmOf(file: TFile | null | undefined): SceneFrontmatter { return fmOf(this.app, file); }
+  fmOf(file: TFile | null | undefined): SceneFrontmatter { return fmOf(this.app, file, this.settings); }
   titleFor(file: TFile): string { return titleFor(this.app, file); }
   shortTitleFor(file: TFile): string { return shortTitleFor(this.app, file); }
   compiledTitleFor(file: TFile): string | null { return compiledTitleFor(this.app, file); }
@@ -2987,7 +2988,7 @@ class FeuilletsPlugin extends Plugin {
   labelOf(file: TFile): string { return labelOf(this.app, file); }
   labelsOf(file: TFile): string[] { return labelsOf(this.app, file); }
   labelColor(name: string): string | null { return labelColor(this.settings, name); }
-  getStatusColor(name: string): string | null { return getStatusColor(this.settings, name); }
+  getStatusColor(name: string): string | null { return getStatusColor(this.app, this.settings, name); }
   folderGoal(folder: TFolder): number { return folderGoal(this.settings, folder); }
   depthOf(node: ProjectNode): number { return depthOf(this.app, this.settings, node); }
   isFrontMatter(node: ProjectNode): boolean { return isFrontMatter(this.app, this.settings, node); }
@@ -3576,7 +3577,7 @@ class FeuilletsPlugin extends Plugin {
         ...(isFiction ? ["synopsis: "] : ["summary: "]),
         "status: ",
         "label: ",
-        `goal: ${this.settings.wordGoal}`,
+        `goal: ${projectWordGoalDefault(this.app, this.settings)}`,
         "tags: ",
         "date: ",
         "notes: ",

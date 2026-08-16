@@ -1,4 +1,6 @@
 import { getProjectStatuses, VIEW_SCRIVENINGS } from "../constants.js";
+import { projectWordGoalDefault, projectTolerance } from "../services/project-settings.js";
+import { writeLogicalFrontmatterField, isMappableField } from "../services/frontmatter.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
@@ -556,7 +558,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   makeStatusSelect(parent: HTMLElement, file: TFile): HTMLSelectElement {
     const fm = this.fm(file);
-    const statuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
+    const statuses = getProjectStatuses(this.app, this.plugin ? this.plugin.settings : null);
     const sel = parent.createEl("select", { cls: "feuillets-status" });
     for (const s of statuses) {
       const opt = sel.createEl("option", { text: s || "—" });
@@ -2364,7 +2366,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     menu.addSeparator();
 
     const currentStatus = (this.fm(file).status as string) || "";
-    const allStatuses = getProjectStatuses(this.plugin ? this.plugin.settings : null);
+    const allStatuses = getProjectStatuses(this.app, this.plugin ? this.plugin.settings : null);
     menu.addItem((item) => item.setTitle("Changer le statut…").setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const st of allStatuses.filter(Boolean)) {
       choices.addItem((item) =>
@@ -2373,7 +2375,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           .setChecked(!isGroup && st === currentStatus)
           .onClick(async () => {
             if (isGroup) await this.applyBulkStatus(groupFiles, st);
-            else await this.setFm(file, "statut", st === currentStatus ? "" : st);
+            else await this.setFm(file, "status", st === currentStatus ? "" : st);
           })
       );
     }
@@ -2617,7 +2619,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     })));
     menu.addSeparator();
     const currentStatus = note ? ((this.fm(note).status as string) || "") : "";
-    const allStatuses = getProjectStatuses(plugin ? plugin.settings : null);
+    const allStatuses = getProjectStatuses(this.app, plugin ? plugin.settings : null);
     menu.addItem((item) => item.setTitle("Changer le statut…").setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const st of allStatuses.filter(Boolean)) {
       choices.addItem((item) =>
@@ -2627,7 +2629,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           .onClick(async () => {
             const targetNote = note || await plugin.getOrCreateFolderNote(folder);
             if (targetNote) {
-              await this.setFm(targetNote, "statut", st === currentStatus ? "" : st);
+              await this.setFm(targetNote, "status", st === currentStatus ? "" : st);
             }
           })
       );
@@ -2735,7 +2737,17 @@ export abstract class BaseFeuilletsView extends ItemView {
     return this.plugin.titleFor(file);
   }
 
+  /** §18 du chantier « mapping YAML » : pour les 9 champs logiques
+   * mappables (isMappableField), délègue à l'écrivain logique centralisé
+   * (mapping de projet, variante de casse déjà présente, jamais de clé
+   * dupliquée) — voir services/frontmatter.ts writeLogicalFrontmatterField.
+   * Toute autre clé (tags, colonnes calculées…) continue d'écrire la clé
+   * RAW exacte, exactement comme avant ce chantier. */
   async setFm(file: TFile, key: string, value: unknown): Promise<void> {
+    if (isMappableField(key)) {
+      await writeLogicalFrontmatterField(this.app, this.plugin.settings, file, key, value);
+      return;
+    }
     await this.app.fileManager.processFrontMatter(file, (fm: SceneFrontmatter) => {
       if (
         value === "" ||
@@ -2752,11 +2764,11 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   goalFor(file: TFile): number {
     const g = parseInt(String(this.fm(file).goal), 10);
-    return isNaN(g) ? this.plugin.settings.wordGoal : g;
+    return isNaN(g) ? projectWordGoalDefault(this.app, this.plugin.settings) : g;
   }
 
   ringState(wc: number, goal: number): "none" | "hit" | "over" | "under" {
-    const tol = Number(this.plugin.settings.tolerance);
+    const tol = projectTolerance(this.app, this.plugin.settings);
     if (goal <= 0) return "none";
     if (wc >= goal - tol && wc <= goal + tol) return "hit";
     if (wc > goal + tol) return "over";
@@ -2850,7 +2862,7 @@ export abstract class BaseFeuilletsView extends ItemView {
    * liste de feuillets d'un coup. Centralisé ici pour ne pas avoir deux
    * copies de la même boucle setFm+Notice à maintenir. */
   async applyBulkStatus(files: TFile[], status: string): Promise<void> {
-    for (const f of files) await this.setFm(f, "statut", status);
+    for (const f of files) await this.setFm(f, "status", status);
     new Notice(t("shared.bulk.statusApplied", { status, count: String(files.length), s: files.length > 1 ? "s" : "" }));
   }
 

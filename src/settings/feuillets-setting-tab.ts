@@ -1,6 +1,5 @@
 import { YAML_PRESETS } from "../scenes-editor.js";
 import { BOARD_MODES } from "../constants.js";
-import { resolveType } from "../utils/project-modes.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
 import { getProjectMode } from "../services/project-mode.js";
 import {
@@ -130,10 +129,22 @@ export class FeuilletsSettingTab extends PluginSettingTab {
        export » dans les Paramètres — ces réglages de FABRICATION du livre
        vivent désormais dans l'espace central Édition (Composition / Export).
        AUCUNE clé persistée n'est supprimée pour autant : ce chantier déplace
-       l'interface, pas le stockage (data.json legacy reste valide). */
-    const ORDER = ["Projet", "Écriture", "Interface", "Vues", "Sauvegarde & historique"];
+       l'interface, pas le stockage (data.json legacy reste valide).
+
+       §26/Phase E du chantier « panneau Projet + métadonnées + mapping
+       YAML » : plus d'onglet « Projet » non plus — les neuf réglages qu'il
+       exposait (type, style de citation, statuts, labels, tags favoris,
+       objectif par défaut, tolérance, objectif global, date limite,
+       objectif de session) ont chacun un équivalent testé et ÉCRIVABLE
+       dans le panneau latéral Projet (views/sidebar-feuillets-view.ts).
+       Là encore, AUCUNE clé persistée n'est supprimée : les anciennes
+       valeurs globales (S.wordGoal, S.tolerance, S.statuses, S.labels,
+       S.favoriteTags, S.projectWordGoal, S.deadlineDate, S.sessionGoal)
+       restent les replis legacy que services/project-settings.ts et
+       ProjectMeta.propertyMap continuent de lire pour tout projet sans
+       surcharge. */
+    const ORDER = ["Écriture", "Interface", "Vues", "Sauvegarde & historique"];
     const CATEGORY_LABELS: Record<string, string> = {
-      "Projet": t("settings.category.project"),
       "Écriture": t("settings.category.writing"),
       "Interface": t("settings.category.interface"),
       "Vues": t("settings.category.views"),
@@ -144,7 +155,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     }
 
     const categoryRenderers: Record<string, (container: HTMLElement) => void> = {
-      "Projet": (c) => this.renderProjetCategory(c),
       "Écriture": (c) => this.renderEcritureCategory(c),
       "Interface": (c) => this.renderInterfaceCategory(c),
       "Vues": (c) => this.renderPanneauxCategory(c),
@@ -174,7 +184,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         } catch (e) {
           // Repli : jamais bloquer l'accès aux réglages pour un problème de
           // rendu de la barre — les groupes ci-dessous restent fonctionnels
-          // quel que soit _activeSettingsTab (par défaut "Projet").
+          // quel que soit _activeSettingsTab (par défaut "Écriture").
           console.error("Feuillets : échec du rendu de la barre d'onglets", e);
           setting.settingEl.empty();
           setting.settingEl.createDiv({
@@ -203,236 +213,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     return items;
   }
 
-  private renderProjetCategory(container: HTMLElement): void {
-    const S = this.plugin.settings;
-    const unit = this.plugin.unitLabel();
-    const refresh = () => this.plugin.refreshView();
-
-    const root = this.plugin.getProjectFolder();
-    if (root) {
-      const count = this.plugin.chapterCount(root);
-      if (count === 0) {
-        const warn = container.createDiv({ cls: "feuillets-empty" });
-        warn.addClass("feuillets-settings-warning");
-        warn.setText(t("settings.emptyProjectWarning", { name: root.name }));
-      }
-      if (!S.projectMeta) S.projectMeta = {};
-      if (!S.projectMeta[root.path]) {
-        S.projectMeta[root.path] = { type: "fiction" };
-      }
-      const meta = S.projectMeta[root.path];
-      if (!meta.labels) {
-        meta.labels = JSON.parse(JSON.stringify(S.labels || [])) as Label[];
-      }
-
-      new Setting(container)
-        .setName(t("settings.projectType.name"))
-        .setDesc(t("settings.projectType.desc"))
-        .addDropdown((d) => {
-          d.addOption("fiction", t("settings.projectType.fiction"));
-          d.addOption("nonfiction", t("settings.projectType.nonfiction"));
-          d.addOption("free", t("settings.projectType.free"));
-          d.setValue(resolveType(meta.type))
-           .onChange(async (v) => {
-             meta.type = v;
-             await this.plugin.saveSettings();
-             this.update(); // Recharger le panneau
-             this.plugin.renderAllViews(true);
-             refresh();
-           });
-        });
-
-      if (resolveType(meta.type) === "nonfiction") {
-        new Setting(container)
-          .setName(t("settings.citationStyle.name"))
-          .setDesc(t("settings.citationStyle.desc"))
-          .addDropdown((d) =>
-            d
-              .addOption("footnote", t("settings.citationStyle.footnote"))
-              .addOption("parenthetical", t("settings.citationStyle.parenthetical"))
-              .setValue(meta.citationStyle || "footnote")
-              .onChange(async (v) => {
-                meta.citationStyle = v;
-                await this.plugin.saveSettings();
-              })
-          );
-      }
-    }
-
-    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.statusesLabels") });
-
-
-    container.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      t("settings.statusesLabels.intro")
-    );
-
-    container.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.statuses.title"));
-
-    if (!Array.isArray(S.statuses)) S.statuses = [];
-    S.statuses.forEach((st, i) => {
-      new Setting(container)
-        .setName(t("settings.statuses.item", { n: String(i + 1) }))
-        .addText((t2) =>
-          t2.setValue(st.name).onChange(async (v) => {
-            st.name = v.trim() || t("settings.statuses.item", { n: String(i + 1) });
-            await this.plugin.saveSettings();
-            refresh();
-          })
-        )
-        .addColorPicker((c) =>
-          c.setValue(st.color || "#888888").onChange(async (v) => {
-            st.color = v;
-            await this.plugin.saveSettings();
-            refresh();
-          })
-        )
-        .addExtraButton((b) =>
-          b
-            .setIcon("trash")
-            .setTooltip(t("settings.statuses.deleteTooltip"))
-            .onClick(async () => {
-              S.statuses.splice(i, 1);
-              await this.plugin.saveSettings();
-              this.update();
-              refresh();
-            })
-        );
-    });
-
-    new Setting(container).addButton((b) =>
-      b.setButtonText(t("settings.statuses.add")).onClick(async () => {
-        S.statuses.push({ name: t("settings.statuses.item", { n: String(S.statuses.length + 1) }), color: "#888888" });
-        await this.plugin.saveSettings();
-        this.update();
-      })
-    );
-
-    const currentMeta = root ? S.projectMeta[root.path] : null;
-    const projectLabels = currentMeta && currentMeta.labels ? currentMeta.labels : S.labels;
-
-    if (root) {
-      container.createDiv({ cls: "feuillets-notes-sub" }).setText(t("settings.labels.titleForProject", { name: root.name }));
-    }
-
-    (projectLabels || []).forEach((l, i) => {
-      new Setting(container)
-        .setName(t("settings.labels.item", { n: String(i + 1) }))
-        .addText((t2) =>
-          t2.setValue(l.name).onChange(async (v) => {
-            l.name = v.trim() || t("settings.labels.item", { n: String(i + 1) });
-            await this.plugin.saveSettings();
-            refresh();
-          })
-        )
-        .addColorPicker((c) =>
-          c.setValue(l.color).onChange(async (v) => {
-            l.color = v;
-            await this.plugin.saveSettings();
-            refresh();
-          })
-        )
-        .addExtraButton((b) =>
-          b
-            .setIcon("trash")
-            .setTooltip(t("settings.labels.deleteTooltip"))
-            .onClick(async () => {
-              projectLabels.splice(i, 1);
-              await this.plugin.saveSettings();
-              this.update();
-              refresh();
-            })
-        );
-    });
-
-    new Setting(container).addButton((b) =>
-      b.setButtonText(t("settings.labels.add")).onClick(async () => {
-        projectLabels.push({ name: t("settings.labels.item", { n: String(projectLabels.length + 1) }), color: "#888888" });
-        await this.plugin.saveSettings();
-        this.update();
-      })
-    );
-
-    new Setting(container)
-      .setName(t("settings.favoriteTags.name"))
-      .setDesc(t("settings.favoriteTags.desc"))
-      .addTextArea((t2) =>
-        t2
-          .setValue((S.favoriteTags || []).join(", "))
-          .onChange(async (v) => {
-            S.favoriteTags = [
-              ...new Set(
-                v
-                  .split(/[,\n]+/)
-                  .map((x) => x.replace(/^#/, "").trim())
-                  .filter(Boolean)
-              ),
-            ];
-            await this.plugin.saveSettings();
-          })
-      );
-
-    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.goals") });
-
-
-    new Setting(container)
-      .setName(t("settings.wordGoal.name", { unit }))
-      .addText((t2) =>
-        t2.setValue(String(S.wordGoal)).onChange(async (v) => {
-          const n = parseInt(v, 10);
-          S.wordGoal = isNaN(n) ? 0 : n;
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
-
-    new Setting(container).setName(t("settings.tolerance.name")).addText((t2) =>
-      t2.setValue(String(S.tolerance)).onChange(async (v) => {
-        const n = parseInt(v, 10);
-        S.tolerance = isNaN(n) ? 0 : Math.max(0, n);
-        await this.plugin.saveSettings();
-        refresh();
-      })
-    );
-
-    new Setting(container)
-      .setName(t("settings.projectWordGoal.name"))
-      .setDesc(t("settings.projectWordGoal.desc"))
-      .addText((t2) =>
-        t2.setValue(String(S.projectWordGoal)).onChange(async (v) => {
-          const n = parseInt(v, 10);
-          S.projectWordGoal = isNaN(n) ? 0 : Math.max(0, n);
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
-
-    new Setting(container)
-      .setName(t("settings.deadline.name"))
-      .setDesc(t("settings.deadline.desc"))
-      .addText((t2) =>
-        t2
-          .setPlaceholder("AAAA-MM-JJ")
-          .setValue(S.deadlineDate || "")
-          .onChange(async (v) => {
-            S.deadlineDate = v.trim();
-            await this.plugin.saveSettings();
-            refresh();
-          })
-      );
-
-    new Setting(container)
-      .setName(t("settings.sessionGoal.name"))
-      .setDesc(t("settings.sessionGoal.desc"))
-      .addText((t2) =>
-        t2.setValue(String(S.sessionGoal)).onChange(async (v) => {
-          const n = parseInt(v, 10);
-          S.sessionGoal = isNaN(n) ? 0 : Math.max(0, n);
-          await this.plugin.saveSettings();
-          refresh();
-        })
-      );
-
-  }
   private renderEcritureCategory(container: HTMLElement): void {
     const S = this.plugin.settings;
 

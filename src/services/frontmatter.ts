@@ -80,11 +80,156 @@ export function splitFrontmatter(content: string): { frontmatter: string; body: 
   return { frontmatter: match[0], body: content.slice(match[0].length) };
 }
 
-export function fmOf(app: App, file: TFile | null | undefined): SceneFrontmatter {
+/** Frontmatter RAW d'un feuillet : exactement ce qui est physiquement dans
+ * le fichier — aucune projection, aucun alias, aucun mapping de projet.
+ * Copie superficielle systématique (jamais l'objet vivant de MetadataCache)
+ * : un inspecteur générique des propriétés (ProjectPropertiesModal…) qui
+ * modifierait le résultat par erreur ne doit jamais pouvoir corrompre le
+ * cache d'Obsidian. À réserver aux vues qui affichent volontairement la clé
+ * PHYSIQUE d'un fichier (ex. « Synopsis: » doit s'afficher « Synopsis », pas
+ * « Synopsis » + « synopsis ») — tout le reste continue d'utiliser fmOf(). */
+export function rawFrontmatterOf(app: App, file: TFile | null | undefined): Record<string, unknown> {
   if (!file || !file.path) return {};
   const cache = app.metadataCache.getFileCache(file);
-  const fm = (cache && cache.frontmatter) as SceneFrontmatter || {};
-  return withLegacyFieldAliases(fm);
+  const fm = cache && cache.frontmatter;
+  return fm ? { ...(fm as Record<string, unknown>) } : {};
+}
+
+/** Chemin du dossier racine du projet actif, tel que stocké tel quel dans
+ * les réglages — même repli que labelColor() ci-dessous (aucune résolution
+ * Vault ici : services/folder-structure.ts importe déjà ce module, une
+ * dépendance dans l'autre sens créerait un cycle). */
+function activeProjectRootPath(settings: FeuilletsSettings | null | undefined): string {
+  return settings && typeof settings.projectFolder === "string" ? settings.projectFolder : "";
+}
+
+function activeMetaFor(settings: FeuilletsSettings | null | undefined): ProjectMeta | null {
+  const rootPath = activeProjectRootPath(settings).trim();
+  if (!rootPath || !settings || !settings.projectMeta) return null;
+  return settings.projectMeta[rootPath] || null;
+}
+
+/** Garde-fou §12/§14 du chantier « mapping YAML » : un `propertyMap` de
+ * projet ne doit JAMAIS s'appliquer à un fichier d'un AUTRE projet (ex. un
+ * fichier de recherche resté ouvert après un changement de projet). Simple
+ * comparaison de préfixe de chemin — volontairement pas de scan Vault. */
+function fileInActiveProjectScope(settings: FeuilletsSettings | null | undefined, file: TFile): boolean {
+  const root = activeProjectRootPath(settings).trim();
+  if (!root) return false;
+  return file.path === root || file.path.startsWith(root + "/");
+}
+
+export const MAPPABLE_FIELDS: MappableFrontmatterField[] = [
+  "synopsis", "summary", "status", "pov", "label", "goal", "thread", "characters", "date",
+];
+
+/** Garde de type : `key` est-elle l'une des 9 clés logiques mappables ? Sert
+ * à router BaseFeuilletsView.setFm() (§18) vers writeLogicalFrontmatterField
+ * pour ces clés-là uniquement — tout le reste (tags, colonnes calculées…)
+ * continue d'écrire la clé RAW exacte, comme avant ce chantier. */
+export function isMappableField(key: string): key is MappableFrontmatterField {
+  return (MAPPABLE_FIELDS as string[]).includes(key);
+}
+
+/** Première clé de `raw` qui diffère de `key` uniquement par la casse, ou
+ * `undefined` — jamais de comparaison approximative (§15 : « Uniquement
+ * case-insensitive. Pas de fuzzy matching. »). */
+function findCaseInsensitiveKey(raw: Record<string, unknown>, key: string): string | undefined {
+  const lower = key.toLowerCase();
+  for (const k of Object.keys(raw)) {
+    if (k !== key && k.toLowerCase() === lower) return k;
+  }
+  return undefined;
+}
+
+/** Résolution d'UN champ mappable pour la LECTURE, dans l'ordre exact du
+ * §16 du chantier : 1. mapping explicite (si sa cible a une valeur dans CE
+ * fichier — sinon on continue, un mapping configuré ne doit pas faire
+ * disparaître une valeur simplement absente sous cette clé ICI) ; 2. clé
+ * canonique exacte ; 3. variante de casse unique de la clé canonique ;
+ * 4. alias hérité exact ; 5. variante de casse d'un alias hérité. */
+function resolveMappableField(
+  raw: Record<string, unknown>,
+  field: MappableFrontmatterField,
+  propertyMap: Partial<Record<MappableFrontmatterField, string>> | undefined,
+): unknown {
+  const mapped = propertyMap && propertyMap[field];
+  if (mapped && raw[mapped] !== undefined) return raw[mapped];
+  if (raw[field] !== undefined) return raw[field];
+  const caseVariant = findCaseInsensitiveKey(raw, field);
+  if (caseVariant !== undefined) return raw[caseVariant];
+  const aliases = LEGACY_FIELD_ALIASES[field] || [];
+  for (const alias of aliases) {
+    if (raw[alias] !== undefined) return raw[alias];
+  }
+  for (const alias of aliases) {
+    const aliasCaseVariant = findCaseInsensitiveKey(raw, alias);
+    if (aliasCaseVariant !== undefined) return raw[aliasCaseVariant];
+  }
+  return undefined;
+}
+
+/** Frontmatter LOGIQUE consommé par Feuillets partout dans l'app : alias
+ * hérités (voir withLegacyFieldAliases) toujours actifs, et — quand
+ * `settings` est fourni ET que le fichier appartient au projet actif —
+ * mapping de projet + tolérance de casse pour les 9 champs mappables
+ * (§12-16 du chantier « mapping YAML »). `settings` omis (ou fichier hors
+ * du projet actif) : comportement strictement identique à avant ce
+ * chantier, pour tous les appelants qui n'ont pas besoin du mapping. */
+export function fmOf(app: App, file: TFile | null | undefined, settings?: FeuilletsSettings | null): SceneFrontmatter {
+  if (!file || !file.path) return {};
+  const cache = app.metadataCache.getFileCache(file);
+  const raw = (cache && cache.frontmatter) as SceneFrontmatter || {};
+  const aliased = withLegacyFieldAliases(raw);
+  if (!settings || !fileInActiveProjectScope(settings, file)) return aliased;
+
+  const propertyMap = activeMetaFor(settings)?.propertyMap;
+  let out = aliased;
+  for (const field of MAPPABLE_FIELDS) {
+    const resolved = resolveMappableField(raw, field, propertyMap);
+    if (resolved !== undefined && resolved !== out[field]) {
+      if (out === aliased) out = { ...aliased };
+      (out as Record<string, unknown>)[field] = resolved;
+    }
+  }
+  return out;
+}
+
+/** Écriture LOGIQUE d'UN champ mappable (§17) : jamais un accès disque
+ * direct, toujours `app.fileManager.processFrontMatter`. Détermine la clé
+ * YAML RÉELLE à écrire : A) mapping configuré → cette clé, quelle qu'elle
+ * soit ; B) sinon, clé canonique déjà présente exactement → inchangée ;
+ * C) sinon, variante de casse déjà présente → cette variante (ne JAMAIS
+ * créer une seconde clé en minuscules à côté d'une existante) ; D) sinon,
+ * la clé canonique Feuillets (nouvelle propriété). Valeur vide/nulle/
+ * indéfinie/tableau vide : supprime uniquement la clé cible résolue. */
+export async function writeLogicalFrontmatterField(
+  app: App,
+  settings: FeuilletsSettings | null | undefined,
+  file: TFile,
+  field: MappableFrontmatterField,
+  value: unknown,
+): Promise<void> {
+  const raw = rawFrontmatterOf(app, file);
+  const inScope = fileInActiveProjectScope(settings, file);
+  const mapped = inScope ? activeMetaFor(settings)?.propertyMap?.[field] : undefined;
+
+  let targetKey: string;
+  if (mapped) {
+    targetKey = mapped;
+  } else if (Object.prototype.hasOwnProperty.call(raw, field)) {
+    targetKey = field;
+  } else {
+    targetKey = findCaseInsensitiveKey(raw, field) || field;
+  }
+
+  const isEmpty =
+    value === "" || value === null || value === undefined ||
+    (Array.isArray(value) && value.length === 0);
+  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+    if (isEmpty) delete fm[targetKey];
+    else fm[targetKey] = value;
+  });
 }
 
 /** N'alloue une copie que si au moins un alias hérité s'applique réellement

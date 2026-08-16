@@ -4896,6 +4896,33 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   cursor: default;
 }
 
+/* Micro-correctif « compacter le panneau Projet » : les sous-pages
+   Objectifs/Statuts/Labels/Tags/Informations utilisent des `Setting`
+   natifs Obsidian, qui s'étirent en grandes cartes dans une sidebar
+   étroite. Même resserrement que .feuillets-layout-inspector (Édition) —
+   purement visuel, aucun champ ni comportement n'est touché ici. */
+.feuillets-sidebar-project .setting-item {
+  padding: var(--size-4-1) 0;
+  border-top: 1px solid var(--background-modifier-border);
+  background: transparent;
+  min-height: 0;
+}
+.feuillets-sidebar-project .setting-item:first-of-type { border-top: none; }
+.feuillets-sidebar-project .setting-item-info { margin-right: var(--size-4-2); }
+.feuillets-sidebar-project .setting-item-name {
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  white-space: normal;
+}
+.feuillets-sidebar-project .setting-item-description {
+  font-size: var(--font-ui-smaller);
+  margin-top: 0;
+}
+.feuillets-sidebar-project .setting-item-control {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
 /* 3. BINDER SEARCH INLINE & CONTENUS */
 .feuillets-binder-search {
   background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);

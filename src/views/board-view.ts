@@ -1,6 +1,7 @@
 import { Menu, Modal, Setting, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
 import type { WorkspaceLeaf } from "obsidian";
 import { VIEW_BOARD, VIEW_PREVIEW, getProjectStatuses, BOARD_MODES } from "../constants.js";
+import { projectWordGoalDefault } from "../services/project-settings.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { EditionDocsContent } from "../ui/edition-docs-content.js";
 import { openScopeWithPreviewBesideLeaf } from "./preview-view.js";
@@ -441,7 +442,7 @@ export class BoardView extends BaseFeuilletsView {
     if (inWorkspace) this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", t("board.filter.tooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
-      for (const st of ["Tous", ...getProjectStatuses(S).filter(Boolean), "Sans statut"]) {
+      for (const st of ["Tous", ...getProjectStatuses(this.app, S).filter(Boolean), "Sans statut"]) {
         menu.addItem((item) =>
           item.setTitle(this.filterSentinelLabel(st)).setChecked((S.statusFilter || "Tous") === st).onClick(async () => {
             S.statusFilter = st;
@@ -678,7 +679,7 @@ export class BoardView extends BaseFeuilletsView {
           );
           menu.addSeparator();
 
-          for (const st of getProjectStatuses(this.plugin.settings).filter(Boolean)) {
+          for (const st of getProjectStatuses(this.app, this.plugin.settings).filter(Boolean)) {
             menu.addItem((item) =>
               item.setTitle(t("board.selection.statusCount", { status: st, count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
@@ -959,7 +960,7 @@ export class BoardView extends BaseFeuilletsView {
     const input = parent.createEl("input", {
       cls: "feuillets-goal-input",
       type: "number",
-      attr: { min: "0", placeholder: String(this.plugin.settings.wordGoal) },
+      attr: { min: "0", placeholder: String(projectWordGoalDefault(this.app, this.plugin.settings)) },
     });
     if (fm.goal !== undefined) input.value = toValue(fm.goal);
     input.addEventListener("change", () => {
@@ -1235,10 +1236,10 @@ export class BoardView extends BaseFeuilletsView {
       const menu = new Menu();
       const currentSt = toValue(this.fm(file).status);
       const S = this.plugin.settings;
-      for (const st of getProjectStatuses(S).filter(Boolean)) {
+      for (const st of getProjectStatuses(this.app, S).filter(Boolean)) {
         menu.addItem((item) =>
           item.setTitle(t("shared.contextMenu.statusLabel", { status: st })).setChecked(st === currentSt).onClick(async () => {
-            await this.setFm(file, "statut", st === currentSt ? "" : st);
+            await this.setFm(file, "status", st === currentSt ? "" : st);
           })
         );
       }

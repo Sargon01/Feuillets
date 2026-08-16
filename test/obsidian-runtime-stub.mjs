@@ -256,6 +256,43 @@ export class Setting {
     this.controls.push(control);
     return this;
   }
+  addTextArea(cb) {
+    const inputEl = this.controlEl?.createEl ? this.controlEl.createEl("textarea", {}) : undefined;
+    const control = {
+      type: "textarea",
+      inputEl,
+      value: "",
+      setValue(v) { this.value = v; if (inputEl) inputEl.value = v; return this; },
+      setPlaceholder(p) { this.placeholder = p; inputEl?.setAttribute?.("placeholder", p); return this; },
+      setDisabled(v) { this.disabled = v; return this; },
+      onChange(fn) {
+        this.changeHandler = fn;
+        inputEl?.addEventListener?.("change", () => fn(inputEl.value));
+        return this;
+      },
+    };
+    cb(control);
+    this.controls.push(control);
+    return this;
+  }
+  addColorPicker(cb) {
+    const inputEl = this.controlEl?.createEl ? this.controlEl.createEl("input", { type: "color" }) : undefined;
+    const control = {
+      type: "color",
+      inputEl,
+      value: "",
+      setValue(v) { this.value = v; if (inputEl) inputEl.value = v; return this; },
+      setDisabled(v) { this.disabled = v; return this; },
+      onChange(fn) {
+        this.changeHandler = fn;
+        inputEl?.addEventListener?.("change", () => fn(inputEl.value));
+        return this;
+      },
+    };
+    cb(control);
+    this.controls.push(control);
+    return this;
+  }
 }
 
 export class MarkdownView {}

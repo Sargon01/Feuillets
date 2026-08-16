@@ -58,22 +58,31 @@ test("_Feuillets : un emplacement legacy existant reste prioritaire", () => {
 /* §19/§40 du chantier « espace central » : plus que CINQ catégories dans les
  * Paramètres — « Composition & export » a quitté l'interface pour l'espace
  * central Édition. Aucune clé persistée n'est supprimée pour autant (voir le
- * test « aucune clé de réglage n'est retirée » ci-dessous). */
-test("réglages V2 : cinq catégories, déplacements et traductions FR/EN", () => {
+ * test « aucune clé de réglage n'est retirée » ci-dessous).
+ *
+ * Phase E du chantier « panneau Projet + métadonnées + mapping YAML » :
+ * l'onglet « Projet » a lui aussi quitté les Paramètres — QUATRE catégories
+ * restent (§26). Les neuf réglages qu'il exposait vivent désormais dans le
+ * panneau latéral Projet, chacun testé (test/sidebar-feuillets-view.test.js)
+ * avant cette suppression. */
+test("réglages V2 : quatre catégories (plus de Projet), déplacements et traductions FR/EN", () => {
   const source = readFileSync("src/settings/feuillets-setting-tab.ts", "utf8");
   const fr = readFileSync("src/i18n/fr.ts", "utf8");
   const en = readFileSync("src/i18n/en.ts", "utf8");
-  assert.match(source, /const ORDER = \["Projet", "Écriture", "Interface", "Vues", "Sauvegarde & historique"\]/);
+  assert.match(source, /const ORDER = \["Écriture", "Interface", "Vues", "Sauvegarde & historique"\]/);
   assert.doesNotMatch(source, /"Composition & export"/);
   assert.doesNotMatch(source, /renderExportCategory\(/);
   assert.doesNotMatch(source, /"Correction": \(c\)/);
-  assert.match(source, /d\.addOption\("free", t\("settings\.projectType\.free"\)\)/);
+  assert.doesNotMatch(source, /"Projet"/, "l'onglet Projet a quitté les Paramètres (Phase E)");
+  assert.doesNotMatch(source, /private renderProjetCategory/, "renderProjetCategory est supprimée, pas seulement débranchée");
   assert.match(source, /private renderBackupCategory/);
   assert.match(source, /private renderPanneauxCategory[\s\S]*settings\.autoAnalyzeInRelecture/);
-  assert.doesNotMatch(source.slice(source.indexOf("private renderProjetCategory"), source.indexOf("private renderEcritureCategory")), /settings\.(activeProject|projectPath|chronoFolder|journalFolder|demoProject)/);
   for (const text of [fr, en]) {
     assert.match(text, /settings\.category\.views/);
     assert.match(text, /settings\.category\.backupHistory/);
+    // Traduction historique conservée (lue par le panneau Projet, voir
+    // sidebar-feuillets-view.ts renderProjectInfoPage), même si elle n'est
+    // plus référencée depuis les Paramètres.
     assert.match(text, /settings\.projectType\.free/);
   }
 });

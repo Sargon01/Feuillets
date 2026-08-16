@@ -3,6 +3,7 @@ import { Modal, type App, type TFile, type TFolder } from "obsidian";
 import { countWords } from "../utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "../utils/text-metrics.js";
 import { t } from "../i18n/index.js";
+import { projectWordGoalDefault, projectTolerance, projectTotalWordGoal, projectDeadline } from "../services/project-settings.js";
 
 type StatsSettings = FeuilletsSettings & {
   /* Absent de DEFAULT_SETTINGS (voir default-settings.ts) : réglable via
@@ -75,7 +76,7 @@ export class FileStatsModal extends Modal {
       fill.style.width = `${pct}%`;
       wcLabel.setText(`${label} (${pct}%)`);
 
-      const tol = Number(this.plugin.settings.tolerance);
+      const tol = projectTolerance(this.app, this.plugin.settings);
       if (wc >= goal - tol && wc <= goal + tol) fill.addClass("feuillets-status-hit");
       else if (wc > goal + tol) fill.addClass("feuillets-status-over");
     }
@@ -110,7 +111,7 @@ export class FileStatsModal extends Modal {
     const rawText = await app.vault.cachedRead(file);
     const wc = countWords(rawText);
     const g = parseInt(String(plugin.fmOf(file).goal), 10);
-    const goal = isNaN(g) ? plugin.settings.wordGoal : g;
+    const goal = isNaN(g) ? projectWordGoalDefault(app, plugin.settings) : g;
 
     const cleanText = stripWritingNoise(rawText);
     const chars = cleanText.length;
@@ -138,22 +139,24 @@ export class FileStatsModal extends Modal {
         pParagraphs += c.paragraphs || 0;
       }
 
+      const totalGoal = projectTotalWordGoal(app, plugin.settings);
       const { addRow } = this.renderStatsBlock(
-        contentEl, t("analysis.metrics.words"), pWords, plugin.settings.projectWordGoal || 0,
+        contentEl, t("analysis.metrics.words"), pWords, totalGoal,
         pChars, pCharsNoSpaces, pSentences, pParagraphs
       );
 
-      if (plugin.settings.deadlineDate) {
-        const targetDate = new Date(plugin.settings.deadlineDate);
+      const deadline = projectDeadline(app, plugin.settings);
+      if (deadline) {
+        const targetDate = new Date(deadline);
         if (!isNaN(targetDate.getTime())) {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           const diffMs = targetDate.getTime() - today.getTime();
           const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-          const targetGoal = plugin.settings.projectWordGoal || 0;
+          const targetGoal = totalGoal;
           const wordsLeft = Math.max(0, targetGoal - pWords);
 
-          addRow(t("modal.stats.deadline"), plugin.settings.deadlineDate);
+          addRow(t("modal.stats.deadline"), deadline);
           if (daysLeft > 0) {
             addRow(t("modal.stats.daysLeft"), daysLeft);
             addRow(t("modal.stats.dailyQuota"), t("modal.stats.wordsPerDay", { count: formatNumber(Math.ceil(wordsLeft / daysLeft)) }));

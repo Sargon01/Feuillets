@@ -903,7 +903,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       const menu = new Menu();
 
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
-      for (const s of ["Tous", ...getProjectStatuses(S).filter(Boolean), "Sans statut"]) {
+      for (const s of ["Tous", ...getProjectStatuses(this.app, S).filter(Boolean), "Sans statut"]) {
         menu.addItem((item) =>
           item
             .setTitle(filterSentinelLabel(s))

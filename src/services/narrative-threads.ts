@@ -1,7 +1,7 @@
 import { TFile } from "obsidian";
 import type { App, TFolder } from "obsidian";
 import { getProjectFolder, flattenFiles, isFrontMatter, roleOfFile } from "./folder-structure.js";
-import { fmOf } from "./frontmatter.js";
+import { fmOf, writeLogicalFrontmatterField } from "./frontmatter.js";
 import { filsOf } from "../utils/arc-fields.js";
 
 type NarrativeThreadsPlugin = NarrativeThreadsPluginState & {
@@ -27,10 +27,15 @@ export function getLastProjectFile(app: App, settings: FeuilletsSettings): TFile
   return scenes.length > 0 ? scenes[scenes.length - 1] : null;
 }
 
-async function setFilList(app: App, file: TFile, fils: string[]): Promise<void> {
+/** §20 du chantier « mapping YAML » : `thread` est un champ mappable — la
+ * liste des fils lit/écrit désormais la propriété CONFIGURÉE du projet
+ * (ou repli historique), via le writer logique centralisé. `fil` (ancienne
+ * clé française) reste purgée sur ce fichier à chaque écriture, comme
+ * avant ce chantier — writeLogicalFrontmatterField ne touche, lui, que la
+ * clé cible résolue pour `thread`. */
+async function setFilList(app: App, settings: FeuilletsSettings, file: TFile, fils: string[]): Promise<void> {
+  await writeLogicalFrontmatterField(app, settings, file, "thread", fils);
   await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-    if (fils.length === 0) delete fm.thread;
-    else fm.thread = fils;
     delete fm.fil;
   });
 }
@@ -41,7 +46,7 @@ function existsElsewhere(app: App, settings: FeuilletsSettings, root: TFolder, v
   );
   for (const f of scenes) {
     if (f.path === excludePath) continue;
-    if (filsOf(fmOf(app, f)).includes(value)) return true;
+    if (filsOf(fmOf(app, f, settings)).includes(value)) return true;
   }
   return false;
 }
@@ -70,7 +75,7 @@ export async function handleFilChanged(app: App, settings: FeuilletsSettings, pl
   if (!root || !file.path.startsWith(root.path + "/")) return;
   if (isFrontMatter(app, settings, file)) return;
 
-  const fils = filsOf(fmOf(app, file));
+  const fils = filsOf(fmOf(app, file, settings));
   if (fils.length === 0) return;
 
   /* handleFilChanged est déclenché par metadataCache "changed", jamais
@@ -114,9 +119,9 @@ async function handleFilChangedLocked(app: App, settings: FeuilletsSettings, plu
       if (settings.filOrigins[value] === file.path) continue; // réédition du feuillet d'origine : pas une nouvelle apparition
       const placeholderFile = app.vault.getAbstractFileByPath(placeholderPath);
       if (placeholderFile instanceof TFile) {
-        const next = filsOf(fmOf(app, placeholderFile)).filter((v) => v !== value);
+        const next = filsOf(fmOf(app, placeholderFile, settings)).filter((v) => v !== value);
         suppress(placeholderFile.path);
-        await setFilList(app, placeholderFile, next);
+        await setFilList(app, settings, placeholderFile, next);
       }
       delete settings.filPlaceholders[value];
       delete settings.filOrigins[value];
@@ -130,11 +135,11 @@ async function handleFilChangedLocked(app: App, settings: FeuilletsSettings, plu
     const lastFile = getLastProjectFile(app, settings);
     if (!lastFile || lastFile.path === file.path) continue;
 
-    const lastFils = filsOf(fmOf(app, lastFile));
+    const lastFils = filsOf(fmOf(app, lastFile, settings));
     if (lastFils.includes(value)) continue;
 
     suppress(lastFile.path);
-    await setFilList(app, lastFile, [...lastFils, value]);
+    await setFilList(app, settings, lastFile, [...lastFils, value]);
     settings.filPlaceholders[value] = lastFile.path;
     settings.filOrigins[value] = file.path;
     await plugin.saveSettings();
