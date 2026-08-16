@@ -34,9 +34,13 @@ N’importe quel dossier déjà présent dans le coffre peut devenir un projet F
 
 Feuillets peut également créer un projet **Fiction**, **Non-fiction** ou **Libre**. Les espaces auxiliaires sont regroupés sous `_Feuillets` lorsqu’ils sont nécessaires : Recherche, Ressources, Edition, Journal, Snapshots, Backups et Sortie. Les chemins historiques restent reconnus sans migration destructive.
 
+![Créer un projet Feuillets](docs/creer-premier-projet.gif)
+
 ## Écrire
 
 Le feuillet reste ouvert dans l’éditeur Markdown natif d’Obsidian. Feuillets peut ajouter largeur de texte, typographie, alinéas, interligne, aides typographiques, recherche/remplacement, notes de bas de page, citations, défilement machine à écrire et mode **Concentration**.
+
+![Écrire avec typographie contrôlée et Mode Concentration](docs/feuillets-concentration.png)
 
 ## Organiser avec le Classeur
 
@@ -52,6 +56,8 @@ Le **Classeur** sert d’abord à trouver et déplacer les textes. Il permet not
 - basculer entre le **Classeur simple** et la **double vue**.
 
 En double vue, un volet gauche ajoute deux accès sans modifier le Classeur de droite : **Manuscrit** affiche uniquement l’arborescence des dossiers pour lire la structure d’un coup d’œil ; **Coffre** permet de parcourir et d’ouvrir des documents du vault en lecture/navigation seule. Le volet droit conserve exactement les mêmes lignes, menus, sélections et interactions qu’en vue simple.
+
+![Le Classeur avec organisation du manuscrit](docs/feuillets-classeur.png)
 
 Voir [Classeur et navigation](docs/CLASSEUR-ET-NAVIGATION.md).
 
@@ -77,6 +83,8 @@ Voir [Mode Continu](docs/MODE-CONTINU.md).
 | Explorer librement | Carnet |
 
 Ces vues ne créent pas de base parallèle : elles montrent les mêmes fichiers sous des angles différents.
+
+![Plusieurs vues : Chemin de fer, Plan, Chronologie et Cartes](docs/feuillets-mosaique-narrative.png)
 
 ## Le panneau droit
 
@@ -125,6 +133,8 @@ La relecture distingue plusieurs besoins :
 
 Le comparateur distingue ajouts, suppressions, remplacements et déplacements. Les couper/coller peuvent être reconnus comme déplacements. Les modes **Changements** et **Versions** permettent soit de traiter les différences, soit de lire les deux états sans décorations. Le défilement synchronisé est optionnel.
 
+![Vue de comparaison avec détection des changements](docs/feuillets-comparaison.png)
+
 Voir [Réécriture, sauvegardes et versions](docs/VERSIONNAGE-ET-SECURITE.md).
 
 ## Relecture collaborative
@@ -162,9 +172,13 @@ Formats natifs :
 
 Les gabarits V2 sont partagés entre Aperçu et exports. Ils peuvent être créés, dupliqués, renommés ou importés depuis des styles Ulysses ou des modèles Word lorsque les propriétés sont représentables.
 
+![Aperçu avec pagination et formatage](docs/feuillets-apercu.png)
+
 ## Importer depuis Scrivener
 
 Sur ordinateur, Feuillets peut importer un projet Scrivener et récupérer la structure compatible du Binder, les textes, métadonnées utiles, Recherche et ressources. **L’ordre du Binder Scrivener est désormais conservé explicitement**, indépendamment du tri alphabétique du coffre.
+
+![Importer Scrivener avec préservation complète de la structure](docs/feuillets-import-scrivener.png)
 
 Voir [Importer un projet Scrivener](docs/IMPORT-SCRIVENER.md).
 
@@ -180,6 +194,36 @@ Voir [Importer un projet Scrivener](docs/IMPORT-SCRIVENER.md).
 - code GPL-3.0.
 
 Voir [PRIVACY.md](PRIVACY.md) et [SECURITY.md](SECURITY.md).
+
+## Installation
+
+### Galerie des plugins communautaires
+
+1. Ouvrez **Paramètres → Plugins communautaires**.
+2. Recherchez **Feuillets**.
+3. Cliquez sur **Installer**, puis **Activer**.
+
+Feuillets nécessite Obsidian 1.13.0 ou plus récent.
+
+### Installation manuelle
+
+Téléchargez `main.js`, `manifest.json` et `styles.css` depuis la [dernière version sur GitHub](https://github.com/Sargon01/Feuillets/releases/latest) et placez-les dans :
+
+```
+<votre coffre>/.obsidian/plugins/feuillets/
+```
+
+Puis activez le plugin dans **Paramètres → Plugins communautaires → Plugins installés**.
+
+## Écosystème
+
+Feuillets fonctionne de manière indépendante et s'associe bien avec :
+
+- **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** — Vérification grammaticale française et anglaise intégrée au panneau Relecture.
+- **[Courrier](https://github.com/Sargon01/Courrier)** — Import/export Word et support de la Révision DOCX.
+- **[Advanced Canvas](https://github.com/Sargon01/Advanced-Canvas)** — Fonctionnalités Canvas améliorées pour le Carnet et la visualisation de recherche.
+
+![Écosystème Feuillets](docs/feuillets-ecosysteme.png)
 
 ## Documentation
 
