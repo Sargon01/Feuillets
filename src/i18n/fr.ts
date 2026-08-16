@@ -485,7 +485,13 @@ export const fr = {
   "sidebar.tab.notes": "Feuillet",
   "sidebar.tab.research": "Recherche",
   "sidebar.tab.journal": "Journal",
-  "sidebar.tab.project": "Édition",
+  "sidebar.project.header": "PROJET",
+  "sidebar.project.none": "Aucun projet actif",
+  "sidebar.project.new": "Nouveau projet…",
+  "sidebar.project.useExisting": "Utiliser un dossier existant…",
+  "sidebar.project.importScrivener": "Importer un projet Scrivener…",
+  "sidebar.project.manage": "Gérer les projets…",
+  "sidebar.tab.project": "Projet",
   "sidebar.tab.analysis": "Analyse",
   "sidebar.tab.proofreading": "Relecture",
 
@@ -591,6 +597,7 @@ export const fr = {
      gabarit que Relecture ci-dessus (renderProjectTab, sidebar-feuillets-
      view.ts). */
   "editionHub.backToHome": "Édition",
+  "editionHub.openWorkspace": "Ouvrir l’espace Édition",
   "editionDocs.folderFiles": "Fichiers du dossier Édition",
   "analysisResults.repetitions": "Répétitions rapprochées",
   "analysisResults.noRepetitions": "Aucune répétition rapprochée détectée.",
@@ -895,7 +902,8 @@ export const fr = {
   "docxReview.trace.footnotesTransferred": "{count} note(s) de bas de page transférée(s)",
   "docxReview.trace.footnotesTransferredRenamed": "{count} note(s) de bas de page transférée(s), dont {renamed} renommée(s)",
 
-  // ---------- Composition de l'ouvrage (edition-composition-view.js) — sous-section de l'espace Édition (Phase 2, structurelle) ----------
+  // ---------- Composition de l'ouvrage (edition-composition-content.js) — sous-section de l'espace Édition (Phase 2, structurelle) ----------
+  "editionComposition.bookInfo": "Informations de l’ouvrage",
   "editionComposition.displayText": "Composition de l’ouvrage",
   "editionComposition.description": "Première page, pages liminaires, sommaire, tables, bibliographie, annexes et index.",
 
@@ -950,6 +958,7 @@ export const fr = {
   "editionLayout.wordInvalidFile": "Choisissez un fichier .docx ou .dotx.",
   "editionLayout.wordImported": "Gabarit Word importé : {label}",
   "editionLayout.wordImportError": "Import Word impossible : {message}",
+  "editionLayout.templateOptions": "Options du gabarit",
   "editionLayout.duplicated": "Gabarit dupliqué : {label}",
   "editionLayout.imported": "Style Ulysses importé : {label}",
   "editionLayout.importInvalidFile": "Choisis un fichier .ulstyle ou .ulss.",
@@ -957,7 +966,7 @@ export const fr = {
 
   // ---------- Exporter (edition-export-view.js) — sous-section de l'espace Édition (Phase 1) ----------
 
-  // ---------- Documents éditoriaux (edition-docs-view.js) — sous-section de l'espace Édition ----------
+  // ---------- Documents éditoriaux (edition-docs-content.js) — sous-section de l'espace Édition ----------
   "editionDocs.displayText": "Documents éditoriaux",
   "editionDocs.description": "Synopsis, note d'intention, biographie, lettre d'accompagnement, soumissions.",
   "editionDocs.notCreatedBody": "Aucun dossier Edition pour ce projet. Crée-le pour préparer synopsis, note d'intention, biographie, lettre d'accompagnement et suivi des envois.",
@@ -1824,6 +1833,24 @@ export const fr = {
   "modal.layout.alignment": "Alignement",
   "modal.layout.marginAbove": "Marge au-dessus (pt)",
   "modal.layout.marginBelow": "Marge en dessous (pt)",
+  "modal.layout.categoryPage": "Page",
+  "modal.layout.categoryBody": "Corps de texte",
+  "modal.layout.categoryHeadings": "Titres",
+  "modal.layout.categoryBlockquote": "Citation",
+  "modal.layout.categoryFirstPage": "Première page",
+  "modal.layout.pageNumberPosition": "Position du numéro de page",
+  "modal.layout.alignLeft": "Gauche",
+  "modal.layout.alignCenter": "Centre",
+  "modal.layout.alignRight": "Droite",
+  "modal.layout.elementStyle": "Style des éléments",
+  "modal.layout.chooseElement": "Choisir un élément…",
+  "layoutWorkspace.displayText": "Mise en page",
+  "layoutWorkspace.activeTemplate": "Gabarit",
+  "editionWorkspace.displayText": "Édition",
+  "editionWorkspace.modeComposition": "Composition",
+  "editionWorkspace.modeLayout": "Mise en page",
+  "editionWorkspace.modeExport": "Export",
+  "modal.layout.element": "Élément",
 
   "modal.duplicateVersion.title": "Dupliquer « {name} » en nouvelle version",
   "modal.duplicateVersion.desc": "Fige une copie du manuscrit (chapitres/parties/scènes) sous un nouveau nom — la Recherche (personnages, lieux…) reste partagée entre les deux versions.",

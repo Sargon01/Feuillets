@@ -36,7 +36,7 @@ function currentProjectMeta(plugin: AnnexesPanelPlugin): ProjectMeta | null {
 }
 
 /** Sous-ensemble de l'explorateur de fichiers natif réellement utilisé ici
- * — même patron que revealInFileExplorer (views/edition-docs-view.ts),
+ * — même patron que revealInFileExplorer (ui/edition-docs-content.ts),
  * dupliqué plutôt que partagé (convention du dépôt), et retypé pour un
  * TFolder plutôt qu'un TFile : « Ouvrir le dossier » sélectionne le dossier
  * Annexes lui-même dans l'explorateur natif, pas un de ses fichiers. */

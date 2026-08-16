@@ -4,6 +4,7 @@ import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-ren
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
 import { paginateDom } from "./pagination-engine.js";
+import { resolvePageGeometry } from "./page-geometry.js";
 
 type PdfFootnote = {
   id: string;
@@ -39,8 +40,6 @@ export function effectiveHyphenation(tpl: ResolvedExportTemplate, options: Pagin
   return options.hyphenationOverride ?? !!tpl.hyphenation;
 }
 
-type PdfPageSize = string;
-type PdfOrientation = string;
 type PdfPageNumberPosition = "left" | "center" | "right";
 
 /** Zone de composition exacte de la page finale, sans arrondi intermédiaire. */
@@ -77,22 +76,29 @@ export function paginateManuscript(
   author = "",
   options: PaginationOptions = {}
 ): PaginationResult {
-  const pageSize: PdfPageSize = settings.pdfPageSize || "A4";
-  const orientation: PdfOrientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
-  const mTop = options.marginsOverrideCm?.top ?? settings.pdfMarginTop ?? 2.5;
-  const mBottom = options.marginsOverrideCm?.bottom ?? settings.pdfMarginBottom ?? 2.5;
-  const mLeft = options.marginsOverrideCm?.left ?? settings.pdfMarginLeft ?? 2.5;
-  const mRight = options.marginsOverrideCm?.right ?? settings.pdfMarginRight ?? 2.5;
+  /* §24-§26 : la géométrie vient du HELPER UNIQUE (services/page-geometry.ts)
+     — gabarit résolu d'abord, anciens réglages PDF en repli. Rien d'autre ne
+     change ici : le découpage en pages, les veuves/orphelines, la césure et le
+     calcul des blocs (pagination-engine.ts) restent strictement intacts, seule
+     l'ENTRÉE géométrique est corrigée. */
+  const geometry = resolvePageGeometry(tpl, settings);
+  const pageWmm = geometry.widthMm;
+  const pageHmm = geometry.heightMm;
 
-  const mirror = !!settings.pdfMirrorMargins;
-  const diffHeaders = !!settings.pdfDiffHeaders;
-  const hideFirst = settings.pdfHideFirstPageHeader ?? true;
-  const pageNumPos: PdfPageNumberPosition = settings.pdfPageNumberPosition || "right"; // "right" | "center" | "left"
+  /* Marges : l'override explicite de l'appelant d'abord (Preview), puis celles
+     du gabarit résolu — un gabarit V2 les exprime toujours —, puis les anciens
+     réglages. Preview et export PDF reçoivent ainsi la MÊME géométrie sans que
+     l'un des deux ait à la recalculer. */
+  const templateMargins = tpl.marginsCm;
+  const mTop = options.marginsOverrideCm?.top ?? templateMargins?.top ?? settings.pdfMarginTop ?? 2.5;
+  const mBottom = options.marginsOverrideCm?.bottom ?? templateMargins?.bottom ?? settings.pdfMarginBottom ?? 2.5;
+  const mLeft = options.marginsOverrideCm?.left ?? templateMargins?.left ?? settings.pdfMarginLeft ?? 2.5;
+  const mRight = options.marginsOverrideCm?.right ?? templateMargins?.right ?? settings.pdfMarginRight ?? 2.5;
 
-  // Dimensions de la page (A4 = 210x297mm)
-  const isLandscape = orientation === "landscape";
-  const pageWmm = pageSize === "A5" ? (isLandscape ? 210 : 148) : pageSize === "letter" ? (isLandscape ? 279 : 216) : (isLandscape ? 297 : 210);
-  const pageHmm = pageSize === "A5" ? (isLandscape ? 148 : 210) : pageSize === "letter" ? (isLandscape ? 216 : 279) : (isLandscape ? 210 : 297);
+  const mirror = tpl.mirrorMargins ?? !!settings.pdfMirrorMargins;
+  const diffHeaders = tpl.header?.differentOddEven ?? !!settings.pdfDiffHeaders;
+  const hideFirst = tpl.firstPage?.hideHeader ?? settings.pdfHideFirstPageHeader ?? true;
+  const pageNumPos: PdfPageNumberPosition = tpl.firstPage?.pageNumberPosition ?? settings.pdfPageNumberPosition ?? "right";
 
   const contentGeometry = pageContentGeometry(pageWmm, pageHmm, mTop, mBottom, mLeft, mRight);
   const columnCount = Math.max(1, Math.round(tpl.columns?.count ?? 1));
@@ -141,6 +147,22 @@ export function paginateManuscript(
     css: templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl),
   });
 
+  /* Bandes en-tête/pied : même règle que la géométrie — le gabarit résolu
+     prime quand il les exprime (c'est le cas d'un gabarit V2, jamais d'un
+     gabarit intégré), sinon les anciens réglages, inchangés. */
+  const headerLeft = tpl.header?.left ?? settings.pdfHeaderLeft ?? "{title}";
+  const headerCenter = tpl.header?.center ?? settings.pdfHeaderCenter ?? "";
+  const headerRight = tpl.header?.right ?? settings.pdfHeaderRight ?? "{author}";
+  const footerLeft = tpl.footer?.left ?? settings.pdfFooterLeft ?? "";
+  const footerCenter = tpl.footer?.center ?? settings.pdfFooterCenter ?? "";
+  const footerRight = tpl.footer?.right ?? settings.pdfFooterRight ?? "Page {page} sur {pages}";
+  const headersEnabled = tpl.header?.enabled ?? settings.pdfEnableHeaders !== false;
+  const footersEnabled = tpl.footer?.enabled ?? settings.pdfEnableFooters !== false;
+  const headerDistanceCm = tpl.header?.distanceCm ?? settings.pdfHeaderDistanceCm ?? 0.75;
+  const headerBodyGapPt = tpl.header?.bodyGapPt ?? settings.pdfHeaderBodyGapPt ?? 3;
+  const footerDistanceCm = tpl.footer?.distanceCm ?? settings.pdfFooterDistanceCm ?? 0.75;
+  const footerBodyGapPt = tpl.footer?.bodyGapPt ?? settings.pdfFooterBodyGapPt ?? 3;
+
   const totalPages = Math.max(1, rawPages.length);
   const replaceBandVars = (value: string, pageNum: number, part: string, chapter: string): string => value
     .replace(/\{title\}/gi, title)
@@ -166,17 +188,17 @@ export function paginateManuscript(
       if (tag === "h2") currentChapter = node.textContent?.trim() || currentChapter;
     }
 
-    let hLeftText = replaceBandVars(settings.pdfHeaderLeft ?? "{title}", pageNum, currentPart, currentChapter);
-    const hCenterText = replaceBandVars(settings.pdfHeaderCenter ?? "", pageNum, currentPart, currentChapter);
-    let hRightText = replaceBandVars(settings.pdfHeaderRight ?? "{author}", pageNum, currentPart, currentChapter);
+    let hLeftText = replaceBandVars(headerLeft, pageNum, currentPart, currentChapter);
+    const hCenterText = replaceBandVars(headerCenter, pageNum, currentPart, currentChapter);
+    let hRightText = replaceBandVars(headerRight, pageNum, currentPart, currentChapter);
 
-    let fLeftText = replaceBandVars(settings.pdfFooterLeft ?? "", pageNum, currentPart, currentChapter);
-    let fCenterText = replaceBandVars(settings.pdfFooterCenter ?? "", pageNum, currentPart, currentChapter);
-    let fRightText = replaceBandVars(settings.pdfFooterRight ?? "Page {page} sur {pages}", pageNum, currentPart, currentChapter);
+    let fLeftText = replaceBandVars(footerLeft, pageNum, currentPart, currentChapter);
+    let fCenterText = replaceBandVars(footerCenter, pageNum, currentPart, currentChapter);
+    let fRightText = replaceBandVars(footerRight, pageNum, currentPart, currentChapter);
 
     // Migration transparente : les anciens projets stockaient toujours le
     // modèle de numéro dans `pdfFooterRight` et sa position séparément.
-    if (!settings.pdfFooterCenter && !settings.pdfFooterLeft && pageNumPos !== "right") {
+    if (!footerCenter && !footerLeft && pageNumPos !== "right") {
       if (pageNumPos === "center") fCenterText = fRightText;
       else fLeftText = fRightText;
       fRightText = "";
@@ -192,8 +214,8 @@ export function paginateManuscript(
       }
     }
 
-    const showHeader = settings.pdfEnableHeaders !== false && !(isFirst && hideFirst);
-    const showFooter = settings.pdfEnableFooters !== false && !(isFirst && hideFirst);
+    const showHeader = headersEnabled && !(isFirst && hideFirst);
+    const showFooter = footersEnabled && !(isFirst && hideFirst);
     const nodesHtml = nodes.map((n) => n.outerHTML).join("\n");
     const isFrontPage = nodes.some((node) => node.classList?.contains("feuillets-frontpage"));
     const columnsStyle = !isFrontPage && columnCount > 1
@@ -220,7 +242,7 @@ export function paginateManuscript(
             ? `
           <div class="pdf-page-header" style="
             position: absolute;
-            top: ${settings.pdfHeaderDistanceCm ?? 0.75}cm;
+            top: ${headerDistanceCm}cm;
             left: ${currentLeftM}cm;
             right: ${currentRightM}cm;
             display: grid;
@@ -228,7 +250,7 @@ export function paginateManuscript(
             font-size: 8pt;
             color: #aaaaaa;
             border-bottom: 0.5pt solid #f0f0f0;
-            padding-bottom: ${settings.pdfHeaderBodyGapPt ?? 3}pt;
+            padding-bottom: ${headerBodyGapPt}pt;
             font-family: ${tpl.fontFamily};
           ">
             <span style="text-align: left;">${hLeftText}</span>
@@ -246,7 +268,7 @@ export function paginateManuscript(
             ? `
           <div class="pdf-page-footer" style="
             position: absolute;
-            bottom: ${settings.pdfFooterDistanceCm ?? 0.75}cm;
+            bottom: ${footerDistanceCm}cm;
             left: ${currentLeftM}cm;
             right: ${currentRightM}cm;
             display: grid;
@@ -255,7 +277,7 @@ export function paginateManuscript(
             font-size: 8pt;
             color: #aaaaaa;
             border-top: 0.5pt solid #f0f0f0;
-            padding-top: ${settings.pdfFooterBodyGapPt ?? 3}pt;
+            padding-top: ${footerBodyGapPt}pt;
             font-family: ${tpl.fontFamily};
           ">
             <div style="text-align: left;">${fLeftText}</div>
@@ -302,8 +324,9 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, title, author);
 
   const css = templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl);
-  const pageSize: PdfPageSize = settings.pdfPageSize || "A4";
-  const orientation: PdfOrientation = settings.pdfOrientation || tpl.pageOrientation || "portrait";
+  /* MÊME helper que paginateManuscript ci-dessus : la règle @page du document
+     d'impression ne peut plus diverger du format réellement paginé (§26). */
+  const { size: pageSize, orientation } = resolvePageGeometry(tpl, settings);
 
   // Iframe hôte de l'impression : élément du document principal Obsidian.
   const iframe = document.body.createEl("iframe", { cls: "feuillets-pdf-print-frame" });

@@ -1,16 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Menu, TFolder } from "obsidian";
-import { EditionLayoutView } from "../src/views/edition-layout-view.js";
+import { EditionWorkspaceContent } from "../src/ui/edition-workspace-content.js";
 import { TextPromptModal } from "../src/ui/basic-modals.js";
-import { LayoutModal } from "../src/ui/layout-modal.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { createCustomTemplateFromV2 } from "../src/services/export-templates-custom.js";
 import { createDefaultExportTemplateV2 } from "../src/services/export-template-v2.js";
 
-/* Même petit DOM factice que test/edition-composition-view.test.js
- * (convention du dépôt : dupliqué, pas partagé), complété de ce
- * qu'EditionLayoutView utilise en plus (select/option, input file, click). */
+/* Même petit DOM factice que test/edition-composition-content.test.js
+ * (convention du dépôt : dupliqué, pas partagé), complété de ce que la barre
+ * d'outils Mise en page utilise en plus (select/option, click).
+ *
+ * L'ancien lanceur latéral EditionLayoutView a été SUPPRIMÉ (§7/§12 du
+ * chantier « espace central ») : la gestion des gabarits (gabarit actif,
+ * nouveau/dupliquer/renommer/supprimer, imports Ulysses/Word) vit désormais
+ * au seul endroit qui affiche le gabarit — la barre d'outils du mode Mise en
+ * page d'EditionWorkspaceContent. Mêmes services, mêmes modales. */
 class FakeElement {
   constructor(tagName, text = "") {
     this.tagName = tagName.toUpperCase();
@@ -106,53 +111,30 @@ function buildCreationFixture() {
   manuscript.parent = project;
   project.children = [manuscript];
   const { vault, fileManager } = createFakeVault([project, manuscript]);
-  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: {} }) }, workspace: { getLeavesOfType: () => [] } };
   let saves = 0;
   const plugin = {
     settings: { collapsed: {}, exportTemplate: "classique", projectFolder: manuscript.path },
     saveSettings: async () => { saves += 1; },
+    getProjectFolder: () => manuscript,
   };
   return { app, plugin, saves: () => saves };
 }
 
-test("EditionLayoutView : titre et icône corrects", () => {
-  const plugin = buildPlugin();
-  const view = new EditionLayoutView({ app: {}, contentEl: new FakeElement("div") }, plugin);
-  assert.equal(view.getDisplayText(), "Mise en page & export");
-  assert.equal(view.getIcon(), "panel-top");
-});
+/** Monte le mode « Mise en page » d'EditionWorkspaceContent — seul hôte
+ * restant du gabarit actif et de sa gestion. */
+async function mountLayout(app, plugin) {
+  const contentEl = new FakeElement("div");
+  const view = new EditionWorkspaceContent(app, plugin, { app, contentEl }, contentEl, { initialMode: "layout" });
+  await view.render();
+  return { view, contentEl };
+}
 
-test("EditionLayoutView : { embedded: true } masque le grand en-tête repliable mais garde le sélecteur Gabarit", async () => {
+test("Mise en page : sélecteur Gabarit peuplé par listExportTemplates, valeur = settings.exportTemplate", async () => {
   const restore = installDom();
   try {
     const plugin = buildPlugin();
-    const contentEl = new FakeElement("div");
-    const view = new EditionLayoutView({ app: {}, contentEl }, plugin, { embedded: true });
-
-    await view.onOpen();
-
-    assert.equal(contentEl.querySelector(".feuillets-section-title-text"), null, "pas d'en-tête repliable en mode intégré");
-    const select = contentEl.querySelector('[aria-label="Gabarit"]');
-    assert.ok(select, "le sélecteur Gabarit reste présent");
-    assert.equal(select.value, "classique");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionLayoutView : sélecteur Gabarit peuplé par listExportTemplates, valeur = settings.exportTemplate", async () => {
-  const restore = installDom();
-  try {
-    const plugin = buildPlugin();
-    const contentEl = new FakeElement("div");
-    const view = new EditionLayoutView({ app: {}, contentEl }, plugin);
-
-    await view.onOpen();
-
-    const section = contentEl.querySelector(".feuillets-project-section");
-    assert.ok(section, "utilise le langage visuel feuillets-project-section");
-    const head = contentEl.querySelector(".feuillets-section-title-text");
-    assert.equal(head.textContent, "Mise en page & export");
+    const { contentEl } = await mountLayout({ vault: null, workspace: { getLeavesOfType: () => [] } }, plugin);
 
     const select = contentEl.querySelector('[aria-label="Gabarit"]');
     assert.ok(select, "le sélecteur Gabarit est présent");
@@ -166,13 +148,11 @@ test("EditionLayoutView : sélecteur Gabarit peuplé par listExportTemplates, va
   }
 });
 
-test("EditionLayoutView : changer le sélecteur écrit directement settings.exportTemplate et sauvegarde", async () => {
+test("Mise en page : changer le sélecteur écrit directement settings.exportTemplate et sauvegarde", async () => {
   const restore = installDom();
   try {
     const plugin = buildPlugin();
-    const contentEl = new FakeElement("div");
-    const view = new EditionLayoutView({ app: {}, contentEl }, plugin);
-    await view.onOpen();
+    const { contentEl } = await mountLayout({ vault: null, workspace: { getLeavesOfType: () => [] } }, plugin);
 
     let saved = false;
     plugin.saveSettings = async () => { saved = true; };
@@ -180,6 +160,7 @@ test("EditionLayoutView : changer le sélecteur écrit directement settings.expo
     const select = contentEl.querySelector('[aria-label="Gabarit"]');
     select.value = "moderne";
     select.dispatch("change");
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -190,36 +171,31 @@ test("EditionLayoutView : changer le sélecteur écrit directement settings.expo
   }
 });
 
-test("EditionLayoutView : Modifier visuellement et le menu d'options sont présents", async () => {
+test("Mise en page : le menu d'options du gabarit est le SEUL point d'entrée de la gestion des gabarits", async () => {
   const restore = installDom();
   try {
-    const plugin = buildPlugin();
-    const contentEl = new FakeElement("div");
-    const view = new EditionLayoutView({ app: {}, contentEl }, plugin);
-    await view.onOpen();
+    const { app, plugin } = buildCreationFixture();
+    const { contentEl } = await mountLayout(app, plugin);
 
-    assert.ok(contentEl.querySelector('[aria-label="Modifier visuellement"]'));
     assert.ok(contentEl.querySelector('[aria-label="Options du gabarit"]'));
-    assert.equal(contentEl.querySelectorAll(".feuillets-edition-action-row").length, 1);
-    assert.equal(contentEl.querySelectorAll(".setting-item").length, 0);
+    // Plus aucun lanceur latéral : ni « Modifier visuellement », ni « Ouvrir
+    // l'espace Édition » (l'espace EST déjà à l'écran).
+    assert.equal(contentEl.querySelector('[aria-label="Modifier visuellement"]'), null);
+    assert.equal(contentEl.querySelector('[aria-label="Ouvrir l’espace Édition"]'), null);
+    assert.equal(contentEl.querySelectorAll(".feuillets-edition-export-panel").length, 0, "pas de formulaire Export dans le mode Mise en page");
   } finally {
     restore();
   }
 });
 
-test("EditionLayoutView : Nouveau gabarit crée un V2 actif sans écraser une collision et ouvre l'éditeur", async () => {
+test("Mise en page : Nouveau gabarit crée un V2 actif sans écraser une collision, sans créer aucune leaf", async () => {
   const restore = installDom();
   const originalPromptOpen = TextPromptModal.prototype.open;
-  const originalLayoutOpen = LayoutModal.prototype.open;
   let promptResult = null;
-  const opened = [];
   TextPromptModal.prototype.open = function openPrompt() { this.onResult(promptResult); };
-  LayoutModal.prototype.open = function openLayout() { opened.push({ key: this.templateKey, label: this.templateLabel }); return this; };
   try {
     const { app, plugin, saves } = buildCreationFixture();
-    const contentEl = new FakeElement("div");
-    const view = new EditionLayoutView({ app, contentEl }, plugin);
-    await view.onOpen();
+    const { view, contentEl } = await mountLayout(app, plugin);
 
     contentEl.querySelector('[aria-label="Options du gabarit"]').click();
     const menu = Menu.lastShown;
@@ -239,7 +215,6 @@ test("EditionLayoutView : Nouveau gabarit crée un V2 actif sans écraser une co
     assert.match(created.content, /profile: document/);
     assert.equal(plugin.settings.exportTemplate, "mon-modele");
     assert.equal(saves(), 1);
-    assert.deepEqual(opened, [{ key: "mon-modele", label: "Mon modèle" }]);
 
     const firstContent = created.content;
     await view.createNewTemplate();
@@ -247,21 +222,17 @@ test("EditionLayoutView : Nouveau gabarit crée un V2 actif sans écraser une co
     assert.ok(app.vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/mon-modele-2.md"));
     assert.equal(plugin.settings.exportTemplate, "mon-modele-2");
     assert.equal(saves(), 2);
-    assert.deepEqual(opened.at(-1), { key: "mon-modele-2", label: "Mon modèle" });
   } finally {
     TextPromptModal.prototype.open = originalPromptOpen;
-    LayoutModal.prototype.open = originalLayoutOpen;
     restore();
   }
 });
 
-test("EditionLayoutView : les actions Renommer et Supprimer n'apparaissent que pour un fichier personnalisé actif", async () => {
+test("Mise en page : les actions Renommer et Supprimer n'apparaissent que pour un fichier personnalisé actif", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildCreationFixture();
-    const contentEl = new FakeElement("div");
-    const view = new EditionLayoutView({ app, contentEl }, plugin);
-    await view.onOpen();
+    const { view, contentEl } = await mountLayout(app, plugin);
     contentEl.querySelector('[aria-label="Options du gabarit"]').click();
     assert.equal(Menu.lastShown.items.some((item) => item.title === "Renommer…"), false);
     assert.equal(Menu.lastShown.items.some((item) => item.title === "Supprimer…"), false);
@@ -273,32 +244,18 @@ test("EditionLayoutView : les actions Renommer et Supprimer n'apparaissent que p
   } finally { restore(); }
 });
 
-test("EditionLayoutView : repliée, elle ne montre que l'en-tête", async () => {
+test("Mise en page : Importer Ulysses ouvre la modale sans input file", async () => {
   const restore = installDom();
   try {
-    const plugin = buildPlugin();
-    plugin.settings.collapsed["editionLayout:panel"] = true;
-    const contentEl = new FakeElement("div");
-    const view = new EditionLayoutView({ app: {}, contentEl }, plugin);
-
-    await view.onOpen();
-
-    assert.equal(contentEl.querySelector('[aria-label="Gabarit"]'), null);
-    assert.ok(contentEl.querySelector(".feuillets-section-title-text"), "l'en-tête reste visible");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionLayoutView : aucune dépendance à PreviewView", async () => {
-  const restore = installDom();
-  try {
-    const plugin = buildPlugin();
-    const view = new EditionLayoutView({ app: {}, contentEl: new FakeElement("div") }, plugin);
-    assert.equal("compileScope" in view, false);
-    assert.equal("effectiveExportScope" in view, false);
-    await view.onOpen();
-  } finally {
-    restore();
-  }
+    const { app, plugin } = buildCreationFixture();
+    const { contentEl } = await mountLayout(app, plugin);
+    contentEl.querySelector('[aria-label="Options du gabarit"]').click();
+    const item = Menu.lastShown.items.find((entry) => entry.title === "Importer Ulysses");
+    assert.ok(item, "l'entrée Importer Ulysses est présente");
+    assert.equal(
+      contentEl.querySelectorAll("input").filter((node) => node.type === "file").length,
+      0,
+      "l'import se fait par dépôt HTML5 dans la modale, jamais par un input file monté ici"
+    );
+  } finally { restore(); }
 });

@@ -236,6 +236,18 @@ declare type ExportTemplate = {
   pageOrientation?: string;
   columns?: { count: number; gutterPt: number };
 
+  /* Géométrie et bandes projetées depuis un gabarit V2 (§24 du chantier
+     « espace central », voir legacyFieldsFromV2 dans services/export-
+     templates-custom.ts). ABSENTES des gabarits intégrés : c'est précisément
+     ce qui fait que les anciens réglages PDF restent le repli exact pour eux,
+     sans aucune régression. Quand elles sont présentes, elles PRIMENT. */
+  /** Format de page ("A4" | "A5" | "Letter") exprimé par le gabarit. */
+  pageSize?: TemplatePageSize;
+  mirrorMargins?: boolean;
+  header?: ExportTemplateV2["header"];
+  footer?: ExportTemplateV2["footer"];
+  firstPage?: ExportTemplateV2["firstPage"];
+
   headings?: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle; h4?: HeadingStyle; h5?: HeadingStyle; h6?: HeadingStyle; [key: string]: HeadingStyle | undefined };
   /** Ancien champ, H1 uniquement — normalizeHeadings le traduit en headings.h1. */
   chapterTitle?: HeadingStyle;

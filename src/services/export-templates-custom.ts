@@ -114,8 +114,19 @@ function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" |
     paragraphSpacingPt: tpl.body.paragraphSpacingBeforePt || undefined,
     hyphenation: tpl.body.hyphenation,
     marginsCm: { ...tpl.page.marginsCm },
+    /* §23-§24 : la projection ne transportait QUE l'orientation — ni le
+       format, ni les marges miroir, ni les bandes. Les consommateurs legacy
+       retombaient donc systématiquement sur les anciens réglages PDF, y
+       compris pour un gabarit V2 qui exprimait pourtant explicitement ces
+       valeurs. Elles sont désormais projetées, et priment (voir
+       services/page-geometry.ts et paginateManuscript). */
+    pageSize: tpl.page.size,
     pageOrientation: tpl.page.orientation,
+    mirrorMargins: tpl.page.mirrorMargins,
     columns: { ...tpl.page.columns },
+    header: { ...tpl.header },
+    footer: { ...tpl.footer },
+    firstPage: { ...tpl.firstPage },
     ...(tpl.blockquote ? { blockquote: { ...tpl.blockquote } } : {}),
     sceneDivider: tpl.sceneDivider,
     headings: Object.fromEntries(Object.entries(tpl.headings).map(([level, style]) => [level, { ...style }])),

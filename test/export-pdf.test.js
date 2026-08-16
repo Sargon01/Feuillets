@@ -295,6 +295,145 @@ test("paginateManuscript : une page Front conserve sa composition à une colonne
   } finally { dom.restore(); }
 });
 
+/* ==================== §27/§42 : géométrie Portrait / Paysage ==============
+ * Régression du bug Paysage : `settings.pdfOrientation` valant toujours
+ * "portrait" par défaut, un gabarit paysage ne pouvait jamais gagner. Le
+ * gabarit RÉSOLU prime désormais ; les réglages legacy restent le repli exact
+ * pour un gabarit qui n'exprime pas la donnée (tous les gabarits intégrés). */
+
+/** Dimensions de page réellement écrites dans le HTML paginé. */
+function pageBox(pagesHtml) {
+  const width = /width: ([\d.]+)mm;/.exec(pagesHtml);
+  const height = /height: ([\d.]+)mm;/.exec(pagesHtml);
+  return { widthMm: Number(width?.[1]), heightMm: Number(height?.[1]) };
+}
+
+function paginateOnce(tpl, settings) {
+  const container = element("div");
+  container.appendChild(element("p", "Corps", 100));
+  return paginateManuscript(container, [], settings, tpl);
+}
+
+test("paginateManuscript : A4 portrait — page plus haute que large", () => {
+  const dom = installDom();
+  try {
+    const box = pageBox(paginateOnce({ ...template, pageSize: "A4", pageOrientation: "portrait" }, {}).pagesHtml);
+    assert.equal(box.widthMm, 210);
+    assert.equal(box.heightMm, 297);
+    assert.ok(box.widthMm < box.heightMm);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : A4 paysage — page plus large que haute, malgré un réglage legacy portrait", () => {
+  const dom = installDom();
+  try {
+    const box = pageBox(paginateOnce(
+      { ...template, pageSize: "A4", pageOrientation: "landscape" },
+      { pdfPageSize: "A4", pdfOrientation: "portrait" }
+    ).pagesHtml);
+    assert.equal(box.widthMm, 297);
+    assert.equal(box.heightMm, 210);
+    assert.ok(box.widthMm > box.heightMm);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : Portrait → Paysage → Portrait recalcule réellement, sans valeur en cache", () => {
+  const dom = installDom();
+  try {
+    const legacy = { pdfPageSize: "A4", pdfOrientation: "portrait" };
+    const portrait = pageBox(paginateOnce({ ...template, pageSize: "A4", pageOrientation: "portrait" }, legacy).pagesHtml);
+    const landscape = pageBox(paginateOnce({ ...template, pageSize: "A4", pageOrientation: "landscape" }, legacy).pagesHtml);
+    const back = pageBox(paginateOnce({ ...template, pageSize: "A4", pageOrientation: "portrait" }, legacy).pagesHtml);
+
+    assert.ok(portrait.widthMm < portrait.heightMm);
+    assert.ok(landscape.widthMm > landscape.heightMm);
+    assert.deepEqual(back, portrait);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : un gabarit V2 portrait prime sur un ancien réglage paysage", () => {
+  const dom = installDom();
+  try {
+    const box = pageBox(paginateOnce(
+      { ...template, pageSize: "A4", pageOrientation: "portrait" },
+      { pdfPageSize: "A4", pdfOrientation: "landscape" }
+    ).pagesHtml);
+    assert.ok(box.widthMm < box.heightMm);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : le format V2 est respecté (A5), les réglages legacy ne servent que de repli", () => {
+  const dom = installDom();
+  try {
+    const v2 = pageBox(paginateOnce({ ...template, pageSize: "A5" }, { pdfPageSize: "A4" }).pagesHtml);
+    assert.equal(v2.widthMm, 148);
+    assert.equal(v2.heightMm, 210);
+
+    const legacyOnly = pageBox(paginateOnce({ ...template }, { pdfPageSize: "A5" }).pagesHtml);
+    assert.equal(legacyOnly.widthMm, 148, "sans pageSize dans le gabarit, le réglage legacy pilote encore");
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : les marges V2 du gabarit priment sur les anciens réglages de marges", () => {
+  const dom = installDom();
+  try {
+    const tpl = { ...template, marginsCm: { top: 3, bottom: 4, left: 5, right: 6 } };
+    const settings = { pdfMarginTop: 1, pdfMarginBottom: 1, pdfMarginLeft: 1, pdfMarginRight: 1 };
+    const html = paginateOnce(tpl, settings).pagesHtml;
+    assert.match(html, /padding-top: 3cm/);
+    assert.match(html, /padding-bottom: 4cm/);
+    assert.match(html, /padding-left: 5cm/);
+    assert.match(html, /padding-right: 6cm/);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : sans marges dans le gabarit, les anciens réglages restent la source (aucune régression)", () => {
+  const dom = installDom();
+  try {
+    const html = paginateOnce({ ...template }, { pdfMarginTop: 1.2, pdfMarginBottom: 1.3, pdfMarginLeft: 1.4, pdfMarginRight: 1.5 }).pagesHtml;
+    assert.match(html, /padding-top: 1.2cm/);
+    assert.match(html, /padding-left: 1.4cm/);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : Aperçu et export PDF reçoivent la MÊME géométrie pour un même gabarit", () => {
+  const dom = installDom();
+  try {
+    const tpl = { ...template, pageSize: "A4", pageOrientation: "landscape", marginsCm: { top: 2, bottom: 2, left: 3, right: 3 } };
+    const settings = { pdfPageSize: "A5", pdfOrientation: "portrait", pdfMarginTop: 1, pdfMarginBottom: 1, pdfMarginLeft: 1, pdfMarginRight: 1 };
+    // Aperçu : passe explicitement les marges du gabarit (preview-view.ts).
+    const container = element("div");
+    container.appendChild(element("p", "Corps", 100));
+    const preview = paginateManuscript(container, [], settings, tpl, "", "", { marginsOverrideCm: tpl.marginsCm });
+    // Export PDF : aucun override — le gabarit doit suffire.
+    const pdf = paginateOnce(tpl, settings);
+
+    assert.deepEqual(pageBox(preview.pagesHtml), pageBox(pdf.pagesHtml));
+    for (const html of [preview.pagesHtml, pdf.pagesHtml]) {
+      assert.match(html, /padding-top: 2cm/);
+      assert.match(html, /padding-left: 3cm/);
+    }
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : les bandes V2 du gabarit priment sur les anciens réglages d'en-tête", () => {
+  const dom = installDom();
+  try {
+    const tpl = {
+      ...template,
+      header: { enabled: true, left: "V2 gauche", center: "", right: "V2 droite", distanceCm: 1.4, bodyGapPt: 9, differentOddEven: false },
+      footer: { enabled: true, left: "", center: "", right: "Page {page}", distanceCm: 0.9, bodyGapPt: 4 },
+      firstPage: { hideHeader: false, pageNumberPosition: "right" },
+    };
+    const settings = { pdfHeaderLeft: "Legacy gauche", pdfHeaderRight: "Legacy droite", pdfHeaderDistanceCm: 0.5, pdfHideFirstPageHeader: true };
+    const html = paginateOnce(tpl, settings).pagesHtml;
+    assert.match(html, /V2 gauche/);
+    assert.match(html, /V2 droite/);
+    assert.doesNotMatch(html, /Legacy gauche/);
+    assert.match(html, /top: 1.4cm/);
+  } finally { dom.restore(); }
+});
+
 test("exportPdf : sur mobile notifie sans rendre ni charger le DOM", async () => {
   const previousMobile = Platform.isMobile;
   const previousNotice = Notice.onCreate;

@@ -44,7 +44,8 @@ import { getResearchTemplate } from "./services/research-templates.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
 import { remapResearchFolderLinks } from "./views/base-feuillets-view.js";
-import { BoardView } from "./views/board-view.js";
+import { BoardView, type CentralSurface } from "./views/board-view.js";
+import type { EditionWorkspaceMode } from "./ui/edition-workspace-content.js";
 import { SidebarFeuilletsView } from "./views/sidebar-feuillets-view.js";
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
@@ -173,6 +174,23 @@ type MoveHistoryEntry =
       srcOrder: string[];
       destOrder: string[];
     };
+
+/** Garde structurelle SANS `instanceof` (même patron qu'ailleurs dans ce
+ * dépôt, voir preview-view.ts) : reconnaît une BoardView réelle OU une vue de
+ * test qui expose la même surface — `activateCentralSurface` n'a besoin que
+ * de ce contrat. */
+interface CentralSurfaceView {
+  setCentralSurface(surface: CentralSurface, editionMode?: EditionWorkspaceMode): Promise<void>;
+}
+
+function isCentralSurfaceView(view: unknown): view is CentralSurfaceView {
+  return (
+    typeof view === "object" &&
+    view !== null &&
+    "setCentralSurface" in view &&
+    typeof (view as { setCentralSurface?: unknown }).setCentralSurface === "function"
+  );
+}
 
 /** Vue générique manipulée par les méthodes de rendu global (renderAllViews,
  * renderStaleViews…) : elles s'appliquent à plusieurs classes de vues
@@ -570,12 +588,16 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "open-project",
       name: t("main.cmd.openProjectPanel"),
-      callback: () => { void this.activateProject(); },
+      // Repointée vers l'espace central Édition (Composition / Mise en page /
+      // Export) plutôt que le panneau latéral — décision actée pour éviter un
+      // doublon de libellé dans la palette de commandes (chantier espace
+      // central Édition). Le panneau latéral reste accessible via son onglet.
+      callback: () => { void this.activateCentralSurface("edition", "composition"); },
     });
     this.addCommand({
       id: "open-export",
       name: t("main.cmd.openCompileExportPanel"),
-      callback: () => { void this.activateEditionLayout(); },
+      callback: () => { void this.activateCentralSurface("edition", "export"); },
     });
     /* Intégration Courrier (Lot 14B) : n'apparaît utilisable que si un
        projet d'écriture est ouvert (même garde que les autres commandes
@@ -885,7 +907,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "pdf-style-modal",
       name: t("main.cmd.openProjectExportPanel"),
-      callback: () => this.activateEditionLayout(),
+      callback: () => { void this.activateCentralSurface("edition", "layout"); },
     });
     this.addCommand({
       id: "restore-snapshot",
@@ -3756,19 +3778,17 @@ class FeuilletsPlugin extends Plugin {
   async activateDocxReview() { return this.activateSidebarView("project"); }
   async activateJournal() { return this.activateSidebarView("journal"); }
   async activateProject() { return this.activateSidebarView("project"); }
-  async activateEditionLayout(): Promise<void> {
-    const collapseKey = "editionLayout:panel";
-    if (Object.prototype.hasOwnProperty.call(this.settings.collapsed, collapseKey)) {
-      delete this.settings.collapsed[collapseKey];
-      await this.saveSettings();
-    }
-    await this.activateSidebarView("project");
-    const view = this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)[0]?.view as
-      | (View & { contentEl?: HTMLElement })
-      | undefined;
-    view?.contentEl
-      ?.querySelector<HTMLElement>(".feuillets-edition-layout-container")
-      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  /** Point d'entrée UNIQUE des commandes vers l'espace central (§11 du
+   * chantier « espace central ») : réutilise/révèle la leaf VIEW_BOARD
+   * existante puis lui demande sa surface — jamais de leaf « Édition »
+   * autonome, jamais un second parcours d'ouverture. */
+  async activateCentralSurface(surface: CentralSurface, editionMode?: EditionWorkspaceMode): Promise<void> {
+    await this.activateBoard();
+    const leaf = this.app.workspace.getLeavesOfType(VIEW_BOARD)[0];
+    if (!leaf) return;
+    if (leaf.isDeferred) await leaf.loadIfDeferred();
+    const view = leaf.view;
+    if (isCentralSurfaceView(view)) await view.setCentralSurface(surface, editionMode);
   }
 
   /* `date` reste `Date | null` ici : au moins un appelant (journal-view.ts,

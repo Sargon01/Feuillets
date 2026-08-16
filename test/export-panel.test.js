@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { ExportPanel } from "../src/ui/export-panel.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { t } from "../src/i18n/index.js";
 
 /* Même petit DOM factice que test/preview-view.test.js (convention du
  * dépôt : dupliqué, pas partagé), réduit à ce qu'ExportPanel utilise
@@ -245,6 +246,34 @@ test("ExportPanel : mode embedded reste toujours visible et n'affiche ni Actuali
     assert.ok(launch);
     assert.ok(launch.hasClass("mod-cta"));
     assert.ok(launch.hasClass("feuillets-edition-export-cta"));
+  } finally {
+    restore();
+  }
+});
+
+/* §21 du chantier « espace central » : la typographie française — seule
+ * option de l'ancien onglet « Composition & export » qui relève réellement du
+ * geste d'export — est disponible ici. Gabarit, marges, orientation,
+ * en-tête/pied et styles typographiques appartiennent à Mise en page et ne
+ * sont volontairement PAS réaffichés. */
+test("ExportPanel : le mode Édition expose la typographie française, jamais la géométrie de page", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin } = buildFixture();
+    const container = new FakeElement("div");
+    await new ExportPanel(app, plugin, container, { embedded: true }).render();
+
+    const typography = container.querySelector(`[aria-label="${t("settings.exportFrenchTypography.name")}"]`);
+    assert.ok(typography, "la case Typographie française est présente");
+    assert.equal(typography.checked, true, "reflète settings.exportFrenchTypography (true par défaut)");
+
+    typography.checked = false;
+    typography.dispatch("change");
+    assert.equal(plugin.settings.exportFrenchTypography, false, "écrit le MÊME réglage qu'avant");
+
+    for (const label of ["Gabarit d’export", "Orientation", "Marge haute", "En-tête (gauche)"]) {
+      assert.equal(container.querySelector(`[aria-label="${label}"]`), null, `${label} reste dans Mise en page`);
+    }
   } finally {
     restore();
   }

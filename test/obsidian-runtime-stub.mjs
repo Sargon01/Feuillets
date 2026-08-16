@@ -101,7 +101,7 @@ export class Modal {
    - `container._settings` (tableau des instances Setting posées sur ce
      conteneur) et `.controls` (tableau des contrôles ajoutés, dans l'ordre)
      restent alimentés exactement comme avant — test/scenes-editor-i18n.js
-     et test/edition-composition-view.js (settingNames()) en dépendent.
+     et test/edition-composition-content.js (settingNames()) en dépendent.
    - `setDesc`/`addToggle`/`addButton`/`addDropdown` restent utilisables
      SANS qu'un test doive fournir son propre DOM factice enrichi : le
      constructeur crée lui-même settingEl/infoEl/nameEl/descEl/controlEl via

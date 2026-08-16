@@ -7,7 +7,6 @@ import { remapResearchFolderLinks, isInsideResearchSpace, resolveUniqueFolderMat
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 import { NewFolderModal } from "../src/ui/basic-modals.js";
 import { FolderSuggest } from "../src/ui/folder-suggest.js";
-import { ManageProjectsModal } from "../src/ui/project-modals.js";
 import { t } from "../src/i18n/index.js";
 
 /* La décision "écran d'accueil vs gestionnaire de projets" repose sur
@@ -137,7 +136,11 @@ function createView(settings) {
   return { view, contentEl };
 }
 
-test("Binder : sélecteur de projet, Recherche et Filtres sont des actions indépendantes", async () => {
+/* §18/§39 du chantier « espace central » : plus d'icône « Gérer les projets »
+ * (folder-cog) dans la barre du Binder actif — la gestion quotidienne du projet
+ * vit dans l'onglet Projet du panneau latéral. La place est laissée LIBRE pour
+ * un futur bouton Double vue : aucune nouvelle icône ne la remplace. */
+test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône Projet", async () => {
   const root = new TFolder("Projet/Manuscrit");
   const settings = baseSettings({
     projectFolder: root.path,
@@ -194,7 +197,6 @@ test("Binder : sélecteur de projet, Recherche et Filtres sont des actions indé
 
   await view.render(true);
 
-  const projectButton = buttons.find((button) => button.icon === "folder-cog");
   const searchButton = buttons.find((button) => button.icon === "search");
   const filterButton = buttons.find((button) => button.icon === "list-filter");
   const quickActionIcons = buttons
@@ -202,19 +204,8 @@ test("Binder : sélecteur de projet, Recherche et Filtres sont des actions indé
     .map((button) => button.icon);
   assert.ok(searchButton, "l'action Recherche utilise l'icône search");
   assert.ok(filterButton, "l'action Filtres utilise l'icône list-filter sans filtre actif");
-  assert.deepEqual(quickActionIcons, ["folder-cog", "notebook", "layout-grid", "rows-3", "search", "list-filter"]);
-  const originalOpen = ManageProjectsModal.prototype.open;
-  let openedModal = null;
-  ManageProjectsModal.prototype.open = function open() {
-    openedModal = this;
-    return this;
-  };
-  try {
-    projectButton.events.get("click")({});
-    assert.ok(openedModal instanceof ManageProjectsModal, "Projet ouvre le gestionnaire de projets");
-  } finally {
-    ManageProjectsModal.prototype.open = originalOpen;
-  }
+  assert.deepEqual(quickActionIcons, ["notebook", "layout-grid", "rows-3", "search", "list-filter"]);
+  assert.equal(buttons.find((button) => button.icon === "folder-cog"), undefined, "l'icône Gérer les projets a quitté la barre du Binder");
 
   const rootName = findElements(contentEl, (element) => element.classes.has("feuillets-folder-name"))[0];
   const rootRow = findElements(contentEl, (element) => element.classes.has("feuillets-tree-root"))[0];
@@ -262,7 +253,7 @@ test("Binder : sélecteur de projet, Recherche et Filtres sont des actions indé
   assert.ok(buttons.some((button) => button.icon === "filter"), "Filtres utilise l'icône filter lorsqu'un filtre est actif");
 });
 
-test("Binder : aucun mode Coffre — le bouton Projet n'ouvre aucun menu au clic droit", async () => {
+test("Binder : aucun mode Coffre — aucune double vue Coffre ne subsiste", async () => {
   const root = new TFolder("Projet/Manuscrit");
   const settings = baseSettings({
     projectFolder: root.path,
@@ -309,9 +300,7 @@ test("Binder : aucun mode Coffre — le bouton Projet n'ouvre aucun menu au clic
 
   await view.render(true);
 
-  const projectButton = buttons.find((button) => button.icon === "folder-cog");
-  assert.ok(projectButton, "le bouton Projet existe toujours");
-  assert.equal(projectButton.events.get("contextmenu"), undefined, "aucun menu Coffre au clic droit sur Projet");
+  assert.equal(buttons.find((button) => button.icon === "folder-cog"), undefined, "plus de bouton Projet dans la barre du Binder (§18)");
   assert.equal(typeof view.isVaultMode, "undefined", "isVaultMode() a été retiré avec le prototype Coffre");
   assert.equal(typeof view.renderVaultBody, "undefined", "renderVaultBody a été retiré avec le prototype Coffre");
   assert.equal(findElements(contentEl, (el) => el.classes.has("feuillets-vault-split")).length, 0, "aucune double vue Coffre dans le DOM");

@@ -177,7 +177,7 @@ test("frontMatterPages : liste vide si le dossier Front ne contient que la page 
 
 /** Ouvre la sous-section « Pages liminaires » via son chevron
  * (`addExtraButton`, aria-label = « Pages liminaires ») — même patron que
- * test/edition-composition-view.test.js (« Première page se déplie/replie »)
+ * test/edition-composition-content.test.js (« Première page se déplie/replie »)
  * : repliée par défaut, la liste n'existe pas encore dans le DOM. */
 function openFrontMatter(container) {
   container.querySelector('[aria-label="Pages liminaires"]').click();

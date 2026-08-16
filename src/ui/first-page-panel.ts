@@ -83,7 +83,7 @@ export function frontTitleCandidates(app: App, plugin: FirstPagePanelPlugin): TF
  * Extrait mécaniquement de ExportPanel (Phase 3) : même DOM (à l'exception
  * du wrapper, renommé hors du vocabulaire « preview-export », voir
  * styles.css), mêmes classes de contrôle, même comportement — seul
- * l'emplacement du code change. Monté aussi bien par EditionCompositionView
+ * l'emplacement du code change. Monté aussi bien par EditionCompositionContent
  * (Édition → Composition de l'ouvrage, sans callback) que par tout futur
  * consommateur qui voudrait informer une présentation déjà affichée
  * (callback facultatif).

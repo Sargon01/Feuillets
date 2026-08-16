@@ -485,7 +485,13 @@ export const en = {
   "sidebar.tab.notes": "Sheet",
   "sidebar.tab.research": "Research",
   "sidebar.tab.journal": "Journal",
-  "sidebar.tab.project": "Edition",
+  "sidebar.project.header": "PROJECT",
+  "sidebar.project.none": "No active project",
+  "sidebar.project.new": "New project…",
+  "sidebar.project.useExisting": "Use an existing folder…",
+  "sidebar.project.importScrivener": "Import a Scrivener project…",
+  "sidebar.project.manage": "Manage projects…",
+  "sidebar.tab.project": "Project",
   "sidebar.tab.analysis": "Analysis",
   "sidebar.tab.proofreading": "Proofreading",
 
@@ -590,6 +596,7 @@ export const en = {
      the back bar of their secondary views — same pattern as Proofreading
      above (renderProjectTab, sidebar-feuillets-view.ts). */
   "editionHub.backToHome": "Edition",
+  "editionHub.openWorkspace": "Open the Editing workspace",
   "editionDocs.folderFiles": "Files in the Edition folder",
   "analysisResults.repetitions": "Close repetitions",
   "analysisResults.noRepetitions": "No close repetitions detected.",
@@ -894,7 +901,8 @@ export const en = {
   "docxReview.trace.footnotesTransferred": "{count} footnote(s) transferred",
   "docxReview.trace.footnotesTransferredRenamed": "{count} footnote(s) transferred, {renamed} renamed",
 
-  // ---------- Book composition (edition-composition-view.js) — subsection of the Edition space (Phase 2, structural) ----------
+  // ---------- Book composition (edition-composition-content.js) — subsection of the Edition space (Phase 2, structural) ----------
+  "editionComposition.bookInfo": "Book information",
   "editionComposition.displayText": "Book composition",
   "editionComposition.description": "Title page, front matter, table of contents, lists, bibliography, appendices and index.",
 
@@ -949,6 +957,7 @@ export const en = {
   "editionLayout.wordInvalidFile": "Choose a .docx or .dotx file.",
   "editionLayout.wordImported": "Word template imported: {label}",
   "editionLayout.wordImportError": "Word import failed: {message}",
+  "editionLayout.templateOptions": "Template options",
   "editionLayout.duplicated": "Template duplicated: {label}",
   "editionLayout.imported": "Ulysses style imported: {label}",
   "editionLayout.importInvalidFile": "Choose a .ulstyle or .ulss file.",
@@ -956,7 +965,7 @@ export const en = {
 
   // ---------- Export (edition-export-view.js) — subsection of the Edition space (Phase 1) ----------
 
-  // ---------- Editorial documents (edition-docs-view.js) — subsection of the Edition space ----------
+  // ---------- Editorial documents (edition-docs-content.js) — subsection of the Edition space ----------
   "editionDocs.displayText": "Editorial documents",
   "editionDocs.description": "Synopsis, note of intent, biography, cover letter, submissions.",
   "editionDocs.notCreatedBody": "No Edition folder for this project yet. Create it to prepare a synopsis, note of intent, biography, cover letter, and submission tracking.",
@@ -1823,6 +1832,24 @@ export const en = {
   "modal.layout.alignment": "Alignment",
   "modal.layout.marginAbove": "Margin above (pt)",
   "modal.layout.marginBelow": "Margin below (pt)",
+  "modal.layout.categoryPage": "Page",
+  "modal.layout.categoryBody": "Body text",
+  "modal.layout.categoryHeadings": "Headings",
+  "modal.layout.categoryBlockquote": "Blockquote",
+  "modal.layout.categoryFirstPage": "First page",
+  "modal.layout.pageNumberPosition": "Page number position",
+  "modal.layout.alignLeft": "Left",
+  "modal.layout.alignCenter": "Centre",
+  "modal.layout.alignRight": "Right",
+  "modal.layout.elementStyle": "Element style",
+  "modal.layout.chooseElement": "Choose an element…",
+  "layoutWorkspace.displayText": "Layout",
+  "layoutWorkspace.activeTemplate": "Template",
+  "editionWorkspace.displayText": "Edition",
+  "editionWorkspace.modeComposition": "Composition",
+  "editionWorkspace.modeLayout": "Layout",
+  "editionWorkspace.modeExport": "Export",
+  "modal.layout.element": "Element",
 
   "modal.duplicateVersion.title": "Duplicate “{name}” as a new version",
   "modal.duplicateVersion.desc": "Freezes a copy of the manuscript (chapters/parts/scenes) under a new name — Research (characters, places…) stays shared between both versions.",

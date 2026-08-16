@@ -1395,6 +1395,14 @@ export class PreviewView extends ItemView {
    * l'ancienne reste affichée, puis échangée d'un coup — le `scrollTop`
    * n'est donc jamais borné à 0 par le navigateur et la position est
    * restaurée après l'échange. */
+  /** Seul point d'entrée utilisé par le workspace « Mise en page — Manuscrit
+   * éditeur » (chantier mise en page centrale) après une sauvegarde de
+   * gabarit réussie — enveloppe `refreshPreview()` SANS toucher à son corps :
+   * aucune nouvelle logique de rendu, pagination ou césure ici. */
+  async refreshForLayoutChange(): Promise<void> {
+    await this.refreshPreview();
+  }
+
   async refreshPreview(): Promise<void> {
     if (this.closed || !this.scaledContainer) return;
 

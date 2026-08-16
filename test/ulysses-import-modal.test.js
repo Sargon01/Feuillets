@@ -45,8 +45,11 @@ test("UlyssesImportModal : une archive sans ULSS signale clairement le problème
   );
 });
 
-test("EditionLayoutView : Importer Ulysses ouvre la modale sans input file", () => {
-  const source = readFileSync(join(process.cwd(), "src/views/edition-layout-view.ts"), "utf8");
+/* §7/§12 : l'ancien lanceur latéral EditionLayoutView a été supprimé — la
+ * gestion des gabarits (et donc les imports) vit dans la barre d'outils du
+ * mode Mise en page d'EditionWorkspaceContent. */
+test("Mise en page : Importer Ulysses ouvre la modale sans input file", () => {
+  const source = readFileSync(join(process.cwd(), "src/ui/edition-workspace-content.ts"), "utf8");
   assert.match(source, /new UlyssesImportModal/);
   assert.doesNotMatch(source, /type:\s*["']file/);
   assert.doesNotMatch(source, /fileInput/);

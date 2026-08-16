@@ -1,21 +1,15 @@
-import { Modal, Notice, TFile, TFolder, normalizePath, setIcon, type App, type WorkspaceLeaf } from "obsidian";
+import { Modal, Notice, TFile, TFolder, normalizePath, setIcon, setTooltip, type App } from "obsidian";
 import { t } from "../i18n/index.js";
-import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { getEditionRoot, editionFolderPath } from "../services/folder-structure.js";
 import { ensureEditionFolder, EDITION_DOCUMENTS, editionDocumentForName } from "../services/project-files.js";
 import { openFileActivating } from "../utils/dom.js";
-import { prepareSubmission } from "../services/courrier-integration.js";
-import { getCourrierApi } from "../services/courrier-integration.js";
-
-type EditionDocsPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
+import { prepareSubmission, getCourrierApi, type SubmissionHost } from "../services/courrier-integration.js";
 
 type FileExplorerInstance = { revealInFolder?(file: TFile): void };
 type AppWithInternalPlugins = App & {
   internalPlugins?: { getPluginById?(id: string): { instance?: FileExplorerInstance } | undefined };
 };
 
-/** Ordre d'affichage pour les documents conventionnels. Les dossiers
- * apparaissent après, triés alphabétiquement. */
 /** Révèle un fichier dans l'explorateur natif d'Obsidian (pas le Binder de
  * Feuillets) — même geste que le clic droit "Afficher dans l'explorateur"
  * natif. Silencieux si le plugin natif file-explorer est indisponible ou
@@ -98,25 +92,32 @@ class SubmissionSentModal extends Modal {
   onClose(): void { this.contentEl.empty(); }
 }
 
-/** Onglet "Documents éditoriaux" du nouvel espace Édition (lot 1) : affiche
- * le contenu du dossier Edition/ (facultatif, voisin de Manuscrit — voir
- * folder-structure.js) et permet de le créer, d'y ouvrir/créer des
- * documents et de les révéler dans l'explorateur natif. Volontairement
- * indépendant du panneau Révision DOCX (DocxReviewView) : les deux
- * cohabitent dans le même onglet "Édition" du panneau latéral
- * (sidebar-feuillets-view.js) sans partager d'état. */
-export class EditionDocsView extends BaseFeuilletsView {
-  declare plugin: EditionDocsPlugin;
-  declare targetContainer?: HTMLElement;
+export type EditionDocsContentPlugin = SubmissionHost & {
+  settings: FeuilletsSettings;
+  getProjectFolder(): TFolder | null;
+  saveSettings(): Promise<void>;
+};
 
-  private folderStates = new Map<string, boolean>(); // path -> isCollapsed (persisted in settings.collapsed)
-  /** Voir EditionCompositionView.embedded (edition-composition-view.ts) :
-   * même flag, même raison, local à chaque vue. */
-  private embedded: boolean;
+/** Contenu "Documents éditoriaux" de l'espace central Édition (§ micro-correctif
+ * « ne plus embarquer d'ItemView dans BoardView ») : composant DOM PUR, sans
+ * View ni ItemView ni WorkspaceLeaf — monté directement dans la surface
+ * centrale de BoardView, sur la MÊME leaf que le Tableau (jamais une leaf
+ * annexe). Même logique métier que l'ancienne EditionDocsView : dossier
+ * Edition/, création de document, soumissions/Courrier, arborescence,
+ * ouverture/reveal, état replié, menus/actions — extraite mécaniquement,
+ * seul l'emplacement du code change. */
+export class EditionDocsContent {
+  constructor(
+    private app: App,
+    private plugin: EditionDocsContentPlugin,
+    private container: HTMLElement,
+  ) {}
 
-  constructor(leaf: WorkspaceLeaf, plugin: EditionDocsPlugin, opts: { embedded?: boolean } = {}) {
-    super(leaf, plugin);
-    this.embedded = !!opts.embedded;
+  /** Réattache le composant à un nouveau conteneur — l'hôte reconstruit son
+   * DOM à chaque rendu, l'instance et son état (dossiers repliés, via les
+   * réglages) survivent. */
+  attach(container: HTMLElement): void {
+    this.container = container;
   }
 
   private isFolderCollapsed(folderPath: string): boolean {
@@ -142,38 +143,20 @@ export class EditionDocsView extends BaseFeuilletsView {
     void this.render();
   }
 
-  getViewType(): string {
-    return "feuillets-edition-docs";
-  }
-
-  getDisplayText(): string {
-    return t("editionDocs.displayText");
-  }
-
-  getIcon(): string {
-    return "folder-cog";
-  }
-
-  async onOpen(): Promise<void> {
-    await this.render();
+  private iconBtn(parent: HTMLElement, icon: string, tooltip: string, onClick?: (e: MouseEvent) => void | Promise<void>): HTMLElement {
+    const btn = parent.createEl("button", { cls: "clickable-icon" });
+    setIcon(btn, icon);
+    setTooltip(btn, tooltip);
+    if (onClick) btn.addEventListener("click", (e) => { void onClick(e); });
+    return btn;
   }
 
   async render(): Promise<void> {
-    const container = this.targetContainer || this.contentEl;
+    const container = this.container;
     container.empty();
     container.addClass("feuillets-edition-docs-container");
 
     const section = container.createDiv({ cls: "feuillets-project-section" });
-    if (!this.embedded) {
-      const collapsed = this.renderSectionHead(
-        section,
-        "folder-cog",
-        t("editionDocs.displayText"),
-        "editionDocs",
-        "documents"
-      );
-      if (collapsed) return;
-    }
 
     const root = this.plugin.getProjectFolder();
     if (!root) {
@@ -473,5 +456,5 @@ export class EditionDocsView extends BaseFeuilletsView {
 }
 
 /** Réexporté pour les services/tests qui n'ont besoin que du chemin, sans
- * dépendre de toute la vue. */
+ * dépendre de tout le composant. */
 export { editionFolderPath };

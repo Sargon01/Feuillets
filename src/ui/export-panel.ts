@@ -258,6 +258,19 @@ export class ExportPanel {
     fileName.setAttribute("aria-label", t("preview.export.outputFileName"));
     fileName.addEventListener("change", () => this.setExportFileName(fileName.value));
 
+    /* §21 : seule option de l'ancien onglet « Composition & export » qui
+       relève réellement du geste d'export. Le gabarit, les marges,
+       l'orientation, l'en-tête/pied et les styles typographiques appartiennent
+       à Mise en page et ne sont volontairement PAS réaffichés ici. */
+    const typographyControl = this.editionPropertyRow(panel, t("settings.exportFrenchTypography.name"));
+    const typography = typographyControl.createEl("input", { type: "checkbox" });
+    typography.checked = this.plugin.settings.exportFrenchTypography !== false;
+    typography.setAttribute("aria-label", t("settings.exportFrenchTypography.name"));
+    typography.addEventListener("change", () => {
+      this.plugin.settings.exportFrenchTypography = typography.checked;
+      void this.plugin.saveSettings?.();
+    });
+
     const footer = panel.createDiv({ cls: "feuillets-edition-export-footer" });
     const launch = footer.createEl("button", { cls: "mod-cta feuillets-edition-export-cta" });
     launch.setText(t("project.compilation.exportBtn"));

@@ -3,7 +3,7 @@ import { hasKnownProject } from "../services/folder-structure.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
-import { ManageProjectsModal, NewProjectModal, OpenExistingFolderModal, DuplicateVersionModal } from "../ui/project-modals.js";
+import { NewProjectModal, OpenExistingFolderModal, DuplicateVersionModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -791,10 +791,12 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     const header = container.createDiv({ cls: "feuillets-header" });
     const actions = header.createDiv({ cls: "feuillets-actions" });
-    this.iconBtn(actions, "folder-cog", t("binder.manageProjects"), () => {
-      new ManageProjectsModal(this.app, this.plugin).open();
-    });
-    this.barSep(actions);
+    /* §18 : plus d'icône « Gérer les projets » ici — la gestion quotidienne du
+       projet vit désormais dans l'onglet Projet du panneau latéral (menu natif),
+       et l'administration avancée reste ManageProjectsModal (commande de
+       palette, écran sans projet, onboarding — tous inchangés). La place est
+       VOLONTAIREMENT laissée libre pour un futur bouton Double vue : aucune
+       nouvelle icône ne la remplace dans ce chantier. */
     this.iconBtn(actions, "notebook", "Carnet", () =>
       this.plugin.generateCanvasBoard()
     );

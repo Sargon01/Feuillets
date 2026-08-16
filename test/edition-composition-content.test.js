@@ -1,8 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Setting, TFolder } from "obsidian";
-import { EditionCompositionView } from "../src/views/edition-composition-view.js";
+import { EditionCompositionContent } from "../src/ui/edition-composition-content.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+
+/* Micro-correctif « ne plus embarquer d'ItemView dans BoardView » :
+ * EditionCompositionContent est un composant DOM PUR (app, plugin, container),
+ * sans View ni ItemView ni WorkspaceLeaf, toujours monté "embedded" (seul
+ * usage réel, depuis EditionWorkspaceContent) — plus de grand en-tête
+ * repliable ni de getDisplayText()/getIcon() hérités d'ItemView. */
 
 /* Même petit DOM factice que test/edition-export-view.test.js (convention
  * du dépôt : dupliqué, pas partagé), complété d'un tableau `.settings` par
@@ -139,13 +145,6 @@ function controls(element, kind) {
   return allElements(element).flatMap((item) => item.settings).filter((control) => control.kind === kind);
 }
 
-/** Noms des lignes `Setting` (chaque Setting instancié pousse dans
- * `container._settings`, comportement natif non stubbé de la classe
- * Setting) — dans l'ordre exact de rendu. */
-function settingNames(element) {
-  return allElements(element).flatMap((item) => (Array.isArray(item._settings) ? item._settings : [])).map((s) => s.name);
-}
-
 /** Plugin minimal — juste assez pour que FirstPagePanel (Première page) se
  * rende à l'intérieur de Composition. */
 function buildPlugin() {
@@ -174,34 +173,54 @@ function buildPlugin() {
       orders: {},
       folderPositions: {},
       projectMeta: {},
+      level1Role: "chapitres",
+      chapterNumbering: "continu",
+      sceneNumbering: "hier",
+      autoRename: false,
+      renamePrefix: "chapitre",
+      insertFolderTitles: true,
+      insertTitles: true,
+      insertSceneTitles: false,
+      footnoteRenumberOnCompile: true,
+      manuscriptTitle: "",
+      manuscriptAuthor: "",
+      separator: "",
+      compilePresets: [],
+      activePreset: -1,
     },
     getProjectFolder: () => app.vault.getAbstractFileByPath(manuscript.path),
     saveSettings: async () => {},
+    /* Réglages déplacés depuis les Paramètres (§20 du chantier « espace
+       central ») : Composition rend désormais aussi Structure/Notes/
+       Informations/Compilation, qui lisent ces mêmes accesseurs que
+       l'ancien onglet de réglages. */
+    unitLabel: () => "scène",
+    unitLabelPlural: () => "scènes",
+    refreshView: () => {},
   };
   return { app, plugin };
 }
 
-test("EditionCompositionView : titre et icône corrects", () => {
+test("EditionCompositionContent : composant DOM pur — aucune WorkspaceLeaf, aucune ItemView", () => {
   const { app, plugin } = buildPlugin();
-  const view = new EditionCompositionView({ app, contentEl: new FakeElement("div") }, plugin);
-  assert.equal(view.getDisplayText(), "Composition de l’ouvrage");
-  assert.equal(view.getIcon(), "book-open");
+  const view = new EditionCompositionContent(app, plugin, new FakeElement("div"));
+  assert.equal(typeof view.getViewType, "undefined", "pas de getViewType : ce n'est pas une View");
+  assert.equal(typeof view.leaf, "undefined", "aucune WorkspaceLeaf reçue ni stockée");
 });
 
-test("EditionCompositionView : { embedded: true } masque le grand en-tête repliable mais garde groupes et contenu intacts", async () => {
+test("EditionCompositionContent : jamais de grand en-tête repliable — groupes et contenu intacts (seul mode réel, toujours intégré)", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
     const contentEl = new FakeElement("div");
-    const view = new EditionCompositionView({ app, contentEl }, plugin, { embedded: true });
+    const view = new EditionCompositionContent(app, plugin, contentEl);
 
-    await view.onOpen();
+    await view.render();
 
-    assert.equal(contentEl.querySelector(".feuillets-section-title-text"), null, "pas d'en-tête repliable en mode intégré");
-    // Les groupes et le contenu restent identiques au mode autonome.
+    assert.equal(contentEl.querySelector(".feuillets-section-title-text"), null, "pas d'en-tête repliable — le composant est toujours intégré");
     assert.deepEqual(
       contentEl.querySelectorAll(".feuillets-edition-group-label").map((node) => node.textContent),
-      ["Contenu", "Éléments générés", "Fin d’ouvrage"]
+      ["Contenu", "Éléments générés", "Fin d’ouvrage", "Numérotation", "Notes", "Informations de l’ouvrage", "Compilation"]
     );
     for (const label of ["Première page", "Pages liminaires", "Sommaire", "Tables", "Bibliographie", "Annexes"]) {
       assert.ok(contentEl.textContent.includes(label), `${label} est présent`);
@@ -211,19 +230,17 @@ test("EditionCompositionView : { embedded: true } masque le grand en-tête repli
   }
 });
 
-test("EditionCompositionView : Composition reste la section principale ; toutes les sous-sections réellement implémentées y sont présentes, une seule ligne Setting native par entrée", async () => {
+test("EditionCompositionContent : Composition reste la section principale ; toutes les sous-sections réellement implémentées y sont présentes, une seule ligne Setting native par entrée", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
     const contentEl = new FakeElement("div");
-    const view = new EditionCompositionView({ app, contentEl }, plugin);
+    const view = new EditionCompositionContent(app, plugin, contentEl);
 
-    await view.onOpen();
+    await view.render();
 
     const section = contentEl.querySelector(".feuillets-project-section");
     assert.ok(section, "utilise le langage visuel feuillets-project-section");
-    const head = contentEl.querySelector(".feuillets-section-title-text");
-    assert.equal(head.textContent, "Composition de l’ouvrage");
 
     for (const label of ["Première page", "Pages liminaires", "Sommaire", "Table des matières", "Tables", "Bibliographie", "Annexes"]) {
       assert.ok(contentEl.textContent.includes(label), `${label} est présent`);
@@ -237,7 +254,7 @@ test("EditionCompositionView : Composition reste la section principale ; toutes 
     assert.equal(contentEl.querySelectorAll(".feuillets-edition-composition-separator").length, 0);
     assert.deepEqual(
       contentEl.querySelectorAll(".feuillets-edition-group-label").map((node) => node.textContent),
-      ["Contenu", "Éléments générés", "Fin d’ouvrage"]
+      ["Contenu", "Éléments générés", "Fin d’ouvrage", "Numérotation", "Notes", "Informations de l’ouvrage", "Compilation"]
     );
     const ordered = ["Contenu", "Première page", "Pages liminaires", "Éléments générés", "Sommaire", "Table des matières", "Tables", "Fin d’ouvrage", "Bibliographie", "Annexes"];
     let previousIndex = -1;
@@ -252,8 +269,12 @@ test("EditionCompositionView : Composition reste la section principale ; toutes 
     assert.ok(contentEl.querySelector('[aria-label="Pages liminaires"]'));
 
     // Sommaire / Table des matières / Tables / Bibliographie / Annexes :
-    // chacune un seul toggle natif, wiré à la persistance réelle.
-    const checkboxes = contentEl.querySelectorAll("input");
+    // chacune un seul toggle natif, wiré à la persistance réelle. Filtré sur
+    // le préfixe « Inclure » : Composition héberge désormais aussi les cases
+    // des réglages déplacés depuis les Paramètres (§20), qui ne font pas
+    // partie des éléments générés.
+    const checkboxes = contentEl.querySelectorAll("input")
+      .filter((node) => (node.getAttribute("aria-label") || "").startsWith("Inclure "));
     assert.equal(checkboxes.length, 5, "une case par élément généré");
 
     // Annexes porte en plus un bouton compact (Créer le dossier Annexes).
@@ -285,13 +306,13 @@ test("EditionCompositionView : Composition reste la section principale ; toutes 
   }
 });
 
-test("EditionCompositionView : Première page se déplie/replie via son chevron, sans perdre le contenu existant", async () => {
+test("EditionCompositionContent : Première page se déplie/replie via son chevron, sans perdre le contenu existant", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
     const contentEl = new FakeElement("div");
-    const view = new EditionCompositionView({ app, contentEl }, plugin);
-    await view.onOpen();
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
 
     assert.equal(contentEl.querySelector('[aria-label="Inclure la page de titre"]'), null, "repliée par défaut");
 
@@ -310,39 +331,35 @@ test("EditionCompositionView : Première page se déplie/replie via son chevron,
   }
 });
 
-test("EditionCompositionView : repliée, elle ne montre que l'en-tête (aucune sous-section n'est rendue)", async () => {
+test("EditionCompositionContent : aucune dépendance à PreviewView", async () => {
   const restoreDom = installDom();
   const restoreSetting = installSettingStub();
   try {
     const { app, plugin } = buildPlugin();
-    plugin.settings.collapsed["editionComposition:panel"] = true;
-    const contentEl = new FakeElement("div");
-    const view = new EditionCompositionView({ app, contentEl }, plugin);
-
-    await view.onOpen();
-
-    assert.equal(contentEl.querySelector(".feuillets-first-page"), null);
-    assert.equal(contentEl.querySelector('[aria-label="Pages liminaires"]'), null);
-    assert.equal(settingNames(contentEl).length, 0);
-    assert.ok(contentEl.querySelector(".feuillets-section-title-text"), "l'en-tête reste visible");
+    const view = new EditionCompositionContent(app, plugin, new FakeElement("div"));
+    // Aucun champ ni méthode évoquant PreviewView.
+    assert.equal("compileScope" in view, false);
+    assert.equal("effectiveExportScope" in view, false);
+    await view.render();
   } finally {
     restoreSetting();
     restoreDom();
   }
 });
 
-test("EditionCompositionView : aucune dépendance à PreviewView", async () => {
+test("EditionCompositionContent : réattacher à un nouveau conteneur (attach) conserve l'instance", async () => {
   const restoreDom = installDom();
-  const restoreSetting = installSettingStub();
   try {
     const { app, plugin } = buildPlugin();
-    const view = new EditionCompositionView({ app, contentEl: new FakeElement("div") }, plugin);
-    // Aucun champ ni méthode évoquant PreviewView.
-    assert.equal("compileScope" in view, false);
-    assert.equal("effectiveExportScope" in view, false);
-    await view.onOpen();
+    const view = new EditionCompositionContent(app, plugin, new FakeElement("div"));
+    await view.render();
+
+    const second = new FakeElement("div");
+    view.attach(second);
+    await view.render();
+
+    assert.ok(second.textContent.includes("Première page"), "le nouveau conteneur reçoit le rendu");
   } finally {
-    restoreSetting();
     restoreDom();
   }
 });

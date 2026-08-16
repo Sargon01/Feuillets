@@ -187,7 +187,7 @@ test("previewFirstPageFields : cinq rôles, dans l'ordre d'affichage", () => {
 
 /** Ouvre la sous-section « Première page » via son chevron (`addExtraButton`,
  * aria-label = « Première page ») — même patron que
- * test/edition-composition-view.test.js (« Première page se déplie/replie »)
+ * test/edition-composition-content.test.js (« Première page se déplie/replie »)
  * : repliée par défaut, les champs n'existent pas encore dans le DOM. Le
  * clic déclenche un `render()` asynchrone (lecture du dossier de gabarits
  * personnalisés puis du contenu du Front) : un macrotâche laisse le temps à

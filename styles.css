@@ -395,7 +395,38 @@
 
 .feuillets-binder-isolated .feuillets-item {
   padding-left: var(--size-4-2);
+  /* §7 micro-lot finition : un peu plus de respiration verticale que le
+     Binder normal, pour que les entrées (titre + aperçu 1-3 lignes) restent
+     individualisées sans jamais devenir des cartes. */
+  padding-top: 6px;
+  padding-bottom: 6px;
 }
+
+/* §8 : séparateur très discret entre deux feuillets isolés — pas de
+   contour complet, pas de border-radius, pas de fond individuel, la
+   respiration verticale ci-dessus fait l'essentiel du travail. L'état
+   sélectionné/actif existant (background plein) reste au-dessus et prime
+   visuellement sur ce simple filet. */
+.feuillets-binder-isolated .feuillets-item {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.feuillets-binder-isolated .feuillets-item:last-child {
+  border-bottom: none;
+}
+
+/* §7 : hiérarchie titre / aperçu — le titre doit se lire immédiatement,
+   l'aperçu reste clairement secondaire. Purement visuel : ni le clamp
+   1-3 lignes existant (feuillets-view.ts), ni la donnée, ne changent. */
+.feuillets-binder-isolated .feuillets-item-name {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+/* .feuillets-binder-isolated .feuillets-item-preview (marge titre/aperçu) :
+   posée juste après la règle .feuillets-item-preview d'origine (plus bas
+   dans ce fichier) — test/binder-label-icon-and-native-selection.test.js
+   lit cette dernière par un regex non ancré sur le premier « .feuillets-
+   item-preview { » du fichier ; la garder groupée avec l'originale évite de
+   faire remonter par erreur cette règle compound avant elle. */
 
 .feuillets-empty {
   padding: var(--size-4-4) var(--size-4-3);
@@ -1023,6 +1054,13 @@
   margin-top: 1px;
   cursor: default;
   user-select: none;
+}
+
+/* Binder isolé §7 (micro-lot finition UI) : un peu plus d'écart entre le
+   titre et l'aperçu que dans le Binder normal, pour renforcer la hiérarchie
+   visuelle sans toucher au clamp 1-3 lignes ci-dessus. */
+.feuillets-binder-isolated .feuillets-item-preview {
+  margin-top: 4px;
 }
 
 .feuillets-tree-pane .feuillets-folder-row.is-active {
@@ -7813,6 +7851,248 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   justify-content: flex-end;
 }
 .feuillets-tp-footer .setting-item { border: none; padding: 0; }
+
+/* Workspace central « Mise en page » (chantier mise en page centrale + micro-
+   lot finition UI) : la vraie Preview à gauche fait office de visualisation —
+   cette leaf ne montre qu'une ligne « Gabarit » compacte + une navigation
+   verticale par catégories + un inspecteur dense, grammaire native
+   Obsidian (pas de formulaire PDF, pas de cartes) — utilisable jusque vers
+   320-400px de large. */
+/* ===== Espace central Édition — CONTRAT DE LAYOUT (§33) =================
+   La racine ne défile JAMAIS : elle empile une barre de modes figée et un
+   corps qui prend le reste. C'est la surface du mode, tout en bas, qui porte
+   l'unique défilement vertical. Sans ce contrat, Composition et Export
+   étaient clippés en bas et Mise en page rognée horizontalement (deux
+   conteneurs se disputaient le défilement). */
+.feuillets-layout-workspace {
+  padding: var(--size-4-2) var(--size-4-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+/* Surface centrale de BoardView (Documents / Édition) : même contrat, elle
+   occupe tout l'espace laissé par la barre du Tableau et ne défile pas
+   elle-même. */
+.feuillets-central-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.feuillets-central-surface > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+/* Documents éditoriaux au centre : une seule zone défilante, la sienne. */
+.feuillets-central-surface .feuillets-edition-docs-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--size-4-2) var(--size-4-4);
+}
+
+/* Chantier espace central Édition : barre de mode Composition/Mise en page/
+   Export, navigation de PREMIER niveau (remplace « Page/Corps/Titres… »
+   comme entrée principale de la leaf) — grammaire native Obsidian, compacte,
+   jamais de retour à la ligne, utilisable dès 320-400px. */
+.feuillets-edition-mode-nav {
+  display: flex;
+  flex-direction: row;
+  gap: var(--size-4-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: var(--size-4-1);
+  flex: 0 0 auto;
+}
+.feuillets-edition-mode-item {
+  white-space: nowrap;
+  padding: 5px var(--size-4-3);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.feuillets-edition-mode-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+/* §34 : état actif DISCRET — pas un rectangle gris plein. Le mode courant se
+   signale par un filet d'accent et une couleur de texte normale, comme une
+   barre d'onglets native. */
+.feuillets-edition-mode-item.is-active {
+  background: transparent;
+  color: var(--text-normal);
+  font-weight: var(--font-semibold, 600);
+  box-shadow: inset 0 -2px 0 var(--interactive-accent);
+}
+.feuillets-edition-mode-item.is-active:hover {
+  background: var(--background-modifier-hover);
+}
+.feuillets-edition-mode-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Surface d'un mode : L'UNIQUE zone défilante de l'espace Édition. */
+.feuillets-edition-mode-surface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Neutralisation des règles pensées pour le panneau latéral, UNIQUEMENT sous
+   le contexte central : la première section ne doit pas garder son filet ni
+   son décalage de tête, et le padding latéral de 10px (calibré pour 250-300px)
+   laisse place à une respiration de lecture. */
+.feuillets-edition-mode-surface .feuillets-edition-composition-container {
+  padding: 0 var(--size-4-2);
+}
+.feuillets-edition-mode-surface .feuillets-project-section:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
+}
+
+/* §2 : ligne « Gabarit [select] » compacte, hauteur proche d'un Setting
+   natif — pas de zone grisée pleine largeur. */
+.feuillets-layout-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: 30px;
+}
+.feuillets-layout-toolbar-title {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.feuillets-layout-toolbar select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+}
+
+/* §3 : navigation verticale (110-130px) à gauche de l'inspecteur, jamais de
+   retour à la ligne, jamais de gros bouton rempli — mise en évidence
+   discrète (filet d'accent + fond léger), grammaire native Obsidian. */
+.feuillets-layout-body {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--size-4-3);
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+/* Maquette « Première page » (§28) : au-dessus de l'inspecteur du rôle, avec
+   la même respiration que les autres blocs de la catégorie. Sa LARGEUR vient
+   du composant (ratio réel de la page), jamais d'ici. */
+.feuillets-layout-miniature {
+  display: flex;
+  justify-content: center;
+  padding: var(--size-4-1) 0 var(--size-4-3);
+}
+.feuillets-layout-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 120px;
+  width: 120px;
+  gap: 1px;
+}
+.feuillets-layout-nav-item {
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 5px var(--size-4-2);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.feuillets-layout-nav-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.feuillets-layout-nav-item.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  font-weight: var(--font-semibold, 600);
+  box-shadow: inset 2px 0 0 var(--interactive-accent);
+}
+
+/* §5 : inspecteur dense — un panneau de réglages, pas un formulaire PDF.
+   Réglages natifs (.setting-item) resserrés : ~30-34px par ligne, fond
+   transparent, séparateurs très légers, sections respirent un peu plus. */
+.feuillets-layout-inspector {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.feuillets-layout-inspector h4 {
+  margin: var(--size-4-3) 0 var(--size-4-1);
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-normal);
+}
+.feuillets-layout-inspector h4:first-child { margin-top: 0; }
+.feuillets-layout-inspector .setting-item {
+  padding: 4px 0;
+  border-top: 1px solid var(--background-modifier-border);
+  background: transparent;
+  min-height: 0;
+}
+.feuillets-layout-inspector .setting-item:first-of-type { border-top: none; }
+.feuillets-layout-inspector .setting-item-info { margin-right: var(--size-4-2); }
+.feuillets-layout-inspector .setting-item-name {
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+.feuillets-layout-inspector .setting-item-control {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.feuillets-layout-inspector .setting-item-control input[type="text"],
+.feuillets-layout-inspector .setting-item-control input[type="number"] {
+  max-width: 110px;
+}
+.feuillets-layout-section {
+  margin-top: var(--size-4-2);
+  padding-top: var(--size-4-1);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.feuillets-layout-section .setting-item:first-of-type { border-top: none; }
 
 /* Équilibre des chapitres (onglet Analyse) — barres horizontales sobres,
    couleurs de thème pour se fondre au reste. */

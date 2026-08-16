@@ -1,6 +1,15 @@
 import { Menu, Modal, Setting, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
-import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
+import type { WorkspaceLeaf } from "obsidian";
+import { VIEW_BOARD, VIEW_PREVIEW, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
+import { EditionDocsContent } from "../ui/edition-docs-content.js";
+import { openScopeWithPreviewBesideLeaf } from "./preview-view.js";
+import { createProjectScope } from "../services/compile-scope.js";
+import {
+  EditionWorkspaceContent,
+  type EditionWorkspaceMode,
+  type EditionWorkspacePlugin,
+} from "../ui/edition-workspace-content.js";
 import { openFileActivating } from "../utils/dom.js";
 import { parseStoryDate, stripMarkdown } from "../utils/core.js";
 import {
@@ -22,12 +31,23 @@ import { toValue } from "../utils/scene-fields.js";
 type ProjectNode = TFile | TFolder;
 type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
 
+/** Surface affichée par l'espace central Feuillets — état de SESSION pur
+ * (§1 du chantier « espace central ») : jamais persisté, ni dans
+ * `settings.boardMode`, ni dans `projectMeta`, ni dans les réglages.
+ *
+ * "workspace" est l'espace historique du panneau Cartes (Cartes / Plan /
+ * Chemin de fer / Chronologie, pilotés par `meta.boardMode`, inchangés).
+ * "documents" et "edition" ne sont PAS des représentations du manuscrit :
+ * ils ne touchent donc jamais `boardMode`, ce qui garantit qu'un aller-retour
+ * Plan → Documents → workspace retrouve exactement Plan. */
+export type CentralSurface = "workspace" | "documents" | "edition";
+
 /* isSceneFile/openMergeModal/duplicateManyScenes/openMoveManyModal sont
    attachés dynamiquement au plugin par initScenesEditor (scenes-editor.ts),
    pas déclarés comme méthodes de classe dans main.js — absents du type
    inféré de FeuilletsPlugin, donc ajoutés ici comme dans ScenesEditorPlugin.
    _binderMultiSelect : idem, attaché par base-feuillets-view.js. */
-type BoardViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
+type BoardViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & EditionWorkspacePlugin & {
   _binderMultiSelect?: Set<string>;
   moveStack?: unknown[];
   isSceneFile(file: TFile): boolean;
@@ -146,9 +166,79 @@ export class BoardView extends BaseFeuilletsView {
   _renderGen?: number;
   outlineColumns?: Record<string, boolean>;
 
+  /** §1 : état de session, JAMAIS persisté. */
+  centralSurface: CentralSurface = "workspace";
+  /** Mode courant de l'espace Édition — session également, retenu par la vue
+   * pour qu'un aller-retour Documents → Édition retrouve Mise en page. */
+  editionMode: EditionWorkspaceMode = "composition";
+  /** Instances des surfaces non-workspace, réutilisées d'un rendu à l'autre
+   * (la vue reconstruit son DOM mais pas son état métier). */
+  docsContent: EditionDocsContent | null = null;
+  editionContent: EditionWorkspaceContent | null = null;
+  /** Preview CLASSIQUE ouverte/réutilisée à l'entrée dans Édition (§9). Sa
+   * fermeture à la sortie dépend de `editionOwnsPreview` : si une Preview
+   * était déjà ouverte avant Édition, la vue ne la possède pas et ne la
+   * ferme jamais ; si Édition l'a créée pour le split, elle est détachée en
+   * quittant la surface Édition (micro-correctif cycle de vie Preview). */
+  private linkedPreviewLeaf: WorkspaceLeaf | null = null;
+  /** true seulement si CETTE instance a créé `linkedPreviewLeaf` (aucune
+   * VIEW_PREVIEW n'existait avant l'entrée dans Édition). */
+  private editionOwnsPreview = false;
+
   constructor(leaf: import("obsidian").WorkspaceLeaf, plugin: BoardViewPlugin) {
     super(leaf, plugin);
     this.focusedFolderPath = null;
+  }
+
+  /** Point d'entrée unique des commandes et de la barre centrale (§11).
+   * Entrer dans "edition" ouvre/réutilise UNE Preview classique à côté de
+   * CETTE leaf ; entrer dans "documents" ne touche jamais à Preview (§5).
+   * Quitter "edition" vers une autre surface détache la Preview SEULEMENT
+   * si Édition l'a créée elle-même (micro-correctif cycle de vie Preview) —
+   * une Preview préexistante n'est jamais touchée. */
+  async setCentralSurface(surface: CentralSurface, editionMode?: EditionWorkspaceMode): Promise<void> {
+    const entering = this.centralSurface !== surface;
+    const leavingEdition = entering && this.centralSurface === "edition" && surface !== "edition";
+    this.centralSurface = surface;
+    if (editionMode) {
+      this.editionMode = editionMode;
+      this.editionContent?.setMode(editionMode);
+    }
+    if (leavingEdition) this.closeEditionOwnedPreview();
+    if (surface === "edition" && entering) await this.openLinkedPreview();
+    await this.render(true);
+  }
+
+  /** §9/§10 : réutilise le helper stabilisé — Preview déjà ouverte reprise
+   * telle quelle, sinon UNE seule créée à côté de la leaf du Tableau. Aucun
+   * faux Preview embarqué, aucun onglet Édition supplémentaire.
+   * Mémorise en plus si CETTE instance vient de la créer (`editionOwnsPreview`)
+   * pour savoir si elle devra être détachée en quittant Édition. */
+  private async openLinkedPreview(): Promise<void> {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return;
+    const preexisting = this.app.workspace.getLeavesOfType(VIEW_PREVIEW).length > 0;
+    this.linkedPreviewLeaf = await openScopeWithPreviewBesideLeaf(
+      this.app,
+      createProjectScope(root.path),
+      this.leaf,
+    );
+    this.editionOwnsPreview = !preexisting && !!this.linkedPreviewLeaf;
+    this.editionContent?.setLinkedPreview(this.linkedPreviewLeaf);
+  }
+
+  /** Détache la Preview créée par Édition (CAS B) — no-op si la Preview
+   * préexistait avant Édition (CAS A, jamais fermée) ou si aucune Preview
+   * n'a été créée. Appelé uniquement en quittant réellement la surface
+   * Édition, jamais lors d'un changement interne Composition/Mise en
+   * page/Export. */
+  private closeEditionOwnedPreview(): void {
+    if (this.editionOwnsPreview && this.linkedPreviewLeaf) {
+      this.linkedPreviewLeaf.detach();
+    }
+    this.linkedPreviewLeaf = null;
+    this.editionOwnsPreview = false;
+    this.editionContent?.setLinkedPreview(null);
   }
 
   getViewType(): string {
@@ -341,8 +431,14 @@ export class BoardView extends BaseFeuilletsView {
     if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
     if (this.selectionModeActive === undefined) this.selectionModeActive = false;
 
+    /* §3 : les outils STRICTEMENT Board (filtres, options de vue, sélection
+       multiple, annuler un déplacement) n'ont aucun sens sur les surfaces
+       Documents/Édition — leur rendu est conditionné ici, aucune logique
+       n'est supprimée. */
+    const inWorkspace = this.centralSurface === "workspace";
+
     const bar = container.createDiv({ cls: "feuillets-board-bar" }).createDiv({ cls: "feuillets-board-bar-right" });
-    this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", t("board.filter.tooltip"), (e: MouseEvent) => {
+    if (inWorkspace) this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", t("board.filter.tooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
       for (const st of ["Tous", ...getProjectStatuses(S).filter(Boolean), "Sans statut"]) {
@@ -444,11 +540,20 @@ export class BoardView extends BaseFeuilletsView {
       menu.showAtMouseEvent(e);
     });
 
-    this.barSep(bar);
+    if (inWorkspace) this.barSep(bar);
 
+    /* §2 : un clic sur l'un des quatre modes historiques ramène TOUJOURS à la
+       surface workspace, en plus de son comportement `boardMode` d'origine —
+       ni l'ordre, ni les icônes, ni la persistance ne changent. */
     const switchMode = (m: string) => async () => {
       if (meta) meta.boardMode = m;
       S.boardMode = m;
+      /* Micro-correctif cycle de vie Preview : ce bouton ramène directement
+         à "workspace" sans passer par setCentralSurface — la détacher ici
+         si Édition l'avait créée, sinon closeEditionOwnedPreview() est un
+         no-op (Preview préexistante ou aucune Preview). */
+      this.closeEditionOwnedPreview();
+      this.centralSurface = "workspace";
       await this.plugin.saveSettings();
       void this.render();
     };
@@ -458,10 +563,24 @@ export class BoardView extends BaseFeuilletsView {
     for (const [k] of BOARD_MODES) {
       if (!visibleModes.includes(k)) continue;
       const btn = this.iconBtn(modeGroup, icons[k], this.boardModeLabel(k), switchMode(k));
-      if (activeMode === k) btn.addClass("feuillets-mode-active");
+      if (inWorkspace && activeMode === k) btn.addClass("feuillets-mode-active");
     }
 
-    this.iconBtn(modeGroup, "sliders-horizontal", t("board.viewOptionsTooltip"), (e: MouseEvent) => {
+    /* §2 : Documents éditoriaux et Édition sont deux accès PERMANENTS, jamais
+       masquables par `hiddenBoardModes` et ne modifiant jamais `boardMode` —
+       même grammaire visuelle que les modes (iconBtn + icône Lucide +
+       `feuillets-mode-active`), aucune barre décorative supplémentaire. */
+    this.barSep(modeGroup);
+    const docsBtn = this.iconBtn(modeGroup, "folder-cog", t("editionDocs.displayText"), () => {
+      void this.setCentralSurface("documents");
+    });
+    if (this.centralSurface === "documents") docsBtn.addClass("feuillets-mode-active");
+    const editionBtn = this.iconBtn(modeGroup, "panel-top", t("editionWorkspace.displayText"), () => {
+      void this.setCentralSurface("edition");
+    });
+    if (this.centralSurface === "edition") editionBtn.addClass("feuillets-mode-active");
+
+    if (inWorkspace) this.iconBtn(modeGroup, "sliders-horizontal", t("board.viewOptionsTooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("board.visibleModesHeader")).setDisabled(true));
       for (const [k] of BOARD_MODES) {
@@ -490,6 +609,15 @@ export class BoardView extends BaseFeuilletsView {
       this.buildModeOptionsMenu(menu, activeMode, { S, meta, pType: projectType, wholeManuscript, outlineColumns });
       menu.showAtMouseEvent(e);
     });
+
+    /* Surfaces Documents/Édition : la barre s'arrête ici — plus aucun outil
+       Board en dessous, et le contenu réel prend toute la place restante. */
+    if (!inWorkspace) {
+      const surface = container.createDiv({ cls: "feuillets-central-surface" });
+      if (this.centralSurface === "documents") await this.renderDocumentsSurface(surface);
+      else await this.renderEditionSurface(surface);
+      return;
+    }
 
     this.barSep(bar);
 
@@ -627,6 +755,37 @@ export class BoardView extends BaseFeuilletsView {
       }
       this.renderTimeline(scrollArea, root, numbering);
     }
+  }
+
+  /** §4/§5, micro-correctif « ne plus embarquer d'ItemView dans BoardView » :
+   * EditionDocsContent est un composant DOM pur — aucune WorkspaceLeaf, aucun
+   * cycle de vie de View propre, monté directement dans la surface centrale
+   * (même leaf que le Tableau, comme toujours). N'ouvre, ne ferme et ne
+   * déplace AUCUNE Preview. */
+  private async renderDocumentsSurface(surface: HTMLElement): Promise<void> {
+    const host = surface.createDiv();
+    if (!this.docsContent) this.docsContent = new EditionDocsContent(this.app, this.plugin, host);
+    else this.docsContent.attach(host);
+    await this.docsContent.render();
+  }
+
+  /** §8 : l'espace Édition vit dans CETTE leaf (`Feuillets — Tableau`), jamais
+   * dans un onglet dédié. La Preview classique associée a déjà été
+   * ouverte/réutilisée par `setCentralSurface` — jamais ici, pour qu'un simple
+   * re-rendu ne la recrée pas (§10). */
+  private async renderEditionSurface(surface: HTMLElement): Promise<void> {
+    const host = surface.createDiv();
+    if (!this.editionContent) {
+      this.editionContent = new EditionWorkspaceContent(this.app, this.plugin, this.leaf, host, {
+        initialMode: this.editionMode,
+        linkedPreviewLeaf: this.linkedPreviewLeaf,
+        onModeChange: (mode) => { this.editionMode = mode; },
+      });
+    } else {
+      this.editionContent.attach(host);
+      this.editionContent.setLinkedPreview(this.linkedPreviewLeaf);
+    }
+    await this.editionContent.render();
   }
 
   buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx & { outlineColumns: Record<string, boolean> }): void {
