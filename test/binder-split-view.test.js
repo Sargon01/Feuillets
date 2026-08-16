@@ -482,10 +482,28 @@ test("2026 à gauche : sélectionne le displayRoot, ne touche pas workingRoot, j
   assert.equal(openFolderInContinuCalled, false);
 });
 
-test("chevron Blog à gauche : replie/déplie seulement, ne sélectionne pas, jamais de Continu", async () => {
-  // Blog a de vrais sous-dossiers (2025/2026/Brouillons) — contrairement à
-  // 2026 (uniquement des fichiers), c'est le seul cas où le chevron gauche
-  // est réellement actif (voir childFolders.length > 0, renderSplitBody).
+test("micro-correctif : aucun chevron dans la Library gauche", async () => {
+  const { view, contentEl } = createBlogFixture();
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  // §37/Vault : le mini-navigateur Vault (feuillets-binder-research-row)
+  // garde volontairement son propre chevron — seuls les dossiers du
+  // manuscrit (arbre projet) en sont dépouillés ici.
+  const childRows = findAll(
+    treePane,
+    (el) =>
+      el.classes.has("feuillets-folder-row") &&
+      !el.classes.has("feuillets-tree-root") &&
+      !el.classes.has("feuillets-binder-research-row")
+  );
+  for (const row of childRows) {
+    const chevrons = findAll(row, (el) => el.classes.has("feuillets-cell-icon"));
+    assert.equal(chevrons.length, 0, "plus aucun chevron sur une ligne de dossier de la Library gauche");
+  }
+});
+
+test("clic Blog à gauche : sélectionne Blog et le déplie (a des sous-dossiers)", async () => {
   const { view, contentEl, settings, blog } = createBlogFixture();
   let openFolderInContinuCalled = false;
   view.openFolderInContinu = async () => { openFolderInContinuCalled = true; };
@@ -495,16 +513,63 @@ test("chevron Blog à gauche : replie/déplie seulement, ne sélectionne pas, ja
   const blogRow = findAll(treePane, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root")).find(
     (r) => findAll(r, (el) => el.classes.has("feuillets-folder-name"))[0]?.text === "Blog"
   );
-  const chevron = findAll(blogRow, (el) => el.classes.has("feuillets-cell-icon"))[0];
-  assert.ok(chevron && typeof chevron.events.get("click") === "function", "chevron actif sur Blog (a des sous-dossiers)");
-  const before = settings.binderSelectedPath;
+  assert.equal(settings.collapsed[blog.path], undefined, "Blog déplié par défaut");
   view.render = async () => {};
-  chevron.events.get("click")({ preventDefault() {}, stopPropagation() {} });
+  blogRow.events.get("click")();
   await flush();
 
-  assert.equal(settings.collapsed[blog.path], true);
-  assert.equal(settings.binderSelectedPath, before, "binderSelectedPath inchangé par le chevron");
+  assert.equal(settings.binderSelectedPath, blog.path, "le clic sélectionne Blog comme displayRoot");
+  assert.equal(settings.collapsed[blog.path], true, "le premier clic déplie→replie l'état initial (déplié par défaut, donc replie)");
   assert.equal(openFolderInContinuCalled, false);
+});
+
+test("second clic Blog à gauche : replie sans changer la sélection", async () => {
+  const { view, contentEl, settings, blog } = createBlogFixture({
+    settingsOverrides: { binderSelectedPath: "Projet/Blog", collapsed: {} },
+  });
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const blogRow = findAll(treePane, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root")).find(
+    (r) => findAll(r, (el) => el.classes.has("feuillets-folder-name"))[0]?.text === "Blog"
+  );
+  view.render = async () => {};
+
+  // 1er clic : Blog était déplié (collapsed absent) → replie.
+  blogRow.events.get("click")();
+  await flush();
+  assert.equal(settings.collapsed[blog.path], true);
+  assert.equal(settings.binderSelectedPath, blog.path);
+
+  // 2nd clic : Blog était replié → déplie à nouveau, sélection inchangée.
+  blogRow.events.get("click")();
+  await flush();
+  assert.equal(settings.collapsed[blog.path], undefined);
+  assert.equal(settings.binderSelectedPath, blog.path, "la sélection ne bouge jamais au clic sur le même dossier");
+});
+
+test("clic dossier gauche (2026, sans sous-dossier) : sélection seule, aucun Continu, aucune isolation", async () => {
+  const { view, contentEl, settings, y2026 } = createBlogFixture();
+  let openFolderInContinuCalled = false;
+  let isolateFolderCalled = false;
+  view.openFolderInContinu = async () => { openFolderInContinuCalled = true; };
+  view.isolateFolder = () => { isolateFolderCalled = true; };
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const row2026 = findAll(treePane, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root")).find(
+    (r) => findAll(r, (el) => el.classes.has("feuillets-folder-name"))[0]?.text === "2026"
+  );
+  const before = view._binderWorkingRootPath;
+  view.render = async () => {};
+  row2026.events.get("click")();
+  await flush();
+
+  assert.equal(settings.binderSelectedPath, y2026.path);
+  assert.equal(settings.collapsed[y2026.path], undefined, "2026 n'a pas de sous-dossier : rien à replier");
+  assert.equal(openFolderInContinuCalled, false);
+  assert.equal(isolateFolderCalled, false);
+  assert.equal(view._binderWorkingRootPath, before, "_binderWorkingRootPath jamais modifié par un clic gauche");
 });
 
 /* --- §37 : Library gauche sans icône folder/folder-open --- */

@@ -2158,25 +2158,13 @@ export class FeuilletsView extends BaseFeuilletsView {
 
         const childFolders = this.plugin.getOrderedChildren(child).filter((c) => c instanceof TFolder);
         const childCollapsed = !!S.collapsed[child.path];
-        const chevron = row.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
-        if (childFolders.length > 0) {
-          setIcon(chevron, childCollapsed ? "chevron-right" : "chevron-down");
-          chevron.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            void (async () => {
-              if (S.collapsed[child.path]) delete S.collapsed[child.path];
-              else S.collapsed[child.path] = true;
-              await this.plugin.saveSettings();
-              void this.render(true);
-            })();
-          });
-        } else {
-          chevron.addClass("is-empty");
-        }
 
-        /* §17 : jamais d'icône folder/folder-open sur un dossier enfant de
-           la Library — un dossier s'y reconnaît au chevron + nom seuls. */
+        /* Micro-correctif "repli sans chevron" : plus aucun chevron dans la
+           Library gauche — un dossier s'y reconnaît au nom seul. Le clic sur
+           la ligne (voir plus bas) sélectionne TOUJOURS ce dossier comme
+           displayRoot, et bascule EN PLUS S.collapsed[child.path] quand il a
+           de vrais sous-dossiers. §17 : jamais d'icône folder/folder-open
+           non plus sur un dossier enfant de la Library. */
         row.createSpan({ cls: "feuillets-folder-name" }).setText(child.name);
 
         const addBtn = row.createSpan({ cls: "feuillets-folder-add" });
@@ -2202,7 +2190,23 @@ export class FeuilletsView extends BaseFeuilletsView {
           menu.showAtMouseEvent(e);
         });
 
-        row.addEventListener("click", () => { void selectFolder(child); });
+        /* Clic sur la ligne (plus de chevron séparé) : sélectionne TOUJOURS
+           ce dossier comme displayRoot, ET bascule S.collapsed[child.path]
+           s'il a de vrais sous-dossiers — jamais Continu, jamais
+           _binderWorkingRootPath (voir doc de méthode ci-dessus, §33/§34).
+           Un second clic replie donc sans changer la sélection puisque
+           binderSelectedPath vaut déjà child.path. */
+        row.addEventListener("click", () => {
+          void (async () => {
+            S.binderSelectedPath = child.path;
+            if (childFolders.length > 0) {
+              if (S.collapsed[child.path]) delete S.collapsed[child.path];
+              else S.collapsed[child.path] = true;
+            }
+            await this.plugin.saveSettings();
+            void this.render(true);
+          })();
+        });
 
         this.attachDragHandlers(grip, row, parent, i, siblings, treePane);
 
