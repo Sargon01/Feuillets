@@ -543,6 +543,7 @@ export const fr = {
   "sidebar.project.mappingField.date": "Date",
   "sidebar.tab.project": "Projet",
   "sidebar.tab.analysis": "Analyse",
+  "sidebar.tab.stats": "Statistiques",
   "sidebar.tab.proofreading": "Relecture",
 
   /* Page d'accueil de l'onglet Relecture (deux entrées vers les sous-vues
@@ -729,6 +730,13 @@ export const fr = {
   "analysis.group.thisSheet": "Ce feuillet",
   "analysis.group.novel": "Le roman",
   "analysis.group.project": "Le projet",
+  "analysis.home.sheet": "Statistiques du feuillet",
+  "analysis.home.selection": "Statistiques de la sélection",
+  "analysis.home.project": "Statistiques du projet",
+  "analysis.backToHome": "Retour aux statistiques",
+  "analysis.selection.empty": "Aucune sélection à analyser",
+  "analysis.selection.metricsTitle": "Métriques de la sélection",
+  "analysis.selection.linguisticTitle": "Analyse linguistique (sélection)",
 
   "analysis.pace.action": "Action",
   "analysis.pace.dialogue": "Dialogue",

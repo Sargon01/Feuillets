@@ -135,8 +135,8 @@ test("SidebarFeuilletsView remplace les onglets historiques docx et metadata", (
   assert.equal(docx.relecturePage, "docx");
 
   const analyse = createSidebar("analyse").sidebar;
-  assert.equal(analyse.activeTab, "relecture");
-  assert.equal(analyse.relecturePage, "analysis");
+  assert.equal(analyse.activeTab, "stats");
+  assert.equal(analyse.relecturePage, "home");
 
   assert.equal(createSidebar("metadata").sidebar.activeTab, "notes");
 });
@@ -147,10 +147,10 @@ test("SidebarFeuilletsView : l'ancien activeRightPanelTab \"docx\" ouvre Relectu
   assert.deepEqual(calls.map((call) => call.name), ["docx"]);
 });
 
-test("SidebarFeuilletsView : l'ancien activeRightPanelTab \"analyse\" ouvre Relecture directement sur Analyse du texte", async () => {
+test("SidebarFeuilletsView : l'ancien activeRightPanelTab \"analyse\" ouvre directement Statistiques", async () => {
   const { sidebar, calls } = createSidebar("analyse");
   await sidebar.render();
-  assert.deepEqual(calls.map((call) => call.name), ["relecture"]);
+  assert.deepEqual(calls.map((call) => call.name), ["analyse"]);
 });
 
 test("SidebarFeuilletsView démarre sur l'onglet Recherche mémorisé", () => {
@@ -163,12 +163,12 @@ test("SidebarFeuilletsView n'affiche pas les onglets masqués", async () => {
   await sidebar.render();
 
   assert.deepEqual(contentEl.children[0].children.map((button) => button.icon), [
-    "file-text", "calendar", "folder-cog", "spell-check",
+    "file-text", "calendar", "folder-cog", "bar-chart-3", "spell-check",
   ]);
 });
 
-test("SidebarFeuilletsView conserve l'ordre des quatre onglets visibles", async () => {
-  const { sidebar, contentEl } = createSidebar("notes", [], ["research", "analyse"]);
+test("SidebarFeuilletsView conserve l'ordre des onglets visibles", async () => {
+  const { sidebar, contentEl } = createSidebar("notes", [], ["research", "stats"]);
 
   await sidebar.render();
 
@@ -211,12 +211,77 @@ test("SidebarFeuilletsView sauvegarde l'onglet avant de relancer le rendu", asyn
 
 test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné", async () => {
   const { sidebar, calls } = createSidebar();
-  for (const tab of ["notes", "research", "journal"]) {
+  for (const tab of ["notes", "research", "journal", "stats"]) {
     calls.length = 0;
     sidebar.activeTab = tab;
     await sidebar.render();
-    assert.deepEqual(calls.map((call) => call.name), [tab]);
+    const expectedCall = tab === "stats" ? "analyse" : tab;
+    assert.deepEqual(calls.map((call) => call.name), [expectedCall]);
   }
+});
+
+test("SidebarFeuilletsView affiche exactement 6 onglets dans le bon ordre", async () => {
+  const { sidebar, contentEl } = createSidebar("notes");
+  await sidebar.render();
+
+  const icons = contentEl.children[0].children.map((button) => button.icon);
+  assert.deepEqual(icons, [
+    "file-text", "book-marked", "calendar", "folder-cog", "bar-chart-3", "spell-check",
+  ]);
+
+  const allTabIds = [];
+  for (let i = 0; i < icons.length; i++) {
+    sidebar.activeTab = contentEl.children[0].children[i].id || ["notes", "research", "journal", "project", "stats", "relecture"][i];
+    allTabIds.push(sidebar.activeTab);
+  }
+  assert.deepEqual(allTabIds, ["notes", "research", "journal", "project", "stats", "relecture"]);
+});
+
+test("SidebarFeuilletsView : l'onglet Statistiques utilise la clé i18n correcte", async () => {
+  const { sidebar, contentEl } = createSidebar("stats");
+  await sidebar.render();
+
+  const statsButton = contentEl.children[0].children.find((button) => button.icon === "bar-chart-3");
+  assert.ok(statsButton, "l'onglet Statistiques est présent");
+  assert.equal(statsButton.getAttribute("aria-label"), t("sidebar.tab.stats"));
+});
+
+test("SidebarFeuilletsView : cliquer Statistiques active l'onglet et sauvegarde le choix", async () => {
+  const { sidebar, contentEl, settings } = createSidebar("notes");
+  await sidebar.render();
+
+  const statsButton = contentEl.children[0].children.find((button) => button.icon === "bar-chart-3");
+  assert.ok(statsButton, "le bouton Statistiques existe");
+
+  let renderCalled = false;
+  const origRender = sidebar.render.bind(sidebar);
+  sidebar.render = async () => { renderCalled = true; await origRender(); };
+
+  await statsButton.events.get("click")();
+
+  assert.equal(sidebar.activeTab, "stats");
+  assert.equal(settings.activeRightPanelTab, "stats");
+  assert.ok(renderCalled, "render() est appelé après le clic");
+});
+
+test("SidebarFeuilletsView : l'onglet Statistiques rend la sous-vue AnalysisView", async () => {
+  const { sidebar, calls } = createSidebar("stats");
+  await sidebar.render();
+
+  assert.deepEqual(calls.map((call) => call.name), ["analyse"]);
+});
+
+test("SidebarFeuilletsView : aucune seconde AnalysisView n'est créée pour Stats", () => {
+  const { sidebar } = createSidebar("stats");
+  const real = new SidebarFeuilletsView(
+    { app: sidebar.app, contentEl: new FakeElement() },
+    sidebar.plugin
+  );
+
+  assert.ok(real.subViews.analyse, "subViews.analyse existe");
+  assert.equal(typeof real.subViews.analyse.render, "function", "analyse a une méthode render");
+  const analyseCount = Object.values(real.subViews).filter((v) => v === real.subViews.analyse).length;
+  assert.equal(analyseCount, 1, "AnalysisView n'est stockée qu'une fois");
 });
 
 /* §12/§13 du chantier « espace central » : l'onglet `project` n'héberge plus
@@ -540,7 +605,7 @@ test("SidebarFeuilletsView : la sidebar Projet ne remonte aucun composant Éditi
   }
 });
 
-test("SidebarFeuilletsView ne rafraîchit au file-open que Notes et Analyse du texte, jamais l'accueil Relecture ni Révision DOCX", async () => {
+test("SidebarFeuilletsView ne rafraîchit au file-open que Notes, Statistiques et Analyse du texte, jamais l'accueil Relecture ni Révision DOCX", async () => {
   const { sidebar, listeners, calls } = createSidebar();
   const registered = [];
   sidebar.registerEvent = (event) => registered.push(event);
@@ -552,6 +617,7 @@ test("SidebarFeuilletsView ne rafraîchit au file-open que Notes et Analyse du t
     { tab: "research", page: "home", expected: [] },
     { tab: "journal", page: "home", expected: [] },
     { tab: "project", page: "home", expected: [] },
+    { tab: "stats", page: "home", expected: ["analyse"] },
     { tab: "relecture", page: "home", expected: [] },
     { tab: "relecture", page: "analysis", expected: ["relecture"] },
     { tab: "relecture", page: "docx", expected: [] },
@@ -579,7 +645,7 @@ test("SidebarFeuilletsView invalide les caches Analyse à la modification", asyn
   assert.equal(sidebar.subViews.notes.targetContainer, null);
 });
 
-test("SidebarFeuilletsView renderAllSubViews respecte la nouvelle organisation : Projet se redessine entièrement, Relecture selon sa page, une seule sous-vue pour les autres onglets", async () => {
+test("SidebarFeuilletsView renderAllSubViews respecte la nouvelle organisation : Projet se redessine entièrement, Stats et Relecture selon leur état, une seule sous-vue pour les autres onglets", async () => {
   const { sidebar, calls } = createSidebar("project");
   // Gestion de projet : aucune sous-vue montée — un rendu complet du panneau.
   let fullRenders = 0;
@@ -594,6 +660,11 @@ test("SidebarFeuilletsView renderAllSubViews respecte la nouvelle organisation :
   sidebar.activeTab = "research";
   await sidebar.renderAllSubViews(true);
   assert.deepEqual(calls.map((call) => call.name), ["research"]);
+
+  calls.length = 0;
+  sidebar.activeTab = "stats";
+  await sidebar.renderAllSubViews(true);
+  assert.deepEqual(calls.map((call) => call.name), ["analyse"], "Stats rend la sous-vue AnalysisView");
 
   // Relecture : rien à rafraîchir sur l'accueil (pas de sous-vue affichée),
   // uniquement TextAnalysisView sur "analysis", uniquement DocxReviewView
@@ -690,7 +761,7 @@ test("SidebarFeuilletsView : cliquer sur Analyse du texte puis Révision DOCX ou
 });
 
 test("SidebarFeuilletsView : le bouton Retour des pages secondaires de Relecture revient à l'accueil", async () => {
-  for (const legacyTab of ["docx", "analyse"]) {
+  for (const legacyTab of ["docx"]) {
     const { sidebar, contentEl } = createSidebar(legacyTab);
     await sidebar.render();
 
@@ -724,8 +795,8 @@ function createEmptyingSubView(name, calls) {
   };
 }
 
-test("SidebarFeuilletsView : la barre Retour des pages Analyse/Révision DOCX survit au vidage de leur propre conteneur par la sous-vue", async () => {
-  for (const [legacyTab, subViewKey] of [["analyse", "relecture"], ["docx", "docx"]]) {
+test("SidebarFeuilletsView : la barre Retour de Révision DOCX survit au vidage du conteneur par la sous-vue", async () => {
+  for (const [legacyTab, subViewKey] of [["docx", "docx"]]) {
     const { sidebar, contentEl, calls } = createSidebar(legacyTab);
     sidebar.subViews[subViewKey] = createEmptyingSubView(subViewKey, calls);
 

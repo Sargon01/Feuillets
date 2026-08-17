@@ -8,8 +8,10 @@ import { getChapters, flattenFiles, isFrontMatter, resourcesFolderPath } from ".
 import { findRepetitions } from "../utils/repetitions.js";
 import { ensureFolder } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
+import { VIEW_SCRIVENINGS } from "../constants.js";
+import type { CompileScope } from "../services/compile-scope.js";
 
-import { TFile, TFolder, Notice, normalizePath, type Editor } from "obsidian";
+import { TFile, TFolder, Notice, normalizePath, setIcon, type Editor } from "obsidian";
 
 type AnalysisSettings = FeuilletsSettings & {
   analysisRepWindow?: number;
@@ -30,6 +32,40 @@ type RythmeKey = "action" | "dialogue" | "description" | "introspection";
 type RythmeValues = Record<RythmeKey, number>;
 
 type ChapterStat = { title: string; words: number; dialogueRatio: number };
+
+/** Sous-page affichée dans AnalysisView (LOT 3, finition UX) — état
+ * purement en session (jamais persisté dans les réglages, jamais dans
+ * DEFAULT_SETTINGS) : "home" affiche la page d'accueil compacte avec portée
+ * dynamique ; "sheet"/"selection"/"project" affichent chaque sous-page.
+ * Voir AnalysisView.analysisPage. */
+type AnalysisPage = "home" | "sheet" | "selection" | "project";
+
+/** Vue Continu active détectée — typage local minimal sans any. */
+type ActiveContinuStatsView = {
+  compileScope: CompileScope | null;
+  getViewType(): string;
+  getMemberPaths(): readonly string[];
+  getLiveBody(path: string): string | null;
+};
+
+/** Résolution dynamique de la portée statistique d'après le Continu actif
+ * ou le feuillet en cours. */
+type CurrentStatsScope =
+  | {
+      kind: "sheet";
+      files: readonly TFile[];
+      liveBodies: ReadonlyMap<string, string>;
+    }
+  | {
+      kind: "selection";
+      files: readonly TFile[];
+      liveBodies: ReadonlyMap<string, string>;
+    }
+  | {
+      kind: "none";
+      files: readonly TFile[];
+      liveBodies: ReadonlyMap<string, string>;
+    };
 
 
 type DashboardData = {
@@ -78,6 +114,10 @@ export class AnalysisView extends BaseFeuilletsView {
   declare targetContainer?: HTMLElement;
   _chaptersCache: ChapterStat[] | null = null;
   _dashboardCache: DashboardData | null = null;
+  /** Sous-page active (home/sheet/project) — état de SESSION uniquement, voir
+   * le type AnalysisPage ci-dessus : jamais lu ni écrit dans les réglages,
+   * repart sur "home" à chaque recréation de cette instance. */
+  analysisPage: AnalysisPage = "home";
 
   getViewType(): string {
     return "feuillets-analysis";
@@ -270,6 +310,92 @@ export class AnalysisView extends BaseFeuilletsView {
     );
   }
 
+  /** Détecte une vue Continu active et valide. Critères : doit être la
+   * feuille la plus récente du rootSplit, exposer getViewType/getMemberPaths/
+   * getLiveBody, avoir un compileScope du projet Feuillets actif. */
+  private activeContinuStatsView(): ActiveContinuStatsView | null {
+    // Vérifier que getMostRecentLeaf existe (absent dans les tests)
+    if (typeof this.app.workspace.getMostRecentLeaf !== "function") return null;
+
+    const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
+    if (!leaf) return null;
+
+    const view = leaf.view as Partial<ActiveContinuStatsView> | null;
+    if (!view || typeof view.getViewType !== "function") return null;
+    if (view.getViewType() !== VIEW_SCRIVENINGS) return null;
+    if (typeof view.getMemberPaths !== "function") return null;
+    if (typeof view.getLiveBody !== "function") return null;
+    if (!view.compileScope) return null;
+
+    // Vérifier que le Continu appartient au projet Feuillets actif
+    const projectRoot = this.plugin.getProjectFolder();
+    if (!projectRoot || view.compileScope.projectRoot !== projectRoot.path) {
+      return null;
+    }
+
+    return view as ActiveContinuStatsView;
+  }
+
+  /** Résout la portée statistique dynamique d'après le Continu actif
+   * ou le feuillet en cours. Remplit la Map des "live bodies" depuis
+   * le Continu quand disponibles. */
+  private resolveCurrentStatsScope(): CurrentStatsScope {
+    const continu = this.activeContinuStatsView();
+    const liveBodies = new Map<string, string>();
+    let files: TFile[] = [];
+
+    if (continu) {
+      // Continu actif : utiliser ses membres comme portée
+      const memberPaths = continu.getMemberPaths();
+      const validFiles: TFile[] = [];
+
+      for (const path of memberPaths) {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (file instanceof TFile && file.extension === "md") {
+          validFiles.push(file);
+          const liveBody = continu.getLiveBody(path);
+          if (liveBody !== null) {
+            liveBodies.set(path, liveBody);
+          }
+        }
+      }
+
+      files = validFiles;
+
+      // Déterminer la portée d'après le nombre de fichiers
+      if (files.length === 0) {
+        return { kind: "none", files, liveBodies };
+      } else if (files.length === 1) {
+        return { kind: "sheet", files, liveBodies };
+      } else {
+        return { kind: "selection", files, liveBodies };
+      }
+    } else {
+      // Pas de Continu : utiliser le feuillet actif
+      const activeFile = this.app.workspace.getActiveFile();
+      if (activeFile && activeFile.extension === "md") {
+        files = [activeFile];
+        return { kind: "sheet", files, liveBodies };
+      }
+
+      return { kind: "none", files, liveBodies };
+    }
+  }
+
+  /** Lit le corps d'un fichier de la portée statistique, en utilisant
+   * prioritairement le live body du Continu si disponible. */
+  private async readStatsBody(file: TFile, liveBodies: ReadonlyMap<string, string>): Promise<string> {
+    const livePath = file.path;
+    if (liveBodies.has(livePath)) {
+      return liveBodies.get(livePath)!;
+    }
+
+    // Fallback : cachedRead + retrait du frontmatter
+    const raw = await this.app.vault.cachedRead(file);
+    const fm = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+    return fm ? raw.slice(fm[0].length) : raw;
+  }
+
   /** Sélectionne TOUTES les occurrences d'une répétition dans l'éditeur du
    * feuillet actif (sélections multiples CodeMirror → les mots répétés sont
    * surlignés dans le texte) et fait défiler jusqu'à la première. */
@@ -296,55 +422,126 @@ export class AnalysisView extends BaseFeuilletsView {
     return out;
   }
 
-  /** En-tête de groupe (Ce feuillet / Le roman) : grand, avec icône et
-   * repliable (masque tous les outils du groupe). État de repli persistant.
-   * Retourne true si le groupe est replié. */
-  group(container: HTMLElement, icon: string, title: string, key: string): boolean {
-    const S = this.plugin.settings;
-    const collapseKey = `analyse-group:${key}`;
-    const collapsed = !!(S.collapsed && S.collapsed[collapseKey]);
-    renderCollapsibleHead(container, {
-      classes: {
-        section: "feuillets-analysis-grouphead",
-        head: "feuillets-analysis-grouphead-inner",
-        icon: "feuillets-analysis-grouphead-icon",
-        title: "feuillets-analysis-grouphead-title",
-      },
-      title,
-      icon,
-      collapsed,
-      collapseKey,
-      settings: S,
-      onToggle: async () => {
-        await this.plugin.saveSettings();
+
+  /** Page d'accueil de Statistiques (LOT 3, finition UX) — deux lignes de
+   * navigation compactes avec portée dynamique. Première ligne : sheet ou
+   * selection d'après le Continu actif ou le feuillet en cours. Deuxième
+   * ligne : toujours projet. Réutilise exactement le gabarit du panneau
+   * Feuillet (NotesView.renderPropertiesRow/renderWorkingNotesRow). */
+  private renderAnalysisHome(container: HTMLElement): void {
+    const scope = this.resolveCurrentStatsScope();
+
+    // Construire la liste des entrées : première dynamique, deuxième toujours Projet
+    type HomeEntry = { icon: string; label: string; page: "sheet" | "selection" | "project" };
+    const entries: HomeEntry[] = [];
+
+    // Première ligne : dynamique selon la portée
+    if (scope.kind === "selection") {
+      entries.push({ icon: "files", label: t("analysis.home.selection"), page: "selection" });
+    } else if (scope.kind === "sheet") {
+      entries.push({ icon: "file-text", label: t("analysis.home.sheet"), page: "sheet" });
+    }
+    // Si kind === "none", ne pas afficher de première ligne
+
+    // Deuxième ligne : toujours Projet
+    entries.push({ icon: "bar-chart-3", label: t("analysis.home.project"), page: "project" });
+
+    for (const entry of entries) {
+      const section = container.createDiv({
+        cls: "feuillets-notes-section",
+      });
+      const head = section.createDiv({
+        cls: "feuillets-notes-section-head feuillets-clickable",
+      });
+      const iconSpan = head.createSpan({
+        cls: "feuillets-notes-section-icon",
+      });
+      setIcon(iconSpan, entry.icon);
+
+      head.createSpan({
+        cls: "feuillets-notes-section-title",
+        text: entry.label,
+      });
+
+      const chevronSpan = head.createSpan({
+        cls: "feuillets-notes-section-icon",
+      });
+      chevronSpan.setAttr("style", "margin-left: auto;");
+      setIcon(chevronSpan, "chevron-right");
+
+      head.addEventListener("click", () => {
+        this.analysisPage = entry.page;
         void this.render();
-      },
+      });
+    }
+  }
+
+  /** Barre Retour pour les sous-pages (feuillet et projet) — même style
+   * que le panneau Feuillet (NotesView). */
+  private renderBackBar(container: HTMLElement): void {
+    const bar = container.createDiv({
+      cls: "feuillets-notes-back-bar",
     });
-    return collapsed;
+    const btn = bar.createEl("button", {
+      cls: "feuillets-back-btn",
+      text: ` ${t("analysis.backToHome")}`,
+    });
+    const iconSpan = btn.createSpan({
+      cls: "feuillets-back-icon",
+    });
+    setIcon(iconSpan, "arrow-left");
+    btn.prepend(iconSpan);
+    btn.addEventListener("click", () => {
+      this.analysisPage = "home";
+      void this.render();
+    });
   }
 
   async render(): Promise<void> {
     const container = this.targetContainer || this.contentEl;
     container.empty();
-    container.addClass("feuillets-notes-container");
 
-    const file = this.app.workspace.getActiveFile();
-    if (!(file instanceof TFile) || file.extension !== "md") {
+    const wrapper = container.createDiv({
+      cls: "feuillets-notes-container"
+    });
+
+    if (this.analysisPage === "home") {
+      this.renderAnalysisHome(wrapper);
+    } else if (this.analysisPage === "sheet") {
+      this.renderBackBar(wrapper);
+      await this.renderSheetPage(wrapper);
+    } else if (this.analysisPage === "selection") {
+      this.renderBackBar(wrapper);
+      await this.renderSelectionPage(wrapper);
+    } else {
+      // analysisPage === "project"
+      this.renderBackBar(wrapper);
+      await this.renderProjectPage(wrapper);
+    }
+  }
+
+  /** Sous-page « Feuillet » — contenu EXACT de l'ancien groupe repliable
+   * « Ce feuillet » (métriques, répétitions, rythme, analyse linguistique),
+   * sans son en-tête. Utilise la portée dynamique (Continu actif ou
+   * activeFile) et les live bodies en priorité. */
+  private async renderSheetPage(container: HTMLElement): Promise<void> {
+    const scope = this.resolveCurrentStatsScope();
+
+    // Vérifier que la portée est toujours un feuillet unique
+    if (scope.kind !== "sheet") {
+      // La portée a changé : afficher l'état vide
       container.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.openSheetToAnalyze"));
       return;
     }
 
-    const raw = await this.app.vault.cachedRead(file);
+    const file = scope.files[0];
+    const raw = await this.readStatsBody(file, scope.liveBodies);
     const a = analyzeProse(raw);
     const S = this.plugin.settings;
     const projectRoot = this.plugin.getProjectFolder();
     const isFiction = projectRoot ? S.projectMeta?.[projectRoot.path]?.type !== "nonfiction" && S.projectMeta?.[projectRoot.path]?.type !== "free" : true;
 
-    // ========================= CE FEUILLET =========================
-    if (!this.group(container, "file-text", t("analysis.group.thisSheet"), "feuillet")) {
-    const gb = container.createDiv({ cls: "feuillets-analysis-groupbody" });
-
-    this.tool(gb, "metrics", "bar-chart-3", t("analysis.metrics.title"), (section) => {
+    this.tool(container, "metrics", "bar-chart-3", t("analysis.metrics.title"), (section) => {
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const addRow = (label: string, value: string, hint?: string) => {
         const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
@@ -376,7 +573,7 @@ export class AnalysisView extends BaseFeuilletsView {
     const repMinLen = S.analysisRepMinLen ?? 4;
     const reps = findRepetitions(raw.slice(bodyStart), { window: repWindow, minLen: repMinLen });
 
-    this.tool(gb, "repetitions", "copy", t("analysis.repetitions.title"), (section) => {
+    this.tool(container, "repetitions", "copy", t("analysis.repetitions.title"), (section) => {
       // Réglages : fenêtre (distance max en mots) et longueur mini d'un mot.
       const ctrl = section.createDiv({ cls: "feuillets-notes-metadata-list" });
       const numCtrl = (label: string, value: number, set: (v: number) => void, min: number) => {
@@ -427,7 +624,7 @@ export class AnalysisView extends BaseFeuilletsView {
     });
 
     // Rythme du feuillet (fiction uniquement).
-    if (isFiction) this.tool(gb, "rythme", "sliders-horizontal", t("analysis.pace.sheetTitle"), (section) => {
+    if (isFiction) this.tool(container, "rythme", "sliders-horizontal", t("analysis.pace.sheetTitle"), (section) => {
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
         t("analysis.pace.instructions", { max: String(RYTHME_MAX) })
       );
@@ -458,7 +655,7 @@ export class AnalysisView extends BaseFeuilletsView {
 
     // ---- Analyse linguistique du feuillet (optionnelle via compagnon) ----
     renderLinguisticAnalysisSection(
-      gb,
+      container,
       "vocab-sheet",
       t("analysis.vocab.sheetTitle"),
       this.plugin.getAnalysisProvider ? this.plugin.getAnalysisProvider() : null,
@@ -466,11 +663,143 @@ export class AnalysisView extends BaseFeuilletsView {
       async () => this.app.vault.cachedRead(file)
     );
 
-    } // fin du groupe « Ce feuillet »
+  }
 
-    // ========================= LE ROMAN =========================
-    if (!this.group(container, "book-open", t("analysis.group.project"), "roman")) {
-    const gb = container.createDiv({ cls: "feuillets-analysis-groupbody" });
+  /** Sous-page « Sélection » — statistiques agrégées sur 2+ fichiers du
+   * Continu actif. Métriques et répétitions composites. Pas de rythme
+   * (propriété individuelle). Pas de Dashboard ni équilibre (ressorts Projet).
+   * Corpus = live bodies en priorité, fallback cachedRead. */
+  private async renderSelectionPage(container: HTMLElement): Promise<void> {
+    const scope = this.resolveCurrentStatsScope();
+
+    // Vérifier que la sélection est toujours valide (2+ fichiers)
+    if (scope.kind !== "selection") {
+      // La sélection a changé (on n'a plus 2+ fichiers) : basculer vers sheet
+      // ou afficher l'état vide
+      if (scope.kind === "sheet") {
+        this.analysisPage = "sheet";
+        void this.render();
+        return;
+      } else {
+        // kind === "none"
+        container.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.selection.empty"));
+        return;
+      }
+    }
+
+    // Lire les corps et construire le corpus composite
+    let corpus = "";
+    for (const file of scope.files) {
+      const body = await this.readStatsBody(file, scope.liveBodies);
+      if (corpus) corpus += "\n\n";
+      corpus += body;
+    }
+
+    // Analyser le corpus composé
+    const a = analyzeProse(corpus);
+    const S = this.plugin.settings;
+
+    // Métriques agrégées
+    this.tool(container, "metrics-selection", "bar-chart-3", t("analysis.selection.metricsTitle"), (section) => {
+      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      const addRow = (label: string, value: string, hint?: string) => {
+        const row = list.createDiv({ cls: "feuillets-notes-metadata-row" });
+        row.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
+        row.createDiv({ cls: "feuillets-notes-metadata-value", text: value });
+        if (hint) row.setAttr("title", hint);
+      };
+      addRow(t("analysis.metrics.words"), formatNumber(a.words));
+      addRow(t("analysis.metrics.sentences"), formatNumber(a.sentences));
+      addRow(t("analysis.metrics.paragraphs"), formatNumber(a.paragraphs));
+      addRow(t("analysis.metrics.avgSentenceLength"), t("analysis.metrics.wordsUnit", { count: a.avgSentenceLength.toFixed(1) }));
+      addRow(t("analysis.metrics.avgWordLength"), t("analysis.metrics.lettersUnit", { count: a.avgWordLength.toFixed(1) }));
+      addRow(
+        t("analysis.metrics.longSentences"),
+        formatNumber(a.longSentenceCount),
+        t("analysis.metrics.longSentencesHint")
+      );
+      addRow(
+        t("analysis.metrics.dialogueRatio"),
+        `${Math.round(a.dialogueRatio * 100)} %`,
+        t("analysis.metrics.dialogueRatioHint")
+      );
+    });
+
+    // Répétitions composites
+    const repWindow = S.analysisRepWindow ?? 50;
+    const repMinLen = S.analysisRepMinLen ?? 4;
+    const reps = findRepetitions(corpus, { window: repWindow, minLen: repMinLen });
+
+    this.tool(container, "repetitions-selection", "copy", t("analysis.repetitions.title"), (section) => {
+      const ctrl = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      const numCtrl = (label: string, value: number, set: (v: number) => void, min: number) => {
+        const r = ctrl.createDiv({ cls: "feuillets-notes-metadata-row" });
+        r.createDiv({ cls: "feuillets-notes-metadata-label", text: label });
+        const inp = r.createEl("input", { cls: "feuillets-rythme-input", type: "number" });
+        inp.min = String(min);
+        inp.value = String(value);
+        inp.addEventListener("change", () => {
+          void (async () => {
+            set(Math.max(min, Math.round(Number(inp.value) || min)));
+            await this.plugin.saveSettings();
+            void this.render();
+          })();
+        });
+      };
+      numCtrl(t("analysis.repetitions.window"), repWindow, (v) => (S.analysisRepWindow = v), 5);
+      numCtrl(t("analysis.repetitions.minLength"), repMinLen, (v) => (S.analysisRepMinLen = v), 2);
+
+      if (!reps.length) {
+        section.createDiv({ cls: "feuillets-empty" }).setText(t("analysis.repetitions.none"));
+        return;
+      }
+      section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+        t("analysis.repetitions.summary", { count: String(reps.length) })
+      );
+      const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
+      const MAXROWS = 40;
+      for (const rep of reps.slice(0, MAXROWS)) {
+        const row = list.createDiv({ cls: "feuillets-notes-metadata-row feuillets-rep-row" });
+        row.createDiv({ cls: "feuillets-notes-metadata-label", text: rep.word });
+        row.createDiv({
+          cls: "feuillets-notes-metadata-value",
+          text: t("analysis.repetitions.countAtGap", { count: String(rep.count), gap: String(rep.minGap) }),
+        });
+        row.setAttr("title", t("analysis.repetitions.rowTooltip"));
+        // Sur une sélection composite, on ne peut pas highlighter : les offsets
+        // ne correspondent pas à un seul éditeur. Donc on ne met PAS
+        // d'event listener de clic pour highlightAll.
+        row.classList.add("is-disabled");
+      }
+      if (reps.length > MAXROWS) {
+        section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
+          t("analysis.repetitions.andMore", { count: String(reps.length - MAXROWS) })
+        );
+      }
+    });
+
+    // Analyse linguistique du corpus composite
+    renderLinguisticAnalysisSection(
+      container,
+      "vocab-selection",
+      t("analysis.selection.linguisticTitle"),
+      this.plugin.getAnalysisProvider ? this.plugin.getAnalysisProvider() : null,
+      (parent, k, i, t, r) => this.tool(parent, k, i, t, r),
+      async () => corpus
+    );
+  }
+
+  /** Sous-onglet « Projet » — contenu EXACT de l'ancien groupe repliable
+   * « Le roman » (tableau de bord, équilibre des chapitres, analyse
+   * linguistique globale, courbe narrative), sans son en-tête. Accessible
+   * même sans fichier Markdown actif : il dépend du projet, pas du
+   * feuillet (§10 du lot). */
+  private async renderProjectPage(container: HTMLElement): Promise<void> {
+    const S = this.plugin.settings;
+    const projectRoot = this.plugin.getProjectFolder();
+    const isFiction = projectRoot ? S.projectMeta?.[projectRoot.path]?.type !== "nonfiction" && S.projectMeta?.[projectRoot.path]?.type !== "free" : true;
+
+    const gb = container;
 
     // Tableau de bord (synthèse du manuscrit)
     const dashCollapsed = !!(S.collapsed && S.collapsed["analyse:dashboard"]);
@@ -591,7 +920,5 @@ export class AnalysisView extends BaseFeuilletsView {
         item.createSpan({ text: d.label });
       }
     });
-
-    } // fin du groupe « Le roman »
   }
 }

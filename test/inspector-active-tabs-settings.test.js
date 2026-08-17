@@ -81,7 +81,7 @@ test("Réglages : masquer l'onglet actif choisit le premier onglet Inspecteur vi
 });
 
 test("Réglages : le dernier onglet Inspecteur visible ne peut pas être masqué", async () => {
-  const settings = createSettings("notes", ["research", "journal", "project", "analyse", "relecture"]);
+  const settings = createSettings("notes", ["research", "journal", "project", "stats", "relecture"]);
   const { tab, calls } = createTab(settings);
   const { controls, restore } = captureToggleControls();
   const notices = [];

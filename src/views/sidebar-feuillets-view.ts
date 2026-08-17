@@ -27,7 +27,7 @@ function mappingFieldLabel(field: MappableFrontmatterField): string {
   return t(`sidebar.project.mappingField.${field}`);
 }
 
-type SidebarTab = "notes" | "research" | "journal" | "project" | "relecture";
+type SidebarTab = "notes" | "research" | "journal" | "project" | "stats" | "relecture";
 /** Sous-page de l'onglet Projet — même patron que RelecturePage : "home"
  * affiche le sommaire compact (chantier « panneau Projet », §1-11), les
  * autres valeurs affichent la sous-page correspondante en remplacement
@@ -67,6 +67,7 @@ const SIDEBAR_TABS: SidebarTabDefinition[] = [
   { id: "research", icon: "book-marked", titleKey: "sidebar.tab.research" },
   { id: "journal", icon: "calendar", titleKey: "sidebar.tab.journal" },
   { id: "project", icon: "folder-cog", titleKey: "sidebar.tab.project" },
+  { id: "stats", icon: "bar-chart-3", titleKey: "sidebar.tab.stats" },
   { id: "relecture", icon: "spell-check", titleKey: "sidebar.tab.proofreading" },
 ];
 
@@ -92,11 +93,11 @@ function activeTabFor(value: unknown): SidebarTab {
   // secondaire diffère (voir le constructeur, qui lit CETTE MÊME valeur
   // pour choisir relecturePage).
   if (value === "docx") return "relecture";
-  if (value === "analyse") return "relecture";
+  if (value === "analyse") return "stats";
   if (value === "metadata") return "notes";
   if (
     value === "notes" || value === "research" || value === "journal" ||
-    value === "project" || value === "relecture"
+    value === "project" || value === "stats" || value === "relecture"
   ) {
     return value;
   }
@@ -122,7 +123,7 @@ export class SidebarFeuilletsView extends ItemView {
        page d'accueil. Lecture ponctuelle au démarrage seulement :
        relecturePage n'est ensuite JAMAIS réécrit dans les réglages (aucun
        nouveau réglage persistant, conformément à la mission). */
-    this.relecturePage = legacyTab === "docx" ? "docx" : legacyTab === "analyse" ? "analysis" : "home";
+    this.relecturePage = legacyTab === "docx" ? "docx" : "home";
     this.subViews = {
       notes: new NotesView(this.leaf, this.plugin),
       research: new ResearchView(this.leaf, this.plugin),
@@ -155,11 +156,12 @@ export class SidebarFeuilletsView extends ItemView {
        dépend du feuillet courant (Notes, Correcteur, Analyse — tous lisent
        getActiveFile). Recherche/Projet/Journal ne dépendent pas du feuillet
        et ne sont donc pas re-rendus inutilement. */
-    const feuilletTabs = new Set<SidebarTab>(["notes", "relecture"]);
+    const feuilletTabs = new Set<SidebarTab>(["notes", "relecture", "stats"]);
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
         if (!feuilletTabs.has(this.activeTab)) return;
         if (this.activeTab === "notes") { awaitRender(this.subViews.notes, true); return; }
+        if (this.activeTab === "stats") { awaitRender(this.subViews.analyse, true); return; }
         // Relecture : ne rafraîchit TextAnalysisView que si sa page est
         // effectivement affichée — pas sur la page d'accueil, pas sur
         // Révision DOCX (qui ne dépend pas du feuillet actif).
@@ -237,6 +239,9 @@ export class SidebarFeuilletsView extends ItemView {
       case "project":
         await this.renderProjectTab(content);
         break;
+      case "stats":
+        await this.renderStatsTab(content);
+        break;
       case "relecture":
         await this.renderProofreadingTab(content);
         break;
@@ -253,6 +258,10 @@ export class SidebarFeuilletsView extends ItemView {
 
   async renderJournalTab(element: HTMLElement): Promise<void> {
     await this.renderSubView(this.subViews.journal, element);
+  }
+
+  async renderStatsTab(element: HTMLElement): Promise<void> {
+    await this.renderSubView(this.subViews.analyse, element);
   }
 
   /* Onglet « Projet » — chantier « panneau Projet + métadonnées + mapping
@@ -1030,6 +1039,10 @@ export class SidebarFeuilletsView extends ItemView {
       // Gestion de projet : aucune sous-vue montée (tout est construit
       // directement par renderProjectTab) — un rendu complet du panneau suffit.
       await this.render();
+      return;
+    }
+    if (this.activeTab === "stats") {
+      await this.subViews.analyse.render(force);
       return;
     }
     if (this.activeTab === "relecture") {

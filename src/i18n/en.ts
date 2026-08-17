@@ -543,6 +543,7 @@ export const en = {
   "sidebar.project.mappingField.date": "Date",
   "sidebar.tab.project": "Project",
   "sidebar.tab.analysis": "Analysis",
+  "sidebar.tab.stats": "Statistics",
   "sidebar.tab.proofreading": "Proofreading",
 
   /* Proofreading tab home page (two entries into the full Text
@@ -728,6 +729,13 @@ export const en = {
   "analysis.group.thisSheet": "This sheet",
   "analysis.group.novel": "The novel",
   "analysis.group.project": "The project",
+  "analysis.home.sheet": "Sheet statistics",
+  "analysis.home.selection": "Selection statistics",
+  "analysis.home.project": "Project statistics",
+  "analysis.backToHome": "Back to statistics",
+  "analysis.selection.empty": "No selection to analyze",
+  "analysis.selection.metricsTitle": "Selection metrics",
+  "analysis.selection.linguisticTitle": "Linguistic analysis (selection)",
 
   "analysis.pace.action": "Action",
   "analysis.pace.dialogue": "Dialogue",
