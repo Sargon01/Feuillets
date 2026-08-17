@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { TFile, TFolder, Menu } from "obsidian";
 import { BoardView } from "../src/views/board-view.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
+import { fr } from "../src/i18n/fr.js";
+import { en } from "../src/i18n/en.js";
 
 /* LOT "binder isolé + simplification cartes/plan", §10-21/§28 : grammaire
  * finale de Cartes et Plan. Cartes = Titre · POV · Statut discret · Label ·
@@ -293,7 +296,7 @@ test("Plan — Notes/Nom du fichier/Progression/Compiler jamais rendus, même st
 
 /* ===================== PLAN — menu des colonnes ===================== */
 
-test("Menu Plan Fiction — colonnes proposées : Synopsis, POV, Label, Statut, Tags, Date, Mots, Objectif — jamais Notes/Fichier/Progression/Compiler", () => {
+test("Menu Plan Fiction — colonnes proposées : Synopsis, Pov, Label, Statut, Tags, Date, Mots, Objectif — jamais Notes/Fichier/Progression/Compiler", () => {
   const { view } = buildOptionsHarness();
   const menu = new Menu();
   view.buildModeOptionsMenu(menu, "outline", {
@@ -306,7 +309,7 @@ test("Menu Plan Fiction — colonnes proposées : Synopsis, POV, Label, Statut, 
 
   assert.deepEqual(
     outlineColumnMenuTitles(menu),
-    ["Synopsis", "POV", "Label", "Statut", "Tags", "Date", "Mots", "Objectif"]
+    ["Synopsis", "Pov", "Label", "Statut", "Tags", "Date", "Mots", "Objectif"]
   );
   assert.equal(menuItemTitles(menu).includes("Barres de progression"), false);
 });
@@ -353,7 +356,7 @@ function buildOutlineHarness({ children, statuses = [] } = {}) {
   return { view, root, app, plugin };
 }
 
-test("Plan — édition inline du POV (cellule pov, placeholder POV…)", async () => {
+test("Plan — édition inline du pov (cellule pov, valeur brute)", async () => {
   const file = new TFile("Projet/Manuscrit/Scène.md");
   file.__fm = { pov: "Camille" };
   const { view, root } = buildOutlineHarness({ children: [file] });
@@ -397,7 +400,7 @@ test("Plan — date vide : placeholder « — »", async () => {
   assert.equal(editArea.text, "—");
 });
 
-test("Plan — POV vide : placeholder « POV… »", async () => {
+test("Plan — pov vide : grammaire « — » (LOT 4)", async () => {
   const file = new TFile("Projet/Manuscrit/Scène.md");
   file.__fm = {};
   const { view, root } = buildOutlineHarness({ children: [file] });
@@ -408,7 +411,7 @@ test("Plan — POV vide : placeholder « POV… »", async () => {
 
   const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-pov"));
   const editArea = findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
-  assert.equal(editArea.text, "POV…");
+  assert.equal(editArea.text, "—");
 });
 
 test("Plan — Mots seul : la cellule mots fonctionne indépendamment de l'objectif", async () => {
@@ -821,7 +824,7 @@ test("Timeline — synopsis est rendu même quand il est vide", () => {
   assert.ok(synopsisCell, "cellule synopsis présente même si vide");
 });
 
-test("Timeline — synopsis utilise le placeholder existant", () => {
+test("Timeline — synopsis vide : grammaire « — » (LOT 4)", () => {
   const file = new TFile("Projet/Manuscrit/Scène.md");
   file.__fm = { date: "1789-07-14" }; // pas de synopsis
   const { view, root } = buildTimelineHarness({ children: [file] });
@@ -831,8 +834,8 @@ test("Timeline — synopsis utilise le placeholder existant", () => {
 
   const synopsisContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-syn"));
   const synopsisCell = findFirst(synopsisContainer, (el) => el.classes.has("feuillets-flat-text-cell"));
-  // Le placeholder devrait être affiché (l'élément aura la classe is-empty)
-  assert.ok(synopsisCell.classes.has("is-empty"), "classe is-empty appliquée au placeholder");
+  assert.equal(synopsisCell.text, "—", "synopsis vide affiché « — »");
+  assert.ok(synopsisCell.classes.has("is-empty"), "classe is-empty appliquée à la cellule vide");
 });
 
 test("Timeline — synopsis reste multilignes et autosize (maxLines=6)", () => {
@@ -875,4 +878,1210 @@ test("Plan LOT 1 — comportement d'édition de date dans le Plan reste inchang�
   assert.ok(cell, "cellule date du Plan trouvée");
   const editArea = findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
   assert.equal(editArea.text, "1789-07-14", "valeur YAML affichée dans le Plan");
+});
+
+/* ===================== HELPER makeClickToEditFmArea (LOT 4) ===================== */
+
+function buildFmEditHarness({ fm = {} } = {}) {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = fm;
+  const plugin = {
+    settings: {},
+    fmOf: (f) => f.__fm || {},
+  };
+  const view = new BoardView({ app: { workspace: {} }, contentEl: new FakeElement() }, plugin);
+  return { view, file, plugin };
+}
+
+test("LOT4 helper — cellule brute, textarea brut, setFm brut", async () => {
+  const { view, file } = buildFmEditHarness({ fm: { synopsis: "Résumé court." } });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+
+  const parent = new FakeElement();
+  const cell = view.makeClickToEditFmArea(parent, file, "synopsis", "Synopsis…", 6);
+
+  assert.equal(cell.text, "Résumé court.", "cellule affiche la valeur brute sans formatter");
+
+  await cell.trigger("click");
+  const area = findFirst(parent, (el) => el.tag === "textarea");
+  assert.equal(area.value, "Résumé court.", "textarea reçoit la valeur brute");
+
+  area.value = "Résumé révisé.";
+  await area.trigger("blur");
+  assert.equal(setFmCalls[0].v, "Résumé révisé.", "setFm reçoit la valeur brute");
+  assert.equal(cell.text, "Résumé révisé.", "cellule mise à jour avec la valeur brute");
+});
+
+test("LOT4 helper — valeur vide : placeholder affiché, clic → textarea vide", async () => {
+  const { view, file } = buildFmEditHarness({ fm: {} });
+  const parent = new FakeElement();
+  const cell = view.makeClickToEditFmArea(parent, file, "pov", "—", 1);
+
+  assert.equal(cell.text, "—", "placeholder affiché");
+  assert.ok(cell.classes.has("is-empty"), "cellule marquée vide");
+
+  await cell.trigger("click");
+  const area = findFirst(parent, (el) => el.tag === "textarea");
+  assert.ok(area, "placeholder cliquable : textarea créé");
+  assert.equal(area.value, "", "textarea vide");
+});
+
+test("LOT4 helper — valeur inchangée : setFm et afterSave non appelés", async () => {
+  const { view, file } = buildFmEditHarness({ fm: { pov: "Camille" } });
+  let setFmCalls = 0;
+  let afterSaveCalls = 0;
+  view.setFm = async () => { setFmCalls++; };
+
+  const parent = new FakeElement();
+  const cell = view.makeClickToEditFmArea(parent, file, "pov", "—", 1, () => { afterSaveCalls++; });
+
+  await cell.trigger("click");
+  const area = findFirst(parent, (el) => el.tag === "textarea");
+  area.value = "Camille"; // valeur inchangée
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls, 0, "setFm non appelé si valeur inchangée");
+  assert.equal(afterSaveCalls, 0, "afterSave non appelé si valeur inchangée");
+});
+
+/* ===================== STORY ARC — Synopsis et POV éditables (LOT 4) ===================== */
+
+function buildArcHarness({ children = [], labels = {} } = {}) {
+  const root = new TFolder("Projet/Manuscrit");
+  root.children = children;
+  for (const c of children) c.parent = root;
+
+  const app = { workspace: {} };
+  const plugin = {
+    // Options d'affichage Story Arc (§13) actives par défaut, comme
+    // DEFAULT_SETTINGS — les tests d'options les passent à false.
+    settings: { arcsShowSynopsis: true, arcsShowPov: true, arcsShowCharacters: true },
+    getOrderedChildren: (folder) => (folder === root ? children : []),
+    isFrontMatter: () => false,
+    roleOfFolder: () => "partie",
+    roleOfFile: () => "scene",
+    labelsOf: (file) => labels[file.path] || [],
+    labelColor: () => "",
+    shortTitleFor: (file) => file.basename,
+    getStatusColor: () => "",
+    fmOf: (file) => file.__fm || {},
+  };
+  const view = new BoardView({ app, contentEl: new FakeElement() }, plugin);
+  view.passesFilter = () => true;
+  view._renderGen = 1;
+  // afterSave du pov appelle this.render(true) : par défaut, le neutraliser pour
+  // ne pas toucher au vrai cycle de rendu (les tests qui l'observent le remplacent).
+  view.render = async () => {};
+  return { view, root, app, plugin };
+}
+
+function renderArc(view, root) {
+  const container = new FakeElement();
+  view.renderCheminDeFer(container, root, new Map());
+  return container;
+}
+
+function arcSynopsisHost(container) {
+  return findFirst(container, (el) => el.classes.has("feuillets-arcs-file-synopsis"));
+}
+
+function arcPovHost(container) {
+  return findFirst(container, (el) => el.classes.has("feuillets-arcs-pov"));
+}
+
+function arcPovIcon(container) {
+  return findFirst(arcPovHost(container), (el) => el.classes.has("feuillets-arcs-meta-icon"));
+}
+
+function arcPovValueCell(container) {
+  return findFirst(arcPovHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+}
+
+function filterButtonIcons(container) {
+  return findAll(container, (el) => el.classes.has("feuillets-arcs-filter-btn")).map((btn) => {
+    const iconEl = findFirst(btn, (el) => el.icon);
+    return iconEl ? iconEl.icon : null;
+  });
+}
+
+test("LOT4 Story Arc — synopsis renseigné : host + cellule + textarea brut + setFm", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille", synopsis: "Résumé court." };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f, k, v }); };
+
+  const container = renderArc(view, root);
+  const host = arcSynopsisHost(container);
+  assert.ok(host, "host .feuillets-arcs-file-synopsis présent");
+
+  const cell = findFirst(host, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.ok(cell, "cellule d'édition du synopsis présente");
+  assert.equal(cell.text, "Résumé court.", "synopsis existant affiché");
+
+  await cell.trigger("click");
+  const area = findFirst(host, (el) => el.tag === "textarea");
+  assert.ok(area, "textarea créé au clic");
+  assert.equal(area.value, "Résumé court.", "textarea contient le synopsis brut");
+
+  area.value = "Résumé révisé.";
+  await area.trigger("blur");
+  assert.equal(setFmCalls[0].k, "synopsis");
+  assert.equal(setFmCalls[0].v, "Résumé révisé.", "setFm reçoit la nouvelle valeur synopsis");
+  assert.equal(cell.text, "Résumé révisé.", "cellule mise à jour après sauvegarde");
+});
+
+test("LOT4 Story Arc — Synopsis ON + absent : host présent, « — » cliquable, textarea vide", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" }; // synopsis absent
+  const { view, root } = buildArcHarness({ children: [file] });
+
+  const container = renderArc(view, root);
+
+  // La ligne du feuillet reste rendue (titre + rails).
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-row-file")), "ligne du feuillet rendue");
+
+  // Option ON : le host Synopsis existe toujours, même sans valeur.
+  const host = arcSynopsisHost(container);
+  assert.ok(host, "host .feuillets-arcs-file-synopsis présent quand la valeur est absente (option ON)");
+
+  const cell = findFirst(host, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(cell.text, "—", "synopsis vide affiché « — »");
+  assert.ok(cell.classes.has("is-empty"), "cellule marquée vide");
+
+  await cell.trigger("click");
+  const area = findFirst(host, (el) => el.tag === "textarea");
+  assert.ok(area, "« — » cliquable : textarea créé");
+  assert.equal(area.value, "", "textarea vide");
+});
+
+test("LOT4 Story Arc — modifier le Synopsis ne déclenche pas de render(true)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille", synopsis: "Résumé court." };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let renderCalls = [];
+  view.setFm = async () => {};
+  view.render = async (force) => { renderCalls.push(force); };
+
+  const container = renderArc(view, root);
+  const cell = findFirst(arcSynopsisHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+  await cell.trigger("click");
+  const area = findFirst(arcSynopsisHost(container), (el) => el.tag === "textarea");
+  area.value = "Résumé révisé.";
+  await area.trigger("blur");
+
+  assert.equal(renderCalls.length, 0, "aucun render(true) déclenché par une modification Synopsis");
+});
+
+test("LOT4 Story Arc — pov renseigné : eye + valeur brute, textarea brute, setFm brute, render(true)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = [];
+  let renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f, k, v }); };
+  view.render = async (force) => { renderCalls.push(force); };
+
+  const container = renderArc(view, root);
+  const host = arcPovHost(container);
+  assert.ok(host, "host .feuillets-arcs-pov présent");
+
+  // Icône Lucide Obsidian « eye », plus aucun libellé textuel « pov : ».
+  assert.equal(arcPovIcon(container).icon, "eye", "icône Lucide Obsidian « eye »");
+  const cell = arcPovValueCell(container);
+  assert.equal(cell.text, "Camille", "la valeur brute est le seul texte de la ligne pov");
+
+  await cell.trigger("click");
+  const area = findFirst(host, (el) => el.tag === "textarea");
+  assert.equal(area.value, "Camille", "textarea contient seulement la valeur brute");
+
+  area.value = "Éloïse";
+  await area.trigger("blur");
+  assert.equal(setFmCalls[0].k, "pov");
+  assert.equal(setFmCalls[0].v, "Éloïse", "setFm reçoit la valeur brute, sans icône ni libellé");
+  assert.ok(renderCalls.includes(true), "render(true) appelé après vraie modification du pov");
+});
+
+test("LOT4 Story Arc — Pov ON + absent : ligne présente, eye + « — »", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { synopsis: "Résumé court." }; // pov absent
+  const { view, root } = buildArcHarness({ children: [file] });
+
+  const container = renderArc(view, root);
+
+  // La ligne du feuillet reste rendue (titre + rails).
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-row-file")), "ligne du feuillet rendue");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-empty")).length, 0, "aucun .feuillets-empty affiché");
+
+  // Option ON : la ligne pov existe toujours, eye + « — ».
+  assert.ok(arcPovHost(container), "ligne .feuillets-arcs-pov présente quand la valeur est absente (option ON)");
+  assert.equal(arcPovIcon(container).icon, "eye", "icône eye présente");
+  const cell = arcPovValueCell(container);
+  assert.equal(cell.text, "—", "pov vide affiché « — »");
+  assert.ok(cell.classes.has("is-empty"), "cellule marquée vide");
+});
+
+test("LOT4 Story Arc — feuillet sans aucune métadonnée d'arc : titre + « — » éditables (options ON)", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+
+  const container = renderArc(view, root);
+
+  // Pas d'état vide : rails vides mais ligne rendue.
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-empty")).length, 0, "pas d'état vide Story Arc");
+
+  // Titre du feuillet présent.
+  const title = findFirst(container, (el) => el.classes.has("feuillets-arcs-file-title"));
+  assert.equal(title.text, "Scène", "titre du feuillet présent");
+
+  // Options ON : Synopsis et pov restent des lignes éditables vides (« — »).
+  assert.ok(arcSynopsisHost(container), "ligne Synopsis présente (option ON), vide → « — »");
+  assert.equal(findFirst(arcSynopsisHost(container), (el) => el.classes.has("feuillets-flat-text-cell")).text, "—", "synopsis vide « — »");
+  assert.ok(arcPovHost(container), "ligne pov présente (option ON)");
+  assert.equal(arcPovIcon(container).icon, "eye", "icône eye présente");
+  assert.equal(arcPovValueCell(container).text, "—", "pov vide eye + « — »");
+  assert.equal(
+    findAll(container, (el) => el.classes.has("feuillets-arcs-personnages") && !findFirst(el, (c) => c.classes.has("feuillets-flat-text-cell"))).length,
+    0,
+    "aucun personnage inventé"
+  );
+
+  // Aucun faux label/fil/filtre créé.
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-dot")).length, 0, "aucun point de rail inventé");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-filter-btn")).length, 0, "aucun bouton de filtre inventé");
+});
+
+test("LOT4 Story Arc — aucun feuillet : l'état vide board.arcs.empty est conservé, nouveau texte", () => {
+  const { view, root } = buildArcHarness({ children: [] });
+
+  const container = renderArc(view, root);
+  const empty = findFirst(container, (el) => el.classes.has("feuillets-empty"));
+  assert.ok(empty, "état vide rendu sans aucun feuillet");
+  assert.equal(empty.text, "Aucun feuillet à afficher.", "message d'état vide : zéro feuillet, plus aucune consigne YAML");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-row-file")).length, 0, "aucune ligne rendue sans feuillet");
+});
+
+test("LOT4 Story Arc — pov inchangé : aucun render(true) ni setFm", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = 0;
+  let renderCalls = [];
+  view.setFm = async () => { setFmCalls++; };
+  view.render = async (force) => { renderCalls.push(force); };
+
+  const container = renderArc(view, root);
+  const cell = arcPovValueCell(container);
+  await cell.trigger("click");
+  const area = findFirst(arcPovHost(container), (el) => el.tag === "textarea");
+  area.value = "Camille"; // valeur inchangée
+  await area.trigger("blur");
+
+  assert.equal(renderCalls.length, 0, "aucun render(true) si pov inchangé");
+  assert.equal(setFmCalls, 0, "setFm non appelé si pov inchangé");
+});
+
+test("LOT4 Story Arc — non-régression : titre, statut, personnages, fils, rails, filtres inchangés", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {
+    pov: "Camille",
+    status: "Brouillon",
+    synopsis: "Résumé.",
+    characters: ["Alice", "Bob"],
+    thread: "filA",
+  };
+  const { view, root } = buildArcHarness({ children: [file], labels: { [file.path]: ["rouge"] } });
+  const container = renderArc(view, root);
+
+  // Titre du feuillet inchangé.
+  const title = findFirst(container, (el) => el.classes.has("feuillets-arcs-file-title"));
+  assert.equal(title.text, "Scène", "titre du feuillet inchangé");
+
+  // Statut inchangé (discret, en lecture seule).
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-status-dot")), "statut présent");
+
+  // Personnages toujours affichés en lecture seule.
+  const chars = findAll(
+    container,
+    (el) => el.classes.has("feuillets-arcs-personnages") && !findFirst(el, (c) => c.classes.has("feuillets-flat-text-cell"))
+  );
+  assert.equal(chars.length, 1, "libellé personnages en lecture seule présent");
+  assert.equal(chars[0].text, "Avec Alice, Bob", "personnages affichés tels quels");
+
+  // Fils narratifs toujours en lecture seule (rail droit).
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-dot-fil")).length, 1, "fil affiché en rail");
+
+  // Rails gauche/droite inchangés.
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-row-rails")).length, 2, "rail gauche et rail droit présents");
+
+  // Pov : icône eye + valeur brute, jamais « pov : … ».
+  assert.equal(arcPovIcon(container).icon, "eye", "icône eye sur la ligne pov");
+  assert.equal(arcPovValueCell(container).text, "Camille", "valeur pov brute, sans libellé");
+
+  // Filtres existants conservés (label, personnage, fil, POV).
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-filter-btn")).length, 4, "4 filtres conservés");
+
+  // Aucun changement de structure du frontmatter : povOf reste la clé canonique 'pov'.
+  assert.equal(view.fm(file).pov, "Camille", "clé 'pov' inchangée, aucun alias");
+});
+
+/* ===================== STORY ARC — ouverture du fichier : titre uniquement (finition LOT 4) ===================== */
+
+/* Permet d'observer le vrai openFileActivating sans le mocker : on fournit
+   un workspace dont getLeaf()/setActiveLeaf() et une feuille openFile()
+   enregistrent les appels, et on déclenche les clics réels. */
+function arcOpenHarness(view) {
+  let opened = null;
+  let activatedLeaf = null;
+  const leaf = { openFile: async (f) => { opened = f; } };
+  view.app.workspace = {
+    getLeaf: () => leaf,
+    setActiveLeaf: (l) => { activatedLeaf = l; },
+  };
+  return { opened: () => opened, activatedLeaf: () => activatedLeaf };
+}
+
+test("LOT4 Story Arc — la ligne fichier n'ouvre plus le feuillet : seule l'action du titre subsiste", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille", synopsis: "Résumé court." };
+  const { view, root } = buildArcHarness({ children: [file] });
+
+  const container = renderArc(view, root);
+  const row = findFirst(container, (el) => el.classes.has("feuillets-arcs-row-file"));
+  const title = findFirst(container, (el) => el.classes.has("feuillets-arcs-file-title"));
+
+  // La ligne entière n'est plus l'élément d'ouverture : ni curseur pointer,
+  // ni écouteur d'ouverture porté par la ligne.
+  assert.equal(row.classes.has("feuillets-clickable"), false, "la ligne n'est plus marquée cliquable");
+  assert.equal(row.events.has("click"), false, "aucune ouverture globale portée par la ligne");
+
+  // Le titre porte seul l'action d'ouverture.
+  assert.ok(title.classes.has("feuillets-clickable"), "le titre est la zone cliquable");
+  assert.ok(title.events.has("click"), "le titre porte l'action d'ouverture");
+});
+
+test("LOT4 Story Arc — clic sur le titre ouvre le bon feuillet", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const open = arcOpenHarness(view);
+
+  const container = renderArc(view, root);
+  const title = findFirst(container, (el) => el.classes.has("feuillets-arcs-file-title"));
+  await title.trigger("click");
+
+  assert.equal(open.opened(), file, "le feuillet ouvert est celui de la ligne");
+  assert.ok(open.activatedLeaf(), "la feuille est activée (openFileActivating d'origine conservé)");
+});
+
+test("LOT4 Story Arc — clic sur Synopsis n'ouvre pas le feuillet, l'édition reste fonctionnelle", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille", synopsis: "Résumé court." };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const open = arcOpenHarness(view);
+
+  const container = renderArc(view, root);
+  const cell = findFirst(arcSynopsisHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+  await cell.trigger("click");
+
+  assert.equal(open.opened(), null, "aucune ouverture déclenchée par le clic Synopsis");
+  assert.ok(findFirst(arcSynopsisHost(container), (el) => el.tag === "textarea"), "textarea d'édition du Synopsis créé");
+});
+
+test("LOT4 Story Arc — clic sur pov n'ouvre pas le feuillet, l'édition reste fonctionnelle", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const open = arcOpenHarness(view);
+
+  const container = renderArc(view, root);
+  const cell = arcPovValueCell(container);
+  await cell.trigger("click");
+
+  assert.equal(open.opened(), null, "aucune ouverture déclenchée par le clic pov");
+  assert.ok(findFirst(arcPovHost(container), (el) => el.tag === "textarea"), "textarea d'édition du pov créé");
+});
+
+test("LOT4 Story Arc — sauvegarde Synopsis et pov toujours persistée via setFm, sans ouverture", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille", synopsis: "Résumé court." };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const open = arcOpenHarness(view);
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+
+  const container = renderArc(view, root);
+
+  // Synopsis : édition + sauvegarde persistée, aucune ouverture.
+  const synCell = findFirst(arcSynopsisHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+  await synCell.trigger("click");
+  const synArea = findFirst(arcSynopsisHost(container), (el) => el.tag === "textarea");
+  synArea.value = "Résumé révisé.";
+  await synArea.trigger("blur");
+  assert.equal(open.opened(), null, "sauvegarde Synopsis sans ouverture");
+  assert.equal(setFmCalls[0].k, "synopsis");
+  assert.equal(setFmCalls[0].v, "Résumé révisé.");
+
+  // POV : édition + sauvegarde persistée, aucune ouverture.
+  const povCell = arcPovValueCell(container);
+  await povCell.trigger("click");
+  const povArea = findFirst(arcPovHost(container), (el) => el.tag === "textarea");
+  povArea.value = "Éloïse";
+  await povArea.trigger("blur");
+  assert.equal(open.opened(), null, "sauvegarde pov sans ouverture");
+  assert.equal(setFmCalls[1].k, "pov");
+  assert.equal(setFmCalls[1].v, "Éloïse");
+});
+
+test("LOT4 Story Arc — options d'affichage : masquer Synopsis/pov/Personnages retire les lignes sans toucher aux données, filtres ni rails", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille", synopsis: "Résumé court.", characters: ["Alice", "Bob"] };
+  const { view, root } = buildArcHarness({ children: [file], labels: { [file.path]: ["rouge"] } });
+
+  const charsHosts = (container) =>
+    findAll(container, (el) => el.classes.has("feuillets-arcs-personnages") && !findFirst(el, (c) => c.classes.has("feuillets-flat-text-cell")));
+
+  // Défaut : les trois lignes sont rendues.
+  const c1 = renderArc(view, root);
+  assert.ok(arcSynopsisHost(c1), "synopsis visible par défaut");
+  assert.ok(arcPovHost(c1), "pov visible par défaut");
+  assert.equal(charsHosts(c1).length, 1, "personnages visibles par défaut");
+
+  // Synopsis masqué : sa ligne disparaît, les autres restent.
+  view.plugin.settings.arcsShowSynopsis = false;
+  const c2 = renderArc(view, root);
+  assert.equal(arcSynopsisHost(c2), undefined, "synopsis masqué → aucune ligne");
+  assert.ok(arcPovHost(c2), "pov toujours visible");
+
+  // pov masqué : aucune ligne pov.
+  view.plugin.settings.arcsShowPov = false;
+  const c3 = renderArc(view, root);
+  assert.equal(arcSynopsisHost(c3), undefined, "synopsis masqué");
+  assert.equal(arcPovHost(c3), undefined, "pov masqué → aucune ligne");
+  assert.equal(charsHosts(c3).length, 1, "personnages toujours visibles");
+
+  // Personnages masqués : titre, rails et filtres intacts.
+  view.plugin.settings.arcsShowCharacters = false;
+  const c4 = renderArc(view, root);
+  assert.equal(charsHosts(c4).length, 0, "personnages masqués → aucune ligne");
+  assert.ok(findFirst(c4, (el) => el.classes.has("feuillets-arcs-row-file")), "ligne du feuillet conservée");
+  assert.equal(findAll(c4, (el) => el.classes.has("feuillets-arcs-row-rails")).length, 2, "rails inchangés");
+  // Filtres inchangés : label (rouge), personnage (Alice, Bob) et pov (Camille).
+  assert.equal(findAll(c4, (el) => el.classes.has("feuillets-arcs-filter-btn")).length, 3, "filtres inchangés");
+
+  // Masquer ne modifie AUCUNE donnée.
+  assert.equal(view.fm(file).pov, "Camille", "donnée pov intacte");
+  assert.equal(view.fm(file).synopsis, "Résumé court.", "donnée synopsis intacte");
+});
+
+/* ===================== STORY ARC — contrat final Synopsis / Pov (finition LOT 4) ===================== */
+
+test("LOT4 finition Story Arc — Synopsis OFF : aucune ligne Synopsis, aucun espace réservé", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille", synopsis: "Résumé court." };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.plugin.settings.arcsShowSynopsis = false;
+
+  const container = renderArc(view, root);
+  assert.equal(arcSynopsisHost(container), undefined, "aucune ligne Synopsis quand l'option est désactivée");
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-row-file")), "la ligne du feuillet reste rendue");
+});
+
+test("LOT4 finition Story Arc — saisie d'un Synopsis vide : setFm reçoit uniquement la valeur brute", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+
+  const container = renderArc(view, root);
+  const cell = findFirst(arcSynopsisHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+  await cell.trigger("click");
+  const area = findFirst(arcSynopsisHost(container), (el) => el.tag === "textarea");
+  area.value = "Ceci est le synopsis.";
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls[0].k, "synopsis");
+  assert.equal(setFmCalls[0].v, "Ceci est le synopsis.", "setFm reçoit uniquement la valeur brute");
+  assert.equal(cell.text, "Ceci est le synopsis.", "cellule mise à jour");
+});
+
+test("LOT4 finition Story Arc — suppression d'un Synopsis : setFm vide, ligne conservée, rendu final « — »", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { synopsis: "Résumé court." };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+
+  const container = renderArc(view, root);
+  const cell = findFirst(arcSynopsisHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+  await cell.trigger("click");
+  const area = findFirst(arcSynopsisHost(container), (el) => el.tag === "textarea");
+  area.value = ""; // effacement complet
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls[0].k, "synopsis");
+  assert.equal(setFmCalls[0].v, "", "setFm reçoit la valeur vide");
+  assert.ok(arcSynopsisHost(container), "option active : la ligne Synopsis reste présente");
+  assert.equal(cell.text, "—", "rendu final « — »");
+  assert.ok(cell.classes.has("is-empty"), "cellule re-marquée vide");
+});
+
+test("LOT4 finition Story Arc — Synopsis inchangé : aucun setFm ni render inutile", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { synopsis: "Résumé court." };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = 0;
+  let renderCalls = 0;
+  view.setFm = async () => { setFmCalls++; };
+  view.render = async () => { renderCalls++; };
+
+  const container = renderArc(view, root);
+  const cell = findFirst(arcSynopsisHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+  await cell.trigger("click");
+  const area = findFirst(arcSynopsisHost(container), (el) => el.tag === "textarea");
+  area.value = "Résumé court."; // inchangé
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls, 0, "aucun setFm si Synopsis inchangé");
+  assert.equal(renderCalls, 0, "aucun render inutile");
+});
+
+test("LOT4 finition Story Arc — Pov ON + présent : host, icône Lucide eye, valeur brute", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+
+  const container = renderArc(view, root);
+  const host = arcPovHost(container);
+  assert.ok(host, "host .feuillets-arcs-pov présent (option ON)");
+  assert.ok(findFirst(host, (el) => el.classes.has("feuillets-arcs-meta-value")), "valueHost présent");
+  assert.equal(arcPovIcon(container).icon, "eye", "icône Lucide Obsidian « eye »");
+  assert.equal(arcPovValueCell(container).text, "Camille", "valeur brute affichée, sans libellé");
+});
+
+test("LOT4 finition Story Arc — aucun texte « Pov : », « pov : » ni « POV : » devant la valeur", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+
+  const container = renderArc(view, root);
+  const text = findAll(arcPovHost(container), (el) => typeof el.text === "string" && el.text.length > 0).map((el) => el.text).join(" | ");
+  assert.equal(/^pov\s*:/i.test(arcPovValueCell(container).text), false, "la valeur brute est le seul texte de la ligne pov");
+  assert.equal(text.includes("pov"), false, `aucun libellé « pov » dans la ligne pov (contenu : "${text}")`);
+});
+
+test("LOT4 finition Story Arc — clic sur « — » du pov : textarea vide", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {}; // pov absent
+  const { view, root } = buildArcHarness({ children: [file] });
+
+  const container = renderArc(view, root);
+  const cell = arcPovValueCell(container);
+  await cell.trigger("click");
+  const area = findFirst(arcPovHost(container), (el) => el.tag === "textarea");
+  assert.ok(area, "textarea créé au clic sur « — »");
+  assert.equal(area.value, "", "textarea vide");
+});
+
+test("LOT4 finition Story Arc — sauvegarde « Deli » : setFm reçoit uniquement « Deli »", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+
+  const container = renderArc(view, root);
+  const cell = arcPovValueCell(container);
+  await cell.trigger("click");
+  const area = findFirst(arcPovHost(container), (el) => el.tag === "textarea");
+  area.value = "Deli";
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls[0].k, "pov");
+  assert.equal(setFmCalls[0].v, "Deli", "setFm reçoit uniquement « Deli », sans icône ni libellé");
+  assert.equal(cell.text, "Deli", "valeur brute affichée après sauvegarde");
+});
+
+test("LOT4 finition Story Arc — ni icône ni libellé n'entre dans textarea, setFm ou YAML", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Deli" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+
+  const container = renderArc(view, root);
+  const cell = arcPovValueCell(container);
+  await cell.trigger("click");
+  const area = findFirst(arcPovHost(container), (el) => el.tag === "textarea");
+  assert.equal(area.value, "Deli", "textarea contient uniquement la valeur brute, jamais « Pov : Deli »");
+  area.value = "Éloïse";
+  await area.trigger("blur");
+  assert.equal(setFmCalls[0].v, "Éloïse", "setFm reçoit uniquement la valeur brute");
+  assert.equal(view.fm(file).pov, "Deli", "YAML brut 'pov' inchangé par l'affichage");
+});
+
+test("LOT4 finition Story Arc — Pov OFF : aucune ligne pov ni icône eye, donnée intacte", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.plugin.settings.arcsShowPov = false;
+
+  const container = renderArc(view, root);
+  assert.equal(arcPovHost(container), undefined, "aucune ligne .feuillets-arcs-pov");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-meta-icon")).length, 0, "aucune icône eye");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-meta-value")).length, 0, "aucun valueHost");
+  assert.equal(view.fm(file).pov, "Camille", "donnée YAML pov intacte");
+});
+
+test("LOT4 finition Story Arc — suppression d'un pov : donnée vidée, option active → eye + « — »", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+
+  const container = renderArc(view, root);
+  const cell = arcPovValueCell(container);
+  await cell.trigger("click");
+  const area = findFirst(arcPovHost(container), (el) => el.tag === "textarea");
+  area.value = ""; // effacement complet
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls[0].k, "pov");
+  assert.equal(setFmCalls[0].v, "", "setFm reçoit la valeur vide");
+  assert.ok(arcPovHost(container), "option active : la ligne pov reste présente");
+  assert.equal(arcPovIcon(container).icon, "eye", "icône eye conservée");
+  assert.equal(arcPovValueCell(container).text, "—", "rendu final eye + « — »");
+});
+
+/* ===================== STORY ARC — options « Informations affichées » (finition LOT 4) ===================== */
+
+test("LOT4 finition options Story Arc — le menu contient Synopsis, Pov, Personnages dans cet ordre", () => {
+  const { view } = buildOptionsHarness();
+  const menu = new Menu();
+  view.buildModeOptionsMenu(menu, "arcs", {
+    S: view.plugin.settings,
+    meta: {},
+    pType: "fiction",
+    wholeManuscript: false,
+    outlineColumns: {},
+  });
+  assert.deepEqual(menuItemTitles(menu), ["— Informations affichées —", "Synopsis", "Pov", "Personnages"]);
+});
+
+test("LOT4 finition options Story Arc — arcsShowSynopsis/Pov/Characters sont true par défaut", () => {
+  assert.equal(DEFAULT_SETTINGS.arcsShowSynopsis, true);
+  assert.equal(DEFAULT_SETTINGS.arcsShowPov, true);
+  assert.equal(DEFAULT_SETTINGS.arcsShowCharacters, true);
+});
+
+for (const [key, label] of [
+  ["arcsShowSynopsis", "Synopsis"],
+  ["arcsShowPov", "Pov"],
+  ["arcsShowCharacters", "Personnages"],
+]) {
+  test(`LOT4 finition options Story Arc — bascule « ${label} » : saveSettings + render(true)`, async () => {
+    const { view, plugin } = buildOptionsHarness();
+    plugin.settings[key] = true;
+    let saved = 0;
+    const renderCalls = [];
+    plugin.saveSettings = async () => { saved++; };
+    view.render = async (force) => { renderCalls.push(force); };
+
+    const menu = new Menu();
+    view.buildModeOptionsMenu(menu, "arcs", {
+      S: plugin.settings,
+      meta: {},
+      pType: "fiction",
+      wholeManuscript: false,
+      outlineColumns: {},
+    });
+
+    const item = menu.items.find((i) => i.title === label);
+    assert.ok(item, `option « ${label} » présente`);
+    assert.equal(item.checked, true, `« ${label} » cochée par défaut`);
+    // Désactivation : true → false
+    await item.callback();
+    assert.equal(plugin.settings[key], false, `« ${label} » basculée à false`);
+    assert.equal(saved, 1, "persisté via saveSettings");
+    assert.deepEqual(renderCalls, [true], `render(true) forcé pour « ${label} » (pas render non-forcé)`);
+    // Réactivation : false → true
+    await item.callback();
+    assert.equal(plugin.settings[key], true, `« ${label} » basculée de nouveau à true`);
+    assert.equal(saved, 2, "persisté à chaque bascule");
+    assert.deepEqual(renderCalls, [true, true], `render(true) forcé à chaque bascule de « ${label} »`);
+  });
+}
+
+/* ===================== STORY ARC — barre de filtres (finition LOT 4) ===================== */
+
+test("LOT4 finition Story Arc — aucune donnée filtrable : aucune .feuillets-arcs-filter-bar", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {}; // ni label, ni personnage, ni fil, ni pov
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-filter-bar")).length, 0, "pas de barre de filtres");
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-row-file")), "les lignes restent visibles");
+});
+
+test("LOT4 finition Story Arc — présence d'un label : filter bar présente", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file], labels: { [file.path]: ["rouge"] } });
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "barre présente");
+  assert.deepEqual(filterButtonIcons(container), ["map-pin"]);
+});
+
+test("LOT4 finition Story Arc — présence d'un personnage : filter bar présente", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Alice"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "barre présente");
+  assert.deepEqual(filterButtonIcons(container), ["users"]);
+});
+
+test("LOT4 finition Story Arc — présence d'un fil : filter bar présente", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "filA" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "barre présente");
+  assert.deepEqual(filterButtonIcons(container), ["route"]);
+});
+
+test("LOT4 finition Story Arc — présence d'un pov : filter bar présente", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "barre présente");
+  assert.deepEqual(filterButtonIcons(container), ["eye"]);
+});
+
+test("LOT4 finition Story Arc — arcsShowPov false + pov réel : filtre Pov toujours disponible", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { pov: "Camille" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.plugin.settings.arcsShowPov = false; // masquage visuel uniquement
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "filtre Pov conservé");
+  assert.deepEqual(filterButtonIcons(container), ["eye"]);
+});
+
+test("LOT4 finition Story Arc — arcsShowCharacters false + personnages réels : filtre Personnage toujours disponible", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Alice", "Bob"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.plugin.settings.arcsShowCharacters = false; // masquage visuel uniquement
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "filtre Personnage conservé");
+  assert.deepEqual(filterButtonIcons(container), ["users"]);
+});
+
+/* ===================== STORY ARC — filtre obsolète : barre maintenue (micro-correctif final-v2) ===================== */
+
+test("LOT4 final-v2 — filtre Pov obsolète : barre présente, bouton eye conservé", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {}; // plus aucun pov réel : Camille a été supprimé
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.selectedPov = "Camille"; // sélection devenue obsolète
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "barre présente malgré zéro donnée filtrable");
+  assert.deepEqual(filterButtonIcons(container), ["eye"]);
+  const btn = findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-btn"));
+  assert.ok(btn.classes.has("is-active"), "bouton marqué actif");
+  assert.equal(findFirst(btn, (el) => el.classes.has("feuillets-arcs-filter-btn-label")).text, "Camille", "bouton affiche la valeur obsolète sélectionnée");
+});
+
+test("LOT4 final-v2 — filtre Personnage obsolète : bouton users conservé", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {}; // plus aucun personnage réel
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.selectedPerso = "Alice";
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "barre présente");
+  assert.deepEqual(filterButtonIcons(container), ["users"]);
+});
+
+test("LOT4 final-v2 — filtre Fil obsolète : bouton route conservé", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {}; // plus aucun fil réel
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.selectedFil = "filA";
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "barre présente");
+  assert.deepEqual(filterButtonIcons(container), ["route"]);
+});
+
+test("LOT4 final-v2 — filtre Label obsolète : bouton map-pin conservé", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {}; // plus aucun label réel
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.selectedLabel = "rouge";
+  const container = renderArc(view, root);
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "barre présente");
+  assert.deepEqual(filterButtonIcons(container), ["map-pin"]);
+});
+
+test("LOT4 final-v2 — aucun filtre actif + aucune donnée filtrable : aucune barre", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.selectedPov = undefined;
+  view.selectedLabel = undefined;
+  view.selectedPerso = undefined;
+  view.selectedFil = undefined;
+  const container = renderArc(view, root);
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-filter-bar")).length, 0, "pas de barre de filtres");
+});
+
+test("LOT4 final-v2 — filtre obsolète remis à \"\" puis rendu sans données : aucune barre", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.selectedPov = "Camille";
+  assert.ok(findFirst(renderArc(view, root), (el) => el.classes.has("feuillets-arcs-filter-bar")), "barre présente tant que le filtre est actif");
+  view.selectedPov = ""; // « Tous » sélectionné : filtre retiré
+  const container = renderArc(view, root);
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-filter-bar")).length, 0, "plus de barre sans données ni filtre actif");
+});
+
+/* ===================== STORY ARC — état vide (finition LOT 4) ===================== */
+
+test("LOT4 finition Story Arc — un feuillet fm={} : aucun état vide global, titre visible", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-empty")).length, 0, "pas d'état vide global");
+  assert.equal(findFirst(container, (el) => el.classes.has("feuillets-arcs-file-title")).text, "Scène", "titre visible");
+});
+
+test("LOT4 finition Story Arc — fm={} avec Synopsis/Pov ON : synopsis « — » et eye + « — »", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+
+  const synCell = findFirst(arcSynopsisHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(synCell.text, "—", "synopsis vide → « — »");
+  assert.equal(arcPovIcon(container).icon, "eye", "icône eye présente");
+  assert.equal(arcPovValueCell(container).text, "—", "pov vide → « — »");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-personnages")).length, 0, "aucune ligne de personnages sans donnée");
+});
+
+test("LOT4 finition Story Arc — fm={} avec Synopsis/Pov OFF : seulement le titre", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.plugin.settings.arcsShowSynopsis = false;
+  view.plugin.settings.arcsShowPov = false;
+  const container = renderArc(view, root);
+
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-file-title")), "titre présent");
+  assert.equal(arcSynopsisHost(container), undefined, "aucun synopsis");
+  assert.equal(arcPovHost(container), undefined, "aucune ligne pov");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-personnages")).length, 0, "aucun personnage");
+});
+
+/* ===================== i18n — typographie finale Pov / pov (LOT 4) ===================== */
+
+test("LOT4 i18n — board.col.pov est le libellé autonome « Pov » (FR et EN)", () => {
+  assert.equal(fr["board.col.pov"], "Pov");
+  assert.equal(en["board.col.pov"], "Pov");
+});
+
+test("LOT4 i18n — board.arcs.povLine reste une clé de compatibilité « pov : {pov} » (FR) / « pov: {pov} » (EN)", () => {
+  assert.equal(fr["board.arcs.povLine"], "pov : {pov}");
+  assert.equal(en["board.arcs.povLine"], "pov: {pov}");
+});
+
+test("LOT4 i18n — board.arcs.povFilterName est le libellé autonome « Pov »", () => {
+  assert.equal(fr["board.arcs.povFilterName"], "Pov");
+  assert.equal(en["board.arcs.povFilterName"], "Pov");
+});
+
+test("LOT4 i18n — l'option Story Arc affiche le libellé autonome « Pov »", () => {
+  assert.equal(fr["board.options.arcsShowPov"], "Pov");
+  assert.equal(en["board.options.arcsShowPov"], "Pov");
+});
+
+test("LOT4 i18n — sidebar.project.mappingField.pov est le libellé autonome « Pov »", () => {
+  assert.equal(fr["sidebar.project.mappingField.pov"], "Pov");
+  assert.equal(en["sidebar.project.mappingField.pov"], "Pov");
+});
+
+test("LOT4 i18n — board.filter.povHeader contient « Pov » (majuscule initiale)", () => {
+  assert.match(fr["board.filter.povHeader"], /Pov/);
+  assert.match(en["board.filter.povHeader"], /Pov/);
+  assert.equal(fr["board.filter.povHeader"].startsWith("— Pov"), true, "en-tête FR « — Pov — »");
+  assert.equal(en["board.filter.povHeader"].startsWith("— Pov"), true, "en-tête EN « — Pov — »");
+});
+
+test("LOT4 i18n — board.filter.noPov contient « pov » minuscule dans la phrase", () => {
+  assert.match(fr["board.filter.noPov"], /pov/);
+  assert.match(en["board.filter.noPov"], /pov/);
+  assert.equal(fr["board.filter.noPov"].includes("Pov"), false, "pas de majuscule hors début de phrase (FR)");
+  assert.equal(en["board.filter.noPov"].includes("Pov"), false, "pas de majuscule hors début de phrase (EN)");
+});
+
+test("LOT4 i18n — board.card.editPov contient « pov » minuscule dans la phrase", () => {
+  assert.match(fr["board.card.editPov"], /pov/);
+  assert.match(en["board.card.editPov"], /pov/);
+  assert.equal(fr["board.card.editPov"].includes("Pov"), false);
+  assert.equal(en["board.card.editPov"].includes("Pov"), false);
+});
+
+test("LOT4 i18n — board.card.povFieldLabel contient « (pov) »", () => {
+  assert.match(fr["board.card.povFieldLabel"], /\(pov\)/);
+  assert.match(en["board.card.povFieldLabel"], /\(pov\)/);
+});
+
+test("LOT4 i18n — board.arcs.empty : « Aucun feuillet à afficher. » / « No sheets to display. »", () => {
+  assert.equal(fr["board.arcs.empty"], "Aucun feuillet à afficher.");
+  assert.equal(en["board.arcs.empty"], "No sheets to display.");
+});
+
+test("LOT4 i18n — board.outline.povPlaceholder est le libellé autonome « Pov… » (FR et EN)", () => {
+  assert.equal(fr["board.outline.povPlaceholder"], "Pov…");
+  assert.equal(en["board.outline.povPlaceholder"], "Pov…");
+});
+
+test("LOT4 i18n — les libellés visibles concernés ne contiennent plus « POV » en toutes capitales", () => {
+  const visibleKeys = [
+    "board.filter.noPov",
+    "board.filter.povHeader",
+    "board.filter.tooltip",
+    "board.col.pov",
+    "board.card.editPov",
+    "board.card.povFieldLabel",
+    "board.outline.povPlaceholder",
+    "board.arcs.empty",
+    "board.arcs.povFilterName",
+    "board.arcs.povLine",
+    "sidebar.project.mappingField.pov",
+    "board.options.arcsShowPov",
+  ];
+  for (const key of visibleKeys) {
+    assert.ok(fr[key], `${key} manque en FR`);
+    assert.ok(en[key], `${key} manque en EN`);
+    assert.equal(fr[key].includes("POV"), false, `FR ${key} ne doit plus contenir POV`);
+    assert.equal(en[key].includes("POV"), false, `EN ${key} ne doit plus contenir POV`);
+  }
+});
+
+/* ===================== PLAN — grammaire « — » des cellules vides (LOT 4) ===================== */
+
+function outlineEditHarness({ fm = {}, cols = {} } = {}) {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = fm;
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = {
+    synopsis: false, pov: false, label: false, status: false, tags: false, date: false, words: false, goal: false,
+    ...cols,
+  };
+  return { file, view, root };
+}
+
+async function renderOutlineTable(view, root) {
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+  return table;
+}
+
+function outlineCellEditArea(table, colClass) {
+  const cell = findFirst(table, (el) => el.classes.has(`feuillets-cell-${colClass}`));
+  return findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
+}
+
+test("LOT4 Plan — Synopsis vide affiche exactement « — », cliquable", async () => {
+  const { view, root } = outlineEditHarness({ fm: {}, cols: { synopsis: true } });
+  const table = await renderOutlineTable(view, root);
+  const editArea = outlineCellEditArea(table, "synopsis");
+  assert.equal(editArea.text, "—", "synopsis vide affiché « — »");
+  assert.ok(editArea.classes.has("is-empty"), "cellule marquée vide");
+  assert.ok(editArea.events.has("click"), "« — » cliquable");
+});
+
+test("LOT4 Plan — clic sur « — » Synopsis → textarea vide, sauvegarde persistée", async () => {
+  const { view, root } = outlineEditHarness({ fm: {}, cols: { synopsis: true } });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+  const table = await renderOutlineTable(view, root);
+  const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-synopsis"));
+  const editArea = outlineCellEditArea(table, "synopsis");
+  await editArea.trigger("click");
+  const area = findFirst(cell, (el) => el.tag === "textarea");
+  assert.ok(area, "textarea créé au clic sur « — »");
+  assert.equal(area.value, "", "textarea vide");
+  area.value = "Nouveau synopsis.";
+  await area.trigger("blur");
+  assert.equal(setFmCalls[0].k, "synopsis");
+  assert.equal(setFmCalls[0].v, "Nouveau synopsis.", "sauvegarde persistée");
+  assert.equal(editArea.text, "Nouveau synopsis.", "valeur remplie affichée ensuite");
+});
+
+test("LOT4 Plan — pov vide affiche exactement « — », cliquable", async () => {
+  const { view, root } = outlineEditHarness({ fm: {}, cols: { pov: true } });
+  const table = await renderOutlineTable(view, root);
+  const editArea = outlineCellEditArea(table, "pov");
+  assert.equal(editArea.text, "—", "pov vide affiché « — »");
+  assert.ok(editArea.classes.has("is-empty"), "cellule marquée vide");
+  assert.ok(editArea.events.has("click"), "« — » cliquable");
+});
+
+test("LOT4 Plan — clic sur « — » pov → textarea vide, sauvegarde persistée", async () => {
+  const { view, root } = outlineEditHarness({ fm: {}, cols: { pov: true } });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+  const table = await renderOutlineTable(view, root);
+  const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-pov"));
+  const editArea = outlineCellEditArea(table, "pov");
+  await editArea.trigger("click");
+  const area = findFirst(cell, (el) => el.tag === "textarea");
+  assert.ok(area, "textarea créé au clic sur « — »");
+  assert.equal(area.value, "", "textarea vide");
+  area.value = "Deli";
+  await area.trigger("blur");
+  assert.equal(setFmCalls[0].k, "pov");
+  assert.equal(setFmCalls[0].v, "Deli", "sauvegarde persistée");
+  assert.equal(editArea.text, "Deli", "valeur brute affichée après saisie");
+});
+
+test("LOT4 Plan — valeur Synopsis existante reste affichée normalement", async () => {
+  const { view, root } = outlineEditHarness({ fm: { synopsis: "Résumé court." }, cols: { synopsis: true } });
+  const table = await renderOutlineTable(view, root);
+  const editArea = outlineCellEditArea(table, "synopsis");
+  assert.equal(editArea.text, "Résumé court.", "synopsis existant affiché tel quel");
+  assert.equal(editArea.classes.has("is-empty"), false, "cellule non marquée vide");
+});
+
+test("LOT4 Plan — valeur pov existante reste affichée normalement", async () => {
+  const { view, root } = outlineEditHarness({ fm: { pov: "Camille" }, cols: { pov: true } });
+  const table = await renderOutlineTable(view, root);
+  const editArea = outlineCellEditArea(table, "pov");
+  assert.equal(editArea.text, "Camille", "pov existant affiché tel quel");
+  assert.equal(editArea.classes.has("is-empty"), false, "cellule non marquée vide");
+});
+
+/* ===================== CHRONOLOGIE — grammaire « — » du synopsis vide (LOT 4) ===================== */
+
+test("LOT4 Chronologie — Synopsis vide affiche exactement « — », cliquable", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+  const synopsisContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-syn"));
+  const synopsisCell = findFirst(synopsisContainer, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(synopsisCell.text, "—", "synopsis vide affiché « — »");
+  assert.ok(synopsisCell.classes.has("is-empty"), "cellule marquée vide");
+  assert.ok(synopsisCell.events.has("click"), "« — » cliquable");
+});
+
+test("LOT4 Chronologie — clic sur « — » → textarea vide, sauvegarde via setFm", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+  const synopsisContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-syn"));
+  const synopsisCell = findFirst(synopsisContainer, (el) => el.classes.has("feuillets-flat-text-cell"));
+  await synopsisCell.trigger("click");
+  const area = findFirst(synopsisContainer, (el) => el.tag === "textarea");
+  assert.ok(area, "textarea créé au clic");
+  assert.equal(area.value, "", "textarea vide");
+  area.value = "Nouveau synopsis.";
+  await area.trigger("blur");
+  assert.equal(setFmCalls[0].k, "synopsis");
+  assert.equal(setFmCalls[0].v, "Nouveau synopsis.", "sauvegarde via setFm");
+  assert.equal(synopsisCell.text, "Nouveau synopsis.", "cellule mise à jour");
+});
+
+test("LOT4 Chronologie — Synopsis existant reste éditable, date inchangée, titre ouvrable", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14", synopsis: "Résumé court." };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const synopsisContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-syn"));
+  const synopsisCell = findFirst(synopsisContainer, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(synopsisCell.text, "Résumé court.", "synopsis existant affiché");
+  assert.ok(synopsisCell.events.has("click"), "synopsis existant éditable");
+
+  // Date inchangée : toujours affichée, toujours éditable.
+  const dateContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-date"));
+  const dateDisplay = findFirst(dateContainer, (el) => el.classes.has("feuillets-timeline-date-display"));
+  assert.ok(dateDisplay.text.length > 0, "date toujours affichée");
+  assert.ok(dateDisplay.events.has("click"), "date toujours éditable");
+
+  // Titre toujours ouvrable.
+  const titleSpan = findFirst(container, (el) => el.classes.has("feuillets-timeline-title"));
+  assert.ok(titleSpan.events.has("click"), "titre ouvrable");
+});
+
+/* ===================== CSS — neutralisation hover + pre-wrap (LOT 4) ===================== */
+
+function stripCssComments(css) {
+  return css.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+test("LOT4 CSS — .feuillets-arcs-row-file:hover n'existe plus (la ligne entière n'est plus cliquable)", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  assert.equal(css.includes(".feuillets-arcs-row-file:hover"), false, "règle .feuillets-arcs-row-file:hover supprimée");
+  // La ligne garde son bloc de base (flex), sans fond de survol global.
+  assert.match(css, /\.feuillets-arcs-row-file\s*\{\s*display:\s*flex;/);
+});
+
+test("LOT4 CSS — hover des cellules Plan/Story Arc/Chronologie neutralisé, hover global conservé, sans !important", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  // Le hover global reste actif pour les autres vues (Cartes, Notes…).
+  assert.match(css, /\.feuillets-flat-text-cell:hover\s*\{\s*background:\s*var\(--background-modifier-hover\);\s*\}/);
+  // Chaque sélecteur local de neutralisation est présent (Plan, Synopsis,
+  // Personnages, pov, Chronologie).
+  for (const selector of [
+    ".feuillets-outline .feuillets-flat-text-cell:hover",
+    ".feuillets-outline-wrap .feuillets-flat-text-cell:hover",
+    ".feuillets-arcs-file-synopsis > .feuillets-flat-text-cell:hover",
+    ".feuillets-arcs-personnages > .feuillets-flat-text-cell:hover",
+    ".feuillets-arcs-pov > .feuillets-arcs-meta-value > .feuillets-flat-text-cell:hover",
+    ".feuillets-timeline-syn > .feuillets-flat-text-cell:hover",
+  ]) {
+    assert.ok(css.includes(selector.replace(/\s+/g, " ")), `sélecteur présent : ${selector}`);
+  }
+  // Le bloc partagé de neutralisation passe à transparent, sans !important.
+  const block = css.match(/\.feuillets-timeline-syn\s*>\s*\.feuillets-flat-text-cell:hover\s*\{\s*background:\s*transparent;\s*\}/);
+  assert.ok(block, "bloc de neutralisation à transparent");
+  assert.equal(block[0].includes("!important"), false, "aucun !important");
+});
+
+test("LOT4 CSS — les styles pov (flex, icône 13px, valeur flexible) sont présents, aucune couleur codée en dur", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  assert.match(css, /\.feuillets-arcs-pov\s*\{\s*display:\s*flex;\s*align-items:\s*center;\s*gap:\s*var\(--size-4-1\);/);
+  assert.match(css, /\.feuillets-arcs-meta-icon\s*\{\s*display:\s*flex;\s*align-items:\s*center;\s*flex-shrink:\s*0;\s*color:\s*inherit;\s*\}/);
+  assert.match(css, /\.feuillets-arcs-meta-icon\s*\.svg-icon\s*\{\s*width:\s*13px;\s*height:\s*13px;\s*\}/);
+  assert.match(css, /\.feuillets-arcs-meta-value\s*\{\s*min-width:\s*0;\s*flex:\s*1;\s*\}/);
+  assert.match(css, /\.feuillets-arcs-meta-value\s*>\s*\.feuillets-flat-text-cell\s*\{\s*font-size:\s*inherit;\s*color:\s*inherit;\s*line-height:\s*inherit;\s*padding:\s*0;\s*\}/);
+});
+
+test("LOT4 CSS — Synopsis Story Arc et Chronologie : white-space pre-wrap (wrap auto + retours manuels)", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  assert.match(css, /\.feuillets-arcs-file-synopsis\s*>\s*\.feuillets-flat-text-cell[^{]*\{\s*[^}]*white-space:\s*pre-wrap;/);
+  assert.match(css, /\.feuillets-timeline-syn\s*>\s*\.feuillets-flat-text-cell[^{]*\{\s*[^}]*white-space:\s*pre-wrap;/);
+});
+
+test("LOT4 CSS — aucune règle !important dans les blocs arcs récents (row-file, synopsis, pov, meta)", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  const blocks = css.split("}").filter((b) => /\.feuillets-arcs-(row-file|file-synopsis|pov|meta-)/.test(b));
+  for (const block of blocks) {
+    assert.equal(block.includes("!important"), false, `aucun !important dans : ${block.trim().slice(0, 80)}`);
+  }
 });

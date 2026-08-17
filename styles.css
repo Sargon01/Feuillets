@@ -5479,6 +5479,20 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   background: var(--background-modifier-hover);
 }
 
+/* §7 LOT 4 — ce hover global produit des gros rectangles gris dans le Plan,
+   le Chemin de fer et la Chronologie. Neutralisation locale UNIQUEMENT dans
+   ces trois surfaces (sélecteurs existants) : le hover global reste actif
+   pour toutes les autres vues (Cartes, Notes…). Plan décliné sur la classe
+   de base .feuillets-outline et sur .feuillets-outline-wrap (option de wrap). */
+.feuillets-outline .feuillets-flat-text-cell:hover,
+.feuillets-outline-wrap .feuillets-flat-text-cell:hover,
+.feuillets-arcs-file-synopsis > .feuillets-flat-text-cell:hover,
+.feuillets-arcs-personnages > .feuillets-flat-text-cell:hover,
+.feuillets-arcs-pov > .feuillets-arcs-meta-value > .feuillets-flat-text-cell:hover,
+.feuillets-timeline-syn > .feuillets-flat-text-cell:hover {
+  background: transparent;
+}
+
 .feuillets-flat-textarea {
   width: 100%;
   font-size: var(--font-ui-small);
@@ -5612,10 +5626,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   border-bottom: 1px dashed var(--background-modifier-border);
 }
 
-.feuillets-arcs-row-file:hover {
-  background: var(--background-modifier-hover);
-}
-
 .feuillets-arcs-row-rails {
   display: flex;
   flex-shrink: 0;
@@ -5715,12 +5725,69 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-arcs-file-synopsis {
-  font-size: var(--font-ui-small);
-  color: var(--text-muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  min-width: 0;
+  width: 100%;
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-faint);
+}
+
+/* Le clamp du Synopsis Story Arc appartient UNIQUEMENT à la cellule
+   .feuillets-flat-text-cell.feuillets-clamp-text (maxLines=6) : le host
+   n'est qu'un conteneur structurel, aucun clamp imbriqué.
+   §10-11 LOT 4 — pre-wrap : un long paragraphe se replie à la largeur ET les
+   retours manuels saisis sont respectés (Plan, Chemin de fer, Chronologie). */
+.feuillets-arcs-file-synopsis > .feuillets-flat-text-cell,
+.feuillets-timeline-syn > .feuillets-flat-text-cell {
+  white-space: pre-wrap;
+}
+
+/* §9 LOT 4 — les cellules internes des lignes d'information Story Arc
+   (Synopsis, pov) héritent du niveau visuel secondaire du host : ni padding
+   de bouton, ni taille/graisse propres. Le titre reste dominant. */
+.feuillets-arcs-file-synopsis > .feuillets-flat-text-cell,
+.feuillets-arcs-personnages > .feuillets-flat-text-cell {
+  font-size: inherit;
+  color: inherit;
+  line-height: inherit;
+  padding: 0;
+}
+
+/* §12-13 LOT 4 — pov Story Arc : ligne secondaire en flex (icône Lucide eye
+   + valeur). L'icône vit dans un host séparé (.feuillets-arcs-meta-icon),
+   jamais dans la cellule éditable (.feuillets-arcs-meta-value) :
+   makeClickToEditFmArea peut vider son parent à la sauvegarde sans toucher
+   à l'icône. Aucune couleur codée en dur. */
+.feuillets-arcs-pov {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-width: 0;
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-faint);
+}
+
+.feuillets-arcs-meta-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.feuillets-arcs-meta-icon .svg-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.feuillets-arcs-meta-value {
+  min-width: 0;
+  flex: 1;
+}
+
+.feuillets-arcs-meta-value > .feuillets-flat-text-cell {
+  font-size: inherit;
+  color: inherit;
+  line-height: inherit;
+  padding: 0;
 }
 
 .feuillets-arcs-row-badges {

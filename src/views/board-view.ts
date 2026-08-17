@@ -895,6 +895,32 @@ export class BoardView extends BaseFeuilletsView {
           })
         );
       }
+    } else if (activeMode === "arcs") {
+      /* §13 LOT 4 — « Informations affichées » du Chemin de fer : Synopsis,
+         pov, Personnages. Pure présentation : masquer une entrée ne modifie
+         aucune donnée, aucun filtre, aucun rail. */
+      menu.addItem((item) => item.setTitle(t("board.options.arcsHeader")).setDisabled(true));
+      menu.addItem((item) =>
+        item.setTitle(t("board.options.arcsShowSynopsis")).setChecked(!!S.arcsShowSynopsis).onClick(async () => {
+          S.arcsShowSynopsis = !S.arcsShowSynopsis;
+          await this.plugin.saveSettings();
+          void this.render(true);
+        })
+      );
+      menu.addItem((item) =>
+        item.setTitle(t("board.options.arcsShowPov")).setChecked(!!S.arcsShowPov).onClick(async () => {
+          S.arcsShowPov = !S.arcsShowPov;
+          await this.plugin.saveSettings();
+          void this.render(true);
+        })
+      );
+      menu.addItem((item) =>
+        item.setTitle(t("board.options.arcsShowCharacters")).setChecked(!!S.arcsShowCharacters).onClick(async () => {
+          S.arcsShowCharacters = !S.arcsShowCharacters;
+          await this.plugin.saveSettings();
+          void this.render(true);
+        })
+      );
     } else if (activeMode === "timeline") {
       menu.addItem((item) => item.setTitle(t("board.options.timelineHeader")).setDisabled(true));
       for (const [val, label] of [["chrono", t("board.options.chronoOrder")], ["narratif", t("board.options.narrativeOrder")]]) {
@@ -1091,6 +1117,9 @@ export class BoardView extends BaseFeuilletsView {
   makeClickToEditFmArea(parent: HTMLElement, file: TFile, key: string, placeholder: string, maxLines = 6, afterSave?: () => void | Promise<void>): HTMLElement {
     const fm = this.fm(file);
     const val = toValue(fm[key]);
+    /* Texte affiché par la cellule : valeur brute si non vide, sinon
+       placeholder. Le textarea, lui, reçoit TOUJOURS la valeur brute
+       (area.value). */
     const cell = parent.createDiv({ cls: "feuillets-flat-text-cell" + (val ? "" : " is-empty"), text: val || placeholder });
     if (maxLines) {
       cell.style.setProperty("--max-lines", String(maxLines));
@@ -1315,6 +1344,7 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   renderCheminDeFer(container: HTMLElement, root: TFolder, numbering: Map<string, string>): void {
+    const S = this.plugin.settings;
     type ChdfItem = { type: "folder"; folder: TFolder; role: string } | { type: "file"; file: TFile };
     const items: ChdfItem[] = [];
     const collect = (folder: TFolder) => {
@@ -1363,7 +1393,11 @@ export class BoardView extends BaseFeuilletsView {
     const sortedPovs = Array.from(povSet).sort((a, b) => a.localeCompare(b, "fr"));
 
     const wrap = container.createDiv({ cls: "feuillets-notes-container" });
-    if (sortedLabels.length === 0 && sortedFils.length === 0 && sortedPovs.length === 0) {
+    /* L'état vide ne dépend que de la présence réelle de feuillets : un projet
+       avec des scènes mais sans label/fil/POV doit quand même afficher les
+       lignes éditables (Synopsis, POV). Sans feuillet du tout, l'état vide
+       historique est conservé. */
+    if (fileItems.length === 0) {
       wrap.createDiv({
         cls: "feuillets-empty",
         text: t("board.arcs.empty"),
@@ -1371,45 +1405,67 @@ export class BoardView extends BaseFeuilletsView {
       return;
     }
 
-    const filterBar = wrap.createDiv({ cls: "feuillets-arcs-filter-bar" });
+    /* §23 LOT 4 — la barre de filtres n'existe QUE si une vraie donnée
+       filtrable est présente, OU si un filtre Story Arc est encore actif
+       (ex. le dernier pov sélectionné vient d'être supprimé : la barre
+       reste accessible pour revenir à « Tous »). Condition INDÉPENDANTE
+       des options d'affichage (arcsShowSynopsis/Pov/Characters) : masquer
+       une ligne ne retire jamais son filtre, et un projet sans aucune
+       métadonnée ni filtre actif ne crée aucun faux espace en haut des
+       lignes. */
+    const hasFilterData =
+      sortedLabels.length > 0 || sortedPersonnages.length > 0 || sortedFils.length > 0 || sortedPovs.length > 0;
+    const hasActiveArcFilter =
+      !!this.selectedLabel ||
+      !!this.selectedPerso ||
+      !!this.selectedFil ||
+      !!this.selectedPov;
 
-    const buildFilterMenuBtn = (icon: string, name: string, options: string[], currentValue: string | undefined, onSelect: (v: string) => void) => {
-      const btn = filterBar.createEl("button", { cls: "clickable-icon feuillets-arcs-filter-btn" });
-      setIcon(btn.createSpan(), icon);
-      btn.createSpan({ cls: "feuillets-arcs-filter-btn-label", text: currentValue || name });
-      setTooltip(btn, currentValue ? `${name} : ${currentValue}` : t("board.arcs.filterByTooltip", { name: name.toLowerCase() }));
-      if (currentValue) btn.addClass("is-active");
-      btn.addEventListener("click", (e) => {
-        const menu = new Menu();
-        menu.addItem((item) => item.setTitle(t("binder.filter.all")).setChecked(!currentValue).onClick(() => {
-          onSelect("");
-          void this.render(true);
-        }));
-        menu.addSeparator();
-        for (const opt of options) {
-          menu.addItem((item) =>
-            item.setTitle(opt).setChecked(currentValue === opt).onClick(() => {
-              onSelect(opt);
-              void this.render(true);
-            })
-          );
-        }
-        menu.showAtMouseEvent(e);
-      });
-      return btn;
-    };
+    if (hasFilterData || hasActiveArcFilter) {
+      const filterBar = wrap.createDiv({ cls: "feuillets-arcs-filter-bar" });
 
-    if (sortedLabels.length > 0) {
-      buildFilterMenuBtn("map-pin", t("board.arcs.labelFilterName"), sortedLabels, this.selectedLabel, (v) => { this.selectedLabel = v; });
-    }
-    if (sortedPersonnages.length > 0) {
-      buildFilterMenuBtn("users", t("board.arcs.characterFilterName"), sortedPersonnages, this.selectedPerso, (v) => { this.selectedPerso = v; });
-    }
-    if (sortedFils.length > 0) {
-      buildFilterMenuBtn("route", t("board.arcs.threadFilterName"), sortedFils, this.selectedFil, (v) => { this.selectedFil = v; });
-    }
-    if (sortedPovs.length > 0) {
-      buildFilterMenuBtn("eye", t("board.arcs.povFilterName"), sortedPovs, this.selectedPov, (v) => { this.selectedPov = v; });
+      const buildFilterMenuBtn = (icon: string, name: string, options: string[], currentValue: string | undefined, onSelect: (v: string) => void) => {
+        const btn = filterBar.createEl("button", { cls: "clickable-icon feuillets-arcs-filter-btn" });
+        setIcon(btn.createSpan(), icon);
+        btn.createSpan({ cls: "feuillets-arcs-filter-btn-label", text: currentValue || name });
+        setTooltip(btn, currentValue ? `${name} : ${currentValue}` : t("board.arcs.filterByTooltip", { name: name.toLowerCase() }));
+        if (currentValue) btn.addClass("is-active");
+        btn.addEventListener("click", (e) => {
+          const menu = new Menu();
+          menu.addItem((item) => item.setTitle(t("binder.filter.all")).setChecked(!currentValue).onClick(() => {
+            onSelect("");
+            void this.render(true);
+          }));
+          menu.addSeparator();
+          for (const opt of options) {
+            menu.addItem((item) =>
+              item.setTitle(opt).setChecked(currentValue === opt).onClick(() => {
+                onSelect(opt);
+                void this.render(true);
+              })
+            );
+          }
+          menu.showAtMouseEvent(e);
+        });
+        return btn;
+      };
+
+      /* Chaque bouton est rendu si sa liste contient au moins une valeur,
+         OU si une valeur de ce filtre est encore sélectionnée (elle peut
+         être devenue obsolète après suppression de la dernière occurrence :
+         le bouton reste cliquable pour revenir à « Tous »). */
+      if (sortedLabels.length > 0 || this.selectedLabel) {
+        buildFilterMenuBtn("map-pin", t("board.arcs.labelFilterName"), sortedLabels, this.selectedLabel, (v) => { this.selectedLabel = v; });
+      }
+      if (sortedPersonnages.length > 0 || this.selectedPerso) {
+        buildFilterMenuBtn("users", t("board.arcs.characterFilterName"), sortedPersonnages, this.selectedPerso, (v) => { this.selectedPerso = v; });
+      }
+      if (sortedFils.length > 0 || this.selectedFil) {
+        buildFilterMenuBtn("route", t("board.arcs.threadFilterName"), sortedFils, this.selectedFil, (v) => { this.selectedFil = v; });
+      }
+      if (sortedPovs.length > 0 || this.selectedPov) {
+        buildFilterMenuBtn("eye", t("board.arcs.povFilterName"), sortedPovs, this.selectedPov, (v) => { this.selectedPov = v; });
+      }
     }
 
     const filterLabel = this.selectedLabel || "";
@@ -1477,7 +1533,6 @@ export class BoardView extends BaseFeuilletsView {
       const idx = fileIndex++;
       const fm = this.fm(file);
       const row = timeline.createDiv({ cls: "feuillets-arcs-row-file" });
-      row.addClass("feuillets-clickable");
 
       // Lieux (label:) à gauche en ronds
       const rails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
@@ -1509,17 +1564,37 @@ export class BoardView extends BaseFeuilletsView {
         const dot = titleRow.createSpan({ cls: "feuillets-status-dot" });
         dot.style.background = this.plugin.getStatusColor(toValue(fm.status)) || "var(--text-faint)";
       }
-      titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
+      const fileTitle = titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
+      fileTitle.addClass("feuillets-clickable");
+      fileTitle.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+      });
 
-      if (fm.synopsis) info.createDiv({ cls: "feuillets-arcs-file-synopsis", text: String(fm.synopsis) });
+      /* §6 LOT 4 — contrat final Synopsis du Chemin de fer : option
+         d'affichage ON → la ligne est TOUJOURS présente, même vide (« — »
+         éditable, placeholder "—", maxLines=6). Option OFF → aucune ligne,
+         aucun espace réservé, aucune donnée touchée. */
+      if (S.arcsShowSynopsis) {
+        const synopsisHost = info.createDiv({ cls: "feuillets-arcs-file-synopsis" });
+        this.makeClickToEditFmArea(synopsisHost, file, "synopsis", "—", 6);
+      }
 
-      const currentPov = povMap.get(file.path) || "";
-      if (currentPov) {
-        info.createDiv({ cls: "feuillets-arcs-personnages", text: t("board.arcs.povLine", { pov: currentPov }) });
+      /* §7-8 LOT 4 — pov : l'icône Lucide « eye » remplace tout libellé
+         textuel. La ligne se décompose en iconHost + valueHost :
+         makeClickToEditFmArea peut vider son parent lors de ses mises à jour,
+         donc il ne reçoit QUE valueHost — l'icône reste hors de la cellule,
+         du textarea, de setFm et du YAML. */
+      if (S.arcsShowPov) {
+        const povHost = info.createDiv({ cls: "feuillets-arcs-pov" });
+        const iconHost = povHost.createSpan({ cls: "feuillets-arcs-meta-icon" });
+        setIcon(iconHost, "eye");
+        const valueHost = povHost.createDiv({ cls: "feuillets-arcs-meta-value" });
+        this.makeClickToEditFmArea(valueHost, file, "pov", "—", 1, () => this.render(true));
       }
 
       const currentPersonnages = personnagesMap.get(file.path) || [];
-      if (currentPersonnages.length > 0) {
+      if (S.arcsShowCharacters && currentPersonnages.length > 0) {
         info.createDiv({ cls: "feuillets-arcs-personnages", text: t("board.arcs.withCharacters", { names: currentPersonnages.join(", ") }) });
       }
 
@@ -1544,10 +1619,6 @@ export class BoardView extends BaseFeuilletsView {
           const dot = col.createDiv({ cls: "feuillets-arcs-dot feuillets-arcs-dot-fil" });
           dot.style.backgroundColor = color;
         }
-      });
-
-      row.addEventListener("click", () => {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
     }
   }
@@ -1635,8 +1706,11 @@ export class BoardView extends BaseFeuilletsView {
       });
 
       // SYNOPSIS ÉDITABLE
+      /* §5 LOT 4 : dans la Chronologie, un synopsis vide affiche « — »
+         (grammaire identique au Plan), pas un placeholder texte. Le « — »
+         reste cliquable et ouvre le vrai textarea vide (6 lignes max). */
       const synopsisHost = body.createDiv({ cls: "feuillets-timeline-syn" });
-      this.makeClickToEditFmArea(synopsisHost, item.file, "synopsis", t("board.card.synopsisPlaceholder"), 6);
+      this.makeClickToEditFmArea(synopsisHost, item.file, "synopsis", "—", 6);
     }
   }
 
@@ -1797,8 +1871,11 @@ export class BoardView extends BaseFeuilletsView {
       bumpTotal(wc);
 
       this.emptyCells(row, cols, {
-        synopsis: (cell) => this.makeClickToEditFmArea(cell, child, "synopsis", t("board.card.synopsisPlaceholder"), 1),
-        pov: (cell) => this.makeClickToEditFmArea(cell, child, "pov", t("board.outline.povPlaceholder"), 1),
+        /* §2-3 LOT 4 : dans le Plan, une cellule Synopsis ou pov vide affiche
+           « — » (même grammaire que la date vide), pas un placeholder texte.
+           Le « — » reste cliquable et ouvre le vrai textarea vide. */
+        synopsis: (cell) => this.makeClickToEditFmArea(cell, child, "synopsis", "—", 1),
+        pov: (cell) => this.makeClickToEditFmArea(cell, child, "pov", "—", 1),
         summary: (cell) => this.makeClickToEditFmArea(cell, child, "summary", t("board.card.summaryPlaceholder"), 1),
         notes: (cell) => this.makeClickToEditFmArea(cell, child, "notes", t("board.outline.notesPlaceholder"), 1),
         tags: (cell) => this.makeTagsEditor(cell, child),

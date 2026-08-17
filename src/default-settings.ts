@@ -56,6 +56,12 @@ export type DefaultSettings = {
    *  (comme outlineWidths) — pas de surcharge par projet. OFF par défaut :
    *  comportement historique inchangé. */
   outlineWrapLongText: boolean;
+  /* Chemin de fer : lignes d'information affichées sous le titre de chaque
+     feuillet (Synopsis, pov, Personnages). Pure présentation — masquer une
+     entrée ne modifie ni les données, ni les filtres, ni les rails. */
+  arcsShowSynopsis: boolean;
+  arcsShowPov: boolean;
+  arcsShowCharacters: boolean;
   showCardTags: boolean;
   projects: string[];
   manuscriptTitle: string;
@@ -265,6 +271,9 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
     pov: 110,
   },
   outlineWrapLongText: false,
+  arcsShowSynopsis: true,
+  arcsShowPov: true,
+  arcsShowCharacters: true,
   showCardTags: false,
   projects: [],
   manuscriptTitle: "",
