@@ -862,7 +862,7 @@ test("Binder : isoler un dossier limite l'affichage à sa branche, sans jamais t
   assert.deepEqual(folderNames(), ["FRONT", "TARIKAT", "CHAPITRE 1", "CHAPITRE 2", "SUBHANALLAH"]);
   assert.equal(currentHeaderText(), "Projet actif", "en-tête normal inchangé : le nom du projet seul");
   assert.equal(isolationIcons().length, 0, "aucune icône manuscrit/chevron hors isolation");
-  assert.ok(versionsVisible(), "Versions visible dès le départ");
+  assert.equal(versionsVisible(), false, "Versions n'est plus rendue dans le Binder simple");
   assert.equal(typeof view.isVaultMode, "undefined", "aucun mode Coffre réintroduit");
   assert.equal(findElements(contentEl, (el) => el.classes.has("feuillets-vault-split")).length, 0, "aucune double vue");
   assert.equal(findElements(contentEl, (el) => el.classes.has("feuillets-breadcrumb-sep")).length, 0, "aucun fil d'Ariane");
@@ -895,7 +895,7 @@ test("Binder : isoler un dossier limite l'affichage à sa branche, sans jamais t
     assert.equal(currentHeaderText(), "TARIKAT", "une seule ligne : nom courant, jamais le fil d'Ariane complet");
     assert.deepEqual(folderNames(), ["CHAPITRE 1", "CHAPITRE 2"], "seuls les descendants de TARIKAT restent visibles");
     assert.deepEqual(itemNames(), ["Feuillet C1", "Feuillet C2"], "FRONT, SUBHANALLAH et le feuillet racine ont disparu");
-    assert.ok(versionsVisible(), "Versions reste visible même isolé");
+    assert.equal(versionsVisible(), false, "Versions n'est jamais rendue dans le Binder simple, même isolé");
     assert.ok(currentNameEl().classes.has("feuillets-isolation-current"), "classe dédiée : CSS retire l'uppercase, casse réelle");
 
     // --- Clic droit sur la racine isolée : menu contextuel standard du dossier. ---

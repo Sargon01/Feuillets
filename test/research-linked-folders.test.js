@@ -141,6 +141,50 @@ test("getLinkedResearchFolders reflète l'état courant des settings après chan
   assert.equal(result[0].folder.path, ARCHIVES);
 });
 
+/* --- §18 : set/removeLinkedResearchFolder restent la source de vérité pour
+   la projection Recherche — aucun second stockage, aucun déplacement de
+   dossier physique, aucun YAML modifié (les MÊMES méthodes que la double vue
+   interroge via getLinkedResearchFolders). --- */
+
+test("setLinkedResearchFolder rend le dossier disponible pour la projection Recherche (stockage unique)", async () => {
+  const { plugin, chapitreA, docs, sceneFile } = fixturePlugin();
+  plugin.saveData = async () => {};
+  sceneFile.content = "titre : test\n---\ncorps";
+
+  await plugin.setLinkedResearchFolder(chapitreA, docs);
+
+  const result = plugin.getLinkedResearchFolders();
+  assert.equal(result.length, 1, "l'association est disponible pour la projection");
+  assert.equal(result[0].folder.path, DOCS);
+  assert.deepEqual(result[0].binderNodes.map((n) => n.path), [CHAPITRE_A]);
+
+  // Aucun second stockage : l'association vit uniquement dans
+  // projectMeta[root].researchFolderLinks.
+  const meta = plugin.settings.projectMeta[plugin.getProjectFolder().path];
+  assert.deepEqual(Object.keys(meta), ["researchFolderLinks"]);
+  assert.equal(meta.researchFolderLinks[CHAPITRE_A], DOCS);
+
+  // Aucune modification du chemin physique du dossier.
+  assert.equal(docs.path, DOCS);
+  assert.equal(plugin.app.vault.getAbstractFileByPath(DOCS), docs);
+
+  // Aucun YAML modifié : le fichier garde son contenu intact.
+  assert.equal(sceneFile.content, "titre : test\n---\ncorps");
+});
+
+test("removeLinkedResearchFolder retire le dossier de la liste source de la projection", async () => {
+  const { plugin, chapitreA, docs } = fixturePlugin({ links: { [CHAPITRE_A]: DOCS } });
+  plugin.saveData = async () => {};
+  assert.equal(plugin.getLinkedResearchFolders().length, 1);
+
+  await plugin.removeLinkedResearchFolder(chapitreA);
+
+  assert.deepEqual(plugin.getLinkedResearchFolders(), [], "plus rien à projeter sous Recherche");
+  const meta = plugin.settings.projectMeta[plugin.getProjectFolder().path];
+  assert.deepEqual(meta.researchFolderLinks, {});
+  assert.equal(docs.path, DOCS, "le dossier physique n'est ni déplacé ni supprimé");
+});
+
 /* ================================================================== */
 /* Rendu dans le panneau Recherche (renderAssociatedResearchFolders)  */
 /* ================================================================== */

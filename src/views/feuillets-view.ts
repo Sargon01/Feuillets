@@ -1810,17 +1810,23 @@ export class FeuilletsView extends BaseFeuilletsView {
    * exclu de la compilation/numérotation/statistiques/Tableau par
    * convention de nommage (voir getOrderedChildren, folder-structure.js) —
    * cette section ne fait qu'y donner accès, jamais le mélanger au reste. */
-  renderResearchSection(container: HTMLElement, researchRoot: TFolder, rootIcon = "search", labelForFile?: (f: TFile) => string): void {
+  renderResearchSection(
+    container: HTMLElement,
+    researchRoot: TFolder,
+    rootIcon = "search",
+    labelForFile?: (f: TFile) => string,
+    linkedFolders: TFolder[] = []
+  ): void {
     const fileLabel = labelForFile || ((f: TFile) => this.plugin.titleFor(f));
     const S = this.plugin.settings;
 
-    const renderRow = (label: string, depth: number, isFolder: boolean) => {
+    const renderRow = (label: string, depth: number, isFolder: boolean, iconName?: string) => {
       const row = container.createDiv({
         cls: isFolder ? "feuillets-folder-row feuillets-binder-research-row" : "feuillets-item feuillets-binder-research-row",
       });
       row.style.paddingLeft = `${6 + depth * 14}px`;
       const icon = row.createDiv({ cls: "feuillets-cell-icon" });
-      setIcon(icon, depth === 0 ? rootIcon : isFolder ? "folder" : "file-text");
+      setIcon(icon, iconName ?? (depth === 0 ? rootIcon : isFolder ? "folder" : "file-text"));
       row.createSpan({ cls: isFolder ? "feuillets-folder-name" : "feuillets-item-name" }).setText(label);
       return row;
     };
@@ -1961,6 +1967,32 @@ export class FeuilletsView extends BaseFeuilletsView {
       }
     };
     renderChildren(researchRoot, 1);
+
+    /* Dossiers Recherche associés depuis le Binder (plugin.getLinkedResearchFolders,
+       main.ts) projétés dans la double vue comme enfants supplémentaires de la
+       section Recherche — même grammaire que les dossiers de recherche internes
+       (repli/dépli, ouverture de fichiers, sous-dossiers, menu contextuel), seule
+       distinction : l'icône `link` sur leur propre ligne. Règle anti-doublon
+       identique à renderAssociatedResearchFolders : on saute tout dossier déjà
+       contenu dans la racine Recherche (ou égal à elle), sur les CHEMINS RÉELS
+       des TFolder — jamais de matching par nom. Le dossier reste physiquement à
+       sa place dans le Vault : aucun déplacement, aucune copie, aucun élément
+       Binder créé. */
+    for (const folder of linkedFolders) {
+      if (folder.path === researchRoot.path || folder.path.startsWith(`${researchRoot.path}/`)) continue;
+      const row = renderRow(folder.name, 1, true, "link");
+      const isCollapsed = !!S.collapsed[folder.path];
+      row.addEventListener("click", () => {
+        void (async () => {
+          if (S.collapsed[folder.path]) delete S.collapsed[folder.path];
+          else S.collapsed[folder.path] = true;
+          await this.plugin.saveSettings();
+          void this.render(true);
+        })();
+      });
+      row.addEventListener("contextmenu", (e) => showResearchFolderMenu(e, folder));
+      if (!isCollapsed) renderChildren(folder, 2);
+    }
   }
 
   /** Double vue (correctif final Binder 2.5, modèle Ulysses) : structure des
@@ -2214,6 +2246,24 @@ export class FeuilletsView extends BaseFeuilletsView {
       });
     };
     renderTreeFolders(root, 0);
+
+    /* ---- Recherche : section historique restaurée dans la double vue
+       (e2570de) — réutilise exactement renderResearchSection. On y projette
+       aussi les dossiers Recherche associés depuis le Binder
+       (getLinkedResearchFolders), projetés en enfants de la section par
+       renderResearchSection (icône link) — stockage existant inchangé. ---- */
+    const researchRoot = this.plugin.getResearchRoot();
+    if (researchRoot instanceof TFolder) {
+      const linkedResearch = this.plugin.getLinkedResearchFolders().map(({ folder }) => folder);
+      this.renderResearchSection(treePane, researchRoot, "search", undefined, linkedResearch);
+    }
+
+    /* ---- Versions : section historique restaurée dans la double vue
+       (e2570de) — même helper, icône history, labels shortTitleFor. ---- */
+    const versionsRoot = this.plugin.getVersionsRoot();
+    if (versionsRoot instanceof TFolder) {
+      this.renderResearchSection(treePane, versionsRoot, "history", (f: TFile) => this.plugin.shortTitleFor(f));
+    }
 
     // ---- Vault : mini-navigateur en lecture seule du Vault entier ----
     const vaultCollapsed = S.collapsed["binder:vault"] === true;
@@ -2803,11 +2853,6 @@ export class FeuilletsView extends BaseFeuilletsView {
        le repli de l'en-tête racine masque ses feuillets directs. */
     const hierarchy = this.renderHierarchyContents(treePane, ctx, selectedFolder, treeRoot);
     hierarchy.render(treeRoot, 0);
-
-    const versionsRoot = this.plugin.getVersionsRoot();
-    if (!hierarchy.isTruncated() && versionsRoot instanceof TFolder) {
-      this.renderResearchSection(treePane, versionsRoot, "history", (f: TFile) => this.plugin.shortTitleFor(f));
-    }
 
     // Vider la sélection quand on clique dans une zone vide du Binder
     treePane.addEventListener("click", (e) => {

@@ -122,7 +122,7 @@ function makeVault(allFiles) {
 /** Construit un plugin minimal + une vue, sur un projet NEFES à plat, prêt
  * pour renderSplitBody. `vaultChildren` peuple `app.vault.getRoot().children`
  * (mini-navigateur Vault) séparément de l'arbre du projet. */
-function createSplitFixture({ settingsOverrides = {}, vaultChildren = [] } = {}) {
+function createSplitFixture({ settingsOverrides = {}, vaultChildren = [], researchRoot = null, versionsRoot = null, linkedResearch = [] } = {}) {
   const root = new TFolder("NEFES");
   const front = new TFolder("NEFES/Front");
   const subhanallah = new TFolder("NEFES/Subhanallah");
@@ -171,8 +171,8 @@ function createSplitFixture({ settingsOverrides = {}, vaultChildren = [] } = {})
   const plugin = {
     settings,
     getProjectFolder: () => root,
-    getResearchRoot: () => null,
-    getVersionsRoot: () => null,
+    getResearchRoot: () => researchRoot,
+    getVersionsRoot: () => versionsRoot,
     getOrderedChildren: (folder) => (folder && folder.children) || [],
     flattenFiles: () => [],
     getWordCounts: async () => new Map(),
@@ -195,6 +195,7 @@ function createSplitFixture({ settingsOverrides = {}, vaultChildren = [] } = {})
     moveNode: async (...args) => { calls.moveNode.push(args); },
     getLeafForOpeningFile: () => ({ id: "work-leaf", openFile: async () => {} }),
     getLinkedResearchFolder: () => null,
+    getLinkedResearchFolders: () => linkedResearch,
     setLinkedResearchFolder: async (...args) => { calls.setLinkedResearchFolder.push(args); },
     removeLinkedResearchFolder: async (...args) => { calls.removeLinkedResearchFolder.push(args); },
     dragState: null,
@@ -955,4 +956,187 @@ test("aucune trace d'Export rapide Binder (icône download, réglages binderQuic
   };
   await view.render(true);
   assert.equal(buttons.find((b) => b.icon === "download"), undefined);
+});
+
+/* --- §48 : restauration Recherche + Versions dans la double vue (e2570de) --- */
+
+test("double vue : sections Recherche puis Versions puis Coffre, dans cet ordre, dans le volet gauche", async () => {
+  const researchRoot = new TFolder("NEFES/_Recherche");
+  researchRoot.children = [];
+  const versionsRoot = new TFolder("NEFES/_Versions");
+  const versionFile = new TFile("NEFES/_Versions/Version A.md");
+  versionsRoot.children = [versionFile];
+  const { view, contentEl, plugin, settings, root } = createSplitFixture({ researchRoot, versionsRoot });
+  plugin.shortTitleFor = (f) => `SHORT-${f.basename}`;
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const rootSections = findAll(treePane, (el) => el.classes.has("feuillets-binder-research-root"));
+  const names = rootSections.map((r) => findAll(r, (n) => n.classes.has("feuillets-folder-name"))[0]?.text);
+  assert.deepEqual(names, ["Recherche", "Versions", "Vault"], "Manuscrit → Recherche → Versions → Coffre");
+
+  // Icônes : search par défaut pour Recherche, history pour Versions.
+  assert.ok(findAll(rootSections[0], (el) => el.icon === "search").length > 0, "icône search pour Recherche");
+  assert.ok(findAll(rootSections[1], (el) => el.icon === "history").length > 0, "icône history pour Versions");
+
+  // Labels des fichiers Versions via shortTitleFor (jamais titleFor).
+  const versionItemNames = findAll(treePane, (el) => el.classes.has("feuillets-item")).map((el) =>
+    findAll(el, (n) => n.classes.has("feuillets-item-name"))[0]?.text
+  );
+  assert.deepEqual(versionItemNames, ["SHORT-Version A"], "labels fichiers Versions via shortTitleFor");
+
+  // Le simple rendu des sections ne touche jamais la sélection Binder.
+  assert.equal(settings.binderSelectedPath, root.path, "binderSelectedPath inchangé par le rendu");
+});
+
+test("double vue : racines Recherche/Versions absentes = seul le Coffre reste, comportement inchangé", async () => {
+  const { view, contentEl } = createSplitFixture();
+  await view.render(true);
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const rootSections = findAll(treePane, (el) => el.classes.has("feuillets-binder-research-root"));
+  const names = rootSections.map((r) => findAll(r, (n) => n.classes.has("feuillets-folder-name"))[0]?.text);
+  assert.deepEqual(names, ["Vault"], "seul le Coffre reste quand getResearchRoot/getVersionsRoot renvoient null");
+});
+
+/* --- §49 : projection des dossiers associés (getLinkedResearchFolders) dans
+   la section Recherche de la double vue. --- */
+
+/** Noms (dans l'ordre du DOM) de toutes les lignes de la zone Recherche du
+ * volet gauche — sections racines (Recherche/Versions/Coffre), enfants
+ * internes, dossiers associés externes et lignes Coffre. */
+function researchRowNames(treePane) {
+  return findAll(treePane, (el) => el.classes.has("feuillets-binder-research-row")).map((row) => {
+    const name =
+      findAll(row, (el) => el.classes.has("feuillets-folder-name"))[0] ??
+      findAll(row, (el) => el.classes.has("feuillets-item-name"))[0];
+    return name ? name.text : "";
+  });
+}
+
+test("double vue : la section Recherche projette un dossier associé externe après la racine interne (icône link)", async () => {
+  const researchRoot = new TFolder("NEFES/_Recherche");
+  researchRoot.children = [new TFolder("NEFES/_Recherche/essai")];
+  const externe = new TFolder("Vault/CÉRÉMONIES");
+  externe.children = [];
+  const { view, contentEl } = createSplitFixture({
+    researchRoot,
+    linkedResearch: [{ folder: externe, binderNodes: [] }],
+  });
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const names = researchRowNames(treePane);
+  assert.ok(names.includes("Recherche"), "racine Recherche interne toujours là");
+  assert.ok(names.includes("essai"), "enfant interne de la racine Recherche toujours là");
+  assert.ok(names.includes("CÉRÉMONIES"), "dossier associé externe projété dans Recherche");
+  assert.ok(
+    names.indexOf("CÉRÉMONIES") > names.indexOf("Recherche") &&
+      names.indexOf("CÉRÉMONIES") < names.indexOf("Vault"),
+    "le dossier externe apparaît entre la racine Recherche et le Coffre"
+  );
+
+  // Distinction visuelle discrète : icône link native sur la ligne du
+  // dossier externe uniquement.
+  const extRow = findAll(treePane, (el) =>
+    el.classes.has("feuillets-binder-research-row") &&
+    findAll(el, (n) => n.classes.has("feuillets-folder-name"))[0]?.text === "CÉRÉMONIES"
+  )[0];
+  assert.ok(extRow, "ligne du dossier associé externe présente");
+  assert.ok(findAll(extRow, (el) => el.icon === "link").length > 0, "icône link sur le dossier externe");
+});
+
+test("double vue : un dossier associé externe ne devient jamais un élément du volet droit (Binder)", async () => {
+  const researchRoot = new TFolder("NEFES/_Recherche");
+  researchRoot.children = [];
+  const externe = new TFolder("Vault/CÉRÉMONIES");
+  externe.children = [];
+  const { view, contentEl } = createSplitFixture({
+    researchRoot,
+    linkedResearch: [{ folder: externe, binderNodes: [] }],
+  });
+  await view.render(true);
+
+  const listPane = findAll(contentEl, (el) => el.classes.has("feuillets-list-pane"))[0];
+  assert.ok(listPane, "volet droit présent");
+  const rightNames = findAll(listPane, (el) => el.classes.has("feuillets-folder-name") || el.classes.has("feuillets-item-name")).map((el) => el.text);
+  assert.ok(!rightNames.includes("CÉRÉMONIES"), "le dossier externe n'apparaît pas dans le volet droit");
+  assert.ok(rightNames.includes("Front"), "le volet droit rend bien le contenu Binder normal (enfants du dossier sélectionné)");
+});
+
+test("double vue : un dossier associé déjà contenu dans la racine Recherche n'est pas dupliqué", async () => {
+  const researchRoot = new TFolder("NEFES/_Recherche");
+  const sources = new TFolder("NEFES/_Recherche/Sources");
+  researchRoot.children = [sources];
+  const { view, contentEl } = createSplitFixture({
+    researchRoot,
+    linkedResearch: [{ folder: sources, binderNodes: [] }],
+  });
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const count = researchRowNames(treePane).filter((n) => n === "Sources").length;
+  assert.equal(count, 1, "Sources n'apparaît qu'une fois : rendu interne seul, pas de projection dupliquée");
+});
+
+test("double vue : un dossier associé égal à la racine Recherche n'est pas dupliqué", async () => {
+  const researchRoot = new TFolder("NEFES/_Recherche");
+  researchRoot.children = [];
+  const { view, contentEl } = createSplitFixture({
+    researchRoot,
+    linkedResearch: [{ folder: researchRoot, binderNodes: [] }],
+  });
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const count = researchRowNames(treePane).filter((n) => n === "Recherche").length;
+  assert.equal(count, 1, "la racine Recherche n'apparaît qu'une seule fois");
+});
+
+test("double vue : le dossier associé externe reste aussi visible dans le Coffre à son emplacement réel", async () => {
+  const researchRoot = new TFolder("NEFES/_Recherche");
+  researchRoot.children = [];
+  const externe = new TFolder("Vault/CÉRÉMONIES");
+  externe.children = [];
+  const { view, contentEl } = createSplitFixture({
+    researchRoot,
+    linkedResearch: [{ folder: externe, binderNodes: [] }],
+    vaultChildren: [externe],
+  });
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const count = researchRowNames(treePane).filter((n) => n === "CÉRÉMONIES").length;
+  assert.equal(count, 2, "une fois sous Recherche (associé) et une fois sous Coffre (emplacement physique), rien de masqué");
+});
+
+test("double vue : sans dossier associé, la section Recherche reste strictement identique", async () => {
+  const researchRoot = new TFolder("NEFES/_Recherche");
+  researchRoot.children = [new TFolder("NEFES/_Recherche/essai")];
+  const { view, contentEl } = createSplitFixture({ researchRoot });
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  assert.deepEqual(
+    researchRowNames(treePane),
+    ["Recherche", "essai", "Vault"],
+    "racine interne + ses enfants uniquement, aucun enfant supplémentaire"
+  );
+});
+
+test("double vue : ordre général toujours Manuscrit → Recherche → Versions → Coffre", async () => {
+  const researchRoot = new TFolder("NEFES/_Recherche");
+  researchRoot.children = [];
+  const versionsRoot = new TFolder("NEFES/_Versions");
+  versionsRoot.children = [];
+  const { view, contentEl } = createSplitFixture({ researchRoot, versionsRoot });
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const allNames = findAll(treePane, (el) => el.classes.has("feuillets-folder-name")).map((el) => el.text);
+  const iManuscrit = allNames.indexOf("Front");
+  const iRecherche = allNames.indexOf("Recherche");
+  const iVersions = allNames.indexOf("Versions");
+  const iVault = allNames.indexOf("Vault");
+  assert.ok(iManuscrit >= 0 && iRecherche >= 0 && iVersions >= 0 && iVault >= 0, "les quatre sections sont présentes");
+  assert.ok(iManuscrit < iRecherche && iRecherche < iVersions && iVersions < iVault, "Manuscrit → Recherche → Versions → Coffre");
 });
