@@ -1,0 +1,2 @@
+# Exclude test support code from GitHub language statistics
+test/** -linguist-detectable
