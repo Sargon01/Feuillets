@@ -147,3 +147,110 @@ test("writeLogicalFrontmatterField hors du projet actif : écrit la clé canoniq
   await writeLogicalFrontmatterField(app, settings, outside, "synopsis", "Texte");
   assert.deepEqual(app._get(), { synopsis: "Texte" });
 });
+
+/* ============ micro-lot anti-doublons : l'écriture réutilise la clé physique existante ============
+ * L'écriture d'un champ logique doit cibler la MÊME clé YAML que celle que
+ * la lecture a résolue (alias historiques compris), pour ne jamais créer de
+ * doublon `fil:` + `thread:`. Aucune migration, aucune réécriture opportuniste. */
+
+test("anti-doublon #1 : `fil` existant + écriture thread -> écrit `fil`, ne crée pas `thread`", async () => {
+  const app = fakeAppFor({ fil: "Intrigue" });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "thread", "Mystère");
+  assert.deepEqual(app._get(), { fil: "Mystère" });
+});
+
+test("anti-doublon #2 : `Fil` existant -> conserve `Fil`", async () => {
+  const app = fakeAppFor({ Fil: "Mystère" });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "thread", "Nouveau");
+  assert.deepEqual(app._get(), { Fil: "Nouveau" });
+});
+
+test("anti-doublon #3 : `thread` existant -> conserve `thread`", async () => {
+  const app = fakeAppFor({ thread: "Mystère" });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "thread", "Autre");
+  assert.deepEqual(app._get(), { thread: "Autre" });
+});
+
+test("anti-doublon #4 : aucun thread/fil -> crée `thread`", async () => {
+  const app = fakeAppFor({});
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "thread", "Mystère");
+  assert.deepEqual(app._get(), { thread: "Mystère" });
+});
+
+test("anti-doublon #5 : `personnages` existant + characters -> conserve `personnages`", async () => {
+  const app = fakeAppFor({ personnages: ["Kemal"] });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "characters", ["Autre"]);
+  assert.deepEqual(app._get(), { personnages: ["Autre"] });
+});
+
+test("anti-doublon #6 : `persos` existant + characters -> conserve `persos`", async () => {
+  const app = fakeAppFor({ persos: ["Kemal"] });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "characters", ["Autre"]);
+  assert.deepEqual(app._get(), { persos: ["Autre"] });
+});
+
+test("anti-doublon #7 : `Personnages` existant -> conserve cette variante de casse", async () => {
+  const app = fakeAppFor({ Personnages: ["Kemal"] });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "characters", ["Autre"]);
+  assert.deepEqual(app._get(), { Personnages: ["Autre"] });
+});
+
+test("anti-doublon #8 : `characters` existant -> conserve `characters`", async () => {
+  const app = fakeAppFor({ characters: ["Kemal"] });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "characters", ["Autre"]);
+  assert.deepEqual(app._get(), { characters: ["Autre"] });
+});
+
+test("anti-doublon #9 : aucun characters/personnages/persos -> crée `characters`", async () => {
+  const app = fakeAppFor({});
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "characters", ["Kemal"]);
+  assert.deepEqual(app._get(), { characters: ["Kemal"] });
+});
+
+test("anti-doublon #10 : `statut` existant + status -> conserve `statut`", async () => {
+  const app = fakeAppFor({ statut: "Brouillon" });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "status", "Final");
+  assert.deepEqual(app._get(), { statut: "Final" });
+});
+
+test("anti-doublon #11 : `objectif` existant + goal -> conserve `objectif`", async () => {
+  const app = fakeAppFor({ objectif: "500" });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "goal", "1000");
+  assert.deepEqual(app._get(), { objectif: "1000" });
+});
+
+test("anti-doublon #12 : `resume` existant + summary -> conserve `resume`", async () => {
+  const app = fakeAppFor({ resume: "Résumé" });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "summary", "Nouveau");
+  assert.deepEqual(app._get(), { resume: "Nouveau" });
+});
+
+test("anti-doublon #13 : suppression thread vide avec `fil` existant -> supprime `fil`, ne crée pas `thread`", async () => {
+  const app = fakeAppFor({ fil: "Mystère" });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "thread", "");
+  assert.deepEqual(app._get(), {});
+});
+
+test("anti-doublon #14 : suppression characters tableau vide avec `personnages` existant -> supprime `personnages`", async () => {
+  const app = fakeAppFor({ personnages: ["Kemal"] });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "characters", []);
+  assert.deepEqual(app._get(), {});
+});
+
+test("anti-doublon #15 : mapping explicite thread -> Arc + `fil` existant -> écrit `Arc` (mapping prioritaire absolu)", async () => {
+  const app = fakeAppFor({ fil: "Mystère" });
+  await writeLogicalFrontmatterField(app, settingsWithMapping({ thread: "Arc" }), file, "thread", "Brouillon");
+  assert.deepEqual(app._get(), { fil: "Mystère", Arc: "Brouillon" });
+});
+
+test("anti-doublon #16 : doublon `fil` + `thread` -> cible `thread`, ne supprime pas `fil`", async () => {
+  const app = fakeAppFor({ fil: "A", thread: "B" });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "thread", "C");
+  assert.deepEqual(app._get(), { fil: "A", thread: "C" });
+});
+
+test("anti-doublon #17 : doublon `personnages` + `characters` -> cible `characters`, ne supprime pas `personnages`", async () => {
+  const app = fakeAppFor({ personnages: ["X"], characters: ["Y"] });
+  await writeLogicalFrontmatterField(app, settingsWithMapping(undefined), file, "characters", ["Z"]);
+  assert.deepEqual(app._get(), { personnages: ["X"], characters: ["Z"] });
+});

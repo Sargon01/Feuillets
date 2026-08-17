@@ -142,6 +142,33 @@ function findCaseInsensitiveKey(raw: Record<string, unknown>, key: string): stri
   return undefined;
 }
 
+/** Clé PHYSIQUE existante d'un champ logique, dans le même ordre que la
+ * lecture : clé canonique exacte → variante de casse unique de la clé
+ * canonique → alias hérité exact → variante de casse d'un alias. `undefined`
+ * si aucune clé existante ne correspond — l'écriture créera alors la clé
+ * canonique Feuillets. Partagé entre la lecture (resolveMappableField) et
+ * l'écriture (writeLogicalFrontmatterField) pour que la clé ciblée à
+ * l'écriture soit TOUJOURS celle que la lecture a résolue (micro-lot
+ * anti-doublons) : un fichier en `fil:` doit être réécrit en `fil:`, jamais
+ * en ajoutant `thread:` à côté. */
+function findExistingLogicalKey(
+  raw: Record<string, unknown>,
+  field: MappableFrontmatterField,
+): string | undefined {
+  if (raw[field] !== undefined) return field;
+  const caseVariant = findCaseInsensitiveKey(raw, field);
+  if (caseVariant !== undefined) return caseVariant;
+  const aliases = LEGACY_FIELD_ALIASES[field] || [];
+  for (const alias of aliases) {
+    if (raw[alias] !== undefined) return alias;
+  }
+  for (const alias of aliases) {
+    const aliasCaseVariant = findCaseInsensitiveKey(raw, alias);
+    if (aliasCaseVariant !== undefined) return aliasCaseVariant;
+  }
+  return undefined;
+}
+
 /** Résolution d'UN champ mappable pour la LECTURE, dans l'ordre exact du
  * §16 du chantier : 1. mapping explicite (si sa cible a une valeur dans CE
  * fichier — sinon on continue, un mapping configuré ne doit pas faire
@@ -155,18 +182,8 @@ function resolveMappableField(
 ): unknown {
   const mapped = propertyMap && propertyMap[field];
   if (mapped && raw[mapped] !== undefined) return raw[mapped];
-  if (raw[field] !== undefined) return raw[field];
-  const caseVariant = findCaseInsensitiveKey(raw, field);
-  if (caseVariant !== undefined) return raw[caseVariant];
-  const aliases = LEGACY_FIELD_ALIASES[field] || [];
-  for (const alias of aliases) {
-    if (raw[alias] !== undefined) return raw[alias];
-  }
-  for (const alias of aliases) {
-    const aliasCaseVariant = findCaseInsensitiveKey(raw, alias);
-    if (aliasCaseVariant !== undefined) return raw[aliasCaseVariant];
-  }
-  return undefined;
+  const key = findExistingLogicalKey(raw, field);
+  return key !== undefined ? raw[key] : undefined;
 }
 
 /** Frontmatter LOGIQUE consommé par Feuillets partout dans l'app : alias
@@ -197,12 +214,15 @@ export function fmOf(app: App, file: TFile | null | undefined, settings?: Feuill
 
 /** Écriture LOGIQUE d'UN champ mappable (§17) : jamais un accès disque
  * direct, toujours `app.fileManager.processFrontMatter`. Détermine la clé
- * YAML RÉELLE à écrire : A) mapping configuré → cette clé, quelle qu'elle
- * soit ; B) sinon, clé canonique déjà présente exactement → inchangée ;
- * C) sinon, variante de casse déjà présente → cette variante (ne JAMAIS
- * créer une seconde clé en minuscules à côté d'une existante) ; D) sinon,
- * la clé canonique Feuillets (nouvelle propriété). Valeur vide/nulle/
- * indéfinie/tableau vide : supprime uniquement la clé cible résolue. */
+ * YAML RÉELLE à écrire, dans l'ordre exact du micro-lot anti-doublons :
+ * A) mapping configuré → cette clé, quelle qu'elle soit ; B) sinon, clé
+ * canonique déjà présente exactement → inchangée ; C) sinon, variante de
+ * casse déjà présente de la clé canonique ; D) sinon, alias hérité exact
+ * déjà présent (fil, resume, personnages…) → cette clé ; E) sinon, variante
+ * de casse d'un alias hérité ; F) sinon, la clé canonique Feuillets
+ * (nouvelle propriété). Ne crée JAMAIS une seconde clé à côté d'une clé
+ * existante, même sous un alias. Valeur vide/nulle/indéfinie/tableau vide :
+ * supprime uniquement la clé cible résolue. */
 export async function writeLogicalFrontmatterField(
   app: App,
   settings: FeuilletsSettings | null | undefined,
@@ -214,14 +234,7 @@ export async function writeLogicalFrontmatterField(
   const inScope = fileInActiveProjectScope(settings, file);
   const mapped = inScope ? activeMetaFor(settings)?.propertyMap?.[field] : undefined;
 
-  let targetKey: string;
-  if (mapped) {
-    targetKey = mapped;
-  } else if (Object.prototype.hasOwnProperty.call(raw, field)) {
-    targetKey = field;
-  } else {
-    targetKey = findCaseInsensitiveKey(raw, field) || field;
-  }
+  const targetKey = mapped || findExistingLogicalKey(raw, field) || field;
 
   const isEmpty =
     value === "" || value === null || value === undefined ||
