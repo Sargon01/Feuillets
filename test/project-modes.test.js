@@ -10,7 +10,10 @@ import {
 } from "../src/utils/project-modes.js";
 import { BOARD_MODES } from "../src/constants.js";
 
-test("la vue centrale Carte/Plan ne propose plus le mode Lecture/Scrivening", () => {
+test("la vue centrale propose exactement 4 modes (lot 5C : ni lanes ni grid)", () => {
+  /* LOT 5C §2 : l'architecture impose EXACTEMENT board / outline / arcs /
+     timeline — Couloirs n'est PAS un mode mais une sous-vue de l'espace
+     narratif (arcs), Grille (grid) n'est pas encore implémenté. */
   assert.deepEqual(
     BOARD_MODES.map(([key]) => key),
     ["board", "outline", "arcs", "timeline"]
@@ -45,6 +48,9 @@ test("PROJECT_MODES", async (t) => {
   });
 
   await t.test("les defaults centraux gardent Cartes et Plan visibles selon le type", () => {
+    /* LOT 5C §2 : Couloirs n'est PAS un mode — il ne figure donc JAMAIS dans
+       hiddenBoardModes. Non-fiction/Libre masquent l'espace narratif entier
+       (arcs + timeline) dès la création ; Fiction ne masque que timeline. */
     assert.deepEqual(PROJECT_MODES.fiction.boardDefaults.hiddenBoardModes, ["timeline"]);
     assert.deepEqual(PROJECT_MODES.nonfiction.boardDefaults.hiddenBoardModes, ["arcs", "timeline"]);
     assert.deepEqual(PROJECT_MODES.free.boardDefaults.hiddenBoardModes, ["arcs", "timeline"]);

@@ -368,6 +368,30 @@ export const fr = {
   "board.arcs.povLine": "pov : {pov}",
   "board.arcs.withCharacters": "Avec {names}",
 
+  "board.lanes.empty": "Aucun feuillet à afficher.",
+  "board.lanes.noPov": "Sans pov",
+  "board.lanes.noLabel": "Sans label",
+  "board.lanes.noCharacter": "Sans personnage",
+  "board.lanes.noThread": "Sans fil",
+
+  /* Espace narratif (Chemin de fer) : sélecteur compact de sous-vue + Couloirs.
+     Le libellé de chaque axe réutilise EXACTEMENT celui de la barre de filtres
+     de Trame (board.arcs.*FilterName) — une seule source de vocabulaire. */
+  "board.narrative.trame": "Trame",
+  "board.narrative.lanes": "Couloirs",
+  "board.narrative.grid": "Grille",
+  "board.narrative.pickSubview": "Choisir une sous-vue",
+  "board.lanes.addPov": "Ajouter un pov",
+  "board.lanes.addLabel": "Ajouter un label",
+  "board.lanes.addCharacter": "Ajouter un personnage",
+  "board.lanes.addThread": "Ajouter un fil",
+  "board.lanes.newPov": "Nouveau pov",
+  "board.lanes.newLabel": "Nouveau label",
+  "board.lanes.newCharacter": "Nouveau personnage",
+  "board.lanes.newThread": "Nouveau fil",
+  "board.lanes.create": "Créer",
+  "board.lanes.createLineTitle": "Créer une ligne",
+
   "board.timeline.empty": "Aucune scène datée.",
 
   // ---------- Panneau Notes (notes-view.js) ----------

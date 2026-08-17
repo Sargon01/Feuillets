@@ -368,6 +368,29 @@ export const en = {
   "board.arcs.povLine": "pov: {pov}",
   "board.arcs.withCharacters": "With {names}",
 
+  "board.lanes.empty": "No sheets to display.",
+  "board.lanes.noPov": "No pov",
+  "board.lanes.noLabel": "No label",
+  "board.lanes.noCharacter": "No character",
+  "board.lanes.noThread": "No thread",
+
+  /* Narrative space (Story arcs): compact subview picker + lanes. Each axis
+     label reuses EXACTLY the one from the Rails filter bar (board.arcs.*). */
+  "board.narrative.trame": "Rails",
+  "board.narrative.lanes": "Lanes",
+  "board.narrative.grid": "Grid",
+  "board.narrative.pickSubview": "Pick a subview",
+  "board.lanes.addPov": "Add a pov",
+  "board.lanes.addLabel": "Add a label",
+  "board.lanes.addCharacter": "Add a character",
+  "board.lanes.addThread": "Add a thread",
+  "board.lanes.newPov": "New pov",
+  "board.lanes.newLabel": "New label",
+  "board.lanes.newCharacter": "New character",
+  "board.lanes.newThread": "New thread",
+  "board.lanes.create": "Create",
+  "board.lanes.createLineTitle": "Create a line",
+
   "board.timeline.empty": "No dated scene.",
 
   // ---------- Notes panel (notes-view.js) ----------

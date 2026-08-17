@@ -289,6 +289,9 @@ test("TransformToProjectModal : initialise après le choix explicite d'un type",
 test("TransformToProjectModal : préserve le dossier existant et initialise le modèle V2 selon le type", async (t) => {
   for (const [type, hiddenBoardModes, visibleColumns] of [
     ["fiction", ["timeline"], ["synopsis", "pov", "status"]],
+    // LOT 5C §2 : Couloirs n'est pas un mode — il ne figure donc jamais dans
+    // hiddenBoardModes. Non-fiction/Libre masquent l'espace narratif entier
+    // (arcs + timeline) dès la création.
     ["nonfiction", ["arcs", "timeline"], ["summary"]],
     // §7 : Libre planifie désormais avec le résumé long (corrige
     // l'incohérence historique — voir project-modes.ts).

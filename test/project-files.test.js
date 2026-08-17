@@ -231,6 +231,9 @@ test("createMinimalProject (fiction) : crée la racine réelle, Manuscrit, Front
 test("createMinimalProject : initialise les préférences Board du type avant le premier rendu", async (t) => {
   for (const [type, name, hiddenBoardModes, columns, visibleIcons] of [
     ["fiction", "Roman", ["timeline"], ["synopsis", "pov", "status"], ["layout-grid", "list-tree", "git-branch"]],
+    // LOT 5C §2 : Couloirs n'est pas un mode — il ne figure donc jamais dans
+    // hiddenBoardModes. Non-fiction/Libre masquent l'espace narratif entier
+    // (arcs + timeline) dès la création.
     ["nonfiction", "Essai", ["arcs", "timeline"], ["summary"], ["layout-grid", "list-tree"]],
     // §7 : Libre planifie désormais avec le résumé long, comme Non-fiction
     // (corrige l'incohérence historique — voir project-modes.ts).

@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { TFile, TFolder, Menu } from "obsidian";
-import { BoardView, parseCsvList, listsEqual } from "../src/views/board-view.js";
+import { BoardView, NewLaneModal, parseCsvList, listsEqual } from "../src/views/board-view.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 import { fr } from "../src/i18n/fr.js";
 import { en } from "../src/i18n/en.js";
+import { BOARD_MODES } from "../src/constants.js";
+import { PROJECT_MODES, projectBoardDefaults } from "../src/utils/project-modes.js";
 
 /* LOT "binder isolé + simplification cartes/plan", §10-21/§28 : grammaire
  * finale de Cartes et Plan. Cartes = Titre · POV · Statut discret · Label ·
@@ -2626,3 +2628,1179 @@ test("LOT5 CSS — Personnages et Fil : flex row, gap Obsidian, aucune couleur c
   assert.equal(/#[0-9a-f]{3,8}\b/i.test(block), false, "aucune couleur hex dans le bloc Personnages/Fil");
   assert.equal(/rgb\(/.test(block), false, "aucune couleur rgb() dans le bloc Personnages/Fil");
 });
+
+/* ===================== LOT 5C — COULOIRS (sous-vue « lanes ») =====================
+   Couloirs n'est PAS un mode : c'est une sous-vue de l'espace narratif
+   (arcs), pilotée par l'état de SESSION narrativeSubview ("trame" | "lanes" |
+   "grid") et laneAxis ("label" | "character" | "thread" | "pov", ordre
+   imposé). Registre de lignes en mémoire (jamais retiré), drag qui ne
+   modifie QUE le champ d'axe (label/characters/thread/pov), cartes
+   RECTANGULAIRES opaques numéro+titre sur une ligne + synopsis (max 3
+   lignes). La barre d'axe vit dans le contenu Couloirs (même grammaire que
+   la barre de filtres Trame) ; la barre narrative ne porte qu'un sélecteur
+   compact de sous-vue. */
+
+function mkLaneFile(name, fm) {
+  const file = new TFile(`Projet/Manuscrit/${name}.md`);
+  file.__fm = fm || {};
+  return file;
+}
+
+function buildLanesHarness({ files = [], appOverride = {} } = {}) {
+  const root = new TFolder("Projet/Manuscrit");
+  root.children = files;
+  for (const f of files) f.parent = root;
+  const leaf = { openFile: async () => {} };
+  const app = {
+    workspace: { getLeaf: () => leaf, setActiveLeaf: () => {} },
+    vault: { getAbstractFileByPath: (path) => files.find((f) => f.path === path) || null },
+    ...appOverride,
+  };
+  const plugin = {
+    settings: {},
+    flattenFiles: (folder) => (folder === root ? files : []),
+    isFrontMatter: () => false,
+    fmOf: (file) => file.__fm || {},
+    shortTitleFor: (file) => file.basename,
+    /* Même surface que le vrai plugin (main.ts) : labelsOf liste multi-valeurs,
+       labelOf le premier label, labelColor la couleur configurée. */
+    labelsOf: (file) => {
+      const f = file.__fm || {};
+      const l = f.label !== undefined ? f.label : f.labels;
+      if (Array.isArray(l)) return l.filter(Boolean).map((x) => String(x).trim()).filter(Boolean);
+      if (typeof l === "string" && l.trim()) return l.split(/[,;]+/).map((x) => x.trim()).filter(Boolean);
+      return l ? [String(l).trim()] : [];
+    },
+    labelOf: (file) => {
+      const f = file.__fm || {};
+      const l = f.label !== undefined ? f.label : f.labels;
+      if (Array.isArray(l)) return String(l[0] ?? "").trim();
+      return l ? String(l).trim() : "";
+    },
+    labelColor: (name) => (name ? "#c0392b" : null),
+    moveNode: async () => {},
+  };
+  const view = new BoardView({ app, contentEl: new FakeElement() }, plugin);
+  view.iconBtn = (parent, icon, tooltip, onClick) => {
+    const button = parent.createEl("button", { cls: "clickable-icon" });
+    button.icon = icon;
+    button.tooltip = tooltip;
+    if (onClick) button.addEventListener("click", onClick);
+    return button;
+  };
+  view.passesFilter = () => true;
+  view.render = async () => {};
+  view.setFm = async () => {};
+  /* Couloirs = Fiction : le champ textuel des cartes est la synopsis (champ
+     sémantique du projet via lanesPlanningField — lanesProjectType par
+     défaut "fiction"). */
+  view.currentCardContent = "synopsis";
+  return { view, root, files, app, leaf, plugin };
+}
+
+function renderCouloirs(view, root, opts = {}) {
+  const container = new FakeElement();
+  view.renderCouloirs(
+    container,
+    root,
+    opts.currentFolder || root,
+    opts.wholeManuscript !== undefined ? opts.wholeManuscript : true,
+    opts.numbering || new Map()
+  );
+  return container;
+}
+
+/* LOT 5C structure : les noms de lignes vivent dans le GUTTER fixe
+   (feuillets-lanes-gutter-label), les pistes dans le canevas (feuillets-lanes-
+   row). Le rendu crée les deux nœuds jumeaux dans le MÊME ordre (mêmes
+   itérations) : la piste d'une ligne est retrouvée par l'index de son libellé
+   dans le gutter (§19). */
+function lanesLabels(container) {
+  return findAll(container, (el) => el.classes.has("feuillets-lanes-gutter-label")).map((l) => l.text);
+}
+
+function laneRow(container, labelText) {
+  const labels = findAll(container, (el) => el.classes.has("feuillets-lanes-gutter-label"));
+  const idx = labels.findIndex((l) => l.text === labelText);
+  if (idx === -1) return null;
+  return findAll(container, (el) => el.classes.has("feuillets-lanes-row"))[idx] || null;
+}
+
+function gutterLabel(container, labelText) {
+  return findAll(container, (el) => el.classes.has("feuillets-lanes-gutter-label")).find((l) => l.text === labelText);
+}
+
+function laneTrack(row) {
+  return findFirst(row, (el) => el.classes.has("feuillets-lanes-track"));
+}
+
+function laneLine(row) {
+  return findFirst(row, (el) => el.classes.has("feuillets-lane-line"));
+}
+
+function laneSlots(container, labelText) {
+  const row = laneRow(container, labelText);
+  if (!row) return [];
+  const track = laneTrack(row);
+  return track ? findAll(track, (el) => el.classes.has("feuillets-lanes-slot")) : [];
+}
+
+function cardInSlot(slot) {
+  return findFirst(slot, (el) => el.classes.has("feuillets-lanes-card"));
+}
+
+function cardHead(card) {
+  return findFirst(card, (el) => el.classes.has("feuillets-lanes-card-head"));
+}
+
+function cardTitle(card) {
+  return findFirst(card, (el) => el.classes.has("feuillets-lanes-card-title"));
+}
+
+function cardIndex(slot) {
+  return Number(slot.getAttr("data-index"));
+}
+
+/** Vide la file de microtasks : les listeners de drop sont synchrones et
+   poursuivent leur travail async (setFm, render) derrière un `void` — on
+   attend ici la fin de cette continuation avant d'observer les appels. */
+function flushMicrotasks() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/* ----- §20 — ARCHITECTURE : exactement 4 MODES ----- */
+
+test("LOT5C — BOARD_MODES = exactement [board, outline, arcs, timeline] (ni lanes ni grid)", () => {
+  assert.deepEqual(BOARD_MODES.map(([k]) => k), ["board", "outline", "arcs", "timeline"]);
+  assert.equal(BOARD_MODES.find(([k]) => k === "arcs")[1], "Chemin de fer");
+  assert.equal(BOARD_MODES.some(([k]) => k === "lanes"), false, "Couloirs n'est pas un mode");
+  assert.equal(BOARD_MODES.some(([k]) => k === "grid"), false, "Grille n'est pas un mode");
+});
+
+test("LOT5C — i18n : plus de board.mode.lanes ; les sous-vues narratif existent FR/EN", () => {
+  assert.equal(fr["board.mode.lanes"], undefined, "clé mode lanes supprimée (FR)");
+  assert.equal(en["board.mode.lanes"], undefined, "clé mode lanes supprimée (EN)");
+  assert.equal(fr["board.narrative.trame"], "Trame");
+  assert.equal(fr["board.narrative.lanes"], "Couloirs");
+  assert.equal(fr["board.narrative.grid"], "Grille");
+  assert.equal(en["board.narrative.trame"], "Rails");
+  assert.equal(en["board.narrative.lanes"], "Lanes");
+  assert.equal(en["board.narrative.grid"], "Grid");
+});
+
+test("LOT5C — les défauts hiddenBoardModes ne contiennent jamais lanes (ni grid)", () => {
+  for (const key of ["fiction", "nonfiction", "free"]) {
+    assert.equal(PROJECT_MODES[key].boardDefaults.hiddenBoardModes.includes("lanes"), false, `${key} : lanes absent`);
+    assert.equal(PROJECT_MODES[key].boardDefaults.hiddenBoardModes.includes("grid"), false, `${key} : grid absent`);
+  }
+  assert.deepEqual(PROJECT_MODES.fiction.boardDefaults.hiddenBoardModes, ["timeline"]);
+  assert.deepEqual(PROJECT_MODES.nonfiction.boardDefaults.hiddenBoardModes, ["arcs", "timeline"]);
+  assert.deepEqual(PROJECT_MODES.free.boardDefaults.hiddenBoardModes, ["arcs", "timeline"]);
+});
+
+test("LOT5C — projectBoardDefaults : lanes absent de tous les types", () => {
+  assert.ok(!projectBoardDefaults("fiction").hiddenBoardModes.includes("lanes"));
+  assert.ok(!projectBoardDefaults("nonfiction").hiddenBoardModes.includes("lanes"));
+  assert.ok(!projectBoardDefaults("free").hiddenBoardModes.includes("lanes"));
+});
+
+test("LOT5C — BoardView par défaut : sous-vue Trame, axe Label, registre vide, jamais persisté", () => {
+  const { view, plugin } = buildLanesHarness({ files: [] });
+  assert.equal(view.narrativeSubview, "trame", "défaut = Trame (Chemin de fer gelé)");
+  assert.equal(view.laneAxis, "label", "défaut = axe Label (premier de l'ordre imposé)");
+  assert.deepEqual(view.laneRegistry, { label: [], character: [], thread: [], pov: [] }, "registre initial vide (4 axes)");
+  assert.equal(plugin.settings.lanesAxis, undefined, "aucun réglage lanesAxis jamais créé");
+  assert.equal(plugin.settings.narrativeSubview, undefined, "aucun réglage narrativeSubview jamais créé");
+});
+
+test("LOT5C — type NarrativeSubview/LaneAxis compilent : aucune union élargie en string", () => {
+  /* Propriété de TYPES vérifiée par la compilation (npm run build) — preuve
+     runtime : le registre n'accepte que les QUATRE axes et la sous-vue n'est
+     jamais persistée. */
+  const { view } = buildLanesHarness({ files: [] });
+  for (const axis of ["label", "character", "thread", "pov"]) {
+    assert.ok(axis in view.laneRegistry, `${axis} est un axe du registre`);
+  }
+});
+
+/* ----- §21 — SESSION : SOUS-VUES ET BARRE NARRATIVE ----- */
+
+/** Board monté avec les rendus de surface neutralisés — la MÉCANIQUE de
+   l'espace narratif (migration, barre, routing), pas le contenu des vues
+   (couvert par les tests renderCouloirs ci-dessous). */
+function buildNarrativeHarness({ boardMode = "arcs", type = "fiction" } = {}) {
+  if (!globalThis.document) globalThis.document = { activeElement: null };
+  const root = new TFolder("Projet/Manuscrit");
+  const contentEl = new FakeElement();
+  const workspace = {
+    getLeavesOfType: () => [],
+    getLeaf: () => ({ isDeferred: false, loadIfDeferred: async () => {}, setViewState: async () => {}, detach() {} }),
+    setActiveLeaf: () => {},
+    revealLeaf: () => {},
+    on: () => ({}),
+  };
+  const settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  settings.projectFolder = root.path;
+  settings.projectMeta = { [root.path]: { type, boardMode } };
+  const plugin = {
+    settings,
+    getProjectFolder: () => root,
+    saveSettings: async () => {},
+    getOrderedChildren: () => [],
+    flattenFiles: () => [],
+    getWordCounts: async () => new Map(),
+    wordCountOfFolder: async () => 0,
+    updateDailyStats: async () => {},
+    buildNumbering: () => new Map(),
+    labelsOf: () => [],
+    labelOf: () => "",
+    labelColor: () => null,
+    tagsOf: () => [],
+    fmOf: () => ({}),
+    isFrontMatter: () => false,
+    unitLabel: () => "scène",
+    unitLabelPlural: () => "scènes",
+    refreshView: () => {},
+    _binderMultiSelect: new Set(),
+  };
+  const app = { workspace, vault: { getAbstractFileByPath: () => null } };
+  const view = new BoardView({ app, contentEl }, plugin);
+  view.iconBtn = (parent, icon, tooltip, onClick) => {
+    const button = parent.createEl("button", { cls: "clickable-icon" });
+    button.icon = icon;
+    button.tooltip = tooltip;
+    if (onClick) button.addEventListener("click", onClick);
+    return button;
+  };
+  view.barSep = (parent) => parent.createDiv({ cls: "feuillets-bar-sep" });
+  view.renderBoard = () => {};
+  view.renderBoardWholeManuscript = () => {};
+  view.renderBreadcrumbs = () => {};
+  view.renderOutline = async () => {};
+  view.renderCheminDeFer = () => {};
+  view.renderCouloirs = () => {};
+  view.renderTimeline = () => {};
+  view.passesFilter = () => true;
+  return { view, contentEl, plugin, settings, root, app };
+}
+
+function narrativeBar(container) {
+  return findFirst(container, (el) => el.classes.has("feuillets-narrative-bar"));
+}
+
+function narrativePlus(container) {
+  const bar = narrativeBar(container);
+  if (!bar) return null;
+  return findAll(bar, (el) => el.tag === "button" && el.icon === "plus")[0];
+}
+
+test("LOT5C — migration défensive : boardMode 'lanes' persisté → arcs + sous-vue Couloirs (local, jamais réécrit)", async () => {
+  const { view, settings, root } = buildNarrativeHarness({ boardMode: "lanes" });
+  let couloirsCalled = 0;
+  view.renderCouloirs = () => { couloirsCalled += 1; };
+  await view.render(true);
+  assert.equal(couloirsCalled, 1, "renderCouloirs appelé (mode normalisé en arcs)");
+  assert.equal(view.narrativeSubview, "lanes", "sous-vue Couloirs sélectionnée localement");
+  assert.equal(view._lanesMigrated, true, "drapeau de migration posé");
+  assert.equal(settings.projectMeta[root.path].boardMode, "lanes", "boardMode persisté JAMAIS réécrit sur le disque");
+  assert.equal(settings.boardMode, DEFAULT_SETTINGS.boardMode, "réglage global boardMode inchangé");
+  assert.equal(settings.lanesAxis, undefined, "aucun réglage lanesAxis créé par la migration");
+});
+
+test("LOT5C — narrativeSubview survit à render(true) et aux allers-retours de mode (état de SESSION)", async () => {
+  const { view, settings, root } = buildNarrativeHarness({ boardMode: "arcs" });
+  view.narrativeSubview = "lanes";
+  view.laneAxis = "thread";
+  await view.render(true);
+  assert.equal(view.narrativeSubview, "lanes", "préservé après render(true)");
+  assert.equal(view.laneAxis, "thread", "axe préservé après render(true)");
+  /* Aller-retour de mode : l'état de session ne se réinitialise pas. */
+  settings.projectMeta[root.path].boardMode = "outline";
+  await view.render(true);
+  assert.equal(view.narrativeSubview, "lanes", "préservé après un aller-retour vers un autre mode");
+  /* Retour arcs → Couloirs retrouvé. */
+  settings.projectMeta[root.path].boardMode = "arcs";
+  let couloirsCalled = 0;
+  view.renderCouloirs = () => { couloirsCalled += 1; };
+  await view.render(true);
+  assert.equal(couloirsCalled, 1, "retour arcs → renderCouloirs (sous-vue préservée)");
+});
+
+test("LOT5C — barre narrative en mode arcs : sélecteur compact de sous-vue, sans Axe ni '+', Grille dans le Menu", async () => {
+  const { view, contentEl } = buildNarrativeHarness({ boardMode: "arcs" });
+  await view.render(true);
+  const bar = narrativeBar(contentEl);
+  assert.ok(bar, "barre narrative rendue sous la barre principale");
+  /* Un SEUL sélecteur compact (pilule icône+libellé+chevron), plus de 3
+     boutons de sous-vues étalés. */
+  const selector = findFirst(bar, (el) => el.classes.has("feuillets-narrative-subview-btn"));
+  assert.ok(selector, "sélecteur compact présent");
+  const label = findFirst(selector, (el) => el.classes.has("feuillets-narrative-btn-label"));
+  assert.equal(label.text, "Trame", "face = sous-vue courante (Trame)");
+  assert.equal(narrativePlus(contentEl), undefined, "pas de bouton '+' dans la barre narrative (il vit dans la barre d'axe Couloirs)");
+  assert.equal(findAll(contentEl, (el) => el.classes.has("feuillets-narrative-axis-label")).length, 0, "pas de libellé Axe");
+  assert.equal(findAll(contentEl, (el) => el.classes.has("feuillets-narrative-sep")).length, 0, "plus de séparateurs de groupe");
+  /* Grille = entrée visible mais désactivée du Menu natif. */
+  Menu.lastShown = null;
+  await selector.trigger("click", { clientX: 1, clientY: 2 });
+  const menu = Menu.lastShown;
+  assert.ok(menu, "Menu ouvert");
+  assert.deepEqual(
+    menu.items.map((i) => [i.title, i.icon, i.disabled === true]),
+    [["Trame", "waypoint", false], ["Couloirs", "rows-3", false], ["Grille", "grid-3x3", true]],
+    "Menu : Trame waypoint, Couloirs rows-3, Grille grid-3x3 visible+désactivée"
+  );
+  assert.equal(menu.items[0].checked, true, "entrée courante (Trame) cochée via le Menu natif");
+});
+
+test("LOT5C — Couloirs actif : le sélecteur affiche Couloirs ; l'axe vit dans le contenu, la bascule se fait par le Menu (session)", async () => {
+  const { view, contentEl } = buildNarrativeHarness({ boardMode: "arcs" });
+  view.narrativeSubview = "lanes";
+  await view.render(true);
+  const bar = narrativeBar(contentEl);
+  const selector = findFirst(bar, (el) => el.classes.has("feuillets-narrative-subview-btn"));
+  const iconHost = findFirst(selector, (el) => el.classes.has("feuillets-narrative-btn-icon"));
+  const label = findFirst(selector, (el) => el.classes.has("feuillets-narrative-btn-label"));
+  assert.equal(iconHost.icon, "rows-3", "face Couloirs (rows-3)");
+  assert.equal(label.text, "Couloirs", "libellé Couloirs");
+  /* Plus AUCUN contrôle d'axe dans la barre narrative. */
+  assert.equal(findAll(bar, (el) => el.classes.has("feuillets-arcs-filter-btn")).length, 0, "l'axe n'est pas dans la barre narrative");
+  /* Choisir une sous-vue par le Menu → bascule de session. */
+  Menu.lastShown = null;
+  await selector.trigger("click", { clientX: 1, clientY: 2 });
+  Menu.lastShown.items[1].callback(); // Couloirs déjà courant → aucune bascule
+  assert.equal(view.narrativeSubview, "lanes", "Couloirs conservé");
+  Menu.lastShown.items[0].callback(); // Trame
+  assert.equal(view.narrativeSubview, "trame", "retour Trame par le Menu");
+  /* L'axe reste un état de session indépendant de la sous-vue. */
+  view.laneAxis = "character";
+  assert.equal(view.laneAxis, "character", "axe de session conservé hors de la barre narrative");
+});
+
+test("LOT5C — le menu 'Modes affichés' n'offre jamais Couloirs/Grille (pas des modes)", async () => {
+  /* Le menu ne dérive que de BOARD_MODES (4 modes) : Couloirs et Grille n'y
+     sont jamais proposés comme modes à masquer/affichages. Vérifié par la
+     construction du menu : aucune clé board.mode.lanes/grid, et les sous-vues
+     vivent dans la barre narrative, pas dans le sélecteur de modes. */
+  const { view, contentEl } = buildNarrativeHarness({ boardMode: "arcs" });
+  await view.render(true);
+  const modeGroup = findFirst(contentEl, (el) => el.classes.has("feuillets-mode-group"));
+  assert.ok(modeGroup, "groupe de modes présent");
+  const modeIcons = findAll(modeGroup, (el) => el.tag === "button" && el.icon).map((b) => b.icon);
+  assert.equal(modeIcons.includes("columns-2"), false, "aucune icône Couloirs dans le groupe de modes");
+  assert.equal(modeIcons.includes("lanes"), false);
+});
+
+/* ----- §22 — REGISTRE DE LIGNES ----- */
+
+test("LOT5C — registre : lignes = première apparition dans l'ordre narratif, 'Sans pov' TOUJOURS en dernier", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+    mkLaneFile("C", { pov: "Deli" }),
+    mkLaneFile("D", { pov: "Kemal" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["Deli", "Kali", "Kemal", "Sans pov"], "première apparition, jamais alphabétique, Sans pov en dernier");
+});
+
+test("LOT5C — ordre non alphabétique conservé (Kemal avant Deli)", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Kemal" }),
+    mkLaneFile("B", { pov: "Deli" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["Kemal", "Deli", "Sans pov"]);
+});
+
+test("LOT5C — 'Sans pov' visible et en dernier MÊME si aucun feuillet n'en a besoin", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["Deli", "Kali", "Sans pov"], "Sans pov toujours rendu, toujours cible de drop");
+  const sansRow = laneRow(container, "Sans pov");
+  assert.ok(sansRow, "ligne Sans pov présente");
+  assert.ok(laneTrack(sansRow), "Sans pov est bien une cible de drop (track présent)");
+});
+
+test("LOT5C — tous sans Pov → une seule ligne 'Sans pov' avec toutes les cartes (pas d'état vide)", () => {
+  const files = [
+    mkLaneFile("A", {}),
+    mkLaneFile("B", {}),
+    mkLaneFile("C", {}),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["Sans pov"]);
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-lanes-card")).length, 3, "les 3 cartes rendues");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-empty")).length, 0, "pas d'état vide quand des feuillets existent");
+});
+
+test("LOT5C — aucun feuillet dans le périmètre → état vide", () => {
+  const { view, root } = buildLanesHarness({ files: [] });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  const empty = findFirst(container, (el) => el.classes.has("feuillets-empty"));
+  assert.ok(empty, "état vide rendu");
+  assert.equal(empty.text, "Aucun feuillet à afficher.");
+});
+
+test("LOT5C — nouvelle valeur découverte au re-rendu → ajoutée à la FIN du registre (jamais triée)", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const c1 = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(c1), ["Deli", "Kali", "Sans pov"]);
+  files.push(mkLaneFile("C", { pov: "Kemal" }));
+  const c2 = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(c2), ["Deli", "Kali", "Kemal", "Sans pov"], "Kemal ajouté à la fin, ordre préservé");
+});
+
+test("LOT5C — le registre n'est JAMAIS retiré : un filtre qui masque un feuillet garde sa ligne", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  renderCouloirs(view, root);
+  view.passesFilter = (file) => file.basename === "A";
+  const c2 = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(c2), ["Deli", "Kali", "Sans pov"], "Kali reste au registre malgré le filtre (session)");
+  assert.equal(findAll(c2, (el) => el.classes.has("feuillets-lanes-card")).length, 1, "seule la carte A rendue");
+});
+
+test("LOT5C — passesFilter() reste appliqué aux feuillets Couloirs", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const kept = [files[0]];
+  view.passesFilter = (file) => kept.includes(file);
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["Deli", "Sans pov"], "seul le feuillet filtré alimente le registre");
+  const cards = findAll(container, (el) => el.classes.has("feuillets-lanes-card"));
+  assert.equal(cards.length, 1);
+  assert.equal(cardTitle(cards[0]).text, "A");
+});
+
+test("LOT5C — les filtres locaux du Chemin de fer (selected*) ne filtrent PAS Couloirs", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.selectedLabel = "rouge";
+  view.selectedPerso = "Kemal";
+  view.selectedFil = "Enquête";
+  view.selectedPov = "Kali";
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["Deli", "Kali", "Sans pov"], "les deux couloirs rendus malgré les filtres locaux");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-lanes-card")).length, 2);
+});
+
+/* ----- §23 — POSITION NARRATIVE ET GÉOMÉTRIE ----- */
+
+test("LOT5C — position narrative : A=Deli index 0, D=Deli index 3", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+    mkLaneFile("C", { pov: "Kali" }),
+    mkLaneFile("D", { pov: "Deli" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+
+  const deliSlots = laneSlots(container, "Deli");
+  assert.equal(deliSlots.length, 4, "track Deli : 4 slots pour 4 feuillets");
+  assert.equal(cardIndex(deliSlots[0]), 0);
+  assert.equal(cardTitle(cardInSlot(deliSlots[0])).text, "A", "A dans le slot 0 de Deli");
+  assert.equal(cardIndex(deliSlots[3]), 3);
+  assert.equal(cardTitle(cardInSlot(deliSlots[3])).text, "D", "D dans le slot 3 de Deli");
+  assert.equal(cardInSlot(deliSlots[1]), undefined, "slot 1 vide dans Deli (B est Kali)");
+  assert.equal(cardInSlot(deliSlots[2]), undefined, "slot 2 vide dans Deli (C est Kali)");
+});
+
+test("LOT5C — chaque track possède exactement autant de slots que de feuillets visibles", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+    mkLaneFile("C", { pov: "Kali" }),
+    mkLaneFile("D", { pov: "Deli" }),
+    mkLaneFile("E", {}),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  for (const label of ["Deli", "Kali", "Sans pov"]) {
+    assert.equal(laneSlots(container, label).length, files.length, `${label} : ${files.length} slots`);
+  }
+});
+
+test("LOT5C — chaque feuillet n'est rendu qu'une seule fois par ligne, à son index narratif", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+    mkLaneFile("C", { pov: "Kali" }),
+    mkLaneFile("D", { pov: "Deli" }),
+    mkLaneFile("E", {}),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  const cards = findAll(container, (el) => el.classes.has("feuillets-lanes-card"));
+  assert.equal(cards.length, files.length, "5 cartes pour 5 feuillets — jamais regroupées par Pov");
+  for (let i = 0; i < files.length; i++) {
+    const slot = findAll(container, (el) => el.classes.has("feuillets-lanes-slot")).find(
+      (s) => cardInSlot(s) && cardTitle(cardInSlot(s)).text === files[i].basename
+    );
+    assert.ok(slot, `${files[i].basename} rendu`);
+    assert.equal(cardIndex(slot), i, `${files[i].basename} à l'index narratif ${i}`);
+  }
+});
+
+test("LOT5C — chaque track porte un vrai nœud de ligne continue .feuillets-lane-line", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  for (const label of ["Deli", "Kali", "Sans pov"]) {
+    const row = laneRow(container, label);
+    assert.ok(laneLine(row), `${label} : ligne continue présente`);
+    assert.equal(findAll(laneTrack(row), (el) => el.classes.has("feuillets-lane-line")).length, 1, `${label} : exactement une ligne`);
+  }
+});
+
+test("LOT5C — un feuillet multi-valeurs (Label) apparaît dans CHAQUE ligne correspondante", () => {
+  const files = [
+    mkLaneFile("A", { label: ["rouge", "bleu"] }),
+    mkLaneFile("B", { label: "vert" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "label";
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["rouge", "bleu", "vert", "Sans label"], "première apparition multi-valeurs");
+  assert.equal(cardTitle(cardInSlot(laneSlots(container, "rouge")[0])).text, "A", "A dans rouge (index 0)");
+  assert.equal(cardTitle(cardInSlot(laneSlots(container, "bleu")[0])).text, "A", "A dans bleu (index 0)");
+  assert.equal(cardTitle(cardInSlot(laneSlots(container, "vert")[1])).text, "B", "B dans vert (index 1)");
+});
+
+test("LOT5C — axe Fil : lignes par fils (multi-valeurs), 'Sans fil' en dernier", () => {
+  const files = [
+    mkLaneFile("A", { thread: ["Enquête", "Romance"] }),
+    mkLaneFile("B", { thread: "Action" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "thread";
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["Enquête", "Romance", "Action", "Sans fil"], "fils multi-valeurs, première apparition");
+  assert.equal(cardTitle(cardInSlot(laneSlots(container, "Enquête")[0])).text, "A");
+  assert.equal(cardTitle(cardInSlot(laneSlots(container, "Romance")[0])).text, "A");
+  assert.equal(cardTitle(cardInSlot(laneSlots(container, "Action")[1])).text, "B");
+});
+
+/* ----- §24 — CARTE COULOIRS ----- */
+
+test("LOT5C — carte : titre via la résolution existante (shortTitleFor)", () => {
+  const files = [mkLaneFile("Scène 12", { pov: "Deli" })];
+  const { view, root, plugin } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  plugin.shortTitleFor = () => "Titre Résolu";
+  const container = renderCouloirs(view, root);
+  const card = findFirst(container, (el) => el.classes.has("feuillets-lanes-card"));
+  assert.equal(cardTitle(card).text, "Titre Résolu", "même résolution de titre que les autres vues");
+});
+
+test("LOT5C — carte : numéro + titre sur la MÊME ligne (head), numéro avant titre", () => {
+  const files = [mkLaneFile("A", { pov: "Deli" })];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  const card = findFirst(container, (el) => el.classes.has("feuillets-lanes-card"));
+  const head = cardHead(card);
+  assert.ok(head, "en-tête de carte présent (même ligne)");
+  assert.ok(head.children[0].classes.has("feuillets-lanes-card-num"), "1er enfant = numéro");
+  assert.ok(head.children[1].classes.has("feuillets-lanes-card-title"), "2e enfant = titre (même ligne)");
+});
+
+test("LOT5C — carte : synopsis présent → affiché ; absent → aucun nœud ni espace réservé", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli", synopsis: "Résumé de A." }),
+    mkLaneFile("B", { pov: "Deli" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  const cards = findAll(container, (el) => el.classes.has("feuillets-lanes-card"));
+  const synopses = findAll(container, (el) => el.classes.has("feuillets-lanes-card-synopsis"));
+  assert.equal(synopses.length, 1, "une seule synopsis (celle de A)");
+  assert.equal(synopses[0].text, "Résumé de A.");
+  assert.equal(
+    findAll(cards[1], (el) => el.classes.has("feuillets-lanes-card-synopsis")).length,
+    0,
+    "B sans synopsis → aucun nœud synopsis, aucun espace réservé"
+  );
+});
+
+test("LOT5C — carte : Pov non répété dans la carte", () => {
+  const files = [mkLaneFile("A", { pov: "Deli" })];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  const card = findFirst(container, (el) => el.classes.has("feuillets-lanes-card"));
+  assert.equal(findAll(card, (el) => el.classes.has("feuillets-card-pov")).length, 0, "aucune classe pov carte");
+  assert.equal(findAll(card, (el) => el.classes.has("feuillets-lanes-card-pov")).length, 0);
+  const title = cardTitle(card).text;
+  assert.equal(title.includes("Deli"), false, "le libellé de la ligne n'est pas répété dans la carte");
+});
+
+test("LOT5C — carte : contenu LIMITÉ à numéro+titre+synopsis — jamais Pov/Label/Fil/Statut/Tags/date/goal/progression/boutons", () => {
+  const files = [mkLaneFile("A", {
+    pov: "Deli", arc: "Arc1", label: "rouge", thread: "Enquête", status: "Brouillon",
+    characters: ["Kemal"], tags: ["x"], date: "2026-01-01", goal: 500, progress: 10,
+    synopsis: "Résumé.",
+  })];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  const card = findFirst(container, (el) => el.classes.has("feuillets-lanes-card"));
+  const texts = findAll(card, () => true).map((el) => el.text).join(" ");
+  for (const banned of ["Deli", "Arc1", "rouge", "Enquête", "Brouillon", "Kemal", "x", "2026-01-01", "500"]) {
+    assert.equal(texts.includes(banned), false, `texte interdit : ${banned}`);
+  }
+  for (const cls of ["feuillets-card-pov", "feuillets-lanes-card-pov", "feuillets-card-status", "feuillets-card-label", "feuillets-lanes-card-label", "feuillets-card-tags", "feuillets-tags", "feuillets-ring", "feuillets-card-goal"]) {
+    assert.equal(findAll(card, (el) => el.classes.has(cls)).length, 0, `aucun élément ${cls}`);
+  }
+  assert.equal(findAll(card, (el) => el.tag === "button").length, 0, "aucun bouton dans la carte");
+});
+
+test("LOT5C — carte : liseré Label via labelColor, quel que soit l'axe courant", () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli", label: "rouge" }),
+    mkLaneFile("B", { pov: "Deli" }),
+  ];
+  const { view, root, plugin } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  const cards = findAll(container, (el) => el.classes.has("feuillets-lanes-card"));
+  assert.equal(cards[0].style.borderLeft, "3px solid #c0392b", "liseré = couleur Label existante (labelColor)");
+  assert.equal(cards[1].style.borderLeft, undefined, "pas de Label → aucun faux liseré coloré (bordure neutre CSS)");
+  const texts = findAll(cards[0], () => true).map((el) => el.text).join(" ");
+  assert.equal(texts.includes("rouge"), false, "le nom du Label n'apparaît jamais dans la carte");
+  /* Axe Label : le liseré reste présent (indépendant du regroupement). */
+  view.laneAxis = "label";
+  const container2 = renderCouloirs(view, root);
+  const cards2 = findAll(container2, (el) => el.classes.has("feuillets-lanes-card"));
+  assert.equal(cards2[0].style.borderLeft, "3px solid #c0392b", "liseré conservé en axe Label");
+  /* La couleur vient de labelColor, jamais d'un littéral codé en dur. */
+  plugin.labelColor = (name) => (name ? "#123456" : null);
+  const container3 = renderCouloirs(view, root);
+  const card3 = findFirst(container3, (el) => el.classes.has("feuillets-lanes-card"));
+  assert.equal(card3.style.borderLeft, "3px solid #123456");
+});
+
+test("LOT5C — clic sur le titre → ouverture standard du fichier (openFileActivating)", async () => {
+  const files = [mkLaneFile("A", { pov: "Deli" })];
+  const { view, root, leaf } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  let opened = null;
+  leaf.openFile = async (f) => { opened = f; };
+  const container = renderCouloirs(view, root);
+  const card = findFirst(container, (el) => el.classes.has("feuillets-lanes-card"));
+  await cardTitle(card).trigger("click");
+  assert.equal(opened, files[0], "openFileActivating ouvre le feuillet standard");
+});
+
+test("LOT5C — un drag ne déclenche jamais le clic d'ouverture du titre", async () => {
+  const files = [mkLaneFile("A", { pov: "Deli" })];
+  const { view, root, leaf } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  let opened = null;
+  leaf.openFile = async (f) => { opened = f; };
+  const container = renderCouloirs(view, root);
+  const card = findFirst(container, (el) => el.classes.has("feuillets-lanes-card"));
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await cardTitle(card).trigger("click");
+  assert.equal(opened, null, "le drag en cours verrouille l'ouverture par clic");
+});
+
+/* ----- §25 — DRAG : POV SCALAIRE, LABEL/FIL MULTI-VALEURS ----- */
+
+test("LOT5C — drag Deli → Kali : setFm(file, 'pov', 'Kali') puis render(true)", async () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const setFmCalls = [];
+  const renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f, k, v }); };
+  view.render = async () => { renderCalls.push(true); };
+
+  const container = renderCouloirs(view, root);
+  const card = cardInSlot(laneSlots(container, "Deli")[0]);
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "Kali")).trigger("drop");
+  await flushMicrotasks();
+
+  assert.equal(setFmCalls.length, 1, "setFm appelé une fois");
+  assert.equal(setFmCalls[0].f, files[0], "fichier glissé");
+  assert.equal(setFmCalls[0].k, "pov", "clé logique pov");
+  assert.equal(setFmCalls[0].v, "Kali", "valeur Kali");
+  assert.deepEqual(renderCalls, [true], "render(true) après sauvegarde");
+});
+
+test("LOT5C — drag Kali → Sans pov : setFm(file, 'pov', '') puis render(true)", async () => {
+  const files = [
+    mkLaneFile("A", { pov: "Kali" }),
+    mkLaneFile("B", { pov: "Deli" }),
+    mkLaneFile("C", {}),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const setFmCalls = [];
+  const renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f, k, v }); };
+  view.render = async () => { renderCalls.push(true); };
+
+  const container = renderCouloirs(view, root);
+  assert.ok(laneRow(container, "Sans pov"), "couloir Sans pov présent");
+  const card = cardInSlot(laneSlots(container, "Kali")[0]);
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "Sans pov")).trigger("drop");
+  await flushMicrotasks();
+
+  assert.equal(setFmCalls.length, 1);
+  assert.equal(setFmCalls[0].k, "pov");
+  assert.equal(setFmCalls[0].v, "", "Sans pov → pov vide, la propriété sera supprimée par setFm");
+  assert.deepEqual(renderCalls, [true]);
+});
+
+test("LOT5C — drop sur sa propre ligne (Pov ou Sans) : aucune écriture, aucun render", async () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", {}),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const setFmCalls = [];
+  const renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+  view.render = async () => { renderCalls.push(true); };
+
+  const container = renderCouloirs(view, root);
+  const cardA = cardInSlot(laneSlots(container, "Deli")[0]);
+  await cardA.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "Deli")).trigger("drop");
+  await flushMicrotasks();
+  const cardB = cardInSlot(laneSlots(container, "Sans pov")[1]);
+  await cardB.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "Sans pov")).trigger("drop");
+  await flushMicrotasks();
+
+  assert.equal(setFmCalls.length, 0, "aucune écriture sur sa propre ligne (Pov ou Sans)");
+  assert.equal(renderCalls.length, 0, "aucun render");
+});
+
+test("LOT5C — après changement de Pov : index horizontal du fichier inchangé", async () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+    mkLaneFile("C", { pov: "Deli" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.setFm = async (f, k, v) => { f.__fm = { ...f.__fm, [k]: v }; };
+
+  const container = renderCouloirs(view, root);
+  const cardA = cardInSlot(laneSlots(container, "Deli")[0]);
+  assert.equal(cardTitle(cardA).text, "A");
+  await cardA.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "Kali")).trigger("drop");
+  await flushMicrotasks();
+
+  const container2 = renderCouloirs(view, root);
+  const kaliSlots2 = laneSlots(container2, "Kali");
+  assert.equal(cardTitle(cardInSlot(kaliSlots2[0])).text, "A", "A à l'index 0 du couloir Kali");
+  assert.equal(cardTitle(cardInSlot(kaliSlots2[1])).text, "B", "B inchangé à l'index 1");
+  const deliSlots2 = laneSlots(container2, "Deli");
+  assert.equal(cardInSlot(deliSlots2[0]), undefined, "Deli vide à l'index 0 après le départ de A");
+  assert.equal(cardTitle(cardInSlot(deliSlots2[2])).text, "C", "C inchangé à l'index 2");
+});
+
+test("LOT5C — le drag Couloirs n'appelle aucune fonction de réordonnancement Binder/manuscrit", async () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+  ];
+  const { view, root, plugin } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const reorderCalls = [];
+  plugin.moveNode = async () => { reorderCalls.push("moveNode"); };
+  view.moveFile = async () => { reorderCalls.push("moveFile"); };
+
+  const container = renderCouloirs(view, root);
+  const card = cardInSlot(laneSlots(container, "Deli")[0]);
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "Kali")).trigger("drop");
+  await flushMicrotasks();
+
+  assert.deepEqual(reorderCalls, [], "aucune opération de déplacement physique du fichier");
+});
+
+test("LOT5C — LABEL multi-valeurs : [A,C] A→B donne [C,B] (ordre préservé, source seule retirée)", async () => {
+  const files = [
+    mkLaneFile("X", { label: ["A", "C"] }),
+    mkLaneFile("Y", { label: "B" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "label";
+  const setFmCalls = [];
+  const renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f, k, v }); };
+  view.render = async () => { renderCalls.push(true); };
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["A", "C", "B", "Sans label"]);
+  const card = cardInSlot(laneSlots(container, "A")[0]); // X, source = "A"
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "B")).trigger("drop");
+  await flushMicrotasks();
+  assert.equal(setFmCalls.length, 1);
+  assert.equal(setFmCalls[0].k, "label", "clé frontmatter label en axe Label");
+  assert.deepEqual(setFmCalls[0].v, ["C", "B"], "[A,C] A→B = [C,B] — ordre préservé");
+  assert.deepEqual(renderCalls, [true]);
+});
+
+test("LOT5C — LABEL multi-valeurs : [A,B,C] A→B donne [B,C] (aucun doublon)", async () => {
+  const files = [mkLaneFile("X", { label: ["A", "B", "C"] })];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "label";
+  const setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f, k, v }); };
+  view.render = async () => {};
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["A", "B", "C", "Sans label"]);
+  const card = cardInSlot(laneSlots(container, "A")[0]); // X, source = "A"
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "B")).trigger("drop");
+  await flushMicrotasks();
+  assert.equal(setFmCalls.length, 1);
+  assert.deepEqual(setFmCalls[0].v, ["B", "C"], "[A,B,C] A→B = [B,C] — B déjà présent, pas de doublon");
+});
+
+test("LOT5C — LABEL multi-valeurs : [A,C] A→Sans donne [C] (le champ sera réécrit sans la source)", async () => {
+  const files = [mkLaneFile("X", { label: ["A", "C"] })];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "label";
+  const setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f, k, v }); };
+  view.render = async () => {};
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["A", "C", "Sans label"]);
+  const card = cardInSlot(laneSlots(container, "A")[0]); // X, source = "A"
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "Sans label")).trigger("drop");
+  await flushMicrotasks();
+  assert.equal(setFmCalls.length, 1);
+  assert.deepEqual(setFmCalls[0].v, ["C"], "[A,C] A→Sans = [C]");
+});
+
+test("LOT5C — LABEL multi-valeurs : feuillet sans label → B donne [B]", async () => {
+  const files = [
+    mkLaneFile("X", {}),
+    mkLaneFile("Y", { label: "B" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "label";
+  const setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f, k, v }); };
+  view.render = async () => {};
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["B", "Sans label"]);
+  const card = cardInSlot(laneSlots(container, "Sans label")[0]); // X, source = ""
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "B")).trigger("drop");
+  await flushMicrotasks();
+  assert.equal(setFmCalls.length, 1);
+  assert.deepEqual(setFmCalls[0].v, ["B"], "[] → B = [B]");
+});
+
+test("LOT5C — FIL multi-valeurs : [A,C] A→B donne [C,B] via setFm(file, 'thread', …)", async () => {
+  const files = [
+    mkLaneFile("X", { thread: ["A", "C"] }),
+    mkLaneFile("Y", { thread: "B" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "thread";
+  const setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f, k, v }); };
+  view.render = async () => {};
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["A", "C", "B", "Sans fil"]);
+  const card = cardInSlot(laneSlots(container, "A")[0]); // X, source = "A"
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "B")).trigger("drop");
+  await flushMicrotasks();
+  assert.equal(setFmCalls.length, 1);
+  assert.equal(setFmCalls[0].k, "thread", "clé frontmatter thread en axe Fil");
+  assert.deepEqual(setFmCalls[0].v, ["C", "B"], "[A,C] A→B = [C,B]");
+});
+
+test("LOT5C — drop sur sa propre ligne en multi-valeurs : aucune écriture", async () => {
+  const files = [
+    mkLaneFile("X", { label: ["A"] }),
+    mkLaneFile("Y", { label: "B" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "label";
+  const setFmCalls = [];
+  const renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+  view.render = async () => { renderCalls.push(true); };
+  const container = renderCouloirs(view, root);
+  const card = cardInSlot(laneSlots(container, "A")[0]); // X, source = "A"
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  await laneTrack(laneRow(container, "A")).trigger("drop");
+  await flushMicrotasks();
+  assert.equal(setFmCalls.length, 0, "source === cible → aucune écriture");
+  assert.equal(renderCalls.length, 0, "aucun render");
+});
+
+test("LOT5C — accent discret pendant le survol d'un drop : classe dragover sur la LIGNE (label + ligne)", async () => {
+  const files = [
+    mkLaneFile("A", { pov: "Deli" }),
+    mkLaneFile("B", { pov: "Kali" }),
+  ];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const container = renderCouloirs(view, root);
+  const card = cardInSlot(laneSlots(container, "Deli")[0]);
+  await card.trigger("dragstart", { dataTransfer: { setData() {}, effectAllowed: "" } });
+  const kaliRow = laneRow(container, "Kali");
+  await laneTrack(kaliRow).trigger("dragover", { dataTransfer: {} });
+  assert.ok(kaliRow.classes.has("feuillets-lanes-dragover"), "la ligne porte l'accent pendant le survol");
+  assert.ok(gutterLabel(container, "Kali").classes.has("feuillets-lanes-dragover"), "le libellé du GUTTER porte aussi l'accent pendant le survol");
+  await laneTrack(kaliRow).trigger("dragleave");
+  assert.equal(kaliRow.classes.has("feuillets-lanes-dragover"), false, "accent retiré en quittant le survol");
+  assert.equal(gutterLabel(container, "Kali").classes.has("feuillets-lanes-dragover"), false, "accent du libellé retiré en quittant le survol");
+});
+
+/* ----- §26 — CRÉATION DE LIGNE (barre '+') ----- */
+
+test("LOT5C — createLane : valeur vide après trim → rien", () => {
+  const { view } = buildLanesHarness({ files: [] });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const renderCalls = [];
+  view.render = async () => { renderCalls.push(true); };
+  view.createLane("pov", "   ");
+  assert.deepEqual(view.laneRegistry.pov, [], "aucune ligne créée pour une valeur vide");
+  assert.equal(renderCalls.length, 0);
+});
+
+test("LOT5C — createLane : doublon exact → rien", () => {
+  const files = [mkLaneFile("A", { pov: "Deli" })];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  renderCouloirs(view, root); // sème le registre : ["Deli"]
+  const renderCalls = [];
+  view.render = async () => { renderCalls.push(true); };
+  view.createLane("pov", "Deli");
+  assert.deepEqual(view.laneRegistry.pov, ["Deli"], "doublon non ajouté");
+  assert.equal(renderCalls.length, 0, "aucun render pour un doublon");
+});
+
+test("LOT5C — createLane : nouvelle valeur → ajoutée à la FIN du registre + render(true), aucun YAML", () => {
+  const files = [mkLaneFile("A", { pov: "Deli" })];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  renderCouloirs(view, root);
+  const renderCalls = [];
+  view.render = async () => { renderCalls.push(true); };
+  view.createLane("pov", "  Kemal  ");
+  assert.deepEqual(view.laneRegistry.pov, ["Deli", "Kemal"], "Kemal ajouté à la fin (trim)");
+  assert.deepEqual(renderCalls, [true], "render(true) déclenché");
+  const container = renderCouloirs(view, root);
+  assert.deepEqual(lanesLabels(container), ["Deli", "Kemal", "Sans pov"], "la nouvelle ligne est rendue (sans feuillet)");
+});
+
+test("LOT5C — createLane : ligne créée sur un axe ≠ axe courant → registre alimenté mais aucun render", () => {
+  const { view } = buildLanesHarness({ files: [] });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "pov";
+  const renderCalls = [];
+  view.render = async () => { renderCalls.push(true); };
+  view.createLane("label", "bleu");
+  assert.deepEqual(view.laneRegistry.label, ["bleu"], "registre label alimenté");
+  assert.deepEqual(view.laneRegistry.pov, [], "registre pov intact");
+  assert.equal(renderCalls.length, 0, "pas de render pour un axe non affiché");
+});
+
+test("LOT5C — openNewLaneModal ouvre une NewLaneModal avec l'axe courant", () => {
+  const { view } = buildLanesHarness({ files: [] });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  view.laneAxis = "label";
+  const opened = [];
+  const orig = NewLaneModal.prototype.open;
+  NewLaneModal.prototype.open = function () { opened.push(this); };
+  try {
+    view.openNewLaneModal();
+    assert.equal(opened.length, 1, "une modale ouverte");
+    assert.equal(opened[0].axis, "label", "axe courant transmis à la modale");
+  } finally {
+    NewLaneModal.prototype.open = orig;
+  }
+});
+
+test("LOT5C — NewLaneModal.submit : délègue à createLane puis ferme", () => {
+  const { view, app } = buildLanesHarness({ files: [] });
+  view.laneAxis = "pov";  /* harnais : fil conducteur métier = axe Pov (le vrai défaut d'instance label est vérifié au-dessus) */
+  const created = [];
+  view.createLane = (axis, raw) => { created.push({ axis, raw }); };
+  const modal = new NewLaneModal(app, view, "pov");
+  let closed = false;
+  modal.close = () => { closed = true; };
+  modal.submit("  Kemal  ");
+  assert.deepEqual(created, [{ axis: "pov", raw: "  Kemal  " }], "createLane reçoit la valeur brute (trim dans createLane)");
+  assert.equal(modal.value, "  Kemal  ", "this.value mémorisé");
+  assert.equal(closed, true, "modale fermée après soumission");
+});
+
+/* ----- §26 bis — CSS Couloirs ----- */
+
+function cssRule(css, selector) {
+  const start = css.indexOf(`${selector} {`);
+  if (start === -1) return "";
+  const end = css.indexOf("}", start);
+  return css.slice(start, end);
+}
+
+test("LOT5C CSS — sélecteurs Couloirs présents, aucune couleur codée ni !important dans le bloc", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  for (const selector of [
+    ".feuillets-lanes-area",
+    ".feuillets-lanes-gutter",
+    ".feuillets-lanes-gutter-label",
+    ".feuillets-lanes-scroll",
+    ".feuillets-lanes",
+    ".feuillets-lanes-row",
+    ".feuillets-lanes-track",
+    ".feuillets-lanes-slot",
+    ".feuillets-lanes-card",
+    ".feuillets-lanes-card-head",
+    ".feuillets-lanes-card-num",
+    ".feuillets-lanes-card-title",
+    ".feuillets-lanes-card-synopsis",
+    ".feuillets-lane-line",
+    ".feuillets-narrative-bar",
+    ".feuillets-narrative-subview-btn",
+    ".feuillets-narrative-btn-chevron",
+    ".feuillets-lanes-axis-active",
+  ]) {
+    assert.ok(css.includes(selector), `sélecteur ${selector} présent`);
+  }
+  /* LOT 5C structure : plus AUCUN libellé sticky dans les pistes — les noms
+     vivent dans le gutter fixe, le canevas est la SEULE zone scrollable. */
+  assert.equal(css.includes(".feuillets-lanes-label"), false, "plus de libellé de ligne dans les pistes (gutter)");
+  assert.match(css, /\.feuillets-lanes-gutter\s*\{\s*flex-shrink:\s*0;/);
+  assert.match(css, /\.feuillets-lanes-scroll\s*\{\s*[^}]*overflow-x:\s*auto;/);
+  const lanesBlocks = css.split("}").filter((b) => b.includes(".feuillets-lanes"));
+  assert.ok(lanesBlocks.length > 0, "blocs Couloirs présents");
+  for (const b of lanesBlocks) {
+    assert.equal(/#[0-9a-f]{3,8}\b/i.test(b), false, "aucune couleur hex dans le bloc Couloirs");
+    assert.equal(/rgb\(/.test(b), false, "aucune couleur rgb() dans le bloc Couloirs");
+    assert.equal(/!important/.test(b), false, "aucun !important dans le bloc Couloirs");
+  }
+});
+
+test("LOT5C CSS — carte RECTANGULAIRE opaque (largeur > hauteur), posée DEVANT la bande, aucun voile au drag", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  const lanesBlock = cssRule(css, ".feuillets-lanes-area");
+  assert.ok(lanesBlock.includes("--feuillets-lane-card-w: 190px"), "largeur de carte COMPACTE définie dans .feuillets-lanes-area (ancêtre commun gutter + canevas)");
+  assert.ok(lanesBlock.includes("--feuillets-lane-card-h: 110px"), "hauteur de carte COMPACTE définie dans .feuillets-lanes-area (190 > 110 : PAS carrée)");
+  assert.ok(lanesBlock.includes("--feuillets-lane-slot-w: 208px"), "slot = carte + gap (208px)");
+  const card = cssRule(css, ".feuillets-lanes-card");
+  assert.ok(card.includes("width: var(--feuillets-lane-card-w);"), "largeur de carte = variable w");
+  assert.ok(card.includes("height: var(--feuillets-lane-card-h);"), "hauteur de carte = variable h (largeur ≠ hauteur)");
+  assert.ok(card.includes("background: var(--background-primary)"), "carte totalement OPAQUE (fond primaire)");
+  assert.ok(card.includes("z-index: 1"), "carte au premier plan (au-dessus de la bande)");
+  const dragging = cssRule(css, ".feuillets-lanes-card.feuillets-dragging");
+  assert.equal(/opacity/.test(dragging), false, "aucune transparence de la carte pendant le drag");
+  const slot = cssRule(css, ".feuillets-lanes-slot");
+  assert.ok(slot.includes("flex: 0 0 var(--feuillets-lane-slot-w);"), "slot invisible à l'empreinte var(--feuillets-lane-slot-w) (position narrative fixe)");
+  assert.equal(/\bwidth:\s*\d+px\b/.test(card), false, "aucune largeur en pixels codée en dur dans la carte");
+});
+
+test("LOT5C CSS — numéro + titre sur la MÊME ligne (head flex), titre une ligne à ellipse", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  const head = cssRule(css, ".feuillets-lanes-card-head");
+  assert.ok(head.includes("display: flex"), "head en ligne (numéro + titre côte à côte)");
+  const title = cssRule(css, ".feuillets-lanes-card-title");
+  assert.ok(title.includes("white-space: nowrap"), "titre sur UNE ligne");
+  assert.ok(title.includes("text-overflow: ellipsis"), "titre tronqué par ellipse si trop long");
+  assert.ok(title.includes("font-weight: 600"), "titre en gras (priorité visuelle)");
+});
+
+test("LOT5C CSS — synopsis : max 3 lignes visuelles via line-height × 3, PAS de -webkit-line-clamp", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  const synopsis = cssRule(css, ".feuillets-lanes-card-synopsis");
+  assert.ok(synopsis.includes("line-height: 1.4"), "line-height fixé");
+  assert.ok(synopsis.includes("max-height: calc(1.4em * 3)"), "3 lignes visuelles bornées par la hauteur calculée");
+  assert.ok(synopsis.includes("overflow: hidden"), "débordement coupé");
+  assert.equal(synopsis.includes("-webkit-line-clamp"), false, "interdit : webkit line-clamp (§10)");
+  assert.equal(synopsis.includes("display: -webkit-box"), false, "interdit : boîte webkit (§10)");
+  /* Le titre non plus n'utilise jamais de line-clamp. */
+  const title = cssRule(css, ".feuillets-lanes-card-title");
+  assert.equal(title.includes("-webkit-line-clamp"), false, "titre : jamais de line-clamp");
+});
+
+test("LOT5C CSS — positions vides invisibles (aucun cadre/fond) et VRAIE BANDE colorable au centre", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  const slot = cssRule(css, ".feuillets-lanes-slot");
+  assert.equal(slot.includes("border"), false, "slot vide : aucun cadre");
+  assert.equal(slot.includes("background"), false, "slot vide : aucun fond");
+  const line = cssRule(css, ".feuillets-lane-line");
+  assert.ok(line.includes("top: 50%"), "bande centrée verticalement sur la piste");
+  assert.ok(line.includes("background: var(--feuillets-lane-color, var(--background-modifier-border))"), "bande colorable via la propriété inline, repli natif discret");
+  assert.ok(line.includes("position: absolute"), "bande en nœud absolu (passe derrière les cartes)");
+  assert.ok(line.includes("height: 4px"), "bande de 4px (§6 : épaisseur 4 à 6 px)");
+  /* Accent discret du survol : la ligne ET le label de la LIGNE dragover
+     partagent une règle combinée (sélecteurs séparés par une virgule). */
+  const accentStart = css.indexOf(".feuillets-lanes-row.feuillets-lanes-dragover");
+  assert.ok(accentStart !== -1, "règle d'accent dragover présente");
+  const accentEnd = css.indexOf("}", accentStart);
+  const accent = css.slice(accentStart, accentEnd);
+  assert.ok(accent.includes(".feuillets-lane-line"), "règle d'accent couvre la ligne continue");
+  assert.ok(accent.includes(".feuillets-lanes-gutter-label"), "règle d'accent couvre le nom de ligne (gutter)");
+  assert.ok(accent.includes("background: var(--interactive-accent)"), "ligne accentuée au survol d'un drop");
+  assert.ok(accent.includes("color: var(--interactive-accent)"), "label accentué au survol d'un drop");
+  assert.equal(/grid|cell|slot/.test(accent), false, "l'accent ne révèle jamais de slots/cellules");
+});
+
