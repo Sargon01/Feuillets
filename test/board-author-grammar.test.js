@@ -21,10 +21,12 @@ class FakeElement {
     this.text = options.text ?? "";
     this.attributes = { ...(options.attr ?? {}) };
     this.style = { _props: {}, setProperty(name, value) { this._props[name] = value; }, removeProperty() {} };
+    this.parentNode = {}; // Simuler un parent node pour les tests
     if (options.cls) this.addClass(options.cls);
   }
   createEl(tag, options = {}) {
     const child = new FakeElement(tag, options);
+    child.parentNode = this; // Définir le parent du child
     this.children.push(child);
     return child;
   }
@@ -39,7 +41,10 @@ class FakeElement {
   setAttr(name, value) { this.attributes[name] = value; }
   getAttr(name) { return this.attributes[name] ?? null; }
   addEventListener(type, callback) { this.events.set(type, callback); }
-  async trigger(type, event = {}) { await this.events.get(type)?.(event); }
+  async trigger(type, event = {}) {
+    const eventWithMethods = { stopPropagation: () => {}, preventDefault: () => {}, ...event };
+    await this.events.get(type)?.(eventWithMethods);
+  }
   focus() {}
   empty() { this.children = []; }
   remove() { this.removed = true; }
@@ -629,4 +634,245 @@ test("Menu Plan — bascule « Retour à la ligne des textes longs » : coche l'
   });
   const item2 = menu2.items.find((i) => i.title === "Retour à la ligne des textes longs");
   assert.equal(item2.checked, true, "préférence restaurée à partir de settings.outlineWrapLongText");
+});
+
+/* ===================== TIMELINE — édition inline (renderTimelineInner) ===================== */
+
+function buildTimelineHarness({ children = [] } = {}) {
+  const root = new TFolder("Projet/Chronologie");
+  root.children = children;
+  for (const c of children) c.parent = root;
+
+  const chronoFolder = new TFolder("Projet/Chronologie/Jalons");
+  chronoFolder.children = [];
+
+  const app = { workspace: {} };
+  const plugin = {
+    settings: { timelineOrder: "chrono", timelineTagFilter: "", collapsed: {} },
+    flattenFiles: (folder) => folder === root ? children : [],
+    isFrontMatter: () => false,
+    fmOf: (file) => file.__fm || {},
+    shortTitleFor: (file) => file.basename,
+    getChronoFolder: () => chronoFolder,
+    tagsOf: () => [],
+    saveSettings: async () => {},
+  };
+  const view = new BoardView({ app, contentEl: new FakeElement() }, plugin);
+  view.passesFilter = () => true;
+  view._renderGen = 1;
+
+  // Mock parseStoryDate pour un fonctionnement cohérent des tests
+  view._originalParseStoryDate = null;
+  return { view, root, chronoFolder, app, plugin };
+}
+
+test("Timeline — date n'est plus un simple texte statique, rendu initial affiche item.display", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const dateContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-date"));
+  assert.ok(dateContainer, "conteneur timeline-date attendu");
+
+  const dateDisplay = findFirst(dateContainer, (el) => el.classes.has("feuillets-timeline-date-display"));
+  assert.ok(dateDisplay, "élément statique de date attendu");
+
+  const textarea = findFirst(dateContainer, (el) => el.tag === "textarea");
+  assert.equal(textarea, undefined, "textarea non présent au rendu initial");
+});
+
+test("Timeline — rendu statique initial utilise item.display pour la date", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  // Vérifier que la date s'affiche (item.display devrait contenir quelque chose)
+  const dateContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-date"));
+  const dateDisplay = findFirst(dateContainer, (el) => el.classes.has("feuillets-timeline-date-display"));
+  assert.ok(dateDisplay.text.length > 0, "item.display n'est pas vide");
+});
+
+test("Timeline — textarea d'édition de date reçoit la valeur YAML brute", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const dateContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-date"));
+  const dateDisplay = findFirst(dateContainer, (el) => el.classes.has("feuillets-timeline-date-display"));
+
+  // Simuler le clic pour afficher le textarea
+  await dateDisplay.trigger("click");
+
+  const textarea = findFirst(dateContainer, (el) => el.tag === "textarea");
+  assert.ok(textarea, "textarea créé au clic");
+  assert.equal(textarea.value, "1789-07-14", "textarea initialisé avec valeur YAML brute");
+  assert.ok(textarea.classes.has("feuillets-flat-textarea"), "textarea a classe feuillets-flat-textarea");
+  assert.ok(textarea.classes.has("feuillets-autosize"), "textarea a classe feuillets-autosize");
+});
+
+test("Timeline — sauvegarde d'une nouvelle date appelle setFm avec clé 'date'", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  let setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ f: f.path, k, v }); };
+  view.render = async () => {};
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const dateContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-date"));
+  const dateDisplay = findFirst(dateContainer, (el) => el.classes.has("feuillets-timeline-date-display"));
+  await dateDisplay.trigger("click");
+
+  const textarea = findFirst(dateContainer, (el) => el.tag === "textarea");
+  textarea.value = "1812-12-25";
+  await textarea.trigger("blur");
+
+  const dateCall = setFmCalls.find(c => c.k === "date");
+  assert.ok(dateCall, "setFm appelé avec clé 'date'");
+  assert.equal(dateCall.v, "1812-12-25", "nouvelle date sauvegardée");
+});
+
+test("Timeline — vraie modification de date déclenche render(true)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  let renderCalls = [];
+  view.setFm = async () => {};
+  view.render = async (force) => { renderCalls.push(force); };
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const dateContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-date"));
+  const dateDisplay = findFirst(dateContainer, (el) => el.classes.has("feuillets-timeline-date-display"));
+  await dateDisplay.trigger("click");
+
+  const textarea = findFirst(dateContainer, (el) => el.tag === "textarea");
+  textarea.value = "1812-12-25";
+  await textarea.trigger("blur");
+
+  assert.ok(renderCalls.includes(true), "render(true) déclenché après modification de date");
+});
+
+test("Timeline — date inchangée ne déclenche pas de rerender inutile", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  let renderCalls = [];
+  view.setFm = async () => {};
+  view.render = async (force) => { renderCalls.push(force); };
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const dateContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-date"));
+  const dateDisplay = findFirst(dateContainer, (el) => el.classes.has("feuillets-timeline-date-display"));
+  await dateDisplay.trigger("click");
+
+  const textarea = findFirst(dateContainer, (el) => el.tag === "textarea");
+  textarea.value = "1789-07-14"; // valeur inchangée
+  await textarea.trigger("blur");
+
+  assert.equal(renderCalls.length, 0, "render() ne doit pas être appelé si la date n'a pas changé");
+});
+
+test("Timeline — synopsis utilise makeClickToEditFmArea", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14", synopsis: "Un court résumé." };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const synopsisContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-syn"));
+  assert.ok(synopsisContainer, "conteneur synopsis attendu");
+
+  const synopsisCell = findFirst(synopsisContainer, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.ok(synopsisCell, "cellule d'édition inline du synopsis attendue (makeClickToEditFmArea)");
+  assert.equal(synopsisCell.text, "Un court résumé.");
+});
+
+test("Timeline — synopsis est rendu même quand il est vide", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" }; // pas de synopsis
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const synopsisContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-syn"));
+  assert.ok(synopsisContainer, "conteneur synopsis présent même si synopsis est vide");
+
+  const synopsisCell = findFirst(synopsisContainer, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.ok(synopsisCell, "cellule synopsis présente même si vide");
+});
+
+test("Timeline — synopsis utilise le placeholder existant", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" }; // pas de synopsis
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const synopsisContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-syn"));
+  const synopsisCell = findFirst(synopsisContainer, (el) => el.classes.has("feuillets-flat-text-cell"));
+  // Le placeholder devrait être affiché (l'élément aura la classe is-empty)
+  assert.ok(synopsisCell.classes.has("is-empty"), "classe is-empty appliquée au placeholder");
+});
+
+test("Timeline — synopsis reste multilignes et autosize (maxLines=6)", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14", synopsis: "Un\nsynnopsis\nmultilignes." };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const synopsisContainer = findFirst(container, (el) => el.classes.has("feuillets-timeline-syn"));
+  const synopsisCell = findFirst(synopsisContainer, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.ok(synopsisCell.classes.has("feuillets-clamp-text"), "classe clamp-text présente");
+  assert.equal(synopsisCell.style._props["--max-lines"], "6", "maxLines=6 configuré via CSS var");
+});
+
+test("Timeline — titre continue d'utiliser openFileActivating", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildTimelineHarness({ children: [file] });
+
+  const container = new FakeElement();
+  view.renderTimelineInner(container, root, new Map());
+
+  const titleSpan = findFirst(container, (el) => el.classes.has("feuillets-timeline-title"));
+  assert.ok(titleSpan, "élément titre trouvé");
+  assert.ok(titleSpan.events.has("click"), "écouteur click présent sur le titre");
+});
+
+test("Plan LOT 1 — comportement d'édition de date dans le Plan reste inchangé", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, pov: false, label: false, status: false, tags: false, date: true, words: false, goal: false };
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+
+  const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-date"));
+  assert.ok(cell, "cellule date du Plan trouvée");
+  const editArea = findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(editArea.text, "1789-07-14", "valeur YAML affichée dans le Plan");
 });

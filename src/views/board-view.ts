@@ -1088,7 +1088,7 @@ export class BoardView extends BaseFeuilletsView {
     walk(root, 0);
   }
 
-  makeClickToEditFmArea(parent: HTMLElement, file: TFile, key: string, placeholder: string, maxLines = 6): HTMLElement {
+  makeClickToEditFmArea(parent: HTMLElement, file: TFile, key: string, placeholder: string, maxLines = 6, afterSave?: () => void | Promise<void>): HTMLElement {
     const fm = this.fm(file);
     const val = toValue(fm[key]);
     const cell = parent.createDiv({ cls: "feuillets-flat-text-cell" + (val ? "" : " is-empty"), text: val || placeholder });
@@ -1111,6 +1111,7 @@ export class BoardView extends BaseFeuilletsView {
             await this.setFm(file, key, raw);
             cell.setText(raw || placeholder);
             if (raw) cell.removeClass("is-empty"); else cell.addClass("is-empty");
+            await afterSave?.();
           }
           area.remove();
           cell.show();
@@ -1596,7 +1597,35 @@ export class BoardView extends BaseFeuilletsView {
     const timeline = container.createDiv({ cls: "feuillets-timeline" });
     for (const item of items) {
       const row = timeline.createDiv({ cls: item.milestone ? "feuillets-timeline-item feuillets-timeline-milestone" : "feuillets-timeline-item" });
-      row.createDiv({ cls: "feuillets-timeline-date", text: item.display });
+
+      // DATE ÉDITABLE
+      const dateContainer = row.createDiv({ cls: "feuillets-timeline-date" });
+      const dateDisplay = dateContainer.createDiv({ cls: "feuillets-timeline-date-display", text: item.display });
+      dateDisplay.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dateDisplay.hide();
+        const textarea = dateContainer.createEl("textarea", { cls: "feuillets-flat-textarea feuillets-autosize" });
+        textarea.value = toValue(this.fm(item.file).date);
+        textarea.focus();
+        textarea.style.removeProperty("height");
+        textarea.style.height = `${textarea.scrollHeight}px`;
+        const saveDateEdit = async () => {
+          if (textarea.parentNode) {
+            const raw = textarea.value.trim();
+            if (raw !== toValue(this.fm(item.file).date)) {
+              await this.setFm(item.file, "date", raw);
+              await this.render(true);
+            }
+            textarea.remove();
+            dateDisplay.show();
+          }
+        };
+        textarea.addEventListener("blur", () => { void saveDateEdit(); });
+        textarea.addEventListener("keydown", (evt) => {
+          if (evt.key === "Escape" || (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey))) textarea.blur();
+        });
+      });
+
       row.createDiv({ cls: "feuillets-timeline-dot" });
       const body = row.createDiv({ cls: "feuillets-timeline-body" });
       const head = body.createDiv({ cls: "feuillets-timeline-head" });
@@ -1604,7 +1633,10 @@ export class BoardView extends BaseFeuilletsView {
       head.createSpan({ cls: "feuillets-timeline-title", text: this.plugin.shortTitleFor(item.file) }).addEventListener("click", () => {
         openFileActivating(this.app, this.app.workspace.getLeaf(false), item.file);
       });
-      if (this.fm(item.file).synopsis) body.createDiv({ cls: "feuillets-timeline-syn", text: String(this.fm(item.file).synopsis) });
+
+      // SYNOPSIS ÉDITABLE
+      const synopsisHost = body.createDiv({ cls: "feuillets-timeline-syn" });
+      this.makeClickToEditFmArea(synopsisHost, item.file, "synopsis", t("board.card.synopsisPlaceholder"), 6);
     }
   }
 
