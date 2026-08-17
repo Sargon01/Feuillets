@@ -7,7 +7,11 @@ import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 import { fr } from "../src/i18n/fr.js";
 import { en } from "../src/i18n/en.js";
 import { BOARD_MODES } from "../src/constants.js";
-import { PROJECT_MODES, projectBoardDefaults } from "../src/utils/project-modes.js";
+import { PROJECT_MODES, projectBoardDefaults, resolveBoardOutlineColumns } from "../src/utils/project-modes.js";
+
+/* Le Plan utilise window.setTimeout/window.clearTimeout (idiome Obsidian) :
+   stubber le global pour les tests, comme les autres fichiers du dépôt. */
+globalThis.window ??= { setTimeout: (...args) => setTimeout(...args), clearTimeout: (handle) => clearTimeout(handle) };
 
 /* LOT "binder isolé + simplification cartes/plan", §10-21/§28 : grammaire
  * finale de Cartes et Plan. Cartes = Titre · POV · Statut discret · Label ·
@@ -22,8 +26,9 @@ class FakeElement {
     this.children = [];
     this.classes = new Set();
     this.events = new Map();
-    this.value = "";
+    this.value = options.value ?? "";
     this.text = options.text ?? "";
+    this.type = options.type ?? "";
     this.attributes = { ...(options.attr ?? {}) };
     this.style = { _props: {}, setProperty(name, value) { this._props[name] = value; }, removeProperty() {} };
     this.parentNode = {}; // Simuler un parent node pour les tests
@@ -51,8 +56,18 @@ class FakeElement {
     await this.events.get(type)?.(eventWithMethods);
   }
   focus() {}
+  select() {}
   empty() { this.children = []; }
-  remove() { this.removed = true; }
+  remove() {
+    /* Comme le vrai DOM : détache l'élément de son parent (les éléments créés
+       via createEl ont parentNode = le parent réel). Le flag `removed` est
+       conservé pour les tests qui s'y appuyaient. */
+    this.removed = true;
+    if (this.parentNode && Array.isArray(this.parentNode.children)) {
+      const i = this.parentNode.children.indexOf(this);
+      if (i !== -1) this.parentNode.children.splice(i, 1);
+    }
+  }
 }
 
 function findAll(element, predicate) {
@@ -298,7 +313,7 @@ test("Plan — Notes/Nom du fichier/Progression/Compiler jamais rendus, même st
 
 /* ===================== PLAN — menu des colonnes ===================== */
 
-test("Menu Plan Fiction — colonnes proposées : Synopsis, Pov, Label, Statut, Tags, Date, Mots, Objectif — jamais Notes/Fichier/Progression/Compiler", () => {
+test("Menu Plan Fiction — colonnes proposées : Synopsis, Pov, Personnages, Fil, Label, Statut, Tags, Date, Mots, Objectif — jamais Notes/Fichier/Progression/Compiler", () => {
   const { view } = buildOptionsHarness();
   const menu = new Menu();
   view.buildModeOptionsMenu(menu, "outline", {
@@ -311,7 +326,7 @@ test("Menu Plan Fiction — colonnes proposées : Synopsis, Pov, Label, Statut, 
 
   assert.deepEqual(
     outlineColumnMenuTitles(menu),
-    ["Synopsis", "Pov", "Label", "Statut", "Tags", "Date", "Mots", "Objectif"]
+    ["Synopsis", "Pov", "Personnages", "Fil", "Label", "Statut", "Tags", "Date", "Mots", "Objectif"]
   );
   assert.equal(menuItemTitles(menu).includes("Barres de progression"), false);
 });
@@ -431,7 +446,7 @@ test("Plan — Mots seul : la cellule mots fonctionne indépendamment de l'objec
   assert.equal(findAll(table, (el) => el.classes.has("feuillets-cell-goal")).length, 0);
 });
 
-test("Plan — Objectif seul : la cellule objectif fonctionne indépendamment des mots", async () => {
+test("Plan — Objectif : la cellule est un input numérique (jamais un texte statique), initialisé avec goal", async () => {
   const file = new TFile("Projet/Manuscrit/Scène.md");
   file.__fm = { goal: 1200 };
   const { view, root } = buildOutlineHarness({ children: [file] });
@@ -442,8 +457,108 @@ test("Plan — Objectif seul : la cellule objectif fonctionne indépendamment de
   await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
 
   const goalCell = findFirst(table, (el) => el.classes.has("feuillets-cell-goal"));
-  assert.equal(goalCell.text, "1200");
+  const goalInput = findFirst(goalCell, (el) => el.tag === "input" && el.classes.has("feuillets-goal-input"));
+  assert.ok(goalInput, "Objectif = input numérique (makeGoalInput), pas un texte statique");
+  assert.equal(goalInput.type, "number", "input de type number");
+  assert.equal(goalInput.value, "1200", "goal existant : input prérempli avec cette valeur");
   assert.equal(findAll(table, (el) => el.classes.has("feuillets-cell-words")).length, 0);
+});
+
+test("Plan — Objectif absent : input vide, placeholder = objectif projet par défaut", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.wcMap = new Map([[file.path, 0]]);
+  view.outlineColumns = { synopsis: false, pov: false, label: false, status: false, tags: false, date: false, words: false, goal: true };
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+
+  const goalInput = findFirst(table, (el) => el.classes.has("feuillets-goal-input"));
+  assert.ok(goalInput, "input Objectif présent même sans goal");
+  assert.equal(goalInput.value, "", "goal absent : input vide");
+  assert.equal(goalInput.attributes.min, "0", "min=0 conservé");
+  assert.equal(goalInput.attributes.placeholder, "0", "placeholder = objectif projet par défaut (wordGoal du harness)");
+});
+
+test("Plan — Objectif : modification → setFm(file, 'goal', nombre)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, pov: false, label: false, status: false, tags: false, date: false, words: false, goal: true };
+  const saved = [];
+  view.setFm = async (_f, key, value) => { saved.push({ key, value }); };
+  view.render = async () => {};
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+  const goalInput = findFirst(table, (el) => el.classes.has("feuillets-goal-input"));
+  goalInput.value = "2500";
+  await goalInput.trigger("change");
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].key, "goal");
+  assert.equal(saved[0].value, 2500, "nombre écrit via setFm");
+});
+
+test("Plan — Objectif vidé : setFm(file, 'goal', '') pour supprimer la clé", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { goal: 1200 };
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, pov: false, label: false, status: false, tags: false, date: false, words: false, goal: true };
+  const saved = [];
+  view.setFm = async (_f, key, value) => { saved.push({ key, value }); };
+  view.render = async () => {};
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+  const goalInput = findFirst(table, (el) => el.classes.has("feuillets-goal-input"));
+  goalInput.value = "";
+  await goalInput.trigger("change");
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].key, "goal");
+  assert.equal(saved[0].value, "", "champ vidé → setFm avec '' (le writer supprime la clé)");
+});
+
+test("Plan — Objectif non numérique : aucune écriture NaN, setFm('goal', '')", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, pov: false, label: false, status: false, tags: false, date: false, words: false, goal: true };
+  const saved = [];
+  view.setFm = async (_f, key, value) => { saved.push({ key, value }); };
+  view.render = async () => {};
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+  const goalInput = findFirst(table, (el) => el.classes.has("feuillets-goal-input"));
+  goalInput.value = "abc";
+  await goalInput.trigger("change");
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].key, "goal");
+  assert.equal(saved[0].value, "", "valeur non numérique → jamais NaN, clé vidée");
+});
+
+test("Plan — Objectif négatif : jamais écrit (setFm('goal', ''))", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, pov: false, label: false, status: false, tags: false, date: false, words: false, goal: true };
+  const saved = [];
+  view.setFm = async (_f, key, value) => { saved.push({ key, value }); };
+  view.render = async () => {};
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+  const goalInput = findFirst(table, (el) => el.classes.has("feuillets-goal-input"));
+  goalInput.value = "-500";
+  await goalInput.trigger("change");
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].key, "goal");
+  assert.equal(saved[0].value, "", "nombre négatif jamais écrit");
 });
 
 test("Plan — Mots + Objectif ensemble", async () => {
@@ -457,7 +572,9 @@ test("Plan — Mots + Objectif ensemble", async () => {
   await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
 
   assert.equal(findFirst(table, (el) => el.classes.has("feuillets-cell-words")).text, "987");
-  assert.equal(findFirst(table, (el) => el.classes.has("feuillets-cell-goal")).text, "2000");
+  const goalInput = findFirst(table, (el) => el.classes.has("feuillets-goal-input"));
+  assert.ok(goalInput, "Objectif toujours un input quand Mots est aussi visible");
+  assert.equal(goalInput.value, "2000");
 });
 
 /* ===================== PLAN — redimensionnement des colonnes (inchangé) ===================== */
@@ -2140,6 +2257,70 @@ test("LOT4/LOT5 CSS — aucune règle !important dans les blocs arcs récents (r
   }
 });
 
+test("LOT4 CSS — grammaire commune des cellules du Plan : alignement, typographie héritée, min-height, jamais de hauteur fixe (§33)", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  // Bloc partagé : toutes les cellules des lignes Plan (vue et wrap)
+  // s'alignent verticalement, en box-sizing border-box et en typographie
+  // héritée de la ligne — uniforme avec Label/Date/Mots/Objectif.
+  const shared = css.match(/\.feuillets-outline \.feuillets-cell,.*?\}/s)?.[0] ?? "";
+  assert.ok(shared, "bloc partagé des cellules Plan présent");
+  assert.match(shared, /box-sizing:\s*border-box/, "box-sizing border-box");
+  assert.match(shared, /align-items:\s*center/, "alignement vertical centré");
+  assert.match(shared, /font-size:\s*inherit/, "font-size héritée");
+  assert.match(shared, /line-height:\s*inherit/, "line-height héritée");
+  assert.equal(shared.includes("!important"), false, "aucun !important");
+  assert.equal(/(^|;)\s*height:/.test(shared), false, "aucune hauteur fixe dans le bloc partagé");
+
+  // Titre et valeurs « cliquer pour écrire » : typographie héritée, plus de
+  // padding vertical qui gonflerait la ligne au-dessus de ses voisines.
+  const values = css.match(/\.feuillets-outline \.feuillets-cell \.feuillets-flat-text-cell,.*?\}/s)?.[0] ?? "";
+  assert.ok(values, "bloc titre/valeurs présent");
+  assert.match(values, /font-size:\s*inherit/, "titre/valeurs : font-size héritée");
+  assert.match(values, /line-height:\s*inherit/, "titre/valeurs : line-height héritée");
+  assert.match(values, /padding-top:\s*0/, "titre/valeurs : padding-top 0");
+  assert.match(values, /padding-bottom:\s*0/, "titre/valeurs : padding-bottom 0");
+
+  // La ligne grandit naturellement : min-height (22px), jamais height fixe.
+  const rowBlock = css.match(/\.feuillets-row\s*\{[^}]*\}/)?.[0] ?? "";
+  assert.ok(rowBlock, "bloc .feuillets-row présent");
+  assert.match(rowBlock, /min-height:\s*22px/, "la ligne Plan croît par min-height");
+  assert.equal(/(^|;)\s*height:/.test(rowBlock), false, "aucune hauteur fixe destructrice sur les lignes");
+});
+
+test("LOT4 CSS — édition inline SANS BOX, scopée .feuillets-board-container (rename, textarea, objectif) (§24/§25/§34)", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  // Un SEUL bloc partagé gouverne les trois éditeurs inline : renommage
+  // short_title, textareas cliquer-pour-écrire (Synopsis/Date/…) et input
+  // Objectif. Il est scopé sous .feuillets-board-container (Plan, Cartes,
+  // Chemin de fer/Trame, Chronologie) — jamais le Binder.
+  const shared = css.match(/\.feuillets-board-container input\.feuillets-inline-rename,.*?\}/s)?.[0] ?? "";
+  assert.ok(shared, "bloc partagé des éditeurs inline présent");
+  assert.match(shared, /background:\s*transparent/, "fond transparent (pas de formulaire)");
+  assert.match(shared, /border:\s*0/, "aucune bordure");
+  assert.match(shared, /box-shadow:\s*none/, "aucune ombre");
+  assert.match(shared, /border-radius:\s*0/, "pas de coins de boîte");
+  assert.match(shared, /padding:\s*0/, "aucun padding qui gonflerait la ligne");
+  assert.match(shared, /font:\s*inherit/, "typographie héritée");
+  assert.match(shared, /line-height:\s*inherit/, "hauteur de ligne héritée");
+  assert.equal(shared.includes("!important"), false, "aucun !important");
+  // Les trois sélecteurs sont bien DANS ce bloc scopé.
+  assert.ok(shared.includes(".feuillets-board-container input.feuillets-inline-rename"), "rename scopé");
+  assert.ok(shared.includes(".feuillets-board-container textarea.feuillets-flat-textarea"), "textarea scopé");
+  assert.ok(shared.includes(".feuillets-board-container input.feuillets-goal-input"), "goal scopé");
+
+  // Le focus ne rétablit PAS la boîte : le caret signale l'édition.
+  const focusBlock = css.match(/\.feuillets-board-container input\.feuillets-inline-rename:focus,.*?\}/s)?.[0] ?? "";
+  assert.ok(focusBlock, "bloc :focus présent");
+  assert.match(focusBlock, /background:\s*transparent/, "focus : toujours transparent");
+  assert.match(focusBlock, /border-color:\s*transparent/, "focus : bordure toujours invisible");
+  assert.match(focusBlock, /box-shadow:\s*none/, "focus : aucune ombre");
+  assert.equal(focusBlock.includes("!important"), false, "aucun !important au focus");
+
+  // Aucun sélecteur GLOBAL input { } / textarea { } introduit (tout reste scopé).
+  assert.equal(/^\s*input\s*\{/m.test(css), false, "aucun sélecteur global input {");
+  assert.equal(/^\s*textarea\s*\{/m.test(css), false, "aucun sélecteur global textarea {");
+});
+
 /* ===================== STORY ARC — Personnages et Fil éditables (LOT 5) ===================== */
 
 /* §25 — parseCsvList : normalisation CSV des listes Personnages/Fil. */
@@ -3807,3 +3988,1254 @@ test("LOT5C CSS — positions vides invisibles (aucun cadre/fond) et VRAIE BANDE
   assert.equal(/grid|cell|slot/.test(accent), false, "l'accent ne révèle jamais de slots/cellules");
 });
 
+
+/* ===================== PLAN — colonnes Personnages / Fil (Fiction uniquement, §5-6/§20) ===================== */
+
+test("Plan Fiction — Personnages et Fil disponibles, placés après Pov et avant Label", () => {
+  const { view } = buildOptionsHarness();
+  view.outlineColumns = {
+    synopsis: true, pov: true, summary: false, characters: true, thread: true,
+    label: true, status: true, tags: true, date: true, words: true, goal: true,
+  };
+  const ids = view.visibleCols().map((c) => c.id);
+  assert.deepEqual(
+    ids,
+    ["title", "synopsis", "pov", "characters", "thread", "label", "status", "tags", "date", "words", "goal"]
+  );
+});
+
+test("Plan Non-fiction/Libre — jamais de Personnages/Fil, même stockés à true (intégration resolveBoardOutlineColumns → visibleCols)", () => {
+  for (const pType of ["nonfiction", "free"]) {
+    const { view } = buildOptionsHarness();
+    const stored = { characters: true, thread: true, summary: true, label: true, status: true, tags: true, date: true, words: true, goal: true };
+    view.outlineColumns = resolveBoardOutlineColumns(pType, stored);
+    const ids = view.visibleCols().map((c) => c.id);
+    assert.ok(ids.includes("summary"), `${pType} : résumé présent`);
+    assert.ok(!ids.includes("characters"), `${pType} : pas de Personnages`);
+    assert.ok(!ids.includes("thread"), `${pType} : pas de Fil`);
+  }
+});
+
+test("Menu Plan Non-fiction/Libre — jamais Personnages/Fil proposés", () => {
+  for (const pType of ["nonfiction", "free"]) {
+    const { view } = buildOptionsHarness();
+    const menu = new Menu();
+    view.buildModeOptionsMenu(menu, "outline", {
+      S: view.plugin.settings,
+      meta: {},
+      pType,
+      wholeManuscript: false,
+      outlineColumns: {},
+    });
+    const titles = outlineColumnMenuTitles(menu);
+    assert.equal(titles.includes("Personnages"), false, pType);
+    assert.equal(titles.includes("Fil"), false, pType);
+  }
+});
+
+test("Plan — Personnages/Fil présents, mais Compile/Filename/Progress/Notes jamais, même stockés à true", () => {
+  const { view } = buildOptionsHarness();
+  view.outlineColumns = {
+    synopsis: true, pov: true, characters: true, thread: true, label: false, status: false,
+    tags: false, date: false, words: false, goal: false,
+    notes: true, filename: true, progress: true, compile: true, compiler: true,
+  };
+  const ids = view.visibleCols().map((c) => c.id);
+  assert.ok(ids.includes("characters"));
+  assert.ok(ids.includes("thread"));
+  assert.ok(!ids.includes("notes"));
+  assert.ok(!ids.includes("filename"));
+  assert.ok(!ids.includes("progress"));
+  assert.ok(!ids.includes("compile"));
+});
+
+test("Plan — Personnages : valeur affichée jointe par virgule", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal", "Arif"], thread: [] };
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, summary: false, pov: false, characters: true, thread: true, label: false, status: false, tags: false, date: false, words: false, goal: false };
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+
+  const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-characters"));
+  assert.ok(cell, "cellule Personnages attendue");
+  const editArea = findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(editArea.text, "Kemal, Arif");
+});
+
+test("Plan — Personnages vides : « — »", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, summary: false, pov: false, characters: true, thread: true, label: false, status: false, tags: false, date: false, words: false, goal: false };
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+
+  const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-characters"));
+  const editArea = findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(editArea.text, "—");
+});
+
+test("Plan — Personnages : clic → éditeur liste → sauvegarde vers characters", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal"] };
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, summary: false, pov: false, characters: true, thread: true, label: false, status: false, tags: false, date: false, words: false, goal: false };
+  const saved = [];
+  view.setFm = async (_f, key, value) => { saved.push({ key, value }); };
+  view.render = async () => {};
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+  const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-characters"));
+  const editArea = findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
+  await editArea.trigger("click");
+
+  const textarea = findFirst(table, (el) => el.tag === "textarea");
+  assert.ok(textarea, "textarea de saisie CSV attendu");
+  textarea.value = "Kemal, Zeynep, Kemal";
+  await textarea.trigger("blur");
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].key, "characters");
+  assert.deepEqual(saved[0].value, ["Kemal", "Zeynep"], "CSV normalisé, ordre conservé, doublon retiré");
+});
+
+test("Plan — Fil : même contrat vers thread", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: [], thread: ["Intrigue A"] };
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, summary: false, pov: false, characters: true, thread: true, label: false, status: false, tags: false, date: false, words: false, goal: false };
+  const saved = [];
+  view.setFm = async (_f, key, value) => { saved.push({ key, value }); };
+  view.render = async () => {};
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+
+  const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-thread"));
+  assert.ok(cell, "cellule Fil attendue");
+  const editArea = findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(editArea.text, "Intrigue A");
+
+  await editArea.trigger("click");
+  const textarea = findFirst(table, (el) => el.tag === "textarea");
+  textarea.value = "Intrigue A, Intrigue B";
+  await textarea.trigger("blur");
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].key, "thread");
+  assert.deepEqual(saved[0].value, ["Intrigue A", "Intrigue B"]);
+});
+
+/* ===================== PLAN — tri visuel session-only (§8-16/§21) ===================== */
+
+function buildOutlineSortHarness({ children, wc = {}, outlineColumns } = {}) {
+  const root = new TFolder("Projet/Manuscrit");
+  root.children = children;
+  for (const c of children) c.parent = root;
+
+  const app = { workspace: {} };
+  const dragCalls = [];
+  const plugin = {
+    settings: {
+      collapsed: {},
+      statuses: [],
+      wordGoal: 0,
+      outlineWidths: { ...DEFAULT_SETTINGS.outlineWidths },
+      outlineWrapLongText: false,
+    },
+    getOrderedChildren: (folder) => folder.children,
+    isFrontMatter: () => false,
+    fmOf: (file) => file.__fm || {},
+    shortTitleFor: (file) => file.basename,
+    saveSettings: async () => {},
+    labelsOf: () => [],
+    tagsOf: () => [],
+    labelOf: () => "",
+  };
+  const view = new BoardView({ app, contentEl: new FakeElement() }, plugin);
+  view.passesFilter = () => true;
+  view.attachDragHandlers = (...args) => { dragCalls.push(args); };
+  view.handleMultiSelectClick = () => false;
+  view._renderGen = 1;
+  view.wcMap = new Map(Object.entries(wc).map(([k, v]) => [k, v]));
+  view.outlineColumns = outlineColumns || {
+    synopsis: false, summary: false, pov: false, characters: false, thread: false,
+    label: false, status: false, tags: false, date: true, words: true, goal: true,
+  };
+  view.render = async () => {};
+  return { view, root, plugin, dragCalls };
+}
+
+function outlineSceneTitles(container) {
+  return findAll(container, (el) => el.classes.has("feuillets-row-scene"))
+    .map((row) => findFirst(row, (el) => el.classes.has("feuillets-title-text"))?.text ?? null);
+}
+
+function outlineFolderNames(container) {
+  return findAll(container, (el) => el.classes.has("feuillets-row-folder"))
+    .map((row) => findFirst(row, (el) => el.classes.has("feuillets-folder-name"))?.text ?? null);
+}
+
+function headCellByLabel(container, label) {
+  return findAll(container, (el) => el.classes.has("feuillets-col-head-cell"))
+    .find((h) => findAll(h, (el) => el.tag === "span").some((s) => s.text === label));
+}
+
+function sortIndicatorFor(container, label) {
+  const cell = headCellByLabel(container, label);
+  const ind = cell ? findFirst(cell, (el) => el.classes.has("feuillets-sort-indicator")) : null;
+  return ind?.text ?? "";
+}
+
+function sortIndicators(container) {
+  return findAll(container, (el) => el.classes.has("feuillets-sort-indicator")).map((i) => i.text);
+}
+
+test("Plan — tri : état initial = ordre Binder, aucune flèche, drag actif", async () => {
+  const beta = new TFile("Projet/Manuscrit/Beta.md");
+  const alpha = new TFile("Projet/Manuscrit/Alpha.md");
+  const { view, root, dragCalls } = buildOutlineSortHarness({ children: [beta, alpha] });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+
+  assert.equal(view.outlineSortColumn, null);
+  assert.equal(view.outlineSortDirection, null);
+  assert.deepEqual(outlineSceneTitles(container), ["Beta", "Alpha"], "ordre Binder réel");
+  assert.ok(dragCalls.length > 0, "drag attaché à l'ordre Binder");
+  assert.ok(sortIndicators(container).every((t) => t === ""), "aucune flèche à l'état initial");
+});
+
+test("Plan — tri : 1er clic Titre = ascendant A→Z, flèche ↑, drag désactivé", async () => {
+  const beta = new TFile("Projet/Manuscrit/Beta.md");
+  const alpha = new TFile("Projet/Manuscrit/Alpha.md");
+  const { view, root, dragCalls } = buildOutlineSortHarness({ children: [beta, alpha] });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const titleHead = headCellByLabel(container, "Feuillet");
+  assert.ok(titleHead, "en-tête Titre attendu");
+  await titleHead.trigger("click");
+
+  assert.equal(view.outlineSortColumn, "title");
+  assert.equal(view.outlineSortDirection, "asc");
+
+  const container2 = new FakeElement();
+  dragCalls.length = 0;
+  await view.renderOutline(container2, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(container2), ["Alpha", "Beta"], "A→Z");
+  assert.equal(sortIndicatorFor(container2, "Feuillet"), "↑", "flèche ascendante");
+  assert.equal(dragCalls.length, 0, "drag désactivé pendant le tri");
+});
+
+test("Plan — tri : 2e clic Titre = descendant Z→A, flèche ↓", async () => {
+  const beta = new TFile("Projet/Manuscrit/Beta.md");
+  const alpha = new TFile("Projet/Manuscrit/Alpha.md");
+  const { view, root, dragCalls } = buildOutlineSortHarness({ children: [beta, alpha] });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const titleHead = headCellByLabel(container, "Feuillet");
+  await titleHead.trigger("click"); // asc
+  await titleHead.trigger("click"); // desc
+  assert.equal(view.outlineSortColumn, "title");
+  assert.equal(view.outlineSortDirection, "desc");
+
+  const container2 = new FakeElement();
+  dragCalls.length = 0;
+  await view.renderOutline(container2, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(container2), ["Beta", "Alpha"], "Z→A");
+  assert.equal(sortIndicatorFor(container2, "Feuillet"), "↓", "flèche descendante");
+  assert.equal(dragCalls.length, 0, "drag toujours désactivé");
+});
+
+test("Plan — tri : 3e clic Titre = retour ordre Binder exact, aucune flèche, drag réactivé", async () => {
+  const beta = new TFile("Projet/Manuscrit/Beta.md");
+  const alpha = new TFile("Projet/Manuscrit/Alpha.md");
+  const { view, root, dragCalls } = buildOutlineSortHarness({ children: [beta, alpha] });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const titleHead = headCellByLabel(container, "Feuillet");
+  await titleHead.trigger("click");
+  await titleHead.trigger("click");
+  await titleHead.trigger("click");
+
+  assert.equal(view.outlineSortColumn, null);
+  assert.equal(view.outlineSortDirection, null);
+
+  const container2 = new FakeElement();
+  dragCalls.length = 0;
+  await view.renderOutline(container2, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(container2), ["Beta", "Alpha"], "ordre Binder exact restauré");
+  assert.ok(sortIndicators(container2).every((t) => t === ""), "plus aucune flèche");
+  assert.ok(dragCalls.length > 0, "drag immédiatement réactivé");
+});
+
+test("Plan — tri : cliquer une autre colonne abandonne la précédente (Date ascendant)", async () => {
+  const fileA = new TFile("Projet/Manuscrit/A.md");
+  fileA.__fm = { date: "2020-01-01" };
+  const fileB = new TFile("Projet/Manuscrit/B.md");
+  fileB.__fm = { date: "1999-12-31" };
+  const { view, root } = buildOutlineSortHarness({ children: [fileA, fileB] });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  await headCellByLabel(container, "Feuillet").trigger("click");
+  assert.equal(view.outlineSortColumn, "title");
+  await headCellByLabel(container, "Date").trigger("click");
+
+  assert.equal(view.outlineSortColumn, "date", "nouvelle colonne active");
+  assert.equal(view.outlineSortDirection, "asc");
+
+  const container2 = new FakeElement();
+  await view.renderOutline(container2, root, new Map(), () => {}, 1);
+  assert.equal(sortIndicatorFor(container2, "Feuillet"), "", "Titre plus actif");
+  assert.equal(sortIndicatorFor(container2, "Date"), "↑");
+  assert.deepEqual(outlineSceneTitles(container2), ["B", "A"], "date 1999 avant 2020");
+});
+
+test("Plan — tri Mots : numérique, pas lexical", async () => {
+  const fileA = new TFile("Projet/Manuscrit/A.md");
+  const fileB = new TFile("Projet/Manuscrit/B.md");
+  const fileC = new TFile("Projet/Manuscrit/C.md");
+  const { view, root } = buildOutlineSortHarness({
+    children: [fileA, fileB, fileC],
+    wc: { "Projet/Manuscrit/A.md": 50, "Projet/Manuscrit/B.md": 2, "Projet/Manuscrit/C.md": 10 },
+  });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  await headCellByLabel(container, "Mots").trigger("click");
+  assert.equal(view.outlineSortColumn, "words");
+
+  const container2 = new FakeElement();
+  await view.renderOutline(container2, root, new Map(), () => {}, 1);
+  // numérique : 2, 10, 50 (un tri lexical donnerait « 10 » avant « 2 »)
+  assert.deepEqual(outlineSceneTitles(container2), ["B", "C", "A"]);
+});
+
+test("Plan — tri : valeurs vides toujours en dernier, dans les deux directions", async () => {
+  const empty = new TFile("Projet/Manuscrit/A.md");
+  empty.__fm = {};
+  const older = new TFile("Projet/Manuscrit/C.md");
+  older.__fm = { date: "1999-12-31" };
+  const withDate = new TFile("Projet/Manuscrit/B.md");
+  withDate.__fm = { date: "2020-01-01" };
+  const { view, root } = buildOutlineSortHarness({ children: [empty, older, withDate] });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const dateHead = headCellByLabel(container, "Date");
+
+  await dateHead.trigger("click"); // asc
+  const cAsc = new FakeElement();
+  await view.renderOutline(cAsc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cAsc), ["C", "B", "A"], "asc : renseignées d'abord (1999, 2020), vide à la fin");
+
+  await dateHead.trigger("click"); // desc
+  const cDesc = new FakeElement();
+  await view.renderOutline(cDesc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cDesc), ["B", "C", "A"], "desc : la valeur vide ne remonte jamais en tête");
+});
+
+test("Plan — tri : à valeur égale, ordre Binder conservé (stable)", async () => {
+  const fileC = new TFile("Projet/Manuscrit/C.md");
+  fileC.__fm = { status: "Final" };
+  const fileA = new TFile("Projet/Manuscrit/A.md");
+  fileA.__fm = { status: "Brouillon" };
+  const fileB = new TFile("Projet/Manuscrit/B.md");
+  fileB.__fm = { status: "Brouillon" };
+  const { view, root } = buildOutlineSortHarness({ children: [fileC, fileA, fileB] });
+  view.outlineColumns = { ...view.outlineColumns, status: true };
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  await headCellByLabel(container, "Statut").trigger("click");
+
+  const container2 = new FakeElement();
+  await view.renderOutline(container2, root, new Map(), () => {}, 1);
+  // Brouillon (A, B) puis Final (C) ; A avant B = ordre Binder conservé à égalité
+  assert.deepEqual(outlineSceneTitles(container2), ["A", "B", "C"]);
+});
+
+test("Plan — tri GLOBAL : fixture obligatoire §37 (4 feuillets, 2 dossiers) trie TOUS ensemble, puis revient au Binder", async () => {
+  /* §37 — fixture obligatoire :
+       Chapitre A → [Zeta, Beta]     Chapitre B → [Alpha, Gamma]
+     Ordre Binder = Zeta, Beta, Alpha, Gamma.
+     1er clic (titre ASC) : Alpha, Beta, Gamma, Zeta — AUCUNE ligne dossier
+     2e clic (titre DESC) : Zeta, Gamma, Beta, Alpha
+     3e clic : retour Binder — dossiers dans l'ordre d'origine, enfants
+               identiques, états repliés préservés. Pendant le tri le drag
+               est désactivé ; au retour Binder il réapparaît. */
+  const folderA = new TFolder("Projet/Manuscrit/Chapitre A");
+  const zeta = new TFile("Projet/Manuscrit/Chapitre A/Zeta.md");
+  const beta = new TFile("Projet/Manuscrit/Chapitre A/Beta.md");
+  folderA.children = [zeta, beta];
+  zeta.parent = folderA;
+  beta.parent = folderA;
+
+  const folderB = new TFolder("Projet/Manuscrit/Chapitre B");
+  const alpha = new TFile("Projet/Manuscrit/Chapitre B/Alpha.md");
+  const gamma = new TFile("Projet/Manuscrit/Chapitre B/Gamma.md");
+  folderB.children = [alpha, gamma];
+  alpha.parent = folderB;
+  gamma.parent = folderB;
+
+  const { view, root, dragCalls } = buildOutlineSortHarness({ children: [folderA, folderB] });
+
+  // État initial — hiérarchie Binder complète, drag branché partout.
+  const initial = new FakeElement();
+  await view.renderOutline(initial, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineFolderNames(initial), ["Chapitre A", "Chapitre B"], "dossiers rendus initialement");
+  assert.deepEqual(outlineSceneTitles(initial), ["Zeta", "Beta", "Alpha", "Gamma"], "ordre Binder initial : Zeta, Beta, Alpha, Gamma");
+  assert.equal(dragCalls.length, 6, "drag initial : 2 dossiers + 4 feuillets");
+
+  const titleHead = headCellByLabel(initial, "Feuillet");
+  assert.ok(titleHead, "en-tête Feuillet présent");
+
+  // 1er clic → titre ASC : liste PLATE GLOBALE, sans aucune ligne dossier.
+  await titleHead.trigger("click");
+  const cAsc = new FakeElement();
+  dragCalls.length = 0;
+  await view.renderOutline(cAsc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineFolderNames(cAsc), [], "ASC : aucune ligne dossier (liste plate)");
+  assert.deepEqual(outlineSceneTitles(cAsc), ["Alpha", "Beta", "Gamma", "Zeta"], "ASC global : Alpha, Beta, Gamma, Zeta");
+  assert.equal(dragCalls.length, 0, "drag désactivé pendant le tri");
+
+  // 2e clic → DESC.
+  await titleHead.trigger("click");
+  const cDesc = new FakeElement();
+  await view.renderOutline(cDesc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineFolderNames(cDesc), [], "DESC : toujours aucune ligne dossier");
+  assert.deepEqual(outlineSceneTitles(cDesc), ["Zeta", "Gamma", "Beta", "Alpha"], "DESC global : Zeta, Gamma, Beta, Alpha");
+
+  // 3e clic → retour Binder : hiérarchie exactement identique, drag réactivé.
+  await titleHead.trigger("click");
+  const back = new FakeElement();
+  dragCalls.length = 0;
+  await view.renderOutline(back, root, new Map(), () => {}, 1);
+  assert.equal(view.outlineSortColumn, null, "3e clic : plus de tri actif");
+  assert.deepEqual(outlineFolderNames(back), ["Chapitre A", "Chapitre B"], "dossiers réapparus dans l'ordre Binder");
+  assert.deepEqual(outlineSceneTitles(back), ["Zeta", "Beta", "Alpha", "Gamma"], "enfants d'origine, ordre Binder préservé");
+  assert.equal(dragCalls.length, 6, "drag réactivé au retour Binder");
+});
+
+test("Plan — tri GLOBAL : un dossier replié PARTICIPE au tri, et le repli survit au retour Binder (§38)", async () => {
+  /* §38 : le repli est purement DISPLAY, jamais un filtre — les feuillets
+     d'un dossier replié participent au tri global. Au 3e clic, la hiérarchie
+     réapparaît telle quelle : dossier toujours replié, état jamais muté. */
+  const folderA = new TFolder("Projet/Manuscrit/Chapitre A");
+  const zeta = new TFile("Projet/Manuscrit/Chapitre A/Zeta.md");
+  const alpha = new TFile("Projet/Manuscrit/Chapitre A/Alpha.md");
+  folderA.children = [zeta, alpha];
+  zeta.parent = folderA;
+  alpha.parent = folderA;
+
+  const folderB = new TFolder("Projet/Manuscrit/Chapitre B");
+  const mid = new TFile("Projet/Manuscrit/Chapitre B/Mid.md");
+  folderB.children = [mid];
+  mid.parent = folderB;
+
+  const { view, root } = buildOutlineSortHarness({ children: [folderA, folderB] });
+  view.plugin.settings.collapsed[folderA.path] = true;
+  const collapsedBefore = { ...view.plugin.settings.collapsed };
+
+  const initial = new FakeElement();
+  await view.renderOutline(initial, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineFolderNames(initial), ["Chapitre A", "Chapitre B"], "Binder : les deux dossiers");
+  assert.deepEqual(outlineSceneTitles(initial), ["Mid"], "Binder : Chapitre A replié, seul Mid rendu");
+
+  const titleHead = headCellByLabel(initial, "Feuillet");
+  await titleHead.trigger("click"); // tri titre ASC
+  const cAsc = new FakeElement();
+  await view.renderOutline(cAsc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cAsc), ["Alpha", "Mid", "Zeta"], "repli ≠ filtre : Alpha et Zeta participent au tri");
+
+  await titleHead.trigger("click"); // desc
+  await titleHead.trigger("click"); // retour Binder
+  const back = new FakeElement();
+  await view.renderOutline(back, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineFolderNames(back), ["Chapitre A", "Chapitre B"], "dossiers réapparus");
+  assert.deepEqual(outlineSceneTitles(back), ["Mid"], "Chapitre A toujours replié au retour Binder");
+  assert.deepEqual(view.plugin.settings.collapsed, collapsedBefore, "l'état replié n'a jamais été muté par le tri");
+  const folderRow = findFirst(back, (el) => el.classes.has("feuillets-row-folder"));
+  const chevron = findFirst(folderRow, (el) => el.classes.has("feuillets-chevron"));
+  assert.equal(chevron.text, "▸", "chevron d'état replié inchangé");
+});
+
+test("Plan — tri Date via le moteur temporel Feuillets : dates naturelles (§12/§20)", async () => {
+  /* §12/§20 : le tri Date passe par parseStoryDate (le moteur temporel
+     Feuillets), jamais localeCompare sur la chaîne brute. « vers 1650 »,
+     « janvier 1787 », « 11 juin 1876 », « 24 avril 1988 » se trient en
+     1650, 1787, 1876, 1988 — un tri lexicographique donnerait juin/avril/
+     janvier/vers, donc ce test prouve bien le moteur. */
+  const vers = new TFile("Projet/Manuscrit/Vers.md");
+  vers.__fm = { date: "vers 1650" };
+  const janvier = new TFile("Projet/Manuscrit/Janvier.md");
+  janvier.__fm = { date: "janvier 1787" };
+  const juin = new TFile("Projet/Manuscrit/Juin.md");
+  juin.__fm = { date: "11 juin 1876" };
+  const avril = new TFile("Projet/Manuscrit/Avril.md");
+  avril.__fm = { date: "24 avril 1988" };
+  const { view, root } = buildOutlineSortHarness({ children: [vers, janvier, juin, avril] });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const dateHead = headCellByLabel(container, "Date");
+  assert.ok(dateHead, "en-tête Date présent");
+
+  await dateHead.trigger("click"); // asc
+  const cAsc = new FakeElement();
+  await view.renderOutline(cAsc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cAsc), ["Vers", "Janvier", "Juin", "Avril"], "ASC : 1650, 1787, 1876, 1988");
+
+  await dateHead.trigger("click"); // desc
+  const cDesc = new FakeElement();
+  await view.renderOutline(cDesc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cDesc), ["Avril", "Juin", "Janvier", "Vers"], "DESC : 1988, 1876, 1787, 1650");
+});
+
+test("Plan — tri Date : année avant J.-C. triée avant les dates positives (§12)", async () => {
+  const bce = new TFile("Projet/Manuscrit/BCE.md");
+  bce.__fm = { date: "44 av. J.-C." };
+  const juin = new TFile("Projet/Manuscrit/Juin.md");
+  juin.__fm = { date: "11 juin 1876" };
+  const { view, root } = buildOutlineSortHarness({ children: [juin, bce] });
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  await headCellByLabel(container, "Date").trigger("click"); // asc
+  const cAsc = new FakeElement();
+  await view.renderOutline(cAsc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cAsc), ["BCE", "Juin"], "-44 avant 1876");
+});
+
+test("Plan — tri Date : date non reconnue = vide, toujours en dernier (§12)", async () => {
+  const invalide = new TFile("Projet/Manuscrit/Invalide.md");
+  invalide.__fm = { date: "pas une date" };
+  const datée = new TFile("Projet/Manuscrit/Datée.md");
+  datée.__fm = { date: "1789-07-14" };
+  const { view, root } = buildOutlineSortHarness({ children: [invalide, datée] });
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const dateHead = headCellByLabel(container, "Date");
+
+  await dateHead.trigger("click"); // asc
+  const cAsc = new FakeElement();
+  await view.renderOutline(cAsc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cAsc), ["Datée", "Invalide"], "asc : reconnue d'abord, invalide en dernier");
+
+  await dateHead.trigger("click"); // desc
+  const cDesc = new FakeElement();
+  await view.renderOutline(cDesc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cDesc), ["Datée", "Invalide"], "desc : l'invalide ne remonte jamais en tête");
+});
+
+test("Plan — tri Objectif : fm.goal explicite, SANS fallback projet (§13/§14)", async () => {
+  /* §13-14 : le tri lit fm.goal brut. Un feuillet SANS goal est vide et passe
+     en dernier, même si le projet a un wordGoal — goalFor()/
+     projectWordGoalDefault() ne sont jamais appelés pour trier. */
+  const a = new TFile("Projet/Manuscrit/A.md");
+  a.__fm = { goal: 500 };
+  const b = new TFile("Projet/Manuscrit/B.md");
+  b.__fm = {}; // sans goal
+  const c = new TFile("Projet/Manuscrit/C.md");
+  c.__fm = { goal: 100 };
+  const { view, root } = buildOutlineSortHarness({ children: [a, b, c] });
+  view.plugin.settings.wordGoal = 400; // prouve qu'aucun fallback n'est utilisé
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const goalHead = headCellByLabel(container, "Objectif");
+  assert.ok(goalHead, "en-tête Objectif présent");
+
+  await goalHead.trigger("click"); // asc
+  const cAsc = new FakeElement();
+  await view.renderOutline(cAsc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cAsc), ["C", "A", "B"], "asc : 100, 500, sans-goal en dernier (jamais 400)");
+
+  await goalHead.trigger("click"); // desc
+  const cDesc = new FakeElement();
+  await view.renderOutline(cDesc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cDesc), ["A", "C", "B"], "desc : 500, 100, sans-goal toujours en dernier");
+});
+
+test("Plan — tri Objectif : goal 0 est une VRAIE valeur, pas un vide (§14)", async () => {
+  const zero = new TFile("Projet/Manuscrit/Zero.md");
+  zero.__fm = { goal: 0 };
+  const cinq = new TFile("Projet/Manuscrit/Cinq.md");
+  cinq.__fm = { goal: 5 };
+  const vide = new TFile("Projet/Manuscrit/Vide.md");
+  vide.__fm = {};
+  const { view, root } = buildOutlineSortHarness({ children: [zero, vide, cinq] });
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  await headCellByLabel(container, "Objectif").trigger("click"); // asc
+  const cAsc = new FakeElement();
+  await view.renderOutline(cAsc, root, new Map(), () => {}, 1);
+  assert.deepEqual(outlineSceneTitles(cAsc), ["Zero", "Cinq", "Vide"], "0 puis 5, vide en dernier");
+});
+
+test("Plan — Objectif modifié pendant un tri Objectif : re-render immédiat (§16)", async () => {
+  /* §16 : tri Objectif actif + édition du goal d'un feuillet → la liste se
+     re-trie aussitôt : le change du goal relance render(true), le même
+     mécanisme que les autres éditeurs de métadonnée (aucun système réactif
+     ajouté). */
+  const a = new TFile("Projet/Manuscrit/A.md");
+  a.__fm = { goal: 500 };
+  const b = new TFile("Projet/Manuscrit/B.md");
+  b.__fm = {};
+  const { view, root } = buildOutlineSortHarness({ children: [a, b] });
+  view.setFm = async (_file, key, value) => { if (key === "goal") b.__fm.goal = value; };
+  const rendered = [];
+  view.render = async () => { rendered.push("render"); };
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  await headCellByLabel(container, "Objectif").trigger("click"); // tri goal asc
+  rendered.length = 0;
+
+  const sorted = new FakeElement();
+  await view.renderOutline(sorted, root, new Map(), () => {}, 1);
+  const goalInputs = findAll(sorted, (el) => el.classes.has("feuillets-goal-input"));
+  const lastInput = goalInputs[goalInputs.length - 1]; // B, sans goal, est dernier
+  assert.ok(lastInput, "un input goal rendu par ligne");
+  lastInput.value = "10";
+  await lastInput.trigger("change");
+  await new Promise((r) => setTimeout(r, 0)); // laisser la microtâche async finir
+  assert.ok(rendered.length >= 1, "re-render déclenché après édition du goal sous tri Objectif");
+});
+
+/* ===================== PLAN — double-clic sur titre → édition short_title (§17-19/§22/§36) =====================
+   Le double-clic sur un titre du Plan N'ÉDITE PAS le nom physique du fichier :
+   il ouvre un input inline prérempli avec le titre COURT (shortTitleFor) et
+   écrit la clé logique short_title via setFm. Le chemin, le basename, le
+   dossier, l'ordre Binder, l'extension et le contenu du fichier ne bougent
+   JAMAIS — et fileManager.renameFile n'est jamais appelé. */
+
+function buildRenameHarness({ children } = {}) {
+  const root = new TFolder("Projet/Manuscrit");
+  root.children = children;
+  for (const c of children) c.parent = root;
+  const setFmCalls = [];
+  const renamed = [];
+  const app = {
+    workspace: { setActiveLeaf: () => {}, getLeaf: () => ({ openFile: async () => {} }) },
+    vault: {},
+    fileManager: {
+      renameFile: async (file, dest) => { renamed.push({ from: file.path, to: dest }); },
+    },
+  };
+  const plugin = {
+    settings: {
+      collapsed: {},
+      statuses: [],
+      wordGoal: 0,
+      outlineWidths: { ...DEFAULT_SETTINGS.outlineWidths },
+      outlineWrapLongText: false,
+    },
+    getOrderedChildren: (folder) => folder.children,
+    isFrontMatter: () => false,
+    fmOf: (file) => file.__fm || {},
+    shortTitleFor: (file) => (file.__fm && file.__fm.short_title) || file.basename,
+    saveSettings: async () => {},
+  };
+  const view = new BoardView({ app, contentEl: new FakeElement() }, plugin);
+  view.passesFilter = () => true;
+  view.attachDragHandlers = () => {};
+  view.handleMultiSelectClick = () => false;
+  view._renderGen = 1;
+  view.wcMap = new Map();
+  view.outlineColumns = { synopsis: false, summary: false, pov: false, characters: false, thread: false, label: false, status: false, tags: false, date: false, words: false, goal: false };
+  view.render = async () => {};
+  view.setFm = async (f, key, value) => { setFmCalls.push({ path: f.path, key, value }); };
+  return { view, root, app, setFmCalls, renamed };
+}
+
+async function openInlineRename(view, root, titleText) {
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const titleSpan = findAll(container, (el) => el.classes.has("feuillets-title-text")).find((s) => s.text === titleText);
+  assert.ok(titleSpan, `titre « ${titleText} » attendu`);
+  await titleSpan.trigger("dblclick");
+  const input = findFirst(container, (el) => el.classes.has("feuillets-inline-rename"));
+  return { container, input, titleSpan };
+}
+
+test("Plan — double-clic : le titre affiché est shortTitleFor (short_title prioritaire, jamais basename)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { short_title: "Titre court" };
+  const { view, root } = buildRenameHarness({ children: [file] });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const titleSpan = findFirst(container, (el) => el.classes.has("feuillets-title-text"));
+  assert.equal(titleSpan.text, "Titre court", "le Plan affiche le short_title, pas le basename du fichier");
+});
+
+test("Plan — double-clic : input inline prérempli avec le titre court", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { short_title: "Titre court" };
+  const { view, root } = buildRenameHarness({ children: [file] });
+  const { input } = await openInlineRename(view, root, "Titre court");
+  assert.ok(input, "input d'édition inline attendu");
+  assert.equal(input.value, "Titre court", "prérempli avec le titre COURANT (shortTitleFor), pas le basename");
+});
+
+test("Plan — double-clic : n'ouvre PAS le feuillet (aucun clic parasite)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  const { view, root, setFmCalls } = buildRenameHarness({ children: [file] });
+  view.outlineDblClickDelayMs = 5;
+  let opened = null;
+  view.app.workspace.getLeaf = () => ({ openFile: async (f) => { opened = f.path; } });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const titleSpan = findFirst(container, (el) => el.classes.has("feuillets-title-text"));
+  await titleSpan.trigger("click");   // un clic pose la temporisation d'ouverture
+  await titleSpan.trigger("dblclick"); // le double-clic l'annule
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(opened, null, "le double-clic annule l'ouverture temporisée : aucun feuillet ouvert");
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-inline-rename")), "l'éditeur inline est bien ouvert");
+  assert.equal(setFmCalls.length, 0, "aucune écriture pendant l'édition");
+});
+
+test("Plan — Enter : écrit short_title via setFm, JAMAIS fileManager.renameFile", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  const { view, root, setFmCalls, renamed } = buildRenameHarness({ children: [file] });
+  const { container, input } = await openInlineRename(view, root, "Scène");
+  input.value = "Chapitre 1";
+  await input.trigger("keydown", { key: "Enter" });
+
+  assert.equal(setFmCalls.length, 1);
+  assert.equal(setFmCalls[0].path, "Projet/Manuscrit/Scène.md", "fichier cible = le feuillet, chemin inchangé");
+  assert.equal(setFmCalls[0].key, "short_title");
+  assert.equal(setFmCalls[0].value, "Chapitre 1");
+  assert.equal(renamed.length, 0, "AUCUN appel à fileManager.renameFile — pas de renommage physique");
+  assert.ok(!findFirst(container, (el) => el.classes.has("feuillets-inline-rename")), "input retiré après validation");
+});
+
+test("Plan — blur valide aussi : setFm(file, 'short_title', valeur)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  const { view, root, setFmCalls, renamed } = buildRenameHarness({ children: [file] });
+  const { input } = await openInlineRename(view, root, "Scène");
+  input.value = "Chapitre 2";
+  await input.trigger("blur");
+  assert.equal(setFmCalls.length, 1);
+  assert.equal(setFmCalls[0].key, "short_title");
+  assert.equal(setFmCalls[0].value, "Chapitre 2");
+  assert.equal(renamed.length, 0);
+});
+
+test("Plan — Escape : annule, aucune écriture, titre restauré", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  const { view, root, setFmCalls, renamed } = buildRenameHarness({ children: [file] });
+  const { container, input, titleSpan } = await openInlineRename(view, root, "Scène");
+  input.value = "Chapitre 3";
+  await input.trigger("keydown", { key: "Escape" });
+  assert.equal(setFmCalls.length, 0, "aucune écriture sur Escape");
+  assert.equal(renamed.length, 0);
+  assert.ok(!findFirst(container, (el) => el.classes.has("feuillets-inline-rename")), "input retiré");
+  assert.equal(titleSpan.hidden, false, "titre réaffiché");
+  assert.equal(titleSpan.text, "Scène", "titre d'origine conservé");
+});
+
+test("Plan — valeur inchangée : no-op, aucune écriture", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { short_title: "Titre court" };
+  const { view, root, setFmCalls, renamed } = buildRenameHarness({ children: [file] });
+  const { input } = await openInlineRename(view, root, "Titre court");
+  input.value = "Titre court";
+  await input.trigger("keydown", { key: "Enter" });
+  assert.equal(setFmCalls.length, 0, "titre inchangé : aucune écriture");
+  assert.equal(renamed.length, 0);
+});
+
+test("Plan — valeur vidée : setFm(file, 'short_title', '') pour retirer la clé", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { short_title: "Titre court" };
+  const { view, root, setFmCalls, renamed } = buildRenameHarness({ children: [file] });
+  const { input } = await openInlineRename(view, root, "Titre court");
+  input.value = "   ";
+  await input.trigger("keydown", { key: "Enter" });
+  assert.equal(setFmCalls.length, 1);
+  assert.equal(setFmCalls[0].key, "short_title");
+  assert.equal(setFmCalls[0].value, "", "champ vidé → '' (le writer supprime la clé)");
+  assert.equal(renamed.length, 0, "toujours aucun renommage physique");
+});
+
+test("Plan — le double-clic ne change ni le chemin, ni le basename, ni l'ordre Binder, ni le contenu", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { status: "Brouillon", characters: ["Kemal"] };
+  const { view, root, setFmCalls, renamed } = buildRenameHarness({ children: [file] });
+  const { input } = await openInlineRename(view, root, "Scène");
+  input.value = "Chapitre 4";
+  await input.trigger("keydown", { key: "Enter" });
+
+  assert.equal(file.path, "Projet/Manuscrit/Scène.md", "chemin absolument inchangé");
+  assert.equal(file.basename, "Scène", "basename inchangé");
+  assert.equal(file.name, "Scène.md", "nom de fichier inchangé");
+  assert.equal(file.parent.path, "Projet/Manuscrit", "dossier inchangé");
+  assert.equal(root.children[0], file, "ordre Binder inchangé (le fichier reste à sa place)");
+  assert.deepEqual(file.__fm, { status: "Brouillon", characters: ["Kemal"] }, "autres clés YAML intactes");
+  assert.equal(setFmCalls[0].key, "short_title", "la SEULE clé écrite est short_title");
+  assert.equal(renamed.length, 0, "fileManager.renameFile jamais appelé");
+});
+
+test("Plan — simple clic ouvre le feuillet, ne déclenche pas l'éditeur inline", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  const { view, root, setFmCalls, renamed } = buildRenameHarness({ children: [file] });
+  view.outlineDblClickDelayMs = 5;
+  let opened = null;
+  view.app.workspace.getLeaf = () => ({ openFile: async (f) => { opened = f.path; } });
+
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const titleSpan = findFirst(container, (el) => el.classes.has("feuillets-title-text"));
+  await titleSpan.trigger("click");
+
+  assert.equal(opened, null, "ouverture temporisée en attente (simple clic)");
+  assert.ok(!findFirst(container, (el) => el.classes.has("feuillets-inline-rename")), "pas d'éditeur inline au simple clic");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(opened, "Projet/Manuscrit/Scène.md", "simple clic : le feuillet s'ouvre");
+  assert.equal(setFmCalls.length, 0);
+  assert.equal(renamed.length, 0);
+});
+
+/* ===================== CARTES — double-clic sur titre de carte → short_title (§20/§37) ===================== */
+
+function buildCardShortTitleHarness({ fm = {}, siblings = null } = {}) {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = fm;
+  const parent = new TFolder("Projet/Manuscrit");
+  file.parent = parent;
+  parent.children = siblings ?? [file];
+  for (const c of parent.children) c.parent = parent;
+  const contentEl = new FakeElement();
+  const setFmCalls = [];
+  const renamed = [];
+  const app = {
+    vault: { cachedRead: async () => "Corps du feuillet." },
+    workspace: {},
+    fileManager: {
+      renameFile: async (f, dest) => { renamed.push({ from: f.path, to: dest }); },
+    },
+  };
+  const plugin = {
+    settings: { statuses: [], excerptLength: 420 },
+    fmOf: (f) => f.__fm || {},
+    roleOfFile: () => "scene",
+    labelOf: () => "",
+    labelColor: () => null,
+    shortTitleFor: (f) => (f.__fm && f.__fm.short_title) || f.basename,
+  };
+  const view = new BoardView({ app, contentEl }, plugin);
+  view.wcMap = new Map([[file.path, 672]]);
+  view.filterActive = () => true;
+  view.currentCardContent = "extrait";
+  view.render = async () => {};
+  view.setFm = async (f, key, value) => { setFmCalls.push({ path: f.path, key, value }); };
+  return { view, file, parent, contentEl, plugin, setFmCalls, renamed };
+}
+
+function cardTitleEl(contentEl) {
+  return findFirst(contentEl, (el) => el.classes.has("feuillets-card-title"));
+}
+
+test("Cartes — le titre de carte affiche shortTitleFor (short_title prioritaire)", () => {
+  const { view, file, parent, contentEl } = buildCardShortTitleHarness({ fm: { short_title: "Titre court" } });
+  view.renderCard(contentEl, parent, file, 0, [file], new Map([[file.path, "1"]]), () => {});
+  const title = cardTitleEl(contentEl);
+  assert.ok(title, "titre de carte attendu");
+  assert.equal(title.text, "Titre court", "short_title affiché, pas le basename");
+});
+
+test("Cartes — double-clic sur le titre : input prérempli, jamais de renommage", () => {
+  const { view, file, parent, contentEl } = buildCardShortTitleHarness({ fm: { short_title: "Titre court" } });
+  view.renderCard(contentEl, parent, file, 0, [file], new Map([[file.path, "1"]]), () => {});
+  const title = cardTitleEl(contentEl);
+  assert.equal(title.text, "Titre court");
+  awaitCardDblClick(title);
+  const input = findFirst(contentEl, (el) => el.classes.has("feuillets-inline-rename"));
+  assert.ok(input, "input inline dans le titre de carte");
+  assert.equal(input.value, "Titre court", "prérempli avec le titre courant");
+});
+
+test("Cartes — Enter sur le titre : écrit short_title via setFm, chemin et ordre intacts", async () => {
+  const { view, file, parent, contentEl, setFmCalls, renamed } = buildCardShortTitleHarness({ fm: {} });
+  view.renderCard(contentEl, parent, file, 0, [file], new Map([[file.path, "1"]]), () => {});
+  const input = await openCardShortTitle(contentEl);
+  input.value = "Nouveau titre";
+  await input.trigger("keydown", { key: "Enter" });
+
+  assert.equal(setFmCalls.length, 1);
+  assert.equal(setFmCalls[0].path, "Projet/Manuscrit/Scène.md", "chemin de la carte inchangé");
+  assert.equal(setFmCalls[0].key, "short_title");
+  assert.equal(setFmCalls[0].value, "Nouveau titre");
+  assert.equal(renamed.length, 0, "fileManager.renameFile jamais appelé");
+  assert.equal(file.path, "Projet/Manuscrit/Scène.md", "chemin du fichier intact");
+  assert.deepEqual(parent.children, [file], "ordre du dossier (Binder) intact");
+});
+
+test("Cartes — blur sur le titre : sauvegarde aussi", async () => {
+  const { view, file, parent, contentEl, setFmCalls, renamed } = buildCardShortTitleHarness({ fm: {} });
+  view.renderCard(contentEl, parent, file, 0, [file], new Map([[file.path, "1"]]), () => {});
+  const input = await openCardShortTitle(contentEl);
+  input.value = "Autre titre";
+  await input.trigger("blur");
+  assert.equal(setFmCalls.length, 1);
+  assert.equal(setFmCalls[0].key, "short_title");
+  assert.equal(setFmCalls[0].value, "Autre titre");
+  assert.equal(renamed.length, 0);
+});
+
+test("Cartes — Escape sur le titre : annule, titre restauré, aucune écriture", async () => {
+  const { view, file, parent, contentEl, setFmCalls, renamed } = buildCardShortTitleHarness({ fm: { short_title: "Titre court" } });
+  view.renderCard(contentEl, parent, file, 0, [file], new Map([[file.path, "1"]]), () => {});
+  const title = cardTitleEl(contentEl);
+  const input = await openCardShortTitle(contentEl);
+  input.value = "À jeter";
+  await input.trigger("keydown", { key: "Escape" });
+  assert.equal(setFmCalls.length, 0, "Escape : aucune écriture");
+  assert.equal(renamed.length, 0);
+  assert.ok(!findFirst(contentEl, (el) => el.classes.has("feuillets-inline-rename")), "input retiré");
+  assert.equal(title.text, "Titre court", "titre restauré sur la carte");
+});
+
+test("Cartes — valeur vidée : setFm(file, 'short_title', '')", async () => {
+  const { view, file, parent, contentEl, setFmCalls, renamed } = buildCardShortTitleHarness({ fm: { short_title: "Titre court" } });
+  view.renderCard(contentEl, parent, file, 0, [file], new Map([[file.path, "1"]]), () => {});
+  const input = await openCardShortTitle(contentEl);
+  input.value = "";
+  await input.trigger("keydown", { key: "Enter" });
+  assert.equal(setFmCalls.length, 1);
+  assert.equal(setFmCalls[0].key, "short_title");
+  assert.equal(setFmCalls[0].value, "", "champ vidé → '' (clé retirée)");
+  assert.equal(renamed.length, 0);
+});
+
+async function openCardShortTitle(contentEl) {
+  const title = cardTitleEl(contentEl);
+  awaitCardDblClick(title);
+  const input = findFirst(contentEl, (el) => el.classes.has("feuillets-inline-rename"));
+  assert.ok(input, "input inline du titre de carte attendu");
+  return input;
+}
+
+async function awaitCardDblClick(el) {
+  await el.trigger("dblclick");
+}
+
+/* ===================== Bouton « + » Cartes/Plan (§22-24/§39) =====================
+   Un SEUL bouton « + » dans la barre principale, présent en Cartes et en
+   Plan UNIQUEMENT (jamais Chemin de fer/Couloirs/Chronologie/Documents/
+   Édition). Son menu propose « Nouveau feuillet ici » et « Nouveau dossier… »
+   et crée TOUJOURS via le moteur du Binder (plugin.newSheet / plugin.newFolder)
+   — la cible est une racine structurelle réelle : dossier courant affiché en
+   Cartes, racine du manuscrit en Plan et en Cartes « Tout le manuscrit ». */
+
+function buildPlusButtonHarness({ boardMode = "board", wholeManuscript = false, empty = false } = {}) {
+  const harness = buildNarrativeHarness({ boardMode });
+  const { view, plugin, settings, root } = harness;
+  if (wholeManuscript) settings.projectMeta[root.path].boardWholeManuscript = true;
+  if (empty) root.children = [];
+  const created = [];
+  plugin.newSheet = (target) => { created.push({ kind: "sheet", target }); };
+  plugin.newFolder = (target) => { created.push({ kind: "folder", target }); };
+  view.app.vault.create = () => { created.push({ kind: "vault.create" }); };
+  view.app.vault.createFolder = () => { created.push({ kind: "vault.createFolder" }); };
+  return { ...harness, created };
+}
+
+function plusButton(container) {
+  return findAll(container, (el) => el.tag === "button" && el.icon === "plus")[0];
+}
+
+test("Cartes — bouton « + » présent ; menu = Nouveau feuillet ici / Nouveau dossier, cible = dossier courant", async () => {
+  const { view, contentEl, created, root } = buildPlusButtonHarness({ boardMode: "board" });
+  await view.render(true);
+  const plus = plusButton(contentEl);
+  assert.ok(plus, "bouton « + » présent en mode Cartes");
+  Menu.lastShown = null;
+  await plus.trigger("click", { clientX: 1, clientY: 2 });
+  const menu = Menu.lastShown;
+  assert.ok(menu, "menu de création ouvert");
+  assert.deepEqual(
+    menu.items.map((i) => [i.title, i.icon]),
+    [["Nouveau feuillet ici", "file-plus"], ["Nouveau dossier…", "folder-plus"]],
+    "menu exact du Binder : feuillet puis dossier"
+  );
+  /* cible : dossier courant affiché (racine ici, aucun focus) */
+  menu.items[0].callback();
+  assert.equal(created[0].kind, "sheet");
+  assert.equal(created[0].target.path, root.path, "nouveau feuillet dans le dossier courant");
+  menu.items[1].callback();
+  assert.equal(created[1].kind, "folder");
+  assert.equal(created[1].target.path, root.path, "nouveau dossier dans le dossier courant");
+});
+
+test("Cartes — « Tout le manuscrit » : la cible du « + » devient la racine", async () => {
+  const { view, contentEl, created, root } = buildPlusButtonHarness({ boardMode: "board", wholeManuscript: true });
+  await view.render(true);
+  const plus = plusButton(contentEl);
+  assert.ok(plus, "« + » présent aussi en tout-manuscrit");
+  Menu.lastShown = null;
+  await plus.trigger("click", { clientX: 1, clientY: 2 });
+  const menu = Menu.lastShown;
+  menu.items[0].callback();
+  assert.equal(created[0].target.path, root.path, "cible = racine du manuscrit en tout-manuscrit");
+});
+
+test("Cartes — dossier courant navigué : la cible du « + » est ce dossier", async () => {
+  const { view, contentEl, created, root } = buildPlusButtonHarness({ boardMode: "board" });
+  const sub = new TFolder("Projet/Manuscrit/Chapitre 1");
+  sub.parent = root;
+  view.app.vault.getAbstractFileByPath = (p) => (p === sub.path ? sub : null);
+  view.focusedFolderPath = sub.path;
+  await view.render(true);
+  const plus = plusButton(contentEl);
+  assert.ok(plus);
+  Menu.lastShown = null;
+  await plus.trigger("click", { clientX: 1, clientY: 2 });
+  Menu.lastShown.items[0].callback();
+  assert.equal(created[0].target.path, sub.path, "cible = dossier courant réellement affiché");
+});
+
+test("Plan — bouton « + » présent, cible = racine du manuscrit", async () => {
+  const { view, contentEl, created, root } = buildPlusButtonHarness({ boardMode: "outline" });
+  await view.render(true);
+  const plus = plusButton(contentEl);
+  assert.ok(plus, "bouton « + » présent en mode Plan");
+  Menu.lastShown = null;
+  await plus.trigger("click", { clientX: 1, clientY: 2 });
+  const menu = Menu.lastShown;
+  assert.deepEqual(
+    menu.items.map((i) => [i.title, i.icon]),
+    [["Nouveau feuillet ici", "file-plus"], ["Nouveau dossier…", "folder-plus"]],
+    "même menu que le Binder en Plan"
+  );
+  menu.items[0].callback();
+  menu.items[1].callback();
+  assert.equal(created[0].target.path, root.path, "feuillet créé à la racine du manuscrit");
+  assert.equal(created[1].target.path, root.path, "dossier créé à la racine du manuscrit");
+});
+
+test("Chemin de fer (arcs) : aucun bouton « + »", async () => {
+  const { view, contentEl } = buildPlusButtonHarness({ boardMode: "arcs" });
+  await view.render(true);
+  assert.equal(plusButton(contentEl), undefined, "pas de « + » en mode narratif (arcs)");
+});
+
+test("Chronologie (timeline) : aucun bouton « + »", async () => {
+  /* Fiction masque timeline par défaut : on la rend explicitement visible pour
+     tester le vrai mode Chronologie (sinon le mode retomberait sur Cartes). */
+  const { view, contentEl, settings, root } = buildPlusButtonHarness({ boardMode: "timeline" });
+  settings.projectMeta[root.path].hiddenBoardModes = [];
+  await view.render(true);
+  assert.equal(plusButton(contentEl), undefined, "pas de « + » en Chronologie");
+});
+
+test("Manuscrit vide : le « + » reste présent pour créer le premier feuillet", async () => {
+  const { view, contentEl, created, root } = buildPlusButtonHarness({ boardMode: "board", empty: true });
+  await view.render(true);
+  const plus = plusButton(contentEl);
+  assert.ok(plus, "« + » présent même dans un manuscrit vide");
+  Menu.lastShown = null;
+  await plus.trigger("click", { clientX: 1, clientY: 2 });
+  Menu.lastShown.items[0].callback();
+  assert.equal(created[0].kind, "sheet");
+  assert.equal(created[0].target.path, root.path, "premier feuillet créé à la racine");
+});
+
+/* ===================== Plan — menus contextuels partagés (§41) =====================
+   Le clic-droit d'une ligne du Plan (feuillet ou dossier) OUVRE LES MÊMES
+   menus partagés que Cartes/Binder (showFileContextMenu / showFolderContextMenu
+   de BaseFeuilletsView) — jamais un menu parallèle. `i` et `children` passés
+   sont l'indice et les siblings Binder RÉELS, même pendant un tri visuel. */
+
+function buildContextMenuHarness({ children, sort = null } = {}) {
+  const { view, root } = buildOutlineSortHarness({ children });
+  const fileMenuCalls = [];
+  const folderMenuCalls = [];
+  view.showFileContextMenu = (...args) => { fileMenuCalls.push(args); };
+  view.showFolderContextMenu = (...args) => { folderMenuCalls.push(args); };
+  if (sort) {
+    view.outlineSortColumn = sort.column;
+    view.outlineSortDirection = sort.direction;
+  }
+  return { view, root, fileMenuCalls, folderMenuCalls };
+}
+
+test("Plan — clic-droit sur une ligne feuillet : showFileContextMenu(parentFolder, indice Binder, siblings)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  const { view, root, fileMenuCalls, folderMenuCalls } = buildContextMenuHarness({ children: [file] });
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const row = findFirst(container, (el) => el.classes.has("feuillets-row-scene"));
+  assert.ok(row, "ligne feuillet rendue");
+  await row.trigger("contextmenu");
+  assert.equal(fileMenuCalls.length, 1, "menu partagé du feuillet ouvert");
+  const [_evt, f, parentFolder, i, children] = fileMenuCalls[0];
+  assert.equal(f.path, "Projet/Manuscrit/Scène.md");
+  assert.equal(parentFolder.path, "Projet/Manuscrit");
+  assert.equal(i, 0, "indice Binder");
+  assert.deepEqual(children.map((c) => c.path), ["Projet/Manuscrit/Scène.md"], "siblings Binder");
+  assert.equal(folderMenuCalls.length, 0, "aucun menu dossier");
+});
+
+test("Plan — clic-droit sur une ligne dossier : showFolderContextMenu(parentFolder, indice Binder, siblings)", async () => {
+  const folder = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const { view, root, fileMenuCalls, folderMenuCalls } = buildContextMenuHarness({ children: [folder] });
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const row = findFirst(container, (el) => el.classes.has("feuillets-row-folder"));
+  assert.ok(row, "ligne dossier rendue");
+  await row.trigger("contextmenu");
+  assert.equal(folderMenuCalls.length, 1, "menu partagé du dossier ouvert");
+  const [_evt, f, parentFolder, i, _children] = folderMenuCalls[0];
+  assert.equal(f.path, "Projet/Manuscrit/Chapitre 1");
+  assert.equal(parentFolder.path, "Projet/Manuscrit");
+  assert.equal(i, 0, "indice Binder");
+  assert.equal(fileMenuCalls.length, 0, "aucun menu feuillet");
+});
+
+test("Plan — tri actif : le clic-droit garde l'indice et les siblings Binder, pas l'ordre visuel", async () => {
+  /* Ordre Binder : [Beta, Alpha]. Tri titre asc → visuel [Alpha, Beta].
+     Le clic-droit d'Alpha doit pourtant rapporter l'indice Binder 1 et les
+     siblings Binder [Beta, Alpha] — le menu ne lit jamais l'ordre trié. */
+  const beta = new TFile("Projet/Manuscrit/Beta.md");
+  const alpha = new TFile("Projet/Manuscrit/Alpha.md");
+  const { view, root, fileMenuCalls } = buildContextMenuHarness({ children: [beta, alpha], sort: { column: "title", direction: "asc" } });
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const rows = findAll(container, (el) => el.classes.has("feuillets-row-scene"));
+  assert.deepEqual(
+    rows.map((r) => findFirst(r, (el) => el.classes.has("feuillets-title-text"))?.text),
+    ["Alpha", "Beta"],
+    "ordre VISUEL trié : Alpha puis Beta"
+  );
+  await rows[0].trigger("contextmenu"); // clic-droit sur Alpha (première ligne visuelle)
+  assert.equal(fileMenuCalls.length, 1);
+  const [_evt, f, _parentFolder, i, children] = fileMenuCalls[0];
+  assert.equal(f.path, "Projet/Manuscrit/Alpha.md");
+  assert.equal(i, 1, "indice BINDER d'Alpha = 1, pas sa position visuelle 0");
+  assert.deepEqual(children.map((c) => c.path), ["Projet/Manuscrit/Beta.md", "Projet/Manuscrit/Alpha.md"], "siblings Binder réels");
+});
+
+test("Plan — tri GLOBAL : le clic-droit rapporte parent/indice/siblings Binder réels, pas la position visuelle", async () => {
+  /* §37/§40 : dans la liste plate triée, le menu lit le vrai contexte Binder
+     du feuillet — parentFolder = son dossier réel, indice = position dans CE
+     dossier, siblings = les enfants de CE dossier. Alpha est visuellement la
+     PREMIÈRE ligne, mais son contexte est dossier Chapitre A, indice 1,
+     siblings [Zeta, Alpha]. */
+  const folderA = new TFolder("Projet/Manuscrit/Chapitre A");
+  const zeta = new TFile("Projet/Manuscrit/Chapitre A/Zeta.md");
+  const alpha = new TFile("Projet/Manuscrit/Chapitre A/Alpha.md");
+  folderA.children = [zeta, alpha];
+  zeta.parent = folderA;
+  alpha.parent = folderA;
+
+  const folderB = new TFolder("Projet/Manuscrit/Chapitre B");
+  const beta = new TFile("Projet/Manuscrit/Chapitre B/Beta.md");
+  folderB.children = [beta];
+  beta.parent = folderB;
+
+  const { view, root, fileMenuCalls } = buildContextMenuHarness({
+    children: [folderA, folderB],
+    sort: { column: "title", direction: "asc" },
+  });
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const rows = findAll(container, (el) => el.classes.has("feuillets-row-scene"));
+  assert.deepEqual(
+    rows.map((r) => findFirst(r, (el) => el.classes.has("feuillets-title-text"))?.text),
+    ["Alpha", "Beta", "Zeta"],
+    "ordre visuel trié : Alpha, Beta, Zeta"
+  );
+  await rows[0].trigger("contextmenu"); // Alpha, première ligne VISUELLE
+  assert.equal(fileMenuCalls.length, 1);
+  const [_evt, f, parentFolder, i, children] = fileMenuCalls[0];
+  assert.equal(f.path, "Projet/Manuscrit/Chapitre A/Alpha.md");
+  assert.equal(parentFolder.path, "Projet/Manuscrit/Chapitre A", "parent réel = Chapitre A");
+  assert.equal(i, 1, "indice réel dans Chapitre A = 1, pas la position visuelle 0");
+  assert.deepEqual(
+    children.map((c) => c.path),
+    ["Projet/Manuscrit/Chapitre A/Zeta.md", "Projet/Manuscrit/Chapitre A/Alpha.md"],
+    "siblings réels = enfants de Chapitre A"
+  );
+});
+
+test("Plan — clic-droit dans un champ éditable : le menu de ligne ne s'ouvre jamais (§15)", async () => {
+  /* §15 : la garde précède TOUT preventDefault. Sur un input/textarea/select/
+     contenteditable, le clic droit laisse le menu natif du champ — le menu
+     partagé Feuillets n'est pas ouvert et preventDefault n'est pas exécuté. */
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  const { view, root, fileMenuCalls } = buildContextMenuHarness({ children: [file] });
+  const container = new FakeElement();
+  await view.renderOutline(container, root, new Map(), () => {}, 1);
+  const row = findFirst(container, (el) => el.classes.has("feuillets-row-scene"));
+  assert.ok(row, "ligne feuillet rendue");
+
+  // Cible INPUT (champ objectif) → aucun menu, aucun preventDefault.
+  let prevented = false;
+  await row.trigger("contextmenu", {
+    target: { tagName: "INPUT" },
+    preventDefault: () => { prevented = true; },
+  });
+  assert.equal(fileMenuCalls.length, 0, "INPUT : aucun menu Feuillets");
+  assert.equal(prevented, false, "INPUT : preventDefault jamais exécuté");
+
+  // Cible TEXTAREA (champ métadonnée cliquer-pour-écrire) → aucun menu.
+  await row.trigger("contextmenu", { target: { tagName: "TEXTAREA" } });
+  assert.equal(fileMenuCalls.length, 0, "TEXTAREA : aucun menu Feuillets");
+
+  // Cible contenteditable → aucun menu.
+  await row.trigger("contextmenu", { target: { tagName: "DIV", isContentEditable: true } });
+  assert.equal(fileMenuCalls.length, 0, "contenteditable : aucun menu Feuillets");
+
+  // L'input goal RÉELLEMENT rendu (cible FakeElement, pas synthétique) est
+  // aussi protégé — la garde retombe sur `tag` quand tagName est absent.
+  const goalInput = findFirst(container, (el) => el.classes.has("feuillets-goal-input"));
+  assert.ok(goalInput, "input goal rendu");
+  const before = fileMenuCalls.length;
+  await row.trigger("contextmenu", { target: goalInput });
+  assert.equal(fileMenuCalls.length, before, "clic droit sur l'input goal réel : pas de menu");
+
+  // Une ligne de dossier : la garde s'applique aussi à son menu partagé.
+  const folder = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const { view: v2, root: r2, folderMenuCalls } = buildContextMenuHarness({ children: [folder] });
+  const c2 = new FakeElement();
+  await v2.renderOutline(c2, r2, new Map(), () => {}, 1);
+  const folderRow = findFirst(c2, (el) => el.classes.has("feuillets-row-folder"));
+  await folderRow.trigger("contextmenu", { target: { tagName: "INPUT" } });
+  assert.equal(folderMenuCalls.length, 0, "dossier INPUT : aucun menu dossier");
+
+  // Une cellule normale reste un clic-droit → menu partagé du feuillet.
+  const beforeNormal = fileMenuCalls.length;
+  await row.trigger("contextmenu", { target: {} });
+  assert.equal(fileMenuCalls.length, beforeNormal + 1, "cellule normale : le menu s'ouvre toujours");
+});
+
+/* ===================== Création strictement via le moteur du Binder (§42) =====================
+   Le bouton « + » (Cartes comme Plan) passe exclusivement par
+   plugin.newSheet / plugin.newFolder du moteur de création du Binder — jamais
+   de vault.create / vault.createFolder directement, jamais de sélecteur de
+   destination supplémentaire. */
+
+test("Création — le « + » n'appelle JAMAIS vault.create ni vault.createFolder", async () => {
+  const { view, contentEl, created } = buildPlusButtonHarness({ boardMode: "board" });
+  await view.render(true);
+  const plus = plusButton(contentEl);
+  assert.ok(plus);
+  Menu.lastShown = null;
+  await plus.trigger("click", { clientX: 1, clientY: 2 });
+  const menu = Menu.lastShown;
+  menu.items[0].callback();
+  menu.items[1].callback();
+  assert.equal(created.length, 2, "exactement deux créations (feuillet + dossier)");
+  assert.deepEqual(created.map((c) => c.kind), ["sheet", "folder"], "uniquement via le moteur du Binder — vault.create/vault.createFolder jamais appelés");
+});

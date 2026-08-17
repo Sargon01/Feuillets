@@ -232,4 +232,30 @@ test("resolveBoardOutlineColumns — LOT binder isolé/cartes/plan §6", async (
       assert.equal(cols.compiler, false, type);
     }
   });
+
+  await t.test("Fiction : Personnages/Fil optionnels, OFF par défaut quand rien n'est stocké", () => {
+    const cols = resolveBoardOutlineColumns("fiction", null);
+    assert.equal(cols.characters, false);
+    assert.equal(cols.thread, false);
+  });
+
+  await t.test("Fiction : Personnages/Fil stockés à true sont respectés", () => {
+    const cols = resolveBoardOutlineColumns("fiction", { characters: true, thread: true });
+    assert.equal(cols.characters, true);
+    assert.equal(cols.thread, true);
+  });
+
+  await t.test("Fiction : Personnages/Fil stockés à false restent OFF", () => {
+    const cols = resolveBoardOutlineColumns("fiction", { characters: false, thread: false });
+    assert.equal(cols.characters, false);
+    assert.equal(cols.thread, false);
+  });
+
+  await t.test("Non-fiction/Libre : jamais de Personnages/Fil, même stockés à true", () => {
+    for (const type of ["nonfiction", "free"]) {
+      const cols = resolveBoardOutlineColumns(type, { characters: true, thread: true });
+      assert.equal(cols.characters, false, type);
+      assert.equal(cols.thread, false, type);
+    }
+  });
 });

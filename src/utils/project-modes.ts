@@ -63,6 +63,7 @@ const FICTION_BOARD_DEFAULTS: BoardProjectDefaults = {
     synopsis: true, summary: false, pov: true, notes: false, tags: false, label: false,
     status: true, date: false, compile: false, filename: false,
     words: false, goal: false, progress: false,
+    characters: false, thread: false,
   },
 };
 
@@ -321,8 +322,17 @@ export function resolveBoardOutlineColumns(
 
   if (isFiction) {
     result.pov = s.pov !== undefined ? !!s.pov : !!defaults.pov;
+    /* Personnages + Fil : colonnes optionnelles du Plan réservées à la
+       Fiction (le mode narre des personnages et des fils narratifs), OFF
+       par défaut pour ne pas surcharger l'état initial — l'autrice les
+       active via « Colonnes visibles ». Jamais présentes en Non-fiction/
+       Libre, même stockées à true (même règle que pov). */
+    result.characters = s.characters !== undefined ? !!s.characters : !!defaults.characters;
+    result.thread = s.thread !== undefined ? !!s.thread : !!defaults.thread;
   } else {
     result.pov = false;
+    result.characters = false;
+    result.thread = false;
   }
 
   for (const key of BOARD_OUTLINE_COMMON_COLS) {

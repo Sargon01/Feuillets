@@ -32,6 +32,18 @@ import { toValue } from "../utils/scene-fields.js";
 type ProjectNode = TFile | TFolder;
 type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
 
+/** Entrée d'une collecte GLOBALE de feuillets du Plan pour le tri : conserve
+ * le contexte Binder RÉEL de chaque feuillet (jamais dérivé de la position
+ * visuelle triée) — menu contextuel, multi-sélection et toute action
+ * structurelle lisent ces valeurs, pas la liste plate. */
+interface OutlineFileEntry {
+  file: TFile;
+  parentFolder: TFolder;
+  binderIndex: number;
+  siblings: ProjectNode[];
+  binderFlatIndex: number;
+}
+
 /** Sous-vue de l'espace narratif (Chemin de fer) : Trame = le Chemin de fer
  * actuel, Couloirs = la vue narrative par lignes. État de SESSION de
  * l'instance BoardView, jamais persisté. */
@@ -242,6 +254,17 @@ export class BoardView extends BaseFeuilletsView {
   selectedPov?: string;
   _renderGen?: number;
   outlineColumns?: Record<string, boolean>;
+  /* Tri visuel du Plan — état STRICTEMENT session-only de l'instance (jamais
+     de settings, de projectMeta, de YAML). null/null = ordre Binder réel.
+     Une seule colonne triée à la fois : cliquer une autre colonne abandonne
+     la précédente. Le cycle d'une colonne : asc → desc → ordre Binder. */
+  outlineSortColumn: string | null = null;
+  outlineSortDirection: "asc" | "desc" | null = null;
+  /** Délai de détection simple/double-clic du titre du Plan : un clic ouvre
+   * le feuillet après ce délai, un double-clic l'annule pour passer au
+   * renommage inline. Variable d'instance pour que les tests puissent la
+   * raccourcir (comportement réel inchangé). */
+  outlineDblClickDelayMs = 250;
 
   /* LOT 5C — état de session du drag Couloirs : chemin du feuillet glissé,
      drapeau anti-ouverture (§12 : un drag ne déclenche jamais le clic
@@ -725,6 +748,29 @@ export class BoardView extends BaseFeuilletsView {
       menu.showAtMouseEvent(e);
     });
 
+    /* Bouton « + » global (création) — Cartes et Plan UNIQUEMENT, jamais en
+       Chemin de fer/Couloirs/Chronologie/Documents/Édition. La cible est
+       TOUJOURS une racine structurelle réelle : racine du manuscrit pour Plan
+       et pour Cartes en mode « Tout le manuscrit », dossier courant réellement
+       affiché pour Cartes en navigation normale. La création passe
+       exclusivement par le moteur du Binder (plugin.newSheet / plugin.newFolder)
+       — aucun vault.create ici, aucun sélecteur de destination supplémentaire
+       (créer plus profondément = menu contextuel du dossier). */
+    if (inWorkspace && (activeMode === "board" || activeMode === "outline")) {
+      this.barSep(bar);
+      this.iconBtn(bar, "plus", t("shared.contextMenu.newMenu"), (e: MouseEvent) => {
+        const target = activeMode === "outline" || wholeManuscript ? root : currentFolder;
+        const menu = new Menu();
+        menu.addItem((item) =>
+          item.setTitle(t("binder.newSheetHere")).setIcon("file-plus").onClick(() => this.plugin.newSheet(target))
+        );
+        menu.addItem((item) =>
+          item.setTitle(t("binder.newFolder")).setIcon("folder-plus").onClick(() => this.plugin.newFolder(target))
+        );
+        menu.showAtMouseEvent(e);
+      });
+    }
+
     /* Surfaces Documents/Édition : la barre s'arrête ici — plus aucun outil
        Board en dessous, et le contenu réel prend toute la place restante. */
     if (!inWorkspace) {
@@ -1042,6 +1088,8 @@ export class BoardView extends BaseFeuilletsView {
           ? [
               ["synopsis", t("board.col.synopsis")],
               ["pov", t("board.col.pov")],
+              ["characters", t("board.col.characters")],
+              ["thread", t("board.col.thread")],
               ["label", t("board.col.label")],
               ["status", t("board.col.status")],
               ["tags", t("board.col.tags")],
@@ -1174,8 +1222,18 @@ export class BoardView extends BaseFeuilletsView {
     });
     if (fm.goal !== undefined) input.value = toValue(fm.goal);
     input.addEventListener("change", () => {
+      /* Jamais NaN ni nombre négatif : une valeur non numérique ou négative
+         vide le champ (le writer supprime la clé) au lieu d'écrire un goal
+         incohérent. parseInt ne produit jamais Infinity (les exposants sont
+         tronqués). min=0 guide l'UI, cette garde protège l'écriture. */
       const val = parseInt(input.value, 10);
-      void this.setFm(file, "goal", isNaN(val) ? "" : val);
+      void (async () => {
+        await this.setFm(file, "goal", isNaN(val) || val < 0 ? "" : val);
+        /* Tri Objectif actif : la liste doit refléter immédiatement le nouvel
+           ordre — re-render du Plan après l'écriture (même mécanisme que les
+           autres éditeurs de métadonnée, aucun système réactif ajouté). */
+        if (this.outlineSortColumn === "goal") void this.render(true);
+      })();
     });
     return input;
   }
@@ -1375,6 +1433,56 @@ export class BoardView extends BaseFeuilletsView {
     return cell;
   }
 
+  /* Édition inline du short_title d'un feuillet par double-clic sur son titre
+     (Plan et Cartes) — aucun modal, JAMAIS de renommage physique du fichier.
+     L'input compact remplace temporairement le titre affiché, prérempli avec le
+     titre court courant (shortTitleFor) ; Enter/blur valident, Escape annule.
+     L'écriture passe par setFm(file, "short_title", valeur) — le fichier garde
+     exactement son chemin, son basename, son extension, son dossier, son ordre
+     Binder et son contenu Markdown ; seule la clé short_title peut changer.
+     Valeur vide → setFm avec "" (le champ disparaît, l'affichage retombe sur
+     titleFor via shortTitleFor) ; valeur inchangée → aucune écriture, aucun
+     render. `host` reçoit l'input ; `displayEl` est l'élément qui portait le
+     titre (masqué pendant l'édition). Quand host === displayEl (titre de carte
+     Cartes), le texte est vidé puis restauré au lieu d'être masqué. */
+  private beginInlineShortTitleEdit(host: HTMLElement, displayEl: HTMLElement, file: TFile): void {
+    const current = this.plugin.shortTitleFor(file);
+    if (displayEl === host) displayEl.empty();
+    else displayEl.hide();
+    const input = host.createEl("input", {
+      type: "text",
+      cls: "feuillets-inline-rename",
+      value: current,
+    });
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = async (commit: boolean) => {
+      if (done) return;
+      done = true;
+      const raw = input.value.trim();
+      input.remove();
+      if (displayEl === host) displayEl.setText(current);
+      else displayEl.show();
+      if (!commit) return;
+      if (raw === current) return;
+      await this.setFm(file, "short_title", raw);
+      void this.render(true);
+    };
+    input.addEventListener("keydown", (evt) => {
+      evt.stopPropagation();
+      if (evt.key === "Enter") {
+        evt.preventDefault();
+        void finish(true);
+      } else if (evt.key === "Escape") {
+        evt.preventDefault();
+        void finish(false);
+      }
+    });
+    input.addEventListener("blur", () => void finish(true));
+    input.addEventListener("click", (e) => e.stopPropagation());
+  }
+
   renderFolderCard(container: HTMLElement, parentFolder: TFolder, folder: TFolder, index: number, siblings: ProjectNode[], _numbering: unknown, _bumpTotal: unknown): void {
     const card = container.createDiv({ cls: "feuillets-card feuillets-card-folder" });
     card.setAttr("title", t("board.folderCard.doubleClickEnter", { name: folder.name }));
@@ -1460,6 +1568,16 @@ export class BoardView extends BaseFeuilletsView {
     const titleEl = head.createDiv({ cls: "feuillets-card-title" });
     titleEl.setText(this.plugin.shortTitleFor(file));
     titleEl.setAttr("title", file.basename);
+    /* Double-clic sur le TITRE d'une carte FEUILLET → édition inline du
+       short_title (même helper que le Plan) — jamais de renommage physique.
+       Le double-clic d'une CARTE DOSSIER, lui, continue d'entrer dans le
+       dossier (renderFolderCard, inchangé). Le clic simple reste sans effet
+       (l'ouverture se fait via l'extrait ou le menu « … »). */
+    titleEl.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.beginInlineShortTitleEdit(titleEl, titleEl, file);
+    });
 
     const pov = povOf(this.fm(file));
     if (pov) {
@@ -2370,6 +2488,8 @@ export class BoardView extends BaseFeuilletsView {
     const res = [{ id: "title", label: t("board.col.title") }];
     if (cols.synopsis) res.push({ id: "synopsis", label: t("board.col.synopsis") });
     if (cols.pov) res.push({ id: "pov", label: t("board.col.pov") });
+    if (cols.characters) res.push({ id: "characters", label: t("board.col.characters") });
+    if (cols.thread) res.push({ id: "thread", label: t("board.col.thread") });
     if (cols.summary) res.push({ id: "summary", label: t("board.col.summary") });
     if (cols.label) res.push({ id: "label", label: t("board.col.label") });
     if (cols.status) res.push({ id: "status", label: t("board.col.status") });
@@ -2385,6 +2505,127 @@ export class BoardView extends BaseFeuilletsView {
     return "22px " + this.visibleCols().map((c) => `${Math.max(60, widths[c.id] || 120)}px`).join(" ");
   }
 
+  /** Un tri visuel est-il actif ? null/null = ordre Binder réel (aucune
+   * flèche, drag de réorganisation réactivé). */
+  private outlineSortActive(): boolean {
+    return this.outlineSortColumn !== null && this.outlineSortDirection !== null;
+  }
+
+  /* Cycle exact d'un en-tête de colonne : 1er clic ascendant, 2e descendant,
+     3e retour à l'ordre Binder, puis on recommence. Cliquer une AUTRE colonne
+     abandonne immédiatement la précédente et active la nouvelle en ascendant.
+     Le nom de colonne lui-même est la commande de tri — jamais de menu ni de
+     toolbar supplémentaire. État session-only, aucune persistance. */
+  cycleOutlineSort(colId: string): void {
+    if (this.outlineSortColumn !== colId) {
+      this.outlineSortColumn = colId;
+      this.outlineSortDirection = "asc";
+    } else if (this.outlineSortDirection === "asc") {
+      this.outlineSortDirection = "desc";
+    } else if (this.outlineSortDirection === "desc") {
+      this.outlineSortColumn = null;
+      this.outlineSortDirection = null;
+    }
+    void this.render(true);
+  }
+
+  /** Valeur de tri d'un feuillet pour une colonne — la MÊME source que la
+   * valeur affichée (shortTitleFor pour le titre, povOf pour le pov, listes
+   * normalisées pour Personnages/Fil, etc.). strings comparées lexicalement
+   * en locale française, words/goal numériquement. Date : moteur temporel
+   * Feuillets (parseStoryDate), jamais la chaîne brute. Goal : valeur
+   * explicite du feuillet, jamais le défaut projet. */
+  private outlineSortValue(file: TFile, colId: string): string | number {
+    const fm = this.fm(file);
+    switch (colId) {
+      case "title": return this.plugin.shortTitleFor(file);
+      case "synopsis": return toValue(fm.synopsis);
+      case "summary": return toValue(fm.summary);
+      case "pov": return povOf(fm);
+      case "characters": return getPersonnagesList(fm).join(", ");
+      case "thread": return getFilsList(fm).join(", ");
+      case "label": return String(this.plugin.labelOf?.(file) || "");
+      case "status": return String(toValue(fm.status) || "");
+      case "tags": return String(this.plugin.tagsOf?.(file).join(", ") || "");
+      case "date": return parseStoryDate(fm.date)?.sort ?? "";
+      case "words": return this.wcMap?.get(file.path) || 0;
+      case "goal": return this.outlineGoalSortValue(file);
+      default: return "";
+    }
+  }
+
+  /** Valeur de tri Objectif : le goal EXPLICITE du feuillet, jamais le défaut
+   * projet (projectWordGoalDefault). Absent, vide ou non numérique → vide,
+   * donc TOUJOURS trié en dernier, dans les deux directions. 0 explicitement
+   * défini est une vraie valeur numérique (>= 0, jamais « vide »). */
+  private outlineGoalSortValue(file: TFile): string | number {
+    const raw = this.fm(file).goal;
+    if (raw === undefined || raw === null || raw === "") return "";
+    if (typeof raw !== "number" && typeof raw !== "string") return "";
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : "";
+  }
+
+  /** Règle unique des valeurs vides : renseignées d'abord, vides à la fin —
+   * dans les DEUX directions. Les vides ne remontent jamais en tête quand la
+   * direction change. Pour un nombre, seules les valeurs absentes (null/
+   * undefined) comptent comme vides. */
+  private compareOutlineValues(a: TFile, b: TFile, colId: string, dir: "asc" | "desc"): number {
+    const va = this.outlineSortValue(a, colId);
+    const vb = this.outlineSortValue(b, colId);
+    const aEmpty = va === "" || va === null || va === undefined;
+    const bEmpty = vb === "" || vb === null || vb === undefined;
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+    if (typeof va === "number" && typeof vb === "number") {
+      return dir === "asc" ? va - vb : vb - va;
+    }
+    const cmp = String(va).localeCompare(String(vb), "fr");
+    return dir === "asc" ? cmp : -cmp;
+  }
+
+  /* Collecte récursive de TOUS les feuillets du périmètre Plan, dans l'ordre
+     Binder réel de parcours (getOrderedChildren à chaque niveau, frontmatter
+     exclu). Chaque entrée garde son parent, son indice réel dans CE parent,
+     ses siblings Binder réels et un indice plat global — le tiebreak stable du
+     tri. Ne mute JAMAIS les tableaux retournés par le plugin (le .filter crée
+     un nouveau tableau). */
+  private collectOutlineFiles(root: TFolder): OutlineFileEntry[] {
+    const out: OutlineFileEntry[] = [];
+    const walk = (folder: TFolder, flat: { n: number }) => {
+      const children = this.plugin.getOrderedChildren(folder).filter((c: ProjectNode) => !this.plugin.isFrontMatter(c));
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (child instanceof TFolder) {
+          walk(child, flat);
+        } else {
+          out.push({ file: child, parentFolder: folder, binderIndex: i, siblings: children, binderFlatIndex: flat.n });
+          flat.n++;
+        }
+      }
+    };
+    walk(root, { n: 0 });
+    return out;
+  }
+
+  /* Cible d'un clic droit située dans un champ textuel éditable (input,
+     textarea, select, contenteditable) ? Si oui, le menu contextuel de ligne
+     Feuillets ne doit PAS s'ouvrir : on laisse le navigateur/Obsidian gérer
+     le menu natif du champ. Vérifiée AVANT tout preventDefault. */
+  private isEditableContextTarget(e: MouseEvent): boolean {
+    const t = e.target as
+      | { tagName?: unknown; tag?: unknown; isContentEditable?: boolean; getAttribute?: (n: string) => string | null; closest?: (s: string) => unknown }
+      | null;
+    if (!t) return false;
+    const tag = typeof t.tagName === "string" ? t.tagName.toLowerCase() : typeof t.tag === "string" ? t.tag.toLowerCase() : "";
+    if (tag === "input" || tag === "textarea" || tag === "select") return true;
+    if (t.isContentEditable) return true;
+    if (typeof t.getAttribute === "function" && (t.getAttribute("contenteditable") === "true" || t.getAttribute("contenteditable") === "")) return true;
+    if (typeof t.closest === "function" && t.closest("input, textarea, select, [contenteditable]")) return true;
+    return false;
+  }
+
   async renderOutline(container: HTMLElement, root: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void, gen: number): Promise<void> {
     const outline = container.createDiv({
       cls: "feuillets-outline" + (this.plugin.settings.outlineWrapLongText ? " feuillets-outline-wrap" : ""),
@@ -2396,9 +2637,48 @@ export class BoardView extends BaseFeuilletsView {
 
     for (const c of cols) {
       const cell = head.createDiv({ cls: "feuillets-col-head-cell" });
+      /* En-tête = commande de tri (§9-10) : le nom de colonne lui-même est
+         cliquable, cycle asc → desc → ordre Binder. Un chevron discret dans
+         la colonne active (↑/↓), aucune flèche à l'ordre Binder. La poignée
+         de redimensionnement (.feuillets-col-resizer) reste hors de la
+         commande de tri — un glissement de largeur ne déclenche pas de tri. */
+      cell.addClass("feuillets-col-sortable");
       cell.createSpan({ text: c.label });
+      const indicator = cell.createSpan({ cls: "feuillets-sort-indicator" });
+      if (this.outlineSortColumn === c.id && this.outlineSortDirection) {
+        indicator.setText(this.outlineSortDirection === "asc" ? "↑" : "↓");
+      }
+      cell.addEventListener("click", (e) => {
+        if ((e.target as HTMLElement)?.hasClass?.("feuillets-col-resizer")) return;
+        this.cycleOutlineSort(c.id);
+      });
       const resizer = cell.createDiv({ cls: "feuillets-col-resizer" });
       this.attachColumnResize(resizer, c.id, outline);
+    }
+
+    /* §8-13 : quand un tri session-only est actif, le Plan devient une liste
+       VISUELLE PLATE de tous les feuillets du périmètre, comparés ensemble
+       (tri GLOBAL, jamais intra-dossier) — aucun dossier rendu comme ligne
+       structurelle, aucune indentation héritée, drag désactivé. Chaque
+       feuillet conserve son contexte Binder réel (parent, indice, siblings)
+       pour le menu/multi-sélection/actions structurelles. À valeur égale,
+       l'ordre Binder global (binderFlatIndex) tranche. Au 3e clic (retour
+       Binder), la hiérarchie complète réapparaît exactement telle qu'elle
+       était — collapsed compris — sans aucune écriture d'ordre. */
+    if (this.outlineSortActive()) {
+      const colId = this.outlineSortColumn!;
+      const dir = this.outlineSortDirection!;
+      const sorted = this.collectOutlineFiles(root)
+        .filter((en) => this.passesFilter(en.file))
+        .sort((x, y) => {
+          const cmp = this.compareOutlineValues(x.file, y.file, colId, dir);
+          return cmp !== 0 ? cmp : x.binderFlatIndex - y.binderFlatIndex;
+        });
+      for (const en of sorted) {
+        if (this._renderGen !== gen) return;
+        this.renderOutlineFileRow(outline, en.file, en.parentFolder, en.binderIndex, en.siblings, 0, bumpTotal, cols);
+      }
+      return;
     }
 
     const progress = { count: 0 };
@@ -2463,6 +2743,10 @@ export class BoardView extends BaseFeuilletsView {
   async renderOutlineLevel(table: HTMLElement, parentFolder: TFolder, depth: number, numbering: Map<string, string>, bumpTotal: (n?: number) => void, cols: { id: string; label: string }[], progress: { count: number }, gen: number): Promise<void> {
     const S = this.plugin.settings;
     const children = this.plugin.getOrderedChildren(parentFolder).filter((c: ProjectNode) => !this.plugin.isFrontMatter(c));
+    /* Ici l'ordre est TOUJOURS l'ordre Binder réel : le tri global est traité
+       en amont dans renderOutline (liste plate). Les dossiers restent donc
+       ancrés à leur emplacement Binder exact et le drag de réorganisation
+       est actif à chaque niveau. */
     for (let i = 0; i < children.length; i++) {
       if (this._renderGen !== gen) return;
       const child = children[i];
@@ -2485,6 +2769,16 @@ export class BoardView extends BaseFeuilletsView {
             void this.render(true);
           })();
         });
+        /* Menu contextuel partagé du dossier (Nouveau → Nouveau feuillet ici /
+           Nouveau sous-dossier, renommage, note de dossier, …) — le MÊME menu
+           que Cartes/Binder. `i`/`children` = indice et siblings Binder réels.
+           La garde éditeur s'applique aussi ici : jamais de menu Feuillets
+           sur un clic droit dans un champ textuel. */
+        row.addEventListener("contextmenu", (e) => {
+          if (this.isEditableContextTarget(e)) return;
+          e.preventDefault();
+          this.showFolderContextMenu(e, child, parentFolder, i, children);
+        });
         /* Sans ça, une ligne de dossier n'avait aucun écouteur de
            glisser-déposer (seules les scènes en avaient, plus bas) : les
            dossiers étaient donc impossibles à réorganiser dans la vue
@@ -2498,46 +2792,95 @@ export class BoardView extends BaseFeuilletsView {
       }
 
       if (!this.passesFilter(child)) continue;
-      const row = table.createDiv({ cls: "feuillets-row feuillets-row-scene" });
-      row.setAttr("data-path", child.path);
-      if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(child.path)) {
-        row.addClass("feuillets-multiselected");
-      }
-
-      const handle = row.createDiv({ cls: "feuillets-col-handle", text: "⋮⋮" });
-      this.attachDragHandlers(handle, row, parentFolder, i, children, table);
-      const titleCell = row.createDiv({ cls: "feuillets-cell feuillets-cell-title" });
-      titleCell.style.paddingLeft = `${depth * 16}px`;
-      titleCell.createSpan({ cls: "feuillets-title-text", text: this.plugin.shortTitleFor(child) }).addEventListener("click", (e) => {
-        if (this.handleMultiSelectClick(e, child, parentFolder, i, children, table)) return;
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), child);
-      });
-
-      const wc = this.wcMap!.get(child.path) || 0;
-      bumpTotal(wc);
-
-      this.emptyCells(row, cols, {
-        /* §2-3 LOT 4 : dans le Plan, une cellule Synopsis ou pov vide affiche
-           « — » (même grammaire que la date vide), pas un placeholder texte.
-           Le « — » reste cliquable et ouvre le vrai textarea vide. */
-        synopsis: (cell) => this.makeClickToEditFmArea(cell, child, "synopsis", "—", 1),
-        pov: (cell) => this.makeClickToEditFmArea(cell, child, "pov", "—", 1),
-        summary: (cell) => this.makeClickToEditFmArea(cell, child, "summary", t("board.card.summaryPlaceholder"), 1),
-        notes: (cell) => this.makeClickToEditFmArea(cell, child, "notes", t("board.outline.notesPlaceholder"), 1),
-        tags: (cell) => this.makeTagsEditor(cell, child),
-        label: (cell) => this.makeLabelSelect(cell, child),
-        status: (cell) => this.makeStatusSelect(cell, child),
-        date: (cell) => this.makeClickToEditFmArea(cell, child, "date", "—", 1),
-        compile: (cell) => cell.setText(this.fm(child).compile !== false ? t("shared.yes") : t("shared.no")),
-        filename: (cell) => cell.setText(child.basename),
-        words: (cell) => cell.setText(String(wc)),
-        goal: (cell) => cell.setText(String(this.goalFor(child))),
-        progress: (cell) => {
-          const ring = cell.createDiv({ cls: "feuillets-ring" });
-          this.fillRing(ring, wc, this.goalFor(child));
-        }
-      });
+      this.renderOutlineFileRow(table, child, parentFolder, i, children, depth, bumpTotal, cols);
     }
+  }
+
+  /* Ligne feuillet du Plan — partagée entre le rendu hiérarchique (ordre
+     Binder) et la liste plate du tri global. `binderIndex`/`siblings` sont
+     TOUJOURS les valeurs Binder réelles, jamais la position visuelle triée.
+     Le drag de réorganisation n'est branché que hors tri (pendant un tri,
+     l'ordre affiché n'est plus l'ordre Binder : aucune écriture d'ordre
+     possible). */
+  private renderOutlineFileRow(table: HTMLElement, file: TFile, parentFolder: TFolder, binderIndex: number, siblings: ProjectNode[], depth: number, bumpTotal: (n?: number) => void, cols: { id: string; label: string }[]): void {
+    const row = table.createDiv({ cls: "feuillets-row feuillets-row-scene" });
+    row.setAttr("data-path", file.path);
+    if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(file.path)) {
+      row.addClass("feuillets-multiselected");
+    }
+    /* Menu contextuel partagé du feuillet (même menu que Cartes/Binder) —
+       jamais un menu parallèle. Un clic droit DANS un champ textuel éditable
+       (input/textarea/select/contenteditable) n'ouvre pas le menu de ligne :
+       le navigateur/Obsidian garde le menu natif du champ. La garde précède
+       tout preventDefault. `binderIndex`/`siblings` restent Binder réels,
+       même en tri global. */
+    row.addEventListener("contextmenu", (e) => {
+      if (this.isEditableContextTarget(e)) return;
+      e.preventDefault();
+      this.showFileContextMenu(e, file, parentFolder, binderIndex, siblings);
+    });
+
+    const handle = row.createDiv({ cls: "feuillets-col-handle", text: "⋮⋮" });
+    if (!this.outlineSortActive()) this.attachDragHandlers(handle, row, parentFolder, binderIndex, siblings, table);
+    const titleCell = row.createDiv({ cls: "feuillets-cell feuillets-cell-title" });
+    titleCell.style.paddingLeft = `${depth * 16}px`;
+    /* §17-18 : le titre affiché reste shortTitleFor (distinction intacte).
+       Un clic ouvre le feuillet (légère temporisation pour distinguer le
+       double-clic) ; un double-clic édite le short_title inline (jamais le
+       nom physique du fichier). */
+    const titleSpan = titleCell.createSpan({ cls: "feuillets-title-text", text: this.plugin.shortTitleFor(file) });
+    let singleClickTimer: number | ReturnType<typeof setTimeout> | null = null;
+    titleSpan.addEventListener("click", (e) => {
+      if (this.handleMultiSelectClick(e, file, parentFolder, binderIndex, siblings, table)) return;
+      if (singleClickTimer) window.clearTimeout(singleClickTimer);
+      singleClickTimer = window.setTimeout(() => {
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+      }, this.outlineDblClickDelayMs);
+    });
+    titleSpan.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (singleClickTimer) {
+        window.clearTimeout(singleClickTimer);
+        singleClickTimer = null;
+      }
+      this.beginInlineShortTitleEdit(titleCell, titleSpan, file);
+    });
+
+    const wc = this.wcMap!.get(file.path) || 0;
+    bumpTotal(wc);
+
+    this.emptyCells(row, cols, {
+      /* §2-3 LOT 4 : dans le Plan, une cellule Synopsis ou pov vide affiche
+         « — » (même grammaire que la date vide), pas un placeholder texte.
+         Le « — » reste cliquable et ouvre le vrai textarea vide. */
+      synopsis: (cell) => this.makeClickToEditFmArea(cell, file, "synopsis", "—", 1),
+      pov: (cell) => this.makeClickToEditFmArea(cell, file, "pov", "—", 1),
+      /* Personnages + Fil du Plan : le MÊME mécanisme liste que le Chemin
+         de fer (makeClickToEditFmList) — saisie CSV, normalisation existante,
+         écriture vers la clé logique characters/thread (setFm, mappable),
+         ordre conservé, valeur vide affichée « — ». */
+      characters: (cell) => this.makeClickToEditFmList(cell, file, "characters", getPersonnagesList(this.fm(file)), () => this.render(true)),
+      thread: (cell) => this.makeClickToEditFmList(cell, file, "thread", getFilsList(this.fm(file)), () => this.render(true)),
+      summary: (cell) => this.makeClickToEditFmArea(cell, file, "summary", t("board.card.summaryPlaceholder"), 1),
+      notes: (cell) => this.makeClickToEditFmArea(cell, file, "notes", t("board.outline.notesPlaceholder"), 1),
+      tags: (cell) => this.makeTagsEditor(cell, file),
+      label: (cell) => this.makeLabelSelect(cell, file),
+      status: (cell) => this.makeStatusSelect(cell, file),
+      date: (cell) => this.makeClickToEditFmArea(cell, file, "date", "—", 1),
+      compile: (cell) => cell.setText(this.fm(file).compile !== false ? t("shared.yes") : t("shared.no")),
+      filename: (cell) => cell.setText(file.basename),
+      words: (cell) => cell.setText(String(wc)),
+      /* Objectif : le MÊME helper que les autres éditeurs d'objectif du
+         plugin (makeGoalInput) — input numérique min=0, placeholder =
+         objectif projet par défaut, lecture de fm.goal, écriture via
+         setFm(file, "goal", …). La cellule n'est plus un texte statique. */
+      goal: (cell) => this.makeGoalInput(cell, file),
+      progress: (cell) => {
+        const ring = cell.createDiv({ cls: "feuillets-ring" });
+        this.fillRing(ring, wc, this.goalFor(file));
+      }
+    });
   }
 
 }

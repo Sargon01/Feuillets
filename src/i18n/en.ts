@@ -340,6 +340,8 @@ export const en = {
   "board.col.words": "Words",
   "board.col.goal": "Goal",
   "board.col.progress": "Progress",
+  "board.col.characters": "Characters",
+  "board.col.thread": "Thread",
 
   "board.folderCard.doubleClickEnter": "Double-click to enter: {name}",
   "board.folderCard.clickToEnter": "Click to enter",

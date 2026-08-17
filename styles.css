@@ -1226,6 +1226,28 @@
   border-right-color: var(--interactive-accent);
 }
 
+/* En-têtes de colonnes triables du Plan : le nom de colonne est lui-même la
+   commande de tri (cycle asc → desc → ordre Binder). Le chevron discret
+   n'apparaît que dans la colonne active. */
+.feuillets-col-sortable {
+  cursor: pointer;
+}
+
+.feuillets-col-sortable:hover {
+  color: var(--text-normal);
+}
+
+.feuillets-sort-indicator {
+  margin-left: 4px;
+  font-size: 0.85em;
+  color: var(--interactive-accent);
+}
+
+/* L'éditeur inline .feuillets-inline-rename n'a PLUS d'apparence de box :
+   sa grammaire « texte éditable sans champ de formulaire » est définie dans
+   le bloc scopé .feuillets-board-container en fin de fichier (même règle que
+   .feuillets-flat-textarea et .feuillets-goal-input). */
+
 .feuillets-row-part {
   font-weight: var(--font-semibold, 600);
   border-bottom: 1px solid var(--background-modifier-border);
@@ -9455,4 +9477,82 @@ body.feuillets-text-width
    plus séparé à droite (§4) — toujours dans la même barre compacte. */
 .feuillets-lanes-axis-add {
   margin-left: var(--size-4-2);
+}
+
+/* ===== Plan — grammaire typographique homogène des lignes (micro-correctif) =====
+   Dans le Plan, toutes les cellules d'une ligne feuillet partagent le même
+   axe vertical, la même police héritée et la même hauteur minimale : le type
+   DOM d'une valeur (span, input, textarea, select) ne doit ni la faire
+   paraître plus haute/plus basse/plus grosse/plus petite, ni agrandir la
+   ligne. box-sizing: border-box partout. Strictement scopé au Plan
+   (.feuillets-outline et sa variante .feuillets-outline-wrap) : le Binder et
+   les autres vues conservent leur grammaire. Aucune hauteur fixe — la ligne
+   peut grandir naturellement (Synopsis/Résumé multi-ligne), les cellules
+   restent centrées par align-items: center. */
+.feuillets-outline .feuillets-cell,
+.feuillets-outline-wrap .feuillets-cell {
+  box-sizing: border-box;
+  align-items: center;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* Les valeurs « cliquer pour écrire » et le titre s'alignent comme de simples
+   valeurs de ligne : plus de sur-hauteur due au padding vertical, typographie
+   héritée de la cellule (uniforme avec Label/Date/Mots/Objectif). */
+.feuillets-outline .feuillets-cell .feuillets-flat-text-cell,
+.feuillets-outline-wrap .feuillets-cell .feuillets-flat-text-cell,
+.feuillets-outline .feuillets-cell .feuillets-title-text,
+.feuillets-outline-wrap .feuillets-cell .feuillets-title-text,
+.feuillets-outline .feuillets-cell-words,
+.feuillets-outline-wrap .feuillets-cell-words {
+  font-size: inherit;
+  line-height: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* ===== Édition inline SANS BOX dans les surfaces Feuillets (micro-correctif) =====
+   Règle produit : modifier un élément textuel inline (Plan, Cartes, Chemin
+   de fer/Trame, Chronologie) ne fait JAMAIS apparaître un champ de
+   formulaire. Au repos comme pendant l'édition, c'est une LIGNE DE TEXTE —
+   le caret suffit à signaler l'édition. Strictement scopé sous
+   .feuillets-board-container : aucun impact sur le Binder ni sur les
+   selects/badges (Label/Statut) qui ne constituent pas une édition textuelle
+   inline. Le bloc arrive APRÈS les règles .feuillets-outline input[...] /
+   .feuillets-board-container input[...] pour gagner à spécificité égale. */
+.feuillets-board-container input.feuillets-inline-rename,
+.feuillets-board-container textarea.feuillets-flat-textarea,
+.feuillets-board-container input.feuillets-goal-input {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+  outline: none;
+  min-height: 0;
+  height: auto;
+  resize: none;
+}
+
+.feuillets-board-container input.feuillets-inline-rename:focus,
+.feuillets-board-container textarea.feuillets-flat-textarea:focus,
+.feuillets-board-container input.feuillets-goal-input:focus {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+/* Le titre renommable remplit sa cellule pendant l'édition (même gabarit
+   flex que le texte du titre .feuillets-title-text). */
+.feuillets-board-container input.feuillets-inline-rename {
+  flex: 1;
+  min-width: 0;
 }

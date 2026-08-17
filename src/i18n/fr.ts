@@ -340,6 +340,8 @@ export const fr = {
   "board.col.words": "Mots",
   "board.col.goal": "Objectif",
   "board.col.progress": "Progression",
+  "board.col.characters": "Personnages",
+  "board.col.thread": "Fil",
 
   "board.folderCard.doubleClickEnter": "Double-cliquer pour entrer dans : {name}",
   "board.folderCard.clickToEnter": "Cliquer pour entrer",
