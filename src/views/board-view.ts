@@ -1772,7 +1772,7 @@ export class BoardView extends BaseFeuilletsView {
         tags: (cell) => this.makeTagsEditor(cell, child),
         label: (cell) => this.makeLabelSelect(cell, child),
         status: (cell) => this.makeStatusSelect(cell, child),
-        date: (cell) => cell.setText(String(this.fm(child).date || "—")),
+        date: (cell) => this.makeClickToEditFmArea(cell, child, "date", "—", 1),
         compile: (cell) => cell.setText(this.fm(child).compile !== false ? t("shared.yes") : t("shared.no")),
         filename: (cell) => cell.setText(child.basename),
         words: (cell) => cell.setText(String(wc)),

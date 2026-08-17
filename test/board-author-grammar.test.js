@@ -363,6 +363,35 @@ test("Plan — édition inline du POV (cellule pov, placeholder POV…)", async 
   assert.equal(editArea.text, "Camille");
 });
 
+test("Plan — édition inline de la date (cellule date, placeholder —)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { date: "1789-07-14" };
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, pov: false, label: false, status: false, tags: false, date: true, words: false, goal: false };
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+
+  const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-date"));
+  assert.ok(cell, "cellule date attendue");
+  const editArea = findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(editArea.text, "1789-07-14");
+});
+
+test("Plan — date vide : placeholder « — »", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildOutlineHarness({ children: [file] });
+  view.outlineColumns = { synopsis: false, pov: false, label: false, status: false, tags: false, date: true, words: false, goal: false };
+
+  const table = new FakeElement();
+  await view.renderOutlineLevel(table, root, 0, new Map(), () => {}, view.visibleCols(), { count: 0 }, 1);
+
+  const cell = findFirst(table, (el) => el.classes.has("feuillets-cell-date"));
+  const editArea = findFirst(cell, (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(editArea.text, "—");
+});
+
 test("Plan — POV vide : placeholder « POV… »", async () => {
   const file = new TFile("Projet/Manuscrit/Scène.md");
   file.__fm = {};
