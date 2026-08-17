@@ -402,15 +402,46 @@ function makeView(pluginExtras = {}, appExtras = {}) {
   return { view, container, plugin, app };
 }
 
-test("panneau : sans module compagnon, les vérifications natives restent utilisables", async () => {
+test("panneau : sans module compagnon, aucun résultat ni répétition native", async () => {
   const { view, container } = makeView();
   await view.render();
 
   const text = allText(container);
   assert.match(text, /Aucun signalement/);
   assert.doesNotMatch(text, /Aucun module d'analyse linguistique/);
+  // Les répétitions rapprochées appartiennent désormais à Statistiques : le
+  // panneau Correcteur n'en calcule plus aucune.
+  assert.doesNotMatch(text, /Répétitions rapprochées/);
+  assert.doesNotMatch(text, /Analyse linguistique/);
   // Pas de faux résultat, pas de barre d'outils inutile.
   assert.equal(allElements(container).some((e) => e.tag === "button"), false);
+});
+
+test("panneau : le titre principal est Correcteur et affiche le nom du fournisseur", async () => {
+  const provider = { id: "grammalecte", name: "Grammalecte", analyze: () => Promise.resolve([]) };
+  const { view, container } = makeView({ getAnalysisProvider: () => provider });
+  await view.render();
+
+  const text = allText(container);
+  assert.match(text, /Correcteur/, "le titre « Analyse linguistique » devient Correcteur");
+  assert.match(text, /Grammalecte/, "provider.name affiché dans le badge");
+  assert.doesNotMatch(text, /Analyse linguistique/);
+  assert.doesNotMatch(text, /Répétitions rapprochées/);
+});
+
+test("panneau : le bouton Refresh relance l'analyse du feuillet actif", async () => {
+  const provider = { id: "grammalecte", name: "Grammalecte", analyze: () => Promise.resolve([]) };
+  let reanalyzed = false;
+  const { view, container } = makeView({
+    getAnalysisProvider: () => provider,
+    analyzeActiveFile: () => { reanalyzed = true; return Promise.resolve(); },
+  });
+  await view.render();
+
+  const refreshBtn = allElements(container).find((e) => e.icon === "refresh-cw");
+  assert.ok(refreshBtn, "bouton Refresh présent dans la barre d'outils");
+  await refreshBtn.events.get("click")();
+  assert.equal(reanalyzed, true, "le clic relance l'analyse du feuillet actif");
 });
 
 test("panneau : avec fournisseur mais sans analyse lancée, invite à lancer l'analyse", async () => {

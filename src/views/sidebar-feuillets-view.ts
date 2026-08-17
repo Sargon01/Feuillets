@@ -277,15 +277,19 @@ export class SidebarFeuilletsView extends ItemView {
      avec la barre Retour déjà utilisée par Relecture/Édition
      (renderBackBar). Aucune nouvelle ItemView, aucune nouvelle modale. */
   async renderProjectTab(element: HTMLElement): Promise<void> {
+    // Même grammaire structurelle que le panneau Feuillet (NotesView) : un
+    // unique conteneur intérieur `.feuillets-notes-container` porte HOME et
+    // sous-pages, pour bénéficier du même retrait horizontal.
+    const wrapper = element.createDiv({ cls: "feuillets-notes-container" });
     if (this.projectPage !== "home") {
-      this.renderProjectBackBar(element);
+      this.renderProjectBackBar(wrapper);
       // §21 : cloisonnement CSS — toute règle Projet ajoutée par ce chantier
       // vit STRICTEMENT sous cette racine (voir styles.css).
-      const content = element.createDiv({ cls: "feuillets-sidebar-project" });
+      const content = wrapper.createDiv({ cls: "feuillets-sidebar-project" });
       this.renderProjectSubPage(this.projectPage, content);
       return;
     }
-    this.renderProjectHome(element);
+    this.renderProjectHome(wrapper);
   }
 
   private renderProjectBackBar(element: HTMLElement): void {
@@ -914,19 +918,22 @@ export class SidebarFeuilletsView extends ItemView {
      nulle part ailleurs qu'au clic sur Retour) mais repart de "home" à
      chaque rechargement du plugin, sauf compat legacy (voir constructeur). */
   async renderProofreadingTab(element: HTMLElement): Promise<void> {
+    // Même grammaire structurelle que le panneau Feuillet (NotesView) : un
+    // unique conteneur intérieur `.feuillets-notes-container` porte HOME,
+    // barre Retour et sous-vues — jamais une double couche.
+    const wrapper = element.createDiv({ cls: "feuillets-notes-container" });
     if (this.relecturePage === "home") {
-      this.renderRelectureHome(element);
+      this.renderRelectureHome(wrapper);
       return;
     }
-    // La barre Retour vit dans `element` (le conteneur de page), JAMAIS
-    // dans le conteneur passé en targetContainer à la sous-vue : Text
-    // AnalysisView/DocxReviewView vident intégralement LEUR conteneur au
-    // début de leur propre render() (container.empty()) — si la barre y
-    // habitait, ce vidage l'effacerait à chaque rendu. Un second conteneur
-    // dédié, enfant de `element` mais frère de la barre, encaisse ce
-    // vidage sans jamais l'emporter avec lui.
-    this.renderRelectureBackBar(element);
-    const content = element.createDiv();
+    // La barre Retour vit dans le wrapper, JAMAIS dans le conteneur passé en
+    // targetContainer à la sous-vue : TextAnalysisView/DocxReviewView vident
+    // intégralement LEUR conteneur au début de leur propre render()
+    // (container.empty()) — si la barre y habitait, ce vidage l'effacerait à
+    // chaque rendu. Un second conteneur dédié, enfant du wrapper mais frère
+    // de la barre, encaisse ce vidage sans jamais l'emporter avec lui.
+    this.renderRelectureBackBar(wrapper);
+    const content = wrapper.createDiv();
     const subView = this.relecturePage === "docx" ? this.subViews.docx : this.relecturePage === "native" ? this.subViews.nativeReview : this.subViews.relecture;
     await this.renderSubView(subView, content);
   }
@@ -965,11 +972,16 @@ export class SidebarFeuilletsView extends ItemView {
       t("relecture.home.native.title"), t("relecture.home.native.sub"),
       () => { this.relecturePage = "native"; void this.render(); }
     );
-    this.renderHomeRow(
-      element, "spell-check",
-      t("relecture.home.analysis.title"), t("relecture.home.analysis.sub"),
-      () => { this.relecturePage = "analysis"; void this.render(); }
-    );
+    // Le Correcteur n'apparaît que si un fournisseur d'analyse est vraiment
+    // disponible : getAnalysisProvider() est l'unique source de vérité, jamais
+    // une détection par ID de greffon.
+    if (this.plugin.getAnalysisProvider()) {
+      this.renderHomeRow(
+        element, "spell-check",
+        t("relecture.home.analysis.title"), t("relecture.home.analysis.sub"),
+        () => { this.relecturePage = "analysis"; void this.render(); }
+      );
+    }
     this.renderHomeRow(
       element, "file-check",
       t("relecture.home.docx.title"), t("relecture.home.docx.sub"),

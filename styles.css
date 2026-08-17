@@ -1587,7 +1587,9 @@ body:not(.feuillets-indent) .feuillets-indent-widget {
 
 .feuillets-notes-sub {
   font-size: var(--font-ui-smaller);
-  font-family: var(--font-monospace);
+  /* Police UI normale : les sous-titres (accueil Projet/Relecture) ne
+     doivent pas apparaître en monospace, contrairement à avant. */
+  font-family: var(--font-interface);
   color: var(--text-faint);
   margin-bottom: 10px;
 }

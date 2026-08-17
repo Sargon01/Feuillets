@@ -637,8 +637,8 @@ export const en = {
   "nativeReview.notice.sourceMissing": "The original sheet cannot be found.",
   "nativeReview.notice.openWorkingSelection": "Open the text of this review and select a passage.",
   "nativeReview.notice.selectPassage": "Select a passage to annotate.",
-  "relecture.home.analysis.title": "Text analysis",
-  "relecture.home.analysis.sub": "Repetitions and linguistic analysis",
+  "relecture.home.analysis.title": "Proofreader",
+  "relecture.home.analysis.sub": "Grammar and spelling",
   "relecture.home.docx.title": "DOCX review",
   "relecture.home.docx.sub": "Word feedback, corrections and comments",
   "relecture.home.diff.title": "Compare a version",
@@ -650,10 +650,8 @@ export const en = {
   "editionHub.backToHome": "Edition",
   "editionHub.openWorkspace": "Open the Editing workspace",
   "editionDocs.folderFiles": "Files in the Edition folder",
-  "analysisResults.repetitions": "Close repetitions",
-  "analysisResults.noRepetitions": "No close repetitions detected.",
+  "analysisResults.corrector": "Proofreader",
   "analysisResults.noFindings": "No findings",
-  "analysisResults.linguisticAnalysis": "Linguistic analysis",
 
 
   // ---------- Search & replace (search-replace-bar.js) ----------

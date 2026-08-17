@@ -61,7 +61,7 @@ function createSubView(name, calls) {
   };
 }
 
-function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels = [], { activeFile = null, projectFolder = null, projects = [], vaultFolders = null, projectFiles = [] } = {}) {
+function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels = [], { activeFile = null, projectFolder = null, projects = [], vaultFolders = null, projectFiles = [], getAnalysisProvider = {} } = {}) {
   const contentEl = new FakeElement();
   const listeners = { workspace: new Map(), vault: new Map() };
   const settings = new Proxy(
@@ -105,6 +105,10 @@ function createSidebar(activeRightPanelTab = "notes", order = [], hiddenPanels =
     renderAllViews() { order.push("renderAll"); },
     unitLabel() { return "mots"; },
     flattenFiles() { return projectFiles.map((f) => f.file); },
+    // Fournisseur d'analyse (Correcteur) : présent par défaut pour que
+    // l'accueil Relecture affiche l'entrée Correcteur ; passer
+    // `getAnalysisProvider: null` pour tester son absence.
+    getAnalysisProvider() { return getAnalysisProvider; },
   };
   const sidebar = new SidebarFeuilletsView({ app, contentEl }, plugin);
   const calls = [];
@@ -316,6 +320,36 @@ test("SidebarFeuilletsView : l'onglet Projet affiche le projet actif et son type
   const subs = allElements(container).filter((el) => el.classes.has("feuillets-notes-sub")).map((el) => el.text);
   assert.deepEqual(subs, ["Fiction · Halim Yalcin"]);
   assert.equal(allElements(container).some((el) => el.attrs.get("role") === "tablist"), false, "pas de tablist horizontale");
+});
+
+test("SidebarFeuilletsView : Projet crée un wrapper intérieur .feuillets-notes-container contenant HOME, sous-pages et barre Retour", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const { sidebar } = createSidebar("project", [], [], { projectFolder: root });
+
+  // HOME : la racine reçue ne porte que le wrapper, qui porte tout le contenu.
+  const homeContainer = new FakeElement();
+  await sidebar.renderProjectTab(homeContainer);
+  let wrappers = homeContainer.children.filter((el) => el.classes.has("feuillets-notes-container"));
+  assert.equal(wrappers.length, 1, "un seul wrapper intérieur");
+  assert.equal(homeContainer.children.length, 1, "aucun contenu Projet directement dans la racine reçue");
+  const homeTitles = allElements(wrappers[0])
+    .filter((el) => el.classes.has("feuillets-notes-section-title"))
+    .map((el) => el.text);
+  assert.ok(homeTitles.includes(`Projet ${root.path}`), "HOME Projet est dans le wrapper");
+
+  // Sous-page : barre Retour et contenu dans le même wrapper, rien à la racine.
+  sidebar.projectPage = "goals";
+  const subContainer = new FakeElement();
+  await sidebar.renderProjectTab(subContainer);
+  wrappers = subContainer.children.filter((el) => el.classes.has("feuillets-notes-container"));
+  assert.equal(wrappers.length, 1, "un seul wrapper pour la sous-page");
+  assert.equal(subContainer.children.length, 1, "aucun contenu de sous-page à la racine");
+  const backBar = allElements(wrappers[0]).find((el) => el.classes.has("feuillets-notes-back-bar"));
+  assert.ok(backBar, "barre Retour Projet dans le wrapper");
+  const subheads = allElements(wrappers[0])
+    .filter((el) => el.classes.has("feuillets-settings-subhead"))
+    .map((el) => el.text);
+  assert.ok(subheads.includes(t("sidebar.project.rowGoals")), "sous-page Objectifs rendue dans le wrapper");
 });
 
 test("SidebarFeuilletsView : ni EditionDocsView ni EditionLayoutView ne subsistent dans le panneau latéral", () => {
@@ -695,7 +729,7 @@ test("SidebarFeuilletsView retombe sur l'onglet Projet pour un onglet invalide s
   assert.deepEqual(calls.map((call) => call.name), [], "Gestion de projet ne monte aucune sous-vue");
 });
 
-test("SidebarFeuilletsView : l'accueil Relecture affiche la relecture collaborative, Analyse du texte et Révision DOCX sans rendre leurs sous-vues", async () => {
+test("SidebarFeuilletsView : l'accueil Relecture affiche la relecture collaborative, le Correcteur et Révision DOCX sans rendre leurs sous-vues", async () => {
   const { sidebar, contentEl, calls } = createSidebar("relecture");
   await sidebar.render();
 
@@ -722,7 +756,63 @@ test("SidebarFeuilletsView : l'accueil Relecture affiche la relecture collaborat
   assert.equal(allElements(content).some((el) => el.classes.has("feuillets-hub-card")), false);
 });
 
-test("SidebarFeuilletsView : cliquer sur Analyse du texte puis Révision DOCX ouvre chaque fois la sous-vue correspondante, seule", async () => {
+test("SidebarFeuilletsView : le Correcteur est visible sur HOME quand un provider est disponible", async () => {
+  const { sidebar, contentEl } = createSidebar("relecture", [], [], { getAnalysisProvider: { name: "Grammalecte" } });
+  await sidebar.render();
+  const content = contentEl.children[1];
+  const titles = allElements(content)
+    .filter((el) => el.classes.has("feuillets-notes-section-title"))
+    .map((el) => el.text);
+  assert.ok(titles.includes(t("relecture.home.analysis.title")), "Correcteur présent avec provider");
+  assert.equal(titles.includes("Analyse du texte"), false, "« Analyse du texte » a disparu");
+  const subs = allElements(content)
+    .filter((el) => el.classes.has("feuillets-notes-sub"))
+    .map((el) => el.text);
+  assert.ok(subs.includes(t("relecture.home.analysis.sub")), "sous-titre « Grammaire et orthographe »");
+});
+
+test("SidebarFeuilletsView : sans provider, l'entrée Correcteur disparaît de HOME", async () => {
+  const { sidebar, contentEl } = createSidebar("relecture", [], [], { getAnalysisProvider: null });
+  await sidebar.render();
+  const content = contentEl.children[1];
+  const titles = allElements(content)
+    .filter((el) => el.classes.has("feuillets-notes-section-title"))
+    .map((el) => el.text);
+  assert.equal(titles.includes(t("relecture.home.analysis.title")), false, "Correcteur absent sans provider");
+  // Les autres entrées restent.
+  assert.ok(titles.includes(t("relecture.home.native.title")), "Relecture collaborative conservée");
+  assert.ok(titles.includes(t("relecture.home.docx.title")), "Révision DOCX conservée");
+});
+
+test("SidebarFeuilletsView : Relecture crée un unique wrapper intérieur .feuillets-notes-container sans double couche", async () => {
+  const { sidebar, contentEl } = createSidebar("relecture");
+  await sidebar.render();
+  const content = contentEl.children[1]; // .feuillets-sidebar-content
+  const wrappers = allElements(content).filter((el) => el.classes.has("feuillets-notes-container"));
+  assert.equal(wrappers.length, 1, "un seul wrapper, jamais de double couche");
+
+  // HOME est dedans.
+  const homeSections = allElements(wrappers[0]).filter((el) => el.classes.has("feuillets-notes-section"));
+  assert.ok(homeSections.length >= 3, "les lignes HOME sont dans le wrapper");
+
+  // Aucun contenu principal directement dans la racine reçue.
+  assert.equal(content.children.length, 1, "la racine ne porte que le wrapper");
+});
+
+test("SidebarFeuilletsView : barre Retour et conteneurs des sous-vues Relecture vivent dans le wrapper", async () => {
+  const { sidebar, contentEl } = createSidebar("docx"); // legacy : ouvre Révision DOCX directement
+  await sidebar.render();
+  const content = contentEl.children[1];
+  const wrappers = allElements(content).filter((el) => el.classes.has("feuillets-notes-container"));
+  assert.equal(wrappers.length, 1, "un seul wrapper");
+  const backBar = allElements(wrappers[0]).find((el) => el.classes.has("feuillets-notes-back-bar"));
+  assert.ok(backBar, "barre Retour dans le wrapper");
+  const subTarget = sidebar.subViews.docx.targetContainer;
+  assert.ok(subTarget && allElements(wrappers[0]).includes(subTarget), "le conteneur de la sous-vue est dans le wrapper");
+  assert.equal(allElements(subTarget).includes(backBar), false, "la barre Retour n'est pas dans le conteneur de la sous-vue");
+});
+
+test("SidebarFeuilletsView : cliquer sur Correcteur puis Révision DOCX ouvre chaque fois la sous-vue correspondante, seule", async () => {
   const { sidebar, contentEl, calls } = createSidebar("relecture");
   await sidebar.render();
 

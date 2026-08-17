@@ -637,8 +637,8 @@ export const fr = {
   "nativeReview.notice.sourceMissing": "Le feuillet d’origine est introuvable.",
   "nativeReview.notice.openWorkingSelection": "Ouvrez le texte de cette relecture et sélectionnez un passage.",
   "nativeReview.notice.selectPassage": "Sélectionnez un passage à annoter.",
-  "relecture.home.analysis.title": "Analyse du texte",
-  "relecture.home.analysis.sub": "Répétitions et analyse linguistique",
+  "relecture.home.analysis.title": "Correcteur",
+  "relecture.home.analysis.sub": "Grammaire et orthographe",
   "relecture.home.docx.title": "Révision DOCX",
   "relecture.home.docx.sub": "Retours, corrections et commentaires Word",
   "relecture.home.diff.title": "Comparer une version",
@@ -651,10 +651,8 @@ export const fr = {
   "editionHub.backToHome": "Édition",
   "editionHub.openWorkspace": "Ouvrir l’espace Édition",
   "editionDocs.folderFiles": "Fichiers du dossier Édition",
-  "analysisResults.repetitions": "Répétitions rapprochées",
-  "analysisResults.noRepetitions": "Aucune répétition rapprochée détectée.",
+  "analysisResults.corrector": "Correcteur",
   "analysisResults.noFindings": "Aucun signalement",
-  "analysisResults.linguisticAnalysis": "Analyse linguistique",
 
 
   // ---------- Recherche & remplacement (search-replace-bar.js) ----------
