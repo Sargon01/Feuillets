@@ -9136,3 +9136,323 @@ body.feuillets-text-width
   margin-left: auto;
   margin-right: auto;
 }
+
+/* ===================== LOT 5C — COULOIRS (lanes) =====================
+   Représentation narrative façon Scrivener : couloirs horizontaux, axe
+   horizontal = ordre narratif réel (une position fixe par feuillet), axe
+   vertical = lignes du registre courant (Label / Personnage / Fil / Pov).
+   Architecture à DEUX niveaux géométriquement séparés (§6/§11) :
+
+     .feuillets-lanes-area
+     ├── .feuillets-lanes-gutter   (noms de lignes, FIXE, hors du scroll)
+     └── .feuillets-lanes-scroll   (UNIQUE scroll horizontal, §8)
+         └── .feuillets-lanes      (canevas narratif, width: max-content)
+             └── .feuillets-lanes-row → .feuillets-lanes-track
+                 ├── .feuillets-lane-line   (bande 4px continue, colorée)
+                 └── .feuillets-lanes-slot × N (empreinte de carte invisible)
+
+   Le gutter n'est PLUS un sticky opaque superposé au canevas : il est
+   géométriquement séparé, donc il ne masque jamais la bande ni les cartes
+   au scroll (aucun « trou blanc », §10/§12). La barre d'axe (feuillets-arcs-
+   filter-bar + modificateur feuillets-lanes-axis-bar) vit HORS de cette zone,
+   au niveau de la vue, et ne défile jamais horizontalement. Chaque couloir
+   porte une VRAIE BANDE .feuillets-lane-line continue (4px, arrondie) au
+   centre, COLORÉE par axe (couleur posée inline via --feuillets-lane-color,
+   repli natif discret) ; les cartes COMPACTES RECTANGULAIRES (190 × 110, fond
+   totalement opaque + ombre native légère) flottent DEVANT la bande (z-index
+   1 > 0). Les emplacements narratifs vides sont des slots de géométrie
+   INVISIBLE (aucun cadre, aucun fond : seules les cartes réelles peuvent
+   masquer la bande) qui conservent l'empreinte d'une carte (208px : carte +
+   gap, --feuillets-lane-slot-w) pour que l'index narratif i reste en colonne
+   i. Le défilement vertical reste celui de .feuillets-board-scroll ; la
+   seule scrollbar HORIZONTALE est celle du canevas. Grammaire Obsidian/
+   Feuillets native : variables natives uniquement, aucun !important. */
+
+/* Zone de couloirs : les variables de géométrie des cartes/slots vivent ICI
+   (ancêtre commun du gutter et du canevas) pour que le gutter calcule la
+   hauteur de ligne sur les MÊMES valeurs que le canevas. */
+.feuillets-lanes-area {
+  --feuillets-lane-card-w: 190px;
+  --feuillets-lane-card-h: 110px;
+  --feuillets-lane-slot-w: 208px;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+/* Gutter fixe des noms de lignes : colonne de libellés, HORS de la largeur
+   narrative défilante. Chaque libellé a exactement la hauteur d'une piste
+   (carte + padding vertical de la piste) et la même gap que le canevas :
+   les deux colonnes restent index-alignées ligne à ligne (§7/§19). Le gutter
+   ne défile JAMAIS horizontalement. */
+.feuillets-lanes-gutter {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-4);
+  padding-bottom: var(--size-4-8);
+  width: 172px;
+}
+
+.feuillets-lanes-gutter-label {
+  display: flex;
+  align-items: center;
+  height: calc(var(--feuillets-lane-card-h) + 2 * var(--size-4-2));
+  box-sizing: border-box;
+  padding-right: var(--size-4-3);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Canevas narratif horizontal scrollable : le SEUL élément qui défile en X
+   (§8). Sa largeur dépend du nombre total de positions narratives ; toutes
+   les pistes partagent le même repère X. Le défilement vertical, lui, reste
+   celui de .feuillets-board-scroll — une seule scrollbar horizontale. */
+.feuillets-lanes-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Modificateur Couloirs du scroll VERTICAL (.feuillets-board-scroll) : le
+   seul élément qui défile en X est .feuillets-lanes-scroll, donc ce scroll
+   vertical cache son propre overflow-x pour garantir QU'UNE SEULE scrollbar
+   horizontale réelle. La règle générale .feuillets-board-scroll (les autres
+   modes) reste inchangée. */
+.feuillets-lanes-vertical-scroll {
+  overflow-x: hidden;
+}
+
+.feuillets-lanes {
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 100%;
+  gap: var(--size-4-4);
+  padding-bottom: var(--size-4-8);
+}
+
+.feuillets-lanes-row {
+  display: flex;
+  align-items: center;
+  /* Le PROPRIÉTAIRE de la largeur narrative : la rangée s'étend sur toute la
+     largeur du canevas (.feuillets-lanes, min-width: 100%). C'est elle qui
+     étire le track — et donc la bande — jusqu'au bord droit même quand la
+     largeur intrinsèque des slots est inférieure à la largeur visible. */
+  width: 100%;
+}
+
+/* Piste horizontale d'un couloir : autant de slots que de feuillets. La
+   bande narrative passe au CENTRE (top: 50%), derrière les cartes.
+   Contrat de largeur (lot 5C, défaut de bande courte) : width: 100% étire
+   le track sur toute la largeur de la rangée (bande jusqu'au bord droit
+   d'un manuscrit court) ; min-width: max-content lui permet de dépasser
+   sur toute la largeur de ses slots (manuscrit long → scroll horizontal
+   normal). Sans cette paire, .feuillets-lane-line (left:0/right:0) ne
+   remplit que SON track — pas le canevas. */
+.feuillets-lanes-track {
+  position: relative;
+  display: flex;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) 0;
+  width: 100%;
+  min-width: max-content;
+}
+
+/* VRAI nœud de bande, continu (nœud .feuillets-lane-line posé par le rendu,
+   pas un pseudo-élément) : 4px, arrondi, coloré par axe via la propriété
+   inline --feuillets-lane-color (labelColor / filColor / povLaneColor posées
+   en JS), repli natif discret pour les lignes « Sans … » et les labels sans
+   couleur configurée. Pendant un survol de drop, la bande prend un accent
+   discret (§9) ; les slots, eux, ne sont JAMAIS révélés. */
+.feuillets-lane-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 0;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background: var(--feuillets-lane-color, var(--background-modifier-border));
+  pointer-events: none;
+}
+
+/* Accent discret pendant le survol d'un drop : la bande de la piste et le
+   libellé du gutter (deux nœuds jumeaux de la ligne) passent en couleur
+   d'accent (la couleur inline de la bande est surchargée par cet accent
+   direct), jamais de révélateur de slots/cellules. */
+.feuillets-lanes-row.feuillets-lanes-dragover .feuillets-lane-line,
+.feuillets-lanes-gutter-label.feuillets-lanes-dragover {
+  background: var(--interactive-accent);
+  color: var(--interactive-accent);
+}
+
+/* Position narrative vide : TOTALEMENT INVISIBLE (aucun cadre, aucun fond)
+   mais conserve l'empreinte d'une carte (largeur + hauteur) pour que l'index
+   narratif i reste en colonne i et que la bande reste continue sur toute la
+   largeur. La largeur du slot est la carte (190px) + un gap (208px) : la
+   colonne narrative reste parfaitement alignée sur les cartes voisines. */
+.feuillets-lanes-slot {
+  flex: 0 0 var(--feuillets-lane-slot-w);
+  height: var(--feuillets-lane-card-h);
+}
+
+/* Carte Couloir : petite fiche PREMIUM, RECTANGULAIRE (largeur > hauteur),
+   totalement OPAQUE, posée DEVANT la bande (position relative + z-index 1) —
+   la bande ne traverse jamais visuellement la carte. Relief subtil via une
+   ombre native légère. */
+.feuillets-lanes-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  width: var(--feuillets-lane-card-w);
+  height: var(--feuillets-lane-card-h);
+  box-sizing: border-box;
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+  cursor: grab;
+  overflow: hidden;
+}
+
+/* La carte reste TOTALEMENT OPAQUE pendant le drag (la bande passe dessous) —
+   aucun voile, aucune transparence (§9) — et se soulève légèrement. */
+.feuillets-lanes-card.feuillets-dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-l);
+}
+
+/* En-tête de carte : numéro narratif + titre sur la MÊME ligne (§10), le
+   numéro avant le titre. */
+.feuillets-lanes-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-1);
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.feuillets-lanes-card-num {
+  flex-shrink: 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Titre sur la même ligne que le numéro : une ligne, tronqué par ellipse si
+   trop long (la synopsis prend la place restante en dessous). */
+.feuillets-lanes-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  color: var(--text-normal);
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+/* Synopsis/résumé discret : EXACTEMENT 3 lignes visuelles maximum, borné par
+   line-height × 3 (PAS de -webkit-line-clamp, §10). Absent → aucun espace
+   réservé (le nœud n'existe pas dans le DOM). */
+.feuillets-lanes-card-synopsis {
+  flex: 1;
+  min-height: 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.4;
+  max-height: calc(1.4em * 3);
+  overflow: hidden;
+}
+
+/* ============ Barre de PILOTAGE narrative (arcs) ============
+   Barre dédiée, distincte du contenu manuscrit, CENTRÉE horizontalement :
+   un SEUL sélecteur compact de sous-vue (icône + libellé de la sous-vue
+   COURANTE + chevron) qui ouvre un Menu Obsidian natif (Trame / Couloirs /
+   Grille, Grille visible mais désactivée, entrée courante cochée). Plus
+   AUCUN sélecteur d'axe ici : la barre d'axe des Couloirs vit dans le
+   contenu de la sous-vue et réutilise la grammaire des filtres Trame
+   (feuillets-arcs-filter-bar / feuillets-arcs-filter-btn). Même grammaire
+   sobre que les boutons de mode — variables natives, aucune couleur codée,
+   aucun !important, aucun onglet décoratif. */
+
+.feuillets-narrative-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+  flex-shrink: 0;
+  padding: var(--size-4-2) var(--size-4-6) var(--size-4-3);
+}
+
+/* Sélecteur compact de sous-vue : icône + libellé de la sous-vue courante +
+   chevron discret, pilule discrète au survol. Le chevron signale l'existence
+   du Menu Obsidian natif ; l'entrée courante y est cochée (setChecked). */
+.feuillets-narrative-subview-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.feuillets-narrative-subview-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-narrative-btn-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.feuillets-narrative-btn-chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+/* Axe Couloirs actif dans la barre d'axe (même grammaire que les filtres
+   Trame, feuillets-arcs-filter-btn) : fond discret + texte affirmé, via la
+   classe dédiée feuillets-lanes-axis-active — PAS is-active (réservé aux
+   filtres Trame, dont la couleur accent est portée par la barre partagée). */
+.feuillets-lanes-axis-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* Barre d'axe Couloirs : MÊME classe de base que la barre de filtres Trame
+   (feuillets-arcs-filter-bar, grammaire graphique partagée) + modificateur
+   Couloirs — largeur INTRINSÈQUE (fit-content), contenu CENTRÉ, PAS de
+   space-between, pas d'étalement à 1000px : la barre reprend réellement la
+   compacité Trame (§4/§18). Construite hors du scroll horizontal (niveau
+   vue) : elle ne part jamais avec le canevas. Sur petit panneau, wrapping
+   propre en dernier recours, jamais de scroll horizontal sur la toolbar
+   (§16). */
+.feuillets-lanes-axis-bar {
+  width: fit-content;
+  max-width: none;
+  justify-content: center;
+  gap: var(--size-4-3);
+  margin: 0 auto var(--size-4-4);
+}
+
+/* Le « + » appartient au même ensemble visuel que les axes, juste un peu
+   plus séparé à droite (§4) — toujours dans la même barre compacte. */
+.feuillets-lanes-axis-add {
+  margin-left: var(--size-4-2);
+}

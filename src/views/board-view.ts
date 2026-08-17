@@ -21,7 +21,7 @@ import {
   semanticPlanningField,
 } from "../utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
-import { povOf } from "../utils/arc-fields.js";
+import { povOf, filsOf } from "../utils/arc-fields.js";
 import { openSnapshotComparison } from "./comparison-view.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { TagsModal } from "../ui/entity-modals.js";
@@ -31,6 +31,18 @@ import { toValue } from "../utils/scene-fields.js";
 
 type ProjectNode = TFile | TFolder;
 type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
+
+/** Sous-vue de l'espace narratif (Chemin de fer) : Trame = le Chemin de fer
+ * actuel, Couloirs = la vue narrative par lignes, Grille = futur Plot Grid
+ * (non implémenté, entrée désactivée). État de SESSION de l'instance BoardView,
+ * jamais persisté. */
+type NarrativeSubview = "trame" | "lanes" | "grid";
+
+/** Axe de regroupement des Couloirs : la « ligne » d'un couloir est un Label,
+ * un Personnage ou un Fil (multi-valeurs), ou un Pov (scalaire). Ordre imposé
+ * partout (barre commune, registre, drag) : Label, Personnage, Fil, Pov —
+ * exactement l'ordre de la barre Trame. État de session uniquement. */
+type LaneAxis = "label" | "character" | "thread" | "pov";
 
 /** Surface affichée par l'espace central Feuillets — état de SESSION pur
  * (§1 du chantier « espace central ») : jamais persisté, ni dans
@@ -120,9 +132,30 @@ export function listsEqual(a: string[], b: string[]): boolean {
 }
 
 function filColor(name: string): string {
+  return `hsl(${hashLaneHue(name)}, 70%, 45%)`;
+}
+
+/** Teinte déterministe et stable par valeur (jamais persistée) : hachage
+   simple du nom, partagé par toutes les couleurs de lignes Couloirs. La
+   saturation et la limpidité varient ensuite par axe pour rester
+   reconnaissables entre eux sans se confondre (§6). */
+function hashLaneHue(name: string): number {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return `hsl(${Math.abs(hash) % 360}, 70%, 45%)`;
+  return Math.abs(hash) % 360;
+}
+
+/** Couleur de ligne Couloirs pour l'axe Pov : saturation et limpidité
+   modérées pour rester discrète (§6). */
+function povLaneColor(name: string): string {
+  return `hsl(${hashLaneHue(name)}, 45%, 40%)`;
+}
+
+/** Couleur de ligne Couloirs pour l'axe Personnage : distincte de Pov
+   (saturation plus affirmée) pour que les deux axes multi-caractères ne se
+   confondent pas visuellement. */
+function characterLaneColor(name: string): string {
+  return `hsl(${hashLaneHue(name)}, 55%, 42%)`;
 }
 
 type ModeOptionsCtx = {
@@ -182,6 +215,26 @@ export class BoardView extends BaseFeuilletsView {
   ) => HTMLElement;
   focusedFolderPath: string | null;
   currentCardContent?: string;
+  /** Type de projet résolu au dernier render (Fiction/Non-fiction/Libre) —
+     capté localement dans _render et mémorisé pour que les cartes Couloirs
+     lisent la synopsis dans le BON champ sémantique (semanticPlanningField)
+     même quand la préférence d'affichage des cartes est « Extrait ». */
+  private lanesProjectType = "fiction";
+  /** Sous-vue de l'espace narratif (Trame/Couloirs/Grille) — état de SESSION
+   * de l'instance (jamais persisté), survit aux render(true) et aux
+   * aller-retours Chemin de fer → autre mode → Chemin de fer. */
+  narrativeSubview: NarrativeSubview = "trame";
+  /** Axe de regroupement des Couloirs (Label/Personnage/Fil/Pov) — état de
+   * session. Ordre imposé : Label, Personnage, Fil, Pov. */
+  laneAxis: LaneAxis = "label";
+  /** Registre des lignes par axe — état de session, initialisé paresseusement
+   * par relecture des feuillets dans l'ordre narratif. Jamais retiré de
+   * valeur ; une nouvelle valeur découverte est ajoutée à la fin. */
+  private laneRegistry: Record<LaneAxis, string[]> = { label: [], character: [], thread: [], pov: [] };
+  /** Migration locale défensive : si un boardMode "lanes" avait été persisté
+   * par un lot précédent, on le normalise en "arcs" + sous-vue Couloirs une
+   * seule fois pour cette instance (jamais réécrit sur le disque). */
+  private _lanesMigrated = false;
   selectionModeActive?: boolean;
   wcMap?: Map<string, number>;
   selectedLabel?: string;
@@ -190,6 +243,24 @@ export class BoardView extends BaseFeuilletsView {
   selectedPov?: string;
   _renderGen?: number;
   outlineColumns?: Record<string, boolean>;
+
+  /* LOT 5C — état de session du drag Couloirs : chemin du feuillet glissé,
+     drapeau anti-ouverture (§12 : un drag ne déclenche jamais le clic
+     d'ouverture du titre) et valeur source de la ligne ("" pour « Sans… »),
+     nécessaire pour retirer UNIQUEMENT la valeur source d'un label/fil
+     multi-valeurs au drop. Aucun lien avec plugin.dragState (réordonnancement
+     Binder/manuscrit) — le drag Couloirs ne modifie QUE le champ d'axe. */
+  private _lanesDragPath: string | null = null;
+  private _lanesDragging = false;
+  private _lanesDragSource: string | null = null;
+
+  /** §6 : viewport de session Couloirs — scrollLeft/scrollTop mémorisés à la
+   * volée (listeners scroll + capture au drop) et restaurés à CHAQUE
+   * renderCouloirs sur le nouveau DOM. État de l'INSTANCE uniquement : jamais
+   * dans settings, jamais dans ProjectMeta, jamais dans le YAML, jamais
+   * saveSettings. `key` identifie le périmètre affiché (root/scope/whole) :
+   * si le périmètre change, left/top repartent de 0. */
+  private _lanesViewport: { key: string; left: number; top: number } = { key: "", left: 0, top: 0 };
 
   /** §1 : état de session, JAMAIS persisté. */
   centralSurface: CentralSurface = "workspace";
@@ -408,9 +479,21 @@ export class BoardView extends BaseFeuilletsView {
     if (!S.projectMeta[root.path]) S.projectMeta[root.path] = {};
     const meta = S.projectMeta[root.path];
     const projectType = resolveType(meta.type);
+    this.lanesProjectType = projectType;
     const modeConfig = PROJECT_MODES[projectType] || PROJECT_MODES.fiction;
     let mode: string = meta.boardMode || modeConfig.defaults.boardMode;
     this.currentCardContent = resolveBoardCardContent(projectType, meta.cardContent);
+
+    /* LOT 5C §2.1 — migration locale défensive : un ancien boardMode "lanes"
+       persisté par un lot précédent n'existe plus comme mode (§2 impose 4
+       modes exactement). On le normalise ici, localement pour cette instance :
+       mode → "arcs", sous-vue → Couloirs. RIEN n'est réécrit sur le disque
+       (ni settings ni ProjectMeta) — la lecture suivante retombera pareil. */
+    if (mode === "lanes") {
+      mode = "arcs";
+      this.narrativeSubview = "lanes";
+      this._lanesMigrated = true;
+    }
 
     let initializedProjectPrefs = false;
     const hiddenModes: string[] = Array.isArray(meta.hiddenBoardModes)
@@ -443,8 +526,13 @@ export class BoardView extends BaseFeuilletsView {
     const wholeManuscript = meta.boardWholeManuscript !== undefined ? !!meta.boardWholeManuscript : !!S.boardWholeManuscript;
     if (mode === "research") mode = "board";
 
-    let visibleModes = BOARD_MODES.map(([k]) => k).filter((k) => !hiddenModes.includes(k));
-    if (visibleModes.length === 0) visibleModes = BOARD_MODES.map(([k]) => k);
+    /* LOT 5C §2 — l'architecture impose EXACTEMENT 4 modes (board, outline,
+       arcs, timeline) : Couloirs n'est PAS un mode mais une sous-vue de
+       l'espace narratif (arcs). `visibleModes` dérive donc directement de
+       BOARD_MODES et de hiddenBoardModes, sans aucun filtrage par type. */
+    const allBoardModes = BOARD_MODES.map(([k]) => k);
+    let visibleModes = allBoardModes.filter((k) => !hiddenModes.includes(k));
+    if (visibleModes.length === 0) visibleModes = allBoardModes;
     if (!visibleModes.includes(mode)) mode = visibleModes[0];
     const activeMode = mode as BoardModeKey;
 
@@ -608,7 +696,11 @@ export class BoardView extends BaseFeuilletsView {
     if (inWorkspace) this.iconBtn(modeGroup, "sliders-horizontal", t("board.viewOptionsTooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("board.visibleModesHeader")).setDisabled(true));
-      for (const [k] of BOARD_MODES) {
+      /* §2 — le menu « Modes affichés » propose les 4 modes du réglage
+         global (toujours proposés, même si l'utilisateur a déjà masqué les
+         autres) — Couloirs/Grille ne sont PAS des modes et n'y figurent
+         jamais. */
+      for (const k of allBoardModes) {
         menu.addItem((item) =>
           item.setTitle(this.boardModeLabel(k)).setChecked(visibleModes.includes(k)).onClick(async () => {
             const set = new Set(hiddenModes);
@@ -744,6 +836,52 @@ export class BoardView extends BaseFeuilletsView {
       this.iconBtn(bar, "undo-2", t("board.undoMoveTooltip"), () => (this.app as unknown as AppWithCommands).commands.executeCommandById("feuillets:undo-move"));
     }
 
+    /* §4 — barre de PILOTAGE narrative (arcs), distincte du contenu manuscrit
+       et CENTRÉE horizontalement : un SEUL sélecteur compact de sous-vue
+       (icône + libellé de la sous-vue COURANTE + chevron) qui ouvre un Menu
+       Obsidian natif listant Trame / Couloirs / Grille (visible mais
+       désactivée) ; l'entrée courante y est cochée via le Menu natif
+       (setChecked). Plus AUCUN sélecteur d'axe ici : la barre d'axe des
+       Couloirs (même grammaire que la barre de filtres Trame) vit dans le
+       contenu de la sous-vue, via renderLanesAxisBar. Sous-vue et axe restent
+       des états de SESSION (ce.narrativeSubview / ce.laneAxis), jamais
+       persistés. */
+    if (inWorkspace && activeMode === "arcs") {
+      const nav = container.createDiv({ cls: "feuillets-narrative-bar" });
+
+      const subviewIcon: Record<NarrativeSubview, string> = { trame: "waypoint", lanes: "rows-3", grid: "grid-3x3" };
+      const subviewLabel: Record<NarrativeSubview, string> = {
+        trame: t("board.narrative.trame"),
+        lanes: t("board.narrative.lanes"),
+        grid: t("board.narrative.grid"),
+      };
+      const switchSubview = (key: NarrativeSubview) => {
+        if (this.narrativeSubview === key) return;
+        this.narrativeSubview = key;
+        void this.render(true);
+      };
+
+      const selector = nav.createEl("button", {
+        cls: "clickable-icon feuillets-narrative-subview-btn",
+        attr: { "aria-label": subviewLabel[this.narrativeSubview] },
+      });
+      setIcon(selector.createSpan({ cls: "feuillets-narrative-btn-icon" }), subviewIcon[this.narrativeSubview]);
+      selector.createSpan({ cls: "feuillets-narrative-btn-label", text: subviewLabel[this.narrativeSubview] });
+      setIcon(selector.createSpan({ cls: "feuillets-narrative-btn-chevron" }), "chevron-down");
+      setTooltip(selector, t("board.narrative.pickSubview"));
+      selector.addEventListener("click", (e) => {
+        const menu = new Menu();
+        menu.addItem((item) =>
+          item.setTitle(subviewLabel.trame).setIcon("waypoint").setChecked(this.narrativeSubview === "trame").onClick(() => switchSubview("trame"))
+        );
+        menu.addItem((item) =>
+          item.setTitle(subviewLabel.lanes).setIcon("rows-3").setChecked(this.narrativeSubview === "lanes").onClick(() => switchSubview("lanes"))
+        );
+        menu.addItem((item) => item.setTitle(subviewLabel.grid).setIcon("grid-3x3").setDisabled(true));
+        menu.showAtMouseEvent(e);
+      });
+    }
+
     const flattened = this.plugin.flattenFiles(root);
     const wcMapRaw = await this.plugin.getWordCounts(flattened);
     if (this._renderGen !== gen) return;
@@ -763,6 +901,19 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     const numbering = this.plugin.buildNumbering(root);
+
+    /* LOT 5C (micro-correctif structure) : Couloirs monte sa PROPRE
+       architecture à deux niveaux — la barre d'axe vit HORS de la zone
+       défilante, au même niveau que le sélecteur de sous-vue, et
+       renderCouloirs construit elle-même son scroll (gutter fixe + canevas
+       horizontal unique). On retourne ici : aucun scrollArea partagé pour
+       cette sous-vue, pour que la barre Label·Personnage·Fil·Pov·+ ne parte
+       JAMAIS avec le canevas horizontal (§2/§5/§17). */
+    if (activeMode === "arcs" && this.narrativeSubview === "lanes") {
+      this.renderCouloirs(container, root, currentFolder, wholeManuscript, numbering);
+      return;
+    }
+
     const scrollArea = container.createDiv({ cls: "feuillets-board-scroll" });
 
     if (activeMode === "board" && wholeManuscript) {
@@ -773,6 +924,11 @@ export class BoardView extends BaseFeuilletsView {
     } else if (activeMode === "outline") {
       await this.renderOutline(scrollArea, root, numbering, bumpTotal, gen);
     } else if (activeMode === "arcs") {
+      /* §2/§4 : l'espace narratif (arcs) se subdivise en trois sous-vues —
+         Trame (le Chemin de fer classique, gelé), Couloirs (Scrivener) et
+         Grille (futur Plot Grid, non implémenté — impossible d'y arriver).
+         Couloirs n'arrive JAMAIS ici : la branche anticipée plus haut
+         (renderCouloirs hors du scrollArea partagé) retourne avant ce point. */
       this.renderCheminDeFer(scrollArea, root, numbering);
     } else if (activeMode === "timeline") {
       for (const file of this.plugin.flattenFiles(root)) {
@@ -920,38 +1076,41 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
     } else if (activeMode === "arcs") {
-      /* §13 LOT 4 / §2 LOT 5 — « Informations affichées » du Chemin de fer :
-         Synopsis, pov, Personnages, Fil. Pure présentation : masquer une
-         entrée ne modifie aucune donnée, aucun filtre, aucun rail. */
-      menu.addItem((item) => item.setTitle(t("board.options.arcsHeader")).setDisabled(true));
-      menu.addItem((item) =>
-        item.setTitle(t("board.options.arcsShowSynopsis")).setChecked(!!S.arcsShowSynopsis).onClick(async () => {
-          S.arcsShowSynopsis = !S.arcsShowSynopsis;
-          await this.plugin.saveSettings();
-          void this.render(true);
-        })
-      );
-      menu.addItem((item) =>
-        item.setTitle(t("board.options.arcsShowPov")).setChecked(!!S.arcsShowPov).onClick(async () => {
-          S.arcsShowPov = !S.arcsShowPov;
-          await this.plugin.saveSettings();
-          void this.render(true);
-        })
-      );
-      menu.addItem((item) =>
-        item.setTitle(t("board.options.arcsShowCharacters")).setChecked(!!S.arcsShowCharacters).onClick(async () => {
-          S.arcsShowCharacters = !S.arcsShowCharacters;
-          await this.plugin.saveSettings();
-          void this.render(true);
-        })
-      );
-      menu.addItem((item) =>
-        item.setTitle(t("board.options.arcsShowThreads")).setChecked(!!S.arcsShowThreads).onClick(async () => {
-          S.arcsShowThreads = !S.arcsShowThreads;
-          await this.plugin.saveSettings();
-          void this.render(true);
-        })
-      );
+      /* §2 LOT 5 — « Informations affichées » du Chemin de fer (Synopsis,
+         pov, Personnages, Fil) : options de la sous-vue Trame UNIQUEMENT.
+         Couloirs et Grille ont leurs propres réglages locaux (Axe, +) dans la
+         barre narrative, jamais ici. */
+      if (this.narrativeSubview === "trame") {
+        menu.addItem((item) => item.setTitle(t("board.options.arcsHeader")).setDisabled(true));
+        menu.addItem((item) =>
+          item.setTitle(t("board.options.arcsShowSynopsis")).setChecked(!!S.arcsShowSynopsis).onClick(async () => {
+            S.arcsShowSynopsis = !S.arcsShowSynopsis;
+            await this.plugin.saveSettings();
+            void this.render(true);
+          })
+        );
+        menu.addItem((item) =>
+          item.setTitle(t("board.options.arcsShowPov")).setChecked(!!S.arcsShowPov).onClick(async () => {
+            S.arcsShowPov = !S.arcsShowPov;
+            await this.plugin.saveSettings();
+            void this.render(true);
+          })
+        );
+        menu.addItem((item) =>
+          item.setTitle(t("board.options.arcsShowCharacters")).setChecked(!!S.arcsShowCharacters).onClick(async () => {
+            S.arcsShowCharacters = !S.arcsShowCharacters;
+            await this.plugin.saveSettings();
+            void this.render(true);
+          })
+        );
+        menu.addItem((item) =>
+          item.setTitle(t("board.options.arcsShowThreads")).setChecked(!!S.arcsShowThreads).onClick(async () => {
+            S.arcsShowThreads = !S.arcsShowThreads;
+            await this.plugin.saveSettings();
+            void this.render(true);
+          })
+        );
+      }
     } else if (activeMode === "timeline") {
       menu.addItem((item) => item.setTitle(t("board.options.timelineHeader")).setDisabled(true));
       for (const [val, label] of [["chrono", t("board.options.chronoOrder")], ["narratif", t("board.options.narrativeOrder")]]) {
@@ -1711,6 +1870,411 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
+  /* ===================== LOT 5C — COULOIRS (lanes) =====================
+     Représentation narrative façon Scrivener : axe horizontal = ordre narratif
+     réel des feuillets (source ordonnée existante de BoardView, jamais re-triée),
+     axe vertical = lignes du registre courant (Label / Personnage / Fil / Pov,
+     ordre imposé). Chaque feuillet filtré occupe UNE position horizontale fixe
+     (index narratif i en colonne i) ; les emplacements vides conservent la
+     largeur d'une carte — ils matérialisent l'alternance narrative, jamais
+     révélés (aucune cellule visible). Le drag ne modifie QUE le champ d'axe
+     (label/characters/thread/pov), jamais l'ordre du manuscrit. */
+
+  /** Barre d'axe des Couloirs : la MÊME grammaire que la barre de filtres de
+     Trame (feuillets-arcs-filter-bar / feuillets-arcs-filter-btn, icône +
+     libellé), utilisée ici comme sélecteur EXCLUSIF de l'axe — ordre imposé
+     Label, Personnage, Fil, Pov, exactement l'ordre des boutons de la barre
+     Trame (mêmes libellés board.arcs.*FilterName). L'axe actif porte la classe
+     feuillets-lanes-axis-active + aria-pressed="true" (PAS is-active, réservé
+     aux filtres Trame). Le « + » est contextuel à l'axe actif : le tooltip
+     reflète ce qu'on crée (Nouveau label / Nouveau personnage / …). */
+  private renderLanesAxisBar(container: HTMLElement): void {
+    /* Même classe de base que la barre de filtres Trame (grammaire partagée,
+       feuillets-arcs-filter-bar) + modificateur Couloirs : largeur INTRINSÈQUE
+       centrée (pas de space-between, pas d'étalement à 1000px) pour reprendre
+       réellement la compacité de la barre Trame (§4/§18). Construite dans le
+       conteneur de niveau vue, jamais dans la zone défilante. */
+    const bar = container.createDiv({ cls: "feuillets-arcs-filter-bar feuillets-lanes-axis-bar" });
+    const axes: [LaneAxis, string, string][] = [
+      ["label", t("board.arcs.labelFilterName"), "map-pin"],
+      ["character", t("board.arcs.characterFilterName"), "users"],
+      ["thread", t("board.arcs.threadFilterName"), "route"],
+      ["pov", t("board.arcs.povFilterName"), "eye"],
+    ];
+    for (const [key, label, icon] of axes) {
+      const btn = bar.createEl("button", { cls: "clickable-icon feuillets-arcs-filter-btn" });
+      setIcon(btn.createSpan(), icon);
+      btn.createSpan({ cls: "feuillets-arcs-filter-btn-label", text: label });
+      setTooltip(btn, label);
+      btn.setAttr("aria-label", label);
+      const active = this.laneAxis === key;
+      btn.setAttr("aria-pressed", String(active));
+      if (active) btn.addClass("feuillets-lanes-axis-active");
+      btn.addEventListener("click", () => {
+        if (this.laneAxis === key) return;
+        this.laneAxis = key;
+        void this.render(true);
+      });
+    }
+    /* « + » du même ensemble visuel que les axes, légèrement séparé à droite
+       (feuillets-lanes-axis-add, §4). */
+    const addBtn = this.iconBtn(bar, "plus", this.lanesAddLabel(), () => this.openNewLaneModal());
+    addBtn.addClass("feuillets-lanes-axis-add");
+  }
+
+  /** Tooltip contextuel du bouton « + » des Couloirs, selon l'axe actif. */
+  private lanesAddLabel(): string {
+    if (this.laneAxis === "label") return t("board.lanes.addLabel");
+    if (this.laneAxis === "character") return t("board.lanes.addCharacter");
+    if (this.laneAxis === "thread") return t("board.lanes.addThread");
+    return t("board.lanes.addPov");
+  }
+
+  renderCouloirs(container: HTMLElement, root: TFolder, currentFolder: TFolder, wholeManuscript: boolean, numbering: Map<string, string>): void {
+    /* §5 : même source ordonnée que les autres modes — projet courant, dossier
+       focalisé (option « manuscrit entier » respectée), ordre Binder/manuscrit,
+       filtres globaux passesFilter(). `container` est le conteneur de niveau
+       VUE (.feuillets-board-container) : la barre d'axe et la zone de couloirs
+       y sont montées, la barre HORS du scroll (§2/§6). */
+    const scope = wholeManuscript ? root : currentFolder;
+    /* §6 : clé du périmètre affiché pour le viewport de session — si le
+       périmètre change (root, scope, manuscrit entier vs dossier focalisé),
+       scrollLeft/scrollTop repartent de 0 ; sinon ils sont restaurés sur le
+       nouveau DOM à la fin de ce renderCouloirs (§8). */
+    const scopeKey = [root.path, scope.path, wholeManuscript ? "whole" : "focused"].join("::");
+    if (this._lanesViewport.key !== scopeKey) {
+      this._lanesViewport.key = scopeKey;
+      this._lanesViewport.left = 0;
+      this._lanesViewport.top = 0;
+    }
+    const files = this.plugin.flattenFiles(scope).filter((f: TFile) => this.passesFilter(f) && !this.plugin.isFrontMatter(f));
+
+    /* §21 : aucun feuillet dans le périmètre → état vide Feuillets. La présence
+       de feuillets sans valeur n'est PAS un état vide. */
+    if (files.length === 0) {
+      const emptyScroll = container.createDiv({ cls: "feuillets-board-scroll" });
+      emptyScroll.createDiv({ cls: "feuillets-empty", text: t("board.lanes.empty") });
+      return;
+    }
+
+    /* §4 : barre d'axe des Couloirs — même grammaire exacte que la barre de
+       filtres de Trame (feuillets-arcs-filter-bar / feuillets-arcs-filter-btn),
+       ici en sélecteur EXCLUSIF de l'axe (aria-pressed sur l'actif) + bouton
+       « + » contextuel à l'axe actif. Uniquement en Couloirs, jamais en Trame.
+       Crucial : la barre est créée dans `container` (niveau vue), PAS dans le
+       scroll — elle ne part jamais avec le canevas horizontal (§2/§5/§17). */
+    this.renderLanesAxisBar(container);
+
+    /* §6 : registre de lignes de l'axe courant — SESSION, initialisé
+       paresseusement par relecture des feuillets visibles dans l'ordre narratif
+       (première apparition, jamais alphabétique), jamais retiré de valeur. */
+    this.ensureLaneRegistry(files);
+
+    /* §7 : la ligne « sans valeur » est TOUJOURS rendue en dernier et TOUJOURS
+       visible — même si aucun feuillet visible n'en a besoin — et est toujours
+       une cible de drop. */
+    const noValueLabel = this.lanesNoValueLabel();
+    const lanes = [...this.laneRegistry[this.laneAxis]];
+    const valuesByPath = new Map<string, string[]>();
+    for (const file of files) {
+      valuesByPath.set(file.path, this.axisValuesOf(file));
+    }
+
+    /* §6/§11 : zone de couloirs en DEUX niveaux géométriquement séparés —
+       gutter fixe (noms de lignes, HORS de la largeur narrative) et canevas
+       horizontal scrollable (le SEUL élément qui défile en X, §8). Toutes les
+       pistes partagent le même repère X dans le canevas (§9). Le scroll
+       vertical (.feuillets-board-scroll) porte le modificateur
+       feuillets-lanes-vertical-scroll (overflow-x: hidden) : la SEULE
+       scrollbar horizontale réelle est celle de .feuillets-lanes-scroll.
+       La règle générale .feuillets-board-scroll (autres modes) est inchangée. */
+    const scrollArea = container.createDiv({ cls: "feuillets-board-scroll feuillets-lanes-vertical-scroll" });
+    const lanesArea = scrollArea.createDiv({ cls: "feuillets-lanes-area" });
+    const gutter = lanesArea.createDiv({ cls: "feuillets-lanes-gutter" });
+    const horizScroll = lanesArea.createDiv({ cls: "feuillets-lanes-scroll" });
+    const canvas = horizScroll.createDiv({ cls: "feuillets-lanes" });
+    /* §7 : mémoriser le viewport sur les DEUX scrolls réels — le horizontal
+       (.feuillets-lanes-scroll) et le vertical (.feuillets-board-scroll) —
+       dans _lanesViewport (état de session de l'instance, jamais persisté). */
+    horizScroll.addEventListener("scroll", () => { this._lanesViewport.left = horizScroll.scrollLeft; });
+    scrollArea.addEventListener("scroll", () => { this._lanesViewport.top = scrollArea.scrollTop; });
+    for (const value of lanes) {
+      this.renderLaneRow(canvas, gutter, value, files, valuesByPath, numbering, noValueLabel, horizScroll, scrollArea);
+    }
+    this.renderLaneRow(canvas, gutter, "", files, valuesByPath, numbering, noValueLabel, horizScroll, scrollArea);
+    /* §8 : le nouveau DOM reprend le viewport de session APRÈS construction
+       complète (canvas, lanes, tracks, slots, cartes). Assignation directe —
+       pas de requestAnimationFrame : le DOM est déjà monté, scrollLeft/
+       scrollTop se posent de façon synchrone. Fonctionne à CHAQUE
+       renderCouloirs, pas seulement pendant le drop — indispensable pour
+       survivre au second refresh différé après vault.modify. */
+    horizScroll.scrollLeft = this._lanesViewport.left;
+    scrollArea.scrollTop = this._lanesViewport.top;
+  }
+
+  /** Registre des lignes de l'axe courant : chaque rendu ré-scanne les feuillets
+     visibles dans l'ordre narratif et AJOUTE à la fin les valeurs découvertes
+     (jamais retirées, jamais triées). Satisfait §6 : « une nouvelle valeur
+     découverte est ajoutée à la fin » et « un filtre ne détruit jamais le
+     registre » (re-scan idempotent, les valeurs déjà connues passent sans
+     effet). */
+  private ensureLaneRegistry(files: TFile[]): void {
+    const reg = this.laneRegistry[this.laneAxis];
+    for (const file of files) {
+      for (const v of this.axisValuesOf(file)) {
+        if (v && !reg.includes(v)) reg.push(v);
+      }
+    }
+  }
+
+  /** Valeurs de regroupement d'un feuillet pour l'axe courant : Pov = scalaire
+     (0 ou 1 valeur), Label / Personnage / Fil = listes multi-valeurs existantes
+     (même mécanisme exact que la barre Trame — getPersonnagesList lit
+     fm.characters, alias compris). */
+  private axisValuesOf(file: TFile): string[] {
+    if (this.laneAxis === "label") return this.plugin.labelsOf(file);
+    if (this.laneAxis === "character") return getPersonnagesList(this.fm(file));
+    if (this.laneAxis === "thread") return filsOf(this.fm(file));
+    const pov = povOf(this.fm(file));
+    return pov ? [pov] : [];
+  }
+
+  /** Libellé de la ligne « sans valeur » selon l'axe courant. */
+  private lanesNoValueLabel(): string {
+    if (this.laneAxis === "label") return t("board.lanes.noLabel");
+    if (this.laneAxis === "character") return t("board.lanes.noCharacter");
+    if (this.laneAxis === "thread") return t("board.lanes.noThread");
+    return t("board.lanes.noPov");
+  }
+
+  /** Couleur de ligne Couloirs : déterministe, jamais persistée. Label → la
+     couleur configurée du label (labelColor) ; Fil → la logique colorée
+     existante (filColor) ; Pov → variante déterministe discrète de la même
+     famille (povLaneColor) ; Personnage → variante distincte de Pov
+     (characterLaneColor) pour que les deux axes multi-caractères restent
+     reconnaissables. Ligne « Sans … » (valeur vide) → null : la CSS garde sa
+     couleur neutre native. */
+  private laneLineColor(value: string): string | null {
+    if (!value) return null;
+    if (this.laneAxis === "label") return this.plugin.labelColor(value);
+    if (this.laneAxis === "character") return characterLaneColor(value);
+    if (this.laneAxis === "thread") return filColor(value);
+    return povLaneColor(value);
+  }
+
+  /** Une ligne de couloir = DEUX nœuds jumeaux index-alignés (mêmes itérations,
+     même ordre) : le libellé dans le gutter FIXE, la piste dans le canevas
+     défilant (autant de slots invisibles que de feuillets visibles — l'index
+     narratif i reste en colonne i), vraie ligne horizontale continue centrée
+     verticalement sous les cartes (§9). §11 : le gutter est GÉOMÉTRIQUEMENT
+     séparé du canevas — plus aucun sticky opaque superposé qui masquerait la
+     bande ou les cartes au scroll (§10/§12). */
+  private renderLaneRow(
+    canvas: HTMLElement,
+    gutter: HTMLElement,
+    value: string,
+    files: TFile[],
+    valuesByPath: Map<string, string[]>,
+    numbering: Map<string, string>,
+    noValueLabel: string,
+    horizScroll: HTMLElement,
+    scrollArea: HTMLElement
+  ): void {
+    const laneName = value || noValueLabel;
+    const gutterLabel = gutter.createDiv({ cls: "feuillets-lanes-gutter-label", text: laneName });
+    gutterLabel.setAttr("title", laneName);
+    const row = canvas.createDiv({ cls: "feuillets-lanes-row" });
+    const track = row.createDiv({ cls: "feuillets-lanes-track" });
+    const line = track.createDiv({ cls: "feuillets-lane-line" });
+    /* Couleur de la bande : posée INLINE via une propriété CSS (jamais de
+       couleur codée en dur dans styles.css) — la CSS applique la propriété
+       avec repli sur la couleur neutre native. Ligne « Sans … » → aucune
+       propriété posée → neutre discrète. */
+    const lineColor = this.laneLineColor(value);
+    if (lineColor) line.style.setProperty("--feuillets-lane-color", lineColor);
+    /* Les deux scrolls réels (horizontal + vertical) sont passés à
+       attachCouloirsDrop pour la capture du viewport au drop (§9) — jamais
+       de querySelector sur le DOM interne Obsidian. */
+    this.attachCouloirsDrop(row, gutterLabel, track, value, horizScroll, scrollArea);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const slot = track.createDiv({ cls: "feuillets-lanes-slot" });
+      slot.setAttr("data-index", String(i));
+      /* La ligne « Sans … » (value === "") accueille les feuillets SANS aucune
+         valeur d'axe ; les lignes nommées accueillent les feuillets dont la
+         liste de valeurs contient la valeur (multi-valeurs Label/Fil inclus). */
+      const fileValues = valuesByPath.get(file.path) || [];
+      const matches = value === "" ? fileValues.length === 0 : fileValues.includes(value);
+      if (matches) {
+        this.renderCouloirsCard(slot, file, i, numbering, value);
+      }
+    }
+  }
+
+  /** Carte Couloir compacte : numéro narratif + titre sur la MÊME ligne, puis
+     synopsis/résumé discret sous le titre — jamais Pov/Label/Fil/Personnages/
+     Statut/Tags/date/objectif/progression/boutons (§10). Le liseré Label du
+     bord gauche est appliqué QUEL QUE SOIT l'axe courant, via le mécanisme
+     Label existant (labelColor), jamais une couleur codée en dur ; sans Label,
+     seule la bordure neutre normale reste. Clic sur le titre = ouverture
+     standard (openFileActivating, §12) ; le drag ne déclenche jamais
+     l'ouverture. */
+  renderCouloirsCard(slot: HTMLElement, file: TFile, index: number, numbering: Map<string, string>, laneValue: string): void {
+    const card = slot.createDiv({ cls: "feuillets-lanes-card" });
+    card.setAttr("title", file.basename);
+    card.draggable = true;
+    /* Valeur source = LA ligne où la carte a été rendue, capturée au DRAGSTART.
+       Pour un label/fil multi-valeurs, un même feuillet apparaît dans plusieurs
+       lignes : le drop doit retirer UNIQUEMENT la valeur de la ligne d'origine
+       (§12 payload : chemin + axe + valeur source ; "" pour la ligne « Sans… »). */
+    const sourceValue = laneValue;
+    card.addEventListener("dragstart", (e) => {
+      this._lanesDragPath = file.path;
+      this._lanesDragSource = sourceValue;
+      this._lanesDragging = true;
+      e.dataTransfer?.setData("text/plain", file.path);
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      card.addClass("feuillets-dragging");
+      e.stopPropagation();
+    });
+    card.addEventListener("dragend", () => {
+      this._lanesDragPath = null;
+      this._lanesDragSource = null;
+      this._lanesDragging = false;
+      card.removeClass("feuillets-dragging");
+      this.contentEl.querySelectorAll(".feuillets-lanes-dragover, .feuillets-dragging").forEach((el) => {
+        el.removeClass("feuillets-lanes-dragover");
+        el.removeClass("feuillets-dragging");
+      });
+    });
+
+    /* Liseré Label : même mécanisme exact que la carte grille (renderCard) —
+       labelOf + labelColor, bordure gauche posée inline. labelColor peut
+       renvoyer une valeur fausse (label sans couleur configurée) → aucun
+       liseré artificiel, bordure neutre conservée. */
+    const labelName = this.plugin.labelOf(file);
+    const labelColor = labelName ? this.plugin.labelColor(labelName) : null;
+    if (labelColor) card.style.borderLeft = `3px solid ${labelColor}`;
+
+    /* Ordre imposé : 1. numéro + titre sur la même ligne (numéro avant le
+       titre), 2. synopsis/résumé en dessous. Le champ textuel suit la
+       planification SÉMANTIQUE du projet (lanesPlanningField : synopsis en
+       Fiction, résumé long en Non-fiction/Libre) — et NON la préférence
+       d'affichage currentCardContent, qui peut être « extrait » sans que la
+       synopsis doive disparaître des cartes Couloirs. */
+    const head = card.createDiv({ cls: "feuillets-lanes-card-head" });
+    head.createSpan({ cls: "feuillets-lanes-card-num", text: numbering.get(file.path) || String(index + 1) });
+    const title = head.createDiv({ cls: "feuillets-lanes-card-title", text: this.plugin.shortTitleFor(file) });
+    title.setAttr("title", file.basename);
+    title.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (this._lanesDragging) return;
+      openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    });
+
+    const synopsis = toValue(this.fm(file)[this.lanesPlanningField()]);
+    if (synopsis) {
+      card.createDiv({ cls: "feuillets-lanes-card-synopsis", text: synopsis });
+    }
+  }
+
+  /** Champ sémantique planifié pour les cartes Couloirs — résolution IDENTIQUE
+     à celle de Trame (semanticPlanningField(resolveType)) : "synopsis" pour la
+     Fiction, "summary" sinon. */
+  private lanesPlanningField(): string {
+    return semanticPlanningField(this.lanesProjectType);
+  }
+
+  /** Récepteur de drop d'une ligne : déposer une carte ici ne fait QUE
+     modifier le champ d'axe courant (setFm), jamais réordonner le manuscrit
+     (§14). La position X est ignorée — la cible est la ligne entière, le slot
+     rendu invisible ne sert qu'à la géométrie horizontale. La classe dragover
+     porte sur la PISTE (row du canevas) ET le libellé du gutter (deux nœuds
+     jumeaux de la ligne) pour l'accent discret du §9. */
+  attachCouloirsDrop(row: HTMLElement, gutterLabel: HTMLElement, track: HTMLElement, laneValue: string, horizScroll: HTMLElement, scrollArea: HTMLElement): void {
+    track.addEventListener("dragover", (e) => {
+      if (!this._lanesDragPath) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      row.addClass("feuillets-lanes-dragover");
+      gutterLabel.addClass("feuillets-lanes-dragover");
+    });
+    track.addEventListener("dragleave", () => {
+      row.removeClass("feuillets-lanes-dragover");
+      gutterLabel.removeClass("feuillets-lanes-dragover");
+    });
+    track.addEventListener("drop", (e) => {
+      e.preventDefault();
+      row.removeClass("feuillets-lanes-dragover");
+      gutterLabel.removeClass("feuillets-lanes-dragover");
+      /* §9 : capture de la DERNIÈRE position exacte du viewport juste avant
+         que handleCouloirsDrop ne détruise le DOM (render(true) après setFm).
+         Complément des listeners scroll de renderCouloirs : le nouveau
+         scroller reprendra cette position. Logique métier inchangée. */
+      this._lanesViewport.left = horizScroll.scrollLeft;
+      this._lanesViewport.top = scrollArea.scrollTop;
+      void this.handleCouloirsDrop(laneValue);
+    });
+  }
+
+  /** Application asynchrone du drop (listener synchrone ci-dessus : le travail
+     réel vit ici, invoqué via `void`). §14-16. Le payload est le trio
+     (chemin, axe, valeur source) capturé en dragstart ; l'axe courant est
+     this.laneAxis. */
+  private async handleCouloirsDrop(laneValue: string): Promise<void> {
+    const path = this._lanesDragPath;
+    const source = this._lanesDragSource;
+    this._lanesDragPath = null;
+    this._lanesDragSource = null;
+    this._lanesDragging = false;
+    if (!path) return;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return;
+    /* §15 : déposer une carte sur SA PROPRE ligne (source === cible, "" pour
+       « Sans… ») → aucune écriture, aucun render — vaut pour Pov scalaire ET
+       pour Label/Fil multi-valeurs. */
+    if (source === laneValue) return;
+    if (this.laneAxis === "pov") {
+      /* POV scalaire : vers « Sans pov » (valeur "") → vide le champ : setFm
+         supprime la clé. */
+      await this.setFm(file, "pov", laneValue);
+    } else {
+      /* LABEL/PERSONNAGE/FIL multi-valeurs : retirer UNIQUEMENT la valeur
+         source, ajouter la cible si absente, préserver l'ordre (§13).
+         Exemples : [A,C] A→B = [C,B] · [A,B,C] A→B = [B,C] · [A,C] A→Sans =
+         [C] · []→B = [B]. L'écriture passe par setFm (writer logique, mapping
+         de projet, variante de casse) — jamais de YAML écrit à la main. La
+         clé logique Personnage est "characters", lue via getPersonnagesList
+         (même mécanisme exact que la barre Trame). */
+      const key = this.laneAxis === "character" ? "characters" : this.laneAxis === "label" ? "label" : "thread";
+      const current =
+        key === "label" ? this.plugin.labelsOf(file) : key === "characters" ? getPersonnagesList(this.fm(file)) : filsOf(this.fm(file));
+      const next = current.filter((v) => v !== source);
+      if (laneValue && !next.includes(laneValue)) next.push(laneValue);
+      await this.setFm(file, key, next);
+    }
+    void this.render(true);
+  }
+
+  /** Crée une ligne Couloirs : bouton « + » de la barre narrative. Valeur vide
+     après trim → rien ; doublon exact déjà présent → rien ; sinon la valeur est
+     ajoutée à la FIN du registre de session de l'axe, puis re-rendu (§8 : aucun
+     YAML écrit — une ligne sans feuillet est légale). */
+  createLane(axis: LaneAxis, rawValue: string): void {
+    const value = String(rawValue || "").trim();
+    if (!value) return;
+    const reg = this.laneRegistry[axis];
+    if (reg.includes(value)) return;
+    reg.push(value);
+    if (axis === this.laneAxis) void this.render(true);
+  }
+
+  /** Ouvre la modale de création de ligne pour l'axe courant (Couloirs). */
+  openNewLaneModal(): void {
+    new NewLaneModal(this.app, this, this.laneAxis).open();
+  }
+
+
   renderTimeline(container: HTMLElement, folder: TFolder, numbering: Map<string, string>): void {
     return this.renderTimelineInner(container, folder, numbering);
   }
@@ -1982,4 +2546,54 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
+}
+
+/** Modale de création d'une ligne Couloirs : un champ texte + bouton Créer.
+   La saisie est envoyée à BoardView.createLane (registre de SESSION, jamais de
+   YAML écrit — une ligne sans feuillet est légale, §8). `value` est une
+   propriété normale et `submit()` est public pour que les tests (.js,
+   checkJs:false) puissent piloter la modale sans passer par le DOM. */
+export class NewLaneModal extends Modal {
+  view: BoardView;
+  axis: LaneAxis;
+  /** Dernière valeur soumise — accessible aux tests directement. */
+  value = "";
+
+  constructor(app: import("obsidian").App, view: BoardView, axis: LaneAxis) {
+    super(app);
+    this.view = view;
+    this.axis = axis;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: t("board.lanes.createLineTitle") });
+    const input = contentEl.createEl("input", { type: "text", cls: "feuillets-input-full" });
+    input.placeholder = this.placeholder();
+    input.focus();
+    input.addEventListener("keydown", (evt) => {
+      if (evt.key === "Enter") this.submit(input.value);
+    });
+    const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow.createEl("button", { text: t("board.lanes.create") }).addEventListener("click", () => this.submit(input.value));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+
+  /** Applique la saisie : mémorise la valeur, délègue à createLane (qui valide
+     vide/doublon et tient le registre), puis ferme. */
+  submit(raw: string): void {
+    this.value = raw;
+    this.view.createLane(this.axis, raw);
+    this.close();
+  }
+
+  private placeholder(): string {
+    if (this.axis === "label") return t("board.lanes.newLabel");
+    if (this.axis === "character") return t("board.lanes.newCharacter");
+    if (this.axis === "thread") return t("board.lanes.newThread");
+    return t("board.lanes.newPov");
+  }
 }
