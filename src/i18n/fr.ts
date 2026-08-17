@@ -379,7 +379,6 @@ export const fr = {
      de Trame (board.arcs.*FilterName) — une seule source de vocabulaire. */
   "board.narrative.trame": "Trame",
   "board.narrative.lanes": "Couloirs",
-  "board.narrative.grid": "Grille",
   "board.narrative.pickSubview": "Choisir une sous-vue",
   "board.lanes.addPov": "Ajouter un pov",
   "board.lanes.addLabel": "Ajouter un label",

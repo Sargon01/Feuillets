@@ -378,7 +378,6 @@ export const en = {
      label reuses EXACTLY the one from the Rails filter bar (board.arcs.*). */
   "board.narrative.trame": "Rails",
   "board.narrative.lanes": "Lanes",
-  "board.narrative.grid": "Grid",
   "board.narrative.pickSubview": "Pick a subview",
   "board.lanes.addPov": "Add a pov",
   "board.lanes.addLabel": "Add a label",

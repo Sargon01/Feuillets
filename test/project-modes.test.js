@@ -10,10 +10,10 @@ import {
 } from "../src/utils/project-modes.js";
 import { BOARD_MODES } from "../src/constants.js";
 
-test("la vue centrale propose exactement 4 modes (lot 5C : ni lanes ni grid)", () => {
+test("la vue centrale propose exactement 4 modes : Couloirs est une sous-vue de arcs, jamais un mode", () => {
   /* LOT 5C §2 : l'architecture impose EXACTEMENT board / outline / arcs /
      timeline — Couloirs n'est PAS un mode mais une sous-vue de l'espace
-     narratif (arcs), Grille (grid) n'est pas encore implémenté. */
+     narratif (arcs). */
   assert.deepEqual(
     BOARD_MODES.map(([key]) => key),
     ["board", "outline", "arcs", "timeline"]

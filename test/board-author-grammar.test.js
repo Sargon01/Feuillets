@@ -2631,8 +2631,8 @@ test("LOT5 CSS — Personnages et Fil : flex row, gap Obsidian, aucune couleur c
 
 /* ===================== LOT 5C — COULOIRS (sous-vue « lanes ») =====================
    Couloirs n'est PAS un mode : c'est une sous-vue de l'espace narratif
-   (arcs), pilotée par l'état de SESSION narrativeSubview ("trame" | "lanes" |
-   "grid") et laneAxis ("label" | "character" | "thread" | "pov", ordre
+   (arcs), pilotée par l'état de SESSION narrativeSubview ("trame" | "lanes")
+   et laneAxis ("label" | "character" | "thread" | "pov", ordre
    imposé). Registre de lignes en mémoire (jamais retiré), drag qui ne
    modifie QUE le champ d'axe (label/characters/thread/pov), cartes
    RECTANGULAIRES opaques numéro+titre sur une ligne + synopsis (max 3
@@ -2770,28 +2770,26 @@ function flushMicrotasks() {
 
 /* ----- §20 — ARCHITECTURE : exactement 4 MODES ----- */
 
-test("LOT5C — BOARD_MODES = exactement [board, outline, arcs, timeline] (ni lanes ni grid)", () => {
+test("LOT5C — BOARD_MODES = exactement [board, outline, arcs, timeline] : Couloirs est une sous-vue de arcs, jamais un mode", () => {
   assert.deepEqual(BOARD_MODES.map(([k]) => k), ["board", "outline", "arcs", "timeline"]);
   assert.equal(BOARD_MODES.find(([k]) => k === "arcs")[1], "Chemin de fer");
   assert.equal(BOARD_MODES.some(([k]) => k === "lanes"), false, "Couloirs n'est pas un mode");
-  assert.equal(BOARD_MODES.some(([k]) => k === "grid"), false, "Grille n'est pas un mode");
 });
 
-test("LOT5C — i18n : plus de board.mode.lanes ; les sous-vues narratif existent FR/EN", () => {
+test("LOT5C — i18n : plus de board.mode.lanes ni de sous-vue Grille ; les sous-vues narratif existent FR/EN", () => {
   assert.equal(fr["board.mode.lanes"], undefined, "clé mode lanes supprimée (FR)");
   assert.equal(en["board.mode.lanes"], undefined, "clé mode lanes supprimée (EN)");
   assert.equal(fr["board.narrative.trame"], "Trame");
   assert.equal(fr["board.narrative.lanes"], "Couloirs");
-  assert.equal(fr["board.narrative.grid"], "Grille");
+  assert.equal(fr["board.narrative.grid"], undefined, "clé sous-vue Grille supprimée (FR)");
   assert.equal(en["board.narrative.trame"], "Rails");
   assert.equal(en["board.narrative.lanes"], "Lanes");
-  assert.equal(en["board.narrative.grid"], "Grid");
+  assert.equal(en["board.narrative.grid"], undefined, "clé sous-vue Grille supprimée (EN)");
 });
 
-test("LOT5C — les défauts hiddenBoardModes ne contiennent jamais lanes (ni grid)", () => {
+test("LOT5C — les défauts hiddenBoardModes ne contiennent jamais lanes", () => {
   for (const key of ["fiction", "nonfiction", "free"]) {
     assert.equal(PROJECT_MODES[key].boardDefaults.hiddenBoardModes.includes("lanes"), false, `${key} : lanes absent`);
-    assert.equal(PROJECT_MODES[key].boardDefaults.hiddenBoardModes.includes("grid"), false, `${key} : grid absent`);
   }
   assert.deepEqual(PROJECT_MODES.fiction.boardDefaults.hiddenBoardModes, ["timeline"]);
   assert.deepEqual(PROJECT_MODES.nonfiction.boardDefaults.hiddenBoardModes, ["arcs", "timeline"]);
@@ -2926,7 +2924,7 @@ test("LOT5C — narrativeSubview survit à render(true) et aux allers-retours de
   assert.equal(couloirsCalled, 1, "retour arcs → renderCouloirs (sous-vue préservée)");
 });
 
-test("LOT5C — barre narrative en mode arcs : sélecteur compact de sous-vue, sans Axe ni '+', Grille dans le Menu", async () => {
+test("LOT5C — barre narrative en mode arcs : sélecteur compact de sous-vue, exactement Trame/Couloirs, sans Axe ni '+'", async () => {
   const { view, contentEl } = buildNarrativeHarness({ boardMode: "arcs" });
   await view.render(true);
   const bar = narrativeBar(contentEl);
@@ -2940,16 +2938,21 @@ test("LOT5C — barre narrative en mode arcs : sélecteur compact de sous-vue, s
   assert.equal(narrativePlus(contentEl), undefined, "pas de bouton '+' dans la barre narrative (il vit dans la barre d'axe Couloirs)");
   assert.equal(findAll(contentEl, (el) => el.classes.has("feuillets-narrative-axis-label")).length, 0, "pas de libellé Axe");
   assert.equal(findAll(contentEl, (el) => el.classes.has("feuillets-narrative-sep")).length, 0, "plus de séparateurs de groupe");
-  /* Grille = entrée visible mais désactivée du Menu natif. */
+  /* Le Menu natif ne propose que les DEUX sous-vues existantes : Trame et
+     Couloirs. Plus aucune entrée Grille, aucune icône grid-3x3, aucune
+     sous-vue grid. */
   Menu.lastShown = null;
   await selector.trigger("click", { clientX: 1, clientY: 2 });
   const menu = Menu.lastShown;
   assert.ok(menu, "Menu ouvert");
   assert.deepEqual(
     menu.items.map((i) => [i.title, i.icon, i.disabled === true]),
-    [["Trame", "waypoint", false], ["Couloirs", "rows-3", false], ["Grille", "grid-3x3", true]],
-    "Menu : Trame waypoint, Couloirs rows-3, Grille grid-3x3 visible+désactivée"
+    [["Trame", "waypoint", false], ["Couloirs", "rows-3", false]],
+    "Menu : Trame waypoint, Couloirs rows-3 — exactement 2 entrées, aucune Grille"
   );
+  assert.equal(menu.items.length, 2, "le sélecteur narratif contient exactement 2 entrées (Trame, Couloirs)");
+  assert.equal(menu.items.some((i) => i.icon === "grid-3x3"), false, "aucune icône grid-3x3 dans le Menu");
+  assert.equal(menu.items.some((i) => i.title === "Grille"), false, "aucune entrée Grille dans le Menu");
   assert.equal(menu.items[0].checked, true, "entrée courante (Trame) cochée via le Menu natif");
 });
 
@@ -2977,11 +2980,11 @@ test("LOT5C — Couloirs actif : le sélecteur affiche Couloirs ; l'axe vit dans
   assert.equal(view.laneAxis, "character", "axe de session conservé hors de la barre narrative");
 });
 
-test("LOT5C — le menu 'Modes affichés' n'offre jamais Couloirs/Grille (pas des modes)", async () => {
-  /* Le menu ne dérive que de BOARD_MODES (4 modes) : Couloirs et Grille n'y
-     sont jamais proposés comme modes à masquer/affichages. Vérifié par la
-     construction du menu : aucune clé board.mode.lanes/grid, et les sous-vues
-     vivent dans la barre narrative, pas dans le sélecteur de modes. */
+test("LOT5C — le menu 'Modes affichés' n'offre jamais Couloirs (pas un mode)", async () => {
+  /* Le menu ne dérive que de BOARD_MODES (4 modes) : Couloirs n'y est jamais
+     proposé comme mode à masquer/afficher. Vérifié par la construction du
+     menu : aucune clé board.mode.lanes, et les sous-vues vivent dans la
+     barre narrative, pas dans le sélecteur de modes. */
   const { view, contentEl } = buildNarrativeHarness({ boardMode: "arcs" });
   await view.render(true);
   const modeGroup = findFirst(contentEl, (el) => el.classes.has("feuillets-mode-group"));

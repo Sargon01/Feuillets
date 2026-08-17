@@ -12,8 +12,7 @@ import { en } from "../src/i18n/en.js";
    métier validée :
    - sélecteur COMPACT de sous-vue : une seule pilule (icône + libellé de la
      sous-vue COURANTE + chevron) qui ouvre un Menu Obsidian natif (Trame
-     waypoint / Couloirs rows-3 / Grille grid-3x3 visible+disabled, entrée
-     courante cochée via setChecked) ;
+     waypoint / Couloirs rows-3, entrée courante cochée via setChecked) ;
    - barre d'axe Couloirs = la MÊME grammaire que la barre de filtres Trame
      (feuillets-arcs-filter-bar / feuillets-arcs-filter-btn), utilisée comme
      sélecteur EXCLUSIF de l'axe (aria-pressed + classe feuillets-lanes-axis-
@@ -298,7 +297,7 @@ test("LOT5C-VISUEL — mode arcs : barre narrative avec un SEUL sélecteur compa
   assert.equal(findAll(bar, (el) => el.classes.has("feuillets-narrative-sep")).length, 0, "plus de séparateurs de groupe");
 });
 
-test("LOT5C-VISUEL — clic sur le sélecteur : Menu Obsidian natif Trame/Couloirs/Grille, courant cochée, Grille désactivée", async () => {
+test("LOT5C-VISUEL — clic sur le sélecteur : Menu natif exactement Trame/Couloirs, courant cochée, aucune Grille", async () => {
   const { view, contentEl } = buildNarrativeHarness({ boardMode: "arcs" });
   await view.render(true);
   const sel = findFirst(contentEl, (el) => el.classes.has("feuillets-narrative-subview-btn"));
@@ -306,14 +305,14 @@ test("LOT5C-VISUEL — clic sur le sélecteur : Menu Obsidian natif Trame/Couloi
   await sel.trigger("click", { clientX: 1, clientY: 2 });
   const menu = Menu.lastShown;
   assert.ok(menu, "Menu ouvert par le clic");
-  assert.equal(menu.items.length, 3, "trois entrées de sous-vue");
-  const [trame, lanes, grid] = menu.items;
+  assert.equal(menu.items.length, 2, "exactement deux entrées de sous-vue (Trame, Couloirs)");
+  const [trame, lanes] = menu.items;
   assert.deepEqual([trame.title, trame.icon], ["Trame", "waypoint"]);
   assert.deepEqual([lanes.title, lanes.icon], ["Couloirs", "rows-3"]);
-  assert.deepEqual([grid.title, grid.icon], ["Grille", "grid-3x3"]);
   assert.equal(trame.checked, true, "entrée courante (Trame) cochée via le Menu natif");
   assert.equal(lanes.checked, false, "Couloirs non cochée");
-  assert.equal(grid.disabled, true, "Grille visible mais désactivée (non implémentée)");
+  assert.equal(menu.items.some((i) => i.icon === "grid-3x3"), false, "aucune icône grid-3x3");
+  assert.equal(menu.items.some((i) => i.title === "Grille"), false, "aucune entrée Grille");
   /* Choisir Couloirs dans le Menu → bascule de sous-vue. */
   lanes.callback();
   assert.equal(view.narrativeSubview, "lanes", "sous-vue changée par le Menu");

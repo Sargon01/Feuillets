@@ -33,10 +33,9 @@ type ProjectNode = TFile | TFolder;
 type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
 
 /** Sous-vue de l'espace narratif (Chemin de fer) : Trame = le Chemin de fer
- * actuel, Couloirs = la vue narrative par lignes, Grille = futur Plot Grid
- * (non implémenté, entrée désactivée). État de SESSION de l'instance BoardView,
- * jamais persisté. */
-type NarrativeSubview = "trame" | "lanes" | "grid";
+ * actuel, Couloirs = la vue narrative par lignes. État de SESSION de
+ * l'instance BoardView, jamais persisté. */
+type NarrativeSubview = "trame" | "lanes";
 
 /** Axe de regroupement des Couloirs : la « ligne » d'un couloir est un Label,
  * un Personnage ou un Fil (multi-valeurs), ou un Pov (scalaire). Ordre imposé
@@ -220,7 +219,7 @@ export class BoardView extends BaseFeuilletsView {
      lisent la synopsis dans le BON champ sémantique (semanticPlanningField)
      même quand la préférence d'affichage des cartes est « Extrait ». */
   private lanesProjectType = "fiction";
-  /** Sous-vue de l'espace narratif (Trame/Couloirs/Grille) — état de SESSION
+  /** Sous-vue de l'espace narratif (Trame/Couloirs) — état de SESSION
    * de l'instance (jamais persisté), survit aux render(true) et aux
    * aller-retours Chemin de fer → autre mode → Chemin de fer. */
   narrativeSubview: NarrativeSubview = "trame";
@@ -698,8 +697,7 @@ export class BoardView extends BaseFeuilletsView {
       menu.addItem((item) => item.setTitle(t("board.visibleModesHeader")).setDisabled(true));
       /* §2 — le menu « Modes affichés » propose les 4 modes du réglage
          global (toujours proposés, même si l'utilisateur a déjà masqué les
-         autres) — Couloirs/Grille ne sont PAS des modes et n'y figurent
-         jamais. */
+         autres) — Couloirs n'est PAS un mode et n'y figure jamais. */
       for (const k of allBoardModes) {
         menu.addItem((item) =>
           item.setTitle(this.boardModeLabel(k)).setChecked(visibleModes.includes(k)).onClick(async () => {
@@ -839,21 +837,19 @@ export class BoardView extends BaseFeuilletsView {
     /* §4 — barre de PILOTAGE narrative (arcs), distincte du contenu manuscrit
        et CENTRÉE horizontalement : un SEUL sélecteur compact de sous-vue
        (icône + libellé de la sous-vue COURANTE + chevron) qui ouvre un Menu
-       Obsidian natif listant Trame / Couloirs / Grille (visible mais
-       désactivée) ; l'entrée courante y est cochée via le Menu natif
-       (setChecked). Plus AUCUN sélecteur d'axe ici : la barre d'axe des
-       Couloirs (même grammaire que la barre de filtres Trame) vit dans le
-       contenu de la sous-vue, via renderLanesAxisBar. Sous-vue et axe restent
-       des états de SESSION (ce.narrativeSubview / ce.laneAxis), jamais
-       persistés. */
+       Obsidian natif listant Trame / Couloirs ; l'entrée courante y est
+       cochée via le Menu natif (setChecked). Plus AUCUN sélecteur d'axe ici :
+       la barre d'axe des Couloirs (même grammaire que la barre de filtres
+       Trame) vit dans le contenu de la sous-vue, via renderLanesAxisBar.
+       Sous-vue et axe restent des états de SESSION (ce.narrativeSubview /
+       ce.laneAxis), jamais persistés. */
     if (inWorkspace && activeMode === "arcs") {
       const nav = container.createDiv({ cls: "feuillets-narrative-bar" });
 
-      const subviewIcon: Record<NarrativeSubview, string> = { trame: "waypoint", lanes: "rows-3", grid: "grid-3x3" };
+      const subviewIcon: Record<NarrativeSubview, string> = { trame: "waypoint", lanes: "rows-3" };
       const subviewLabel: Record<NarrativeSubview, string> = {
         trame: t("board.narrative.trame"),
         lanes: t("board.narrative.lanes"),
-        grid: t("board.narrative.grid"),
       };
       const switchSubview = (key: NarrativeSubview) => {
         if (this.narrativeSubview === key) return;
@@ -877,7 +873,6 @@ export class BoardView extends BaseFeuilletsView {
         menu.addItem((item) =>
           item.setTitle(subviewLabel.lanes).setIcon("rows-3").setChecked(this.narrativeSubview === "lanes").onClick(() => switchSubview("lanes"))
         );
-        menu.addItem((item) => item.setTitle(subviewLabel.grid).setIcon("grid-3x3").setDisabled(true));
         menu.showAtMouseEvent(e);
       });
     }
@@ -924,9 +919,8 @@ export class BoardView extends BaseFeuilletsView {
     } else if (activeMode === "outline") {
       await this.renderOutline(scrollArea, root, numbering, bumpTotal, gen);
     } else if (activeMode === "arcs") {
-      /* §2/§4 : l'espace narratif (arcs) se subdivise en trois sous-vues —
-         Trame (le Chemin de fer classique, gelé), Couloirs (Scrivener) et
-         Grille (futur Plot Grid, non implémenté — impossible d'y arriver).
+      /* §2/§4 : l'espace narratif (arcs) se subdivise en deux sous-vues —
+         Trame (le Chemin de fer classique, gelé) et Couloirs (Scrivener).
          Couloirs n'arrive JAMAIS ici : la branche anticipée plus haut
          (renderCouloirs hors du scrollArea partagé) retourne avant ce point. */
       this.renderCheminDeFer(scrollArea, root, numbering);
@@ -1078,8 +1072,8 @@ export class BoardView extends BaseFeuilletsView {
     } else if (activeMode === "arcs") {
       /* §2 LOT 5 — « Informations affichées » du Chemin de fer (Synopsis,
          pov, Personnages, Fil) : options de la sous-vue Trame UNIQUEMENT.
-         Couloirs et Grille ont leurs propres réglages locaux (Axe, +) dans la
-         barre narrative, jamais ici. */
+         Couloirs a ses propres réglages locaux (Axe, +) dans la barre
+         narrative, jamais ici. */
       if (this.narrativeSubview === "trame") {
         menu.addItem((item) => item.setTitle(t("board.options.arcsHeader")).setDisabled(true));
         menu.addItem((item) =>
