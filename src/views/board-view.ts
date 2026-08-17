@@ -95,6 +95,30 @@ function getPersonnagesList(fm: Record<string, unknown>): string[] {
   return [];
 }
 
+/* §9 LOT 5 — normalisation CSV commune aux listes Personnages/Fil du Chemin
+   de fer : split sur virgule, trim, suppression des entrées vides et des
+   doublons exacts (première occurrence conservée), ordre préservé — jamais de
+   tri alphabétique. « Kemal, Arif, Kemal, , Sophie » → [« Kemal », « Arif »,
+   « Sophie »]. */
+export function parseCsvList(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(",")) {
+    const item = part.trim();
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
+}
+
+/* §12 LOT 5 — égalité de listes : mêmes longueur, éléments et ordre. La liste
+   vide ne « vaut » que [] — une modification réelle (ajout/suppression/
+   renommage) est détectée avant tout setFm/render. */
+export function listsEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
 function filColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -896,9 +920,9 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
     } else if (activeMode === "arcs") {
-      /* §13 LOT 4 — « Informations affichées » du Chemin de fer : Synopsis,
-         pov, Personnages. Pure présentation : masquer une entrée ne modifie
-         aucune donnée, aucun filtre, aucun rail. */
+      /* §13 LOT 4 / §2 LOT 5 — « Informations affichées » du Chemin de fer :
+         Synopsis, pov, Personnages, Fil. Pure présentation : masquer une
+         entrée ne modifie aucune donnée, aucun filtre, aucun rail. */
       menu.addItem((item) => item.setTitle(t("board.options.arcsHeader")).setDisabled(true));
       menu.addItem((item) =>
         item.setTitle(t("board.options.arcsShowSynopsis")).setChecked(!!S.arcsShowSynopsis).onClick(async () => {
@@ -917,6 +941,13 @@ export class BoardView extends BaseFeuilletsView {
       menu.addItem((item) =>
         item.setTitle(t("board.options.arcsShowCharacters")).setChecked(!!S.arcsShowCharacters).onClick(async () => {
           S.arcsShowCharacters = !S.arcsShowCharacters;
+          await this.plugin.saveSettings();
+          void this.render(true);
+        })
+      );
+      menu.addItem((item) =>
+        item.setTitle(t("board.options.arcsShowThreads")).setChecked(!!S.arcsShowThreads).onClick(async () => {
+          S.arcsShowThreads = !S.arcsShowThreads;
           await this.plugin.saveSettings();
           void this.render(true);
         })
@@ -1140,6 +1171,43 @@ export class BoardView extends BaseFeuilletsView {
             await this.setFm(file, key, raw);
             cell.setText(raw || placeholder);
             if (raw) cell.removeClass("is-empty"); else cell.addClass("is-empty");
+            await afterSave?.();
+          }
+          area.remove();
+          cell.show();
+        }
+      };
+      area.addEventListener("blur", () => { void save(); });
+      area.addEventListener("keydown", (evt) => {
+        if (evt.key === "Escape" || (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey))) area.blur();
+      });
+    });
+    return cell;
+  }
+
+  /* §9-12 LOT 5 — variante LISTE de makeClickToEditFmArea pour Personnages et
+     Fil. La saisie est CSV ; au blur, parseCsvList normalise et setFm reçoit
+     toujours un tableau ([] inclus, qui vide le champ logique → « — »).
+     setFm + afterSave ne sont déclenchés QUE si la liste change réellement
+     (même longueur, mêmes éléments, même ordre). */
+  makeClickToEditFmList(parent: HTMLElement, file: TFile, key: string, items: string[], afterSave?: () => void | Promise<void>): HTMLElement {
+    const display = items.join(", ");
+    const cell = parent.createDiv({ cls: "feuillets-flat-text-cell" + (display ? "" : " is-empty"), text: display || "—" });
+    cell.addEventListener("click", (e) => {
+      e.stopPropagation();
+      cell.hide();
+      const area = parent.createEl("textarea", { cls: "feuillets-flat-textarea feuillets-autosize" });
+      area.value = display;
+      area.focus();
+      area.style.removeProperty("height");
+      area.style.height = `${area.scrollHeight}px`;
+      const save = async () => {
+        if (area.parentNode) {
+          const next = parseCsvList(area.value);
+          if (!listsEqual(items, next)) {
+            await this.setFm(file, key, next);
+            cell.setText(next.join(", ") || "—");
+            if (next.length) cell.removeClass("is-empty"); else cell.addClass("is-empty");
             await afterSave?.();
           }
           area.remove();
@@ -1593,15 +1661,35 @@ export class BoardView extends BaseFeuilletsView {
         this.makeClickToEditFmArea(valueHost, file, "pov", "—", 1, () => this.render(true));
       }
 
-      const currentPersonnages = personnagesMap.get(file.path) || [];
-      if (S.arcsShowCharacters && currentPersonnages.length > 0) {
-        info.createDiv({ cls: "feuillets-arcs-personnages", text: t("board.arcs.withCharacters", { names: currentPersonnages.join(", ") }) });
+      /* §4-7 LOT 5 — Personnages : ligne secondaire en flex (icône Lucide
+         « users » + valeur CSV éditable). L'icône vit dans iconHost, la valeur
+         dans valueHost — makeClickToEditFmList ne reçoit QUE valueHost, donc
+         l'icône ne disparaît jamais pendant l'édition. Option ON → ligne
+         TOUJOURS présente, même vide (« — » éditable) ; OFF → aucune ligne. */
+      if (S.arcsShowCharacters) {
+        const charsHost = info.createDiv({ cls: "feuillets-arcs-personnages" });
+        const iconHost = charsHost.createSpan({ cls: "feuillets-arcs-meta-icon" });
+        setIcon(iconHost, "users");
+        const valueHost = charsHost.createDiv({ cls: "feuillets-arcs-meta-value" });
+        this.makeClickToEditFmList(valueHost, file, "characters", personnagesMap.get(file.path) || [], () => this.render(true));
       }
 
       // Fils (fil:) à droite en carrés
+      const currentFils = filsMap.get(file.path) || [];
+
+      /* §4-7 LOT 5 — Fil : même grammaire que Personnages avec l'icône
+         « route ». La valeur lue et écrite est la MÊME source logique `thread`
+         que les rails de droite (currentFils) — un seul modèle de données. */
+      if (S.arcsShowThreads) {
+        const threadHost = info.createDiv({ cls: "feuillets-arcs-thread" });
+        const threadIconHost = threadHost.createSpan({ cls: "feuillets-arcs-meta-icon" });
+        setIcon(threadIconHost, "route");
+        const threadValueHost = threadHost.createDiv({ cls: "feuillets-arcs-meta-value" });
+        this.makeClickToEditFmList(threadValueHost, file, "thread", currentFils, () => this.render(true));
+      }
+
       const filRails = row.createDiv({ cls: "feuillets-arcs-row-rails" });
       filRails.style.width = `${activeFils.length * 16}px`;
-      const currentFils = filsMap.get(file.path) || [];
 
       activeFils.forEach((f) => {
         const col = filRails.createDiv({ cls: "feuillets-arcs-col" });

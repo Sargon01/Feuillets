@@ -5487,7 +5487,8 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-outline .feuillets-flat-text-cell:hover,
 .feuillets-outline-wrap .feuillets-flat-text-cell:hover,
 .feuillets-arcs-file-synopsis > .feuillets-flat-text-cell:hover,
-.feuillets-arcs-personnages > .feuillets-flat-text-cell:hover,
+.feuillets-arcs-personnages > .feuillets-arcs-meta-value > .feuillets-flat-text-cell:hover,
+.feuillets-arcs-thread > .feuillets-arcs-meta-value > .feuillets-flat-text-cell:hover,
 .feuillets-arcs-pov > .feuillets-arcs-meta-value > .feuillets-flat-text-cell:hover,
 .feuillets-timeline-syn > .feuillets-flat-text-cell:hover {
   background: transparent;
@@ -5742,10 +5743,10 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 /* §9 LOT 4 — les cellules internes des lignes d'information Story Arc
-   (Synopsis, pov) héritent du niveau visuel secondaire du host : ni padding
-   de bouton, ni taille/graisse propres. Le titre reste dominant. */
-.feuillets-arcs-file-synopsis > .feuillets-flat-text-cell,
-.feuillets-arcs-personnages > .feuillets-flat-text-cell {
+   (Synopsis) héritent du niveau visuel secondaire du host : ni padding
+   de bouton, ni taille/graisse propres. Le titre reste dominant. Personnages,
+   Fil et pov héritent via .feuillets-arcs-meta-value (§12-13 LOT 4 / §4-7 LOT 5). */
+.feuillets-arcs-file-synopsis > .feuillets-flat-text-cell {
   font-size: inherit;
   color: inherit;
   line-height: inherit;
@@ -5796,12 +5797,18 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   flex-wrap: wrap;
 }
 
-.feuillets-arcs-personnages {
+/* §4-7 LOT 5 — Personnages et Fil : lignes secondaires en flex (icône Lucide
+   users/route + valeur CSV éditable), même grammaire que pov (§12-13 LOT 4).
+   L'icône vit dans .feuillets-arcs-meta-icon, jamais dans la cellule éditable
+   (.feuillets-arcs-meta-value) — la valeur se replie au besoin, l'icône reste. */
+.feuillets-arcs-personnages,
+.feuillets-arcs-thread {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-width: 0;
   font-size: var(--font-ui-smaller, 11px);
   color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .feuillets-arcs-badge {

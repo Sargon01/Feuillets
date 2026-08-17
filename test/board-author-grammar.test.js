@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { TFile, TFolder, Menu } from "obsidian";
-import { BoardView } from "../src/views/board-view.js";
+import { BoardView, parseCsvList, listsEqual } from "../src/views/board-view.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 import { fr } from "../src/i18n/fr.js";
 import { en } from "../src/i18n/en.js";
@@ -956,7 +956,7 @@ function buildArcHarness({ children = [], labels = {} } = {}) {
   const plugin = {
     // Options d'affichage Story Arc (§13) actives par défaut, comme
     // DEFAULT_SETTINGS — les tests d'options les passent à false.
-    settings: { arcsShowSynopsis: true, arcsShowPov: true, arcsShowCharacters: true },
+    settings: { arcsShowSynopsis: true, arcsShowPov: true, arcsShowCharacters: true, arcsShowThreads: true },
     getOrderedChildren: (folder) => (folder === root ? children : []),
     isFrontMatter: () => false,
     roleOfFolder: () => "partie",
@@ -996,6 +996,32 @@ function arcPovIcon(container) {
 
 function arcPovValueCell(container) {
   return findFirst(arcPovHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+}
+
+/* LOT 5 — Personnages et Fil : mêmes helpers structurels que pov
+   (host / iconHost / valueHost éditable). */
+function arcCharactersHost(container) {
+  return findFirst(container, (el) => el.classes.has("feuillets-arcs-personnages"));
+}
+
+function arcCharactersIcon(container) {
+  return findFirst(arcCharactersHost(container), (el) => el.classes.has("feuillets-arcs-meta-icon"));
+}
+
+function arcCharactersCell(container) {
+  return findFirst(arcCharactersHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
+}
+
+function arcThreadHost(container) {
+  return findFirst(container, (el) => el.classes.has("feuillets-arcs-thread"));
+}
+
+function arcThreadIcon(container) {
+  return findFirst(arcThreadHost(container), (el) => el.classes.has("feuillets-arcs-meta-icon"));
+}
+
+function arcThreadCell(container) {
+  return findFirst(arcThreadHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
 }
 
 function filterButtonIcons(container) {
@@ -1142,11 +1168,14 @@ test("LOT4 Story Arc — feuillet sans aucune métadonnée d'arc : titre + « �
   assert.ok(arcPovHost(container), "ligne pov présente (option ON)");
   assert.equal(arcPovIcon(container).icon, "eye", "icône eye présente");
   assert.equal(arcPovValueCell(container).text, "—", "pov vide eye + « — »");
-  assert.equal(
-    findAll(container, (el) => el.classes.has("feuillets-arcs-personnages") && !findFirst(el, (c) => c.classes.has("feuillets-flat-text-cell"))).length,
-    0,
-    "aucun personnage inventé"
-  );
+
+  // LOT 5 : Personnages et Fil présents (options ON), valeurs vides « — ».
+  assert.ok(arcCharactersHost(container), "ligne Personnages présente (option ON)");
+  assert.equal(arcCharactersIcon(container).icon, "users", "icône users présente");
+  assert.equal(arcCharactersCell(container).text, "—", "personnages vides → « — »");
+  assert.ok(arcThreadHost(container), "ligne Fil présente (option ON)");
+  assert.equal(arcThreadIcon(container).icon, "route", "icône route présente");
+  assert.equal(arcThreadCell(container).text, "—", "fil vide → « — »");
 
   // Aucun faux label/fil/filtre créé.
   assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-dot")).length, 0, "aucun point de rail inventé");
@@ -1202,15 +1231,18 @@ test("LOT4 Story Arc — non-régression : titre, statut, personnages, fils, rai
   // Statut inchangé (discret, en lecture seule).
   assert.ok(findFirst(container, (el) => el.classes.has("feuillets-status-dot")), "statut présent");
 
-  // Personnages toujours affichés en lecture seule.
-  const chars = findAll(
-    container,
-    (el) => el.classes.has("feuillets-arcs-personnages") && !findFirst(el, (c) => c.classes.has("feuillets-flat-text-cell"))
-  );
-  assert.equal(chars.length, 1, "libellé personnages en lecture seule présent");
-  assert.equal(chars[0].text, "Avec Alice, Bob", "personnages affichés tels quels");
+  // LOT 5 : Personnages affichés via icône users + valeur CSV jointe,
+  // jamais « Avec … ».
+  assert.ok(arcCharactersHost(container), "ligne Personnages présente (option ON)");
+  assert.equal(arcCharactersIcon(container).icon, "users", "icône users sur la ligne Personnages");
+  assert.equal(arcCharactersCell(container).text, "Alice, Bob", "personnages joints par « , », sans « Avec »");
 
-  // Fils narratifs toujours en lecture seule (rail droit).
+  // LOT 5 : Fil affiché via icône route + valeur, même source que le rail.
+  assert.ok(arcThreadHost(container), "ligne Fil présente (option ON)");
+  assert.equal(arcThreadIcon(container).icon, "route", "icône route sur la ligne Fil");
+  assert.equal(arcThreadCell(container).text, "filA", "fil affiché sans libellé « Fil : »");
+
+  // Fils narratifs toujours affichés en rail droit.
   assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-dot-fil")).length, 1, "fil affiché en rail");
 
   // Rails gauche/droite inchangés.
@@ -1335,19 +1367,17 @@ test("LOT4 Story Arc — sauvegarde Synopsis et pov toujours persistée via setF
   assert.equal(setFmCalls[1].v, "Éloïse");
 });
 
-test("LOT4 Story Arc — options d'affichage : masquer Synopsis/pov/Personnages retire les lignes sans toucher aux données, filtres ni rails", () => {
+test("LOT4/LOT5 Story Arc — options d'affichage : masquer Synopsis/pov/Personnages/Fil retire les lignes sans toucher aux données, filtres ni rails", () => {
   const file = new TFile("Projet/Manuscrit/Scène.md");
   file.__fm = { pov: "Camille", synopsis: "Résumé court.", characters: ["Alice", "Bob"] };
   const { view, root } = buildArcHarness({ children: [file], labels: { [file.path]: ["rouge"] } });
 
-  const charsHosts = (container) =>
-    findAll(container, (el) => el.classes.has("feuillets-arcs-personnages") && !findFirst(el, (c) => c.classes.has("feuillets-flat-text-cell")));
-
-  // Défaut : les trois lignes sont rendues.
+  // Défaut : les quatre lignes sont rendues (Fil vide → « — »).
   const c1 = renderArc(view, root);
   assert.ok(arcSynopsisHost(c1), "synopsis visible par défaut");
   assert.ok(arcPovHost(c1), "pov visible par défaut");
-  assert.equal(charsHosts(c1).length, 1, "personnages visibles par défaut");
+  assert.ok(arcCharactersHost(c1), "personnages visibles par défaut");
+  assert.ok(arcThreadHost(c1), "fil visible par défaut (option ON, vide → « — »)");
 
   // Synopsis masqué : sa ligne disparaît, les autres restent.
   view.plugin.settings.arcsShowSynopsis = false;
@@ -1360,16 +1390,24 @@ test("LOT4 Story Arc — options d'affichage : masquer Synopsis/pov/Personnages 
   const c3 = renderArc(view, root);
   assert.equal(arcSynopsisHost(c3), undefined, "synopsis masqué");
   assert.equal(arcPovHost(c3), undefined, "pov masqué → aucune ligne");
-  assert.equal(charsHosts(c3).length, 1, "personnages toujours visibles");
+  assert.ok(arcCharactersHost(c3), "personnages toujours visibles");
 
   // Personnages masqués : titre, rails et filtres intacts.
   view.plugin.settings.arcsShowCharacters = false;
   const c4 = renderArc(view, root);
-  assert.equal(charsHosts(c4).length, 0, "personnages masqués → aucune ligne");
+  assert.equal(arcCharactersHost(c4), undefined, "personnages masqués → aucune ligne");
+  assert.ok(arcThreadHost(c4), "fil toujours visible");
   assert.ok(findFirst(c4, (el) => el.classes.has("feuillets-arcs-row-file")), "ligne du feuillet conservée");
   assert.equal(findAll(c4, (el) => el.classes.has("feuillets-arcs-row-rails")).length, 2, "rails inchangés");
   // Filtres inchangés : label (rouge), personnage (Alice, Bob) et pov (Camille).
   assert.equal(findAll(c4, (el) => el.classes.has("feuillets-arcs-filter-btn")).length, 3, "filtres inchangés");
+
+  // Fil masqué : seule sa ligne disparaît, rails et filtres intacts.
+  view.plugin.settings.arcsShowThreads = false;
+  const c5 = renderArc(view, root);
+  assert.equal(arcThreadHost(c5), undefined, "fil masqué → aucune ligne Fil");
+  assert.equal(findAll(c5, (el) => el.classes.has("feuillets-arcs-dot-fil")).length, 0, "aucun rail Fil sans donnée");
+  assert.equal(findAll(c5, (el) => el.classes.has("feuillets-arcs-filter-btn")).length, 3, "filtres inchangés (aucun fil de données)");
 
   // Masquer ne modifie AUCUNE donnée.
   assert.equal(view.fm(file).pov, "Camille", "donnée pov intacte");
@@ -1531,8 +1569,10 @@ test("LOT4 finition Story Arc — Pov OFF : aucune ligne pov ni icône eye, donn
 
   const container = renderArc(view, root);
   assert.equal(arcPovHost(container), undefined, "aucune ligne .feuillets-arcs-pov");
-  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-meta-icon")).length, 0, "aucune icône eye");
-  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-meta-value")).length, 0, "aucun valueHost");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-meta-icon") && el.icon === "eye").length, 0, "aucune icône eye");
+  // LOT 5 : les autres lignes d'information (Personnages, Fil) restent actives.
+  assert.equal(arcCharactersIcon(container).icon, "users", "icône users conservée (ligne Personnages)");
+  assert.equal(arcThreadIcon(container).icon, "route", "icône route conservée (ligne Fil)");
   assert.equal(view.fm(file).pov, "Camille", "donnée YAML pov intacte");
 });
 
@@ -1559,7 +1599,7 @@ test("LOT4 finition Story Arc — suppression d'un pov : donnée vidée, option 
 
 /* ===================== STORY ARC — options « Informations affichées » (finition LOT 4) ===================== */
 
-test("LOT4 finition options Story Arc — le menu contient Synopsis, Pov, Personnages dans cet ordre", () => {
+test("LOT4/LOT5 finition options Story Arc — le menu contient Synopsis, Pov, Personnages, Fil dans cet ordre", () => {
   const { view } = buildOptionsHarness();
   const menu = new Menu();
   view.buildModeOptionsMenu(menu, "arcs", {
@@ -1569,19 +1609,21 @@ test("LOT4 finition options Story Arc — le menu contient Synopsis, Pov, Person
     wholeManuscript: false,
     outlineColumns: {},
   });
-  assert.deepEqual(menuItemTitles(menu), ["— Informations affichées —", "Synopsis", "Pov", "Personnages"]);
+  assert.deepEqual(menuItemTitles(menu), ["— Informations affichées —", "Synopsis", "Pov", "Personnages", "Fil"]);
 });
 
-test("LOT4 finition options Story Arc — arcsShowSynopsis/Pov/Characters sont true par défaut", () => {
+test("LOT4/LOT5 finition options Story Arc — arcsShowSynopsis/Pov/Characters/Threads sont true par défaut", () => {
   assert.equal(DEFAULT_SETTINGS.arcsShowSynopsis, true);
   assert.equal(DEFAULT_SETTINGS.arcsShowPov, true);
   assert.equal(DEFAULT_SETTINGS.arcsShowCharacters, true);
+  assert.equal(DEFAULT_SETTINGS.arcsShowThreads, true, "arcsShowThreads présent et actif par défaut");
 });
 
 for (const [key, label] of [
   ["arcsShowSynopsis", "Synopsis"],
   ["arcsShowPov", "Pov"],
   ["arcsShowCharacters", "Personnages"],
+  ["arcsShowThreads", "Fil"],
 ]) {
   test(`LOT4 finition options Story Arc — bascule « ${label} » : saveSettings + render(true)`, async () => {
     const { view, plugin } = buildOptionsHarness();
@@ -1762,7 +1804,7 @@ test("LOT4 finition Story Arc — un feuillet fm={} : aucun état vide global, t
   assert.equal(findFirst(container, (el) => el.classes.has("feuillets-arcs-file-title")).text, "Scène", "titre visible");
 });
 
-test("LOT4 finition Story Arc — fm={} avec Synopsis/Pov ON : synopsis « — » et eye + « — »", () => {
+test("LOT4/LOT5 finition Story Arc — fm={} avec toutes les options ON : « — » éditables sur les 4 lignes", () => {
   const file = new TFile("Projet/Manuscrit/Scène.md");
   file.__fm = {};
   const { view, root } = buildArcHarness({ children: [file] });
@@ -1772,21 +1814,30 @@ test("LOT4 finition Story Arc — fm={} avec Synopsis/Pov ON : synopsis « — �
   assert.equal(synCell.text, "—", "synopsis vide → « — »");
   assert.equal(arcPovIcon(container).icon, "eye", "icône eye présente");
   assert.equal(arcPovValueCell(container).text, "—", "pov vide → « — »");
-  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-personnages")).length, 0, "aucune ligne de personnages sans donnée");
+  // LOT 5 : Personnages et Fil présents, valeurs vides → « — » (pas d'invention).
+  assert.ok(arcCharactersHost(container), "ligne Personnages présente (option ON)");
+  assert.equal(arcCharactersIcon(container).icon, "users", "icône users");
+  assert.equal(arcCharactersCell(container).text, "—", "personnages vides → « — »");
+  assert.ok(arcThreadHost(container), "ligne Fil présente (option ON)");
+  assert.equal(arcThreadIcon(container).icon, "route", "icône route");
+  assert.equal(arcThreadCell(container).text, "—", "fil vide → « — »");
 });
 
-test("LOT4 finition Story Arc — fm={} avec Synopsis/Pov OFF : seulement le titre", () => {
+test("LOT4/LOT5 finition Story Arc — fm={} avec toutes les options OFF : seulement le titre", () => {
   const file = new TFile("Projet/Manuscrit/Scène.md");
   file.__fm = {};
   const { view, root } = buildArcHarness({ children: [file] });
   view.plugin.settings.arcsShowSynopsis = false;
   view.plugin.settings.arcsShowPov = false;
+  view.plugin.settings.arcsShowCharacters = false;
+  view.plugin.settings.arcsShowThreads = false;
   const container = renderArc(view, root);
 
   assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-file-title")), "titre présent");
   assert.equal(arcSynopsisHost(container), undefined, "aucun synopsis");
   assert.equal(arcPovHost(container), undefined, "aucune ligne pov");
-  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-personnages")).length, 0, "aucun personnage");
+  assert.equal(arcCharactersHost(container), undefined, "aucune ligne Personnages");
+  assert.equal(arcThreadHost(container), undefined, "aucune ligne Fil");
 });
 
 /* ===================== i18n — typographie finale Pov / pov (LOT 4) ===================== */
@@ -2046,12 +2097,13 @@ test("LOT4 CSS — hover des cellules Plan/Story Arc/Chronologie neutralisé, ho
   // Le hover global reste actif pour les autres vues (Cartes, Notes…).
   assert.match(css, /\.feuillets-flat-text-cell:hover\s*\{\s*background:\s*var\(--background-modifier-hover\);\s*\}/);
   // Chaque sélecteur local de neutralisation est présent (Plan, Synopsis,
-  // Personnages, pov, Chronologie).
+  // Personnages, Fil, pov, Chronologie).
   for (const selector of [
     ".feuillets-outline .feuillets-flat-text-cell:hover",
     ".feuillets-outline-wrap .feuillets-flat-text-cell:hover",
     ".feuillets-arcs-file-synopsis > .feuillets-flat-text-cell:hover",
-    ".feuillets-arcs-personnages > .feuillets-flat-text-cell:hover",
+    ".feuillets-arcs-personnages > .feuillets-arcs-meta-value > .feuillets-flat-text-cell:hover",
+    ".feuillets-arcs-thread > .feuillets-arcs-meta-value > .feuillets-flat-text-cell:hover",
     ".feuillets-arcs-pov > .feuillets-arcs-meta-value > .feuillets-flat-text-cell:hover",
     ".feuillets-timeline-syn > .feuillets-flat-text-cell:hover",
   ]) {
@@ -2078,10 +2130,499 @@ test("LOT4 CSS — Synopsis Story Arc et Chronologie : white-space pre-wrap (wra
   assert.match(css, /\.feuillets-timeline-syn\s*>\s*\.feuillets-flat-text-cell[^{]*\{\s*[^}]*white-space:\s*pre-wrap;/);
 });
 
-test("LOT4 CSS — aucune règle !important dans les blocs arcs récents (row-file, synopsis, pov, meta)", async () => {
+test("LOT4/LOT5 CSS — aucune règle !important dans les blocs arcs récents (row-file, synopsis, pov, meta, personnages, thread)", async () => {
   const css = stripCssComments(await readFile("styles.css", "utf8"));
-  const blocks = css.split("}").filter((b) => /\.feuillets-arcs-(row-file|file-synopsis|pov|meta-)/.test(b));
+  const blocks = css.split("}").filter((b) => /\.feuillets-arcs-(row-file|file-synopsis|pov|meta-|personnages|thread)/.test(b));
   for (const block of blocks) {
     assert.equal(block.includes("!important"), false, `aucun !important dans : ${block.trim().slice(0, 80)}`);
   }
+});
+
+/* ===================== STORY ARC — Personnages et Fil éditables (LOT 5) ===================== */
+
+/* §25 — parseCsvList : normalisation CSV des listes Personnages/Fil. */
+
+test("LOT5 parseCsvList — « Kemal, Arif » → [Kemal, Arif]", () => {
+  assert.deepEqual(parseCsvList("Kemal, Arif"), ["Kemal", "Arif"]);
+});
+
+test("LOT5 parseCsvList — espaces autour des virgules ignorés", () => {
+  assert.deepEqual(parseCsvList(" Kemal , Arif "), ["Kemal", "Arif"]);
+});
+
+test("LOT5 parseCsvList — entrées vides supprimées", () => {
+  assert.deepEqual(parseCsvList(" Kemal, , Arif, "), ["Kemal", "Arif"]);
+});
+
+test("LOT5 parseCsvList — doublons exacts supprimés, première occurrence conservée", () => {
+  assert.deepEqual(parseCsvList("Kemal, Arif, Kemal"), ["Kemal", "Arif"]);
+});
+
+test("LOT5 parseCsvList — ordre préservé, jamais de tri alphabétique", () => {
+  assert.deepEqual(parseCsvList("Arif, Kemal, Sophie"), ["Arif", "Kemal", "Sophie"]);
+});
+
+test("LOT5 parseCsvList — chaîne vide → []", () => {
+  assert.deepEqual(parseCsvList(""), []);
+  assert.deepEqual(parseCsvList("   "), []);
+});
+
+/* §12 — listsEqual : mêmes longueur, éléments et ordre. */
+
+test("LOT5 listsEqual — vrai pour listes identiques (vide comprise), faux sinon", () => {
+  assert.equal(listsEqual([], []), true);
+  assert.equal(listsEqual(["Kemal"], ["Kemal"]), true);
+  assert.equal(listsEqual(["Kemal", "Arif"], ["Kemal", "Arif"]), true);
+  assert.equal(listsEqual(["Kemal", "Arif"], ["Arif", "Kemal"]), false, "l'ordre compte");
+  assert.equal(listsEqual(["Kemal", "Arif"], ["Kemal"]), false, "la longueur compte");
+  assert.equal(listsEqual([], ["Kemal"]), false, "la liste vide ne vaut que []");
+});
+
+/* §26 — Personnages : ligne users + valeur CSV éditable. */
+
+test("LOT5 Personnages — option ON + présents : ligne, icône users, valeur jointe", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal", "Arif"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  assert.ok(arcCharactersHost(container), "ligne Personnages présente (option ON)");
+  assert.equal(arcCharactersIcon(container).icon, "users", "icône Lucide « users »");
+  assert.equal(arcCharactersCell(container).text, "Kemal, Arif", "personnages joints par « , », sans « Avec »");
+});
+
+test("LOT5 Personnages — option ON + aucun : ligne présente, users + « — »", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  assert.ok(arcCharactersHost(container), "ligne Personnages présente (option ON)");
+  assert.equal(arcCharactersIcon(container).icon, "users", "icône users");
+  assert.equal(arcCharactersCell(container).text, "—", "aucun personnage → « — »");
+});
+
+test("LOT5 Personnages — option OFF : aucune ligne, donnée intacte", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.plugin.settings.arcsShowCharacters = false;
+  const container = renderArc(view, root);
+  assert.equal(arcCharactersHost(container), undefined, "aucune ligne Personnages");
+  assert.equal(view.fm(file).characters[0], "Kemal", "donnée YAML intacte");
+});
+
+test("LOT5 Personnages — clic sur « — » : textarea vide", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  await arcCharactersCell(container).trigger("click");
+  const area = findFirst(arcCharactersHost(container), (el) => el.tag === "textarea");
+  assert.ok(area, "textarea créé au clic sur « — »");
+  assert.equal(area.value, "", "textarea vide");
+});
+
+test("LOT5 Personnages — clic sur une valeur existante : textarea pré-rempli", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal", "Arif"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  await arcCharactersCell(container).trigger("click");
+  const area = findFirst(arcCharactersHost(container), (el) => el.tag === "textarea");
+  assert.equal(area.value, "Kemal, Arif", "textarea pré-rempli, jamais « Personnages : … »");
+});
+
+test("LOT5 Personnages — modification réelle : setFm(characters, tableau normalisé) + render(true)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const setFmCalls = [];
+  const renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+  view.render = async (force) => { renderCalls.push(force); };
+
+  const container = renderArc(view, root);
+  await arcCharactersCell(container).trigger("click");
+  const area = findFirst(arcCharactersHost(container), (el) => el.tag === "textarea");
+  area.value = "Kemal, Arif, Kemal"; // doublon à nettoyer
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls.length, 1, "setFm appelé une seule fois");
+  assert.equal(setFmCalls[0].k, "characters", "clé logique characters");
+  assert.deepEqual(setFmCalls[0].v, ["Kemal", "Arif"], "setFm reçoit le tableau normalisé (doublon retiré)");
+  assert.deepEqual(renderCalls, [true], "render(true) déclenché après modification");
+});
+
+test("LOT5 Personnages — valeur inchangée : aucun setFm ni render", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal", "Arif"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = 0;
+  let renderCalls = 0;
+  view.setFm = async () => { setFmCalls++; };
+  view.render = async () => { renderCalls++; };
+
+  const container = renderArc(view, root);
+  await arcCharactersCell(container).trigger("click");
+  const area = findFirst(arcCharactersHost(container), (el) => el.tag === "textarea");
+  area.value = "Kemal, Arif"; // inchangé
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls, 0, "aucun setFm si valeur inchangée");
+  assert.equal(renderCalls, 0, "aucun render inutile");
+});
+
+test("LOT5 Personnages — suppression complète : setFm(characters, []), render, nouveau rendu users + « — »", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const setFmCalls = [];
+  const renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); f.__fm = { ...f.__fm, [k]: v }; };
+  view.render = async (force) => { renderCalls.push(force); };
+
+  const container = renderArc(view, root);
+  await arcCharactersCell(container).trigger("click");
+  const area = findFirst(arcCharactersHost(container), (el) => el.tag === "textarea");
+  area.value = ""; // effacement complet
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls[0].k, "characters", "clé logique characters");
+  assert.deepEqual(setFmCalls[0].v, [], "setFm reçoit [] pour vider");
+  assert.deepEqual(renderCalls, [true], "render(true) déclenché");
+
+  // Nouveau rendu sur le frontmatter mis à jour : ligne conservée, « — ».
+  const c2 = renderArc(view, root);
+  assert.ok(arcCharactersHost(c2), "option active : ligne Personnages présente");
+  assert.equal(arcCharactersIcon(c2).icon, "users", "icône users conservée");
+  assert.equal(arcCharactersCell(c2).text, "—", "rendu final users + « — »");
+});
+
+test("LOT5 Personnages — ancien YAML chaîne + validation identique : aucune écriture", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: "Kemal, Arif" }; // forme physique ancienne
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = 0;
+  view.setFm = async () => { setFmCalls++; };
+
+  const container = renderArc(view, root);
+  assert.equal(arcCharactersCell(container).text, "Kemal, Arif", "chaîne lue comme liste et jointe");
+  await arcCharactersCell(container).trigger("click");
+  const area = findFirst(arcCharactersHost(container), (el) => el.tag === "textarea");
+  area.value = "Kemal, Arif"; // identique à la lecture
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls, 0, "aucune migration ni écriture si la liste est identique");
+});
+
+/* §27 — Fil : ligne route + valeur CSV éditable, même grammaire. */
+
+test("LOT5 Fil — option ON + présents : ligne, icône route, valeur jointe", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "Enquête, Héritage" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  assert.ok(arcThreadHost(container), "ligne Fil présente (option ON)");
+  assert.equal(arcThreadIcon(container).icon, "route", "icône Lucide « route »");
+  assert.equal(arcThreadCell(container).text, "Enquête, Héritage", "fils joints par « , », sans « Fil : »");
+});
+
+test("LOT5 Fil — option ON + aucun : ligne présente, route + « — »", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  assert.ok(arcThreadHost(container), "ligne Fil présente (option ON)");
+  assert.equal(arcThreadIcon(container).icon, "route", "icône route");
+  assert.equal(arcThreadCell(container).text, "—", "aucun fil → « — »");
+});
+
+test("LOT5 Fil — option OFF : aucune ligne, donnée intacte", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "Enquête" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.plugin.settings.arcsShowThreads = false;
+  const container = renderArc(view, root);
+  assert.equal(arcThreadHost(container), undefined, "aucune ligne Fil");
+  assert.equal(view.fm(file).thread, "Enquête", "donnée YAML intacte");
+});
+
+test("LOT5 Fil — clic sur « — » : textarea vide", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  await arcThreadCell(container).trigger("click");
+  const area = findFirst(arcThreadHost(container), (el) => el.tag === "textarea");
+  assert.ok(area, "textarea créé au clic sur « — »");
+  assert.equal(area.value, "", "textarea vide");
+});
+
+test("LOT5 Fil — clic sur une valeur existante : textarea pré-rempli", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: ["Enquête", "Héritage"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  await arcThreadCell(container).trigger("click");
+  const area = findFirst(arcThreadHost(container), (el) => el.tag === "textarea");
+  assert.equal(area.value, "Enquête, Héritage", "textarea pré-rempli, jamais « Fil : … »");
+});
+
+test("LOT5 Fil — modification réelle : setFm(thread, tableau normalisé) + render(true)", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "Enquête" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const setFmCalls = [];
+  const renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+  view.render = async (force) => { renderCalls.push(force); };
+
+  const container = renderArc(view, root);
+  await arcThreadCell(container).trigger("click");
+  const area = findFirst(arcThreadHost(container), (el) => el.tag === "textarea");
+  area.value = "Héritage, Enquête"; // ordre préservé tel quel
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls.length, 1, "setFm appelé une seule fois");
+  assert.equal(setFmCalls[0].k, "thread", "clé logique thread");
+  assert.deepEqual(setFmCalls[0].v, ["Héritage", "Enquête"], "ordre saisi conservé (pas de tri)");
+  assert.deepEqual(renderCalls, [true], "render(true) déclenché après modification");
+});
+
+test("LOT5 Fil — valeur inchangée : aucun setFm ni render", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "Enquête" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = 0;
+  let renderCalls = 0;
+  view.setFm = async () => { setFmCalls++; };
+  view.render = async () => { renderCalls++; };
+
+  const container = renderArc(view, root);
+  await arcThreadCell(container).trigger("click");
+  const area = findFirst(arcThreadHost(container), (el) => el.tag === "textarea");
+  area.value = "Enquête"; // inchangé
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls, 0, "aucun setFm si valeur inchangée");
+  assert.equal(renderCalls, 0, "aucun render inutile");
+});
+
+test("LOT5 Fil — suppression complète : setFm(thread, []), render, nouveau rendu route + « — »", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "Enquête" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const setFmCalls = [];
+  const renderCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); f.__fm = { ...f.__fm, [k]: v }; };
+  view.render = async (force) => { renderCalls.push(force); };
+
+  const container = renderArc(view, root);
+  await arcThreadCell(container).trigger("click");
+  const area = findFirst(arcThreadHost(container), (el) => el.tag === "textarea");
+  area.value = ""; // effacement complet
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls[0].k, "thread", "clé logique thread");
+  assert.deepEqual(setFmCalls[0].v, [], "setFm reçoit [] pour vider");
+  assert.deepEqual(renderCalls, [true], "render(true) déclenché");
+
+  // Nouveau rendu : ligne conservée, « — », plus aucun rail de fil.
+  const c2 = renderArc(view, root);
+  assert.ok(arcThreadHost(c2), "option active : ligne Fil présente");
+  assert.equal(arcThreadIcon(c2).icon, "route", "icône route conservée");
+  assert.equal(arcThreadCell(c2).text, "—", "rendu final route + « — »");
+  assert.equal(findAll(c2, (el) => el.classes.has("feuillets-arcs-dot-fil")).length, 0, "aucun rail Fil restant");
+});
+
+test("LOT5 Fil — ancien YAML chaîne + validation identique : aucune écriture", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "Enquête, Héritage" }; // forme physique ancienne (fil:)
+  const { view, root } = buildArcHarness({ children: [file] });
+  let setFmCalls = 0;
+  view.setFm = async () => { setFmCalls++; };
+
+  const container = renderArc(view, root);
+  assert.equal(arcThreadCell(container).text, "Enquête, Héritage", "chaîne lue comme liste et jointe");
+  await arcThreadCell(container).trigger("click");
+  const area = findFirst(arcThreadHost(container), (el) => el.tag === "textarea");
+  area.value = "Enquête, Héritage"; // identique à la lecture
+  await area.trigger("blur");
+
+  assert.equal(setFmCalls, 0, "aucune migration ni écriture si la liste est identique");
+});
+
+/* §28 — rerendu et filtres : après une vraie modification, les données
+   logiques relues alimentent ligne, filtres et rails. */
+
+test("LOT5 rerendu — ajout d'un personnage : setFm persiste, nouveau rendu met ligne et filtre à jour", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.setFm = async (f, k, v) => { f.__fm = { ...f.__fm, [k]: v }; };
+  view.render = async () => {};
+
+  const c1 = renderArc(view, root);
+  assert.ok(findFirst(c1, (el) => el.classes.has("feuillets-arcs-filter-btn")), "filtre Personnage présent");
+
+  await arcCharactersCell(c1).trigger("click");
+  const area = findFirst(arcCharactersHost(c1), (el) => el.tag === "textarea");
+  area.value = "Kemal, Arif";
+  await area.trigger("blur");
+
+  // Nouveau rendu sur le frontmatter logique mis à jour.
+  const c2 = renderArc(view, root);
+  assert.equal(arcCharactersCell(c2).text, "Kemal, Arif", "ligne à jour après render");
+  assert.equal(filterButtonIcons(c2).includes("users"), true, "filtre Personnage conservé");
+});
+
+test("LOT5 rerendu — ajout d'un fil : setFm persiste, nouveau rendu met ligne, filtre et rail à jour", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "Enquête" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.setFm = async (f, k, v) => { f.__fm = { ...f.__fm, [k]: v }; };
+  view.render = async () => {};
+
+  const c1 = renderArc(view, root);
+  assert.ok(findFirst(c1, (el) => el.classes.has("feuillets-arcs-filter-btn")), "filtre Fil présent");
+  assert.equal(findAll(c1, (el) => el.classes.has("feuillets-arcs-dot-fil")).length, 1, "rail Fil présent");
+
+  await arcThreadCell(c1).trigger("click");
+  const area = findFirst(arcThreadHost(c1), (el) => el.tag === "textarea");
+  area.value = "Enquête, Héritage";
+  await area.trigger("blur");
+
+  const c2 = renderArc(view, root);
+  assert.equal(arcThreadCell(c2).text, "Enquête, Héritage", "ligne à jour après render");
+  assert.equal(filterButtonIcons(c2).includes("route"), true, "filtre Fil conservé");
+  assert.equal(findAll(c2, (el) => el.classes.has("feuillets-arcs-dot-fil")).length, 2, "rail Fil à jour");
+});
+
+test("LOT5 rerendu — arcsShowThreads false + fils réels : filtre Fil et rails toujours disponibles", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "Enquête" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.plugin.settings.arcsShowThreads = false;
+  const container = renderArc(view, root);
+  assert.equal(arcThreadHost(container), undefined, "aucune ligne Fil (masquage visuel seul)");
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "filtre Fil conservé");
+  assert.equal(filterButtonIcons(container).includes("route"), true, "bouton de filtre Fil présent");
+  assert.equal(findAll(container, (el) => el.classes.has("feuillets-arcs-dot-fil")).length, 1, "rail Fil conservé");
+});
+
+test("LOT5 rerendu — arcsShowCharacters false + personnages réels : filtre Personnage toujours disponible", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.plugin.settings.arcsShowCharacters = false;
+  const container = renderArc(view, root);
+  assert.equal(arcCharactersHost(container), undefined, "aucune ligne Personnages");
+  assert.ok(findFirst(container, (el) => el.classes.has("feuillets-arcs-filter-bar")), "filtre Personnage conservé");
+  assert.equal(filterButtonIcons(container).includes("users"), true, "bouton de filtre Personnage présent");
+});
+
+/* §29 — options : toutes couvertes par les tests LOT4/LOT5 mis à jour
+   (défaut arcsShowThreads=true, ordre du menu, bascule Fil → saveSettings +
+   render(true) dans la boucle, les trois options existantes inchangées). */
+
+/* §30 — DOM / icônes : jamais de libellé textuel, icône jamais détruite. */
+
+test("LOT5 DOM — aucune chaîne « Avec » dans la ligne Personnages", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Alice", "Bob"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  const host = arcCharactersHost(container);
+  const texts = findAll(host, (el) => typeof el.text === "string" && el.text.length > 0).map((el) => el.text);
+  assert.equal(texts.some((t) => t.includes("Avec")), false, `aucun « Avec … » dans la ligne (contenu : ${texts.join(" | ")})`);
+  assert.equal(arcCharactersCell(container).text, "Alice, Bob", "la valeur brute est le seul texte de la ligne");
+});
+
+test("LOT5 DOM — aucun libellé « Personnages » / « Personnages : » devant la valeur", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal"] };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  const host = arcCharactersHost(container);
+  const texts = findAll(host, (el) => typeof el.text === "string" && el.text.length > 0).map((el) => el.text);
+  assert.equal(texts.some((t) => /^personnages/i.test(t.trim())), false, `aucun libellé « Personnages : » (contenu : ${texts.join(" | ")})`);
+  assert.equal(arcCharactersCell(container).text, "Kemal", "valeur brute seule, sans libellé");
+});
+
+test("LOT5 DOM — aucun libellé « Fil » / « Fil : » devant la valeur", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { thread: "Enquête" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+  const host = arcThreadHost(container);
+  const texts = findAll(host, (el) => typeof el.text === "string" && el.text.length > 0).map((el) => el.text);
+  assert.equal(texts.some((t) => /^fil/i.test(t.trim())), false, `aucun libellé « Fil : » (contenu : ${texts.join(" | ")})`);
+  assert.equal(arcThreadCell(container).text, "Enquête", "valeur brute seule, sans libellé");
+});
+
+test("LOT5 DOM — l'icône ne disparaît jamais pendant l'édition de la valeur", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { characters: ["Kemal"], thread: "Enquête" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  const container = renderArc(view, root);
+
+  // Personnages : iconHost et valueHost sont frères.
+  const host = arcCharactersHost(container);
+  const iconHost = findFirst(host, (el) => el.classes.has("feuillets-arcs-meta-icon"));
+  const valueHost = findFirst(host, (el) => el.classes.has("feuillets-arcs-meta-value"));
+  assert.ok(iconHost && valueHost, "iconHost et valueHost présents");
+  assert.equal(valueHost.children.includes(iconHost), false, "l'icône n'est pas dans la cellule éditée");
+
+  await arcCharactersCell(container).trigger("click");
+  const area = findFirst(host, (el) => el.tag === "textarea");
+  assert.ok(area, "textarea dans valueHost");
+  assert.equal(iconHost.children.includes(area), false, "le textarea n'est pas dans l'iconHost");
+  assert.equal(arcCharactersIcon(container).icon, "users", "icône users toujours présente pendant l'édition");
+
+  // Fil : même structure.
+  const threadHost = arcThreadHost(container);
+  const threadIconHost = findFirst(threadHost, (el) => el.classes.has("feuillets-arcs-meta-icon"));
+  const threadValueHost = findFirst(threadHost, (el) => el.classes.has("feuillets-arcs-meta-value"));
+  assert.ok(threadIconHost && threadValueHost, "iconHost et valueHost du Fil présents");
+  assert.equal(threadValueHost.children.includes(threadIconHost), false, "l'icône route hors de la cellule");
+});
+
+/* §31 — anti-doublons (intégration légère) : makeClickToEditFmList ne passe à
+   setFm que les clés LOGIQUES characters/thread, jamais un alias physique. */
+
+test("LOT5 anti-doublons — setFm reçoit uniquement les clés logiques characters/thread", async () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = {};
+  const { view, root } = buildArcHarness({ children: [file] });
+  const setFmCalls = [];
+  view.setFm = async (f, k, v) => { setFmCalls.push({ k, v }); };
+
+  const container = renderArc(view, root);
+  await arcCharactersCell(container).trigger("click");
+  const charsArea = findFirst(arcCharactersHost(container), (el) => el.tag === "textarea");
+  charsArea.value = "Kemal, Arif";
+  await charsArea.trigger("blur");
+
+  await arcThreadCell(container).trigger("click");
+  const threadArea = findFirst(arcThreadHost(container), (el) => el.tag === "textarea");
+  threadArea.value = "Enquête, Héritage";
+  await threadArea.trigger("blur");
+
+  assert.deepEqual(setFmCalls.map((c) => c.k), ["characters", "thread"], "clés logiques uniquement — jamais personnages/persos/fil");
+  assert.deepEqual(setFmCalls[0].v, ["Kemal", "Arif"], "valeur personnages normalisée");
+  assert.deepEqual(setFmCalls[1].v, ["Enquête", "Héritage"], "valeur fil normalisée");
+});
+
+/* CSS — grammaire flex de Personnages et Fil (même que pov). */
+
+test("LOT5 CSS — Personnages et Fil : flex row, gap Obsidian, aucune couleur codée en dur", async () => {
+  const css = stripCssComments(await readFile("styles.css", "utf8"));
+  assert.match(css, /\.feuillets-arcs-personnages,\s*\.feuillets-arcs-thread\s*\{\s*display:\s*flex;\s*align-items:\s*center;\s*gap:\s*var\(--size-4-1\);/);
+  assert.match(css, /\.feuillets-arcs-meta-icon\s*\.svg-icon\s*\{\s*width:\s*13px;\s*height:\s*13px;\s*\}/);
+  assert.match(css, /\.feuillets-arcs-meta-value\s*>\s*\.feuillets-flat-text-cell\s*\{\s*font-size:\s*inherit;\s*color:\s*inherit;\s*line-height:\s*inherit;\s*padding:\s*0;\s*\}/);
+  // Le bloc flex Personnages/Fil n'emploie que des variables Obsidian, jamais
+  // une couleur hex/rgb codée en dur.
+  const block = css.split("}").find((b) => b.includes(".feuillets-arcs-personnages") && b.includes(".feuillets-arcs-thread"));
+  assert.ok(block, "bloc flex Personnages/Fil présent");
+  assert.equal(/#[0-9a-f]{3,8}\b/i.test(block), false, "aucune couleur hex dans le bloc Personnages/Fil");
+  assert.equal(/rgb\(/.test(block), false, "aucune couleur rgb() dans le bloc Personnages/Fil");
 });

@@ -324,6 +324,7 @@ export const en = {
   "board.options.arcsShowSynopsis": "Synopsis",
   "board.options.arcsShowPov": "Pov",
   "board.options.arcsShowCharacters": "Characters",
+  "board.options.arcsShowThreads": "Thread",
 
   "board.col.title": "Sheet",
   "board.col.synopsis": "Synopsis",

@@ -57,11 +57,12 @@ export type DefaultSettings = {
    *  comportement historique inchangé. */
   outlineWrapLongText: boolean;
   /* Chemin de fer : lignes d'information affichées sous le titre de chaque
-     feuillet (Synopsis, pov, Personnages). Pure présentation — masquer une
-     entrée ne modifie ni les données, ni les filtres, ni les rails. */
+     feuillet (Synopsis, pov, Personnages, Fil). Pure présentation — masquer
+     une entrée ne modifie ni les données, ni les filtres, ni les rails. */
   arcsShowSynopsis: boolean;
   arcsShowPov: boolean;
   arcsShowCharacters: boolean;
+  arcsShowThreads: boolean;
   showCardTags: boolean;
   projects: string[];
   manuscriptTitle: string;
@@ -274,6 +275,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   arcsShowSynopsis: true,
   arcsShowPov: true,
   arcsShowCharacters: true,
+  arcsShowThreads: true,
   showCardTags: false,
   projects: [],
   manuscriptTitle: "",

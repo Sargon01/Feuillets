@@ -324,6 +324,7 @@ export const fr = {
   "board.options.arcsShowSynopsis": "Synopsis",
   "board.options.arcsShowPov": "Pov",
   "board.options.arcsShowCharacters": "Personnages",
+  "board.options.arcsShowThreads": "Fil",
 
   "board.col.title": "Feuillet",
   "board.col.synopsis": "Synopsis",
