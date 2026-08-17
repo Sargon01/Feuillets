@@ -2,6 +2,26 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.5.2
+
+### Plan, Cartes et Couloirs
+
+- Finalisation de **Plan** et **Cartes** comme surfaces d’organisation directement éditables.
+- Édition en ligne améliorée des informations de structure, notamment dates, personnages et fils narratifs.
+- Finalisation de la vue **Couloirs** pour suivre les fils du manuscrit avec une grammaire cohérente avec les autres vues d’organisation.
+- Suppression de l’ancienne sous-vue narrative devenue redondante.
+
+### Classeur et inspecteur
+
+- Restauration de **Recherche** et **Versions** dans la double vue du Classeur.
+- Restauration et amélioration des **statistiques** dans l’inspecteur, avec réglage d’affichage correspondant.
+- Simplification de l’espace **Relecture** et meilleur alignement avec la grammaire visuelle de l’inspecteur.
+
+### Compatibilité et maintenance
+
+- Préservation des alias existants lors de l’écriture des propriétés YAML afin d’éviter leur normalisation destructive.
+- Ajustement des statistiques de langage GitHub pour refléter le code applicatif TypeScript sans compter les tests JavaScript.
+
 ## 2.5.0
 
 ### Écriture et navigation
