@@ -81,6 +81,9 @@ import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFo
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { matchesResearchLabel } from "./utils/project-modes.js";
 import { setLocale, detectLocale, t } from "./i18n/index.js";
+import { resolveMarkdownWritingContext, type WritingContext } from "./writing-toolbar/writing-context.js";
+import { createDefaultWritingActionRegistry } from "./writing-toolbar/writing-action-registry.js";
+import { WritingToolbarController } from "./writing-toolbar/writing-toolbar-controller.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
 import { ManageProjectsModal, NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
@@ -367,6 +370,7 @@ class FeuilletsPlugin extends Plugin {
   _lastBackupAt?: number;
   _isSyncingPanels?: boolean;
   _lastFeuilletsActive?: boolean;
+  _writingToolbarController?: WritingToolbarController;
 
   /* Attachées dynamiquement par initScenesEditor (scenes-editor.js), pas
      déclarées ici en tant que méthodes de classe — voir scenes-editor.ts,
@@ -419,6 +423,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerRibbonIcons();
     this.registerCoreCommands();
     this.registerLastEditorTracking();
+    this.registerWritingToolbar();
 
     /* `this.settings` (FeuilletsSettings, volontairement partiel — voir
        types.d.ts) est réellement un sur-ensemble de DefaultSettings à
@@ -723,6 +728,11 @@ class FeuilletsPlugin extends Plugin {
       id: "toggle-concentration",
       name: t("main.cmd.toggleConcentration"),
       callback: () => this.toggleConcentration(),
+    });
+    this.addCommand({
+      id: "toggle-writing-toolbar",
+      name: t("main.cmd.toggleWritingToolbar"),
+      callback: () => this.toggleWritingToolbar(),
     });
     this.addCommand({
       id: "create-project",
@@ -2831,6 +2841,61 @@ class FeuilletsPlugin extends Plugin {
         }
       })
     );
+  }
+
+  /* ---- Barre d'écriture (writing-toolbar/) ---- */
+
+  /** Monte le contrôleur de la Barre et branche le rafraîchissement sur les
+   *  événements de workspace existants — aucun polling, aucun MutationObserver
+   *  global. `onLayoutReady()` assure le premier montage. */
+  registerWritingToolbar() {
+    const controller = new WritingToolbarController(createDefaultWritingActionRegistry());
+    this._writingToolbarController = controller;
+    /* Le contrôleur est nettoyé par le mécanisme natif de déchargement – jamais
+       un onunload() maison – : destroy() puis retour de la référence locale. */
+    this.register(() => {
+      controller.destroy();
+      if (this._writingToolbarController === controller) {
+        this._writingToolbarController = undefined;
+      }
+    });
+    this.app.workspace.onLayoutReady(() => this.refreshWritingToolbar());
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshWritingToolbar()));
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.refreshWritingToolbar()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.refreshWritingToolbar()));
+  }
+
+  /** Résout la leaf d'écriture Markdown : leaf active si MarkdownView, sinon
+   *  la dernière leaf Markdown mémorisée si elle est encore ouverte — jamais
+   *  de second historique d'éditeur. Une vue hors mode source donne un
+   *  contexte null (la Barre ne se monte que sur l'édition). */
+  refreshWritingToolbar(): void {
+    const controller = this._writingToolbarController;
+    if (!controller) return;
+    let context: WritingContext | null = null;
+    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeView) {
+      context = resolveMarkdownWritingContext(activeView);
+    } else if (this._lastMarkdownLeaf) {
+      const stillOpen = this.app.workspace
+        .getLeavesOfType("markdown")
+        .some((leaf) => leaf === this._lastMarkdownLeaf);
+      if (stillOpen && this._lastMarkdownLeaf.view instanceof MarkdownView) {
+        context = resolveMarkdownWritingContext(this._lastMarkdownLeaf.view);
+      }
+    }
+    controller.sync(
+      context,
+      this.settings.writingToolbarMode,
+      this.settings.writingToolbarPosition
+    );
+  }
+
+  /** Commande Afficher/masquer : ne force JAMAIS l'apparition en mode
+   *  « Désactivée » — l'état disabled reste un état réellement désactivé. */
+  toggleWritingToolbar(): void {
+    if (this.settings.writingToolbarMode === "disabled") return;
+    this._writingToolbarController?.toggleSessionVisibility();
   }
 
   activeEditorAnywhere(): Editor | null {

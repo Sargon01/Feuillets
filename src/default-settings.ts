@@ -138,6 +138,11 @@ export type DefaultSettings = {
   concentrationUnit: "line" | "paragraph";
   concentrationTypewriter: boolean;
   concentrationCounter: boolean;
+  /* Barre d'écriture (src/writing-toolbar/) — réglages globaux d'interface,
+     jamais par projet. Mode d'affichage et position au sein de la vue
+     d'écriture Markdown. */
+  writingToolbarMode: "always" | "hover" | "shortcut" | "disabled";
+  writingToolbarPosition: "bottom" | "top";
   uiTransparentPanels: boolean;
   uiTransparentTabBar: boolean;
   uiHideVaultSwitcher: boolean;
@@ -325,6 +330,8 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   concentrationUnit: "line",
   concentrationTypewriter: true,
   concentrationCounter: true,
+  writingToolbarMode: "always",
+  writingToolbarPosition: "bottom",
   uiTransparentPanels: false,
   uiTransparentTabBar: false,
   uiHideVaultSwitcher: false,
