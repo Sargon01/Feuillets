@@ -45,9 +45,8 @@ import { getResearchTemplate } from "./services/research-templates.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
 import { remapResearchFolderLinks } from "./views/base-feuillets-view.js";
-import { BoardView, type CentralSurface } from "./views/board-view.js";
-import type { EditionWorkspaceMode } from "./ui/edition-workspace-content.js";
-import { SidebarFeuilletsView } from "./views/sidebar-feuillets-view.js";
+import { BoardView } from "./views/board-view.js";
+import { SidebarFeuilletsView, type EditionPage } from "./views/sidebar-feuillets-view.js";
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
@@ -176,20 +175,19 @@ type MoveHistoryEntry =
       destOrder: string[];
     };
 
-/** Garde structurelle SANS `instanceof` (même patron qu'ailleurs dans ce
- * dépôt, voir preview-view.ts) : reconnaît une BoardView réelle OU une vue de
- * test qui expose la même surface — `activateCentralSurface` n'a besoin que
- * de ce contrat. */
-interface CentralSurfaceView {
-  setCentralSurface(surface: CentralSurface, editionMode?: EditionWorkspaceMode): Promise<void>;
+/** Contrat minimal du panneau droit Édition utilisé par les commandes
+ * historiques pour ouvrir directement une sous-page sans dépendre de son
+ * implémentation concrète. */
+interface EditionSidebarPageView {
+  openEditionPage(page: EditionPage): Promise<void>;
 }
 
-function isCentralSurfaceView(view: unknown): view is CentralSurfaceView {
+function isEditionSidebarPageView(view: unknown): view is EditionSidebarPageView {
   return (
     typeof view === "object" &&
     view !== null &&
-    "setCentralSurface" in view &&
-    typeof (view as { setCentralSurface?: unknown }).setCentralSurface === "function"
+    "openEditionPage" in view &&
+    typeof (view as { openEditionPage?: unknown }).openEditionPage === "function"
   );
 }
 
@@ -589,20 +587,15 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "open-project",
       name: t("main.cmd.openProjectPanel"),
-      // Ouvre désormais le tab interne "project", visible comme Édition,
-      // dans SidebarFeuilletsView.
-      callback: () => { void this.activateProject(); },
+      callback: () => { void this.activateEditionPage("home"); },
     });
     this.addCommand({
       id: "open-export",
       name: t("main.cmd.openCompileExportPanel"),
-      /* §1/§12D du dernier lot UX avant 2.5 : l'onglet Export a disparu,
-         normalizeMode() (edition-workspace-content.ts) ramène "export" à
-         "composition" — où la barre d'export compacte est de toute façon
-         toujours visible. L'id et l'intention ("ouvrir Édition avec les
-         contrôles d'export visibles") restent inchangés, seul le libellé
-         affiché a été mis à jour. */
-      callback: () => { void this.activateCentralSurface("edition", "export"); },
+      /* La barre Portée / Format / Exporter est globale dans l'onglet
+         Édition du panneau droit : ouvrir son accueil suffit, sans toucher
+         au Board ni créer de Preview. */
+      callback: () => { void this.activateEditionPage("home"); },
     });
     /* Intégration Courrier (Lot 14B) : n'apparaît utilisable que si un
        projet d'écriture est ouvert (même garde que les autres commandes
@@ -913,11 +906,11 @@ class FeuilletsPlugin extends Plugin {
     });
     this.addCommand({
       id: "pdf-style-modal",
-      /* §12D : id conservé pour la compatibilité des raccourcis existants,
-         mais le libellé ne parle plus de "raccourci historique" — la
-         commande ouvre exactement Édition → Mise en page, rien d'autre. */
+      /* Id conservé pour la compatibilité des raccourcis existants ; la
+         commande ouvre désormais Édition → Mise en page dans le panneau
+         droit, jamais une surface du Board. */
       name: t("main.cmd.openProjectExportPanel"),
-      callback: () => { void this.activateCentralSurface("edition", "layout"); },
+      callback: () => { void this.activateEditionPage("layout"); },
     });
     this.addCommand({
       id: "restore-snapshot",
@@ -3667,9 +3660,6 @@ class FeuilletsPlugin extends Plugin {
     }).open();
   }
 
-  openPdfStyleModal() {
-    void this.activateProject();
-  }
 
   toggleSearchReplaceBar() {
     if (!this._searchReplaceBar) {
@@ -3901,17 +3891,21 @@ class FeuilletsPlugin extends Plugin {
   async activateDocxReview() { return this.activateSidebarView("relecture"); }
   async activateJournal() { return this.activateSidebarView("journal"); }
   async activateProject() { return this.activateSidebarView("project"); }
-  /** Point d'entrée UNIQUE des commandes vers l'espace central (§11 du
-   * chantier « espace central ») : réutilise/révèle la leaf VIEW_BOARD
-   * existante puis lui demande sa surface — jamais de leaf « Édition »
-   * autonome, jamais un second parcours d'ouverture. */
-  async activateCentralSurface(surface: CentralSurface, editionMode?: EditionWorkspaceMode): Promise<void> {
-    await this.activateBoard();
-    const leaf = this.app.workspace.getLeavesOfType(VIEW_BOARD)[0];
+  /** Ouvre une page précise d'Édition dans le panneau droit unifié.
+   * `activateSidebarView("project")` reste l'unique chemin de création/
+   * révélation de la sidebar ; ce second temps ne fait que choisir la page
+   * interne demandée. Aucun Board ni Preview n'est créé. */
+  async activateEditionPage(page: EditionPage): Promise<void> {
+    if (this.isPanelHidden("project")) {
+      await this.activateSidebarView("project");
+      return;
+    }
+    await this.activateSidebarView("project");
+    const leaf = this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)[0];
     if (!leaf) return;
     if (leaf.isDeferred) await leaf.loadIfDeferred();
     const view = leaf.view;
-    if (isCentralSurfaceView(view)) await view.setCentralSurface(surface, editionMode);
+    if (isEditionSidebarPageView(view)) await view.openEditionPage(page);
   }
 
   /* `date` reste `Date | null` ici : au moins un appelant (journal-view.ts,

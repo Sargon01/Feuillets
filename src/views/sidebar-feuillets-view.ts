@@ -22,7 +22,7 @@ type SidebarTab = "notes" | "research" | "journal" | "project" | "stats" | "rele
  * entrées de navigation (Composition, Mise en page, Dossier éditorial) ; les
  * autres valeurs affichent la sous-page correspondante en remplacement total,
  * avec la barre Retour partagée (renderBackBar). */
-type EditionPage = "home" | "composition" | "layout" | "documents";
+export type EditionPage = "home" | "composition" | "layout" | "documents";
 /** Sous-page de l'onglet Relecture — état purement en mémoire (jamais
  * persisté dans les réglages, voir renderProofreadingTab). "home" affiche
  * les deux entrées compactes ; "analysis"/"docx" affichent l'une des deux
@@ -250,6 +250,16 @@ export class SidebarFeuilletsView extends ItemView {
         await this.renderProofreadingTab(content);
         break;
     }
+  }
+
+
+  /** Ouvre directement une page de l'onglet Édition dans le panneau droit.
+   * Utilisé par les commandes historiques (Export / Mise en page) après
+   * suppression des anciennes surfaces Édition/Documents du Board. */
+  async openEditionPage(page: EditionPage): Promise<void> {
+    this.activeTab = "project";
+    this.editionPage = page;
+    await this.render();
   }
 
   async renderNotesTab(element: HTMLElement): Promise<void> {

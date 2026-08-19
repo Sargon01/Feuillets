@@ -136,20 +136,16 @@ test("manage-projects ouvre ManageProjectsModal sans activer l'onglet Édition",
   }
 });
 
-/* PROMPT 2 (« panneau droit Projet → Édition ») : `open-export` et
- * `pdf-style-modal` passent toujours par le point d'entrée unique
- * `activateCentralSurface(surface, editionMode)`. `open-project`, lui, ne
- * force plus la surface centrale historique — il ouvre désormais le chemin
- * latéral existant (`plugin.activateProject()`, tab interne "project",
- * visible comme Édition dans SidebarFeuilletsView). */
-test("open-export / pdf-style-modal passent par activateCentralSurface avec le bon mode ; open-project ouvre le panneau latéral", async () => {
+/* Prompt 3 : les trois commandes historiques d'Édition passent désormais
+ * exclusivement par le panneau droit. `open-export` ouvre l'accueil, où la
+ * barre Portée/Format/Exporter est globale ; `pdf-style-modal` ouvre
+ * directement Mise en page. Aucun Board n'est impliqué. */
+test("open-project / open-export / pdf-style-modal ouvrent uniquement le panneau droit Édition", async () => {
   const commands = [];
   const calls = [];
   const plugin = Object.create(FeuilletsPlugin.prototype);
   plugin.addCommand = (command) => commands.push(command);
-  let activateProjectCalls = 0;
-  plugin.activateProject = () => { activateProjectCalls += 1; };
-  plugin.activateCentralSurface = async (surface, mode) => { calls.push([surface, mode]); };
+  plugin.activateEditionPage = async (page) => { calls.push(page); };
 
   plugin.registerCoreCommands();
 
@@ -160,22 +156,18 @@ test("open-export / pdf-style-modal passent par activateCentralSurface avec le b
   }
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.deepEqual(calls, [
-    ["edition", "export"],
-    ["edition", "layout"],
-  ]);
-  assert.equal(activateProjectCalls, 1, "open-project ouvre le panneau latéral (activateProject), pas la surface centrale");
+  assert.deepEqual(calls, ["home", "home", "layout"]);
+  assert.equal(typeof FeuilletsPlugin.prototype.activateCentralSurface, "undefined", "ancien routeur central supprimé");
 });
 
 /* `open-board` conserve son comportement historique : la surface centrale
  * n'est jamais forcée par cette commande. */
-test("open-board garde son comportement historique (activateBoard, aucune surface forcée)", () => {
+test("open-board garde son comportement historique (activateBoard uniquement)", () => {
   const commands = [];
   const calls = [];
   const plugin = Object.create(FeuilletsPlugin.prototype);
   plugin.addCommand = (command) => commands.push(command);
   plugin.activateBoard = () => { calls.push("board"); };
-  plugin.activateCentralSurface = async () => { calls.push("central"); };
 
   plugin.registerCoreCommands();
   commands.find((registered) => registered.id === "open-board").callback();
@@ -205,28 +197,26 @@ test("export-docx / export-pdf / export-epub restent câblées à this.exportFil
   }
 });
 
-/* §11 : activateCentralSurface réutilise la leaf VIEW_BOARD existante — elle
- * n'en crée jamais une seconde et ne crée aucune leaf « Édition ». */
-test("activateCentralSurface réutilise la leaf Tableau et lui transmet la surface", async () => {
+/* Le routeur de page Édition réutilise la sidebar unifiée existante et ne
+ * demande jamais de Board. */
+test("activateEditionPage révèle la sidebar Édition puis lui transmet la page demandée", async () => {
   const plugin = Object.create(FeuilletsPlugin.prototype);
-  const received = [];
-  const boardLeaf = {
+  const calls = [];
+  const sidebarLeaf = {
     isDeferred: false,
     loadIfDeferred: async () => {},
-    view: {
-      async setCentralSurface(surface, mode) { received.push([surface, mode]); },
-    },
+    view: { async openEditionPage(page) { calls.push(["page", page]); } },
   };
-  let activateBoardCalls = 0;
-  plugin.activateBoard = async () => { activateBoardCalls += 1; };
+  plugin.settings = { hiddenPanels: [] };
+  plugin.activateSidebarView = async (tab) => { calls.push(["tab", tab]); };
   plugin.app = {
     workspace: {
-      getLeavesOfType: (type) => (type === "feuillets-board" ? [boardLeaf] : []),
+      getLeavesOfType: (type) => (type === VIEW_SIDEBAR_FEUILLETS ? [sidebarLeaf] : []),
     },
   };
+  plugin.isPanelHidden = () => false;
 
-  await plugin.activateCentralSurface("edition", "layout");
+  await plugin.activateEditionPage("layout");
 
-  assert.equal(activateBoardCalls, 1, "la leaf Tableau est révélée/réutilisée par activateBoard");
-  assert.deepEqual(received, [["edition", "layout"]]);
+  assert.deepEqual(calls, [["tab", "project"], ["page", "layout"]]);
 });
