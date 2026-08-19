@@ -590,7 +590,7 @@ function buildTablesFixture(withIllustration = true) {
   return { app, settings, manuscript, titlePage, first, second };
 }
 
-test("compile portée project : Table des illustrations incluse -> insérée après le manuscrit", async () => {
+test("compile portée project : Table des illustrations incluse -> insérée avant le manuscrit", async () => {
   const { app, settings, manuscript } = buildTablesFixture(true);
   writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "tables", true);
 
@@ -598,11 +598,11 @@ test("compile portée project : Table des illustrations incluse -> insérée apr
 
   assert.ok(result);
   assert.match(result.manuscript, /# Table des illustrations[\s\S]*- Carte du royaume/);
-  // Dernier segment du manuscrit : après tout le corps (titres/scènes).
-  const last = result.segments.at(-1);
-  assert.match(last.text, /^# Table des illustrations/);
-  assert.equal(last.path, null);
-  assert.equal(last.frontType, null);
+  // Tables est avant le manuscrit (juste après la page de titre)
+  const tablesIdx = result.segments.findIndex((s) => s.text.startsWith("# Table des illustrations"));
+  const manuscriptIdx = result.segments.findIndex((s) => s.path && s.path.includes("Scène 1"));
+  assert.ok(tablesIdx >= 0, "Table des illustrations trouvée");
+  assert.ok(tablesIdx < manuscriptIdx, "Table des illustrations avant le manuscrit");
 });
 
 test("compile portée project : aucune illustration légendée -> pas de Table des illustrations, même incluse", async () => {
@@ -634,7 +634,7 @@ test("compile : parts et segments restent synchronisés après insertion de la T
   assert.equal(result.manuscript, result.segments.map((s) => s.text).join("\n\n"));
 });
 
-test("compile portée project : Sommaire au début, TDM à la fin et Table des illustrations après le corps", async () => {
+test("compile portée project : Sommaire puis Tables avant manuscrit, TDM à la fin", async () => {
   const { app, settings, manuscript } = buildTablesFixture(true);
   const meta = settings.projectMeta[manuscript.path] = {};
   writeGeneratedIncluded(meta, "summary", true);
@@ -644,13 +644,13 @@ test("compile portée project : Sommaire au début, TDM à la fin et Table des i
   const result = await compile(app, settings);
 
   assert.ok(result);
-  // Seul Sommaire suit la page Front ; la TDM termine l'ouvrage.
+  // Ordre: Front, Sommaire, Tables, Manuscrit, TDM
   assert.equal(result.segments[0].frontType, "titre");
   assert.match(result.segments[1].text, /^# Sommaire/);
-  // « Table des illustrations » n'est jamais listée dans le Sommaire/TDM
-  // (elle vient après le corps, générée depuis un instantané antérieur).
+  assert.match(result.segments[2].text, /^# Table des illustrations/);
+  // Tables n'est jamais listée dans le Sommaire/TDM (ils sont générés avant son insertion).
   assert.doesNotMatch(result.segments[1].text, /Table des illustrations/);
-  assert.match(result.segments.at(-2).text, /^# Table des illustrations/);
+  // TDM termine l'ouvrage
   assert.match(result.segments.at(-1).text, /^# Table des matières/);
 });
 

@@ -4,9 +4,11 @@ import { Decoration, ViewPlugin } from "@codemirror/view";
 import { parser } from "@lezer/markdown";
 
 /**
- * Couche Markdown inline de Scrivenings (LOT 1.3) : italique/gras rendus,
- * masquage contextuel des marqueurs, et les raccourcis Cmd/Ctrl+I / Cmd/Ctrl+B.
- * Rien d'autre — voir le README du lot pour le périmètre exact exclu.
+ * Couche Markdown inline de Scrivenings (LOT 1.3 + finition titres ATX) :
+ * italique/gras rendus, titres `#`→`######` rendus (mêmes conventions, voir
+ * section « Titres ATX » ci-dessous), masquage contextuel des marqueurs
+ * (emphase ET `#`), et les raccourcis Cmd/Ctrl+I / Cmd/Ctrl+B. Rien d'autre —
+ * voir le README du lot pour le périmètre exact exclu.
  *
  * RÈGLE CENTRALE, jamais dérogée : ce module ne parse JAMAIS le texte
  * composite entier. Il déduit d'abord les segments (bornes = `boundary[i-1]+1
@@ -155,9 +157,38 @@ export interface ScriveningsMarkGroup {
   marks: { from: number; to: number }[];
 }
 
+/* --- Titres ATX (finition Continu : `#` → `######` rendus) ------------------ */
+
+export type ScriveningsHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
+/** Un nœud `ATXHeading1`…`ATXHeading6` reconnu par `@lezer/markdown`, offsets
+ * LOCAUX au segment parsé. La grammaire fait foi : `#######` (sept `#`) et
+ * `\#` échappé ne sont jamais des titres (elle les met dans un `Paragraph`),
+ * `#Titre` sans espace n'est pas un titre, `## foo ##` porte deux `HeaderMark`
+ * (ouvrant ET fermant) — c'est la structure réelle du paquet, jamais une
+ * regex ni une seconde grammaire. `contentFrom`/`contentTo` bornent le
+ * CONTENU affiché (après marqueur ouvrant + espaces syntaxiques, avant
+ * d'éventuels `#` fermants) — c'est lui qui reçoit le style `--h1-*`…`--h6-*` ;
+ * `marks` sont toutes les plages `HeaderMark` DU NŒUD (jamais celles d'un
+ * SetextHeading, collectées à part par la grammaire), masquées
+ * contextuellement comme une emphase. */
+export interface ScriveningsHeadingNode {
+  level: ScriveningsHeadingLevel;
+  from: number;
+  to: number;
+  contentFrom: number;
+  contentTo: number;
+  marks: { from: number; to: number }[];
+}
+
 export interface ScriveningsSegmentFormatting {
   nodes: ScriveningsEmphasisNode[];
   groups: ScriveningsMarkGroup[];
+  /** Titres ATX `#`→`######` du segment, offsets LOCAUX (voir
+   * `ScriveningsHeadingNode`). Jamais un titre ne traverse une frontière :
+   * chaque segment étant parsé isolément, `#` en fin de feuillet A et
+   * contenu en tête de feuillet B sont deux unités séparées. */
+  headings: ScriveningsHeadingNode[];
   /** Plages `HorizontalRule` reconnues par le parseur (typiquement une ligne
    * `***` seule, voir « CORRECTIF `***` » ci-dessous) — jamais une emphase,
    * gardées à part pour que `buildScriveningsMarkdownPlan` puisse garantir
@@ -184,6 +215,15 @@ function scriveningsEmphasisTypeOf(nodeName: string): ScriveningsEmphasisType | 
   if (nodeName === "Emphasis") return "emphasis";
   if (nodeName === "StrongEmphasis") return "strong";
   return null;
+}
+
+/** Niveau d'un nœud de titre ATX (`ATXHeading1`…`ATXHeading6`) — `null` pour
+ * tout autre nœud. Un `SetextHeading1/2` (souligné `===`/`---`) n'en est pas
+ * un : seule la syntaxe `#`→`######` est traitée par ce lot. */
+function scriveningsHeadingLevelOf(nodeName: string): ScriveningsHeadingLevel | null {
+  const match = /^ATXHeading([1-6])$/.exec(nodeName);
+  if (!match) return null;
+  return Number(match[1]) as ScriveningsHeadingLevel;
 }
 
 /** Chaîne EXACTE (après `.trim()` de la ligne) d'un séparateur `***`
@@ -259,9 +299,11 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
   const tree = parser.parse(text);
   const nodes: ScriveningsEmphasisNode[] = [];
   const groups: ScriveningsMarkGroup[] = [];
+  const headings: ScriveningsHeadingNode[] = [];
   const horizontalRules: { from: number; to: number }[] = [];
   const escapeNodes: { from: number; to: number }[] = [];
   const stack: ParseFrame[] = [];
+  const headingStack: { level: ScriveningsHeadingLevel; from: number; to: number; marks: { from: number; to: number }[] }[] = [];
 
   tree.iterate({
     enter(node) {
@@ -275,6 +317,20 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
         // plus loin (un `Escape` n'a rien à offrir à l'emphase non plus).
         escapeNodes.push({ from: node.from, to: node.to });
         return false;
+      }
+      const level = scriveningsHeadingLevelOf(node.name);
+      if (level) {
+        headingStack.push({ level, from: node.from, to: node.to, marks: [] });
+        return; // on continue à descendre : une emphase peut vivre dans le contenu du titre
+      }
+      if (node.name === "HeaderMark") {
+        // `HeaderMark` est le marqueur `#` d'un titre ATX mais AUSSI la ligne
+        // de soulignement `===`/`---` d'un SetextHeading : seuls ceux d'un
+        // nœud ATX ouvert (headingStack non vide) sont collectés ici.
+        if (headingStack.length > 0) {
+          headingStack[headingStack.length - 1].marks.push({ from: node.from, to: node.to });
+        }
+        return; // un HeaderMark n'a rien à offrir à l'emphase, avec ou sans titre ATX parent
       }
       const type = scriveningsEmphasisTypeOf(node.name);
       if (type) {
@@ -292,26 +348,43 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
     },
     leave(node) {
       const type = scriveningsEmphasisTypeOf(node.name);
-      if (!type) return;
-      const frame = stack.pop();
-      const open = frame?.directMarks[0];
-      const close = frame?.directMarks[1];
-      if (!frame || !open || !close) return; // grammaire incomplète pour ce nœud : jamais censé arriver, ignoré par prudence plutôt qu'une supposition
-      nodes.push({
-        type: frame.type,
+      if (type) {
+        const frame = stack.pop();
+        const open = frame?.directMarks[0];
+        const close = frame?.directMarks[1];
+        if (!frame || !open || !close) return; // grammaire incomplète pour ce nœud : jamais censé arriver, ignoré par prudence plutôt qu'une supposition
+        nodes.push({
+          type: frame.type,
+          from: frame.from,
+          to: frame.to,
+          contentFrom: open.to,
+          contentTo: close.from,
+          openFrom: open.from,
+          openTo: open.to,
+          closeFrom: close.from,
+          closeTo: close.to,
+        });
+        return;
+      }
+      if (!scriveningsHeadingLevelOf(node.name)) return;
+      const frame = headingStack.pop();
+      if (!frame || frame.marks.length === 0) return; // grammaire incomplète : un ATXHeading sans HeaderMark n'existe pas dans la grammaire, garde par prudence
+      const markTo = frame.marks[0].to;
+      let contentFrom = markTo;
+      while (contentFrom < frame.to && text[contentFrom] === " ") contentFrom++;
+      const contentTo = frame.marks.length > 1 ? frame.marks[1].from : frame.to;
+      headings.push({
+        level: frame.level,
         from: frame.from,
         to: frame.to,
-        contentFrom: open.to,
-        contentTo: close.from,
-        openFrom: open.from,
-        openTo: open.to,
-        closeFrom: close.from,
-        closeTo: close.to,
+        contentFrom,
+        contentTo,
+        marks: frame.marks,
       });
     },
   });
 
-  return { nodes, groups, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes) };
+  return { nodes, groups, headings, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes) };
 }
 
 /* --- Cache par segment (LOT 1.3 section 3 — jamais un scan global) -------- */
@@ -362,6 +435,17 @@ function shiftGroup(group: ScriveningsMarkGroup, delta: number): ScriveningsMark
   return { from: group.from + delta, to: group.to + delta, marks: group.marks.map((mark) => ({ from: mark.from + delta, to: mark.to + delta })) };
 }
 
+function shiftHeading(heading: ScriveningsHeadingNode, delta: number): ScriveningsHeadingNode {
+  return {
+    level: heading.level,
+    from: heading.from + delta,
+    to: heading.to + delta,
+    contentFrom: heading.contentFrom + delta,
+    contentTo: heading.contentTo + delta,
+    marks: heading.marks.map((mark) => ({ from: mark.from + delta, to: mark.to + delta })),
+  };
+}
+
 function shiftRange(range: { from: number; to: number }, delta: number): { from: number; to: number } {
   return { from: range.from + delta, to: range.to + delta };
 }
@@ -374,6 +458,7 @@ export function compositeScriveningsFormatting(segment: ScriveningsSegmentRange,
   return {
     nodes: local.nodes.map((node) => shiftNode(node, segment.from)),
     groups: local.groups.map((group) => shiftGroup(group, segment.from)),
+    headings: local.headings.map((heading) => shiftHeading(heading, segment.from)),
     horizontalRules: local.horizontalRules.map((range) => shiftRange(range, segment.from)),
     escapedSeparators: local.escapedSeparators.map((range) => shiftRange(range, segment.from)),
   };
@@ -388,22 +473,37 @@ export function scriveningsGroupIsActive(group: ScriveningsMarkGroup, selections
   return selections.some((selection) => selection.from <= group.to && selection.to >= group.from);
 }
 
+/** Même règle que `scriveningsGroupIsActive` pour UN titre : le marqueur `#`
+ * (et son espace syntaxique) se réaffiche dès que le curseur/la sélection
+ * touche `[heading.from, heading.to]` — exactement comme une emphase. */
+export function scriveningsHeadingIsActive(heading: ScriveningsHeadingNode, selections: readonly SelectionRangeLike[]): boolean {
+  return selections.some((selection) => selection.from <= heading.to && selection.to >= heading.from);
+}
+
 /* --- Plan de décorations (couche pure, testable sans CodeMirror réel) ----- */
+
+/** Type de style d'une portée : italique/gras, ou le niveau d'un titre ATX
+ * (`"heading-1"`…`"heading-6"`) qui reçoit une classe `--h1-*`…`--h6-*`. */
+export type ScriveningsMarkdownStyleType = ScriveningsEmphasisType | `heading-${ScriveningsHeadingLevel}`;
 
 export interface ScriveningsMarkdownStyleRange {
   from: number;
   to: number;
-  type: ScriveningsEmphasisType;
+  type: ScriveningsMarkdownStyleType;
 }
 
 export interface ScriveningsMarkdownDecorationPlan {
-  /** Portées de style (italique/gras) — CONTENU seul, jamais les marqueurs
-   * propres à CE nœud (un nœud imbriqué peut néanmoins retomber dans la
-   * portée de son parent, voir `***texte***` en tête de fichier). */
+  /** Portées de style (italique/gras, titres ATX `--h1-*`…`--h6-*`) —
+   * CONTENU seul, jamais les marqueurs propres à CE nœud (un nœud imbriqué
+   * peut néanmoins retomber dans la portée de son parent, voir `***texte***`
+   * en tête de fichier ; une emphase dans un titre garde SA classe). */
   styleRanges: ScriveningsMarkdownStyleRange[];
-  /** Plages à masquer (`Decoration.replace()`) — de deux natures :
+  /** Plages à masquer (`Decoration.replace()`) — de trois natures :
    * - marqueurs d'emphase des groupes dont AUCUNE sélection ne touche
    *   `[group.from, group.to]` (contextuel, voir `scriveningsGroupIsActive`) ;
+   * - marqueur ouvrant `#…` + espaces syntaxiques (et `#` fermants) des
+   *   titres dont AUCUNE sélection ne touche `[heading.from, heading.to]`
+   *   (contextuel, même règle — voir `scriveningsHeadingIsActive`) ;
    * - backslashes d'un séparateur `\*\*\*` échappé (voir
    *   `findEscapedSeparatorHiddenRanges`, cm-scrivenings-markdown.ts) —
    *   INCONDITIONNEL, jamais réaffiché par le curseur : ce n'est pas une
@@ -434,7 +534,7 @@ export function buildScriveningsMarkdownPlan(params: {
 
   for (const segment of segments) {
     const segmentText = sliceText(segment.from, segment.to);
-    const { nodes, groups, horizontalRules, escapedSeparators } = compositeScriveningsFormatting(segment, segmentText);
+    const { nodes, groups, headings, horizontalRules, escapedSeparators } = compositeScriveningsFormatting(segment, segmentText);
     const overlapsHorizontalRule = (from: number, to: number): boolean =>
       horizontalRules.some((hr) => from < hr.to && to > hr.from);
 
@@ -459,6 +559,25 @@ export function buildScriveningsMarkdownPlan(params: {
         if (!overlapsHorizontalRule(mark.from, mark.to)) hiddenMarkRanges.push(mark);
       }
     }
+    for (const heading of headings) {
+      // Style TOUJOURS posé sur le contenu du titre (même quand le curseur
+      // réaffiche le `#`, le texte reste un titre — comme en Live Preview
+      // Obsidian) ; seul le masquage des marqueurs est contextuel.
+      if (heading.contentTo > heading.contentFrom && !overlapsHorizontalRule(heading.contentFrom, heading.contentTo)) {
+        styleRanges.push({ from: heading.contentFrom, to: heading.contentTo, type: `heading-${heading.level}` });
+      }
+      if (scriveningsHeadingIsActive(heading, selections)) continue;
+      const opening = heading.marks[0];
+      // Marqueur ouvrant `#…` PLUS les espaces syntaxiques qui le séparent du
+      // contenu (la plage `[opening.from, contentFrom)` couvre tout : le `#`
+      // lui-même et les espaces, un seul ou plusieurs — jamais le contenu).
+      if (!overlapsHorizontalRule(opening.from, heading.contentFrom)) {
+        hiddenMarkRanges.push({ from: opening.from, to: heading.contentFrom });
+      }
+      for (const mark of heading.marks.slice(1)) {
+        if (!overlapsHorizontalRule(mark.from, mark.to)) hiddenMarkRanges.push(mark);
+      }
+    }
   }
 
   styleRanges.sort((a, b) => a.from - b.from);
@@ -471,12 +590,32 @@ export function buildScriveningsMarkdownPlan(params: {
 export const CM_SCRIVENINGS_EMPHASIS_CLASS = "cm-scrivenings-emphasis";
 export const CM_SCRIVENINGS_STRONG_CLASS = "cm-scrivenings-strong";
 
+const CM_SCRIVENINGS_HEADING_CLASSES: Record<ScriveningsHeadingLevel, string> = {
+  1: "cm-scrivenings-heading-h1",
+  2: "cm-scrivenings-heading-h2",
+  3: "cm-scrivenings-heading-h3",
+  4: "cm-scrivenings-heading-h4",
+  5: "cm-scrivenings-heading-h5",
+  6: "cm-scrivenings-heading-h6",
+};
+
+export function scriveningsHeadingClass(level: ScriveningsHeadingLevel): string {
+  return CM_SCRIVENINGS_HEADING_CLASSES[level];
+}
+
 function buildDecorationSet(plan: ScriveningsMarkdownDecorationPlan): DecorationSet {
   if (typeof DecorationTyped?.set !== "function") return DecorationTyped?.none;
   const ranges: DecoRange[] = [];
   for (const span of plan.styleRanges) {
     if (typeof DecorationTyped.mark !== "function") continue;
-    const cls = span.type === "strong" ? CM_SCRIVENINGS_STRONG_CLASS : CM_SCRIVENINGS_EMPHASIS_CLASS;
+    let cls: string;
+    if (span.type === "strong") {
+      cls = CM_SCRIVENINGS_STRONG_CLASS;
+    } else if (span.type === "emphasis") {
+      cls = CM_SCRIVENINGS_EMPHASIS_CLASS;
+    } else {
+      cls = CM_SCRIVENINGS_HEADING_CLASSES[Number(span.type.slice("heading-".length)) as ScriveningsHeadingLevel];
+    }
     ranges.push(DecorationTyped.mark({ class: cls }).range(span.from, span.to));
   }
   for (const mark of plan.hiddenMarkRanges) {

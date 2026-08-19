@@ -14,6 +14,7 @@ import { paginateManuscript } from "../services/export-pdf.js";
 import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
+import { runExportWorkflow } from "../services/export-workflow.js";
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
 import { compiledTitleFor, fmOf, shortTitleFor, splitFrontmatter, stripFrontmatter } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
@@ -372,6 +373,7 @@ export class PreviewView extends ItemView {
   toolbarControlsEl: HTMLElement | null = null;
   zoomLabelEl: HTMLElement | null = null;
   openVisibleEl: HTMLElement | null = null;
+  exportBtnEl: HTMLElement | null = null;
   btnBarToggle: HTMLElement | null = null;
   /** Panneau Export : composant extrait (voir ui/export-panel.ts), qui ne
    * connaît ni n'importe PreviewView — seuls des callbacks lui sont
@@ -773,6 +775,13 @@ export class PreviewView extends ItemView {
     this.zoomLabelEl = this.chipBtn(this.toolbarControlsEl, `${Math.round(this.zoomScale * 100)} %`, t("preview.zoom.tooltip"), (e) => this.openZoomMenu(e));
     this.zoomLabelEl.addClass("feuillets-preview-zoom-val");
     this.zoomLabelEl.addEventListener("dblclick", () => this.resetZoom());
+
+    /* Bouton Exporter : APRÈS le zoom, un simple `clickable-icon` — jamais le
+       panneau Export (`.feuillets-preview-export` n'existe pas ici). Clic =
+       UNIQUEMENT `runExportWorkflow(app, plugin, scope)` avec la portée de CE
+       que l'aperçu affiche (compileScope explicite, sinon le mode courant).
+       Infobulle = clé i18n d'export existante, pas une nouvelle chaîne. */
+    this.exportBtnEl = this.iconBtn(this.toolbarControlsEl, "download", t("project.compilation.exportBtn"), () => void this.exportPreview());
 
     this.previewViewport = view.createDiv({ cls: "feuillets-preview-viewport" });
     this.scaledContainer = this.previewViewport.createDiv({ cls: "feuillets-preview-scaled-container" });
@@ -2762,6 +2771,42 @@ export class PreviewView extends ItemView {
     btn.setAttribute("aria-haspopup", "menu");
     btn.addEventListener("click", (e) => onClick(e));
     return btn;
+  }
+
+  /** Portée d'export du bouton Exporter : EXACTEMENT ce que l'aperçu affiche
+   * en ce moment (même résolution que `collectSource`) — une portée
+   * CompileScope explicite d'abord, sinon le mode courant :
+   *   - Manuscrit → projet entier ;
+   *   - Feuillet → le feuillet actif (uniquement s'il est prévisualisable) ;
+   *   - Chapitre/Partie → le dossier/feuillet résolu par `scopeForMode`.
+   * Retourne `null` quand il n'y a rien à exporter (rien d'ouvert, pas de
+   * chapitre) — dans ce cas le bouton ne fait rien plutôt que d'exporter un
+   * périmètre involontaire. */
+  private exportScopeForPreview(): CompileScope | null {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return null;
+    const explicit = this.compileScope;
+    if (explicit) return explicit;
+    if (this.mode === "manuscript") return createProjectScope(root.path);
+    const active = this.app.workspace.getActiveFile();
+    if (this.mode === "scene") {
+      if (!this.isPreviewableFile(active)) return null;
+      return createFileScope(root.path, active.path);
+    }
+    const scope = this.scopeForMode(this.mode, active);
+    if (!scope) return null;
+    return scope instanceof TFile
+      ? createFileScope(root.path, scope.path)
+      : createFolderScope(root.path, scope.path);
+  }
+
+  /** Clic du bouton Exporter : UNIQUEMENT `runExportWorkflow(app, plugin,
+   * scope)` — le workflow commun (mémorisation de portée, flush Continu,
+   * exportWithScope). Jamais ExportPanel, jamais une compilation ad hoc. */
+  private async exportPreview(): Promise<void> {
+    const scope = this.exportScopeForPreview();
+    if (!scope) return;
+    await runExportWorkflow(this.app, this.plugin, scope);
   }
 
   /** Marque l'état d'un bouton SANS aucun fond : la classe d'état ne sert

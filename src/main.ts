@@ -589,11 +589,9 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "open-project",
       name: t("main.cmd.openProjectPanel"),
-      // Repointée vers l'espace central Édition (Composition / Mise en page /
-      // Export) plutôt que le panneau latéral — décision actée pour éviter un
-      // doublon de libellé dans la palette de commandes (chantier espace
-      // central Édition). Le panneau latéral reste accessible via son onglet.
-      callback: () => { void this.activateCentralSurface("edition", "composition"); },
+      // Ouvre désormais le tab interne "project", visible comme Édition,
+      // dans SidebarFeuilletsView.
+      callback: () => { void this.activateProject(); },
     });
     this.addCommand({
       id: "open-export",
@@ -846,16 +844,10 @@ class FeuilletsPlugin extends Plugin {
               .setTitle(p)
               .setChecked(p === this.settings.projectFolder)
               .onClick(async () => {
-                if (
-                  this.settings.projectFolder &&
-                  !this.settings.projects.includes(this.settings.projectFolder)
-                ) {
-                  this.settings.projects.push(this.settings.projectFolder);
-                }
-                this.settings.projectFolder = p;
-                await this.saveSettings();
-                this.renderAllViews(true);
-                void this.updateStatusBar();
+                // MÊME chemin unique que le sélecteur de projet du Binder et
+                // que le gestionnaire de projets : `switchProject`.
+                const ok = await this.switchProject(p);
+                if (!ok) new Notice(t("modal.manageProjects.folderGone", { path: p }));
               })
           );
         }
@@ -2266,6 +2258,37 @@ class FeuilletsPlugin extends Plugin {
     return view;
   }
 
+  /**
+   * Vide les écritures en attente de TOUTES les vues Continu réellement
+   * ouvertes sur `projectRoot` (le scope AFFICHÉ — jamais le scope d'un autre
+   * projet, jamais une vue fermée), AVANT l'export. Appelle le
+   * `flushPendingWrites()` de chaque vue concernée — qui lui-même appelle le
+   * `flush()` EXISTANT de sa session : aucune seconde logique de sauvegarde.
+   * Retourne `true` si aucun Continu n'est ouvert sur ce projet ou si tous
+   * ont fini sans fichier dirty, `false` dès qu'une vue a échoué à vider son
+   * lot (conflit externe ou erreur `Vault.process()` — l'export est alors
+   * ABANDONNÉ : des textes locaux non écrits ne doivent jamais être
+   * compilés). Ne ferme JAMAIS une vue, ne change JAMAIS de scope ni de
+   * projet — un simple vidage. Point d'entrée du hook optionnel
+   * `ExportWorkflowPlugin.flushContinuWritesForProject` (export-workflow.ts).
+   */
+  async flushContinuWritesForProject(projectRoot: string): Promise<boolean> {
+    const workspace = this.app.workspace;
+    // Défensif : les faux `workspace` de tests ne déclarent pas toujours
+    // `getLeavesOfType` — jamais absent en Obsidian réel.
+    if (typeof workspace.getLeavesOfType !== "function") return true;
+    const leaves = workspace.getLeavesOfType(VIEW_SCRIVENINGS);
+    if (leaves.length === 0) return true;
+    let allClean = true;
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (!(view instanceof ScriveningsView)) continue;
+      if (view.compileScope?.projectRoot !== projectRoot) continue;
+      if (!(await view.flushPendingWrites())) allClean = false;
+    }
+    return allClean;
+  }
+
   /** LOT 3 — pont Continu → Preview : transmet un CompileScope déjà résolu
    * par Continu au SEUL Preview déjà ouvert sur ce même projet — jamais de
    * création, activation, révélation ni déplacement de leaf Preview.
@@ -2774,6 +2797,32 @@ class FeuilletsPlugin extends Plugin {
 
   getProjectFolder() { return getProjectFolder(this.app, this.settings); }
   projectMode() { return getProjectMode(this.app, this.settings); }
+
+  /**
+   * Change de projet actif — UNIQUE point de passage, utilisé par la commande
+   * `switch-project`, par le gestionnaire de projets du Binder et par le
+   * sélecteur de projet de l'en-tête Binder (jamais une logique dupliquée).
+   * Valide le chemin (un dossier RÉEL du coffre — jamais un chemin orphelin),
+   * ignore le no-op si c'est déjà le projet actif, préserve l'ancien projet
+   * dans `settings.projects` (règle historique, voir l'ancienne commande),
+   * puis enchaîne EXACTEMENT la même séquence que les chemins d'avant :
+   * `settings.projectFolder = path`, `saveSettings()`, `renderAllViews(true)`,
+   * `updateStatusBar()`. Retourne `false` si le chemin n'est pas un dossier
+   * valide, `true` sinon (y compris pour un no-op). Ne ferme jamais une vue,
+   * ne touche jamais à l'état d'édition.
+   */
+  async switchProject(path: string): Promise<boolean> {
+    const S = this.settings;
+    const target = this.app.vault.getAbstractFileByPath(path);
+    if (!(target instanceof TFolder)) return false;
+    if (path === S.projectFolder) return true;
+    if (S.projectFolder && !S.projects.includes(S.projectFolder)) S.projects.push(S.projectFolder);
+    S.projectFolder = path;
+    await this.saveSettings();
+    this.renderAllViews(true);
+    void this.updateStatusBar();
+    return true;
+  }
 
   citationStyleFor() {
     const root = this.getProjectFolder();

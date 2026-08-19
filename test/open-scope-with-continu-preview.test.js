@@ -448,7 +448,7 @@ test("H bis. Le menu manuscrit (FeuilletsView) route bien vers le coordinateur, 
   const source = await readFile("src/views/feuillets-view.ts", "utf8");
   const rootMenuSection = source.slice(source.indexOf('const menuTitle = t("shared.contextMenu.openWithPreview")'));
   const firstHandler = rootMenuSection.slice(0, rootMenuSection.indexOf("binder.openInContinu"));
-  assert.ok(firstHandler.includes("createProjectScope(treeRoot.path)"));
+  assert.ok(firstHandler.includes("createProjectScope(root.path)"));
   assert.ok(firstHandler.includes("this.openScopeWithContinuAndPreview(scope)"));
   assert.ok(!firstHandler.includes("openScopeWithPreview(this.app"));
 });

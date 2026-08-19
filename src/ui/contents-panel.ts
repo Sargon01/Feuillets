@@ -67,6 +67,20 @@ export class ContentsPanel {
     this.renderSection(container, TOC, "contents.toc.sectionTitle", "contents.toc.include");
   }
 
+  /** Affiche uniquement le Sommaire — utilisé par Composition → Avant → Sommaire. */
+  async renderSummary(): Promise<void> {
+    const container = this.container;
+    container.empty();
+    this.renderSection(container, SUMMARY, "contents.summary.sectionTitle", "contents.summary.include");
+  }
+
+  /** Affiche uniquement la Table des matières — utilisé par Composition → Après → Table des matières. */
+  async renderTableOfContents(): Promise<void> {
+    const container = this.container;
+    container.empty();
+    this.renderSection(container, TOC, "contents.toc.sectionTitle", "contents.toc.include");
+  }
+
   /** Une ligne latérale compacte par élément généré. */
   private renderSection(parent: HTMLElement, id: string, titleKey: string, includeKey: string): void {
     const row = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });

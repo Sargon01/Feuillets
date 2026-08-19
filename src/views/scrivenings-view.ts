@@ -406,6 +406,21 @@ export class ScriveningsView extends ItemView {
     this.destroyEditor();
   }
 
+  /**
+   * Vide les écritures en attente de CETTE vue Continu : appelle le
+   * `flush()` EXISTANT de `ScriveningsSession` — jamais une seconde logique
+   * de sauvegarde — puis retourne `true` si plus aucun fichier n'est dirty,
+   * `false` s'il en reste (conflit externe ou erreur `Vault.process()`, la
+   * notice a déjà été émise par `saveSegment()` pendant `flush()`). Ne ferme
+   * JAMAIS la vue, ne change JAMAIS le scope affiché : un simple vidage.
+   * Utilisé par `FeuilletsPlugin.flushContinuWritesForProject()` avant
+   * l'export (services/export-workflow.ts).
+   */
+  async flushPendingWrites(): Promise<boolean> {
+    await this.session.flush();
+    return this.session.dirtyCount === 0;
+  }
+
   /* ============================ Chargement =========================== */
 
   /**

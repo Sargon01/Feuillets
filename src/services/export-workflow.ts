@@ -23,6 +23,12 @@ export type ExportWorkflowPlugin = {
   /** Portée de session, volontairement non persistée (voir main.ts) :
    * perdue au redémarrage, ce qui est normal. */
   activeExportScope?: CompileScope | null;
+  /** Hook OPTIONNEL : vide les écritures Continu en attente du projet exporté
+   * avant de lancer la compilation. Fourni par `FeuilletsPlugin`
+   * (flushContinuWritesForProject) — un plugin qui ne l'expose pas (tests,
+   * plugin tiers) conserve exactement le comportement actuel. Retourne
+   * `false` si un fichier reste dirty : l'export doit alors être abandonné. */
+  flushContinuWritesForProject?: (projectRoot: string) => Promise<boolean>;
 };
 
 /** Mémorise la portée d'export pour la durée de la session — aucune
@@ -70,6 +76,13 @@ export function exportBaseName(settings: FeuilletsSettings): string {
  * La portée réellement utilisée est mémorisée avant l'appel à
  * `exportWithScope()`, qui reste l'unique moteur d'écriture — aucune
  * compilation n'est réimplémentée ici.
+ *
+ * Flush avant export : si le plugin expose le hook optionnel
+ * `flushContinuWritesForProject`, il est appelé sur `resolvedScope.projectRoot`
+ * AVANT `exportWithScope()` — des frappes encore en attente dans une session
+ * Continu doivent être écrites avant que l'export ne compile le document.
+ * Un retour `false` (fichier resté dirty après flush) ABANDONNE l'export :
+ * aucun fichier de sortie n'est écrit, aucun texte local n'est compilé.
  */
 export async function runExportWorkflow(
   app: App,
@@ -84,6 +97,11 @@ export async function runExportWorkflow(
     return undefined;
   }
   rememberExportScope(plugin, resolvedScope);
+
+  if (typeof plugin.flushContinuWritesForProject === "function") {
+    const clean = await plugin.flushContinuWritesForProject(resolvedScope.projectRoot);
+    if (!clean) return undefined;
+  }
 
   const settings = plugin.settings;
   const resolvedFormat = (format || settings.exportFormat || "docx") as ExportFormat;

@@ -37,14 +37,16 @@ test("defaultComposition : trois catégories de contenu, jamais mélangées", ()
   }
 });
 
-test("defaultComposition : ordre par défaut cohérent — sommaire au début, TDM en dernier", () => {
+test("defaultComposition : ordre par défaut cohérent — sommaire avant le manuscrit, TDM après", () => {
   const items = defaultComposition();
   const orderOf = (id) => items.find((i) => i.id === id).order;
 
   assert.equal(orderOf("first-page"), 0, "première page toujours en tête");
-  assert.ok(orderOf("summary") < orderOf("toc"), "sommaire avant la table des matières");
-  assert.ok(orderOf("toc") > orderOf("index"), "table des matières après les éléments de fin");
-  assert.equal(orderOf("toc"), items.length - 1, "table des matières toujours en dernier");
+  assert.ok(orderOf("summary") < orderOf("manuscript"), "sommaire avant le manuscrit");
+  assert.ok(orderOf("tables") < orderOf("manuscript"), "tables avant le manuscrit");
+  assert.ok(orderOf("toc") > orderOf("manuscript"), "table des matières après le manuscrit");
+  assert.ok(orderOf("index") > orderOf("toc"), "index en dernier");
+  assert.equal(orderOf("index"), items.length - 1, "index toujours en dernier");
   // Ordre strictement croissant, sans doublon, sur des entiers 0..n-1.
   const orders = items.map((i) => i.order).sort((a, b) => a - b);
   assert.deepEqual(orders, [0, 1, 2, 3, 4, 5, 6, 7, 8]);

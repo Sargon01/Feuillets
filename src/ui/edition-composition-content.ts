@@ -22,8 +22,10 @@ type CompositionSettings = FeuilletsSettings & DefaultSettings;
  * réclament plusieurs contrôles (même principe que le panneau Projet :
  * sommaire compact → sous-page → retour). "Notes" (une seule case à cocher)
  * et "Informations" (doublon de Première page/métadonnées projet, §4)
- * disparaissent en tant que rubriques séparées. */
-type CompositionSection = "summary" | "firstPage" | "frontMatter" | "structure";
+ * disparaissent en tant que rubriques séparées.
+ * Passe ergonomique finale : trois groupes (AVANT, MANUSCRIT, APRÈS) avec
+ * sous-pages respectant l'ordre de compilation réel. */
+type CompositionSection = "summary" | "before" | "manuscript" | "after" | "firstPage" | "frontMatter" | "structure";
 
 export type EditionCompositionContentPlugin = FirstPagePanelPlugin
   & FrontMatterPanelPlugin
@@ -60,6 +62,12 @@ export type EditionCompositionContentOptions = {
    * Édition de rafraîchir le Preview lié sans dupliquer la logique de
    * sauvegarde de chaque panneau. */
   onChange?: () => void | Promise<void>;
+  /** Sidebar embedded uniquement — notifié à chaque changement de section :
+   * `isRoot` ne vaut true que sur le sommaire principal ("summary"). Le
+   * parent (SidebarFeuilletsView) ne retient QUE cette racine pour décider
+   * d'afficher ou non son « Retour à Édition » : aucun état partagé, aucune
+   * donnée, aucun déclenchement de leaf. */
+  onNavigationRootChange?: (isRoot: boolean) => void;
 };
 
 /** Sous-section "Composition de l'ouvrage" de l'espace central Édition —
@@ -82,6 +90,7 @@ export class EditionCompositionContent {
   private annexesPanel: AnnexesPanel | null = null;
   private layoutEditor: LayoutEditor | null = null;
   private onChangeOpt: (() => void | Promise<void>) | undefined;
+  private onNavigationRootChangeOpt: ((isRoot: boolean) => void) | undefined;
   private selectedSection: CompositionSection = "summary";
   private bodyEl: HTMLElement | null = null;
   /** Rendu de la sous-page/sommaire courant en cours — exposé pour que les
@@ -98,6 +107,7 @@ export class EditionCompositionContent {
     opts: EditionCompositionContentOptions = {},
   ) {
     this.onChangeOpt = opts.onChange;
+    this.onNavigationRootChangeOpt = opts.onNavigationRootChange;
   }
 
   /** Réattache le composant à un nouveau conteneur — l'hôte reconstruit son
@@ -129,29 +139,56 @@ export class EditionCompositionContent {
       this.renderSubpageHeader(body, this.subpageTitle(this.selectedSection));
     }
 
-    if (this.selectedSection === "summary") return this.renderSummary(body);
-    if (this.selectedSection === "firstPage") return this.renderFirstPageSubpage(body);
-    if (this.selectedSection === "frontMatter") return this.renderFrontMatterSubpage(body);
-    if (this.selectedSection === "structure") return this.renderStructureSubpage(body);
+    const renderPromise =
+      this.selectedSection === "summary" ? this.renderSummary(body)
+      : this.selectedSection === "before" ? this.renderBeforeSubpage(body)
+      : this.selectedSection === "manuscript" ? this.renderManuscriptSubpage(body)
+      : this.selectedSection === "after" ? this.renderAfterSubpage(body)
+      : this.selectedSection === "firstPage" ? this.renderFirstPageSubpage(body)
+      : this.selectedSection === "frontMatter" ? this.renderFrontMatterSubpage(body)
+      : this.renderStructureSubpage(body);
+
+    /* Le parent (sidebar embedded) ne veut savoir QUE si le composant est
+       sur sa page racine (sommaire) — « Retour à Édition » n'est rendu que
+       dans ce cas seul (voir SidebarFeuilletsView). */
+    if (this.onNavigationRootChangeOpt) this.onNavigationRootChangeOpt(this.selectedSection === "summary");
+
+    return renderPromise;
   }
 
   private subpageTitle(section: CompositionSection): string {
+    if (section === "before") return t("compositionSummary.beforeManuscript");
+    if (section === "manuscript") return t("compositionSummary.theManuscript");
+    if (section === "after") return t("compositionSummary.afterManuscript");
     if (section === "firstPage") return t("preview.export.firstPage");
     if (section === "frontMatter") return t("frontMatter.sectionTitle");
     if (section === "structure") return t("compositionSummary.structureRow");
     return "";
   }
 
-  /** En-tête de sous-page — même principe que le panneau Projet : retour
-   * (‹) vers le sommaire + titre de la sous-page, jamais de nav permanente
-   * à côté. */
+  private parentSection(section: CompositionSection): CompositionSection {
+    if (section === "firstPage" || section === "frontMatter") return "before";
+    if (section === "structure") return "manuscript";
+    return "summary";
+  }
+
+  /** En-tête de sous-page — GRAMMAIRE « PAGE DE NAVIGATION » (micro-correctif
+   * visuel) : le Retour (‹, vers la page parente) et le titre de la sous-page
+   * sont DEUX LIGNES VERTICALES distinctes sous eux (.feuillets-composition-
+   * subpage-header est une colonne) — jamais retour + titre dans le même
+   * flex-row, jamais de nav permanente à côté. */
   private renderSubpageHeader(parent: HTMLElement, title: string): void {
     const header = parent.createDiv({ cls: "feuillets-composition-subpage-header" });
     const back = header.createEl("button", { cls: "feuillets-composition-back" });
     setIcon(back, "chevron-left");
-    back.createSpan({ text: t("compositionSummary.backToComposition") });
-    back.setAttribute("aria-label", t("compositionSummary.backToComposition"));
-    back.addEventListener("click", () => void this.navigateTo("summary"));
+    const parent_section = this.parentSection(this.selectedSection);
+    const backText = parent_section === "summary" ? t("compositionSummary.backToComposition")
+                   : parent_section === "before" ? t("compositionSummary.backToBefore")
+                   : parent_section === "manuscript" ? t("compositionSummary.backToManuscript")
+                   : t("compositionSummary.backToComposition");
+    back.createSpan({ text: backText });
+    back.setAttribute("aria-label", backText);
+    back.addEventListener("click", () => void this.navigateTo(parent_section));
     header.createDiv({ cls: "feuillets-composition-subpage-title", text: title });
   }
 
@@ -164,29 +201,9 @@ export class EditionCompositionContent {
   /* ============================ Sommaire ================================ */
 
   private async renderSummary(body: HTMLElement): Promise<void> {
-    this.groupLabel(body, t("compositionSummary.groupManuscript"));
-    this.renderManuscriptContentRow(body);
-    this.renderSummaryRow(body, t("preview.export.firstPage"), this.firstPageStatusLabel(), () => void this.navigateTo("firstPage"));
-    this.renderSummaryRow(body, t("frontMatter.sectionTitle"), null, () => void this.navigateTo("frontMatter"));
-
-    this.groupLabel(body, t("compositionSummary.groupGenerated"));
-    const contentsEl = body.createDiv();
-    this.contentsPanel = new ContentsPanel(this.app, this.plugin, contentsEl, this.panelCallbacks());
-    await this.contentsPanel.render();
-    const tablesEl = body.createDiv();
-    this.tablesPanel = new TablesPanel(this.app, this.plugin, tablesEl, this.panelCallbacks());
-    await this.tablesPanel.render();
-
-    this.groupLabel(body, t("compositionSummary.groupBackMatter"));
-    const bibliographyEl = body.createDiv();
-    this.bibliographyPanel = new BibliographyPanel(this.app, this.plugin, bibliographyEl, this.panelCallbacks());
-    await this.bibliographyPanel.render();
-    const annexesEl = body.createDiv();
-    this.annexesPanel = new AnnexesPanel(this.app, this.plugin, annexesEl, this.panelCallbacks());
-    await this.annexesPanel.render();
-
-    this.groupLabel(body, t("compositionSummary.groupStructure"));
-    this.renderSummaryRow(body, t("compositionSummary.structureRow"), null, () => void this.navigateTo("structure"));
+    this.renderSummaryRow(body, t("compositionSummary.beforeManuscript"), null, () => void this.navigateTo("before"));
+    this.renderSummaryRow(body, t("compositionSummary.theManuscript"), null, () => void this.navigateTo("manuscript"));
+    this.renderSummaryRow(body, t("compositionSummary.afterManuscript"), null, () => void this.navigateTo("after"));
   }
 
   /** Statut affiché sur la ligne-résumé "Première page" — recalculé via un
@@ -197,9 +214,12 @@ export class EditionCompositionContent {
     return new FirstPagePanel(this.app, this.plugin, null as unknown as HTMLElement, this.panelCallbacks()).statusLabel();
   }
 
-  /** Ligne-résumé compacte ouvrant une sous-page — même grammaire que
-   * "Contenu du manuscrit" (`feuillets-project-row`/chevron), jamais
-   * d'accordéon ouvert au milieu du sommaire. */
+  /** Ligne-résumé compacte ouvrant une sous-page — GRAMMAIRE « PAGE DE
+   * NAVIGATION » : LABEL | STATUS OPTIONNEL | CHEVRON sur UNE SEULE LIGNE
+   * (`.feuillets-project-row` est un flex aligné au centre, statut et chevron
+   * sont des frères du label — jamais une valeur renvoyée à la ligne) — même
+   * grammaire que "Contenu du manuscrit" (`feuillets-project-row`/chevron),
+   * jamais d'accordéon ouvert au milieu du sommaire. */
   private renderSummaryRow(parent: HTMLElement, label: string, status: string | null, onActivate: () => void): void {
     const row = parent.createDiv({ cls: "feuillets-project-row feuillets-edition-action-row" });
     row.setAttribute("role", "button");
@@ -228,6 +248,44 @@ export class EditionCompositionContent {
   }
 
   /* ============================ Sous-pages =============================== */
+
+  /** Composition → Avant le manuscrit : quatre entrées. Première page et Pages
+   * liminaires ouvrent des sous-pages ; Sommaire et Tables affichent leurs
+   * panneaux existants directement. */
+  private async renderBeforeSubpage(body: HTMLElement): Promise<void> {
+    this.renderSummaryRow(body, t("preview.export.firstPage"), this.firstPageStatusLabel(), () => void this.navigateTo("firstPage"));
+    this.renderSummaryRow(body, t("frontMatter.sectionTitle"), null, () => void this.navigateTo("frontMatter"));
+
+    const contentsEl = body.createDiv();
+    this.contentsPanel = new ContentsPanel(this.app, this.plugin, contentsEl, this.panelCallbacks());
+    await this.contentsPanel.renderSummary();
+
+    const tablesEl = body.createDiv();
+    this.tablesPanel = new TablesPanel(this.app, this.plugin, tablesEl, this.panelCallbacks());
+    await this.tablesPanel.render();
+  }
+
+  /** Composition → Le manuscrit : deux entrées (Contenu, Structure). */
+  private async renderManuscriptSubpage(body: HTMLElement): Promise<void> {
+    this.renderManuscriptContentRow(body);
+    this.renderSummaryRow(body, t("compositionSummary.structureRow"), null, () => void this.navigateTo("structure"));
+  }
+
+  /** Composition → Après le manuscrit : Table des matières, Bibliographie,
+   * Annexes. Affiche les trois éléments directement sans sous-pages. */
+  private async renderAfterSubpage(body: HTMLElement): Promise<void> {
+    const contentsEl = body.createDiv();
+    this.contentsPanel = new ContentsPanel(this.app, this.plugin, contentsEl, this.panelCallbacks());
+    await this.contentsPanel.renderTableOfContents();
+
+    const bibliographyEl = body.createDiv();
+    this.bibliographyPanel = new BibliographyPanel(this.app, this.plugin, bibliographyEl, this.panelCallbacks());
+    await this.bibliographyPanel.render();
+
+    const annexesEl = body.createDiv();
+    this.annexesPanel = new AnnexesPanel(this.app, this.plugin, annexesEl, this.panelCallbacks());
+    await this.annexesPanel.render();
+  }
 
   /** Composition → Première page (§6) : CONTENU (FirstPagePanel, inchangé)
    * puis PRÉSENTATION (LayoutEditor.renderStandaloneFirstPage — même

@@ -136,11 +136,13 @@ test("manage-projects ouvre ManageProjectsModal sans activer l'onglet Édition",
   }
 });
 
-/* §11 du chantier « espace central » : `open-project`, `open-export` et
- * `pdf-style-modal` passent TOUTES par le point d'entrée unique
- * `activateCentralSurface(surface, editionMode)` — jamais par une leaf Édition
- * autonome (supprimée), jamais par un second parcours d'ouverture. */
-test("open-project / open-export / pdf-style-modal passent par activateCentralSurface avec le bon mode", async () => {
+/* PROMPT 2 (« panneau droit Projet → Édition ») : `open-export` et
+ * `pdf-style-modal` passent toujours par le point d'entrée unique
+ * `activateCentralSurface(surface, editionMode)`. `open-project`, lui, ne
+ * force plus la surface centrale historique — il ouvre désormais le chemin
+ * latéral existant (`plugin.activateProject()`, tab interne "project",
+ * visible comme Édition dans SidebarFeuilletsView). */
+test("open-export / pdf-style-modal passent par activateCentralSurface avec le bon mode ; open-project ouvre le panneau latéral", async () => {
   const commands = [];
   const calls = [];
   const plugin = Object.create(FeuilletsPlugin.prototype);
@@ -159,11 +161,10 @@ test("open-project / open-export / pdf-style-modal passent par activateCentralSu
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(calls, [
-    ["edition", "composition"],
     ["edition", "export"],
     ["edition", "layout"],
   ]);
-  assert.equal(activateProjectCalls, 0, "n'ouvre plus le panneau latéral");
+  assert.equal(activateProjectCalls, 1, "open-project ouvre le panneau latéral (activateProject), pas la surface centrale");
 });
 
 /* `open-board` conserve son comportement historique : la surface centrale

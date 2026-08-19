@@ -214,10 +214,15 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
   const originalShowAtMouseEvent = Menu.prototype.showAtMouseEvent;
   const menus = [];
   Menu.prototype.showAtMouseEvent = function showAtMouseEvent() { menus.push(this); return this; };
+  const { ManageProjectsModal: ImportedModal } = await import("../src/ui/project-modals.js");
+  const modalsOpened = [];
+  const originalModalOpen = ImportedModal.prototype.open;
+  ImportedModal.prototype.open = function () { modalsOpened.push("manage"); };
   try {
     view.render = async () => {};
     rootName.events.get("click")({ stopPropagation() {} });
-    assert.equal(settings.collapsed[root.path], true, "le nom racine replie globalement le manuscrit");
+    assert.deepEqual(modalsOpened, ["manage"], "le clic sur le nom racine ouvre ManageProjectsModal");
+    assert.equal(settings.collapsed[root.path], undefined, "le clic ne replie pas la racine");
     rootRow.events.get("contextmenu")({ preventDefault() {} });
     const rootMenu = menus[0];
     const newSheet = rootMenu.items.find((item) => item.title === t("binder.newSheetHere"));
@@ -228,6 +233,7 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
     assert.ok(rootMenu.items.some((item) => item.title === t("binder.importOutline")));
   } finally {
     Menu.prototype.showAtMouseEvent = originalShowAtMouseEvent;
+    ImportedModal.prototype.open = originalModalOpen;
   }
 
   const originalWindow = globalThis.window;
@@ -379,17 +385,25 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
 
   view.render = async () => {};
 
-  // Clic sur le nom du projet : replie tout.
+  // Clic sur le nom du projet : ouvre ManageProjectsModal, ne replie pas.
+  const { ManageProjectsModal: ProjectModal } = await import("../src/ui/project-modals.js");
+  const modalsOpened2 = [];
+  const originalOpen2 = ProjectModal.prototype.open;
+  ProjectModal.prototype.open = function () { modalsOpened2.push("manage"); };
   const rootName = findElements(contentEl, (el) => el.classes.has("feuillets-tree-root"))[0]
     .children.find((c) => c.classes.has("feuillets-folder-name"));
   rootName.events.get("click")({ stopPropagation() {} });
-  await realRender(true);
+  assert.deepEqual(modalsOpened2, ["manage"], "le clic sur le nom du projet ouvre ManageProjectsModal");
+  assert.equal(settings.collapsed[root.path], undefined, "le clic ne replie pas la racine");
+  ProjectModal.prototype.open = originalOpen2;
 
-  assert.equal(settings.collapsed[root.path], true, "la racine est marquée repliée");
-  assert.equal(settings.collapsed[front.path], true, "FRONT est marqué replié par le repli global");
-  assert.equal(settings.collapsed[tarikat.path], true, "TARIKAT est marqué replié par le repli global");
-  assert.deepEqual(folderNames(), ["FRONT", "TARIKAT"], "les dossiers restent visibles et cliquables après repli global");
-  assert.deepEqual(itemNames(), [], "les feuillets (y compris ceux de la racine) sont masqués après repli global");
+  // Préparer l'état collapsed manuellement pour tester le dépli par chevron.
+  settings.collapsed[root.path] = true;
+  settings.collapsed[front.path] = true;
+  settings.collapsed[tarikat.path] = true;
+  await realRender(true);
+  assert.deepEqual(folderNames(), ["FRONT", "TARIKAT"], "les dossiers restent visibles et cliquables avec repli global");
+  assert.deepEqual(itemNames(), [], "les feuillets sont masqués avec repli global");
 
   // Déplier uniquement FRONT : TARIKAT doit rester replié. LOT FINAL Binder
   // ↔ Continu : le repli/dépli d'un dossier est désormais la responsabilité
@@ -415,15 +429,16 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
   await realRender(true);
   assert.deepEqual(itemNames(), ["Dédicace", "Feuillet 1"], "FRONT et TARIKAT sont tous deux dépliés, la racine masque toujours ses feuillets directs");
 
-  // Reclic sur le nom du projet : déplie tout, y compris les feuillets racine.
+  // Reclic sur le nom du projet : ouvre ManageProjectsModal, ne modifie pas collapsed.
+  const modalsOpened3 = [];
+  const originalOpen3 = ProjectModal.prototype.open;
+  ProjectModal.prototype.open = function () { modalsOpened3.push("manage"); };
   const rootName2 = findElements(contentEl, (el) => el.classes.has("feuillets-tree-root"))[0]
     .children.find((c) => c.classes.has("feuillets-folder-name"));
   rootName2.events.get("click")({ stopPropagation() {} });
-  await realRender(true);
-  assert.equal(settings.collapsed[root.path], undefined, "tout déplier retire le repli de la racine");
-  assert.equal(settings.collapsed[front.path], undefined);
-  assert.equal(settings.collapsed[tarikat.path], undefined);
-  assert.deepEqual(itemNames(), ["Dédicace", "Feuillet 1", "Racine"], "tout déplier réaffiche aussi les feuillets racine");
+  assert.deepEqual(modalsOpened3, ["manage"], "le reclic sur le nom du projet ouvre ManageProjectsModal");
+  assert.equal(settings.collapsed[root.path], true, "le reclic ne modifie pas collapsed");
+  ProjectModal.prototype.open = originalOpen3;
 });
 
 test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron replie/déplie, double-clic isole sans jamais ouvrir Continu ni replier au passage", async () => {

@@ -12,10 +12,10 @@ import {
   previewStatusLabel,
   previewZoomModeLabel,
 } from "../src/views/preview-view.js";
-import { resolveCompileScopeFiles } from "../src/services/compile-scope.js";
+import { resolveCompileScopeFiles, createProjectScope } from "../src/services/compile-scope.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
 import { TextPromptModal } from "../src/ui/basic-modals.js";
-import { setLocale } from "../src/i18n/index.js";
+import { setLocale, t } from "../src/i18n/index.js";
 import { readFile } from "node:fs/promises";
 
 test("PreviewView : les libellés de modes, états, zoom et première page sont traduits", async () => {
@@ -1336,8 +1336,8 @@ test("barre — fil d'Ariane, ouverture du feuillet, actualisation et zoom", wit
   const icons = toolbar.querySelectorAll(".clickable-icon");
   assert.deepEqual(
     icons.map((icon) => icon.icon),
-    ["file-edit", "refresh-cw"],
-    "deux icônes Obsidian : Ouvrir ce feuillet et Actualiser"
+    ["file-edit", "refresh-cw", "download"],
+    "trois icônes Obsidian : Ouvrir ce feuillet, Actualiser et Exporter"
   );
   assert.equal(view.btnMore, undefined, "le menu ⋯ n'existe plus");
   assert.equal(typeof view.openMoreMenu, "undefined", "son code a disparu avec lui");
@@ -1351,17 +1351,17 @@ test("barre — fil d'Ariane, ouverture du feuillet, actualisation et zoom", wit
   // fil d'Ariane rend lui aussi ses niveaux en BUTTON (voir plus bas).
   assert.equal(
     view.toolbarControlsEl.children.filter((c) => c.tagName === "BUTTON").length,
-    3,
-    "Ouvrir ce feuillet, Actualiser et zoom"
+    4,
+    "Ouvrir ce feuillet, Actualiser, zoom et Export"
   );
   assert.equal(view.openVisibleEl.classes.has("is-hidden"), true, "aucun bouton visible en mode Manuscrit");
   assert.equal(view.openVisibleEl.getAttribute("aria-label"), "Ouvrir ce feuillet");
   assert.equal(view.openVisibleEl.textContent, "", "une icône, plus un bouton texte");
 
-  /* Le groupe de droite contient les trois commandes de lecture. */
+  /* Le groupe de droite contient les quatre commandes de lecture. */
   assert.ok(view.toolbarControlsEl, "le conteneur du groupe de droite existe");
   assert.ok(toolbar.children.includes(view.toolbarControlsEl), "posé directement dans la barre");
-  for (const btn of [view.openVisibleEl, ...icons.filter((icon) => icon.icon === "refresh-cw"), view.zoomLabelEl]) {
+  for (const btn of [view.openVisibleEl, ...icons.filter((icon) => icon.icon === "refresh-cw"), view.zoomLabelEl, view.exportBtnEl]) {
     assert.ok(view.toolbarControlsEl.children.includes(btn), "chaque commande du groupe de droite est un enfant réel de ce conteneur");
   }
 
@@ -1524,12 +1524,123 @@ test("mode Manuscrit — la frappe déclenche une seule compilation différée",
   assert.equal(view.statusEl.textContent, "Manuscrit à jour");
 }));
 
-test("modes — Preview ne contient aucun contrôle d’export", withRender(async () => {
+test("modes — Preview n'a AUCUN panneau Export, seulement un bouton Exporter rapide", withRender(async () => {
   const { view } = await openLoadedView("manuscript");
 
+  /* L'ancien panneau Export (`.feuillets-preview-export`) ne doit JAMAIS
+     réapparaître : le bouton rapide est un simple `clickable-icon`. */
   assert.equal(view.contentEl.querySelector(".feuillets-preview-export"), null);
-  assert.equal(view.toolbarControlsEl.querySelector('[aria-label="Exporter"]'), null);
+  const btn = view.toolbarControlsEl.querySelector('[aria-label="Exporter"]');
+  assert.ok(btn, "le bouton Exporter rapide existe");
+  assert.equal(btn.classes.has("clickable-icon"), true, "un clickable-icon, pas un panneau");
+  assert.equal(btn.icon, "download");
+  assert.equal(btn.tagName, "BUTTON", "une icône bouton, pas un conteneur de contrôles");
+  assert.equal(view.exportBtnEl, btn, "exposé pour le clic et les tests");
 }));
+
+test("bouton Exporter — clickable-icon après le zoom, icône download, infobulle i18n d'export", withRender(async () => {
+  const { view, toolbar } = await openLoadedView("manuscript");
+  const btn = view.exportBtnEl;
+  assert.ok(btn, "le bouton Exporter existe");
+  assert.equal(btn.icon, "download", "icône Lucide download");
+  assert.equal(btn.tagName, "BUTTON");
+  assert.equal(btn.classes.has("clickable-icon"), true, "même classe que les autres commandes de la barre");
+  const label = t("project.compilation.exportBtn");
+  assert.equal(btn.getAttribute("aria-label"), label, "infobulle = clé i18n d'export EXISTANTE");
+  assert.equal(btn.getAttribute("title"), label);
+  // Position : enfant du groupe de droite, APRÈS le contrôle de zoom.
+  const idx = view.toolbarControlsEl.children.indexOf(btn);
+  const zoomIdx = view.toolbarControlsEl.children.indexOf(view.zoomLabelEl);
+  assert.ok(idx > zoomIdx, "vient après le contrôle de zoom");
+  assert.equal(toolbar.querySelectorAll(".clickable-icon").length, 3, "Ouvrir ce feuillet, Actualiser et Exporter");
+  assert.equal(view.contentEl.querySelector(".feuillets-preview-export"), null, "jamais le panneau Export");
+}));
+
+/* Le clic du bouton Exporter doit appeler runExportWorkflow avec EXACTEMENT
+   la portée de ce que l'aperçu affiche. `plugin.activeExportScope` est posé
+   par rememberExportScope (services/export-workflow.ts) dès l'entrée du
+   workflow commun — et une écriture via compile() (comptée par
+   countCompiles) prouve que le workflow est allé au bout, pas seulement
+   mémorisé la portée. */
+test("bouton Exporter — la portée suit le mode (Manuscrit → projet, Feuillet → fichier, Chapitre → dossier)", withRender(async () => {
+  // Manuscrit : projet entier.
+  {
+    const { view, plugin, app } = await openLoadedView("manuscript");
+    plugin.settings.exportFormat = "md";
+    plugin.activeExportScope = null;
+    const writes = countCompiles(app);
+    view.exportBtnEl.click();
+    await flush();
+    await flush();
+    assert.deepEqual(plugin.activeExportScope, { type: "project", projectRoot: "Manuscrit" });
+    assert.ok(writes() > 0, "le workflow commun a réellement écrit (compile atteint, pas un no-op)");
+  }
+  // Feuillet : le fichier actif.
+  {
+    const { view, plugin, sceneFile } = await openLoadedView("scene");
+    plugin.settings.exportFormat = "md";
+    plugin.activeExportScope = null;
+    view.exportBtnEl.click();
+    await flush();
+    await flush();
+    assert.deepEqual(plugin.activeExportScope, { type: "file", projectRoot: "Manuscrit", path: sceneFile.path });
+  }
+  // Chapitre : le dossier du chapitre courant.
+  {
+    const { view, plugin, chapterDir } = await openLoadedView("chapter");
+    plugin.settings.exportFormat = "md";
+    plugin.activeExportScope = null;
+    view.exportBtnEl.click();
+    await flush();
+    await flush();
+    assert.deepEqual(plugin.activeExportScope, { type: "folder", projectRoot: "Manuscrit", path: chapterDir.path });
+  }
+}));
+
+test("bouton Exporter — mode Partie : portée dossier de la Partie courante", async () => {
+  const dom = installDom();
+  const previousRender = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => fakeRender(markdown, container);
+  try {
+    const { app, settings, root, p1, s1a } = buildNestedProject();
+    settings.previewMode = "part";
+    app.setActiveFile(s1a);
+    const plugin = { settings, getProjectFolder: () => root, saveSettings: async () => {} };
+    const view = new PreviewView({ contentEl: element("div") }, plugin);
+    view.app = app;
+    await view.onOpen();
+    plugin.settings.exportFormat = "md";
+    plugin.activeExportScope = null;
+    view.exportBtnEl.click();
+    await flush();
+    await flush();
+    assert.deepEqual(plugin.activeExportScope, { type: "folder", projectRoot: "Roman/Manuscrit", path: p1.path });
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    dom.restore();
+  }
+});
+
+test("bouton Exporter — portée CompileScope explicite prioritaire sur le mode", async () => {
+  const dom = installDom();
+  const previousRender = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => fakeRender(markdown, container);
+  try {
+    const { view, plugin } = await openLoadedView("manuscript");
+    plugin.settings.exportFormat = "md";
+    plugin.activeExportScope = null;
+    // Portée explicite (ex. « Ouvrir avec aperçu ») : l'export suit CETTE
+    // étendue, jamais un repli sur le mode.
+    await view.setCompileScope(createProjectScope("Manuscrit"));
+    view.exportBtnEl.click();
+    await flush();
+    await flush();
+    assert.deepEqual(plugin.activeExportScope, { type: "project", projectRoot: "Manuscrit" });
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    dom.restore();
+  }
+});
 
 test("suivi de scène — défile vers le feuillet actif en mode Manuscrit, sans bouger si déjà visible", async () => {
   const dom = installDom();
@@ -2575,7 +2686,7 @@ test("boutons — aucun style de fond en ligne, aucune classe maison, état lisi
     ...toolbar.querySelectorAll(".clickable-icon"),
     ...toolbar.querySelectorAll(".feuillets-preview-chip"),
   ];
-  assert.equal(controls.length, 3, "Ouvrir ce feuillet, Actualiser et zoom");
+  assert.equal(controls.length, 4, "Ouvrir ce feuillet, Actualiser, zoom et Export");
 
   for (const el of controls) {
     for (const prop of ["background", "background-color", "box-shadow", "border"]) {

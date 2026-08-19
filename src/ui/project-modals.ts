@@ -6,6 +6,7 @@ import { FolderSuggest } from "./folder-suggest.js";
 import { createMinimalProject, CreateProjectError, ensureCanonicalProjectBase, initResearchSubfolders } from "../services/project-files.js";
 import { openFileActivatingWithCursor } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
+import { ProjectConfigContent, type ProjectConfigPage } from "./project-config-content.js";
 
 type ProjectModalsPlugin = {
   /* manuscriptAuthor : absent de l'interface globale FeuilletsSettings
@@ -27,6 +28,8 @@ type ProjectModalsPlugin = {
   projectDisplayName(path: string): string;
   duplicateProject(path: string, label: string): Promise<string | null>;
   writeOrder(parent: TFolder, orderedChildren: (TFile | TFolder)[]): Promise<void>;
+  switchProject(path: string): Promise<boolean>;
+  flattenFiles(folder: TFolder): readonly (TFile | TFolder)[];
 };
 
 /** Étiquette de version pour dupliquer un manuscrit (ex. "v1", "premier
@@ -326,6 +329,11 @@ export class TransformToProjectModal extends Modal {
   }
 }
 
+type ManageProjectDetailPage = {
+  projectPath: string;
+  page: ProjectConfigPage;
+};
+
 /** Gestion des projets (créer/importer/basculer/retirer/métadonnées) — vivait
  * auparavant dans une section dédiée du panneau Projet & export ; ouverte
  * maintenant en fenêtre flottante depuis le binder ("Gérer les projets…",
@@ -334,11 +342,19 @@ export class TransformToProjectModal extends Modal {
 export class ManageProjectsModal extends Modal {
   plugin: ProjectModalsPlugin;
   expandedProjects: Set<string>;
+  detailPage: ManageProjectDetailPage | null;
+  projectConfigContent: ProjectConfigContent;
 
   constructor(app: App, plugin: ProjectModalsPlugin) {
     super(app);
     this.plugin = plugin;
     this.expandedProjects = new Set();
+    this.detailPage = null;
+    this.projectConfigContent = new ProjectConfigContent(
+      app,
+      plugin,
+      () => this.render()
+    );
   }
 
   onOpen(): void {
@@ -362,6 +378,11 @@ export class ManageProjectsModal extends Modal {
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
     const S = this.plugin.settings;
+
+    if (this.detailPage !== null) {
+      this.renderDetailPage();
+      return;
+    }
 
     const header = contentEl.createDiv({ cls: "feuillets-modal-header-row" });
     header.createEl("h3", { text: t("modal.manageProjects.title") });
@@ -418,6 +439,37 @@ export class ManageProjectsModal extends Modal {
     });
   }
 
+  private renderDetailPage(): void {
+    const { contentEl } = this;
+    if (!this.detailPage) return;
+
+    const { projectPath, page } = this.detailPage;
+    const projectFile = this.app.vault.getAbstractFileByPath(projectPath);
+    if (!(projectFile instanceof TFolder)) {
+      this.detailPage = null;
+      this.render();
+      return;
+    }
+
+    const backBar = contentEl.createDiv({ cls: "feuillets-notes-back-bar" });
+    const backBtn = backBar.createEl("button", {
+      cls: "feuillets-back-btn",
+      text: ` ${t("modal.manageProjects.backToProject", { name: this.plugin.projectDisplayName(projectPath) })}`
+    });
+    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" });
+    setIcon(iconSpan, "arrow-left");
+    backBtn.prepend(iconSpan);
+    backBtn.addEventListener("click", () => {
+      this.detailPage = null;
+      this.render();
+    });
+
+    contentEl.createEl("h3", { text: this.plugin.projectDisplayName(projectPath) });
+
+    const content = contentEl.createDiv({ cls: "feuillets-sidebar-project" });
+    this.projectConfigContent.renderPage(page, content, projectPath, projectFile);
+  }
+
   renderProjectRow(list: HTMLElement, path: string, S: FeuilletsSettings): void {
     const folderObj = this.app.vault.getAbstractFileByPath(path);
     const folderExists = folderObj instanceof TFolder;
@@ -430,14 +482,8 @@ export class ManageProjectsModal extends Modal {
         return;
       }
       if (isActive) return;
-      if (S.projectFolder && !S.projects.includes(S.projectFolder)) {
-        S.projects.push(S.projectFolder);
-      }
-      S.projectFolder = path;
-      await this.plugin.saveSettings();
-      this.plugin.renderAllViews(true);
-      this.plugin.updateStatusBar();
-      this.render();
+      const switched = await this.plugin.switchProject(path);
+      if (switched) this.render();
     };
 
     const row = list.createDiv({ cls: `feuillets-project-item ${isActive ? "is-active" : ""}` });
@@ -565,8 +611,24 @@ export class ManageProjectsModal extends Modal {
         if (!S.projectMeta[path]) S.projectMeta[path] = {};
         S.projectMeta[path].type = typeSelect.value;
         await this.plugin.saveSettings();
+        this.render();
       })();
     });
+
+    if (resolveType(meta.type) === "nonfiction") {
+      detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("settings.citationStyle.name"));
+      const citSelect = detail.createEl("select");
+      citSelect.createEl("option", { text: t("settings.citationStyle.footnote"), value: "footnote" });
+      citSelect.createEl("option", { text: t("settings.citationStyle.parenthetical"), value: "parenthetical" });
+      citSelect.value = meta.citationStyle || "footnote";
+      citSelect.addEventListener("change", () => {
+        void (async () => {
+          if (!S.projectMeta[path]) S.projectMeta[path] = {};
+          S.projectMeta[path].citationStyle = citSelect.value;
+          await this.plugin.saveSettings();
+        })();
+      });
+    }
 
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.descriptionField"));
     const desc = detail.createEl("textarea", { attr: { rows: "2" } });
@@ -579,5 +641,37 @@ export class ManageProjectsModal extends Modal {
         await this.plugin.saveSettings();
       })();
     });
+
+    if (!(folderObj instanceof TFolder)) {
+      return;
+    }
+    this.renderProjectNavRows(detail, path, folderObj);
+  }
+
+  private renderProjectNavRows(container: HTMLElement, path: string, root: TFolder): void {
+    const mkNavRow = (icon: string, label: string, page: ProjectConfigPage): void => {
+      const row = container.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable feuillets-grid-full-row" });
+      const iconSpan = row.createSpan({ cls: "feuillets-notes-section-icon" });
+      setIcon(iconSpan, icon);
+      row.createSpan({ cls: "feuillets-notes-section-title", text: label });
+      const chevron = row.createSpan({ cls: "feuillets-notes-section-icon" });
+      chevron.setAttr("style", "margin-left: auto;");
+      setIcon(chevron, "chevron-right");
+      row.addEventListener("click", () => {
+        this.detailPage = { projectPath: path, page };
+        this.render();
+      });
+    };
+
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    section.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.project.rowGoals") });
+    mkNavRow("target", t("sidebar.project.rowGoals"), "goals");
+
+    const metaSection = container.createDiv({ cls: "feuillets-notes-section" });
+    metaSection.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.project.metadataHeader") });
+    mkNavRow("arrow-left-right", t("sidebar.project.rowMapping"), "mapping");
+    mkNavRow("circle-dot", t("sidebar.project.rowStatuses"), "statuses");
+    mkNavRow("tag", t("sidebar.project.rowLabels"), "labels");
+    mkNavRow("hash", t("sidebar.project.rowTags"), "tags");
   }
 }

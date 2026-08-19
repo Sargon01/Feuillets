@@ -76,18 +76,18 @@ const DEFAULT_KINDS: Record<string, CompositionKind> = {
 };
 
 /** Ordre de lecture par défaut d'un ouvrage : avant le manuscrit (première
- * page, pages liminaires, sommaire, table des matières), le manuscrit
- * lui-même, puis après lui (tables, bibliographie, annexes, index). */
+ * page, pages liminaires, sommaire, tables), le manuscrit lui-même, puis
+ * après lui (table des matières, bibliographie, annexes, index). */
 const DEFAULT_ORDER: string[] = [
   FIRST_PAGE,
   FRONT_MATTER,
   SUMMARY,
-  MANUSCRIPT,
   TABLES,
+  MANUSCRIPT,
+  TOC,
   BIBLIOGRAPHY,
   ANNEXES,
   INDEX,
-  TOC,
 ];
 
 /** Première page et le manuscrit lui-même sont aujourd'hui réellement

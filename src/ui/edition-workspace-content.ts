@@ -14,11 +14,12 @@ import { createDefaultExportTemplateV2 } from "../services/export-template-v2.js
 import { ConfirmModal, promptText } from "./basic-modals.js";
 import { UlyssesImportModal } from "./ulysses-import-modal.js";
 import { WordTemplateImportModal } from "./word-template-import-modal.js";
-import { LayoutEditor } from "./layout-editor.js";
+import { LayoutEditor, type LayoutEditorOptions } from "./layout-editor.js";
 import { EditionCompositionContent, type EditionCompositionContentPlugin } from "./edition-composition-content.js";
 import { ExportPanel, type ExportPanelPlugin } from "./export-panel.js";
 
 export type EditionWorkspaceMode = "composition" | "layout" | "export";
+export type EditionWorkspaceChrome = "workspace" | "embedded";
 
 export type EditionWorkspacePlugin = {
   settings: FeuilletsSettings & { exportTemplate: string };
@@ -36,6 +37,15 @@ export type EditionWorkspaceContentOptions = {
   /** Notifié à chaque changement de mode interne — permet à l'hôte (BoardView)
    * de retenir le mode courant sans le persister ni redessiner sa surface. */
   onModeChange?: (mode: EditionWorkspaceMode) => void;
+  /** Mode d'intégration visuelle : "workspace" (central historique avec nav et export)
+   * ou "embedded" (latéral compact sans chrome central). */
+  chrome?: EditionWorkspaceChrome;
+  /** Sidebar embedded uniquement — retransmis au composant enfant actif
+   * (EditionCompositionContent ou LayoutEditor) : `isRoot` ne vaut true que
+   * lorsque ce dernier est sur sa page racine. Le parent
+   * (SidebarFeuilletsView) n'en veut QUE ça pour décider d'afficher ou non
+   * son « Retour à Édition ». */
+  onNavigationRootChange?: (isRoot: boolean) => void;
 };
 
 interface RefreshableView {
@@ -68,6 +78,7 @@ function isRefreshableView(view: unknown): view is RefreshableView {
 export class EditionWorkspaceContent {
   readonly app: App;
   readonly plugin: EditionWorkspacePlugin;
+  readonly chrome: EditionWorkspaceChrome;
   /** Leaf de l'hôte (BoardView) — conservée pour référence, mais plus
    * transmise à AUCUN sous-composant : Composition et Documents sont des
    * composants DOM purs sans WorkspaceLeaf propre. */
@@ -77,6 +88,7 @@ export class EditionWorkspaceContent {
   editor: LayoutEditor | null = null;
   private previewLeaf: WorkspaceLeaf | null;
   private onModeChange: ((mode: EditionWorkspaceMode) => void) | undefined;
+  private onNavigationRootChange: ((isRoot: boolean) => void) | undefined;
   private modeBodyEl: HTMLElement | null = null;
   private modeNavButtons: Partial<Record<EditionWorkspaceMode, HTMLElement>> = {};
   private compositionContent: EditionCompositionContent | null = null;
@@ -97,11 +109,13 @@ export class EditionWorkspaceContent {
   ) {
     this.app = app;
     this.plugin = plugin;
+    this.chrome = options.chrome || "workspace";
     this.hostLeaf = hostLeaf;
     this.container = container;
     this.mode = this.normalizeMode(options.initialMode || "composition");
     this.previewLeaf = options.linkedPreviewLeaf ?? null;
     this.onModeChange = options.onModeChange;
+    this.onNavigationRootChange = options.onNavigationRootChange;
   }
 
   /** L'onglet Export a disparu de la navigation Édition (dernier lot UX
@@ -141,6 +155,15 @@ export class EditionWorkspaceContent {
     const container = this.container;
     container.empty();
     container.addClass("feuillets-layout-workspace");
+
+    if (this.chrome === "embedded") {
+      this.modeNavButtons = {};
+      this.quickExportBarEl = null;
+      this.quickExportPanel = null;
+      this.modeBodyEl = container.createDiv({ cls: "feuillets-edition-mode-body" });
+      await this.renderModeBody();
+      return;
+    }
 
     const nav = container.createDiv({ cls: "feuillets-edition-mode-nav", attr: { role: "tablist" } });
     /* §1 du dernier lot UX avant 2.5 : plus que deux onglets — l'Export
@@ -194,6 +217,12 @@ export class EditionWorkspaceContent {
       const surface = body.createDiv({ cls: "feuillets-edition-mode-surface" });
       const content = new EditionCompositionContent(this.app, this.plugin, surface, {
         onChange: () => void this.refreshLinkedPreview(),
+        /* même contrat que la Mise en page : la notification de racine n'est
+           transmise qu'en chrome embedded (panneau droit) — le mode central
+           historique ne transmet jamais cette option. */
+        onNavigationRootChange: this.chrome === "embedded" && this.onNavigationRootChange
+          ? (isRoot) => this.onNavigationRootChange?.(isRoot)
+          : undefined,
       });
       this.compositionContent = content;
       await content.render();
@@ -225,10 +254,21 @@ export class EditionWorkspaceContent {
     more.addEventListener("click", (event) => this.showTemplateMenu(event, templates));
 
     const layoutBody = surface.createDiv({ cls: "feuillets-layout-body" });
-    this.editor = new LayoutEditor(this.app, this.plugin, layoutBody, this.plugin.settings.exportTemplate, {
+    /* CORRECTIF PROMPT 2/3, §11 : navigation "summary" (sommaire à quatre
+       lignes) UNIQUEMENT en chrome embedded (panneau droit) — le mode
+       central historique (chrome "workspace") ne transmet jamais cette
+       option et reste donc en "rail" (valeur par défaut de LayoutEditor). */
+    const layoutOptions: LayoutEditorOptions = {
       mode: "workspace",
       onChange: () => void this.refreshLinkedPreview(),
-    });
+    };
+    if (this.chrome === "embedded") {
+      layoutOptions.workspaceNavigation = "summary";
+      if (this.onNavigationRootChange) {
+        layoutOptions.onNavigationRootChange = (isRoot) => this.onNavigationRootChange?.(isRoot);
+      }
+    }
+    this.editor = new LayoutEditor(this.app, this.plugin, layoutBody, this.plugin.settings.exportTemplate, layoutOptions);
     await this.editor.load();
   }
 

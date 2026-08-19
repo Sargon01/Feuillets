@@ -5020,6 +5020,38 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   min-width: 0;
 }
 
+/* CORRECTIF PROMPT 2/3, §16 : barre globale Aperçu/Portée/Format/Exporter
+   de l'onglet Édition (renderEditionActionsBar, sidebar-feuillets-view.ts) —
+   commune aux quatre pages (accueil, Composition, Mise en page, Dossier
+   éditorial). Passe en plusieurs lignes sous largeur étroite plutôt que de
+   provoquer un défilement horizontal ; réutilise .feuillets-edition-
+   quickexport (déjà stylée) pour l'hôte ExportPanel.renderQuickBar(). */
+.feuillets-sidebar-edition-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-2);
+  max-width: 100%;
+}
+.feuillets-sidebar-edition-export-host {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.feuillets-sidebar-edition-export-host .feuillets-edition-quickexport {
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+.feuillets-sidebar-edition-export-host .feuillets-edition-quickexport-scope,
+.feuillets-sidebar-edition-export-host .feuillets-edition-quickexport-format {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* 3. BINDER SEARCH INLINE & CONTENUS */
 .feuillets-binder-search {
   background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
@@ -6095,7 +6127,11 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 /* Édition réutilise les lignes latérales existantes ; seules leur géométrie
-   de contrôle et l'indentation d'un contenu déplié sont précisées ici. */
+   de contrôle et l'indentation d'un contenu déplié sont précisées ici.
+   Le libellé reste vivant (white-space normal) : il peut passer sur deux
+   lignes quand label + contrôle ne tiennent pas ensemble — seule la ligne
+   de NAVIGATION (/ .feuillets-project-row, .feuillets-layout-summary-row)
+   impose sa ligne unique compacte, jamais un réglage métier. */
 .feuillets-edition-row {
   padding: 3px 6px;
 }
@@ -6105,7 +6141,9 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   min-width: 0;
   max-width: none;
   width: auto;
-  white-space: nowrap;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .feuillets-edition-row-control {
@@ -6344,6 +6382,17 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.feuillets-edition-composition-container .feuillets-project-row-label {
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.feuillets-edition-composition-container .feuillets-project-row-actions {
+  margin-left: auto;
 }
 
 /* Icônes d'action (déplier/retirer) à droite de la ligne — jamais le
@@ -8364,6 +8413,94 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 .feuillets-layout-section .setting-item:first-of-type { border-top: none; }
 
+/* CORRECTIF PROMPT 2/3, §15 + MICRO-CORRECTIF VISUEL : navigation "summary"
+   de LayoutEditor (panneau droit) — GRAMMAIRE « PAGE DE NAVIGATION » :
+   une entrée = UNE SEULE LIGNE (LABEL | STATUS | CHEVRON), jamais de statut
+   sous le label, jamais de seconde ligne. Pleine largeur, aucune colonne
+   fixe, aucun overflow horizontal ; l'inspecteur qui remplace le sommaire
+   (§9) hérite des mêmes règles de resserrement que .feuillets-layout-inspector. */
+.feuillets-layout-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+}
+.feuillets-layout-summary-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-2);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.feuillets-layout-summary-row:hover {
+  background: var(--background-modifier-hover);
+}
+.feuillets-layout-summary-label {
+  /* Le libellé métier ne doit jamais être sacrifié pour afficher un résumé. */
+  flex: 0 0 auto;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+.feuillets-layout-summary-chevron {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+.feuillets-layout-summary-back {
+  display: flex;
+  margin-bottom: var(--size-4-2);
+}
+.feuillets-layout-summary-status {
+  /* Le résumé est secondaire : il reste entier lorsqu'il tient, et disparaît
+     aux très faibles largeurs plutôt que d'afficher une valeur tronquée. */
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* CORRECTIF UX « UNE PAGE À LA FOIS » : le host summary héberge la back bar
+   ET la page courante en colonne — jamais de disposition nav + contenu côte à
+   côte ; le contenu occupe toute la largeur du panneau, plein écran, un seul
+   Retour vers le parent immédiat. La navigation elle-même vit dans le DOM
+   (renderSummaryNavigation construit UNE seule page par rendu) : le CSS ne
+   fait que rendre cette page lisible, aucun décalage de contenu. */
+@container feuillets-edition-workspace (max-width: 280px) {
+  .feuillets-layout-workspace .feuillets-layout-summary-status,
+  .feuillets-layout-workspace .feuillets-edition-count {
+    display: none;
+  }
+}
+
+.feuillets-layout-summary-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.feuillets-layout-summary-host .feuillets-layout-inspector {
+  width: 100%;
+  min-width: 0;
+}
+.feuillets-layout-summary-title {
+  margin: var(--size-4-1) 0 var(--size-4-2) 0;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-normal);
+  text-transform: uppercase;
+}
+
 /* Finition locale de l'espace central Édition. Toutes les adaptations de
    largeur restent attachées à sa racine : aucun panneau historique ne les
    hérite, y compris l'Export de la Preview et le LayoutModal. */
@@ -8476,13 +8613,16 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 /* En-tête de sous-page (Première page / Pages liminaires / Structure) —
- * même principe que le panneau Projet : retour compact + titre, jamais de
- * nav permanente à côté. */
+ * GRAMMAIRE « PAGE DE NAVIGATION » : le Retour tient SA PROPRE LIGNE et le
+ * titre vient EN DESSOUS (colonne), jamais retour + titre dans le même
+ * flex-row — même principe que la navigation summary de Mise en page. */
 .feuillets-composition-subpage-header {
   display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--size-4-1);
   margin-bottom: var(--size-4-2);
+  width: 100%;
 }
 .feuillets-composition-back {
   display: flex;
@@ -8508,6 +8648,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   font-size: var(--font-ui-medium);
   font-weight: var(--font-semibold, 600);
   color: var(--text-normal);
+  text-transform: uppercase;
 }
 
 .feuillets-layout-workspace .feuillets-layout-nav-item {
@@ -8704,6 +8845,61 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
     flex-basis: 88px;
     width: 88px;
   }
+}
+
+/* ===================================================================
+ * CORRECTIF ERGONOMIQUE FINAL DES RÉGLAGES — TROIS GRAMMAIRES.
+ * Ligne NAVIGATION compacte : uniquement .feuillets-layout-summary-row /
+ * .feuillets-project-row (voir plus haut).
+ * RÉGLAGES : les Setting Obsidian gardent leur comportement responsive
+ * normal (label + contrôle sur une ligne si ça tient, contrôle sous le
+ * label sinon). Seuls les réglages EXPRESSÉMENT courts portent la classe
+ * `feuillets-setting-compact` (posée dans LayoutEditor, jamais de façon
+ * globale) : aucun `.setting-item { ... }` global, aucun `.feuillets-
+ * edition-row` forcé en nowrap. Déclaré APRÈS les @container ≤ 400px/360px
+ * (même spécificité → la dernière déclaration gagne).
+ * =================================================================== */
+
+/* RÉGLAGES COMPACTS explicites — label | contrôle sur UNE ligne tant que
+   le label est court. Uniquement sous l'inspecteur du sommaire Mise en
+   page (sidebar embedded) : jamais le rail historique, jamais le
+   LayoutModal, jamais un autre Setting sans la classe. */
+.feuillets-layout-summary-host .feuillets-layout-inspector .feuillets-setting-compact {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+  background: transparent;
+}
+.feuillets-layout-summary-host .feuillets-layout-inspector .feuillets-setting-compact .setting-item-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: var(--size-4-2);
+}
+.feuillets-layout-summary-host .feuillets-layout-inspector .feuillets-setting-compact .setting-item-name {
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+}
+.feuillets-layout-summary-host .feuillets-layout-inspector .feuillets-setting-compact .setting-item-control {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: auto;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+.feuillets-layout-summary-host .feuillets-layout-inspector .feuillets-setting-compact .setting-item-control input[type="number"] {
+  width: 64px;
+  max-width: 64px;
+}
+.feuillets-layout-summary-host .feuillets-layout-inspector .feuillets-setting-compact .setting-item-control select {
+  width: 104px;
+  max-width: 104px;
+}
+.feuillets-layout-summary-host .feuillets-layout-inspector .feuillets-setting-compact .setting-item-control input[type="text"] {
+  width: 120px;
+  max-width: 120px;
 }
 
 /* Équilibre des chapitres (onglet Analyse) — barres horizontales sobres,
@@ -9048,6 +9244,86 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 
 .cm-scrivenings-strong {
   font-weight: var(--font-bold, 700);
+}
+
+/* Titres Markdown `#`→`######` inline (finition Continu,
+ * cm-scrivenings-markdown.ts) : décorations CodeMirror seules, contenu du
+ * titre porté par une classe dédiée. Style emprunté aux variables natives
+ * Obsidian `--h1-*`…`--h6-*` QUAND le thème les définit — jamais une valeur
+ * propre à Feuillets : un titre Continu se lit comme un titre natif. Aucune
+ * marge n'est posée (les marges de bloc ne s'appliquent pas à une décoration
+ * inline) : seule la typographie du titre change, l'interligne de la ligne
+ * suit naturellement la taille de police. */
+.cm-scrivenings-heading-h1 {
+  font-family: var(--h1-font);
+  font-size: var(--h1-size);
+  font-style: var(--h1-style);
+  font-variant: var(--h1-variant);
+  font-weight: var(--h1-weight);
+  line-height: var(--h1-line-height);
+  letter-spacing: var(--h1-letter-spacing);
+  text-transform: var(--h1-text-transform);
+  color: var(--h1-color);
+}
+
+.cm-scrivenings-heading-h2 {
+  font-family: var(--h2-font);
+  font-size: var(--h2-size);
+  font-style: var(--h2-style);
+  font-variant: var(--h2-variant);
+  font-weight: var(--h2-weight);
+  line-height: var(--h2-line-height);
+  letter-spacing: var(--h2-letter-spacing);
+  text-transform: var(--h2-text-transform);
+  color: var(--h2-color);
+}
+
+.cm-scrivenings-heading-h3 {
+  font-family: var(--h3-font);
+  font-size: var(--h3-size);
+  font-style: var(--h3-style);
+  font-variant: var(--h3-variant);
+  font-weight: var(--h3-weight);
+  line-height: var(--h3-line-height);
+  letter-spacing: var(--h3-letter-spacing);
+  text-transform: var(--h3-text-transform);
+  color: var(--h3-color);
+}
+
+.cm-scrivenings-heading-h4 {
+  font-family: var(--h4-font);
+  font-size: var(--h4-size);
+  font-style: var(--h4-style);
+  font-variant: var(--h4-variant);
+  font-weight: var(--h4-weight);
+  line-height: var(--h4-line-height);
+  letter-spacing: var(--h4-letter-spacing);
+  text-transform: var(--h4-text-transform);
+  color: var(--h4-color);
+}
+
+.cm-scrivenings-heading-h5 {
+  font-family: var(--h5-font);
+  font-size: var(--h5-size);
+  font-style: var(--h5-style);
+  font-variant: var(--h5-variant);
+  font-weight: var(--h5-weight);
+  line-height: var(--h5-line-height);
+  letter-spacing: var(--h5-letter-spacing);
+  text-transform: var(--h5-text-transform);
+  color: var(--h5-color);
+}
+
+.cm-scrivenings-heading-h6 {
+  font-family: var(--h6-font);
+  font-size: var(--h6-size);
+  font-style: var(--h6-style);
+  font-variant: var(--h6-variant);
+  font-weight: var(--h6-weight);
+  line-height: var(--h6-line-height);
+  letter-spacing: var(--h6-letter-spacing);
+  text-transform: var(--h6-text-transform);
+  color: var(--h6-color);
 }
 
 /* Titre discret au-dessus de CHAQUE feuillet (premier compris) — jamais

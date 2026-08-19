@@ -3,7 +3,7 @@ import { hasKnownProject } from "../services/folder-structure.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
-import { NewProjectModal, OpenExistingFolderModal, DuplicateVersionModal } from "../ui/project-modals.js";
+import { NewProjectModal, OpenExistingFolderModal, DuplicateVersionModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -1643,16 +1643,13 @@ export class FeuilletsView extends BaseFeuilletsView {
         });
 
         row.addEventListener("click", () => {
-          if (!folderExists) {
-            new Notice(t("binder.projectManager.folderGone", { path }));
-            return;
-          }
-          void (async () => {
-            S.projectFolder = path;
-            await this.plugin.saveSettings();
-            void this.plugin.updateStatusBar();
-            this.plugin.renderAllViews(true);
-          })();
+          // MÊME chemin unique que la commande `switch-project` et que le
+          // sélecteur de l'en-tête Binder : `plugin.switchProject` (valide le
+          // dossier, préserve l'ancien projet, saveSettings + renderAllViews
+          // + status bar). `false` = dossier supprimé/déplacé.
+          void this.plugin.switchProject(path).then((ok) => {
+            if (!ok) new Notice(t("binder.projectManager.folderGone", { path }));
+          });
         });
       }
     }
@@ -2006,6 +2003,74 @@ export class FeuilletsView extends BaseFeuilletsView {
    * Sélection PUREMENT structurelle (S.binderSelectedPath, voir
    * selectFolder) : jamais Continu, jamais isolation, jamais nouvelle
    * leaf. */
+  /** Chemins des projets VALIDES (dossiers réels du coffre) : le projet actif
+   * + ceux de `settings.projects`, dédupliqués. Le sélecteur de projet de
+   * l'en-tête n'apparaît que si au moins DEUX projets sont ainsi valides —
+   * jamais un chemin orphelin (dossier supprimé/déplacé) dans la liste. */
+  private validProjectPaths(): string[] {
+    const S = this.plugin.settings;
+    return [S.projectFolder, ...(S.projects || [])]
+      .filter((p, i, a): p is string => !!p && a.indexOf(p) === i)
+      .filter((p) => this.app.vault.getAbstractFileByPath(p) instanceof TFolder);
+  }
+
+  private showProjectRootContextMenu(
+    event: MouseEvent,
+    root: TFolder
+  ): void {
+    const menu = new Menu();
+    const menuTitle = t("shared.contextMenu.openWithPreview");
+    menu.addItem((item) =>
+      item
+        .setTitle(menuTitle)
+        .setIcon("eye")
+        .onClick(async () => {
+          const scope = createProjectScope(root.path);
+          await this.openScopeWithContinuAndPreview(scope);
+        })
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.openInContinu"))
+        .setIcon("layers")
+        .onClick(async () => {
+          const scope = createProjectScope(root.path);
+          await openScopeInContinu(this.app, scope);
+        })
+    );
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.newSheetHere"))
+        .setIcon("file-plus")
+        .onClick(() => this.plugin.newSheet(root))
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.newFolder"))
+        .setIcon("folder-plus")
+        .onClick(() => this.plugin.newFolder(root))
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.importOutline"))
+        .setIcon("list-tree")
+        .onClick(() => new ImportOutlineModal(this.app, this.plugin).open())
+    );
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.duplicateAsVersion"))
+        .setIcon("copy-plus")
+        .onClick(() => {
+          new DuplicateVersionModal(this.app, this.plugin.projectDisplayName(root.path), (label) => {
+            void this.plugin.duplicateProject(root.path, label);
+          }).open();
+        })
+    );
+    menu.showAtMouseEvent(event);
+  }
+
   renderSplitBody(container: HTMLElement, root: TFolder, ctx: SplitBodyCtx): void {
     const { S, binderCompact, projectRoot } = ctx;
     /* CORRECTIF FINAL — double vue = Library opérable + Binder 2.5 unique.
@@ -2088,9 +2153,57 @@ export class FeuilletsView extends BaseFeuilletsView {
       nameEl.setText(root.name);
       nameEl.setAttr("title", root.name);
     } else {
-      const rootIcon = rootRow.createSpan({ cls: "feuillets-cell-icon" });
-      setIcon(rootIcon, "book-marked");
-      rootRow.createSpan({ cls: "feuillets-folder-name" }).setText(this.plugin.projectDisplayName(root.path));
+      // Nom du projet (pas le nom brut du dossier) : même comportement que
+      // la vue simple (renderHierarchyBody) — clic gauche/clavier ouvrent
+      // ManageProjectsModal, clic droit ouvre showProjectRootContextMenu.
+      const rootName = rootRow.createSpan({ cls: "feuillets-folder-name" });
+      rootName.setText(this.plugin.projectDisplayName(root.path));
+      rootName.setAttr("role", "button");
+      rootName.setAttr("tabindex", "0");
+      rootName.addEventListener("click", (e) => {
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        new ManageProjectsModal(this.app, this.plugin).open();
+      });
+      rootName.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          if (e.preventDefault) e.preventDefault();
+          if (e.stopPropagation) e.stopPropagation();
+          new ManageProjectsModal(this.app, this.plugin).open();
+        }
+      });
+      rootName.addEventListener("contextmenu", (e) => {
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        this.showProjectRootContextMenu(e, root);
+      });
+
+      // Sélecteur de projet (chevron) : UNIQUEMENT en racine non isolée et
+      // avec au moins deux projets VALIDES. Jamais un menu HTML, jamais une
+      // modale : un `Menu` natif Obsidian, et chaque choix passe par le MÊME
+      // chemin unique `plugin.switchProject` que la commande `switch-project`
+      // et que le gestionnaire de projets. `stopPropagation()` : ce bouton ne
+      // doit jamais déclencher le clic de la ligne racine (selectFolder).
+      const projectPaths = this.validProjectPaths();
+      if (projectPaths.length >= 2) {
+        const switchBtn = rootRow.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+        setIcon(switchBtn, "chevron-down");
+        switchBtn.setAttr("aria-label", t("binder.switchProject"));
+        switchBtn.setAttr("title", t("binder.switchProject"));
+        switchBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const menu = new Menu();
+          for (const path of projectPaths) {
+            menu.addItem((item) =>
+              item
+                .setTitle(this.plugin.projectDisplayName(path))
+                .setChecked(path === S.projectFolder)
+                .onClick(() => { void this.plugin.switchProject(path); })
+            );
+          }
+          menu.showAtMouseEvent(e);
+        });
+      }
     }
 
     const rootAdd = rootRow.createSpan({ cls: "feuillets-folder-add" });
@@ -2714,7 +2827,25 @@ export class FeuilletsView extends BaseFeuilletsView {
       // tous les projets — projectDisplayName remonte au vrai nom).
       const rootName = rootRow.createSpan({ cls: "feuillets-folder-name" });
       rootName.setText(this.plugin.projectDisplayName(treeRoot.path));
-      rootName.addEventListener("click", toggleCollapseCurrentRoot);
+      rootName.setAttr("role", "button");
+      rootName.setAttr("tabindex", "0");
+      rootName.addEventListener("click", (e) => {
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        new ManageProjectsModal(this.app, this.plugin).open();
+      });
+      rootName.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          if (e.preventDefault) e.preventDefault();
+          if (e.stopPropagation) e.stopPropagation();
+          new ManageProjectsModal(this.app, this.plugin).open();
+        }
+      });
+      rootName.addEventListener("contextmenu", (e) => {
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        this.showProjectRootContextMenu(e, treeRoot);
+      });
     }
 
     rootRow.addEventListener("click", (e) => {
@@ -2741,57 +2872,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         });
         return;
       }
-      const menu = new Menu();
-      const menuTitle = t("shared.contextMenu.openWithPreview");
-      menu.addItem((item) =>
-        item
-          .setTitle(menuTitle)
-          .setIcon("eye")
-          .onClick(async () => {
-            const scope = createProjectScope(treeRoot.path);
-            await this.openScopeWithContinuAndPreview(scope);
-          })
-      );
-      menu.addItem((item) =>
-        item
-          .setTitle(t("binder.openInContinu"))
-          .setIcon("layers")
-          .onClick(async () => {
-            const scope = createProjectScope(treeRoot.path);
-            await openScopeInContinu(this.app, scope);
-          })
-      );
-      menu.addSeparator();
-      menu.addItem((item) =>
-        item
-          .setTitle(t("binder.newSheetHere"))
-          .setIcon("file-plus")
-          .onClick(() => this.plugin.newSheet(root))
-      );
-      menu.addItem((item) =>
-        item
-          .setTitle(t("binder.newFolder"))
-          .setIcon("folder-plus")
-          .onClick(() => this.plugin.newFolder(root))
-      );
-      menu.addItem((item) =>
-        item
-          .setTitle(t("binder.importOutline"))
-          .setIcon("list-tree")
-          .onClick(() => new ImportOutlineModal(this.app, this.plugin).open())
-      );
-      menu.addSeparator();
-      menu.addItem((item) =>
-        item
-          .setTitle(t("binder.duplicateAsVersion"))
-          .setIcon("copy-plus")
-          .onClick(() => {
-            new DuplicateVersionModal(this.app, this.plugin.projectDisplayName(treeRoot.path), (label) => {
-              void this.plugin.duplicateProject(treeRoot.path, label);
-            }).open();
-          })
-      );
-      menu.showAtMouseEvent(e);
+      this.showProjectRootContextMenu(e, treeRoot);
     });
 
     /* Accepter le dépôt d'un dossier imbriqué sur la racine du projet :

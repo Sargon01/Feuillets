@@ -8,6 +8,8 @@ import {
   scriveningsSegmentRanges,
   scriveningsSegmentsInRanges,
   scriveningsGroupIsActive,
+  scriveningsHeadingIsActive,
+  scriveningsHeadingClass,
   buildScriveningsMarkdownPlan,
   planScriveningsToggleFormatting,
   createScriveningsToggleCommand,
@@ -727,6 +729,203 @@ test("createScriveningsToggleCommand(FIELD, \"strong\") : sélection multi-feuil
   const handled = toggleStrong(fakeView);
   assert.equal(handled, true, "le raccourci doit être consommé même sans modification, pour éviter tout comportement navigateur parasite");
   assert.deepEqual(dispatched, []);
+});
+
+/* ==================== Titres ATX `#`→`######` (finition Continu) ==================== */
+
+test("parseScriveningsSegmentFormatting : chaque niveau `#` à `######` est un titre de bon niveau, contenu borné après le marqueur + l'espace syntaxique", () => {
+  const cases = [
+    ["# Titre", 1, 0, 7, [2, 7], "Titre"],
+    ["## Titre 2", 2, 0, 10, [3, 10], "Titre 2"],
+    ["### T3", 3, 0, 6, [4, 6], "T3"],
+    ["#### T4", 4, 0, 7, [5, 7], "T4"],
+    ["##### T5", 5, 0, 8, [6, 8], "T5"],
+    ["###### T6", 6, 0, 9, [7, 9], "T6"],
+  ];
+  for (const [text, level, from, to, [contentFrom, contentTo], content] of cases) {
+    const { headings } = parseScriveningsSegmentFormatting(text);
+    assert.equal(headings.length, 1, `« ${text} » doit être un seul titre`);
+    const [heading] = headings;
+    assert.equal(heading.level, level, `« ${text} » niveau ${level}`);
+    assert.deepEqual([heading.from, heading.to], [from, to]);
+    assert.deepEqual([heading.contentFrom, heading.contentTo], [contentFrom, contentTo]);
+    assert.equal(text.slice(heading.contentFrom, heading.contentTo), content, `« ${text} » contenu = « ${content} »`);
+    assert.equal(heading.marks.length, 1);
+    assert.deepEqual(heading.marks[0], { from, to: from + level }, "le HeaderMark couvre exactement les `#`");
+  }
+});
+
+test("parseScriveningsSegmentFormatting : sept `#` ne font JAMAIS un titre (paragraphe pour la grammaire), et `#Titre` sans espace non plus", () => {
+  for (const text of ["####### pas un titre", "#Titre", "###Titre###"]) {
+    const { headings } = parseScriveningsSegmentFormatting(text);
+    assert.deepEqual(headings, [], `« ${text} » : la grammaire ne doit reconnaître aucun titre ATX`);
+  }
+});
+
+test("parseScriveningsSegmentFormatting : marqueur échappé `\\#` jamais un titre, `\\# pas un titre` reste un paragraphe", () => {
+  const { headings } = parseScriveningsSegmentFormatting("\\# pas un titre");
+  assert.deepEqual(headings, []);
+});
+
+test("parseScriveningsSegmentFormatting : `**gras**` et `*italique*` dans un titre restent des nœuds d'emphase, SANS affecter le titre", () => {
+  const text = "# **gras** et *italique* dans le titre";
+  const { headings, nodes, groups } = parseScriveningsSegmentFormatting(text);
+  assert.equal(headings.length, 1);
+  assert.equal(headings[0].level, 1);
+  assert.deepEqual([headings[0].contentFrom, headings[0].contentTo], [2, 38]);
+  assert.equal(nodes.length, 2, "le gras et l'italique imbriqués restent collectés");
+  assert.equal(groups.length, 2, "deux groupes de masquage d'emphase, indépendants du titre");
+});
+
+test("parseScriveningsSegmentFormatting : `## foo ##` porte DEUX HeaderMark (ouvrant ET fermant), tous deux collectés", () => {
+  const { headings } = parseScriveningsSegmentFormatting("## foo ##");
+  assert.equal(headings.length, 1);
+  const [heading] = headings;
+  assert.equal(heading.level, 2);
+  assert.deepEqual(
+    heading.marks.map((m) => [m.from, m.to]),
+    [[0, 2], [7, 9]],
+    "le marqueur fermant est un HeaderMark de plus, reconnu par la grammaire"
+  );
+  assert.deepEqual([heading.contentFrom, heading.contentTo], [3, 7], "le contenu s'arrête avant le `##` fermant");
+});
+
+test("parseScriveningsSegmentFormatting : syntaxe incomplète — `#` seul et `## ` (marqueur + espace) sont des titres VIDES, jamais des styles", () => {
+  for (const text of ["#", "## "]) {
+    const { headings } = parseScriveningsSegmentFormatting(text);
+    assert.equal(headings.length, 1);
+    assert.equal(headings[0].contentFrom, headings[0].contentTo, "aucun contenu à styler");
+  }
+});
+
+test("parseScriveningsSegmentFormatting : un SetextHeading (`Titre` souligné `===`) n'est JAMAIS collecté comme titre ATX", () => {
+  const { headings } = parseScriveningsSegmentFormatting("Titre\n=====");
+  assert.deepEqual(headings, [], "seule la syntaxe `#`→`######` est traitée par ce lot");
+});
+
+test("scriveningsHeadingIsActive : une sélection qui touche [heading.from, heading.to] (bornes incluses) réaffiche les `#`", () => {
+  const heading = { level: 1, from: 7, to: 14, contentFrom: 9, contentTo: 14, marks: [{ from: 7, to: 8 }] };
+  assert.equal(scriveningsHeadingIsActive(heading, [{ from: 12, to: 12 }]), true, "curseur dans le titre");
+  assert.equal(scriveningsHeadingIsActive(heading, [{ from: 7, to: 7 }]), true, "curseur pile sur le marqueur ouvrant");
+  assert.equal(scriveningsHeadingIsActive(heading, [{ from: 14, to: 14 }]), true, "curseur pile sur la fin du titre");
+  assert.equal(scriveningsHeadingIsActive(heading, [{ from: 0, to: 6 }]), false, "sélection avant le titre");
+  assert.equal(scriveningsHeadingIsActive(heading, [{ from: 15, to: 20 }]), false, "sélection après le titre");
+});
+
+test("scriveningsHeadingClass : une classe CSS dédiée par niveau (`cm-scrivenings-heading-h1`…`h6`)", () => {
+  assert.equal(scriveningsHeadingClass(1), "cm-scrivenings-heading-h1");
+  assert.equal(scriveningsHeadingClass(2), "cm-scrivenings-heading-h2");
+  assert.equal(scriveningsHeadingClass(3), "cm-scrivenings-heading-h3");
+  assert.equal(scriveningsHeadingClass(4), "cm-scrivenings-heading-h4");
+  assert.equal(scriveningsHeadingClass(5), "cm-scrivenings-heading-h5");
+  assert.equal(scriveningsHeadingClass(6), "cm-scrivenings-heading-h6");
+});
+
+test("buildScriveningsMarkdownPlan : le contenu d'un titre reçoit une portée de style `heading-N`, le `#` + l'espace sont masqués hors curseur", () => {
+  const text = "Avant.\n# Titre\nAprès.";
+  const outside = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [{ from: 0, to: 0 }],
+  });
+  assert.deepEqual(outside.styleRanges, [{ from: 9, to: 14, type: "heading-1" }], "« Titre » stylé, jamais le `#`");
+  assert.deepEqual(outside.hiddenMarkRanges, [{ from: 7, to: 9 }], "le `#` ET l'espace syntaxique masqués hors curseur");
+
+  const inside = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [{ from: 12, to: 12 }], // dans « Titre »
+  });
+  assert.deepEqual(inside.hiddenMarkRanges, [], "le `#` réapparaît quand le curseur touche le titre");
+  assert.deepEqual(inside.styleRanges, [{ from: 9, to: 14, type: "heading-1" }], "le style reste appliqué, seul le masquage change");
+});
+
+test("buildScriveningsMarkdownPlan : `## foo ##` masque le marqueur ouvrant, son espace ET le marqueur fermant (tout ou rien, comme une emphase)", () => {
+  const text = "## foo ##";
+  // `selections: []` (aucune sélection) : le titre est inactif — le titre
+  // occupe ici tout le document, un curseur à 0 toucherait déjà son marqueur.
+  const outside = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [],
+  });
+  assert.deepEqual(outside.styleRanges, [{ from: 3, to: 7, type: "heading-2" }]);
+  assert.deepEqual(outside.hiddenMarkRanges, [
+    { from: 0, to: 3 }, // `##` + espace
+    { from: 7, to: 9 }, // `##` fermant
+  ]);
+
+  const inside = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [{ from: 5, to: 5 }],
+  });
+  assert.deepEqual(inside.hiddenMarkRanges, [], "tous les marqueurs du titre réapparaissent ensemble");
+});
+
+test("buildScriveningsMarkdownPlan : `# **gras** ici` combine titre + emphase — deux portées de style et les marqueurs des deux masqués", () => {
+  const text = "# **gras** ici";
+  const plan = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [],
+  });
+  assert.deepEqual(plan.styleRanges, [
+    { from: 2, to: 14, type: "heading-1" },
+    { from: 4, to: 8, type: "strong" },
+  ]);
+  assert.deepEqual(plan.hiddenMarkRanges, [
+    { from: 0, to: 2 }, // `#` + espace du titre
+    { from: 2, to: 4 }, // `**` ouvrant
+    { from: 8, to: 10 }, // `**` fermant
+  ]);
+});
+
+test("buildScriveningsMarkdownPlan : un titre de CHAQUE feuillet reste dans SON segment — jamais de titre traversant la frontière", () => {
+  const segA = "# Titre A";
+  const segB = "## Titre B";
+  const composite = `${segA}\n${segB}`;
+  const boundary = segA.length;
+
+  const plan = buildScriveningsMarkdownPlan({
+    docLength: composite.length,
+    sliceText: (from, to) => composite.slice(from, to),
+    boundaries: [boundary],
+    visibleRanges: [{ from: 0, to: composite.length }],
+    selections: [],
+  });
+
+  assert.deepEqual(plan.styleRanges, [
+    { from: 2, to: 9, type: "heading-1" },
+    { from: 13, to: 20, type: "heading-2" },
+  ]);
+  assert.deepEqual(plan.hiddenMarkRanges, [
+    { from: 0, to: 2 },
+    { from: 10, to: 13 },
+  ]);
+  for (const span of [...plan.styleRanges, ...plan.hiddenMarkRanges]) {
+    assert.ok(span.to <= boundary || span.from > boundary, "aucune plage ne doit chevaucher la jonction");
+  }
+});
+
+test("compositeScriveningsFormatting : les offsets des titres sont traduits en offsets composites (segment.from ajouté), comme les emphases", () => {
+  const segment = { from: 100, to: 122 };
+  const { headings } = compositeScriveningsFormatting(segment, "# Titre");
+  assert.equal(headings.length, 1);
+  const [heading] = headings;
+  assert.deepEqual([heading.from, heading.to], [100, 107]);
+  assert.deepEqual([heading.contentFrom, heading.contentTo], [102, 107]);
+  assert.deepEqual(heading.marks, [{ from: 100, to: 101 }]);
 });
 
 /* ==================== Non-régression : compositeScriveningsFormatting ==================== */

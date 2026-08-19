@@ -630,7 +630,7 @@ export async function compile(
     return null;
   }
 
-  /* Sommaire / Table des matières / Table des illustrations / Bibliographie
+  /* Sommaire / Table des illustrations / Table des matières / Bibliographie
      / Annexes (Phases 6, 7, 8 et 9 — services/contents-generator.ts,
      services/tables-generator.ts, services/bibliography-generator.ts,
      modèle services/book-composition.ts) : générés/assemblés à la
@@ -640,37 +640,42 @@ export async function compile(
      inclusion est explicitement activée (projectMeta, voir
      readGeneratedIncluded) — par défaut exclus (defaultComposition()), sauf
      `manuscript`.
-     Sommaire/TDM/Tables sont calculés AVANT toute insertion, sur un
+     Sommaire/Tables sont calculés AVANT toute insertion, sur un
      instantané de `segments` pris ici même (sinon un bloc généré verrait le
      titre d'un autre bloc généré comme un titre du manuscrit) ; la
      Bibliographie ne vient pas des segments mais des fiches de Recherche →
      Bibliographie/Bibliography. Le Sommaire reste centré sur le manuscrit
-     principal seul (`bodySegments`) ; la Table des matières ET la Table des
-     illustrations, elles, voient aussi les annexes quand celles-ci sont
+     principal seul (`bodySegments`) ; la Table des illustrations ET la Table
+     des matières, elles, voient aussi les annexes quand celles-ci sont
      incluses (`tocSourceSegments`) — sans jamais les insérer deux fois :
      `annexSegments` ne sert ici que de SOURCE aux générateurs, leur
      insertion réelle (plus bas) est un événement séparé.
-     Sommaire/TDM sont insérés ensemble juste après les pages Front et avant
-     le corps ; Table des illustrations, Bibliographie puis Annexes, elles,
-     vont après le corps, DANS CET ORDRE (avant Index — pas encore
-     implémenté, donc simplement en fin de manuscrit pour l'instant), et
-     seulement s'il existe réellement au moins un élément à afficher (jamais
-     de page générée vide — y compris `# Annexes`, omis si la sous-section
-     est désactivée, le dossier vide, ou tous ses fichiers `compile: false`).
+     Ordre de compilation FINAL :
+     1. Pages Front (première page, pages liminaires)
+     2. Sommaire (juste après Front, avant manuscrit)
+     3. Tables (juste après Sommaire, avant manuscrit)
+     4. Manuscrit
+     5. Table des matières (après manuscrit, avant bibliographie)
+     6. Bibliographie
+     7. Annexes
+     8. Index (pas encore implémenté, donc en fin)
+     Table des illustrations (= Tables) s'insère avant le corps.
      `parts` et `segments` reçoivent exactement les mêmes inserts, aux mêmes
      index, pour rester synchronisés (voir le commentaire juste en dessous
      sur cette contrainte). */
   if (compilationScope.type === "project" && meta) {
     const wantSummary = readGeneratedIncluded(meta, SUMMARY) ?? false;
-    const wantToc = readGeneratedIncluded(meta, TOC) ?? false;
     const wantTables = readGeneratedIncluded(meta, TABLES) ?? false;
+    const wantToc = readGeneratedIncluded(meta, TOC) ?? false;
     const wantBibliography = readGeneratedIncluded(meta, BIBLIOGRAPHY) ?? false;
     const bodySegments = segments.slice();
     const tocSourceSegments = wantAnnexes ? bodySegments.concat(annexSegments) : bodySegments;
 
+    // Insérer Sommaire et Tables AVANT le manuscrit, dans cet ordre
+    let insertIndex = segments.findIndex((s) => !s.frontType);
+    if (insertIndex === -1) insertIndex = segments.length;
+
     if (wantSummary) {
-      let insertAt = segments.findIndex((s) => !s.frontType);
-      if (insertAt === -1) insertAt = segments.length;
       const text = generateSummary(bodySegments);
       const generatedSegment: CompileSegment = {
         path: null,
@@ -678,15 +683,17 @@ export async function compile(
         frontType: null,
         generatedType: "summary",
       };
-      parts.splice(insertAt, 0, text);
-      segments.splice(insertAt, 0, generatedSegment);
+      parts.splice(insertIndex, 0, text);
+      segments.splice(insertIndex, 0, generatedSegment);
+      insertIndex++; // Décaler l'index pour la prochaine insertion
     }
 
     if (wantTables) {
       const tablesText = generateTableOfIllustrations(tocSourceSegments);
       if (tablesText) {
-        parts.push(tablesText);
-        segments.push({ path: null, text: tablesText, frontType: null });
+        parts.splice(insertIndex, 0, tablesText);
+        segments.splice(insertIndex, 0, { path: null, text: tablesText, frontType: null });
+        insertIndex++; // Décaler l'index
       }
     }
 
@@ -708,6 +715,8 @@ export async function compile(
       parts.push(...annexParts);
       segments.push(...annexSegments);
     }
+
+    // Insérer Table des matières APRÈS le manuscrit, avant bibliographie
     if (wantToc) {
       const text = generateTableOfContents(tocSourceSegments);
       parts.push(text);

@@ -152,6 +152,63 @@ test("runExportWorkflow : sans argument, retombe sur currentExportScope/settings
   assert.deepEqual(plugin.activeExportScope, { type: "project", projectRoot: manuscript.path });
 });
 
+/* ============ Flush Continu avant export (hook flushContinuWritesForProject) ============ */
+
+test("runExportWorkflow : appelle le hook flushContinuWritesForProject AVANT l'export, avec le bon projectRoot", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const calls = [];
+  const plugin = {
+    ...fakePlugin(app, settings, manuscript.path),
+    flushContinuWritesForProject: async (projectRoot) => {
+      // Le flush doit se produire AVANT qu'aucun fichier d'export n'existe :
+      // l'export n'a pas encore commencé à écrire.
+      assert.equal(
+        app.vault.getFiles().some((f) => f.path.includes("MonExport")),
+        false,
+        "le hook tourne avant la moindre écriture d'export"
+      );
+      calls.push(["flush", projectRoot]);
+      return true;
+    },
+  };
+
+  const outPath = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "MonExport");
+
+  assert.deepEqual(calls, [["flush", manuscript.path]], "hook appelé UNE fois, avec le projectRoot de la portée exportée");
+  assert.match(outPath, /MonExport\.md$/);
+  assert.ok(app.vault.getAbstractFileByPath(outPath), "l'export a bien eu lieu après un flush propre");
+});
+
+test("runExportWorkflow : un flush qui échoue (false) ABANDONNE l'export — aucun fichier écrit, portée quand même mémorisée", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = {
+    ...fakePlugin(app, settings, manuscript.path),
+    flushContinuWritesForProject: async (projectRoot) => {
+      assert.equal(projectRoot, manuscript.path);
+      return false;
+    },
+  };
+  const scope = createProjectScope(manuscript.path);
+  const before = app.vault.getFiles().length;
+
+  const outPath = await runExportWorkflow(app, plugin, scope, "md", "MonExport");
+
+  assert.equal(outPath, undefined, "aucun chemin de sortie, l'export est abandonné");
+  assert.equal(app.vault.getFiles().length, before, "aucun fichier compilé n'a été créé");
+  assert.deepEqual(plugin.activeExportScope, scope, "la portée est mémorisée avant le flush, comme d'habitude");
+});
+
+test("runExportWorkflow : l'absence du hook preserve exactement le comportement d'origine (aucun appel, export normal)", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  assert.equal(plugin.flushContinuWritesForProject, undefined, "le plugin factice n'expose volontairement aucun hook");
+
+  const outPath = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Compat");
+
+  assert.match(outPath, /Compat\.md$/);
+  assert.ok(app.vault.getAbstractFileByPath(outPath), "l'export part sans flush, comme avant ce lot");
+});
+
 /* docx utilise container.children (installMinimalPrintDom suffit, comme pour
    pdf) ; odt/epub lisent container.childNodes et sérialisent via
    XMLSerializer — même petit DOM que test/export-odt.test.js et

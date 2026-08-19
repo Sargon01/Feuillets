@@ -81,6 +81,7 @@ class FakeElement {
   createDiv(options = {}) { return this.createEl("div", options); }
   createSpan(options = {}) { return this.createEl("span", options); }
   appendChild(child) { child.remove(); child.parentNode = this; this.children.push(child); return child; }
+  prepend(child) { child.remove(); child.parentNode = this; this.children = [child, ...this.children.filter((c) => c !== child)]; }
   remove() { if (this.parentNode) { const i = this.parentNode.children.indexOf(this); if (i >= 0) this.parentNode.children.splice(i, 1); this.parentNode = null; } }
   addClass(names) { for (const name of names.split(" ")) this.classes.add(name); }
   hasClass(name) { return this.classes.has(name); }
@@ -95,7 +96,8 @@ class FakeElement {
   getAttribute(name) { return this._attributes.get(name) ?? null; }
   empty() { for (const child of [...this.children]) child.remove(); this.settings = []; }
   setText(text) { this.text = String(text); return this; }
-  get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join("") : this.text; }
+  get textContent() { return this.children.length ? (this.text ? this.text : this.children.map((c) => c.textContent).join("")) : this.text; }
+  set textContent(value) { this.text = String(value); }
   querySelectorAll(selector) {
     const found = [];
     const visit = (node) => { for (const child of node.children) { if (matchesSelector(child, selector)) found.push(child); visit(child); } };
@@ -694,15 +696,35 @@ test("EditionWorkspaceContent : changer une propriété du gabarit (mode Mise en
 
 /* ==================== §20 : mode Composition ============================== */
 
-test("EditionWorkspaceContent : mode Composition monte les mêmes sections que le panneau latéral (réutilisation stricte)", async () => {
+test("EditionCompositionContent : mode Composition affiche trois groupes avec sous-pages hiérarchiques", async () => {
   const restore = installSettingStub();
   try {
     const { view, contentEl } = buildIntegrationFixture();
     await view.render();
 
-    for (const label of ["Première page", "Pages liminaires", "Sommaire", "Tables", "Bibliographie", "Annexes"]) {
-      assert.ok(contentEl.textContent.includes(label), `${label} est présent en mode Composition`);
+    // Les trois groupes principaux sont visibles immédiatement
+    for (const label of ["Avant le manuscrit", "Le manuscrit", "Après le manuscrit"]) {
+      assert.ok(contentEl.textContent.includes(label), `${label} présent en mode Composition`);
     }
+    // Les éléments détaillés ne sont accessibles que via les sous-pages
+    const beforeRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Avant le manuscrit"));
+    beforeRow.dispatch("click");
+    await view["modeRenderPromise"];
+    for (const label of ["Première page", "Pages liminaires", "Sommaire", "Tables"]) {
+      assert.ok(contentEl.textContent.includes(label), `${label} présent dans Avant le manuscrit`);
+    }
+    // Retour au sommaire
+    const backBtn = contentEl.querySelector(".feuillets-composition-back");
+    backBtn.dispatch("click");
+    await view["modeRenderPromise"];
+
+    // Vérifier que "Après le manuscrit" existe et est navigable
+    const afterRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Après le manuscrit"));
+    assert.ok(afterRow, "Après le manuscrit accessible");
+    afterRow.dispatch("click");
+    await view["modeRenderPromise"];
+    // Les panneaux Bibliographie et Annexes sont montés (peut afficher "Créer le dossier" si absence)
+    assert.ok(contentEl.textContent.includes("Bibliographie"), "Bibliographie présent");
   } finally {
     restore();
   }
@@ -715,6 +737,12 @@ test("EditionWorkspaceContent : en mode Composition, une modification (Sommaire)
     await view.render();
 
     assert.equal(view.mode, "composition");
+    // Naviguer vers "Avant le manuscrit"
+    const beforeRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Avant le manuscrit"));
+    beforeRow.dispatch("click");
+    await view["modeRenderPromise"];
+
+    // Maintenant la case pour inclure le Sommaire doit être visible
     const checkbox = contentEl.querySelector('[aria-label="Inclure le sommaire"]');
     assert.ok(checkbox, "la case Sommaire est rendue");
     checkbox.checked = !checkbox.checked;
@@ -748,6 +776,189 @@ test("EditionWorkspaceContent : setMode(\"export\") ne monte plus aucun panneau 
     // un panneau Export séparé.
     assert.ok(contentEl.querySelector(".feuillets-edition-quickexport-scope"));
     assert.ok(contentEl.querySelector(".feuillets-edition-quickexport-format"));
+  } finally {
+    restore();
+  }
+});
+
+/* ==================== PARTIE J : option chrome (workspace / embedded) ==================== */
+
+test("EditionWorkspaceContent : sans option chrome, comportement workspace par défaut", async () => {
+  const restore = installSettingStub();
+  try {
+    const { view, contentEl } = buildIntegrationFixture();
+    assert.equal(view.chrome, "workspace");
+    await view.render();
+
+    assert.ok(contentEl.querySelector(".feuillets-edition-mode-nav"), "nav avec tabs présente");
+    assert.ok(contentEl.querySelector(".feuillets-edition-quickexport"), "barre d'export présente");
+    assert.ok(contentEl.querySelector(".feuillets-edition-preview-refresh"), "bouton refresh preview présent");
+  } finally {
+    restore();
+  }
+});
+
+test("EditionWorkspaceContent : chrome: \"workspace\" affiche 2 tabs, quick export et refresh preview", async () => {
+  const restore = installSettingStub();
+  try {
+    const { app, plugin, hostLeaf } = buildIntegrationFixture();
+    const contentEl = new FakeElement("div");
+    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, { chrome: "workspace" });
+    assert.equal(view.chrome, "workspace");
+    await view.render();
+
+    const tabs = contentEl.querySelectorAll(".feuillets-edition-mode-item");
+    assert.equal(tabs.length, 2, "2 tabs présents");
+    assert.ok(contentEl.querySelector(".feuillets-edition-quickexport"), "quick export présent");
+    assert.ok(contentEl.querySelector(".feuillets-edition-preview-refresh"), "bouton refresh preview présent");
+  } finally {
+    restore();
+  }
+});
+
+test("EditionWorkspaceContent : chrome: \"embedded\" + composition n'affiche aucun chrome central, contenu Composition présent", async () => {
+  const restore = installSettingStub();
+  try {
+    const { app, plugin, hostLeaf, calls } = buildIntegrationFixture();
+    const contentEl = new FakeElement("div");
+    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
+      initialMode: "composition",
+      chrome: "embedded",
+    });
+    assert.equal(view.chrome, "embedded");
+    await view.render();
+
+    assert.equal(contentEl.querySelector(".feuillets-edition-mode-nav"), null, "aucun nav");
+    assert.equal(contentEl.querySelector(".feuillets-edition-quickexport"), null, "aucun quick export");
+    assert.equal(contentEl.querySelector(".feuillets-edition-preview-refresh"), null, "aucun refresh preview");
+    assert.ok(contentEl.querySelector(".feuillets-edition-mode-body"), "mode-body présent");
+    // Les trois groupes principaux sont présents
+    for (const label of ["Avant le manuscrit", "Le manuscrit", "Après le manuscrit"]) {
+      assert.ok(contentEl.textContent.includes(label), `${label} présent`);
+    }
+    // Les éléments détaillés ne sont pas visibles dans le sommaire principal,
+    // ils le sont seulement dans leurs sous-pages respectives.
+    assert.equal(calls.leafCreates, 0, "ne crée aucune leaf");
+  } finally {
+    restore();
+  }
+});
+
+/* CORRECTIF PROMPT 2/3, §11 : en chrome embedded, LayoutEditor bascule en
+ * navigation "summary" (sommaire à quatre lignes) — plus de rail latéral
+ * `.feuillets-layout-nav`, aucun inspecteur affiché avant qu'une catégorie
+ * ne soit choisie. */
+test("EditionWorkspaceContent : chrome: \"embedded\" + layout n'affiche aucun chrome central, LayoutEditor en navigation summary", async () => {
+  const restore = installSettingStub();
+  try {
+    const { app, plugin, hostLeaf, calls } = buildIntegrationFixture();
+    const contentEl = new FakeElement("div");
+    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
+      initialMode: "layout",
+      chrome: "embedded",
+    });
+    assert.equal(view.chrome, "embedded");
+    await view.render();
+
+    assert.equal(contentEl.querySelector(".feuillets-edition-mode-nav"), null, "aucun nav");
+    assert.equal(contentEl.querySelector(".feuillets-edition-quickexport"), null, "aucun quick export");
+    assert.equal(contentEl.querySelector(".feuillets-edition-preview-refresh"), null, "aucun refresh preview");
+    assert.ok(view.editor, "LayoutEditor est initialisé");
+    assert.equal(view.editor.workspaceNavigation, "summary", "navigation summary en chrome embedded");
+    assert.equal(view.editor.navEl, null, "aucun rail .feuillets-layout-nav historique");
+    assert.equal(contentEl.querySelector(".feuillets-layout-nav"), null, "aucune colonne rail historique dans le DOM");
+    assert.ok(contentEl.querySelector(".feuillets-layout-summary"), "le sommaire summary est affiché");
+    assert.equal(calls.leafCreates, 0, "ne crée aucune leaf");
+  } finally {
+    restore();
+  }
+});
+
+test("EditionWorkspaceContent : chrome: \"workspace\" conserve LayoutEditor en navigation rail", async () => {
+  const restore = installSettingStub();
+  try {
+    const { view } = buildIntegrationFixture();
+    await view.render();
+    view.setMode("layout");
+    await view["modeRenderPromise"];
+
+    assert.equal(view.editor.workspaceNavigation, "rail");
+    assert.ok(view.editor.navEl, "rail latéral présent en chrome workspace");
+  } finally {
+    restore();
+  }
+});
+
+/* DERNIER CORRECTIF : EditionWorkspaceContent transmet onNavigationRootChange
+ * aux enfants UNIQUEMENT en chrome embedded (panneau droit) — jamais en mode
+ * central historique (chrome "workspace"), où la navigation reste "rail". */
+
+test("racine : embedded + composition notifie true au sommaire, false à Le manuscrit, true au retour", async () => {
+  const restore = installSettingStub();
+  try {
+    const { app, plugin, hostLeaf } = buildIntegrationFixture();
+    const seen = [];
+    const contentEl = new FakeElement("div");
+    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
+      initialMode: "composition",
+      chrome: "embedded",
+      onNavigationRootChange: (isRoot) => seen.push(isRoot),
+    });
+    await view.render();
+    assert.deepEqual(seen, [true], "le sommaire Composition est la racine");
+
+    const manuscriptRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Le manuscrit"));
+    manuscriptRow.dispatch("click");
+    await view["compositionContent"]["renderPromise"];
+    assert.deepEqual(seen, [true, false], "Le manuscrit → hors racine");
+
+    const back = contentEl.querySelector(".feuillets-composition-back");
+    back.dispatch("click");
+    await view["compositionContent"]["renderPromise"];
+    assert.deepEqual(seen, [true, false, true], "retour au sommaire → racine");
+  } finally {
+    restore();
+  }
+});
+
+test("racine : embedded + layout notifie true au sommaire et false à l'ouverture de Page", async () => {
+  const restore = installSettingStub();
+  try {
+    const { app, plugin, hostLeaf } = buildIntegrationFixture();
+    const seen = [];
+    const contentEl = new FakeElement("div");
+    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
+      initialMode: "layout",
+      chrome: "embedded",
+      onNavigationRootChange: (isRoot) => seen.push(isRoot),
+    });
+    await view.render();
+    assert.deepEqual(seen, [true], "le sommaire Mise en page est la racine");
+
+    const pageRow = [...contentEl.querySelectorAll(".feuillets-layout-summary-row")].find((row) =>
+      [...row.children].some((c) => c.classes?.has?.("feuillets-layout-summary-label") && c.text === t("modal.layout.categoryPage"))
+    );
+    pageRow.dispatch("click");
+    assert.deepEqual(seen, [true, false], "Page → hors racine");
+  } finally {
+    restore();
+  }
+});
+
+test("racine : chrome \"workspace\" ne transmet JAMAIS onNavigationRootChange, même fournie", async () => {
+  const restore = installSettingStub();
+  try {
+    const { app, plugin, hostLeaf } = buildIntegrationFixture();
+    const seen = [];
+    const contentEl = new FakeElement("div");
+    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
+      onNavigationRootChange: (isRoot) => seen.push(isRoot),
+    });
+    await view.render();
+    view.setMode("layout");
+    await view["modeRenderPromise"];
+    assert.deepEqual(seen, [], "mode central : le callback n'est jamais invoqué");
+    assert.equal(view.editor.workspaceNavigation, "rail", "navigation rail conservée en workspace");
   } finally {
     restore();
   }

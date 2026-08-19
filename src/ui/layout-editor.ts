@@ -4,9 +4,9 @@ import {
   saveExportTemplateV2,
 } from "../services/export-templates-custom.js";
 
-import { Setting } from "obsidian";
+import { Setting, setIcon } from "obsidian";
 import type { App } from "obsidian";
-import { t } from "../i18n/index.js";
+import { getLocale, t } from "../i18n/index.js";
 import { TitlePageMiniature } from "./title-page-miniature.js";
 
 export type LayoutSelection = string | null;
@@ -16,6 +16,33 @@ type OnLayoutChange = () => void | Promise<void>;
 type NumberFieldSetter = (value: number | undefined) => void;
 type HeadingLevel = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
 export type LayoutEditorMode = "modal" | "workspace";
+export type LayoutSummaryPage =
+  | "home"
+  | "page"
+  | "page-format"
+  | "page-margins"
+  | "page-header"
+  | "page-footer"
+  | "text"
+  | "text-current"
+  | "text-paragraphs"
+  | "text-options"
+  | "headings"
+  | "heading-h1"
+  | "heading-h2"
+  | "heading-h3"
+  | "heading-h4"
+  | "heading-h5"
+  | "heading-h6"
+  | "elements"
+  | "blockquote"
+  | "scene-divider";
+/** Navigation du mode "workspace" — CORRECTIF PROMPT 2/3 : "rail" est le
+ * comportement historique (colonne latérale Page/Corps/Titres/Citation,
+ * espace central), "summary" une navigation alternative pour le panneau
+ * droit (sommaire à quatre lignes, une catégorie ouverte à la fois) —
+ * mêmes inspecteurs, mêmes données, même sauvegarde, aucune duplication. */
+export type LayoutWorkspaceNavigation = "rail" | "summary";
 export type LayoutEditorPlugin = {
   settings: FeuilletsSettings;
   saveSettings(): Promise<void>;
@@ -37,6 +64,16 @@ export type LayoutEditorOptions = {
    * `onChange` — permet à la maquette du LayoutModal de se resynchroniser
    * (bandes en-tête/pied, positions des blocs) sans dupliquer l'état. */
   onSaved?: () => void;
+  /** Navigation du mode "workspace" uniquement (ignoré en mode "modal") —
+   * défaut "rail" : tous les appelants existants restent strictement
+   * identiques sans le préciser. */
+  workspaceNavigation?: LayoutWorkspaceNavigation;
+  /** Sidebar embedded uniquement — notifié à chaque rendu du sommaire :
+   * `isRoot` ne vaut true que sur la page d'accueil des catégories. Le
+   * parent (SidebarFeuilletsView) ne retient QUE cette racine pour décider
+   * d'afficher ou non son « Retour à Édition » : aucun état partagé, aucune
+   * donnée, aucun déclenchement de leaf. */
+  onNavigationRootChange?: (isRoot: boolean) => void;
 };
 
 /** Étiquette affichée pour un RÔLE de page de titre — utilisée par
@@ -94,6 +131,9 @@ export class LayoutEditor {
   onChange: OnLayoutChange | undefined;
   onSelectionChange: ((selected: LayoutSelection) => void) | undefined;
   onSaved: (() => void) | undefined;
+  /** Sidebar embedded — informateur racine du sommaire summary (voir
+   * LayoutEditorOptions.onNavigationRootChange). */
+  onNavigationRootChange: ((isRoot: boolean) => void) | undefined;
 
   template!: ExportTemplateV2;
   styles: TitlePageStyles;
@@ -113,6 +153,12 @@ export class LayoutEditor {
   navEl: HTMLElement | null;
   inspectorEl!: HTMLElement;
   navigationButtons: Record<string, HTMLElement>;
+  /** "rail" (historique, espace central) ou "summary" (sommaire à quatre
+   * lignes, panneau droit — CORRECTIF PROMPT 2/3, §7-§8). */
+  workspaceNavigation: LayoutWorkspaceNavigation;
+  /** Page actuellement affichée en navigation "summary" — "home" =
+   * sommaire affiché, autres = sous-pages. Sans effet en "rail". */
+  private summaryPage: LayoutSummaryPage = "home";
   /** Maquette de la page de titre — montée UNIQUEMENT sous « Première page »
    * en mode workspace (§28), et strictement le MÊME composant que celui du
    * LayoutModal (§29). `null` partout ailleurs. */
@@ -128,6 +174,7 @@ export class LayoutEditor {
     this.onChange = options.onChange;
     this.onSelectionChange = options.onSelectionChange;
     this.onSaved = options.onSaved;
+    this.onNavigationRootChange = options.onNavigationRootChange;
     this.styles = {};
     this.roles = [];
     this.selected = null;
@@ -135,6 +182,7 @@ export class LayoutEditor {
     this.selectedRole = null;
     this.navigationButtons = {};
     this.navEl = null;
+    this.workspaceNavigation = options.workspaceNavigation || "rail";
     if (this.mode === "modal" && host) this.inspectorEl = host;
   }
 
@@ -187,11 +235,26 @@ export class LayoutEditor {
     await this.load();
   }
 
+  /** Quatre catégories partagées par les deux navigations "rail" et
+   * "summary" — mêmes clés, mêmes libellés, aucune duplication. */
+  private static readonly CATEGORIES: Array<[string, string]> = [
+    ["page", "modal.layout.categoryPage"],
+    ["body", "modal.layout.categoryBody"],
+    ["headings", "modal.layout.categoryHeadings"],
+    ["blockquote", "modal.layout.categoryBlockquote"],
+  ];
+
   private renderWorkspace(): void {
     const host = this.host;
     if (!host) return;
     host.empty();
     this.navigationButtons = {};
+    this.navEl = null;
+
+    if (this.workspaceNavigation === "summary") {
+      this.renderSummaryNavigation(host);
+      return;
+    }
 
     this.navEl = host.createDiv({ cls: "feuillets-layout-nav" });
     /* §6-§7 du dernier lot UX avant 2.5 : "Première page" quitte la
@@ -200,20 +263,335 @@ export class LayoutEditor {
        voir layout-modal.ts) — elle vit désormais UNIQUEMENT dans
        Composition → Première page (voir renderStandaloneFirstPage
        ci-dessous, réutilisée depuis là par EditionCompositionContent). */
-    const categories: Array<[string, string]> = [
-      ["page", t("modal.layout.categoryPage")],
-      ["body", t("modal.layout.categoryBody")],
-      ["headings", t("modal.layout.categoryHeadings")],
-      ["blockquote", t("modal.layout.categoryBlockquote")],
-    ];
-    for (const [key, label] of categories) {
-      const button = this.navEl.createEl("button", { cls: "feuillets-layout-nav-item", text: label });
+    for (const [key, labelKey] of LayoutEditor.CATEGORIES) {
+      const button = this.navEl.createEl("button", { cls: "feuillets-layout-nav-item", text: t(labelKey) });
       button.addEventListener("click", () => this.select(key));
       this.navigationButtons[key] = button;
     }
 
     this.inspectorEl = host.createDiv({ cls: "feuillets-layout-inspector" });
     this.select("page");
+  }
+
+  /** Navigation "summary" (CORRECTIF PROMPT 2/3, §8-§9) : hiérarchie
+   * arborescente — home affiche les 4 domaines, puis chaque domaine affiche
+   * ses sous-pages, chaque sous-page affiche l'inspecteur précis. UNE PAGE À
+   * LA FOIS : un UNIQUE host summary par rendu, vidé par renderWorkspace()
+   * avant chaque nouveau rendu — jamais deux niveaux visibles côte à côte. */
+  private renderSummaryNavigation(host: HTMLElement): void {
+    const summaryHost = host.createDiv({ cls: "feuillets-layout-summary-host" });
+    if (this.summaryPage === "home") {
+      this.renderSummaryHome(summaryHost);
+    } else {
+      this.renderSummaryPage(summaryHost, this.summaryPage);
+    }
+    /* Le parent (sidebar embedded) ne veut savoir QUE si l'éditeur est sur
+       sa page racine — « Retour à Édition » n'est rendu que dans ce cas
+       seul (voir SidebarFeuilletsView). Aucun état dupliqué. */
+    if (this.onNavigationRootChange) this.onNavigationRootChange(this.summaryPage === "home");
+  }
+
+  private renderSummaryHome(host: HTMLElement): void {
+    const list = host.createDiv({ cls: "feuillets-layout-summary" });
+
+    // Page
+    this.renderSummarySubRow(list, "page", "modal.layout.categoryPage", () => {
+      const size = this.template.page.size || "A4";
+      const orientation = this.template.page.orientation;
+      return `${size} · ${t(`modal.layout.${orientation}`)}`;
+    });
+
+    // Texte
+    this.renderSummarySubRow(list, "text", "modal.layout.categoryText", () => {
+      const font = this.template.body.fontFamily || "";
+      const size = this.template.body.fontSizePt || 0;
+      return `${this.displayFontFamily(font)} · ${size} pt`;
+    });
+
+    // Titres
+    this.renderSummarySubRow(list, "headings", "modal.layout.categoryHeadings", () => {
+      return t("modal.layout.h1ToH6");
+    });
+
+    // Éléments
+    this.renderSummarySubRow(list, "elements", "modal.layout.categoryElements", () => {
+      return "";
+    });
+  }
+
+  private openSummaryPage(page: LayoutSummaryPage): void {
+    this.summaryPage = page;
+    this.renderWorkspace();
+  }
+
+  private renderSummaryPage(host: HTMLElement, page: LayoutSummaryPage): void {
+    this.renderSummaryBackBar(host, page);
+    const titleKey = this.summaryPageTitleKey(page);
+    if (titleKey) {
+      host.createEl("h4", { cls: "feuillets-layout-summary-title", text: t(titleKey) });
+    }
+    this.inspectorEl = host.createDiv({ cls: "feuillets-layout-inspector" });
+
+    switch (page) {
+      case "page":
+        this.renderSummaryPageDomain(this.inspectorEl);
+        break;
+      case "page-format":
+        this.renderPageFormatInspector(this.inspectorEl);
+        break;
+      case "page-margins":
+        this.renderPageMarginsInspector(this.inspectorEl);
+        break;
+      case "page-header":
+        this.renderHeaderInspector(this.inspectorEl);
+        break;
+      case "page-footer":
+        this.renderFooterInspector(this.inspectorEl);
+        break;
+      case "text":
+        this.renderSummaryTextDomain(this.inspectorEl);
+        break;
+      case "text-current":
+        this.renderBodyTextInspector(this.inspectorEl);
+        break;
+      case "text-paragraphs":
+        this.renderBodyParagraphInspector(this.inspectorEl);
+        break;
+      case "text-options":
+        this.renderBodyOptionsInspector(this.inspectorEl);
+        break;
+      case "headings":
+        this.renderSummaryHeadingsDomain(this.inspectorEl);
+        break;
+      case "heading-h1":
+      case "heading-h2":
+      case "heading-h3":
+      case "heading-h4":
+      case "heading-h5":
+      case "heading-h6": {
+        const level = page.replace("heading-", "") as HeadingLevel;
+        this.selected = "headings";
+        this.renderHeadingLevelInspector(this.inspectorEl, level);
+        if (this.onSelectionChange) this.onSelectionChange("headings");
+        break;
+      }
+      case "elements":
+        this.renderSummaryElementsDomain(this.inspectorEl);
+        break;
+      case "blockquote":
+        this.selected = "blockquote";
+        this.renderBlockquoteStyleInspector(this.inspectorEl);
+        if (this.onSelectionChange) this.onSelectionChange("blockquote");
+        break;
+      case "scene-divider":
+        this.selected = "blockquote";
+        this.renderSceneDividerInspector(this.inspectorEl);
+        if (this.onSelectionChange) this.onSelectionChange("blockquote");
+        break;
+    }
+  }
+
+  private renderSummaryPageDomain(host: HTMLElement): void {
+    const list = host.createDiv({ cls: "feuillets-layout-summary" });
+
+    this.renderSummarySubRow(list, "page-format", "modal.layout.format", () => {
+      const size = this.template.page.size || "A4";
+      const orientation = this.template.page.orientation;
+      return `${size} · ${t(`modal.layout.${orientation}`)}`;
+    });
+
+    this.renderSummarySubRow(list, "page-margins", "modal.layout.marginsGroup", () => {
+      const { top, bottom, left, right } = this.template.page.marginsCm;
+      const columns = this.template.page.columns.count;
+      if (top === bottom && left === right && top === left) {
+        const value = getLocale() === "fr" ? String(top).replace(".", ",") : String(top);
+        return `${value} cm · ${columns} col.`;
+      }
+      return `${columns} col.`;
+    });
+
+    this.renderSummarySubRow(list, "page-header", "modal.layout.header", () => {
+      return this.template.header.enabled ? t("modal.layout.enabled") : t("modal.layout.disabled");
+    });
+
+    this.renderSummarySubRow(list, "page-footer", "modal.layout.footer", () => {
+      return this.template.footer.enabled ? t("modal.layout.enabled") : t("modal.layout.disabled");
+    });
+  }
+
+  private renderSummaryTextDomain(host: HTMLElement): void {
+    const list = host.createDiv({ cls: "feuillets-layout-summary" });
+
+    this.renderSummarySubRow(list, "text-current", "modal.layout.currentText", () => {
+      const body = this.template.body;
+      const font = body.fontFamily || "";
+      const size = body.fontSizePt || 0;
+      return `${this.displayFontFamily(font)} · ${size} pt · ${this.alignmentLabel(body.align || "justify")}`;
+    });
+
+    this.renderSummarySubRow(list, "text-paragraphs", "modal.layout.paragraphsGroup", () => {
+      const lineHeight = this.template.body.lineHeight || 1;
+      const indent = this.template.body.firstLineIndentPt || 0;
+      return `${t("modal.layout.lineHeight")} ${lineHeight} · ${t("modal.layout.summaryIndent")} ${indent} pt`;
+    });
+
+    this.renderSummarySubRow(list, "text-options", "modal.layout.typographyShort", () => {
+      return "";
+    });
+  }
+
+  private renderSummaryHeadingsDomain(host: HTMLElement): void {
+    const list = host.createDiv({ cls: "feuillets-layout-summary" });
+    for (const level of ["h1", "h2", "h3", "h4", "h5", "h6"] as const) {
+      const headingKey = `modal.layout.${level}`;
+      this.renderSummarySubRow(list, `heading-${level}` as LayoutSummaryPage, headingKey, () => {
+        const size = this.template.headings[level].fontSizePt;
+        if (size !== undefined && size > 0) return `${size} pt`;
+        return t("modal.layout.inherited");
+      });
+    }
+  }
+
+  private renderSummaryElementsDomain(host: HTMLElement): void {
+    const list = host.createDiv({ cls: "feuillets-layout-summary" });
+
+    this.renderSummarySubRow(list, "blockquote", "modal.layout.blockquoteLabel", () => {
+      return "";
+    });
+
+    this.renderSummarySubRow(list, "scene-divider", "modal.layout.sceneSeparatorsShort", () => {
+      return "";
+    });
+  }
+
+  /* GRAMMAIRE « PAGE DE NAVIGATION » (micro-correctif visuel) : une ligne =
+   * une entrée — LABEL | STATUS | CHEVRON, TOUT sur la même ligne. Le label
+   * et le status sont des frères DANS la row (jamais empilés par
+   * flex-direction: column), le chevron ferme la ligne. */
+  private renderSummarySubRow(
+    list: HTMLElement,
+    page: LayoutSummaryPage,
+    labelKey: string,
+    getStatus: () => string
+  ): void {
+    const row = list.createDiv({ cls: "feuillets-layout-summary-row", attr: { role: "button", tabindex: "0" } });
+    row.createSpan({ cls: "feuillets-layout-summary-label", text: t(labelKey) });
+    const status = getStatus();
+    if (status) {
+      row.createSpan({ cls: "feuillets-layout-summary-status", text: status });
+    }
+    const chevron = row.createSpan({ cls: "feuillets-layout-summary-chevron" });
+    setIcon(chevron, "chevron-right");
+
+    const open = (): void => this.openSummaryPage(page);
+    row.addEventListener("click", open);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        open();
+      }
+    });
+  }
+
+  private renderSummaryBackBar(host: HTMLElement, page: LayoutSummaryPage): void {
+    const backBar = host.createDiv({ cls: "feuillets-layout-summary-back" });
+    const backBtn = backBar.createEl("button", { cls: "feuillets-back-btn" });
+    const iconSpan = backBtn.createSpan({ cls: "feuillets-back-icon" });
+    setIcon(iconSpan, "arrow-left");
+    backBtn.prepend(iconSpan);
+
+    /* UN SEUL Retour, toujours vers le parent immédiat (§24) — la carte
+       SUMMARY_PARENT est l'unique source de vérité du chemin de retour. */
+    const parent = LayoutEditor.SUMMARY_PARENT[page];
+    const text = backBtn.createSpan();
+    text.textContent = ` ${t(this.summaryPageLabelKey(parent))}`;
+
+    backBtn.addEventListener("click", () => {
+      this.summaryPage = parent;
+      this.renderWorkspace();
+    });
+  }
+
+  /** Parent immédiat de chaque page summary — le retour est toujours celui
+   * vers cette page parente, jamais un saut vers le sommaire racine. */
+  private static readonly SUMMARY_PARENT: Record<LayoutSummaryPage, LayoutSummaryPage> = {
+    home: "home",
+    page: "home",
+    "page-format": "page",
+    "page-margins": "page",
+    "page-header": "page",
+    "page-footer": "page",
+    text: "home",
+    "text-current": "text",
+    "text-paragraphs": "text",
+    "text-options": "text",
+    headings: "home",
+    "heading-h1": "headings",
+    "heading-h2": "headings",
+    "heading-h3": "headings",
+    "heading-h4": "headings",
+    "heading-h5": "headings",
+    "heading-h6": "headings",
+    elements: "home",
+    blockquote: "elements",
+    "scene-divider": "elements",
+  };
+
+  /** Libellé affiché par le bouton Retour — le nom de la page parente. */
+  private summaryPageLabelKey(page: LayoutSummaryPage): string {
+    switch (page) {
+      case "page": return "modal.layout.categoryPage";
+      case "text": return "modal.layout.categoryText";
+      case "headings": return "modal.layout.categoryHeadings";
+      case "elements": return "modal.layout.categoryElements";
+      default: return "layoutWorkspace.displayText";
+    }
+  }
+
+  /** Titre affiché en tête d'une page summary — "home", en-tête et pied de
+   * page n'en ont pas (leurs inspecteurs posent déjà leur propre sous-titre). */
+  private summaryPageTitleKey(page: LayoutSummaryPage): string | null {
+    switch (page) {
+      case "page": return "modal.layout.categoryPage";
+      case "page-format": return "modal.layout.formatOrientation";
+      case "page-margins": return "modal.layout.marginsColumns";
+      case "page-header": return null;
+      case "page-footer": return null;
+      case "text": return "modal.layout.categoryText";
+      case "text-current": return "modal.layout.currentText";
+      case "text-paragraphs": return "modal.layout.paragraphsGroup";
+      case "text-options": return "modal.layout.typographicOptions";
+      case "headings": return "modal.layout.categoryHeadings";
+      case "heading-h1": return "modal.layout.h1";
+      case "heading-h2": return "modal.layout.h2";
+      case "heading-h3": return "modal.layout.h3";
+      case "heading-h4": return "modal.layout.h4";
+      case "heading-h5": return "modal.layout.h5";
+      case "heading-h6": return "modal.layout.h6";
+      case "elements": return "modal.layout.categoryElements";
+      case "blockquote": return "modal.layout.blockquoteLabel";
+      case "scene-divider": return "modal.layout.sceneSeparatorLabel";
+      default: return null;
+    }
+  }
+
+  /** Résume une face de police UNIQUEMENT pour l'affichage (statuts du
+   * sommaire) : première famille avant la première virgule, guillemets
+   * retirés, jamais la chaîne technique complète. Ne modifie jamais la
+   * donnée sauvegardée. */
+  private displayFontFamily(value: string): string {
+    const first = value.split(",")[0].trim();
+    return first.replace(/^['"]+|['"]+$/g, "");
+  }
+
+  /** Libellé i18n d'un alignement — jamais une clé construite dynamiquement. */
+  private alignmentLabel(value: TemplateAlign): string {
+    switch (value) {
+      case "left": return t("modal.layout.alignLeft");
+      case "center": return t("modal.layout.alignCenter");
+      case "right": return t("modal.layout.alignRight");
+      case "justify": return t("modal.layout.alignJustify");
+    }
   }
 
   notifyChange(): void {
@@ -381,8 +759,14 @@ export class LayoutEditor {
     num(t("modal.layout.marginBelow"), () => st.marginBottomPt, (n) => (n == null ? delete st.marginBottomPt : (st.marginBottomPt = n)));
   }
 
-  private numberField(insp: HTMLElement, name: string, value: () => number, set: (value: number) => void): void {
-    new Setting(insp).setName(name).addText((control) => {
+  /** Champ numérique compact (drapeau `compact`) — pose la classe explicite
+   * `feuillets-setting-compact` (label | contrôle en ligne sous le sidebar
+   * embedded) UNIQUEMENT pour les réglages courts qui la méritent : jamais
+   * automatique, jamais sur un autre Setting. */
+  private numberField(insp: HTMLElement, name: string, value: () => number, set: (value: number) => void, compact = false): void {
+    const setting = new Setting(insp).setName(name);
+    if (compact) setting.setClass("feuillets-setting-compact");
+    setting.addText((control) => {
       control.inputEl.type = "number";
       control.setValue(String(value())).onChange(async (raw) => {
         const next = Number.parseFloat(raw);
@@ -409,36 +793,33 @@ export class LayoutEditor {
     });
   }
 
-  private textField(insp: HTMLElement, name: string, value: () => string, set: (value: string) => void): void {
-    new Setting(insp).setName(name).addText((control) =>
+  /** Champ texte — même drapeau `compact` que numberField, pour les seuls
+   * libellés courts désignés (Police, …). */
+  private textField(insp: HTMLElement, name: string, value: () => string, set: (value: string) => void, compact = false): void {
+    const setting = new Setting(insp).setName(name);
+    if (compact) setting.setClass("feuillets-setting-compact");
+    setting.addText((control) =>
       control.setValue(value()).onChange(async (next) => { set(next); await this.saveTemplate(); })
     );
   }
 
-  renderPageInspector(insp: HTMLElement): void {
-    /* Pas de titre "Page" ici : la navigation (workspace) ou l'onglet
-       (modal) l'affiche déjà juste à côté — doublon évident, §4 du micro-lot
-       finition UI. */
-    /* §8 du dernier lot UX avant 2.5 : Format devient un dropdown fermé sur
-       les seules valeurs déjà reconnues par le moteur (isTemplatePageSize) —
-       plus de champ texte libre pouvant contenir une valeur invalide et
-       silencieusement ignorée à l'écriture. */
-    new Setting(insp).setName(t("modal.layout.format")).addDropdown((d) => d
+  private renderPageFormatInspector(insp: HTMLElement): void {
+    new Setting(insp).setName(t("modal.layout.format")).setClass("feuillets-setting-compact").addDropdown((d) => d
       .addOption("A4", "A4").addOption("A5", "A5").addOption("Letter", "Letter")
       .setValue(isTemplatePageSize(this.template.page.size) ? this.template.page.size : "A4")
       .onChange(async (v) => {
         if (isTemplatePageSize(v)) this.template.page.size = v;
         await this.saveTemplate();
       }));
-    new Setting(insp).setName(t("modal.layout.orientation")).addDropdown((d) => d
+    new Setting(insp).setName(t("modal.layout.orientation")).setClass("feuillets-setting-compact").addDropdown((d) => d
       .addOption("portrait", t("modal.layout.portrait")).addOption("landscape", t("modal.layout.landscape"))
       .setValue(this.template.page.orientation).onChange(async (v) => {
         if (v === "portrait" || v === "landscape") this.template.page.orientation = v;
         await this.saveTemplate();
       }));
+  }
 
-    /* §8 : plus de noms internes anglais (top/bottom/left/right) affichés —
-       un groupe "Marges" avec Haut/Bas/Gauche/Droite, via i18n (FR/EN). */
+  private renderPageMarginsInspector(insp: HTMLElement): void {
     insp.createEl("h4", { text: t("modal.layout.marginsGroup") });
     const marginLabels: Record<"top" | "bottom" | "left" | "right", string> = {
       top: t("modal.layout.marginTop"),
@@ -447,17 +828,13 @@ export class LayoutEditor {
       right: t("modal.layout.marginRight"),
     };
     for (const side of ["top", "bottom", "left", "right"] as const) {
-      this.numberField(insp, marginLabels[side], () => this.template.page.marginsCm[side], (v) => this.template.page.marginsCm[side] = Math.max(0, v));
+      this.numberField(insp, marginLabels[side], () => this.template.page.marginsCm[side], (v) => this.template.page.marginsCm[side] = Math.max(0, v), true);
     }
-    new Setting(insp).setName(t("modal.layout.mirrorMargins")).addToggle((control) => control.setValue(this.template.page.mirrorMargins).onChange(async (v) => {
+    new Setting(insp).setName(t("modal.layout.mirrorMargins")).setClass("feuillets-setting-compact").addToggle((control) => control.setValue(this.template.page.mirrorMargins).onChange(async (v) => {
       this.template.page.mirrorMargins = v; await this.saveTemplate();
     }));
 
-    /* §8 : la Gouttière n'a de sens qu'à partir de 2 colonnes — masquée tant
-       que Colonnes = 1, réaffichée dès que Colonnes > 1. Uniquement une
-       question de présentation : la valeur `gutterPt` du gabarit n'est ni
-       lue ni modifiée par ce masquage. */
-    new Setting(insp).setName(t("modal.layout.columns")).addText((control) => {
+    new Setting(insp).setName(t("modal.layout.columns")).setClass("feuillets-setting-compact").addText((control) => {
       control.inputEl.type = "number";
       control.setValue(String(this.template.page.columns.count)).onChange(async (raw) => {
         const next = Number.parseFloat(raw);
@@ -465,14 +842,20 @@ export class LayoutEditor {
         const wasMulti = this.template.page.columns.count > 1;
         this.template.page.columns.count = Math.max(1, Math.round(next));
         await this.saveTemplate();
-        // La Gouttière apparaît/disparaît selon le nombre de colonnes :
-        // seul un changement de côté (1 <-> >1) impose de reconstruire.
         if (wasMulti !== (this.template.page.columns.count > 1)) this.renderInspector();
       });
     });
     if (this.template.page.columns.count > 1) {
-      this.numberField(insp, t("modal.layout.gutterPt"), () => this.template.page.columns.gutterPt, (v) => this.template.page.columns.gutterPt = Math.max(0, v));
+      this.numberField(insp, t("modal.layout.gutterPt"), () => this.template.page.columns.gutterPt, (v) => this.template.page.columns.gutterPt = Math.max(0, v), true);
     }
+  }
+
+  renderPageInspector(insp: HTMLElement): void {
+    /* Pas de titre "Page" ici : la navigation (workspace) ou l'onglet
+       (modal) l'affiche déjà juste à côté — doublon évident, §4 du micro-lot
+       finition UI. */
+    this.renderPageFormatInspector(insp);
+    this.renderPageMarginsInspector(insp);
 
     if (this.mode === "workspace") {
       // renderHeaderInspector/renderFooterInspector posent déjà leur propre
@@ -484,19 +867,29 @@ export class LayoutEditor {
     }
   }
 
-  renderBodyInspector(insp: HTMLElement): void {
+  private renderBodyTextInspector(insp: HTMLElement): void {
     const body = this.template.body;
-    /* Pas de titre "Corps de texte" ici : doublon avec la navigation/l'onglet
-       — même règle qu'en Page, §4. */
-    this.textField(insp, t("modal.layout.font"), () => body.fontFamily, (v) => body.fontFamily = v);
-    this.numberField(insp, t("modal.layout.sizePt"), () => body.fontSizePt, (v) => body.fontSizePt = Math.max(1, v));
-    this.numberField(insp, t("modal.layout.lineHeight"), () => body.lineHeight, (v) => body.lineHeight = Math.max(0.1, v));
-    new Setting(insp).setName(t("modal.layout.alignment")).addDropdown((d) => d
+    this.textField(insp, t("modal.layout.font"), () => body.fontFamily, (v) => body.fontFamily = v, true);
+    this.numberField(insp, t("modal.layout.sizePt"), () => body.fontSizePt, (v) => body.fontSizePt = Math.max(1, v), true);
+    new Setting(insp).setName(t("modal.layout.alignment")).setClass("feuillets-setting-compact").addDropdown((d) => d
       .addOption("left", t("modal.layout.alignLeft")).addOption("center", t("modal.layout.alignCenter")).addOption("right", t("modal.layout.alignRight")).addOption("justify", t("modal.layout.alignJustify"))
       .setValue(body.align).onChange(async (v) => { if (isTemplateAlign(v)) body.align = v; await this.saveTemplate(); }));
+  }
+
+  private renderBodyParagraphInspector(insp: HTMLElement): void {
+    const body = this.template.body;
+    /* « Retrait première ligne (pt) » reste volontairement RESPONSIVE (pas
+       de classe compacte) : son intitulé ne tient pas de façon confortable
+       dans la ligne compacte du sidebar — il passe sur deux lignes au lieu
+       de se tronquer. */
+    this.numberField(insp, t("modal.layout.lineHeight"), () => body.lineHeight, (v) => body.lineHeight = Math.max(0.1, v), true);
     this.numberField(insp, t("modal.layout.firstLineIndentPt"), () => body.firstLineIndentPt, (v) => body.firstLineIndentPt = Math.max(0, v));
-    this.numberField(insp, t("modal.layout.spacingBeforePt"), () => body.paragraphSpacingBeforePt, (v) => body.paragraphSpacingBeforePt = Math.max(0, v));
-    this.numberField(insp, t("modal.layout.spacingAfterPt"), () => body.paragraphSpacingAfterPt, (v) => body.paragraphSpacingAfterPt = Math.max(0, v));
+    this.numberField(insp, t("modal.layout.spacingBeforePt"), () => body.paragraphSpacingBeforePt, (v) => body.paragraphSpacingBeforePt = Math.max(0, v), true);
+    this.numberField(insp, t("modal.layout.spacingAfterPt"), () => body.paragraphSpacingAfterPt, (v) => body.paragraphSpacingAfterPt = Math.max(0, v), true);
+  }
+
+  private renderBodyOptionsInspector(insp: HTMLElement): void {
+    const body = this.template.body;
     new Setting(insp).setName(t("modal.layout.hyphenation")).addToggle((control) => control.setValue(body.hyphenation).onChange(async (v) => { body.hyphenation = v; await this.saveTemplate(); }));
     new Setting(insp).setName(t("modal.layout.profile")).addDropdown((d) => d
       .addOption("manuscript", t("modal.layout.profileManuscript")).addOption("document", t("modal.layout.profileDocument")).addOption("academic", t("modal.layout.profileAcademic"))
@@ -518,6 +911,28 @@ export class LayoutEditor {
     );
   }
 
+  renderBodyInspector(insp: HTMLElement): void {
+    /* Pas de titre "Corps de texte" ici : doublon avec la navigation/l'onglet
+       — même règle qu'en Page, §4. */
+    this.renderBodyTextInspector(insp);
+    this.renderBodyParagraphInspector(insp);
+    this.renderBodyOptionsInspector(insp);
+  }
+
+  private renderHeadingLevelInspector(insp: HTMLElement, level: HeadingLevel): void {
+    const style = this.template.headings[level];
+    this.textField(insp, t("modal.layout.font"), () => style.fontFamily || "", (v) => style.fontFamily = v.trim() || undefined);
+    this.numberField(insp, t("modal.layout.sizePt"), () => style.fontSizePt ?? 0, (v) => style.fontSizePt = v || undefined);
+    new Setting(insp).setName(t("modal.layout.bold")).addToggle((c) => c.setValue(!!style.bold).onChange(async (v) => { style.bold = v; await this.saveTemplate(); }));
+    new Setting(insp).setName(t("modal.layout.italic")).addToggle((c) => c.setValue(!!style.italic).onChange(async (v) => { style.italic = v; await this.saveTemplate(); }));
+    this.textField(insp, t("modal.layout.alignment"), () => style.align || "left", (v) => {
+      if (isTemplateAlign(v)) style.align = v;
+    });
+    this.numberField(insp, t("modal.layout.headingSpaceBefore"), () => style.marginTopPt ?? 0, (v) => style.marginTopPt = v || undefined);
+    this.numberField(insp, t("modal.layout.headingSpaceAfter"), () => style.marginBottomPt ?? 0, (v) => style.marginBottomPt = v || undefined);
+    new Setting(insp).setName(t("modal.layout.pageBreakBefore")).addToggle((c) => c.setValue(!!style.pageBreakBefore).onChange(async (v) => { style.pageBreakBefore = v; await this.saveTemplate(); }));
+  }
+
   renderHeadingsInspector(insp: HTMLElement): void {
     // Pas de titre "Titres" ici : doublon avec la navigation/l'onglet, §4.
     const picker = insp.createDiv({ cls: "feuillets-heading-level-picker" });
@@ -529,22 +944,12 @@ export class LayoutEditor {
         this.renderInspector();
       });
     }
-    const style = this.template.headings[this.selectedHeading];
     const editor = insp.createDiv({ cls: "feuillets-heading-editor" });
     editor.createEl("h5", { text: this.selectedHeading.toUpperCase() });
-    this.textField(editor, t("modal.layout.font"), () => style.fontFamily || "", (v) => style.fontFamily = v.trim() || undefined);
-    this.numberField(editor, t("modal.layout.sizePt"), () => style.fontSizePt ?? 0, (v) => style.fontSizePt = v || undefined);
-    new Setting(editor).setName(t("modal.layout.bold")).addToggle((c) => c.setValue(!!style.bold).onChange(async (v) => { style.bold = v; await this.saveTemplate(); }));
-    new Setting(editor).setName(t("modal.layout.italic")).addToggle((c) => c.setValue(!!style.italic).onChange(async (v) => { style.italic = v; await this.saveTemplate(); }));
-    this.textField(editor, t("modal.layout.alignment"), () => style.align || "left", (v) => {
-      if (isTemplateAlign(v)) style.align = v;
-    });
-    this.numberField(editor, t("modal.layout.headingSpaceBefore"), () => style.marginTopPt ?? 0, (v) => style.marginTopPt = v || undefined);
-    this.numberField(editor, t("modal.layout.headingSpaceAfter"), () => style.marginBottomPt ?? 0, (v) => style.marginBottomPt = v || undefined);
-    new Setting(editor).setName(t("modal.layout.pageBreakBefore")).addToggle((c) => c.setValue(!!style.pageBreakBefore).onChange(async (v) => { style.pageBreakBefore = v; await this.saveTemplate(); }));
+    this.renderHeadingLevelInspector(editor, this.selectedHeading);
   }
 
-  renderBlockquoteInspector(insp: HTMLElement): void {
+  private renderBlockquoteStyleInspector(insp: HTMLElement): void {
     insp.createEl("h4", { text: t("modal.layout.blockquoteTitle") });
     const quote = this.template.blockquote;
     this.textField(insp, t("modal.layout.font"), () => quote.fontFamily || "", (v) => quote.fontFamily = v.trim() || undefined);
@@ -562,7 +967,15 @@ export class LayoutEditor {
       .addOption("", t("modal.layout.default")).addOption("true", t("modal.layout.italic")).addOption("false", t("modal.layout.italicNormal"))
       .setValue(quote.italic === undefined ? "" : String(quote.italic)).onChange(async (v) => { quote.italic = v === "" ? undefined : v === "true"; await this.saveTemplate(); }));
     this.textField(insp, t("modal.layout.color"), () => quote.colorHex || "", (v) => quote.colorHex = v.trim() || undefined);
+  }
+
+  private renderSceneDividerInspector(insp: HTMLElement): void {
     this.textField(insp, t("modal.layout.sceneSeparator"), () => this.template.sceneDivider, (v) => this.template.sceneDivider = v);
+  }
+
+  renderBlockquoteInspector(insp: HTMLElement): void {
+    this.renderBlockquoteStyleInspector(insp);
+    this.renderSceneDividerInspector(insp);
   }
 
   renderFirstPageInspector(insp: HTMLElement): void {
