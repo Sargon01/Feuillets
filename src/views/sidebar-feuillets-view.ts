@@ -7,12 +7,12 @@ import { DocxReviewView } from "./docx-review-view.js";
 import { JournalView } from "./journal-view.js";
 import { NativeReviewView } from "./native-review-view.js";
 import { NotesView } from "./notes-view.js";
-import type { ProjectView } from "./project-view.js";
+import type { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { ResearchView } from "./research-view.js";
 import { TextAnalysisView } from "./text-analysis-view.js";
 import { EditionWorkspaceContent, type EditionWorkspacePlugin } from "../ui/edition-workspace-content.js";
 import { EditionDocsContent, type EditionDocsContentPlugin } from "../ui/edition-docs-content.js";
-import { ExportPanel } from "../ui/export-panel.js";
+import { ExportPanel, type ExportPanelPlugin } from "../ui/export-panel.js";
 import { createProjectScope } from "../services/compile-scope.js";
 import { openScopeWithPreviewBesideLeaf } from "./preview-view.js";
 
@@ -30,9 +30,10 @@ export type EditionPage = "home" | "composition" | "layout" | "documents";
  * total de la page d'accueil, dans le même panneau. */
 type RelecturePage = "home" | "native" | "analysis" | "docx";
 type SidebarPlugin =
-  ConstructorParameters<typeof ProjectView>[1]
+  ConstructorParameters<typeof BaseFeuilletsView>[1]
   & EditionWorkspacePlugin
-  & EditionDocsContentPlugin;
+  & EditionDocsContentPlugin
+  & ExportPanelPlugin;
 type SidebarSubView = {
   targetContainer?: HTMLElement;
   render(force?: boolean): Promise<void>;
@@ -331,7 +332,7 @@ export class SidebarFeuilletsView extends ItemView {
 
   /* Onglet « Édition » (clé interne "project") : page d'accueil avec 3 entrées
      (Composition, Mise en page, Dossier éditorial) ou sous-pages montées via
-     EditionWorkspaceContent (mode embedded) ou EditionDocsContent. La barre
+     EditionWorkspaceContent ou EditionDocsContent. La barre
      globale Aperçu/Export (renderEditionActionsBar) est rendue en tête, hors
      du wrapper HOME/sous-page — commune aux quatre pages.
      UN SEUL Retour visible à chaque profondeur : la barre « Retour à
@@ -349,11 +350,9 @@ export class SidebarFeuilletsView extends ItemView {
         const content = new EditionWorkspaceContent(
           this.app,
           this.plugin,
-          this.leaf,
           host,
           {
             initialMode: "composition",
-            chrome: "embedded",
             linkedPreviewLeaf: this.existingProjectPreviewLeaf(),
             onNavigationRootChange: (isRoot) => this.setEditionChildAtRoot(isRoot),
           }
@@ -364,11 +363,9 @@ export class SidebarFeuilletsView extends ItemView {
         const content = new EditionWorkspaceContent(
           this.app,
           this.plugin,
-          this.leaf,
           host,
           {
             initialMode: "layout",
-            chrome: "embedded",
             linkedPreviewLeaf: this.existingProjectPreviewLeaf(),
             onNavigationRootChange: (isRoot) => this.setEditionChildAtRoot(isRoot),
           }

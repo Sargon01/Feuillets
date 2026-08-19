@@ -130,7 +130,7 @@ function buildCreationFixture() {
  * restant du gabarit actif et de sa gestion. */
 async function mountLayout(app, plugin) {
   const contentEl = new FakeElement("div");
-  const view = new EditionWorkspaceContent(app, plugin, { app, contentEl }, contentEl, { initialMode: "layout" });
+  const view = new EditionWorkspaceContent(app, plugin, contentEl, { initialMode: "layout" });
   await view.render();
   return { view, contentEl };
 }

@@ -81,11 +81,8 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
    (Projet/Écriture/Interface/Panneaux latéraux/Correction/Export) est
    reconstruite « à la main » dans un item `render()` (composant isolé
    `settings-category-tabs.ts`) plutôt qu'avec la navigation native en
-   profondeur (`SettingDefinitionPage`) : cette dernière n'offre aucun moyen
-   documenté d'ouvrir une page précise par programme, ce qui aurait cassé
-   l'ouverture directe sur « Export » depuis PreviewView/ProjectView (voir
-   open-export-settings.ts). `_activeSettingsTab` reste la seule source de
-   vérité, `this.update()` remplace tous les anciens `this.display()`.
+   profondeur (`SettingDefinitionPage`). `_activeSettingsTab` reste la seule
+   source de vérité et `this.update()` remplace les anciens `this.display()`.
 
    `setDynamicTooltip()` (sliders) reste appelé : minAppVersion valant
    désormais 1.13.0, ces appels sont devenus sans effet (la valeur du
@@ -794,7 +791,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .addOption("notes", t("sidebar.tab.notes"))
           .addOption("research", t("sidebar.tab.research"))
           .addOption("journal", t("sidebar.tab.journal"))
-          .addOption("project", t("sidebar.tab.project"))
+          .addOption("project", t("sidebar.tab.edition"))
           .addOption("stats", t("sidebar.tab.stats"))
           .addOption("relecture", t("sidebar.tab.proofreading"))
           .setValue(activeInspectorTab())
@@ -842,7 +839,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       ["notes", t("sidebar.tab.notes")],
       ["research", t("sidebar.tab.research")],
       ["journal", t("sidebar.tab.journal")],
-      ["project", t("sidebar.tab.project")],
+      ["project", t("sidebar.tab.edition")],
       ["stats", t("sidebar.tab.stats")],
       ["relecture", t("sidebar.tab.proofreading")],
     ];
@@ -1049,18 +1046,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
      Export pour la typographie française ; Mise en page pour le gabarit et la
      géométrie de page V2). AUCUNE clé de réglage n'a été retirée de
      DEFAULT_SETTINGS : seul le point d'entrée d'interface a changé. */
-
-  /** Compatibilité : `open-export-settings.ts` appelle ce nom sur l'instance
-   * active pour sauter directement sur « Export ». Pas `display()` : une fois
-   * `getSettingDefinitions()` non vide, Obsidian considère toute méthode
-   * `display()` comme un reliquat de l'API dépréciée et le signale — même
-   * si son corps ne fait qu'appeler `update()`. Ce nom neutre évite
-   * l'avertissement tout en gardant le même contrat (voir aussi
-   * project-view.ts, preview-view.ts et leurs tests). */
-  refreshForExternalCallers(): void {
-    this.update();
-  }
-
 
   /** Bouton discret pointant vers un thème/plugin communautaire — jamais une
    * installation automatique (aucune API publique ne le permet, et pour

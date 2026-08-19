@@ -64,7 +64,7 @@ const PANEL_LABELS = new Set([
   t("sidebar.tab.notes"),
   t("sidebar.tab.research"),
   t("sidebar.tab.journal"),
-  t("sidebar.tab.project"),
+  t("sidebar.tab.edition"),
   t("sidebar.tab.stats"),
   t("sidebar.tab.proofreading"),
 ]);
@@ -111,7 +111,7 @@ test("Réglages : l'Inspecteur expose exactement 6 panneaux dans l'ordre de SIDE
     t("sidebar.tab.notes"),
     t("sidebar.tab.research"),
     t("sidebar.tab.journal"),
-    t("sidebar.tab.project"),
+    t("sidebar.tab.edition"),
     t("sidebar.tab.stats"),
     t("sidebar.tab.proofreading"),
   ]);

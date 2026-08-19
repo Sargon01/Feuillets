@@ -487,7 +487,6 @@ export const fr = {
   "research.displayText": "Recherche",
 
   // ---------- Panneau Projet & export (project-view.js) ----------
-  "project.displayText": "Projet & export",
   "project.noActiveProject": "Aucun projet actif — gère tes projets depuis le binder (menu de la racine, double volet).",
 
   /* Intégration avec le plugin compagnon Courrier (Lot 14B, voir
@@ -558,7 +557,6 @@ export const fr = {
   "sidebar.project.reveal": "Révéler",
   "sidebar.project.revealUnavailable": "Explorateur de fichiers indisponible.",
   "sidebar.project.resetToGlobal": "Valeurs par défaut",
-  "sidebar.project.backToHome": "Projet",
   "sidebar.project.rowMapping": "Propriétés YAML",
   "sidebar.project.mappingIntro": "Associe les champs Feuillets aux propriétés YAML existantes.",
   "sidebar.project.mappingDefault": "Propriété Feuillets par défaut — {field}",
@@ -1382,12 +1380,10 @@ export const fr = {
   "settings.export.epubOnlyHeader": "— Export EPUB uniquement —",
   "settings.epubLanguage.name": "Langue de l'EPUB",
   "settings.epubLanguage.desc": "Code BCP 47, ex. fr, en, tr.",
-  "settings.category.project": "Projet",
   "settings.category.writing": "Écriture",
   "settings.category.interface": "Interface",
   "settings.category.sidePanels": "Panneaux",
   "settings.category.grammar": "Correcteur",
-  "settings.category.export": "Export",
   "settings.category.views": "Vues",
   "settings.category.backupHistory": "Sauvegarde & historique",
   "settings.category.compositionExport": "Composition & export",
@@ -1398,7 +1394,6 @@ export const fr = {
   "main.ribbon.binder": "Feuillets : binder",
   "main.ribbon.board": "Feuillets : cartes / plan",
   "main.ribbon.journal": "Feuillets : journal & statistiques",
-  "main.ribbon.project": "Feuillets : projet & export",
 
   "main.statusBarTooltip": "Statistiques complètes (feuillet actif + projet entier)",
   "main.statusBar.words": "{wc} mots",
@@ -2020,8 +2015,6 @@ export const fr = {
   "layoutWorkspace.backToSummary": "Retour à Mise en page",
   "layoutWorkspace.backToHeadings": "Retour aux titres",
   "layoutWorkspace.backToElements": "Retour aux éléments",
-  "editionWorkspace.modeComposition": "Composition",
-  "editionWorkspace.modeLayout": "Mise en page",
   "modal.layout.element": "Élément",
   "compositionSummary.beforeManuscript": "Avant le manuscrit",
   "compositionSummary.theManuscript": "Le manuscrit",

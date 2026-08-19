@@ -3908,12 +3908,9 @@ class FeuilletsPlugin extends Plugin {
     if (isEditionSidebarPageView(view)) await view.openEditionPage(page);
   }
 
-  /* `date` reste `Date | null` ici : au moins un appelant (journal-view.ts,
-     `viewedDate`) transmet une valeur potentiellement nulle alors que
-     `ensureDayEntry` l'exige non-nulle — écart préexistant, pas introduit
-     ni corrigé par ce passage de types, d'où le cast plutôt qu'une garde
-     qui changerait le comportement actuel. */
-  async ensureJournalEntry(date: Date | null): Promise<TFile | null> { return ensureDayEntry(this.app, this.settings, date as Date); }
+  async ensureJournalEntry(date: Date): Promise<TFile | null> {
+    return ensureDayEntry(this.app, this.settings, date);
+  }
   async compileJournal() { return compileJournal(this.app, this.settings); }
   activePresetConfig(): PresetConfig { return activePresetConfig(this.settings); }
   async getOutputFolder() { return getOutputFolder(this.app, this.settings); }

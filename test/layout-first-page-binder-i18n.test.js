@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Menu, Setting, TFile, TFolder } from "obsidian";
-import { EditionWorkspaceContent } from "../src/ui/edition-workspace-content.js";
+import { LayoutEditor } from "../src/ui/layout-editor.js";
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
@@ -140,8 +140,13 @@ function buildLayoutFixture() {
     refreshView: () => {},
   };
   const contentEl = new FakeElement("div");
-  const hostLeaf = { app, contentEl };
-  const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {});
+  const editor = new LayoutEditor(app, plugin, contentEl, settings.exportTemplate, { mode: "workspace" });
+  const view = {
+    editor,
+    modeRenderPromise: Promise.resolve(),
+    async render() { await editor.load(); },
+    setMode() {},
+  };
   return { view, contentEl, plugin, app };
 }
 

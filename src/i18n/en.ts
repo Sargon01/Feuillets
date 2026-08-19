@@ -486,7 +486,6 @@ export const en = {
   "research.displayText": "Research",
 
   // ---------- Project & export panel (project-view.js) ----------
-  "project.displayText": "Project & export",
   "project.noActiveProject": "No active project — manage your projects from the binder (root menu, split pane).",
 
   /* Integration with the companion plugin Courrier (Lot 14B, see
@@ -557,7 +556,6 @@ export const en = {
   "sidebar.project.reveal": "Reveal",
   "sidebar.project.revealUnavailable": "File explorer unavailable.",
   "sidebar.project.resetToGlobal": "Default values",
-  "sidebar.project.backToHome": "Project",
   "sidebar.project.rowMapping": "YAML properties",
   "sidebar.project.mappingIntro": "Matches Feuillets fields to existing YAML properties.",
   "sidebar.project.mappingDefault": "Default Feuillets property — {field}",
@@ -1380,12 +1378,10 @@ export const en = {
   "settings.export.epubOnlyHeader": "— EPUB export only —",
   "settings.epubLanguage.name": "EPUB language",
   "settings.epubLanguage.desc": "BCP 47 code, e.g. fr, en, tr.",
-  "settings.category.project": "Project",
   "settings.category.writing": "Writing",
   "settings.category.interface": "Interface",
   "settings.category.sidePanels": "Panels",
   "settings.category.grammar": "Proofreader",
-  "settings.category.export": "Export",
   "settings.category.views": "Views",
   "settings.category.backupHistory": "Backup & history",
   "settings.category.compositionExport": "Composition & export",
@@ -1396,7 +1392,6 @@ export const en = {
   "main.ribbon.binder": "Feuillets: binder",
   "main.ribbon.board": "Feuillets: board / outline",
   "main.ribbon.journal": "Feuillets: journal & stats",
-  "main.ribbon.project": "Feuillets: project & export",
 
   "main.statusBarTooltip": "Full stats (active sheet + whole project)",
   "main.statusBar.words": "{wc} words",
@@ -2018,8 +2013,6 @@ export const en = {
   "layoutWorkspace.backToSummary": "Back to Layout",
   "layoutWorkspace.backToHeadings": "Back to Headings",
   "layoutWorkspace.backToElements": "Back to Elements",
-  "editionWorkspace.modeComposition": "Composition",
-  "editionWorkspace.modeLayout": "Layout",
   "modal.layout.element": "Element",
   "compositionSummary.beforeManuscript": "Before manuscript",
   "compositionSummary.theManuscript": "The manuscript",

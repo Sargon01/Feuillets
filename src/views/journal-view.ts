@@ -256,8 +256,10 @@ export class JournalView extends BaseFeuilletsView {
         });
         createBtn.setAttr("style", "margin-top: 12px; width: 100%; cursor: pointer;");
         createBtn.addEventListener("click", () => {
+          const viewedDate = this.viewedDate;
+          if (!viewedDate) return;
           void (async () => {
-            const file = await this.plugin.ensureJournalEntry(this.viewedDate);
+            const file = await this.plugin.ensureJournalEntry(viewedDate);
             if (file) {
               openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
               void this.render();

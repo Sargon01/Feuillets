@@ -1,27 +1,21 @@
-import { setIcon, type WorkspaceLeaf } from "obsidian";
+import { ItemView, type WorkspaceLeaf } from "obsidian";
 import { VIEW_PROJECT } from "../constants.js";
-import { openFeuilletsExportSettings } from "../settings/open-export-settings.js";
 import { t } from "../i18n/index.js";
-import { activatePreviewView } from "./preview-view.js";
-import { BaseFeuilletsView } from "./base-feuillets-view.js";
 
-type ProjectViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
-type ElementOptions = ElementCreationOptions & {
-  cls?: string;
-  text?: string;
-  value?: string;
+type ProjectViewPlugin = {
+  activateEditionPage(page: "home"): Promise<void>;
 };
-type RowClickHandler = (event: MouseEvent) => void;
 
-/** Vue héritée du panneau latéral : elle ne possède plus aucun réglage de
- * compilation ou d'export. Ces réglages vivent uniquement dans l'onglet
- * Export des paramètres Feuillets. */
-export class ProjectView extends BaseFeuilletsView {
-  declare plugin: ProjectViewPlugin;
-  declare targetContainer?: HTMLElement;
+/** Shim de compatibilité pour les workspaces Obsidian qui référencent encore
+ * l'ancien type de vue `feuillets-project`. Le contenu Projet/Export n'existe
+ * plus comme vue autonome : toute restauration de cette leaf ouvre l'accueil
+ * Édition dans la sidebar unifiée, puis retire la leaf héritée. */
+export class ProjectView extends ItemView {
+  readonly plugin: ProjectViewPlugin;
 
   constructor(leaf: WorkspaceLeaf, plugin: ProjectViewPlugin) {
-    super(leaf, plugin);
+    super(leaf);
+    this.plugin = plugin;
   }
 
   getViewType(): string {
@@ -29,48 +23,15 @@ export class ProjectView extends BaseFeuilletsView {
   }
 
   getDisplayText(): string {
-    return t("project.displayText");
+    return t("sidebar.tab.edition");
   }
 
   getIcon(): string {
-    return "folder-cog";
+    return "book-open";
   }
 
   async onOpen(): Promise<void> {
-    await this.render();
-  }
-
-  async render(): Promise<void> {
-    const container = this.targetContainer || this.contentEl;
-    container.empty();
-    container.addClass("feuillets-project-container");
-
-    const section = container.createDiv({ cls: "feuillets-project-section" });
-    this.makeRow(section, "settings", t("settings.category.export"), () => openFeuilletsExportSettings(this.app));
-    this.makeRow(section, "eye", t("modal.preview.title"), () => void activatePreviewView(this.app));
-  }
-
-  makeRow(parent: HTMLElement, icon: string, label: string, onClick?: RowClickHandler): HTMLElement {
-    const row = parent.createDiv({ cls: "feuillets-project-row" });
-    const iconEl = row.createSpan({ cls: "feuillets-cell-icon" });
-    setIcon(iconEl, icon);
-    row.createSpan({ cls: "feuillets-project-row-label" }).setText(label);
-    if (onClick) row.addEventListener("click", onClick);
-    return row;
-  }
-
-  makePropertyRowWithIcon(parent: HTMLElement, icon: string, label: string, childControl: HTMLElement): HTMLElement {
-    const row = parent.createDiv({ cls: "feuillets-properties-row" });
-    if (icon) {
-      const iconEl = row.createSpan({ cls: "feuillets-cell-icon" });
-      setIcon(iconEl, icon);
-    }
-    row.createSpan({ cls: "feuillets-properties-key" }).setText(label);
-    row.appendChild(childControl);
-    return row;
-  }
-
-  createEl<K extends keyof HTMLElementTagNameMap>(tag: K, options: ElementOptions): HTMLElementTagNameMap[K] {
-    return document.createElement(tag, options);
+    await this.plugin.activateEditionPage("home");
+    this.leaf.detach();
   }
 }

@@ -16,35 +16,21 @@ import { UlyssesImportModal } from "./ulysses-import-modal.js";
 import { WordTemplateImportModal } from "./word-template-import-modal.js";
 import { LayoutEditor, type LayoutEditorOptions } from "./layout-editor.js";
 import { EditionCompositionContent, type EditionCompositionContentPlugin } from "./edition-composition-content.js";
-import { ExportPanel, type ExportPanelPlugin } from "./export-panel.js";
 
-export type EditionWorkspaceMode = "composition" | "layout" | "export";
-export type EditionWorkspaceChrome = "workspace" | "embedded";
+export type EditionWorkspaceMode = "composition" | "layout";
 
 export type EditionWorkspacePlugin = {
   settings: FeuilletsSettings & { exportTemplate: string };
   saveSettings(): Promise<void>;
   getProjectFolder(): TFolder | null;
-} & EditionCompositionContentPlugin
-  & ExportPanelPlugin;
+} & EditionCompositionContentPlugin;
 
 export type EditionWorkspaceContentOptions = {
-  /** Mode affiché au premier rendu — état de session de l'hôte, jamais
-   * persisté (§1 du chantier : aucun nouveau réglage). */
+  /** Sous-page affichée par la sidebar Édition. */
   initialMode?: EditionWorkspaceMode;
-  /** Preview classique déjà ouverte/réutilisée par l'hôte (§9). */
+  /** Preview classique déjà ouverte pour ce projet, si elle existe. */
   linkedPreviewLeaf?: WorkspaceLeaf | null;
-  /** Notifié à chaque changement de mode interne — permet à l'hôte (BoardView)
-   * de retenir le mode courant sans le persister ni redessiner sa surface. */
-  onModeChange?: (mode: EditionWorkspaceMode) => void;
-  /** Mode d'intégration visuelle : "workspace" (central historique avec nav et export)
-   * ou "embedded" (latéral compact sans chrome central). */
-  chrome?: EditionWorkspaceChrome;
-  /** Sidebar embedded uniquement — retransmis au composant enfant actif
-   * (EditionCompositionContent ou LayoutEditor) : `isRoot` ne vaut true que
-   * lorsque ce dernier est sur sa page racine. Le parent
-   * (SidebarFeuilletsView) n'en veut QUE ça pour décider d'afficher ou non
-   * son « Retour à Édition ». */
+  /** Informe la sidebar si le composant actif est revenu à sa page racine. */
   onNavigationRootChange?: (isRoot: boolean) => void;
 };
 
@@ -61,93 +47,47 @@ function isRefreshableView(view: unknown): view is RefreshableView {
   );
 }
 
-/** Cœur de l'espace « Édition » (Composition / Mise en page), monté DANS la
- * leaf de son hôte — plus aucune ItemView autonome (§7 du chantier) :
- * BoardView l'installe dans sa propre surface centrale quand
- * `centralSurface === "edition"`. L'onglet Export a disparu (dernier lot UX
- * avant 2.5, §1) : ses contrôles vivent dans une barre d'export compacte
- * (ExportPanel.renderQuickBar), toujours visible quel que soit l'onglet.
- *
- * Les deux modes réutilisent des composants déjà partagés ailleurs :
- * EditionCompositionContent (composant DOM pur, micro-correctif « ne plus
- * embarquer d'ItemView dans BoardView »), LayoutEditor (cœur extrait du
- * LayoutModal) — aucun nouveau moteur ni duplication de logique. La Preview
- * n'est jamais possédée ici :
- * elle est ouverte/réutilisée par l'hôte et seulement rafraîchie
- * (`refreshLinkedPreview`), jamais recréée silencieusement (§10). */
+/** Contenu partagé des sous-pages Composition / Mise en page de la sidebar
+ * Édition. Ce composant ne crée aucune leaf et ne possède aucun chrome central :
+ * la barre Aperçu / Portée / Format / Exporter appartient à
+ * SidebarFeuilletsView. Une Preview existante peut seulement être rafraîchie ;
+ * elle n'est jamais créée ici. */
 export class EditionWorkspaceContent {
   readonly app: App;
   readonly plugin: EditionWorkspacePlugin;
-  readonly chrome: EditionWorkspaceChrome;
-  /** Leaf de l'hôte (BoardView) — conservée pour référence, mais plus
-   * transmise à AUCUN sous-composant : Composition et Documents sont des
-   * composants DOM purs sans WorkspaceLeaf propre. */
-  readonly hostLeaf: WorkspaceLeaf;
   private container: HTMLElement;
   mode: EditionWorkspaceMode;
   editor: LayoutEditor | null = null;
   private previewLeaf: WorkspaceLeaf | null;
-  private onModeChange: ((mode: EditionWorkspaceMode) => void) | undefined;
   private onNavigationRootChange: ((isRoot: boolean) => void) | undefined;
   private modeBodyEl: HTMLElement | null = null;
-  private modeNavButtons: Partial<Record<EditionWorkspaceMode, HTMLElement>> = {};
   private compositionContent: EditionCompositionContent | null = null;
-  /** Rendu du mode courant en cours — exposé pour que les tests puissent
-   * l'attendre après un `setMode()` fire-and-forget (comme un clic réel).
-   * Aucun rôle fonctionnel : jamais lu par le reste du plugin. */
+  /** Promesse du rendu lancé par setMode(), utile aux hôtes qui changent de
+   * sous-page sans attendre immédiatement son rendu. */
   modeRenderPromise: Promise<void> = Promise.resolve();
-
-  private quickExportBarEl: HTMLElement | null = null;
-  private quickExportPanel: ExportPanel | null = null;
 
   constructor(
     app: App,
     plugin: EditionWorkspacePlugin,
-    hostLeaf: WorkspaceLeaf,
     container: HTMLElement,
     options: EditionWorkspaceContentOptions = {},
   ) {
     this.app = app;
     this.plugin = plugin;
-    this.chrome = options.chrome || "workspace";
-    this.hostLeaf = hostLeaf;
     this.container = container;
-    this.mode = this.normalizeMode(options.initialMode || "composition");
+    this.mode = options.initialMode || "composition";
     this.previewLeaf = options.linkedPreviewLeaf ?? null;
-    this.onModeChange = options.onModeChange;
     this.onNavigationRootChange = options.onNavigationRootChange;
   }
 
-  /** L'onglet Export a disparu de la navigation Édition (dernier lot UX
-   * avant 2.5, §1) : ses contrôles vivent désormais dans la barre d'export
-   * compacte, toujours visible. `"export"` reste une valeur valide
-   * d'EditionWorkspaceMode UNIQUEMENT pour la compatibilité des appelants
-   * existants (commandes `open-export`/`pdf-style-modal`, voir main.ts) —
-   * elle est immédiatement ramenée à "composition", onglet où la barre
-   * d'export est de toute façon visible. */
-  private normalizeMode(mode: EditionWorkspaceMode): EditionWorkspaceMode {
-    return mode === "export" ? "composition" : mode;
-  }
-
-  /** Réattache le composant à un nouveau conteneur — l'hôte reconstruit son
-   * DOM à chaque rendu, l'instance et son mode courant survivent. */
-  attach(container: HTMLElement): void {
-    this.container = container;
-  }
-
-  /** Appelé par l'hôte juste après avoir ouvert/réutilisé la Preview classique
-   * associée (openScopeWithPreviewBesideLeaf). */
   setLinkedPreview(leaf: WorkspaceLeaf | null): void {
     this.previewLeaf = leaf;
   }
 
-  /** Change de mode sans jamais recréer la Preview ni la moindre leaf — ne
-   * reconstruit que `modeBody`. No-op si déjà sur ce mode. */
+  /** Change de sous-page sans créer de leaf ni de Preview. */
   setMode(mode: EditionWorkspaceMode): void {
-    const normalized = this.normalizeMode(mode);
-    if (this.mode === normalized) return;
-    this.mode = normalized;
-    this.onModeChange?.(normalized);
+    if (this.mode === mode) return;
+    this.mode = mode;
     this.modeRenderPromise = this.renderModeBody();
   }
 
@@ -155,49 +95,6 @@ export class EditionWorkspaceContent {
     const container = this.container;
     container.empty();
     container.addClass("feuillets-layout-workspace");
-
-    if (this.chrome === "embedded") {
-      this.modeNavButtons = {};
-      this.quickExportBarEl = null;
-      this.quickExportPanel = null;
-      this.modeBodyEl = container.createDiv({ cls: "feuillets-edition-mode-body" });
-      await this.renderModeBody();
-      return;
-    }
-
-    const nav = container.createDiv({ cls: "feuillets-edition-mode-nav", attr: { role: "tablist" } });
-    /* §1 du dernier lot UX avant 2.5 : plus que deux onglets — l'Export
-       disparaît de la navigation, ses contrôles rejoignent la barre d'export
-       compacte (toujours visible, voir plus bas). */
-    const modes: Array<[EditionWorkspaceMode, string]> = [
-      ["composition", t("editionWorkspace.modeComposition")],
-      ["layout", t("editionWorkspace.modeLayout")],
-    ];
-    this.modeNavButtons = {};
-    for (const [key, label] of modes) {
-      const button = nav.createEl("button", {
-        cls: "feuillets-edition-mode-item",
-        text: label,
-        attr: { role: "tab", "aria-selected": String(this.mode === key) },
-      });
-      button.addEventListener("click", () => this.setMode(key));
-      this.modeNavButtons[key] = button;
-    }
-
-    /* Barre d'export compacte : [Projet ▾] [PDF ▾] [Exporter], toujours
-       visible dans la barre principale d'Édition — pas seulement sous un
-       onglet dédié. Réutilise ExportPanel.renderQuickBar() (même portée,
-       même format, même workflow que Composition/Mise en page/Binder). */
-    this.quickExportBarEl = nav.createDiv({ cls: "feuillets-edition-quickexport-host" });
-    this.quickExportPanel = new ExportPanel(this.app, this.plugin, this.quickExportBarEl);
-    this.quickExportPanel.renderQuickBar(this.quickExportBarEl);
-
-    const refresh = nav.createEl("button", { cls: "clickable-icon feuillets-edition-preview-refresh" });
-    setIcon(refresh, "refresh-cw");
-    setTooltip(refresh, t("preview.export.refreshPreview"));
-    refresh.setAttribute("aria-label", t("preview.export.refreshPreview"));
-    refresh.addEventListener("click", () => void this.refreshLinkedPreview());
-
     this.modeBodyEl = container.createDiv({ cls: "feuillets-edition-mode-body" });
     await this.renderModeBody();
   }
@@ -205,10 +102,6 @@ export class EditionWorkspaceContent {
   private async renderModeBody(): Promise<void> {
     const body = this.modeBodyEl;
     if (!body) return;
-    for (const [key, button] of Object.entries(this.modeNavButtons) as Array<[EditionWorkspaceMode, HTMLElement]>) {
-      button.toggleClass("is-active", key === this.mode);
-      button.setAttribute("aria-selected", String(key === this.mode));
-    }
     body.empty();
     this.compositionContent = null;
     this.editor = null;
@@ -220,9 +113,7 @@ export class EditionWorkspaceContent {
         /* même contrat que la Mise en page : la notification de racine n'est
            transmise qu'en chrome embedded (panneau droit) — le mode central
            historique ne transmet jamais cette option. */
-        onNavigationRootChange: this.chrome === "embedded" && this.onNavigationRootChange
-          ? (isRoot) => this.onNavigationRootChange?.(isRoot)
-          : undefined,
+        onNavigationRootChange: this.onNavigationRootChange,
       });
       this.compositionContent = content;
       await content.render();
@@ -254,19 +145,13 @@ export class EditionWorkspaceContent {
     more.addEventListener("click", (event) => this.showTemplateMenu(event, templates));
 
     const layoutBody = surface.createDiv({ cls: "feuillets-layout-body" });
-    /* CORRECTIF PROMPT 2/3, §11 : navigation "summary" (sommaire à quatre
-       lignes) UNIQUEMENT en chrome embedded (panneau droit) — le mode
-       central historique (chrome "workspace") ne transmet jamais cette
-       option et reste donc en "rail" (valeur par défaut de LayoutEditor). */
     const layoutOptions: LayoutEditorOptions = {
       mode: "workspace",
+      workspaceNavigation: "summary",
       onChange: () => void this.refreshLinkedPreview(),
     };
-    if (this.chrome === "embedded") {
-      layoutOptions.workspaceNavigation = "summary";
-      if (this.onNavigationRootChange) {
-        layoutOptions.onNavigationRootChange = (isRoot) => this.onNavigationRootChange?.(isRoot);
-      }
+    if (this.onNavigationRootChange) {
+      layoutOptions.onNavigationRootChange = (isRoot) => this.onNavigationRootChange?.(isRoot);
     }
     this.editor = new LayoutEditor(this.app, this.plugin, layoutBody, this.plugin.settings.exportTemplate, layoutOptions);
     await this.editor.load();

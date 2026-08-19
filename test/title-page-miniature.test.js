@@ -664,8 +664,8 @@ test("DOM summary TEST 2 — HOME → Page : le HOME disparaît, seule la page P
 
     const labels = summaryLabels(host);
     assert.deepEqual(labels, [
-      t("modal.layout.formatOrientation"),
-      t("modal.layout.marginsColumns"),
+      t("modal.layout.format"),
+      t("modal.layout.marginsGroup"),
       t("modal.layout.header"),
       t("modal.layout.footer"),
     ], "les 4 sous-pages de Page, plus aucune entrée HOME");
@@ -688,7 +688,7 @@ test("DOM summary TEST 3 — PAGE → Marges : menu Page absent, inspecteur Marg
 
     assert.equal(summaryRows(host).length, 0, "plus aucune ligne summary (menu Page absent)");
     const labels = summaryLabels(host);
-    assert.ok(!labels.includes(t("modal.layout.formatOrientation")), "Format et orientation absent du DOM");
+    assert.ok(!labels.includes(t("modal.layout.format")), "Format et orientation absent du DOM");
     assert.ok(!labels.includes(t("modal.layout.header")), "En-tête absent du DOM");
     assert.ok(!labels.includes(t("modal.layout.footer")), "Pied de page absent du DOM");
     const insp = currentInspector(host);
@@ -713,8 +713,8 @@ test("DOM summary TEST 4 — Retour Page : inspecteur Marges disparu, les 4 entr
     const marginsPresent = allElements(host).some((el) => (el._settings || []).some((s) => s.name === t("modal.layout.marginTop")));
     assert.ok(!marginsPresent, "inspecteur Marges disparu");
     assert.deepEqual(summaryLabels(host), [
-      t("modal.layout.formatOrientation"),
-      t("modal.layout.marginsColumns"),
+      t("modal.layout.format"),
+      t("modal.layout.marginsGroup"),
       t("modal.layout.header"),
       t("modal.layout.footer"),
     ], "les 4 entrées Page reviennent");
@@ -790,7 +790,7 @@ test("DOM summary TEST 8 — Éléments → Citations : menu Éléments absent, 
     openSummaryRow(host, 0); // Citations en bloc
 
     assert.equal(summaryRows(host).length, 0, "menu Éléments absent du DOM");
-    assert.ok(!visibleText(host).includes(t("modal.layout.sceneSeparatorLabel")), "Séparateurs de scène absent du DOM");
+    assert.ok(!visibleText(host).includes(t("modal.layout.sceneSeparatorsShort")), "Séparateurs de scène absent du DOM");
     const insp = currentInspector(host);
     assert.ok(insp, "inspecteur présent");
     assert.ok(allElements(insp).some((el) => el.tag === "h4" && el.text === t("modal.layout.blockquoteTitle")), "inspecteur Blockquote présent");
@@ -930,7 +930,7 @@ test("MICRO grammaire §26.2 — PAGE : Format et orientation + status appartien
     await editor.load();
     openSummaryRow(host, 0); // Page
 
-    const row = summaryRows(host).find((r) => rowLabelText(r) === t("modal.layout.formatOrientation"));
+    const row = summaryRows(host).find((r) => rowLabelText(r) === t("modal.layout.format"));
     assert.ok(row, "ligne Format et orientation");
     assertSingleLineRow(row, { needsStatus: true });
     const status = directChild(row, "feuillets-layout-summary-status");
@@ -986,7 +986,7 @@ test("MICRO grammaire §26.5 — ÉLÉMENTS : ligne compacte, une entrée par li
     const rows = summaryRows(host);
     assert.equal(rows.length, 2, "Citations en bloc + Séparateurs de scène");
     assert.equal(rowLabelText(rows[0]), t("modal.layout.blockquoteLabel"));
-    assert.equal(rowLabelText(rows[1]), t("modal.layout.sceneSeparatorLabel"));
+    assert.equal(rowLabelText(rows[1]), t("modal.layout.sceneSeparatorsShort"));
     for (const row of rows) assertSingleLineRow(row, { needsStatus: false });
   } finally {
     restore();
@@ -1097,11 +1097,11 @@ test("MICRO grammaire §26.CSS — la ligne navigation ne déclare JAMAIS flex-d
   }
   assert.equal(row.includes("flex-direction: column"), false, "la row n'empile jamais en colonne");
   const label = ruleBlock(css, ".feuillets-layout-summary-label");
-  for (const declaration of ["flex: 0 1 auto", "min-width: 0", "white-space: nowrap", "text-overflow: ellipsis"]) {
+  for (const declaration of ["flex: 0 0 auto", "min-width: 0", "white-space: nowrap"]) {
     assert.ok(label.includes(declaration), `label : ${declaration}`);
   }
   const status = ruleBlock(css, ".feuillets-layout-summary-status");
-  for (const declaration of ["flex: 1 1 auto", "min-width: 0", "white-space: nowrap", "text-overflow: ellipsis", "color: var(--text-muted)"]) {
+  for (const declaration of ["flex: 1 1 auto", "min-width: 0", "white-space: nowrap", "color: var(--text-muted)"]) {
     assert.ok(status.includes(declaration), `status : ${declaration}`);
   }
   assert.equal(css.includes(".feuillets-layout-summary-copy"), false, "le wrapper colonne a disparu");

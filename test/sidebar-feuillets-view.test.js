@@ -1149,8 +1149,8 @@ test("Sidebar : à chaque profondeur Layout le Retour global est coupé, seul le
   await sidebar.renderProjectTab(container);
 
   const cases = [
-    [t("modal.layout.categoryPage"), t("modal.layout.formatOrientation"), t("modal.layout.categoryPage")],
-    [t("modal.layout.categoryPage"), t("modal.layout.marginsColumns"), t("modal.layout.categoryPage")],
+    [t("modal.layout.categoryPage"), t("modal.layout.format"), t("modal.layout.categoryPage")],
+    [t("modal.layout.categoryPage"), t("modal.layout.marginsGroup"), t("modal.layout.categoryPage")],
     [t("modal.layout.categoryText"), t("modal.layout.paragraphsGroup"), t("modal.layout.categoryText")],
     [t("modal.layout.categoryHeadings"), t("modal.layout.h1"), t("modal.layout.categoryHeadings")],
     [t("modal.layout.categoryElements"), t("modal.layout.blockquoteLabel"), t("modal.layout.categoryElements")],

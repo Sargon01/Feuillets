@@ -1,17 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Setting, TFolder, TFile } from "obsidian";
+import { Setting, TFolder } from "obsidian";
 import { VIEW_PREVIEW } from "../src/constants.js";
 import { EditionWorkspaceContent } from "../src/ui/edition-workspace-content.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 import { t } from "../src/i18n/index.js";
 
-/* Cœur de l'espace Édition, désormais monté DANS la leaf de son hôte
- * (BoardView) — plus aucune ItemView autonome, plus aucun VIEW_EDITION_
- * WORKSPACE (§7 du chantier « espace central »). L'ouverture/réutilisation de
- * la Preview classique associée est testée côté hôte
- * (test/board-central-surface.test.js) : ce fichier ne teste que le contenu. */
+/* Contenu Édition monté dans le panneau droit. Il ne crée aucune leaf et ne
+ * pilote jamais l'ouverture d'une Preview ; il peut seulement rafraîchir une
+ * Preview déjà liée lorsqu'elle existe encore. */
 
 /* E-F. changement de propriété / de gabarit → LayoutEditor + Preview liée.
  * Une vue factice exposant refreshForLayoutChange() suffit — même patron
@@ -97,7 +95,7 @@ class FakeElement {
   empty() { for (const child of [...this.children]) child.remove(); this.settings = []; }
   setText(text) { this.text = String(text); return this; }
   get textContent() { return this.children.length ? (this.text ? this.text : this.children.map((c) => c.textContent).join("")) : this.text; }
-  set textContent(value) { this.text = String(value); }
+  set textContent(value) { this.empty(); this.text = String(value); }
   querySelectorAll(selector) {
     const found = [];
     const visit = (node) => { for (const child of node.children) { if (matchesSelector(child, selector)) found.push(child); visit(child); } };
@@ -142,14 +140,6 @@ function installSettingStub() {
   Setting.prototype.addText = function addText(configure) { add("text", this.container, configure, this.name); return this; };
   Setting.prototype.then = function then(callback) { callback(this); return this; };
   return () => Object.assign(Setting.prototype, previous);
-}
-
-function allElements(element) {
-  return [element, ...element.children.flatMap(allElements)];
-}
-
-function controls(element, kind) {
-  return allElements(element).flatMap((item) => item.settings).filter((control) => control.kind === kind);
 }
 
 /** Plugin d'intégration : couvre la Mise en page (gabarit V2) ET la
@@ -198,692 +188,101 @@ function buildIntegrationFixture() {
   };
   const contentEl = new FakeElement("div");
   const hostLeaf = { app, contentEl };
-  const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, { linkedPreviewLeaf: previewLeaf });
+  const view = new EditionWorkspaceContent(app, plugin, contentEl, { linkedPreviewLeaf: previewLeaf });
   return { view, contentEl, plugin, app, hostLeaf, calls, previewCalls };
 }
 
-/* ==================== §19-21 : trois modes, navigation ==================== */
+/* ==================== Composant sidebar-only ============================== */
 
-/* §1 du dernier lot UX avant 2.5 : l'onglet Export a disparu — plus que
- * deux modes (Composition/Mise en page), et une barre d'export compacte
- * (portée/format/Exporter) toujours visible dans la barre principale,
- * quel que soit l'onglet actif. */
-test("EditionWorkspaceContent : la navigation contient exactement 2 modes, Composition/Mise en page, mode initial composition", async () => {
+test("EditionWorkspaceContent : rendu initial = Composition sans chrome central ni barre Export dupliquée", async () => {
   const restore = installSettingStub();
   try {
     const { view, contentEl } = buildIntegrationFixture();
     await view.render();
 
     assert.equal(view.mode, "composition");
-    const items = contentEl.querySelectorAll(".feuillets-edition-mode-item");
-    assert.deepEqual(items.map((el) => el.textContent), ["Composition", "Mise en page"]);
-    assert.equal(items[0].hasClass("is-active"), true);
-    assert.equal(items[1].hasClass("is-active"), false);
+    assert.equal(contentEl.querySelectorAll(".feuillets-edition-mode-nav").length, 0);
+    assert.equal(contentEl.querySelectorAll(".feuillets-edition-quickexport-host").length, 0);
+    assert.equal(contentEl.querySelectorAll(".feuillets-edition-preview-refresh").length, 0);
+    assert.equal(contentEl.querySelectorAll(".feuillets-edition-mode-surface").length, 1);
   } finally {
     restore();
   }
 });
 
-test("EditionWorkspaceContent : \"export\" reste une valeur valide (compat commandes) mais se ramène à Composition, où la barre d'export est visible", async () => {
-  const restore = installSettingStub();
-  try {
-    const { app, plugin, hostLeaf } = buildIntegrationFixture();
-    const contentEl = new FakeElement("div");
-    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, { initialMode: "export" });
-    await view.render();
-
-    assert.equal(view.mode, "composition", "\"export\" est normalisé vers \"composition\" (voir normalizeMode)");
-    const items = contentEl.querySelectorAll(".feuillets-edition-mode-item");
-    assert.deepEqual(items.map((el) => el.textContent), ["Composition", "Mise en page"], "toujours seulement 2 onglets");
-    assert.ok(contentEl.querySelector(".feuillets-edition-quickexport"), "la barre d'export est bien visible");
-
-    view.setMode("export");
-    assert.equal(view.mode, "composition", "setMode(\"export\") normalise aussi");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionWorkspaceContent : barre d'export compacte (portée/format/Exporter) toujours visible dans la barre principale", async () => {
+test("EditionWorkspaceContent : Mise en page utilise toujours la navigation summary de la sidebar", async () => {
   const restore = installSettingStub();
   try {
     const { view, contentEl } = buildIntegrationFixture();
     await view.render();
-
-    const quickBar = contentEl.querySelector(".feuillets-edition-quickexport");
-    assert.ok(quickBar, "la barre d'export compacte est montée dans la barre principale");
-    const selects = quickBar.querySelectorAll("select");
-    assert.equal(selects.length, 2, "portée + format, aucun autre contrôle");
-    assert.equal(quickBar.querySelector(".feuillets-edition-quickexport-scope").tagName, "SELECT");
-    assert.equal(quickBar.querySelector(".feuillets-edition-quickexport-format").tagName, "SELECT");
-    assert.ok(quickBar.querySelector(".feuillets-edition-quickexport-cta"), "bouton Exporter présent");
-    // Aucun champ "Nom du fichier" dans Édition (§1).
-    assert.equal(contentEl.querySelector('[aria-label="Nom du fichier exporté"]'), null);
-
-    // Toujours visible après un changement d'onglet vers Mise en page.
     view.setMode("layout");
-    assert.ok(contentEl.querySelector(".feuillets-edition-quickexport"), "reste visible en Mise en page");
+    await view.modeRenderPromise;
+
+    assert.equal(view.mode, "layout");
+    assert.ok(view.editor, "LayoutEditor monté");
+    assert.equal(view.editor.workspaceNavigation, "summary");
+    assert.equal(contentEl.querySelectorAll(".feuillets-layout-summary-host").length, 1);
+    assert.equal(contentEl.querySelectorAll(".feuillets-layout-nav").length, 0);
   } finally {
     restore();
   }
 });
 
-/** Variante de buildIntegrationFixture() avec un VRAI contenu compilable
- * (un chapitre, un feuillet) et un fichier actif — nécessaire pour que
- * "Dossier"/"Fichier" apparaissent dans le sélecteur de portée
- * (activeProjectFile()) et pour qu'un export produise réellement un fichier. */
-function buildIntegrationFixtureWithContent() {
-  const volume = new TFolder("Projet");
-  const manuscript = new TFolder("Projet/Manuscrit");
-  manuscript.parent = volume;
-  volume.children.push(manuscript);
-  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
-  chapter.parent = manuscript;
-  manuscript.children.push(chapter);
-  const scene = new TFile("Projet/Manuscrit/Chapitre 1/Scène 1.md", "---\ntitle: Départ\n---\nTexte.");
-  scene.parent = chapter;
-  chapter.children.push(scene);
-
-  const { vault, fileManager } = createFakeVault([volume, manuscript, chapter, scene]);
-  vault.cachedRead = vault.read;
-  const frontmatter = new Map([[scene.path, { title: "Départ", compile: true }]]);
-  const settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-  Object.assign(settings, {
-    projectFolder: manuscript.path,
-    exportTemplate: "classique",
-    collapsed: {},
-    orders: { [manuscript.path]: [chapter.name] },
-    folderPositions: {},
-    projectMeta: {},
-    level1Role: "chapitres",
-    compileFileName: "Manuscrit.md",
-    exportFrenchTypography: false,
-    insertFolderTitles: false,
-    insertTitles: true,
-    insertSceneTitles: true,
-    separator: "\n\n",
-    activePreset: -1,
-    compilePresets: [],
-  });
-  const { leaf: previewLeaf } = fakeRefreshablePreviewLeaf();
-  const app = {
-    vault,
-    fileManager,
-    metadataCache: { getFileCache: (f) => ({ frontmatter: frontmatter.get(f.path) || {} }) },
-    workspace: {
-      getLeavesOfType: () => [previewLeaf],
-      getLeaf: () => null,
-      getActiveFile: () => scene,
-    },
-  };
-  const plugin = {
-    settings,
-    activeExportScope: null,
-    saveSettings: async () => {},
-    getProjectFolder: () => manuscript,
-    unitLabel: () => "scène",
-    unitLabelPlural: () => "scènes",
-    refreshView: () => {},
-    refreshBinderViews: () => {},
-    fmOf: (file) => frontmatter.get(file.path) || {},
-    shortTitleFor: (file) => file.basename,
-  };
-  const contentEl = new FakeElement("div");
-  const hostLeaf = { app, contentEl };
-  const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, { linkedPreviewLeaf: previewLeaf });
-  return { view, contentEl, plugin, app };
-}
-
-/* Même petit DOM factice que test/export-workflow.test.js (installChildNodesDom,
- * convention du dépôt : dupliqué, pas partagé) — nécessaire pour laisser
- * l'export EPUB tourner réellement (le moteur lit childNodes/nodeType via un
- * XMLSerializer), sans mocker runExportWorkflow lui-même. */
-function installChildNodesDom() {
-  const previous = {
-    document: globalThis.document, Node: globalThis.Node, XMLSerializer: globalThis.XMLSerializer,
-    createEl: globalThis.createEl, createDiv: globalThis.createDiv,
-  };
-  class DomNode {
-    constructor(tagName, text = "") {
-      this.tagName = tagName.toUpperCase();
-      this._text = text;
-      this.parentElement = null;
-      this.children = [];
-      this._attributes = new Map();
-    }
-    get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join("") : this._text; }
-    get childNodes() {
-      if (this.children.length) return this.children;
-      if (this._text) return [{ nodeType: 3, nodeValue: this._text, textContent: this._text }];
-      return [];
-    }
-    get nodeType() { return 1; }
-    get attributes() { return Array.from(this._attributes, ([name, value]) => ({ name, value })); }
-    get className() { return this.getAttribute("class") || ""; }
-    get classList() { const self = this; return { contains: (name) => (self.getAttribute("class") || "").split(/\s+/).includes(name) }; }
-    get innerHTML() { return this.children.length ? this.children.map((c) => c.outerHTML).join("") : this._text; }
-    get outerHTML() {
-      const attrs = this.attributes.map(({ name, value }) => ` ${name}="${value}"`).join("");
-      return `<${this.tagName.toLowerCase()}${attrs}>${this.innerHTML}</${this.tagName.toLowerCase()}>`;
-    }
-    setAttribute(name, value) { this._attributes.set(name, String(value)); }
-    getAttribute(name) { return this._attributes.get(name) ?? null; }
-    appendChild(child) { child.remove(); child.parentElement = this; this.children.push(child); return child; }
-    remove() { if (!this.parentElement) return; const i = this.parentElement.children.indexOf(this); if (i >= 0) this.parentElement.children.splice(i, 1); this.parentElement = null; }
-    cloneNode(deep) {
-      const clone = new DomNode(this.tagName, this._text);
-      for (const { name, value } of this.attributes) clone.setAttribute(name, value);
-      if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true));
-      return clone;
-    }
-    querySelectorAll() { return []; }
-    querySelector() { return null; }
-  }
-  const el = (tag, text) => new DomNode(tag, text);
-  globalThis.document = { createElement: (tag) => el(tag) };
-  globalThis.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
-  globalThis.XMLSerializer = class {
-    serializeToString(node) { return node && typeof node.outerHTML === "string" ? node.outerHTML : String(node?.textContent ?? ""); }
-  };
-  globalThis.createEl = (tag, options = {}) => el(tag, options.text || "");
-  globalThis.createDiv = (options = {}) => globalThis.createEl("div", options);
-  return {
-    restore() {
-      globalThis.document = previous.document;
-      globalThis.Node = previous.Node;
-      globalThis.XMLSerializer = previous.XMLSerializer;
-      globalThis.createEl = previous.createEl;
-      globalThis.createDiv = previous.createDiv;
-    },
-  };
-}
-
-/* §5A du correctif "les contrôles Export ne fonctionnent pas" : test
- * COMPORTEMENTAL bout en bout, sans mocker runExportWorkflow (ni
- * exportWithScope/compile en dessous) — sélectionner Dossier, sélectionner
- * EPUB, cliquer Exporter, puis vérifier le VRAI résultat (fichier compilé
- * écrit dans le coffre), exactement comme un test manuel. */
-test("EditionWorkspaceContent : barre d'export — sélectionner Dossier + EPUB puis cliquer Exporter appelle réellement runExportWorkflow et produit un fichier", async () => {
-  const restore = installSettingStub();
-  const dom = installChildNodesDom();
-  try {
-    const { view, contentEl, plugin, app } = buildIntegrationFixtureWithContent();
-    await view.render();
-
-    const scopeSelect = contentEl.querySelector(".feuillets-edition-quickexport-scope");
-    const formatSelect = contentEl.querySelector(".feuillets-edition-quickexport-format");
-    const exportBtn = contentEl.querySelector(".feuillets-edition-quickexport-cta");
-    assert.ok(scopeSelect && formatSelect && exportBtn, "les trois contrôles existent");
-
-    // "Dossier" doit être proposé (un fichier actif existe, voir
-    // activeProjectFile()) — sinon le scénario manuel décrit ne serait
-    // simplement pas reproductible.
-    const scopeOptions = scopeSelect.children.map((o) => o.value);
-    assert.ok(scopeOptions.includes("folder"), "l'option Dossier doit être proposée");
-
-    scopeSelect.value = "folder";
-    scopeSelect.dispatch("change");
-    formatSelect.value = "epub";
-    formatSelect.dispatch("change");
-
-    assert.equal(plugin.settings.exportFormat, "epub", "le changement de Format écrit bien settings.exportFormat");
-    assert.deepEqual(plugin.activeExportScope, { type: "folder", projectRoot: "Projet/Manuscrit", path: "Projet/Manuscrit/Chapitre 1" }, "le changement de Portée écrit bien activeExportScope (rememberExportScope)");
-
-    // Clic réel : listener câblé par renderQuickBar() (bar.createEl("button")
-    // + addEventListener), jamais appelé/attendu directement — le vrai code
-    // fait `() => void this.launchExport()` (fire-and-forget, comme tous les
-    // autres boutons de ce plugin) : on laisse le temps aux micro/macrotasks
-    // de compile()/exportEpub()/writeBinaryFile() de se dérouler avant de
-    // vérifier le résultat, sans jamais mocker runExportWorkflow lui-même.
-    const clickHandler = exportBtn.events.get("click");
-    assert.ok(clickHandler, "un handler click doit être enregistré sur le bouton Exporter");
-    let caught = null;
-    const onUnhandled = (err) => { caught = err; };
-    process.on("unhandledRejection", onUnhandled);
-    clickHandler();
-    for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 5));
-    process.off("unhandledRejection", onUnhandled);
-    if (caught) throw caught;
-
-    const outputFiles = app.vault.getFiles().filter((f) => f.path.endsWith(".epub"));
-    assert.equal(outputFiles.length, 1, "runExportWorkflow a réellement produit un .epub — pas un no-op silencieux");
-    assert.match(outputFiles[0].path, /_Feuillets\/Sortie\/Manuscrit\.epub$/, "écrit au bon endroit (_Feuillets/Sortie), avec le baseName attendu");
-  } finally {
-    dom.restore();
-    restore();
-  }
-});
-
-test("EditionWorkspaceContent : changer de mode ne recrée jamais de leaf ni de Preview — même vue, même leaf tout du long", async () => {
+test("EditionWorkspaceContent : Composition → Mise en page → Composition ne crée aucune leaf", async () => {
   const restore = installSettingStub();
   try {
-    const { view, previewCalls } = buildIntegrationFixture();
+    const { view, calls } = buildIntegrationFixture();
     await view.render();
     view.setMode("layout");
-    await view["modeRenderPromise"];
-    view.setMode("export");
-    await view["modeRenderPromise"];
+    await view.modeRenderPromise;
     view.setMode("composition");
-    await view["modeRenderPromise"];
+    await view.modeRenderPromise;
 
     assert.equal(view.mode, "composition");
-    // Le changement de mode seul ne rafraîchit jamais la Preview de lui-même
-    // (seule une modification réelle du contenu le fait).
-    assert.equal(previewCalls.refresh, 0);
+    assert.equal(calls.leafCreates, 0);
   } finally {
     restore();
   }
 });
 
-test("EditionWorkspaceContent : Actualiser l’aperçu fonctionne dans tous les modes (dont l'alias \"export\") sans changer mode, portée ni leaf", async () => {
+test("EditionWorkspaceContent : une Preview liée existante est seulement rafraîchie, jamais recréée", async () => {
   const restore = installSettingStub();
   try {
-    const { view, contentEl, plugin, calls, previewCalls } = buildIntegrationFixture();
+    const { view, previewCalls, calls } = buildIntegrationFixture();
     await view.render();
-    const refresh = contentEl.querySelector('[aria-label="Actualiser l’aperçu"]');
-    assert.ok(refresh, "bouton présent dans la barre supérieure");
-    const scopeBefore = JSON.stringify(plugin.settings.lastExportScope ?? null);
+    await view.refreshLinkedPreview();
 
-    // §1 : "export" n'est plus un onglet réel — setMode("export") se ramène
-    // à "composition" (voir normalizeMode) : le refresh doit rester un no-op
-    // sur le mode RÉSULTANT, jamais recréer de leaf ni changer de portée.
-    for (const [requested, expected] of [["composition", "composition"], ["layout", "layout"], ["export", "composition"]]) {
-      view.setMode(requested);
-      await view["modeRenderPromise"];
-      refresh.dispatch("click");
-      await Promise.resolve();
-      assert.equal(view.mode, expected, `le refresh conserve le mode résultant de setMode("${requested}")`);
-    }
-
-    assert.equal(previewCalls.refresh, 3, "un refresh exact depuis chaque appel");
-    assert.equal(calls.leafCreates, 0, "aucune leaf créée");
-    assert.equal(JSON.stringify(plugin.settings.lastExportScope ?? null), scopeBefore, "portée inchangée");
+    assert.equal(previewCalls.refresh, 1);
+    assert.equal(calls.leafCreates, 0);
   } finally {
     restore();
   }
 });
 
-test("EditionWorkspaceContent : Actualiser sans Preview liée est un no-op propre", async () => {
+test("EditionWorkspaceContent : sans Preview liée, refreshLinkedPreview reste un no-op", async () => {
   const restore = installSettingStub();
   try {
-    const { view, contentEl, calls, previewCalls } = buildIntegrationFixture();
+    const { view, calls } = buildIntegrationFixture();
     view.setLinkedPreview(null);
     await view.render();
-
-    contentEl.querySelector('[aria-label="Actualiser l’aperçu"]').dispatch("click");
-    await Promise.resolve();
-
-    assert.equal(previewCalls.refresh, 0);
-    assert.equal(calls.leafCreates, 0, "aucune Preview créée");
+    await view.refreshLinkedPreview();
+    assert.equal(calls.leafCreates, 0);
   } finally {
     restore();
   }
 });
 
-test("EditionWorkspaceContent : un rerender de la barre ne duplique pas le listener Actualiser", async () => {
+test("EditionWorkspaceContent : onNavigationRootChange est transmis au LayoutEditor summary", async () => {
   const restore = installSettingStub();
   try {
-    const { view, contentEl, previewCalls } = buildIntegrationFixture();
-    await view.render();
-    await view.render();
-
-    contentEl.querySelector('[aria-label="Actualiser l’aperçu"]').dispatch("click");
-    await Promise.resolve();
-
-    assert.equal(previewCalls.refresh, 1, "un clic produit un seul refresh");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionWorkspaceContent : Composition → Mise en page → Composition ne perd aucun état — le gabarit actif reste identique", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view, plugin } = buildIntegrationFixture();
-    await view.render();
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-    const templateAfterLayout = plugin.settings.exportTemplate;
-    view.setMode("composition");
-    await view["modeRenderPromise"];
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-
-    assert.equal(plugin.settings.exportTemplate, templateAfterLayout);
-    assert.equal(plugin.settings.exportTemplate, "classique");
-  } finally {
-    restore();
-  }
-});
-
-/* §6-§7 du dernier lot UX avant 2.5 : "Première page" a quitté la
- * navigation Mise en page — 4 catégories seulement, elle vit désormais
- * UNIQUEMENT dans Composition → Première page. */
-test("EditionWorkspaceContent : mode Mise en page — navigation à 4 catégories, plus de Première page", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view } = buildIntegrationFixture();
-    await view.render();
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-
-    assert.ok(view.editor.navEl, "la navigation est montée dans son propre conteneur (feuillets-layout-nav)");
-    const items = view.editor.navEl.children.filter((el) => el.classes.has("feuillets-layout-nav-item"));
-    assert.equal(items.length, 4);
-    assert.deepEqual(items.map((el) => el.text), ["Page", "Corps de texte", "Titres", "Citation"]);
-  } finally {
-    restore();
-  }
-});
-
-/* §2 du dernier lot UX avant 2.5 : la typographie française a déménagé
- * dans Mise en page → Corps de texte, mais écrit toujours EXACTEMENT
- * settings.exportFrenchTypography (jamais le gabarit ExportTemplateV2). */
-test("EditionWorkspaceContent : mode Mise en page → Corps de texte expose \"Typographie française à l'export\", écrit settings.exportFrenchTypography", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view, plugin } = buildIntegrationFixture();
-    await view.render();
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-    view.editor.select("body");
-
-    const typography = controls(view.editor.inspectorEl, "toggle").find((c) => c.name === t("settings.exportFrenchTypography.name"));
-    assert.ok(typography, "le contrôle Typographie française est présent dans Corps de texte");
-    assert.equal(typography.value, plugin.settings.exportFrenchTypography !== false);
-
-    await typography.change(false);
-    assert.equal(plugin.settings.exportFrenchTypography, false, "écrit settings.exportFrenchTypography, pas le gabarit");
-    assert.equal(view.editor.template.exportFrenchTypography, undefined, "jamais intégré à ExportTemplateV2");
-  } finally {
-    restore();
-  }
-});
-
-/* §8 : la Gouttière n'apparaît qu'à partir de 2 colonnes. */
-test("EditionWorkspaceContent : mode Mise en page → Page — Gouttière absente pour 1 colonne, présente pour 2+", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view } = buildIntegrationFixture();
-    await view.render();
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-    view.editor.select("page");
-
-    assert.equal(view.editor.template.page.columns.count, 1, "1 colonne par défaut");
-    let gutter = controls(view.editor.inspectorEl, "text").find((c) => c.name === t("modal.layout.gutterPt"));
-    assert.equal(gutter, undefined, "Gouttière absente pour 1 colonne");
-
-    const columns = controls(view.editor.inspectorEl, "text").find((c) => c.name === t("modal.layout.columns"));
-    assert.ok(columns, "le champ Colonnes est présent");
-    await columns.change("2");
-    assert.equal(view.editor.template.page.columns.count, 2);
-
-    gutter = controls(view.editor.inspectorEl, "text").find((c) => c.name === t("modal.layout.gutterPt"));
-    assert.ok(gutter, "Gouttière apparaît dès 2 colonnes");
-  } finally {
-    restore();
-  }
-});
-
-/* §8 : en-tête/pied désactivés n'affichent que l'interrupteur. */
-test("EditionWorkspaceContent : mode Mise en page → Page — champs En-tête masqués quand En-tête désactivé", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view } = buildIntegrationFixture();
-    await view.render();
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-    view.editor.select("page");
-
-    // "En-tête centre" est un libellé unique (contrairement à "Gauche"/
-    // "Droite", partagés avec les champs Marges du même inspecteur Page).
-    assert.equal(view.editor.template.header.enabled, true, "activé par défaut");
-    assert.ok(controls(view.editor.inspectorEl, "text").find((c) => c.name === t("modal.layout.headerCenter")), "les champs En-tête sont visibles quand activé");
-
-    const enableHeader = controls(view.editor.inspectorEl, "toggle").find((c) => c.name === t("modal.layout.enableHeader"));
-    await enableHeader.change(false);
-
-    assert.equal(controls(view.editor.inspectorEl, "text").find((c) => c.name === t("modal.layout.headerCenter")), undefined, "les champs En-tête disparaissent quand désactivé — seul l'interrupteur reste");
-    assert.ok(controls(view.editor.inspectorEl, "toggle").find((c) => c.name === t("modal.layout.enableHeader")), "l'interrupteur reste, lui, toujours visible");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionWorkspaceContent : mode Mise en page → Page — champs Pied masqués quand Pied désactivé", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view } = buildIntegrationFixture();
-    await view.render();
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-    view.editor.select("page");
-
-    assert.equal(view.editor.template.footer.enabled, true, "activé par défaut");
-    let footerControls = controls(view.editor.inspectorEl, "text").filter((c) => [t("modal.layout.formatWithVars"), t("modal.layout.footerLeft"), t("modal.layout.footerCenter")].includes(c.name));
-    assert.equal(footerControls.length, 3, "les champs Pied sont visibles quand activé");
-
-    const enableFooter = controls(view.editor.inspectorEl, "toggle").find((c) => c.name === t("modal.layout.enableFooter"));
-    await enableFooter.change(false);
-
-    footerControls = controls(view.editor.inspectorEl, "text").filter((c) => [t("modal.layout.formatWithVars"), t("modal.layout.footerLeft"), t("modal.layout.footerCenter")].includes(c.name));
-    assert.equal(footerControls.length, 0, "les champs Pied disparaissent quand désactivé");
-    assert.ok(controls(view.editor.inspectorEl, "toggle").find((c) => c.name === t("modal.layout.enableFooter")), "l'interrupteur reste, lui, toujours visible");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionWorkspaceContent : changer une propriété du gabarit (mode Mise en page) sauvegarde le V2 puis rafraîchit la Preview une fois", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view, calls, previewCalls } = buildIntegrationFixture();
-    await view.render();
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-    view.editor.select("body");
-    const fontSize = controls(view.editor.inspectorEl, "text")[1];
-    await fontSize.change("14");
-
-    assert.equal(view.editor.template.body.fontSizePt, 14);
-    assert.equal(calls.frontmatter.length, 1, "saveExportTemplateV2 a écrit le fichier V2");
-    assert.equal(previewCalls.refresh, 1, "refreshForLayoutChange appelé exactement une fois");
-  } finally {
-    restore();
-  }
-});
-
-/* ==================== §20 : mode Composition ============================== */
-
-test("EditionCompositionContent : mode Composition affiche trois groupes avec sous-pages hiérarchiques", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view, contentEl } = buildIntegrationFixture();
-    await view.render();
-
-    // Les trois groupes principaux sont visibles immédiatement
-    for (const label of ["Avant le manuscrit", "Le manuscrit", "Après le manuscrit"]) {
-      assert.ok(contentEl.textContent.includes(label), `${label} présent en mode Composition`);
-    }
-    // Les éléments détaillés ne sont accessibles que via les sous-pages
-    const beforeRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Avant le manuscrit"));
-    beforeRow.dispatch("click");
-    await view["modeRenderPromise"];
-    for (const label of ["Première page", "Pages liminaires", "Sommaire", "Tables"]) {
-      assert.ok(contentEl.textContent.includes(label), `${label} présent dans Avant le manuscrit`);
-    }
-    // Retour au sommaire
-    const backBtn = contentEl.querySelector(".feuillets-composition-back");
-    backBtn.dispatch("click");
-    await view["modeRenderPromise"];
-
-    // Vérifier que "Après le manuscrit" existe et est navigable
-    const afterRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Après le manuscrit"));
-    assert.ok(afterRow, "Après le manuscrit accessible");
-    afterRow.dispatch("click");
-    await view["modeRenderPromise"];
-    // Les panneaux Bibliographie et Annexes sont montés (peut afficher "Créer le dossier" si absence)
-    assert.ok(contentEl.textContent.includes("Bibliographie"), "Bibliographie présent");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionWorkspaceContent : en mode Composition, une modification (Sommaire) sauvegarde via la méthode existante et rafraîchit la Preview exactement une fois", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view, contentEl, previewCalls } = buildIntegrationFixture();
-    await view.render();
-
-    assert.equal(view.mode, "composition");
-    // Naviguer vers "Avant le manuscrit"
-    const beforeRow = [...contentEl.querySelectorAll(".feuillets-project-row")].find((row) => row.textContent.includes("Avant le manuscrit"));
-    beforeRow.dispatch("click");
-    await view["modeRenderPromise"];
-
-    // Maintenant la case pour inclure le Sommaire doit être visible
-    const checkbox = contentEl.querySelector('[aria-label="Inclure le sommaire"]');
-    assert.ok(checkbox, "la case Sommaire est rendue");
-    checkbox.checked = !checkbox.checked;
-    checkbox.dispatch("change");
-    await Promise.resolve();
-    await Promise.resolve();
-
-    assert.equal(previewCalls.refresh, 1, "refreshForLayoutChange appelé exactement une fois après la sauvegarde");
-  } finally {
-    restore();
-  }
-});
-
-/* ==================== §1/§22 : l'onglet Export a disparu ==================== */
-
-test("EditionWorkspaceContent : setMode(\"export\") ne monte plus aucun panneau Export dédié — la barre compacte suffit", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view, contentEl } = buildIntegrationFixture();
-    await view.render();
-    view.setMode("export");
-    await view["modeRenderPromise"];
-
-    assert.equal(view.mode, "composition");
-    assert.equal(
-      contentEl.querySelectorAll(".feuillets-edition-mode-surface.feuillets-edition-export-panel").length,
-      0,
-      "plus de surface Export dédiée : ExportPanel.renderEditionEmbedded()/render() n'est plus dispatché depuis Édition"
-    );
-    // La portée/le format restent accessibles via la barre compacte, pas via
-    // un panneau Export séparé.
-    assert.ok(contentEl.querySelector(".feuillets-edition-quickexport-scope"));
-    assert.ok(contentEl.querySelector(".feuillets-edition-quickexport-format"));
-  } finally {
-    restore();
-  }
-});
-
-/* ==================== PARTIE J : option chrome (workspace / embedded) ==================== */
-
-test("EditionWorkspaceContent : sans option chrome, comportement workspace par défaut", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view, contentEl } = buildIntegrationFixture();
-    assert.equal(view.chrome, "workspace");
-    await view.render();
-
-    assert.ok(contentEl.querySelector(".feuillets-edition-mode-nav"), "nav avec tabs présente");
-    assert.ok(contentEl.querySelector(".feuillets-edition-quickexport"), "barre d'export présente");
-    assert.ok(contentEl.querySelector(".feuillets-edition-preview-refresh"), "bouton refresh preview présent");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionWorkspaceContent : chrome: \"workspace\" affiche 2 tabs, quick export et refresh preview", async () => {
-  const restore = installSettingStub();
-  try {
-    const { app, plugin, hostLeaf } = buildIntegrationFixture();
-    const contentEl = new FakeElement("div");
-    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, { chrome: "workspace" });
-    assert.equal(view.chrome, "workspace");
-    await view.render();
-
-    const tabs = contentEl.querySelectorAll(".feuillets-edition-mode-item");
-    assert.equal(tabs.length, 2, "2 tabs présents");
-    assert.ok(contentEl.querySelector(".feuillets-edition-quickexport"), "quick export présent");
-    assert.ok(contentEl.querySelector(".feuillets-edition-preview-refresh"), "bouton refresh preview présent");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionWorkspaceContent : chrome: \"embedded\" + composition n'affiche aucun chrome central, contenu Composition présent", async () => {
-  const restore = installSettingStub();
-  try {
-    const { app, plugin, hostLeaf, calls } = buildIntegrationFixture();
-    const contentEl = new FakeElement("div");
-    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
-      initialMode: "composition",
-      chrome: "embedded",
-    });
-    assert.equal(view.chrome, "embedded");
-    await view.render();
-
-    assert.equal(contentEl.querySelector(".feuillets-edition-mode-nav"), null, "aucun nav");
-    assert.equal(contentEl.querySelector(".feuillets-edition-quickexport"), null, "aucun quick export");
-    assert.equal(contentEl.querySelector(".feuillets-edition-preview-refresh"), null, "aucun refresh preview");
-    assert.ok(contentEl.querySelector(".feuillets-edition-mode-body"), "mode-body présent");
-    // Les trois groupes principaux sont présents
-    for (const label of ["Avant le manuscrit", "Le manuscrit", "Après le manuscrit"]) {
-      assert.ok(contentEl.textContent.includes(label), `${label} présent`);
-    }
-    // Les éléments détaillés ne sont pas visibles dans le sommaire principal,
-    // ils le sont seulement dans leurs sous-pages respectives.
-    assert.equal(calls.leafCreates, 0, "ne crée aucune leaf");
-  } finally {
-    restore();
-  }
-});
-
-/* CORRECTIF PROMPT 2/3, §11 : en chrome embedded, LayoutEditor bascule en
- * navigation "summary" (sommaire à quatre lignes) — plus de rail latéral
- * `.feuillets-layout-nav`, aucun inspecteur affiché avant qu'une catégorie
- * ne soit choisie. */
-test("EditionWorkspaceContent : chrome: \"embedded\" + layout n'affiche aucun chrome central, LayoutEditor en navigation summary", async () => {
-  const restore = installSettingStub();
-  try {
-    const { app, plugin, hostLeaf, calls } = buildIntegrationFixture();
-    const contentEl = new FakeElement("div");
-    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
+    const fixture = buildIntegrationFixture();
+    const states = [];
+    const view = new EditionWorkspaceContent(fixture.app, fixture.plugin, fixture.contentEl, {
       initialMode: "layout",
-      chrome: "embedded",
+      onNavigationRootChange: (isRoot) => states.push(isRoot),
     });
-    assert.equal(view.chrome, "embedded");
     await view.render();
-
-    assert.equal(contentEl.querySelector(".feuillets-edition-mode-nav"), null, "aucun nav");
-    assert.equal(contentEl.querySelector(".feuillets-edition-quickexport"), null, "aucun quick export");
-    assert.equal(contentEl.querySelector(".feuillets-edition-preview-refresh"), null, "aucun refresh preview");
-    assert.ok(view.editor, "LayoutEditor est initialisé");
-    assert.equal(view.editor.workspaceNavigation, "summary", "navigation summary en chrome embedded");
-    assert.equal(view.editor.navEl, null, "aucun rail .feuillets-layout-nav historique");
-    assert.equal(contentEl.querySelector(".feuillets-layout-nav"), null, "aucune colonne rail historique dans le DOM");
-    assert.ok(contentEl.querySelector(".feuillets-layout-summary"), "le sommaire summary est affiché");
-    assert.equal(calls.leafCreates, 0, "ne crée aucune leaf");
-  } finally {
-    restore();
-  }
-});
-
-test("EditionWorkspaceContent : chrome: \"workspace\" conserve LayoutEditor en navigation rail", async () => {
-  const restore = installSettingStub();
-  try {
-    const { view } = buildIntegrationFixture();
-    await view.render();
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-
-    assert.equal(view.editor.workspaceNavigation, "rail");
-    assert.ok(view.editor.navEl, "rail latéral présent en chrome workspace");
+    assert.equal(states.at(-1), true);
   } finally {
     restore();
   }
@@ -896,12 +295,11 @@ test("EditionWorkspaceContent : chrome: \"workspace\" conserve LayoutEditor en n
 test("racine : embedded + composition notifie true au sommaire, false à Le manuscrit, true au retour", async () => {
   const restore = installSettingStub();
   try {
-    const { app, plugin, hostLeaf } = buildIntegrationFixture();
+    const { app, plugin } = buildIntegrationFixture();
     const seen = [];
     const contentEl = new FakeElement("div");
-    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
+    const view = new EditionWorkspaceContent(app, plugin, contentEl, {
       initialMode: "composition",
-      chrome: "embedded",
       onNavigationRootChange: (isRoot) => seen.push(isRoot),
     });
     await view.render();
@@ -924,12 +322,11 @@ test("racine : embedded + composition notifie true au sommaire, false à Le manu
 test("racine : embedded + layout notifie true au sommaire et false à l'ouverture de Page", async () => {
   const restore = installSettingStub();
   try {
-    const { app, plugin, hostLeaf } = buildIntegrationFixture();
+    const { app, plugin } = buildIntegrationFixture();
     const seen = [];
     const contentEl = new FakeElement("div");
-    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
+    const view = new EditionWorkspaceContent(app, plugin, contentEl, {
       initialMode: "layout",
-      chrome: "embedded",
       onNavigationRootChange: (isRoot) => seen.push(isRoot),
     });
     await view.render();
@@ -940,25 +337,6 @@ test("racine : embedded + layout notifie true au sommaire et false à l'ouvertur
     );
     pageRow.dispatch("click");
     assert.deepEqual(seen, [true, false], "Page → hors racine");
-  } finally {
-    restore();
-  }
-});
-
-test("racine : chrome \"workspace\" ne transmet JAMAIS onNavigationRootChange, même fournie", async () => {
-  const restore = installSettingStub();
-  try {
-    const { app, plugin, hostLeaf } = buildIntegrationFixture();
-    const seen = [];
-    const contentEl = new FakeElement("div");
-    const view = new EditionWorkspaceContent(app, plugin, hostLeaf, contentEl, {
-      onNavigationRootChange: (isRoot) => seen.push(isRoot),
-    });
-    await view.render();
-    view.setMode("layout");
-    await view["modeRenderPromise"];
-    assert.deepEqual(seen, [], "mode central : le callback n'est jamais invoqué");
-    assert.equal(view.editor.workspaceNavigation, "rail", "navigation rail conservée en workspace");
   } finally {
     restore();
   }
