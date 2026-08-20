@@ -2535,6 +2535,16 @@ export abstract class BaseFeuilletsView extends ItemView {
         })
     );
     })));
+    /* « Déplacer » : comportement unitaire historique (moveSceneFile).
+       Le réordonnancement multi-feuillets se fait par glisser-déposer
+       dans le Binder (sélectionner plusieurs feuillets, puis drag). */
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.contextMenu.move"))
+        .onClick(() => {
+          void this.plugin.moveSceneFile(file);
+        })
+    );
     menu.addItem((item) =>
       item
         .setTitle(t("shared.duplicate"))
@@ -2881,6 +2891,42 @@ export abstract class BaseFeuilletsView extends ItemView {
       ring.addClass(`feuillets-ring-${state}`);
   }
 
+  /** Garde défensive posée sur `mousedown` (feuillets-view.ts, renderFileRow) :
+   * avec Maj/Cmd/Ctrl enfoncé, empêche la sélection native du texte de
+   * l'aperçu pendant la construction de la multi-sélection Binder. Depuis
+   * que la ligne entière (et non plus une poignée séparée) porte le drag
+   * (`dropEl === handleEl`, voir attachDragHandlers), ce même `mousedown`
+   * est aussi celui qui doit laisser le navigateur démarrer un `dragstart`
+   * natif — or `preventDefault()` sur `mousedown` empêche ce `dragstart`.
+   * Exactement le geste cassé : garder Cmd/Ctrl enfoncé après avoir
+   * sélectionné plusieurs feuillets, puis glisser l'un d'eux SANS relâcher
+   * la touche. On ne bloque donc plus que le premier Maj/Cmd/Ctrl+clic qui
+   * construit la sélection ; un membre déjà sélectionné laisse le drag
+   * natif s'amorcer. Isolé ici (plutôt qu'inline) pour rester testable
+   * indépendamment du rendu complet d'une ligne. */
+  shouldPreventMultiSelectMousedown(e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey?: boolean }, path: string, hidden: boolean): boolean {
+    if (hidden || !(e.shiftKey || e.metaKey || e.ctrlKey || e.altKey)) return false;
+    const sel = this.plugin._binderMultiSelect;
+    if (sel && sel.has(path)) return false;
+    return true;
+  }
+
+  /** Toggle individuel d'un chemin dans `_binderMultiSelect` (existant,
+   * jamais un second Set) : initialise la sélection si nécessaire, bascule
+   * `path`, déplace l'ancre, rafraîchit les classes. Correctif final
+   * multi-drag, §3 : extrait de la branche Cmd/Ctrl de `handleMultiSelectClick`
+   * pour être réutilisé tel quel par le geste Option/Alt dédié à la
+   * réorganisation Binder (voir feuillets-view.ts) — sans dupliquer la
+   * logique ni créer un second état parallèle. */
+  toggleBinderReorderSelection(path: string, parentPath: string, index: number, scopeEl: HTMLElement): void {
+    if (!this.plugin._binderMultiSelect) this.plugin._binderMultiSelect = new Set();
+    const sel = this.plugin._binderMultiSelect;
+    if (sel.has(path)) sel.delete(path);
+    else sel.add(path);
+    this.plugin._binderMultiSelectAnchor = { parentPath, index };
+    this.refreshMultiSelectClasses(scopeEl);
+  }
+
   /** Clic sur une ligne sélectionnable en vue d'un déplacement groupé
    * (Binder, Plan…) : Maj+clic sélectionne la PLAGE depuis le dernier
    * point d'ancrage (comme un explorateur de fichiers), Cmd/Ctrl+clic
@@ -2915,10 +2961,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
-      if (sel.has(node.path)) sel.delete(node.path);
-      else sel.add(node.path);
-      this.plugin._binderMultiSelectAnchor = { parentPath: parent.path, index };
-      this.refreshMultiSelectClasses(scopeEl);
+      this.toggleBinderReorderSelection(node.path, parent.path, index, scopeEl);
       return true;
     }
 
@@ -3006,9 +3049,39 @@ export abstract class BaseFeuilletsView extends ItemView {
     return result;
   }
 
+  /** Calcule l'ordre final d'une liste de siblings après retrait d'un
+   * sous-ensemble déplacé puis réinsertion en bloc à une frontière — utilisé
+   * pour le reorder same-parent, aussi bien unitaire que multi (correctif
+   * final multi-drag, §8/§9). `boundary` est un index dans l'espace de la
+   * liste ORIGINALE (AVANT cible = index de la cible, APRÈS cible =
+   * index + 1) — jamais recalculé après un retrait partiel, ce qui était la
+   * source du bug de reorder unitaire vers le bas (`splice(effectiveIndex)`
+   * appliqué à une liste déjà amputée du membre déplacé). On compte ici
+   * combien de membres déplacés avaient un index STRICTEMENT inférieur à la
+   * frontière pour corriger l'index d'insertion en conséquence. */
+  resolveDropOrder(siblings: ProjectNode[], movedIndices: Set<number>, boundary: number): ProjectNode[] {
+    const movedBeforeBoundary = [...movedIndices].filter((i) => i < boundary).length;
+    const remaining = siblings.filter((_, i) => !movedIndices.has(i));
+    const insertionIndex = Math.max(0, Math.min(boundary - movedBeforeBoundary, remaining.length));
+    const movedNodes = [...movedIndices].sort((a, b) => a - b).map((i) => siblings[i]);
+    const result = [...remaining];
+    result.splice(insertionIndex, 0, ...movedNodes);
+    return result;
+  }
+
   attachDragHandlers(handleEl: HTMLElement, dropEl: HTMLElement, parent: ProjectNode, index: number, siblings: ProjectNode[], _scopeEl: HTMLElement): void {
-    handleEl.draggable = true;
-    handleEl.addEventListener("dragstart", (e) => {
+    /* La ligne entière devient draggable (handleEl === dropEl). */
+    dropEl.draggable = true;
+    dropEl.addEventListener("dragstart", (e) => {
+      /* Ne pas démarrer un drag depuis un contrôle interactif explicite
+         (bouton, menu, chevron d'expansion, "+" d'ajout) — cela
+         empêcherait leur usage normal. */
+      const target = e.target as HTMLElement;
+      if (target.closest("button, .feuillets-folder-add, .feuillets-folder-chevron, .clickable-icon, .feuillets-project-actions, [aria-label]")) {
+        e.preventDefault();
+        return;
+      }
+
       /* Poignée d'une scène faisant partie d'une sélection multiple
          (Cmd/Ctrl+clic ou Maj+clic, voir renderFileRow) : on entraîne tout
          le groupe, pas juste celle qu'on a saisie — sinon la sélection ne
@@ -3022,13 +3095,30 @@ export abstract class BaseFeuilletsView extends ItemView {
         return;
       }
 
+      /* Éligibilité STRICTE du batch (correctif final multi-drag, §5) : un
+         drag groupé n'est autorisé que si le nœud réellement saisi est un
+         TFile, que la sélection contient plus d'un élément dont ce chemin,
+         ET que TOUS les chemins sélectionnés se résolvent en TFile ayant
+         EXACTEMENT le même parent que le fichier saisi. La moindre entorse
+         (dossier dans la sélection, parent différent) fait retomber sur le
+         drag unitaire historique — plus de filtrage silencieux d'une
+         sélection multi-parent en batch partiel. */
       const sel = this.plugin._binderMultiSelect;
-      if (sel && sel.size > 1 && draggedPath && sel.has(draggedPath)) {
-        // Filtrer les descendants pour éviter de déplacer un élément deux fois
-        const filteredSel = this.filterOutDescendants(sel);
-        const items = siblings
-          .map((s, i) => ({ path: s.path, index: i }))
-          .filter((it) => filteredSel.has(it.path));
+      let items: { path: string; index: number }[] | null = null;
+      if (draggedNode instanceof TFile && sel && sel.size > 1 && draggedPath && sel.has(draggedPath)) {
+        const allSameParentFiles = [...sel].every((p) => {
+          const node = this.app.vault.getAbstractFileByPath(p);
+          return node instanceof TFile && node.parent?.path === draggedNode.parent?.path;
+        });
+        if (allSameParentFiles) {
+          // L'ordre des items vient exclusivement de `siblings` (ordre Binder réel).
+          const candidateItems = siblings
+            .map((s, i) => ({ path: s.path, index: i }))
+            .filter((it) => sel.has(it.path));
+          if (candidateItems.length > 1) items = candidateItems;
+        }
+      }
+      if (items) {
         this.plugin.dragState = { parentPath: parent.path, multi: true, items };
       } else {
         this.plugin.dragState = {
@@ -3040,21 +3130,31 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.plugin._dragInProgress = true;
       this.plugin._dragRetryCount = 0;
       dropEl.addClass("feuillets-dragging");
+      /* Le drag HTML natif a besoin d'un DataTransfer réellement initialisé
+         au dragstart pour être engagé par Chromium/Electron — un
+         `effectAllowed` seul, sans aucun `setData`, ne suffit pas. Toute
+         ligne Binder (fichier seul, dossier, ou groupe multi) pose donc
+         d'abord ce marqueur MIME privé, minimal et stable : il ne sert
+         qu'à initialiser correctement l'opération native, jamais à
+         transporter le groupe réel (qui reste exclusivement dans
+         `plugin.dragState`, lu au drop — voir §3/§4 du correctif). */
+      const transfer = e.dataTransfer;
+      if (transfer) {
+        transfer.setData("application/x-feuillets-binder", draggedPath ?? "feuillets");
+        transfer.effectAllowed = "move";
+      }
       /* Le Binder garde son propre état pour le réordonnancement interne,
          mais expose aussi le chemin du feuillet au Canvas natif. Obsidian /
          Advanced Canvas peut alors créer un vrai FileNode sans que Feuillets
          ne déplace, copie ou modifie le Markdown. Les dossiers et les
          sélections multiples restent volontairement exclus de ce premier
          flux. */
-      if (draggedNode instanceof TFile && !this.plugin.dragState?.multi) {
-        e.dataTransfer?.setData("text/plain", draggedNode.path);
-        e.dataTransfer!.effectAllowed = "move";
-      } else {
-        e.dataTransfer!.effectAllowed = "move";
+      if (transfer && draggedNode instanceof TFile && !this.plugin.dragState?.multi) {
+        transfer.setData("text/plain", draggedNode.path);
       }
       e.stopPropagation();
     });
-    handleEl.addEventListener("dragend", () => {
+    dropEl.addEventListener("dragend", () => {
       this.plugin._dragInProgress = false;
       this.plugin.dragState = null;
       dropEl.removeClass("feuillets-dragging");
@@ -3072,23 +3172,43 @@ export abstract class BaseFeuilletsView extends ItemView {
       e.preventDefault();
       e.dataTransfer!.dropEffect = "move";
 
-      // Distinguer le dépôt SUR un dossier (le mettre dedans) vs ENTRE les éléments (réordonner)
+      // Déterminer la zone de drop selon le type d'élément survolé
       const rect = dropEl.getBoundingClientRect();
-      const middleY = rect.top + rect.height / 2;
-      const isNearBottom = e.clientY > middleY;
-
-      // Déterminer si on dépose sur un dossier ou entre les éléments
       const dropNode = siblings[index];
       const isFolder = dropNode instanceof TFolder;
+      const relativeY = e.clientY - rect.top;
+      const height = rect.height;
 
-      if (isFolder && !isNearBottom) {
-        // Au-dessus d'un dossier : indiquer un dépôt DANS le dossier
-        dropEl.addClass("feuillets-dragover-folder");
-        dropEl.removeClass("feuillets-dragover-between");
+      if (isFolder) {
+        // Dossier : 3 zones (haut 30% = AVANT, milieu 40% = DANS, bas 30% = APRÈS)
+        const topThreshold = height * 0.3;
+        const bottomThreshold = height * 0.7;
+        if (relativeY < topThreshold) {
+          // AVANT le dossier
+          dropEl.addClass("feuillets-dragover-between");
+          dropEl.removeClass("feuillets-dragover-folder");
+        } else if (relativeY > bottomThreshold) {
+          // APRÈS le dossier
+          dropEl.addClass("feuillets-dragover-between");
+          dropEl.removeClass("feuillets-dragover-folder");
+        } else {
+          // DANS le dossier
+          dropEl.addClass("feuillets-dragover-folder");
+          dropEl.removeClass("feuillets-dragover-between");
+        }
       } else {
-        // En bas d'un élément ou d'un fichier : indiquer insertion APRÈS
-        dropEl.addClass("feuillets-dragover-between");
-        dropEl.removeClass("feuillets-dragover-folder");
+        // Feuillet : 2 zones (haut 50% = AVANT, bas 50% = APRÈS)
+        const middleY = rect.top + height / 2;
+        const isNearBottom = e.clientY > middleY;
+        if (isNearBottom) {
+          // APRÈS le feuillet
+          dropEl.addClass("feuillets-dragover-between");
+          dropEl.removeClass("feuillets-dragover-folder");
+        } else {
+          // AVANT le feuillet
+          dropEl.addClass("feuillets-dragover-between");
+          dropEl.removeClass("feuillets-dragover-folder");
+        }
       }
     });
     dropEl.addEventListener("dragleave", () => {
@@ -3106,88 +3226,74 @@ export abstract class BaseFeuilletsView extends ItemView {
       const drag = this.plugin.dragState;
       this.plugin.dragState = null;
 
-      if (drag.multi) {
-        // Conserver les chemins des éléments déplacés pour restaurer la sélection après
-        const movedPaths = (drag.items || []).map((it) => it.path);
-        const newSelection = new Set<string>();
+      // Résoudre la position de drop finale selon la zone survolée
+      const rect = dropEl.getBoundingClientRect();
+      const dropNode = siblings[index];
+      const isFolder = dropNode instanceof TFolder;
+      const relativeY = e.clientY - rect.top;
+      const height = rect.height;
 
-        const sameParentTarget = drag.parentPath === parent.path ? siblings[index] : null;
-        const draggedIndices = new Set((drag.items || []).map((it) => it.index));
-        if (
-          sameParentTarget instanceof TFolder &&
-          !draggedIndices.has(index)
-        ) {
-          /* Cible = un dossier frère (même parent que le groupe déplacé,
-             ex. tous deux enfants directs de la racine du projet) : on
-             veut y déposer le groupe, pas le réordonner parmi ses frères
-             — sinon glisser un feuillet à la racine vers un dossier vide
-             comme Front (même parent) ne faisait jamais rien. */
-          const insertIndex = Number.MAX_SAFE_INTEGER;
-          for (const it of (drag.items || [])) {
-            const node = this.app.vault.getAbstractFileByPath(it.path);
-            if (!node) continue;
-            await this.plugin.moveNode(node as ProjectNode, asFolder(parent), sameParentTarget, insertIndex);
-          }
-        } else if (drag.parentPath === parent.path) {
-          if (draggedIndices.has(index)) return;
-          const movedNodes = (drag.items || []).map((it) => siblings[it.index]).filter(Boolean);
-          const remaining = siblings.filter((_, i) => !draggedIndices.has(i));
-          /* Les éléments déplacés situés avant la cible sont déjà retirés
-             de `remaining` — décaler l'index cible d'autant pour tomber au
-             bon endroit une fois le groupe réinséré. */
-          const removedBefore = (drag.items || []).filter((it) => it.index < index).length;
-          const targetIndex = Math.max(0, index - removedBefore);
-          const reordered = [...remaining];
-          reordered.splice(targetIndex, 0, ...movedNodes);
-          await this.plugin.applySiblingOrder(asFolder(parent), reordered);
+      let effectiveIndex = index;
+      let dropInsideFolder = false;
+
+      if (isFolder) {
+        const topThreshold = height * 0.3;
+        const bottomThreshold = height * 0.7;
+        if (relativeY < topThreshold) {
+          // AVANT le dossier
+          effectiveIndex = index;
+          dropInsideFolder = false;
+        } else if (relativeY > bottomThreshold) {
+          // APRÈS le dossier
+          effectiveIndex = index + 1;
+          dropInsideFolder = false;
         } else {
-          const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
-          if (srcParent instanceof TFolder) {
-            const target = siblings[index];
-            let destFolder: TFolder = asFolder(parent);
-            let insertIndex = index;
-            if (target instanceof TFolder) {
-              destFolder = target;
-              insertIndex = Number.MAX_SAFE_INTEGER;
-            }
-            for (const it of (drag.items || [])) {
-              const node = this.app.vault.getAbstractFileByPath(it.path);
-              if (!node) continue;
-              await this.plugin.moveNode(node as ProjectNode, srcParent, destFolder, insertIndex);
-              if (insertIndex !== Number.MAX_SAFE_INTEGER) insertIndex++;
-            }
-          }
+          // DANS le dossier
+          effectiveIndex = Number.MAX_SAFE_INTEGER;
+          dropInsideFolder = true;
         }
-
-        // Restaurer la sélection avec les nouveaux chemins
-        for (const oldPath of movedPaths) {
-          const node = this.app.vault.getAbstractFileByPath(oldPath);
-          if (node) {
-            newSelection.add(node.path);
-          }
+      } else {
+        const middleY = rect.top + height / 2;
+        const isNearBottom = e.clientY > middleY;
+        if (isNearBottom) {
+          // APRÈS le feuillet
+          effectiveIndex = index + 1;
+        } else {
+          // AVANT le feuillet
+          effectiveIndex = index;
         }
-        this.plugin._binderMultiSelect = newSelection;
+      }
 
-        this.plugin.renderAllViews(true);
+      if (drag.multi) {
+        /* Correctif final multi-drag, §7 : un batch ne fait plus qu'une
+           seule chose — réordonner des TFile siblings dans leur parent
+           commun. Toute destination cross-folder ou « dans un dossier »
+           est refusée proprement (aucun moveNode multiple, aucune seconde
+           source de vérité) : la sélection et le Binder restent intacts,
+           l'utilisateur peut simplement réessayer sur une zone valide. */
+        if (drag.parentPath !== parent.path || dropInsideFolder) return;
+
+        const movedIndices = new Set((drag.items || []).map((it) => it.index));
+        /* §8 : jamais de return prématuré parce que la cible appartient au
+           groupe — on calcule d'abord l'ordre final, la comparaison
+           path-par-path avec l'ordre initial décide seule du no-op. */
+        const finalOrder = this.resolveDropOrder(siblings, movedIndices, effectiveIndex);
+        const changed = finalOrder.some((node, i) => node.path !== siblings[i].path);
+        if (changed) {
+          await this.plugin.applySiblingOrder(asFolder(parent), finalOrder);
+          this.plugin.renderAllViews(true);
+        }
         return;
       }
 
       if (drag.parentPath === parent.path) {
         const from = drag.index!;
-        if (from === index) return;
         const target = siblings[index];
         const draggedNode = siblings[from];
-        /* Cible = un dossier frère (même parent que le fichier déplacé,
-           ex. tous deux enfants directs de la racine du projet) : déposer
-           dessus doit le déplacer DEDANS, pas juste réordonner les frères
-           — sinon glisser un feuillet à la racine vers un dossier vide
-           comme Front (même parent) ne faisait jamais rien. Seulement si
-           l'élément déplacé est un FICHIER : un dossier déplacé sur un
-           dossier frère doit rester un simple réordonnancement (Cartes,
-           Plan…), sinon on ne peut plus jamais réorganiser l'ordre des
-           dossiers entre eux — glisser un dossier reste toujours une
-           réorganisation ici, jamais un emboîtement. */
+        /* Cible = un dossier frère (même parent que le fichier déplacé) :
+           déposer DANS le dossier seulement si on est dans la zone centrale. */
         if (
+          dropInsideFolder &&
           target instanceof TFolder &&
           target.path !== drag.path &&
           !(draggedNode instanceof TFolder)
@@ -3197,11 +3303,16 @@ export abstract class BaseFeuilletsView extends ItemView {
           this.plugin.renderAllViews(true);
           return;
         }
-        const reordered = [...siblings];
-        const [moved] = reordered.splice(from, 1);
-        reordered.splice(index, 0, moved);
-        await this.plugin.applySiblingOrder(asFolder(parent), reordered);
-        this.plugin.renderAllViews(true);
+        /* §9 : même helper que le multi (`resolveDropOrder`) — corrige le
+           bug historique où `effectiveIndex`, calculé dans l'espace de la
+           liste ORIGINALE, était réappliqué tel quel après un
+           `splice(from, 1)` qui avait déjà décalé les index suivants. */
+        const finalOrder = this.resolveDropOrder(siblings, new Set([from]), effectiveIndex);
+        const changed = finalOrder.some((node, i) => node.path !== siblings[i].path);
+        if (changed) {
+          await this.plugin.applySiblingOrder(asFolder(parent), finalOrder);
+          this.plugin.renderAllViews(true);
+        }
         return;
       }
 
@@ -3210,8 +3321,8 @@ export abstract class BaseFeuilletsView extends ItemView {
       if (!moved || !(srcParent instanceof TFolder)) return;
       const target = siblings[index];
       let destFolder: TFolder = asFolder(parent);
-      let insertIndex = index;
-      if (target instanceof TFolder && target.path !== moved.path) {
+      let insertIndex = effectiveIndex;
+      if (dropInsideFolder && target instanceof TFolder && target.path !== moved.path) {
         destFolder = target;
         insertIndex = Number.MAX_SAFE_INTEGER;
       }
@@ -3251,32 +3362,11 @@ export abstract class BaseFeuilletsView extends ItemView {
       const drag = this.plugin.dragState;
       this.plugin.dragState = null;
 
-      if (drag.multi) {
-        // Conserver les chemins des éléments déplacés pour restaurer la sélection après
-        const movedPaths = (drag.items || []).map((it) => it.path);
-        const newSelection = new Set<string>();
-
-        const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
-        if (srcParent instanceof TFolder) {
-          for (const it of (drag.items || [])) {
-            const node = this.app.vault.getAbstractFileByPath(it.path);
-            if (!node) continue;
-            await this.plugin.moveNode(node as ProjectNode, srcParent, folder, Number.MAX_SAFE_INTEGER);
-          }
-        }
-
-        // Restaurer la sélection avec les nouveaux chemins
-        for (const oldPath of movedPaths) {
-          const node = this.app.vault.getAbstractFileByPath(oldPath);
-          if (node) {
-            newSelection.add(node.path);
-          }
-        }
-        this.plugin._binderMultiSelect = newSelection;
-
-        this.plugin.renderAllViews(true);
-        return;
-      }
+      /* Correctif final multi-drag, §7 : un dossier vide n'est jamais le
+         parent source du groupe (c'est une zone de dépôt de secours pour un
+         AUTRE dossier) — donc toujours cross-folder pour un batch. Refuser
+         proprement, aucun moveNode multiple. */
+      if (drag.multi) return;
 
       const moved = this.app.vault.getAbstractFileByPath(drag.path || "");
       const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);

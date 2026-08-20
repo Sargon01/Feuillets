@@ -1,4 +1,4 @@
-import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, getProjectStatuses } from "../constants.js";
+import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { hasKnownProject } from "../services/folder-structure.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
@@ -7,6 +7,7 @@ import { NewProjectModal, OpenExistingFolderModal, DuplicateVersionModal, Manage
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
+import type { BoardModeKey } from "./board-view.js";
 import { t } from "../i18n/index.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
 import { createProjectScope, createFileScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
@@ -758,6 +759,24 @@ export class FeuilletsView extends BaseFeuilletsView {
     menu.showAtMouseEvent(e);
   }
 
+  /** Menu du clic droit sur le bouton « Carte » du Binder : ouvre le Board en
+   *  ARRIÈRE-PLAN dans un des 4 modes (Cartes/Plan/Chemin de fer/Chronologie)
+   *  via openBoardModeInBackground — le clic gauche continue d'appeler
+   *  activateBoard() strictement inchangé. Le menu partagé des Cartes (clic
+   *  droit, section 1) n'est jamais dupliqué ici : ce sont deux surfaces
+   *  différentes. */
+  showBoardModesMenu(e: MouseEvent): void {
+    const menu = new Menu();
+    for (const [mode] of BOARD_MODES) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t(`board.mode.${mode}`))
+          .onClick(() => void this.plugin.openBoardModeInBackground(mode as BoardModeKey))
+      );
+    }
+    menu.showAtMouseEvent(e);
+  }
+
   /** `resetScroll: true` (voir isolateFolder) : n'essaie pas de restaurer la
    * position de défilement d'AVANT ce rendu — sur un changement de branche
    * (isolation), ce décalage en pixels ne correspond plus à rien de sensé
@@ -795,9 +814,16 @@ export class FeuilletsView extends BaseFeuilletsView {
       this.plugin.generateCanvasBoard()
     );
     this.barSep(actions);
-    this.iconBtn(actions, "layout-grid", t("binder.boardPlan"), () =>
+    /* Clique gauche : activateBoard() strictement inchangé ; clique droit :
+       ouvrir le Board EN ARRIÈRE-PLAN dans un mode précis
+       (showBoardModesMenu). */
+    const boardBtn = this.iconBtn(actions, "layout-grid", t("binder.boardPlan"), () =>
       this.plugin.activateBoard()
     );
+    boardBtn.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      this.showBoardModesMenu(e);
+    });
     this.barSep(actions);
     /* CORRECTIF FINAL — double vue = Library opérable + Binder 2.5 unique
        (§2) : UN SEUL bouton de vue, `columns-2`, état exclusif sur
@@ -1198,9 +1224,6 @@ export class FeuilletsView extends BaseFeuilletsView {
          cliqué, et les touches ne remontent alors jamais jusqu'ici. */
       item.setAttr("tabindex", "-1");
 
-      const grip = item.createSpan({ cls: "feuillets-drag-grip" });
-      setIcon(grip, "grip-vertical");
-
       /* Colonne chevron réservée (§16 du LOT FINAL Binder ↔ Continu) : un
          feuillet n'a pas de chevron fonctionnel, mais réserve la même
          largeur qu'un dossier du même niveau pour que les colonnes
@@ -1317,14 +1340,31 @@ export class FeuilletsView extends BaseFeuilletsView {
          démarrer, en plus de la sélection Binder, une sélection native du
          texte de l'aperçu. Purement préventif : ne pilote AUCUNE sélection
          (toute la logique reste dans le `click` ci-dessous, jamais
-         déclenchée deux fois) et ne s'applique qu'à ces gestes précis —
-         un clic simple, un drag (poignée dédiée) ou un clic droit ne sont
-         jamais concernés. */
+         déclenchée deux fois).
+         Correctif multi-drag : voir shouldPreventMultiSelectMousedown
+         (base-feuillets-view.ts) pour la raison précise de la garde — un
+         membre déjà sélectionné ne doit plus voir son mousedown bloqué,
+         sinon le dragstart natif ne peut jamais démarrer quand Cmd/Ctrl
+         reste enfoncé en passant du clic de sélection au glisser. */
       item.addEventListener("mousedown", (e) => {
-        if (!hidden && (e.shiftKey || e.metaKey || e.ctrlKey)) e.preventDefault();
+        if (this.shouldPreventMultiSelectMousedown(e, file.path, hidden)) e.preventDefault();
       });
 
       item.addEventListener("click", (e) => {
+        /* Correctif final multi-drag — Option/Alt+clic = sélection de
+           RÉORGANISATION Binder, séparée à 100% des gestes Continu.
+           Traité EN PREMIER, avant toute branche Cmd/Ctrl/Maj : ne
+           preventDefault/stopPropagate QUE ce geste précis, ne touche
+           jamais `continu`/`is-continu-member`/setMembers/promotion. Sur
+           une ligne cachée, retombe intégralement sur le chemin
+           historique ci-dessous (comme les autres branches). */
+        if (!hidden && e.altKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.toggleBinderReorderSelection(file.path, parent.path, i, dragScopeEl);
+          return;
+        }
+
         /* LOT FINAL Binder ↔ Continu — grammaire Scrivener (§2-10) :
            - Cmd/Ctrl+clic : toggle individuel (§8), pilote RÉELLEMENT
              Continu via setMembers() désormais (jamais plus seulement
@@ -1447,7 +1487,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       });
 
       if (!hidden) {
-        this.attachDragHandlers(grip, item, parent, i, siblings, dragScopeEl);
+        this.attachDragHandlers(item, item, parent, i, siblings, dragScopeEl);
         item.addEventListener("contextmenu", (e) => {
           e.preventDefault();
           this.ensureSelectionForContextMenu(file.path, dragScopeEl);
@@ -2298,9 +2338,6 @@ export class FeuilletsView extends BaseFeuilletsView {
         row.setAttr("data-path", child.path);
         if (selectedFolder.path === child.path) row.addClass("is-selected");
 
-        const grip = row.createSpan({ cls: "feuillets-drag-grip" });
-        setIcon(grip, "grip-vertical");
-
         const childFolders = this.plugin.getOrderedChildren(child).filter((c) => c instanceof TFolder);
         const childCollapsed = !!S.collapsed[child.path];
 
@@ -2353,7 +2390,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           })();
         });
 
-        this.attachDragHandlers(grip, row, parent, i, siblings, treePane);
+        this.attachDragHandlers(row, row, parent, i, siblings, treePane);
 
         if (!childCollapsed) renderTreeFolders(child, depth + 1);
       });
@@ -2639,9 +2676,6 @@ export class FeuilletsView extends BaseFeuilletsView {
           row.addClass("is-selected");
         }
 
-        const grip = row.createSpan({ cls: "feuillets-drag-grip" });
-        setIcon(grip, "grip-vertical");
-
         /* Chevron (§13-14) : zone de clic PROPRE, plier/déplier
            uniquement — jamais Continu, jamais isolation, jamais sélection.
            Présent seulement si ce dossier a des enfants à déplier/replier ;
@@ -2704,7 +2738,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           });
         });
 
-        this.attachDragHandlers(grip, row, parent, i, siblings, treePane);
+        this.attachDragHandlers(row, row, parent, i, siblings, treePane);
 
         /* Le repli du nom du projet (S.collapsed[treeRoot.path]) ne masque
            que les feuillets posés directement à la racine (voir plus haut) —
@@ -2939,10 +2973,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     treePane.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       // Ne vider que si le clic est dans la zone vide ou pas sur un élément avec data-path
-      if (
-        !target.closest("[data-path]") &&
-        !target.closest(".feuillets-drag-grip")
-      ) {
+      if (!target.closest("[data-path]")) {
         if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.size > 0) {
           this.plugin._binderMultiSelect.clear();
           this.refreshMultiSelectClasses(treePane);

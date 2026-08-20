@@ -45,7 +45,7 @@ import { getResearchTemplate } from "./services/research-templates.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
 import { remapResearchFolderLinks } from "./views/base-feuillets-view.js";
-import { BoardView } from "./views/board-view.js";
+import { BoardView, type BoardModeKey } from "./views/board-view.js";
 import { SidebarFeuilletsView, type EditionPage } from "./views/sidebar-feuillets-view.js";
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
@@ -81,9 +81,6 @@ import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFo
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { matchesResearchLabel } from "./utils/project-modes.js";
 import { setLocale, detectLocale, t } from "./i18n/index.js";
-import { resolveMarkdownWritingContext, type WritingContext } from "./writing-toolbar/writing-context.js";
-import { createDefaultWritingActionRegistry } from "./writing-toolbar/writing-action-registry.js";
-import { WritingToolbarController } from "./writing-toolbar/writing-toolbar-controller.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
 import { ManageProjectsModal, NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
@@ -103,6 +100,8 @@ import {
   toManuscriptRelativePath,
   remapAnnotationsAfterRename,
   type Annotation,
+  type AnnotationColor,
+  type AnnotationStyle,
   type AnnotationsStore,
 } from "./services/annotations.js";
 import { addWorkNote, deleteWorkNote, updateWorkNote, remapWorkNotesAfterRename } from "./services/work-notes.js";
@@ -164,6 +163,17 @@ import {
 } from "obsidian";
 
 const RIGHT_SIDEBAR_WIDTH = 280;
+
+/** Sous-menu natif Obsidian : `MenuItem.setSubmenu()` existe à l'exécution
+ *  mais n'est pas encore publique dans obsidian.d.ts (voir « Make setSubmenu
+ *  public API » sur le forum Obsidian). Les sous-menus du menu contextuel de
+ *  l'éditeur et de ses blocs Feuillets s'appuient sur cette surface —
+ *  augmentation typée de module, jamais `any`. */
+declare module "obsidian" {
+  interface MenuItem {
+    setSubmenu(): Menu;
+  }
+}
 
 type ProjectNode = TFile | TFolder;
 
@@ -370,7 +380,6 @@ class FeuilletsPlugin extends Plugin {
   _lastBackupAt?: number;
   _isSyncingPanels?: boolean;
   _lastFeuilletsActive?: boolean;
-  _writingToolbarController?: WritingToolbarController;
 
   /* Attachées dynamiquement par initScenesEditor (scenes-editor.js), pas
      déclarées ici en tant que méthodes de classe — voir scenes-editor.ts,
@@ -396,6 +405,15 @@ class FeuilletsPlugin extends Plugin {
   declare openMergeSelectModal: ScenesEditorPlugin["openMergeSelectModal"];
   declare applyPreset: ScenesEditorPlugin["applyPreset"];
   declare mergeManyScenes: ScenesEditorPlugin["mergeManyScenes"];
+
+  /** Préférence de session NON persistée du sous-menu « Annotation » du menu
+   *  contextuel de l'éditeur (même comportement que la Barre historique) :
+   *  style/couleur appliqués au clic, cochés au prochain menu, jamais écrits
+   *  dans les réglages. Volontairement public (comme `_binderMultiSelect`) :
+   *  les contrats de vue en Omit (notes-view/docx-review-view) reposent sur
+   *  les membres publics du plugin. */
+  annotationMenuStyle: AnnotationStyle = "highlight";
+  annotationMenuColor: AnnotationColor = "yellow";
 
   /* Attachés dynamiquement par base-feuillets-view.ts (Binder, sélection
      multiple, glisser-déposer, recherche). openTagsModal : requis par
@@ -423,7 +441,6 @@ class FeuilletsPlugin extends Plugin {
     this.registerRibbonIcons();
     this.registerCoreCommands();
     this.registerLastEditorTracking();
-    this.registerWritingToolbar();
 
     /* `this.settings` (FeuilletsSettings, volontairement partiel — voir
        types.d.ts) est réellement un sur-ensemble de DefaultSettings à
@@ -730,11 +747,6 @@ class FeuilletsPlugin extends Plugin {
       callback: () => this.toggleConcentration(),
     });
     this.addCommand({
-      id: "toggle-writing-toolbar",
-      name: t("main.cmd.toggleWritingToolbar"),
-      callback: () => this.toggleWritingToolbar(),
-    });
-    this.addCommand({
       id: "create-project",
       name: t("main.cmd.createProject"),
       callback: () => new NewProjectModal(this.app, this).open(),
@@ -804,7 +816,7 @@ class FeuilletsPlugin extends Plugin {
       checkCallback: (checking) => {
         if (!this.getProjectFolder()) return false;
         if (!checking) {
-          new CaptureIdeaModal(this.app, (text) => void this.captureIdeaToNotebook(text)).open();
+          this.openCaptureIdeaModal();
         }
         return true;
       },
@@ -1407,9 +1419,7 @@ class FeuilletsPlugin extends Plugin {
       // FileStatsModal sur un ancien feuillet actif, jamais utilisé ici.
       if (this.app.workspace.getActiveViewOfType(ScriveningsView)?.compileScope) return;
       const file = this.app.workspace.getActiveFile();
-      const root = this.getProjectFolder();
-      if (!file || !root || !file.path.startsWith(root.path + "/")) return;
-      new FileStatsModal(this.app, this, file).open();
+      this.openFileStats(file);
     });
     const updateStatus = () => {
       window.clearTimeout(this._statusTimer);
@@ -1587,29 +1597,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "renumber-footnotes",
       name: t("main.cmd.renumberFootnotes"),
-      editorCallback: (editor) => {
-        const src = editor.getValue();
-        const out = renumberFootnotes(src);
-        if (out === src) {
-          new Notice(t("main.notice.nothingToRenumber"));
-          return;
-        }
-        /* Renuméroter est une transformation qui touche tout le fichier :
-           demande confirmation avant d'y toucher (voir le chantier notes de
-           bas de page), contrairement à l'insertion d'une seule note. */
-        new ConfirmModal(
-          this.app,
-          t("main.cmd.renumberFootnotes"),
-          t("main.notice.renumberFootnotesConfirm"),
-          t("main.cmd.renumberFootnotes"),
-          () => {
-            const cursor = editor.getCursor();
-            editor.setValue(out);
-            editor.setCursor(cursor);
-            new Notice(t("main.notice.footnotesRenumbered"));
-          }
-        ).open();
-      },
+      editorCallback: (editor) => this.renumberFootnotesInEditor(editor),
     });
     this.addCommand({
       id: "goto-footnote-definition",
@@ -1624,10 +1612,7 @@ class FeuilletsPlugin extends Plugin {
     this.addCommand({
       id: "check-footnotes",
       name: t("main.cmd.checkFootnotes"),
-      editorCallback: (editor) => {
-        const result = validateFootnotes(editor.getValue());
-        new FootnoteCheckModal(this.app, editor, result).open();
-      },
+      editorCallback: (editor) => this.checkFootnotesInEditor(editor),
     });
   }
 
@@ -1637,6 +1622,11 @@ class FeuilletsPlugin extends Plugin {
    * « Revenir à l'appel » hors d'une définition (voir le chantier notes de
    * bas de page, section Interface). L'insertion, elle, reste toujours
    * proposée : jamais hors contexte sur un feuillet Markdown. */
+  /** Le bloc Feuillets du menu contextuel de l'éditeur groupe désormais ses
+   *  notes dans UN SEUL sous-menu natif « Note de bas de page » (plus
+   *  d'entrée plate au niveau racine). Tous les libellés proviennent des
+   *  mécanismes existants ; « Aller à la note »/« Retourner à l'appel »
+   *  n'apparaissent que dans un contexte de note, comme avant. */
   registerFootnoteContextMenu() {
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
@@ -1647,28 +1637,36 @@ class FeuilletsPlugin extends Plugin {
         const defId = definitionIdAtOffset(content, offset);
 
         menu.addSeparator();
-        menu.addItem((item) =>
-          item
-            .setTitle(t("main.cmd.insertFootnote"))
-            .setIcon("list-plus")
-            .onClick(() => this.insertFootnote(editor))
-        );
-        if (refId) {
-          menu.addItem((item) =>
-            item
-              .setTitle(t("main.cmd.gotoFootnoteDefinition"))
-              .setIcon("arrow-down-to-line")
-              .onClick(() => this.gotoFootnoteDefinition(editor))
+        menu.addItem((item) => {
+          item.setTitle(t("editorMenu.footnote")).setIcon("list-plus");
+          const sub = item.setSubmenu();
+          sub.addItem((entry) =>
+            entry.setTitle(t("editorMenu.footnote.insert")).setIcon("list-plus").onClick(() => this.insertFootnote(editor))
           );
-        }
-        if (defId) {
-          menu.addItem((item) =>
-            item
-              .setTitle(t("main.cmd.gotoFootnoteReference"))
-              .setIcon("arrow-up-to-line")
-              .onClick(() => this.gotoFootnoteReference(editor))
+          if (refId) {
+            sub.addItem((entry) =>
+              entry
+                .setTitle(t("editorMenu.footnote.gotoDefinition"))
+                .setIcon("arrow-down-to-line")
+                .onClick(() => this.gotoFootnoteDefinition(editor))
+            );
+          }
+          if (defId) {
+            sub.addItem((entry) =>
+              entry
+                .setTitle(t("editorMenu.footnote.gotoReference"))
+                .setIcon("arrow-up-to-line")
+                .onClick(() => this.gotoFootnoteReference(editor))
+            );
+          }
+          sub.addSeparator();
+          sub.addItem((entry) =>
+            entry.setTitle(t("editorMenu.footnote.check")).onClick(() => this.checkFootnotesInEditor(editor))
           );
-        }
+          sub.addItem((entry) =>
+            entry.setTitle(t("editorMenu.footnote.renumber")).onClick(() => this.renumberFootnotesInEditor(editor))
+          );
+        });
       })
     );
   }
@@ -1711,22 +1709,76 @@ class FeuilletsPlugin extends Plugin {
     });
   }
 
-  /** Entrée identique à la commande, dans le menu contextuel de l'éditeur —
-   * seulement quand une sélection existe dans un feuillet du Manuscrit. */
+  /** Le bloc Feuillets du menu contextuel de l'éditeur : sous-menu
+   *  « Annotation » (style/couleur/commentaire, actions désactivées sans
+   *  sélection, jamais d'annotation vide) puis « Noter une idée » (même flux
+   *  que la commande Carnet existante). Le sous-menu n'apparaît que dans un
+   *  feuillet du Manuscrit ; « Noter une idée » dès qu'un projet existe. */
   registerAnnotationContextMenu(): void {
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
         if (!(view instanceof MarkdownView) || !view.file) return;
-        if (!editor.somethingSelected()) return;
-        if (toManuscriptRelativePath(this.app, this.settings, view.file) === null) return;
-        menu.addItem((item) =>
-          item
-            .setTitle(t("main.cmd.addAnnotation"))
-            .setIcon("highlighter")
-            .onClick(() => void this.createAnnotationFromSelection())
-        );
+        if (toManuscriptRelativePath(this.app, this.settings, view.file) !== null) {
+          this.buildAnnotationEditorSubmenu(menu, editor, view.file);
+        }
+        if (this.getProjectFolder()) {
+          menu.addItem((item) =>
+            item.setTitle(t("editorMenu.captureIdea")).setIcon("pen-line").onClick(() => this.openCaptureIdeaModal())
+          );
+        }
       })
     );
+  }
+
+  /** Construction du sous-menu « Annotation » — hérite de la logique
+   *  fonctionnelle du prototype de la Barre (menus natifs Style/Couleur/
+   *  commentaire, préférence de session non persistée) posée sur le clic
+   *  droit de l'éditeur. Les actions style/couleur sont désactivées sans
+   *  sélection annotable ; le commentaire « Ajouter / modifier… » reste
+   *  possible sur une annotation déjà présente au curseur. */
+  buildAnnotationEditorSubmenu(menu: Menu, editor: Editor, file: TFile): void {
+    const hasSelection = editor.somethingSelected();
+    menu.addItem((item) => {
+      item.setTitle(t("editorMenu.annotation")).setIcon("highlighter");
+      const sub = item.setSubmenu();
+
+      sub.addItem((i) => i.setTitle(t("editorMenu.annotation.style")).setDisabled(true));
+      const styles: Array<AnnotationStyle> = ["highlight", "underline", "strikethrough"];
+      for (const style of styles) {
+        sub.addItem((i) => {
+          i.setTitle(t(`editorMenu.annotation.style.${style}`));
+          if (!hasSelection) i.setDisabled(true);
+          else i.setChecked(this.annotationMenuStyle === style);
+          i.onClick(() => {
+            this.annotationMenuStyle = style;
+            void this.applyAnnotationOrUpdate(editor, file, style, this.annotationMenuColor);
+          });
+        });
+      }
+
+      sub.addSeparator();
+      sub.addItem((i) => i.setTitle(t("editorMenu.annotation.color")).setDisabled(true));
+      const colors: Array<AnnotationColor> = ["yellow", "green", "blue", "pink"];
+      for (const color of colors) {
+        sub.addItem((i) => {
+          i.setTitle(t(`annotation.popover.color.${color}`));
+          if (!hasSelection) i.setDisabled(true);
+          else i.setChecked(this.annotationMenuColor === color);
+          i.onClick(() => {
+            this.annotationMenuColor = color;
+            void this.applyAnnotationOrUpdate(editor, file, this.annotationMenuStyle, color);
+          });
+        });
+      }
+
+      sub.addSeparator();
+      sub.addItem((i) =>
+        i
+          .setTitle(t("editorMenu.annotation.comment"))
+          .setIcon("message-square")
+          .onClick(() => void this.openAnnotationCommentForContext(editor, file, this.annotationMenuStyle, this.annotationMenuColor))
+      );
+    });
   }
 
   /** Position de repli du popover d'annotation quand aucune ancre réelle
@@ -1743,11 +1795,15 @@ class FeuilletsPlugin extends Plugin {
    * `cancelOnEscape: true` : Escape sur une création ANNULE, aucune
    * annotation vide n'est créée — un clic extérieur, lui, sauvegarde
    * toujours (voir le contrat de AnnotationPopover). */
-  async createAnnotationFromSelection(): Promise<void> {
-    const editor = this.activeEditorAnywhere();
-    const file = this.app.workspace.getActiveFile();
+  async createAnnotationFromSelection(
+    editorOverride?: Editor,
+    fileOverride?: TFile,
+    initial?: { style?: AnnotationStyle; color?: AnnotationColor }
+  ): Promise<void> {
+    const editor = editorOverride ?? this.activeEditorAnywhere();
+    const file = fileOverride ?? this.app.workspace.getActiveFile();
     const relPath = file ? toManuscriptRelativePath(this.app, this.settings, file) : null;
-    const selection = this.currentSelectionRange();
+    const selection = this.currentSelectionRange(editor ?? undefined);
     if (!editor || relPath === null || !selection) {
       new Notice(t("annotation.notice.noSelection"));
       return;
@@ -1769,7 +1825,8 @@ class FeuilletsPlugin extends Plugin {
       parentEl: document.body,
       anchor,
       text: "",
-      color: "yellow",
+      color: initial?.color ?? "yellow",
+      style: initial?.style ?? "highlight",
       cancelOnEscape: true,
       onSave: async (text, color, style) => {
         await addAnnotation(this.app, this.settings, {
@@ -1786,6 +1843,99 @@ class FeuilletsPlugin extends Plugin {
         await this.refreshAnnotationHighlights();
       },
     }).open();
+  }
+
+  /** Annotation visuelle IMMÉDIATE (sous-menu Annotation du menu contextuel
+   *  de l'éditeur) : enregistre l'annotation sur la sélection avec la
+   *  préférence de session, sans popover obligatoire ; si une annotation
+   *  existante recouvre EXACTEMENT la sélection, elle est MODIFIÉE (jamais
+   *  de doublon de stockage). Retourne false (avec notice) sans sélection,
+   *  hors manuscrit, ou sur écriture impossible — jamais d'exception. */
+  async applyAnnotationOrUpdate(
+    editor: Editor,
+    file: TFile,
+    style: AnnotationStyle,
+    color: AnnotationColor
+  ): Promise<boolean> {
+    const relPath = file ? toManuscriptRelativePath(this.app, this.settings, file) : null;
+    const selection = this.currentSelectionRange(editor);
+    if (relPath === null || !selection || selection.start === selection.end) {
+      new Notice(t("annotation.notice.noSelection"));
+      return false;
+    }
+    const content = editor.getValue();
+    const CONTEXT_LENGTH = ANNOTATION_CONTEXT_LENGTH;
+    const quote = content.slice(selection.start, selection.end);
+    const prefix = content.slice(Math.max(0, selection.start - CONTEXT_LENGTH), selection.start);
+    const suffix = content.slice(selection.end, Math.min(content.length, selection.end + CONTEXT_LENGTH));
+    try {
+      const store = await loadAnnotations(this.app, this.settings);
+      const existing = store.annotations.find((annotation) => {
+        if (annotation.file !== relPath) return false;
+        const range = resolveAnnotation(annotation, content);
+        return range ? range.start === selection.start && range.end === selection.end : false;
+      });
+      if (existing) {
+        await updateAnnotation(this.app, this.settings, existing.id, { color, style });
+      } else {
+        await addAnnotation(this.app, this.settings, {
+          file: relPath,
+          start: selection.start,
+          end: selection.end,
+          quote,
+          prefix,
+          suffix,
+          text: "",
+          color,
+          style,
+        });
+      }
+    } catch {
+      new Notice(t("annotation.notice.corrupted"));
+      return false;
+    }
+    await this.refreshAnnotationHighlights();
+    return true;
+  }
+
+  /** « Ajouter / modifier un commentaire… » (sous-menu Annotation du menu
+   *  contextuel de l'éditeur) : sélection →
+   *  nouveau commentaire (popover, style/couleur initiaux) ; sinon une
+   *  annotation existante dont l'ancre recouvre le curseur → modification
+   *  (openAnnotationEditor) ; sinon rien à commenter. */
+  async openAnnotationCommentForContext(
+    editor: Editor,
+    file: TFile,
+    style: AnnotationStyle,
+    color: AnnotationColor
+  ): Promise<void> {
+    const relPath = file ? toManuscriptRelativePath(this.app, this.settings, file) : null;
+    if (relPath === null) {
+      new Notice(t("annotation.notice.noSelection"));
+      return;
+    }
+    const selection = this.currentSelectionRange(editor);
+    if (selection && selection.start !== selection.end) {
+      await this.createAnnotationFromSelection(editor, file, { style, color });
+      return;
+    }
+    try {
+      const store = await loadAnnotations(this.app, this.settings);
+      const content = editor.getValue();
+      const offset = editor.posToOffset(editor.getCursor());
+      const candidate = store.annotations.find((annotation) => {
+        if (annotation.file !== relPath) return false;
+        const range = resolveAnnotation(annotation, content);
+        return range ? offset >= range.start && offset <= range.end : false;
+      });
+      if (!candidate) {
+        new Notice(t("annotation.notice.noSelection"));
+        return;
+      }
+      await this.openAnnotationEditor(candidate.id);
+    } catch {
+      new Notice(t("annotation.notice.corrupted"));
+    }
   }
 
   /** Ouvre le popover en modification pour l'annotation `id`, près de
@@ -2461,9 +2611,12 @@ class FeuilletsPlugin extends Plugin {
    * feuillet suivant/précédent dans son volet SANS y déplacer le focus
    * clavier — sinon la 2e pression de flèche irait déplacer le curseur de
    * texte dans l'éditeur au lieu de continuer à naviguer dans le Binder. */
-  async openNeighbor(delta: number, { focusEditor = true }: { focusEditor?: boolean } = {}): Promise<TFile | null> {
+  async openNeighbor(
+    delta: number,
+    { focusEditor = true, fromFile }: { focusEditor?: boolean; fromFile?: TFile } = {}
+  ): Promise<TFile | null> {
     const root = this.getProjectFolder();
-    const current = this.app.workspace.getActiveFile();
+    const current = fromFile ?? this.app.workspace.getActiveFile();
     if (!root || !current) return null;
     const files = this.flattenFiles(root);
     const idx = files.findIndex((f) => f.path === current.path);
@@ -2843,61 +2996,6 @@ class FeuilletsPlugin extends Plugin {
     );
   }
 
-  /* ---- Barre d'écriture (writing-toolbar/) ---- */
-
-  /** Monte le contrôleur de la Barre et branche le rafraîchissement sur les
-   *  événements de workspace existants — aucun polling, aucun MutationObserver
-   *  global. `onLayoutReady()` assure le premier montage. */
-  registerWritingToolbar() {
-    const controller = new WritingToolbarController(createDefaultWritingActionRegistry());
-    this._writingToolbarController = controller;
-    /* Le contrôleur est nettoyé par le mécanisme natif de déchargement – jamais
-       un onunload() maison – : destroy() puis retour de la référence locale. */
-    this.register(() => {
-      controller.destroy();
-      if (this._writingToolbarController === controller) {
-        this._writingToolbarController = undefined;
-      }
-    });
-    this.app.workspace.onLayoutReady(() => this.refreshWritingToolbar());
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshWritingToolbar()));
-    this.registerEvent(this.app.workspace.on("layout-change", () => this.refreshWritingToolbar()));
-    this.registerEvent(this.app.workspace.on("file-open", () => this.refreshWritingToolbar()));
-  }
-
-  /** Résout la leaf d'écriture Markdown : leaf active si MarkdownView, sinon
-   *  la dernière leaf Markdown mémorisée si elle est encore ouverte — jamais
-   *  de second historique d'éditeur. Une vue hors mode source donne un
-   *  contexte null (la Barre ne se monte que sur l'édition). */
-  refreshWritingToolbar(): void {
-    const controller = this._writingToolbarController;
-    if (!controller) return;
-    let context: WritingContext | null = null;
-    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (activeView) {
-      context = resolveMarkdownWritingContext(activeView);
-    } else if (this._lastMarkdownLeaf) {
-      const stillOpen = this.app.workspace
-        .getLeavesOfType("markdown")
-        .some((leaf) => leaf === this._lastMarkdownLeaf);
-      if (stillOpen && this._lastMarkdownLeaf.view instanceof MarkdownView) {
-        context = resolveMarkdownWritingContext(this._lastMarkdownLeaf.view);
-      }
-    }
-    controller.sync(
-      context,
-      this.settings.writingToolbarMode,
-      this.settings.writingToolbarPosition
-    );
-  }
-
-  /** Commande Afficher/masquer : ne force JAMAIS l'apparition en mode
-   *  « Désactivée » — l'état disabled reste un état réellement désactivé. */
-  toggleWritingToolbar(): void {
-    if (this.settings.writingToolbarMode === "disabled") return;
-    this._writingToolbarController?.toggleSessionVisibility();
-  }
-
   activeEditorAnywhere(): Editor | null {
     const activeEditor = this.app.workspace.activeEditor;
     const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -2985,19 +3083,22 @@ class FeuilletsPlugin extends Plugin {
 
   /** Insère un appel de note à la position du curseur (après la sélection
    * si une sélection existe — `getCursor("to")` renvoie déjà la borne de
-   * fin), ajoute sa définition en fin de fichier, place le curseur dedans.
-   * Partagé par la commande et le menu contextuel de l'éditeur. */
+   * fin) et ajoute sa définition en fin de fichier. Le curseur reste DANS
+   * le texte courant, immédiatement après l'appel `[^n]` — l'éditeur ne
+   * descend jamais vers la définition (« Aller à la note » est le chemin
+   * explicite pour la rejoindre). Partagé par la commande, le menu
+   * contextuel de l'éditeur et le sous-menu Note de bas de page. */
   insertFootnote(editor: Editor): void {
     const n = nextFootnoteNumber(editor.getValue());
     const marker = `[^${n}]`;
     const at = editor.getCursor("to");
     editor.replaceRange(marker, at, at);
+    const afterCall = { line: at.line, ch: at.ch + marker.length };
     const lastLine = editor.lastLine();
     const end = { line: lastLine, ch: editor.getLine(lastLine).length };
     const defLine = `\n\n[^${n}]: `;
     editor.replaceRange(defLine, end, end);
-    const newLastLine = editor.lastLine();
-    editor.setCursor({ line: newLastLine, ch: editor.getLine(newLastLine).length });
+    editor.setCursor(afterCall);
     editor.focus();
     new Notice(t("main.notice.footnoteInserted", { n: String(n) }));
   }
@@ -3034,6 +3135,43 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
     selectRange(editor, refs[0].start, refs[0].end);
+  }
+
+  /** Renumérote les notes du fichier édité — même corps EXACT que la commande
+   *  Cmd+P « Renuméroter les notes de bas de page ». Facteur commun entre la
+   *  commande et l'action permanente « Renumérotation » de la Barre : UN SEUL
+   *  chemin de transformation (validation, association, notification), jamais
+   *  deux copies. */
+  renumberFootnotesInEditor(editor: Editor): void {
+    const src = editor.getValue();
+    const out = renumberFootnotes(src);
+    if (out === src) {
+      new Notice(t("main.notice.nothingToRenumber"));
+      return;
+    }
+    /* Renuméroter est une transformation qui touche tout le fichier :
+       demande confirmation avant d'y toucher (voir le chantier notes de
+       bas de page), contrairement à l'insertion d'une seule note. */
+    new ConfirmModal(
+      this.app,
+      t("main.cmd.renumberFootnotes"),
+      t("main.notice.renumberFootnotesConfirm"),
+      t("main.cmd.renumberFootnotes"),
+      () => {
+        const cursor = editor.getCursor();
+        editor.setValue(out);
+        editor.setCursor(cursor);
+        new Notice(t("main.notice.footnotesRenumbered"));
+      }
+    ).open();
+  }
+
+  /** Vérifie les notes du fichier édité — même corps EXACT que la commande
+   *  Cmd+P « Vérifier les notes de bas de page ». Facteur commun avec
+   *  l'action permanente « Vérification » de la Barre. */
+  checkFootnotesInEditor(editor: Editor): void {
+    const result = validateFootnotes(editor.getValue());
+    new FootnoteCheckModal(this.app, editor, result).open();
   }
 
   insertCitationFor(sourceFile: TFile, page: string, editor: Editor): void {
@@ -3643,6 +3781,13 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
+  /** « Noter une idée » — facteur commun : la commande Cmd+P ET le menu
+   *  contextuel de l'éditeur appellent CETTE même méthode, jamais l'une
+   *  dupliquée pour l'autre. */
+  openCaptureIdeaModal(): void {
+    new CaptureIdeaModal(this.app, (text) => void this.captureIdeaToNotebook(text)).open();
+  }
+
   /** Lot 6 (« Carnet : noter une idée ») — ajoute un TextNode LIBRE au
    * Carnet sans jamais l'ouvrir, changer de feuille active, ou toucher au
    * zoom/viewport : `generateCanvasBoard` garantit seulement que le fichier
@@ -3791,6 +3936,15 @@ class FeuilletsPlugin extends Plugin {
     if (!this.isPanelHidden("journal")) await this.activateJournal();
   }
 
+  /** Statistiques d'un feuillet de projet — même garde que le clic de la
+   *  status bar (appartenance au projet actif, sinon no-op strict). Seul
+   *  point d'entrée de FileStatsModal pour la Barre ET la status bar. */
+  openFileStats(file: TFile | null): void {
+    const root = this.getProjectFolder();
+    if (!file || !root || !file.path.startsWith(root.path + "/")) return;
+    new FileStatsModal(this.app, this, file).open();
+  }
+
   async activateBoard() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_BOARD);
     if (existing.length > 0) {
@@ -3800,6 +3954,38 @@ class FeuilletsPlugin extends Plugin {
     const leaf = this.app.workspace.getLeaf(true);
     await leaf.setViewState({ type: VIEW_BOARD, active: true });
     void this.app.workspace.revealLeaf(leaf);
+  }
+
+  /** Garde structurelle typée du Board (jamais `any`/`instanceof` imposé) pour
+   *  les chemins d'ouverture/mode dynamiques. */
+  isBoardModeView(view: unknown): view is BoardView & { setBoardMode(mode: BoardModeKey): void } {
+    return typeof view === "object" && view !== null && typeof (view as BoardView).setBoardMode === "function";
+  }
+
+  /** Ouvre le Board EN ARRIÈRE-PLAN dans un mode précis (clic droit de la
+   *  carte Binder, actions permanentes) : la leaf existante est réutilisée
+   *  SANS revealLeaf ; sinon une leaf centrale en onglet est créée puis la
+   *  leaf d'écriture d'origine (même mécanique rootSplit que le reste de
+   *  Feuillets) est restaurée à la fin. Ne touche jamais à une leaf de
+   *  Sidebar et jamais à la vue Preview. */
+  async openBoardModeInBackground(mode: BoardModeKey): Promise<void> {
+    const workspace = this.app.workspace;
+    const rootSplit = workspace.rootSplit;
+    const existing = workspace.getLeavesOfType(VIEW_BOARD);
+    if (existing.length > 0) {
+      const view = existing[0].view;
+      if (this.isBoardModeView(view)) view.setBoardMode(mode);
+      return;
+    }
+    const anchor = workspace.getMostRecentLeaf(rootSplit);
+    const leaf = workspace.getLeaf(true);
+    await leaf.setViewState({ type: VIEW_BOARD, active: true });
+    const view = leaf.view;
+    if (this.isBoardModeView(view)) view.setBoardMode(mode);
+    void workspace.revealLeaf(leaf);
+    if (anchor && anchor !== leaf && typeof anchor.getRoot === "function" && anchor.getRoot() === rootSplit) {
+      void workspace.revealLeaf(anchor);
+    }
   }
 
   getLeafForOpeningFile() {
@@ -3878,8 +4064,8 @@ class FeuilletsPlugin extends Plugin {
     return this.runAnalysisCommand(selection);
   }
 
-  currentSelectionRange(): { start: number; end: number } | null {
-    const editor = this.activeEditorAnywhere();
+  currentSelectionRange(editorOverride?: Editor): { start: number; end: number } | null {
+    const editor = editorOverride ?? this.activeEditorAnywhere();
     if (!editor || !editor.somethingSelected()) return null;
     const from = editor.posToOffset(editor.getCursor("from"));
     const to = editor.posToOffset(editor.getCursor("to"));

@@ -226,6 +226,7 @@ function click(el, modifiers = {}) {
     shiftKey: !!modifiers.shiftKey,
     ctrlKey: !!modifiers.ctrlKey,
     metaKey: !!modifiers.metaKey,
+    altKey: !!modifiers.altKey,
   });
 }
 
@@ -252,6 +253,22 @@ test("A. Clic simple sur A hors Continu : ouverture Markdown historique, aucune 
 
   assert.ok(h.workLeaf.view instanceof MarkdownView);
   assert.equal(h.workLeaf.view.file, fixture.a);
+});
+
+/* ===================== Correctif final multi-drag — Option/Alt ===================== */
+
+test("Option/Alt+clic sur B (Markdown A actif) : aucune promotion Continu, aucun changement de leaf", async () => {
+  const fixture = buildFixture();
+  const h = buildHarness(fixture, { workLeafFile: fixture.a });
+  await h.view.render(true);
+
+  click(itemFor(h.contentEl, fixture.b.path), { altKey: true });
+  await settle();
+
+  assert.ok(h.workLeaf.view instanceof MarkdownView, "la leaf centrale reste un MarkdownView, jamais promue");
+  assert.equal(h.workLeaf.view.file, fixture.a, "toujours A — Option/Alt+clic ne change jamais la leaf centrale");
+  assert.equal(h.setViewStateCalls.length, 0, "aucun changement de vue déclenché par Option/Alt+clic");
+  assert.deepEqual(h.plugin._binderMultiSelect ? [...h.plugin._binderMultiSelect] : [], [fixture.b.path], "la sélection de réorganisation Binder est bien construite, séparément");
 });
 
 /* ===================== B/D. Maj+clic : promotion same-leaf ===================== */

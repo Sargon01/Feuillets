@@ -32,7 +32,13 @@ export class CaptureIdeaModal extends Modal {
       void this.onSubmit(text);
     };
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submit();
+      if (e.key !== "Enter") return;
+      /* L'Entrée qui valide l'idée ne doit JAMAIS atteindre l'éditeur actif :
+         neutralisée avant toute fermeture de la modale (voir correctif
+         « Noter une idée » — la ligne vide insérée avant le frontmatter). */
+      e.preventDefault();
+      e.stopPropagation();
+      submit();
     });
   }
 

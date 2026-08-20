@@ -272,6 +272,7 @@ function click(el, modifiers = {}) {
     shiftKey: !!modifiers.shiftKey,
     ctrlKey: !!modifiers.ctrlKey,
     metaKey: !!modifiers.metaKey,
+    altKey: !!modifiers.altKey,
   });
   return { prevented, stopped };
 }
@@ -418,6 +419,27 @@ test("Continu actif + Maj+clic : chemin historique de plage puis setMembers, jam
 
   assert.deepEqual(continuView._openedSingle, []);
   assert.ok(continuView._setMembersCalls.length >= 1);
+});
+
+/* ===================== Correctif final multi-drag — Option/Alt ===================== */
+
+test("Continu actif + Option/Alt+clic : n'appelle ni setMembers ni openSingleMember, ne touche pas la composition", async () => {
+  const fixture = buildFixture();
+  const continuView = fakeContinuView(fixture.root.path, [fixture.a.path]);
+  const { view, contentEl, plugin } = buildView(fixture, { activeContinuView: continuView });
+  await view.render(true);
+
+  const itemB = itemFor(contentEl, fixture.b.path);
+  const { prevented, stopped } = click(itemB, { altKey: true });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
+  assert.deepEqual(continuView._setMembersCalls, [], "Option/Alt+clic n'appelle jamais setMembers");
+  assert.deepEqual(continuView._openedSingle, [], "Option/Alt+clic n'appelle jamais openSingleMember");
+  assert.deepEqual(continuView.getMemberPaths(), [fixture.a.path], "composition Continu inchangée");
+  assert.ok(plugin._binderMultiSelect?.has(fixture.b.path), "la sélection de réorganisation Binder est construite séparément");
 });
 
 /* ===================== §15 — surbrillance ===================== */
