@@ -128,6 +128,7 @@ import { loadNativeReviewThreads, addNativeReviewThread, setNativeReviewThreadRe
 import { NativeReviewThreadPopover } from "./ui/native-review-thread-popover.js";
 import { reviewSessionPaths, reviewerReviewStorageLocation, type NativeReviewStorageLocation } from "./services/native-review-storage.js";
 import { paragraphIndentPlugin } from "./utils/cm-paragraph-indent.js";
+import { createParagraphReorderExtension, toggleParagraphReorderMode, type ParagraphReorderViewLike } from "./utils/cm-paragraph-reorder.js";
 import {
   grammarIssuesField,
   grammarContextMenuExtension,
@@ -465,6 +466,8 @@ class FeuilletsPlugin extends Plugin {
     this.registerFootnoteContextMenu();
     this.registerAnnotationCommands();
     this.registerAnnotationContextMenu();
+    this.registerParagraphReorderCommand();
+    this.registerParagraphReorderContextMenu();
     this.registerAnnotationHighlightSync();
     this.registerNativeReviewHighlightSync();
     this.registerNativeReviewContextMenu();
@@ -482,6 +485,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerEditorExtension([comparisonDecorationField, comparisonReadOnlyField, comparisonClickExtension()]);
     this.registerEditorExtension(emptyLinesPlugin);
     this.registerEditorExtension(paragraphIndentPlugin);
+    this.registerEditorExtension(createParagraphReorderExtension());
 
     this.registerMarkdownPostProcessor((element) => {
       const paragraphs = element.matches("p")
@@ -1726,6 +1730,70 @@ class FeuilletsPlugin extends Plugin {
             item.setTitle(t("editorMenu.captureIdea")).setIcon("pen-line").onClick(() => this.openCaptureIdeaModal())
           );
         }
+      })
+    );
+  }
+
+  /* ---------- Réorganisation des paragraphes (LOT 1) ----------
+     src/utils/paragraph-reorder-core.ts porte le moteur pur (résolution
+     des blocs Markdown, plan de déplacement) ; src/utils/cm-paragraph-
+     reorder.ts porte le StateField de mode et le ViewPlugin (Pointer
+     Events, décorations, dispatch) — réutilisé tel quel par Continu (voir
+     cm-scrivenings.ts, scriveningsExtensions). Ici : uniquement la
+     résolution de l'EditorView cible et le toggle de mode — jamais une
+     seconde logique de déplacement. */
+
+  /** L'EditorView CodeMirror compatible avec le mode « Réorganiser le
+   * texte », ou `null` si aucune vue pertinente n'est active : un
+   * MarkdownView dont le fichier appartient au Manuscrit du projet actif,
+   * sinon le Continu CENTRAL (`getCentralContinuView`) s'il est ouvert.
+   * Jamais un Markdown hors du projet Feuillets (§33 du contrat). */
+  paragraphReorderTargetView(): ParagraphReorderViewLike | null {
+    const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (markdownView?.file && toManuscriptRelativePath(this.app, this.settings, markdownView.file) !== null) {
+      const cm = (markdownView.editor as unknown as Record<string, unknown>).cm;
+      if (cm) return cm as ParagraphReorderViewLike;
+    }
+    const continu = this.getCentralContinuView();
+    if (continu?.editorView) return continu.editorView as unknown as ParagraphReorderViewLike;
+    return null;
+  }
+
+  /** Commande palette « Réorganiser le texte » : bascule le mode
+   * TEMPORAIRE de l'EditorView cible — sans cible valide, la commande est
+   * proprement absente de la palette (checkCallback), aucune Notice. */
+  registerParagraphReorderCommand(): void {
+    this.addCommand({
+      id: "toggle-paragraph-reorder",
+      name: t("main.cmd.toggleParagraphReorder"),
+      checkCallback: (checking) => {
+        const view = this.paragraphReorderTargetView();
+        if (!view) return false;
+        if (!checking) toggleParagraphReorderMode(view);
+        return true;
+      },
+    });
+  }
+
+  /** Menu contextuel de l'éditeur : ajoute « Réorganiser le texte » — même
+   * architecture `editor-menu` que les autres blocs Feuillets (§23),
+   * jamais un second système de menu. N'apparaît que dans un MarkdownView
+   * du Manuscrit ; le Continu n'a pas de `editor-menu` natif ici — la
+   * commande palette reste son point d'entrée. */
+  registerParagraphReorderContextMenu(): void {
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        if (!(view instanceof MarkdownView) || !view.file) return;
+        if (toManuscriptRelativePath(this.app, this.settings, view.file) === null) return;
+        menu.addItem((item) =>
+          item
+            .setTitle(t("editorMenu.reorderParagraphs"))
+            .setIcon("move-vertical")
+            .onClick(() => {
+              const cm = (editor as unknown as Record<string, unknown>).cm;
+              if (cm) toggleParagraphReorderMode(cm as ParagraphReorderViewLike);
+            })
+        );
       })
     );
   }

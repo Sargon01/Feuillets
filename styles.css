@@ -4120,37 +4120,6 @@ body.feuillets-text-width
   color: var(--interactive-accent);
 }
 
-/* ===== poignée de glisser-déposer dédiée (binder) ===== */
-
-.feuillets-drag-grip {
-  display: inline-flex;
-  align-items: center;
-  cursor: grab;
-  color: var(--text-faint);
-  opacity: 0;
-  transition: opacity 0.1s ease, color 0.1s ease;
-  flex-shrink: 0;
-}
-
-.feuillets-item:hover .feuillets-drag-grip {
-  opacity: 0.6;
-}
-
-.feuillets-item:hover .feuillets-drag-grip:hover,
-.feuillets-folder-row:hover .feuillets-drag-grip:hover {
-  opacity: 1;
-  color: var(--interactive-accent);
-}
-
-.feuillets-drag-grip .svg-icon {
-  width: 12px;
-  height: 12px;
-}
-
-.feuillets-item.is-active .feuillets-drag-grip {
-  color: var(--text-on-accent);
-}
-
 /* ===== aperçu en ligne dans le panneau Recherche ===== */
 
 .feuillets-research-item-name {
@@ -9365,6 +9334,81 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   white-space: nowrap;
 }
 
+/* Déplacement des paragraphes (LOT 1, cm-paragraph-reorder.ts) — AUCUNE
+ * poignée, AUCUN agrippeur, AUCUN gutter : uniquement le curseur au survol
+ * d'un vrai Paragraph pendant le mode « Réorganiser le texte », le curseur
+ * pendant le geste, et une fine ligne d'insertion purement visuelle. En
+ * mode normal (classe absente), le texte reste visuellement identique à
+ * aujourd'hui — voir §2, §45 du contrat. */
+.feuillets-reorder-hover {
+  cursor: grab;
+}
+
+.feuillets-reorder-dragging {
+  cursor: grabbing;
+}
+
+/* Overlay DOM flottant (cm-paragraph-reorder.ts) — JAMAIS un widget
+ * CodeMirror de bloc : `position: fixed`, en dehors du flux du document,
+ * jamais un enfant de `.cm-content` ni une décoration. Ne modifie donc
+ * jamais la hauteur du manuscrit ni son padding. */
+.feuillets-reorder-insertion-line {
+  position: fixed;
+  height: 2px;
+  margin: 0;
+  background: var(--interactive-accent);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: var(--layer-popover, 30);
+}
+
+/* Overlay « source » (LOT 1.2, cm-paragraph-reorder.ts) : identifie le
+ * Paragraph survolé/déplacé — fond TRÈS léger au survol, un peu plus marqué
+ * pendant `dragging` (`.is-dragging`). Jamais une poignée, jamais un
+ * agrippeur : le texte reste strictement inchangé (hauteur, padding). */
+.feuillets-reorder-source-overlay {
+  position: fixed;
+  margin: 0;
+  background: var(--interactive-accent);
+  opacity: 0.06;
+  border-radius: var(--radius-s);
+  pointer-events: none;
+  z-index: var(--layer-popover, 30);
+}
+
+.feuillets-reorder-source-overlay.is-dragging {
+  opacity: 0.14;
+}
+
+/* Indicateur de mode (LOT 1.2, micro-finition) : enfant `position: absolute`
+ * de `view.dom`, coin supérieur droit — hors du flux, ne déplace jamais le
+ * texte ni ne modifie le padding du manuscrit. Purement textuel : AUCUN
+ * élément interactif, un état discret de l'éditeur, pas une boîte de
+ * dialogue — Escape reste l'unique façon de quitter le mode. */
+.feuillets-reorder-mode-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.3;
+  pointer-events: none;
+  z-index: var(--layer-popover, 30);
+}
+
+.feuillets-reorder-mode-label {
+  color: var(--text-muted);
+}
+
+.feuillets-reorder-mode-hint {
+  color: var(--text-faint);
+}
+
 /* Lignes vides : mêmes réglages que l'éditeur Markdown natif, étendus
  * PROPREMENT à Scrivenings via SON PROPRE data-type de vue — jamais
  * data-type="markdown" : cette extension ne doit jamais atteindre une vue
@@ -9831,152 +9875,4 @@ body.feuillets-text-width
 .feuillets-board-container input.feuillets-inline-rename {
   flex: 1;
   min-width: 0;
-}
-
-/* ===== Barre d'écriture (writing-toolbar) — LOT 1 : SOCLE =====
-   Coque uniquement : position top/bottom, quatre modes d'affichage, overflow
-   responsive. Aucune action métier n'y est branchée (Lot 2). Variables natives
-   Obsidian uniquement — pas de couleur codée en dur, pas de !important. */
-
-/* Le host est la vue d'écriture elle-même (MarkdownView.contentEl) : seule
-   classe Feuillets ajoutée pendant le montage, retirée à la destruction. */
-.feuillets-writing-toolbar-host {
-  position: relative;
-}
-
-/* Une seule ligne, jamais de retour à la ligne, jamais de scroll horizontal :
-   l'overflow bascule dans « … » au lieu d'étirer la barre. */
-/* La hauteur de la Barre est pilotée par la géométrie réelle de la status
-   bar native (--feuillets-writing-toolbar-status-height, posée en JS par
-   WritingToolbar.syncStatusBarGeometry) pour qu'en position basse les deux
-   surfaces forment une seule ligne : exactement le même niveau vertical et
-   la même hauteur, sans aucun espace entre elles. `auto` (fallback) garde la
-   hauteur de contenu quand la status bar n'existe pas — la Barre reste
-   techniquement indépendante de la status bar (ni status-bar-item, ni
-   montée dans `.status-bar`). */
-.feuillets-writing-toolbar {
-  position: absolute;
-  left: var(--size-4-4);
-  right: auto;
-  width: max-content;
-  max-width: calc(100% - var(--size-4-4) - var(--size-4-4));
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: var(--size-2-2);
-  box-sizing: border-box;
-  height: var(--feuillets-writing-toolbar-status-height, auto);
-  padding: 0 var(--size-4-2);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--status-bar-radius, var(--radius-m));
-  background: var(--status-bar-background, var(--background-secondary));
-  box-shadow: none;
-  color: var(--status-bar-text-color, var(--text-muted));
-  font-size: var(--status-bar-font-size, var(--font-ui-small));
-  z-index: var(--layer-tooltip);
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-/* Collée au bord inférieur de la vue : aucun offset vertical — la ligne
-   basse de la Barre est celle de la vue, directement au-dessus de la status
-   bar native. */
-.feuillets-writing-toolbar-bottom {
-  bottom: 0;
-}
-
-.feuillets-writing-toolbar-top {
-  top: var(--size-4-2);
-}
-
-.feuillets-writing-toolbar-item {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--size-2-1);
-  border: 0;
-  border-radius: var(--radius-s);
-  background: transparent;
-  color: var(--text-normal);
-  font-size: var(--font-ui-small);
-  line-height: 1;
-  padding: var(--size-2-2) var(--size-4-1);
-  height: var(--size-4-5);
-  cursor: pointer;
-}
-
-.feuillets-writing-toolbar-item:hover {
-  background: var(--background-modifier-hover);
-}
-
-.feuillets-writing-toolbar-item.is-disabled {
-  color: var(--text-faint);
-  cursor: default;
-}
-
-.feuillets-writing-toolbar-item.is-disabled:hover {
-  background: transparent;
-}
-
-/* Split visuel de l'action Annotation : pastille caret après le libellé,
-   sans aucune dépendance de police. */
-.feuillets-writing-toolbar-item.is-split::after {
-  content: "";
-  display: inline-block;
-  margin-left: var(--size-2-2);
-  border-left: 3px solid transparent;
-  border-right: 3px solid transparent;
-  border-top: 4px solid currentColor;
-}
-
-.feuillets-writing-toolbar-separator {
-  width: 1px;
-  height: var(--size-4-3);
-  background: var(--background-modifier-border);
-  flex: none;
-}
-
-.feuillets-writing-toolbar-more {
-  color: var(--text-muted);
-}
-
-/* Mode hover : masquée hors survol, révélée au survol de la barre elle-même —
-   jamais une seconde ligne, aucun déplacement du contenu (position absolute).
-   Le host complet n'est jamais le trigger : seule la barre (ou le focus qui
-   s'y déplace) la révèle. Elle reste captable au pointeur même invisible. */
-.feuillets-writing-toolbar-hover {
-  opacity: 0;
-  visibility: visible;
-  pointer-events: auto;
-  transition: opacity 0.12s ease, visibility 0.12s ease;
-}
-
-.feuillets-writing-toolbar-hover:hover,
-.feuillets-writing-toolbar-hover:focus-within {
-  opacity: 1;
-}
-
-/* Mode shortcut : invisible par défaut, révélée uniquement par l'override. */
-.feuillets-writing-toolbar-shortcut {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-/* Override de session (commande Afficher/masquer — non persistant). "hide"
-   retire la barre quoi qu'il arrive ; "show" la force, même en modes
-   hover/shortcut. */
-.feuillets-writing-toolbar.is-override-hide {
-  display: none;
-}
-
-.feuillets-writing-toolbar.is-override-show {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-}
-
-/* Focus : la Barre disparaît pendant le mode concentration. À la sortie, la
-   classe body disparaît et l'état précédent (mode + override) revient seul. */
-.feuillets-concentration .feuillets-writing-toolbar {
-  display: none;
 }

@@ -22,7 +22,20 @@ export const EditorView = {
 };
 
 export const ViewPlugin = {
-  fromClass: (cls) => cls,
+  /* Retourne TOUJOURS `cls` (rétrocompatible avec tous les tests
+     historiques qui font `ext[1] === MaPluginClass` ou l'instancient
+     directement) — mais attache le `spec` du PluginSpec réel (notamment
+     `eventHandlers`) sous une propriété TEST-ONLY inspectable, pour que
+     les tests puissent réellement exercer le pipeline pointerdown →
+     pointermove → pointerup plutôt que seulement des helpers purs (voir
+     test/cm-paragraph-reorder.test.js). Aucune sémantique runtime
+     nouvelle : ce fichier n'existe que dans le harness Node. */
+  fromClass: (cls, spec) => {
+    if (spec !== undefined) {
+      Object.defineProperty(cls, "__viewPluginSpec", { value: spec, configurable: true, enumerable: false });
+    }
+    return cls;
+  },
 };
 
 /* `keymap` PUBLIC de haut niveau (micro-lot 1.3.1), distinct de

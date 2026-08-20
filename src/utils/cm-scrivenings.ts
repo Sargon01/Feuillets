@@ -8,6 +8,7 @@ import { boundaryOffsets, type ScriveningsDocument } from "../services/scrivenin
 import { emptyLinesPlugin } from "./cm-empty-lines.js";
 import { paragraphIndentPlugin } from "./cm-paragraph-indent.js";
 import { createScriveningsMarkdownExtensions, createScriveningsToggleCommand } from "./cm-scrivenings-markdown.js";
+import { createParagraphReorderExtension } from "./cm-paragraph-reorder.js";
 
 /**
  * Couche CodeMirror de Scrivenings (LOT 1 + micro-correctif 1.1) : le
@@ -428,4 +429,5 @@ export const scriveningsExtensions = [
   ...createScriveningsMarkdownExtensions(scriveningsBoundariesField),
   emptyLinesPlugin,
   paragraphIndentPlugin,
+  ...createParagraphReorderExtension(scriveningsBoundariesField),
 ];

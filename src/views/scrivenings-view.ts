@@ -383,6 +383,17 @@ export class ScriveningsView extends ItemView {
     return this._compileScope;
   }
 
+  /** L'unique EditorView CodeMirror de ce Continu, ou `null` avant tout
+   * `openScope()` (ou après `onClose()`) — accès public réservé aux
+   * commandes qui doivent piloter directement CodeMirror (ex. le mode
+   * « Réorganiser le texte », voir main.ts `toggleParagraphReorderMode`) :
+   * `ScriveningsView` n'est pas un `MarkdownView` Obsidian, elle n'a donc
+   * pas d'`Editor` — jamais de second accès non typé à `cm` en dehors de ce
+   * module. */
+  get editorView(): EditorViewInstance | null {
+    return this.cm;
+  }
+
   getViewType(): string {
     return VIEW_SCRIVENINGS;
   }
