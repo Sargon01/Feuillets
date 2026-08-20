@@ -21,7 +21,7 @@ import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 
 type ProjectNode = TFile | TFolder;
-type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
+export type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
 
 /** Entrée d'une collecte GLOBALE de feuillets du Plan pour le tri : conserve
  * le contexte Binder RÉEL de chaque feuillet (jamais dérivé de la position
@@ -38,7 +38,7 @@ interface OutlineFileEntry {
 /** Sous-vue de l'espace narratif (Chemin de fer) : Trame = le Chemin de fer
  * actuel, Couloirs = la vue narrative par lignes. État de SESSION de
  * l'instance BoardView, jamais persisté. */
-type NarrativeSubview = "trame" | "lanes";
+export type NarrativeSubview = "trame" | "lanes";
 
 /** Axe de regroupement des Couloirs : la « ligne » d'un couloir est un Label,
  * un Personnage ou un Fil (multi-valeurs), ou un Pov (scalaire). Ordre imposé
@@ -330,6 +330,27 @@ export class BoardView extends BaseFeuilletsView {
     return this._render(force);
   }
 
+  /** Changement de mode PUBLIC du Board : persiste la préférence (méta du
+   *  projet si méta projet, sinon global) et re-rend la vue. Tous les chemins
+   *  qui changent de mode — boutons internes du Board, clic droit de la carte
+   *  Binder, ouverture en arrière-plan (openBoardModeInBackground) — passent
+   *  par CETTE méthode : le mode imposé n'a jamais besoin d'un override de
+   *  session. */
+  setBoardMode(mode: BoardModeKey): void {
+    const S = this.plugin.settings;
+    const root = this.getProjectFolder ? this.getProjectFolder() : null;
+    let meta: ProjectMeta | null = null;
+    if (root) {
+      if (!S.projectMeta) S.projectMeta = {};
+      if (!S.projectMeta[root.path]) S.projectMeta[root.path] = {};
+      meta = S.projectMeta[root.path];
+    }
+    if (meta) meta.boardMode = mode;
+    S.boardMode = mode;
+    void this.plugin.saveSettings();
+    void this.render(true);
+  }
+
   passesFilter(file: TFile): boolean {
     const S = this.plugin.settings;
     const statusFilter = S.statusFilter;
@@ -465,7 +486,9 @@ export class BoardView extends BaseFeuilletsView {
     const allBoardModes = BOARD_MODES.map(([k]) => k);
     let visibleModes = allBoardModes.filter((k) => !hiddenModes.includes(k));
     if (visibleModes.length === 0) visibleModes = allBoardModes;
-    if (!visibleModes.includes(mode)) mode = visibleModes[0];
+    if (!visibleModes.includes(mode)) {
+      mode = visibleModes[0];
+    }
     const activeMode = mode as BoardModeKey;
 
     /* Même Set que le Binder/Plan (this.plugin._binderMultiSelect) — un
@@ -582,10 +605,7 @@ export class BoardView extends BaseFeuilletsView {
     this.barSep(bar);
 
     const switchMode = (m: string) => async () => {
-      if (meta) meta.boardMode = m;
-      S.boardMode = m;
-      await this.plugin.saveSettings();
-      void this.render();
+      this.setBoardMode(m as BoardModeKey);
     };
 
     const modeGroup = bar.createDiv({ cls: "feuillets-mode-group" });

@@ -33,6 +33,7 @@ class FakeElement {
     this.classes = new Set();
     this.events = new Map();
     this.text = options.text ?? "";
+    this.draggable = options.draggable ?? false;
     // `_props` : seule addition sur le stub `style` — capture les variables
     // CSS posées via `setProperty` (ex. `--feuillets-binder-depth`, LOT
     // FINAL Binder ↔ Continu §15) pour des assertions structurelles, jamais
@@ -500,6 +501,7 @@ test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron rep
     },
     contentEl,
   }, plugin);
+  const originalAttachDragHandlers = view.attachDragHandlers;
   view.attachDragHandlers = () => {};
   view.updateActiveHighlight = () => {};
   view.ensureSelectionForContextMenu = () => {};
@@ -591,6 +593,8 @@ test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron rep
   }
 
   // --- Aucune régression : clic droit et drag/drop restent posés sur chaque ligne. ---
+  // Restaurer attachDragHandlers pour que le rendu final attache les handlers de drag.
+  view.attachDragHandlers = originalAttachDragHandlers;
   const originalShowAtMouseEvent = Menu.prototype.showAtMouseEvent;
   const menus = [];
   Menu.prototype.showAtMouseEvent = function showAtMouseEvent() { menus.push(this); return this; };
@@ -599,7 +603,10 @@ test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron rep
     await realRender(true);
     findFolderRow("TARIKAT").events.get("contextmenu")({ preventDefault() {} });
     assert.ok(menus.pop().items.some((item) => item.title === t("binder.isolateFolder")), "le menu contextuel du dossier reste inchangé");
-    assert.ok(findFolderRow("TARIKAT").children.some((c) => c.classes.has("feuillets-drag-grip")), "la poignée de drag/drop reste présente");
+    // La poignée de drag a été supprimée : toute la ligne est maintenant draggable
+    const row = findFolderRow("TARIKAT");
+    assert.ok(row.draggable === true, "la ligne de dossier est draggable");
+    assert.ok(!row.children.some((c) => c.classes.has("feuillets-drag-grip")), "aucune poignée de drag résiduelle");
   } finally {
     Menu.prototype.showAtMouseEvent = originalShowAtMouseEvent;
   }

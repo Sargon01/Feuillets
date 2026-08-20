@@ -316,6 +316,13 @@ export class Menu {
       setWarning(v) { this.warning = v; return this; },
       onClick(fn) { this.callback = fn; return this; },
     };
+    /* Sous-menu natif (MenuItem.setSubmenu, API interne Obsidian — voir la
+       déclaration dans src/types.d.ts) : retourne un sous-Menu relié à
+       l'entrée, exactement comme à l'exécution. */
+    item.setSubmenu = () => {
+      item.submenu = new Menu();
+      return item.submenu;
+    };
     cb(item);
     this.items.push(item);
     return this;
