@@ -73,7 +73,6 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   setVaultConfig(key: string, value: unknown): void;
   backupProjectNow(): Promise<void>;
   hidePanel(key: string): Promise<void>;
-  refreshWritingToolbar(): void;
 
 };
 
@@ -559,38 +558,6 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         if (typeof current === "string" && current) cp.setValue(current);
         cp.onChange((v) => this.plugin.setVaultConfig("accentColor", v));
       });
-
-    container.createDiv({ cls: "feuillets-settings-subhead", text: t("writingToolbar.section") });
-
-    new Setting(container)
-      .setName(t("writingToolbar.display"))
-      .addDropdown((d) =>
-        d
-          .addOption("always", t("writingToolbar.displayMode.always"))
-          .addOption("hover", t("writingToolbar.displayMode.hover"))
-          .addOption("shortcut", t("writingToolbar.displayMode.shortcut"))
-          .addOption("disabled", t("writingToolbar.displayMode.disabled"))
-          .setValue(S.writingToolbarMode)
-          .onChange(async (v) => {
-            S.writingToolbarMode = v as DefaultSettings["writingToolbarMode"];
-            await this.plugin.saveSettings();
-            this.plugin.refreshWritingToolbar();
-          })
-      );
-
-    new Setting(container)
-      .setName(t("writingToolbar.position"))
-      .addDropdown((d) =>
-        d
-          .addOption("bottom", t("writingToolbar.positionOption.bottom"))
-          .addOption("top", t("writingToolbar.positionOption.top"))
-          .setValue(S.writingToolbarPosition)
-          .onChange(async (v) => {
-            S.writingToolbarPosition = v as DefaultSettings["writingToolbarPosition"];
-            await this.plugin.saveSettings();
-            this.plugin.refreshWritingToolbar();
-          })
-      );
 
     container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.focusMode") });
 

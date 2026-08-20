@@ -561,11 +561,6 @@ declare type FeuilletsSettings = {
   concentrationTypewriter: boolean;
   concentrationCounter: boolean;
 
-  /** Barre d'écriture (src/writing-toolbar/) — réglages globaux d'interface,
-   * jamais par projet, consommés par main.ts et WritingToolbarController. */
-  writingToolbarMode: "always" | "hover" | "shortcut" | "disabled";
-  writingToolbarPosition: "bottom" | "top";
-
   /** Interface épurée (applyLeanInterfaceClasses). */
   uiTransparentPanels: boolean;
   uiTransparentTabBar: boolean;
