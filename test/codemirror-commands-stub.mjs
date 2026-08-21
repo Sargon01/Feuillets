@@ -23,3 +23,9 @@ export const historyKeymap = [
 export function redo() {
   return false;
 }
+
+/* `undo` PUBLIC (LOT 1.4, correctif Cmd+Z en Continu) : même principe que
+ * `redo` ci-dessus. */
+export function undo() {
+  return false;
+}

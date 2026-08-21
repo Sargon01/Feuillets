@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { WidgetType, EditorView, keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
-import { history, historyKeymap, redo } from "@codemirror/commands";
+import { history, historyKeymap, redo, undo } from "@codemirror/commands";
 import {
   ScriveningsTitleWidget,
   scriveningsTitleSpecsFor,
@@ -76,7 +76,7 @@ test("scriveningsPriorityKeymap : enveloppé dans Prec.highest(keymap.of([...]))
   assert.equal(scriveningsPriorityKeymap.extension.facet, "keymap");
 });
 
-test("scriveningsPriorityKeymap : Mod-i, Mod-b et Mod-Shift-z sont présents, chacun preventDefault + stopPropagation", () => {
+test("scriveningsPriorityKeymap : Mod-i, Mod-b, Mod-z et Mod-Shift-z sont présents, chacun preventDefault + stopPropagation", () => {
   const bindings = scriveningsPriorityKeymap.extension.bindings;
   const byKey = Object.fromEntries(bindings.map((b) => [b.key, b]));
 
@@ -87,6 +87,11 @@ test("scriveningsPriorityKeymap : Mod-i, Mod-b et Mod-Shift-z sont présents, ch
   assert.ok(byKey["Mod-b"], "Mod-b doit être présent");
   assert.equal(byKey["Mod-b"].preventDefault, true);
   assert.equal(byKey["Mod-b"].stopPropagation, true);
+
+  assert.ok(byKey["Mod-z"], "Mod-z (LOT 1.4, correctif Undo Continu) doit être présent");
+  assert.equal(byKey["Mod-z"].run, undo, "doit appeler le undo PUBLIC de @codemirror/commands, jamais une réimplémentation");
+  assert.equal(byKey["Mod-z"].preventDefault, true);
+  assert.equal(byKey["Mod-z"].stopPropagation, true);
 
   assert.ok(byKey["Mod-Shift-z"], "Mod-Shift-z (casse exacte CodeMirror) doit être présent");
   assert.equal(byKey["Mod-Shift-z"].run, redo, "doit appeler le redo PUBLIC de @codemirror/commands, jamais une réimplémentation");

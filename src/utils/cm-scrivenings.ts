@@ -1,7 +1,7 @@
 /* eslint-disable import/no-extraneous-dependencies -- CodeMirror est fourni par Obsidian */
 import { EditorState, Prec, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, keymap } from "@codemirror/view";
-import { history, historyKeymap, redo } from "@codemirror/commands";
+import { history, historyKeymap, redo, undo } from "@codemirror/commands";
 /* eslint-enable import/no-extraneous-dependencies -- fin des imports fournis par Obsidian */
 import type { TFile } from "obsidian";
 import { boundaryOffsets, type ScriveningsDocument } from "../services/scrivenings-document.js";
@@ -311,10 +311,16 @@ export const scriveningsBoundariesField = StateFieldTyped.define<number[]>({
  *
  * Les commandes Mod-i/Mod-b restent celles de cm-scrivenings-markdown.ts
  * (`createScriveningsToggleCommand`, contrat `Command` inchangé : elles
- * retournent toujours `true`) ; seul leur BRANCHEMENT change. `redo` reste
- * le `redo` PUBLIC de `@codemirror/commands`, jamais réimplémenté ;
- * `historyKeymap` (Mod-z, Mod-y…) reste monté intégralement juste après,
- * en repli — jamais retiré ni dupliqué.
+ * retournent toujours `true`) ; seul leur BRANCHEMENT change. `redo`/`undo`
+ * restent les commandes PUBLIQUES de `@codemirror/commands`, jamais
+ * réimplémentées ; `historyKeymap` (Mod-z, Mod-y…) reste monté intégralement
+ * juste après, en repli — jamais retiré ni dupliqué.
+ *
+ * LOT 1.4 (§42-44) : `Mod-z` (Undo) souffrait EXACTEMENT de la même cause
+ * que Mod-Shift-z avant ce lot — jamais monté à précédence prioritaire, donc
+ * consultée après (voire jamais atteinte par) le traitement natif
+ * d'Obsidian. Même correctif : `undo` PUBLIC rejoint ce même keymap
+ * prioritaire, avec les mêmes protections `preventDefault`/`stopPropagation`.
  */
 const scriveningsToggleEmphasisCommand = createScriveningsToggleCommand(scriveningsBoundariesField, "emphasis");
 const scriveningsToggleStrongCommand = createScriveningsToggleCommand(scriveningsBoundariesField, "strong");
@@ -325,6 +331,7 @@ export const scriveningsPriorityKeymap =
         KeymapTyped.of([
           { key: "Mod-i", run: scriveningsToggleEmphasisCommand, preventDefault: true, stopPropagation: true },
           { key: "Mod-b", run: scriveningsToggleStrongCommand, preventDefault: true, stopPropagation: true },
+          { key: "Mod-z", run: undo, preventDefault: true, stopPropagation: true },
           { key: "Mod-Shift-z", run: redo, preventDefault: true, stopPropagation: true },
         ])
       )

@@ -24,6 +24,7 @@ import {
   REORDER_MODE_INDICATOR_CLASS,
   REORDER_MODE_INDICATOR_LABEL_CLASS,
   REORDER_MODE_INDICATOR_HINT_CLASS,
+  REORDER_FRAGMENT_CARET_CLASS,
   createParagraphReorderExtension,
 } from "../src/utils/cm-paragraph-reorder.js";
 import { resolveMarkdownBlocks } from "../src/utils/paragraph-reorder-core.js";
@@ -166,9 +167,19 @@ function makeFakeView({
   contentRect = { left: 0, right: 800, top: 0, bottom: 600 },
   scrollRect = { left: 0, right: 800, top: 0, bottom: 600 },
   scrollTop = 0,
+  // §46 du contrat LOT 1.3 : sélection CodeMirror courante — vide par
+  // défaut (aucun test Paragraph existant n'en dépend), mutable via
+  // `setSelection` pour les nouveaux tests fragment.
+  selection = { from: 0, to: 0 },
+  // §55-57 du contrat LOT 1.3 : frontières Continu optionnelles, pour
+  // exercer le même garde-fou de segment que Scrivenings sans dépendre de
+  // test/scrivenings-paragraph-reorder.test.js (fichier NON modifiable ici).
+  boundariesField = null,
+  boundaries = [],
 }) {
   let doc = text;
   let mode = false;
+  let currentSelection = { ...selection };
   let currentScrollTop = scrollTop;
   const dispatchCalls = [];
   const capturedIds = [];
@@ -209,7 +220,14 @@ function makeFakeView({
       get doc() {
         return { length: doc.length, toString: () => doc, sliceString: (from, to) => doc.slice(from, to === undefined ? doc.length : to) };
       },
-      field: (field) => (field === paragraphReorderModeField ? mode : undefined),
+      get selection() {
+        return { main: { ...currentSelection } };
+      },
+      field: (field) => {
+        if (field === paragraphReorderModeField) return mode;
+        if (boundariesField && field === boundariesField) return boundaries;
+        return undefined;
+      },
     },
     dispatch: (spec) => {
       dispatchCalls.push(spec);
@@ -217,6 +235,10 @@ function makeFakeView({
       if (spec.changes) {
         const { from, to, insert } = spec.changes;
         doc = doc.slice(0, from) + insert + doc.slice(to);
+      }
+      if (spec.selection) {
+        const { anchor, head } = spec.selection;
+        currentSelection = { from: Math.min(anchor, head ?? anchor), to: Math.max(anchor, head ?? anchor) };
       }
     },
   };
@@ -232,6 +254,10 @@ function makeFakeView({
       mode = v;
     },
     isModeActive: () => mode,
+    setSelection: (from, to) => {
+      currentSelection = { from, to };
+    },
+    getSelection: () => ({ ...currentSelection }),
   };
 }
 
@@ -276,8 +302,8 @@ function makeKeyEvent(key) {
 /** Instancie le ViewPlugin réel via `__viewPluginSpec` (posé par le stub de
  * test, test/codemirror-view-stub.mjs) — jamais une réimplémentation, on
  * exerce directement les mêmes eventHandlers que le PluginSpec réel. */
-function instantiatePlugin(fake) {
-  const ext = createParagraphReorderExtension();
+function instantiatePlugin(fake, boundariesField) {
+  const ext = createParagraphReorderExtension(boundariesField);
   const PluginClass = ext[1];
   const spec = PluginClass.__viewPluginSpec;
   assert.ok(spec && spec.eventHandlers, "le PluginSpec doit porter eventHandlers (§2-4)");
@@ -940,4 +966,438 @@ test("indicateur de mode : Escape le supprime (aucun mécanisme de fermeture pro
   assert.equal(fake.isModeActive(), false);
   instance.update({ state: fake.view.state, docChanged: false });
   assert.equal(fake.domChildren.filter((el) => el.classList.contains(REORDER_MODE_INDICATOR_CLASS)).length, 0, "indicateur supprimé après Escape");
+});
+
+/* ==================== LOT 1.3 : déplacement d'une sélection / phrase ==================== */
+
+/* --- §16-17 : Shift / double-triple clic — sortie AVANT toute résolution --- */
+
+test("Shift+clic : sortie AVANT posAtCoords, aucun preventDefault, aucune capture, aucune transaction", () => {
+  const text = "Alpha bravo charlie delta.";
+  let posAtCoordsCalls = 0;
+  const fake = makeFakeView({
+    text,
+    posMap: () => {
+      posAtCoordsCalls++;
+      return 8;
+    },
+  });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  const event = makePointerEvent({ clientX: 8, clientY: 0, shiftKey: true });
+  const handled = handlers.pointerdown.call(instance, event);
+  assert.equal(handled, false);
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(posAtCoordsCalls, 0, "posAtCoords ne doit jamais être appelé avant la sortie Shift");
+  assert.deepEqual(fake.capturedIds, []);
+  assert.equal(fake.dispatchCalls.length, 0);
+});
+
+test("double-clic (detail=2) : sortie AVANT posAtCoords, aucun preventDefault, aucune capture, aucune transaction", () => {
+  const text = "Alpha bravo charlie delta.";
+  let posAtCoordsCalls = 0;
+  const fake = makeFakeView({
+    text,
+    posMap: () => {
+      posAtCoordsCalls++;
+      return 8;
+    },
+  });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  const event = makePointerEvent({ clientX: 8, clientY: 0, detail: 2 });
+  const handled = handlers.pointerdown.call(instance, event);
+  assert.equal(handled, false);
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(posAtCoordsCalls, 0);
+  assert.deepEqual(fake.capturedIds, []);
+  assert.equal(fake.dispatchCalls.length, 0);
+});
+
+test("triple-clic (detail=3) : même sortie que le double-clic", () => {
+  const fake = makeFakeView({ text: "Alpha bravo.", posMap: () => 5 });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+  const event = makePointerEvent({ clientX: 5, clientY: 0, detail: 3 });
+  assert.equal(handlers.pointerdown.call(instance, event), false);
+  assert.equal(event.defaultPrevented, false);
+});
+
+/* --- §49 : priorité sélection > Paragraph (Cas A/B/C) ----------------------- */
+
+test("priorité : Cas A (sélection vide) résout Paragraph, Cas B (pointerdown dans une sélection valide) résout fragment, Cas C (pointerdown ailleurs dans le Paragraph) résout Paragraph", () => {
+  // Un seul Paragraph (aucune ligne vide) : tout déplacement « Paragraph »
+  // de ce document est nécessairement un no-op — ce qui permet de
+  // distinguer sans ambiguïté le chemin fragment (qui, lui, modifie le
+  // texte) du chemin Paragraph (qui ne le modifie jamais ici).
+  const text = "Alpha bravo charlie delta.";
+  const blocks = resolveMarkdownBlocks(text);
+  assert.equal(blocks.length, 1, "un seul Paragraph : aucune ligne vide dans ce texte");
+
+  // Cas A : sélection vide, pointerdown dans le Paragraph -> Paragraph (no-op).
+  {
+    let pos = 8;
+    const fake = makeFakeView({
+      text,
+      posMap: () => pos,
+      coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+      selection: { from: 0, to: 0 },
+    });
+    fake.setMode(true);
+    const { instance, handlers } = instantiatePlugin(fake);
+    handlers.pointerdown.call(instance, makePointerEvent({ clientX: 8, clientY: 0 }));
+    pos = 20;
+    handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0 }));
+    handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 0 }));
+    assert.equal(fake.getText(), text, "Cas A : sourceKind paragraph, un seul bloc -> no-op (§28 du contrat initial)");
+  }
+
+  // Cas B : sélection valide, pointerdown DEDANS -> fragment (modifie le texte).
+  {
+    let pos = 8; // à l'intérieur de "bravo "
+    const fake = makeFakeView({
+      text,
+      posMap: () => pos,
+      coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+      selection: { from: 6, to: 12 },
+    });
+    fake.setMode(true);
+    const { instance, handlers } = instantiatePlugin(fake);
+    handlers.pointerdown.call(instance, makePointerEvent({ clientX: 8, clientY: 0 }));
+    pos = 0; // avant "Alpha"
+    handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0 }));
+    handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 0 }));
+    assert.equal(fake.getText(), "bravo Alpha charlie delta.", "Cas B : sourceKind fragment, seule la sélection est déplacée");
+  }
+
+  // Cas C : sélection valide, pointerdown AILLEURS dans le Paragraph -> Paragraph (no-op).
+  {
+    let pos = 20; // en dehors de [6,12), toujours dans le Paragraph
+    const fake = makeFakeView({
+      text,
+      posMap: () => pos,
+      coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+      selection: { from: 6, to: 12 },
+    });
+    fake.setMode(true);
+    const { instance, handlers } = instantiatePlugin(fake);
+    handlers.pointerdown.call(instance, makePointerEvent({ clientX: 20, clientY: 0 }));
+    pos = 0;
+    handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0 }));
+    handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 0 }));
+    assert.equal(fake.getText(), text, "Cas C : sourceKind paragraph, un seul bloc -> no-op");
+  }
+});
+
+/* --- §22 : clic simple sur un Paragraph place le caret -------------------- */
+
+test("clic simple sur un Paragraph (pending, sans dépassement du seuil) : place le caret à startPos, aucun changement de texte, mode reste actif", () => {
+  const text = "A.\n\nB.\n\nC.";
+  const fake = makeFakeView({ text, posMap: () => 5, coordsMap: () => null });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  handlers.pointerdown.call(instance, makePointerEvent({ clientX: 10, clientY: 10, pointerId: 3 }));
+  handlers.pointermove.call(instance, makePointerEvent({ clientX: 12, clientY: 10, pointerId: 3 })); // 2px : reste pending
+  handlers.pointerup.call(instance, makePointerEvent({ pointerId: 3 }));
+
+  assert.equal(fake.getText(), text);
+  const selectionOnlyDispatches = fake.dispatchCalls.filter((d) => d.selection && !d.changes);
+  assert.equal(selectionOnlyDispatches.length, 1, "exactement une dispatch de sélection seule");
+  assert.deepEqual(selectionOnlyDispatches[0].selection, { anchor: 5 });
+  assert.equal(fake.isModeActive(), true);
+});
+
+/* --- §23 : clic simple dans une sélection ne l'effondre pas --------------- */
+
+test("clic simple dans une sélection fragment valide (pending, sans dépassement du seuil) : la sélection existante n'est pas effondrée, aucune transaction", () => {
+  const text = "Alpha bravo charlie delta.";
+  const fake = makeFakeView({ text, posMap: () => 8, coordsMap: () => null, selection: { from: 6, to: 12 } });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  handlers.pointerdown.call(instance, makePointerEvent({ clientX: 8, clientY: 0, pointerId: 5 }));
+  handlers.pointermove.call(instance, makePointerEvent({ clientX: 10, clientY: 0, pointerId: 5 })); // 2px : reste pending
+  handlers.pointerup.call(instance, makePointerEvent({ pointerId: 5 }));
+
+  assert.equal(fake.getText(), text);
+  assert.equal(fake.dispatchCalls.length, 0, "aucune dispatch : ni changement de texte, ni changement de sélection");
+  assert.deepEqual(fake.getSelection(), { from: 6, to: 12 }, "sélection existante conservée intacte");
+  assert.equal(fake.isModeActive(), true);
+});
+
+/* --- §52-53 : pipeline fragment complet, indicateurs, atomicité ----------- */
+
+test("pipeline fragment complet : caret vertical pendant le drag (jamais la ligne horizontale ni le grand overlay source), UNE dispatch avec UN ChangeSpec, sélection finale correcte, mode reste actif", () => {
+  const text = "Alpha bravo charlie delta.";
+  let pos = 8; // pointerdown dans "bravo "
+  const fake = makeFakeView({
+    text,
+    posMap: () => pos,
+    coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+    selection: { from: 6, to: 12 },
+  });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  handlers.pointerdown.call(instance, makePointerEvent({ clientX: 8, clientY: 0 }));
+  pos = 0; // cible : avant "Alpha"
+  handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0 })); // >5px : dragging
+
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 1, "caret vertical présent pendant le drag");
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_INSERTION_LINE_CLASS).length, 0, "jamais la ligne horizontale pour un fragment");
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_SOURCE_OVERLAY_CLASS).length, 0, "jamais le grand overlay source Paragraph pour un fragment (§32)");
+
+  const handled = handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 0 }));
+  assert.equal(handled, true);
+
+  assert.equal(fake.getText(), "bravo Alpha charlie delta.");
+  const textDispatches = fake.dispatchCalls.filter((d) => d.changes);
+  assert.equal(textDispatches.length, 1, "EXACTEMENT une dispatch métier avec `changes`");
+  assert.equal(Array.isArray(textDispatches[0].changes), false, "changes est UN objet, jamais un tableau");
+  assert.deepEqual(textDispatches[0].selection, { anchor: 0, head: 6 });
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 0, "caret supprimé après le drop");
+  assert.equal(fake.isModeActive(), true, "mode toujours actif");
+});
+
+test("pointercancel pendant un drag fragment : aucun commit, caret supprimé, capture relâchée, mode reste actif", () => {
+  const text = "Alpha bravo charlie delta.";
+  let pos = 8;
+  const fake = makeFakeView({
+    text,
+    posMap: () => pos,
+    coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+    selection: { from: 6, to: 12 },
+  });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  handlers.pointerdown.call(instance, makePointerEvent({ clientX: 8, clientY: 0, pointerId: 11 }));
+  pos = 0;
+  handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0, pointerId: 11 }));
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 1);
+
+  handlers.pointercancel.call(instance, makePointerEvent({ pointerId: 11 }));
+  assert.equal(fake.getText(), text, "aucun commit");
+  assert.deepEqual(fake.capturedIds, []);
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 0);
+  assert.equal(fake.isModeActive(), true);
+});
+
+test("Escape pendant un drag fragment : aucun commit, caret supprimé, mode désactivé", () => {
+  const text = "Alpha bravo charlie delta.";
+  let pos = 8;
+  const fake = makeFakeView({
+    text,
+    posMap: () => pos,
+    coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+    selection: { from: 6, to: 12 },
+  });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  handlers.pointerdown.call(instance, makePointerEvent({ clientX: 8, clientY: 0 }));
+  pos = 0;
+  handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0 }));
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 1);
+
+  handlers.keydown.call(instance, makeKeyEvent("Escape"));
+  assert.equal(fake.getText(), text, "aucun commit");
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 0);
+  assert.equal(fake.isModeActive(), false);
+});
+
+/* --- §20 : sélection invalide (traverse deux Paragraph) → fallback Paragraph --- */
+
+test("sélection traversant deux Paragraph : jamais découpée, jamais fragment — retombe sur la résolution Paragraph si pertinente", () => {
+  const text = "Un.\n\nDeux.";
+  const blocks = resolveMarkdownBlocks(text);
+  assert.equal(blocks.length, 2);
+  // Sélection couvrant les deux Paragraph (traverse le séparateur).
+  let pos = 1; // dans "Un.", à l'intérieur de la sélection ET du premier Paragraph
+  const fake = makeFakeView({
+    text,
+    posMap: () => pos,
+    coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+    selection: { from: 0, to: 9 }, // "Un.\n\nDeux" : traverse les deux blocs
+  });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  handlers.pointerdown.call(instance, makePointerEvent({ clientX: 1, clientY: 0 }));
+  pos = 8; // cible dans "Deux." : seam après lui (2)
+  handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0 }));
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 0, "jamais de caret fragment : la sélection n'est pas valide comme fragment");
+  handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 0 }));
+  // Le Paragraph "Un." a bien été déplacé (comportement Paragraph existant, inchangé).
+  assert.equal(fake.getText(), "Deux.\n\nUn.");
+});
+
+/* --- §35-36 : Continu — frontière absolue (garde-fou de segment) ---------- */
+
+test("Continu : déplacer un fragment DANS le même segment réussit ; vers un autre segment (même valide visuellement) est un no-op strict", () => {
+  // Composite à 2 segments : "Alpha bravo." (segment A, [0,12)) puis "\n"
+  // frontière, puis "Charlie delta." (segment B, [13,27)) — même schéma que
+  // scriveningsBoundariesField (offsets bruts), sans dépendre du fichier
+  // Scrivenings.
+  const text = "Alpha bravo.\nCharlie delta.";
+  const boundariesField = {}; // simple référence opaque, comme un vrai StateField
+  const boundaries = [12];
+
+  // --- Même segment : réussit ---
+  {
+    let pos = 8; // dans "bravo" (segment A)
+    const fake = makeFakeView({
+      text,
+      posMap: () => pos,
+      coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+      selection: { from: 6, to: 11 }, // "bravo"
+      boundariesField,
+      boundaries,
+    });
+    fake.setMode(true);
+    const { instance, handlers } = instantiatePlugin(fake, boundariesField);
+    handlers.pointerdown.call(instance, makePointerEvent({ clientX: 8, clientY: 0 }));
+    pos = 0; // avant "Alpha", toujours dans le segment A
+    handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0 }));
+    assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 1, "cible valide dans le même segment");
+    handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 0 }));
+    // Segment A "Alpha bravo." -> plan single-window : "bravo" (source)
+    // devant "Alpha " (texte intermédiaire), la période finale inchangée ;
+    // segment B, séparé par le "\n" de boundary, reste strictement intact.
+    assert.equal(fake.getText(), "bravoAlpha .\nCharlie delta.");
+  }
+
+  // --- Segment différent : no-op strict, même si la position semble valide ---
+  {
+    let pos = 8; // dans "bravo" (segment A)
+    const fake = makeFakeView({
+      text,
+      posMap: () => pos,
+      coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+      selection: { from: 6, to: 11 }, // "bravo"
+      boundariesField,
+      boundaries,
+    });
+    fake.setMode(true);
+    const { instance, handlers } = instantiatePlugin(fake, boundariesField);
+    handlers.pointerdown.call(instance, makePointerEvent({ clientX: 8, clientY: 0, pointerId: 21 }));
+    pos = 20; // dans "Charlie delta." : segment B, un Paragraph valide mais un AUTRE segment
+    handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0, pointerId: 21 }));
+    assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 0, "aucun caret : cible hors du segment source (§35)");
+    const handled = handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 0, pointerId: 21 }));
+    assert.equal(handled, true);
+    assert.equal(fake.getText(), text, "no-op strict : ni A ni B ne changent");
+  }
+});
+
+test("Continu : une sélection dont les bornes appartiennent à deux segments différents n'est jamais une source fragment", () => {
+  const text = "Alpha bravo.\nCharlie delta.";
+  const boundariesField = {};
+  const boundaries = [12];
+  let pos = 8; // dans "bravo" (segment A), à l'intérieur de la sélection ci-dessous
+  const fake = makeFakeView({
+    text,
+    posMap: () => pos,
+    coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+    selection: { from: 6, to: 20 }, // segment A (6) -> segment B (20)
+    boundariesField,
+    boundaries,
+  });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake, boundariesField);
+
+  handlers.pointerdown.call(instance, makePointerEvent({ clientX: 8, clientY: 0 }));
+  pos = 0;
+  handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0 }));
+  // Aucun fragment : au mieux le comportement Paragraph (segment A résolu
+  // depuis `pos`, un seul Paragraph -> no-op).
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 0);
+  handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 0 }));
+  assert.equal(fake.getText(), text, "jamais traversé : aucun changement");
+});
+
+/* --- §58 : frontmatter — sélection et destination invalides -------------- */
+
+test("frontmatter : une sélection dans le YAML n'est jamais une source fragment, pointerdown y échoue comme aujourd'hui (frontmatter protégé)", () => {
+  const text = "---\ntitle: Test\n---\nAlpha bravo charlie.";
+  const fake = makeFakeView({
+    text,
+    posMap: () => 6, // à l'intérieur de "title: Test", dans le YAML
+    coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+    selection: { from: 4, to: 10 }, // toujours dans le YAML
+  });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  const event = makePointerEvent({ clientX: 6, clientY: 0 });
+  const handled = handlers.pointerdown.call(instance, event);
+  assert.equal(handled, false, "frontmatter protégé : ni fragment, ni Paragraph");
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(fake.dispatchCalls.length, 0);
+});
+
+test("frontmatter : une destination dans le YAML est toujours invalide pour un fragment du corps", () => {
+  const text = "---\ntitle: Test\n---\nAlpha bravo charlie.";
+  const fragmentFrom = text.indexOf("bravo");
+  const fragmentTo = fragmentFrom + "bravo".length;
+  let pos = fragmentFrom + 1; // pointerdown dans "bravo", corps du document
+  const fake = makeFakeView({
+    text,
+    posMap: () => pos,
+    coordsMap: (p) => ({ left: p, right: p, top: 0, bottom: 14 }),
+    selection: { from: fragmentFrom, to: fragmentTo },
+  });
+  fake.setMode(true);
+  const { instance, handlers } = instantiatePlugin(fake);
+
+  handlers.pointerdown.call(instance, makePointerEvent({ clientX: pos, clientY: 0 }));
+  pos = 6; // cible : à l'intérieur du YAML
+  handlers.pointermove.call(instance, makePointerEvent({ clientX: 40, clientY: 0 }));
+  assert.equal(elementsWithClass(fake.ownerDocument.created, REORDER_FRAGMENT_CARET_CLASS).length, 0, "aucun caret pour une destination YAML");
+  handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 0 }));
+  assert.equal(fake.getText(), text, "aucun changement : la destination YAML est refusée");
+  assert.ok(fake.getText().startsWith("---\ntitle: Test\n---\n"), "frontmatter byte-for-byte inchangé");
+});
+
+/* --- §34, §54 : auto-scroll réutilisé pour un fragment -------------------- */
+
+test("auto-scroll fragment : scrollTop progresse au bord bas, le caret est repositionné à chaque frame, aucune seconde boucle RAF", () => {
+  withFakeWindow(({ runNextFrame, pendingFrames }) => {
+    const text = "Alpha bravo charlie delta.";
+    let pos = 8; // "bravo"
+    // Le caret suit la MÊME position document, mais son écran bouge quand
+    // le document défile (exactement comme un vrai `coordsAtPos`) : c'est
+    // ce qui doit faire bouger `caret.style.top` d'une frame à l'autre,
+    // même sans mouvement du pointeur (même principe que le test
+    // équivalent Paragraph ci-dessus, §26 du correctif).
+    const fake = makeFakeView({
+      text,
+      posMap: () => pos,
+      coordsMap: (p) => ({ left: p, right: p, top: 200 - fake.getScrollTop(), bottom: 214 - fake.getScrollTop() }),
+      selection: { from: 6, to: 12 },
+      scrollRect: { left: 0, right: 800, top: 0, bottom: 500 },
+      scrollTop: 100,
+    });
+    fake.setMode(true);
+    const { instance, handlers } = instantiatePlugin(fake);
+
+    handlers.pointerdown.call(instance, makePointerEvent({ clientX: 0, clientY: 1 }));
+    pos = 0;
+    handlers.pointermove.call(instance, makePointerEvent({ clientX: 20, clientY: 495 })); // dragging, bord bas
+    assert.equal(pendingFrames(), 1, "UNE seule boucle RAF");
+
+    const caret = fake.ownerDocument.created.find((el) => el.classList.contains(REORDER_FRAGMENT_CARET_CLASS));
+    assert.ok(caret, "caret fragment présent");
+    const topBefore = caret.style.top;
+
+    runNextFrame();
+    assert.equal(fake.getScrollTop(), 116, "scrollTop augmente (bord bas)");
+    assert.notEqual(caret.style.top, topBefore, "le caret suit la cible recalculée pendant l'auto-scroll (§34)");
+
+    handlers.pointerup.call(instance, makePointerEvent({ clientX: 999, clientY: 495 }));
+    assert.equal(pendingFrames(), 0, "aucun RAF orphelin après la fin du geste");
+  });
 });

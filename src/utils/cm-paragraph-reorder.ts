@@ -4,6 +4,7 @@ import { ViewPlugin } from "@codemirror/view";
 /* eslint-enable import/no-extraneous-dependencies -- fin des imports fournis par Obsidian */
 import { splitFrontmatter } from "../services/frontmatter.js";
 import { resolveMarkdownBlocks, planParagraphMove, type MarkdownBlock } from "./paragraph-reorder-core.js";
+import { planTextFragmentMove } from "./text-fragment-reorder-core.js";
 import { t } from "../i18n/index.js";
 
 /**
@@ -61,8 +62,19 @@ interface DocLike {
   toString(): string;
   sliceString(from: number, to?: number): string;
 }
+/** Sous-ensemble PUBLIC de `state.selection.main` — sert UNIQUEMENT à
+ * déterminer si un pointerdown tombe dans une sélection existante (§18-19
+ * du contrat LOT 1.3), jamais à lui seul source de vérité pour un
+ * Paragraph (qui reste le parser Lezer). */
+interface EditorSelectionMainLike {
+  from: number;
+  to: number;
+}
 interface EditorStateLike {
   doc: DocLike;
+  selection: {
+    main: EditorSelectionMainLike;
+  };
   field(field: unknown, required: false): unknown;
 }
 interface ChangeSpec {
@@ -128,7 +140,7 @@ export interface ParagraphReorderViewLike {
   dom: DomElementLike;
   contentDOM: ContentDomLike;
   scrollDOM: ScrollDomLike;
-  dispatch(spec: { effects?: unknown; changes?: ChangeSpec; selection?: { anchor: number } }): void;
+  dispatch(spec: { effects?: unknown; changes?: ChangeSpec; selection?: { anchor: number; head?: number } }): void;
   posAtCoords(coords: { x: number; y: number }): number | null;
   /** API PUBLIQUE CodeMirror — sert UNIQUEMENT à dessiner l'overlay (§8) :
    * ne détermine jamais les limites d'un Paragraph. */
@@ -303,6 +315,13 @@ export const REORDER_MODE_INDICATOR_CLASS = "feuillets-reorder-mode-indicator";
 export const REORDER_MODE_INDICATOR_LABEL_CLASS = "feuillets-reorder-mode-label";
 export const REORDER_MODE_INDICATOR_HINT_CLASS = "feuillets-reorder-mode-hint";
 
+/* --- Fragment (LOT 1.3) : caret vertical d'insertion (§30-31 du contrat) --- */
+
+/** Fine barre VERTICALE, jamais la ligne horizontale du Paragraph : les deux
+ * ne coexistent jamais (`sourceKind` détermine lequel est dessiné, jamais
+ * les deux à la fois — voir `retarget`). */
+export const REORDER_FRAGMENT_CARET_CLASS = "feuillets-reorder-fragment-caret";
+
 /** Rectangle `position: fixed` pur de l'overlay source (§6) : couvre
  * verticalement `coordsAtPos(source.from).top` → `coordsAtPos(source.to).bottom`,
  * horizontalement toute la largeur visible de `contentDOM` — jamais les
@@ -361,18 +380,41 @@ type BoundariesField = unknown;
 
 type ReorderPhase = "idle" | "pending" | "dragging";
 
+/** Source d'un geste de réorganisation (§14 du contrat LOT 1.3) :
+ * `"paragraph"` — comportement historique, un `MarkdownBlock` entier ;
+ * `"fragment"` — une sélection textuelle valide, entièrement contenue dans
+ * UN Paragraph. Déterminé une fois pour toutes au `pointerdown`, jamais
+ * réévalué pendant le geste. */
+type ReorderSourceKind = "paragraph" | "fragment";
+
 export class ParagraphReorderPluginValue {
   private phase: ReorderPhase = "idle";
+  private sourceKind: ReorderSourceKind | null = null;
   private sourceBlock: MarkdownBlock | null = null;
   private segmentFrom = 0;
   private segmentTo = 0;
   private startX = 0;
   private startY = 0;
+  /** Position document du pointerdown (§14, §22-23) : permet de replacer le
+   * caret sur un simple clic Paragraph sans dépassement du seuil — jamais
+   * utilisé pour un fragment (la sélection existante y est conservée
+   * telle quelle). */
+  private startPos = 0;
   private pointerId: number | null = null;
   private targetSeamIndex: number | null = null;
+  /** Bornes de la sélection source d'un geste fragment (§7, §24) — jamais
+   * modifiées pendant le geste : la source vaut toujours EXACTEMENT
+   * `text.slice(fragmentFrom, fragmentTo)`. */
+  private fragmentFrom = 0;
+  private fragmentTo = 0;
+  /** Destination COURANTE d'un geste fragment : un offset texte exact
+   * (§26), jamais une seam — `null` tant qu'aucune position valide n'a été
+   * survolée (§27, §35). */
+  private targetOffset: number | null = null;
   private hovering = false;
   private overlayEl: OverlayElementLike | null = null;
   private sourceOverlayEl: OverlayElementLike | null = null;
+  private fragmentCaretEl: OverlayElementLike | null = null;
   private modeIndicatorEl: OverlayElementLike | null = null;
 
   private cachedBlocks: MarkdownBlock[] | null = null;
@@ -415,6 +457,7 @@ export class ParagraphReorderPluginValue {
     this.stopAutoScroll();
     this.removeOverlay();
     this.removeSourceOverlay();
+    this.removeFragmentCaret();
     this.removeModeIndicator();
   }
 
@@ -439,8 +482,39 @@ export class ParagraphReorderPluginValue {
 
   handlePointerDown(event: PointerEvent): boolean {
     if (!this.modeActive() || event.button !== 0) return false;
+    // §16-17 du contrat LOT 1.3 : Shift et double/triple-clic appartiennent
+    // à CodeMirror — sortie AVANT tout posAtCoords/résolution Markdown.
+    if (event.shiftKey) return false;
+    if (event.detail > 1) return false;
+
     const pos = this.view.posAtCoords({ x: event.clientX, y: event.clientY });
     if (pos == null) return false;
+
+    // §18-19 : priorité ABSOLUE à une sélection fragment valide contenant
+    // `pos` (borne droite EXCLUSIVE) sur la résolution Paragraph.
+    const selectionMain = this.view.state.selection.main;
+    if (selectionMain.from !== selectionMain.to && pos >= selectionMain.from && pos < selectionMain.to) {
+      const fragment = this.tryResolveFragmentSource(selectionMain.from, selectionMain.to);
+      if (fragment) {
+        event.preventDefault();
+        this.phase = "pending";
+        this.sourceKind = "fragment";
+        this.fragmentFrom = selectionMain.from;
+        this.fragmentTo = selectionMain.to;
+        this.segmentFrom = fragment.segmentFrom;
+        this.segmentTo = fragment.segmentTo;
+        this.startX = event.clientX;
+        this.startY = event.clientY;
+        this.startPos = pos;
+        this.capturePointer(event.pointerId);
+        return true;
+      }
+      // §20 : sélection existante mais invalide comme fragment (traverse
+      // plusieurs blocs, un type non-Paragraph, deux segments…) — ne
+      // jamais la couper : retomber sur la résolution Paragraph ci-dessous.
+    }
+
+    // §21 : fallback Paragraph — EXACTEMENT la logique existante.
     const segment = this.resolveSegment(pos);
     const blocks = this.resolveBlocks(segment.from, segment.to);
     const block = draggableBlockAt(blocks, pos);
@@ -448,13 +522,30 @@ export class ParagraphReorderPluginValue {
 
     event.preventDefault(); // empêche le démarrage d'une sélection de texte
     this.phase = "pending";
+    this.sourceKind = "paragraph";
     this.sourceBlock = block;
     this.segmentFrom = segment.from;
     this.segmentTo = segment.to;
     this.startX = event.clientX;
     this.startY = event.clientY;
+    this.startPos = pos;
     this.capturePointer(event.pointerId);
     return true;
+  }
+
+  /** Valide `[from, to)` comme source fragment (§19 du contrat LOT 1.3) :
+   * même segment (Continu ou frontmatter, via `resolveSegment` — jamais un
+   * second système), et entièrement contenue dans UN SEUL Paragraph Lezer
+   * résolu depuis CE segment (`resolveBlocks`, jamais le DOM). Retourne
+   * `null` si l'une de ces conditions échoue — jamais une correction ou une
+   * découpe de la sélection (§20, §36). */
+  private tryResolveFragmentSource(from: number, to: number): { segmentFrom: number; segmentTo: number } | null {
+    const segment = this.resolveSegment(from);
+    if (to < segment.from || to > segment.to) return null; // §36 : cross-segment
+    const blocks = this.resolveBlocks(segment.from, segment.to);
+    const paragraph = blocks.find((b) => b.draggable && from >= b.from && to <= b.to);
+    if (!paragraph) return null;
+    return { segmentFrom: segment.from, segmentTo: segment.to };
   }
 
   handlePointerMove(event: PointerEvent): boolean {
@@ -475,7 +566,16 @@ export class ParagraphReorderPluginValue {
     if (this.phase === "idle") return false;
     const wasDragging = this.phase === "dragging";
     this.releaseCapture();
-    if (wasDragging) this.commitMove();
+    if (wasDragging) {
+      if (this.sourceKind === "fragment") this.commitFragmentMove();
+      else this.commitMove();
+    } else if (this.sourceKind === "paragraph") {
+      // §22 : clic simple sans drag sur un Paragraph — replace le caret,
+      // aucun changement de texte.
+      this.view.dispatch({ selection: { anchor: this.startPos } });
+    }
+    // §23 : clic simple dans une sélection fragment (pending, sans drag) —
+    // ne rien dispatcher : la sélection existante reste intacte.
     this.removeOverlay();
     this.resetGesture(); // le mode, lui, RESTE actif (§12 du contrat initial) ; stoppe aussi l'auto-scroll (§12 du correctif)
     // Le mode reste actif après un drop réussi (§7 du correctif) : on
@@ -490,7 +590,7 @@ export class ParagraphReorderPluginValue {
     this.releaseCapture();
     this.removeOverlay();
     this.removeSourceOverlay(); // §7 : pointercancel supprime aussi la source
-    this.resetGesture(); // mode toujours actif (§13 du contrat initial)
+    this.resetGesture(); // mode toujours actif (§13 du contrat initial) ; supprime aussi le caret fragment (§38)
     return true;
   }
 
@@ -524,7 +624,7 @@ export class ParagraphReorderPluginValue {
       this.releaseCapture();
       this.removeOverlay();
       this.removeSourceOverlay();
-      this.resetGesture();
+      this.resetGesture(); // supprime aussi le caret fragment (§39)
     } else {
       this.setHover(false);
       this.removeSourceOverlay();
@@ -608,11 +708,17 @@ export class ParagraphReorderPluginValue {
     this.syncAutoScroll();
   }
 
-  /** Recalcule la seam cible + redessine les deux overlays (ligne
-   * d'insertion, source) pour les coordonnées données — factorisé pour être
-   * appelé aussi bien par `pointermove` que par chaque frame RAF
-   * d'auto-scroll (§11, point 5), jamais dupliqué. */
+  /** Recalcule la cible + redessine l'indicateur approprié pour les
+   * coordonnées données — factorisé pour être appelé aussi bien par
+   * `pointermove` que par chaque frame RAF d'auto-scroll (§11, point 5 du
+   * correctif ; §34 du contrat LOT 1.3), jamais dupliqué. Branche sur
+   * `sourceKind` (§14 du contrat LOT 1.3) : un fragment et un Paragraph
+   * n'affichent jamais leur indicateur simultanément (§30, §32-33). */
   private retarget(clientX: number, clientY: number): void {
+    if (this.sourceKind === "fragment") {
+      this.retargetFragment(clientX, clientY);
+      return;
+    }
     if (!this.sourceBlock) return;
     const pos = this.view.posAtCoords({ x: clientX, y: clientY });
     const validSegment =
@@ -636,6 +742,30 @@ export class ParagraphReorderPluginValue {
       this.drawOverlayForSeam(blocks, seamIndex);
     }
     this.drawSourceOverlayForBlock(this.sourceBlock, true);
+  }
+
+  /** Cible d'un geste fragment (§26-27, §35 du contrat LOT 1.3) : un offset
+   * texte EXACT, jamais une seam. Valide uniquement si `pos` appartient au
+   * MÊME segment que la source (comparaison stricte des bornes, jamais
+   * seulement le garde-fou Continu), hors `[fragmentFrom, fragmentTo]`, et
+   * à l'intérieur d'un Paragraph Lezer résolu depuis ce segment. */
+  private retargetFragment(clientX: number, clientY: number): void {
+    const pos = this.view.posAtCoords({ x: clientX, y: clientY });
+    if (pos == null || !this.isValidFragmentTarget(pos)) {
+      this.targetOffset = null;
+      this.removeFragmentCaret();
+      return;
+    }
+    this.targetOffset = pos;
+    this.drawFragmentCaret(pos);
+  }
+
+  private isValidFragmentTarget(pos: number): boolean {
+    const targetSegment = this.resolveSegment(pos);
+    if (targetSegment.from !== this.segmentFrom || targetSegment.to !== this.segmentTo) return false; // §35
+    if (pos >= this.fragmentFrom && pos <= this.fragmentTo) return false; // §10/§27 : jamais dans la source
+    const blocks = this.resolveBlocks(this.segmentFrom, this.segmentTo);
+    return !!draggableBlockAt(blocks, pos); // §27 : uniquement à l'intérieur d'un Paragraph
   }
 
   private drawOverlayForSeam(blocks: MarkdownBlock[], seamIndex: number): void {
@@ -710,6 +840,42 @@ export class ParagraphReorderPluginValue {
     if (!this.sourceOverlayEl) return;
     this.sourceOverlayEl.remove();
     this.sourceOverlayEl = null;
+  }
+
+  /* --- Caret fragment : fine barre verticale (§30-32 du contrat LOT 1.3) --- *
+   *
+   * La sélection CodeMirror existante représente déjà la source (§32) : ce
+   * caret ne dessine QUE la destination, jamais un second overlay source.
+   * Géométrie pure via `coordsAtPos`, largeur fixe posée en CSS (jamais en
+   * JS, voir `styles.css`) — seuls `top`/`left`/`height` varient ici. */
+
+  private drawFragmentCaret(pos: number): void {
+    const rect = this.view.coordsAtPos(pos);
+    if (!rect) {
+      this.removeFragmentCaret();
+      return;
+    }
+    const el = this.ensureFragmentCaret();
+    el.style.top = `${rect.top}px`;
+    el.style.left = `${rect.left}px`;
+    el.style.height = `${rect.bottom - rect.top}px`;
+  }
+
+  private ensureFragmentCaret(): OverlayElementLike {
+    if (this.fragmentCaretEl) return this.fragmentCaretEl;
+    const doc = this.view.dom.ownerDocument; // jamais `document` global (pop-out windows)
+    const el = doc.createElement("div");
+    el.classList.add(REORDER_FRAGMENT_CARET_CLASS);
+    el.setAttribute("aria-hidden", "true");
+    doc.body.appendChild(el);
+    this.fragmentCaretEl = el;
+    return el;
+  }
+
+  private removeFragmentCaret(): void {
+    if (!this.fragmentCaretEl) return;
+    this.fragmentCaretEl.remove();
+    this.fragmentCaretEl = null;
   }
 
   /* --- Auto-scroll : exclusivement scrollDOM + requestAnimationFrame (§8-12) --- */
@@ -803,6 +969,27 @@ export class ParagraphReorderPluginValue {
     });
   }
 
+  /** Commit d'un geste fragment (§37 du contrat LOT 1.3) : le texte du
+   * segment SEUL est extrait (jamais le composite Continu entier, §28), le
+   * plan pur (`text-fragment-reorder-core.ts`) calcule la fenêtre unique, et
+   * la transaction — `changes` + `selection` — part en UNE seule dispatch,
+   * offsets rebasés sur `segmentFrom` exactement comme `commitMove`. `null`
+   * (no-op ou target invalidée entre-temps) : aucune transaction. */
+  private commitFragmentMove(): void {
+    if (this.targetOffset == null) return;
+    const segmentText = this.view.state.doc.sliceString(this.segmentFrom, this.segmentTo);
+    const localFrom = this.fragmentFrom - this.segmentFrom;
+    const localTo = this.fragmentTo - this.segmentFrom;
+    const localTarget = this.targetOffset - this.segmentFrom;
+    const plan = planTextFragmentMove(segmentText, localFrom, localTo, localTarget);
+    if (!plan) return; // no-op (§10) : aucune transaction
+
+    this.view.dispatch({
+      changes: { from: plan.from + this.segmentFrom, to: plan.to + this.segmentFrom, insert: plan.insert },
+      selection: { anchor: plan.selectionFrom + this.segmentFrom, head: plan.selectionTo + this.segmentFrom },
+    });
+  }
+
   private capturePointer(pointerId: number): void {
     this.pointerId = pointerId;
     if (typeof this.view.contentDOM.setPointerCapture === "function") {
@@ -829,8 +1016,13 @@ export class ParagraphReorderPluginValue {
    * dragging) : le MODE, lui, reste actif — voir chaque appelant. */
   private resetGesture(): void {
     this.phase = "idle";
+    this.sourceKind = null;
     this.sourceBlock = null;
     this.targetSeamIndex = null;
+    this.fragmentFrom = 0;
+    this.fragmentTo = 0;
+    this.targetOffset = null;
+    this.removeFragmentCaret(); // §38-39 : jamais de résidu du caret fragment après un geste
     this.setHover(false);
     this.view.dom.classList.remove(REORDER_DRAGGING_CLASS);
     this.stopAutoScroll(); // §12 : fin de geste = arrêt systématique de l'auto-scroll
