@@ -19,6 +19,14 @@ export type PaginationGeometry = {
 
 export type PaginationPage = Element[];
 
+export type CooperativePaginationOptions = {
+  shouldAbort?: () => boolean;
+  /** Injection réservée aux tests : la production rend la main avec timer 0. */
+  yieldToBrowser?: () => Promise<void>;
+};
+
+const COOPERATIVE_PAGINATION_BUDGET_MS = 8;
+
 export const FRAGMENT_START_CLASS = "feuillets-pagination-fragment-start";
 export const FRAGMENT_CONTINUATION_CLASS = "feuillets-pagination-fragment-continuation";
 export const FRAGMENT_CONTINUES_CLASS = "feuillets-pagination-fragment-continues";
@@ -163,7 +171,8 @@ function overflows(content: HTMLElement): boolean {
  * is actually laid out. The horizontal check is essential for page-height
  * multi-column composition, which creates an additional column on overflow.
  */
-export function paginateDom(nodes: Element[], geometry: PaginationGeometry): PaginationPage[] {
+/** Moteur unique. Chaque `yield` suit une mesure de composition DOM. */
+function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Generator<void, PaginationPage[], void> {
   const host = createDiv();
   host.setAttribute("aria-hidden", "true");
   applyCss(host, { position: "fixed", left: "-100000px", top: "0", visibility: "hidden", "pointer-events": "none" });
@@ -208,7 +217,9 @@ export function paginateDom(nodes: Element[], geometry: PaginationGeometry): Pag
       if (isForcedPage(source) && page.nodes.length) nextPage(front);
       else if (front) page = createPage(true);
 
-      if (appendIfFits(source)) {
+      const sourceFits = appendIfFits(source);
+      yield;
+      if (sourceFits) {
         place(source);
         if (front) nextPage();
         continue;
@@ -219,7 +230,9 @@ export function paginateDom(nodes: Element[], geometry: PaginationGeometry): Pag
         // larger than a complete page is marked oversized.
         if (page.nodes.length) {
           nextPage();
-          if (appendIfFits(source)) {
+          const retryFits = appendIfFits(source);
+          yield;
+          if (retryFits) {
             place(source);
             if (front) nextPage();
             continue;
@@ -240,7 +253,9 @@ export function paginateDom(nodes: Element[], geometry: PaginationGeometry): Pag
         if (!candidate) break;
         applyFragmentPresentation(candidate, start > 0, false, geometry.textAlign);
         page.content.appendChild(candidate);
-        if (!overflows(page.content)) {
+        const candidateOverflows = overflows(page.content);
+        yield;
+        if (!candidateOverflows) {
           // Keep the exact DOM element which was measured.
           retain(candidate);
           break;
@@ -258,7 +273,9 @@ export function paginateDom(nodes: Element[], geometry: PaginationGeometry): Pag
           if (!prefix) continue;
           applyFragmentPresentation(prefix, start > 0, true, geometry.textAlign);
           page.content.appendChild(prefix);
-          if (!overflows(page.content)) {
+          const prefixOverflows = overflows(page.content);
+          yield;
+          if (!prefixOverflows) {
             fitting = prefix;
             fittingEnd = end;
             break;
@@ -295,4 +312,48 @@ export function paginateDom(nodes: Element[], geometry: PaginationGeometry): Pag
 
   // Empty composition boxes are an implementation detail, never output pages.
   return pages.filter((item) => item.nodes.length > 0).map((item) => item.nodes);
+}
+
+/** Consommateur historique : le moteur unique est drainé immédiatement. */
+export function paginateDom(nodes: Element[], geometry: PaginationGeometry): PaginationPage[] {
+  // `paginateDomSteps` effectue chaque mesure `overflows` avant ce drainage.
+  const steps = paginateDomSteps(nodes, geometry);
+  for (;;) {
+    const next = steps.next();
+    if (next.done) return next.value;
+  }
+}
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+/** Consommateur Preview : même moteur, avec une restitution régulière du thread. */
+export async function paginateDomCooperatively(
+  nodes: Element[],
+  geometry: PaginationGeometry,
+  options: CooperativePaginationOptions = {}
+): Promise<PaginationPage[] | null> {
+  const steps = paginateDomSteps(nodes, geometry);
+  const release = options.yieldToBrowser ?? yieldToBrowser;
+  let completed = false;
+  let sliceStartedAt = performance.now();
+  try {
+    for (;;) {
+      if (options.shouldAbort?.()) return null;
+      const next = steps.next();
+      if (next.done) {
+        completed = true;
+        return next.value;
+      }
+      if (options.shouldAbort?.()) return null;
+      if (performance.now() - sliceStartedAt >= COOPERATIVE_PAGINATION_BUDGET_MS) {
+        await release();
+        if (options.shouldAbort?.()) return null;
+        sliceStartedAt = performance.now();
+      }
+    }
+  } finally {
+    if (!completed) steps.return([]);
+  }
 }

@@ -10,7 +10,7 @@ import { ItemView, MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, s
 import { VIEW_PREVIEW } from "../constants.js";
 import type { ScriveningsScrollAnchor } from "../utils/cm-scrivenings-scroll.js";
 import { resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
-import { paginateManuscript } from "../services/export-pdf.js";
+import { paginateManuscript, paginateManuscriptCooperatively } from "../services/export-pdf.js";
 import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
@@ -18,6 +18,7 @@ import { runExportWorkflow } from "../services/export-workflow.js";
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
 import { compiledTitleFor, fmOf, shortTitleFor, splitFrontmatter, stripFrontmatter } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
+import { countWords } from "../utils/core.js";
 import { promptText } from "../ui/basic-modals.js";
 import { t } from "../i18n/index.js";
 import { mountTemplatePreview } from "../ui/template-preview.js";
@@ -68,6 +69,9 @@ type PreviewCompileResult = {
   manuscript: string;
   segments: PreviewCompileSegment[];
 };
+
+/** Taille visée de la première passe d'un aperçu de portée longue. */
+const PROGRESSIVE_PREVIEW_WORD_TARGET = 35_000;
 
 type PreviewViewSettings = FeuilletsSettings & {
   exportTemplate: string;
@@ -487,6 +491,9 @@ export class PreviewView extends ItemView {
   private rerunRequested = false;
   private pendingFrame: HTMLIFrameElement | null = null;
   private refreshTimer: number | null = null;
+  /** La passe complète est volontairement différée jusqu'après le `load` de
+   * l'iframe provisoire, afin que le navigateur puisse réellement la peindre. */
+  private progressivePreviewTimer: number | null = null;
   private closed = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: PreviewViewPlugin) {
@@ -495,6 +502,15 @@ export class PreviewView extends ItemView {
   }
 
   async setCompileScope(scope: CompileScope): Promise<void> {
+    /* Une portée nouvellement choisie rend toute passe provisoire ou complète
+       en cours caduque immédiatement : son iframe ne peut plus devenir le
+       rendu visible de cette Preview. */
+    if (this.refreshInFlight) {
+      this.refreshGeneration++;
+      this.refreshInFlight = false;
+      this.rerunRequested = false;
+      this.cancelProgressivePreview();
+    }
     this.rememberScopedNavigation(scope);
     this._compileScope = scope;
     this.refreshTabHeader();
@@ -1061,11 +1077,15 @@ export class PreviewView extends ItemView {
 
   /** Assemble le contenu à afficher selon le mode. Renvoie `null` avec un
    * message affiché si le mode ne peut rien montrer. */
-  private async collectSource(generation: number): Promise<PreviewSource | null> {
+  private async collectSource(
+    generation: number,
+    effectiveScope: CompileScope | null = this.compileScope,
+    keepCurrentFrame = false
+  ): Promise<PreviewSource | null> {
     const settings = this.plugin.settings;
     const root = this.plugin.getProjectFolder();
     if (!root) {
-      this.showMessage("feuillets-preview-error", t("modal.pdfStyle.selectActiveProject"));
+      if (!keepCurrentFrame) this.showMessage("feuillets-preview-error", t("modal.pdfStyle.selectActiveProject"));
       return null;
     }
 
@@ -1074,11 +1094,11 @@ export class PreviewView extends ItemView {
        plusieurs `await`, et un changement de feuillet survenu entre-temps
        (chaque `file-open` en déclenche désormais un) faisait résoudre la
        liste de fichiers avec une portée et compiler avec une AUTRE. */
-    const activeScope = this.compileScope;
+    const activeScope = effectiveScope;
     if (activeScope) {
       const files = resolveCompileScopeFiles(this.app, settings, activeScope);
       if (!files.length) {
-        this.showMessage("feuillets-preview-empty", t("preview.message.emptyScope"));
+        if (!keepCurrentFrame) this.showMessage("feuillets-preview-empty", t("preview.message.emptyScope"));
         return null;
       }
       /* MÊME génération de contenu que l'export : on passe par compile()
@@ -1093,7 +1113,7 @@ export class PreviewView extends ItemView {
       );
       if (generation !== this.refreshGeneration) return null;
       if (!result) {
-        this.showMessage("feuillets-preview-error", t("preview.message.emptyCompilation"));
+        if (!keepCurrentFrame) this.showMessage("feuillets-preview-error", t("preview.message.emptyCompilation"));
         return null;
       }
       const firstScene = result.segments?.find((s) => s.path)?.path;
@@ -1412,6 +1432,42 @@ export class PreviewView extends ItemView {
     await this.refreshPreview();
   }
 
+  /**
+   * Lit uniquement le début d'une portée explicite et retourne une sélection
+   * de feuillets entiers dès que la cible est atteinte. Le premier fichier
+   * restant suffit à établir que le manuscrit est long : il est donc
+   * important de ne pas lire le reste de la portée pour prendre cette
+   * décision.
+   */
+  private async progressivePreviewScope(scope: CompileScope | null): Promise<CompileScope | null> {
+    if (!scope || scope.type === "file") return null;
+    if (scope.type !== "project" && scope.type !== "folder" && scope.type !== "selection") return null;
+
+    const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
+    const paths: string[] = [];
+    let words = 0;
+    const fallbackRead: (file: TFile) => Promise<string> = this.app.vault.cachedRead.bind(this.app.vault);
+
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index];
+      const content = await this.readFileForPreview(file, fallbackRead);
+      words += countWords(stripFrontmatter(content));
+      paths.push(file.path);
+
+      if (words >= PROGRESSIVE_PREVIEW_WORD_TARGET && index < files.length - 1) {
+        return { type: "selection", projectRoot: scope.projectRoot, paths };
+      }
+    }
+    return null;
+  }
+
+  private cancelProgressivePreview(): void {
+    if (this.progressivePreviewTimer !== null && typeof window !== "undefined") {
+      window.clearTimeout(this.progressivePreviewTimer);
+      this.progressivePreviewTimer = null;
+    }
+  }
+
   async refreshPreview(): Promise<void> {
     if (this.closed || !this.scaledContainer) return;
 
@@ -1423,6 +1479,7 @@ export class PreviewView extends ItemView {
     }
 
     const generation = ++this.refreshGeneration;
+    this.cancelProgressivePreview();
     this.refreshInFlight = true;
     this.cancelSceneRefresh();
     const anchor = this.captureScrollAnchor();
@@ -1449,9 +1506,13 @@ export class PreviewView extends ItemView {
        réinitialiser une nouvelle instance de la vue. Ce bloc englobant
        garantit que finish() est TOUJOURS appelé, quoi qu'il arrive. */
     try {
+      const originalScope = this.compileScope;
+      const provisionalScope = await this.progressivePreviewScope(originalScope);
+      if (generation !== this.refreshGeneration) return;
+
       let source: PreviewSource | null = null;
       try {
-        source = await this.collectSource(generation);
+        source = await this.collectSource(generation, provisionalScope ?? originalScope);
       } catch (e: unknown) {
         if (generation !== this.refreshGeneration) return;
         const msg = e instanceof Error ? e.message : String(e);
@@ -1473,12 +1534,59 @@ export class PreviewView extends ItemView {
       // repose son propre message via `showMessage()` (catch englobant),
       // jamais silencieusement masqué.
       this.clearPreviewMessage();
-      await this.renderPreviewSource(source, generation, anchor, finish);
+      if (provisionalScope && originalScope) {
+        await this.renderPreviewSource(source, generation, anchor, finish, () => {
+          /* `onFrameLoad` vient d'installer l'iframe. Libérer d'abord le
+             cycle courant, puis placer la passe complète dans une tâche
+             ultérieure laisse une occasion réelle au navigateur de peindre. */
+          finish("rendering");
+          this.progressivePreviewTimer = window.setTimeout(() => {
+            this.progressivePreviewTimer = null;
+            void this.refreshProgressivePreview(generation, originalScope);
+          }, 0);
+        });
+      } else {
+        await this.renderPreviewSource(source, generation, anchor, finish);
+      }
     } catch (e: unknown) {
       if (generation !== this.refreshGeneration) return;
       const msg = e instanceof Error ? e.message : String(e);
       console.error("Feuillets : échec du rendu de l'aperçu", e);
       this.showMessage("feuillets-preview-error", t("preview.message.renderError", { message: msg }));
+      finish("error");
+    }
+  }
+
+  /** Deuxième passe d'une Preview progressive. Elle conserve le même jeton
+   * de génération, mais recapture l'ancre visible dans l'aperçu provisoire
+   * juste avant de construire son remplacement définitif. */
+  private async refreshProgressivePreview(generation: number, originalScope: CompileScope): Promise<void> {
+    if (this.closed || generation !== this.refreshGeneration || !this.scaledContainer) return;
+    this.refreshInFlight = true;
+    const anchor = this.captureScrollAnchor();
+    const finish = (status: PreviewStatus) => {
+      if (generation !== this.refreshGeneration) return;
+      this.refreshInFlight = false;
+      this.setStatus(status);
+      if (this.rerunRequested && !this.closed) {
+        this.rerunRequested = false;
+        void this.refreshPreview();
+      }
+    };
+
+    try {
+      const source = await this.collectSource(generation, originalScope, true);
+      if (generation !== this.refreshGeneration) return;
+      if (!source) {
+        finish("error");
+        return;
+      }
+      await this.renderPreviewSource(source, generation, anchor, finish, undefined, true);
+    } catch (e: unknown) {
+      if (generation !== this.refreshGeneration) return;
+      console.error("Feuillets : échec du rendu complet de l'aperçu", e);
+      /* L'iframe provisoire reste en place : seul un iframe final chargé la
+         remplace dans onFrameLoad(). */
       finish("error");
     }
   }
@@ -1493,7 +1601,9 @@ export class PreviewView extends ItemView {
     source: PreviewSource,
     generation: number,
     anchor: ScrollAnchor | null,
-    finish: (status: PreviewStatus) => void
+    finish: (status: PreviewStatus) => void,
+    onLoaded?: () => void,
+    cooperatively = false
   ): Promise<void> {
     const settings = this.plugin.settings;
     const author = settings.manuscriptAuthor || "";
@@ -1596,10 +1706,26 @@ export class PreviewView extends ItemView {
       }
     }
 
-    const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, source.title, author, {
+    const paginationOptions = {
       hyphenationOverride: false,
       marginsOverrideCm: tpl.marginsCm,
-    });
+    };
+    const pagination = cooperatively
+      ? await paginateManuscriptCooperatively(
+        containerEl,
+        footnotes,
+        settings,
+        tpl,
+        source.title,
+        author,
+        paginationOptions,
+        {
+          shouldAbort: () => this.closed || generation !== this.refreshGeneration,
+        }
+      )
+      : paginateManuscript(containerEl, footnotes, settings, tpl, source.title, author, paginationOptions);
+    if (!pagination) return;
+    const { pagesHtml } = pagination;
     if (generation !== this.refreshGeneration) return;
 
     this.displayedPath = this.mode === "manuscript" ? null : source.subtitle;
@@ -1618,7 +1744,8 @@ export class PreviewView extends ItemView {
       this.mode,
       (loadedFrame) => {
         this.onFrameLoad(generation, loadedFrame, anchor);
-        finish("fresh");
+        if (onLoaded) onLoaded();
+        else finish("fresh");
       }
     );
     // Masquée le temps du chargement UNIQUEMENT s'il y a déjà une iframe
@@ -3319,6 +3446,7 @@ export class PreviewView extends ItemView {
 
   async onClose(): Promise<void> {
     this.closed = true;
+    this.cancelProgressivePreview();
     this.openVisibleRequestId++;
     this.rerunRequested = false;
     if (this.autoOpenVisibleTimer !== null && typeof window !== "undefined") {

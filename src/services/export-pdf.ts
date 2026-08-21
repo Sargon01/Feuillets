@@ -3,7 +3,7 @@ import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
-import { paginateDom } from "./pagination-engine.js";
+import { paginateDom, paginateDomCooperatively, type CooperativePaginationOptions, type PaginationGeometry, type PaginationPage } from "./pagination-engine.js";
 import { resolvePageGeometry } from "./page-geometry.js";
 
 type PdfFootnote = {
@@ -27,6 +27,11 @@ type PdfExportInput = {
 type PaginationResult = {
   pagesHtml: string;
   totalPages: number;
+};
+
+type PreparedManuscriptPagination = {
+  elements: Element[];
+  geometry: PaginationGeometry;
 };
 
 export type PaginationOptions = {
@@ -64,6 +69,56 @@ function isPrintableIframe(iframe: HTMLIFrameElement): iframe is HTMLIFrameEleme
   return iframe.contentDocument !== null && iframe.contentWindow !== null;
 }
 
+/** Préparation commune aux consommateurs synchrone et coopératif. */
+function prepareManuscriptPagination(
+  containerEl: HTMLElement,
+  footnotes: PdfFootnote[] | null | undefined,
+  settings: FeuilletsSettings,
+  tpl: ResolvedExportTemplate,
+  options: PaginationOptions
+): PreparedManuscriptPagination {
+  const pageGeometry = resolvePageGeometry(tpl, settings);
+  const templateMargins = tpl.marginsCm;
+  const mTop = options.marginsOverrideCm?.top ?? templateMargins?.top ?? settings.pdfMarginTop ?? 2.5;
+  const mBottom = options.marginsOverrideCm?.bottom ?? templateMargins?.bottom ?? settings.pdfMarginBottom ?? 2.5;
+  const mLeft = options.marginsOverrideCm?.left ?? templateMargins?.left ?? settings.pdfMarginLeft ?? 2.5;
+  const mRight = options.marginsOverrideCm?.right ?? templateMargins?.right ?? settings.pdfMarginRight ?? 2.5;
+  const contentGeometry = pageContentGeometry(pageGeometry.widthMm, pageGeometry.heightMm, mTop, mBottom, mLeft, mRight);
+  const columnCount = Math.max(1, Math.round(tpl.columns?.count ?? 1));
+  const columnGapPt = Math.max(0, tpl.columns?.gutterPt ?? 0);
+  const elements = Array.from(containerEl.children)
+    .map((el) => el.cloneNode(true))
+    .filter((node): node is Element => "tagName" in node && "classList" in node);
+  if (footnotes && footnotes.length > 0) {
+    const fnDiv = createDiv({ cls: "pdf-footnotes-section" });
+    fnDiv.createEl("hr");
+    const ol = fnDiv.createEl("ol");
+    for (const footnote of footnotes) {
+      const li = ol.createEl("li");
+      li.id = footnote.id;
+      const parsed = new DOMParser().parseFromString(footnote.html, "text/html");
+      parsed.body.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((anchor) => anchor.remove());
+      while (parsed.body.firstChild) li.appendChild(parsed.body.firstChild);
+    }
+    elements.push(fnDiv);
+  }
+  return {
+    elements,
+    geometry: {
+      widthPx: contentGeometry.widthPx,
+      heightPx: contentGeometry.heightPx,
+      fontFamily: tpl.fontFamily,
+      fontSizePt: tpl.fontSizePt,
+      lineHeight: tpl.lineHeight,
+      textAlign: tpl.align,
+      hyphens: effectiveHyphenation(tpl, options),
+      columnCount,
+      columnGapPt,
+      css: templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl),
+    },
+  };
+}
+
 /** Pagine le contenu HTML en boîtes de pages réelles (.pdf-page) pour l'impression PDF et l'aperçu WYSIWYG.
  * Gère les en-têtes et pieds de page différenciés (paires/impaires), les sauts de page sur titres (H1/H2),
  * la position des numéros de page (droite, centré, gauche) et la couleur adoucie des en-têtes (#aaaaaa). */
@@ -74,7 +129,8 @@ export function paginateManuscript(
   tpl: ResolvedExportTemplate,
   title = "",
   author = "",
-  options: PaginationOptions = {}
+  options: PaginationOptions = {},
+  rawPagesOverride?: PaginationPage[]
 ): PaginationResult {
   /* §24-§26 : la géométrie vient du HELPER UNIQUE (services/page-geometry.ts)
      — gabarit résolu d'abord, anciens réglages PDF en repli. Rien d'autre ne
@@ -133,7 +189,7 @@ export function paginateManuscript(
     elements.push(fnDiv);
   }
 
-  const rawPages = paginateDom(elements, {
+  const rawPages = rawPagesOverride ?? paginateDom(elements, {
     widthPx: contentGeometry.widthPx,
     heightPx: contentGeometry.heightPx,
     fontFamily: tpl.fontFamily,
@@ -292,6 +348,23 @@ export function paginateManuscript(
   });
 
   return { pagesHtml: pagesHtml.join("\n"), totalPages };
+}
+
+/** Preview seul : compose avec le même moteur puis réutilise l'assemblage final. */
+export async function paginateManuscriptCooperatively(
+  containerEl: HTMLElement,
+  footnotes: PdfFootnote[] | null | undefined,
+  settings: FeuilletsSettings,
+  tpl: ResolvedExportTemplate,
+  title = "",
+  author = "",
+  options: PaginationOptions = {},
+  cooperativeOptions: CooperativePaginationOptions = {}
+): Promise<PaginationResult | null> {
+  const prepared = prepareManuscriptPagination(containerEl, footnotes, settings, tpl, options);
+  const rawPages = await paginateDomCooperatively(prepared.elements, prepared.geometry, cooperativeOptions);
+  if (!rawPages) return null;
+  return paginateManuscript(containerEl, footnotes, settings, tpl, title, author, options, rawPages);
 }
 
 /** PDF via la boîte de dialogue d'impression du système */
