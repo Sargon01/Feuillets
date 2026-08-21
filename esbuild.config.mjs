@@ -20,7 +20,7 @@ const options = {
   target: "es2018",
   outfile: "main.js",
   sourcemap: prod ? false : "inline",
-  minify: false, // voir CHANGELOG 1.3.0 : code auditable, exigence de la revue Obsidian
+  minify: prod,
   logLevel: "info"
 };
 
