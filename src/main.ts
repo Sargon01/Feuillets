@@ -161,20 +161,15 @@ import {
   type Editor,
   type WorkspaceSidedock,
   type WorkspaceMobileDrawer,
+  type MenuItem,
 } from "obsidian";
 
 const RIGHT_SIDEBAR_WIDTH = 280;
 
-/** Sous-menu natif Obsidian : `MenuItem.setSubmenu()` existe à l'exécution
- *  mais n'est pas encore publique dans obsidian.d.ts (voir « Make setSubmenu
- *  public API » sur le forum Obsidian). Les sous-menus du menu contextuel de
- *  l'éditeur et de ses blocs Feuillets s'appuient sur cette surface —
- *  augmentation typée de module, jamais `any`. */
-declare module "obsidian" {
-  interface MenuItem {
-    setSubmenu(): Menu;
-  }
-}
+/** Capacité interne Obsidian, absente du contrat public typé. */
+type MenuItemWithOptionalSubmenu = MenuItem & {
+  setSubmenu?: () => Menu;
+};
 
 type ProjectNode = TFile | TFolder;
 
@@ -1667,36 +1662,64 @@ class FeuilletsPlugin extends Plugin {
     const refId = referenceIdAtOffset(content, offset);
     const defId = definitionIdAtOffset(content, offset);
 
+    const actions: Array<{ title: string; icon?: string; separatorBefore?: boolean; onClick: () => void }> = [
+      {
+        title: t("editorMenu.footnote.insert"),
+        icon: "list-plus",
+        onClick: () => this.insertFootnote(editor),
+      },
+    ];
+    if (refId) {
+      actions.push({
+        title: t("editorMenu.footnote.gotoDefinition"),
+        icon: "arrow-down-to-line",
+        onClick: () => this.gotoFootnoteDefinition(editor),
+      });
+    }
+    if (defId) {
+      actions.push({
+        title: t("editorMenu.footnote.gotoReference"),
+        icon: "arrow-up-to-line",
+        onClick: () => this.gotoFootnoteReference(editor),
+      });
+    }
+    actions.push(
+      {
+        title: t("editorMenu.footnote.check"),
+        separatorBefore: true,
+        onClick: () => this.checkFootnotesInEditor(editor),
+      },
+      {
+        title: t("editorMenu.footnote.renumber"),
+        onClick: () => this.renumberFootnotesInEditor(editor),
+      }
+    );
+
+    const addActions = (target: Menu, entries: typeof actions, flat = false): void => {
+      entries.forEach((action) => {
+        if (action.separatorBefore) target.addSeparator();
+        target.addItem((entry) => {
+          entry.setTitle(flat ? `${t("editorMenu.footnote")} : ${action.title}` : action.title);
+          if (action.icon) entry.setIcon(action.icon);
+          entry.onClick(action.onClick);
+        });
+      });
+    };
+
+    let hasSubmenu = false;
     menu.addItem((item) => {
-      item.setTitle(t("editorMenu.footnote")).setIcon("list-plus");
-      const sub = item.setSubmenu();
-      sub.addItem((entry) =>
-        entry.setTitle(t("editorMenu.footnote.insert")).setIcon("list-plus").onClick(() => this.insertFootnote(editor))
-      );
-      if (refId) {
-        sub.addItem((entry) =>
-          entry
-            .setTitle(t("editorMenu.footnote.gotoDefinition"))
-            .setIcon("arrow-down-to-line")
-            .onClick(() => this.gotoFootnoteDefinition(editor))
-        );
+      const submenuItem = item as MenuItemWithOptionalSubmenu;
+      if (typeof submenuItem.setSubmenu === "function") {
+        hasSubmenu = true;
+        item.setTitle(t("editorMenu.footnote")).setIcon("list-plus");
+        addActions(submenuItem.setSubmenu(), actions);
+        return;
       }
-      if (defId) {
-        sub.addItem((entry) =>
-          entry
-            .setTitle(t("editorMenu.footnote.gotoReference"))
-            .setIcon("arrow-up-to-line")
-            .onClick(() => this.gotoFootnoteReference(editor))
-        );
-      }
-      sub.addSeparator();
-      sub.addItem((entry) =>
-        entry.setTitle(t("editorMenu.footnote.check")).onClick(() => this.checkFootnotesInEditor(editor))
-      );
-      sub.addItem((entry) =>
-        entry.setTitle(t("editorMenu.footnote.renumber")).onClick(() => this.renumberFootnotesInEditor(editor))
-      );
+      const first = actions[0];
+      item.setTitle(`${t("editorMenu.footnote")} : ${first.title}`).setIcon(first.icon || "list-plus").onClick(first.onClick);
     });
+
+    if (!hasSubmenu) addActions(menu, actions.slice(1), true);
   }
 
   /* ---------- Annotations de relecture (surlignage éditeur, lot 3) ----------

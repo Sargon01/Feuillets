@@ -199,6 +199,28 @@ function fakeEditor(content, selStart, selEnd, cursorOffset = null) {
   };
 }
 
+class FlatMenu {
+  constructor() {
+    this.items = [];
+  }
+  addItem(cb) {
+    const item = {
+      title: "",
+      icon: "",
+      setTitle(title) { this.title = title; return this; },
+      setIcon(icon) { this.icon = icon; return this; },
+      onClick(callback) { this.callback = callback; return this; },
+    };
+    cb(item);
+    this.items.push(item);
+    return this;
+  }
+  addSeparator() {
+    this.items.push({ separator: true });
+    return this;
+  }
+}
+
 function captureNotice(run) {
   const notices = [];
   Notice.onCreate = (message) => notices.push(message);
@@ -279,6 +301,47 @@ test("§15.B — sous-menu notes : 5 entrées possibles, contextuelles au curseu
     t("editorMenu.footnote.check"),
     t("editorMenu.footnote.renumber"),
   ], "hors contexte : insertion toujours proposée, aucun aller-retour");
+});
+
+test("§15.C — notes : sans setSubmenu, les mêmes actions sont ajoutées à plat", () => {
+  const { plugin } = editorMenuHarness();
+  const calls = [];
+  plugin.insertFootnote = () => calls.push("insert");
+  plugin.gotoFootnoteDefinition = () => calls.push("definition");
+  plugin.gotoFootnoteReference = () => calls.push("reference");
+  plugin.checkFootnotesInEditor = () => calls.push("check");
+  plugin.renumberFootnotesInEditor = () => calls.push("renumber");
+
+  const flatTitles = (content, offset) => {
+    const menu = new FlatMenu();
+    plugin.buildFootnoteEditorSubmenu(menu, fakeEditor(content, 0, 0, offset));
+    return { menu, titles: menu.items.filter((item) => !item.separator).map((item) => item.title) };
+  };
+
+  const reference = flatTitles("Un fait notable[^1].\n\n[^1]: La source.", "Un fait notable[".length);
+  assert.deepEqual(reference.titles, [
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.insert")}`,
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.gotoDefinition")}`,
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.check")}`,
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.renumber")}`,
+  ]);
+  reference.menu.items.filter((item) => !item.separator).forEach((item) => item.callback());
+  assert.deepEqual(calls, ["insert", "definition", "check", "renumber"]);
+
+  const definition = flatTitles("Un fait notable[^1].\n\n[^1]: La source.", "Un fait notable[^1].\n\n[^1]: La".length);
+  assert.deepEqual(definition.titles, [
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.insert")}`,
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.gotoReference")}`,
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.check")}`,
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.renumber")}`,
+  ]);
+
+  const none = flatTitles("Un texte sans note du tout.", 3);
+  assert.deepEqual(none.titles, [
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.insert")}`,
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.check")}`,
+    `${t("editorMenu.footnote")} : ${t("editorMenu.footnote.renumber")}`,
+  ]);
 });
 
 /* §15.J — insertiFootnote : le marqueur [^n] est posé à la position du
