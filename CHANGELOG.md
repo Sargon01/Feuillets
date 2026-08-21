@@ -2,6 +2,50 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.6.0
+
+### Écriture et réorganisation
+
+- Ajout de **Réorganiser le texte** dans l’éditeur Markdown et dans **Continu** : les paragraphes peuvent être déplacés par glisser-déposer et une sélection contenue dans un même paragraphe peut être déplacée comme fragment.
+- Les déplacements conservent le Markdown exact et constituent chacun une seule étape d’annulation.
+- Dans Continu, la réorganisation reste limitée au feuillet source : un passage ne peut pas être déplacé accidentellement à travers une frontière de fichier.
+- Les actions d’écriture sont regroupées dans les menus contextuels adaptés à chaque éditeur, sans barre d’écriture supplémentaire.
+
+### Continu
+
+- **Continu** prend désormais en charge les titres Markdown H1 à H6 avec un rendu cohérent avec l’éditeur.
+- Son menu contextuel réunit Couper/Copier/Coller, notes de bas de page, **Annotation…**, capture d’idée et **Réorganiser le texte**.
+- Les annotations de travail sont pleinement utilisables dans Continu tout en restant rattachées au vrai fichier Markdown source et hors du manuscrit.
+- Undo/Redo reste propre au document Continu et les séparations entre feuillets demeurent protégées.
+- Avant un export, les modifications encore en attente dans Continu sont enregistrées dans leurs fichiers sources ; l’export est interrompu si cette étape ne peut pas être sécurisée.
+
+### Aperçu et performances
+
+- L’**Aperçu** des grandes portées devient progressif : une première portion peut apparaître rapidement pendant que le document complet termine sa pagination.
+- La pagination complète de l’Aperçu cède régulièrement la main à l’interface afin d’éviter les blocages sur les manuscrits volumineux.
+- Les petites et moyennes portées conservent leur rendu direct.
+- L’export reste toujours fondé sur la portée complète demandée et ne nécessite pas d’ouvrir l’Aperçu.
+
+### Annotations et menus d’écriture
+
+- Le flux des annotations est unifié autour de **Annotation…** dans Markdown et Continu.
+- Une annotation existante peut être retrouvée depuis son passage ; les annotations imbriquées restent possibles lorsqu’une nouvelle sélection le justifie.
+- Les annotations restent entièrement hors du Markdown et ne sont jamais exportées.
+- Les notes de bas de page restent accessibles même lorsque l’environnement Obsidian ne fournit pas de sous-menu natif.
+
+### Qualité, distribution et documentation
+
+- Le bundle de production est désormais minifié afin de réduire sensiblement la taille distribuée, sans obfuscation ni changement du code source.
+- Le workflow de release exécute désormais les deux lints avant les tests et le build.
+- Suppression des éléments résiduels de l’ancienne barre d’écriture abandonnée.
+- Documentation FR/EN mise à jour et nouvelle page **Découvrir Feuillets**, organisée autour des besoins réels de l’auteur et des fonctions faciles à manquer.
+
+### Stabilisation de l’interface
+
+- Avec Feuillets 2.6, l’architecture générale de l’interface est considérée comme **stabilisée**.
+- Les prochaines évolutions privilégieront les corrections, l’ergonomie locale, les performances, la lisibilité et la découvrabilité plutôt que de nouvelles réorganisations globales.
+- Un déplacement majeur de fonction ou une refonte de la géographie générale de Feuillets devra désormais répondre à un problème utilisateur démontré.
+
 ## 2.5.2
 
 ### Plan, Cartes et Couloirs

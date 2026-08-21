@@ -1,6 +1,6 @@
 # Documentation Feuillets
 
-Cette page indexe la documentation correspondant à **Feuillets 2.5**.
+Cette page indexe la documentation correspondant à **Feuillets 2.6**.
 
 > **Français** · English documentation is linked beside each user-facing French guide.
 
@@ -28,7 +28,7 @@ Cette page indexe la documentation correspondant à **Feuillets 2.5**.
 - **[Réviser un manuscrit Word avec Feuillets](HOW-TO-REVISION-DOCX.md)** · [English](HOW-TO-DOCX-REVISION.md)
 - **[Validation du flux de révision DOCX](DOCX-REVIEW-VALIDATION.md)** — document de maintenance.
 
-Dans l’interface 2.5, **Relecture** est le point d’entrée pour l’analyse de texte, la relecture collaborative, Révision DOCX et la comparaison avec un instantané.
+Dans l’interface 2.6, **Relecture** est le point d’entrée pour l’analyse de texte, la relecture collaborative, Révision DOCX et la comparaison avec un instantané.
 
 ## Composition et export
 
@@ -43,7 +43,7 @@ L’espace central **Édition** contient **Composition** et **Mise en page**. L�
 - **[Remplacer Ulysses par Feuillets](Remplacer-Ulysses-par-Feuillets.md)** · [English](REPLACE-ULYSSES-WITH-FEUILLETS.md)
 - **[Remplacer Aeon Timeline par Feuillets](Remplacer-Aeon-Timeline-par-Feuillets.md)** · [English](REPLACE-AEON-TIMELINE-WITH-FEUILLETS.md)
 
-Ces guides décrivent les équivalences de workflow sans prétendre reproduire les applications d’origine à l’identique. Ils intègrent désormais Continu, le remappage YAML, les dossiers Recherche associés, les annotations, la relecture collaborative et l’espace Édition 2.5.
+Ces guides décrivent les équivalences de workflow sans prétendre reproduire les applications d’origine à l’identique. Ils intègrent désormais Continu, le remappage YAML, les dossiers Recherche associés, les annotations, la relecture collaborative et l’espace Édition 2.6.
 
 ## Pour les mainteneurs
 

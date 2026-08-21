@@ -1,6 +1,6 @@
-# Architecture technique — Feuillets 2.5
+# Architecture technique — Feuillets 2.6
 
-> Document de maintenance. Cette page décrit l’architecture fonctionnelle à la fin du chantier 2.5 ; les noms de fichiers sont ceux du code.
+> Document de maintenance. Cette page décrit l’architecture fonctionnelle à la fin du chantier 2.6 ; les noms de fichiers sont ceux du code.
 
 ## Principe général
 

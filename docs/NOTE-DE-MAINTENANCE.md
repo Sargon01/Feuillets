@@ -1,6 +1,6 @@
-# Note de maintenance documentaire — Feuillets 2.5
+# Note de maintenance documentaire — Feuillets 2.6
 
-Cette page évite que les prochains correctifs réintroduisent dans la documentation des concepts supprimés pendant le chantier 2.5.
+Cette page évite que les prochains correctifs réintroduisent dans la documentation des concepts supprimés ou déplacés pendant les chantiers ayant conduit à Feuillets 2.6.
 
 ## Terminologie publique actuelle
 
@@ -12,6 +12,15 @@ Cette page évite que les prochains correctifs réintroduisent dans la documenta
 - **Feuillet / Recherche / Journal / Projet / Relecture** : cinq onglets du panneau droit.
 - **Édition** : surface centrale, seulement Composition et Mise en page.
 - **Exporter** : action de la barre d’Édition, pas troisième mode.
+
+## Stabilisation de l’interface à partir de 2.6
+
+À partir de Feuillets 2.6, la géographie principale décrite ci-dessus constitue un **contrat d’interface**.
+
+- Les correctifs et améliorations locales ne doivent plus déplacer une fonction majeure vers une autre zone de l’application.
+- Les prochaines évolutions privilégient la lisibilité, la découvrabilité, l’ergonomie locale, les performances et la fiabilité.
+- Une réorganisation globale de l’interface ne doit être envisagée que pour résoudre un problème utilisateur démontré, et non pour une simple préférence d’organisation.
+- La stabilité de l’emplacement des fonctions est désormais considérée comme une qualité du produit et un enjeu de non-régression documentaire.
 
 ## Concepts à ne plus documenter comme actuels
 
