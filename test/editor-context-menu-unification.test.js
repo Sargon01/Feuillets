@@ -318,90 +318,78 @@ test("§15.J — insertFootnote place le rappel, la définition, et replace le c
   assert.deepEqual(notices, [t("main.notice.footnoteInserted", { n: "1" })]);
 });
 
-/* §15.C — sous-menu « Annotation » : une ligne de tête Style puis les 3
-   styles, une ligne de tête Couleur puis les 4 couleurs, et « Ajouter /
-   modifier un commentaire… ». Sans sélection toutes les actions style et
-   couleur sont désactivées — jamais une annotation vide. */
-test("§15.C — annotation : structure du sous-menu (style/couleur/commentaire), actions désactivées sans sélection", () => {
+/* §15.C — Micro-finition UX : une seule entrée « Annotation… » (plus pas
+   de sous-menu Style/Couleur/Commentaire). L'entrée est désactivée sans
+   sélection (l'utilisateur doit sélectionner du texte avant d'annoter). */
+test("§15.C — annotation : une seule entrée « Annotation… », désactivée sans sélection", () => {
   const { plugin } = editorMenuHarness();
   const file = new TFile("Projet/Manuscrit/Scène.md", "Le chat dort.");
   const menu = new Menu();
   const editor = fakeEditor("Le chat dort.", 3, 3); // pas de sélection
 
-  plugin.buildAnnotationEditorSubmenu(menu, editor, file);
+  plugin.getAnnotationEditor().addContextMenuItem(menu, editor, file);
 
   const root = menu.items.find((i) => i.title === t("editorMenu.annotation"));
-  assert.ok(root, "racine « Annotation » présente");
-  assert.ok(root.submenu instanceof Menu);
-
-  const items = root.submenu.items.filter((i) => !i.separator);
-  const styleItems = items.filter((i) =>
-    ["highlight", "underline", "strikethrough"].some((s) => i.title === t(`editorMenu.annotation.style.${s}`))
-  );
-  const colorItems = items.filter((i) =>
-    ["yellow", "green", "blue", "pink"].some((c) => i.title === t(`annotation.popover.color.${c}`))
-  );
-  assert.equal(styleItems.length, 3, "3 styles");
-  assert.equal(colorItems.length, 4, "4 couleurs");
-  assert.equal(items.some((i) => i.title === t("editorMenu.annotation.comment")), true, "entrée commentaire présente");
-  for (const item of [...styleItems, ...colorItems]) {
-    assert.equal(item.disabled, true, `${item.title} est désactivé sans sélection`);
-  }
-  const comment = items.find((i) => i.title === t("editorMenu.annotation.comment"));
-  assert.equal(comment.disabled, undefined, "le commentaire reste possible (sur une annotation au curseur)");
+  assert.ok(root, "« Annotation… » présente");
+  assert.equal(root.disabled, true, "désactivée sans sélection");
+  assert.equal(root.submenu, undefined, "jamais de sous-menu");
 });
 
-test("§15.C — annotation : avec sélection, style et couleur sont actifs et cochés selon la préférence de session", () => {
+test("§15.C — annotation : avec sélection, l'entrée est active et crée directement (jamais via openAnnotationCommentForContext)", async () => {
   const { plugin } = editorMenuHarness();
   plugin.annotationMenuStyle = "underline";
   plugin.annotationMenuColor = "green";
   const file = new TFile("Projet/Manuscrit/Scène.md", "Le chat dort.");
   const menu = new Menu();
   const editor = fakeEditor("Le chat dort.", 3, 12); // sélection « chat dort »
+  let openedWithInitial = null;
+  const controller = plugin.getAnnotationEditor();
+  controller.openAnnotationCommentForContext = async () => {
+    throw new Error("openAnnotationCommentForContext ne doit plus jamais être appelée par le menu");
+  };
+  controller.createAnnotationFromSelection = async (ed, f, initial) => {
+    openedWithInitial = initial;
+  };
 
-  plugin.buildAnnotationEditorSubmenu(menu, editor, file);
+  controller.addContextMenuItem(menu, editor, file);
 
   const root = menu.items.find((i) => i.title === t("editorMenu.annotation"));
-  const items = root.submenu.items.filter((i) => !i.separator);
-  const underline = items.find((i) => i.title === t("editorMenu.annotation.style.underline"));
-  const highlight = items.find((i) => i.title === t("editorMenu.annotation.style.highlight"));
-  const green = items.find((i) => i.title === t("annotation.popover.color.green"));
-  const yellow = items.find((i) => i.title === t("annotation.popover.color.yellow"));
-  assert.equal(underline.disabled, undefined, "style actif avec sélection");
-  assert.equal(underline.checked, true, "le style de session est coché");
-  assert.equal(highlight.checked, false);
-  assert.equal(green.checked, true, "la couleur de session est cochée");
-  assert.equal(yellow.checked, false);
+  assert.ok(root, "« Annotation… » présente");
+  assert.equal(root.disabled, undefined, "active avec sélection");
+  await root.callback();
+  assert.equal(openedWithInitial.style, "underline", "popover ouvert avec le style de session");
+  assert.equal(openedWithInitial.color, "green", "popover ouvert avec la couleur de session");
 });
 
-/* §15.I — préférences de session : cliquer un style puis une couleur met à
-   jour annotationMenuStyle/annotationMenuColor et applique l'annotation dès
-   le clic (applyAnnotationOrUpdate) — jamais un popover obligatoire ici. */
-test("§15.I — le clic style/couleur mémorise la préférence de session et applique l'annotation", async () => {
+/* §32-33 — Popup unique : cliquer l'entrée Annotation ouvre le popover.
+   L'utilisateur peut choisir style, couleur, commentaire dans la même carte
+   sans rouvrir le menu. */
+test("§32 — clic entrée Annotation ouvre le popover avec les préférences de session (appel direct createAnnotationFromSelection)", async () => {
   const { plugin } = editorMenuHarness();
-  const applied = [];
-  plugin.applyAnnotationOrUpdate = async (editor, file, style, color) => {
-    applied.push({ style, color });
-    return true;
-  };
+  plugin.annotationMenuStyle = "underline";
+  plugin.annotationMenuColor = "pink";
   const file = new TFile("Projet/Manuscrit/Scène.md", "Le chat dort.");
   const menu = new Menu();
   const editor = fakeEditor("Le chat dort.", 3, 12);
+  let callbackArgs = null;
+  const controller = plugin.getAnnotationEditor();
+  controller.openAnnotationCommentForContext = async () => {
+    throw new Error("openAnnotationCommentForContext ne doit plus jamais être appelée par le menu");
+  };
+  controller.createAnnotationFromSelection = async (ed, f, initial, onAnnotationChange) => {
+    callbackArgs = { ed, f, initial, onAnnotationChange };
+  };
 
-  plugin.buildAnnotationEditorSubmenu(menu, editor, file);
+  controller.addContextMenuItem(menu, editor, file);
   const root = menu.items.find((i) => i.title === t("editorMenu.annotation"));
-  const items = root.submenu.items.filter((i) => !i.separator);
 
-  items.find((i) => i.title === t("editorMenu.annotation.style.strikethrough")).callback();
-  const colorPink = items.find((i) => i.title === t("annotation.popover.color.pink"));
-  colorPink.callback();
+  await root.callback();
 
-  assert.equal(plugin.annotationMenuStyle, "strikethrough");
-  assert.equal(plugin.annotationMenuColor, "pink");
-  assert.deepEqual(applied, [
-    { style: "strikethrough", color: "yellow" },
-    { style: "strikethrough", color: "pink" },
-  ], "le style se mémorise avant le clic couleur, et chaque clic applique");
+  assert.ok(callbackArgs, "createAnnotationFromSelection appelé");
+  assert.equal(callbackArgs.ed, editor, "l'editor passé");
+  assert.equal(callbackArgs.f, file, "le fichier passé");
+  assert.equal(callbackArgs.initial.style, "underline", "style de session passé");
+  assert.equal(callbackArgs.initial.color, "pink", "couleur de session passée");
 });
 
 /* §15.E — applyAnnotationOrUpdate : une annotation existante qui couvre

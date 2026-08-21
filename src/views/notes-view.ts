@@ -78,6 +78,10 @@ type NotesViewPlugin = Omit<BaseNotesViewPlugin, "parseStoryDate" | "settings"> 
   refreshAnnotationHighlights(): Promise<void>;
   createAnnotationFromSelection(): Promise<void>;
   openWorkNoteEditor(file: TFile, id: string | null, text: string, onChange: () => void, legacy?: boolean, anchor?: HTMLElement): Promise<void>;
+  _preloadAnnotationsCacheFor(file: TFile): Promise<void>;
+  _invalidateAnnotationsCache(): void;
+  annotationAtCursorFromCache(editor: unknown, file: TFile): unknown;
+  annotationAtEditorCursor(editor: unknown, file: TFile): Promise<unknown>;
 };
 
 function binderOrderedAnnotationPaths(app: App, settings: FeuilletsSettings, root: TFolder | null, paths: Iterable<string>): string[] {

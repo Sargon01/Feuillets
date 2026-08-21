@@ -31,8 +31,24 @@ export interface AnnotationHighlightInput {
   range: { start: number; end: number } | null;
 }
 
+/** Valeur portée par une plage du DecorationSet — seul `spec.attributes` nous
+ * intéresse ici (voir `applyAnnotationHighlights`, qui y écrit
+ * `data-annotation-id`). API PUBLIQUE `Decoration` de @codemirror/view. */
+interface DecorationValue {
+  spec?: { attributes?: Record<string, string> };
+}
+
 interface DecorationSet {
   map(changes: unknown): DecorationSet;
+  /** API PUBLIQUE `RangeSet#between` de @codemirror/state : itère les
+   * plages qui touchent `[from, to]`, dans l'ordre ; `fn` peut retourner
+   * `false` pour arrêter l'itération plus tôt. Utilisée en LECTURE SEULE par
+   * `annotationIdAtOffset`/`annotationIdForExactRange` ci-dessous — jamais
+   * pour muter le StateField. Optionnelle : ABSENTE du DecorationSet en
+   * environnement de test (un simple tableau de plages, voir
+   * test/codemirror-view-stub.mjs) — `forEachAnnotationDecoration` détecte
+   * sa présence et retombe sinon sur une itération de tableau ordinaire. */
+  between?(from: number, to: number, fn: (from: number, to: number, value: DecorationValue) => void | boolean): void;
   readonly [key: string]: unknown;
 }
 
@@ -252,6 +268,109 @@ export function clearAnnotationHighlights(editorView: EditorViewInstance | null 
       });
     } catch { /* idem : la vue a ete detruite avant le nettoyage des surlignages */ }
   }
+}
+
+/** CORRECTIF (extraction du contrôleur d'annotations) : sous-ensemble
+ * PUBLIC minimal de l'EditorView CodeMirror nécessaire pour LIRE le
+ * `annotationHighlightField` déjà monté (MarkdownView comme Continu — voir
+ * `services/annotation-editor-controller.ts`) — jamais pour le muter, jamais
+ * pour dispatcher. `state.field(field, false)` et `state.doc.length` sont
+ * tous deux de l'API PUBLIQUE `@codemirror/state`, déjà utilisée ailleurs
+ * dans ce projet avec exactement ce patron (voir
+ * cm-paragraph-reorder.ts/scrivenings-view.ts). Optionnel jusqu'au bout :
+ * un `EditorViewInstance` déjà utilisé pour `coordsAtPos`/`dispatch`
+ * satisfait structurellement cette interface sans modification. */
+export interface AnnotationReadableEditorView {
+  state?: {
+    doc?: { length?: number };
+    field?(field: unknown, required: false): unknown;
+  };
+}
+
+function annotationDecorations(
+  editorView: AnnotationReadableEditorView | null | undefined
+): DecorationSet | null {
+  const value = editorView?.state?.field?.(annotationHighlightField, false);
+  return (value as DecorationSet | undefined) ?? null;
+}
+
+/** Itère, en LECTURE SEULE, les décorations d'annotation du document — ni
+ * classe CSS, ni DOM : uniquement `RangeSet#between` (API publique) sur le
+ * DecorationSet déjà tenu par le StateField. `fn` peut retourner `false`
+ * pour arrêter tôt (voir `annotationIdAtOffset`/`annotationIdForExactRange`,
+ * qui s'arrêtent au premier id trouvé).
+ *
+ * Duck-type sur la présence de `.between` : un VRAI RangeSet (production)
+ * l'expose ; le DecorationSet de l'environnement de test (un simple tableau
+ * de plages `{from, to, attributes}` — voir test/codemirror-view-stub.mjs)
+ * ne l'a pas, d'où le repli sur une itération de tableau ordinaire — même
+ * lecture, même contrat, deux représentations. */
+function forEachAnnotationDecoration(
+  editorView: AnnotationReadableEditorView | null | undefined,
+  fn: (from: number, to: number, id: string) => void | boolean
+): void {
+  const decorations = annotationDecorations(editorView);
+  if (!decorations) return;
+
+  if (typeof decorations.between === "function") {
+    const docLength = editorView?.state?.doc?.length ?? Number.MAX_SAFE_INTEGER;
+    decorations.between(0, docLength, (from, to, value) => {
+      const id = value.spec?.attributes?.["data-annotation-id"];
+      if (!id) return;
+      return fn(from, to, id);
+    });
+    return;
+  }
+
+  const list = decorations as unknown as ReadonlyArray<{
+    from: number;
+    to: number;
+    attributes?: Record<string, string>;
+  }>;
+  for (const entry of list) {
+    const id = entry.attributes?.["data-annotation-id"];
+    if (!id) continue;
+    if (fn(entry.from, entry.to, id) === false) break;
+  }
+}
+
+/** Id de l'annotation dont la décoration contient `offset` — bornes
+ * `[from, to)` STRICTEMENT (un offset égal à `to` n'est jamais contenu,
+ * même contrat que `resolveAnnotation`/le menu contextuel), `null` sinon.
+ * Source de vérité pour le menu contextuel : jamais `annotations.json`, ni
+ * un cache miroir — uniquement l'état visuel déjà décoré. */
+export function annotationIdAtOffset(
+  editorView: AnnotationReadableEditorView | null | undefined,
+  offset: number
+): string | null {
+  let found: string | null = null;
+  forEachAnnotationDecoration(editorView, (from, to, id) => {
+    if (from <= offset && offset < to) {
+      found = id;
+      return false;
+    }
+  });
+  return found;
+}
+
+/** Id de l'annotation dont la décoration correspond EXACTEMENT à
+ * `[from, to)` — bornes strictement égales, jamais un chevauchement ni une
+ * simple inclusion : c'est cette égalité stricte qui décide, au niveau du
+ * contrôleur, qu'une sélection doit ÉDITER l'existante plutôt que créer un
+ * doublon (voir `resolveAnnotationMenuContext`). */
+export function annotationIdForExactRange(
+  editorView: AnnotationReadableEditorView | null | undefined,
+  from: number,
+  to: number
+): string | null {
+  let found: string | null = null;
+  forEachAnnotationDecoration(editorView, (rangeFrom, rangeTo, id) => {
+    if (rangeFrom === from && rangeTo === to) {
+      found = id;
+      return false;
+    }
+  });
+  return found;
 }
 
 /** Coordonnées écran d'une position du document — sert à ancrer le popover

@@ -23,4 +23,5 @@ declare module "@codemirror/commands" {
   export function history(): unknown;
   export const historyKeymap: unknown[];
   export function redo(target: unknown): boolean;
+  export function undo(target: unknown): boolean;
 }

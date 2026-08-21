@@ -9409,6 +9409,23 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   color: var(--text-faint);
 }
 
+/* Caret fragment (LOT 1.3, cm-paragraph-reorder.ts) : destination d'un
+ * déplacement de SÉLECTION (phrase, mot, morceau de paragraphe) — une fine
+ * barre VERTICALE, jamais la ligne horizontale du Paragraph, jamais les
+ * deux en même temps (`sourceKind` détermine laquelle est dessinée). Même
+ * traitement que `.feuillets-reorder-insertion-line` : `position: fixed`,
+ * hors flux, largeur fixe posée ici (jamais en JS), seuls top/left/height
+ * varient dynamiquement. */
+.feuillets-reorder-fragment-caret {
+  position: fixed;
+  width: 2px;
+  margin: 0;
+  background: var(--interactive-accent);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: var(--layer-popover, 30);
+}
+
 /* Lignes vides : mêmes réglages que l'éditeur Markdown natif, étendus
  * PROPREMENT à Scrivenings via SON PROPRE data-type de vue — jamais
  * data-type="markdown" : cette extension ne doit jamais atteindre une vue

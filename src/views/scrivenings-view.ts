@@ -7,6 +7,7 @@ import { VIEW_SCRIVENINGS } from "../constants.js";
 import { resolveCompileScopeFiles, createSelectionScope, createFileScope, type CompileScope } from "../services/compile-scope.js";
 import {
   applyCompositeChanges,
+  compositeOffsetToLocation,
   loadScriveningsDocument,
   locationToCompositeOffset,
   resolveScriveningsWrite,
@@ -31,6 +32,15 @@ import {
   type ScriveningsStats,
   type ScriveningsWordCounts,
 } from "../utils/scrivenings-stats.js";
+import {
+  annotationHighlightField,
+  annotationDoubleClickExtension,
+  applyAnnotationHighlights,
+  type AnnotationHighlightInput,
+  type AnnotationDecorationTarget,
+  type AnchorRect,
+} from "../utils/cm-annotation-highlighter.js";
+import { loadAnnotations, annotationsForFile, resolveAnnotation, toManuscriptRelativePath } from "../services/annotations.js";
 import { t } from "../i18n/index.js";
 
 /**
@@ -122,7 +132,35 @@ export type ScriveningsViewPlugin = {
    * (~850 ms, voir PreviewView.onContinuDocumentChanged). Ne sauvegarde
    * rien, ne compile rien ici. */
   notifyContinuDocumentChanged?: (paths: readonly string[]) => void;
+  /** LOT 1.4 — menu contextuel Continu (main.ts#showScriveningsContextMenu) :
+   * construit et affiche le `Menu` Obsidian propre à Continu (Couper/Copier/
+   * Coller, Note de bas de page, Annotation, Noter une idée, Réorganiser le
+   * texte) à la place du menu natif Electron/macOS. Optionnel, même patron
+   * que les hooks ci-dessus : sans lui, le listener `contextmenu` de
+   * ScriveningsView ne fait rien (voir installContextMenuListener). */
+  showScriveningsContextMenu?: (view: ScriveningsView, event: MouseEvent) => void;
+  /** LOT 1.4 — double-clic sur une annotation DANS Continu (main.ts#openScriveningsAnnotation) :
+   * ouvre le MÊME AnnotationPopover que dans un MarkdownView (openAnnotationEditor),
+   * jamais un second popover. Optionnel, même patron que les hooks ci-dessus. */
+  openScriveningsAnnotation?: (
+    view: ScriveningsView,
+    id: string,
+    anchor: AnchorRect | AnnotationDecorationTarget
+  ) => void;
 };
+
+/** LOT 1.4 (§7) : contexte résolu d'un clic droit dans Continu — le segment
+ * concerné et les trois systèmes de coordonnées équivalents (composite,
+ * body local, fichier réel frontmatter compris). Jamais un second calcul de
+ * segment ailleurs : `ScriveningsView.resolveEditorContext` est l'unique
+ * point de résolution. */
+export interface ScriveningsEditorContext {
+  file: TFile;
+  segment: ScriveningsSegment;
+  compositeOffset: number;
+  bodyOffset: number;
+  fileOffset: number;
+}
 
 export interface ScriveningsSessionDeps {
   app: App;
@@ -293,7 +331,16 @@ export class ScriveningsSession {
 /* --- Typage local de la surface CodeMirror réellement utilisée ---------- */
 
 interface EditorStateInstance {
-  readonly doc: { length: number; toString(): string };
+  readonly doc: { length: number; toString(): string; sliceString(from: number, to?: number): string };
+  /* Surface PUBLIQUE CodeMirror utilisée par le contexte de clic (LOT 1.4,
+     §9) et par ScriveningsSegmentEditorAdapter — jamais un second système de
+     sélection : `main` est le SEUL curseur/plage réellement pertinent, une
+     multi-sélection composite n'existe pas dans Continu. */
+  readonly selection: { readonly main: { readonly from: number; readonly to: number; readonly empty: boolean } };
+  /* API PUBLIQUE CodeMirror — lit un StateField, ici uniquement
+     `paragraphReorderModeField` (main.ts#showScriveningsContextMenu, pour
+     cocher l'entrée « Réorganiser le texte » selon l'état déjà actif). */
+  field(field: unknown, required: false): unknown;
 }
 interface EditorStateStatic {
   create(config: { doc: string; extensions: unknown[] }): EditorStateInstance;
@@ -318,6 +365,15 @@ interface EditorViewInstance {
   readonly contentHeight: number;
   elementAtHeight(height: number): ScriveningsBlockInfo;
   lineBlockAt(pos: number): ScriveningsBlockInfo;
+  /* LOT 1.4 (§6, §9) : DOM racine de l'EditorView — c'est SUR CET ÉLÉMENT
+     qu'est installé l'UNIQUE listener `contextmenu` de Continu (jamais sur
+     `contentEl`/`scrollDOM` : `dom` couvre toute la zone d'édition réelle,
+     y compris les marges internes de CodeMirror). API PUBLIQUE CodeMirror,
+     même patron que `scrollDOM` ci-dessus. */
+  readonly dom: HTMLElement;
+  /* API PUBLIQUE CodeMirror — résout la position composite sous un point
+     écran (clic droit), utilisée UNIQUEMENT par `resolveEditorContext`. */
+  posAtCoords(coords: { x: number; y: number }): number | null;
 }
 interface EditorViewCtor {
   new (config: { state: EditorStateInstance; parent: HTMLElement }): EditorViewInstance;
@@ -491,6 +547,9 @@ export class ScriveningsView extends ItemView {
     // attendre que Preview ait fini son rendu avant de rendre Continu
     // utilisable : ni `await`, ni blocage du retour de cette méthode.
     void this.plugin.syncExistingPreviewScope?.(scope, restoreTarget);
+    // LOT 1.4 (§36) : annotations déjà existantes du nouveau scope, visibles
+    // immédiatement — jamais après la première frappe seulement.
+    void this.refreshAnnotationHighlights();
     return true;
   }
 
@@ -501,10 +560,22 @@ export class ScriveningsView extends ItemView {
     this.contentEl.empty();
     const host = this.contentEl.createDiv({ cls: "markdown-source-view mod-cm6 feuillets-scrivenings-view" });
 
-    const extensions = [...scriveningsExtensions, scriveningsChangeListener((changes) => this.handleEditorChanges(changes))];
+    const extensions = [
+      ...scriveningsExtensions,
+      scriveningsChangeListener((changes) => this.handleEditorChanges(changes)),
+      // LOT 1.4 (§33) : Continu possède son propre EditorState — jamais
+      // `registerEditorExtension()` — ces deux extensions sont donc montées
+      // ICI, pas dans `scriveningsExtensions` (cm-scrivenings.ts), qui reste
+      // partagée sans callback propre à une instance. Même moteur de
+      // décoration/double-clic que le MarkdownView natif (cm-annotation-
+      // highlighter.ts) : jamais un second système d'annotation.
+      annotationHighlightField,
+      annotationDoubleClickExtension((id, target) => this.plugin.openScriveningsAnnotation?.(this, id, target)),
+    ];
 
     const state = EditorStateTyped.create({ doc: document.text, extensions });
     this.cm = new EditorViewCtorTyped({ state, parent: host });
+    this.installContextMenuListener();
 
     setScriveningsDecorations(
       this.cm,
@@ -517,7 +588,39 @@ export class ScriveningsView extends ItemView {
     );
   }
 
+  /** Référence STABLE du listener effectivement enregistré — jamais
+   * `.bind(this)` inline (une nouvelle fonction à chaque appel empêcherait
+   * `removeEventListener` de jamais retrouver le même listener). `null`
+   * tant qu'aucun listener n'est installé. */
+  private boundContextMenuHandler: ((event: MouseEvent) => void) | null = null;
+
+  /** LOT 1.4 (§3, §6) : le clic droit dans Continu doit ouvrir le Menu
+   * Obsidian construit par Feuillets — jamais le menu natif Electron/macOS,
+   * jamais une tentative de modifier ce dernier. Sans hook plugin
+   * (`showScriveningsContextMenu` absent, ex. tests avec un plugin minimal),
+   * ce listener ne fait STRICTEMENT rien : le comportement natif Electron
+   * reste intercepté nulle part, exactement comme avant ce lot. */
+  private handleContextMenuEvent(event: MouseEvent): void {
+    if (!this.plugin.showScriveningsContextMenu) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.plugin.showScriveningsContextMenu(this, event);
+  }
+
+  private installContextMenuListener(): void {
+    this.boundContextMenuHandler = (event: MouseEvent) => this.handleContextMenuEvent(event);
+    this.cm?.dom.addEventListener("contextmenu", this.boundContextMenuHandler);
+  }
+
   private destroyEditor(): void {
+    // Un seul listener à la fois (§6) : toujours retiré AVANT destroy(),
+    // qu'il ait ou non été effectivement appelé depuis le montage — jamais
+    // deux instances vivantes en même temps lors d'une recomposition
+    // (destroyEditor()/mountEditor() s'enchaînent dans openScope()).
+    if (this.boundContextMenuHandler) {
+      this.cm?.dom.removeEventListener("contextmenu", this.boundContextMenuHandler);
+      this.boundContextMenuHandler = null;
+    }
     this.cm?.destroy();
     this.cm = null;
   }
@@ -925,6 +1028,114 @@ export class ScriveningsView extends ItemView {
   refreshHostTypography(): void {
     this.plugin.applyLiveTypoClasses?.();
     this.plugin.applyIndentClass?.();
+  }
+
+  /* ==================== Menu contextuel Continu (LOT 1.4) ================= */
+
+  /** Segment ACTUELLEMENT chargé pour `path`, ou `null` — lecture fraîche à
+   * chaque appel (jamais une copie figée) : c'est exactement la fonction
+   * attendue par `ScriveningsSegmentEditorAdapter` (voir main.ts
+   * #showScriveningsContextMenu) pour rester à jour après ses propres
+   * dispatches. */
+  getSegmentByPath(path: string): ScriveningsSegment | null {
+    return this.session.document?.segments.find((s) => s.path === path) ?? null;
+  }
+
+  /**
+   * Résout le contexte d'un clic droit (§7-9 du contrat) : le segment visé,
+   * les trois systèmes de coordonnées équivalents, et — AVANT tout —
+   * applique la règle de curseur/sélection attendue : une sélection non vide
+   * qui CONTIENT le point cliqué est conservée telle quelle ; sinon le caret
+   * est placé à la position du clic AVANT de construire les actions du menu
+   * (§9 — jamais de sélection effondrée simplement parce que le menu s'ouvre
+   * dessus). Réutilise `compositeOffsetToLocation` (services/scrivenings-
+   * document.ts) : aucun calcul DOM de segment ici.
+   *
+   * `null` si CodeMirror n'est pas monté, si aucun document n'est chargé, ou
+   * si le clic ne résout à aucune position valide.
+   */
+  resolveEditorContext(clientX: number, clientY: number): ScriveningsEditorContext | null {
+    const document = this.session.document;
+    if (!this.cm || !document) return null;
+
+    const pos = this.cm.posAtCoords({ x: clientX, y: clientY });
+    if (pos === null) return null;
+
+    const main = this.cm.state.selection.main;
+    const from = Math.min(main.from, main.to);
+    const to = Math.max(main.from, main.to);
+    const withinSelection = !main.empty && pos >= from && pos <= to;
+    if (!withinSelection) {
+      this.cm.dispatch({ selection: { anchor: pos, head: pos } });
+    }
+
+    const location = compositeOffsetToLocation(document, pos);
+    if (!location) return null;
+
+    return {
+      file: location.segment.file,
+      segment: location.segment,
+      compositeOffset: pos,
+      bodyOffset: location.offset,
+      fileOffset: location.segment.frontmatter.length + location.offset,
+    };
+  }
+
+  /* ==================== Annotations dans Continu (LOT 1.4) ================= */
+
+  /**
+   * Recharge et projette les décorations d'annotation sur le composite
+   * (§32-36 du contrat) — même moteur que le MarkdownView natif
+   * (`applyAnnotationHighlights`, cm-annotation-highlighter.ts), jamais un
+   * second système. Pour CHAQUE segment du scope actuel : ses annotations
+   * sont résolues (`resolveAnnotation`) contre son contenu ACTUEL
+   * (frontmatter + body VIVANT de CodeMirror, jamais relu depuis le disque —
+   * §35), puis converties en offsets composites :
+   *
+   *   bodyStart/bodyEnd = resolved.start/end - segment.frontmatter.length
+   *   compositeStart/compositeEnd = segment.from + bodyStart/bodyEnd
+   *
+   * Une annotation non résolue, ou dont la plage résolue tombe dans le
+   * frontmatter ou dépasse le body, n'est JAMAIS dessinée (§34).
+   */
+  async refreshAnnotationHighlights(): Promise<void> {
+    const document = this.session.document;
+    if (!this.cm || !document) return;
+
+    let store: Awaited<ReturnType<typeof loadAnnotations>>;
+    try {
+      store = await loadAnnotations(this.plugin.app, this.plugin.settings);
+    } catch {
+      applyAnnotationHighlights(this.cm, []);
+      return;
+    }
+
+    const inputs: AnnotationHighlightInput[] = [];
+    for (const segment of document.segments) {
+      const relPath = toManuscriptRelativePath(this.plugin.app, this.plugin.settings, segment.file);
+      if (relPath === null) continue;
+      const list = annotationsForFile(store, relPath);
+      if (list.length === 0) continue;
+
+      const fullContent = segment.frontmatter + segment.body;
+      for (const annotation of list) {
+        const resolved = resolveAnnotation(annotation, fullContent);
+        if (!resolved) continue; // non résolue : jamais devinée (§34)
+
+        const bodyStart = resolved.start - segment.frontmatter.length;
+        const bodyEnd = resolved.end - segment.frontmatter.length;
+        if (bodyStart < 0 || bodyEnd > segment.body.length || bodyEnd <= bodyStart) continue; // jamais le YAML, jamais hors segment
+
+        inputs.push({
+          id: annotation.id,
+          color: annotation.color,
+          style: annotation.style ?? "highlight",
+          range: { start: segment.from + bodyStart, end: segment.from + bodyEnd },
+        });
+      }
+    }
+
+    applyAnnotationHighlights(this.cm, inputs);
   }
 }
 

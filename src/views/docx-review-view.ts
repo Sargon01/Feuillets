@@ -121,6 +121,10 @@ type DocxReviewPlugin = Omit<DocxReviewPluginBase, "settings"> & {
   listCompiledFilePaths(): string[];
   snapshotFile(file: TFile, root: unknown): Promise<unknown>;
   titleFor(file: TFile): string;
+  _preloadAnnotationsCacheFor(file: TFile): Promise<void>;
+  _invalidateAnnotationsCache(): void;
+  annotationAtCursorFromCache(editor: unknown, file: TFile): unknown;
+  annotationAtEditorCursor(editor: unknown, file: TFile): Promise<unknown>;
 };
 type EditorLike = {
   getValue(): string;

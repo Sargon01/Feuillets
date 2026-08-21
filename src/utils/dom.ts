@@ -1,5 +1,6 @@
 import { setIcon, MarkdownView } from "obsidian";
-import type { App, Editor, TFile, WorkspaceLeaf } from "obsidian";
+import type { App, TFile, WorkspaceLeaf } from "obsidian";
+import type { FeuilletsEditorSurface } from "./scrivenings-editor-adapter.js";
 
 type ObsidianElement = HTMLElement & {
   createDiv(options: { cls: string }): ObsidianElement;
@@ -145,7 +146,7 @@ export async function openFileActivatingWithCursor(app: App, leaf: WorkspaceLeaf
  * particulier (notes de bas de page, résultats d'analyse…), pour être
  * réutilisé plutôt que ré-écrit à chaque nouvelle fonctionnalité de
  * navigation par offset. */
-export function selectRange(editor: Editor, start: number, end: number): void {
+export function selectRange(editor: FeuilletsEditorSurface, start: number, end: number): void {
   const max = editor.getValue().length;
   const from = editor.offsetToPos(Math.max(0, Math.min(max, start)));
   const to = editor.offsetToPos(Math.max(0, Math.min(max, end)));

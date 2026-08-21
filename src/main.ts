@@ -28,14 +28,17 @@ import {
   findDefinition,
   findReferences,
 } from "./utils/footnotes.js";
-import { openFileActivating, openFileAndSelectRange, selectRange } from "./utils/dom.js";
+import { openFileActivating, selectRange } from "./utils/dom.js";
+import type { FeuilletsEditorSurface } from "./utils/scrivenings-editor-adapter.js";
+import { ScriveningsSegmentEditorAdapter } from "./utils/scrivenings-editor-adapter.js";
 import { NotesView } from "./views/notes-view.js";
 import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
 import { JournalView } from "./views/journal-view.js";
 import { ProjectView } from "./views/project-view.js";
 import { PreviewView, openWithPreview } from "./views/preview-view.js";
-import { ScriveningsView } from "./views/scrivenings-view.js";
+import { ScriveningsView, type ScriveningsEditorContext } from "./views/scrivenings-view.js";
+import type { ScriveningsAdapterEditorView } from "./utils/scrivenings-editor-adapter.js";
 import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
 import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
@@ -91,33 +94,26 @@ import { FootnoteCheckModal } from "./ui/footnote-modals.js";
 import { FileStatsModal } from "./ui/stats-modal.js";
 import { AnnotationPopover } from "./ui/annotation-popover.js";
 import {
-  loadAnnotations,
-  addAnnotation,
-  updateAnnotation,
-  deleteAnnotation,
-  annotationsForFile,
-  resolveAnnotation,
   toManuscriptRelativePath,
   remapAnnotationsAfterRename,
-  type Annotation,
   type AnnotationColor,
   type AnnotationStyle,
-  type AnnotationsStore,
 } from "./services/annotations.js";
 import { addWorkNote, deleteWorkNote, updateWorkNote, remapWorkNotesAfterRename } from "./services/work-notes.js";
+import {
+  AnnotationEditorController,
+  DEFAULT_ANNOTATION_ANCHOR,
+  type AnnotationChangeCallback,
+} from "./services/annotation-editor-controller.js";
 
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
 import {
   annotationHighlightField,
   annotationDoubleClickExtension,
-  applyAnnotationHighlights,
-  clearAnnotationHighlights,
   coordsAtOffset,
-  type AnnotationHighlightInput,
   type AnnotationDecorationTarget,
   type AnchorRect,
-  type EditorViewInstance as AnnotationEditorViewInstance,
 } from "./utils/cm-annotation-highlighter.js";
 import { emptyLinesPlugin } from "./utils/cm-empty-lines.js";
 import { nativeReviewThreadHighlightField, nativeReviewThreadDoubleClickExtension, applyNativeReviewThreadHighlights, clearNativeReviewThreadHighlights } from "./utils/cm-native-review-highlighter.js";
@@ -128,7 +124,12 @@ import { loadNativeReviewThreads, addNativeReviewThread, setNativeReviewThreadRe
 import { NativeReviewThreadPopover } from "./ui/native-review-thread-popover.js";
 import { reviewSessionPaths, reviewerReviewStorageLocation, type NativeReviewStorageLocation } from "./services/native-review-storage.js";
 import { paragraphIndentPlugin } from "./utils/cm-paragraph-indent.js";
-import { createParagraphReorderExtension, toggleParagraphReorderMode, type ParagraphReorderViewLike } from "./utils/cm-paragraph-reorder.js";
+import {
+  createParagraphReorderExtension,
+  toggleParagraphReorderMode,
+  paragraphReorderModeField,
+  type ParagraphReorderViewLike,
+} from "./utils/cm-paragraph-reorder.js";
 import {
   grammarIssuesField,
   grammarContextMenuExtension,
@@ -160,7 +161,6 @@ import {
   type Editor,
   type WorkspaceSidedock,
   type WorkspaceMobileDrawer,
-  type App,
 } from "obsidian";
 
 const RIGHT_SIDEBAR_WIDTH = 280;
@@ -272,40 +272,13 @@ function isUnknownArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
-/** Longueur du contexte avant/après une annotation (quote exceptée) —
- * partagée par la création (prefix/suffix initiaux, createAnnotationFromSelection)
- * et le réancrage d'une modification (voir reanchorAnnotationPatch) : un
- * seul chiffre, jamais deux longueurs de contexte qui pourraient diverger. */
-const ANNOTATION_CONTEXT_LENGTH = 30;
-
-/**
- * Réancre une annotation EXISTANTE contre le texte ACTUEL de son fichier —
- * appelée à la sauvegarde (clic extérieur/Escape en modification, un
- * changement de couleur ou de style), jamais à la création, jamais pour une
- * annotation `unresolved` : si `resolveAnnotation` ne peut pas retrouver le
- * passage avec certitude, aucune position n'est inventée et cette fonction
- * ne modifie rien (`{}`, fusionné sans effet sur le patch appelant). Ne lit
- * que le fichier (jamais d'écriture Markdown) ; start/end/quote/prefix/suffix
- * sont recalculés à partir de CE contenu, jamais de celui capturé à
- * l'ouverture du popover — le texte a pu changer pendant qu'il restait
- * ouvert. Fonction libre (pas une méthode de FeuilletsPlugin) : les types
- * `plugin` structurels utilisés par les autres vues (NotesView, DocxReviewView…)
- * n'ont ainsi rien de nouveau à déclarer. */
-async function reanchorAnnotationPatch(app: App, settings: FeuilletsSettings | null | undefined, annotation: Annotation): Promise<Partial<Omit<Annotation, "id">>> {
-  const root = getProjectFolder(app, settings);
-  const targetFile = root ? app.vault.getAbstractFileByPath(`${root.path}/${annotation.file}`) : null;
-  if (!(targetFile instanceof TFile)) return {};
-  const content = await (app.vault.cachedRead?.(targetFile) ?? app.vault.read(targetFile));
-  const range = resolveAnnotation(annotation, content);
-  if (!range) return {};
-  return {
-    start: range.start,
-    end: range.end,
-    quote: content.slice(range.start, range.end),
-    prefix: content.slice(Math.max(0, range.start - ANNOTATION_CONTEXT_LENGTH), range.start),
-    suffix: content.slice(range.end, Math.min(content.length, range.end + ANNOTATION_CONTEXT_LENGTH)),
-  };
-}
+/* CORRECTIF (désengorger main.ts) : la logique « annotations dans un
+ * éditeur » — création/modification/suppression, menu contextuel unique
+ * « Annotation… », rafraîchissement des surlignages, préférences de session
+ * — vit désormais dans services/annotation-editor-controller.ts
+ * (AnnotationEditorController). ANNOTATION_CONTEXT_LENGTH, les types
+ * AnnotationChangeCallback/AnnotationContext et reanchorAnnotationPatch (qui
+ * vivaient tous ici) y ont été déplacés avec elle — jamais dupliqués. */
 
 const nativeReviewWorkingTitles = new Map<string, string>();
 /** Titres d'onglet pour la colonne comparée d'une Comparison ouverte (voir
@@ -407,14 +380,53 @@ class FeuilletsPlugin extends Plugin {
   declare applyPreset: ScenesEditorPlugin["applyPreset"];
   declare mergeManyScenes: ScenesEditorPlugin["mergeManyScenes"];
 
-  /** Préférence de session NON persistée du sous-menu « Annotation » du menu
-   *  contextuel de l'éditeur (même comportement que la Barre historique) :
-   *  style/couleur appliqués au clic, cochés au prochain menu, jamais écrits
-   *  dans les réglages. Volontairement public (comme `_binderMultiSelect`) :
-   *  les contrats de vue en Omit (notes-view/docx-review-view) reposent sur
-   *  les membres publics du plugin. */
-  annotationMenuStyle: AnnotationStyle = "highlight";
-  annotationMenuColor: AnnotationColor = "yellow";
+  /** CORRECTIF (désengorger main.ts) : propriétaire réel de la logique
+   * « annotations dans un éditeur » — voir services/annotation-editor-controller.ts.
+   * Getter privé à instanciation PARESSEUSE (une seule instance, jamais un
+   * singleton module-level) plutôt qu'une construction explicite dans
+   * `onload()` : de nombreux tests exercent `FeuilletsPlugin` via
+   * `Object.create(FeuilletsPlugin.prototype)` (le stub Obsidian de test
+   * n'exporte pas `Plugin`, une instanciation réelle échouerait), qui
+   * court-circuite le constructeur/`onload()` — la paresse garantit que
+   * `this.app`/`this.settings` (déjà posés par ces harnais avant tout appel)
+   * sont bien disponibles au moment de la construction, sans rien exiger de
+   * plus des tests existants. */
+  /** Volontairement PUBLIC (comme `annotationMenuStyle`/`_binderMultiSelect`
+   * ci-dessus) : un membre `private` sur cette classe n'est pas préservé
+   * correctement par les types `Omit<FeuilletsPlugin, …>` des contrats de
+   * vue (notes-view.ts/docx-review-view.ts), qui rendent alors `plugin`
+   * incompatible avec `FeuilletsPlugin` (TS2416 — « Property … is missing »)
+   * dès qu'un membre `private` y est ajouté. */
+  _annotationEditor?: AnnotationEditorController;
+  getAnnotationEditor(): AnnotationEditorController {
+    if (!this._annotationEditor) {
+      this._annotationEditor = new AnnotationEditorController({
+        app: this.app,
+        getSettings: () => this.settings,
+        getActiveEditor: () => this.activeEditorAnywhere(),
+        getActiveFile: () => this.app.workspace.getActiveFile(),
+      });
+    }
+    return this._annotationEditor;
+  }
+
+  /** Préférence de session NON persistée du menu contextuel « Annotation… »
+   *  — propriétée réellement par `AnnotationEditorController`, exposée ici
+   *  en accesseurs pour compatibilité (contrats de vue en Omit
+   *  notes-view/docx-review-view, tests ciblés qui les affectent
+   *  directement sur le plugin — voir annotation-context-menu-dedup.test.js). */
+  get annotationMenuStyle(): AnnotationStyle {
+    return this.getAnnotationEditor().annotationMenuStyle;
+  }
+  set annotationMenuStyle(value: AnnotationStyle) {
+    this.getAnnotationEditor().annotationMenuStyle = value;
+  }
+  get annotationMenuColor(): AnnotationColor {
+    return this.getAnnotationEditor().annotationMenuColor;
+  }
+  set annotationMenuColor(value: AnnotationColor) {
+    this.getAnnotationEditor().annotationMenuColor = value;
+  }
 
   /* Attachés dynamiquement par base-feuillets-view.ts (Binder, sélection
      multiple, glisser-déposer, recherche). openTagsModal : requis par
@@ -1635,70 +1647,80 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
         if (!(view instanceof MarkdownView) || !view.file || view.file.extension !== "md") return;
-        const content = editor.getValue();
-        const offset = editor.posToOffset(editor.getCursor());
-        const refId = referenceIdAtOffset(content, offset);
-        const defId = definitionIdAtOffset(content, offset);
-
         menu.addSeparator();
-        menu.addItem((item) => {
-          item.setTitle(t("editorMenu.footnote")).setIcon("list-plus");
-          const sub = item.setSubmenu();
-          sub.addItem((entry) =>
-            entry.setTitle(t("editorMenu.footnote.insert")).setIcon("list-plus").onClick(() => this.insertFootnote(editor))
-          );
-          if (refId) {
-            sub.addItem((entry) =>
-              entry
-                .setTitle(t("editorMenu.footnote.gotoDefinition"))
-                .setIcon("arrow-down-to-line")
-                .onClick(() => this.gotoFootnoteDefinition(editor))
-            );
-          }
-          if (defId) {
-            sub.addItem((entry) =>
-              entry
-                .setTitle(t("editorMenu.footnote.gotoReference"))
-                .setIcon("arrow-up-to-line")
-                .onClick(() => this.gotoFootnoteReference(editor))
-            );
-          }
-          sub.addSeparator();
-          sub.addItem((entry) =>
-            entry.setTitle(t("editorMenu.footnote.check")).onClick(() => this.checkFootnotesInEditor(editor))
-          );
-          sub.addItem((entry) =>
-            entry.setTitle(t("editorMenu.footnote.renumber")).onClick(() => this.renumberFootnotesInEditor(editor))
-          );
-        });
+        this.buildFootnoteEditorSubmenu(menu, editor);
       })
     );
   }
 
-  /* ---------- Annotations de relecture (surlignage éditeur, lot 3) ----------
-     Stockage/ancrage : services/annotations.ts (lot 1). Décorations
-     CodeMirror : utils/cm-annotation-highlighter.ts (lot 2). Ici : la
-     commande de création, l'entrée de menu contextuel, le modal, et le
-     chargement/rafraîchissement des surlignages du fichier actif — jamais
-     d'écriture dans le Markdown, jamais de nouveau système de stockage. */
+  /** LOT 1.4 (§23) : construction PURE du sous-menu « Note de bas de page »,
+   * extraite de `registerFootnoteContextMenu` (MarkdownView, `editor-menu`
+   * natif) pour être réutilisée TELLE QUELLE par le menu contextuel Continu
+   * (`showScriveningsContextMenu`, avec un `ScriveningsSegmentEditorAdapter`
+   * en lieu et place de l'`Editor` réel) — jamais un second moteur de notes
+   * de bas de page. Grammaire strictement inchangée : Insérer, [Aller à la
+   * note | Retourner à l'appel] contextuel au curseur, séparateur, Vérifier,
+   * Renuméroter. */
+  buildFootnoteEditorSubmenu(menu: Menu, editor: FeuilletsEditorSurface): void {
+    const content = editor.getValue();
+    const offset = editor.posToOffset(editor.getCursor());
+    const refId = referenceIdAtOffset(content, offset);
+    const defId = definitionIdAtOffset(content, offset);
 
-  /** L'instance EditorView de CodeMirror 6 (view.editor.cm) — même accès
-   * non typé que runAnalysisCommand pour applyGrammarHighlights : `cm`
-   * n'est pas déclaré dans obsidian.d.ts. */
-  annotationCmView(editor: Editor | null): AnnotationEditorViewInstance | null {
-    if (!editor) return null;
-    const cm = (editor as unknown as Record<string, unknown>).cm;
-    return (cm as AnnotationEditorViewInstance) ?? null;
+    menu.addItem((item) => {
+      item.setTitle(t("editorMenu.footnote")).setIcon("list-plus");
+      const sub = item.setSubmenu();
+      sub.addItem((entry) =>
+        entry.setTitle(t("editorMenu.footnote.insert")).setIcon("list-plus").onClick(() => this.insertFootnote(editor))
+      );
+      if (refId) {
+        sub.addItem((entry) =>
+          entry
+            .setTitle(t("editorMenu.footnote.gotoDefinition"))
+            .setIcon("arrow-down-to-line")
+            .onClick(() => this.gotoFootnoteDefinition(editor))
+        );
+      }
+      if (defId) {
+        sub.addItem((entry) =>
+          entry
+            .setTitle(t("editorMenu.footnote.gotoReference"))
+            .setIcon("arrow-up-to-line")
+            .onClick(() => this.gotoFootnoteReference(editor))
+        );
+      }
+      sub.addSeparator();
+      sub.addItem((entry) =>
+        entry.setTitle(t("editorMenu.footnote.check")).onClick(() => this.checkFootnotesInEditor(editor))
+      );
+      sub.addItem((entry) =>
+        entry.setTitle(t("editorMenu.footnote.renumber")).onClick(() => this.renumberFootnotesInEditor(editor))
+      );
+    });
   }
 
-  /** Disponible seulement avec une sélection non vide, dans un fichier
-   * Markdown du Manuscrit d'un projet Feuillets (voir
-   * toManuscriptRelativePath) — jamais hors de ce sous-arbre. */
+  /* ---------- Annotations de relecture (surlignage éditeur, lot 3) ----------
+     Stockage/ancrage : services/annotations.ts (lot 1). Décorations
+     CodeMirror : utils/cm-annotation-highlighter.ts (lot 2). Logique métier
+     (création/modification/suppression, résolution du contexte du menu,
+     rafraîchissement) : services/annotation-editor-controller.ts
+     (AnnotationEditorController, voir le getter `annotationEditor`
+     ci-dessus) — main.ts ne garde ici que le CÂBLAGE Obsidian : commande
+     palette, événement `editor-menu`, wrappers de compatibilité pour les
+     contrats de vue existants (NotesView, DocxReviewView) et les tests
+     ciblés. Jamais une seconde implémentation métier ici. */
+
+  /** Wrapper mince — voir `AnnotationEditorController#annotationCmView`.
+   * Conservé sur le plugin : utilisé directement par
+   * `createNativeReviewThread` (relecture native, hors périmètre de ce
+   * contrôleur) et par des tests ciblés. */
+  annotationCmView(editor: FeuilletsEditorSurface | null) {
+    return this.getAnnotationEditor().annotationCmView(editor);
+  }
+
+  /** Wrapper mince — voir `AnnotationEditorController#canAnnotateSelection`. */
   canAnnotateSelection(): boolean {
-    const editor = this.activeEditorAnywhere();
-    if (!editor || !editor.somethingSelected()) return false;
-    const file = this.app.workspace.getActiveFile();
-    return !!file && toManuscriptRelativePath(this.app, this.settings, file) !== null;
+    return this.getAnnotationEditor().canAnnotateSelection();
   }
 
   registerAnnotationCommands(): void {
@@ -1723,7 +1745,11 @@ class FeuilletsPlugin extends Plugin {
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
         if (!(view instanceof MarkdownView) || !view.file) return;
         if (toManuscriptRelativePath(this.app, this.settings, view.file) !== null) {
-          this.buildAnnotationEditorSubmenu(menu, editor, view.file);
+          // CORRECTIF (StateField comme source de vérité) : le contrôleur
+          // résout lui-même le contexte (existing/selection/none) à partir
+          // du `annotationHighlightField` déjà monté — jamais recalculé au
+          // clic, jamais annotations.json, jamais de cache miroir.
+          this.getAnnotationEditor().addContextMenuItem(menu, editor, view.file);
         }
         if (this.getProjectFolder()) {
           menu.addItem((item) =>
@@ -1798,285 +1824,60 @@ class FeuilletsPlugin extends Plugin {
     );
   }
 
-  /** Construction du sous-menu « Annotation » — hérite de la logique
-   *  fonctionnelle du prototype de la Barre (menus natifs Style/Couleur/
-   *  commentaire, préférence de session non persistée) posée sur le clic
-   *  droit de l'éditeur. Les actions style/couleur sont désactivées sans
-   *  sélection annotable ; le commentaire « Ajouter / modifier… » reste
-   *  possible sur une annotation déjà présente au curseur. */
-  buildAnnotationEditorSubmenu(menu: Menu, editor: Editor, file: TFile): void {
-    const hasSelection = editor.somethingSelected();
-    menu.addItem((item) => {
-      item.setTitle(t("editorMenu.annotation")).setIcon("highlighter");
-      const sub = item.setSubmenu();
-
-      sub.addItem((i) => i.setTitle(t("editorMenu.annotation.style")).setDisabled(true));
-      const styles: Array<AnnotationStyle> = ["highlight", "underline", "strikethrough"];
-      for (const style of styles) {
-        sub.addItem((i) => {
-          i.setTitle(t(`editorMenu.annotation.style.${style}`));
-          if (!hasSelection) i.setDisabled(true);
-          else i.setChecked(this.annotationMenuStyle === style);
-          i.onClick(() => {
-            this.annotationMenuStyle = style;
-            void this.applyAnnotationOrUpdate(editor, file, style, this.annotationMenuColor);
-          });
-        });
-      }
-
-      sub.addSeparator();
-      sub.addItem((i) => i.setTitle(t("editorMenu.annotation.color")).setDisabled(true));
-      const colors: Array<AnnotationColor> = ["yellow", "green", "blue", "pink"];
-      for (const color of colors) {
-        sub.addItem((i) => {
-          i.setTitle(t(`annotation.popover.color.${color}`));
-          if (!hasSelection) i.setDisabled(true);
-          else i.setChecked(this.annotationMenuColor === color);
-          i.onClick(() => {
-            this.annotationMenuColor = color;
-            void this.applyAnnotationOrUpdate(editor, file, this.annotationMenuStyle, color);
-          });
-        });
-      }
-
-      sub.addSeparator();
-      sub.addItem((i) =>
-        i
-          .setTitle(t("editorMenu.annotation.comment"))
-          .setIcon("message-square")
-          .onClick(() => void this.openAnnotationCommentForContext(editor, file, this.annotationMenuStyle, this.annotationMenuColor))
-      );
-    });
-  }
-
-  /** Position de repli du popover d'annotation quand aucune ancre réelle
-   * n'a pu être calculée (ex. « Modifier » depuis la page centralisée
-   * Annotations, où aucune décoration n'est visible à l'écran) — un coin
-   * raisonnable plutôt qu'un crash ou un refus d'ouvrir. */
-  static readonly DEFAULT_ANNOTATION_ANCHOR: AnchorRect = { left: 24, right: 24, top: 24, bottom: 24 };
-
-  /** Capture le texte sélectionné, ses offsets et un peu de contexte
-   * avant/après (utilisés par resolveAnnotation si le texte bouge un peu
-   * plus tard), puis ouvre le popover ancré près de la sélection —
-   * n'écrit dans annotations.json qu'à la fermeture du popover (voir
-   * AnnotationPopover.close), jamais avant, jamais dans le Markdown.
-   * `cancelOnEscape: true` : Escape sur une création ANNULE, aucune
-   * annotation vide n'est créée — un clic extérieur, lui, sauvegarde
-   * toujours (voir le contrat de AnnotationPopover). */
-  async createAnnotationFromSelection(
-    editorOverride?: Editor,
+  /** Wrapper mince — voir `AnnotationEditorController#createAnnotationFromSelection`
+   * (verrou anti-doublon §16-17 y compris). Conservé sur le plugin :
+   * commande palette (`registerAnnotationCommands`) et tests ciblés. Le
+   * repli explicite sur `this.refreshAnnotationHighlights()` (plutôt que de
+   * laisser le contrôleur appliquer son propre repli interne) préserve le
+   * comportement MarkdownView historique : cette méthode PLUGIN reste
+   * remplaçable/espionnable par les tests existants. */
+  createAnnotationFromSelection(
+    editorOverride?: FeuilletsEditorSurface,
     fileOverride?: TFile,
-    initial?: { style?: AnnotationStyle; color?: AnnotationColor }
+    initial?: { style?: AnnotationStyle; color?: AnnotationColor },
+    onAnnotationChange: AnnotationChangeCallback = () => this.refreshAnnotationHighlights()
   ): Promise<void> {
-    const editor = editorOverride ?? this.activeEditorAnywhere();
-    const file = fileOverride ?? this.app.workspace.getActiveFile();
-    const relPath = file ? toManuscriptRelativePath(this.app, this.settings, file) : null;
-    const selection = this.currentSelectionRange(editor ?? undefined);
-    if (!editor || relPath === null || !selection) {
-      new Notice(t("annotation.notice.noSelection"));
-      return;
-    }
-
-    const content = editor.getValue();
-    const CONTEXT_LENGTH = ANNOTATION_CONTEXT_LENGTH;
-    const quote = content.slice(selection.start, selection.end);
-    const prefix = content.slice(Math.max(0, selection.start - CONTEXT_LENGTH), selection.start);
-    const suffix = content.slice(selection.end, Math.min(content.length, selection.end + CONTEXT_LENGTH));
-
-    const cm = this.annotationCmView(editor);
-    const anchor =
-      coordsAtOffset(cm, selection.end) ??
-      coordsAtOffset(cm, selection.start) ??
-      FeuilletsPlugin.DEFAULT_ANNOTATION_ANCHOR;
-
-    new AnnotationPopover({
-      parentEl: document.body,
-      anchor,
-      text: "",
-      color: initial?.color ?? "yellow",
-      style: initial?.style ?? "highlight",
-      cancelOnEscape: true,
-      onSave: async (text, color, style) => {
-        await addAnnotation(this.app, this.settings, {
-          file: relPath,
-          start: selection.start,
-          end: selection.end,
-          quote,
-          prefix,
-          suffix,
-          text,
-          color,
-          style,
-        });
-        await this.refreshAnnotationHighlights();
-      },
-    }).open();
+    return this.getAnnotationEditor().createAnnotationFromSelection(editorOverride, fileOverride, initial, onAnnotationChange);
   }
 
-  /** Annotation visuelle IMMÉDIATE (sous-menu Annotation du menu contextuel
-   *  de l'éditeur) : enregistre l'annotation sur la sélection avec la
-   *  préférence de session, sans popover obligatoire ; si une annotation
-   *  existante recouvre EXACTEMENT la sélection, elle est MODIFIÉE (jamais
-   *  de doublon de stockage). Retourne false (avec notice) sans sélection,
-   *  hors manuscrit, ou sur écriture impossible — jamais d'exception. */
-  async applyAnnotationOrUpdate(
-    editor: Editor,
+  /** Wrapper mince — voir `AnnotationEditorController#applyAnnotationOrUpdate`.
+   * Le menu contextuel ne l'appelle plus (voir `registerAnnotationContextMenu`/
+   * `showScriveningsContextMenu`) : conservé pour compatibilité (tests ciblés).
+   * Même repli explicite que `createAnnotationFromSelection` ci-dessus. */
+  applyAnnotationOrUpdate(
+    editor: FeuilletsEditorSurface,
     file: TFile,
     style: AnnotationStyle,
-    color: AnnotationColor
+    color: AnnotationColor,
+    onAnnotationChange: AnnotationChangeCallback = () => this.refreshAnnotationHighlights()
   ): Promise<boolean> {
-    const relPath = file ? toManuscriptRelativePath(this.app, this.settings, file) : null;
-    const selection = this.currentSelectionRange(editor);
-    if (relPath === null || !selection || selection.start === selection.end) {
-      new Notice(t("annotation.notice.noSelection"));
-      return false;
-    }
-    const content = editor.getValue();
-    const CONTEXT_LENGTH = ANNOTATION_CONTEXT_LENGTH;
-    const quote = content.slice(selection.start, selection.end);
-    const prefix = content.slice(Math.max(0, selection.start - CONTEXT_LENGTH), selection.start);
-    const suffix = content.slice(selection.end, Math.min(content.length, selection.end + CONTEXT_LENGTH));
-    try {
-      const store = await loadAnnotations(this.app, this.settings);
-      const existing = store.annotations.find((annotation) => {
-        if (annotation.file !== relPath) return false;
-        const range = resolveAnnotation(annotation, content);
-        return range ? range.start === selection.start && range.end === selection.end : false;
-      });
-      if (existing) {
-        await updateAnnotation(this.app, this.settings, existing.id, { color, style });
-      } else {
-        await addAnnotation(this.app, this.settings, {
-          file: relPath,
-          start: selection.start,
-          end: selection.end,
-          quote,
-          prefix,
-          suffix,
-          text: "",
-          color,
-          style,
-        });
-      }
-    } catch {
-      new Notice(t("annotation.notice.corrupted"));
-      return false;
-    }
-    await this.refreshAnnotationHighlights();
-    return true;
+    return this.getAnnotationEditor().applyAnnotationOrUpdate(editor, file, style, color, onAnnotationChange);
   }
 
-  /** « Ajouter / modifier un commentaire… » (sous-menu Annotation du menu
-   *  contextuel de l'éditeur) : sélection →
-   *  nouveau commentaire (popover, style/couleur initiaux) ; sinon une
-   *  annotation existante dont l'ancre recouvre le curseur → modification
-   *  (openAnnotationEditor) ; sinon rien à commenter. */
-  async openAnnotationCommentForContext(
-    editor: Editor,
+  /** Wrapper mince — voir `AnnotationEditorController#openAnnotationCommentForContext`.
+   * Conservé pour compatibilité (§8 du correctif précédent) : le menu
+   * contextuel route directement via `addContextMenuItem`, jamais via elle.
+   * Même repli explicite que `createAnnotationFromSelection` ci-dessus. */
+  openAnnotationCommentForContext(
+    editor: FeuilletsEditorSurface,
     file: TFile,
     style: AnnotationStyle,
-    color: AnnotationColor
+    color: AnnotationColor,
+    onAnnotationChange: AnnotationChangeCallback = () => this.refreshAnnotationHighlights()
   ): Promise<void> {
-    const relPath = file ? toManuscriptRelativePath(this.app, this.settings, file) : null;
-    if (relPath === null) {
-      new Notice(t("annotation.notice.noSelection"));
-      return;
-    }
-    const selection = this.currentSelectionRange(editor);
-    if (selection && selection.start !== selection.end) {
-      await this.createAnnotationFromSelection(editor, file, { style, color });
-      return;
-    }
-    try {
-      const store = await loadAnnotations(this.app, this.settings);
-      const content = editor.getValue();
-      const offset = editor.posToOffset(editor.getCursor());
-      const candidate = store.annotations.find((annotation) => {
-        if (annotation.file !== relPath) return false;
-        const range = resolveAnnotation(annotation, content);
-        return range ? offset >= range.start && offset <= range.end : false;
-      });
-      if (!candidate) {
-        new Notice(t("annotation.notice.noSelection"));
-        return;
-      }
-      await this.openAnnotationEditor(candidate.id);
-    } catch {
-      new Notice(t("annotation.notice.corrupted"));
-    }
+    return this.getAnnotationEditor().openAnnotationCommentForContext(editor, file, style, color, onAnnotationChange);
   }
 
-  /** Ouvre le popover en modification pour l'annotation `id`, près de
-   * `anchor` — appelé par le double-clic sur une décoration
-   * (annotationDoubleClickExtension, qui transmet l'élément décoré comme
-   * ancre) et, depuis le lot 4, par l'action « Modifier » de la page
-   * centralisée Annotations (NotesView.renderAnnotationRow, sans ancre :
-   * repli sur DEFAULT_ANNOTATION_ANCHOR). `onChange` est un point
-   * d'extension MINIMAL pour ce second appelant : NotesView n'a besoin de
-   * rien de plus que d'être prévenue une fois la sauvegarde/suppression
-   * effectuée, pour rerendre sa propre liste — le popover, la persistance
-   * (update/deleteAnnotation) et le rafraîchissement CodeMirror restent
-   * ICI, jamais dupliqués ailleurs. */
-  async openAnnotationEditor(
-    id: string,
-    onChange?: () => void,
-    anchor?: AnchorRect | AnnotationDecorationTarget
-  ): Promise<void> {
-    let store: AnnotationsStore;
-    try {
-      store = await loadAnnotations(this.app, this.settings);
-    } catch {
-      new Notice(t("annotation.notice.corrupted"));
-      return;
-    }
-    const annotation = store.annotations.find((a) => a.id === id);
-    if (!annotation) return;
-
-    let resolvedAnchor = anchor;
-    if (!resolvedAnchor) {
-      const root = this.getProjectFolder();
-      const targetFile = root ? this.app.vault.getAbstractFileByPath(`${root.path}/${annotation.file}`) : null;
-      if (targetFile instanceof TFile && this.app.workspace.getLeaf) {
-        const content = await (this.app.vault.cachedRead?.(targetFile) ?? this.app.vault.read(targetFile));
-        const range = resolveAnnotation(annotation, content);
-        if (range) {
-          await openFileAndSelectRange(this.app, this.app.workspace.getLeaf(false), targetFile, range.start, range.end);
-          await this.refreshAnnotationHighlights();
-          await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-          const candidates = Array.from(document.querySelectorAll<HTMLElement>(`[data-annotation-id="${CSS.escape(id)}"]`));
-          resolvedAnchor = candidates.find((el) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; }) ?? this.app.workspace.getActiveViewOfType(MarkdownView)?.contentEl.querySelector<HTMLElement>(".cm-editor") ?? undefined;
-        }
-      }
-    }
-    new AnnotationPopover({
-      parentEl: document.body,
-      anchor: resolvedAnchor ?? FeuilletsPlugin.DEFAULT_ANNOTATION_ANCHOR,
-      text: annotation.text,
-      color: annotation.color,
-      style: annotation.style ?? "highlight",
-      onStyleChange: async (style) => {
-        await updateAnnotation(this.app, this.settings, id, { style, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
-        await this.refreshAnnotationHighlights();
-      },
-      onColorChange: async (color) => {
-        await updateAnnotation(this.app, this.settings, id, { color, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
-        await this.refreshAnnotationHighlights();
-      },
-      onSave: async (text, color, style) => {
-        await updateAnnotation(this.app, this.settings, id, { text, color, style, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
-        await this.refreshAnnotationHighlights();
-        onChange?.();
-      },
-      onDelete: async () => {
-        await deleteAnnotation(this.app, this.settings, id);
-        await this.refreshAnnotationHighlights();
-        onChange?.();
-      },
-    }).open();
+  /** Wrapper mince — voir `AnnotationEditorController#openAnnotationEditor`.
+   * Conservé sur le plugin : requis par le contrat de vue `NotesView`
+   * (NotesViewPlugin, notes-view.ts), le double-clic sur une décoration
+   * (`annotationDoubleClickExtension` ci-dessous) et des tests ciblés. */
+  openAnnotationEditor(id: string, onChange?: () => void, anchor?: AnchorRect | AnnotationDecorationTarget): Promise<void> {
+    return this.getAnnotationEditor().openAnnotationEditor(id, onChange, anchor);
   }
 
   async openWorkNoteEditor(file: TFile, id: string | null, initialText: string, onChange: () => void, legacy = false, sidebarAnchor?: HTMLElement): Promise<void> {
-    const anchor = sidebarAnchor ?? FeuilletsPlugin.DEFAULT_ANNOTATION_ANCHOR;
+    const anchor = sidebarAnchor ?? DEFAULT_ANNOTATION_ANCHOR;
     new AnnotationPopover({ parentEl: document.body, anchor, text: initialText, color: "yellow", showColors: false, showStyles: false,
       onSave: async (text) => {
         if (legacy) await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => { frontmatter.notes = text; });
@@ -2088,54 +1889,21 @@ class FeuilletsPlugin extends Plugin {
     }).open();
   }
 
-  /** Recharge les annotations du fichier actif, les résout avec
-   * resolveAnnotation() et transmet uniquement les annotations résolues au
-   * highlighter — nettoie si le fichier n'a aucune annotation ou n'est pas
-   * dans le Manuscrit. Appelé au changement de fichier/feuillet actif
-   * seulement (voir registerAnnotationHighlightSync) : jamais à chaque
-   * frappe, CodeMirror mappe déjà les décorations existantes via
-   * tr.changes. */
-  async refreshAnnotationHighlights(): Promise<void> {
-    const editor = this.activeEditorAnywhere();
-    const cm = this.annotationCmView(editor);
-    if (!cm) return;
-
-    const file = this.app.workspace.getActiveFile();
-    const relPath = file ? toManuscriptRelativePath(this.app, this.settings, file) : null;
-    if (relPath === null) {
-      clearAnnotationHighlights(cm);
-      return;
-    }
-
-    let store: AnnotationsStore;
-    try {
-      store = await loadAnnotations(this.app, this.settings);
-    } catch {
-      clearAnnotationHighlights(cm);
-      return;
-    }
-
-    const list = annotationsForFile(store, relPath);
-    if (list.length === 0) {
-      clearAnnotationHighlights(cm);
-      return;
-    }
-
-    const content = editor ? editor.getValue() : "";
-    const inputs: AnnotationHighlightInput[] = list.map((a) => ({
-      id: a.id,
-      color: a.color,
-      style: a.style ?? "highlight",
-      range: resolveAnnotation(a, content),
-    }));
-    applyAnnotationHighlights(cm, inputs);
+  /** Wrapper mince — voir `AnnotationEditorController#refreshActiveHighlights`.
+   * Conservé sous ce nom : requis par le contrat de vue `NotesView`
+   * (NotesViewPlugin, notes-view.ts) et par des tests ciblés. */
+  refreshAnnotationHighlights(): Promise<void> {
+    return this.getAnnotationEditor().refreshActiveHighlights();
   }
 
   /** Événements Workspace déjà utilisés ailleurs dans main.ts pour ce genre
    * de resynchronisation (voir registerStatusBar, registerLiveTypography) —
    * pas d'écoute "editor-change" ici : ce serait un scan à chaque frappe,
    * inutile puisque CodeMirror mappe déjà les décorations existantes. La
-   * gestion de plusieurs panneaux ouverts simultanément reste au lot 5. */
+   * gestion de plusieurs panneaux ouverts simultanément reste au lot 5.
+   * CORRECTIF (suppression du cache) : plus de préchargement — le
+   * contrôleur lit directement le StateField déjà monté, jamais un cache
+   * miroir susceptible de désynchroniser du refresh qui suit. */
   registerAnnotationHighlightSync(): void {
     const refresh = () => void this.refreshAnnotationHighlights();
     this.registerEvent(this.app.workspace.on("file-open", refresh));
@@ -2196,7 +1964,7 @@ class FeuilletsPlugin extends Plugin {
     const sessions = await listNativeReviewSessions(this.app, this.settings); const entry = sessions.find((item) => item.session?.reviewId === reviewId); const session = entry?.session;
     const documentInfo = session?.documents.find((document) => document.localSourcePath === view.file?.path); if (!session || !documentInfo) return;
     const start = editor.posToOffset(editor.getCursor("from")); const end = editor.posToOffset(editor.getCursor("to")); if (start === end) return;
-    const anchor = this.annotationCmView(editor) && coordsAtOffset(this.annotationCmView(editor), end) || FeuilletsPlugin.DEFAULT_ANNOTATION_ANCHOR;
+    const anchor = this.annotationCmView(editor) && coordsAtOffset(this.annotationCmView(editor), end) || DEFAULT_ANNOTATION_ANCHOR;
     new AnnotationPopover({ parentEl: document.body, anchor, text: "", color: "yellow", onSave: async (text, color, style) => { await addNativeReviewThread(this.app, reviewId, documentInfo.documentId, start, end, text, { color, style }, entry?.location); await this.refreshNativeReviewDecorations(); } }).open();
   }
 
@@ -2559,6 +2327,176 @@ class FeuilletsPlugin extends Plugin {
         return;
       }
     }
+  }
+
+  /* ==================== LOT 1.4 — Menu contextuel Continu =================
+   * Dans Continu, l'EditorView est créé directement par Feuillets : le clic
+   * droit ne reçoit jamais le `editor-menu` natif d'Obsidian (réservé aux
+   * MarkdownView) — sans ce hook, c'est le menu natif Electron/macOS qui
+   * apparaît (Look up/Cut/Copy/Paste…). `ScriveningsView#installContextMenuListener`
+   * installe un UNIQUE listener `contextmenu` qui, ce hook présent, appelle
+   * CETTE méthode — jamais de tentative de modifier le menu natif lui-même
+   * (§3, §48). Grammaire EXACTE (§2, §46) : Couper/Copier/Coller, puis Note
+   * de bas de page / Annotation / Noter une idée, puis Réorganiser le texte
+   * — JAMAIS Scinder/Dupliquer/Déplacer ni aucune autre action structurelle
+   * ou de gestion Binder : Continu reste un espace d'ÉCRITURE. */
+  showScriveningsContextMenu(view: ScriveningsView, event: MouseEvent): void {
+    const context = view.resolveEditorContext(event.clientX, event.clientY);
+    const editorView = view.editorView;
+    if (!context || !editorView) return;
+
+    const adapter = new ScriveningsSegmentEditorAdapter(editorView, context.segment.path, (path) => view.getSegmentByPath(path));
+
+    const menu = new Menu();
+    this.buildScriveningsClipboardMenu(menu, view, context, adapter);
+    menu.addSeparator();
+    this.buildFootnoteEditorSubmenu(menu, adapter);
+    // CORRECTIF (StateField comme source de vérité, coordonnées composites) :
+    // le contrôleur lit `annotationHighlightField` directement sur
+    // `editorView` (composite) — jamais annotations.json, jamais de cache,
+    // jamais l'espace de coordonnées FICHIER de `adapter` (§13 du contrat) :
+    // curseur = context.compositeOffset ; sélection = la sélection composite
+    // SEULEMENT si entièrement contenue dans ce segment (même définition que
+    // Couper/Coller ci-dessus, scriveningsSelectionWithinSegment).
+    const editorViewForSelection = editorView as unknown as ScriveningsAdapterEditorView;
+    const main = editorViewForSelection.state.selection.main;
+    const withinSegment = this.scriveningsSelectionWithinSegment(editorViewForSelection, context.segment);
+    // Micro-correctif (« annotation créée non visible immédiatement en
+    // Continu ») : le callback de refresh explicite de CETTE vue — jamais
+    // this.refreshAnnotationHighlights() (méthode « fichier actif », qui ne
+    // reconnaît jamais Continu comme tel).
+    this.getAnnotationEditor().addContextMenuItem(menu, adapter, context.segment.file, {
+      onAnnotationChange: () => view.refreshAnnotationHighlights(),
+      visualCoordinates: {
+        editorView,
+        cursorOffset: context.compositeOffset,
+        selection: withinSegment ? { from: main.from, to: main.to } : undefined,
+      },
+    });
+    if (this.getProjectFolder()) {
+      menu.addItem((item) =>
+        item.setTitle(t("editorMenu.captureIdea")).setIcon("pen-line").onClick(() => this.openCaptureIdeaModal())
+      );
+    }
+    menu.addSeparator();
+    menu.addItem((item) => {
+      const active = !!editorView.state.field(paragraphReorderModeField, false);
+      item.setTitle(t("editorMenu.reorderParagraphs")).setIcon("move-vertical");
+      item.setChecked(active);
+      item.onClick(() => toggleParagraphReorderMode(editorView as unknown as ParagraphReorderViewLike));
+    });
+
+    menu.showAtMouseEvent(event);
+  }
+
+  /** Vrai seulement si la sélection composite courante est non vide ET
+   * entièrement contenue dans `segment` — même définition que
+   * `ScriveningsSegmentEditorAdapter#somethingSelected`, dupliquée ici en une
+   * ligne plutôt que dépendre d'un accès privé de l'adaptateur : c'est ce qui
+   * décide, au niveau du MENU (pas de l'adaptateur), quelles actions
+   * Couper/Coller sont activées (§15, §17-19). */
+  scriveningsSelectionWithinSegment(editorView: ScriveningsAdapterEditorView, segment: ScriveningsEditorContext["segment"]): boolean {
+    const main = editorView.state.selection.main;
+    return !main.empty && main.from >= segment.from && main.to <= segment.to;
+  }
+
+  /** §16-20 : Couper / Copier / Coller — jamais `document.execCommand`, jamais
+   * un second système de presse-papiers maison. Copier peut traverser
+   * plusieurs feuillets (ne modifie rien) ; Couper et Coller-sur-sélection
+   * sont désactivés dès que la sélection déborde du segment sous le clic. */
+  buildScriveningsClipboardMenu(
+    menu: Menu,
+    view: ScriveningsView,
+    context: ScriveningsEditorContext,
+    adapter: ScriveningsSegmentEditorAdapter
+  ): void {
+    const editorView = view.editorView as unknown as ScriveningsAdapterEditorView | null;
+    if (!editorView) return;
+    const main = editorView.state.selection.main;
+    const hasSelection = !main.empty;
+    const withinSegment = this.scriveningsSelectionWithinSegment(editorView, context.segment);
+
+    menu.addItem((item) => {
+      item.setTitle(t("editorMenu.cut")).setIcon("scissors");
+      item.setDisabled(!withinSegment);
+      item.onClick(() => void this.scriveningsCut(editorView, context, adapter));
+    });
+    menu.addItem((item) => {
+      item.setTitle(t("editorMenu.copy")).setIcon("copy");
+      item.setDisabled(!hasSelection);
+      item.onClick(() => void this.scriveningsCopy(editorView));
+    });
+    menu.addItem((item) => {
+      item.setTitle(t("editorMenu.paste")).setIcon("clipboard");
+      item.setDisabled(hasSelection && !withinSegment);
+      item.onClick(() => void this.scriveningsPaste(editorView, context, adapter));
+    });
+  }
+
+  /** §17 : le texte EXACT de la sélection est copié dans le presse-papiers
+   * AVANT toute suppression ; la suppression (une seule transaction, via
+   * l'adaptateur) n'a lieu QUE si cette écriture réussit. Un échec clipboard
+   * ne supprime jamais le texte (§20). */
+  async scriveningsCut(
+    editorView: ScriveningsAdapterEditorView,
+    context: ScriveningsEditorContext,
+    adapter: ScriveningsSegmentEditorAdapter
+  ): Promise<void> {
+    if (!this.scriveningsSelectionWithinSegment(editorView, context.segment)) return;
+    const text = adapter.getSelection();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      return; // §20 : échec clipboard, jamais de suppression
+    }
+    adapter.replaceSelection("");
+  }
+
+  /** §18 : peut traverser plusieurs segments (ne modifie jamais rien) — lit
+   * directement le composite CodeMirror, jamais via un adaptateur borné à un
+   * seul segment. */
+  async scriveningsCopy(editorView: ScriveningsAdapterEditorView): Promise<void> {
+    const main = editorView.state.selection.main;
+    if (main.empty) return;
+    const text = editorView.state.doc.sliceString(Math.min(main.from, main.to), Math.max(main.from, main.to));
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // §20 : échec clipboard, no-op propre — jamais casser le menu
+    }
+  }
+
+  /** §19-20 : sélection vide → insertion au caret ; sélection dans le même
+   * segment → remplacement ; sélection cross-segment → no-op (déjà désactivé
+   * au niveau du menu, revérifié ici en défense). Une seule transaction
+   * CodeMirror, jamais d'écriture Vault directe. */
+  async scriveningsPaste(
+    editorView: ScriveningsAdapterEditorView,
+    context: ScriveningsEditorContext,
+    adapter: ScriveningsSegmentEditorAdapter
+  ): Promise<void> {
+    const main = editorView.state.selection.main;
+    if (!main.empty && (main.from < context.segment.from || main.to > context.segment.to)) return;
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      return; // §20 : échec clipboard, no-op propre
+    }
+    if (!text) return;
+    if (!main.empty) adapter.replaceSelection(text);
+    else adapter.replaceRange(text, adapter.getCursor());
+  }
+
+  /** §37 : double-clic sur une annotation DANS Continu — même
+   * `AnnotationPopover` que dans un MarkdownView, jamais un second popover :
+   * délègue entièrement à `openAnnotationEditor`, avec pour seul callback de
+   * rafraîchissement `view.refreshAnnotationHighlights()` (jamais
+   * `this.refreshAnnotationHighlights()`, qui ne connaît que le fichier actif
+   * au sens Obsidian — Continu n'en est jamais un). */
+  openScriveningsAnnotation(view: ScriveningsView, id: string, anchor: AnchorRect | AnnotationDecorationTarget): void {
+    void this.openAnnotationEditor(id, () => void view.refreshAnnotationHighlights(), anchor);
   }
 
   isActiveFileInProject() {
@@ -3156,7 +3094,7 @@ class FeuilletsPlugin extends Plugin {
    * descend jamais vers la définition (« Aller à la note » est le chemin
    * explicite pour la rejoindre). Partagé par la commande, le menu
    * contextuel de l'éditeur et le sous-menu Note de bas de page. */
-  insertFootnote(editor: Editor): void {
+  insertFootnote(editor: FeuilletsEditorSurface): void {
     const n = nextFootnoteNumber(editor.getValue());
     const marker = `[^${n}]`;
     const at = editor.getCursor("to");
@@ -3173,7 +3111,7 @@ class FeuilletsPlugin extends Plugin {
 
   /** Depuis un appel `[^id]` (curseur dessus ou à proximité), sélectionne sa
    * définition. Partagé par la commande et le menu contextuel. */
-  gotoFootnoteDefinition(editor: Editor): void {
+  gotoFootnoteDefinition(editor: FeuilletsEditorSurface): void {
     const content = editor.getValue();
     const id = referenceIdAtOffset(content, editor.posToOffset(editor.getCursor()));
     if (!id) {
@@ -3190,7 +3128,7 @@ class FeuilletsPlugin extends Plugin {
 
   /** Depuis une définition (curseur dans son texte), sélectionne son premier
    * appel dans le document. Partagé par la commande et le menu contextuel. */
-  gotoFootnoteReference(editor: Editor): void {
+  gotoFootnoteReference(editor: FeuilletsEditorSurface): void {
     const content = editor.getValue();
     const id = definitionIdAtOffset(content, editor.posToOffset(editor.getCursor()));
     if (!id) {
@@ -3210,7 +3148,7 @@ class FeuilletsPlugin extends Plugin {
    *  commande et l'action permanente « Renumérotation » de la Barre : UN SEUL
    *  chemin de transformation (validation, association, notification), jamais
    *  deux copies. */
-  renumberFootnotesInEditor(editor: Editor): void {
+  renumberFootnotesInEditor(editor: FeuilletsEditorSurface): void {
     const src = editor.getValue();
     const out = renumberFootnotes(src);
     if (out === src) {
@@ -3237,7 +3175,7 @@ class FeuilletsPlugin extends Plugin {
   /** Vérifie les notes du fichier édité — même corps EXACT que la commande
    *  Cmd+P « Vérifier les notes de bas de page ». Facteur commun avec
    *  l'action permanente « Vérification » de la Barre. */
-  checkFootnotesInEditor(editor: Editor): void {
+  checkFootnotesInEditor(editor: FeuilletsEditorSurface): void {
     const result = validateFootnotes(editor.getValue());
     new FootnoteCheckModal(this.app, editor, result).open();
   }
@@ -4132,7 +4070,7 @@ class FeuilletsPlugin extends Plugin {
     return this.runAnalysisCommand(selection);
   }
 
-  currentSelectionRange(editorOverride?: Editor): { start: number; end: number } | null {
+  currentSelectionRange(editorOverride?: FeuilletsEditorSurface): { start: number; end: number } | null {
     const editor = editorOverride ?? this.activeEditorAnywhere();
     if (!editor || !editor.somethingSelected()) return null;
     const from = editor.posToOffset(editor.getCursor("from"));

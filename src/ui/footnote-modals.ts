@@ -1,7 +1,8 @@
-import { App, Modal, setIcon, type Editor } from "obsidian";
+import { App, Modal, setIcon } from "obsidian";
 import type { FootnoteValidationResult } from "../utils/footnotes.js";
 import { findDefinition, findReferences } from "../utils/footnotes.js";
 import { selectRange } from "../utils/dom.js";
+import type { FeuilletsEditorSurface } from "../utils/scrivenings-editor-adapter.js";
 import { t } from "../i18n/index.js";
 
 /** Résultat de « Vérifier les notes de bas de page du document » (voir
@@ -9,10 +10,10 @@ import { t } from "../i18n/index.js";
  * jamais une vue permanente — conforme au choix d'interface minimale de
  * cette première version (commandes, menu contextuel, petite modale). */
 export class FootnoteCheckModal extends Modal {
-  editor: Editor;
+  editor: FeuilletsEditorSurface;
   result: FootnoteValidationResult;
 
-  constructor(app: App, editor: Editor, result: FootnoteValidationResult) {
+  constructor(app: App, editor: FeuilletsEditorSurface, result: FootnoteValidationResult) {
     super(app);
     this.editor = editor;
     this.result = result;
