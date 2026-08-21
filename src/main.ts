@@ -62,6 +62,12 @@ import { parseChronologyImport } from "./services/chronology-import.js";
 import { buildNumbering } from "./services/numbering.js";
 import { orderFromSnapshot } from "./utils/sibling-order.js";
 import { handleFilChanged } from "./services/narrative-threads.js";
+import { applyFeuilProjectImportSettings } from "./services/feuil-project-import-settings.js";
+import type { FeuilProjectImportResult } from "./services/feuil-project-import.js";
+import type { FeuilProjectImportPlan } from "./services/feuil-project-import-plan.js";
+import { buildFeuilProjectArchive } from "./services/feuil-project-archive.js";
+import { materializeFeuilProjectImport } from "./services/feuil-project-import.js";
+import { downloadFeuilArchive, feuilDownloadName } from "./utils/feuil-file-io.js";
 import { createDemoProject } from "./services/demo-project.js";
 import {
   addFileNodeToNotebook,
@@ -3007,6 +3013,46 @@ class FeuilletsPlugin extends Plugin {
     this.renderAllViews(true);
     void this.updateStatusBar();
     return true;
+  }
+
+  async finalizeFeuilProjectImport(result: FeuilProjectImportResult): Promise<boolean> {
+    const manuscript = this.app.vault.getAbstractFileByPath(result.manuscriptRootPath);
+    if (!(manuscript instanceof TFolder)) return false;
+    const alreadyActive = this.settings.projectFolder === result.manuscriptRootPath;
+    applyFeuilProjectImportSettings(this.settings, result);
+    if (alreadyActive) {
+      await this.saveSettings();
+      this.renderAllViews(true);
+      await this.updateStatusBar();
+      return true;
+    }
+    return this.switchProject(result.manuscriptRootPath);
+  }
+
+  async exportFeuilProject(path: string): Promise<boolean> {
+    const target = this.app.vault.getAbstractFileByPath(path);
+    if (!(target instanceof TFolder)) { new Notice(t("feuil.export.invalidProject")); return false; }
+    if (!(await this.flushContinuWritesForProject(target.path))) { new Notice(t("feuil.export.flushFailed")); return false; }
+    try {
+      const scopedSettings: FeuilletsSettings = { ...this.settings, projectFolder: path };
+      const packageId = typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `feuil-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const archive = await buildFeuilProjectArchive(this.app, scopedSettings, { createdByVersion: this.manifest.version, packageId, createdAt: new Date().toISOString() });
+      downloadFeuilArchive(archive.data, feuilDownloadName(this.projectDisplayName(path)));
+      new Notice(t("feuil.export.success"));
+      return true;
+    } catch (error) {
+      new Notice(t("feuil.export.failed", { message: error instanceof Error ? error.message : "" }));
+      return false;
+    }
+  }
+
+  async importFeuilProject(plan: FeuilProjectImportPlan, destinationRootPath: string): Promise<boolean> {
+    try {
+      return await this.finalizeFeuilProjectImport(await materializeFeuilProjectImport(this.app, plan, destinationRootPath));
+    } catch (error) {
+      new Notice(t("feuil.import.failed", { message: error instanceof Error ? error.message : "" }));
+      return false;
+    }
   }
 
   citationStyleFor() {

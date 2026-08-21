@@ -131,6 +131,12 @@ declare type ProjectMeta = {
    *  projet dans ProjectMeta ; maintenue par main.ts
    *  (get/set/removeLinkedResearchFolder, remapResearchFolderLinks). */
   researchFolderLinks?: Record<string, string>;
+  level1Role?: "parties" | "chapitres";
+  narrativeState?: {
+    placeholders: Record<string, string>;
+    origins: Record<string, string>;
+    resolved: string[];
+  };
 
   /* Réglages globaux surchargés par projet. */
   boardMode?: string;

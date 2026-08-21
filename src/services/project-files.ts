@@ -525,7 +525,9 @@ export async function createMinimalProject(
   applyModeDefaults(settings, type);
   /* Voir le commentaire de tête : correspond à la forme réelle créée
      ci-dessus, pas au défaut générique du mode. */
-  settings.level1Role = isFiction ? "chapitres" : "parties";
+  const level1Role: "parties" | "chapitres" = isFiction ? "chapitres" : "parties";
+  settings.level1Role = level1Role;
+  settings.projectMeta[manuscritPath].level1Role = level1Role;
 
   // --- Sous-dossiers de Recherche selon le mode ---
   const manuscriptFolder = app.vault.getAbstractFileByPath(manuscritPath);

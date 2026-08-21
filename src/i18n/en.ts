@@ -4,6 +4,23 @@
 import type { fr } from "./fr.js";
 
 export const en = {
+  "feuil.export.invalidProject": "Project folder not found.",
+  "feuil.export.flushFailed": "Continu writes could not be completed before export.",
+  "feuil.export.success": ".feuil archive exported.",
+  "feuil.export.failed": ".feuil export failed. {message}",
+  "feuil.import.failed": ".feuil import failed. {message}",
+  "feuil.import.action": "Import a .feuil",
+  "feuil.export.action": "Export as .feuil",
+  "feuil.import.title": "Import a .feuil project",
+  "feuil.import.file": ".feuil file",
+  "feuil.import.detected": "Detected project",
+  "feuil.import.parent": "Parent folder",
+  "feuil.import.folderName": "New folder name",
+  "feuil.import.invalidArchive": "Invalid .feuil archive.",
+  "feuil.import.invalidExtension": "Choose a .feuil file.",
+  "feuil.import.invalidParent": "Parent folder not found.",
+  "feuil.import.invalidName": "Invalid folder name.",
+  "feuil.import.success": ".feuil project imported.",
   // ---------- Binder ----------
   "binder.displayText": "Feuillets",
   "binder.manageProjects": "Manage projects…",

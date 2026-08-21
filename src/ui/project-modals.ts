@@ -2,6 +2,8 @@ import { App, Modal, Notice, normalizePath, setIcon, TAbstractFile, TFile, TFold
 import { PROJECT_MODES, projectBoardDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
+import { FeuilProjectImportModal } from "./feuil-project-import-modal.js";
+import type { FeuilProjectImportPlan } from "../services/feuil-project-import-plan.js";
 import { FolderSuggest } from "./folder-suggest.js";
 import { createMinimalProject, CreateProjectError, ensureCanonicalProjectBase, initResearchSubfolders } from "../services/project-files.js";
 import { openFileActivatingWithCursor } from "../utils/dom.js";
@@ -29,6 +31,8 @@ type ProjectModalsPlugin = {
   duplicateProject(path: string, label: string): Promise<string | null>;
   writeOrder(parent: TFolder, orderedChildren: (TFile | TFolder)[]): Promise<void>;
   switchProject(path: string): Promise<boolean>;
+  exportFeuilProject(path: string): Promise<boolean>;
+  importFeuilProject(plan: FeuilProjectImportPlan, destinationRootPath: string): Promise<boolean>;
   flattenFiles(folder: TFolder): readonly (TFile | TFolder)[];
 };
 
@@ -393,6 +397,9 @@ export class ManageProjectsModal extends Modal {
     this.iconBtn(actions, "import", t("main.cmd.importScrivener"), () =>
       new ScrivenerImportModal(this.app, this.plugin).open()
     );
+    this.iconBtn(actions, "archive-restore", t("feuil.import.action"), () =>
+      new FeuilProjectImportModal(this.app, this.plugin).open()
+    );
     this.iconBtn(actions, "sparkles", t("modal.manageProjects.createDemoTooltip"), () => {
       void this.plugin.createDemoProject().then(() => this.render());
     });
@@ -512,6 +519,10 @@ export class ManageProjectsModal extends Modal {
     });
 
     if (folderExists) {
+      const exportBtn = actions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
+      setIcon(exportBtn, "download");
+      exportBtn.setAttr("aria-label", t("feuil.export.action"));
+      exportBtn.addEventListener("click", (e) => { e.stopPropagation(); void this.plugin.exportFeuilProject(path); });
       const dupBtn = actions.createSpan({ cls: "feuillets-cell-icon clickable-icon" });
       setIcon(dupBtn, "copy-plus");
       dupBtn.setAttr("aria-label", t("modal.manageProjects.duplicateTooltip"));

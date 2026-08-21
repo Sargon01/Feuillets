@@ -3,6 +3,23 @@
  * panneau/zone fonctionnelle, dans l'ordre où on les rencontre en lisant
  * le code source correspondant. */
 export const fr = {
+  "feuil.export.invalidProject": "Projet introuvable.",
+  "feuil.export.flushFailed": "Impossible de terminer les écritures Continu avant l’export.",
+  "feuil.export.success": "Archive .feuil exportée.",
+  "feuil.export.failed": "Export .feuil impossible. {message}",
+  "feuil.import.failed": "Import .feuil impossible. {message}",
+  "feuil.import.action": "Importer un .feuil",
+  "feuil.export.action": "Exporter en .feuil",
+  "feuil.import.title": "Importer un projet .feuil",
+  "feuil.import.file": "Fichier .feuil",
+  "feuil.import.detected": "Projet détecté",
+  "feuil.import.parent": "Dossier parent",
+  "feuil.import.folderName": "Nom du nouveau dossier",
+  "feuil.import.invalidArchive": "Archive .feuil invalide.",
+  "feuil.import.invalidExtension": "Choisissez un fichier .feuil.",
+  "feuil.import.invalidParent": "Dossier parent introuvable.",
+  "feuil.import.invalidName": "Nom de dossier invalide.",
+  "feuil.import.success": "Projet .feuil importé.",
   // ---------- Binder (feuillets-view.js) ----------
   "binder.displayText": "Feuillets",
   "binder.manageProjects": "Gérer les projets…",
