@@ -29,6 +29,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run linting & type checks
+        run: npm run lint
+
+      - name: Run Obsidian review lint
+        run: npm run lint:obsidian
+
       - name: Run tests
         run: npm test
 
