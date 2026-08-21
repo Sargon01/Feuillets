@@ -313,7 +313,9 @@ export function isFrontMatter(app: App, settings: FeuilletsSettings, node: Proje
 export function roleOfFolder(app: App, settings: FeuilletsSettings, folder: TFolder): "chapitre" | "partie" {
   const d = depthOf(app, settings, folder);
   if (d >= 2) return "chapitre";
-  return settings.level1Role === "chapitres" ? "chapitre" : "partie";
+  const root = getProjectFolder(app, settings);
+  const level1Role = root && settings.projectMeta?.[root.path]?.level1Role;
+  return (level1Role === "chapitres" || (!level1Role && settings.level1Role === "chapitres")) ? "chapitre" : "partie";
 }
 
 export function roleOfFile(app: App, settings: FeuilletsSettings, file: TFile): "chapitre" | "scene" {

@@ -1,0 +1,28 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { feuilDownloadName, isPortableFeuilNameSegment, sanitizeFeuilFileStem } from "../src/utils/feuil-file-io.js";
+
+test("nom normal accepté", () => assert.equal(isPortableFeuilNameSegment("Roman"), true));
+test("espaces internes acceptés", () => assert.equal(isPortableFeuilNameSegment("Mon roman"), true));
+test("accents acceptés", () => assert.equal(isPortableFeuilNameSegment("Été"), true));
+test("vide refusé", () => assert.equal(isPortableFeuilNameSegment(""), false));
+test("point refusé", () => assert.equal(isPortableFeuilNameSegment("."), false));
+test("double point refusé", () => assert.equal(isPortableFeuilNameSegment(".."), false));
+test("slash refusé", () => assert.equal(isPortableFeuilNameSegment("a/b"), false));
+test("backslash refusé", () => assert.equal(isPortableFeuilNameSegment("a\\b"), false));
+test("caractères Windows refusés", () => assert.equal(isPortableFeuilNameSegment("a:b"), false));
+test("contrôle refusé", () => assert.equal(isPortableFeuilNameSegment(`a${String.fromCharCode(1)}`), false));
+test("point final refusé", () => assert.equal(isPortableFeuilNameSegment("Roman."), false));
+test("espace final refusé", () => assert.equal(isPortableFeuilNameSegment("Roman "), false));
+test("CON refusé", () => assert.equal(isPortableFeuilNameSegment("CON"), false));
+test("con.txt refusé", () => assert.equal(isPortableFeuilNameSegment("con.txt"), false));
+test("COM1 refusé", () => assert.equal(isPortableFeuilNameSegment("COM1"), false));
+test("LPT9.txt refusé", () => assert.equal(isPortableFeuilNameSegment("LPT9.txt"), false));
+test("sanitize conserve un nom normal", () => assert.equal(sanitizeFeuilFileStem("Roman"), "Roman"));
+test("sanitize remplace les caractères invalides", () => assert.equal(sanitizeFeuilFileStem("A/B:C"), "A-B-C"));
+test("sanitize évite un réservé Windows", () => assert.equal(sanitizeFeuilFileStem("CON"), "Projet"));
+test("sanitize vide retourne Projet", () => assert.equal(sanitizeFeuilFileStem(""), "Projet"));
+test("feuilDownloadName ajoute extension", () => assert.equal(feuilDownloadName("Roman"), "Roman.feuil"));
+test("feuilDownloadName ne double pas extension", () => assert.equal(feuilDownloadName("Roman.feuil"), "Roman.feuil"));
+test("feuilDownloadName gère extension insensible à la casse", () => assert.equal(feuilDownloadName("Roman.FEUIL"), "Roman.feuil"));
+test("feuilDownloadName ne mute pas la string source", () => { const label = "Roman.feuil"; feuilDownloadName(label); assert.equal(label, "Roman.feuil"); });

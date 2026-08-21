@@ -8,6 +8,21 @@ type NarrativeThreadsPlugin = NarrativeThreadsPluginState & {
   _filQueues?: Map<string, Promise<void>>;
 };
 
+type EffectiveNarrativeState = {
+  placeholders: Record<string, string>;
+  origins: Record<string, string>;
+  resolved: string[];
+};
+
+function narrativeStateFor(settings: FeuilletsSettings, root: TFolder): EffectiveNarrativeState {
+  const state = settings.projectMeta?.[root.path]?.narrativeState;
+  if (state && state.placeholders && state.origins && Array.isArray(state.resolved)) return state;
+  if (!settings.filPlaceholders) settings.filPlaceholders = {};
+  if (!settings.filOrigins) settings.filOrigins = {};
+  if (!settings.filResolved) settings.filResolved = [];
+  return { placeholders: settings.filPlaceholders, origins: settings.filOrigins, resolved: settings.filResolved };
+}
+
 /** Dernier feuillet du projet, dans l'ordre du manuscrit — celui qui reçoit
  * automatiquement le marqueur d'un fil narratif fraîchement planté. Fixé au
  * moment de la plantation : si de nouveaux chapitres sont ajoutés après
@@ -95,10 +110,8 @@ export async function handleFilChanged(app: App, settings: FeuilletsSettings, pl
 }
 
 async function handleFilChangedLocked(app: App, settings: FeuilletsSettings, plugin: NarrativeThreadsPlugin, file: TFile, root: TFolder, fils: string[]): Promise<void> {
-  if (!settings.filPlaceholders) settings.filPlaceholders = {};
-  if (!settings.filOrigins) settings.filOrigins = {};
-  if (!settings.filResolved) settings.filResolved = [];
-  const resolvedSet = new Set(settings.filResolved);
+  const state = narrativeStateFor(settings, root);
+  const resolvedSet = new Set(state.resolved);
 
   const suppress = (path: string): void => {
     if (!plugin._filSuppressed) plugin._filSuppressed = new Set();
@@ -112,20 +125,20 @@ async function handleFilChangedLocked(app: App, settings: FeuilletsSettings, plu
   for (const value of fils) {
     if (resolvedSet.has(value)) continue;
 
-    const placeholderPath = settings.filPlaceholders[value];
+    const placeholderPath = state.placeholders[value];
 
     if (placeholderPath) {
       if (placeholderPath === file.path) continue; // c'est le marqueur lui-même
-      if (settings.filOrigins[value] === file.path) continue; // réédition du feuillet d'origine : pas une nouvelle apparition
+      if (state.origins[value] === file.path) continue; // réédition du feuillet d'origine : pas une nouvelle apparition
       const placeholderFile = app.vault.getAbstractFileByPath(placeholderPath);
       if (placeholderFile instanceof TFile) {
         const next = filsOf(fmOf(app, placeholderFile, settings)).filter((v) => v !== value);
         suppress(placeholderFile.path);
         await setFilList(app, settings, placeholderFile, next);
       }
-      delete settings.filPlaceholders[value];
-      delete settings.filOrigins[value];
-      settings.filResolved.push(value);
+      delete state.placeholders[value];
+      delete state.origins[value];
+      state.resolved.push(value);
       await plugin.saveSettings();
       continue;
     }
@@ -140,8 +153,8 @@ async function handleFilChangedLocked(app: App, settings: FeuilletsSettings, plu
 
     suppress(lastFile.path);
     await setFilList(app, settings, lastFile, [...lastFils, value]);
-    settings.filPlaceholders[value] = lastFile.path;
-    settings.filOrigins[value] = file.path;
+    state.placeholders[value] = lastFile.path;
+    state.origins[value] = file.path;
     await plugin.saveSettings();
   }
 }
