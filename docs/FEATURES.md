@@ -33,6 +33,20 @@
 - file/folder/selection/project scope;
 - Preview synchronization;
 - no composite file on disk.
+- properly rendered H1–H6 Markdown headings;
+- context menu: Cut, Copy, Paste, footnotes, **Annotation…**, **Capture an idea** and **Reorder text**;
+- reordering paragraphs or fragments contained within one paragraph, without crossing a sheet boundary;
+- native Undo/Redo for the Continuous document.
+
+## Reorder text
+
+- available in the native Markdown editor and in Continuous;
+- local editor mode: hover a paragraph, then drag and drop it;
+- a selection contained within one paragraph can move as a fragment;
+- visible insertion point, **Escape** to leave, one operation = one Undo step;
+- exact Markdown preserved.
+
+In the native Markdown editor, the context menu can offer **Footnote >**, **Annotation…**, **Capture an idea**, **Reorder text**, followed by **Feuillets: Split**, **Feuillets: Duplicate** and **Feuillets: Move…**, depending on context.
 
 ## Notebook
 
@@ -58,7 +72,7 @@
 - working notes in Sheet panel;
 - properties and footnotes;
 - local Context;
-- working annotations outside Markdown, highlighted, editable and removable.
+- working annotations outside Markdown, highlighted, editable and removable through **Annotation…**.
 
 ## Research
 

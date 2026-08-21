@@ -20,9 +20,13 @@ Use the Notebook Canvas to capture, group and develop ideas. A branch can become
 
 Write in Obsidian's native Markdown editor. Use Focus Mode, typography, indents, find/replace, footnotes and citations as needed.
 
+From the context menu, **Reorder text** lets you drag and drop a paragraph, or a selection contained within one paragraph. The insertion point is visible, **Escape** leaves this local mode, and each move is one Undo step that preserves the exact Markdown.
+
 ## 5. Write several sheets together
 
 Open a chapter, folder or selection in **Continuous** mode to work like one long manuscript while keeping separate Markdown files.
+
+Continuous keeps this reordering within each sheet, never from one sheet to another. Its context menu brings together Cut, Copy, Paste, footnotes, **Annotation…**, **Capture an idea** and **Reorder text**.
 
 See [Continuous mode](CONTINUOUS-MODE.md).
 

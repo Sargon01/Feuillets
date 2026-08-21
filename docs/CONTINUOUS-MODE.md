@@ -25,6 +25,14 @@ Use the Binder to open a folder or scope continuously. A selection can form a co
 
 The complete continuous document is genuinely editable. Sheet boundaries cannot be deleted or moved as ordinary text. Changes inside a segment are saved back to that segment's source file.
 
+Markdown headings from H1 to H6 render properly in Continuous. Its own context menu offers Cut, Copy, Paste, footnotes, **Annotation…**, **Capture an idea** and **Reorder text**.
+
+### Reorder text
+
+**Reorder text** enters a local editor mode. Hover a paragraph to drag and drop it, or move a selection contained within one paragraph as a fragment. The insertion point is shown visually; press **Escape** to leave the mode, and each move is a single Undo step.
+
+Exact Markdown is preserved. In Continuous, a paragraph or fragment remains in its source sheet: no move crosses a sheet boundary. Undo/Redo remain those of the Continuous document.
+
 ## Continuous and Preview
 
 Continuous can work beside **Preview** on the same scope. Updated source bodies are reflected in Preview and scope/navigation synchronization is preserved without creating a new Preview every time.

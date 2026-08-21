@@ -10,6 +10,8 @@ Your texts remain ordinary Markdown files and your folders remain real folders. 
 
 > **Text before system.**
 
+**New to Feuillets?** [Start with what you want to do](docs/DISCOVER.md): write across several sheets, annotate, reorder, review or export without reading the whole documentation first.
+
 ![Feuillets — writing and Preview](docs/feuillets-ecriture-apercu.png)
 
 ## From one sheet to a manuscript
@@ -40,6 +42,8 @@ Feuillets can also create **Fiction**, **Non-fiction** and **Free** projects. Au
 
 A sheet remains open in Obsidian's native Markdown editor. Feuillets can add controlled width, typography, paragraph indents, line spacing, typography helpers, manuscript-wide find/replace, footnotes, citations, typewriter scrolling and **Focus Mode**.
 
+Use **Reorder text** to enter a local editor mode: drag a paragraph, or a selection contained within one paragraph, to a visibly marked insertion point. Press **Escape** to leave the mode; each move is one Undo step and preserves the exact Markdown.
+
 ![Write with controlled typography and Focus Mode](docs/feuillets-concentration.png)
 
 ## Organize with the Binder
@@ -64,6 +68,8 @@ See [Binder and navigation](docs/BINDER-AND-NAVIGATION.md).
 ## Continuous mode: several files, one editable manuscript
 
 **Continuous** mode assembles a file, folder, selection or project into **one continuous editor**. Sheet boundaries remain visible and protected; edits are redistributed to the corresponding source Markdown file.
+
+It also supports **Reorder text** within each sheet: paragraphs or fragments contained in one paragraph can be moved, but never across a sheet boundary.
 
 No composite manuscript is created on disk and no batch of Obsidian tabs is opened. Continuous and Preview can stay synchronized on the same scope.
 

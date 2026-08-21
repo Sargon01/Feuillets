@@ -6,13 +6,21 @@ Les **annotations de travail** servent à laisser une remarque sur un passage du
 
 Elles sont pensées pour les questions temporaires de l’auteur : passage à reprendre, détail à vérifier, intention à renforcer, transition à revoir ou décision encore ouverte.
 
-## Ajouter une annotation
+## Créer ou ouvrir une annotation
 
 1. sélectionnez un passage dans un feuillet ;
-2. lancez l’action **Ajouter une annotation** ;
-3. saisissez votre remarque.
+2. choisissez **Annotation…** ;
+3. saisissez votre commentaire, puis choisissez son style et sa couleur dans le popover.
 
-Le passage reçoit un repère visuel dans l’éditeur. Un clic sur le passage annoté permet de retrouver la remarque et de la modifier.
+Le passage reçoit un repère visuel dans l’éditeur. Les données de l’annotation restent séparées du Markdown.
+
+Pour une annotation existante, placez le curseur dans le passage annoté sans faire de sélection et choisissez **Annotation…**, ou double-cliquez sur le passage : le même popover s’ouvre. Il permet aussi de supprimer l’annotation.
+
+Une sélection normale crée une annotation. Si elle correspond exactement à une annotation existante, elle ouvre celle-ci ; une sélection partielle à l’intérieur d’une annotation peut créer une annotation imbriquée.
+
+## Dans Continu
+
+Les annotations sont entièrement utilisables dans Continu. Elles restent attachées au vrai fichier source : aucune donnée n’est injectée dans le document Continu ni dans le Markdown.
 
 ## Le Markdown reste propre
 
@@ -75,4 +83,4 @@ Ces trois mécanismes restent distincts afin qu’une remarque personnelle ne so
 
 ## En résumé
 
-> **Sélectionner → annoter → retrouver → traiter → supprimer, sans polluer le Markdown.**
+> **Sélectionner → Annotation… → retrouver → traiter → supprimer, sans polluer le Markdown.**

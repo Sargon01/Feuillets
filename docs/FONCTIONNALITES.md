@@ -33,6 +33,20 @@
 - portée fichier/dossier/sélection/projet ;
 - synchronisation avec Aperçu ;
 - aucun fichier composite sur disque.
+- titres Markdown H1 à H6 rendus ;
+- menu contextuel : Couper, Copier, Coller, notes de bas de page, **Annotation…**, **Noter une idée** et **Réorganiser le texte** ;
+- réorganisation de paragraphes ou de fragments contenus dans un seul paragraphe, sans traverser de frontière de feuillet ;
+- Annuler/Rétablir natifs du document Continu.
+
+## Réorganiser le texte
+
+- action disponible dans l’éditeur Markdown natif et dans Continu ;
+- mode local à l’éditeur : survoler un paragraphe puis le glisser-déposer ;
+- une sélection contenue dans un seul paragraphe peut être déplacée comme fragment ;
+- point d’insertion visible, **Échap** pour quitter, une opération = une étape Annuler ;
+- Markdown exact conservé.
+
+Dans l’éditeur Markdown natif, le menu contextuel propose selon le contexte **Note de bas de page >**, **Annotation…**, **Noter une idée**, **Réorganiser le texte**, puis les actions **Feuillets : Scinder**, **Feuillets : Dupliquer** et **Feuillets : Déplacer…**.
 
 ## Carnet
 
@@ -59,7 +73,7 @@
 - propriétés ;
 - notes de bas de page ;
 - Contexte local ;
-- annotations de travail externes au Markdown, surlignées, éditables et supprimables.
+- annotations de travail externes au Markdown, surlignées, éditables et supprimables via **Annotation…**.
 
 ## Recherche
 

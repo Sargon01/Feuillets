@@ -6,13 +6,21 @@
 
 They are intended for temporary author questions: revise this passage, verify a detail, strengthen an intention, fix a transition, or revisit an unresolved choice.
 
-## Add an annotation
+## Create or open an annotation
 
 1. select a passage in a sheet;
-2. run **Add annotation**;
-3. enter your note.
+2. choose **Annotation…**;
+3. enter your comment, then choose its style and color in the popover.
 
-The passage receives a visual marker in the editor. Clicking the annotated passage lets you reopen and edit the note.
+The passage receives a visual marker in the editor. Annotation data remains separate from Markdown.
+
+For an existing annotation, place the cursor in the annotated passage without selecting text and choose **Annotation…**, or double-click the passage: the same popover opens. It also lets you delete the annotation.
+
+An ordinary selection creates an annotation. If it exactly matches an existing annotation, it opens that annotation; a partial selection inside an annotation can create a nested annotation.
+
+## In Continuous
+
+Annotations are fully available in Continuous. They always refer to the real source file: no data is inserted into the Continuous document or into Markdown.
 
 ## Markdown stays clean
 
@@ -70,4 +78,4 @@ Keeping these mechanisms separate prevents a private author note from being conf
 
 ## In short
 
-> **Select → annotate → find → resolve → delete, without polluting Markdown.**
+> **Select → Annotation… → find → resolve → delete, without polluting Markdown.**

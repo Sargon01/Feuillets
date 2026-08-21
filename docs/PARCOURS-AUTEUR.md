@@ -24,9 +24,13 @@ Utilisez le Canvas du Carnet pour capturer, grouper et développer les idées. U
 
 Écrivez dans l’éditeur Markdown natif. Utilisez Concentration, typographie, alinéas, recherche/remplacement, notes de bas de page et citations selon vos besoins.
 
+Depuis le menu contextuel, **Réorganiser le texte** permet de déplacer par glisser-déposer un paragraphe, ou une sélection contenue dans un seul paragraphe. Le point d’insertion est visible, **Échap** quitte ce mode local, et chaque déplacement est une étape Annuler qui conserve le Markdown exact.
+
 ## 5. Écrire plusieurs feuillets ensemble
 
 Ouvrez un chapitre, dossier ou sélection en **Continu** pour travailler comme dans un long manuscrit unique tout en conservant les fichiers Markdown séparés.
+
+Continu conserve cette réorganisation à l’intérieur de chaque feuillet, sans passage d’un feuillet à l’autre. Son menu contextuel réunit Couper, Copier, Coller, notes de bas de page, **Annotation…**, **Noter une idée** et **Réorganiser le texte**.
 
 Voir [Mode Continu](MODE-CONTINU.md).
 

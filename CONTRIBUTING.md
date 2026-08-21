@@ -1,6 +1,6 @@
 # Contributing to Feuillets
 
-Feuillets is a long-form writing plugin for Obsidian. The source is TypeScript, compiled and bundled to an unminified `main.js` for distribution.
+Feuillets is a long-form writing plugin for Obsidian. The source is TypeScript, bundled by esbuild; production builds generate a minified `main.js` for distribution, without proprietary obfuscation.
 
 The project favors **small, verifiable changes** over broad rewrites. Existing vaults and manuscripts are part of the public contract.
 

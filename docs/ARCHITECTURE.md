@@ -8,6 +8,8 @@ Feuillets reste un plugin Obsidian TypeScript. Le manuscrit n’est pas stocké 
 
 `src/main.ts` orchestre l’instance du plugin, les vues, commandes, migrations de réglages, événements du coffre et façades utilisées par les composants. Les règles métier testables sont déplacées dans `src/services/`, `src/utils/` et les composants DOM de `src/ui/` lorsque possible.
 
+L’usage optionnel de `MenuItem.setSubmenu()` est protégé par détection de capacité ; s’il est absent, les actions de note de bas de page restent accessibles à plat.
+
 ## Surfaces principales
 
 ### Classeur — `views/feuillets-view.ts`
@@ -34,9 +36,17 @@ Continu assemble une `CompileScope` dans un seul `EditorView` CodeMirror. Les s�
 
 Il n’existe aucun fichier manuscrit composite persistant. Le modèle continu est un document de travail reconstruit depuis les sources et la portée courante.
 
+### Réorganisation du texte — `src/utils/paragraph-reorder-core.ts` + `src/utils/text-fragment-reorder-core.ts`
+
+Le cœur de réorganisation est pur et séparé du DOM et du Vault. `src/utils/cm-paragraph-reorder.ts` l’adapte à CodeMirror ; `src/utils/cm-scrivenings.ts` permet d’utiliser la même extension dans l’éditeur Markdown et dans Continu.
+
+Un paragraphe de premier niveau est l’unité de déplacement. Un fragment valide reste contenu dans un seul paragraphe. Chaque déplacement produit un seul changement CodeMirror ; Continu interdit les déplacements entre segments.
+
 ### Aperçu — `views/preview-view.ts`
 
 Aperçu rend le document composé/paginé, peut suivre la portée de travail et se synchroniser avec l’éditeur/Continu. La pagination et la géométrie partagée s’appuient notamment sur `services/pagination-engine.ts`, `services/page-geometry.ts` et `services/export-render.ts`.
+
+Pour les grandes portées, une première passe partielle peut précéder une seconde passe complète. La pagination complète est coopérative côté Aperçu ; la portée officielle n’est jamais remplacée par la portée provisoire. Une génération ou la fermeture annule le travail en cours. `MarkdownRenderer` reste monolithique pour le rendu complet : aucun rendu Markdown n’est batché feuillet par feuillet. Le pipeline de pagination de l’export PDF historique reste synchrone.
 
 ### Panneau droit — `views/sidebar-feuillets-view.ts`
 
@@ -118,6 +128,8 @@ Le service résout les descendants admissibles, déduplique et conserve l’ordr
 
 `services/export-workflow.ts` centralise le workflow utilisateur.
 
+Avant l’export, les écritures Continu en attente sont sécurisées dans les fichiers sources ; sinon le workflow s’arrête avant de produire une sortie.
+
 Le nom de sortie est résolu de manière commune et les écritures tiennent compte des collisions de casse de fichiers déjà présents, notamment sur les systèmes macOS insensibles à la casse. Le fichier réellement existant est modifié plutôt qu’un second nom concurrent créé.
 
 PDF reste un flux desktop vers l’impression système ; DOCX/EPUB/ODT sont générés localement.
@@ -170,7 +182,9 @@ Le rendu public vit dans l’onglet **Feuillet**, pas dans un ancien onglet Note
 
 ## Annotations de travail
 
-`services/annotations.ts` stocke les annotations hors du Markdown et gère leur ancrage/réancrage. Les décorations de l’éditeur restent une représentation UI ; les marqueurs ne sont jamais insérés dans le texte source.
+`src/services/annotations.ts` stocke les annotations hors du Markdown et gère leur ancrage/réancrage. `src/utils/cm-annotation-highlighter.ts` porte le `StateField` CodeMirror, source de vérité visuelle ; les marqueurs ne sont jamais insérés dans le texte source.
+
+`src/services/annotation-editor-controller.ts` orchestre l’éditeur et la persistance, tandis que `src/utils/scrivenings-editor-adapter.ts` expose dans Continu les coordonnées du vrai fichier source. `src/ui/annotation-popover.ts` porte l’édition ; le comportement utilisateur reste le même en Markdown et en Continu.
 
 ## Comparaison
 

@@ -2,44 +2,74 @@
 
 > [Français](DECOUVRIR.md) · **English** · [Documentation index](README.md)
 
-Feuillets is a writing studio built **inside** Obsidian. The manuscript remains Markdown; tools appear around it only when useful.
+Feuillets is a writing studio built **inside** Obsidian. Your manuscript remains Markdown; tools appear around it only when they become useful.
+
+You do not need to learn all of Feuillets before you start. Begin with what you want to do.
 
 > **Binder → sheet/Continuous → Preview → Edition → export**
 
-## Binder
+## What do you want to do?
 
-The Binder is the real structure. It navigates, searches, filters, moves, multi-selects, isolates a folder, opens scopes in Preview/Continuous and links existing Research. **Split view** can add a Manuscript folder tree and lightweight Vault navigation on the left without changing the Binder on the right.
+- **I already have a folder of texts.** Use it directly as a Feuillets project: your files do not need to be moved, renamed or converted. See [Binder and navigation](BINDER-AND-NAVIGATION.md).
 
-## Continuous
+- **I want to write across several scenes or chapters.** Open a folder or selection in **Continuous**. Feuillets presents them in one genuinely editable document while keeping every sheet in its original Markdown file; this is not just a preview. See [Continuous mode](CONTINUOUS-MODE.md).
 
-Continuous turns several sheets into one continuous editor without merging the source files. It is the place to write or reread a whole chapter with the continuity of one long document.
+- **I want to work on only part of the manuscript.** Feuillets can work at the level of a **sheet**, **folder**, **selection** or the **whole project**. Depending on the action, that scope can be used in Continuous, Preview and export without making a copy of the project.
 
-## Right panel
+- **I want to move a paragraph or passage.** In the native Markdown editor or in Continuous, use **right-click → Reorder text**, then drag the paragraph or, when it stays within a single paragraph, the selected fragment to its new position. Press **Escape** to leave the mode.
 
-Five tabs: **Sheet**, **Research**, **Journal**, **Project**, **Proofreading**.
+- **I want to leave myself a note on a sentence.** Select the passage and choose **Annotation…**. The annotation stays attached to the text, also works in Continuous and is never written into the Markdown; use a working note instead when the remark concerns the whole sheet. See [Working annotations](WORKING-ANNOTATIONS.md).
 
-- Sheet: text information, Context, annotations;
-- Research: project bible and linked folders;
-- Journal: tracking;
-- Project: editorial settings and YAML mapping;
-- Proofreading: analysis, collaboration, DOCX and comparison.
+- **My research already lives elsewhere in the vault.** Do not move it: an existing folder can be **linked as Research** while remaining physically where it is. See [Research and linked folders](RESEARCH-AND-LINKED-FOLDERS.md).
 
-## Other views
+- **I already use my own YAML properties.** In **Project**, Feuillets can map its logical fields to properties that already exist in your vault. You do not need to rename your properties or migrate your files. See [Project and YAML properties](PROJECT-AND-YAML-PROPERTIES.md).
 
-Cards, Outline, Storyline and Timeline show the same files from other angles. Notebook remains the free-form Canvas space.
+- **I want to review my text or send it to someone else.** For a personal reminder, use an **Annotation**; to compare two states, use **Compare a version**, for example with a snapshot; for a reviewer using Feuillets, use **Collaborative Review** with a `.feuillets` package; for an editor or proofreader working in Word, use **DOCX Review**. See [Rewriting, backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md), [Collaborative Review](COLLABORATIVE-REVIEW.md) and [DOCX Review](HOW-TO-DOCX-REVISION.md).
 
-## Research
+- **I want to export only a few chapters.** Select the sheets or folders you want and use that selection as the scope. There is no need to create a separate project or duplicate the manuscript.
 
-Research folders can be canonical, historical, or **linked to a Binder node from anywhere in the vault**. Linked folders stay physically where they are.
+- **I want to export without opening Preview.** You can. Preview is for visually checking the composed document, but it is not required for export; if Continuous still has pending edits, Feuillets saves them to the source files first.
 
-## Proofreading
+## Easy-to-miss features
 
-Feuillets separates linguistic analysis, personal annotations, `.feuillets` collaborative review, Word feedback and version comparison.
+- An existing Obsidian folder can become a Feuillets project without being restructured.
+- The same scope model lets you work with one sheet, a folder, a selection or the whole project.
+- **Reorder text** moves paragraphs or fragments without relying on cut and paste.
+- **Annotations** also work in Continuous while remaining outside Markdown.
+- An existing documentation folder can be **linked as Research** without being moved.
+- **YAML mapping** lets Feuillets adapt to properties already used in the vault.
+- **Preview is optional for export**: it is for checking composition, not for enabling export.
 
-## Edition
+## Understand the Feuillets workspace
 
-Edition is a central surface with **Composition** and **Layout**, working beside the real Preview. Export remains a top-bar action rather than an extra tab.
+### Binder
 
-## 2.5 direction
+The **Binder** is the working structure of the manuscript. It is used to navigate, search, filter, move, select and isolate part of a project. **Split view** can add the Manuscript folder tree and lightweight Vault navigation on the left while the Binder on the right remains the working surface.
 
-Feuillets is meant to adapt to an existing vault — Scrivener order, YAML properties, linked Research — rather than forcing the writer to rebuild their organization for the plugin.
+### Continuous
+
+**Continuous** lets you write across several sheets in one editor without merging them. File boundaries remain protected and edits are written back to the corresponding Markdown files.
+
+### Structural views
+
+**Cards**, **Outline**, **Storyline** and **Timeline** show the same files from different angles: visual organization, metadata, narrative threads or event order. **Notebook** remains the free-form Canvas space.
+
+### Right panel
+
+Five tabs accompany the text without replacing the manuscript:
+
+- **Sheet** — synopsis, summary, notes, properties, annotations, footnotes and Context;
+- **Research** — documentation, characters, places, events, sources, bibliography and linked folders;
+- **Journal** — writing journal and tracking;
+- **Project** — goals, statuses, labels, tags and YAML property mapping;
+- **Proofreading** — text analysis, Collaborative Review, DOCX Review and comparison.
+
+### Edition
+
+**Edition** is a central workspace separate from the right panel. **Composition** decides what belongs in the document; **Layout** controls its presentation. **Preview** lets you inspect the result, while export remains available without opening it first.
+
+## Philosophy
+
+Feuillets is meant to adapt to an existing vault rather than force the writer to rebuild their organization for the plugin: ordinary Markdown files, real folders, manuscript order, YAML properties and existing Research remain under the user's control.
+
+For the complete workflow in its natural order, see [The author's workflow](AUTHOR-WORKFLOW.md).

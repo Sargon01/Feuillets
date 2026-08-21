@@ -59,6 +59,8 @@ Composition can target one sheet, a folder and descendants, a file/folder select
 
 Export is launched from the persistent Edition toolbar or export commands. Scope uses the same `CompileScope` model as the rest of the pipeline: sheet, folder, selection or project.
 
+Before export starts, Feuillets saves any pending Continuous edits, then exports from the real source files. If those writes cannot be secured, export does not start. Opening Preview is not required before exporting.
+
 ## Output name
 
 The manuscript file name is no longer a normal visible Edition control. Feuillets resolves a name from context/preset while preserving historical `compileFileName` values for compatibility.
@@ -68,5 +70,7 @@ Output writing also handles case collisions on macOS, so an existing `Manuscrit.
 ## Preview and formats
 
 Preview is the visual reference before export and shares composition/template/pagination logic where relevant.
+
+It accepts a sheet, folder, selection or project scope. For a large scope, Feuillets may show an initial portion quickly and then complete the full document; the final rendering replaces the provisional preview. Export always uses the complete requested scope, and Preview is never required for export.
 
 Native output: compiled Markdown, DOCX, EPUB, ODT and desktop PDF through the system print dialog. Source Markdown is never replaced by the export artifact.

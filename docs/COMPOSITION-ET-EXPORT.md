@@ -87,6 +87,8 @@ Le moteur évite les doublons lorsqu’un dossier et l’un de ses descendants s
 
 L’export se lance depuis la barre persistante d’Édition ou depuis les commandes d’export. La portée utilise le même modèle `CompileScope` que le reste de la chaîne : feuillet, dossier, sélection ou projet.
 
+Avant de lancer un export, Feuillets enregistre les modifications encore en attente de Continu, puis exporte depuis les vrais fichiers sources. Si ces écritures ne peuvent pas être sécurisées, l’export ne démarre pas. Il n’est pas nécessaire d’ouvrir l’Aperçu avant d’exporter.
+
 ## Nom du fichier de sortie
 
 Le nom du manuscrit n’est plus un champ normal de l’interface Édition. Feuillets résout un nom à partir du contexte/preset et conserve les anciennes valeurs `compileFileName` pour compatibilité.
@@ -96,6 +98,8 @@ L’écriture de sortie gère également les collisions de casse sur macOS : un 
 ## Aperçu
 
 L’Aperçu est la référence visuelle avant export. Il utilise la même logique de composition, de gabarit et de pagination que le PDF lorsque ces notions sont applicables.
+
+Il accepte une portée feuillet, dossier, sélection ou projet. Pour une grande portée, Feuillets peut afficher rapidement une première portion, puis finaliser le document complet ; le rendu définitif remplace alors l’aperçu provisoire. L’export reste toujours fondé sur la portée complète demandée, et l’Aperçu n’est jamais obligatoire pour exporter.
 
 ## Formats
 

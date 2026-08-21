@@ -29,6 +29,14 @@ Depuis le Classeur :
 
 Le texte est réellement éditable de bout en bout. Les frontières entre feuillets ne peuvent pas être supprimées ou déplacées comme du texte ordinaire. Une modification à l’intérieur d’un segment est enregistrée dans le fichier source correspondant.
 
+Les titres Markdown de H1 à H6 sont rendus dans Continu. Le menu contextuel propre à Continu propose Couper, Copier, Coller, les notes de bas de page, **Annotation…**, **Noter une idée** et **Réorganiser le texte**.
+
+### Réorganiser le texte
+
+**Réorganiser le texte** active un mode local à l’éditeur. Survolez un paragraphe pour le déplacer par glisser-déposer, ou déplacez une sélection contenue dans un seul paragraphe comme fragment. Le point d’insertion est indiqué visuellement ; **Échap** quitte le mode et chaque déplacement forme une seule étape Annuler.
+
+Le Markdown exact est conservé. Dans Continu, un paragraphe ou un fragment reste dans son feuillet source : aucun déplacement ne traverse une frontière de feuillet. Annuler/Rétablir restent ceux du document Continu.
+
 ## Continu et Aperçu
 
 Continu peut travailler à côté de l’**Aperçu** sur la même portée. Les corps modifiés sont reflétés dans l’Aperçu et la navigation/correction de portée reste synchronisée sans créer un nouvel Aperçu à chaque changement.

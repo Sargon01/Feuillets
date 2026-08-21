@@ -10,6 +10,8 @@ Vos textes restent de simples fichiers Markdown et vos dossiers restent de vrais
 
 > **Le texte avant le système.**
 
+**Vous découvrez Feuillets ?** [Partez de ce que vous voulez faire](docs/DECOUVRIR.md) : écrire plusieurs feuillets ensemble, annoter, réorganiser, relire ou exporter sans parcourir toute la documentation.
+
 ![Feuillets — écriture et aperçu](docs/feuillets-ecriture-apercu.png)
 
 ## Du feuillet au manuscrit
@@ -40,6 +42,8 @@ Feuillets peut également créer un projet **Fiction**, **Non-fiction** ou **Lib
 
 Le feuillet reste ouvert dans l’éditeur Markdown natif d’Obsidian. Feuillets peut ajouter largeur de texte, typographie, alinéas, interligne, aides typographiques, recherche/remplacement, notes de bas de page, citations, défilement machine à écrire et mode **Concentration**.
 
+Utilisez **Réorganiser le texte** pour activer un mode local à l’éditeur : glissez un paragraphe, ou une sélection contenue dans un seul paragraphe, vers un point d’insertion visuellement indiqué. **Échap** quitte le mode ; chaque déplacement forme une étape Annuler et conserve le Markdown exact.
+
 ![Écrire avec typographie contrôlée et Mode Concentration](docs/feuillets-concentration.png)
 
 ## Organiser avec le Classeur
@@ -64,6 +68,8 @@ Voir [Classeur et navigation](docs/CLASSEUR-ET-NAVIGATION.md).
 ## Continu : plusieurs fichiers, un seul manuscrit éditable
 
 Le mode **Continu** assemble un fichier, un dossier, une sélection ou un projet dans **un seul éditeur continu**. Les séparations entre feuillets restent visibles et protégées ; chaque modification est redistribuée dans le fichier Markdown source correspondant.
+
+Il prend aussi en charge **Réorganiser le texte** à l’intérieur de chaque feuillet : paragraphes ou fragments contenus dans un seul paragraphe peuvent être déplacés, jamais à travers une frontière de feuillet.
 
 Aucun manuscrit composite n’est créé sur disque et aucun lot d’onglets Obsidian n’est ouvert. Continu et Aperçu peuvent rester synchronisés sur la même portée.
 
