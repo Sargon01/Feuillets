@@ -347,48 +347,6 @@ test("createMinimalProject (libre) : crée uniquement Nouveau texte.md sans stru
   );
 });
 
-test("createMinimalProject (structured) : reprend Libre sans Front ni YAML", async () => {
-  const { vault } = createFakeVault([]);
-  const settings = freshSettings();
-
-  const result = await createMinimalProject({ vault }, settings, { name: "Cours", type: "structured" });
-
-  assert.equal(settings.projectMeta[result.manuscritPath].type, "structured");
-  assert.equal(result.firstFile.path, "Cours/Manuscrit/Nouveau texte.md");
-  assert.equal(result.firstFile.content, "# Nouveau texte\n\n");
-  assert.equal(result.firstFile.content.includes("---"), false);
-  assert.equal(vault.getAbstractFileByPath("Cours/Manuscrit/Front"), null);
-  assert.equal(vault.getAbstractFileByPath("Cours/_Feuillets/Recherche/Notes"), null);
-  assert.equal(vault.getAbstractFileByPath("Cours/_Feuillets/Recherche/Sources"), null);
-});
-
-test("newSheet (structured) : crée un Markdown simple sans frontmatter", async () => {
-  const folder = new TFolder("Cours");
-  const { vault } = createFakeVault([folder]);
-  const settings = freshSettings({ projectFolder: folder.path, projectMeta: { [folder.path]: { type: "structured" } } });
-  const app = {
-    vault,
-    workspace: {
-      getLeaf: () => ({ openFile: async () => {} }),
-      setActiveLeaf: () => {},
-    },
-  };
-  const originalOpen = NewSheetModal.prototype.open;
-  let submit;
-  NewSheetModal.prototype.open = function open() { submit = this.onSubmit; return this; };
-  try {
-    newSheet(app, settings, folder);
-    await submit("Activité 1", "Activité 1");
-  } finally {
-    NewSheetModal.prototype.open = originalOpen;
-  }
-
-  const file = vault.getAbstractFileByPath("Cours/Activité 1.md");
-  assert.ok(file instanceof TFile);
-  assert.equal(file.content, "# Activité 1\n\n");
-  assert.equal(file.content.includes("---"), false);
-});
-
 test("newSheet : les modes fiction, non-fiction et libre gardent leur YAML historique", async (t) => {
   for (const type of ["fiction", "nonfiction", "free"]) {
     await t.test(type, async () => {

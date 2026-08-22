@@ -15,7 +15,7 @@ import {
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
-import { getProjectMode, getProjectType } from "./project-mode.js";
+import { getProjectMode } from "./project-mode.js";
 import { projectWordGoalDefault } from "./project-settings.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyModeDefaults, resolveType, PROJECT_MODES, projectBoardDefaults, projectCreationStyle, researchFolderNames } from "../utils/project-modes.js";
@@ -828,12 +828,6 @@ export function newSheet(app: App, settings: FeuilletsSettings, folder: TFolder)
     const path = normalizePath(`${folder.path}/${fileName}.md`);
     if (app.vault.getAbstractFileByPath(path)) {
       new Notice("Un feuillet portant ce nom existe déjà.");
-      return;
-    }
-    if (getProjectType(app, settings) === "structured") {
-      const title = chapTitle.trim() || fileName;
-      const file = await app.vault.create(path, `# ${title}\n\n`);
-      openFileActivating(app, app.workspace.getLeaf(false), file);
       return;
     }
     const position = getOrderedChildren(app, settings, folder).length + 1;

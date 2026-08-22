@@ -22,8 +22,8 @@ test("la vue centrale propose exactement 4 modes : Couloirs est une sous-vue de 
 });
 
 test("PROJECT_MODES", async (t) => {
-  await t.test("les 4 modes attendus existent", () => {
-    assert.deepEqual(Object.keys(PROJECT_MODES).sort(), ["fiction", "free", "nonfiction", "structured"]);
+  await t.test("les 3 modes attendus existent", () => {
+    assert.deepEqual(Object.keys(PROJECT_MODES).sort(), ["fiction", "free", "nonfiction"]);
   });
 
   await t.test("chaque mode a un vocabulaire et des réglages complets", () => {
@@ -38,7 +38,7 @@ test("PROJECT_MODES", async (t) => {
       /* rf.bibliographie existe en fiction et non-fiction uniquement —
          en libre, aucun dossier n'est imposé, l'utilisateur les crée
          via le bouton "Nouvelle rubrique". */
-      if (key !== "free" && key !== "structured") {
+      if (key !== "free") {
         const entry = mode.researchFolders.bibliographie;
         assert.ok(entry, `${key}.researchFolders.bibliographie`);
         assert.ok(entry.label, `${key}.researchFolders.bibliographie.label`);
@@ -112,10 +112,13 @@ test("resolveType", async (t) => {
     assert.equal(resolveType("nonfiction"), "nonfiction");
     assert.equal(resolveType("free"), "free");
     assert.equal(resolveType("libre"), "free");
-    assert.equal(resolveType("structured"), "structured");
-    assert.equal(resolveType("structure"), "structured");
-    assert.equal(resolveType("document-structure"), "structured");
-    assert.equal(resolveType("Document structuré"), "structured");
+  });
+
+  await t.test("« structured » n'est plus reconnu comme mode canonique : retombe sur fiction", () => {
+    assert.equal(resolveType("structured"), "fiction");
+    assert.equal(resolveType("structure"), "fiction");
+    assert.equal(resolveType("document-structure"), "fiction");
+    assert.equal(resolveType("Document structuré"), "fiction");
   });
 
   await t.test("ramène les anciennes valeurs de type sur la bonne famille", () => {
@@ -134,11 +137,10 @@ test("resolveType", async (t) => {
   });
 });
 
-test("projectCreationStyle : structured reprend la structure physique libre", () => {
+test("projectCreationStyle : chaque mode canonique conserve sa propre structure physique", () => {
   assert.equal(projectCreationStyle("fiction"), "fiction");
   assert.equal(projectCreationStyle("nonfiction"), "nonfiction");
   assert.equal(projectCreationStyle("free"), "free");
-  assert.equal(projectCreationStyle("structured"), "free");
 });
 
 test("applyModeDefaults", async (t) => {

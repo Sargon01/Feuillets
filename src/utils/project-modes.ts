@@ -223,23 +223,6 @@ export const PROJECT_MODES = {
     },
     boardDefaults: FREE_BOARD_DEFAULTS,
   },
-  structured: {
-    label: "Document structuré",
-    yamlPreset: "minimal",
-    unit: "section",
-    unitPlural: "sections",
-    hasSources: false,
-    researchFolders: FREE_RESEARCH,
-    defaultResearchFolders: [],
-    defaults: {
-      level1Role: "chapitres",
-      chapterNumbering: "continu",
-      sceneNumbering: "continue",
-      boardMode: "outline",
-      cardContent: "summary",
-    },
-    boardDefaults: FREE_BOARD_DEFAULTS,
-  },
 };
 
 /** Copie les préférences initiales de la zone centrale pour un nouveau
@@ -267,17 +250,13 @@ export function resolveType(type: string | null | undefined) {
   if (rawType === "free" || rawType === "libre") {
     return "free";
   }
-  if (["structured", "structure", "document-structure", "document structuré", "document structure"].includes(rawType)) {
-    return "structured";
-  }
   return "fiction";
 }
 
-/** Style de création physique : `structured` conserve son identité de mode,
- * mais adopte la structure minimale de `free`. */
+/** Style de création physique : identique au mode résolu (les trois modes
+ * canoniques ont chacun leur propre structure physique). */
 export function projectCreationStyle(type: string | null | undefined): "fiction" | "nonfiction" | "free" {
-  const resolved = resolveType(type);
-  return resolved === "structured" ? "free" : resolved;
+  return resolveType(type);
 }
 
 /** Applique les réglages de départ d'un mode — à appeler UNE SEULE FOIS, à

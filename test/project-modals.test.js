@@ -306,7 +306,6 @@ test("TransformToProjectModal : préserve le dossier existant et initialise le m
     // §7 : Libre planifie désormais avec le résumé long (corrige
     // l'incohérence historique — voir project-modes.ts).
     ["free", ["arcs", "timeline"], ["summary"]],
-    ["structured", ["arcs", "timeline"], ["summary"]],
   ]) {
     await t.test(type, async () => {
       const folder = new TFolder("Mes textes");

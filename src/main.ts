@@ -101,6 +101,8 @@ import { NewSheetModal, ConfirmModal } from "./ui/basic-modals.js";
 import { FootnoteCheckModal } from "./ui/footnote-modals.js";
 import { FileStatsModal } from "./ui/stats-modal.js";
 import { AnnotationPopover } from "./ui/annotation-popover.js";
+import { LayoutDirectiveModal } from "./ui/layout-directive-modal.js";
+import { resolveLayoutDirectiveContext, computeLayoutDirectiveEdit } from "./utils/editor-layout-directives.js";
 import {
   toManuscriptRelativePath,
   remapAnnotationsAfterRename,
@@ -182,18 +184,13 @@ export function isFileInsideProject(file: TFile | null, root: TFolder | null): b
 export function syncMarkdownViewProjectEditorClass(
   view: MarkdownView,
   root: TFolder | null,
-  projectType: string | null = null,
   roleEditorDisplay: "callouts" | "compact" = "callouts",
 ): void {
   const inProject = isFileInsideProject(view.file, root);
   if (inProject) view.contentEl.addClass("feuillets-project-editor");
   else view.contentEl.removeClass("feuillets-project-editor");
 
-  const isStructured = inProject && projectType === "structured";
-  if (isStructured) view.contentEl.addClass("feuillets-project-mode-structured");
-  else view.contentEl.removeClass("feuillets-project-mode-structured");
-
-  if (isStructured && roleEditorDisplay === "compact") {
+  if (inProject && roleEditorDisplay === "compact") {
     view.contentEl.addClass("feuillets-role-display-compact");
   } else {
     view.contentEl.removeClass("feuillets-role-display-compact");
@@ -506,6 +503,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerStatusBar();
     this.registerTextEditingCommands();
     this.registerFootnoteContextMenu();
+    this.registerLayoutDirectiveContextMenu();
     this.registerAnnotationCommands();
     this.registerAnnotationContextMenu();
     this.registerParagraphReorderCommand();
@@ -1228,13 +1226,11 @@ class FeuilletsPlugin extends Plugin {
    */
   syncProjectEditorScope(): void {
     const root = this.getProjectFolder();
-    const projectType = root ? getProjectType(this.app, this.settings) : null;
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       if (leaf.view instanceof MarkdownView) {
         syncMarkdownViewProjectEditorClass(
           leaf.view,
           root,
-          projectType,
           this.settings.roleEditorDisplay as "callouts" | "compact" | undefined,
         );
       }
@@ -1251,7 +1247,6 @@ class FeuilletsPlugin extends Plugin {
       for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
         if (leaf.view instanceof MarkdownView) {
           leaf.view.contentEl.removeClass("feuillets-project-editor");
-          leaf.view.contentEl.removeClass("feuillets-project-mode-structured");
           leaf.view.contentEl.removeClass("feuillets-role-display-compact");
         }
       }
@@ -1804,6 +1799,35 @@ class FeuilletsPlugin extends Plugin {
     });
 
     if (!hasSubmenu) addActions(menu, actions.slice(1), true);
+  }
+
+  /** LOT 3D — entrée « Disposition… » du menu contextuel éditeur : interface
+   * visuelle pour écrire/modifier/retirer proprement les directives 3A/3B
+   * (`%% image: … %%`, `%% colonnes: … %%`, `%% dessous %%`) sans jamais les
+   * taper à la main. N'apparaît que dans une vraie MarkdownView appartenant
+   * à un projet Feuillets (même portée que `.feuillets-project-editor`,
+   * isFileInsideProject — jamais dupliquée, §3 du lot) et seulement si le
+   * bloc sous le curseur est compatible 3A ou 3B (resolveLayoutDirectiveContext,
+   * utils/editor-layout-directives.ts, moteur pur). Continu (Scrivenings)
+   * reste hors périmètre (§28) : seul l'editor-menu natif d'Obsidian est ciblé. */
+  registerLayoutDirectiveContextMenu(): void {
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        if (!(view instanceof MarkdownView) || !view.file) return;
+        if (!isFileInsideProject(view.file, this.getProjectFolder())) return;
+        const context = resolveLayoutDirectiveContext(editor.getValue(), editor.getCursor().line);
+        if (!context) return;
+        menu.addItem((item) => {
+          item.setTitle(t("editorMenu.layoutDirective")).setIcon("layout-panel-left").onClick(() => {
+            new LayoutDirectiveModal(this.app, context, (result) => {
+              const edit = computeLayoutDirectiveEdit(editor.getValue(), context, result);
+              if (!edit) return;
+              editor.replaceRange(edit.text, { line: edit.fromLine, ch: 0 }, { line: edit.toLine, ch: 0 });
+            }).open();
+          });
+        });
+      })
+    );
   }
 
   /* ---------- Annotations de relecture (surlignage éditeur, lot 3) ----------

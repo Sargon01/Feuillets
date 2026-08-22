@@ -9534,7 +9534,7 @@ body.feuillets-text-width
 /* Rôles sémantiques Feuillets : couleurs par famille, icône par rôle.
    La portée project-editor est volontaire : les callouts d'une note hors
    projet restent entièrement sous le contrôle du thème Obsidian. */
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="problematique"], [data-callout="problematic"],
   [data-callout="introduction"], [data-callout="correction"],
   [data-callout="methodologie"], [data-callout="methodology"]
@@ -9542,7 +9542,7 @@ body.feuillets-text-width
   --callout-color: var(--color-green-rgb);
 }
 
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="objectifs"], [data-callout="objectives"],
   [data-callout="competences"], [data-callout="competencies"],
   [data-callout="questions"], [data-callout="trace"], [data-callout="lesson"],
@@ -9551,14 +9551,14 @@ body.feuillets-text-width
   --callout-color: var(--color-blue-rgb);
 }
 
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="definition"], [data-callout="lexique"], [data-callout="glossary"],
   [data-callout="explication"], [data-callout="explanation"]
 ) {
   --callout-color: var(--color-purple-rgb);
 }
 
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="consignes"], [data-callout="instructions"],
   [data-callout="exemple"], [data-callout="example"],
   [data-callout="tache"], [data-callout="task"]
@@ -9566,61 +9566,61 @@ body.feuillets-text-width
   --callout-color: var(--color-orange-rgb);
 }
 
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="retenir"], [data-callout="keypoint"]
 ) {
   --callout-color: var(--color-red-rgb);
 }
 
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="problematique"], [data-callout="problematic"], [data-callout="questions"]
 ) { --callout-icon: lucide-circle-help; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="introduction"]
 ) { --callout-icon: lucide-align-left; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="correction"]
 ) { --callout-icon: lucide-check-check; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="methodologie"], [data-callout="methodology"]
 ) { --callout-icon: lucide-route; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="objectifs"], [data-callout="objectives"]
 ) { --callout-icon: lucide-target; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="competences"], [data-callout="competencies"]
 ) { --callout-icon: lucide-badge-check; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="trace"], [data-callout="lesson"]
 ) { --callout-icon: lucide-notebook-pen; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="definition"]
 ) { --callout-icon: lucide-book-open; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="lexique"], [data-callout="glossary"]
 ) { --callout-icon: lucide-languages; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="explication"], [data-callout="explanation"]
 ) { --callout-icon: lucide-message-square-text; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="consignes"], [data-callout="instructions"]
 ) { --callout-icon: lucide-clipboard-list; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="exemple"], [data-callout="example"]
 ) { --callout-icon: lucide-lightbulb; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="tache"], [data-callout="task"]
 ) { --callout-icon: lucide-list-checks; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="retenir"], [data-callout="keypoint"]
 ) { --callout-icon: lucide-bookmark; }
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="document"], [data-callout="doc"]
 ) { --callout-icon: lucide-file-text; }
 
 /* Mode Callouts : les rôles gardent le chrome complet d'un callout, même
    avec un thème qui choisit un rendu natif très discret. */
-.feuillets-project-editor.feuillets-project-mode-structured:not(.feuillets-role-display-compact) .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor:not(.feuillets-role-display-compact) .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"],
   [data-callout="objectifs"], [data-callout="objectives"], [data-callout="competences"],
   [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
@@ -9640,7 +9640,7 @@ body.feuillets-text-width
 
 /* Mode compact : même callout Obsidian et même contenu, avec uniquement le
    chrome décoratif retiré pour les rôles Feuillets. */
-.feuillets-project-editor.feuillets-project-mode-structured.feuillets-role-display-compact .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor.feuillets-role-display-compact .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"],
   [data-callout="objectifs"], [data-callout="objectives"], [data-callout="competences"],
   [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
@@ -9659,7 +9659,7 @@ body.feuillets-text-width
   padding: 0;
 }
 
-.feuillets-project-editor.feuillets-project-mode-structured.feuillets-role-display-compact .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor.feuillets-role-display-compact .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"],
   [data-callout="objectifs"], [data-callout="objectives"], [data-callout="competences"],
   [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
@@ -9674,7 +9674,7 @@ body.feuillets-text-width
   padding: 0;
 }
 
-.feuillets-project-editor.feuillets-project-mode-structured.feuillets-role-display-compact .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor.feuillets-role-display-compact .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"],
   [data-callout="objectifs"], [data-callout="objectives"], [data-callout="competences"],
   [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
@@ -9689,21 +9689,8 @@ body.feuillets-text-width
   padding: 0 0 0 1.75em;
 }
 
-/* Document structuré : niveaux visuels de la hiérarchie rédactionnelle. */
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .HyperMD-header-1,
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .HyperMD-header-2,
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .cm-header-1,
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .cm-header-2 {
-  color: var(--color-red);
-}
-
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .HyperMD-header-3,
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .cm-header-3 {
-  color: var(--color-green);
-}
-
 /* La variable de callout colore le chrome seulement, jamais le contenu. */
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"], [data-callout="correction"],
   [data-callout="methodologie"], [data-callout="methodology"], [data-callout="objectifs"], [data-callout="objectives"],
   [data-callout="competences"], [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
@@ -9712,7 +9699,7 @@ body.feuillets-text-width
   [data-callout="definition"], [data-callout="lexique"], [data-callout="glossary"], [data-callout="tache"], [data-callout="task"],
   [data-callout="document"], [data-callout="doc"]
 ) .callout-title,
-.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is(
   [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"], [data-callout="correction"],
   [data-callout="methodologie"], [data-callout="methodology"], [data-callout="objectifs"], [data-callout="objectives"],
   [data-callout="competences"], [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
