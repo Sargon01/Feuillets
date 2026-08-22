@@ -28,6 +28,8 @@ import {
   reflowIdeaTree,
 } from "../services/canvas-idea-tree.js";
 import { splitTextNode, executeMerge } from "../services/canvas-split-merge.js";
+import { BINDER_OUTLINER_MARKER } from "../services/canvas-binder-plan.js";
+import { renderBinderPlanOutliner } from "../ui/canvas-binder-plan-outliner.js";
 import { titleFor } from "../services/frontmatter.js";
 import type { MinimalRuntimeCanvas, MinimalRuntimeNode } from "../services/canvas-runtime.js";
 import type { KeymapEventHandler, KeymapEventListener, Modifier } from "obsidian";
@@ -129,6 +131,8 @@ export type MinimalAdvancedCanvasNode = {
    * l'iframe de l'éditeur d'un TextNode et lui poser la classe de lisibilité
    * pendant l'édition. */
   nodeEl?: HTMLElement;
+  contentEl?: HTMLElement;
+  setData?: (data: Record<string, unknown>) => void;
 };
 
 /** Sous-ensemble structurel du `Scope` Obsidian réellement utilisé — mêmes
@@ -143,6 +147,10 @@ type MinimalCanvasScope = {
 type WorkspaceWithCanvasMenuEvents = {
   on(name: "canvas:selection-menu", cb: (menu: Menu, canvas: MinimalAdvancedCanvas) => void): EventRef;
   on(name: "canvas:node-menu", cb: (menu: Menu, node: MinimalAdvancedCanvasNode) => void): EventRef;
+  on(
+    name: "advanced-canvas:node-rendered",
+    cb: (canvas: MinimalAdvancedCanvas, node: MinimalAdvancedCanvasNode) => void
+  ): EventRef;
   /** Lot 5 (section 6) — événement Advanced Canvas émis à chaque bascule
    * édition/lecture d'un TextNode. `node.nodeEl` porte l'iframe réel de
    * l'éditeur ; `editing` est `true` à l'ouverture, `false` à la fermeture. */
@@ -627,6 +635,15 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
   if (registeredPlugins.has(plugin)) return;
   registeredPlugins.add(plugin);
   const workspace = plugin.app.workspace as unknown as WorkspaceWithCanvasMenuEvents;
+  plugin.registerEvent(workspace.on("advanced-canvas:node-rendered", (canvas, node) => {
+    if (!isActiveNotebook(plugin, canvas.view?.file)) return;
+    const data = node.getData?.();
+    if (data?.feuillets_binder_plan !== BINDER_OUTLINER_MARKER || !node.nodeEl) return;
+    node.nodeEl.addClass("feuillets-binder-plan-node");
+    node.nodeEl.querySelector(".feuillets-plan-interactive-layer")?.remove();
+    const layer = node.nodeEl.createDiv({ cls: "feuillets-plan-interactive-layer" });
+    renderBinderPlanOutliner({ ...node, contentEl: layer, canvas });
+  }));
 
   plugin.registerEvent(
     workspace.on("canvas:selection-menu", (menu, canvas) => {

@@ -147,6 +147,25 @@ test("DOCX : le style Citation sans marge locale ne crée aucun retrait implicit
   assert.ok(!citationStyle.includes("w:lineRule="), "aucun interligne local sans surcharge");
 });
 
+test("DOCX : le profil document applique l'alinéa Citation de 18 pt et un cadre continu", async () => {
+  const quote = el("BLOCKQUOTE", { children: [p([texte("Premier")]), p([texte("Second")]), p([texte("Source")])] });
+  const paragraphs = blockToParagraphs(quote, noFootnotes, { ...TPL, profile: "document", blockquote: {} });
+  const doc = new Document({
+    styles: { paragraphStyles: [citationParagraphStyle({ profile: "document", blockquote: {} })] },
+    sections: [{ children: paragraphs }],
+  });
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(doc));
+  const documentXml = await zip.file("word/document.xml").async("string");
+  const stylesXml = await zip.file("word/styles.xml").async("string");
+  assert.ok(stylesXml.includes('w:firstLine="360"'));
+  const citationParagraphs = documentXml.match(/<w:p>[\s\S]*?<\/w:p>/g)?.filter((value) => value.includes("FeuilletsCitation")) || [];
+  assert.equal(citationParagraphs.length, 3);
+  assert.match(citationParagraphs[0], /w:top/);
+  assert.doesNotMatch(citationParagraphs[0], /w:bottom/);
+  assert.doesNotMatch(citationParagraphs[1], /w:top|w:bottom/);
+  assert.match(citationParagraphs[2], /w:bottom/);
+});
+
 test("blockToParagraphs : H1/H2 démarrent une page si le modèle ne configure rien", () => {
   const saut = (tag) => JSON.stringify(blockToParagraphs(el(tag, { childNodes: [texte("T")] }), noFootnotes, TPL));
   assert.ok(saut("H1").includes("w:pageBreakBefore"), "H1 doit démarrer une page");

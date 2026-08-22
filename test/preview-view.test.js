@@ -11,6 +11,7 @@ import {
   previewModeLabel,
   previewStatusLabel,
   previewZoomModeLabel,
+  previewNaturalSurface,
 } from "../src/views/preview-view.js";
 import { resolveCompileScopeFiles, createProjectScope } from "../src/services/compile-scope.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
@@ -169,6 +170,7 @@ class FakeElement {
   // dans `style`.
   setCssStyles(styles) { Object.assign(this.style, styles); }
   get parentElement() { return this.parentNode; }
+  get firstElementChild() { return this.children[0] || null; }
   get nextElementSibling() {
     const siblings = this.parentNode ? this.parentNode.children : [];
     const i = siblings.indexOf(this);
@@ -346,6 +348,53 @@ function buildFakeIframeDocument(srcdoc) {
       for (const fn of [...(docListeners.get(type) || [])]) fn(event);
     },
   };
+}
+
+function buildTwoUpPreviewDocument({ rightPage }) {
+  const docEl = new FakeElement("html");
+  const bodyEl = new FakeElement("body");
+  const wrapper = new FakeElement("div");
+  wrapper.className = "feuillets-preview-pages-wrapper";
+  const pages = new FakeElement("div");
+  pages.className = "feuillets-preview-pages";
+  const sheet = new FakeElement("div");
+  sheet.className = "feuillets-sheet feuillets-sheet-a4-landscape feuillets-sheet-two-up";
+  sheet.offsetWidth = 1120;
+  sheet.offsetHeight = 793;
+
+  for (const side of ["left", "right"]) {
+    const panel = new FakeElement("div");
+    panel.className = `feuillets-sheet-panel feuillets-sheet-panel-${side}`;
+    if (side === "left" || rightPage) {
+      const page = new FakeElement("div");
+      page.className = "pdf-page feuillets-sheet-panel-page";
+      page.offsetWidth = 560;
+      page.offsetHeight = 793;
+      panel.appendChild(page);
+    }
+    sheet.appendChild(panel);
+  }
+
+  pages.appendChild(sheet);
+  pages.offsetHeight = sheet.offsetHeight;
+  wrapper.appendChild(pages);
+  bodyEl.appendChild(wrapper);
+
+  return {
+    documentElement: docEl,
+    querySelector: (selector) => bodyEl.querySelector(selector),
+    querySelectorAll: (selector) => bodyEl.querySelectorAll(selector),
+  };
+}
+
+function viewMeasuring(document) {
+  const view = Object.create(PreviewView.prototype);
+  const frame = new FakeElement("iframe");
+  frame._contentDocument = document;
+  view.previewFrame = frame;
+  view.previewViewport = new FakeElement("div");
+  view.zoomMode = "manual";
+  return { view, frame };
 }
 
 /** Toutes les balises ouvrantes du srcdoc portant un repère de source —
@@ -990,6 +1039,54 @@ test("PreviewView : la hauteur/largeur de l'iframe suivent naturalPagesHeight/na
     MarkdownRenderer.render = previousRender;
     dom.restore();
   }
+});
+
+test("PreviewView : mesure la surface directe normale, jamais un wrapper", () => {
+  const page = new FakeElement("div");
+  page.className = "pdf-page";
+  page.offsetWidth = 794;
+  const pages = new FakeElement("div");
+  pages.className = "feuillets-preview-pages";
+  pages.appendChild(page);
+
+  assert.equal(previewNaturalSurface(pages), page);
+});
+
+test("PreviewView : une feuille 2-up mesure 1120 px, pas son panneau A5 interne de 560 px", () => {
+  const { view, frame } = viewMeasuring(buildTwoUpPreviewDocument({ rightPage: false }));
+
+  view.measureNaturalDimensions();
+  assert.equal(view.naturalPageWidth, 1120, "la feuille physique complète est la référence");
+  assert.equal(view.naturalPageHeight, 793);
+  assert.equal(view.naturalPagesHeight, 793);
+
+  view.applyZoomToFrame(0.5);
+  assert.equal(frame.style.width, "560px", "l'iframe reçoit la largeur de la feuille complète × le zoom");
+});
+
+test("PreviewView : les feuilles 2-up successive vide et dupliquée ont la même largeur de référence", () => {
+  for (const rightPage of [false, true]) {
+    const { view } = viewMeasuring(buildTwoUpPreviewDocument({ rightPage }));
+    view.measureNaturalDimensions();
+    assert.equal(view.naturalPageWidth, 1120);
+  }
+});
+
+test("PreviewView : ajuster à la largeur calcule 0,50 sur une feuille 2-up de 1120 px", () => {
+  const { view } = viewMeasuring(buildTwoUpPreviewDocument({ rightPage: true }));
+  const viewport = new FakeElement("div");
+  viewport.clientWidth = 568;
+  viewport._paddingX = 0;
+  view.contentEl = { querySelector: () => viewport };
+  view.measureNaturalDimensions();
+  view.zoomMode = "fit-width";
+  view.setZoom = (scale, mode) => {
+    view.zoomScale = scale;
+    view.zoomMode = mode;
+  };
+
+  view.recalculateAutoZoom();
+  assert.equal(view.zoomScale, 0.5);
 });
 
 test("PreviewView : la largeur/hauteur d'ajustement se calcule sur .feuillets-preview-viewport.clientWidth, jamais window.innerWidth", async () => {

@@ -30,6 +30,7 @@ export type DefaultSettings = {
   fontSize: number;
   liveJustify: boolean;
   readingMatchLive: boolean;
+  roleEditorDisplay: "callouts" | "compact";
   readingFontSize: number;
   lineHeight: number;
   textWidth: number;
@@ -237,6 +238,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   fontSize: 14,
   liveJustify: false,
   readingMatchLive: true,
+  roleEditorDisplay: "callouts",
   readingFontSize: 0,
   lineHeight: 0,
   textWidth: 0,

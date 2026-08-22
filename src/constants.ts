@@ -17,6 +17,7 @@ export const VIEW_PREVIEW = "feuillets-manuscript-preview";
  * encore d'entrée Binder/commande, la vue s'ouvre pour l'instant par
  * `setViewState({ type: VIEW_SCRIVENINGS, ... })`. */
 export const VIEW_SCRIVENINGS = "feuillets-scrivenings";
+export const VIEW_PRESENTATION = "feuillets-presentation";
 
 /** Statuts : entièrement personnalisables (nom + couleur), comme les
  * labels — plus de liste figée ni de couleur déterminée par la position.

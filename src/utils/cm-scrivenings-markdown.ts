@@ -1,6 +1,4 @@
-/* eslint-disable import/no-extraneous-dependencies -- CodeMirror est fourni par Obsidian */
 import { Decoration, ViewPlugin } from "@codemirror/view";
-/* eslint-enable import/no-extraneous-dependencies -- fin des imports fournis par Obsidian */
 import { parser } from "@lezer/markdown";
 
 /**

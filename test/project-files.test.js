@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { createMinimalProject, CreateProjectError, duplicateProjectFolder, getVersionsRoot, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, EDITION_DOCUMENTS, EDITION_SUBFOLDERS, editionDocumentForName } from "../src/services/project-files.js";
+import { createMinimalProject, CreateProjectError, duplicateProjectFolder, getVersionsRoot, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, newSheet, EDITION_DOCUMENTS, EDITION_SUBFOLDERS, editionDocumentForName } from "../src/services/project-files.js";
+import { NewSheetModal } from "../src/ui/basic-modals.js";
 import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
 import { setLocale } from "../src/i18n/index.js";
 import { PROJECT_MODES, researchFolderNames } from "../src/utils/project-modes.js";
@@ -173,6 +174,7 @@ function freshSettings(overrides = {}) {
     projectFolder: "",
     projects: [],
     projectMeta: {},
+    orders: {},
     ...overrides,
   };
 }
@@ -343,6 +345,79 @@ test("createMinimalProject (libre) : crée uniquement Nouveau texte.md sans stru
     ),
     ["summary"]
   );
+});
+
+test("createMinimalProject (structured) : reprend Libre sans Front ni YAML", async () => {
+  const { vault } = createFakeVault([]);
+  const settings = freshSettings();
+
+  const result = await createMinimalProject({ vault }, settings, { name: "Cours", type: "structured" });
+
+  assert.equal(settings.projectMeta[result.manuscritPath].type, "structured");
+  assert.equal(result.firstFile.path, "Cours/Manuscrit/Nouveau texte.md");
+  assert.equal(result.firstFile.content, "# Nouveau texte\n\n");
+  assert.equal(result.firstFile.content.includes("---"), false);
+  assert.equal(vault.getAbstractFileByPath("Cours/Manuscrit/Front"), null);
+  assert.equal(vault.getAbstractFileByPath("Cours/_Feuillets/Recherche/Notes"), null);
+  assert.equal(vault.getAbstractFileByPath("Cours/_Feuillets/Recherche/Sources"), null);
+});
+
+test("newSheet (structured) : crée un Markdown simple sans frontmatter", async () => {
+  const folder = new TFolder("Cours");
+  const { vault } = createFakeVault([folder]);
+  const settings = freshSettings({ projectFolder: folder.path, projectMeta: { [folder.path]: { type: "structured" } } });
+  const app = {
+    vault,
+    workspace: {
+      getLeaf: () => ({ openFile: async () => {} }),
+      setActiveLeaf: () => {},
+    },
+  };
+  const originalOpen = NewSheetModal.prototype.open;
+  let submit;
+  NewSheetModal.prototype.open = function open() { submit = this.onSubmit; return this; };
+  try {
+    newSheet(app, settings, folder);
+    await submit("Activité 1", "Activité 1");
+  } finally {
+    NewSheetModal.prototype.open = originalOpen;
+  }
+
+  const file = vault.getAbstractFileByPath("Cours/Activité 1.md");
+  assert.ok(file instanceof TFile);
+  assert.equal(file.content, "# Activité 1\n\n");
+  assert.equal(file.content.includes("---"), false);
+});
+
+test("newSheet : les modes fiction, non-fiction et libre gardent leur YAML historique", async (t) => {
+  for (const type of ["fiction", "nonfiction", "free"]) {
+    await t.test(type, async () => {
+      const folder = new TFolder(`Projet-${type}`);
+      const { vault } = createFakeVault([folder]);
+      const settings = freshSettings({ projectFolder: folder.path, projectMeta: { [folder.path]: { type } } });
+      const app = {
+        vault,
+        workspace: {
+          getLeaf: () => ({ openFile: async () => {} }),
+          setActiveLeaf: () => {},
+        },
+      };
+      const originalOpen = NewSheetModal.prototype.open;
+      let submit;
+      NewSheetModal.prototype.open = function open() { submit = this.onSubmit; return this; };
+      try {
+        newSheet(app, settings, folder);
+        await submit("Feuillet", "Feuillet");
+      } finally {
+        NewSheetModal.prototype.open = originalOpen;
+      }
+
+      const file = vault.getAbstractFileByPath(`${folder.path}/Feuillet.md`);
+      assert.ok(file instanceof TFile);
+      assert.match(file.content, /^---\n/m);
+      assert.match(file.content, /\ncompile: true\n/);
+    });
+  }
 });
 
 test("createMinimalProject (non-fiction) : Partie 1 et Chapitre 1.md sont classés partie/chapitre", async () => {

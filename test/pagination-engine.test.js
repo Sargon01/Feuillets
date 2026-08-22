@@ -6,14 +6,67 @@ import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
 import {
   CONTINUATION_STYLE,
   CONTINUES_JUSTIFY_STYLE,
+  DOCUMENT_MEDIA_MIN_SCALE,
   FRAGMENT_CONTINUATION_CLASS,
   FRAGMENT_CONTINUES_CLASS,
   FRAGMENT_START_CLASS,
   applyFragmentPresentation,
+  documentMediaGroupAfter,
+  largestFittingDocumentMediaScale,
   paginateDom,
   wordBoundaries,
   wordPrefixEnds,
 } from "../src/services/pagination-engine.js";
+
+function block(tagName, classes = []) {
+  return { tagName: tagName.toUpperCase(), classList: { contains: (name) => classes.includes(name) } };
+}
+
+test("pagination-engine : heading + média documentaire reste un groupe direct", () => {
+  const heading = block("h3");
+  const media = block("div", ["feuillets-doc-media-block"]);
+  assert.deepEqual(documentMediaGroupAfter(heading, [media]), [heading, media]);
+});
+
+test("pagination-engine : heading + paragraphe introductif + média forme le groupe réel", () => {
+  const heading = block("h3");
+  const intro = block("p");
+  const media = block("div", ["feuillets-doc-media-block"]);
+  const group = documentMediaGroupAfter(heading, [intro, media]);
+  assert.deepEqual(group, [heading, intro, media]);
+  assert.equal(group?.map((node) => node.tagName).join(","), "H3,P,DIV");
+});
+
+test("pagination-engine : deux paragraphes ou une liste n'élargissent pas le groupe média", () => {
+  const heading = block("h3");
+  const paragraph = block("p");
+  const media = block("div", ["feuillets-doc-media-block"]);
+  assert.equal(documentMediaGroupAfter(heading, [paragraph, block("p"), media]), null);
+  assert.equal(documentMediaGroupAfter(heading, [block("ul"), media]), null);
+});
+
+test("pagination-engine : une page Front ne devient jamais un groupe média", () => {
+  const front = block("div", ["feuillets-frontpage"]);
+  const media = block("div", ["feuillets-doc-media-block"]);
+  assert.equal(documentMediaGroupAfter(front, [media]), null);
+});
+
+test("pagination-engine : l'échelle documentaire reste à 1 si le média tient", () => {
+  assert.equal(largestFittingDocumentMediaScale(() => true), 1);
+});
+
+test("pagination-engine : la recherche choisit la plus grande réduction nécessaire, pas directement 80 %", () => {
+  const scale = largestFittingDocumentMediaScale((value) => value <= 0.93);
+  assert.ok(scale > 0.9);
+  assert.ok(scale < 1);
+  assert.ok(scale <= 0.93);
+});
+
+test("pagination-engine : la borne de réduction documentaire ne descend jamais sous 80 %", () => {
+  const scale = largestFittingDocumentMediaScale((value) => value <= DOCUMENT_MEDIA_MIN_SCALE);
+  assert.equal(scale, DOCUMENT_MEDIA_MIN_SCALE);
+  assert.equal(largestFittingDocumentMediaScale((value) => value < DOCUMENT_MEDIA_MIN_SCALE), null);
+});
 
 function wordFragments(text, capacity) {
   const result = [];
@@ -71,6 +124,13 @@ test("pagination-engine : la pagination réelle ne décide pas avec getClientRec
   const implementation = paginateDom.toString();
   assert.doesNotMatch(implementation, /getClientRects|firstOverflowWordStart/);
   assert.match(implementation, /overflows/);
+});
+
+test("pagination-engine : le flux portrait + citation ne fractionne plus le blockquote", async () => {
+  const implementation = await readFile(new URL("../src/services/pagination-engine.js", import.meta.url), "utf8");
+  assert.doesNotMatch(implementation, /splitPortraitContent|feuillets-doc-quote-split-(?:start|continuation)/);
+  assert.match(implementation, /function canSplit\(node\)/);
+  assert.doesNotMatch(implementation, /canSplit\(node\)[\s\S]{0,160}blockquote/);
 });
 
 test("pagination-engine : la mesure multicolonne compose à hauteur de page et détecte le débordement horizontal", async () => {

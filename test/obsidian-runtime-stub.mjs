@@ -2,8 +2,21 @@ export function getLanguage() {
   return "fr";
 }
 
+/* Stub minimal — pas toute la bibliothèque Lucide : crée un <svg> réel et
+   identifiable (data-icon) quand le conteneur ressemble à un vrai élément
+   DOM (appendChild + ownerDocument/document disponible), sinon se contente
+   de mémoriser `.icon` comme avant (compatibilité avec les nombreux stubs
+   de test plus simples déjà utilisés ailleurs — boutons, ButtonComponent…). */
 export function setIcon(element, icon) {
-  if (element && typeof element === "object") element.icon = icon;
+  if (!element || typeof element !== "object") return;
+  element.icon = icon;
+  if (typeof element.appendChild !== "function") return;
+  if (typeof element.textContent !== "undefined") element.textContent = "";
+  const doc = element.ownerDocument || (typeof document !== "undefined" ? document : null);
+  if (!doc || typeof doc.createElement !== "function") return;
+  const svg = doc.createElement("svg");
+  if (typeof svg.setAttribute === "function") svg.setAttribute("data-icon", icon);
+  element.appendChild(svg);
 }
 
 export class Component {

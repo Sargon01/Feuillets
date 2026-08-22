@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
-import { createDefaultExportTemplateV2, normalizeLegacyTemplate, normalizeV2Template } from "../src/services/export-template-v2.js";
+import { createDefaultExportTemplateV2, normalizeLegacyTemplate, normalizeV2Template, shouldGenerateGenericTitlePage } from "../src/services/export-template-v2.js";
+
+test("shouldGenerateGenericTitlePage : respecte le profil explicite et la page Front", () => {
+  assert.equal(shouldGenerateGenericTitlePage("document", false), false);
+  assert.equal(shouldGenerateGenericTitlePage("document", true), false);
+  assert.equal(shouldGenerateGenericTitlePage("manuscript", false), true);
+  assert.equal(shouldGenerateGenericTitlePage("academic", false), true);
+  assert.equal(shouldGenerateGenericTitlePage(undefined, false), true);
+  assert.equal(shouldGenerateGenericTitlePage(undefined, true), false);
+});
 
 test("createDefaultExportTemplateV2 : produit le gabarit document neutre complet", () => {
   const result = createDefaultExportTemplateV2();
@@ -154,4 +163,78 @@ test("normalizeLegacyTemplate : ne mute jamais le modèle ni les réglages legac
 
   assert.deepEqual(tpl, beforeTpl);
   assert.deepEqual(settings, beforeSettings);
+});
+
+// ---------- semanticRoleMarkers : legacy / show / hide ----------
+
+test("semanticRoleMarkers : valeur absente => legacy (createDefaultExportTemplateV2 et normalizeV2Template)", () => {
+  assert.equal(createDefaultExportTemplateV2().semanticRoleMarkers, "legacy");
+  assert.equal(normalizeV2Template({}).semanticRoleMarkers, "legacy");
+  assert.equal(normalizeLegacyTemplate({ key: "x", label: "X" }).semanticRoleMarkers, "legacy");
+});
+
+test("semanticRoleMarkers : sélection \"show\" persistée par normalizeV2Template", () => {
+  const result = normalizeV2Template({ semanticRoleMarkers: "show" });
+  assert.equal(result.semanticRoleMarkers, "show");
+});
+
+// ---------- couleur du corps / couleur et soulignement des titres ----------
+
+test("body.colorHex / heading.colorHex / heading.underline : absents => repli historique (aucune valeur matérialisée)", () => {
+  const result = createDefaultExportTemplateV2();
+  assert.equal(result.body.colorHex, undefined);
+  for (const level of ["h1", "h2", "h3", "h4", "h5", "h6"]) {
+    assert.equal(result.headings[level].colorHex, undefined);
+    assert.equal(result.headings[level].underline, undefined);
+  }
+  // normalizeV2Template ne les injecte pas non plus pour un V2 minimal.
+  const minimal = normalizeV2Template({});
+  assert.equal(minimal.body.colorHex, undefined);
+  assert.equal(minimal.headings.h1.underline, undefined);
+});
+
+test("normalizeV2Template : conserve body.colorHex, heading.colorHex et heading.underline (true et false) sans mutation", () => {
+  const input = {
+    version: 2, profile: "document",
+    body: { fontFamily: "Georgia", fontSizePt: 12, lineHeight: 1.5, align: "left", firstLineIndentPt: 0, paragraphSpacingBeforePt: 0, paragraphSpacingAfterPt: 0, hyphenation: false, colorHex: "#223344" },
+    headings: { h1: { colorHex: "#AA1122", underline: true }, h2: {}, h3: {}, h4: {}, h5: {}, h6: { colorHex: "#334455", underline: false } },
+  };
+  const before = JSON.parse(JSON.stringify(input));
+  const result = normalizeV2Template(input);
+
+  assert.equal(result.body.colorHex, "#223344");
+  assert.equal(result.headings.h1.colorHex, "#AA1122");
+  assert.equal(result.headings.h1.underline, true);
+  assert.equal(result.headings.h6.colorHex, "#334455");
+  assert.equal(result.headings.h6.underline, false);
+  assert.equal(result.headings.h2.colorHex, undefined);
+  assert.deepEqual(input, before);
+});
+
+test("normalizeLegacyTemplate : projette ExportTemplate.colorHex (corps) vers body.colorHex", () => {
+  const withColor = normalizeLegacyTemplate({ key: "x", label: "X", colorHex: "#555555" });
+  const withoutColor = normalizeLegacyTemplate({ key: "x", label: "X" });
+  assert.equal(withColor.body.colorHex, "#555555");
+  assert.equal(withoutColor.body.colorHex, undefined);
+});
+
+test("semanticRoleMarkers : sélection \"hide\" persistée par normalizeV2Template", () => {
+  const result = normalizeV2Template({ semanticRoleMarkers: "hide" });
+  assert.equal(result.semanticRoleMarkers, "hide");
+});
+
+test("semanticRoleMarkers : une valeur inconnue retombe sur legacy (jamais de valeur invalide propagée)", () => {
+  const result = normalizeV2Template({ semanticRoleMarkers: "n-importe-quoi" });
+  assert.equal(result.semanticRoleMarkers, "legacy");
+});
+
+test("semanticRoleMarkers : rechargement du gabarit restitue la valeur (double normalisation stable)", () => {
+  const saved = normalizeV2Template({ semanticRoleMarkers: "show" });
+  const reloaded = normalizeV2Template(JSON.parse(JSON.stringify(saved)));
+  assert.equal(reloaded.semanticRoleMarkers, "show");
+});
+
+test("semanticRoleMarkers : normalizeLegacyTemplate propage la valeur d'un ancien champ legacy", () => {
+  assert.equal(normalizeLegacyTemplate({ key: "x", label: "X", semanticRoleMarkers: "show" }).semanticRoleMarkers, "show");
+  assert.equal(normalizeLegacyTemplate({ key: "x", label: "X", semanticRoleMarkers: "hide" }).semanticRoleMarkers, "hide");
 });

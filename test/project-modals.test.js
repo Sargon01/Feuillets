@@ -306,15 +306,21 @@ test("TransformToProjectModal : préserve le dossier existant et initialise le m
     // §7 : Libre planifie désormais avec le résumé long (corrige
     // l'incohérence historique — voir project-modes.ts).
     ["free", ["arcs", "timeline"], ["summary"]],
+    ["structured", ["arcs", "timeline"], ["summary"]],
   ]) {
     await t.test(type, async () => {
       const folder = new TFolder("Mes textes");
       const article = new TFile("Mes textes/Article 1.md", "Texte personnel");
       const archives = new TFolder("Mes textes/Archives");
+      const sequence = new TFolder("Mes textes/Séquence 1");
+      const activity = new TFile("Mes textes/Séquence 1/Activité.md", "Contenu sans YAML");
       article.parent = folder;
       archives.parent = folder;
-      folder.children = [article, archives];
-      const { vault } = createFakeVault([folder, article, archives]);
+      sequence.parent = folder;
+      activity.parent = sequence;
+      sequence.children = [activity];
+      folder.children = [article, archives, sequence];
+      const { vault } = createFakeVault([folder, article, archives, sequence, activity]);
       const app = fakeApp(vault);
       const settings = freshSettings();
       const plugin = fakePlugin(settings);
@@ -326,6 +332,9 @@ test("TransformToProjectModal : préserve le dossier existant et initialise le m
 
       assert.equal(vault.getAbstractFileByPath(article.path), article);
       assert.equal(vault.getAbstractFileByPath(archives.path), archives);
+      assert.equal(vault.getAbstractFileByPath(sequence.path), sequence);
+      assert.equal(vault.getAbstractFileByPath(activity.path), activity);
+      assert.equal(activity.content, "Contenu sans YAML");
       assert.ok(vault.getAbstractFileByPath(`Mes textes/_Feuillets/Recherche`) instanceof TFolder, "Recherche");
       assert.ok(vault.getAbstractFileByPath(`Mes textes/_Feuillets/Ressources`) instanceof TFolder, "Ressources");
       for (const name of ["Edition", "Journal", "Snapshots", "Backups", "Sortie"]) {

@@ -73,7 +73,7 @@ function allLabels(element) {
 }
 
 function installSettingStub() {
-  const methods = ["setName", "addButton", "addDropdown", "addExtraButton", "addToggle", "addText"];
+  const methods = ["setName", "addButton", "addDropdown", "addExtraButton", "addToggle", "addText", "addColorPicker"];
   const previous = Object.fromEntries(methods.map((name) => [name, Setting.prototype[name]]));
   const previousThen = Setting.prototype.then;
   const add = (kind, parent, configure, name) => {
@@ -86,6 +86,8 @@ function installSettingStub() {
       addOption(value, label) { this.options.push({ value, label }); return this; },
       setValue(value) { this.value = value; this.inputEl.value = value; return this; },
       setPlaceholder(value) { this.placeholder = value; return this; },
+      setIcon(value) { this.icon = value; return this; },
+      setTooltip(value) { this.tooltip = value; return this; },
       onClick(callback) { this.click = callback; return this; },
       onChange(callback) { this.change = callback; return this; },
     };
@@ -99,6 +101,7 @@ function installSettingStub() {
   Setting.prototype.addExtraButton = function addExtraButton(configure) { add("extra", this.container, configure, this.name); return this; };
   Setting.prototype.addToggle = function addToggle(configure) { add("toggle", this.container, configure, this.name); return this; };
   Setting.prototype.addText = function addText(configure) { add("text", this.container, configure, this.name); return this; };
+  Setting.prototype.addColorPicker = function addColorPicker(configure) { add("colorPicker", this.container, configure, this.name); return this; };
   Setting.prototype.then = function then(callback) { callback(this); return this; };
   return () => { Object.assign(Setting.prototype, previous); Setting.prototype.then = previousThen; };
 }

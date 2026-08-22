@@ -1,10 +1,11 @@
 import { Notice, Platform } from "obsidian";
 import type { App } from "obsidian";
-import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
+import { composeDocumentMedia, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
 import { paginateDom, paginateDomCooperatively, type CooperativePaginationOptions, type PaginationGeometry, type PaginationPage } from "./pagination-engine.js";
 import { resolvePageGeometry } from "./page-geometry.js";
+import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 
 type PdfFootnote = {
   id: string;
@@ -34,6 +35,55 @@ type PreparedManuscriptPagination = {
   geometry: PaginationGeometry;
 };
 
+export type PdfOutputLayout = "single" | "two-up-successive" | "two-up-duplicate";
+
+export function outputLayoutFor(
+  settings: Pick<FeuilletsSettings, "pdfOutputLayout">,
+  tpl?: Pick<ResolvedExportTemplate, "pdfOutputLayout">,
+): PdfOutputLayout {
+  const value = tpl?.pdfOutputLayout ?? settings.pdfOutputLayout;
+  return value === "two-up-successive" || value === "two-up-duplicate" ? value : "single";
+}
+
+function logicalTemplateFor(tpl: ResolvedExportTemplate, settings: FeuilletsSettings): ResolvedExportTemplate {
+  return outputLayoutFor(settings, tpl) === "single"
+    ? tpl
+    : { ...tpl, pageSize: "A5", pageOrientation: "portrait" };
+}
+
+function physicalPageGeometry(tpl: ResolvedExportTemplate, settings: FeuilletsSettings) {
+  return outputLayoutFor(settings, tpl) === "single"
+    ? resolvePageGeometry(tpl, settings)
+    : resolvePageGeometry({ ...tpl, pageSize: "A4", pageOrientation: "landscape" }, settings);
+}
+
+export function logicalPageGeometryFor(tpl: ResolvedExportTemplate, settings: FeuilletsSettings) {
+  return resolvePageGeometry(logicalTemplateFor(tpl, settings), settings);
+}
+
+export function physicalPageGeometryFor(tpl: ResolvedExportTemplate, settings: FeuilletsSettings) {
+  return physicalPageGeometry(tpl, settings);
+}
+
+export function imposePagesHtml(logicalPages: string[], mode: PdfOutputLayout): string[] {
+  if (mode === "single") return logicalPages;
+  const sheets: string[] = [];
+  const panel = (html: string, side: "left" | "right") => {
+    const panelPage = html
+      .replace('class="pdf-page ', 'class="pdf-page feuillets-sheet-panel-page ')
+      .replace(/page-break-after: always;/gu, "page-break-after: auto;")
+      .replace(/break-after: page;/gu, "break-after: auto;");
+    return `<div class="feuillets-sheet-panel feuillets-sheet-panel-${side}">${panelPage}</div>`;
+  };
+  const sheet = (left: string, right: string) => `<div class="feuillets-sheet feuillets-sheet-a4-landscape feuillets-sheet-two-up">${panel(left, "left")}${panel(right, "right")}</div>`;
+  if (mode === "two-up-duplicate") {
+    logicalPages.forEach((page) => sheets.push(sheet(page, page)));
+    return sheets;
+  }
+  for (let index = 0; index < logicalPages.length; index += 2) sheets.push(sheet(logicalPages[index], logicalPages[index + 1] || ""));
+  return sheets;
+}
+
 export type PaginationOptions = {
   /** Consumer-level override; Preview can opt out without changing templates. */
   hyphenationOverride?: boolean;
@@ -43,6 +93,17 @@ export type PaginationOptions = {
 
 export function effectiveHyphenation(tpl: ResolvedExportTemplate, options: PaginationOptions = {}): boolean {
   return options.hyphenationOverride ?? !!tpl.hyphenation;
+}
+
+/** Politique de pagination : un niveau déclaré par le gabarit prévaut sur
+ * les sauts H1/H2 historiques. */
+export function headingPageBreakPolicy(tpl: ResolvedExportTemplate): NonNullable<PaginationGeometry["headingPageBreaks"]> {
+  const policy: NonNullable<PaginationGeometry["headingPageBreaks"]> = {};
+  for (const level of ["h1", "h2", "h3", "h4", "h5", "h6"] as const) {
+    const style = tpl.headings?.[level];
+    policy[level] = style === undefined ? (level === "h1" || level === "h2") : !!style.pageBreakBefore;
+  }
+  return policy;
 }
 
 type PdfPageNumberPosition = "left" | "center" | "right";
@@ -77,7 +138,8 @@ function prepareManuscriptPagination(
   tpl: ResolvedExportTemplate,
   options: PaginationOptions
 ): PreparedManuscriptPagination {
-  const pageGeometry = resolvePageGeometry(tpl, settings);
+  const logicalTpl = logicalTemplateFor(tpl, settings);
+  const pageGeometry = logicalPageGeometryFor(tpl, settings);
   const templateMargins = tpl.marginsCm;
   const mTop = options.marginsOverrideCm?.top ?? templateMargins?.top ?? settings.pdfMarginTop ?? 2.5;
   const mBottom = options.marginsOverrideCm?.bottom ?? templateMargins?.bottom ?? settings.pdfMarginBottom ?? 2.5;
@@ -107,14 +169,15 @@ function prepareManuscriptPagination(
     geometry: {
       widthPx: contentGeometry.widthPx,
       heightPx: contentGeometry.heightPx,
-      fontFamily: tpl.fontFamily,
-      fontSizePt: tpl.fontSizePt,
-      lineHeight: tpl.lineHeight,
-      textAlign: tpl.align,
-      hyphens: effectiveHyphenation(tpl, options),
+      fontFamily: logicalTpl.fontFamily,
+      fontSizePt: logicalTpl.fontSizePt,
+      lineHeight: logicalTpl.lineHeight,
+      textAlign: logicalTpl.align,
+      hyphens: effectiveHyphenation(logicalTpl, options),
       columnCount,
       columnGapPt,
-      css: templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl),
+      headingPageBreaks: headingPageBreakPolicy(logicalTpl),
+      css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(logicalTpl),
     },
   };
 }
@@ -137,7 +200,8 @@ export function paginateManuscript(
      change ici : le découpage en pages, les veuves/orphelines, la césure et le
      calcul des blocs (pagination-engine.ts) restent strictement intacts, seule
      l'ENTRÉE géométrique est corrigée. */
-  const geometry = resolvePageGeometry(tpl, settings);
+  const logicalTpl = logicalTemplateFor(tpl, settings);
+  const geometry = logicalPageGeometryFor(tpl, settings);
   const pageWmm = geometry.widthMm;
   const pageHmm = geometry.heightMm;
 
@@ -157,8 +221,8 @@ export function paginateManuscript(
   const pageNumPos: PdfPageNumberPosition = tpl.firstPage?.pageNumberPosition ?? settings.pdfPageNumberPosition ?? "right";
 
   const contentGeometry = pageContentGeometry(pageWmm, pageHmm, mTop, mBottom, mLeft, mRight);
-  const columnCount = Math.max(1, Math.round(tpl.columns?.count ?? 1));
-  const columnGapPt = Math.max(0, tpl.columns?.gutterPt ?? 0);
+  const columnCount = Math.max(1, Math.round(logicalTpl.columns?.count ?? 1));
+  const columnGapPt = Math.max(0, logicalTpl.columns?.gutterPt ?? 0);
 
   const elements = Array.from(containerEl.children)
     .map((el) => el.cloneNode(true))
@@ -196,11 +260,12 @@ export function paginateManuscript(
     fontSizePt: tpl.fontSizePt,
     lineHeight: tpl.lineHeight,
     textAlign: tpl.align,
-    hyphens: effectiveHyphenation(tpl, options),
+    hyphens: effectiveHyphenation(logicalTpl, options),
     columnCount,
     columnGapPt,
+    headingPageBreaks: headingPageBreakPolicy(logicalTpl),
     // Scoped in a shadow root by the engine, never injected into Obsidian's document.
-    css: templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl),
+    css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(logicalTpl),
   });
 
   /* Bandes en-tête/pied : même règle que la géométrie — le gabarit résolu
@@ -231,7 +296,7 @@ export function paginateManuscript(
   // Assemblage final des pages avec en-têtes/pieds et numérotation
   let currentPart = "";
   let currentChapter = "";
-  const pagesHtml = rawPages.map((nodes, idx) => {
+  const logicalPagesHtml = rawPages.map((nodes, idx) => {
     const pageNum = idx + 1;
     const isEven = pageNum % 2 === 0;
     const isFirst = pageNum === 1;
@@ -347,6 +412,7 @@ export function paginateManuscript(
     `;
   });
 
+  const pagesHtml = imposePagesHtml(logicalPagesHtml, outputLayoutFor(settings, tpl));
   return { pagesHtml: pagesHtml.join("\n"), totalPages };
 }
 
@@ -377,12 +443,13 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   }
 
   const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
+  const { containerEl, footnotes, images } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
+  if (tpl.profile === "document") composeDocumentMedia(containerEl, images);
 
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre
      page Front de type "titre" — voir même choix dans export-docx.js. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));
-  if (!hasAuthoredTitlePage) {
+  if (shouldGenerateGenericTitlePage(tpl.profile, hasAuthoredTitlePage)) {
     // Titre et auteur au sommet du document — éléments du document principal
     // Obsidian, créés détachés puis repositionnés (prepend/after) dans
     // containerEl plutôt qu'ajoutés en fin d'arbre par createEl.
@@ -399,7 +466,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   const css = templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl);
   /* MÊME helper que paginateManuscript ci-dessus : la règle @page du document
      d'impression ne peut plus diverger du format réellement paginé (§26). */
-  const { size: pageSize, orientation } = resolvePageGeometry(tpl, settings);
+  const { size: pageSize, orientation } = physicalPageGeometry(tpl, settings);
 
   // Iframe hôte de l'impression : élément du document principal Obsidian.
   const iframe = document.body.createEl("iframe", { cls: "feuillets-pdf-print-frame" });
@@ -456,7 +523,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
     padding: 0 !important;
     background: #ffffff !important;
   }
-  .pdf-page {
+  .pdf-page:not(.feuillets-sheet-panel-page) {
     page-break-after: always !important;
     break-after: page !important;
   }

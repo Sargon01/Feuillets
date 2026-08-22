@@ -1,6 +1,8 @@
 import { Component, MarkdownRenderer, Notice, TFile } from "obsidian";
 import type { App } from "obsidian";
 import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
+import { applyPedagogicalSemantics } from "../utils/pedagogical-roles.js";
+import { applyFeuilletsDirectiveMarkers, prepareFeuilletsDirectives } from "../utils/feuillets-directives.js";
 
 type RenderedFootnote = {
   id: string;
@@ -15,6 +17,8 @@ type RenderedImage = {
   height: number;
   caption: string;
 };
+
+export type DocumentMediaImage = Pick<RenderedImage, "width" | "height">;
 
 type RenderedManuscript = {
   containerEl: HTMLDivElement;
@@ -72,7 +76,9 @@ export async function renderManuscriptHtml(app: App, markdown: string, sourcePat
   const component = new Component();
   component.load();
   try {
-    await MarkdownRenderer.render(app, markdown, container, sourcePath, component);
+    await MarkdownRenderer.render(app, prepareFeuilletsDirectives(markdown), container, sourcePath, component);
+    applyPedagogicalSemantics(container);
+    applyFeuilletsDirectiveMarkers(container);
   } finally {
     component.unload();
   }
@@ -93,6 +99,172 @@ export async function renderManuscriptHtml(app: App, markdown: string, sourcePat
   }
 
   return { containerEl: container, footnotes, images, missingResources };
+}
+
+const DOCUMENT_MEDIA_BLOCK = "feuillets-doc-media-block";
+const DOCUMENT_MEDIA_PORTRAIT = "feuillets-doc-media-portrait";
+const DOCUMENT_MEDIA_PORTRAIT_FLOW = "feuillets-doc-media-portrait-flow";
+const DOCUMENT_MEDIA_PORTRAIT_FLOW_CLEAR = "feuillets-doc-media-portrait-flow-clear";
+const DOCUMENT_MEDIA_LANDSCAPE = "feuillets-doc-media-landscape";
+const DOCUMENT_MEDIA_LANDSCAPE_CONTEXT = "feuillets-doc-media-landscape-context";
+
+function directBlockForImage(container: HTMLElement, image: HTMLImageElement): HTMLElement | null {
+  let block = image.parentElement;
+  while (block && block !== container) {
+    const tag = block.tagName;
+    if (tag === "OL" || tag === "UL" || tag === "LI" || tag === "BLOCKQUOTE" || tag === "TABLE" || /^H[1-6]$/.test(tag)) return null;
+    if ((tag === "P" || tag === "FIGURE") && block.parentElement === container) {
+      return block.querySelectorAll("img").length === 1 ? block : null;
+    }
+    block = block.parentElement;
+  }
+  return null;
+}
+
+function isSimpleTextBlock(block: Element): boolean {
+  return block.tagName === "P" || block.tagName === "OL" || block.tagName === "UL" || block.tagName === "BLOCKQUOTE";
+}
+
+function isPortraitLike(dimensions: DocumentMediaImage, next: Element | null): boolean {
+  if (dimensions.height > dimensions.width) return true;
+  const ratio = dimensions.width / dimensions.height;
+  return ratio >= 0.9 && ratio <= 1.1 && !!next && isSimpleTextBlock(next) && !next.querySelector("img");
+}
+
+function listStart(list: Element): number {
+  const value = Number.parseInt(list.getAttribute("start") || "1", 10);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function portraitFlowQuoteAfter(media: Element): Element | null {
+  const first = media.nextElementSibling;
+  if (first?.tagName === "BLOCKQUOTE") return first;
+  return first?.tagName === "P" && first.nextElementSibling?.tagName === "BLOCKQUOTE"
+    ? first.nextElementSibling
+    : null;
+}
+
+function composeLandscapeContext(wrapper: HTMLElement, figure: HTMLElement): void {
+  const description = wrapper.nextElementSibling;
+  const list = description?.nextElementSibling;
+  if (!description || description.tagName !== "P" || !list || (list.tagName !== "OL" && list.tagName !== "UL") || !list.children[0]) return;
+
+  const content = createDiv({ cls: "feuillets-doc-media-content" });
+  const firstItem = list.children[0];
+  const miniList = list.tagName === "OL" ? createEl("ol") : createEl("ul");
+  if (list.tagName === "OL") miniList.setAttribute("start", String(listStart(list)));
+  miniList.appendChild(firstItem);
+  description.remove();
+  content.appendChild(description);
+  content.appendChild(miniList);
+  if (list.tagName === "OL") list.setAttribute("start", String(listStart(list) + 1));
+  if (!list.children.length) list.remove();
+
+  figure.remove();
+  wrapper.className = `${wrapper.className} ${DOCUMENT_MEDIA_LANDSCAPE_CONTEXT}`;
+  wrapper.appendChild(content);
+  wrapper.appendChild(figure);
+}
+
+function isPedagogicalRoleBlock(node: Element | null): node is HTMLElement {
+  return !!node && node.classList.contains("feuillets-pedagogical-role");
+}
+
+/* ===== Surcharge locale `%% image: … %%` (LOT 3A) =====
+ * applyFeuilletsDirectiveMarkers (feuillets-directives.ts) pose ces classes
+ * directement sur l'<img> pendant le rendu — un emplacement qui survit à
+ * stripObsidianCruft (lequel ne retire que les attributs data-*, jamais les
+ * classes). composeDocumentMedia les retrouve ici, avant toute décision
+ * portrait/paysage automatique, et les transfère sur le wrapper média final. */
+const IMAGE_PLACEMENT_CLASSES = new Set([
+  "feuillets-image-placement-left",
+  "feuillets-image-placement-center",
+  "feuillets-image-placement-right",
+  "feuillets-image-placement-full",
+]);
+const IMAGE_WIDTH_CLASS_RE = /^feuillets-image-width-(?:25|33|40|50|60|67|75|100)$/;
+
+/** Retire de `image` puis renvoie les classes de surcharge posées par la
+ * directive `image:` — jamais générées ailleurs, donc un simple filtre sur
+ * les classes déjà présentes suffit à retrouver l'éventuelle surcharge, sans
+ * dépendance à un attribut data-* qui n'aurait pas survécu au strip. */
+function takeImageOverrideClasses(image: HTMLImageElement): string[] {
+  const classes = (image.className || "").split(/\s+/).filter((cls) => IMAGE_PLACEMENT_CLASSES.has(cls) || IMAGE_WIDTH_CLASS_RE.test(cls));
+  if (classes.length) image.classList.remove(...classes);
+  return classes;
+}
+
+function composeDocumentMediaRoles(container: HTMLElement): void {
+  const children = () => Array.from(container.children);
+  for (const media of children()) {
+    if (!media.classList.contains(DOCUMENT_MEDIA_BLOCK) || media.classList.contains("feuillets-document-media-role-pair")) continue;
+    const marker = media.nextElementSibling;
+    const hasDirective = media.classList.contains("feuillets-directive-dessous") || !!media.querySelector(".feuillets-directive-dessous");
+    const role = marker;
+    if (!isPedagogicalRoleBlock(role)) continue;
+
+    const pair = createDiv({ cls: "feuillets-document-media-role-pair" });
+    pair.classList.add(hasDirective ? "feuillets-document-media-role-pair-stacked" : "feuillets-document-media-role-pair-side");
+    container.insertBefore(pair, media);
+    pair.appendChild(media);
+    media.classList.remove("feuillets-directive-dessous");
+    media.querySelectorAll(".feuillets-directive-dessous").forEach((el) => el.classList.remove("feuillets-directive-dessous"));
+    pair.appendChild(role);
+  }
+  container.querySelectorAll(".feuillets-directive, .feuillets-directive-dessous").forEach((marker) => marker.remove());
+}
+
+/** Transforme le DOM déjà rendu en blocs média stables. Les dimensions viennent
+ * exclusivement de l'image effectivement résolue et inlinée par Feuillets. */
+export function composeDocumentMedia(container: HTMLElement, images: Map<HTMLImageElement, DocumentMediaImage>): void {
+  for (const [image, dimensions] of images) {
+    const block = directBlockForImage(container, image);
+    if (!block || block.className.includes(DOCUMENT_MEDIA_BLOCK)) continue;
+
+    /* Une surcharge explicite désactive UNIQUEMENT la décision automatique
+       portrait/paysage pour CETTE image (§18 du lot) : wrapper + figure
+       simples, alignement/largeur par classes, jamais de contenu latéral ni
+       de flux flottant. Le pairing média+rôle (composeDocumentMediaRoles,
+       plus bas) reste appliqué ensuite exactement comme pour le chemin
+       automatique — la directive ne décide que de l'alignement/largeur. */
+    const overrideClasses = takeImageOverrideClasses(image);
+    if (overrideClasses.length) {
+      const overrideWrapper = createDiv({ cls: `${DOCUMENT_MEDIA_BLOCK} ${overrideClasses.join(" ")}` });
+      const overrideFigure = createDiv({ cls: "feuillets-doc-media-figure" });
+      container.insertBefore(overrideWrapper, block);
+      overrideFigure.appendChild(block);
+      overrideWrapper.appendChild(overrideFigure);
+      continue;
+    }
+
+    const portrait = isPortraitLike(dimensions, block.nextElementSibling);
+    const wrapper = createDiv({ cls: `${DOCUMENT_MEDIA_BLOCK} ${portrait ? DOCUMENT_MEDIA_PORTRAIT : DOCUMENT_MEDIA_LANDSCAPE}` });
+    const figure = createDiv({ cls: "feuillets-doc-media-figure" });
+    container.insertBefore(wrapper, block);
+    figure.appendChild(block);
+    wrapper.appendChild(figure);
+
+    if (!portrait) {
+      composeLandscapeContext(wrapper, figure);
+      continue;
+    }
+    const quote = portraitFlowQuoteAfter(wrapper);
+    if (quote) {
+      wrapper.className = `${wrapper.className} ${DOCUMENT_MEDIA_PORTRAIT_FLOW}`;
+      const following = quote.nextElementSibling;
+      if (following) following.className = `${following.className} ${DOCUMENT_MEDIA_PORTRAIT_FLOW_CLEAR}`.trim();
+      continue;
+    }
+    const content = createDiv({ cls: "feuillets-doc-media-content" });
+    let sibling = wrapper.nextElementSibling;
+    while (sibling && isSimpleTextBlock(sibling)) {
+      const next = sibling.nextElementSibling;
+      content.appendChild(sibling);
+      sibling = next;
+    }
+    if (content.children.length > 0) wrapper.appendChild(content);
+  }
+  composeDocumentMediaRoles(container);
 }
 
 /** CSS pour les pages Front (titre/dédicace/épigraphe) une fois isolées par

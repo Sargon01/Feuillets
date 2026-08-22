@@ -8,6 +8,8 @@ import { Setting, setIcon } from "obsidian";
 import type { App } from "obsidian";
 import { getLocale, t } from "../i18n/index.js";
 import { TitlePageMiniature } from "./title-page-miniature.js";
+import { isPedagogicalA4Template } from "../utils/export-templates.js";
+import { PEDAGOGICAL_PALETTE } from "../utils/pedagogical-roles.js";
 
 export type LayoutSelection = string | null;
 export type ExportTemplateOption = { key: string; label: string };
@@ -803,6 +805,27 @@ export class LayoutEditor {
     );
   }
 
+  /** Champ couleur natif Obsidian (corps/titres) avec reset — §8-§9 du lot
+   * couleurs/soulignement. `value` reste `undefined` tant que l'autrice n'a
+   * rien choisi (absence = repli historique, jamais matérialisé) ; `effective`
+   * ne sert qu'à initialiser visuellement le composant, jamais persisté par
+   * la simple ouverture de l'inspecteur. Le reset supprime la propriété et
+   * repasse par le MÊME mécanisme de sauvegarde (saveTemplate). */
+  private colorField(insp: HTMLElement, name: string, value: () => string | undefined, effective: () => string, set: (value: string | undefined) => void): void {
+    new Setting(insp).setName(name)
+      .addColorPicker((cp) => {
+        cp.setValue(value() || effective());
+        cp.onChange(async (next) => { set(next || undefined); await this.saveTemplate(); });
+      })
+      .addExtraButton((b) => {
+        b.setIcon("rotate-ccw").setTooltip(t("modal.layout.reset")).onClick(async () => {
+          set(undefined);
+          await this.saveTemplate();
+          this.renderInspector();
+        });
+      });
+  }
+
   private renderPageFormatInspector(insp: HTMLElement): void {
     new Setting(insp).setName(t("modal.layout.format")).setClass("feuillets-setting-compact").addDropdown((d) => d
       .addOption("A4", "A4").addOption("A5", "A5").addOption("Letter", "Letter")
@@ -815,6 +838,24 @@ export class LayoutEditor {
       .addOption("portrait", t("modal.layout.portrait")).addOption("landscape", t("modal.layout.landscape"))
       .setValue(this.template.page.orientation).onChange(async (v) => {
         if (v === "portrait" || v === "landscape") this.template.page.orientation = v;
+        await this.saveTemplate();
+      }));
+    new Setting(insp).setName("Disposition PDF / aperçu").setClass("feuillets-setting-compact").addDropdown((d) => d
+      .addOption("single", "Une page")
+      .addOption("two-up-successive", t("modal.layout.twoUpSuccessive"))
+      .addOption("two-up-duplicate", t("modal.layout.twoUpDuplicate"))
+      .setValue(this.template.page.outputLayout || "single")
+      .onChange(async (v) => {
+        if (v === "single" || v === "two-up-successive" || v === "two-up-duplicate") this.template.page.outputLayout = v;
+        await this.saveTemplate();
+      }));
+    new Setting(insp).setName(t("modal.layout.semanticRoleMarkers")).setClass("feuillets-setting-compact").addDropdown((d) => d
+      .addOption("legacy", t("modal.layout.semanticRoleMarkersLegacy"))
+      .addOption("show", t("modal.layout.semanticRoleMarkersShow"))
+      .addOption("hide", t("modal.layout.semanticRoleMarkersHide"))
+      .setValue(this.template.semanticRoleMarkers || "legacy")
+      .onChange(async (v) => {
+        if (v === "legacy" || v === "show" || v === "hide") this.template.semanticRoleMarkers = v;
         await this.saveTemplate();
       }));
   }
@@ -874,6 +915,7 @@ export class LayoutEditor {
     new Setting(insp).setName(t("modal.layout.alignment")).setClass("feuillets-setting-compact").addDropdown((d) => d
       .addOption("left", t("modal.layout.alignLeft")).addOption("center", t("modal.layout.alignCenter")).addOption("right", t("modal.layout.alignRight")).addOption("justify", t("modal.layout.alignJustify"))
       .setValue(body.align).onChange(async (v) => { if (isTemplateAlign(v)) body.align = v; await this.saveTemplate(); }));
+    this.colorField(insp, t("modal.layout.textColor"), () => body.colorHex, () => body.colorHex || "#000000", (v) => { body.colorHex = v; });
   }
 
   private renderBodyParagraphInspector(insp: HTMLElement): void {
@@ -931,6 +973,21 @@ export class LayoutEditor {
     this.numberField(insp, t("modal.layout.headingSpaceBefore"), () => style.marginTopPt ?? 0, (v) => style.marginTopPt = v || undefined);
     this.numberField(insp, t("modal.layout.headingSpaceAfter"), () => style.marginBottomPt ?? 0, (v) => style.marginBottomPt = v || undefined);
     new Setting(insp).setName(t("modal.layout.pageBreakBefore")).addToggle((c) => c.setValue(!!style.pageBreakBefore).onChange(async (v) => { style.pageBreakBefore = v; await this.saveTemplate(); }));
+    this.colorField(insp, t("modal.layout.color"), () => style.colorHex, () => this.headingEffectiveColor(level), (v) => { style.colorHex = v; });
+    new Setting(insp).setName(t("modal.layout.underline")).addToggle((c) => c.setValue(!!style.underline).onChange(async (v) => { style.underline = v; await this.saveTemplate(); }));
+  }
+
+  /** Couleur visuelle du picker quand `colorHex` est absent — §10 du lot
+   * couleurs/soulignement. Jamais persistée par cette lecture seule : ne
+   * reproduit le repli rouge/rouge/vert du profil Document pédagogique A4
+   * (voir isPedagogicalA4Template/PEDAGOGICAL_PALETTE, utils/export-templates.ts)
+   * que pour H1-H3, sinon retombe sur la couleur du corps puis sur noir. */
+  private headingEffectiveColor(level: HeadingLevel): string {
+    if ((level === "h1" || level === "h2" || level === "h3")
+      && isPedagogicalA4Template({ key: this.templateKey, label: this.templateLabel, profile: this.template.profile })) {
+      return level === "h3" ? PEDAGOGICAL_PALETTE.green : PEDAGOGICAL_PALETTE.red;
+    }
+    return this.template.body.colorHex || "#000000";
   }
 
   renderHeadingsInspector(insp: HTMLElement): void {

@@ -15,7 +15,7 @@
 import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
-import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
+import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
@@ -38,6 +38,7 @@ import { JournalView } from "./views/journal-view.js";
 import { ProjectView } from "./views/project-view.js";
 import { PreviewView, openWithPreview } from "./views/preview-view.js";
 import { ScriveningsView, type ScriveningsEditorContext } from "./views/scrivenings-view.js";
+import { PresentationView, openPresentation } from "./views/presentation-view.js";
 import type { ScriveningsAdapterEditorView } from "./utils/scrivenings-editor-adapter.js";
 import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
 import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
@@ -83,6 +84,7 @@ import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
 import { registerAdvancedCanvasIntegration } from "./integrations/advanced-canvas.js";
+import { upsertBinderOutliner, type BinderOutlinerItem, type BinderOutlinerSnapshot } from "./services/canvas-binder-plan.js";
 import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, duplicateProjectFolder, getVersionsRoot } from "./services/project-files.js";
 import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
@@ -122,6 +124,7 @@ import {
   type AnchorRect,
 } from "./utils/cm-annotation-highlighter.js";
 import { emptyLinesPlugin } from "./utils/cm-empty-lines.js";
+import { feuilletsDirectivePlugin } from "./utils/cm-feuillets-directives.js";
 import { nativeReviewThreadHighlightField, nativeReviewThreadDoubleClickExtension, applyNativeReviewThreadHighlights, clearNativeReviewThreadHighlights } from "./utils/cm-native-review-highlighter.js";
 import { comparisonDecorationField, comparisonReadOnlyField, comparisonClickExtension } from "./utils/cm-comparison-decorations.js";
 import { listNativeReviewSessions } from "./services/native-review-exchange.js";
@@ -171,6 +174,31 @@ import {
 } from "obsidian";
 
 const RIGHT_SIDEBAR_WIDTH = 280;
+
+export function isFileInsideProject(file: TFile | null, root: TFolder | null): boolean {
+  return !!file && !!root && (file.path === root.path || file.path.startsWith(`${root.path}/`));
+}
+
+export function syncMarkdownViewProjectEditorClass(
+  view: MarkdownView,
+  root: TFolder | null,
+  projectType: string | null = null,
+  roleEditorDisplay: "callouts" | "compact" = "callouts",
+): void {
+  const inProject = isFileInsideProject(view.file, root);
+  if (inProject) view.contentEl.addClass("feuillets-project-editor");
+  else view.contentEl.removeClass("feuillets-project-editor");
+
+  const isStructured = inProject && projectType === "structured";
+  if (isStructured) view.contentEl.addClass("feuillets-project-mode-structured");
+  else view.contentEl.removeClass("feuillets-project-mode-structured");
+
+  if (isStructured && roleEditorDisplay === "compact") {
+    view.contentEl.addClass("feuillets-role-display-compact");
+  } else {
+    view.contentEl.removeClass("feuillets-role-display-compact");
+  }
+}
 
 /** Capacité interne Obsidian, absente du contrat public typé. */
 type MenuItemWithOptionalSubmenu = MenuItem & {
@@ -455,6 +483,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerRibbonIcons();
     this.registerCoreCommands();
     this.registerLastEditorTracking();
+    this.registerProjectEditorScope();
 
     /* `this.settings` (FeuilletsSettings, volontairement partiel — voir
        types.d.ts) est réellement un sur-ensemble de DefaultSettings à
@@ -497,6 +526,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerEditorExtension([nativeReviewThreadHighlightField, nativeReviewThreadDoubleClickExtension((id, target) => void this.openNativeReviewThread(id, target))]);
     this.registerEditorExtension([comparisonDecorationField, comparisonReadOnlyField, comparisonClickExtension()]);
     this.registerEditorExtension(emptyLinesPlugin);
+    this.registerEditorExtension(feuilletsDirectivePlugin);
     this.registerEditorExtension(paragraphIndentPlugin);
     this.registerEditorExtension(createParagraphReorderExtension());
 
@@ -543,6 +573,7 @@ class FeuilletsPlugin extends Plugin {
     // LOT 1 — cœur technique uniquement : pas encore d'entrée Binder/commande
     // pour ouvrir cette vue (voir views/scrivenings-view.ts).
     this.registerView(VIEW_SCRIVENINGS, (leaf) => new ScriveningsView(leaf, this));
+    this.registerView(VIEW_PRESENTATION, (leaf) => new PresentationView(leaf));
   }
 
   registerRibbonIcons() {
@@ -589,6 +620,16 @@ class FeuilletsPlugin extends Plugin {
   }
 
   registerCoreCommands() {
+    this.addCommand({
+      id: "present-current-file",
+      name: t("presentation.command"),
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!(file instanceof TFile) || file.extension !== "md") return false;
+        if (!checking) void openPresentation(this.app, file);
+        return true;
+      },
+    });
     /* « Ouvrir avec aperçu » : le feuillet à gauche, l'aperçu de la scène
        à droite. Réutilise une PreviewView déjà ouverte plutôt que d'en
        empiler une seconde, et ne force aucune largeur — l'utilisatrice
@@ -1178,6 +1219,43 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => this.loadDeferredViews())
     );
+  }
+
+  /**
+   * Les directives de composition doivent rester locales à chaque vue Markdown :
+   * deux feuilles peuvent afficher simultanément un projet Feuillets et une note
+   * ordinaire du coffre. Cette classe ne porte donc jamais sur `body`.
+   */
+  syncProjectEditorScope(): void {
+    const root = this.getProjectFolder();
+    const projectType = root ? getProjectType(this.app, this.settings) : null;
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (leaf.view instanceof MarkdownView) {
+        syncMarkdownViewProjectEditorClass(
+          leaf.view,
+          root,
+          projectType,
+          this.settings.roleEditorDisplay as "callouts" | "compact" | undefined,
+        );
+      }
+    }
+  }
+
+  registerProjectEditorScope(): void {
+    const sync = () => this.syncProjectEditorScope();
+    this.app.workspace.onLayoutReady(sync);
+    this.registerEvent(this.app.workspace.on("file-open", sync));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", sync));
+    this.registerEvent(this.app.workspace.on("layout-change", sync));
+    this.register(() => {
+      for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+        if (leaf.view instanceof MarkdownView) {
+          leaf.view.contentEl.removeClass("feuillets-project-editor");
+          leaf.view.contentEl.removeClass("feuillets-project-mode-structured");
+          leaf.view.contentEl.removeClass("feuillets-role-display-compact");
+        }
+      }
+    });
   }
 
   registerVaultEvents() {
@@ -3011,6 +3089,7 @@ class FeuilletsPlugin extends Plugin {
     S.projectFolder = path;
     await this.saveSettings();
     this.renderAllViews(true);
+    this.syncProjectEditorScope();
     void this.updateStatusBar();
     return true;
   }
@@ -3789,6 +3868,21 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
     openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
+  }
+
+  async openVisualOutline(): Promise<void> {
+    const root = this.getProjectFolder(); if (!root) return;
+    const makeItems = (folder: TFolder): BinderOutlinerItem[] => this.getOrderedChildren(folder).flatMap((child): BinderOutlinerItem[] => {
+      if (child instanceof TFolder) return [{ id: child.path, kind: "folder", path: child.path, title: child.name, collapsed: false, children: makeItems(child) }];
+      if (child instanceof TFile && child.extension === "md") return [{ id: child.path, kind: "file", path: child.path, title: this.shortTitleFor(child), collapsed: false, children: [] }];
+      return [];
+    });
+    const snapshot: BinderOutlinerSnapshot = { path: root.path, title: root.name, children: makeItems(root) };
+    const board = await generateCanvasBoard(this.app, this.settings); if (!board) return;
+    let data: CanvasData; try { data = JSON.parse(await this.app.vault.read(board.file)) as CanvasData; } catch { return; }
+    const result = upsertBinderOutliner(data, snapshot); if (!result.ok) { new Notice("Plusieurs plans visuels sont présents dans le Carnet."); return; }
+    await this.app.vault.modify(board.file, JSON.stringify(result.canvas, null, "\t"));
+    openFileActivating(this.app, this.app.workspace.getLeaf(true), board.file);
   }
 
   /** Ajoute explicitement un feuillet au Carnet sans modifier le Binder. */

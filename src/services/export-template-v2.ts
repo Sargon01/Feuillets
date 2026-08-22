@@ -24,6 +24,13 @@ function profileFor(key: string): ExportTemplateV2["profile"] {
   return "document";
 }
 
+/** Les documents V2 commencent directement par leur contenu, sauf lorsqu'une
+ * vraie page de titre a déjà été écrite par l'autrice. */
+export function shouldGenerateGenericTitlePage(profile: TemplateProfile | undefined, hasAuthoredTitlePage: boolean): boolean {
+  if (hasAuthoredTitlePage) return false;
+  return profile !== "document";
+}
+
 function normalizedPageSize(value: string | undefined): TemplatePageSize {
   if (value === "A4" || value === "A5" || value === "Letter" || value === "letter") return value;
   return "A4";
@@ -32,6 +39,18 @@ function normalizedPageSize(value: string | undefined): TemplatePageSize {
 function normalizedAlign(value: string | undefined): TemplateAlign {
   if (value === "left" || value === "center" || value === "right" || value === "justify") return value;
   return "left";
+}
+
+function normalizedOutputLayout(value: string | undefined): PdfOutputLayout {
+  return value === "two-up-successive" || value === "two-up-duplicate" ? value : "single";
+}
+
+/** Absent ou valeur inconnue = "legacy" (compatibilité absolue — §6 du lot
+ * "rôle document / repères sémantiques") : un ancien gabarit sans ce champ
+ * garde son rendu Preview/PDF historique tant que l'autrice ne choisit pas
+ * explicitement "Afficher"/"Masquer". */
+function normalizedSemanticRoleMarkers(value: string | undefined): "legacy" | "show" | "hide" {
+  return value === "show" || value === "hide" ? value : "legacy";
 }
 
 const HEADING_LEVELS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
@@ -59,6 +78,7 @@ export function normalizeV2Template(tpl: ExportTemplateV2): ExportTemplateV2 {
   const page = tpl.page || {} as ExportTemplateV2["page"];
   const body = tpl.body || {} as ExportTemplateV2["body"];
   const suppliedHeadings = tpl.headings || {};
+  const outputLayout = page.outputLayout ? normalizedOutputLayout(page.outputLayout) : undefined;
   return {
     version: 2,
     profile: tpl.profile || "document",
@@ -67,6 +87,7 @@ export function normalizeV2Template(tpl: ExportTemplateV2): ExportTemplateV2 {
       orientation: page.orientation === "landscape" ? "landscape" : "portrait",
       marginsCm: cloneMargins(page.marginsCm || DEFAULT_MARGINS),
       mirrorMargins: !!page.mirrorMargins,
+      ...(outputLayout && outputLayout !== "single" ? { outputLayout } : {}),
       columns: { count: page.columns?.count ?? 1, gutterPt: page.columns?.gutterPt ?? 0 },
     },
     body: {
@@ -78,6 +99,7 @@ export function normalizeV2Template(tpl: ExportTemplateV2): ExportTemplateV2 {
       paragraphSpacingBeforePt: body.paragraphSpacingBeforePt ?? 0,
       paragraphSpacingAfterPt: body.paragraphSpacingAfterPt ?? 0,
       hyphenation: !!body.hyphenation,
+      ...(body.colorHex ? { colorHex: body.colorHex } : {}),
     },
     headings: Object.fromEntries(HEADING_LEVELS.map((level) => [level, cloneStyle(suppliedHeadings[level])])) as ExportTemplateV2["headings"],
     blockquote: tpl.blockquote ? { ...tpl.blockquote } : {},
@@ -92,6 +114,7 @@ export function normalizeV2Template(tpl: ExportTemplateV2): ExportTemplateV2 {
     },
     firstPage: { hideHeader: tpl.firstPage?.hideHeader !== false, pageNumberPosition: tpl.firstPage?.pageNumberPosition ?? "right" },
     titlePage: cloneTitlePage(tpl.titlePage),
+    semanticRoleMarkers: normalizedSemanticRoleMarkers(tpl.semanticRoleMarkers),
   };
 }
 
@@ -126,6 +149,7 @@ export function createDefaultExportTemplateV2(): ExportTemplateV2 {
     footer: { enabled: true, left: "", center: "", right: "Page {page} sur {pages}", distanceCm: 0.75, bodyGapPt: 3 },
     firstPage: { hideHeader: true, pageNumberPosition: "right" },
     titlePage: { styles: {} },
+    semanticRoleMarkers: "legacy",
   });
 }
 
@@ -170,6 +194,7 @@ export function normalizeLegacyTemplate(
       paragraphSpacingBeforePt: tpl.paragraphSpacingPt ?? 0,
       paragraphSpacingAfterPt: tpl.paragraphSpacing ? fontSizePt : 0,
       hyphenation: !!tpl.hyphenation,
+      ...(tpl.colorHex ? { colorHex: tpl.colorHex } : {}),
     },
     headings: normalizedHeadings(tpl),
     blockquote: tpl.blockquote ? { ...tpl.blockquote } : {},
@@ -184,5 +209,6 @@ export function normalizeLegacyTemplate(
     },
     firstPage: { hideHeader: legacySettings.pdfHideFirstPageHeader !== false, pageNumberPosition: legacySettings.pdfPageNumberPosition ?? "right" },
     titlePage: cloneTitlePage(tpl.titlePage),
+    semanticRoleMarkers: normalizedSemanticRoleMarkers(tpl.semanticRoleMarkers),
   });
 }

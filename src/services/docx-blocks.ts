@@ -27,6 +27,7 @@ import {
   HeadingLevel,
   AlignmentType,
   FootnoteReferenceRun,
+  BorderStyle,
 } from "docx";
 import {
   FRONT_PAGE_LINE_SPACING,
@@ -342,6 +343,12 @@ export function blockToParagraphs(
             ...(index === children.length - 1 && quote.marginBottomPt != null ? { after: quote.marginBottomPt * 20 } : {}),
           }
           : undefined,
+        border: tpl.profile === "document" ? {
+          left: { style: BorderStyle.SINGLE, size: 6, color: "A0A0A0" },
+          right: { style: BorderStyle.SINGLE, size: 6, color: "A0A0A0" },
+          ...(index === 0 ? { top: { style: BorderStyle.SINGLE, size: 6, color: "A0A0A0" } } : {}),
+          ...(index === children.length - 1 ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: "A0A0A0" } } : {}),
+        } : undefined,
         children: inlineChildren(child, footnoteIdByHref, images, {}, true),
       }),
     ]);

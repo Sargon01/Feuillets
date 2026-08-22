@@ -75,6 +75,152 @@ test("export templates custom V2 : la sauvegarde matérialise un builtin complet
   assert.equal(settings.pdfHeaderLeft, "Global inchangé");
 });
 
+test("semanticRoleMarkers : sauvegardé puis relu via loadCustomTemplates (round-trip \"show\")", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  manuscript.parent = project; project.children = [manuscript];
+  const { vault, fileManager } = createFakeVault([project, manuscript]);
+  let savedFrontmatter = null;
+  fileManager.processFrontMatter = async (file, update) => {
+    const fm = {};
+    update(fm);
+    savedFrontmatter = fm;
+  };
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: savedFrontmatter || {} }) } };
+  const settings = { projectFolder: manuscript.path, exportTemplate: "classique" };
+  const template = normalizeLegacyTemplate(EXPORT_TEMPLATES.classique);
+  template.semanticRoleMarkers = "show";
+
+  await saveExportTemplateV2(app, settings, "classique", template);
+
+  assert.equal(savedFrontmatter.semanticRoleMarkers, "show");
+  const custom = await loadCustomTemplates(app, settings);
+  assert.equal(custom.classique.semanticRoleMarkers, "show");
+});
+
+/* ---------------------- couleur du corps / titres, soulignement ---------- */
+
+test("body.colorHex / heading.colorHex / heading.underline : sauvegardés puis relus à l'identique (V2 et projection legacy)", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  manuscript.parent = project; project.children = [manuscript];
+  const { vault, fileManager } = createFakeVault([project, manuscript]);
+  let savedFrontmatter = null;
+  fileManager.processFrontMatter = async (file, update) => {
+    const fm = {};
+    update(fm);
+    savedFrontmatter = fm;
+  };
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: savedFrontmatter || {} }) } };
+  const settings = { projectFolder: manuscript.path, exportTemplate: "classique" };
+  const template = normalizeLegacyTemplate(EXPORT_TEMPLATES.classique);
+  template.body.colorHex = "#223344";
+  template.headings.h1.colorHex = "#AA1122";
+  template.headings.h1.underline = true;
+  template.headings.h6.colorHex = "#334455";
+  template.headings.h6.underline = false;
+
+  await saveExportTemplateV2(app, settings, "classique", template);
+
+  // V2 : round-trip exact.
+  const reloadedV2 = await resolveExportTemplateV2(app, settings, "classique");
+  assert.equal(reloadedV2.body.colorHex, "#223344");
+  assert.equal(reloadedV2.headings.h1.colorHex, "#AA1122");
+  assert.equal(reloadedV2.headings.h1.underline, true);
+  assert.equal(reloadedV2.headings.h6.colorHex, "#334455");
+  assert.equal(reloadedV2.headings.h6.underline, false);
+  assert.equal(reloadedV2.headings.h2.colorHex, undefined);
+
+  // Projection legacy (consommée par templateToCss) : mêmes valeurs.
+  const reloadedLegacy = await loadCustomTemplates(app, settings);
+  assert.equal(reloadedLegacy.classique.colorHex, "#223344");
+  assert.equal(reloadedLegacy.classique.headings.h1.colorHex, "#AA1122");
+  assert.equal(reloadedLegacy.classique.headings.h1.underline, true);
+  assert.equal(reloadedLegacy.classique.headings.h6.colorHex, "#334455");
+  assert.equal(reloadedLegacy.classique.headings.h6.underline, false);
+});
+
+test("body.colorHex / heading.colorHex absents : round-trip conserve leur absence (repli historique)", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  manuscript.parent = project; project.children = [manuscript];
+  const { vault, fileManager } = createFakeVault([project, manuscript]);
+  let savedFrontmatter = null;
+  fileManager.processFrontMatter = async (file, update) => {
+    const fm = {};
+    update(fm);
+    savedFrontmatter = fm;
+  };
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: savedFrontmatter || {} }) } };
+  const settings = { projectFolder: manuscript.path, exportTemplate: "classique" };
+  const template = normalizeLegacyTemplate(EXPORT_TEMPLATES.classique);
+
+  await saveExportTemplateV2(app, settings, "classique", template);
+
+  const reloadedV2 = await resolveExportTemplateV2(app, settings, "classique");
+  assert.equal(reloadedV2.body.colorHex, undefined);
+  assert.equal(reloadedV2.headings.h1.colorHex, undefined);
+  assert.equal(reloadedV2.headings.h1.underline, undefined);
+  const reloadedLegacy = await loadCustomTemplates(app, settings);
+  assert.equal(reloadedLegacy.classique.colorHex, undefined);
+});
+
+test("duplicateExportTemplate : conserve body.colorHex, heading.colorHex et heading.underline du gabarit dupliqué", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  manuscript.parent = project; project.children = [manuscript];
+  const { vault, fileManager } = createFakeVault([project, manuscript]);
+  let savedFrontmatter = null;
+  fileManager.processFrontMatter = async (file, update) => {
+    const fm = {};
+    update(fm);
+    savedFrontmatter = fm;
+  };
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: savedFrontmatter || {} }) } };
+  const settings = { projectFolder: manuscript.path, exportTemplate: "classique" };
+  const template = normalizeLegacyTemplate(EXPORT_TEMPLATES.classique);
+  template.body.colorHex = "#223344";
+  template.headings.h2.colorHex = "#654321";
+  template.headings.h2.underline = true;
+  await saveExportTemplateV2(app, settings, "classique", template);
+
+  const result = await duplicateExportTemplate(app, settings);
+  const reloadedV2 = await resolveExportTemplateV2(app, settings, result.key);
+
+  assert.equal(reloadedV2.body.colorHex, "#223344");
+  assert.equal(reloadedV2.headings.h2.colorHex, "#654321");
+  assert.equal(reloadedV2.headings.h2.underline, true);
+});
+
+test("semanticRoleMarkers : un ancien gabarit sans le champ reste \"legacy\" (aucune migration destructive)", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const resources = new TFolder("Projet/Resources");
+  const layouts = new TFolder("Projet/Resources/Layouts");
+  const old = new TFile("Projet/Resources/Layouts/ancien.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; old.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [old];
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, old]);
+  const oldFrontmatter = {
+    version: 2, profile: "document",
+    page: { size: "A4", orientation: "portrait", marginsCm: { top: 2, bottom: 2, left: 2, right: 2 }, mirrorMargins: false, columns: { count: 1, gutterPt: 0 } },
+    body: { fontFamily: "Georgia", fontSizePt: 12, lineHeight: 1.5, align: "left", firstLineIndentPt: 0, paragraphSpacingBeforePt: 0, paragraphSpacingAfterPt: 0, hyphenation: false },
+    headings: { h1: {}, h2: {}, h3: {}, h4: {}, h5: {}, h6: {} },
+    blockquote: {}, sceneDivider: "",
+    header: { enabled: true, left: "", center: "", right: "", distanceCm: 0.75, bodyGapPt: 3, differentOddEven: false },
+    footer: { enabled: true, left: "", center: "", right: "", distanceCm: 0.75, bodyGapPt: 3 },
+    firstPage: { hideHeader: true, pageNumberPosition: "right" },
+    titlePage: { styles: {} },
+    // pas de semanticRoleMarkers : fichier écrit avant ce lot.
+  };
+  const app = { vault, fileManager, metadataCache: { getFileCache: (file) => ({ frontmatter: file === old ? oldFrontmatter : {} }) } };
+  const settings = { projectFolder: manuscript.path };
+
+  const custom = await loadCustomTemplates(app, settings);
+
+  assert.equal(custom.ancien.semanticRoleMarkers, "legacy");
+});
+
 test("export templates custom : un nouveau projet sans dossier existant crée dans Mises en page (nom canonique)", async () => {
   const project = new TFolder("Projet");
   const manuscript = new TFolder("Projet/Manuscrit");
@@ -166,6 +312,30 @@ test("export templates custom V2 : un ancien fichier reste lisible sans fusion i
   }, "V2 ne récupère jamais les titres de Classique");
   assert.equal(v2.ancien.profile, "document");
   assert.deepEqual(frontmatter, { label: "Ancien", fontFamily: "Georgia, serif", fontSizePt: 11, hyphenation: false });
+});
+
+test("export templates custom V2 : le profil document est projeté vers la voie legacy", async () => {
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const resources = new TFolder("Projet/Resources");
+  const layouts = new TFolder("Projet/Resources/Layouts");
+  const custom = new TFile("Projet/Resources/Layouts/document.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; custom.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [custom];
+  const frontmatter = {
+    version: 2, profile: "document",
+    page: { size: "A4", orientation: "portrait", marginsCm: { top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 }, mirrorMargins: false, columns: { count: 1, gutterPt: 0 } },
+    body: { fontFamily: "Georgia", fontSizePt: 12, lineHeight: 1.5, align: "left", firstLineIndentPt: 0, paragraphSpacingBeforePt: 0, paragraphSpacingAfterPt: 0, hyphenation: false },
+  };
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, custom]);
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter }) } };
+  const settings = { projectFolder: manuscript.path };
+
+  const resolved = await resolveExportTemplate(app, settings, "document");
+  const legacy = await resolveExportTemplate(app, settings, "classique");
+
+  assert.equal(resolved.profile, "document");
+  assert.equal(legacy.profile, undefined);
 });
 
 /* ---------------------- duplicateExportTemplate (Phase 11) --------------- */
@@ -283,6 +453,33 @@ test("duplicateExportTemplate : conserve le profil document d'un gabarit intégr
   const file = app.vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Mises en page/${result.key}.md`);
 
   assert.match(file.content, /profile: document/);
+});
+
+test("duplicateExportTemplate : conserve semanticRoleMarkers du gabarit dupliqué", async () => {
+  // buildFixture()/parseFlatFrontmatter ne relit que les champs PLATS d'un
+  // frontmatter déjà réécrit par la stringification naïve du stub de test
+  // (voir le commentaire de parseFlatFrontmatter plus haut) : les champs
+  // imbriqués (page/body/…) n'y survivent pas. On simule donc ici un
+  // frontmatter SOURCE déjà correctement structuré (comme le ferait la
+  // vraie lecture Obsidian) pour isoler le seul comportement testé — la
+  // propagation de semanticRoleMarkers par duplicateExportTemplate.
+  const project = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const resources = new TFolder("Projet/Resources");
+  const layouts = new TFolder("Projet/Resources/Layouts");
+  const classiqueFile = new TFile("Projet/Resources/Layouts/classique.md");
+  manuscript.parent = project; resources.parent = project; layouts.parent = resources; classiqueFile.parent = layouts;
+  project.children = [manuscript, resources]; resources.children = [layouts]; layouts.children = [classiqueFile];
+  const { vault, fileManager } = createFakeVault([project, manuscript, resources, layouts, classiqueFile]);
+  const sourceFrontmatter = { ...normalizeLegacyTemplate(EXPORT_TEMPLATES.classique), semanticRoleMarkers: "hide", label: EXPORT_TEMPLATES.classique.label };
+  const app = { vault, fileManager, metadataCache: { getFileCache: (file) => ({ frontmatter: file === classiqueFile ? sourceFrontmatter : {} }) } };
+  const settings = { projectFolder: manuscript.path, exportTemplate: "classique" };
+
+  const result = await duplicateExportTemplate(app, settings);
+
+  assert.ok(result);
+  const file = app.vault.getAbstractFileByPath(`Projet/Resources/Layouts/${result.key}.md`);
+  assert.match(file.content, /semanticRoleMarkers: hide/);
 });
 
 test("resolveExportTemplateV2 : APA et Thèse conservent leur profil académique sans muter les sources", async () => {

@@ -9496,6 +9496,242 @@ body.feuillets-text-width
   margin-right: auto;
 }
 
+/* Directives de composition : compactes uniquement dans le Live Preview
+   d'une MarkdownView appartenant au projet Feuillets. */
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is([data-callout="saut-page"], [data-callout="pagebreak"]) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  margin: 0.5em 0;
+  min-height: 0;
+  padding: 0;
+}
+
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is([data-callout="saut-page"], [data-callout="pagebreak"]) .callout-title {
+  align-items: center;
+  color: var(--text-faint);
+  display: flex;
+  font-size: var(--font-ui-smaller);
+  font-weight: normal;
+  gap: 0.5em;
+  line-height: 1.3;
+  padding: 0;
+}
+
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is([data-callout="saut-page"], [data-callout="pagebreak"]) .callout-title::before,
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is([data-callout="saut-page"], [data-callout="pagebreak"]) .callout-title::after {
+  border-top: 1px solid var(--background-modifier-border);
+  content: "";
+  flex: 1;
+}
+
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is([data-callout="saut-page"], [data-callout="pagebreak"]) .callout-icon,
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is([data-callout="saut-page"], [data-callout="pagebreak"]) .callout-fold,
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .callout:is([data-callout="saut-page"], [data-callout="pagebreak"]) .callout-content {
+  display: none;
+}
+
+/* Rôles sémantiques Feuillets : couleurs par famille, icône par rôle.
+   La portée project-editor est volontaire : les callouts d'une note hors
+   projet restent entièrement sous le contrôle du thème Obsidian. */
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="problematique"], [data-callout="problematic"],
+  [data-callout="introduction"], [data-callout="correction"],
+  [data-callout="methodologie"], [data-callout="methodology"]
+) {
+  --callout-color: var(--color-green-rgb);
+}
+
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="objectifs"], [data-callout="objectives"],
+  [data-callout="competences"], [data-callout="competencies"],
+  [data-callout="questions"], [data-callout="trace"], [data-callout="lesson"],
+  [data-callout="document"], [data-callout="doc"]
+) {
+  --callout-color: var(--color-blue-rgb);
+}
+
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="definition"], [data-callout="lexique"], [data-callout="glossary"],
+  [data-callout="explication"], [data-callout="explanation"]
+) {
+  --callout-color: var(--color-purple-rgb);
+}
+
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="consignes"], [data-callout="instructions"],
+  [data-callout="exemple"], [data-callout="example"],
+  [data-callout="tache"], [data-callout="task"]
+) {
+  --callout-color: var(--color-orange-rgb);
+}
+
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="retenir"], [data-callout="keypoint"]
+) {
+  --callout-color: var(--color-red-rgb);
+}
+
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="problematique"], [data-callout="problematic"], [data-callout="questions"]
+) { --callout-icon: lucide-circle-help; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="introduction"]
+) { --callout-icon: lucide-align-left; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="correction"]
+) { --callout-icon: lucide-check-check; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="methodologie"], [data-callout="methodology"]
+) { --callout-icon: lucide-route; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="objectifs"], [data-callout="objectives"]
+) { --callout-icon: lucide-target; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="competences"], [data-callout="competencies"]
+) { --callout-icon: lucide-badge-check; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="trace"], [data-callout="lesson"]
+) { --callout-icon: lucide-notebook-pen; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="definition"]
+) { --callout-icon: lucide-book-open; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="lexique"], [data-callout="glossary"]
+) { --callout-icon: lucide-languages; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="explication"], [data-callout="explanation"]
+) { --callout-icon: lucide-message-square-text; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="consignes"], [data-callout="instructions"]
+) { --callout-icon: lucide-clipboard-list; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="exemple"], [data-callout="example"]
+) { --callout-icon: lucide-lightbulb; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="tache"], [data-callout="task"]
+) { --callout-icon: lucide-list-checks; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="retenir"], [data-callout="keypoint"]
+) { --callout-icon: lucide-bookmark; }
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="document"], [data-callout="doc"]
+) { --callout-icon: lucide-file-text; }
+
+/* Mode Callouts : les rôles gardent le chrome complet d'un callout, même
+   avec un thème qui choisit un rendu natif très discret. */
+.feuillets-project-editor.feuillets-project-mode-structured:not(.feuillets-role-display-compact) .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"],
+  [data-callout="objectifs"], [data-callout="objectives"], [data-callout="competences"],
+  [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
+  [data-callout="questions"], [data-callout="correction"], [data-callout="trace"],
+  [data-callout="lesson"], [data-callout="exemple"], [data-callout="example"],
+  [data-callout="explication"], [data-callout="explanation"], [data-callout="retenir"],
+  [data-callout="keypoint"], [data-callout="definition"], [data-callout="lexique"],
+  [data-callout="glossary"], [data-callout="methodologie"], [data-callout="methodology"],
+  [data-callout="tache"], [data-callout="task"],
+  [data-callout="document"], [data-callout="doc"]
+) {
+  background: rgba(var(--callout-color), 0.1);
+  border: 1px solid rgba(var(--callout-color), 0.35);
+  border-left: 3px solid rgb(var(--callout-color));
+  padding: var(--size-4-3);
+}
+
+/* Mode compact : même callout Obsidian et même contenu, avec uniquement le
+   chrome décoratif retiré pour les rôles Feuillets. */
+.feuillets-project-editor.feuillets-project-mode-structured.feuillets-role-display-compact .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"],
+  [data-callout="objectifs"], [data-callout="objectives"], [data-callout="competences"],
+  [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
+  [data-callout="questions"], [data-callout="correction"], [data-callout="trace"],
+  [data-callout="lesson"], [data-callout="exemple"], [data-callout="example"],
+  [data-callout="explication"], [data-callout="explanation"], [data-callout="retenir"],
+  [data-callout="keypoint"], [data-callout="definition"], [data-callout="lexique"],
+  [data-callout="glossary"], [data-callout="methodologie"], [data-callout="methodology"],
+  [data-callout="tache"], [data-callout="task"],
+  [data-callout="document"], [data-callout="doc"]
+) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  margin: 0.75em 0;
+  padding: 0;
+}
+
+.feuillets-project-editor.feuillets-project-mode-structured.feuillets-role-display-compact .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"],
+  [data-callout="objectifs"], [data-callout="objectives"], [data-callout="competences"],
+  [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
+  [data-callout="questions"], [data-callout="correction"], [data-callout="trace"],
+  [data-callout="lesson"], [data-callout="exemple"], [data-callout="example"],
+  [data-callout="explication"], [data-callout="explanation"], [data-callout="retenir"],
+  [data-callout="keypoint"], [data-callout="definition"], [data-callout="lexique"],
+  [data-callout="glossary"], [data-callout="methodologie"], [data-callout="methodology"],
+  [data-callout="tache"], [data-callout="task"],
+  [data-callout="document"], [data-callout="doc"]
+) .callout-title {
+  padding: 0;
+}
+
+.feuillets-project-editor.feuillets-project-mode-structured.feuillets-role-display-compact .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"],
+  [data-callout="objectifs"], [data-callout="objectives"], [data-callout="competences"],
+  [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
+  [data-callout="questions"], [data-callout="correction"], [data-callout="trace"],
+  [data-callout="lesson"], [data-callout="exemple"], [data-callout="example"],
+  [data-callout="explication"], [data-callout="explanation"], [data-callout="retenir"],
+  [data-callout="keypoint"], [data-callout="definition"], [data-callout="lexique"],
+  [data-callout="glossary"], [data-callout="methodologie"], [data-callout="methodology"],
+  [data-callout="tache"], [data-callout="task"],
+  [data-callout="document"], [data-callout="doc"]
+) .callout-content {
+  padding: 0 0 0 1.75em;
+}
+
+/* Document structuré : niveaux visuels de la hiérarchie rédactionnelle. */
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .HyperMD-header-1,
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .HyperMD-header-2,
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .cm-header-1,
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .cm-header-2 {
+  color: var(--color-red);
+}
+
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .HyperMD-header-3,
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .cm-header-3 {
+  color: var(--color-green);
+}
+
+/* La variable de callout colore le chrome seulement, jamais le contenu. */
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"], [data-callout="correction"],
+  [data-callout="methodologie"], [data-callout="methodology"], [data-callout="objectifs"], [data-callout="objectives"],
+  [data-callout="competences"], [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
+  [data-callout="questions"], [data-callout="trace"], [data-callout="lesson"], [data-callout="exemple"], [data-callout="example"],
+  [data-callout="explication"], [data-callout="explanation"], [data-callout="retenir"], [data-callout="keypoint"],
+  [data-callout="definition"], [data-callout="lexique"], [data-callout="glossary"], [data-callout="tache"], [data-callout="task"],
+  [data-callout="document"], [data-callout="doc"]
+) .callout-title,
+.feuillets-project-editor.feuillets-project-mode-structured .markdown-source-view.mod-cm6.is-live-preview .callout:is(
+  [data-callout="problematique"], [data-callout="problematic"], [data-callout="introduction"], [data-callout="correction"],
+  [data-callout="methodologie"], [data-callout="methodology"], [data-callout="objectifs"], [data-callout="objectives"],
+  [data-callout="competences"], [data-callout="competencies"], [data-callout="consignes"], [data-callout="instructions"],
+  [data-callout="questions"], [data-callout="trace"], [data-callout="lesson"], [data-callout="exemple"], [data-callout="example"],
+  [data-callout="explication"], [data-callout="explanation"], [data-callout="retenir"], [data-callout="keypoint"],
+  [data-callout="definition"], [data-callout="lexique"], [data-callout="glossary"], [data-callout="tache"], [data-callout="task"],
+  [data-callout="document"], [data-callout="doc"]
+) .callout-icon {
+  color: rgb(var(--callout-color));
+}
+
+/* Directive technique Feuillets : visible en source, masquée seulement dans
+   le Live Preview d'une MarkdownView appartenant au projet actif. */
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .cm-line.feuillets-directive-dessous,
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .cm-line.feuillets-directive-image,
+.feuillets-project-editor .markdown-source-view.mod-cm6.is-live-preview .cm-line.feuillets-directive-columns {
+  display: none;
+}
+
 /* ===================== LOT 5C — COULOIRS (lanes) =====================
    Représentation narrative façon Scrivener : couloirs horizontaux, axe
    horizontal = ordre narratif réel (une position fixe par feuillet), axe
@@ -9893,3 +10129,90 @@ body.feuillets-text-width
   flex: 1;
   min-width: 0;
 }
+/* Carte Plan Binder : mini-outliner interne, indépendant du Markdown Canvas. */
+.feuillets-binder-plan-node .feuillets-plan-outliner { display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; font-size:14px; line-height:1.35; color:var(--text-normal); }
+.feuillets-binder-plan-node { position:relative; }
+.feuillets-binder-plan-node .feuillets-plan-interactive-layer { position:absolute; inset:0; z-index:2; pointer-events:auto; overflow:hidden; }
+.feuillets-binder-plan-node .canvas-node-content { visibility:hidden; pointer-events:none; }
+.feuillets-binder-plan-node .feuillets-plan-interactive-layer { visibility:visible; }
+.feuillets-binder-plan-node .feuillets-plan-header { height:36px; min-height:36px; display:flex; align-items:center; gap:5px; padding:0 6px; border-bottom:1px solid var(--background-modifier-border); font-weight:600; }
+.feuillets-binder-plan-node .feuillets-plan-dirty { color:var(--interactive-accent); }
+.feuillets-binder-plan-node .feuillets-plan-actions { margin-left:auto; display:flex; gap:2px; }
+.feuillets-binder-plan-node .feuillets-plan-actions button,.feuillets-binder-plan-node .feuillets-plan-toggle { width:26px; height:26px; padding:4px; border:0; background:transparent; color:var(--text-muted); }
+.feuillets-binder-plan-node .feuillets-plan-actions button:hover,.feuillets-binder-plan-node .feuillets-plan-toggle:hover { background:var(--background-modifier-hover); color:var(--text-normal); }
+.feuillets-binder-plan-node .feuillets-plan-tree-scroll { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:4px 0; }
+.feuillets-binder-plan-node .feuillets-plan-row { min-height:26px; height:26px; display:flex; align-items:center; gap:4px; padding-right:6px; outline:none; white-space:nowrap; }
+.feuillets-binder-plan-node .feuillets-plan-row:hover,.feuillets-binder-plan-node .feuillets-plan-row.is-selected { background:var(--background-modifier-hover); }
+.feuillets-binder-plan-node .feuillets-plan-grip { width:14px; opacity:.25; cursor:grab; }.feuillets-binder-plan-node .feuillets-plan-row:hover .feuillets-plan-grip { opacity:.8; }
+.feuillets-binder-plan-node .feuillets-plan-row.is-dragging { opacity:.45; }.feuillets-binder-plan-node .feuillets-plan-grip:active { cursor:grabbing; }
+.feuillets-binder-plan-node .feuillets-plan-row.drop-before { box-shadow:inset 0 2px var(--interactive-accent); }.feuillets-binder-plan-node .feuillets-plan-row.drop-after { box-shadow:inset 0 -2px var(--interactive-accent); }.feuillets-binder-plan-node .feuillets-plan-row.drop-inside { background:var(--background-modifier-hover); box-shadow:inset 2px 0 var(--interactive-accent); }
+.feuillets-binder-plan-node .feuillets-plan-toggle,.feuillets-binder-plan-node .feuillets-plan-toggle-space { width:16px; height:16px; padding:1px; flex:none; }.feuillets-binder-plan-node .feuillets-plan-kind { width:16px; color:var(--text-muted); flex:none; }
+.feuillets-binder-plan-node .feuillets-plan-title { overflow:hidden; text-overflow:ellipsis; }.feuillets-binder-plan-node input { min-width:0; flex:1; font:inherit; color:var(--text-normal); background:var(--background-primary); border:1px solid var(--background-modifier-border); }
+/* --- Présentation Markdown V1 ------------------------------------------------ */
+.feuillets-presentation-view {
+  --feuillets-presentation-bg: #202124;
+  --feuillets-presentation-text: #202124;
+  --feuillets-presentation-muted: #6b7280;
+  --feuillets-presentation-accent: #3b82f6;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--feuillets-presentation-bg);
+  color: white;
+}
+.feuillets-presentation-view .feuillets-presentation-toolbar { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 6px 10px; }
+.feuillets-presentation-view .feuillets-presentation-button { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
+.feuillets-presentation-view .feuillets-presentation-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.feuillets-presentation-view .feuillets-presentation-button:disabled { opacity: 0.4; cursor: default; }
+.feuillets-presentation-view .feuillets-presentation-counter { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
+.feuillets-presentation-view .feuillets-presentation-overflow { color: #fbbf24; font-size: 12px; }
+.feuillets-presentation-view .feuillets-presentation-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; }
+.feuillets-presentation-view .feuillets-presentation-frame { width: 1280px; height: 720px; transform-origin: center; }
+.feuillets-presentation-view .feuillets-presentation-slide { width: 1280px; height: 720px; overflow: hidden; background: #fff; color: var(--feuillets-presentation-text); box-shadow: 0 14px 45px rgba(0, 0, 0, 0.35); }
+.feuillets-presentation-view .feuillets-presentation-slide { --feuillets-presentation-media-scale: 1; --feuillets-presentation-body-size: 32px; --feuillets-presentation-h1-size: 64px; --feuillets-presentation-h2-size: 52px; --feuillets-presentation-h3-size: 42px; --feuillets-presentation-h4-size: 36px; }
+.feuillets-presentation-view .feuillets-presentation-inner { box-sizing: border-box; width: 100%; height: 100%; padding: 80px; overflow: hidden; font-family: system-ui, sans-serif; font-size: var(--feuillets-presentation-body-size); line-height: 1.35; }
+.feuillets-presentation-view .feuillets-presentation-has-overflow .feuillets-presentation-inner { overflow: auto; }
+.feuillets-presentation-view .feuillets-presentation-inner h1 { font-size: var(--feuillets-presentation-h1-size); line-height: 1.1; }
+.feuillets-presentation-view .feuillets-presentation-inner h2 { font-size: var(--feuillets-presentation-h2-size); line-height: 1.15; }
+.feuillets-presentation-view .feuillets-presentation-inner h3 { font-size: var(--feuillets-presentation-h3-size); line-height: 1.2; }
+.feuillets-presentation-view .feuillets-presentation-inner h4 { font-size: var(--feuillets-presentation-h4-size); }
+.feuillets-presentation-view .feuillets-presentation-inner img { display: block; max-width: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-width, 100%)); max-height: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-height, 100%)); width: auto; height: auto; object-fit: contain; margin: 0; }
+.feuillets-presentation-view .feuillets-presentation-inner blockquote { margin: 32px 0; padding-left: 28px; border-left: 6px solid var(--feuillets-presentation-accent); color: var(--feuillets-presentation-muted); font-size: 1.2em; }
+.feuillets-presentation-view .feuillets-presentation-inner table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
+.feuillets-presentation-view .feuillets-presentation-inner th, .feuillets-presentation-view .feuillets-presentation-inner td { padding: 12px; border: 1px solid #d1d5db; }
+.feuillets-presentation-view .feuillets-presentation-layout-title .feuillets-presentation-inner { display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.feuillets-presentation-view .feuillets-presentation-layout-media .feuillets-presentation-inner { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-media .feuillets-presentation-inner > :not(h1):not(h2):not(h3):not(h4):not(h5):not(h6) { display: grid; place-items: center; min-width: 0; min-height: 0; width: 100%; height: 100%; margin: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-media .feuillets-presentation-inner > :not(h1):not(h2):not(h3):not(h4):not(h5):not(h6) img { max-width: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-width, 100%)); max-height: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-height, 100%)); }
+.feuillets-presentation-view .feuillets-presentation-layout-gallery .feuillets-presentation-inner { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto minmax(0, 1fr); grid-auto-rows: minmax(0, 1fr); gap: 24px; min-width: 0; min-height: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-gallery .feuillets-presentation-inner h1, .feuillets-presentation-view .feuillets-presentation-layout-gallery .feuillets-presentation-inner h2, .feuillets-presentation-view .feuillets-presentation-layout-gallery .feuillets-presentation-inner h3 { grid-column: 1 / -1; }
+.feuillets-presentation-view .feuillets-presentation-layout-gallery .feuillets-presentation-inner > :not(h1):not(h2):not(h3):not(h4):not(h5):not(h6) { display: grid; place-items: center; min-width: 0; min-height: 0; width: 100%; height: 100%; margin: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-gallery .feuillets-presentation-inner img { max-width: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-width, 100%)); max-height: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-height, 100%)); margin: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-quote .feuillets-presentation-inner { display: flex; flex-direction: column; justify-content: center; }
+.feuillets-presentation-view .feuillets-presentation-layout-quote .feuillets-presentation-inner blockquote { font-size: 1.45em; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-text .feuillets-presentation-inner { display: grid; grid-template-columns: minmax(0, 45fr) minmax(0, 55fr); grid-template-rows: auto minmax(0, 1fr); gap: 38px; min-width: 0; min-height: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-text .feuillets-presentation-heading { grid-column: 1 / -1; min-width: 0; min-height: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-text .feuillets-presentation-text, .feuillets-presentation-view .feuillets-presentation-layout-media-text .feuillets-presentation-media { min-width: 0; min-height: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-text .feuillets-presentation-media { display: grid; place-items: center; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-text .feuillets-presentation-media img { max-width: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-width, 100%)); max-height: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-height, 100%)); margin: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-questions .feuillets-presentation-inner { display: grid; min-width: 0; min-height: 0; gap: 28px; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-questions .feuillets-presentation-heading { grid-column: 1 / -1; min-width: 0; min-height: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-questions .feuillets-presentation-media, .feuillets-presentation-view .feuillets-presentation-layout-media-questions .feuillets-presentation-questions { min-width: 0; min-height: 0; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-questions .feuillets-presentation-media { display: grid; place-items: center; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-questions .feuillets-presentation-media img { display: block; max-width: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-width, 100%)); max-height: min(calc(100% * var(--feuillets-presentation-media-scale)), var(--feuillets-presentation-explicit-height, 100%)); width: auto; height: auto; object-fit: contain; }
+.feuillets-presentation-view .feuillets-presentation-media-questions-side { grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); grid-template-rows: auto minmax(0, 1fr); }
+.feuillets-presentation-view .feuillets-presentation-media-questions-side .feuillets-presentation-media { grid-column: 1; }
+.feuillets-presentation-view .feuillets-presentation-media-questions-side .feuillets-presentation-questions { grid-column: 2; }
+.feuillets-presentation-view .feuillets-presentation-media-questions-stacked { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, calc(320px * var(--feuillets-presentation-media-scale))) minmax(0, 1fr); }
+.feuillets-presentation-view .feuillets-presentation-media-questions-stacked .feuillets-presentation-media { grid-row: 2; max-height: calc(320px * var(--feuillets-presentation-media-scale)); }
+.feuillets-presentation-view .feuillets-presentation-media-questions-stacked .feuillets-presentation-questions { grid-row: 3; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-questions .feuillets-presentation-questions ol, .feuillets-presentation-view .feuillets-presentation-layout-media-questions .feuillets-presentation-questions ul { margin: 0; padding-left: 1.25em; }
+.feuillets-presentation-view .feuillets-presentation-layout-media-questions .feuillets-presentation-questions li { margin: 0 0 0.35em; }
+.feuillets-presentation-view .feuillets-presentation-fit-compact .feuillets-presentation-inner { gap: 18px; }
+.feuillets-presentation-view .feuillets-presentation-fit-compact .feuillets-presentation-inner p { margin-top: 0.35em; margin-bottom: 0.35em; }
+.feuillets-presentation-view .feuillets-presentation-fit-compact .feuillets-presentation-inner blockquote { margin: 18px 0; padding-left: 20px; }
+.feuillets-presentation-view .feuillets-presentation-fit-compact .feuillets-presentation-inner th, .feuillets-presentation-view .feuillets-presentation-fit-compact .feuillets-presentation-inner td { padding: 8px; }
+.feuillets-presentation-view .feuillets-presentation-fit-compact .feuillets-presentation-questions li { margin-bottom: 6px; }
+.feuillets-presentation-view .feuillets-presentation-empty { height: 100%; display: grid; place-items: center; color: var(--feuillets-presentation-muted); }
+.feuillets-presentation-view .feuillets-presentation-has-overflow .feuillets-presentation-inner { outline: 3px solid #f59e0b; outline-offset: -3px; }

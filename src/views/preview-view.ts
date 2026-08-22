@@ -11,7 +11,8 @@ import { VIEW_PREVIEW } from "../constants.js";
 import type { ScriveningsScrollAnchor } from "../utils/cm-scrivenings-scroll.js";
 import { resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
 import { paginateManuscript, paginateManuscriptCooperatively } from "../services/export-pdf.js";
-import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
+import { shouldGenerateGenericTitlePage } from "../services/export-template-v2.js";
+import { composeDocumentMedia, renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
 import { runExportWorkflow } from "../services/export-workflow.js";
@@ -230,6 +231,13 @@ export function previewZoomModeLabel(mode: ZoomMode): string {
   if (mode === "fit-width") return t("preview.zoom.fitWidth");
   if (mode === "fit-page") return t("preview.zoom.fitPage");
   return t("preview.zoom.manual");
+}
+
+/** Surface visuelle de premier niveau dans la pile paginée : une `.pdf-page`
+ * en mode normal, ou une feuille physique `.feuillets-sheet` en imposition
+ * 2-up. Les `.pdf-page` éventuellement imbriquées ne sont jamais mesurées. */
+export function previewNaturalSurface(pages: { firstElementChild: Element | null } | null): HTMLElement | null {
+  return pages?.firstElementChild as HTMLElement | null;
 }
 
 /** Sous-ensemble de Menu réellement utilisé ici. */
@@ -1659,6 +1667,7 @@ export class PreviewView extends ItemView {
        n'y a rien à retrouver, l'aperçu EST le feuillet actif. */
     let containerEl: HTMLElement;
     let footnotes: Array<{ id: string; html: string; text: string }>;
+    let images = new Map<HTMLImageElement, { width: number; height: number }>();
     if (source.segments && source.segments.length) {
       const separator = activePresetConfig(settings).separator || "\n\n";
       const rendered = await renderManuscriptHtmlWithFrontPages(
@@ -1669,6 +1678,7 @@ export class PreviewView extends ItemView {
       );
       containerEl = rendered.containerEl;
       footnotes = rendered.footnotes;
+      images = rendered.images;
       if (generation !== this.refreshGeneration) return;
       /* Repères de BLOC (clic Aperçu → éditeur, voir preview-source-map.ts)
          AVANT applySourceMarkers : ce dernier retire les marqueurs dont
@@ -1683,8 +1693,11 @@ export class PreviewView extends ItemView {
       const rendered = await renderManuscriptHtml(this.app, source.markdown, source.sourcePath);
       containerEl = rendered.containerEl;
       footnotes = rendered.footnotes;
+      images = rendered.images;
       if (generation !== this.refreshGeneration) return;
     }
+
+    if (tpl.profile === "document") composeDocumentMedia(containerEl, images);
 
     /* Page de titre générique : seulement pour le manuscrit complet, et
        seulement si l'autrice n'a pas composé la sienne. Une scène ou un
@@ -1694,7 +1707,7 @@ export class PreviewView extends ItemView {
       /* Une page de titre EXCLUE ne doit pas être remplacée par une page
          générée : l'exclusion serait sans effet visible. Le repli générique
          ne sert donc qu'aux projets qui n'ont aucun feuillet Front de titre. */
-      if (!hasAuthoredTitlePage && !this.frontTitleCandidates().length) {
+      if (shouldGenerateGenericTitlePage(tpl.profile, hasAuthoredTitlePage) && !this.frontTitleCandidates().length) {
         const titlePage = createDiv({ cls: "feuillets-frontpage feuillets-frontpage-titre feuillets-frontpage-generated" });
         const titleEl = titlePage.createEl("h1", { text: source.title });
         titleEl.setAttribute("data-fp-role", "titre");
@@ -3360,10 +3373,10 @@ export class PreviewView extends ItemView {
     const pages = doc.querySelector<HTMLElement>(".feuillets-preview-pages");
     if (pages) this.naturalPagesHeight = pages.offsetHeight;
 
-    const firstPage = doc.querySelector<HTMLElement>(".pdf-page");
-    if (firstPage) {
-      this.naturalPageWidth = firstPage.offsetWidth;
-      this.naturalPageHeight = firstPage.offsetHeight;
+    const surface = previewNaturalSurface(pages);
+    if (surface) {
+      this.naturalPageWidth = surface.offsetWidth;
+      this.naturalPageHeight = surface.offsetHeight;
     }
   }
 

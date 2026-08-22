@@ -200,6 +200,7 @@ function defaultTemplate(): ExportTemplateV2 {
     footer: { enabled: true, left: "", center: "", right: "Page {page} sur {pages}", distanceCm: 0.75, bodyGapPt: 3 },
     firstPage: { hideHeader: true, pageNumberPosition: "right" },
     titlePage: { styles: {} },
+    semanticRoleMarkers: "legacy",
   };
 }
 

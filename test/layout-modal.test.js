@@ -44,7 +44,7 @@ function cloneSettings() {
 }
 
 function installSettingStub() {
-  const methods = ["setName", "addButton", "addDropdown", "addExtraButton", "addToggle", "addText", "then"];
+  const methods = ["setName", "addButton", "addDropdown", "addExtraButton", "addToggle", "addText", "addColorPicker", "then"];
   const previous = Object.fromEntries(methods.map((name) => [name, Setting.prototype[name]]));
   const add = (kind, parent, configure) => {
     const control = {
@@ -71,6 +71,7 @@ function installSettingStub() {
   Setting.prototype.addExtraButton = function addExtraButton(configure) { add("extra", this.container, configure); return this; };
   Setting.prototype.addToggle = function addToggle(configure) { add("toggle", this.container, configure); return this; };
   Setting.prototype.addText = function addText(configure) { add("text", this.container, configure); return this; };
+  Setting.prototype.addColorPicker = function addColorPicker(configure) { add("colorPicker", this.container, configure); return this; };
   Setting.prototype.then = function then(callback) { callback(this); return this; };
   return () => Object.assign(Setting.prototype, previous);
 }
@@ -257,6 +258,82 @@ test("LayoutModal : l'inspecteur Citation enregistre et efface les surcharges lo
     assert.equal(modal.template.blockquote.fontFamily, undefined);
     assert.equal(modal.template.blockquote.fontSizePt, undefined);
   } finally { restoreSetting(); }
+});
+
+test("LayoutModal — Corps : le contrôle « Couleur du texte » n'écrit rien à l'ouverture, se sauvegarde au changement, se réinitialise", async () => {
+  const restoreSetting = installSettingStub();
+  try {
+    const { modal, calls } = createModal();
+    await modal.onOpen();
+    modal.select("body");
+    assert.equal(modal.template.body.colorHex, undefined, "ouverture seule : aucune mutation");
+    const notifyBefore = calls.notify;
+
+    const colorPicker = controls(modal.inspectorEl, "colorPicker")[0];
+    assert.ok(colorPicker, "le contrôle couleur du corps existe");
+    await colorPicker.change("#223344");
+    assert.equal(modal.template.body.colorHex, "#223344");
+    assert.equal(calls.frontmatter.at(-1).frontmatter.body.colorHex, "#223344");
+    assert.equal(calls.notify, notifyBefore + 1, "la Preview est rafraîchie une seule fois");
+
+    const reset = controls(modal.inspectorEl, "extra")[0];
+    assert.ok(reset, "le bouton de réinitialisation existe");
+    await reset.click();
+    assert.equal(modal.template.body.colorHex, undefined);
+    assert.equal(calls.frontmatter.at(-1).frontmatter.body.colorHex, undefined);
+  } finally {
+    restoreSetting();
+  }
+});
+
+test("LayoutModal — Titres : Couleur et Souligné n'affectent que le niveau sélectionné (H1 puis H6)", async () => {
+  const restoreSetting = installSettingStub();
+  try {
+    const { modal, calls } = createModal();
+    await modal.onOpen();
+    modal.select("headings");
+    assert.equal(modal.selectedHeading, "h1");
+
+    let colorPicker = controls(modal.inspectorEl, "colorPicker")[0];
+    let underlineToggle = controls(modal.inspectorEl, "toggle").at(-1);
+    assert.ok(colorPicker, "H1 : le contrôle « Couleur » existe");
+    assert.ok(underlineToggle, "H1 : le contrôle « Souligné » existe");
+
+    await colorPicker.change("#AA1122");
+    assert.equal(modal.template.headings.h1.colorHex, "#AA1122");
+    await underlineToggle.change(true);
+    assert.equal(modal.template.headings.h1.underline, true);
+    // Aucun autre niveau n'est affecté.
+    for (const level of ["h2", "h3", "h4", "h5", "h6"]) {
+      assert.equal(modal.template.headings[level].colorHex, undefined);
+      assert.equal(modal.template.headings[level].underline, undefined);
+    }
+    assert.equal(calls.frontmatter.at(-1).frontmatter.headings.h1.colorHex, "#AA1122");
+    assert.equal(calls.frontmatter.at(-1).frontmatter.headings.h1.underline, true);
+
+    // Reset : H1 retrouve l'héritage (colorHex supprimé), le soulignement
+    // explicite (contrôle séparé) reste inchangé par le reset couleur.
+    const resetH1Color = controls(modal.inspectorEl, "extra").at(-1);
+    await resetH1Color.click();
+    assert.equal(modal.template.headings.h1.colorHex, undefined);
+
+    // H6 : mêmes contrôles disponibles, pas de traitement spécial H1-H3.
+    const headingChoices = allElements(modal.inspectorEl).filter((el) => el.classes.has("feuillets-heading-level"));
+    const h6 = headingChoices.find((el) => el.text === "H6");
+    h6.events.get("click")();
+    assert.equal(modal.selectedHeading, "h6");
+    colorPicker = controls(modal.inspectorEl, "colorPicker")[0];
+    underlineToggle = controls(modal.inspectorEl, "toggle").at(-1);
+    assert.ok(colorPicker, "H6 : le contrôle « Couleur » existe aussi");
+    assert.ok(underlineToggle, "H6 : le contrôle « Souligné » existe aussi");
+    await colorPicker.change("#334455");
+    await underlineToggle.change(false);
+    assert.equal(modal.template.headings.h6.colorHex, "#334455");
+    assert.equal(modal.template.headings.h6.underline, false);
+    assert.equal(modal.template.headings.h1.colorHex, undefined, "H1 reste inchangé par l'édition de H6");
+  } finally {
+    restoreSetting();
+  }
 });
 
 test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs V2 sans écriture dans les réglages globaux", async () => {

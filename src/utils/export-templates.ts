@@ -1,3 +1,5 @@
+import { PEDAGOGICAL_PALETTE, PEDAGOGICAL_ROLES, PEDAGOGICAL_ROLE_FAMILY } from "./pedagogical-roles.js";
+
 /** Modèles de mise en page pour l'export natif (EPUB/DOCX/PDF), façon
  * Ulysses/iA Writer — une seule source de vérité pour "à quoi ressemble
  * chaque modèle", consommée par les trois formats. Pur (pas de dépendance
@@ -275,6 +277,62 @@ export function marginsFor(tpl: ExportTemplate): Margins {
   return { top: m, bottom: m, left: m, right: m };
 }
 
+export function isPedagogicalA4Template(tpl: ExportTemplate): boolean {
+  if (tpl.profile !== "document") return false;
+  const identity = `${tpl.key} ${tpl.label}`.toLowerCase();
+  return identity.includes("a4") && (identity.includes("pédagogique") || identity.includes("pedagogique"));
+}
+
+/** Absent = "legacy" (compatibilité absolue — même repli que
+ * normalizedSemanticRoleMarkers côté services/export-template-v2.ts, dupliqué
+ * ici pour garder ce module pur/sans dépendance Obsidian). */
+function semanticRoleMarkersMode(tpl: ExportTemplate): "legacy" | "show" | "hide" {
+  return tpl.semanticRoleMarkers === "show" || tpl.semanticRoleMarkers === "hide" ? tpl.semanticRoleMarkers : "legacy";
+}
+
+/** Repères sémantiques Feuillets (Preview paginé + PDF) pour les modes
+ * "show"/"hide" — indépendants de `tpl.profile`, contrairement au bloc
+ * legacy ci-dessous (§9-§12 du lot « rôle document »). Construits à partir
+ * de la même source de vérité que le Live Preview (PEDAGOGICAL_ROLE_FAMILY),
+ * jamais d'une liste dupliquée. N'affecte jamais les callouts natifs
+ * Obsidian (non listés dans PEDAGOGICAL_ROLES) ni le questionnaire
+ * `[!questions]` (lignes de réponse générées ailleurs, inchangées). */
+function semanticRoleMarkerCss(mode: "show" | "hide"): string {
+  const base = [
+    ".feuillets-pedagogical-role { background: transparent; border: 0; box-shadow: none; padding: 0; margin: 8pt 0; color: inherit; }",
+    ".feuillets-pedagogical-role .callout-content { padding: 3pt 0 0; color: inherit; }",
+  ];
+  if (mode === "show") {
+    const families = new Map<string, string[]>();
+    for (const role of PEDAGOGICAL_ROLES) {
+      const family = PEDAGOGICAL_ROLE_FAMILY[role];
+      const selectors = families.get(family) || [];
+      selectors.push(`.feuillets-role-${role}`);
+      families.set(family, selectors);
+    }
+    const colorRules = Array.from(families.entries()).map(
+      ([family, selectors]) => `${selectors.join(", ")} { color: ${PEDAGOGICAL_PALETTE[family as keyof typeof PEDAGOGICAL_PALETTE]}; }`
+    );
+    return [
+      ...base,
+      ".feuillets-pedagogical-role .callout-title { background: transparent; border: 0; box-shadow: none; padding: 0; display: flex; align-items: center; gap: 4pt; font-weight: 600; }",
+      ".feuillets-pedagogical-role .callout-title .feuillets-role-marker-icon { display: inline-flex; width: 12pt; height: 12pt; color: inherit; }",
+      ".feuillets-pedagogical-role .callout-title .feuillets-role-marker-icon svg { width: 100%; height: 100%; color: inherit; }",
+      ".feuillets-pedagogical-role .callout-title .collapse-indicator { display: none; }",
+      ...colorRules,
+    ].join("\n");
+  }
+  // hide : chrome (icône/couleur/label auto) retiré, contenu ET titre
+  // éditorial explicite conservés — voir feuillets-role-title-auto,
+  // posée par applyPedagogicalSemantics (utils/pedagogical-roles.ts).
+  return [
+    ...base,
+    ".feuillets-pedagogical-role .collapse-indicator { display: none; }",
+    ".feuillets-pedagogical-role .callout-title { background: transparent; border: 0; box-shadow: none; padding: 0; font-weight: normal; color: inherit; }",
+    ".feuillets-pedagogical-role.feuillets-role-title-auto .callout-title { display: none; }",
+  ].join("\n");
+}
+
 /** Feuille de style CSS dérivée d'un modèle — utilisée telle quelle par
  * l'export EPUB (balise <style> dans le XHTML) et par l'export PDF
  * (fenêtre d'impression).
@@ -294,6 +352,10 @@ export function templateToCss(tpl: ExportTemplate) {
     const pageBreak = h ? !!h.pageBreakBefore : true;
     const headingFont = h?.fontFamily || tpl.headingFontFamily || tpl.fontFamily;
     const rules = [`font-family: ${headingFont};`, `page-break-before: ${pageBreak ? "always" : "avoid"};`];
+    const headingColor = h?.colorHex || (isPedagogicalA4Template(tpl)
+      ? (level === "h3" ? PEDAGOGICAL_PALETTE.green : (level === "h1" || level === "h2" ? PEDAGOGICAL_PALETTE.red : null))
+      : null);
+    if (headingColor) rules.push(`color: ${headingColor};`);
     if (h) {
       if (h.fontSizePt) rules.push(`font-size: ${h.fontSizePt}pt;`);
       if (h.align) rules.push(`text-align: ${h.align};`);
@@ -305,6 +367,9 @@ export function templateToCss(tpl: ExportTemplate) {
       if (h.italic) rules.push(`font-style: italic;`);
       if (h.marginTopPt != null) rules.push(`margin-top: ${h.marginTopPt}pt;`);
       if (h.marginBottomPt != null) rules.push(`margin-bottom: ${h.marginBottomPt}pt;`);
+      /* Absent = aucune déclaration (repli historique) : un ancien gabarit
+         qui ne définit jamais `underline` ne doit jamais devenir souligné. */
+      if (h.underline !== undefined) rules.push(`text-decoration: ${h.underline ? "underline" : "none"};`);
     }
     return `${level} { ${rules.join(" ")} }`;
   });
@@ -317,16 +382,23 @@ export function templateToCss(tpl: ExportTemplate) {
     `  text-align: ${tpl.align};`,
     `  margin: ${cmToPt(m.top)}pt ${cmToPt(m.right)}pt ${cmToPt(m.bottom)}pt ${cmToPt(m.left)}pt;`,
     `  hyphens: ${tpl.hyphenation ? "auto" : "none"};`,
+    /* Absent = aucune déclaration `color` (repli historique) — ne prime
+       jamais sur les repères sémantiques/callouts/citations/liens, tous
+       posés par des sélecteurs plus spécifiques que `body`. */
+    ...(tpl.colorHex ? [`  color: ${tpl.colorHex};`] : []),
     "}",
     "p {",
     `  margin: ${tpl.paragraphSpacing ? "0 0 1em 0" : (tpl.paragraphSpacingPt ? `${tpl.paragraphSpacingPt}pt 0 0 0` : "0")};`,
     `  text-indent: ${tpl.indent ? (tpl.indentPt ? `${tpl.indentPt}pt` : "1.5em") : "0"};`,
     "}",
     ...headingRules,
-    tpl.blockquote
+    (tpl.blockquote || tpl.profile === "document")
       ? (() => {
-        const quote = tpl.blockquote;
+        const quote = tpl.blockquote || {};
         const rules = [`font-style: ${quote.italic ? "italic" : "normal"};`, `color: ${quote.colorHex || "inherit"};`];
+        if (tpl.profile === "document") {
+          rules.push("border: 0.75pt solid #A0A0A0;", "padding: 8pt 10pt;", "margin: 8pt 0;", "box-sizing: border-box;", "max-width: 100%;");
+        }
         if (quote.fontFamily) rules.push(`font-family: ${quote.fontFamily};`);
         if (quote.fontSizePt != null) rules.push(`font-size: ${quote.fontSizePt}pt;`);
         if (quote.lineHeight != null) rules.push(`line-height: ${quote.lineHeight};`);
@@ -335,7 +407,8 @@ export function templateToCss(tpl: ExportTemplate) {
         if (quote.marginBottomPt != null) rules.push(`margin-bottom: ${quote.marginBottomPt}pt;`);
         if (quote.marginLeftPt != null) rules.push(`margin-left: ${quote.marginLeftPt}pt;`);
         if (quote.marginRightPt != null) rules.push(`margin-right: ${quote.marginRightPt}pt;`);
-        const indent = quote.firstLineIndentPt != null ? `\nblockquote p { text-indent: ${quote.firstLineIndentPt}pt; }` : "";
+        const firstLineIndent = quote.firstLineIndentPt ?? (tpl.profile === "document" ? 18 : undefined);
+        const indent = firstLineIndent != null ? `\nblockquote p { text-indent: ${firstLineIndent}pt; }` : "";
         return `blockquote { ${rules.join(" ")} }${indent}`;
       })()
       : "",
@@ -343,6 +416,123 @@ export function templateToCss(tpl: ExportTemplate) {
     "figure { margin: 1em auto; text-align: center; max-width: 100%; }",
     "figure img { max-width: 100%; }",
     "figcaption { font-size: 0.85em; font-style: italic; color: #666; margin-top: 0.4em; }",
+    ...(tpl.profile === "document" ? [
+      "table { border-collapse: collapse; width: 100%; }",
+      "table th, table td { border: 0.5pt solid #A0A0A0; padding: 5pt 7pt; }",
+    ] : []),
+    ".feuillets-doc-media-block { max-width: 100%; break-inside: avoid; page-break-inside: avoid; margin: 1em 0; }",
+    ".feuillets-doc-media-figure { max-width: 100%; }",
+    ".feuillets-doc-media-landscape .feuillets-doc-media-figure img { display: block; width: 100%; max-width: 100%; height: auto; margin: 0 auto; }",
+    ".feuillets-doc-media-landscape-context { display: grid; grid-template-columns: minmax(0, 28fr) minmax(0, 72fr); gap: 18px; align-items: start; }",
+    ".feuillets-doc-media-landscape-context .feuillets-doc-media-content > :first-child { margin-top: 0; }",
+    ".feuillets-doc-media-landscape-context .feuillets-doc-media-figure img { display: block; width: calc(100% * var(--feuillets-doc-media-scale, 1)); max-width: 100%; height: auto; margin: 0 auto; }",
+    ".feuillets-doc-media-portrait { display: grid; grid-template-columns: minmax(280px, 300px) minmax(0, 1fr); gap: 18pt; align-items: start; }",
+    ".feuillets-doc-media-portrait .feuillets-doc-media-figure img { display: block; width: 300px; max-width: 100%; height: auto; }",
+    ".feuillets-doc-media-content > :first-child { margin-top: 0; }",
+    ".feuillets-doc-media-portrait.feuillets-doc-media-stacked { display: block; }",
+    ".feuillets-doc-media-portrait.feuillets-doc-media-stacked .feuillets-doc-media-figure { margin-bottom: 1em; }",
+    ...(tpl.profile === "document" ? [
+      ".feuillets-doc-media-portrait-flow { display: block; float: left; width: 300px; max-width: 100%; margin: 0 18pt 1em 0; }",
+      ".feuillets-doc-media-portrait-flow .feuillets-doc-media-figure img { display: block; width: 300px; max-width: 100%; height: auto; }",
+      ".feuillets-doc-media-portrait-flow-clear { clear: both; }",
+    ] : []),
+    ".feuillets-doc-media-landscape-context.feuillets-doc-media-stacked { display: block; }",
+    ".feuillets-doc-media-landscape-context.feuillets-doc-media-stacked .feuillets-doc-media-figure { margin-bottom: 1em; }",
+    /* Surcharge locale `%% image: … %%` (LOT 3A) : alignement de BLOC — jamais
+       de float/position absolue — et largeur explicite en % du content box.
+       `feuillets-image-width-*` (posée après les alignements ci-dessous dans
+       la feuille de styles) l'emporte sur le `width: fit-content` par défaut
+       quand une largeur est précisée ; sinon le bloc se contente de la taille
+       naturelle de l'image, seulement déplacé par les marges. */
+    ".feuillets-image-placement-left, .feuillets-image-placement-center, .feuillets-image-placement-right { width: fit-content; max-width: 100%; }",
+    ".feuillets-image-placement-left { margin-left: 0; margin-right: auto; }",
+    ".feuillets-image-placement-center { margin-left: auto; margin-right: auto; }",
+    ".feuillets-image-placement-right { margin-left: auto; margin-right: 0; }",
+    ".feuillets-image-placement-full { width: 100%; margin-left: 0; margin-right: 0; }",
+    ".feuillets-image-placement-left .feuillets-doc-media-figure img, .feuillets-image-placement-center .feuillets-doc-media-figure img, .feuillets-image-placement-right .feuillets-doc-media-figure img, .feuillets-image-placement-full .feuillets-doc-media-figure img { display: block; max-width: 100%; height: auto; margin: 0 auto; }",
+    ".feuillets-image-width-25 { width: 25%; } .feuillets-image-width-33 { width: 33%; } .feuillets-image-width-40 { width: 40%; } .feuillets-image-width-50 { width: 50%; } .feuillets-image-width-60 { width: 60%; } .feuillets-image-width-67 { width: 67%; } .feuillets-image-width-75 { width: 75%; } .feuillets-image-width-100 { width: 100%; }",
+    ".feuillets-image-width-25 .feuillets-doc-media-figure img, .feuillets-image-width-33 .feuillets-doc-media-figure img, .feuillets-image-width-40 .feuillets-doc-media-figure img, .feuillets-image-width-50 .feuillets-doc-media-figure img, .feuillets-image-width-60 .feuillets-doc-media-figure img, .feuillets-image-width-67 .feuillets-doc-media-figure img, .feuillets-image-width-75 .feuillets-doc-media-figure img, .feuillets-image-width-100 .feuillets-doc-media-figure img { width: 100%; }",
+    /* Compositions explicites `%% colonnes: … %%` (LOT 3B) — transversal à
+       tous les profils/modes (aucun gate profile/mode ici, contrairement au
+       pairing média+rôle automatique plus bas) : Grid, jamais de float ni
+       de position absolue, largeurs en fr (jamais en px). Le gap/align-
+       items reprend tel quel la valeur déjà centralisée du pairing média+
+       rôle (.feuillets-document-media-role-pair, plus bas) plutôt que
+       d'inventer une nouvelle échelle. */
+    ".feuillets-columns { display: grid; width: 100%; gap: 14pt; align-items: start; break-inside: avoid; page-break-inside: avoid; margin: 10pt 0; }",
+    ".feuillets-columns-40-60 { grid-template-columns: 40fr 60fr; }",
+    ".feuillets-columns-50-50 { grid-template-columns: 1fr 1fr; }",
+    ".feuillets-columns-60-40 { grid-template-columns: 60fr 40fr; }",
+    ".feuillets-column { min-width: 0; }",
+    /* Une image de colonne occupe toute la largeur de SA colonne, ratio
+       naturel préservé (jamais d'étirement vertical), top-alignée (héritée
+       de `align-items: start` ci-dessus) — spécificité (0,1,1) qui l'emporte
+       volontairement sur les classes ponctuelles `feuillets-image-placement-*`/
+       `feuillets-image-width-*` du LOT 3A (spécificité (0,1,0)) si la même
+       image en portait déjà : 3B décide seul de la largeur dans ce cas,
+       jamais de double réduction (§16 du lot) — sans !important. */
+    ".feuillets-column-media img { display: block; width: 100%; max-width: 100%; height: auto; margin: 0; }",
+    ".feuillets-sheet { display: grid; grid-template-columns: 148mm 148mm; width: 297mm; height: 210mm; box-sizing: border-box; page-break-after: always; break-after: page; }",
+    ".feuillets-sheet-panel { width: 148mm; height: 210mm; min-width: 0; min-height: 0; box-sizing: border-box; }",
+    ".feuillets-sheet-panel .pdf-page { page-break-after: auto; break-after: auto; }",
+    /* Rendu historique (mode "legacy", repli par défaut — §9 du lot « rôle
+       document ») : STRICTEMENT inchangé, y compris le gate sur profile ===
+       "document". Les modes "show"/"hide" ne réinterprètent jamais ces
+       règles ; ils ajoutent leur propre bloc plus bas, indépendant du
+       profil (semanticRoleMarkerCss). */
+    ...(tpl.profile === "document" && semanticRoleMarkersMode(tpl) === "legacy" ? [
+      ".feuillets-pedagogical-role { background: transparent; border: 0; box-shadow: none; padding: 0; margin: 10pt 0; color: inherit; }",
+      ".feuillets-pedagogical-role .callout-title { background: transparent; border: 0; box-shadow: none; padding: 0; color: inherit; }",
+      ".feuillets-pedagogical-role .callout-title .callout-icon, .feuillets-pedagogical-role .callout-title .collapse-indicator { display: none; }",
+      ".feuillets-pedagogical-role .callout-content { padding: 4pt 0 0; color: inherit; }",
+      `.feuillets-role-problematique, .feuillets-role-introduction, .feuillets-role-correction { color: ${PEDAGOGICAL_PALETTE.green}; }`,
+      `.feuillets-role-questions, .feuillets-role-objectifs, .feuillets-role-competences, .feuillets-role-consignes, .feuillets-role-exemple, .feuillets-role-explication, .feuillets-role-definition, .feuillets-role-lexique, .feuillets-role-methodologie, .feuillets-role-tache { color: ${PEDAGOGICAL_PALETTE.black}; }`,
+      `.feuillets-role-trace { color: ${PEDAGOGICAL_PALETTE.blue}; }`,
+      `.feuillets-role-retenir { color: ${PEDAGOGICAL_PALETTE.red}; }`,
+      ".feuillets-role-introduction .callout-title, .feuillets-role-questions .callout-title, .feuillets-role-exemple .callout-title, .feuillets-role-explication .callout-title, .feuillets-role-definition .callout-title { display: none; }",
+      ".feuillets-role-exemple .callout-content { font-style: italic; }",
+      ".feuillets-role-explication .callout-content { font-style: normal; }",
+      ".feuillets-role-retenir .callout-title { font-weight: bold; }",
+    ] : []),
+    /* Contrat Questions / médias : entièrement indépendant du choix
+       "legacy"/"show"/"hide" — jamais touché par ce lot (§16-§17). */
+    ...(tpl.profile === "document" ? [
+      ".feuillets-role-questions .callout-content > ol > li::after { content: \"\"; display: block; height: 1.55em; border-bottom: 1px dotted; width: 100%; margin-top: 0.25em; margin-bottom: 0.70em; }",
+      ".feuillets-role-questions .callout-content > ol > li.feuillets-answer-custom::after { content: none; display: none; }",
+      ".feuillets-answer-line { display: block; height: 1.55em; border-bottom: 1px dotted; width: 100%; margin-top: 0.25em; margin-bottom: 0.70em; }",
+      ".feuillets-answer-space { display: block; width: 100%; }",
+      ".feuillets-document-media-role-pair { min-width: 0; gap: 14pt; align-items: start; margin: 10pt 0; }",
+      ".feuillets-document-media-role-pair-side { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); }",
+      ".feuillets-document-media-role-pair-stacked { display: block; }",
+      ".feuillets-document-media-role-pair > * { min-width: 0; }",
+      ".feuillets-document-media-role-pair-stacked > :first-child { margin-bottom: 10pt; }",
+      ".feuillets-directive, .feuillets-pagebreak { display: none; }",
+    ] : []),
+    /* Repli rouge/rouge/vert du profil Document pédagogique A4 — une
+       `colorHex` explicite sur le niveau (headings.h1/h2/h3) prime : même
+       valeur posée ici que dans headingRules ci-dessus, sans !important. */
+    ...(isPedagogicalA4Template(tpl) ? [
+      `.pdf-page-content h1, .feuillets-preview-pages h1 { color: ${headings.h1?.colorHex || PEDAGOGICAL_PALETTE.red}; }`,
+      `.pdf-page-content h2, .feuillets-preview-pages h2 { color: ${headings.h2?.colorHex || PEDAGOGICAL_PALETTE.red}; }`,
+      `.pdf-page-content h3, .feuillets-preview-pages h3 { color: ${headings.h3?.colorHex || PEDAGOGICAL_PALETTE.green}; }`,
+    ] : []),
+    /* Slot d'icône des repères sémantiques (`.feuillets-role-marker-icon`,
+       un vrai <svg> Lucide injecté par applyPedagogicalSemantics via
+       setIcon — voir utils/pedagogical-roles.ts) : TOUJOURS émis, quel que
+       soit le profil ou le mode — masqué par défaut. Seul le mode "show"
+       (bloc semanticRoleMarkerCss ci-dessous) le rend visible ; "legacy" et
+       "hide" restent donc identiques au rendu d'avant l'injection de
+       l'icône, y compris pour un gabarit hors profil "document" où le
+       chrome sémantique n'est de toute façon jamais stylé. Le slot NATIF
+       d'Obsidian (`.callout-icon`) reste lui aussi toujours masqué ici :
+       dans ce contexte de rendu détaché (Preview/PDF), il ne contient
+       jamais le bon glyphe. */
+    ".feuillets-pedagogical-role .callout-title .feuillets-role-marker-icon { display: none; }",
+    ".feuillets-pedagogical-role .callout-title .callout-icon { display: none; }",
+    /* Repères sémantiques Feuillets (16 rôles, tous profils) — Preview
+       paginé + PDF uniquement (partagent ce même générateur), jamais
+       l'éditeur ni le DOCX. Absent/"legacy" = rien de plus ici. */
+    ...(semanticRoleMarkersMode(tpl) !== "legacy" ? [semanticRoleMarkerCss(semanticRoleMarkersMode(tpl) as "show" | "hide")] : []),
   ]
     .filter(Boolean)
     .join("\n");

@@ -1,5 +1,4 @@
 // @ts-ignore -- ViewPlugin/WidgetType sont fournis par Obsidian a l'execution
-// eslint-disable-next-line import/no-extraneous-dependencies -- @codemirror/* fourni par Obsidian a l'execution
 import { ViewPlugin, Decoration, WidgetType } from "@codemirror/view";
 // @ts-ignore -- syntaxTree est fourni par Obsidian a l'execution
 import { syntaxTree } from "@codemirror/language";

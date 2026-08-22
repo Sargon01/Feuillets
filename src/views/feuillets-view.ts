@@ -2097,6 +2097,12 @@ export class FeuilletsView extends BaseFeuilletsView {
         .setIcon("list-tree")
         .onClick(() => new ImportOutlineModal(this.app, this.plugin).open())
     );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.visualOutline"))
+        .setIcon("network")
+        .onClick(() => void this.plugin.openVisualOutline())
+    );
     menu.addSeparator();
     menu.addItem((item) =>
       item

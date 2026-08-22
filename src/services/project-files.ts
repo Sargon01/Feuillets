@@ -15,10 +15,10 @@ import {
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
-import { getProjectMode } from "./project-mode.js";
+import { getProjectMode, getProjectType } from "./project-mode.js";
 import { projectWordGoalDefault } from "./project-settings.js";
 import { openFileActivating } from "../utils/dom.js";
-import { applyModeDefaults, resolveType, PROJECT_MODES, projectBoardDefaults, researchFolderNames } from "../utils/project-modes.js";
+import { applyModeDefaults, resolveType, PROJECT_MODES, projectBoardDefaults, projectCreationStyle, researchFolderNames } from "../utils/project-modes.js";
 
 export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
   const p = normalizePath(path);
@@ -468,10 +468,11 @@ export async function createMinimalProject(
   }
   const trimmedAuthor = (author || "").trim();
   const projectType = resolveType(type);
+  const creationStyle = projectCreationStyle(projectType);
 
   // --- Racine réelle : Manuscrit, Recherche, Ressources en frères ---
   const manuscritPath = normalizePath(`${volumePath}/${MANUSCRIPT_FOLDER_NAME}`);
-  const { frontPath } = await ensureProjectBaseFolders(app, volumePath, manuscritPath, projectType !== "free");
+  const { frontPath } = await ensureProjectBaseFolders(app, volumePath, manuscritPath, creationStyle !== "free");
 
   if (frontPath) {
     // --- Page de titre ---
@@ -482,7 +483,7 @@ export async function createMinimalProject(
   }
 
   // --- Corps du manuscrit, selon le type ---
-  const isFiction = projectType === "fiction";
+  const isFiction = creationStyle === "fiction";
   let firstFolderPath: string;
   let firstFile: TFile;
   if (isFiction) {
@@ -492,7 +493,7 @@ export async function createMinimalProject(
       normalizePath(`${firstFolderPath}/Scène 1.md`),
       manuscriptFileContent("Scène 1", 1, true, settings.wordGoal)
     );
-  } else if (projectType === "nonfiction") {
+  } else if (creationStyle === "nonfiction") {
     firstFolderPath = normalizePath(`${manuscritPath}/Partie 1`);
     await ensureFolder(app, firstFolderPath);
     firstFile = await app.vault.create(
@@ -525,7 +526,7 @@ export async function createMinimalProject(
   applyModeDefaults(settings, type);
   /* Voir le commentaire de tête : correspond à la forme réelle créée
      ci-dessus, pas au défaut générique du mode. */
-  const level1Role: "parties" | "chapitres" = isFiction ? "chapitres" : "parties";
+  const level1Role: "parties" | "chapitres" = creationStyle === "free" ? "chapitres" : (isFiction ? "chapitres" : "parties");
   settings.level1Role = level1Role;
   settings.projectMeta[manuscritPath].level1Role = level1Role;
 
@@ -775,7 +776,7 @@ export async function initProjectStructure(
     ].join("\n"));
   }
 
-  if (initializedProjectType !== "free") {
+  if (projectCreationStyle(initializedProjectType) !== "free") {
     /* Front — enfant direct de Manuscrit (pas un voisin), paraît dans le
        Binder au même niveau que les Parties, juste avant elles. */
     const manuscritForFront = getProjectFolder(app, settings)!;
@@ -801,7 +802,7 @@ export async function initProjectStructure(
   }
 
   const listParts = [
-    ...(initializedProjectType === "free" ? [] : ["Front"]),
+    ...(projectCreationStyle(initializedProjectType) === "free" ? [] : ["Front"]),
     researchPath.split("/").pop(),
     resPath.split("/").pop(),
   ].filter(Boolean).join(", ");
@@ -827,6 +828,12 @@ export function newSheet(app: App, settings: FeuilletsSettings, folder: TFolder)
     const path = normalizePath(`${folder.path}/${fileName}.md`);
     if (app.vault.getAbstractFileByPath(path)) {
       new Notice("Un feuillet portant ce nom existe déjà.");
+      return;
+    }
+    if (getProjectType(app, settings) === "structured") {
+      const title = chapTitle.trim() || fileName;
+      const file = await app.vault.create(path, `# ${title}\n\n`);
+      openFileActivating(app, app.workspace.getLeaf(false), file);
       return;
     }
     const position = getOrderedChildren(app, settings, folder).length + 1;

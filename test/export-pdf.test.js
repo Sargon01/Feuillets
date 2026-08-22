@@ -2,7 +2,62 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { MarkdownRenderer, Notice, Platform } from "obsidian";
-import { effectiveHyphenation, exportPdf, paginateManuscript } from "../src/services/export-pdf.js";
+import { effectiveHyphenation, exportPdf, headingPageBreakPolicy, imposePagesHtml, logicalPageGeometryFor, outputLayoutFor, pageContentGeometry, paginateManuscript, physicalPageGeometryFor } from "../src/services/export-pdf.js";
+import { EXPORT_TEMPLATES, templateToCss } from "../src/utils/export-templates.js";
+
+test("headingPageBreakPolicy : les titres définis par le gabarit priment sur le fallback legacy", () => {
+  assert.deepEqual(headingPageBreakPolicy({ headings: { h1: { pageBreakBefore: false }, h2: {}, h3: { pageBreakBefore: true } } }), {
+    h1: false, h2: false, h3: true, h4: false, h5: false, h6: false,
+  });
+  assert.deepEqual(headingPageBreakPolicy({}), { h1: true, h2: true, h3: false, h4: false, h5: false, h6: false });
+});
+
+test("imposition 2-up : pages successives et duplication conservent l'ordre logique", () => {
+  const pages = ["P1", "P2", "P3", "P4", "P5"];
+  const successive = imposePagesHtml(pages, "two-up-successive");
+  assert.equal(successive.length, 3); assert.match(successive[0], /P1[\s\S]*P2/); assert.match(successive[1], /P3[\s\S]*P4/); assert.match(successive[2], /P5/); assert.equal((successive[2].match(/P5/g) || []).length, 1);
+  const duplicate = imposePagesHtml(["P1", "P2", "P3"], "two-up-duplicate");
+  assert.equal(duplicate.length, 3); assert.equal((duplicate[0].match(/P1/g) || []).length, 2); assert.equal((duplicate[2].match(/P3/g) || []).length, 2);
+});
+
+test("outputLayoutFor : repli single et deux modes two-up", () => {
+  assert.equal(outputLayoutFor({}), "single");
+  assert.equal(outputLayoutFor({ pdfOutputLayout: "two-up-successive" }), "two-up-successive");
+  assert.equal(outputLayoutFor({ pdfOutputLayout: "two-up-duplicate" }), "two-up-duplicate");
+});
+
+test("two-up : pagination logique A5 puis feuille physique A4 paysage", () => {
+  const tpl = { ...template, pageSize: "A4", pageOrientation: "portrait" };
+  const settings = { pdfOutputLayout: "two-up-successive" };
+  assert.deepEqual(logicalPageGeometryFor(tpl, settings), { size: "A5", orientation: "portrait", widthMm: 148, heightMm: 210 });
+  assert.deepEqual(physicalPageGeometryFor(tpl, settings), { size: "A4", orientation: "landscape", widthMm: 297, heightMm: 210 });
+});
+
+test("two-up : paginateManuscript compose réellement la page logique en A5 avant la feuille", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(element("h1", "Titre long", 40));
+    container.appendChild(element("p", "Questions longues", 120));
+    const settings = { pdfOutputLayout: "two-up-successive", pdfMarginLeft: 1, pdfMarginRight: 1, pdfMarginTop: 1, pdfMarginBottom: 1 };
+    const result = paginateManuscript(container, [], settings, { ...template, pageSize: "A4", pageOrientation: "landscape" });
+    assert.deepEqual(pageBox(result.pagesHtml), { widthMm: 148, heightMm: 210 });
+    assert.match(result.pagesHtml, /feuillets-sheet-a4-landscape/);
+    assert.match(result.pagesHtml, /width: 148mm;/);
+    assert.doesNotMatch(result.pagesHtml, /transform:\s*scale|zoom:/);
+    assert.deepEqual(pageContentGeometry(148, 210, 1, 1, 1, 1), { widthPx: 483.776, heightPx: 718.105 });
+  } finally { dom.restore(); }
+});
+
+test("templateToCss : le flux portrait documentaire flotte et se termine avant le bloc suivant", () => {
+  const documentCss = templateToCss({ ...EXPORT_TEMPLATES.romanSimple, profile: "document" });
+  assert.match(documentCss, /\.feuillets-doc-media-portrait-flow \{ display: block; float: left; width: 300px; max-width: 100%; margin: 0 18pt 1em 0; \}/);
+  assert.match(documentCss, /\.feuillets-doc-media-portrait-flow-clear \{ clear: both; \}/);
+  assert.doesNotMatch(documentCss, /feuillets-doc-quote-split-(?:start|continuation)/);
+
+  const manuscriptCss = templateToCss(EXPORT_TEMPLATES.romanSimple);
+  assert.doesNotMatch(manuscriptCss, /feuillets-doc-media-portrait-flow/);
+});
 
 let activeFrames = null;
 

@@ -66,6 +66,7 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   refreshView(delay?: number): void;
   refreshRibbonIcons(): void;
   applyLiveTypoClasses(): void;
+  syncProjectEditorScope(): void;
   applyIndentClass(): void;
   applyLeanInterfaceClasses(): void;
   removeConcentrationCounter(): void;
@@ -324,6 +325,21 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           this.plugin.applyLiveTypoClasses();
         })
+      );
+
+    new Setting(container)
+      .setName(t("settings.roleEditorDisplay.name"))
+      .setDesc(t("settings.roleEditorDisplay.desc"))
+      .addDropdown((d) =>
+        d
+          .addOption("callouts", t("settings.roleEditorDisplay.callouts"))
+          .addOption("compact", t("settings.roleEditorDisplay.compact"))
+          .setValue(S.roleEditorDisplay || "callouts")
+          .onChange(async (v) => {
+            S.roleEditorDisplay = v as DefaultSettings["roleEditorDisplay"];
+            await this.plugin.saveSettings();
+            this.plugin.syncProjectEditorScope();
+          })
       );
 
     new Setting(container)

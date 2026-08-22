@@ -160,6 +160,8 @@ declare type ProjectMeta = {
    *  Obsidian standard `tags:` — ceci n'administre qu'une liste de
    *  suggestions, pas un système de tags parallèle. */
   favoriteTags?: string[];
+  /** Présentation visuelle des rôles Feuillets dans l'éditeur. */
+  roleEditorDisplay?: "callouts" | "compact";
   /** Objectif de mots par défaut d'un feuillet ; sinon settings.wordGoal. */
   wordGoal?: number;
   /** Tolérance (mots) autour de l'objectif pour l'état « atteint » de
@@ -205,6 +207,10 @@ declare type HeadingStyle = {
   align?: string;
   bold?: boolean;
   italic?: boolean;
+  colorHex?: string;
+  /** Absent = aucune déclaration `text-decoration` (repli historique) ;
+   * `true`/`false` posent explicitement souligné/non souligné (templateToCss). */
+  underline?: boolean;
   marginTopPt?: number;
   marginBottomPt?: number;
   pageBreakBefore?: boolean;
@@ -219,6 +225,7 @@ declare type TemplatePageSize = "A4" | "A5" | "Letter" | "letter";
 
 /** Orientation d'une page dans un modèle d'export V2. */
 declare type TemplateOrientation = "portrait" | "landscape";
+declare type PdfOutputLayout = "single" | "two-up-successive" | "two-up-duplicate";
 
 /** Alignement horizontal pris en charge par les modèles d'export V2. */
 declare type TemplateAlign = "left" | "center" | "right" | "justify";
@@ -231,6 +238,10 @@ declare type HeadingStyleV2 = {
   align?: TemplateAlign;
   bold?: boolean;
   italic?: boolean;
+  colorHex?: string;
+  /** Absent = aucune déclaration `text-decoration` (repli historique) ;
+   * `true`/`false` posent explicitement souligné/non souligné (templateToCss). */
+  underline?: boolean;
   marginTopPt?: number;
   marginBottomPt?: number;
   pageBreakBefore?: boolean;
@@ -263,6 +274,8 @@ declare type ExportTemplate = {
   label: string;
   /** Vrai pour un modèle issu de Resources/Layouts, pas un intégré. */
   custom?: boolean;
+  /** Profil explicitement projeté depuis un gabarit V2 personnalisé. */
+  profile?: TemplateProfile;
 
   fontFamily?: string;
   /** Police des titres ; repli sur fontFamily si absente (templateToCss). */
@@ -280,6 +293,11 @@ declare type ExportTemplate = {
   paragraphSpacingPt?: number;
   hyphenation?: boolean;
   blockquote?: { italic?: boolean; colorHex?: string; fontFamily?: string; fontSizePt?: number; lineHeight?: number; align?: TemplateAlign; firstLineIndentPt?: number; marginTopPt?: number; marginBottomPt?: number; marginLeftPt?: number; marginRightPt?: number };
+  /** Couleur du corps de texte — projection de `ExportTemplateV2.body.colorHex`
+   * (legacyFieldsFromV2). Absent = aucune déclaration `color` sur `body`
+   * dans templateToCss (repli historique). N'écrase jamais les couleurs plus
+   * spécifiques (repères sémantiques, callouts natifs, citations, liens). */
+  colorHex?: string;
 
   /** Marge uniforme ; `marginsCm` (asymétrique) prime si présent (marginsFor). */
   marginCm?: number;
@@ -295,6 +313,7 @@ declare type ExportTemplate = {
      ignore volontairement ces deux champs — voir templatePrintCss. */
   /** "landscape" ; posé dans la règle @page par l'appelant, pas ici. */
   pageOrientation?: string;
+  pdfOutputLayout?: PdfOutputLayout;
   columns?: { count: number; gutterPt: number };
 
   /* Géométrie et bandes projetées depuis un gabarit V2 (§24 du chantier
@@ -314,6 +333,12 @@ declare type ExportTemplate = {
   chapterTitle?: HeadingStyle;
 
   titlePage?: { styles?: Record<string, TitlePageStyle> };
+
+  /** Affichage des repères sémantiques Feuillets (rôles pédagogiques) dans
+   *  le Preview paginé et le PDF — jamais l'éditeur (Live Preview) ni le
+   *  DOCX. Absent = "legacy" (rendu historique inchangé) — voir
+   *  templateToCss (utils/export-templates.ts). */
+  semanticRoleMarkers?: "legacy" | "show" | "hide";
 
   [key: string]: unknown;
 };
@@ -337,6 +362,7 @@ declare type ExportTemplateV2 = {
     orientation: TemplateOrientation;
     marginsCm: Margins;
     mirrorMargins: boolean;
+    outputLayout?: PdfOutputLayout;
     columns: { count: number; gutterPt: number };
   };
   body: {
@@ -348,6 +374,9 @@ declare type ExportTemplateV2 = {
     paragraphSpacingBeforePt: number;
     paragraphSpacingAfterPt: number;
     hyphenation: boolean;
+    /** Couleur du corps de texte. Absent = repli historique (aucune
+     * déclaration `color` propre au corps — voir ExportTemplate.colorHex). */
+    colorHex?: string;
   };
   headings: { h1: HeadingStyleV2; h2: HeadingStyleV2; h3: HeadingStyleV2; h4: HeadingStyleV2; h5: HeadingStyleV2; h6: HeadingStyleV2 };
   blockquote: { italic?: boolean; colorHex?: string; fontFamily?: string; fontSizePt?: number; lineHeight?: number; align?: TemplateAlign; firstLineIndentPt?: number; marginTopPt?: number; marginBottomPt?: number; marginLeftPt?: number; marginRightPt?: number };
@@ -374,6 +403,9 @@ declare type ExportTemplateV2 = {
     pageNumberPosition: "right" | "center" | "left";
   };
   titlePage: { styles: Record<string, TitlePageStyle> };
+  /** Voir ExportTemplate.semanticRoleMarkers — même contrat, toujours
+   *  normalisé ("legacy" par défaut) contrairement au champ legacy optionnel. */
+  semanticRoleMarkers: "legacy" | "show" | "hide";
 };
 
 /** Variante partielle d'un modèle V2, destinée aux entrées qui ne
@@ -390,6 +422,7 @@ declare type ExportTemplateV2Draft = {
   footer?: Partial<ExportTemplateV2["footer"]>;
   firstPage?: Partial<ExportTemplateV2["firstPage"]>;
   titlePage?: Partial<ExportTemplateV2["titlePage"]>;
+  semanticRoleMarkers?: ExportTemplateV2["semanticRoleMarkers"];
 };
 
 /** État persistant des fils narratifs. Les clés sont les valeurs de `thread`
@@ -447,6 +480,8 @@ declare type FeuilletsSettings = {
 
   pdfPageSize: string;
   pdfOrientation: "portrait" | "landscape";
+  /** Disposition physique PDF/Preview ; absent = page unique historique. */
+  pdfOutputLayout?: "single" | "two-up-successive" | "two-up-duplicate";
   pdfMarginTop: number;
   pdfMarginBottom: number;
   pdfMarginLeft: number;

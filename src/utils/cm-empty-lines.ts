@@ -1,5 +1,4 @@
 // @ts-ignore -- ViewPlugin est fourni par Obsidian a l'execution
-// eslint-disable-next-line import/no-extraneous-dependencies -- @codemirror/* fourni par Obsidian a l'execution
 import { ViewPlugin, Decoration } from "@codemirror/view";
 
 type DecorationSet = Record<string, unknown>;

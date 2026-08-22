@@ -104,6 +104,7 @@ function templateV2FromFrontmatter(frontmatter: Record<string, unknown>): Export
 
 function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" | "label" | "custom"> {
   return {
+    profile: tpl.profile,
     fontFamily: tpl.body.fontFamily,
     fontSizePt: tpl.body.fontSizePt,
     lineHeight: tpl.body.lineHeight,
@@ -113,6 +114,7 @@ function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" |
     paragraphSpacing: tpl.body.paragraphSpacingAfterPt > 0,
     paragraphSpacingPt: tpl.body.paragraphSpacingBeforePt || undefined,
     hyphenation: tpl.body.hyphenation,
+    colorHex: tpl.body.colorHex,
     marginsCm: { ...tpl.page.marginsCm },
     /* §23-§24 : la projection ne transportait QUE l'orientation — ni le
        format, ni les marges miroir, ni les bandes. Les consommateurs legacy
@@ -122,6 +124,7 @@ function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" |
        services/page-geometry.ts et paginateManuscript). */
     pageSize: tpl.page.size,
     pageOrientation: tpl.page.orientation,
+    pdfOutputLayout: tpl.page.outputLayout,
     mirrorMargins: tpl.page.mirrorMargins,
     columns: { ...tpl.page.columns },
     header: { ...tpl.header },
@@ -131,6 +134,7 @@ function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" |
     sceneDivider: tpl.sceneDivider,
     headings: Object.fromEntries(Object.entries(tpl.headings).map(([level, style]) => [level, { ...style }])),
     titlePage: JSON.parse(JSON.stringify(tpl.titlePage)),
+    semanticRoleMarkers: tpl.semanticRoleMarkers,
   };
 }
 
@@ -140,7 +144,7 @@ function v2FileFields(tpl: ExportTemplateV2, label: string): Record<string, unkn
   // loadCustomTemplates(), sans réintroduire de dette dans le fichier.
   return { version: 2, profile: tpl.profile, page: tpl.page, body: tpl.body, headings: tpl.headings,
     blockquote: tpl.blockquote, sceneDivider: tpl.sceneDivider, header: tpl.header, footer: tpl.footer,
-    firstPage: tpl.firstPage, titlePage: tpl.titlePage, label };
+    firstPage: tpl.firstPage, titlePage: tpl.titlePage, semanticRoleMarkers: tpl.semanticRoleMarkers, label };
 }
 
 /** Lit les gabarits personnalisés sous leur forme V2. Les anciens fichiers

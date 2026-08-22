@@ -23,7 +23,8 @@ import type { App } from "obsidian";
 import type { IParagraphStyleOptions, ISectionOptions, IStylesOptions } from "docx";
 import { renderManuscriptHtml } from "./export-render.js";
 
-import { resolveExportTemplateV2 } from "./export-templates-custom.js";
+import { resolveExportTemplate, resolveExportTemplateV2 } from "./export-templates-custom.js";
+import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import { markedMarkdownFor, bookmarkMarkerInfoOf, bookmarkIdFor } from "../utils/docx-bookmarks.js";
 import {
   FRONT_PAGE_LINE_SPACING,
@@ -51,7 +52,7 @@ const firstFontFamily = (value?: string) => value?.split(",")[0]?.trim().replace
 export const FEUILLETS_CITATION_STYLE = "FeuilletsCitation";
 
 /** Style Word stable appliqué aux paragraphes Markdown `>` exportés. */
-export function citationParagraphStyle(template: Pick<ExportTemplateV2, "blockquote">): IParagraphStyleOptions {
+export function citationParagraphStyle(template: Pick<ExportTemplateV2, "blockquote" | "profile">): IParagraphStyleOptions {
   const quote = template.blockquote || {};
   return {
     id: FEUILLETS_CITATION_STYLE,
@@ -69,7 +70,9 @@ export function citationParagraphStyle(template: Pick<ExportTemplateV2, "blockqu
       indent: {
         left: quote.marginLeftPt != null ? quote.marginLeftPt * 20 : undefined,
         right: quote.marginRightPt != null ? quote.marginRightPt * 20 : undefined,
-        firstLine: quote.firstLineIndentPt != null ? quote.firstLineIndentPt * 20 : undefined,
+        firstLine: (quote.firstLineIndentPt ?? (template.profile === "document" ? 18 : undefined)) != null
+          ? (quote.firstLineIndentPt ?? 18) * 20
+          : undefined,
       },
       spacing: quote.lineHeight != null
         ? { line: Math.round(quote.lineHeight * 240), lineRule: LineRuleType.AUTO }
@@ -145,6 +148,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
      garde ouverts pendant la migration progressive pour les autres services. */
   const docxSettings = settings as ExportDocxSettings;
   const template = await resolveExportTemplateV2(app, settings, docxSettings.exportTemplate);
+  const resolvedLegacyTemplate = await resolveExportTemplate(app, settings, docxSettings.exportTemplate);
   // L'adaptateur ne sert qu'à blockToParagraphs, dont l'API legacy est
   // conservée pendant la migration. Toutes les valeurs viennent de V2.
   const tpl: ExportTemplate = {
@@ -158,6 +162,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     paragraphSpacing: template.body.paragraphSpacingAfterPt > 0,
     paragraphSpacingPt: template.body.paragraphSpacingBeforePt || undefined,
     hyphenation: template.body.hyphenation,
+    profile: template.profile,
     headings: template.headings,
     blockquote: template.blockquote,
     sceneDivider: template.sceneDivider,
@@ -188,16 +193,19 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   const headings = template.headings;
 
   /* Pas de page de titre générique (titre + auteur + saut de page) si
-     l'autrice a déjà composé sa propre page Front de type "titre" — sans
-     quoi le document ouvrirait sur DEUX pages de titre à la suite. */
+     l'autrice a déjà composé sa propre page Front de type "titre", ni pour
+     un profil document explicitement projeté — le flux doit alors commencer
+     directement par le Markdown. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));
-  const genericTitleParagraphs = hasAuthoredTitlePage
-    ? []
-    : [new Paragraph({ heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, children: [new TextRun(title)] })];
-  if (!hasAuthoredTitlePage && author) {
+  const generateGenericTitlePage = shouldGenerateGenericTitlePage(resolvedLegacyTemplate.profile, hasAuthoredTitlePage);
+  const genericTitleParagraphs: Paragraph[] = [];
+  if (generateGenericTitlePage) {
+    genericTitleParagraphs.push(new Paragraph({ heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, children: [new TextRun(title)] }));
+  }
+  if (generateGenericTitlePage && author) {
     genericTitleParagraphs.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun(author)] }));
   }
-  if (!hasAuthoredTitlePage) {
+  if (generateGenericTitlePage) {
     genericTitleParagraphs.push(new Paragraph({ pageBreakBefore: true, children: [] }));
   }
   const bodyParagraphs: Paragraph[] = [];

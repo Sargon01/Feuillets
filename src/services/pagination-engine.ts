@@ -15,6 +15,8 @@ export type PaginationGeometry = {
   css?: string;
   columnCount?: number;
   columnGapPt?: number;
+  /** Politique explicite par niveau ; l'absence conserve le comportement legacy. */
+  headingPageBreaks?: Partial<Record<"h1" | "h2" | "h3" | "h4" | "h5" | "h6", boolean>>;
 };
 
 export type PaginationPage = Element[];
@@ -32,6 +34,26 @@ export const FRAGMENT_CONTINUATION_CLASS = "feuillets-pagination-fragment-contin
 export const FRAGMENT_CONTINUES_CLASS = "feuillets-pagination-fragment-continues";
 export const CONTINUATION_STYLE = { "text-indent": "0", "margin-top": "0" };
 export const CONTINUES_JUSTIFY_STYLE = { "text-align-last": "justify" };
+export const DOCUMENT_MEDIA_MIN_SCALE = 0.8;
+const DOCUMENT_MEDIA_SCALE_PROPERTY = "--feuillets-doc-media-scale";
+
+/** Recherche déterministe de la plus grande échelle qui tient, sans jamais
+ * descendre sous la borne documentaire de 80 %. */
+export function largestFittingDocumentMediaScale(
+  fits: (scale: number) => boolean,
+  iterations = 6
+): number | null {
+  if (fits(1)) return 1;
+  if (!fits(DOCUMENT_MEDIA_MIN_SCALE)) return null;
+  let low = DOCUMENT_MEDIA_MIN_SCALE;
+  let high = 1;
+  for (let index = 0; index < iterations; index++) {
+    const middle = (low + high) / 2;
+    if (fits(middle)) low = middle;
+    else high = middle;
+  }
+  return low;
+}
 
 type CompositionPage = {
   content: HTMLElement;
@@ -131,13 +153,64 @@ export function applyFragmentPresentation(
   }
 }
 
-function isForcedPage(node: Element): boolean {
+function isForcedPage(node: Element, geometry: PaginationGeometry): boolean {
   const tag = node.tagName.toLowerCase();
-  return tag === "h1" || tag === "h2" || node.classList.contains("feuillets-frontpage");
+  if (node.classList.contains("feuillets-frontpage")) return true;
+  if (tag < "h1" || tag > "h6") return false;
+  const policy = geometry.headingPageBreaks?.[tag as "h1" | "h2" | "h3" | "h4" | "h5" | "h6"];
+  return policy ?? (tag === "h1" || tag === "h2");
 }
 
 function isFrontPage(node: Element): boolean {
   return node.classList.contains("feuillets-frontpage");
+}
+
+function isPedagogicalPageBreak(node: Element): boolean {
+  return node.classList.contains("feuillets-pagebreak");
+}
+
+function isHeading(node: Element): boolean {
+  return /^h[1-6]$/.test(node.tagName.toLowerCase());
+}
+
+function isDocumentMediaBlock(node: Element): boolean {
+  return node.classList.contains("feuillets-doc-media-block");
+}
+
+export function documentMediaGroupAfter(heading: Element, following: Element[]): Element[] | null {
+  if (!isHeading(heading)) return null;
+  const first = following[0];
+  if (first && isDocumentMediaBlock(first)) return [heading, first];
+  const second = following[1];
+  if (first?.tagName.toLowerCase() === "p" && second && isDocumentMediaBlock(second)) return [heading, first, second];
+  return null;
+}
+
+function isLandscapeContextDocumentMedia(node: Element): boolean {
+  return isDocumentMediaBlock(node) && node.classList.contains("feuillets-doc-media-landscape-context");
+}
+
+function setDocumentMediaScale(node: Element, scale: number): void {
+  const current = node.getAttribute("style");
+  const declaration = `${DOCUMENT_MEDIA_SCALE_PROPERTY}: ${scale}`;
+  node.setAttribute("style", current ? `${current}; ${declaration}` : declaration);
+}
+
+function needsDocumentMediaFallback(node: Element): boolean {
+  return node.classList.contains("feuillets-doc-media-portrait") || node.classList.contains("feuillets-doc-media-landscape-context");
+}
+
+function addClass(node: Element, name: string): void {
+  node.className = `${node.className} ${name}`.trim();
+}
+
+function stackedDocumentMediaChildren(node: Element): Element[] {
+  const figure = node.querySelector(".feuillets-doc-media-figure");
+  const content = node.querySelector(".feuillets-doc-media-content");
+  return [
+    ...(figure ? [figure.cloneNode(true) as Element] : []),
+    ...(content ? Array.from(content.children).map((child) => child.cloneNode(true) as Element) : []),
+  ];
 }
 
 function styleComposition(content: HTMLElement, geometry: PaginationGeometry) {
@@ -209,16 +282,63 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
   };
   const retain = (candidate: Element) => { page.nodes.push(candidate); };
   const nextPage = (singleColumn = false) => { page = createPage(singleColumn); };
+  const groupFits = (content: HTMLElement, group: Element[], scale = 1): boolean => {
+    const copies = group.map((block) => block.cloneNode(true) as Element);
+    const media = copies.find(isLandscapeContextDocumentMedia);
+    if (media && scale < 1) setDocumentMediaScale(media, scale);
+    copies.forEach((copy) => content.appendChild(copy));
+    const fits = !overflows(content);
+    copies.forEach((copy) => copy.remove());
+    return fits;
+  };
+  const groupFitsOnEmptyPage = (group: Element[], scale = 1): boolean => {
+    const content = createDiv();
+    styleComposition(content, geometry);
+    root.appendChild(content);
+    const fits = groupFits(content, group, scale);
+    content.remove();
+    return fits;
+  };
 
   try {
-    for (const original of nodes) {
+    const pending = [...nodes];
+    while (pending.length) {
+      const original = pending.shift();
+      if (!original) break;
       const source = original.cloneNode(true) as Element;
+      if (isPedagogicalPageBreak(source)) {
+        if (page.nodes.length) nextPage();
+        continue;
+      }
       const front = isFrontPage(source);
-      if (isForcedPage(source) && page.nodes.length) nextPage(front);
+      if (isForcedPage(source, geometry) && page.nodes.length) nextPage(front);
       else if (front) page = createPage(true);
 
-      const sourceFits = appendIfFits(source);
+      /* Garde le titre avec son premier média documentaire, avec au plus un
+         paragraphe introductif. Si le groupe dépasse une page entière, il
+         revient au flux normal plutôt que de créer une page vide. */
+      const mediaGroup = documentMediaGroupAfter(source, pending);
+      if (mediaGroup && page.nodes.length && !groupFits(page.content, mediaGroup)) {
+        const media = mediaGroup.find(isLandscapeContextDocumentMedia);
+        const scale = media ? largestFittingDocumentMediaScale((value) => groupFits(page.content, mediaGroup, value)) : null;
+        if (media && scale !== null && scale < 1) setDocumentMediaScale(media, scale);
+        else if (groupFitsOnEmptyPage(mediaGroup)) nextPage();
+      }
+
+      let sourceFits = appendIfFits(source);
       yield;
+      if (!sourceFits && isLandscapeContextDocumentMedia(source)) {
+        const scale = largestFittingDocumentMediaScale((value) => {
+          const candidate = source.cloneNode(true) as Element;
+          if (value < 1) setDocumentMediaScale(candidate, value);
+          return appendIfFits(candidate);
+        });
+        if (scale !== null && scale < 1) {
+          setDocumentMediaScale(source, scale);
+          sourceFits = appendIfFits(source);
+          yield;
+        }
+      }
       if (sourceFits) {
         place(source);
         if (front) nextPage();
@@ -235,6 +355,33 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
           if (retryFits) {
             place(source);
             if (front) nextPage();
+            continue;
+          }
+          if (needsDocumentMediaFallback(source)) {
+            addClass(source, "feuillets-doc-media-stacked");
+            const stackedFits = appendIfFits(source);
+            yield;
+            if (stackedFits) {
+              place(source);
+              continue;
+            }
+            const stackedChildren = stackedDocumentMediaChildren(source);
+            if (stackedChildren.length) {
+              pending.unshift(...stackedChildren);
+              continue;
+            }
+          }
+        } else if (needsDocumentMediaFallback(source)) {
+          addClass(source, "feuillets-doc-media-stacked");
+          const stackedFits = appendIfFits(source);
+          yield;
+          if (stackedFits) {
+            place(source);
+            continue;
+          }
+          const stackedChildren = stackedDocumentMediaChildren(source);
+          if (stackedChildren.length) {
+            pending.unshift(...stackedChildren);
             continue;
           }
         }

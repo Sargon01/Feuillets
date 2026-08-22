@@ -25,6 +25,7 @@ type ProjectModalsPlugin = {
   saveSettings(): Promise<void>;
   renderAllViews(force?: boolean): void;
   updateStatusBar(): void;
+  syncProjectEditorScope?(): void;
   getProjectFolder(): TFolder | null;
   createDemoProject(): Promise<void>;
   projectDisplayName(path: string): string;
@@ -154,6 +155,7 @@ export class NewProjectModal extends Modal {
 
       await this.plugin.saveSettings();
       this.plugin.renderAllViews(true);
+      this.plugin.syncProjectEditorScope?.();
       this.plugin.updateStatusBar();
 
       this.close();
