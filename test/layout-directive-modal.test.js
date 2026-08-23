@@ -124,8 +124,8 @@ test("§44 — composition existante : ratio actuel préempli", () => {
   assert.ok(findButton(modal, "Retirer la disposition"));
 });
 
-test("§44 — Dessous absent pour document/doc", () => {
-  const text = "![[image.png]]\n\n> [!document] Carte\n> Texte.";
+test("§44 — Dessous absent pour un callout natif Obsidian", () => {
+  const text = "![[image.png]]\n\n> [!note] Remarque\n> Texte.";
   const ctx = resolveLayoutDirectiveContext(text, 0);
   const modal = openModal(ctx);
   const settings = settingsOf(modal);
@@ -135,7 +135,7 @@ test("§44 — Dessous absent pour document/doc", () => {
 });
 
 test("§44 — Dessous présent pour un rôle sémantique admissible", () => {
-  const text = "![[image.png]]\n\n> [!exemple] Titre\n> Contenu.";
+  const text = "![[image.png]]\n\n> [!solution] Titre\n> Contenu.";
   const ctx = resolveLayoutDirectiveContext(text, 0);
   const modal = openModal(ctx);
   const settings = settingsOf(modal);

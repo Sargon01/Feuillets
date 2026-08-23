@@ -76,12 +76,14 @@ test("§32.I — une liste est un slot texte (détection image-texte depuis l'im
 });
 
 test("§32.J — un callout est un slot texte (détection image-texte depuis l'image)", () => {
-  const text = "![[image.png]]\n\n> [!exemple] Titre\n> Contenu.";
+  // Callout Obsidian ordinaire (natif, non sémantique) : prouve que cette
+  // détection est générique — indépendante des rôles sémantiques Feuillets.
+  const text = "![[image.png]]\n\n> [!example] Titre\n> Contenu.";
   const fromImage = resolveLayoutDirectiveContext(text, 0);
   assert.equal(fromImage.pairing.composition, "image-texte");
 
-  const withDirective = "%% colonnes: image-texte 50/50 %%\n\n![[image.png]]\n\n> [!exemple] Titre\n> Contenu.";
-  const fromCallout = resolveLayoutDirectiveContext(withDirective, lineOf(withDirective, "[!exemple]"));
+  const withDirective = "%% colonnes: image-texte 50/50 %%\n\n![[image.png]]\n\n> [!example] Titre\n> Contenu.";
+  const fromCallout = resolveLayoutDirectiveContext(withDirective, lineOf(withDirective, "[!example]"));
   assert.equal(fromCallout.block.kind, "text");
   assert.equal(fromCallout.pairing.composition, "image-texte");
 });
@@ -203,7 +205,7 @@ test("§39 — retirer les colonnes laisse `image:` intact ; le remettre restaur
 /* ===== §40 — dessous ===== */
 
 test("§40 — image + rôle admissible : dessous, puis côte à côte, puis automatique", () => {
-  const text = "![[image.png]]\n\n> [!exemple] Titre\n> Contenu.";
+  const text = "![[image.png]]\n\n> [!explication] Titre\n> Contenu.";
   const ctx = resolveLayoutDirectiveContext(text, 0);
   assert.equal(ctx.pairing.dessousAvailable, true);
 
@@ -240,6 +242,13 @@ test("§41 — alias [!doc] également exclu de Dessous", () => {
   const text = "![[image.png]]\n\n> [!doc] Carte\n> Texte.";
   const ctx = resolveLayoutDirectiveContext(text, 0);
   assert.equal(ctx.pairing.dessousAvailable, false);
+});
+
+test("§41 — image + [!source] : composition explicite possible, Dessous absent (rôle sémantique remplaçant document)", () => {
+  const text = "![[image.png]]\n\n> [!source] Source\n> Texte.";
+  const ctx = resolveLayoutDirectiveContext(text, 0);
+  assert.equal(ctx.pairing.composition, "image-texte");
+  assert.equal(ctx.pairing.dessousAvailable, false, "source doit être exclu du pairing Dessous automatique, comme l'était document");
 });
 
 /* ===== §42 — directives invalides préservées ===== */

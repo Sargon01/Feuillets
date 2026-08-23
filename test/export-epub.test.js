@@ -31,9 +31,14 @@ class FakeElement {
   get nodeType() { return 1; }
   get attributes() { return Array.from(this._attributes, ([name, value]) => ({ name, value })); }
   get className() { return this.getAttribute("class") || ""; }
+  set className(value) { this.setAttribute("class", value); }
   get classList() {
     const self = this;
-    return { contains: (name) => (self.getAttribute("class") || "").split(/\s+/).includes(name) };
+    return {
+      contains: (name) => (self.getAttribute("class") || "").split(/\s+/).includes(name),
+      add: (...names) => { self.className = `${self.className} ${names.join(" ")}`.trim(); },
+      remove: (...names) => { self.className = self.className.split(/\s+/).filter((name) => !names.includes(name)).join(" "); },
+    };
   }
   get innerHTML() {
     if (!this.children.length) return this._text;
@@ -45,6 +50,7 @@ class FakeElement {
   }
   setAttribute(name, value) { this._attributes.set(name, String(value)); }
   getAttribute(name) { return this._attributes.get(name) ?? null; }
+  removeAttribute(name) { this._attributes.delete(name); }
   appendChild(child) { child.remove(); child.parentElement = this; this.children.push(child); return child; }
   remove() {
     if (!this.parentElement) return;
@@ -58,8 +64,31 @@ class FakeElement {
     if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true));
     return clone;
   }
-  querySelectorAll() { return []; }
-  querySelector() { return null; }
+  matches(selector) {
+    const attribute = selector.match(/\[([^\]]+)\]$/);
+    const base = attribute ? selector.slice(0, -attribute[0].length) : selector;
+    if (attribute && !this._attributes.has(attribute[1])) return false;
+    if (base === "*" || base === "") return true;
+    const [tag, ...classes] = base.split(".");
+    if (tag && this.tagName !== tag.toUpperCase()) return false;
+    const ownClasses = (this.className || "").split(/\s+/);
+    return classes.every((name) => ownClasses.includes(name));
+  }
+  querySelectorAll(selectors) {
+    const parts = selectors.split(",").map((s) => s.trim());
+    const found = [];
+    const visit = (node) => {
+      for (const child of node.children) {
+        if (parts.some((selector) => child.matches(selector))) found.push(child);
+        visit(child);
+      }
+    };
+    visit(this);
+    return found;
+  }
+  querySelector(selectors) {
+    return this.querySelectorAll(selectors)[0] || null;
+  }
 }
 
 function el(tag, textContent, attributes = {}) {

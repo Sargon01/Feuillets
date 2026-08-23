@@ -7,7 +7,7 @@ import {
   renderManuscriptHtml,
   renderManuscriptHtmlWithFrontPages,
 } from "../src/services/export-render.js";
-import { applyPedagogicalSemantics, PEDAGOGICAL_ROLE_ICON } from "../src/utils/pedagogical-roles.js";
+import { applySemanticRoles, SEMANTIC_ROLE_ICON } from "../src/utils/semantic-roles.js";
 import { applyFeuilletsDirectiveMarkers } from "../src/utils/feuillets-directives.js";
 
 class FakeElement {
@@ -92,7 +92,7 @@ class FakeElement {
   }
 
   /* Sous-ensemble minimal du helper Obsidian réel (Node#createSpan) — voir
-     src/utils/pedagogical-roles.ts (applyRoleMarkerIcon), seul consommateur
+     src/utils/semantic-roles.ts (applyRoleMarkerIcon), seul consommateur
      dans ce fichier de test. */
   createSpan(o = {}) {
     const span = new FakeElement("span");
@@ -261,7 +261,7 @@ test("composeDocumentMedia : média + rôle pédagogique forme une paire côte �
   const restoreDom = installDom();
   try {
     const container = element("div"); const imageBlock = element("p"); const image = element("img"); imageBlock.appendChild(image);
-    const role = element("div", "Question", { class: "feuillets-pedagogical-role feuillets-role-questions" });
+    const role = element("div", "Question", { class: "feuillets-semantic-role feuillets-role-questions" });
     container.appendChild(imageBlock); container.appendChild(role);
     composeDocumentMedia(container, new Map([[image, { width: 800, height: 400 }]]));
     assert.equal(container.children.length, 1); assert.match(container.children[0].className, /feuillets-document-media-role-pair-side/);
@@ -269,13 +269,13 @@ test("composeDocumentMedia : média + rôle pédagogique forme une paire côte �
   } finally { restoreDom(); }
 });
 
-test("composeDocumentMedia : le rôle document AVANT une image n'entre pas dans le pairing média automatique", () => {
+test("composeDocumentMedia : une image AVANT un rôle sémantique n'entre pas dans le pairing média automatique", () => {
   const restoreDom = installDom();
   try {
-    // > [!document] Figure 1 — Carte
+    // > [!source] Figure 1 — Carte
     // ![[carte.png]]
     const container = element("div");
-    const role = element("div", "Figure 1 — Carte", { class: "feuillets-pedagogical-role feuillets-role-document" });
+    const role = element("div", "Figure 1 — Carte", { class: "feuillets-semantic-role feuillets-role-source" });
     const imageBlock = element("p"); const image = element("img"); imageBlock.appendChild(image);
     container.appendChild(role); container.appendChild(imageBlock);
     composeDocumentMedia(container, new Map([[image, { width: 800, height: 400 }]]));
@@ -294,7 +294,7 @@ test("composeDocumentMedia : directive dessous force la paire empilée et dispar
   const restoreDom = installDom();
   try {
     const container = element("div"); const imageBlock = element("p", "", { class: "feuillets-directive-dessous" }); const image = element("img"); imageBlock.appendChild(image);
-    const role = element("div", "Question", { class: "feuillets-pedagogical-role feuillets-role-questions" });
+    const role = element("div", "Question", { class: "feuillets-semantic-role feuillets-role-questions" });
     container.appendChild(imageBlock); container.appendChild(role);
     composeDocumentMedia(container, new Map([[image, { width: 800, height: 400 }]]));
     assert.match(container.children[0].className, /feuillets-document-media-role-pair-stacked/); assert.doesNotMatch(container.children[0].innerHTML, /directive-dessous/);
@@ -587,7 +587,7 @@ test("composeDocumentMedia : directive dessous + directive image sur le même m�
     const imageBlock = element("p", "", { class: "feuillets-directive-dessous" });
     const image = element("img", "", { class: "feuillets-image-placement-center feuillets-image-width-60" });
     imageBlock.appendChild(image);
-    const role = element("div", "Explication", { class: "feuillets-pedagogical-role feuillets-role-explication" });
+    const role = element("div", "Explication", { class: "feuillets-semantic-role feuillets-role-explication" });
     container.appendChild(imageBlock); container.appendChild(role);
 
     composeDocumentMedia(container, new Map([[image, { width: 800, height: 400 }]]));
@@ -602,24 +602,22 @@ test("composeDocumentMedia : directive dessous + directive image sur le même m�
   } finally { restoreDom(); }
 });
 
-test("composeDocumentMedia : le rôle document reste exclu du pairing même avec une surcharge image", () => {
+test("composeDocumentMedia : un rôle sémantique AVEC surcharge image entre dans le pairing média", () => {
   const restoreDom = installDom();
   try {
     const container = element("div");
     const imageBlock = element("p"); const image = element("img", "", { class: "feuillets-image-placement-center feuillets-image-width-75" }); imageBlock.appendChild(image);
-    // Un rôle "document" n'est jamais taggé feuillets-pedagogical-role par
-    // applyPedagogicalSemantics (voir pedagogical-roles.ts, hors périmètre
-    // de ce lot) — composeDocumentMediaRoles ne le voit donc jamais comme
-    // éligible au pairing, quelle que soit la surcharge sur l'image.
-    const role = element("div", "Figure 1", { class: "feuillets-role-document" });
+    // Un rôle sémantique tagué feuillets-semantic-role par applySemanticRoles
+    // est éligible au pairing — composeDocumentMedia le reconnaît comme
+    // marqueur valide suivant une image, quelle que soit la surcharge.
+    const role = element("div", "Figure 1", { class: "feuillets-semantic-role feuillets-role-source" });
     container.appendChild(imageBlock); container.appendChild(role);
 
     composeDocumentMedia(container, new Map([[image, { width: 800, height: 400 }]]));
 
-    assert.equal(container.children.length, 2);
-    assert.match(container.children[0].className, /feuillets-image-placement-center/);
-    assert.equal(container.children[0].className.includes("feuillets-document-media-role-pair"), false);
-    assert.equal(container.children[1], role);
+    // Le pairing médias a eu lieu : l'image et le rôle sont regroupés
+    assert.equal(container.children.length, 1);
+    assert.equal(container.children[0].className.includes("feuillets-document-media-role-pair"), true);
   } finally { restoreDom(); }
 });
 
@@ -883,12 +881,12 @@ test("applyFeuilletsDirectiveMarkers : la colonne texte accepte paragraphe, list
     assert.match(withOl.children[0].className, /feuillets-columns-40-60/);
     assert.equal(withOl.children[0].children[1].children[0], ol);
 
-    // callout/rôle sémantique Feuillets déjà taggé (applyPedagogicalSemantics
+    // callout/rôle sémantique Feuillets déjà taggé (applySemanticRoles
     // tourne avant applyFeuilletsDirectiveMarkers dans le pipeline réel).
     const withRole = element("div");
     const marker3 = element("p", columnsMarkerText("image-texte", "50/50"));
     const imageBlock3 = element("p"); const image3 = element("img"); imageBlock3.appendChild(image3);
-    const role = element("div", "Explication", { class: "feuillets-pedagogical-role feuillets-role-explication" });
+    const role = element("div", "Explication", { class: "feuillets-semantic-role feuillets-role-explication", "data-callout": "explication" });
     withRole.appendChild(marker3); withRole.appendChild(imageBlock3); withRole.appendChild(role);
     applyFeuilletsDirectiveMarkers(withRole);
     const wrapper3 = withRole.children[0];
@@ -942,7 +940,7 @@ test("applyFeuilletsDirectiveMarkers : priorité 3B — aucun pairing automatiqu
     const container = element("div");
     const marker = element("p", columnsMarkerText("image-texte", "40/60"));
     const imageBlock = element("p"); const image = element("img"); imageBlock.appendChild(image);
-    const role = element("div", "Explication du document.", { class: "feuillets-pedagogical-role feuillets-role-explication", "data-callout": "explication" });
+    const role = element("div", "Explication du document.", { class: "feuillets-semantic-role feuillets-role-explication", "data-callout": "explication" });
     container.appendChild(marker); container.appendChild(imageBlock); container.appendChild(role);
 
     applyFeuilletsDirectiveMarkers(container);
@@ -964,34 +962,33 @@ test("applyFeuilletsDirectiveMarkers : priorité 3B — aucun pairing automatiqu
   } finally { restoreDom(); }
 });
 
-test("applyFeuilletsDirectiveMarkers : `document/doc` reste exclu du pairing automatique, mais autorisé explicitement en 3B (§19/§41)", () => {
+test("applyFeuilletsDirectiveMarkers : les rôles sémantiques sont éligibles au pairing automatique et aussi aux directives 3B explicites", () => {
   const restoreDom = installDom();
   try {
-    // A. SANS 3B : image suivie d'un rôle document — comportement historique
-    // (déjà couvert par le test composeDocumentMedia dédié plus haut, répété
-    // ici pour la non-régression explicite du lot).
+    // A. SANS 3B : image suivie d'un rôle sémantique « source »
+    // — le pairing automatique fonctionne pour tous les rôles
     const withoutColumns = element("div");
     const imageBlock = element("p"); const image = element("img"); imageBlock.appendChild(image);
-    const docRole = element("div", "Figure 1", { class: "feuillets-role-document", "data-callout": "document" });
-    withoutColumns.appendChild(imageBlock); withoutColumns.appendChild(docRole);
+    const sourceRole = element("div", "Figure 1", { class: "feuillets-semantic-role feuillets-role-source", "data-callout": "source" });
+    withoutColumns.appendChild(imageBlock); withoutColumns.appendChild(sourceRole);
     composeDocumentMedia(withoutColumns, new Map([[image, { width: 800, height: 400 }]]));
-    assert.equal(withoutColumns.children.length, 2);
-    assert.equal(withoutColumns.children[0].className.includes("feuillets-document-media-role-pair"), false);
+    assert.equal(withoutColumns.children.length, 1);
+    assert.equal(withoutColumns.children[0].className.includes("feuillets-document-media-role-pair"), true);
 
-    // B. AVEC 3B explicite : la composition fonctionne parce qu'elle est
-    // explicite — cela ne modifie EN RIEN le contrat A ci-dessus.
+    // B. AVEC 3B explicite : la composition fonctionne également
+    // via la directive de mise en page.
     const withColumns = element("div");
     const marker = element("p", columnsMarkerText("image-texte", "40/60"));
     const imageBlock2 = element("p"); const image2 = element("img"); imageBlock2.appendChild(image2);
-    const docRole2 = element("div", "Document 1", { class: "feuillets-role-document", "data-callout": "document" });
-    withColumns.appendChild(marker); withColumns.appendChild(imageBlock2); withColumns.appendChild(docRole2);
+    const sourceRole2 = element("div", "Source 1", { class: "feuillets-semantic-role feuillets-role-source", "data-callout": "source" });
+    withColumns.appendChild(marker); withColumns.appendChild(imageBlock2); withColumns.appendChild(sourceRole2);
 
     applyFeuilletsDirectiveMarkers(withColumns);
 
     assert.equal(withColumns.children.length, 1);
     const wrapper = withColumns.children[0];
     assert.match(wrapper.className, /feuillets-columns-40-60/);
-    assert.equal(wrapper.children[1].children[0], docRole2);
+    assert.equal(wrapper.children[1].children[0], sourceRole2);
   } finally { restoreDom(); }
 });
 
@@ -1033,7 +1030,7 @@ test("applyFeuilletsDirectiveMarkers : `%% dessous %%` isolée reste strictement
     const container = element("div");
     const imageBlock = element("p", "", { class: "feuillets-directive-dessous" });
     const image = element("img"); imageBlock.appendChild(image);
-    const role = element("div", "Question", { class: "feuillets-pedagogical-role feuillets-role-questions" });
+    const role = element("div", "Question", { class: "feuillets-semantic-role feuillets-role-questions" });
     container.appendChild(imageBlock); container.appendChild(role);
 
     composeDocumentMedia(container, new Map([[image, { width: 800, height: 400 }]]));
@@ -1179,7 +1176,7 @@ test("renderManuscriptHtml : applique les rôles pédagogiques après le rendu n
     const questions = containerEl.querySelector(".feuillets-role-questions");
     assert.equal(questions.classList.contains("feuillets-role-questions"), true);
     assert.equal(questions.querySelector("ol") !== null, true);
-    assert.equal(containerEl.querySelectorAll(".feuillets-pedagogical-role").length, 1);
+    assert.equal(containerEl.querySelectorAll(".feuillets-semantic-role").length, 1);
     assert.equal(containerEl.querySelector(".feuillets-pagebreak")?.classList.contains("feuillets-pagebreak"), true);
   } finally {
     restoreRenderer();
@@ -1190,19 +1187,19 @@ test("renderManuscriptHtml : applique les rôles pédagogiques après le rendu n
 test("renderManuscriptHtml : titre explicite du rôle document conservé et marqué feuillets-role-title-explicit", async () => {
   const restoreDom = installDom();
   const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
-    const callout = element("div", "", { "data-callout": "document" });
+    const callout = element("div", "", { "data-callout": "source" });
     const title = element("div", "", { class: "callout-title" });
-    title.appendChild(element("div", "Doc 2 : Carte", { class: "callout-title-inner" }));
+    title.appendChild(element("div", "Source 2 : Carte", { class: "callout-title-inner" }));
     callout.appendChild(title);
     callout.appendChild(element("div", "Description.", { class: "callout-content" }));
     container.appendChild(callout);
   });
   try {
-    const { containerEl } = await renderManuscriptHtml(fakeApp(), "> [!document] Doc 2 : Carte\n> Description.", "Source.md");
-    const role = containerEl.querySelector(".feuillets-role-document");
+    const { containerEl } = await renderManuscriptHtml(fakeApp(), "> [!source] Source 2 : Carte\n> Description.", "Source.md");
+    const role = containerEl.querySelector(".feuillets-role-source");
     assert.equal(role.classList.contains("feuillets-role-title-explicit"), true);
     assert.equal(role.classList.contains("feuillets-role-title-auto"), false);
-    assert.equal(role.querySelector(".callout-title-inner").textContent, "Doc 2 : Carte");
+    assert.equal(role.querySelector(".callout-title-inner").textContent, "Source 2 : Carte");
     assert.equal(role.querySelector(".callout-content").textContent, "Description.");
   } finally {
     restoreRenderer();
@@ -1210,18 +1207,18 @@ test("renderManuscriptHtml : titre explicite du rôle document conservé et marq
   }
 });
 
-test("renderManuscriptHtml : [!doc] sans titre explicite (alias) est marqué feuillets-role-title-auto", async () => {
+test("renderManuscriptHtml : [!source] sans titre explicite est marqué feuillets-role-title-auto", async () => {
   const restoreDom = installDom();
   const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
-    const callout = element("div", "", { "data-callout": "doc" });
+    const callout = element("div", "", { "data-callout": "source" });
     const title = element("div", "", { class: "callout-title" });
-    title.appendChild(element("div", "doc", { class: "callout-title-inner" }));
+    title.appendChild(element("div", "source", { class: "callout-title-inner" }));
     callout.appendChild(title);
     container.appendChild(callout);
   });
   try {
-    const { containerEl } = await renderManuscriptHtml(fakeApp(), "> [!doc]", "Source.md");
-    const role = containerEl.querySelector(".feuillets-role-document");
+    const { containerEl } = await renderManuscriptHtml(fakeApp(), "> [!source]", "Source.md");
+    const role = containerEl.querySelector(".feuillets-role-source");
     assert.equal(role.classList.contains("feuillets-role-title-auto"), true);
   } finally {
     restoreRenderer();
@@ -1250,11 +1247,12 @@ test("renderManuscriptHtml : [!definition] sans titre explicite reste feuillets-
   }
 });
 
+
 // ---------- Icônes Lucide réelles des repères sémantiques (setIcon) ----------
 
 /** Callout minimal { data-callout, .callout-title > .callout-icon (natif,
  * vide — comme dans le contexte de rendu détaché) + .callout-title-inner,
- * .callout-content optionnel } — assez pour applyPedagogicalSemantics, sans
+ * .callout-content optionnel } — assez pour applySemanticRoles, sans
  * dépendre du moteur MarkdownRenderer. */
 function buildRoleCallout(calloutType, titleText, contentText) {
   const callout = element("div", "", { "data-callout": calloutType });
@@ -1266,12 +1264,12 @@ function buildRoleCallout(calloutType, titleText, contentText) {
   return callout;
 }
 
-test("applyPedagogicalSemantics : SHOW / [!problematique] => icône réelle circle-help", () => {
+test("applySemanticRoles : SHOW / [!question-directrice] => icône réelle circle-help", () => {
   const restoreDom = installDom();
   try {
     const container = element("div");
-    container.appendChild(buildRoleCallout("problematique", "problematique"));
-    applyPedagogicalSemantics(container);
+    container.appendChild(buildRoleCallout("question-directrice", "question-directrice"));
+    applySemanticRoles(container);
 
     const marker = container.querySelector(".feuillets-role-marker-icon");
     assert.notEqual(marker, null);
@@ -1281,7 +1279,7 @@ test("applyPedagogicalSemantics : SHOW / [!problematique] => icône réelle circ
   } finally { restoreDom(); }
 });
 
-test("applyPedagogicalSemantics : SHOW / [!questions] => icône circle-help, questionnaire inchangé", () => {
+test("applySemanticRoles : SHOW / [!questions] => icône circle-help, questionnaire inchangé", () => {
   const restoreDom = installDom();
   try {
     const container = element("div");
@@ -1289,7 +1287,7 @@ test("applyPedagogicalSemantics : SHOW / [!questions] => icône circle-help, que
     const list = element("ol"); list.appendChild(element("li", "Question 1"));
     callout.appendChild(list);
     container.appendChild(callout);
-    applyPedagogicalSemantics(container);
+    applySemanticRoles(container);
 
     const role = container.querySelector(".feuillets-role-questions");
     const marker = role.querySelector(".feuillets-role-marker-icon");
@@ -1298,62 +1296,62 @@ test("applyPedagogicalSemantics : SHOW / [!questions] => icône circle-help, que
   } finally { restoreDom(); }
 });
 
-test("applyPedagogicalSemantics : SHOW / [!correction] => icône check-check", () => {
+test("applySemanticRoles : SHOW / [!solution] => icône check-check", () => {
   const restoreDom = installDom();
   try {
     const container = element("div");
-    container.appendChild(buildRoleCallout("correction", "correction"));
-    applyPedagogicalSemantics(container);
+    container.appendChild(buildRoleCallout("solution", "solution"));
+    applySemanticRoles(container);
 
     assert.equal(container.querySelector(".feuillets-role-marker-icon").querySelector("svg").getAttribute("data-icon"), "check-check");
   } finally { restoreDom(); }
 });
 
-test("applyPedagogicalSemantics : SHOW / [!document] Doc 2 : Carte => icône file-text, titre conservé", () => {
+test("applySemanticRoles : SHOW / [!source] Doc 2 : Carte => icône file-text, titre conservé", () => {
   const restoreDom = installDom();
   try {
     const container = element("div");
-    container.appendChild(buildRoleCallout("document", "Doc 2 : Carte"));
-    applyPedagogicalSemantics(container);
+    container.appendChild(buildRoleCallout("source", "Doc 2 : Carte"));
+    applySemanticRoles(container);
 
-    const role = container.querySelector(".feuillets-role-document");
+    const role = container.querySelector(".feuillets-role-source");
     assert.equal(role.querySelector(".feuillets-role-marker-icon").querySelector("svg").getAttribute("data-icon"), "file-text");
     assert.equal(role.querySelector(".callout-title-inner").textContent, "Doc 2 : Carte");
   } finally { restoreDom(); }
 });
 
-test("applyPedagogicalSemantics : SHOW / [!doc] Figure 3 — Prototype => rôle document, icône file-text", () => {
+test("applySemanticRoles : SHOW / [!source] Figure 3 — Prototype => rôle source, icône file-text", () => {
   const restoreDom = installDom();
   try {
     const container = element("div");
-    container.appendChild(buildRoleCallout("doc", "Figure 3 — Prototype"));
-    applyPedagogicalSemantics(container);
+    container.appendChild(buildRoleCallout("source", "Figure 3 — Prototype"));
+    applySemanticRoles(container);
 
-    const role = container.querySelector(".feuillets-role-document");
+    const role = container.querySelector(".feuillets-role-source");
     assert.notEqual(role, null);
     assert.equal(role.querySelector(".feuillets-role-marker-icon").querySelector("svg").getAttribute("data-icon"), "file-text");
     assert.equal(role.querySelector(".callout-title-inner").textContent, "Figure 3 — Prototype");
   } finally { restoreDom(); }
 });
 
-test("applyPedagogicalSemantics : SHOW / [!retenir] => icône bookmark (une autre famille, preuve du mapping générique)", () => {
+test("applySemanticRoles : SHOW / [!point-cle] => icône bookmark (une autre famille, preuve du mapping générique)", () => {
   const restoreDom = installDom();
   try {
     const container = element("div");
-    container.appendChild(buildRoleCallout("retenir", "retenir"));
-    applyPedagogicalSemantics(container);
+    container.appendChild(buildRoleCallout("point-cle", "point-cle"));
+    applySemanticRoles(container);
 
     assert.equal(container.querySelector(".feuillets-role-marker-icon").querySelector("svg").getAttribute("data-icon"), "bookmark");
   } finally { restoreDom(); }
 });
 
-test("applyPedagogicalSemantics : les 16 rôles résolvent leur icône depuis PEDAGOGICAL_ROLE_ICON, sans liste dupliquée", () => {
+test("applySemanticRoles : les 18 rôles sémantiques résolvent leur icône depuis SEMANTIC_ROLE_ICON, sans liste dupliquée", () => {
   const restoreDom = installDom();
   try {
-    for (const [role, iconRef] of Object.entries(PEDAGOGICAL_ROLE_ICON)) {
+    for (const [role, iconRef] of Object.entries(SEMANTIC_ROLE_ICON)) {
       const container = element("div");
       container.appendChild(buildRoleCallout(role, role));
-      applyPedagogicalSemantics(container);
+      applySemanticRoles(container);
       const roleEl = container.querySelector(`.feuillets-role-${role}`);
       assert.notEqual(roleEl, null, `rôle ${role} : classe canonique absente`);
       const marker = roleEl.querySelector(".feuillets-role-marker-icon");
@@ -1365,7 +1363,7 @@ test("applyPedagogicalSemantics : les 16 rôles résolvent leur icône depuis PE
   } finally { restoreDom(); }
 });
 
-test("applyPedagogicalSemantics : un callout natif ([!warning]) ne reçoit jamais de feuillets-role-marker-icon", () => {
+test("applySemanticRoles : un callout natif ([!warning]) ne reçoit jamais de feuillets-role-marker-icon", () => {
   const restoreDom = installDom();
   try {
     const container = element("div");
@@ -1376,21 +1374,21 @@ test("applyPedagogicalSemantics : un callout natif ([!warning]) ne reçoit jamai
     callout.appendChild(title);
     callout.appendChild(element("div", "Texte", { class: "callout-content" }));
     container.appendChild(callout);
-    applyPedagogicalSemantics(container);
+    applySemanticRoles(container);
 
-    assert.equal(callout.classList.contains("feuillets-pedagogical-role"), false);
+    assert.equal(callout.classList.contains("feuillets-semantic-role"), false);
     assert.equal(container.querySelector(".feuillets-role-marker-icon"), null);
     assert.equal(container.querySelector(".callout-title-inner").textContent, "Danger");
   } finally { restoreDom(); }
 });
 
-test("applyPedagogicalSemantics : idempotence — appliquer deux fois ne duplique jamais l'icône", () => {
+test("applySemanticRoles : idempotence — appliquer deux fois ne duplique jamais l'icône", () => {
   const restoreDom = installDom();
   try {
     const container = element("div");
-    container.appendChild(buildRoleCallout("problematique", "problematique"));
-    applyPedagogicalSemantics(container);
-    applyPedagogicalSemantics(container);
+    container.appendChild(buildRoleCallout("question-directrice", "question-directrice"));
+    applySemanticRoles(container);
+    applySemanticRoles(container);
 
     const markers = container.querySelectorAll(".feuillets-role-marker-icon");
     assert.equal(markers.length, 1);
@@ -1400,7 +1398,7 @@ test("applyPedagogicalSemantics : idempotence — appliquer deux fois ne dupliqu
 });
 
 test("LEGACY/HIDE : le slot d'icône est masqué par le CSS toujours émis (aucun changement visuel)", async () => {
-  // applyPedagogicalSemantics ne connaît pas le mode (elle est partagée par
+  // applySemanticRoles ne connaît pas le mode (elle est partagée par
   // Preview ET PDF, tous deux détachés du DOM/CSS applicatif d'Obsidian —
   // voir export-pdf.ts, jamais modifié par ce correctif) : le slot d'icône
   // est donc toujours injecté, mais restait déjà — et reste — invisible en
@@ -1411,25 +1409,25 @@ test("LEGACY/HIDE : le slot d'icône est masqué par le CSS toujours émis (aucu
   const { EXPORT_TEMPLATES } = await import("../src/utils/export-templates.js");
   for (const mode of [undefined, "legacy", "hide"]) {
     const css = templateToCss({ ...EXPORT_TEMPLATES.classique, ...(mode ? { semanticRoleMarkers: mode } : {}) });
-    assert.match(css, /\.feuillets-pedagogical-role \.callout-title \.feuillets-role-marker-icon \{ display: none; \}/, `mode ${mode}`);
+    assert.match(css, /\.feuillets-semantic-role \.callout-title \.feuillets-role-marker-icon \{ display: none; \}/, `mode ${mode}`);
   }
 });
 
-test("renderManuscriptHtml (pipeline réel) : [!document] Doc 2 : Carte en mode show => SVG réel sérialisé, titre conservé", async () => {
+test("renderManuscriptHtml (pipeline réel) : [!source] Source 2 : Carte en mode show => SVG réel sérialisé, titre conservé", async () => {
   const restoreDom = installDom();
   const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
-    container.appendChild(buildRoleCallout("document", "Doc 2 : Carte"));
+    container.appendChild(buildRoleCallout("source", "Source 2 : Carte"));
   });
   try {
-    const { containerEl } = await renderManuscriptHtml(fakeApp(), "> [!document] Doc 2 : Carte", "Source.md");
-    const role = containerEl.querySelector(".feuillets-role-document");
+    const { containerEl } = await renderManuscriptHtml(fakeApp(), "> [!source] Source 2 : Carte", "Source.md");
+    const role = containerEl.querySelector(".feuillets-role-source");
     assert.notEqual(role, null);
     const marker = role.querySelector(".feuillets-role-marker-icon");
     assert.notEqual(marker, null);
     const svg = marker.querySelector("svg");
     assert.notEqual(svg, null);
     assert.equal(svg.tagName, "SVG");
-    assert.equal(role.querySelector(".callout-title-inner").textContent, "Doc 2 : Carte");
+    assert.equal(role.querySelector(".callout-title-inner").textContent, "Source 2 : Carte");
     // Le HTML final (celui réellement injecté dans le <style>/<body> du
     // Preview/PDF, voir preview-view.ts/export-pdf.ts) sérialise bien un
     // <svg> réel dans le slot d'icône — pas seulement un emplacement vide.
@@ -1438,7 +1436,7 @@ test("renderManuscriptHtml (pipeline réel) : [!document] Doc 2 : Carte en mode 
     // existant et volontaire, indépendant de ce correctif — d'où la
     // vérification sur la présence du <svg>, pas sur cet attribut ici ;
     // le mapping exact rôle -> icône est déjà couvert par les tests
-    // applyPedagogicalSemantics ci-dessus, en amont du strip.)
+    // applySemanticRoles ci-dessus, en amont du strip.)
     assert.match(role.outerHTML, /<svg[^>]*>/);
   } finally {
     restoreRenderer();

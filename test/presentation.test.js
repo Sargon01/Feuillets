@@ -1,22 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PRESENTATION_MEDIA_SCALES, mediaQuestionsModeFor, presentationBodySizeCandidates, presentationExplicitMediaSize, presentationHeadingSize, presentationLayoutFor, presentationOverflows, presentationScale, splitPresentationMarkdown } from "../src/services/presentation.js";
+import {
+  presentationScale,
+  presentationSlideIndexForLine,
+  splitPresentationMarkdown,
+  splitPresentationMarkdownWithRanges,
+} from "../src/services/presentation.js";
 
-class FakeElement {
-  constructor(tagName, children = []) { this.tagName = tagName.toUpperCase(); this.children = children; this.childNodes = children; }
-  querySelector(selector) { return selector.includes("li") || selector.includes("blockquote") || selector.includes("table") ? null : null; }
-  querySelectorAll(selector) {
-    const names = selector.split(",").map((value) => value.trim().toUpperCase());
-    const found = [];
-    const visit = (node) => { for (const child of node.children) { if (names.includes(child.tagName)) found.push(child); visit(child); } };
-    visit(this);
-    return found;
-  }
-}
-
-const block = (tag, children = []) => new FakeElement(tag, children);
-const root = (...children) => block("div", children);
-const image = () => block("p", [block("img")]);
+/* Ce fichier ne couvre plus que le socle générique et neutre encore utilisé
+   par les deux vues (réelle et prototype) : découpage Markdown et scaling
+   du cadre. L'ancien moteur de composition (layouts, media-text, media-
+   questions, fit/mediaScale) a été retiré — voir presentation-layout-engine.ts
+   et presentation-slide-renderer.ts, désormais l'unique source de vérité. */
 
 test("Présentation : découpe les slides, retire le frontmatter et ignore les sections blanches", () => {
   assert.deepEqual(splitPresentationMarkdown("# Un\n---\n# Deux"), ["# Un", "# Deux"]);
@@ -38,59 +33,70 @@ test("Présentation : le scale reste uniforme et plafonné à 1", () => {
   assert.equal(presentationScale(0, 720), 0);
 });
 
-test("Présentation : classe title, quote et standard par structure", () => {
-  assert.equal(presentationLayoutFor(root(block("h1"), block("p")), 0), "title");
-  assert.equal(presentationLayoutFor(root(block("h2"), block("blockquote")), 1), "quote");
-  assert.equal(presentationLayoutFor(root(block("h1"), block("ul")), 0), "standard");
+// ===== Plages de lignes (aperçu lié) =====
+
+test("splitPresentationMarkdownWithRanges — A. 3 diapositives simples : plages correctes, markdown identique à splitPresentationMarkdown", () => {
+  const markdown = "# Un\n---\n# Deux\n---\n# Trois";
+  const plain = splitPresentationMarkdown(markdown);
+  const ranged = splitPresentationMarkdownWithRanges(markdown);
+  assert.deepEqual(ranged.map((s) => s.markdown), plain);
+  assert.deepEqual(
+    ranged.map((s) => [s.startLine, s.endLine]),
+    [[0, 1], [2, 3], [4, 4]],
+  );
 });
 
-test("Présentation : classe media, media-text et gallery par médias autonomes", () => {
-  assert.equal(presentationLayoutFor(root(block("h1"), image(), block("ol")), 1), "media-questions");
-  assert.equal(presentationLayoutFor(root(block("h1"), image(), block("p"), block("ul")), 1), "media-questions");
-  assert.equal(presentationLayoutFor(root(block("h1"), image()), 1), "media");
-  assert.equal(presentationLayoutFor(root(block("h1"), block("p"), image()), 1), "media-text");
-  assert.equal(presentationLayoutFor(root(block("h2"), image(), image()), 1), "gallery");
-  assert.equal(presentationLayoutFor(root(block("ul", [block("li", [block("img")])])), 1), "standard");
+test("splitPresentationMarkdownWithRanges — A bis. frontmatter décale les plages d'autant de lignes", () => {
+  const markdown = "---\ntype: cours\n---\n# Un\n---\n# Deux";
+  const plain = splitPresentationMarkdown(markdown);
+  const ranged = splitPresentationMarkdownWithRanges(markdown);
+  assert.deepEqual(ranged.map((s) => s.markdown), plain);
+  assert.deepEqual(
+    ranged.map((s) => [s.startLine, s.endLine]),
+    [[3, 4], [5, 5]],
+  );
 });
 
-test("Présentation : media-questions choisit side ou stacked avec le ratio et le nombre d'items", () => {
-  assert.equal(mediaQuestionsModeFor(600, 900, 4), "side");
-  assert.equal(mediaQuestionsModeFor(631, 631, 4), "side");
-  assert.equal(mediaQuestionsModeFor(631, 631, 7), "stacked");
-  assert.equal(mediaQuestionsModeFor(1200, 900, 3), "side");
-  assert.equal(mediaQuestionsModeFor(1200, 900, 5), "stacked");
-  assert.equal(mediaQuestionsModeFor(1600, 900, 3), "stacked");
-  assert.equal(mediaQuestionsModeFor(0, 0, 3), "stacked");
+test("splitPresentationMarkdownWithRanges — B. un séparateur dans une fence ne crée pas de diapositive, markdown et plages cohérents", () => {
+  const markdown = "```text\n---\n```\n---\n# Deux";
+  const plain = splitPresentationMarkdown(markdown);
+  assert.deepEqual(plain, ["```text\n---\n```", "# Deux"]);
+  const ranged = splitPresentationMarkdownWithRanges(markdown);
+  assert.deepEqual(ranged.map((s) => s.markdown), plain);
+  assert.deepEqual(
+    ranged.map((s) => [s.startLine, s.endLine]),
+    [[0, 3], [4, 4]],
+  );
 });
 
-test("Présentation : le fit continu expose ses candidats et conserve les layouts", () => {
-  assert.deepEqual(presentationBodySizeCandidates(), [31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18]);
-  assert.deepEqual(PRESENTATION_MEDIA_SCALES, [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35]);
-  assert.equal(PRESENTATION_MEDIA_SCALES.at(-1), 0.35);
-  assert.equal(presentationLayoutFor(root(block("h1"), image(), block("ol")), 1), "media-questions");
-  assert.equal(mediaQuestionsModeFor(600, 900, 4), "side");
-  assert.equal(presentationOverflows({ scrollWidth: 101, clientWidth: 100, scrollHeight: 100, clientHeight: 100 }), false);
-  assert.equal(presentationOverflows({ scrollWidth: 102, clientWidth: 100, scrollHeight: 100, clientHeight: 100 }), true);
+test("splitPresentationMarkdownWithRanges — C. curseur : première ligne, milieu, dernière ligne, ligne séparateur — la ligne « --- » appartient à la diapositive qu'elle CLÔT", () => {
+  const markdown = "L0\nL1\nL2\n---\nM0\nM1\n---\nN0";
+  const ranged = splitPresentationMarkdownWithRanges(markdown);
+  assert.deepEqual(
+    ranged.map((s) => [s.startLine, s.endLine]),
+    [[0, 3], [4, 6], [7, 7]],
+  );
+
+  assert.equal(presentationSlideIndexForLine(ranged, 0), 0, "première ligne de la diapositive 0");
+  assert.equal(presentationSlideIndexForLine(ranged, 1), 0, "milieu de la diapositive 0");
+  assert.equal(presentationSlideIndexForLine(ranged, 2), 0, "dernière ligne de contenu de la diapositive 0");
+  assert.equal(presentationSlideIndexForLine(ranged, 3), 0, "ligne séparateur : appartient à la diapositive précédente");
+  assert.equal(presentationSlideIndexForLine(ranged, 4), 1, "première ligne de la diapositive 1");
+  assert.equal(presentationSlideIndexForLine(ranged, 6), 1, "second séparateur : appartient à la diapositive 1");
+  assert.equal(presentationSlideIndexForLine(ranged, 7), 2, "unique ligne de la diapositive 2");
 });
 
-test("Présentation : détecte seulement les tailles média explicitement rendues", () => {
-  const makeImage = (width, height, naturalWidth = 631, naturalHeight = 631) => ({
-    parentElement: null,
-    naturalWidth,
-    naturalHeight,
-    style: {},
-    getAttribute: (name) => name === "width" ? width : name === "height" ? height : null,
-  });
-  assert.deepEqual(presentationExplicitMediaSize(makeImage("300", null)), { width: 300 });
-  assert.equal(presentationExplicitMediaSize(makeImage("0", null)), null);
-  assert.equal(presentationExplicitMediaSize(makeImage("-10", null)), null);
-  assert.equal(presentationExplicitMediaSize(makeImage("abc", null)), null);
-  assert.equal(presentationExplicitMediaSize(makeImage(null, null)), null);
+test("splitPresentationMarkdownWithRanges — bornes : avant la première/après la dernière diapositive, et liste vide", () => {
+  const ranged = splitPresentationMarkdownWithRanges("---\ntype: cours\n---\n# Un");
+  assert.equal(presentationSlideIndexForLine(ranged, 0), 0, "ligne de frontmatter rattachée à la première diapositive");
+  assert.equal(presentationSlideIndexForLine(ranged, 999), ranged.length - 1, "au-delà de la dernière ligne : dernière diapositive");
+  assert.equal(presentationSlideIndexForLine([], 0), -1, "aucune diapositive : -1");
 });
 
-test("Présentation : les titres respectent leurs minimums à 18 px", () => {
-  assert.ok(presentationHeadingSize(1, 18) >= 38);
-  assert.ok(presentationHeadingSize(2, 18) >= 34);
-  assert.ok(presentationHeadingSize(3, 18) >= 30);
-  assert.ok(presentationHeadingSize(4, 18) >= 26);
+test("splitPresentationMarkdown : non-régression — délègue au scanner générique partagé sans changer le comportement", () => {
+  assert.deepEqual(splitPresentationMarkdown("---\ntitle: Test\n---\n# Un\n---\n# Deux"), ["# Un", "# Deux"], "frontmatter YAML ne crée pas de diapositive");
+  assert.deepEqual(splitPresentationMarkdown("# Un\n---\n# Deux"), ["# Un", "# Deux"], "--- normal crée toujours une diapositive");
+  assert.deepEqual(splitPresentationMarkdown("```md\n---\n```\n---\n# Deux"), ["```md\n---\n```", "# Deux"], "--- dans une fence ne crée pas de diapositive");
+  const markdown = "# Un\n---\n# Deux";
+  assert.deepEqual(splitPresentationMarkdownWithRanges(markdown).map((s) => [s.startLine, s.endLine]), [[0, 1], [2, 2]], "plages identiques au comportement existant");
 });

@@ -7,6 +7,7 @@ import {
   activatePreviewView,
   openScopeWithPreview,
   openWithPreview,
+  openPresentationPaperPreview,
   previewFirstPageFields,
   previewModeLabel,
   previewStatusLabel,
@@ -14,6 +15,12 @@ import {
   previewNaturalSurface,
 } from "../src/views/preview-view.js";
 import { resolveCompileScopeFiles, createProjectScope } from "../src/services/compile-scope.js";
+import {
+  presentationPaperScale,
+  ADAPTIVE_PAIR_CLASS,
+  ADAPTIVE_CONTENT_CLASS,
+  ADAPTIVE_MEDIA_CLASS,
+} from "../src/services/presentation-paper.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
 import { TextPromptModal } from "../src/ui/basic-modals.js";
 import { setLocale, t } from "../src/i18n/index.js";
@@ -110,11 +117,15 @@ class FakeElement {
     this.clientHeight = 700;
     this.scrollTop = 0;
     this.scrollLeft = 0;
-    /* Zones défilables : `scrollHeight`/`scrollWidth` sont posés par les
-       tests qui vérifient la synchronisation et l'ancrage du zoom — un
-       élément non défilable les laisse à 0, ce qui est aussi le cas réel. */
-    this.scrollHeight = 0;
-    this.scrollWidth = 0;
+    /* Zones défilables : `scrollHeight`/`scrollWidth` sont des ACCESSEURS
+       (voir plus bas) — posés explicitement par les tests qui vérifient la
+       synchronisation et l'ancrage du zoom (un élément non défilable les
+       laisse à leur repli 0, ce qui est aussi le cas réel), ou laissés au
+       repli calculé depuis les enfants pour la mesure du support papier
+       (voir tryAdaptivePresentationPair, preview-view.ts) : `undefined`
+       tant qu'aucune valeur explicite n'a été posée. */
+    this._scrollHeight = undefined;
+    this._scrollWidth = undefined;
     this.offsetTop = 0;
     /* Position à l'écran, pilotée par les tests : la vue s'en sert pour
        situer la pile de pages dans le repère défilé du viewport (voir
@@ -169,6 +180,37 @@ class FakeElement {
   // voir obsidianmd/no-static-styles-assignment) : fusionne les propriétés
   // dans `style`.
   setCssStyles(styles) { Object.assign(this.style, styles); }
+  /* `scrollWidth`/`scrollHeight` — accesseurs plutôt que champs plats,
+     UNIQUEMENT pour permettre à `tryAdaptivePresentationPair`
+     (preview-view.ts) de mesurer un candidat CONSTRUIT PAR LE CODE DE
+     PRODUCTION (donc jamais pré-rempli par un test) hors-écran : sans valeur
+     explicitement posée par un test, la mesure retombe sur un modèle de
+     boîte minimal — pile verticale par défaut (largeur = la plus large des
+     enfants, hauteur = somme des enfants), et pour la SEULE paire adaptative
+     (`.feuillets-presentation-paper-adaptive-pair`, une grille de colonnes
+     côte à côte) largeur = somme des enfants, hauteur = la plus haute des
+     enfants. Un élément sans enfant ni valeur explicite garde 0, exactement
+     le repli historique. Une valeur explicitement posée (`el.scrollHeight =
+     …`, comme le fait `buildFakePaperIframeDocument` sur `inner`) prime
+     toujours sur ce calcul. */
+  get scrollWidth() {
+    if (this._scrollWidth !== undefined) return this._scrollWidth;
+    if (!this.children.length) return 0;
+    if (this.classes.has("feuillets-presentation-paper-adaptive-pair")) {
+      return this.children.reduce((sum, c) => sum + c.scrollWidth, 0);
+    }
+    return Math.max(...this.children.map((c) => c.scrollWidth));
+  }
+  set scrollWidth(value) { this._scrollWidth = value; }
+  get scrollHeight() {
+    if (this._scrollHeight !== undefined) return this._scrollHeight;
+    if (!this.children.length) return 0;
+    if (this.classes.has("feuillets-presentation-paper-adaptive-pair")) {
+      return Math.max(...this.children.map((c) => c.scrollHeight));
+    }
+    return this.children.reduce((sum, c) => sum + c.scrollHeight, 0);
+  }
+  set scrollHeight(value) { this._scrollHeight = value; }
   get parentElement() { return this.parentNode; }
   get firstElementChild() { return this.children[0] || null; }
   get nextElementSibling() {
@@ -187,6 +229,13 @@ class FakeElement {
     return { top, left: 0, right: this.offsetWidth, bottom: top + this.offsetHeight, width: this.offsetWidth, height: this.offsetHeight };
   }
   empty() { for (const child of [...this.children]) child.remove(); }
+  /* API DOM standard — `Element.replaceChildren()` — utilisée depuis
+     tryAdaptivePresentationPair (preview-view.ts) pour adopter le candidat
+     « paire adaptative » sans dépendre de `.empty()` (helper Obsidian). */
+  replaceChildren(...nodes) {
+    for (const child of [...this.children]) child.remove();
+    for (const node of nodes) this.appendChild(node);
+  }
   setAttribute(name, value) { this._attributes.set(name, String(value)); }
   setAttr(name, value) { this.setAttribute(name, value); }
   getAttribute(name) { return this._attributes.get(name) ?? null; }
@@ -220,9 +269,19 @@ class FakeElement {
     // Les attributs doivent survivre au clonage : paginateManuscript clone
     // chaque élément de tête, et c'est ce clone qui est sérialisé — un
     // data-source-path perdu ici n'atteindrait jamais l'aperçu.
-    const clone = new FakeElement(this.tagName, this._text);
+    // `this.constructor` plutôt que `FakeElement` en dur : permet à une
+    // sous-classe (StrictFakeElement, voir plus bas) de se cloner comme
+    // elle-même, exactement comme un vrai navigateur clonerait un nœud avec
+    // ses propres capacités — jamais promu au type de base par le clonage.
+    const clone = new this.constructor(this.tagName, this._text);
     clone.className = this.className;
     for (const [n, v] of this._attributes) clone.setAttribute(n, v);
+    // Une valeur EXPLICITEMENT posée par un test doit survivre au clonage,
+    // exactement comme dans un vrai navigateur un clone attaché produirait la
+    // même mise en page que sa source (voir tryAdaptivePresentationPair,
+    // preview-view.ts, qui clone les blocs déjà mesurés du rendu naturel).
+    clone._scrollWidth = this._scrollWidth;
+    clone._scrollHeight = this._scrollHeight;
     if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true));
     return clone;
   }
@@ -5120,4 +5179,844 @@ test("clic bloc — le scroll manuel de l'éditeur resynchronise l'Aperçu juste
   await flush();
 
   assert.notEqual(viewport.scrollTop, 1500, "l'Aperçu suit de nouveau le scroll manuel de l'éditeur");
+}));
+
+/* =================== Support papier (sourceMode "presentation-paper") ====
+ * Architecture imposée : `source.markdown` → `buildPresentationPaperUnits()`
+ * (splitter Présentation déjà validé, AUCUNE reconcaténation) → rendu
+ * Document isolé PAR unité (`renderManuscriptHtml` + `composeDocumentMedia`,
+ * jamais `paginateManuscript`) → une page papier physique par unité
+ * (`.feuillets-presentation-paper-page`). Voir renderPresentationPaperSource
+ * / applyPresentationPaperFit dans src/views/preview-view.ts.
+ *
+ * `buildFakePaperIframeDocument` reflète cette structure EXACTE — voir
+ * `buildFakeIframeDocument` ci-dessus pour l'équivalent Document (.pdf-page) :
+ * même principe, mais lit les dimensions RÉELLEMENT posées par la production
+ * (`data-paper-avail-w/h`) plutôt que de les inventer, et permet à chaque
+ * test d'imposer une hauteur/largeur NATURELLE (scrollWidth/scrollHeight)
+ * arbitraire par unité pour simuler un contenu qui déborde. */
+function buildFakePaperIframeDocument(srcdoc, { naturalWidths = [], naturalHeights = [], innerChildren = [] } = {}) {
+  const pageCount = (srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  const availWidths = [...srcdoc.matchAll(/data-paper-avail-w="([\d.]+)"/g)].map((m) => Number(m[1]));
+  const availHeights = [...srcdoc.matchAll(/data-paper-avail-h="([\d.]+)"/g)].map((m) => Number(m[1]));
+
+  const docEl = new FakeElement("html");
+  docEl.style = new FakeStyle();
+  const bodyEl = new FakeElement("body");
+  const wrapper = new FakeElement("div");
+  wrapper.className = "feuillets-preview-pages-wrapper";
+  const pagesGroup = new FakeElement("div");
+  pagesGroup.className = "feuillets-preview-pages";
+
+  for (let i = 0; i < pageCount; i++) {
+    const page = new FakeElement("div");
+    page.className = "feuillets-presentation-paper-page";
+    const paperWrapper = new FakeElement("div");
+    paperWrapper.className = "feuillets-presentation-paper-wrapper";
+    const inner = new FakeElement("div");
+    inner.className = "feuillets-presentation-paper-inner";
+    const availW = availWidths[i] ?? 700;
+    const availH = availHeights[i] ?? 990;
+    inner.setAttribute("data-paper-avail-w", String(availW));
+    inner.setAttribute("data-paper-avail-h", String(availH));
+    // Repli « paire adaptative » (tryAdaptivePresentationPair,
+    // preview-view.ts) : blocs de premier niveau RÉELS, jamais devinés —
+    // seuls les tests qui exercent ce repli en fournissent (voir
+    // ADAPTIVE_PAIR_CLASS plus haut dans ce fichier).
+    const kids = innerChildren[i] || [];
+    for (const child of kids) inner.appendChild(child);
+    // Comme un vrai `scrollWidth`/`scrollHeight`, qui reflète TOUJOURS le
+    // DOM courant : une fois des enfants réels fournis, la mesure « natu-
+    // relle » de `inner` doit continuer à en découler (voir l'accesseur de
+    // FakeElement) — sauf si le test impose malgré tout une valeur explicite
+    // (`naturalWidths`/`naturalHeights`), qui prime toujours. Sans enfant
+    // (comportement historique de ce fixture), la valeur explicite reste
+    // posée par défaut à la taille de la zone imprimable.
+    if (naturalWidths[i] !== undefined || kids.length === 0) inner.scrollWidth = naturalWidths[i] ?? availW;
+    if (naturalHeights[i] !== undefined || kids.length === 0) inner.scrollHeight = naturalHeights[i] ?? availH;
+    paperWrapper.appendChild(inner);
+    page.appendChild(paperWrapper);
+    page.offsetWidth = availW;
+    page.offsetHeight = availH;
+    pagesGroup.appendChild(page);
+  }
+  pagesGroup.offsetHeight = pageCount > 0 ? pageCount * (pagesGroup.children[0]?.offsetHeight || 0) : 0;
+  wrapper.appendChild(pagesGroup);
+  wrapper.offsetHeight = pagesGroup.offsetHeight;
+  bodyEl.appendChild(wrapper);
+
+  return {
+    documentElement: docEl,
+    body: bodyEl,
+    readyState: "complete",
+    querySelector: (selector) => bodyEl.querySelector(selector),
+    querySelectorAll: (selector) => bodyEl.querySelectorAll(selector),
+    // Nécessaire à tryAdaptivePresentationPair/buildAdaptivePairCandidate
+    // (preview-view.ts), qui construisent le candidat via `doc.createElement`.
+    createElement: (tag) => new FakeElement(tag),
+    addEventListener() {},
+    removeEventListener() {},
+  };
+}
+
+/* Fixture STRICTE, réservée à la robustesse du fallback adaptatif (voir les
+ * tests « infaillibilité » ci-dessous) : contrairement à `FakeElement`, qui
+ * offre `createDiv`/`createEl`/`.setCssStyles()`/`.empty()` comme un vrai
+ * document Obsidian pour TOUT LE RESTE de ce fichier, `StrictFakeElement`
+ * retire EXPLICITEMENT ces helpers — un `contentDocument` d'iframe RÉEL n'a
+ * strictement aucune garantie de les porter (§2 du contrat). Un appel resté
+ * sur l'un d'eux fait donc échouer le test avec une TypeError explicite,
+ * jamais silencieusement — c'est la preuve que le fallback adaptatif
+ * (tryAdaptivePresentationPair/buildAdaptivePairCandidate, preview-view.ts)
+ * n'utilise plus QUE des API DOM standards. */
+class StrictFakeElement extends FakeElement {
+  empty() { throw new TypeError("StrictFakeElement.empty() : helper Obsidian absent d'un vrai contentDocument d'iframe."); }
+  setCssStyles() { throw new TypeError("StrictFakeElement.setCssStyles() : helper Obsidian absent d'un vrai contentDocument d'iframe."); }
+  createDiv() { throw new TypeError("StrictFakeElement.createDiv() : helper Obsidian absent d'un vrai contentDocument d'iframe."); }
+  createSpan() { throw new TypeError("StrictFakeElement.createSpan() : helper Obsidian absent d'un vrai contentDocument d'iframe."); }
+  createEl() { throw new TypeError("StrictFakeElement.createEl() : helper Obsidian absent d'un vrai contentDocument d'iframe."); }
+}
+
+/** Bloc de contenu « plan-éligible » pour `planAdaptivePair` (voir
+ * `services/presentation-paper.ts`) : un titre, deux blocs de contenu et un
+ * média — exactement le motif du benchmark B déjà exercé plus bas dans ce
+ * fichier. `overflow` contrôle si l'empilement naturel déborde réellement
+ * (nécessaire pour que `naturalScale < 1` et déclencher la tentative
+ * adaptative en premier lieu). */
+function buildAdaptivePairEligibleChildren() {
+  const heading = new StrictFakeElement("h2", "Titre");
+  heading.scrollWidth = 600; heading.scrollHeight = 80;
+  const contentA = new StrictFakeElement("div", "Bloc de contenu A");
+  contentA.scrollWidth = 600; contentA.scrollHeight = 250;
+  const contentB = new StrictFakeElement("div", "Bloc de contenu B");
+  contentB.scrollWidth = 600; contentB.scrollHeight = 250;
+  const media = new StrictFakeElement("div");
+  media.className = "feuillets-doc-media-block";
+  media.scrollWidth = 280; media.scrollHeight = 900; // portrait, étroit et haut : réduit mieux en paire
+  return [heading, contentA, contentB, media];
+}
+
+/** Support papier — variante STRICTE de `buildFakePaperIframeDocument`
+ * (voir juste au-dessus) : mêmes attributs `data-paper-avail-*` lus dans le
+ * srcdoc réel, mais construite exclusivement à partir de `StrictFakeElement`
+ * (aucun helper Obsidian nulle part dans l'arbre) et pilotée PAGE PAR PAGE
+ * par `pageSpecs[i]` :
+ *   - `children` : blocs de premier niveau réels sous `inner` (défaut :
+ *     aucun, `inner` prend alors `naturalWidth`/`naturalHeight` tel quel) ;
+ *   - `naturalWidth`/`naturalHeight` : dimensions naturelles imposées ;
+ *   - `throwOnAdaptiveProbe` : fait lever l'appel `page.appendChild(probe)`
+ *     de `tryAdaptivePresentationPair` — donc APRÈS que le candidat ait été
+ *     construit, mais AVANT toute mutation de `inner` — une exception
+ *     réaliste (mesure hors-écran impossible), UNE SEULE FOIS. */
+function buildStrictPaperIframeDocument(srcdoc, pageSpecs = []) {
+  const pageCount = (srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  const availWidths = [...srcdoc.matchAll(/data-paper-avail-w="([\d.]+)"/g)].map((m) => Number(m[1]));
+  const availHeights = [...srcdoc.matchAll(/data-paper-avail-h="([\d.]+)"/g)].map((m) => Number(m[1]));
+
+  const root = new StrictFakeElement("div");
+  const pages = [];
+  for (let i = 0; i < pageCount; i++) {
+    const spec = pageSpecs[i] || {};
+    const page = new StrictFakeElement("div");
+    page.className = "feuillets-presentation-paper-page";
+    const wrapper = new StrictFakeElement("div");
+    wrapper.className = "feuillets-presentation-paper-wrapper";
+    const inner = new StrictFakeElement("div");
+    inner.className = "feuillets-presentation-paper-inner";
+    const availW = availWidths[i] ?? 700;
+    const availH = availHeights[i] ?? 990;
+    inner.setAttribute("data-paper-avail-w", String(availW));
+    inner.setAttribute("data-paper-avail-h", String(availH));
+    const kids = spec.children || [];
+    for (const child of kids) inner.appendChild(child);
+    if (spec.naturalWidth !== undefined || kids.length === 0) inner.scrollWidth = spec.naturalWidth ?? availW;
+    if (spec.naturalHeight !== undefined || kids.length === 0) inner.scrollHeight = spec.naturalHeight ?? availH;
+    wrapper.appendChild(inner);
+    page.appendChild(wrapper);
+
+    if (spec.throwOnAdaptiveProbe) {
+      // `page.appendChild` RÉEL, capturé AVANT d'être remplacé : la sonde de
+      // mesure hors-écran (voir tryAdaptivePresentationPair) doit toujours
+      // pouvoir s'attacher une fois l'exception « consommée » — sans quoi ce
+      // ne serait plus une exception ponctuelle mais une page durablement
+      // cassée, ce que le contrat interdit explicitement.
+      const realAppendChild = page.appendChild.bind(page);
+      let thrown = false;
+      page.appendChild = (child) => {
+        if (!thrown) {
+          thrown = true;
+          throw new Error("Exception volontaire de test : optimisation adaptative en échec.");
+        }
+        return realAppendChild(child);
+      };
+    }
+
+    root.appendChild(page);
+    pages.push(page);
+  }
+
+  return {
+    readyState: "complete",
+    createElement: (tag) => new StrictFakeElement(tag),
+    querySelector: (selector) => root.querySelector(selector),
+    querySelectorAll: (selector) => root.querySelectorAll(selector),
+    addEventListener() {},
+    removeEventListener() {},
+    _pages: pages,
+  };
+}
+
+/** Découpe le srcdoc du support papier en un morceau de HTML PAR page — les
+ * pages sont des éléments SIBLINGS (jamais imbriqués les uns dans les
+ * autres), donc découper sur l'ouverture de chaque
+ * `.feuillets-presentation-paper-page` isole exactement le HTML propre à
+ * cette page (attributs + contenu), sans jamais empiéter sur la suivante. */
+function paperPageChunks(srcdoc) {
+  return srcdoc.split('<div class="feuillets-presentation-paper-page"').slice(1);
+}
+
+/** Ouvre une PreviewView en mode Scène sur un contenu de présentation donné,
+ * bascule en sourceMode "presentation-paper", et renvoie la dernière iframe
+ * montée — SANS déclencher son chargement (chaque test décide s'il a besoin
+ * d'un `frame._contentDocument` fabriqué avant `fireLoad`). */
+async function openPresentationPaperView(markdown) {
+  const ctx = await openView("scene");
+  // Termine RÉELLEMENT le premier rendu (mode document, par défaut) avant de
+  // basculer : sans ce `load`, `refreshInFlight` reste vrai indéfiniment
+  // (personne n'a encore appelé `finish`) et `setSourceMode` se contenterait
+  // de armer `rerunRequested` sans jamais rendre la présentation — même
+  // contrainte que `openLoadedView` plus haut dans ce fichier.
+  fireLoad(latestFrame(ctx.scaledContainer));
+  ctx.sceneFile.content = markdown;
+  await ctx.view.setSourceMode("presentation-paper");
+  const frame = latestFrame(ctx.scaledContainer);
+  return { ...ctx, frame };
+}
+
+test("Support papier : trois slides séparées par --- donnent exactement trois .feuillets-presentation-paper-page", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide 1\n\n---\n\nslide 2\n\n---\n\nslide 3");
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 3, "le nombre de pages papier doit être EXACTEMENT le nombre de slides non vides");
+}));
+
+test("Support papier : chaque page contient exactement UNE unité slide, jamais le texte d'une autre", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide UN\n\n---\n\nslide DEUX\n\n---\n\nslide TROIS");
+  const chunks = paperPageChunks(frame.srcdoc);
+  assert.equal(chunks.length, 3);
+  assert.match(chunks[0], /slide UN/);
+  assert.doesNotMatch(chunks[0], /slide DEUX/);
+  assert.doesNotMatch(chunks[0], /slide TROIS/);
+  assert.match(chunks[1], /slide DEUX/);
+  assert.doesNotMatch(chunks[1], /slide UN/);
+  assert.doesNotMatch(chunks[1], /slide TROIS/);
+  assert.match(chunks[2], /slide TROIS/);
+}));
+
+test("Support papier : aucun <hr> pour la frontière --- entre deux slides", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide 1\n\n---\n\nslide 2");
+  assert.doesNotMatch(frame.srcdoc, /<hr\b/i);
+}));
+
+test("Support papier : aucun [!pagebreak] ni [!saut-page] rendu dans une page", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide A\n\n> [!pagebreak]\n\nslide B\n\n> [!saut-page]\n\nslide C");
+  assert.doesNotMatch(frame.srcdoc, /\[!pagebreak\]/);
+  assert.doesNotMatch(frame.srcdoc, /\[!saut-page\]/);
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 3);
+}));
+
+test("Support papier : une unité qui tient naturellement reçoit scale = 1", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide unique");
+  // Contenu naturel EXACTEMENT à la taille de la zone imprimable (par défaut
+  // de buildFakePaperIframeDocument : naturalHeights == availHeights).
+  frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc);
+  fireLoad(frame);
+
+  const inner = frame.contentDocument.querySelector(".feuillets-presentation-paper-inner");
+  const wrapper = frame.contentDocument.querySelector(".feuillets-presentation-paper-wrapper");
+  assert.equal(inner.style.transform, "scale(1)");
+  const availW = Number(inner.getAttribute("data-paper-avail-w"));
+  const availH = Number(inner.getAttribute("data-paper-avail-h"));
+  assert.equal(wrapper.style.width, `${availW}px`);
+  assert.equal(wrapper.style.height, `${availH}px`);
+}));
+
+test("Support papier : une unité trop haute reçoit scale < 1 et reste sur UNE seule page", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide trop haute");
+  const doc = frame.srcdoc.match(/data-paper-avail-h="([\d.]+)"/);
+  const availH = Number(doc[1]);
+  // Contenu naturel DEUX FOIS trop haut pour la zone imprimable.
+  frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc, { naturalHeights: [availH * 2] });
+  fireLoad(frame);
+
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 1, "une unité réduite ne doit JAMAIS se répartir sur une seconde page");
+
+  const inner = frame.contentDocument.querySelector(".feuillets-presentation-paper-inner");
+  const expectedScale = presentationPaperScale(
+    Number(inner.getAttribute("data-paper-avail-w")),
+    availH,
+    inner.scrollWidth,
+    inner.scrollHeight
+  );
+  assert.ok(expectedScale < 1, "le cas de test doit réellement déborder");
+  assert.equal(inner.style.transform, `scale(${expectedScale})`);
+}));
+
+test("Support papier : une unité qui déborde n'est jamais montée sur la page suivante", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide DEBORDANTE\n\n---\n\nslide SUIVANTE");
+  const chunks = paperPageChunks(frame.srcdoc);
+  assert.equal(chunks.length, 2);
+  const availH = Number(chunks[0].match(/data-paper-avail-h="([\d.]+)"/)[1]);
+  frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc, { naturalHeights: [availH * 3, availH] });
+  fireLoad(frame);
+
+  // Même après le fit (qui ne mute QUE transform/dimensions, jamais le
+  // contenu), le texte de la première unité reste absent de la seconde page.
+  assert.doesNotMatch(chunks[1], /DEBORDANTE/);
+  assert.match(chunks[1], /SUIVANTE/);
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 2, "la page débordante ne doit jamais en engendrer une troisième");
+}));
+
+test("Support papier : cas de référence texte + questions + portrait — une page, wrapper réduit", withRender(async () => {
+  const markdown = [
+    "## B — Portrait texte puis image",
+    "",
+    "> [!synthese] Un",
+    "> Texte court expliquant l'image.",
+    "",
+    "> [!questions]",
+    "> 1. Question 1",
+    "> 2. Question 2",
+    "> 3. Question 3",
+    "",
+    "![[voltaire.jpeg]]",
+  ].join("\n");
+  const { frame } = await openPresentationPaperView(markdown);
+  const pageCountBefore = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCountBefore, 1, "une seule slide source doit donner une seule page papier");
+
+  const availH = Number(frame.srcdoc.match(/data-paper-avail-h="([\d.]+)"/)[1]);
+  const availW = Number(frame.srcdoc.match(/data-paper-avail-w="([\d.]+)"/)[1]);
+  // Hauteur naturelle excessive simulée (titre + synthèse + questions +
+  // portrait, empilés, dépassent la zone imprimable).
+  frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc, { naturalHeights: [availH * 1.8] });
+  fireLoad(frame);
+
+  const pageCountAfter = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCountAfter, 1, "le portrait ne doit jamais être repoussé sur une seconde page");
+
+  const inner = frame.contentDocument.querySelector(".feuillets-presentation-paper-inner");
+  const wrapper = frame.contentDocument.querySelector(".feuillets-presentation-paper-wrapper");
+  const expectedScale = presentationPaperScale(availW, availH, inner.scrollWidth, inner.scrollHeight);
+  assert.ok(expectedScale < 1, "le cas de référence doit réellement déborder pour être significatif");
+  assert.equal(wrapper.style.height, `${inner.scrollHeight * expectedScale}px`, "le wrapper est réduit à l'échelle, pas la page");
+}));
+
+/* ============== Repli « paire adaptative » (naturalScale < 1) ==============
+ * Ces trois tests exercent la mécanique RÉELLE (mesure d'un candidat
+ * hors-écran, décision, adoption ou restauration) via des blocs de premier
+ * niveau réels sous `inner` (voir `innerChildren`, `buildFakePaperIframeDocument`
+ * ci-dessus) — jamais devinés : c'est exactement le cas que
+ * `tryAdaptivePresentationPair`/`buildAdaptivePairCandidate` (preview-view.ts)
+ * et `planAdaptivePair` (presentation-paper.ts) doivent traiter. */
+
+test("Support papier : benchmark B (titre + deux blocs + portrait) adopte la paire adaptative quand elle réduit mieux que le naturel", withRender(async () => {
+  const markdown = [
+    "## B — Portrait texte puis image",
+    "",
+    "> [!synthese] Un",
+    "> Texte court expliquant l'image.",
+    "",
+    "> [!questions]",
+    "> 1. Question 1",
+    "> 2. Question 2",
+    "> 3. Question 3",
+    "",
+    "![[voltaire.jpeg]]",
+  ].join("\n");
+  const { frame } = await openPresentationPaperView(markdown);
+  const availH = Number(frame.srcdoc.match(/data-paper-avail-h="([\d.]+)"/)[1]);
+  const availW = Number(frame.srcdoc.match(/data-paper-avail-w="([\d.]+)"/)[1]);
+
+  const headingEl = new FakeElement("h2", "B — Portrait texte puis image");
+  headingEl.scrollWidth = 600; headingEl.scrollHeight = 80;
+  const syntheseEl = new FakeElement("div", "Texte court expliquant l'image.");
+  syntheseEl.scrollWidth = 600; syntheseEl.scrollHeight = 250;
+  const questionsEl = new FakeElement("div", "1. Question 1 2. Question 2 3. Question 3");
+  questionsEl.scrollWidth = 600; questionsEl.scrollHeight = 250;
+  const mediaEl = new FakeElement("div");
+  mediaEl.className = "feuillets-doc-media-block";
+  mediaEl.scrollWidth = 280; mediaEl.scrollHeight = 900; // portrait, étroit et haut
+
+  frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc, {
+    innerChildren: [[headingEl, syntheseEl, questionsEl, mediaEl]],
+  });
+  fireLoad(frame);
+
+  const inner = frame.contentDocument.querySelector(".feuillets-presentation-paper-inner");
+  const naturalScale = presentationPaperScale(availW, availH, 600, 80 + 250 + 250 + 900);
+  assert.ok(naturalScale < 1, "le cas doit réellement déborder pour être significatif");
+
+  const pair = inner.querySelector(`.${ADAPTIVE_PAIR_CLASS}`);
+  assert.ok(pair, "la paire adaptative doit avoir été adoptée : elle réduit mieux que le rendu naturel");
+
+  // Le titre initial reste hors de la paire, pleine largeur, en tête.
+  assert.equal(inner.children.length, 2, "seuls le titre et la paire restent au premier niveau de `inner`");
+  assert.equal(inner.children[0].tagName, "H2");
+  assert.match(inner.children[0].outerHTML, /B — Portrait texte puis image/);
+
+  const contentGroup = pair.querySelector(`.${ADAPTIVE_CONTENT_CLASS}`);
+  const mediaGroup = pair.querySelector(`.${ADAPTIVE_MEDIA_CLASS}`);
+  assert.ok(contentGroup && mediaGroup, "les deux colonnes de la paire doivent exister");
+  assert.equal(contentGroup.children.length, 2, "synthèse ET questions regroupées côté contenu");
+  assert.match(contentGroup.children[0].outerHTML, /Texte court/);
+  assert.match(contentGroup.children[1].outerHTML, /Question 1/);
+  assert.equal(mediaGroup.children.length, 1, "le portrait seul, à droite");
+  assert.ok(mediaGroup.children[0].classList.contains("feuillets-doc-media-block"));
+  // Contenu avant le média dans le Markdown source -> paire 60/40 (contenu
+  // en premier), jamais l'inverse.
+  assert.equal(pair.children[0], contentGroup);
+  assert.equal(pair.children[1], mediaGroup);
+
+  const wrapper = frame.contentDocument.querySelector(".feuillets-presentation-paper-wrapper");
+  const appliedScale = Number(inner.style.transform.match(/scale\(([\d.]+)\)/)[1]);
+  assert.ok(appliedScale > naturalScale, "le scale appliqué après recomposition doit être meilleur que le naturel");
+  assert.equal(wrapper.style.height, `${inner.scrollHeight * appliedScale}px`, "le wrapper reflète la mesure du candidat adopté, pas celle du naturel");
+
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 1, "toujours une seule page — la recomposition ne fragmente jamais la slide");
+}));
+
+test("Support papier : un candidat qui ne réduit pas mieux que le naturel est rejeté — le DOM naturel est restauré à l'identique", withRender(async () => {
+  const { frame } = await openPresentationPaperView("## Slide\n\nTexte 1\n\nTexte 2\n\n![[image.png]]");
+  const availH = Number(frame.srcdoc.match(/data-paper-avail-h="([\d.]+)"/)[1]);
+  const availW = Number(frame.srcdoc.match(/data-paper-avail-w="([\d.]+)"/)[1]);
+
+  const headingEl = new FakeElement("h2", "Slide");
+  headingEl.scrollWidth = 600; headingEl.scrollHeight = 60;
+  const blockA = new FakeElement("div", "Texte 1");
+  blockA.scrollWidth = 600; blockA.scrollHeight = 400;
+  const blockB = new FakeElement("div", "Texte 2");
+  blockB.scrollWidth = 600; blockB.scrollHeight = 400;
+  const mediaEl = new FakeElement("div");
+  mediaEl.className = "feuillets-doc-media-block";
+  mediaEl.scrollWidth = 650; mediaEl.scrollHeight = 500; // paysage large : la paire ferait déborder la largeur
+
+  frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc, {
+    innerChildren: [[headingEl, blockA, blockB, mediaEl]],
+  });
+  fireLoad(frame);
+
+  const inner = frame.contentDocument.querySelector(".feuillets-presentation-paper-inner");
+  const naturalScale = presentationPaperScale(availW, availH, 650, 60 + 400 + 400 + 500);
+  assert.ok(naturalScale < 1, "le cas doit réellement déborder pour être significatif");
+
+  assert.equal(inner.querySelector(`.${ADAPTIVE_PAIR_CLASS}`), null, "un candidat moins bon ne doit jamais être adopté");
+  assert.equal(inner.children.length, 4, "le DOM naturel reste intact, aucun bloc retiré ni regroupé");
+  assert.equal(inner.children[0], headingEl);
+  assert.equal(inner.children[1], blockA);
+  assert.equal(inner.children[2], blockB);
+  assert.equal(inner.children[3], mediaEl);
+
+  const appliedScale = Number(inner.style.transform.match(/scale\(([\d.]+)\)/)[1]);
+  assert.ok(Math.abs(appliedScale - naturalScale) < 0.001, "le scale appliqué reste celui du rendu naturel, jamais celui d'un candidat rejeté");
+}));
+
+test("Support papier : média + un seul bloc — aucune paire adaptative, le moteur Document décide déjà", withRender(async () => {
+  const { frame } = await openPresentationPaperView("## Slide\n\nTexte unique\n\n![[image.png]]");
+  const headingEl = new FakeElement("h2", "Slide");
+  headingEl.scrollWidth = 600; headingEl.scrollHeight = 60;
+  const soleBlock = new FakeElement("div", "Texte unique");
+  soleBlock.scrollWidth = 600; soleBlock.scrollHeight = 900;
+  const mediaEl = new FakeElement("div");
+  mediaEl.className = "feuillets-doc-media-block";
+  mediaEl.scrollWidth = 600; mediaEl.scrollHeight = 900;
+
+  frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc, {
+    innerChildren: [[headingEl, soleBlock, mediaEl]],
+  });
+  fireLoad(frame);
+
+  const inner = frame.contentDocument.querySelector(".feuillets-presentation-paper-inner");
+  assert.equal(inner.querySelector(`.${ADAPTIVE_PAIR_CLASS}`), null, "un seul bloc de contenu -> pas de repli adaptatif (règle 6)");
+  assert.equal(inner.children.length, 3, "le DOM naturel reste intact");
+}));
+
+test("Support papier : le mode Document ne reçoit jamais les classes de la paire adaptative", withRender(async () => {
+  const ctx = await openView("scene");
+  ctx.sceneFile.content = "## Titre\n\nTexte 1\n\nTexte 2\n\n![[image.png]]";
+  await ctx.view.refreshPreview();
+  const frame = latestFrame(ctx.scaledContainer);
+  fireLoad(frame);
+  assert.doesNotMatch(frame.srcdoc || "", new RegExp(ADAPTIVE_PAIR_CLASS));
+}));
+
+test("Support papier : un changement de dimensions (ResizeObserver, image asynchrone) recalcule le scale sans nouveau rendu Markdown ni nouvelle page", withRender(async (dom) => {
+  let renderCount = 0;
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    renderCount++;
+    return fakeRender(markdown, container);
+  };
+
+  const { frame } = await openPresentationPaperView("slide avec image");
+  const renderCountAfterMount = renderCount;
+  const availH = Number(frame.srcdoc.match(/data-paper-avail-h="([\d.]+)"/)[1]);
+  frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc, { naturalHeights: [availH] });
+  fireLoad(frame);
+
+  const inner = frame.contentDocument.querySelector(".feuillets-presentation-paper-inner");
+  const wrapper = frame.contentDocument.querySelector(".feuillets-presentation-paper-wrapper");
+  assert.equal(inner.style.transform, "scale(1)");
+
+  // Une image vient de terminer son chargement : la hauteur naturelle double
+  // — le wrapper reste dans les clous (c'est le but du fit), mais le SCALE
+  // appliqué à l'inner doit refléter ce nouveau rapport (≈ 0,5, plus l'ancien
+  // scale 1) : c'est ce recalcul, pas la taille finale du wrapper (qui peut
+  // coïncidentellement rester la même une fois « bien ajustée »), qui prouve
+  // que la mesure a été reprise.
+  const paperObserver = dom.observers[dom.observers.length - 1];
+  assert.ok(paperObserver, "un ResizeObserver doit avoir été posé sur l'unité");
+  inner.scrollHeight = availH * 2;
+  paperObserver.trigger();
+
+  const expectedScale = presentationPaperScale(
+    Number(inner.getAttribute("data-paper-avail-w")),
+    availH,
+    inner.scrollWidth,
+    inner.scrollHeight
+  );
+  assert.ok(expectedScale < 1, "le cas de test doit réellement déborder après le changement");
+  assert.equal(inner.style.transform, `scale(${expectedScale})`, "le scale doit être recalculé à partir de la nouvelle hauteur naturelle");
+  assert.equal(wrapper.style.height, `${inner.scrollHeight * expectedScale}px`, "le wrapper doit refléter la nouvelle mesure (naturelle × scale)");
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 1, "aucune page n'est créée ni supprimée par le recalcul");
+  assert.equal(renderCount, renderCountAfterMount, "aucun second rendu Markdown déclenché par le ResizeObserver");
+}));
+
+/* ============== Infaillibilité du fallback adaptatif (deux phases) =======
+ * Voir applyPresentationPaperFit (preview-view.ts) : PHASE 1 fitte TOUTES
+ * les pages avant toute tentative d'optimisation ; PHASE 2 tente l'adaptatif
+ * page par page — une exception sur l'une d'elles ne doit JAMAIS empêcher
+ * les suivantes d'être traitées, et ne doit jamais muter le DOM naturel de
+ * SA page avant que l'adoption ne soit décidée. Les fixtures ci-dessus
+ * (StrictFakeElement, buildStrictPaperIframeDocument) reproduisent un vrai
+ * contentDocument d'iframe SANS aucun helper Obsidian (§2 du contrat). */
+
+test("Support papier : 9 slides donnent 9 pages, toutes visibles après la phase 1 (fit de base)", withRender(async () => {
+  const slides = Array.from({ length: 9 }, (_, i) => `Page ${i + 1}`).join("\n\n---\n\n");
+  const { frame } = await openPresentationPaperView(slides);
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 9, "9 slides doivent donner exactement 9 pages papier");
+
+  // DOM STRICT : aucun helper Obsidian nulle part dans l'arbre (voir
+  // StrictFakeElement) — la phase 1 doit fonctionner avec les seules API
+  // DOM standards.
+  frame._contentDocument = buildStrictPaperIframeDocument(frame.srcdoc);
+  fireLoad(frame);
+
+  const pages = frame.contentDocument._pages;
+  assert.equal(pages.length, 9);
+  for (let i = 0; i < pages.length; i++) {
+    const wrapper = pages[i].querySelector(".feuillets-presentation-paper-wrapper");
+    const inner = pages[i].querySelector(".feuillets-presentation-paper-inner");
+    assert.ok(wrapper.style.width && wrapper.style.width !== "0px", `page ${i + 1} : largeur de wrapper absente/nulle après la phase 1`);
+    assert.ok(wrapper.style.height && wrapper.style.height !== "0px", `page ${i + 1} : hauteur de wrapper absente/nulle après la phase 1`);
+    assert.equal(inner.style.transform, "scale(1)", `page ${i + 1} : fit de base attendu (contenu qui tient naturellement)`);
+  }
+}));
+
+test("Support papier : une exception dans l'adaptatif de la page 3 n'interrompt jamais les pages suivantes", withRender(async (dom) => {
+  const slides = Array.from({ length: 9 }, (_, i) => `Page ${i + 1}`).join("\n\n---\n\n");
+  const { frame } = await openPresentationPaperView(slides);
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 9);
+  // Repère AVANT le fit papier : `dom.observers` accumule aussi le
+  // ResizeObserver générique du viewport (posé une seule fois au montage de
+  // la vue, sans rapport avec le support papier — voir applyPresentationPaperFit
+  // vs. le ResizeObserver de PreviewView.mountTemplatePreview).
+  const observersBeforePaperFit = dom.observers.length;
+
+  const pageSpecs = Array.from({ length: 9 }, () => ({}));
+  // Page 3 (index 2) : plan-éligible et débordante, lève une exception
+  // VOLONTAIRE exactement où tryAdaptivePresentationPair attache sa sonde
+  // de mesure (page.appendChild(probe)) — après construction du candidat,
+  // AVANT toute mutation de `inner`.
+  pageSpecs[2] = { children: buildAdaptivePairEligibleChildren(), throwOnAdaptiveProbe: true };
+  // Page 7 (index 6) : même motif plan-éligible et débordant, SANS
+  // exception — doit continuer à adopter normalement la paire adaptative
+  // après l'échec de la page 3 (l'optimisation qui réussit continue de
+  // fonctionner).
+  pageSpecs[6] = { children: buildAdaptivePairEligibleChildren() };
+
+  frame._contentDocument = buildStrictPaperIframeDocument(frame.srcdoc, pageSpecs);
+  fireLoad(frame);
+
+  const pages = frame.contentDocument._pages;
+  assert.equal(pages.length, 9, "les 9 pages doivent toutes rester présentes");
+
+  // Aucune page — y compris la 3 qui a levé — ne doit se retrouver avec un
+  // wrapper sans dimensions : la phase 1 les a toutes déjà fittées avant que
+  // la phase 2 ne tente quoi que ce soit.
+  for (let i = 0; i < pages.length; i++) {
+    const wrapper = pages[i].querySelector(".feuillets-presentation-paper-wrapper");
+    const inner = pages[i].querySelector(".feuillets-presentation-paper-inner");
+    assert.ok(wrapper, `page ${i + 1} : wrapper manquant`);
+    assert.ok(inner, `page ${i + 1} : inner manquant`);
+    assert.ok(wrapper.style.width && wrapper.style.width !== "0px", `page ${i + 1} : largeur de wrapper absente/nulle`);
+    assert.ok(wrapper.style.height && wrapper.style.height !== "0px", `page ${i + 1} : hauteur de wrapper absente/nulle`);
+  }
+
+  // Page 3 : l'exception a empêché l'adoption — le DOM naturel (les 4 blocs
+  // d'origine, jamais la paire adaptative) reste en place, avec son fit
+  // naturel recalculé normalement.
+  const page3Inner = pages[2].querySelector(".feuillets-presentation-paper-inner");
+  assert.equal(page3Inner.children.length, 4, "page 3 : le DOM naturel (4 blocs) doit être conservé, jamais la paire adaptative");
+  assert.equal(page3Inner.querySelector(`.${ADAPTIVE_PAIR_CLASS}`), null, "page 3 : aucune paire adaptative ne doit avoir été adoptée");
+  const naturalScale3 = presentationPaperScale(
+    Number(page3Inner.getAttribute("data-paper-avail-w")),
+    Number(page3Inner.getAttribute("data-paper-avail-h")),
+    page3Inner.scrollWidth,
+    page3Inner.scrollHeight
+  );
+  assert.ok(naturalScale3 < 1, "le cas de page 3 doit réellement déborder pour être significatif");
+  assert.equal(page3Inner.style.transform, `scale(${naturalScale3})`, "page 3 doit conserver son fit naturel malgré l'échec de l'adaptatif");
+
+  // Page 7 : un adaptatif qui réussit continue à fonctionner après l'échec
+  // d'une autre page.
+  const page7Inner = pages[6].querySelector(".feuillets-presentation-paper-inner");
+  const pair7 = page7Inner.querySelector(`.${ADAPTIVE_PAIR_CLASS}`);
+  assert.ok(pair7, "page 7 : un adaptatif réussi doit continuer à fonctionner après l'échec de la page 3");
+
+  // Pages 4 à 9 (indices 3 à 8, hors la 7 déjà vérifiée) : aucune n'a été
+  // sautée par l'exception de la page 3 — chacune garde un fit cohérent.
+  for (const i of [3, 4, 5, 7, 8]) {
+    const inner = pages[i].querySelector(".feuillets-presentation-paper-inner");
+    assert.equal(inner.style.transform, "scale(1)", `page ${i + 1} : doit rester fittée normalement après l'exception de la page 3`);
+  }
+
+  // Un seul ResizeObserver par page (9 au total), jamais plus, jamais moins
+  // — posés par CE fit papier uniquement (voir observersBeforePaperFit).
+  const paperObservers = dom.observers.slice(observersBeforePaperFit);
+  assert.equal(paperObservers.length, 9, "un ResizeObserver doit être posé par page, jamais plus ni moins");
+
+  // Déclencher le ResizeObserver de la page 3 ne doit reconstruire NI la
+  // page 3 elle-même (mêmes nœuds), NI aucune autre page.
+  const wrapperPage1Before = pages[0].querySelector(".feuillets-presentation-paper-wrapper");
+  const innerPage1Before = pages[0].querySelector(".feuillets-presentation-paper-inner");
+  const innerPage3Before = page3Inner;
+  paperObservers[2].trigger();
+  assert.equal(pages[0].querySelector(".feuillets-presentation-paper-wrapper"), wrapperPage1Before, "le ResizeObserver de la page 3 ne doit jamais reconstruire la page 1");
+  assert.equal(pages[0].querySelector(".feuillets-presentation-paper-inner"), innerPage1Before, "page 1 : même nœud inner, jamais recréé par le ResizeObserver d'une autre page");
+  assert.equal(pages[2].querySelector(".feuillets-presentation-paper-inner"), innerPage3Before, "page 3 : même nœud inner après son propre ResizeObserver, jamais reconstruit");
+  assert.equal(frame.contentDocument._pages.length, 9, "aucune page ne doit être créée ni supprimée par un déclenchement de ResizeObserver");
+}));
+
+test("Support papier : le mode document sur le même Markdown garde --- comme séparateur ordinaire, sans classe papier", withRender(async () => {
+  const ctx = await openView("scene");
+  ctx.sceneFile.content = "slide 1\n\n---\n\nslide 2";
+  await ctx.view.refreshPreview();
+  const frame = latestFrame(ctx.scaledContainer);
+  assert.doesNotMatch(frame.srcdoc, /feuillets-presentation-paper-page/, "le mode document ne doit jamais recevoir de classe papier");
+  assert.match(frame.srcdoc, /class="pdf-page/, "le pipeline Document historique (.pdf-page) reste inchangé");
+}));
+
+/* ============== Chrome visuel : limites de page identifiables ==========
+ * Le moteur papier (splitter, rendu Document isolé, fit/scale, ResizeObserver)
+ * N'EST PAS touché par ce lot — uniquement l'ombre/le rayon/l'espacement
+ * posés par PRESENTATION_PAPER_CSS (voir son commentaire, preview-view.ts),
+ * repris à l'identique de `.pdf-page` (ui/template-preview.ts). */
+
+test("Support papier : chaque page reçoit une ombre/un rayon qui la distinguent visuellement (chrome identifiable)", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide 1\n\n---\n\nslide 2");
+  assert.match(
+    frame.srcdoc,
+    /\.feuillets-presentation-paper-page\s*\{[^}]*box-shadow\s*:\s*0 4px 18px/,
+    "la page papier doit porter la même ombre que .pdf-page (mode Document), pas une couleur inventée"
+  );
+}));
+
+test("Support papier : un espacement visuel sépare deux pages successives, sans marge sur la dernière", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide 1\n\n---\n\nslide 2");
+  assert.match(
+    frame.srcdoc,
+    /\.feuillets-presentation-paper-page\s*\{[^}]*margin\s*:\s*0 auto 1\.5rem auto/,
+    "un espace vertical doit séparer deux pages consécutives"
+  );
+  assert.match(
+    frame.srcdoc,
+    /\.feuillets-presentation-paper-page:last-child\s*\{[^}]*margin-bottom\s*:\s*0/,
+    "la dernière page ne doit laisser aucun blanc résiduel après elle"
+  );
+}));
+
+test("Support papier : la page (fond papier blanc) reste visuellement distincte du fond de la zone Preview", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide 1");
+  const [pageChunk] = paperPageChunks(frame.srcdoc);
+  assert.match(pageChunk, /background:\s*#ffffff/, "la feuille elle-même reste blanche, comme .pdf-page en mode Document");
+  assert.match(
+    frame.srcdoc,
+    /body\s*\{[^}]*background:\s*var\(--background-secondary/,
+    "le fond de la zone Preview (chrome de l'iframe) reste la variable Obsidian déjà utilisée pour tous les modes"
+  );
+}));
+
+test("Support papier : le chrome ajouté ne touche ni au transform, ni aux dimensions du wrapper, ni au nombre de pages", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide 1\n\n---\n\nslide 2");
+  const paperRulesMatch = frame.srcdoc.match(/\.feuillets-presentation-paper-page\s*\{([^}]*)\}/);
+  assert.ok(paperRulesMatch, "la règle de chrome .feuillets-presentation-paper-page doit exister");
+  assert.doesNotMatch(paperRulesMatch[1], /transform/, "le chrome ne doit jamais poser de transform sur la page elle-même");
+  assert.doesNotMatch(paperRulesMatch[1], /width|height/, "le chrome ne doit jamais poser de dimension sur la page elle-même");
+
+  // Le fit (scale/dimensions du wrapper) reste piloté par applyPresentationPaperFit,
+  // exactement comme avant ce lot — inchangé par la présence du nouveau chrome.
+  frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc);
+  fireLoad(frame);
+  const inner = frame.contentDocument.querySelector(".feuillets-presentation-paper-inner");
+  assert.equal(inner.style.transform, "scale(1)");
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 2, "le nombre de pages reste exactement le nombre de slides");
+}));
+
+test("Support papier : le mode document normal ne reçoit aucune règle de chrome papier", withRender(async () => {
+  const ctx = await openView("scene");
+  ctx.sceneFile.content = "slide 1\n\n---\n\nslide 2";
+  await ctx.view.refreshPreview();
+  const frame = latestFrame(ctx.scaledContainer);
+  assert.doesNotMatch(frame.srcdoc, /\.feuillets-presentation-paper-page/, "aucune règle de chrome papier en mode Document");
+}));
+
+test("Support papier : basculer papier → document nettoie observers/classes/wrappers, sans fuite", withRender(async () => {
+  const { view, frame: paperFrame, scaledContainer } = await openPresentationPaperView("slide 1\n\n---\n\nslide 2");
+  paperFrame._contentDocument = buildFakePaperIframeDocument(paperFrame.srcdoc);
+  fireLoad(paperFrame);
+
+  assert.ok(view["presentationPaperObservers"].length > 0, "des observers papier doivent avoir été posés");
+  const paperObservers = [...view["presentationPaperObservers"]];
+
+  await view.setSourceMode("document");
+  const documentFrame = latestFrame(scaledContainer);
+  fireLoad(documentFrame);
+
+  assert.equal(view["presentationPaperObservers"].length, 0, "aucun observer papier ne doit survivre au retour en mode document");
+  for (const observer of paperObservers) {
+    assert.equal(observer.observed.length, 0, "chaque ancien observer papier doit avoir été déconnecté");
+  }
+  assert.doesNotMatch(documentFrame.srcdoc, /feuillets-presentation-paper-page/, "aucune classe papier ne doit fuiter dans le srcdoc Document");
+}));
+
+/* ============ Bug confirmé : chemins NORMAUX d'ouverture doivent =========
+ * toujours ramener une PreviewView réutilisée à sourceMode "document" (voir
+ * openScopeWithPreview / openScopeWithPreviewBesideLeaf / openWithPreview,
+ * preview-view.ts). `openPresentationPaperPreview` reste hors scope : il
+ * doit toujours finir en "presentation-paper" (couvert plus bas). */
+
+test("openWithPreview — VRAI chemin : Preview réutilisée en Support papier repasse en document, scope demandé appliqué, plus de classes/observers paper", withRender(async () => {
+  const { view, app, plugin, scaledContainer, sceneFile } = await openView("scene");
+  fireLoad(latestFrame(scaledContainer));
+
+  // Point de départ du bug : cette même Preview affiche le Support papier.
+  sceneFile.content = "slide 1\n\n---\n\nslide 2";
+  await view.setSourceMode("presentation-paper");
+  const paperFrame = latestFrame(scaledContainer);
+  paperFrame._contentDocument = buildFakePaperIframeDocument(paperFrame.srcdoc);
+  fireLoad(paperFrame);
+  assert.equal(view.sourceMode, "presentation-paper");
+  assert.ok(view["presentationPaperObservers"].length > 0, "des observers papier doivent avoir été posés");
+  const paperObservers = [...view["presentationPaperObservers"]];
+
+  // VRAI chemin normal : « Ouvrir avec aperçu » réutilise cette Preview.
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_PREVIEW ? [{ view }] : []);
+  app.workspace.getLeaf = () => ({ openFile: async () => {} });
+  app.workspace.setActiveLeaf = () => {};
+
+  await openWithPreview(app, plugin, sceneFile);
+  await flush();
+
+  assert.equal(view.sourceMode, "document", "openWithPreview doit ramener sourceMode à document");
+  assert.equal(view.compileScope?.type, "file");
+  assert.equal(view.compileScope?.path, sceneFile.path, "le scope demandé (ce feuillet) est bien appliqué");
+
+  const documentFrame = latestFrame(scaledContainer);
+  fireLoad(documentFrame);
+
+  assert.equal(view["presentationPaperObservers"].length, 0, "aucun observer papier ne doit survivre à openWithPreview");
+  for (const observer of paperObservers) {
+    assert.equal(observer.observed.length, 0, "chaque ancien observer papier doit avoir été déconnecté");
+  }
+  assert.doesNotMatch(documentFrame.srcdoc, /feuillets-presentation-paper-page/, "pipeline Document historique utilisé, jamais le pipeline papier");
+  // `---` redevient un HR Markdown ordinaire : les deux « slides » restent le
+  // corps d'UN SEUL feuillet rendu par le pipeline Document (une seule
+  // `.pdf-page`), jamais scindées en pages papier physiques séparées par le
+  // pipeline papier (qui, lui, aurait isolé chaque slide dans sa propre
+  // `.feuillets-presentation-paper-page`, voir le test ci-dessus).
+  assert.match(documentFrame.srcdoc, /class="pdf-page/, "le mode Document pagine normalement, jamais en pages papier");
+  const paperPageCount = (documentFrame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(paperPageCount, 0, "aucune slide isolée dans sa propre page papier : `---` n'est plus un séparateur de page");
+}));
+
+test("openScopeWithPreview — VRAI chemin : Preview réutilisée en Support papier repasse en document, scope demandé appliqué, plus de classes/observers paper", withRender(async () => {
+  const { view, app, scaledContainer, sceneFile, sceneFile2, manuscript } = await openView("scene");
+  fireLoad(latestFrame(scaledContainer));
+
+  sceneFile.content = "slide 1\n\n---\n\nslide 2";
+  await view.setSourceMode("presentation-paper");
+  const paperFrame = latestFrame(scaledContainer);
+  paperFrame._contentDocument = buildFakePaperIframeDocument(paperFrame.srcdoc);
+  fireLoad(paperFrame);
+  assert.equal(view.sourceMode, "presentation-paper");
+  assert.ok(view["presentationPaperObservers"].length > 0, "des observers papier doivent avoir été posés");
+  const paperObservers = [...view["presentationPaperObservers"]];
+
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_PREVIEW ? [{ view }] : []);
+  app.workspace.revealLeaf = () => {};
+
+  await openScopeWithPreview(app, { type: "file", projectRoot: manuscript.path, path: sceneFile2.path });
+  await flush();
+
+  assert.equal(view.sourceMode, "document", "openScopeWithPreview doit ramener sourceMode à document");
+  assert.equal(view.compileScope?.type, "file");
+  assert.equal(view.compileScope?.path, sceneFile2.path, "le scope demandé est bien appliqué, pas l'ancien feuillet papier");
+
+  const documentFrame = latestFrame(scaledContainer);
+  fireLoad(documentFrame);
+
+  assert.equal(view["presentationPaperObservers"].length, 0, "aucun observer papier ne doit survivre à openScopeWithPreview");
+  for (const observer of paperObservers) {
+    assert.equal(observer.observed.length, 0, "chaque ancien observer papier doit avoir été déconnecté");
+  }
+  assert.doesNotMatch(documentFrame.srcdoc, /feuillets-presentation-paper-page/, "pipeline Document historique utilisé, jamais le pipeline papier");
+}));
+
+test("openScopeWithPreview — Preview déjà en mode document : le reset sourceMode ne provoque aucun rendu supplémentaire", withRender(async () => {
+  const { view, app, scaledContainer, sceneFile2, manuscript } = await openView("scene");
+  fireLoad(latestFrame(scaledContainer));
+  assert.equal(view.sourceMode, "document");
+  const framesBefore = scaledContainer.children.filter((c) => c.tagName === "IFRAME").length;
+
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_PREVIEW ? [{ view }] : []);
+  app.workspace.revealLeaf = () => {};
+
+  await openScopeWithPreview(app, { type: "file", projectRoot: manuscript.path, path: sceneFile2.path });
+  await flush();
+
+  const framesAfter = scaledContainer.children.filter((c) => c.tagName === "IFRAME").length;
+  assert.equal(framesAfter, framesBefore + 1, "un SEUL nouveau rendu (celui du scope demandé) — le reset sourceMode déjà document est un no-op, pas un second rendu");
+  assert.equal(view.sourceMode, "document");
+  assert.equal(view.compileScope?.path, sceneFile2.path);
+}));
+
+test("openPresentationPaperPreview — non-régression : finit toujours en sourceMode presentation-paper", withRender(async () => {
+  const { view, app, plugin, scaledContainer, sceneFile } = await openView("scene");
+  fireLoad(latestFrame(scaledContainer));
+
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_PREVIEW ? [{ view }] : []);
+  app.workspace.getLeaf = () => ({ openFile: async () => {} });
+  app.workspace.setActiveLeaf = () => {};
+
+  await openPresentationPaperPreview(app, plugin, sceneFile);
+  await flush();
+
+  assert.equal(view.sourceMode, "presentation-paper", "openPresentationPaperPreview doit toujours finir en Support papier");
 }));

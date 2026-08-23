@@ -1,4 +1,4 @@
-import { PEDAGOGICAL_PALETTE, PEDAGOGICAL_ROLES, PEDAGOGICAL_ROLE_FAMILY } from "./pedagogical-roles.js";
+import { SEMANTIC_PALETTE, SEMANTIC_ROLES, SEMANTIC_ROLE_FAMILY } from "./semantic-roles.js";
 
 /** Modèles de mise en page pour l'export natif (EPUB/DOCX/PDF), façon
  * Ulysses/iA Writer — une seule source de vérité pour "à quoi ressemble
@@ -291,45 +291,44 @@ function semanticRoleMarkersMode(tpl: ExportTemplate): "legacy" | "show" | "hide
 }
 
 /** Repères sémantiques Feuillets (Preview paginé + PDF) pour les modes
- * "show"/"hide" — indépendants de `tpl.profile`, contrairement au bloc
- * legacy ci-dessous (§9-§12 du lot « rôle document »). Construits à partir
- * de la même source de vérité que le Live Preview (PEDAGOGICAL_ROLE_FAMILY),
+ * "show"/"hide" — indépendants de `tpl.profile`. Construits à partir
+ * de la même source de vérité que le Live Preview (SEMANTIC_ROLE_FAMILY),
  * jamais d'une liste dupliquée. N'affecte jamais les callouts natifs
- * Obsidian (non listés dans PEDAGOGICAL_ROLES) ni le questionnaire
+ * Obsidian (non listés dans SEMANTIC_ROLES) ni le questionnaire
  * `[!questions]` (lignes de réponse générées ailleurs, inchangées). */
 function semanticRoleMarkerCss(mode: "show" | "hide"): string {
   const base = [
-    ".feuillets-pedagogical-role { background: transparent; border: 0; box-shadow: none; padding: 0; margin: 8pt 0; color: inherit; }",
-    ".feuillets-pedagogical-role .callout-content { padding: 3pt 0 0; color: inherit; }",
+    ".feuillets-semantic-role { background: transparent; border: 0; box-shadow: none; padding: 0; margin: 8pt 0; color: inherit; }",
+    ".feuillets-semantic-role .callout-content { padding: 3pt 0 0; color: inherit; }",
   ];
   if (mode === "show") {
     const families = new Map<string, string[]>();
-    for (const role of PEDAGOGICAL_ROLES) {
-      const family = PEDAGOGICAL_ROLE_FAMILY[role];
+    for (const role of SEMANTIC_ROLES) {
+      const family = SEMANTIC_ROLE_FAMILY[role];
       const selectors = families.get(family) || [];
       selectors.push(`.feuillets-role-${role}`);
       families.set(family, selectors);
     }
     const colorRules = Array.from(families.entries()).map(
-      ([family, selectors]) => `${selectors.join(", ")} { color: ${PEDAGOGICAL_PALETTE[family as keyof typeof PEDAGOGICAL_PALETTE]}; }`
+      ([family, selectors]) => `${selectors.join(", ")} { color: ${SEMANTIC_PALETTE[family as keyof typeof SEMANTIC_PALETTE]}; }`
     );
     return [
       ...base,
-      ".feuillets-pedagogical-role .callout-title { background: transparent; border: 0; box-shadow: none; padding: 0; display: flex; align-items: center; gap: 4pt; font-weight: 600; }",
-      ".feuillets-pedagogical-role .callout-title .feuillets-role-marker-icon { display: inline-flex; width: 12pt; height: 12pt; color: inherit; }",
-      ".feuillets-pedagogical-role .callout-title .feuillets-role-marker-icon svg { width: 100%; height: 100%; color: inherit; }",
-      ".feuillets-pedagogical-role .callout-title .collapse-indicator { display: none; }",
+      ".feuillets-semantic-role .callout-title { background: transparent; border: 0; box-shadow: none; padding: 0; display: flex; align-items: center; gap: 4pt; font-weight: 600; }",
+      ".feuillets-semantic-role .callout-title .feuillets-role-marker-icon { display: inline-flex; width: 12pt; height: 12pt; color: inherit; }",
+      ".feuillets-semantic-role .callout-title .feuillets-role-marker-icon svg { width: 100%; height: 100%; color: inherit; }",
+      ".feuillets-semantic-role .callout-title .collapse-indicator { display: none; }",
       ...colorRules,
     ].join("\n");
   }
   // hide : chrome (icône/couleur/label auto) retiré, contenu ET titre
   // éditorial explicite conservés — voir feuillets-role-title-auto,
-  // posée par applyPedagogicalSemantics (utils/pedagogical-roles.ts).
+  // posée par applySemanticRoles (utils/semantic-roles.ts).
   return [
     ...base,
-    ".feuillets-pedagogical-role .collapse-indicator { display: none; }",
-    ".feuillets-pedagogical-role .callout-title { background: transparent; border: 0; box-shadow: none; padding: 0; font-weight: normal; color: inherit; }",
-    ".feuillets-pedagogical-role.feuillets-role-title-auto .callout-title { display: none; }",
+    ".feuillets-semantic-role .collapse-indicator { display: none; }",
+    ".feuillets-semantic-role .callout-title { background: transparent; border: 0; box-shadow: none; padding: 0; font-weight: normal; color: inherit; }",
+    ".feuillets-semantic-role.feuillets-role-title-auto .callout-title { display: none; }",
   ].join("\n");
 }
 
@@ -353,7 +352,7 @@ export function templateToCss(tpl: ExportTemplate) {
     const headingFont = h?.fontFamily || tpl.headingFontFamily || tpl.fontFamily;
     const rules = [`font-family: ${headingFont};`, `page-break-before: ${pageBreak ? "always" : "avoid"};`];
     const headingColor = h?.colorHex || (isPedagogicalA4Template(tpl)
-      ? (level === "h3" ? PEDAGOGICAL_PALETTE.green : (level === "h1" || level === "h2" ? PEDAGOGICAL_PALETTE.red : null))
+      ? (level === "h3" ? SEMANTIC_PALETTE.green : (level === "h1" || level === "h2" ? SEMANTIC_PALETTE.red : null))
       : null);
     if (headingColor) rules.push(`color: ${headingColor};`);
     if (h) {
@@ -475,25 +474,37 @@ export function templateToCss(tpl: ExportTemplate) {
     ".feuillets-sheet { display: grid; grid-template-columns: 148mm 148mm; width: 297mm; height: 210mm; box-sizing: border-box; page-break-after: always; break-after: page; }",
     ".feuillets-sheet-panel { width: 148mm; height: 210mm; min-width: 0; min-height: 0; box-sizing: border-box; }",
     ".feuillets-sheet-panel .pdf-page { page-break-after: auto; break-after: auto; }",
-    /* Rendu historique (mode "legacy", repli par défaut — §9 du lot « rôle
-       document ») : STRICTEMENT inchangé, y compris le gate sur profile ===
-       "document". Les modes "show"/"hide" ne réinterprètent jamais ces
-       règles ; ils ajoutent leur propre bloc plus bas, indépendant du
-       profil (semanticRoleMarkerCss). */
-    ...(tpl.profile === "document" && semanticRoleMarkersMode(tpl) === "legacy" ? [
-      ".feuillets-pedagogical-role { background: transparent; border: 0; box-shadow: none; padding: 0; margin: 10pt 0; color: inherit; }",
-      ".feuillets-pedagogical-role .callout-title { background: transparent; border: 0; box-shadow: none; padding: 0; color: inherit; }",
-      ".feuillets-pedagogical-role .callout-title .callout-icon, .feuillets-pedagogical-role .callout-title .collapse-indicator { display: none; }",
-      ".feuillets-pedagogical-role .callout-content { padding: 4pt 0 0; color: inherit; }",
-      `.feuillets-role-problematique, .feuillets-role-introduction, .feuillets-role-correction { color: ${PEDAGOGICAL_PALETTE.green}; }`,
-      `.feuillets-role-questions, .feuillets-role-objectifs, .feuillets-role-competences, .feuillets-role-consignes, .feuillets-role-exemple, .feuillets-role-explication, .feuillets-role-definition, .feuillets-role-lexique, .feuillets-role-methodologie, .feuillets-role-tache { color: ${PEDAGOGICAL_PALETTE.black}; }`,
-      `.feuillets-role-trace { color: ${PEDAGOGICAL_PALETTE.blue}; }`,
-      `.feuillets-role-retenir { color: ${PEDAGOGICAL_PALETTE.red}; }`,
-      ".feuillets-role-introduction .callout-title, .feuillets-role-questions .callout-title, .feuillets-role-exemple .callout-title, .feuillets-role-explication .callout-title, .feuillets-role-definition .callout-title { display: none; }",
-      ".feuillets-role-exemple .callout-content { font-style: italic; }",
-      ".feuillets-role-explication .callout-content { font-style: normal; }",
-      ".feuillets-role-retenir .callout-title { font-weight: bold; }",
-    ] : []),
+    /* Rendu legacy (mode "legacy", repli par défaut) : rôles sémantiques avec
+       couleurs et styles minimalistes, générés à partir de la source canonique
+       (SEMANTIC_ROLE_FAMILY) plutôt que codés en dur — garantit qu'aucun ancien
+       rôle n'est référencé et que tous les nouveaux rôles reçoivent leurs
+       propriétés. Les modes "show"/"hide" ne réinterprètent jamais ces règles ;
+       ils ajoutent leur propre bloc plus bas, indépendant du profil
+       (semanticRoleMarkerCss). */
+    ...(tpl.profile === "document" && semanticRoleMarkersMode(tpl) === "legacy" ? (() => {
+      const legacyBase = [
+        ".feuillets-semantic-role { background: transparent; border: 0; box-shadow: none; padding: 0; margin: 10pt 0; color: inherit; }",
+        ".feuillets-semantic-role .callout-title { background: transparent; border: 0; box-shadow: none; padding: 0; color: inherit; }",
+        ".feuillets-semantic-role .callout-title .callout-icon, .feuillets-semantic-role .callout-title .collapse-indicator { display: none; }",
+        ".feuillets-semantic-role .callout-content { padding: 4pt 0 0; color: inherit; }",
+      ];
+      const families = new Map<string, string[]>();
+      const rolesWithAutoTitle: string[] = [];
+      for (const [role, family] of Object.entries(SEMANTIC_ROLE_FAMILY)) {
+        const selectors = families.get(family) || [];
+        selectors.push(`.feuillets-role-${role}`);
+        families.set(family, selectors);
+        // Rôles avec titre auto masqué : introduction, questions, explication, definition
+        if (["introduction", "questions", "explication", "definition"].includes(role)) {
+          rolesWithAutoTitle.push(`.feuillets-role-${role} .callout-title`);
+        }
+      }
+      const colorRules = Array.from(families.entries()).map(
+        ([family, selectors]) => `${selectors.join(", ")} { color: ${SEMANTIC_PALETTE[family as keyof typeof SEMANTIC_PALETTE]}; }`
+      );
+      const autoTitleRules = rolesWithAutoTitle.length > 0 ? [`${rolesWithAutoTitle.join(", ")} { display: none; }`] : [];
+      return [...legacyBase, ...colorRules, ...autoTitleRules];
+    })() : []),
     /* Contrat Questions / médias : entièrement indépendant du choix
        "legacy"/"show"/"hide" — jamais touché par ce lot (§16-§17). */
     ...(tpl.profile === "document" ? [
@@ -512,13 +523,13 @@ export function templateToCss(tpl: ExportTemplate) {
        `colorHex` explicite sur le niveau (headings.h1/h2/h3) prime : même
        valeur posée ici que dans headingRules ci-dessus, sans !important. */
     ...(isPedagogicalA4Template(tpl) ? [
-      `.pdf-page-content h1, .feuillets-preview-pages h1 { color: ${headings.h1?.colorHex || PEDAGOGICAL_PALETTE.red}; }`,
-      `.pdf-page-content h2, .feuillets-preview-pages h2 { color: ${headings.h2?.colorHex || PEDAGOGICAL_PALETTE.red}; }`,
-      `.pdf-page-content h3, .feuillets-preview-pages h3 { color: ${headings.h3?.colorHex || PEDAGOGICAL_PALETTE.green}; }`,
+      `.pdf-page-content h1, .feuillets-preview-pages h1 { color: ${headings.h1?.colorHex || SEMANTIC_PALETTE.red}; }`,
+      `.pdf-page-content h2, .feuillets-preview-pages h2 { color: ${headings.h2?.colorHex || SEMANTIC_PALETTE.red}; }`,
+      `.pdf-page-content h3, .feuillets-preview-pages h3 { color: ${headings.h3?.colorHex || SEMANTIC_PALETTE.green}; }`,
     ] : []),
     /* Slot d'icône des repères sémantiques (`.feuillets-role-marker-icon`,
-       un vrai <svg> Lucide injecté par applyPedagogicalSemantics via
-       setIcon — voir utils/pedagogical-roles.ts) : TOUJOURS émis, quel que
+       un vrai <svg> Lucide injecté par applySemanticRoles via
+       setIcon — voir utils/semantic-roles.ts) : TOUJOURS émis, quel que
        soit le profil ou le mode — masqué par défaut. Seul le mode "show"
        (bloc semanticRoleMarkerCss ci-dessous) le rend visible ; "legacy" et
        "hide" restent donc identiques au rendu d'avant l'injection de
@@ -527,8 +538,8 @@ export function templateToCss(tpl: ExportTemplate) {
        d'Obsidian (`.callout-icon`) reste lui aussi toujours masqué ici :
        dans ce contexte de rendu détaché (Preview/PDF), il ne contient
        jamais le bon glyphe. */
-    ".feuillets-pedagogical-role .callout-title .feuillets-role-marker-icon { display: none; }",
-    ".feuillets-pedagogical-role .callout-title .callout-icon { display: none; }",
+    ".feuillets-semantic-role .callout-title .feuillets-role-marker-icon { display: none; }",
+    ".feuillets-semantic-role .callout-title .callout-icon { display: none; }",
     /* Repères sémantiques Feuillets (16 rôles, tous profils) — Preview
        paginé + PDF uniquement (partagent ce même générateur), jamais
        l'éditeur ni le DOCX. Absent/"legacy" = rien de plus ici. */

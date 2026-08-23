@@ -117,17 +117,35 @@ function fakeRefusingContinuView(initialScope) {
  * (setCompileScope/compileScope) — `setContinuSource` tracé (micro-correctif
  * « lien Continu ↔ Preview ») : optionnel dans le vrai typage, mais présent
  * ici pour vérifier CE QUE `openScopeWithPreviewBesideLeaf` lui transmet. */
-function fakePreviewView(initialScope = null) {
+function fakePreviewView(initialScope = null, initialSourceMode = "document") {
+  // `callOrder` : journal PARTAGÉ entre setSourceMode et setCompileScope —
+  // seul moyen fiable de vérifier un ORDRE relatif entre deux méthodes
+  // distinctes (des compteurs séparés ne le pourraient pas).
+  const callOrder = [];
   return {
     compileScope: initialScope,
     setCompileScopeCalls: 0,
+    callOrder,
     async setCompileScope(scope) {
       this.setCompileScopeCalls++;
+      callOrder.push("setCompileScope");
       this.compileScope = scope;
     },
     setContinuSourceCalls: [],
     setContinuSource(source) {
       this.setContinuSourceCalls.push(source);
+    },
+    // Bug confirmé (chemins normaux d'ouverture → sourceMode "document") :
+    // tracé ici pour vérifier CE QUE `openScopeWithPreviewBesideLeaf` lui
+    // transmet, et dans quel ORDRE par rapport à `setCompileScope` — jamais
+    // un second garde-fou : le no-op quand déjà "document" reste la seule
+    // responsabilité de la VRAIE PreviewView (voir preview-view.test.js).
+    sourceMode: initialSourceMode,
+    setSourceModeCalls: [],
+    async setSourceMode(mode) {
+      this.setSourceModeCalls.push(mode);
+      callOrder.push("setSourceMode");
+      this.sourceMode = mode;
     },
   };
 }
@@ -477,6 +495,29 @@ test("I. Preview absente : workLeaf active AVANT le split, getLeaf(\"split\") ap
   assert.ok(workLeafActivations.length >= 2, "activée avant le split, puis focus final");
   assert.ok(workLeafActivations.every((c) => c.opts && c.opts.focus));
   assert.equal(calls.setActiveLeaf[calls.setActiveLeaf.length - 1].leaf, workLeaf, "le tout dernier appel cible workLeaf");
+});
+
+test("I bis. Preview réutilisée initialement en Support papier : openScopeWithPreviewBesideLeaf la ramène en document AVANT le scope demandé", async () => {
+  const project = buildProject();
+  const scope = createFileScope(project.root.path, project.a.path);
+  const existingPreview = {
+    view: fakePreviewView(createFileScope(project.root.path, project.b.path), "presentation-paper"),
+  };
+  const workLeaf = { isDeferred: false, loadIfDeferred: async () => {}, view: fakeContinuView(scope) };
+  const { workspace, previewLeaves } = buildWorkspace({ previewLeaves: [existingPreview] });
+  const app = buildApp(project, workspace);
+
+  await openScopeWithPreviewBesideLeaf(app, scope, workLeaf);
+
+  assert.deepEqual(existingPreview.view.setSourceModeCalls, ["document"], "le chemin NORMAL réinitialise toujours sourceMode à document");
+  assert.equal(existingPreview.view.sourceMode, "document");
+  assert.deepEqual(existingPreview.view.compileScope, scope, "le scope demandé est bien appliqué, pas conservé au hasard");
+  assert.equal(previewLeaves.length, 1, "aucun doublon");
+
+  // Ordre : le reset sourceMode précède le scope — jamais l'inverse, pour
+  // qu'une Preview réutilisée ne rende jamais le pipeline papier avec un
+  // scope qui n'en est pas un.
+  assert.deepEqual(existingPreview.view.callOrder, ["setSourceMode", "setCompileScope"], "setSourceMode(\"document\") précède toujours setCompileScope");
 });
 
 test("J. Preview déjà existante : aucune nouvelle leaf, aucun split, réutilisée sans être déplacée", async () => {

@@ -20,7 +20,7 @@ import {
   type ColumnComposition,
   type ColumnRatio,
 } from "./feuillets-directives.js";
-import { PEDAGOGICAL_ROLE_ALIASES, type PedagogicalRole } from "./pedagogical-roles.js";
+import { SEMANTIC_ROLE_ALIASES, type SemanticRole } from "./semantic-roles.js";
 
 export type LayoutSlotKind = "image" | "text";
 
@@ -268,20 +268,21 @@ function compositionFor(first: LayoutSlotKind, second: LayoutSlotKind): ColumnCo
 }
 
 /** Rôle sémantique porté par un bloc "texte" qui est en réalité un callout
- * `> [!rôle] …` — réutilise le registre existant (PEDAGOGICAL_ROLE_ALIASES,
- * pedagogical-roles.ts, §15 du lot) : jamais de seconde liste des 16 rôles. */
-function calloutRoleOf(lines: string[], block: LayoutBlockInfo): PedagogicalRole | null {
+ * `> [!rôle] …` — réutilise le registre existant (SEMANTIC_ROLE_ALIASES,
+ * semantic-roles.ts) : jamais de seconde liste des 18 rôles. */
+function calloutRoleOf(lines: string[], block: LayoutBlockInfo): SemanticRole | null {
   if (block.kind !== "text") return null;
   const match = lines[block.start].match(/^\s*>\s*\[!([A-Za-z0-9_-]+)\]/u);
   if (!match) return null;
-  return PEDAGOGICAL_ROLE_ALIASES[match[1].trim().toLowerCase()] || null;
+  return SEMANTIC_ROLE_ALIASES[match[1].trim().toLowerCase()] || null;
 }
 
-/** `document`/`doc` reste exclu du pairing automatique (§15/§41 du lot) —
- * seule exception au registre des 16 rôles, documentée explicitement par le
- * lot (le rendu 3A/3B lui-même est gelé, hors périmètre). */
-function isDessousEligibleRole(role: PedagogicalRole | null): boolean {
-  return role !== null && role !== "document";
+/** Tous les 18 rôles sémantiques sont éligibles pour le pairing automatique
+ * SAUF `source` (remplaçant du rôle historique `document` qui était aussi
+ * exclu du pairing Dessous automatique) — le rendu 3A/3B lui-même reste gelé,
+ * hors périmètre. */
+function isDessousEligibleRole(role: SemanticRole | null): boolean {
+  return role !== null && role !== "source";
 }
 
 function toRange(block: LayoutBlockInfo): LayoutLineRange {

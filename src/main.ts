@@ -15,7 +15,7 @@
 import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
-import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
+import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION, VIEW_PRESENTATION_PREVIEW, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
@@ -36,9 +36,10 @@ import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
 import { JournalView } from "./views/journal-view.js";
 import { ProjectView } from "./views/project-view.js";
-import { PreviewView, openWithPreview } from "./views/preview-view.js";
+import { PreviewView, openWithPreview, openPresentationPaperPreview } from "./views/preview-view.js";
 import { ScriveningsView, type ScriveningsEditorContext } from "./views/scrivenings-view.js";
 import { PresentationView, openPresentation } from "./views/presentation-view.js";
+import { PresentationPreviewView, openPresentationPreview } from "./views/presentation-preview-view.js";
 import type { ScriveningsAdapterEditorView } from "./utils/scrivenings-editor-adapter.js";
 import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
 import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
@@ -572,6 +573,7 @@ class FeuilletsPlugin extends Plugin {
     // pour ouvrir cette vue (voir views/scrivenings-view.ts).
     this.registerView(VIEW_SCRIVENINGS, (leaf) => new ScriveningsView(leaf, this));
     this.registerView(VIEW_PRESENTATION, (leaf) => new PresentationView(leaf));
+    this.registerView(VIEW_PRESENTATION_PREVIEW, (leaf) => new PresentationPreviewView(leaf));
   }
 
   registerRibbonIcons() {
@@ -625,6 +627,32 @@ class FeuilletsPlugin extends Plugin {
         const file = this.app.workspace.getActiveFile();
         if (!(file instanceof TFile) || file.extension !== "md") return false;
         if (!checking) void openPresentation(this.app, file);
+        return true;
+      },
+    });
+    /* Aperçu présentation lié — côte à côte avec l'éditeur Markdown actif
+       (voir views/presentation-preview-view.ts). Fichier actif OBLIGATOIREMENT
+       une MarkdownView (jamais un simple TFile actif quelconque) : c'est la
+       leaf qui sert de repère pour le split côte à côte et de source du
+       curseur à suivre. */
+    this.addCommand({
+      id: "present-current-file-preview",
+      name: t("presentation.preview.command"),
+      checkCallback: (checking) => {
+        const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        const file = markdownView?.file;
+        if (!markdownView || !(file instanceof TFile) || file.extension !== "md") return false;
+        if (!checking) void openPresentationPreview(this.app, markdownView.leaf, file);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "present-current-file-paper-preview",
+      name: t("presentation.paper.command"),
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!(file instanceof TFile) || file.extension !== "md") return false;
+        if (!checking) void openPresentationPaperPreview(this.app, this, file);
         return true;
       },
     });

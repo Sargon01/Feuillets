@@ -146,10 +146,9 @@ declare type ProjectMeta = {
   /** Colonnes du Plan propres au projet. Absentes sur les projets legacy. */
   outlineCols?: Record<string, boolean>;
 
-  /* Chantier « panneau Projet + métadonnées + mapping YAML » : réglages
-   * globaux historiques, surchargeables par projet. Repli sur le réglage
-   * global du même nom quand absent — voir services/project-settings.ts,
-   * seul point de résolution. Aucun de ces champs n'est créé par une simple
+  /* Réglages globaux surchargeables par projet. Repli sur le réglage global
+   * du même nom quand absent — voir services/project-settings.ts, seul
+   * point de résolution. Aucun de ces champs n'est créé par une simple
    * lecture/ouverture du panneau : uniquement au premier réglage MODIFIÉ
    * depuis le panneau Projet (clone-on-first-edit), jamais en repli
    * silencieux d'une valeur globale copiée. */
@@ -160,8 +159,6 @@ declare type ProjectMeta = {
    *  Obsidian standard `tags:` — ceci n'administre qu'une liste de
    *  suggestions, pas un système de tags parallèle. */
   favoriteTags?: string[];
-  /** Présentation visuelle des rôles Feuillets dans l'éditeur. */
-  roleEditorDisplay?: "callouts" | "compact";
   /** Objectif de mots par défaut d'un feuillet ; sinon settings.wordGoal. */
   wordGoal?: number;
   /** Tolérance (mots) autour de l'objectif pour l'état « atteint » de

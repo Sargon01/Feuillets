@@ -1,10 +1,28 @@
-import { ItemView, MarkdownRenderer, TFile, setIcon, type App } from "obsidian";
+/* Présentation — vue réelle, branchée sur le moteur de production partagé
+ * (voir ../services/presentation-slide-renderer.ts et
+ * ../services/presentation-layout-engine.ts). Cette vue ne gère
+ * plus que le chrome : toolbar, navigation, compteur, plein écran, live
+ * refresh, scaling du cadre 1280×720. Toute la composition d'une slide
+ * (candidats FLOW/SPLIT/STACK, mesure, contain, overflow, adoption du DOM
+ * gagnant) est déléguée à renderPresentationSlide — aucune implémentation
+ * locale du planner, du scoring ou du contain.
+ *
+ * Invariant conservé : DOM mesuré === DOM affiché.
+ */
+import { ItemView, TFile, setIcon, type App } from "obsidian";
 import { VIEW_PRESENTATION } from "../constants.js";
-import { PRESENTATION_DEFAULT_BODY_PX, PRESENTATION_MEDIA_SCALES, mediaQuestionsModeFor, presentationBodySizeCandidates, presentationExplicitMediaSize, presentationHeadingSize, presentationLayoutFor, presentationMediaBlocks, presentationOverflows, presentationScale, splitPresentationMarkdown, type PresentationLayout } from "../services/presentation.js";
+import { splitPresentationMarkdown, presentationScale } from "../services/presentation.js";
+import {
+  renderPresentationSlide,
+  PRESENTATION_SLIDE_WIDTH,
+  PRESENTATION_SLIDE_HEIGHT,
+  type RenderedPresentationSlide,
+} from "../services/presentation-slide-renderer.js";
+import { getRoleEditorDisplay } from "../utils/presentation-helpers.js";
 import { t } from "../i18n/index.js";
 
-const BASE_WIDTH = 1280;
-const BASE_HEIGHT = 720;
+const BASE_WIDTH = PRESENTATION_SLIDE_WIDTH;
+const BASE_HEIGHT = PRESENTATION_SLIDE_HEIGHT;
 
 function isEditableTarget(target: EventTarget | null): boolean {
   return (typeof HTMLInputElement !== "undefined" && target instanceof HTMLInputElement)
@@ -12,26 +30,38 @@ function isEditableTarget(target: EventTarget | null): boolean {
     || (typeof HTMLElement !== "undefined" && target instanceof HTMLElement && target.isContentEditable);
 }
 
+/* Le linter obsidianmd (no-forbidden-elements) interdit de créer/attacher un
+ * <style> — le deck et le measurementHost (structurellement nouveaux dans
+ * cette vue) sont donc posés exclusivement en inline ; le chrome existant
+ * (toolbar/compteur/overflow/stage/frame/bouton/état vide) continue lui
+ * d'utiliser ses classes CSS historiques de styles.css, inchangées. */
+function styleEl(el: HTMLElement, styles: Partial<CSSStyleDeclaration>): void {
+  Object.assign(el.style, styles);
+}
+
+type PresentationSlideRecord = RenderedPresentationSlide;
+
 export class PresentationView extends ItemView {
   private file: TFile | null = null;
-  private slides: string[] = [];
-  private index = 0;
+  private slidesMarkdown: string[] = [];
+  private activeIndex = 0;
+  private deckGeneration = 0;
+  private slideRecords: PresentationSlideRecord[] = [];
+
   private rootEl: HTMLElement | null = null;
   private stageEl: HTMLElement | null = null;
   private frameEl: HTMLElement | null = null;
-  private slideEl: HTMLElement | null = null;
-  private innerEl: HTMLElement | null = null;
+  private deckEl: HTMLElement | null = null;
   private counterEl: HTMLElement | null = null;
+  private overflowEl: HTMLElement | null = null;
   private previousButton: HTMLButtonElement | null = null;
   private nextButton: HTMLButtonElement | null = null;
-  private overflowEl: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private measurementHostEl: HTMLElement | null = null;
   private refreshTimer: number | null = null;
-  private renderVersion = 0;
-  private fitting = false;
 
   getViewType(): string { return VIEW_PRESENTATION; }
-  getDisplayText(): string { return `${t("presentation.display") } — ${this.file?.basename || this.file?.name || t("presentation.empty")}`; }
+  getDisplayText(): string { return `${t("presentation.display")} — ${this.file?.basename || this.file?.name || t("presentation.empty")}`; }
   getIcon(): string { return "presentation"; }
 
   async onOpen(): Promise<void> {
@@ -46,8 +76,17 @@ export class PresentationView extends ItemView {
     this.iconButton(toolbar, "maximize", t("presentation.fullscreen"), () => void this.toggleFullscreen());
     this.stageEl = this.rootEl.createDiv({ cls: "feuillets-presentation-stage" });
     this.frameEl = this.stageEl.createDiv({ cls: "feuillets-presentation-frame" });
-    this.slideEl = this.frameEl.createDiv({ cls: "feuillets-presentation-slide" });
-    this.innerEl = this.slideEl.createDiv({ cls: "feuillets-presentation-inner" });
+    styleEl(this.frameEl, { position: "relative" });
+    this.deckEl = this.frameEl.createDiv({ cls: "feuillets-presentation-deck" });
+    styleEl(this.deckEl, { position: "relative", width: `${BASE_WIDTH}px`, height: `${BASE_HEIGHT}px` });
+
+    /* measurementHost : conteneur de mesure dédié, attaché au DOM réel Obsidian
+     * afin que CSS Grid/Flex et dimensions soient réellement calculés. Jamais
+     * display:none. Le renderer y construit et y mesure les candidats d'une
+     * slide ; cette vue ne connaît rien de ce qui s'y passe. */
+    this.measurementHostEl = this.rootEl.createDiv({ cls: "feuillets-presentation-measurement-host" });
+    styleEl(this.measurementHostEl, { position: "absolute", left: "-100000px", top: "0", width: `${BASE_WIDTH}px`, height: `${BASE_HEIGHT}px`, visibility: "hidden", pointerEvents: "none" });
+
     this.registerDomEvent(this.rootEl, "keydown", (event: KeyboardEvent) => this.handleKeydown(event));
     if (typeof ResizeObserver !== "undefined") {
       this.resizeObserver = new ResizeObserver(() => this.updateScale());
@@ -61,32 +100,25 @@ export class PresentationView extends ItemView {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
+    for (const record of this.slideRecords) record.controller.abort();
+    this.slideRecords = [];
+    this.measurementHostEl = null;
   }
 
   async openFile(file: TFile): Promise<void> {
     const changed = this.file?.path !== file.path;
     this.file = file;
-    if (changed) this.index = 0;
+    if (changed) this.activeIndex = 0;
     const markdown = await this.app.vault.read(file);
-    this.slides = splitPresentationMarkdown(markdown);
-    this.index = Math.max(0, Math.min(this.index, Math.max(0, this.slides.length - 1)));
-    await this.renderCurrent();
+    this.slidesMarkdown = splitPresentationMarkdown(markdown);
+    this.activeIndex = Math.max(0, Math.min(this.activeIndex, Math.max(0, this.slidesMarkdown.length - 1)));
+    await this.rebuildDeck();
   }
 
-  async next(): Promise<void> {
-    if (!this.slides.length) return;
-    this.index = Math.min(this.slides.length - 1, this.index + 1);
-    await this.renderCurrent();
-  }
-
-  async previous(): Promise<void> {
-    if (!this.slides.length) return;
-    this.index = Math.max(0, this.index - 1);
-    await this.renderCurrent();
-  }
-
-  async first(): Promise<void> { this.index = 0; await this.renderCurrent(); }
-  async last(): Promise<void> { this.index = Math.max(0, this.slides.length - 1); await this.renderCurrent(); }
+  async next(): Promise<void> { this.setActiveIndex(this.activeIndex + 1); }
+  async previous(): Promise<void> { this.setActiveIndex(this.activeIndex - 1); }
+  async first(): Promise<void> { this.setActiveIndex(0); }
+  async last(): Promise<void> { this.setActiveIndex(this.slideRecords.length - 1); }
 
   handleKeydown(event: KeyboardEvent): void {
     if (isEditableTarget(event.target)) return;
@@ -98,92 +130,106 @@ export class PresentationView extends ItemView {
     else if (event.key === "End") { event.preventDefault(); void this.last(); }
   }
 
-  private async renderCurrent(): Promise<void> {
-    const inner = this.innerEl;
-    if (!inner) return;
-    const version = ++this.renderVersion;
-    inner.empty();
-    this.slideEl?.classList.remove("feuillets-presentation-has-overflow");
-    if (!this.file || !this.slides.length) {
-      inner.createDiv({ cls: "feuillets-presentation-empty", text: t("presentation.empty") });
-      this.updateUi();
-      return;
-    }
-    await MarkdownRenderer.render(this.app, this.slides[this.index], inner, this.file.path, this);
-    if (version !== this.renderVersion) return;
-    const layout = presentationLayoutFor(inner, this.index);
-    this.applyLayout(layout);
-    this.bindMediaFitAfterLoad();
-    this.fitCurrentSlide();
+  /** Navigation pure : change uniquement la slide active et met à jour compteur/toolbar — jamais de rendu, jamais de recalcul de layout. */
+  private setActiveIndex(index: number): void {
+    if (!this.slideRecords.length) { this.activeIndex = 0; this.updateUi(); return; }
+    this.activeIndex = Math.max(0, Math.min(index, this.slideRecords.length - 1));
+    this.updateActiveVisibility();
     this.updateUi();
   }
 
-  private applyLayout(layout: PresentationLayout): void {
-    const slide = this.slideEl;
-    const inner = this.innerEl;
-    if (!slide || !inner) return;
-    slide.className = `feuillets-presentation-slide feuillets-presentation-layout-${layout}`;
-    if (layout === "media-questions") {
-      this.layoutMediaQuestions(inner);
+  private updateActiveVisibility(): void {
+    this.slideRecords.forEach((record, i) => {
+      const active = i === this.activeIndex;
+      record.section.classList.toggle("is-active", active);
+      styleEl(record.section, { visibility: active ? "visible" : "hidden", pointerEvents: active ? "auto" : "none" });
+    });
+  }
+
+  /**
+   * (Re)construit le deck entier : une nouvelle génération, tous les anciens
+   * contrôleurs abandonnés, aucune réutilisation des sections de l'ancien
+   * deck (utilisé aussi bien à l'ouverture qu'au live refresh — section 8).
+   */
+  private async rebuildDeck(): Promise<void> {
+    const generation = ++this.deckGeneration;
+    for (const record of this.slideRecords) record.controller.abort();
+    this.slideRecords = [];
+    this.deckEl?.empty();
+    if (!this.deckEl) return;
+
+    if (!this.file || !this.slidesMarkdown.length) {
+      this.deckEl.createDiv({ cls: "feuillets-presentation-empty", text: t("presentation.empty") });
+      this.updateUi();
       return;
     }
-    if (layout !== "media-text") return;
-    const blocks = Array.from(inner.children) as HTMLElement[];
-    const heading = inner.createDiv({ cls: "feuillets-presentation-heading" });
-    const text = inner.createDiv({ cls: "feuillets-presentation-text" });
-    const media = inner.createDiv({ cls: "feuillets-presentation-media" });
-    const mediaBlocks = new Set(presentationMediaBlocks(inner));
-    for (const block of blocks) {
-      if (/^H[1-6]$/.test(block.tagName)) heading.appendChild(block);
-      else if (mediaBlocks.has(block)) media.appendChild(block);
-      else text.appendChild(block);
+
+    const records: PresentationSlideRecord[] = [];
+    for (let i = 0; i < this.slidesMarkdown.length; i++) {
+      const record = await this.renderSlide(i, generation);
+      if (generation !== this.deckGeneration) { record.controller.abort(); record.section.remove(); return; }
+      records.push(record);
     }
+    this.slideRecords = records;
+    this.updateActiveVisibility();
+    this.updateUi();
   }
 
-  private layoutMediaQuestions(inner: HTMLElement): void {
-    const blocks = Array.from(inner.children) as HTMLElement[];
-    const heading = inner.createDiv({ cls: "feuillets-presentation-heading" });
-    const media = inner.createDiv({ cls: "feuillets-presentation-media" });
-    const questions = inner.createDiv({ cls: "feuillets-presentation-questions" });
-    const mediaBlocks = new Set(presentationMediaBlocks(inner));
-    for (const block of blocks) {
-      if (/^H[1-6]$/.test(block.tagName)) heading.appendChild(block);
-      else if (mediaBlocks.has(block)) media.appendChild(block);
-      else questions.appendChild(block);
-    }
-    this.updateMediaQuestionsMode(media, questions);
+  /**
+   * Délègue entièrement le rendu d'UNE slide au renderer partagé — cette vue
+   * ne construit plus elle-même aucun candidat, aucune cellule, aucun calcul
+   * de contain : elle fournit uniquement le contexte (app/component/chemin),
+   * les conteneurs (measurementHost/deck) et les signaux de cycle de vie
+   * (génération, AbortController, callback de résolution média).
+   */
+  private async renderSlide(index: number, generation: number): Promise<PresentationSlideRecord> {
+    const controller = new AbortController();
+    const roleEditorDisplay = getRoleEditorDisplay(this.app);
+    return renderPresentationSlide({
+      app: this.app,
+      component: this,
+      sourcePath: this.file?.path ?? "",
+      markdown: this.slidesMarkdown[index] ?? "",
+      index,
+      generation,
+      measurementHost: this.measurementHostEl!,
+      deckContainer: this.deckEl!,
+      controller,
+      isGenerationStale: () => generation !== this.deckGeneration,
+      onMediaResolved: () => this.handleImageResolved(index, generation),
+      roleEditorDisplay,
+    });
   }
 
-  private bindMediaFitAfterLoad(): void {
-    const inner = this.innerEl;
-    if (!inner) return;
-    for (const image of Array.from(inner.querySelectorAll("img"))) {
-      if (image.complete) continue;
-      this.registerDomEvent(image, "load", () => this.refitLoadedMedia());
-      this.registerDomEvent(image, "error", () => this.refitLoadedMedia());
-    }
+  private handleImageResolved(index: number, generation: number): void {
+    if (generation !== this.deckGeneration) return; // génération de deck périmée : aucun effet
+    const record = this.slideRecords[index];
+    if (!record || record.generation !== generation) return; // la slide n'existe plus / a déjà été remplacée
+    void this.rebuildSlide(index, generation);
   }
 
-  private refitLoadedMedia(): void {
-    const inner = this.innerEl;
-    if (!inner) return;
-    const media = inner.querySelector(".feuillets-presentation-media");
-    const questions = inner.querySelector(".feuillets-presentation-questions");
-    if (media instanceof HTMLElement && questions instanceof HTMLElement) {
-      this.updateMediaQuestionsMode(media, questions);
+  /**
+   * Reconstruit UNIQUEMENT la slide concernée : relance le renderer (nouveaux
+   * candidats mesurés, DOM du gagnant adopté directement), puis remplace
+   * atomiquement l'ancienne section par le nouveau DOM déjà mesuré.
+   */
+  private async rebuildSlide(index: number, generation: number): Promise<void> {
+    if (generation !== this.deckGeneration) return;
+    const oldRecord = this.slideRecords[index];
+    if (!oldRecord) return;
+    const newRecord = await this.renderSlide(index, generation);
+    if (generation !== this.deckGeneration || this.slideRecords[index] !== oldRecord) {
+      newRecord.controller.abort();
+      newRecord.section.remove();
       return;
     }
-    this.fitCurrentSlide();
-  }
-
-  private updateMediaQuestionsMode(media: HTMLElement, questions: HTMLElement): void {
-    const image = media.querySelector("img");
-    const list = Array.from(questions.children).find((block) => block.tagName === "OL" || block.tagName === "UL");
-    const count = list?.children.length ?? 0;
-    const mode = mediaQuestionsModeFor(image?.naturalWidth ?? 0, image?.naturalHeight ?? 0, count);
-    this.innerEl?.classList.remove("feuillets-presentation-media-questions-side", "feuillets-presentation-media-questions-stacked");
-    this.innerEl?.classList.add(`feuillets-presentation-media-questions-${mode}`);
-    this.fitCurrentSlide();
+    oldRecord.controller.abort();
+    const active = this.activeIndex === index;
+    newRecord.section.classList.toggle("is-active", active);
+    styleEl(newRecord.section, { visibility: active ? "visible" : "hidden", pointerEvents: active ? "auto" : "none" });
+    oldRecord.section.remove();
+    this.slideRecords[index] = newRecord;
+    this.updateUi();
   }
 
   private updateScale(): void {
@@ -192,65 +238,22 @@ export class PresentationView extends ItemView {
     this.frameEl.style.transform = `scale(${scale})`;
   }
 
-  private updateOverflow(): void {
-    const overflow = !!this.innerEl && presentationOverflows(this.innerEl);
-    this.slideEl?.classList.toggle("feuillets-presentation-has-overflow", overflow);
-    if (this.overflowEl) this.overflowEl.setText(overflow ? t("presentation.overflow") : "");
-  }
-
-  private fitCurrentSlide(): void {
-    const inner = this.innerEl;
-    const slide = this.slideEl;
-    if (!inner || !slide || this.fitting) return;
-    const images = Array.from(inner.querySelectorAll("img"));
-    if (images.some((image) => image.complete === false)) {
-      this.applyFit(1, false, PRESENTATION_DEFAULT_BODY_PX);
-      this.updateOverflow();
-      return;
-    }
-    this.fitting = true;
-    for (const image of images) {
-      const explicit = presentationExplicitMediaSize(image);
-      if (explicit?.width) image.style.setProperty("--feuillets-presentation-explicit-width", `${explicit.width}px`);
-      if (explicit?.height) image.style.setProperty("--feuillets-presentation-explicit-height", `${explicit.height}px`);
-    }
-    const mediaScales = images.length ? PRESENTATION_MEDIA_SCALES : [1];
-    const smallestMediaScale = mediaScales[mediaScales.length - 1] ?? 1;
-    for (const mediaScale of mediaScales) {
-      this.applyFit(mediaScale, false, PRESENTATION_DEFAULT_BODY_PX);
-      if (!presentationOverflows(inner)) break;
-    }
-    if (presentationOverflows(inner)) this.applyFit(smallestMediaScale, true, PRESENTATION_DEFAULT_BODY_PX);
-    if (presentationOverflows(inner)) {
-      for (const bodySize of presentationBodySizeCandidates()) {
-        this.applyFit(smallestMediaScale, true, bodySize);
-        if (!presentationOverflows(inner)) break;
-      }
-    }
-    this.updateOverflow();
-    this.fitting = false;
-  }
-
-  private applyFit(mediaScale: number, compact: boolean, bodySize: number): void {
-    const slide = this.slideEl;
-    if (!slide) return;
-    slide.classList.toggle("feuillets-presentation-fit-compact", compact);
-    slide.style.setProperty("--feuillets-presentation-media-scale", String(mediaScale));
-    slide.style.setProperty("--feuillets-presentation-body-size", `${bodySize}px`);
-    slide.style.setProperty("--feuillets-presentation-h1-size", `${presentationHeadingSize(1, bodySize)}px`);
-    slide.style.setProperty("--feuillets-presentation-h2-size", `${presentationHeadingSize(2, bodySize)}px`);
-    slide.style.setProperty("--feuillets-presentation-h3-size", `${presentationHeadingSize(3, bodySize)}px`);
-    slide.style.setProperty("--feuillets-presentation-h4-size", `${presentationHeadingSize(4, bodySize)}px`);
-  }
-
   private updateUi(): void {
-    const total = this.slides.length;
-    if (this.counterEl) this.counterEl.setText(`${total ? this.index + 1 : 0} / ${total}`);
-    if (this.previousButton) this.previousButton.disabled = this.index <= 0 || !total;
-    if (this.nextButton) this.nextButton.disabled = !total || this.index >= total - 1;
+    const total = this.slideRecords.length;
+    if (this.counterEl) this.counterEl.setText(`${total ? this.activeIndex + 1 : 0} / ${total}`);
+    if (this.previousButton) this.previousButton.disabled = this.activeIndex <= 0 || !total;
+    if (this.nextButton) this.nextButton.disabled = !total || this.activeIndex >= total - 1;
+    const active = this.slideRecords[this.activeIndex];
+    if (this.overflowEl) this.overflowEl.setText(active?.overflow ? t("presentation.overflow") : "");
     this.updateScale();
   }
 
+  /**
+   * Live refresh (section 8) : relit le Markdown, re-découpe en slides,
+   * reconstruit un deck entièrement nouveau via rebuildDeck (nouvelle
+   * génération, ancien deck abandonné/aborté, aucune réutilisation de ses
+   * sections), index courant conservé et borné au nouveau nombre de slides.
+   */
   private onVaultModify(file: import("obsidian").TAbstractFile): void {
     if (!(file instanceof TFile) || !this.file || file.path !== this.file.path) return;
     if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);

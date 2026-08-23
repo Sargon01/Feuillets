@@ -1,0 +1,287 @@
+/* Moteur de layout Présentation v2 — service PUR, neutre, indépendant de
+ * toute vue. Objectif : un solveur de candidats mesurés — génère quelques
+ * dispositions plausibles pour une slide, les fait mesurer hors écran par
+ * un appelant (typiquement une vue), puis choisit la meilleure par
+ * comparaison de mesures réelles. Aucun seuil de ratio, aucune heuristique
+ * de « fit ».
+ *
+ * Ce fichier est l'extraction, à comportement strictement identique, du
+ * cœur générique précédemment situé dans presentation-prototype.ts : mêmes
+ * candidats, mêmes ratios, même ordre, même scoring, même formule contain,
+ * même détection d'overflow. Seuls les noms de symboles ont changé (retrait
+ * de « Prototype »).
+ *
+ * La Présentation actuelle (src/services/presentation.ts) n'appelle PAS
+ * encore ce moteur — cette extraction est un déplacement de comportement
+ * déjà validé, pas une bascule de la vraie Présentation.
+ */
+
+/** Le moteur ne connaît que trois géométries. Pas de géométrie métier. */
+export type PresentationGeometry = "flow" | "split" | "stack";
+
+/** Nature d'un bloc direct de slide, telle que déterminée par classifyPresentationBlock. */
+export type PresentationBlockKind = "heading" | "media" | "list" | "text" | "other";
+
+/** Descripteur PUR d'un bloc — jamais de HTMLElement conservé au-delà de l'appel. */
+export type PresentationBlockDescriptor = {
+  index: number;
+  kind: PresentationBlockKind;
+};
+
+export const PRESENTATION_MEDIA_BLOCK_CLASS = "feuillets-presentation-prototype-media-block";
+export const PRESENTATION_MEDIA_WRAPPER_CLASS = "feuillets-presentation-prototype-media-wrapper";
+
+/** Un candidat SPLIT/STACK PUR — jamais de HTMLElement, uniquement des index et des ratios. */
+export type PresentationCandidatePlan = {
+  id: string;
+  geometry: "split" | "stack";
+  headingIndexes: number[];
+  cellAIndexes: number[];
+  cellBIndexes: number[];
+  cellARatio: number;
+  cellBRatio: number;
+  mediaPosition: "a" | "b";
+};
+
+/** Mesure PURE d'un candidat, produite hors écran par l'appelant puis comparée ici. */
+export interface PresentationCandidateMeasurement {
+  id: string;
+  overflowPx: number;
+  mediaArea: number;
+  minTextWidth: number;
+}
+
+const SPLIT_RATIOS: ReadonlyArray<readonly [number, number]> = [
+  [42, 58],
+  [50, 50],
+  [58, 42],
+];
+const STACK_RATIOS: ReadonlyArray<readonly [number, number]> = [
+  [65, 35],
+  [60, 40],
+  [55, 45],
+];
+
+/** Type structurel minimal partagé par le vrai DOM et les FakeElement de test. */
+type PresentationElementLike = {
+  tagName: string;
+  text?: string;
+  childNodes?: ArrayLike<{ nodeType?: number; textContent?: string | null }>;
+  querySelector(selector: string): PresentationElementLike | null;
+  querySelectorAll(selector: string): ArrayLike<PresentationElementLike>;
+};
+
+/** « Texte direct significatif » : couvre à la fois le DOM réel (nœuds texte) et la
+ * convention FakeElement du dépôt (propriété .text portée par l'élément lui-même). */
+function hasSignificantDirectText(el: PresentationElementLike): boolean {
+  const own = typeof el.text === "string" ? el.text.trim() : "";
+  if (own.length > 0) return true;
+  const nodes = el.childNodes ? Array.from(el.childNodes) : [];
+  return nodes.some((node) => node.nodeType === 3 && (node.textContent || "").trim().length > 0);
+}
+
+/**
+ * Détection média autonome : enfant direct P/FIGURE/DIV contenant
+ * exactement un img/video/audio, sans li/blockquote/table, sans texte direct
+ * significatif. Aucune dépendance à une classe privée Obsidian.
+ */
+export function isAutonomousMediaBlock(el: PresentationElementLike): boolean {
+  if (!["P", "FIGURE", "DIV"].includes(el.tagName)) return false;
+  const media = Array.from(el.querySelectorAll("img, video, audio"));
+  if (media.length !== 1) return false;
+  if (el.querySelector("li, blockquote, table")) return false;
+  if (hasSignificantDirectText(el)) return false;
+  return true;
+}
+
+/** Classe un bloc direct de slide rendue en l'un des cinq PresentationBlockKind. */
+export function classifyPresentationBlock(el: PresentationElementLike): PresentationBlockKind {
+  if (/^H[1-6]$/.test(el.tagName)) return "heading";
+  if (isAutonomousMediaBlock(el)) return "media";
+  if (el.tagName === "UL" || el.tagName === "OL") return "list";
+  if (el.tagName === "P" || el.tagName === "BLOCKQUOTE") return "text";
+  return "other";
+}
+
+/** Construit les descripteurs PURS à partir des enfants directs d'une slide rendue. */
+export function descriptorsForSlide(inner: { children: ArrayLike<PresentationElementLike> }): PresentationBlockDescriptor[] {
+  return Array.from(inner.children).map((el, index) => ({ index, kind: classifyPresentationBlock(el) }));
+}
+
+/**
+ * Première slide, sans média : reste FLOW mais reçoit un traitement de
+ * composition sobre (titre + sous-titre centrés). N'introduit aucune
+ * géométrie supplémentaire — un simple indicateur pour l'appelant.
+ */
+export function isPresentationTitleSlide(index: number, blocks: PresentationBlockDescriptor[]): boolean {
+  if (index !== 0) return false;
+  return !blocks.some((b) => b.kind === "media");
+}
+
+/**
+ * Génère les candidats SPLIT/STACK PURS. Règles exactes :
+ *  - nombre de médias autonomes != 1 => FLOW forcé => [] ;
+ *  - contenu des deux côtés du média => FLOW forcé => [] ;
+ *  - seuls headings + 1 média (pas d'autre contenu) => FLOW forcé => [] ;
+ *  - sinon : 6 candidats (3 SPLIT, 3 STACK), dans l'ordre des ratios donnés,
+ *    l'ordre Markdown des cellules (média avant/après contenu) étant conservé.
+ * Une liste (UL/OL) est un simple contenu : aucune règle spécifique « questions ».
+ *
+ * BUG 1 FIX: Headings contigus au début de la slide seulement — après le premier
+ * bloc non-heading, tout heading reste dans le body à sa position Markdown.
+ */
+export function generatePresentationCandidates(blocks: PresentationBlockDescriptor[]): PresentationCandidatePlan[] {
+  // BUG 1 FIX: Seulement headings contigus au début — tous autres blocs (y compris headings non-contigus) vont dans le body
+  const headingIndexes: number[] = [];
+  let firstNonHeaderIndex = blocks.length;
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].kind === "heading") {
+      headingIndexes.push(blocks[i].index);
+    } else {
+      firstNonHeaderIndex = i;
+      break;
+    }
+  }
+
+  const nonHeaderBlocks = blocks.slice(firstNonHeaderIndex);
+  const mediaCount = nonHeaderBlocks.filter((b) => b.kind === "media").length;
+  if (mediaCount !== 1) return [];
+
+  const mediaPos = nonHeaderBlocks.findIndex((b) => b.kind === "media");
+  const before = nonHeaderBlocks.slice(0, mediaPos);
+  const after = nonHeaderBlocks.slice(mediaPos + 1);
+  if (before.length > 0 && after.length > 0) return [];
+
+  // BUG 2 FIX: Forcer FLOW pour headings + image seule (pas d'autre contenu)
+  if (before.length === 0 && after.length === 0) return [];
+
+  const mediaIndex = nonHeaderBlocks[mediaPos].index;
+  const mediaFirst = before.length === 0;
+  const cellAIndexes = mediaFirst ? [mediaIndex] : before.map((b) => b.index);
+  const cellBIndexes = mediaFirst ? after.map((b) => b.index) : [mediaIndex];
+  const mediaPosition: "a" | "b" = mediaFirst ? "a" : "b";
+
+  const candidates: PresentationCandidatePlan[] = [];
+  for (const [a, b] of SPLIT_RATIOS) {
+    candidates.push({ id: `split-${a}-${b}`, geometry: "split", headingIndexes, cellAIndexes, cellBIndexes, cellARatio: a, cellBRatio: b, mediaPosition });
+  }
+  for (const [a, b] of STACK_RATIOS) {
+    candidates.push({ id: `stack-${a}-${b}`, geometry: "stack", headingIndexes, cellAIndexes, cellBIndexes, cellARatio: a, cellBRatio: b, mediaPosition });
+  }
+  return candidates;
+}
+
+/** Deux surfaces considérées égales si leur écart relatif est inférieur à 1%. */
+function withinOnePercent(a: number, b: number): boolean {
+  const ref = Math.max(Math.abs(a), Math.abs(b), 1);
+  return Math.abs(a - b) / ref < 0.01;
+}
+
+/**
+ * Classement PUR des candidats (règle exacte) :
+ *  1. candidats valides := overflowPx <= 1 ;
+ *  2. s'il en existe : le plus grand mediaArea gagne ;
+ *  3. égalité à moins de 1% : le plus grand minTextWidth gagne ;
+ *  4. nouvelle égalité : ordre original conservé ;
+ *  5. aucun candidat valide : le plus petit overflowPx gagne ;
+ *  6. égalité d'overflow : le plus grand mediaArea gagne.
+ * Aucune autre heuristique. Aucun seuil d'aspect ratio.
+ */
+export function choosePresentationCandidate(measurements: readonly PresentationCandidateMeasurement[]): string | null {
+  if (measurements.length === 0) return null;
+  const valid = measurements.filter((m) => m.overflowPx <= 1);
+
+  if (valid.length > 0) {
+    let best = valid[0];
+    for (let i = 1; i < valid.length; i++) {
+      const m = valid[i];
+      if (withinOnePercent(m.mediaArea, best.mediaArea)) {
+        if (m.minTextWidth > best.minTextWidth) best = m;
+      } else if (m.mediaArea > best.mediaArea) {
+        best = m;
+      }
+    }
+    return best.id;
+  }
+
+  let best = measurements[0];
+  for (let i = 1; i < measurements.length; i++) {
+    const m = measurements[i];
+    if (m.overflowPx < best.overflowPx) best = m;
+    else if (m.overflowPx === best.overflowPx && m.mediaArea > best.mediaArea) best = m;
+  }
+  return best.id;
+}
+
+/** Type structurel d'une cellule/bloc média réels, pour la normalisation ci-dessous. */
+type PresentationMediaHost = {
+  classList: { add(...names: string[]): void };
+  querySelectorAll(selector: string): ArrayLike<PresentationMediaEl>;
+};
+type PresentationMediaEl = {
+  classList: { add(...names: string[]): void };
+  removeAttribute(name: string): void;
+  style: { removeProperty(name: string): void };
+  parentElement: (PresentationMediaEl & PresentationMediaHost) | null;
+};
+
+/**
+ * Normalisation MediaCell : la cellule est l'autorité de géométrie. Marque
+ * le bloc média et chaque wrapper intermédiaire jusqu'à la cellule (exclue),
+ * retire toute taille explicite (attribut ou inline) posée sur le média et
+ * ses wrappers. Ne sort jamais de la cellule. Idempotent. Ne modifie jamais
+ * le Markdown ni le DOM de l'éditeur.
+ */
+export function normalizePresentationMediaCell(cell: PresentationMediaHost, mediaBlock: PresentationMediaHost & PresentationMediaEl): void {
+  mediaBlock.classList.add(PRESENTATION_MEDIA_BLOCK_CLASS);
+  const mediaEls = Array.from(mediaBlock.querySelectorAll("img, video, audio"));
+  for (const mediaEl of mediaEls) {
+    mediaEl.removeAttribute("width");
+    mediaEl.removeAttribute("height");
+    mediaEl.style.removeProperty("width");
+    mediaEl.style.removeProperty("height");
+    let parent = mediaEl.parentElement;
+    while (parent && parent !== (cell as unknown as PresentationMediaEl)) {
+      parent.classList.add(PRESENTATION_MEDIA_WRAPPER_CLASS);
+      parent.style.removeProperty("width");
+      parent.style.removeProperty("height");
+      parent = parent.parentElement;
+    }
+  }
+}
+
+/** Détection d'overflow — implémentation locale au moteur (aucun autre code de la Présentation actuelle réutilisé). */
+export function presentationLayoutOverflows(element: Pick<HTMLElement, "scrollWidth" | "clientWidth" | "scrollHeight" | "clientHeight">): boolean {
+  return element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1;
+}
+
+/** Taille PURE d'un média en `contain` dans une cellule, calculée mathématiquement — jamais lue dans le navigateur. */
+export interface PresentationContainedSize {
+  width: number;
+  height: number;
+  area: number;
+}
+
+/**
+ * Taille exacte d'un média en `object-fit: contain` dans une cellule de
+ * `cellWidth`×`cellHeight`, à partir de ses dimensions naturelles. Aucun
+ * crop, aucune déformation, aucun upscale arbitraire au-delà de la cellule —
+ * c'est la même formule mathématique que `object-fit: contain`, calculée en
+ * amont pour que la taille appliquée au média et la taille utilisée pour le
+ * score (`mediaArea`) soient rigoureusement identiques, plutôt que de faire
+ * confiance à un rectangle éventuellement coupé par les wrappers du rendu.
+ */
+export function presentationContainedMediaSize(
+  cellWidth: number,
+  cellHeight: number,
+  mediaWidth: number,
+  mediaHeight: number,
+): PresentationContainedSize | null {
+  for (const value of [cellWidth, cellHeight, mediaWidth, mediaHeight]) {
+    if (!Number.isFinite(value) || value <= 0) return null;
+  }
+  const scale = Math.min(cellWidth / mediaWidth, cellHeight / mediaHeight);
+  const width = mediaWidth * scale;
+  const height = mediaHeight * scale;
+  return { width, height, area: width * height };
+}

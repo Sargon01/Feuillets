@@ -18,6 +18,10 @@ export const VIEW_PREVIEW = "feuillets-manuscript-preview";
  * `setViewState({ type: VIEW_SCRIVENINGS, ... })`. */
 export const VIEW_SCRIVENINGS = "feuillets-scrivenings";
 export const VIEW_PRESENTATION = "feuillets-presentation";
+/** Aperçu d'édition lié — côte à côte avec l'éditeur Markdown (voir
+ * views/presentation-preview-view.ts). Distincte de VIEW_PRESENTATION (la
+ * vraie vue de projection/lecture), jamais un remplacement. */
+export const VIEW_PRESENTATION_PREVIEW = "feuillets-presentation-preview";
 
 /** Statuts : entièrement personnalisables (nom + couleur), comme les
  * labels — plus de liste figée ni de couleur déterminée par la position.

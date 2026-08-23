@@ -1,7 +1,7 @@
 import { Component, MarkdownRenderer, Notice, TFile } from "obsidian";
 import type { App } from "obsidian";
 import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
-import { applyPedagogicalSemantics } from "../utils/pedagogical-roles.js";
+import { applySemanticRoles } from "../utils/semantic-roles.js";
 import { applyFeuilletsDirectiveMarkers, prepareFeuilletsDirectives } from "../utils/feuillets-directives.js";
 
 type RenderedFootnote = {
@@ -67,7 +67,11 @@ const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, ImageMime>> = {
  * aussi enveloppée dans un <figure>/<figcaption> si elle a une légende),
  * le DOCX a besoin des octets bruts pour construire un vrai ImageRun (la
  * légende y est ajoutée comme un paragraphe séparé — voir export-docx.js). */
-export async function renderManuscriptHtml(app: App, markdown: string, sourcePath: string): Promise<RenderedManuscript> {
+export async function renderManuscriptHtml(
+  app: App,
+  markdown: string,
+  sourcePath: string
+): Promise<RenderedManuscript> {
   /* Créé via l'helper Obsidian createDiv() : l'élément appartient au
      document principal Obsidian mais reste détaché du début à la fin de
      tout le pipeline export (EPUB/DOCX/PDF) — jamais affiché, seulement
@@ -77,7 +81,7 @@ export async function renderManuscriptHtml(app: App, markdown: string, sourcePat
   component.load();
   try {
     await MarkdownRenderer.render(app, prepareFeuilletsDirectives(markdown), container, sourcePath, component);
-    applyPedagogicalSemantics(container);
+    applySemanticRoles(container);
     applyFeuilletsDirectiveMarkers(container);
   } finally {
     component.unload();
@@ -166,8 +170,8 @@ function composeLandscapeContext(wrapper: HTMLElement, figure: HTMLElement): voi
   wrapper.appendChild(figure);
 }
 
-function isPedagogicalRoleBlock(node: Element | null): node is HTMLElement {
-  return !!node && node.classList.contains("feuillets-pedagogical-role");
+function isSemanticRoleBlock(node: Element | null): node is HTMLElement {
+  return !!node && node.classList.contains("feuillets-semantic-role");
 }
 
 /* ===== Surcharge locale `%% image: … %%` (LOT 3A) =====
@@ -201,7 +205,7 @@ function composeDocumentMediaRoles(container: HTMLElement): void {
     const marker = media.nextElementSibling;
     const hasDirective = media.classList.contains("feuillets-directive-dessous") || !!media.querySelector(".feuillets-directive-dessous");
     const role = marker;
-    if (!isPedagogicalRoleBlock(role)) continue;
+    if (!isSemanticRoleBlock(role)) continue;
 
     const pair = createDiv({ cls: "feuillets-document-media-role-pair" });
     pair.classList.add(hasDirective ? "feuillets-document-media-role-pair-stacked" : "feuillets-document-media-role-pair-side");

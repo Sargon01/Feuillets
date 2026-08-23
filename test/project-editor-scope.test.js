@@ -103,9 +103,28 @@ test("le CSS cible les directives et rôles uniquement sous la portée locale, t
 
   assert.match(compactCallouts, /\.feuillets-project-editor \.markdown-source-view\.mod-cm6\.is-live-preview \.callout:is\(\[data-callout="saut-page"\], \[data-callout="pagebreak"\]\)/);
   assert.match(styles, /\.feuillets-project-editor \.markdown-source-view\.mod-cm6\.is-live-preview \.callout:is\([\s\S]*data-callout="questions"/);
-  for (const role of ["problematique", "questions", "correction", "trace", "retenir", "definition", "exemple", "methodologie", "document", "doc"]) {
-    assert.match(styles, new RegExp(`\\.feuillets-project-editor \\.markdown-source-view\\.mod-cm6\\.is-live-preview \\.callout:is\\([\\s\\S]*data-callout="${role}"`));
+
+  // Les 18 rôles canoniques (src/utils/semantic-roles.ts) doivent tous être
+  // ciblés en mode Callout et en mode Compact — aucun oublié.
+  const canonicalRoles = [
+    "introduction", "question-directrice", "objectifs", "competences", "instructions",
+    "questions", "solution", "argument", "hypothese", "preuve",
+    "source", "citation", "explication", "definition", "methode",
+    "synthese", "point-cle", "recommandation",
+  ];
+  for (const role of canonicalRoles) {
+    assert.match(styles, new RegExp(`\\.feuillets-project-editor \\.markdown-source-view\\.mod-cm6\\.is-live-preview \\.callout:is\\([\\s\\S]*?data-callout="${role}"`), `couleur/icône manquante pour le rôle "${role}"`);
+    assert.match(calloutRoles, new RegExp(`data-callout="${role}"`), `mode Callout manquant pour le rôle "${role}"`);
+    assert.match(compactRoles, new RegExp(`data-callout="${role}"`), `mode Compact manquant pour le rôle "${role}"`);
   }
+
+  // Régressions visibles signalées : ces rôles ont concrètement cessé de
+  // changer de rendu entre Callout et Compact — on les verrouille explicitement.
+  for (const role of ["solution", "synthese", "source", "point-cle"]) {
+    assert.match(calloutRoles, new RegExp(`data-callout="${role}"`), `Callout: rôle "${role}" absent`);
+    assert.match(compactRoles, new RegExp(`data-callout="${role}"`), `Compact: rôle "${role}" absent`);
+  }
+
   assert.match(styles, /\.callout-title[\s\S]*\.callout-icon[\s\S]*color:\s*rgb\(var\(--callout-color\)\)/);
   assert.match(calloutRoles, /\.feuillets-project-editor:not\(\.feuillets-role-display-compact\)[\s\S]*background:\s*rgba\(var\(--callout-color\), 0\.1\)/);
   assert.match(calloutRoles, /border-left:\s*3px solid rgb\(var\(--callout-color\)\)/);
@@ -119,4 +138,22 @@ test("le CSS cible les directives et rôles uniquement sous la portée locale, t
 
   assert.doesNotMatch(styles, /(?:^|\n)\s*\.callout\[data-callout="questions"\]/);
   assert.doesNotMatch(compactCallouts, /!important/);
+
+  // L'ancienne grammaire de rôles (alias, rôles disparus) ne doit plus
+  // recevoir aucun traitement Feuillets nulle part dans le fichier.
+  const obsoleteRoles = [
+    "problematique", "problematic", "correction", "trace", "lesson",
+    "methodologie", "methodology", "objectives", "competencies",
+    "exemple", "example", "tache", "task", "retenir", "keypoint",
+    "lexique", "glossary", "consignes", "explanation",
+  ];
+  for (const role of obsoleteRoles) {
+    assert.doesNotMatch(styles, new RegExp(`data-callout="${role}"`), `sélecteur obsolète encore présent pour "${role}"`);
+  }
+
+  // Les callouts natifs/Obsidian ordinaires ne doivent recevoir aucune
+  // classe ou règle Feuillets : ni couleur de famille, ni icône, ni chrome.
+  for (const nativeCallout of ["question", "example", "quote", "note", "document", "doc"]) {
+    assert.doesNotMatch(styles, new RegExp(`\\.feuillets-project-editor[\\s\\S]{0,200}data-callout="${nativeCallout}"`), `callout natif "${nativeCallout}" reçoit un traitement Feuillets`);
+  }
 });

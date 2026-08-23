@@ -237,7 +237,7 @@ test("templateToCss : compositions explicites en colonnes — grid-template-colu
   assert.ok(css.includes(".feuillets-column-media img { display: block; width: 100%; max-width: 100%; height: auto; margin: 0; }"));
   // Interdictions absolues (§14/§46) — scopées aux règles réellement
   // introduites par ce lot : le reste du CSS partagé (ex. les gabarits
-  // `.feuillets-doc-media-portrait`/`.feuillets-sheet-panel` en pt/mm/px)
+  // `.feuillets-source-media-portrait`/`.feuillets-sheet-panel` en pt/mm/px)
   // est hors périmètre et volontairement inchangé.
   const columnsRules = css.split("\n").filter((line) => /\.feuillets-columns|\.feuillets-column\b|\.feuillets-column-/.test(line)).join("\n");
   assert.notEqual(columnsRules, "");
@@ -248,8 +248,8 @@ test("templateToCss : compositions explicites en colonnes — grid-template-colu
 
 test("templateToCss : la composition colonnes est transversale — aucune dépendance au profil ou au mode structured", () => {
   // Contrairement au pairing média+rôle automatique (gated `profile ===
-  // "document"`), les règles `.feuillets-columns` doivent apparaître dans
-  // TOUS les profils — la composition est une capacité générale du document.
+  // "source"`), les règles `.feuillets-columns` doivent apparaître dans
+  // TOUS les profils — la composition est une capacité générale du source.
   for (const key of ["classique", "romanSimple", "moderne", "apa", "these"]) {
     const css = templateToCss(EXPORT_TEMPLATES[key]);
     assert.ok(css.includes(".feuillets-columns-50-50 { grid-template-columns: 1fr 1fr; }"), key);
@@ -274,7 +274,7 @@ test("profil Document pédagogique A4 : CSS des rôles, respiration, questions e
   assert.match(css, /h2 \{[^}]*color: #B42318/);
   assert.match(css, /h3 \{[^}]*color: #2E7D32/);
   assert.match(css, /\.pdf-page-content h1, \.feuillets-preview-pages h1 \{ color: #B42318; \}/);
-  assert.match(css, /feuillets-role-questions[^}]*color: #111111/);
+  assert.match(css, /feuillets-role-questions[^}]*color: #1F5EA8/);
   assert.doesNotMatch(css, /text-decoration-line: underline/);
   assert.match(css, /feuillets-role-questions \.callout-content > ol > li::after/);
   assert.match(css, /content: ""/);
@@ -283,8 +283,8 @@ test("profil Document pédagogique A4 : CSS des rôles, respiration, questions e
   assert.match(css, /margin-bottom: 0\.70em/);
   assert.match(css, /margin: 10pt 0/);
   assert.match(css, /feuillets-role-introduction[^}]*callout-title[^}]*display: none/);
-  assert.match(css, /feuillets-role-retenir[^}]*color: #B42318/);
-  assert.match(css, /feuillets-role-exemple[^}]*font-style: italic/);
+  assert.match(css, /feuillets-role-point-cle[^}]*color: #B42318/);
+  assert.match(css, /feuillets-role-explication[^}]*color: #6E56CF/);
   assert.match(css, /blockquote \{[^}]*border: 0\.75pt solid/);
   assert.match(css, /feuillets-document-media-role-pair-side[^}]*display: grid/);
   assert.match(css, /feuillets-document-media-role-pair-stacked[^}]*display: block/);
@@ -320,14 +320,14 @@ test("profil Document pédagogique A4 : une colorHex explicite sur H1/H2/H3 prim
   assert.doesNotMatch(css, /h3 \{[^}]*#2E7D32/);
 });
 
-test("couleur du corps : n'écrase jamais les repères sémantiques (document reste bleu, retenir reste rouge)", () => {
+test("couleur du corps : n'écrase jamais les repères sémantiques (source reste bleu, point-cle reste rouge)", () => {
   const base = { ...EXPORT_TEMPLATES.moderne, profile: "document", colorHex: "#555555", semanticRoleMarkers: "show" };
   const css = templateToCss(base);
   assert.match(css, /body \{[^}]*color: #555555;/);
-  assert.match(css, /\.feuillets-role-document[^{]*\{[^}]*color: #1F5EA8/);
+  assert.match(css, /\.feuillets-role-source[^{]*\{[^}]*color: #1F5EA8/);
   const legacy = templateToCss({ ...EXPORT_TEMPLATES.moderne, profile: "document", colorHex: "#555555" });
   assert.match(legacy, /body \{[^}]*color: #555555;/);
-  assert.match(legacy, /\.feuillets-role-retenir \{ color: #B42318; \}/);
+  assert.match(legacy, /\.feuillets-role-point-cle \{ color: #B42318; \}/);
 });
 
 // ---------- semanticRoleMarkers : legacy / show / hide ----------
@@ -339,24 +339,24 @@ test("semanticRoleMarkers absent === \"legacy\" : rendu historique inchangé", (
   assert.equal(withoutField, withLegacy);
 });
 
-test("semanticRoleMarkers legacy : les 15 rôles historiques ne changent pas de CSS", () => {
+test("semanticRoleMarkers legacy : les 18 rôles canoniques ne changent pas de CSS", () => {
   const tpl = { ...EXPORT_TEMPLATES.moderne, profile: "document", label: "Modèle Feuillets – Document pédagogique A4" };
   const cssBefore = templateToCss({ ...tpl });
   const cssLegacy = templateToCss({ ...tpl, semanticRoleMarkers: "legacy" });
   assert.equal(cssBefore, cssLegacy);
   assert.match(cssLegacy, /feuillets-role-introduction[^}]*callout-title[^}]*display: none/);
-  assert.match(cssLegacy, /feuillets-role-retenir[^}]*color: #B42318/);
+  assert.match(cssLegacy, /feuillets-role-point-cle[^}]*color: #B42318/);
 });
 
 test("semanticRoleMarkers show : repère compact visible pour un rôle simple", () => {
   const css = templateToCss({ ...EXPORT_TEMPLATES.classique, semanticRoleMarkers: "show" });
-  // A. [!problematique] => repère visible compact (icône + titre, pas de gros encadré).
-  assert.match(css, /\.feuillets-pedagogical-role \{[^}]*background: transparent/);
+  // A. [!question-directrice] => repère visible compact (icône + titre, pas de gros encadré).
+  assert.match(css, /\.feuillets-semantic-role \{[^}]*background: transparent/);
   // Le slot d'icône Feuillets (vrai SVG Lucide injecté par setIcon — voir
-  // pedagogical-roles.ts) devient visible ; le slot NATIF Obsidian
+  // semantic-roles.ts) devient visible ; le slot NATIF Obsidian
   // (.callout-icon, jamais fiable hors Live Preview) reste masqué.
-  assert.match(css, /\.feuillets-pedagogical-role \.callout-title \.feuillets-role-marker-icon \{[^}]*display: inline-flex/);
-  assert.match(css, /\.feuillets-pedagogical-role \.callout-title \.callout-icon \{ display: none; \}/);
+  assert.match(css, /\.feuillets-semantic-role \.callout-title \.feuillets-role-marker-icon \{[^}]*display: inline-flex/);
+  assert.match(css, /\.feuillets-semantic-role \.callout-title \.callout-icon \{ display: none; \}/);
 });
 
 test("semanticRoleMarkers show : [!questions] a un repère visible, sans toucher au questionnaire", () => {
@@ -368,24 +368,22 @@ test("semanticRoleMarkers show : [!questions] a un repère visible, sans toucher
   assert.match(css, /border-bottom: 1px dotted/);
 });
 
-test("semanticRoleMarkers show : [!document] Doc 2 : Carte => classe document, icône file-text, bleu, titre conservé", () => {
+test("semanticRoleMarkers show : [!source] Doc 2 : Carte => classe source, icône file-text, bleu, titre conservé", () => {
   const css = templateToCss({ ...EXPORT_TEMPLATES.classique, semanticRoleMarkers: "show" });
-  assert.match(css, /\.feuillets-role-document[^{]*\{[^}]*color: #1F5EA8/);
-  // Le titre lui-même n'est jamais réécrit par le CSS — voir pedagogical-roles.js
+  assert.match(css, /\.feuillets-role-source[^{]*\{[^}]*color: #1F5EA8/);
+  // Le titre lui-même n'est jamais réécrit par le CSS — voir semantic-roles.ts
   // (feuillets-role-title-explicit) : la classe show ne fait qu'afficher ce que
   // le rendu Obsidian a déjà posé dans .callout-title-inner. L'icône réelle
   // (SVG Lucide file-text) est injectée dans .feuillets-role-marker-icon par
-  // applyPedagogicalSemantics (via setIcon) — voir test/export-render.test.js.
-  assert.match(css, /\.feuillets-pedagogical-role \.callout-title \.feuillets-role-marker-icon \{[^}]*display: inline-flex/);
+  // applySemanticRoles (via setIcon) — voir test/export-render.test.js.
+  assert.match(css, /\.feuillets-semantic-role \.callout-title \.feuillets-role-marker-icon \{[^}]*display: inline-flex/);
 });
 
-test("semanticRoleMarkers show : [!doc] Figure 3 — Prototype normalisé document, même rendu CSS", () => {
-  const cssDoc = templateToCss({ ...EXPORT_TEMPLATES.classique, semanticRoleMarkers: "show" });
-  // La classe CSS générée cible .feuillets-role-document pour les deux
-  // syntaxes : la normalisation alias -> canonique se fait en amont
-  // (applyPedagogicalSemantics), jamais dans ce CSS.
-  assert.match(cssDoc, /\.feuillets-role-document/);
-  assert.doesNotMatch(cssDoc, /\.feuillets-role-doc[^u]/);
+test("semanticRoleMarkers show : [!source] avec titre personnalisé, même rendu CSS", () => {
+  const cssSource = templateToCss({ ...EXPORT_TEMPLATES.classique, semanticRoleMarkers: "show" });
+  // La classe CSS générée cible .feuillets-role-source pour tous les
+  // cas d'usage du rôle sémantique (source et synthese, même famille blue).
+  assert.match(cssSource, /\.feuillets-role-source[^{]*\{[^}]*color: #1F5EA8/);
 });
 
 test("semanticRoleMarkers show : un callout natif ([!warning]) n'est jamais transformé", () => {
@@ -399,18 +397,18 @@ test("semanticRoleMarkers hide : chrome retiré (icône/couleur/label auto), con
   // Le slot d'icône (natif Obsidian et repère Feuillets) reste masqué par
   // la règle TOUJOURS émise (§ correctif icônes Lucide) — plus besoin d'une
   // règle spécifique au mode hide pour ça.
-  assert.match(css, /\.feuillets-pedagogical-role \.callout-title \.feuillets-role-marker-icon \{ display: none; \}/);
-  assert.match(css, /\.feuillets-pedagogical-role \.callout-title \.callout-icon \{ display: none; \}/);
-  assert.match(css, /\.feuillets-pedagogical-role \.collapse-indicator \{ display: none; \}/);
-  assert.match(css, /\.feuillets-pedagogical-role\.feuillets-role-title-auto \.callout-title \{ display: none; \}/);
-  assert.match(css, /\.feuillets-pedagogical-role \.callout-content \{ padding: 3pt 0 0; color: inherit; \}/);
+  assert.match(css, /\.feuillets-semantic-role \.callout-title \.feuillets-role-marker-icon \{ display: none; \}/);
+  assert.match(css, /\.feuillets-semantic-role \.callout-title \.callout-icon \{ display: none; \}/);
+  assert.match(css, /\.feuillets-semantic-role \.collapse-indicator \{ display: none; \}/);
+  assert.match(css, /\.feuillets-semantic-role\.feuillets-role-title-auto \.callout-title \{ display: none; \}/);
+  assert.match(css, /\.feuillets-semantic-role \.callout-content \{ padding: 3pt 0 0; color: inherit; \}/);
 });
 
 test("semanticRoleMarkers hide : aucune règle de couleur par famille (contrairement à show)", () => {
   const cssHide = templateToCss({ ...EXPORT_TEMPLATES.classique, semanticRoleMarkers: "hide" });
   const cssShow = templateToCss({ ...EXPORT_TEMPLATES.classique, semanticRoleMarkers: "show" });
-  assert.doesNotMatch(cssHide, /\.feuillets-role-document[^{]*\{[^}]*color: #1F5EA8/);
-  assert.match(cssShow, /\.feuillets-role-document[^{]*\{[^}]*color: #1F5EA8/);
+  assert.doesNotMatch(cssHide, /\.feuillets-role-source[^{]*\{[^}]*color: #1F5EA8/);
+  assert.match(cssShow, /\.feuillets-role-source[^{]*\{[^}]*color: #1F5EA8/);
 });
 
 test("semanticRoleMarkers hide : le questionnaire (liste + lignes de réponse) reste présent", () => {

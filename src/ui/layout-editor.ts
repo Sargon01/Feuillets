@@ -9,7 +9,7 @@ import type { App } from "obsidian";
 import { getLocale, t } from "../i18n/index.js";
 import { TitlePageMiniature } from "./title-page-miniature.js";
 import { isPedagogicalA4Template } from "../utils/export-templates.js";
-import { PEDAGOGICAL_PALETTE } from "../utils/pedagogical-roles.js";
+import { SEMANTIC_PALETTE } from "../utils/semantic-roles.js";
 
 export type LayoutSelection = string | null;
 export type ExportTemplateOption = { key: string; label: string };
@@ -980,12 +980,12 @@ export class LayoutEditor {
   /** Couleur visuelle du picker quand `colorHex` est absent — §10 du lot
    * couleurs/soulignement. Jamais persistée par cette lecture seule : ne
    * reproduit le repli rouge/rouge/vert du profil Document pédagogique A4
-   * (voir isPedagogicalA4Template/PEDAGOGICAL_PALETTE, utils/export-templates.ts)
+   * (voir isPedagogicalA4Template/SEMANTIC_PALETTE, utils/export-templates.ts)
    * que pour H1-H3, sinon retombe sur la couleur du corps puis sur noir. */
   private headingEffectiveColor(level: HeadingLevel): string {
     if ((level === "h1" || level === "h2" || level === "h3")
       && isPedagogicalA4Template({ key: this.templateKey, label: this.templateLabel, profile: this.template.profile })) {
-      return level === "h3" ? PEDAGOGICAL_PALETTE.green : PEDAGOGICAL_PALETTE.red;
+      return level === "h3" ? SEMANTIC_PALETTE.green : SEMANTIC_PALETTE.red;
     }
     return this.template.body.colorHex || "#000000";
   }

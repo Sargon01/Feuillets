@@ -187,15 +187,14 @@ function isImageSlotBlock(el: Element): boolean {
 }
 
 /** Slot `texte` (§8 du lot) : un paragraphe sans image, une liste, une
- * citation, ou un callout (natif Obsidian ou rôle sémantique Feuillets déjà
- * taggé — applyPedagogicalSemantics tourne avant applyFeuilletsDirectiveMarkers,
- * voir renderManuscriptHtml) — jamais un heading, une table, ni un bloc
- * portant une image. */
+ * citation, ou un callout (natif Obsidian ou rôle sémantique Feuillets
+ * déjà rendu — data-callout ou .callout) — jamais un heading, une table,
+ * ni un bloc portant une image. */
 function isTextSlotBlock(el: Element): boolean {
   if (el.querySelector("img, .internal-embed")) return false;
   const tag = el.tagName;
   if (tag === "P" || tag === "UL" || tag === "OL" || tag === "BLOCKQUOTE") return true;
-  return el.getAttribute("data-callout") != null || el.classList.contains("callout") || el.classList.contains("feuillets-pedagogical-role");
+  return el.getAttribute("data-callout") != null || el.classList.contains("callout");
 }
 
 const COLUMN_KIND_BY_COMPOSITION: Record<ColumnComposition, readonly ["media" | "text", "media" | "text"]> = {
