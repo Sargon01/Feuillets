@@ -20,6 +20,7 @@ import {
   ADAPTIVE_PAIR_CLASS,
   ADAPTIVE_CONTENT_CLASS,
   ADAPTIVE_MEDIA_CLASS,
+  planAdaptivePair,
 } from "../src/services/presentation-paper.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
 import { TextPromptModal } from "../src/ui/basic-modals.js";
@@ -159,7 +160,13 @@ class FakeElement {
   }
   get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join("") : this._text; }
   set textContent(value) { this.children = []; this._text = value; }
-  get innerHTML() { return this.children.length ? this.children.map((c) => c.outerHTML).join("") : this._text; }
+  get innerHTML() {
+    // Retourner le _text (s'il existe) suivi des enfants
+    // Cela supporte les éléments qui ont du texte ET des enfants simultanément
+    const text = this._text || "";
+    const childrenHtml = this.children.length ? this.children.map((c) => c.outerHTML).join("") : "";
+    return text + childrenHtml;
+  }
   get outerHTML() {
     // Sérialise TOUS les attributs, pas seulement class : sans cela, un
     // data-source-path réellement posé disparaîtrait à la sérialisation et
@@ -308,16 +315,35 @@ class FakeElement {
     // [attr="valeur"]
     const attr = selector.match(/^\[([^=\]]+)="?([^"\]]*)"?\]$/);
     if (attr) return this.getAttribute(attr[1]) === attr[2];
+    // tag[attr] : e.g. li[id]
+    const tagAttr = selector.match(/^([a-zA-Z]+)\[([^\]=]+)\]$/);
+    if (tagAttr) {
+      return this.tagName === tagAttr[1].toUpperCase() && this.getAttribute(tagAttr[2]) !== null;
+    }
+    // tag.class : e.g. section.footnotes, a.footnote-backref
+    const tagClass = selector.match(/^([a-zA-Z]+)\.([a-zA-Z0-9\-_]+)$/);
+    if (tagClass) {
+      return this.tagName === tagClass[1].toUpperCase() && this.classes.has(tagClass[2]);
+    }
     // .classe
     if (selector.startsWith(".")) return this.classes.has(selector.slice(1));
     // balise
     return this.tagName === selector.toUpperCase();
   }
   querySelectorAll(selector) {
+    // Supporter les listes séparées par virgules : "section.footnotes, .footnotes"
+    const selectors = selector.split(",").map((s) => s.trim()).filter(Boolean);
     const found = [];
     const visit = (node) => {
       for (const child of node.children) {
-        if (child.matchesSelector && child.matchesSelector(selector)) found.push(child);
+        if (child.matchesSelector) {
+          for (const sel of selectors) {
+            if (child.matchesSelector(sel)) {
+              found.push(child);
+              break;
+            }
+          }
+        }
         visit(child);
       }
     };
@@ -6007,6 +6033,89 @@ test("openScopeWithPreview — Preview déjà en mode document : le reset source
   assert.equal(view.compileScope?.path, sceneFile2.path);
 }));
 
+/* Stub local du DOMParser pour les tests footnotes : implémente uniquement le
+   contrat réellement utilisé par buildPresentationPaperFootnotesHtml :
+   - parseFromString(html, "text/html")
+   - résultat.body.querySelectorAll(...) avec remove()
+   - résultat.body.innerHTML
+
+   Parser HTML simplifié basé sur les regex — suffisant pour les structures
+   bien formées produites par FakeElement.innerHTML. */
+class TestDOMParser {
+  parseFromString(html, type) {
+    const body = new FakeElement("body");
+    const parseContent = (contentStr, parentEl) => {
+      // Parser les éléments HTML : <tag attr="value">content</tag>
+      const elementPattern = /<([a-z]+)([^>]*)>([\s\S]*?)<\/\1>/gi;
+      let match;
+      let lastEnd = 0;
+      let accumulatedText = "";
+
+      while ((match = elementPattern.exec(contentStr)) !== null) {
+        // Accumuler le texte avant cet élément
+        if (match.index > lastEnd) {
+          const textBefore = contentStr.substring(lastEnd, match.index);
+          accumulatedText += textBefore;
+        }
+
+        // Si du texte accumulé et pas encore d'enfants, le mettre dans _text
+        if (accumulatedText && parentEl.children.length === 0) {
+          parentEl._text = accumulatedText;
+          accumulatedText = "";
+        } else if (accumulatedText && parentEl.children.length > 0) {
+          // Si du texte + enfants, utiliser la capacité améliorée de innerHTML
+          parentEl._text = accumulatedText;
+          accumulatedText = "";
+        }
+
+        // Créer l'élément
+        const tagName = match[1];
+        const attrsStr = match[2];
+        const innerContent = match[3];
+
+        const el = new FakeElement(tagName, "");
+
+        // Parser les attributs : id="...", class="...", etc
+        const idMatch = attrsStr.match(/id=["']?([^"'\s>]+)["']?/i);
+        if (idMatch) el.setAttribute("id", idMatch[1]);
+
+        // Conserver la valeur COMPLÈTE de class="...", espaces compris —
+        // "other footnote-backref" doit produire DEUX classes distinctes
+        // dans FakeElement (voir son setter `className`, qui découpe déjà
+        // sur les espaces). Une regex qui s'arrête au premier `\s` (comme
+        // avant ce lot) ne capturerait que "other" et perdrait la classe
+        // qu'on cherche réellement à détecter.
+        const classMatch = attrsStr.match(/class=["']([^"']*)["']/i);
+        if (classMatch) el.className = classMatch[1];
+
+        // Parser le contenu récursivement s'il contient des balises, sinon c'est du texte
+        if (/<[^>]+>/.test(innerContent)) {
+          parseContent(innerContent, el);
+        } else if (innerContent) {
+          el._text = innerContent;
+        }
+
+        parentEl.appendChild(el);
+        lastEnd = match.index + match[0].length;
+      }
+
+      // Ajouter le texte restant
+      if (lastEnd < contentStr.length) {
+        const textAfter = contentStr.substring(lastEnd);
+        accumulatedText += textAfter;
+      }
+
+      // Mettre le texte accumulé dans _text
+      if (accumulatedText) {
+        parentEl._text = accumulatedText;
+      }
+    };
+
+    parseContent(html, body);
+    return { body };
+  }
+}
+
 test("openPresentationPaperPreview — non-régression : finit toujours en sourceMode presentation-paper", withRender(async () => {
   const { view, app, plugin, scaledContainer, sceneFile } = await openView("scene");
   fireLoad(latestFrame(scaledContainer));
@@ -6019,4 +6128,289 @@ test("openPresentationPaperPreview — non-régression : finit toujours en sourc
   await flush();
 
   assert.equal(view.sourceMode, "presentation-paper", "openPresentationPaperPreview doit toujours finir en Support papier");
+}));
+
+/* ============ Support papier — Préservation des notes de bas de page ====== */
+
+test("Support papier : une slide avec footnote conserve la note dans la page papier", withRender(async () => {
+  // Installer le stub DOMParser LOCAL aux tests footnotes
+  const previousDOMParser = globalThis.DOMParser;
+  const previousRender = MarkdownRenderer.render;
+  globalThis.DOMParser = TestDOMParser;
+
+  MarkdownRenderer.render = (_, markdown, container) => {
+    container.appendChild(element("p", markdown));
+    const section = element("section");
+    section.className = "footnotes";
+    const ol = element("ol");
+    const li = element("li", "Contenu de la note");
+    li.setAttribute("id", "fnref:1");
+    const backref = element("a", "↩");
+    backref.className = "footnote-backref";
+    li.appendChild(backref);
+    ol.appendChild(li);
+    section.appendChild(ol);
+    container.appendChild(section);
+    return Promise.resolve();
+  };
+  try {
+    const { frame } = await openPresentationPaperView("Texte avec note");
+    // Vérifier que la section footnotes est présente dans le page papier
+    assert.match(frame.srcdoc, /class="pdf-footnotes-section"/, "la section des notes doit être présente");
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    globalThis.DOMParser = previousDOMParser;
+  }
+}));
+
+test("Support papier : le texte et l'id de la note sont conservés", withRender(async () => {
+  // Installer le stub DOMParser LOCAL aux tests footnotes
+  const previousDOMParser = globalThis.DOMParser;
+  const previousRender = MarkdownRenderer.render;
+  globalThis.DOMParser = TestDOMParser;
+
+  MarkdownRenderer.render = (_, markdown, container) => {
+    container.appendChild(element("p", markdown));
+    const section = element("section");
+    section.className = "footnotes";
+    const ol = element("ol");
+    const li = element("li", "Contenu de la note de test");
+    li.setAttribute("id", "fnref:test");
+    ol.appendChild(li);
+    section.appendChild(ol);
+    container.appendChild(section);
+    return Promise.resolve();
+  };
+  try {
+    const { frame } = await openPresentationPaperView("Note ici");
+    // Vérifier que l'ID et le contenu sont préservés
+    assert.match(frame.srcdoc, /id="fnref:test"/, "l'ID de la note doit être conservé");
+    assert.match(frame.srcdoc, /Contenu de la note de test/, "le contenu de la note doit être préservé");
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    globalThis.DOMParser = previousDOMParser;
+  }
+}));
+
+test("Support papier : backref supprimé des notes (a.footnote-backref et .footnote-backref)", withRender(async () => {
+  // Installer le stub DOMParser LOCAL aux tests footnotes
+  const previousDOMParser = globalThis.DOMParser;
+  const previousRender = MarkdownRenderer.render;
+  globalThis.DOMParser = TestDOMParser;
+
+  MarkdownRenderer.render = (_, markdown, container) => {
+    container.appendChild(element("p", markdown));
+    const section = element("section");
+    section.className = "footnotes";
+    const ol = element("ol");
+
+    // Cas 1 : <a class="footnote-backref">
+    const li1 = element("li", "Note contenu 1");
+    li1.setAttribute("id", "fnref:fn1");
+    const backref1 = element("a", "↩");
+    backref1.className = "footnote-backref";
+    li1.appendChild(backref1);
+
+    // Cas 2 : <a class="other footnote-backref"> (test du sélecteur composite)
+    const li2 = element("li", "Note contenu 2");
+    li2.setAttribute("id", "fnref:fn2");
+    const backref2 = element("a", "↩");
+    backref2.className = "other footnote-backref";
+    li2.appendChild(backref2);
+
+    ol.appendChild(li1);
+    ol.appendChild(li2);
+    section.appendChild(ol);
+    container.appendChild(section);
+    return Promise.resolve();
+  };
+  try {
+    const { frame } = await openPresentationPaperView("Texte");
+    // Vérifier que la section footnotes n'a pas de backref
+    // Note: extractFootnotes retire la section "footnotes" originale et la remplace par "pdf-footnotes-section"
+    const fnSection = frame.srcdoc.match(/class="pdf-footnotes-section"[\s\S]*?<\/div>/);
+    assert.ok(fnSection, "la section pdf-footnotes-section doit exister");
+    assert.doesNotMatch(fnSection[0], /class="footnote-backref"/, "aucun élément avec classe footnote-backref ne doit être présent");
+    assert.doesNotMatch(fnSection[0], /class="other footnote-backref"/, "aucun élément avec classe 'other footnote-backref' ne doit être présent");
+    // Vérifier que les notes elles-mêmes restent intactes
+    assert.match(fnSection[0], /Note contenu 1/, "contenu de la note 1 doit être préservé");
+    assert.match(fnSection[0], /Note contenu 2/, "contenu de la note 2 doit être préservé");
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    globalThis.DOMParser = previousDOMParser;
+  }
+}));
+
+test("Support papier : une slide sans footnote reste exactement inchangée", withRender(async () => {
+  const { frame } = await openPresentationPaperView("slide sans note");
+  const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+  assert.equal(pageCount, 1, "une seule page");
+  assert.doesNotMatch(frame.srcdoc, /class="pdf-footnotes-section"/, "aucune section footnotes ne doit être créée pour zéro note");
+}));
+
+test("Support papier : plusieurs slides avec notes gardent les notes dans leur unité respective", withRender(async () => {
+  // Installer le stub DOMParser LOCAL aux tests footnotes
+  const previousDOMParser = globalThis.DOMParser;
+  const previousRender = MarkdownRenderer.render;
+  globalThis.DOMParser = TestDOMParser;
+
+  MarkdownRenderer.render = (_, markdown, container) => {
+    container.appendChild(element("p", markdown));
+    const section = element("section");
+    section.className = "footnotes";
+    const ol = element("ol");
+
+    // Déterminer la note en fonction du markdown reçu
+    if (markdown.includes("Slide 1")) {
+      const li = element("li", "Note 1");
+      li.setAttribute("id", "fnref:1");
+      ol.appendChild(li);
+    } else if (markdown.includes("Slide 2")) {
+      const li = element("li", "Note 2");
+      li.setAttribute("id", "fnref:2");
+      ol.appendChild(li);
+    }
+
+    section.appendChild(ol);
+    container.appendChild(section);
+    return Promise.resolve();
+  };
+
+  try {
+    const { frame } = await openPresentationPaperView("Slide 1\n\n---\n\nSlide 2");
+
+    // Vérifier qu'il y a exactement 2 pages papier
+    const pageCount = (frame.srcdoc.match(/class="feuillets-presentation-paper-page"/g) || []).length;
+    assert.equal(pageCount, 2, "deux slides doivent créer exactement deux pages papier");
+
+    // Extraire les contenus de chaque page
+    const chunks = paperPageChunks(frame.srcdoc);
+    assert.equal(chunks.length, 2, "deux chunks de page doivent être présents");
+
+    // Vérifier la page 1 (chunk 0)
+    assert.match(chunks[0], /fnref:1/, "la page 1 doit contenir fnref:1");
+    assert.match(chunks[0], /Note 1/, "la page 1 doit contenir 'Note 1'");
+    assert.doesNotMatch(chunks[0], /fnref:2/, "la page 1 NE doit pas contenir fnref:2");
+    assert.doesNotMatch(chunks[0], /Note 2/, "la page 1 NE doit pas contenir 'Note 2'");
+
+    // Vérifier la page 2 (chunk 1)
+    assert.match(chunks[1], /fnref:2/, "la page 2 doit contenir fnref:2");
+    assert.match(chunks[1], /Note 2/, "la page 2 doit contenir 'Note 2'");
+    assert.doesNotMatch(chunks[1], /fnref:1/, "la page 2 NE doit pas contenir fnref:1");
+    assert.doesNotMatch(chunks[1], /Note 1/, "la page 2 NE doit pas contenir 'Note 1'");
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    globalThis.DOMParser = previousDOMParser;
+  }
+}));
+
+test("Support papier : avec footnote, le repli adaptatif n'est pas adopté — la cause est le garde-fou explicite de applyPresentationPaperFit, jamais un rejet incident de planAdaptivePair", withRender(async () => {
+  // Installer le stub DOMParser LOCAL aux tests footnotes
+  const previousDOMParser = globalThis.DOMParser;
+  const previousRender = MarkdownRenderer.render;
+  globalThis.DOMParser = TestDOMParser;
+
+  const markdown = [
+    "## Titre avec note",
+    "",
+    "> [!synthese]",
+    "> Texte court expliquant le contexte.",
+    "",
+    "> [!questions]",
+    "> 1. Première question",
+    "> 2. Deuxième question",
+    "",
+    "![[image.png]]",
+  ].join("\n");
+
+  MarkdownRenderer.render = (_, md, container) => {
+    container.appendChild(element("p", md));
+    // Ajouter la section footnotes
+    const section = element("section");
+    section.className = "footnotes";
+    const ol = element("ol");
+    const li = element("li", "Contenu de la note");
+    li.setAttribute("id", "fnref:1");
+    ol.appendChild(li);
+    section.appendChild(ol);
+    container.appendChild(section);
+    return Promise.resolve();
+  };
+
+  try {
+    const { frame } = await openPresentationPaperView(markdown);
+    const availH = Number(frame.srcdoc.match(/data-paper-avail-h="([\d.]+)"/)[1]);
+    const availW = Number(frame.srcdoc.match(/data-paper-avail-w="([\d.]+)"/)[1]);
+
+    // Benchmark connu adoptable (identique à « benchmark B » plus haut dans
+    // ce fichier) : titre + deux blocs de contenu + portrait étroit et haut,
+    // SANS footnote.
+    const headingEl = new FakeElement("h2", "Titre avec note");
+    headingEl.scrollWidth = 600; headingEl.scrollHeight = 80;
+    const syntheseEl = new FakeElement("div", "Texte court expliquant le contexte.");
+    syntheseEl.scrollWidth = 600; syntheseEl.scrollHeight = 250;
+    const questionsEl = new FakeElement("div", "1. Première question 2. Deuxième question");
+    questionsEl.scrollWidth = 600; questionsEl.scrollHeight = 250;
+    const mediaEl = new FakeElement("div");
+    mediaEl.className = "feuillets-doc-media-block";
+    mediaEl.scrollWidth = 280; mediaEl.scrollHeight = 900; // portrait étroit et haut
+
+    // Preuve 1 : SANS footnote, ce motif est réellement éligible au plan —
+    // exactement le benchmark déjà exercé par le test « benchmark B ». Si ce
+    // premier contrôle échouait, tout le reste du test serait sans objet.
+    const baselinePlan = planAdaptivePair([headingEl, syntheseEl, questionsEl, mediaEl]);
+    assert.ok(baselinePlan, "le motif titre + 2 blocs + média doit être éligible SANS footnote (sanity du benchmark)");
+
+    // Créer un faux élément pour .pdf-footnotes-section, inséré AVANT le
+    // média (même côté que les deux autres blocs de contenu) : `contentIndices`
+    // reste alors d'un seul côté du média (règle 4 de planAdaptivePair),
+    // donc la présence de la footnote ne fait PAS échouer `planAdaptivePair`
+    // lui-même — contrairement à une footnote ajoutée après le média, qui
+    // aurait rejeté le plan par la règle 4 (avant ET après non vides) et
+    // aurait rendu ce test vacu (le refus aurait pu venir de planAdaptivePair,
+    // jamais du garde-fou qu'on cherche à vérifier ici).
+    const footnotesSection = new FakeElement("div", "Contenu de la note");
+    footnotesSection.className = "pdf-footnotes-section";
+    footnotesSection.scrollWidth = 600; footnotesSection.scrollHeight = 100;
+
+    const childrenWithFootnote = [headingEl, syntheseEl, questionsEl, footnotesSection, mediaEl];
+
+    // Preuve 2 : AVEC la footnote incluse, `planAdaptivePair` — qui ignore
+    // tout de la notion de footnote — retourne ENCORE un plan non-null. La
+    // seule chose qui peut donc empêcher l'adoption plus bas est le
+    // garde-fou explicite `.pdf-footnotes-section` de `applyPresentationPaperFit`.
+    const planWithFootnote = planAdaptivePair(childrenWithFootnote);
+    assert.ok(planWithFootnote, "planAdaptivePair doit rester éligible même en présence de la footnote : la preuve que le refus final vient du garde-fou, pas de lui");
+
+    frame._contentDocument = buildFakePaperIframeDocument(frame.srcdoc, {
+      innerChildren: [childrenWithFootnote],
+    });
+    fireLoad(frame);
+
+    // Vérifier les dimensions
+    const inner = frame.contentDocument.querySelector(".feuillets-presentation-paper-inner");
+    const naturalScale = presentationPaperScale(availW, availH, 600, 80 + 250 + 250 + 100 + 900);
+    assert.ok(naturalScale < 1, "le contenu doit déborder pour être significatif");
+
+    // Vérifier que la paire adaptative n'est PAS adoptée malgré l'éligibilité
+    // structurelle démontrée ci-dessus (Preuve 2) : c'est bien le garde-fou
+    // explicite de applyPresentationPaperFit qui bloque, jamais planAdaptivePair.
+    assert.equal(inner.querySelector(`.${ADAPTIVE_PAIR_CLASS}`), null, "la paire adaptative ne doit pas être adoptée avec footnotes");
+
+    // Vérifier que la structure naturelle est conservée intégralement.
+    assert.equal(inner.children.length, 5, "les 5 éléments du DOM doivent rester : titre + 2 blocs + footnotes + média");
+    assert.equal(inner.children[0], headingEl, "le titre H2 doit rester à sa position");
+    assert.equal(inner.children[1], syntheseEl, "le bloc synthèse doit rester à sa position");
+    assert.equal(inner.children[2], questionsEl, "le bloc questions doit rester à sa position");
+    assert.equal(inner.children[3], footnotesSection, "la section footnotes doit rester à sa position");
+    assert.equal(inner.children[4], mediaEl, "le média doit rester à sa position");
+    assert.ok(inner.querySelector(".pdf-footnotes-section"), "la footnote doit toujours être présente après le fit");
+
+    // Vérifier que le scale appliqué est le scale naturel (pas un scale de paire adaptative)
+    const appliedScale = Number(inner.style.transform.match(/scale\(([\d.]+)\)/)[1]);
+    assert.ok(Math.abs(appliedScale - naturalScale) < 0.001, "le scale appliqué doit être le scale naturel");
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    globalThis.DOMParser = previousDOMParser;
+  }
 }));

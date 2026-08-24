@@ -504,6 +504,33 @@ function escapeAttr(value: string): string {
   return value.replace(/["\\]/g, "\\$&");
 }
 
+/** Construit la section footnotes HTML pour le support papier Présentation.
+ * Retourne une chaîne HTML vide si la liste est vide (zéro modification du DOM).
+ * Les backref sont supprimées du HTML de chaque note via un vrai parsing DOM
+ * (DOMParser), jamais une regex sur du HTML. */
+function buildPresentationPaperFootnotesHtml(footnotes: Array<{ id: string; html: string }>): string {
+  if (!footnotes || footnotes.length === 0) return "";
+
+  const footnoteItems = footnotes
+    .map((fn) => {
+      const parsed = new DOMParser().parseFromString(fn.html, "text/html");
+      parsed.body
+        .querySelectorAll("a.footnote-backref, .footnote-backref")
+        .forEach((el) => el.remove());
+      return `<li id="${escapeAttr(fn.id)}">${parsed.body.innerHTML}</li>`;
+    })
+    .join("\n");
+
+  return `
+    <div class="pdf-footnotes-section">
+      <hr>
+      <ol>
+        ${footnoteItems}
+      </ol>
+    </div>
+  `;
+}
+
 /**
  * Vue onglet d'aperçu, en trois usages : Scène, Chapitre, Manuscrit.
  *
@@ -2053,7 +2080,10 @@ export class PreviewView extends ItemView {
       if (generation !== this.refreshGeneration) return;
       if (tpl.profile === "document") composeDocumentMedia(rendered.containerEl, rendered.images);
 
+      // Récupérer les footnotes déjà extraites par renderManuscriptHtml
       const innerHtml = Array.from(rendered.containerEl.children).map((el) => el.outerHTML).join("\n");
+      const footnotesHtml = buildPresentationPaperFootnotesHtml(rendered.footnotes);
+
       pageHtmlParts.push(`
         <div class="feuillets-presentation-paper-page" style="
           width: ${geometry.widthMm}mm;
@@ -2073,7 +2103,7 @@ export class PreviewView extends ItemView {
               style="width: ${contentArea.widthPx}px;"
               data-paper-avail-w="${contentArea.widthPx}"
               data-paper-avail-h="${contentArea.heightPx}"
-            >${innerHtml}</div>
+            >${innerHtml}${footnotesHtml}</div>
           </div>
         </div>
       `);
@@ -2170,7 +2200,14 @@ export class PreviewView extends ItemView {
     for (const page of pages) {
       const inner = page.querySelector<HTMLElement>(".feuillets-presentation-paper-inner");
       const naturalScale = naturalScales.get(page);
-      if (inner && naturalScale !== undefined && naturalScale < 1) {
+      // Garde-fou explicite : une slide qui porte des notes de bas de page
+      // (`.pdf-footnotes-section`, voir `buildPresentationPaperFootnotesHtml`)
+      // ne doit JAMAIS se voir proposer la paire adaptative — la recomposition
+      // en deux colonnes casserait la mise en page verticale attendue des
+      // notes. `planAdaptivePair` n'a aucune connaissance des footnotes ; ce
+      // guard est donc la SEULE protection, indépendante de son verdict.
+      const hasFootnotes = inner?.querySelector(".pdf-footnotes-section") !== null;
+      if (inner && naturalScale !== undefined && naturalScale < 1 && !hasFootnotes) {
         try {
           this.tryAdaptivePresentationPair(doc, page, inner, naturalScale);
         } catch (error) {

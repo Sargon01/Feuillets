@@ -186,6 +186,50 @@ test("PresentationView — async : une image non chargée sur une slide inactive
   } finally { MarkdownRenderer.render = previous; }
 });
 
+test("PresentationView — course : une résolution média pendant la construction du deck est rejouée après publication atomique", async () => {
+  const previous = MarkdownRenderer.render;
+  let mediaRenderCount = 0;
+  let blockedRenderCount = 0;
+  let blockedStarted;
+  const blockedHasStarted = new Promise((resolve) => { blockedStarted = resolve; });
+  let releaseBlocked;
+  const blockedRelease = new Promise((resolve) => { releaseBlocked = resolve; });
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    if (markdown === "MEDIA-INCONNU") {
+      mediaRenderCount++;
+      if (mediaRenderCount === 1) unknownMedia(container);
+      else knownMedia(container, 400, 800);
+      return;
+    }
+    blockedRenderCount++;
+    blockedStarted();
+    await blockedRelease;
+    paragraph(container, markdown);
+  };
+  try {
+    const { view, file } = setup("MEDIA-INCONNU\n---\nBLOQUEE");
+    await view.onOpen();
+    const openPromise = view.openFile(file);
+    await blockedHasStarted;
+
+    assert.equal(view.slideRecords.length, 0, "le deck complet n'est pas encore publié");
+    const oldSlide0Section = view.deckEl.querySelector(".feuillets-presentation-render-slide");
+    const image = oldSlide0Section.querySelector("img");
+    image.naturalWidth = 400; image.naturalHeight = 800;
+    image.dispatch("load");
+
+    releaseBlocked();
+    await openPromise;
+
+    assert.equal(mediaRenderCount, 2, "MEDIA-INCONNU est rendu une fois, puis une fois au replay");
+    assert.equal(blockedRenderCount, 1, "la slide bloquée n'est pas reconstruite inutilement");
+    assert.equal(view.slideRecords.length, 2, "le deck final contient bien deux records");
+    assert.notEqual(view.slideRecords[0].section, oldSlide0Section, "la slide 0 a réellement été reconstruite");
+    assert.equal(view.slideRecords[1].section.getAttribute("data-slide-index"), "1", "la slide 1 reste unique");
+    assert.equal(view.activeIndex, 0, "l'index actif reste 0");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
 // ===== E — callback d'une ancienne génération : zéro effet =====
 
 test("PresentationView — génération : un callback d'une ancienne génération de deck n'a aucun effet", async () => {

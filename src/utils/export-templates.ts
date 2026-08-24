@@ -496,7 +496,7 @@ export function templateToCss(tpl: ExportTemplate) {
         families.set(family, selectors);
         // Rôles avec titre auto masqué : introduction, questions, explication, definition
         if (["introduction", "questions", "explication", "definition"].includes(role)) {
-          rolesWithAutoTitle.push(`.feuillets-role-${role} .callout-title`);
+          rolesWithAutoTitle.push(`.feuillets-role-${role}.feuillets-role-title-auto .callout-title`);
         }
       }
       const colorRules = Array.from(families.entries()).map(

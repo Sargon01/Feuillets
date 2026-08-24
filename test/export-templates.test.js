@@ -339,12 +339,27 @@ test("semanticRoleMarkers absent === \"legacy\" : rendu historique inchangé", (
   assert.equal(withoutField, withLegacy);
 });
 
-test("semanticRoleMarkers legacy : les 18 rôles canoniques ne changent pas de CSS", () => {
+test("semanticRoleMarkers legacy : seuls les titres automatiques des 4 rôles historiques sont masqués", () => {
   const tpl = { ...EXPORT_TEMPLATES.moderne, profile: "document", label: "Modèle Feuillets – Document pédagogique A4" };
   const cssBefore = templateToCss({ ...tpl });
   const cssLegacy = templateToCss({ ...tpl, semanticRoleMarkers: "legacy" });
   assert.equal(cssBefore, cssLegacy);
-  assert.match(cssLegacy, /feuillets-role-introduction[^}]*callout-title[^}]*display: none/);
+  const autoTitleRoles = ["introduction", "questions", "explication", "definition"];
+  for (const role of autoTitleRoles) {
+    assert.match(cssLegacy, new RegExp(`\\.feuillets-role-${role}\\.feuillets-role-title-auto \\.callout-title`));
+    assert.doesNotMatch(cssLegacy, new RegExp(`\\.feuillets-role-${role} \\.callout-title \\{ display: none; \\}`));
+  }
+  assert.match(cssLegacy, /\.feuillets-role-definition\.feuillets-role-title-auto \.callout-title[^}]*display: none/);
+  assert.doesNotMatch(cssLegacy, /\.feuillets-role-title-explicit[^}]*display: none/);
+
+  const otherRoles = [
+    "question-directrice", "objectifs", "competences", "instructions", "solution", "argument", "hypothese",
+    "preuve", "source", "citation", "methode", "synthese", "point-cle", "recommandation",
+  ];
+  for (const role of otherRoles) {
+    assert.match(cssLegacy, new RegExp(`\\.feuillets-role-${role}(?:,| \\{)`));
+    assert.doesNotMatch(cssLegacy, new RegExp(`\\.feuillets-role-${role}\\.feuillets-role-title-auto \\.callout-title`));
+  }
   assert.match(cssLegacy, /feuillets-role-point-cle[^}]*color: #B42318/);
 });
 

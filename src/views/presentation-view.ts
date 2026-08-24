@@ -47,6 +47,7 @@ export class PresentationView extends ItemView {
   private activeIndex = 0;
   private deckGeneration = 0;
   private slideRecords: PresentationSlideRecord[] = [];
+  private pendingMediaResolutions = new Set<number>();
 
   private rootEl: HTMLElement | null = null;
   private stageEl: HTMLElement | null = null;
@@ -102,6 +103,7 @@ export class PresentationView extends ItemView {
     if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
     for (const record of this.slideRecords) record.controller.abort();
     this.slideRecords = [];
+    this.pendingMediaResolutions.clear();
     this.measurementHostEl = null;
   }
 
@@ -153,6 +155,7 @@ export class PresentationView extends ItemView {
    */
   private async rebuildDeck(): Promise<void> {
     const generation = ++this.deckGeneration;
+    this.pendingMediaResolutions.clear();
     for (const record of this.slideRecords) record.controller.abort();
     this.slideRecords = [];
     this.deckEl?.empty();
@@ -171,6 +174,14 @@ export class PresentationView extends ItemView {
       records.push(record);
     }
     this.slideRecords = records;
+    const pendingMediaResolutions = [...this.pendingMediaResolutions];
+    this.pendingMediaResolutions.clear();
+    if (generation !== this.deckGeneration) return;
+    for (const index of pendingMediaResolutions) {
+      if (generation !== this.deckGeneration) return;
+      await this.rebuildSlide(index, generation);
+      if (generation !== this.deckGeneration) return;
+    }
     this.updateActiveVisibility();
     this.updateUi();
   }
@@ -204,7 +215,11 @@ export class PresentationView extends ItemView {
   private handleImageResolved(index: number, generation: number): void {
     if (generation !== this.deckGeneration) return; // génération de deck périmée : aucun effet
     const record = this.slideRecords[index];
-    if (!record || record.generation !== generation) return; // la slide n'existe plus / a déjà été remplacée
+    if (!record) {
+      this.pendingMediaResolutions.add(index);
+      return;
+    }
+    if (record.generation !== generation) return; // la slide n'existe plus / a déjà été remplacée
     void this.rebuildSlide(index, generation);
   }
 
