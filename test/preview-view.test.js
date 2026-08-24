@@ -2639,7 +2639,7 @@ test("barre — aucun réglage export dans Preview", withRender(async () => {
 
 
 test("Preview — aucun export contextuel", withRender(async () => {
-  const { view } = await openLoadedView("scene");
+  const { view, plugin, app } = await openLoadedView("scene");
   assert.equal(view.contentEl.querySelector(".feuillets-preview-export"), null);
   return;
 
@@ -2686,7 +2686,7 @@ test("Preview — aucun export contextuel", withRender(async () => {
 }));
 
 test("Preview — aucun panneau Export", withRender(async () => {
-  const { view } = await openLoadedView("manuscript");
+  const { view, plugin } = await openLoadedView("manuscript");
   assert.equal(view.contentEl.querySelector(".feuillets-preview-export"), null);
   return;
   view.btnExport.click();
@@ -3820,7 +3820,7 @@ test("barre — le bouton Actualiser traduit appelle refreshPreview", withRender
 }));
 
 test("compileScope — affichage d'une portée file explicite sans écriture ni export", withCapture(async (_dom, rendered) => {
-  const { view, sceneFile, sceneFile2 } = await openLoadedView("manuscript");
+  const { view, sceneFile } = await openLoadedView("manuscript");
   let writeCalled = false;
   view.app.vault.modify = async () => { writeCalled = true; };
   view.app.vault.create = async () => { writeCalled = true; };
@@ -4063,8 +4063,6 @@ test("compileScope — sélection multiple non contiguë dans des dossiers diff�
   assert.ok(markdown.includes("Contenu de un.md"), "contient le contenu de un.md");
   assert.ok(markdown.includes("Contenu de trois.md"), "contient le contenu de trois.md");
 
-  const idxUn = markdown.indexOf("Contenu de un.md");
-  const idxTrois = markdown.indexOf("Contenu de trois.md");
 }));
 
 test("fil d'Ariane — le clic sur la racine utilise setCompileScope({ type: 'project' }) sans écriture ni export", withCapture(async (_dom, rendered) => {
@@ -6042,7 +6040,7 @@ test("openScopeWithPreview — Preview déjà en mode document : le reset source
    Parser HTML simplifié basé sur les regex — suffisant pour les structures
    bien formées produites par FakeElement.innerHTML. */
 class TestDOMParser {
-  parseFromString(html, type) {
+  parseFromString(html, _type) {
     const body = new FakeElement("body");
     const parseContent = (contentStr, parentEl) => {
       // Parser les éléments HTML : <tag attr="value">content</tag>

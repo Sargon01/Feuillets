@@ -19,6 +19,7 @@ const sharedGlobals = {
   TextEncoder: "readonly",
   WebAssembly: "readonly",
   Blob: "readonly",
+  structuredClone: "readonly",
   FormData: "readonly",
   AbortController: "readonly",
   MutationObserver: "readonly",

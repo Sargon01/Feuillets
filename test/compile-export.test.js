@@ -1765,7 +1765,7 @@ test("exportWithScope : nom base sans extension + format docx -> .docx sans doub
   // "Recueil" (sans .md) et on verifie qu'on obtient "Recueil.docx".
   const { exportWithScope } = await import("../src/services/compile-export.js");
   const { createProjectScope } = await import("../src/services/compile-scope.js");
-  const { app, vault, settings, manuscript } = makeExportFixture();
+  const { app, settings, manuscript } = makeExportFixture();
   const restoreDom = installMinimalDom();
   try {
     const scope = createProjectScope(manuscript.path);

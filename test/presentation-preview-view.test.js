@@ -13,7 +13,7 @@ class FakeElement {
     this.clientWidth = 1280; this.clientHeight = 720; this.scrollWidth = 1280; this.scrollHeight = 720;
     if (options.cls) this.className = options.cls;
     if (options.attr) for (const [k, v] of Object.entries(options.attr)) this.attrs.set(k, String(v));
-    this.classList = { add: (...names) => names.forEach((n) => this.classes.add(n)), remove: (...names) => names.forEach((n) => this.classes.delete(n)), toggle: (n, force) => (force ? this.classes.add(n) : this.classes.delete(n)) };
+    this.classList = { add: (...names) => names.forEach((n) => this.classes.add(n)), remove: (...names) => names.forEach((n) => this.classes.delete(n)), contains: (name) => this.classes.has(name), toggle: (n, force) => (force ? this.classes.add(n) : this.classes.delete(n)) };
   }
   get className() { return [...this.classes].join(" "); }
   set className(value) { this.classes = new Set(String(value).split(/\s+/).filter(Boolean)); }
@@ -84,22 +84,33 @@ function setup(markdown, { withEditor = true, cursorLine = 0 } = {}) {
   const file = new TFile("Cours.md", markdown);
   const editor = withEditor ? new FakeEditor(cursorLine) : null;
   const markdownLeaf = { view: { file, editor } };
+  const markdownLeaves = [markdownLeaf];
+  let readCount = 0;
+  const settings = { roleEditorDisplay: "callouts" };
   const app = {
     vault: {
-      read: async (target) => target.content,
+      read: async (target) => { readCount++; return target.content; },
       on: () => ({}),
     },
+    plugins: { plugins: { feuillets: { settings } } },
     workspace: {
-      getLeavesOfType: (type) => (type === "markdown" && editor ? [markdownLeaf] : []),
+      getLeavesOfType: (type) => (type === "markdown" && editor ? markdownLeaves : []),
     },
   };
   const view = new PresentationPreviewView({ app, contentEl });
-  return { view, file, contentEl, editor };
+  return { view, file, contentEl, editor, settings, markdownLeaves, app, getReadCount: () => readCount };
 }
 
 function flush() { return new Promise((resolve) => setTimeout(resolve, 0)); }
 
 function paragraph(container, text) { return container.createEl("p", { text }); }
+function semanticCallout(container, text = "introduction") {
+  const callout = container.createDiv({ cls: "callout feuillets-semantic-role feuillets-role-introduction", attr: { "data-callout": "introduction" } });
+  const title = callout.createDiv({ cls: "callout-title" });
+  title.createDiv({ cls: "callout-title-inner", text });
+  callout.createDiv({ cls: "callout-content" }).createEl("p", { text: "contenu" });
+  return callout;
+}
 
 const previousResizeObserver = globalThis.ResizeObserver;
 
@@ -185,6 +196,73 @@ test("PresentationPreviewView — curseur déplacé sur la diapositive 3 => l'ap
   } finally { MarkdownRenderer.render = previous; }
 });
 
+test("PresentationPreviewView — liaison explicite : deux feuilles du même fichier restent indépendantes", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => paragraph(container, markdown);
+  try {
+    const { view, file, editor: editorA, markdownLeaves, app } = setup("A\n---\nB\n---\nC", { cursorLine: 0 });
+    const editorB = new FakeEditor(4);
+    const workLeafB = { view: { file, editor: editorB } };
+    markdownLeaves.push(workLeafB);
+    let previewLeaf;
+    let previewOpen = false;
+    app.workspace = {
+      getLeavesOfType: (type) => type === "markdown" ? markdownLeaves : (previewOpen ? [previewLeaf] : []),
+      getLeaf: () => { previewOpen = true; return previewLeaf; },
+      setActiveLeaf: () => {},
+      revealLeaf: () => {},
+    };
+    previewLeaf = { isDeferred: false, view, async setViewState() {} };
+
+    await view.onOpen();
+    await openPresentationPreview(app, workLeafB, file);
+    assert.equal(view.activeIndex, 2, "l'aperçu démarre sur le curseur de B");
+
+    editorA.setCursor({ line: 2, ch: 0 });
+    view.pollCursor();
+    assert.equal(view.activeIndex, 2, "le curseur de A est ignoré");
+
+    editorB.setCursor({ line: 2, ch: 0 });
+    view.pollCursor();
+    await flush();
+    assert.equal(view.activeIndex, 1, "le curseur de B pilote l'aperçu");
+
+    await view.previous();
+    await view.next();
+    assert.equal(editorB.getCursor().line, view.slides[1].startLine, "la navigation déplace le curseur de B");
+    assert.equal(editorA.getCursor().line, 2, "le curseur de A reste inchangé");
+    assert.equal(editorA.scrollCalls.length, 0, "A ne reçoit aucun scrollIntoView");
+    assert.equal(editorB.scrollCalls.length, 2, "seul B reçoit les scrollIntoView de navigation");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("PresentationPreviewView — relink : la nouvelle workLeaf remplace la liaison précédente", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => paragraph(container, markdown);
+  try {
+    const { view, file, editor: editorA, markdownLeaves, app } = setup("A\n---\nB\n---\nC", { cursorLine: 0 });
+    const editorB = new FakeEditor(4);
+    const workLeafA = markdownLeaves[0];
+    const workLeafB = { view: { file, editor: editorB } };
+    markdownLeaves.push(workLeafB);
+    await view.onOpen();
+
+    await view.linkFile(file, workLeafA);
+    assert.equal(view.activeIndex, 0);
+    await view.linkFile(file, workLeafB);
+    assert.equal(view.activeIndex, 2, "le relink vers B est pris en compte");
+
+    editorA.setCursor({ line: 2, ch: 0 });
+    view.pollCursor();
+    assert.equal(view.activeIndex, 2, "A ne reprend pas la main après le relink");
+    editorB.setCursor({ line: 0, ch: 0 });
+    view.pollCursor();
+    await flush();
+    assert.equal(view.activeIndex, 0, "B reste la leaf liée après le relink");
+    assert.equal(app.workspace.getLeavesOfType("markdown").length, 2);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
 // ===== 6 — même diapositive : aucun rerender inutile =====
 
 test("PresentationPreviewView — déplacement du curseur dans la même diapositive : aucun rerender", async () => {
@@ -206,6 +284,33 @@ test("PresentationPreviewView — déplacement du curseur dans la même diaposit
     assert.equal(view.activeIndex, 0);
     assert.equal(renderCalls, 0, "aucun nouveau MarkdownRenderer.render");
     assert.equal(view.currentRecord.section, sectionBefore, "même DOM conservé");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("PresentationPreviewView — roleEditorDisplay : seule la slide active est rerendue sans déplacer le curseur", async () => {
+  const previous = MarkdownRenderer.render;
+  let renderCount = 0;
+  MarkdownRenderer.render = async (_app, markdown, container) => { renderCount++; semanticCallout(container, markdown); };
+  try {
+    const { view, file, editor, settings, getReadCount } = setup("A\n---\nB\n---\nC");
+    await view.onOpen(); await view.linkFile(file); await view.next();
+    const activeBefore = view.activeIndex;
+    const cursorBefore = editor.getCursor();
+    const sectionBefore = view.currentRecord.section;
+    const readCountBefore = getReadCount();
+    editor.scrollCalls = [];
+    assert.notEqual(view.currentRecord.section.querySelector(".callout").style.background, "transparent");
+
+    settings.roleEditorDisplay = "compact";
+    await view.refreshRoleDisplay();
+
+    assert.equal(renderCount, 3, "une seule slide est rerendue");
+    assert.notEqual(view.currentRecord.section, sectionBefore, "la section active est remplacée");
+    assert.equal(view.activeIndex, activeBefore, "l'index actif est conservé");
+    assert.deepEqual(editor.getCursor(), cursorBefore, "le curseur est conservé");
+    assert.equal(editor.scrollCalls.length, 0, "aucun scrollIntoView");
+    assert.equal(getReadCount(), readCountBefore, "le vault n'est pas relu");
+    assert.equal(view.currentRecord.section.querySelector(".callout").style.background, "transparent", "Compact est réellement appliqué");
   } finally { MarkdownRenderer.render = previous; }
 });
 

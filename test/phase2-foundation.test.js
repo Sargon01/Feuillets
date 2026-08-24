@@ -42,9 +42,9 @@ function createFakeVault(files = []) {
         map.set(p, tf);
         return tf;
       },
-      read: async (file) => file.content || "",
-      readBinary: async (file) => new ArrayBuffer(0),
-      createBinary: async (path, data) => {
+      read: async (_file) => _file.content || "",
+      readBinary: async (_file) => new ArrayBuffer(0),
+      createBinary: async (path, _data) => {
         const p = normalizePath(path);
         const tf = new TFile(p);
         map.set(p, tf);

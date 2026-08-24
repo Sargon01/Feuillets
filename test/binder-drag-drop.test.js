@@ -127,10 +127,6 @@ test("Drag & drop du Binder avec sélection multiple", async (t) => {
 
   await t.test("conflit refusé", () => {
     // La protection dans moveNode devrait refuser si un fichier avec le même nom existe déjà
-    const fileName = "File1.md";
-    const destFolder = "Roman1/Chapitre1";
-    const existingPath = `${destFolder}/${fileName}`;
-
     // Vérifier que le fichier existe (simulé)
     const existingFile = true;
     assert.equal(existingFile, true);

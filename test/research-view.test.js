@@ -227,7 +227,6 @@ test("renderResearchBody affiche les dossiers existants en français quand la lo
     const { sections } = await renderResearchBody(harness);
 
     // Ne doit créer aucun dossier supplémentaire
-    const strip = (p) => p.replace(/^Projet\/_Recherche\/?/, "");
     assert.deepEqual(harness.created.length, 0, "Aucun dossier créé");
 
     assert.deepEqual(
@@ -328,7 +327,6 @@ test("renderResearchBody ne crée aucun dossier si _Recherche n'existe pas", asy
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 
 /* Patching pour que FakeElement supporte createSpan (appelé par renderCollapsibleHead). */
-const origCreateEl = FakeElement.prototype.createEl;
 FakeElement.prototype.createSpan = function(options = {}) {
   return this.createEl("span", options);
 };
@@ -501,7 +499,6 @@ test("chaque sous-dossier possède son menu d'actions", () => {
 test("aucun élément n'est affiché deux fois", () => {
   const main = new TFolder("Projet/_Recherche/Personnages");
   const mainNote = new TFile("Projet/_Recherche/Personnages/Épopée.md");
-  const rootNote = new TFile("Projet/_Recherche/racine.md");
   main.children = [mainNote];
 
   const { view, contentEl } = createRenderHarness();
@@ -573,8 +570,6 @@ test("promptCreateResearchFile crée le fichier dans le dossier ciblé avec .md"
   // Intercepter NewResearchFileModal pour appeler le callback directement
   view.promptCreateResearchFile = function(f, def, tmpl) {
     // Simuler la validation : le callback de la modal reçoit "MonNom"
-    const cleanName = "MonNom";
-    const fileName = `${cleanName}.md`;
     const destPath = "Projet/_Recherche/Personnages/MonNom.md";
     return vault.create(destPath, tmpl).then(() => {
       view.viewingFile = new TFile(destPath, tmpl);
@@ -589,7 +584,6 @@ test("promptCreateResearchFile crée le fichier dans le dossier ciblé avec .md"
 });
 
 test("promptCreateResearchFile ajoute .md une seule fois", async () => {
-  const folder = new TFolder("Projet/_Recherche/Personnages");
   const created = [];
   const vault = {
     getAbstractFileByPath: () => null,
@@ -598,9 +592,6 @@ test("promptCreateResearchFile ajoute .md une seule fois", async () => {
       return new TFile(path, template);
     },
   };
-  const plugin = { async ensureFolder() {}, renderAllViews() {} };
-  const view = createView(plugin, vault);
-
   // Simuler le callback avec un nom qui a déjà .md
   const destPath = "Projet/_Recherche/Personnages/test.md";
   await vault.create(destPath, "template");
@@ -610,7 +601,6 @@ test("promptCreateResearchFile ajoute .md une seule fois", async () => {
 });
 
 test("promptCreateResearchFile refuse un conflit de nom", async () => {
-  const folder = new TFolder("Projet/_Recherche/Personnages");
   const existing = new TFile("Projet/_Recherche/Personnages/existant.md");
   const created = [];
   const notices = [];
@@ -621,10 +611,7 @@ test("promptCreateResearchFile refuse un conflit de nom", async () => {
       return new TFile(path, template);
     },
   };
-  const plugin = { async ensureFolder() {}, renderAllViews() {} };
-  const view = createView(plugin, vault);
   // Remplacer Notice pour capturer les erreurs
-  const OrigNotice = Notice;
   // eslint-disable-next-line no-global-assign
   globalThis.Notice = function(msg) { notices.push(msg); };
 
@@ -637,18 +624,7 @@ test("promptCreateResearchFile refuse un conflit de nom", async () => {
 });
 
 test("annuler la création ne crée rien", async () => {
-  const folder = new TFolder("Projet/_Recherche/Personnages");
   const created = [];
-  const vault = {
-    getAbstractFileByPath: () => null,
-    create: async (path, template) => {
-      created.push(path);
-      return new TFile(path, template);
-    },
-  };
-  const plugin = { async ensureFolder() {}, renderAllViews() {} };
-  const view = createView(plugin, vault);
-
   // Simuler une annulation : ne jamais appeler vault.create
   assert.equal(created.length, 0, "aucun fichier créé si la modal est annulée");
 });

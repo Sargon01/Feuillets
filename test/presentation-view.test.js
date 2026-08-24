@@ -18,7 +18,7 @@ class FakeElement {
     this.clientWidth = 1280; this.clientHeight = 720; this.scrollWidth = 1280; this.scrollHeight = 720;
     if (options.cls) this.className = options.cls;
     if (options.attr) for (const [k, v] of Object.entries(options.attr)) this.attrs.set(k, String(v));
-    this.classList = { add: (...names) => names.forEach((n) => this.classes.add(n)), remove: (...names) => names.forEach((n) => this.classes.delete(n)), toggle: (n, force) => (force ? this.classes.add(n) : this.classes.delete(n)) };
+    this.classList = { add: (...names) => names.forEach((n) => this.classes.add(n)), remove: (...names) => names.forEach((n) => this.classes.delete(n)), contains: (name) => this.classes.has(name), toggle: (n, force) => (force ? this.classes.add(n) : this.classes.delete(n)) };
   }
   get className() { return [...this.classes].join(" "); }
   set className(value) { this.classes = new Set(String(value).split(/\s+/).filter(Boolean)); }
@@ -70,9 +70,14 @@ function descendants(root) { return [root, ...root.children.flatMap(descendants)
 function setup(markdown) {
   const contentEl = new FakeElement();
   const file = new TFile("Cours.md", markdown);
-  const app = { vault: { read: async (target) => target.content, on: () => ({}) } };
+  let readCount = 0;
+  const settings = { roleEditorDisplay: "callouts" };
+  const app = {
+    vault: { read: async (target) => { readCount++; return target.content; }, on: () => ({}) },
+    plugins: { plugins: { feuillets: { settings } } },
+  };
   const view = new PresentationView({ app, contentEl });
-  return { view, file, contentEl };
+  return { view, file, contentEl, settings, getReadCount: () => readCount };
 }
 
 function flush() { return new Promise((resolve) => setTimeout(resolve, 0)); }
@@ -90,6 +95,13 @@ function knownMedia(container, w, h) {
   const img = media.createEl("img");
   img.complete = true; img.naturalWidth = w; img.naturalHeight = h;
   return { media, img };
+}
+function semanticCallout(container, text = "introduction") {
+  const callout = container.createDiv({ cls: "callout feuillets-semantic-role feuillets-role-introduction", attr: { "data-callout": "introduction" } });
+  const title = callout.createDiv({ cls: "callout-title" });
+  title.createDiv({ cls: "callout-title-inner", text });
+  callout.createDiv({ cls: "callout-content" }).createEl("p", { text: "contenu" });
+  return callout;
 }
 
 // ===== A — N slides => N sections indépendantes =====
@@ -183,6 +195,32 @@ test("PresentationView — async : une image non chargée sur une slide inactive
     assert.equal(view.activeIndex, 2, "la slide active reste 2");
     assert.equal(slide2Section.classes.has("is-active"), true);
     assert.equal(view.slideRecords[0].section.classes.has("is-active"), false);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("PresentationView — roleEditorDisplay : refresh complet sans relecture ni navigation", async () => {
+  const previous = MarkdownRenderer.render;
+  let renderCount = 0;
+  MarkdownRenderer.render = async (_app, markdown, container) => { renderCount++; semanticCallout(container, markdown); };
+  try {
+    const { view, file, settings, getReadCount } = setup("A\n---\nB\n---\nC");
+    await view.onOpen(); await view.openFile(file); await view.last();
+    const activeBefore = view.activeIndex;
+    const sectionsBefore = view.slideRecords.map((record) => record.section);
+    const readCountBefore = getReadCount();
+    assert.notEqual(view.slideRecords[0].section.querySelector(".callout").style.background, "transparent");
+
+    settings.roleEditorDisplay = "compact";
+    await view.refreshRoleDisplay();
+
+    assert.equal(renderCount, 6, "toutes les slides sont rerendues");
+    assert.equal(view.slideRecords.length, 3, "le nombre de slides reste inchangé");
+    assert.equal(view.activeIndex, activeBefore, "l'index actif est conservé");
+    assert.equal(getReadCount(), readCountBefore, "le vault n'est pas relu");
+    for (let i = 0; i < sectionsBefore.length; i++) {
+      assert.notEqual(view.slideRecords[i].section, sectionsBefore[i], `section ${i} remplacée`);
+      assert.equal(view.slideRecords[i].section.querySelector(".callout").style.background, "transparent", "Compact est réellement appliqué");
+    }
   } finally { MarkdownRenderer.render = previous; }
 });
 

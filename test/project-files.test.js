@@ -4,7 +4,7 @@ import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { createMinimalProject, CreateProjectError, duplicateProjectFolder, getVersionsRoot, listSnapshotFiles, snapshotFile, ensureEditionFolder, initProjectStructure, initResearchSubfolders, newSheet, EDITION_DOCUMENTS, EDITION_SUBFOLDERS, editionDocumentForName } from "../src/services/project-files.js";
 import { NewSheetModal } from "../src/ui/basic-modals.js";
-import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, EDITION_FOLDER_NAME, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
+import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
 import { setLocale } from "../src/i18n/index.js";
 import { PROJECT_MODES, researchFolderNames } from "../src/utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
@@ -612,7 +612,7 @@ test("getVersionsRoot : ne crée ni ne déplace jamais rien sur le disque (réso
   const { vault } = createFakeVault([volume, manuscript]);
   const app = { vault };
   const writes = [];
-  const guard = (name) => (...args) => { writes.push(name); throw new Error(`${name} ne doit jamais être appelé par getVersionsRoot`); };
+  const guard = (name) => (..._args) => { writes.push(name); throw new Error(`${name} ne doit jamais être appelé par getVersionsRoot`); };
   vault.createFolder = guard("createFolder");
   vault.create = guard("create");
   vault.rename = guard("rename");
@@ -690,7 +690,7 @@ test("createMinimalProject (FR) : _Recherche et _Ressources sous le volume, pas 
   const app = { vault };
   const settings = freshSettingsFor("");
 
-  const result = await createMinimalProject(app, settings, { name: "Roman FR", type: "fiction" });
+  await createMinimalProject(app, settings, { name: "Roman FR", type: "fiction" });
 
   assert.ok(vault.getAbstractFileByPath("Roman FR/_Feuillets/Recherche") instanceof TFolder, "Recherche sous _Feuillets");
   assert.ok(vault.getAbstractFileByPath("Roman FR/_Feuillets/Ressources") instanceof TFolder, "Ressources sous _Feuillets");
@@ -708,7 +708,7 @@ test("createMinimalProject (EN) : _Research et _Resources sous le volume, noms a
   const app = { vault };
   const settings = freshSettingsFor("");
 
-  const result = await createMinimalProject(app, settings, { name: "Novel EN", type: "fiction" });
+  await createMinimalProject(app, settings, { name: "Novel EN", type: "fiction" });
 
   assert.ok(vault.getAbstractFileByPath("Novel EN/_Feuillets/Recherche") instanceof TFolder, "Recherche sous _Feuillets");
   assert.ok(vault.getAbstractFileByPath("Novel EN/_Feuillets/Ressources") instanceof TFolder, "Ressources sous _Feuillets");
@@ -1460,7 +1460,7 @@ test("Phase 1D : import titre AKSAK → fichier physique Front/Page de titre.md 
   const titleFile = new TFile("Projet/Manuscrit/Front/Page de titre.md");
   const app = {
     metadataCache: {
-      getFileCache: (file) => ({ frontmatter: { title: "AKSAK", type: "titre" } }),
+      getFileCache: (_file) => ({ frontmatter: { title: "AKSAK", type: "titre" } }),
     },
   };
 

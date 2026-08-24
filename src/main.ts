@@ -1265,6 +1265,17 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
+  async refreshPresentationRoleDisplay(): Promise<void> {
+    const refreshes: Promise<void>[] = [];
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PRESENTATION)) {
+      if (leaf.view instanceof PresentationView) refreshes.push(leaf.view.refreshRoleDisplay());
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PRESENTATION_PREVIEW)) {
+      if (leaf.view instanceof PresentationPreviewView) refreshes.push(leaf.view.refreshRoleDisplay());
+    }
+    await Promise.all(refreshes);
+  }
+
   registerProjectEditorScope(): void {
     const sync = () => this.syncProjectEditorScope();
     this.app.workspace.onLayoutReady(sync);

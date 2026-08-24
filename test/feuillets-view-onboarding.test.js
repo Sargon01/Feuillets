@@ -1817,8 +1817,8 @@ test("Binder ↔ Recherche : le nom du dossier de création utilise le short_tit
   const plugin = buildBinderResearchPlugin(project, {
     getLinkedResearchFolder: () => null,
     setLinkedResearchFolder: async () => {},
-    shortTitleFor: (f) => "Mon beau titre",
-    titleFor: (f) => "Mon beau titre (affiché)",
+    shortTitleFor: (_f) => "Mon beau titre",
+    titleFor: (_f) => "Mon beau titre (affiché)",
   });
 
   const originalOpen = NewFolderModal.prototype.open;

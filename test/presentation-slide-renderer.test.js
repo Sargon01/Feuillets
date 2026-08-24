@@ -971,7 +971,7 @@ test("BUG 2 : H2 + image seule → aucun SPLIT/STACK, uniquement FLOW, image ple
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     container.createEl("h2", { text: "Titre" });
-    const { media, img } = knownMedia(container, 800, 600);
+    knownMedia(container, 800, 600);
   };
   try {
     const { result } = await render("BUG2-IMAGE-SEULE");
@@ -995,8 +995,8 @@ test("BUG 3 : H2 + 2 images → les deux visibles, ordre conservé, FLOW", async
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     container.createEl("h2", { text: "Titre" });
-    const { img: img1 } = knownMedia(container, 400, 300);
-    const { img: img2 } = knownMedia(container, 500, 400);
+    knownMedia(container, 400, 300);
+    knownMedia(container, 500, 400);
   };
   try {
     const { result } = await render("BUG3-DEUX-IMAGES");
@@ -1030,8 +1030,6 @@ test("BUG 4 : paragraphe + callout + paragraphe → callout présent entre les d
   try {
     const { result } = await render("BUG4-CALLOUT-ENTRE");
     const content = result.inner.querySelector(".feuillets-presentation-render-content");
-    const children = Array.from(content?.children || []);
-
     // Vérifier l'ordre : P + CALLOUT + P
     const callouts = Array.from(content?.querySelectorAll(".callout") || []);
     assert.equal(callouts.length, 1, "Un callout présent");
@@ -1099,7 +1097,7 @@ test("BUG 7 : benchmarks existants média+texte SPLIT/STACK restent inchangés",
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     container.createEl("h2", { text: "Titre" });
-    const { img } = knownMedia(container, 800, 600);
+    knownMedia(container, 800, 600);
     container.createEl("p", { text: "Texte après image" });
   };
   try {
@@ -1115,7 +1113,7 @@ test("BUG 8 : P/IMG/P reste FLOW avec ordre conservé", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     container.createEl("p", { text: "Avant l'image" });
-    const { img } = knownMedia(container, 600, 400);
+    knownMedia(container, 600, 400);
     container.createEl("p", { text: "Après l'image" });
   };
   try {
@@ -1139,9 +1137,9 @@ test("BUG 9 : aucun bloc du DOM source ne disparaît dans le candidat retenu", a
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     container.createEl("h2", { text: "H2" });
     container.createEl("p", { text: "P1" });
-    const { img: img1 } = knownMedia(container, 400, 300);
+    knownMedia(container, 400, 300);
     container.createEl("p", { text: "P2" });
-    const { img: img2 } = knownMedia(container, 500, 400);
+    knownMedia(container, 500, 400);
     container.createEl("p", { text: "P3" });
   };
   try {
@@ -1280,7 +1278,7 @@ test("CALLOUT : callout + image produisant SPLIT/STACK → callout toujours visi
     const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "info" } });
     callout.createEl("div", { cls: "callout-title", text: "Info" });
     callout.createEl("div", { cls: "callout-content", text: "Information importante" });
-    const { img } = knownMedia(container, 600, 400);
+    knownMedia(container, 600, 400);
   };
   try {
     const { result } = await render("CALLOUT-SPLIT-STACK");
@@ -1487,8 +1485,8 @@ test("Thème Obsidian hostile — [!note] (non sémantique) : mix-blend-mode:lig
     const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "note" } });
     callout.style.mixBlendMode = "lighten";
     const title = callout.createEl("div", { cls: "callout-title", text: "Note" });
-    const titleInner = title.createEl("div", { cls: "callout-title-inner", text: "Note" });
-    const content = callout.createEl("div", { cls: "callout-content", text: "Contenu de la note" });
+    title.createEl("div", { cls: "callout-title-inner", text: "Note" });
+    callout.createEl("div", { cls: "callout-content", text: "Contenu de la note" });
   };
   try {
     const { result } = await render("LIGHTEN-NOTE", { roleEditorDisplay: "callouts" });

@@ -117,6 +117,11 @@ export class PresentationView extends ItemView {
     await this.rebuildDeck();
   }
 
+  async refreshRoleDisplay(): Promise<void> {
+    if (!this.file || !this.slidesMarkdown.length || !this.deckEl) return;
+    await this.rebuildDeck();
+  }
+
   async next(): Promise<void> { this.setActiveIndex(this.activeIndex + 1); }
   async previous(): Promise<void> { this.setActiveIndex(this.activeIndex - 1); }
   async first(): Promise<void> { this.setActiveIndex(0); }

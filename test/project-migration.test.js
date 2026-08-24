@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TFolder, TFile } from "obsidian";
-import { detectLegacyProjectStructure, LEGACY_PROJECT_INVENTORY } from "../src/services/project-migration.js";
+import { detectLegacyProjectStructure } from "../src/services/project-migration.js";
 
 function createFakeVault(files = []) {
   const map = new Map();

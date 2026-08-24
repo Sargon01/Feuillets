@@ -74,6 +74,7 @@ export class PresentationPreviewView extends ItemView {
   deckGeneration = 0;
   currentRecord: PresentationPreviewSlideRecord | null = null;
   private lastRenderedMarkdown: string | null = null;
+  private linkedWorkLeaf: WorkspaceLeaf | null = null;
 
   rootEl: HTMLElement | null = null;
   stageEl: HTMLElement | null = null;
@@ -146,6 +147,7 @@ export class PresentationPreviewView extends ItemView {
     this.cursorPollTimer = null;
     this.currentRecord?.controller.abort();
     this.currentRecord = null;
+    this.linkedWorkLeaf = null;
     this.measurementHostEl = null;
   }
 
@@ -155,12 +157,18 @@ export class PresentationPreviewView extends ItemView {
    * sinon conserve/borne l'index courant. Idempotent — un second appel sur
    * le même fichier ne fait que rafraîchir le contenu (voir openPresentationPreview).
    */
-  async linkFile(file: TFile): Promise<void> {
+  async linkFile(file: TFile, workLeaf?: WorkspaceLeaf): Promise<void> {
+    if (workLeaf) this.linkedWorkLeaf = workLeaf;
     const changed = this.file?.path !== file.path;
     this.file = file;
     if (changed) { this.activeIndex = 0; this.lastCursorLine = null; }
     const markdown = await this.app.vault.read(file);
     await this.applyMarkdown(markdown, { preferCursor: true });
+  }
+
+  async refreshRoleDisplay(): Promise<void> {
+    if (!this.slides.length || !this.currentRecord) return;
+    await this.setActiveIndex(this.activeIndex, { moveCursor: false, force: true });
   }
 
   private async applyMarkdown(markdown: string, options: { preferCursor: boolean }): Promise<void> {
@@ -265,6 +273,13 @@ export class PresentationPreviewView extends ItemView {
    * `workspace.getLeavesOfType`, `view.file`, `view.editor`). */
   private findLinkedEditor(): PresentationPreviewEditorLike | null {
     if (!this.file) return null;
+    if (this.linkedWorkLeaf) {
+      const view = this.linkedWorkLeaf.view as unknown as MarkdownLeafView;
+      if (view?.file instanceof TFile && view.file.path === this.file.path && typeof view.editor?.getCursor === "function") {
+        return view.editor;
+      }
+      return null;
+    }
     const workspace = this.app.workspace as unknown as {
       getLeavesOfType?(type: string): Array<{ view?: MarkdownLeafView }>;
     };
@@ -359,7 +374,7 @@ export class PresentationPreviewView extends ItemView {
   }
 }
 
-type PresentationPreviewLeafView = { linkFile(file: TFile): Promise<void> };
+type PresentationPreviewLeafView = { linkFile(file: TFile, workLeaf?: WorkspaceLeaf): Promise<void> };
 
 function isPresentationPreviewLeafView(view: unknown): view is PresentationPreviewLeafView {
   return typeof view === "object" && view !== null && "linkFile" in view && typeof (view as { linkFile?: unknown }).linkFile === "function";
@@ -391,7 +406,7 @@ export async function openPresentationPreview(app: App, workLeaf: WorkspaceLeaf,
   if (leaf.isDeferred) await leaf.loadIfDeferred();
 
   const view = leaf.view;
-  if (isPresentationPreviewLeafView(view)) await view.linkFile(file);
+  if (isPresentationPreviewLeafView(view)) await view.linkFile(file, workLeaf);
 
   void workspace.revealLeaf(leaf);
   workspace.setActiveLeaf(workLeaf, { focus: true });

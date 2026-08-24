@@ -340,7 +340,7 @@ test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs V2 sa
   const restoreSetting = installSettingStub();
   try {
     await withFakeDocument(async (listeners) => {
-      const { modal, settings, calls } = createModal();
+      const { modal, calls } = createModal();
       await modal.onOpen();
       modal.template.header.enabled = false;
       modal.template.firstPage.hideHeader = true;

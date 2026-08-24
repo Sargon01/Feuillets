@@ -67,6 +67,7 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   refreshRibbonIcons(): void;
   applyLiveTypoClasses(): void;
   syncProjectEditorScope(): void;
+  refreshPresentationRoleDisplay(): Promise<void>;
   applyIndentClass(): void;
   applyLeanInterfaceClasses(): void;
   removeConcentrationCounter(): void;
@@ -339,6 +340,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
             S.roleEditorDisplay = v as DefaultSettings["roleEditorDisplay"];
             await this.plugin.saveSettings();
             this.plugin.syncProjectEditorScope();
+            await this.plugin.refreshPresentationRoleDisplay();
           })
       );
 
