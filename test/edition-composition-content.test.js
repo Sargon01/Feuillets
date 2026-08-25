@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { Setting, TFolder } from "obsidian";
 import { EditionCompositionContent } from "../src/ui/edition-composition-content.js";
 import { contentVariantsFilePath, createContentVariant, selectedContentVariant } from "../src/services/content-variants.js";
+import { createContentExtraction, deleteContentExtraction, updateContentExtraction } from "../src/services/content-extractions.js";
 import { setLocale, t } from "../src/i18n/index.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 
@@ -241,7 +242,7 @@ test("EditionCompositionContent : plus de nav permanente Contenu/Structure/Notes
   }
 });
 
-test("EditionCompositionContent : Le manuscrit expose Contenu, Variantes puis Structure", async () => {
+test("EditionCompositionContent : Le manuscrit expose Contenu, Variantes, Extractions puis Structure", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
@@ -252,11 +253,46 @@ test("EditionCompositionContent : Le manuscrit expose Contenu, Variantes puis St
     manuscript.click();
     await view.renderPromise;
     const labels = contentEl.querySelectorAll(".feuillets-project-row").map((row) => row.querySelector(".feuillets-project-row-label")?.textContent);
-    assert.deepEqual(labels, ["Contenu du manuscrit", "Variantes de contenu", "Structure du manuscrit"]);
+    assert.deepEqual(labels, ["Contenu du manuscrit", "Variantes de contenu", "Extractions de contenu", "Structure du manuscrit"]);
     const variantsRow = contentEl.querySelectorAll(".feuillets-project-row")[1];
     assert.equal(variantsRow.textContent.includes("Complète"), false);
     assert.equal(variantsRow.textContent.includes("Aucune"), false);
     assert.equal(variantsRow.textContent.includes("Sans variante"), false);
+  } finally {
+    restoreDom();
+  }
+});
+
+test("EditionCompositionContent : sous-page Extractions vide, création, modification, suppression et retour", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    contentEl.querySelectorAll(".feuillets-project-row")[1].click();
+    await view.renderPromise;
+    contentEl.querySelectorAll(".feuillets-project-row")[2].click();
+    await view.renderPromise;
+    assert.ok(contentEl.textContent.includes("Facultatif. Extrait des sections à partir de leurs rôles."));
+    assert.ok(contentEl.textContent.includes("Aucune extraction créée."));
+    assert.ok(contentEl.textContent.includes("Nouvelle extraction…"));
+    assert.equal(contentEl.textContent.includes("extraction active"), false);
+    const extraction = await createContentExtraction(app, plugin.settings, "Activités", ["questions"]);
+    await view.render();
+    assert.ok(contentEl.textContent.includes("Activités"));
+    assert.equal(contentEl.textContent.includes("Sélectionner"), false);
+    await updateContentExtraction(app, plugin.settings, extraction.id, { name: "Questions", triggerRoles: ["questions", "source"] });
+    await view.render();
+    assert.ok(contentEl.textContent.includes("Questions"));
+    await deleteContentExtraction(app, plugin.settings, extraction.id);
+    await view.render();
+    assert.ok(contentEl.textContent.includes("Aucune extraction créée."));
+    const back = contentEl.querySelector(".feuillets-composition-back");
+    back.click();
+    await view.renderPromise;
+    assert.ok(contentEl.textContent.includes("Variantes de contenu"));
+    assert.ok(contentEl.textContent.includes("Extractions de contenu"));
   } finally {
     restoreDom();
   }

@@ -10,6 +10,7 @@ import { LayoutEditor, type LayoutEditorPlugin } from "./layout-editor.js";
 import { CompileSelectionModal, manuscriptBodyFiles } from "./selection-modals.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ContentVariantModal, contentVariantErrorNoticeKey } from "./content-variant-modal.js";
+import { ContentExtractionModal, contentExtractionErrorNoticeKey } from "./content-extraction-modal.js";
 import {
   ContentVariantsFileCorruptedError,
   createContentVariant,
@@ -20,6 +21,15 @@ import {
   type ContentVariant,
   type ContentVariantsStore,
 } from "../services/content-variants.js";
+import {
+  ContentExtractionsFileCorruptedError,
+  createContentExtraction,
+  deleteContentExtraction,
+  loadContentExtractions,
+  updateContentExtraction,
+  type ContentExtraction,
+  type ContentExtractionsStore,
+} from "../services/content-extractions.js";
 import type { DefaultSettings } from "../default-settings.js";
 
 /* Même intersection que FeuilletsSettingTab (settings/feuillets-setting-tab.ts) :
@@ -37,7 +47,7 @@ type CompositionSettings = FeuilletsSettings & DefaultSettings;
  * disparaissent en tant que rubriques séparées.
  * Passe ergonomique finale : trois groupes (AVANT, MANUSCRIT, APRÈS) avec
  * sous-pages respectant l'ordre de compilation réel. */
-type CompositionSection = "summary" | "before" | "manuscript" | "variants" | "after" | "firstPage" | "frontMatter" | "structure";
+type CompositionSection = "summary" | "before" | "manuscript" | "variants" | "extractions" | "after" | "firstPage" | "frontMatter" | "structure";
 
 export type EditionCompositionContentPlugin = FirstPagePanelPlugin
   & FrontMatterPanelPlugin
@@ -156,6 +166,7 @@ export class EditionCompositionContent {
       : this.selectedSection === "before" ? this.renderBeforeSubpage(body)
       : this.selectedSection === "manuscript" ? this.renderManuscriptSubpage(body)
       : this.selectedSection === "variants" ? this.renderVariantsSubpage(body)
+      : this.selectedSection === "extractions" ? this.renderExtractionsSubpage(body)
       : this.selectedSection === "after" ? this.renderAfterSubpage(body)
       : this.selectedSection === "firstPage" ? this.renderFirstPageSubpage(body)
       : this.selectedSection === "frontMatter" ? this.renderFrontMatterSubpage(body)
@@ -183,6 +194,7 @@ export class EditionCompositionContent {
   private parentSection(section: CompositionSection): CompositionSection {
     if (section === "firstPage" || section === "frontMatter") return "before";
     if (section === "variants") return "manuscript";
+    if (section === "extractions") return "manuscript";
     if (section === "structure") return "manuscript";
     return "summary";
   }
@@ -280,7 +292,7 @@ export class EditionCompositionContent {
     await this.tablesPanel.render();
   }
 
-  /** Composition → Le manuscrit : deux entrées (Contenu, Structure). */
+  /** Composition → Le manuscrit : quatre entrées dans l'ordre du pipeline. */
   private async renderManuscriptSubpage(body: HTMLElement): Promise<void> {
     this.renderManuscriptContentRow(body);
     let status: string | null = null;
@@ -293,6 +305,7 @@ export class EditionCompositionContent {
       status = t("contentVariants.errorStatus");
     }
     this.renderSummaryRow(body, t("contentVariants.title"), status, () => void this.navigateTo("variants"));
+    this.renderSummaryRow(body, t("contentExtractions.title"), null, () => void this.navigateTo("extractions"));
     this.renderSummaryRow(body, t("compositionSummary.structureRow"), null, () => void this.navigateTo("structure"));
   }
 
@@ -323,6 +336,57 @@ export class EditionCompositionContent {
     for (const variant of store.variants) this.renderVariantRow(body, variant);
     const add = body.createEl("button", { text: t("contentVariants.newVariant"), cls: "feuillets-content-variant-add" });
     add.addEventListener("click", () => this.openVariantModal(null));
+  }
+
+  private async renderExtractionsSubpage(body: HTMLElement): Promise<void> {
+    body.createDiv({ cls: "feuillets-content-extractions-hint", text: t("contentExtractions.optionalHint") });
+    let store: ContentExtractionsStore;
+    try {
+      store = await loadContentExtractions(this.app, this.plugin.settings);
+    } catch (error) {
+      if (!(error instanceof ContentExtractionsFileCorruptedError)) throw error;
+      body.createDiv({ cls: "feuillets-content-extractions-error", text: t("contentExtractions.invalidFile") });
+      return;
+    }
+    if (store.extractions.length === 0) {
+      body.createDiv({ cls: "feuillets-content-extractions-empty", text: t("contentExtractions.empty") });
+    }
+    for (const extraction of store.extractions) this.renderExtractionRow(body, extraction);
+    const add = body.createEl("button", { text: t("contentExtractions.newExtraction"), cls: "feuillets-content-extraction-add" });
+    add.addEventListener("click", () => this.openExtractionModal(null));
+  }
+
+  private renderExtractionRow(parent: HTMLElement, extraction: ContentExtraction): void {
+    const row = parent.createDiv({ cls: "feuillets-project-row feuillets-edition-action-row" });
+    row.createSpan({ cls: "feuillets-project-row-label", text: extraction.name });
+    const actions = row.createDiv({ cls: "feuillets-project-row-actions" });
+    const edit = actions.createEl("button", { text: t("contentExtractions.edit") });
+    edit.addEventListener("click", (event) => { event.stopPropagation(); this.openExtractionModal(extraction); });
+    const remove = actions.createEl("button", { text: t("contentExtractions.delete") });
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      new ConfirmModal(this.app, t("contentExtractions.deleteTitle"), t("contentExtractions.deleteMessage", { name: extraction.name }), t("contentExtractions.delete"),
+        () => this.removeExtraction(extraction.id)).open();
+    });
+  }
+
+  private openExtractionModal(extraction: ContentExtraction | null): void {
+    new ContentExtractionModal(this.app, extraction, async (draft) => {
+      if (extraction) await updateContentExtraction(this.app, this.plugin.settings, extraction.id, draft);
+      else await createContentExtraction(this.app, this.plugin.settings, draft.name, draft.triggerRoles);
+      await this.refreshCurrentSection();
+      await this.onChangeOpt?.();
+    }).open();
+  }
+
+  private async removeExtraction(id: string): Promise<void> {
+    try {
+      await deleteContentExtraction(this.app, this.plugin.settings, id);
+      await this.refreshCurrentSection();
+      await this.onChangeOpt?.();
+    } catch (error) {
+      new Notice(t(contentExtractionErrorNoticeKey(error)));
+    }
   }
 
   private renderVariantRow(parent: HTMLElement, variant: ContentVariant): void {
