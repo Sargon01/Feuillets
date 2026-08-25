@@ -11,6 +11,7 @@ import { CompileSelectionModal, manuscriptBodyFiles } from "./selection-modals.j
 import { ConfirmModal } from "./basic-modals.js";
 import { ContentVariantModal, contentVariantErrorNoticeKey } from "./content-variant-modal.js";
 import { ContentExtractionModal, contentExtractionErrorNoticeKey } from "./content-extraction-modal.js";
+import { ContentCollectionModal, contentCollectionErrorNoticeKey } from "./content-collection-modal.js";
 import {
   ContentVariantsFileCorruptedError,
   createContentVariant,
@@ -30,6 +31,15 @@ import {
   type ContentExtraction,
   type ContentExtractionsStore,
 } from "../services/content-extractions.js";
+import {
+  ContentCollectionsFileCorruptedError,
+  createContentCollection,
+  deleteContentCollection,
+  loadContentCollections,
+  updateContentCollection,
+  type ContentCollection,
+  type ContentCollectionsStore,
+} from "../services/content-collections.js";
 import type { DefaultSettings } from "../default-settings.js";
 
 /* Même intersection que FeuilletsSettingTab (settings/feuillets-setting-tab.ts) :
@@ -47,7 +57,7 @@ type CompositionSettings = FeuilletsSettings & DefaultSettings;
  * disparaissent en tant que rubriques séparées.
  * Passe ergonomique finale : trois groupes (AVANT, MANUSCRIT, APRÈS) avec
  * sous-pages respectant l'ordre de compilation réel. */
-type CompositionSection = "summary" | "before" | "manuscript" | "variants" | "extractions" | "after" | "firstPage" | "frontMatter" | "structure";
+type CompositionSection = "summary" | "before" | "manuscript" | "variants" | "extractions" | "collections" | "after" | "firstPage" | "frontMatter" | "structure";
 
 export type EditionCompositionContentPlugin = FirstPagePanelPlugin
   & FrontMatterPanelPlugin
@@ -167,6 +177,7 @@ export class EditionCompositionContent {
       : this.selectedSection === "manuscript" ? this.renderManuscriptSubpage(body)
       : this.selectedSection === "variants" ? this.renderVariantsSubpage(body)
       : this.selectedSection === "extractions" ? this.renderExtractionsSubpage(body)
+      : this.selectedSection === "collections" ? this.renderCollectionsSubpage(body)
       : this.selectedSection === "after" ? this.renderAfterSubpage(body)
       : this.selectedSection === "firstPage" ? this.renderFirstPageSubpage(body)
       : this.selectedSection === "frontMatter" ? this.renderFrontMatterSubpage(body)
@@ -184,6 +195,7 @@ export class EditionCompositionContent {
     if (section === "before") return t("compositionSummary.beforeManuscript");
     if (section === "manuscript") return t("compositionSummary.theManuscript");
     if (section === "variants") return t("contentVariants.title");
+    if (section === "collections") return t("contentCollections.title");
     if (section === "after") return t("compositionSummary.afterManuscript");
     if (section === "firstPage") return t("preview.export.firstPage");
     if (section === "frontMatter") return t("frontMatter.sectionTitle");
@@ -195,6 +207,7 @@ export class EditionCompositionContent {
     if (section === "firstPage" || section === "frontMatter") return "before";
     if (section === "variants") return "manuscript";
     if (section === "extractions") return "manuscript";
+    if (section === "collections") return "manuscript";
     if (section === "structure") return "manuscript";
     return "summary";
   }
@@ -306,6 +319,7 @@ export class EditionCompositionContent {
     }
     this.renderSummaryRow(body, t("contentVariants.title"), status, () => void this.navigateTo("variants"));
     this.renderSummaryRow(body, t("contentExtractions.title"), null, () => void this.navigateTo("extractions"));
+    this.renderSummaryRow(body, t("contentCollections.title"), null, () => void this.navigateTo("collections"));
     this.renderSummaryRow(body, t("compositionSummary.structureRow"), null, () => void this.navigateTo("structure"));
   }
 
@@ -354,6 +368,57 @@ export class EditionCompositionContent {
     for (const extraction of store.extractions) this.renderExtractionRow(body, extraction);
     const add = body.createEl("button", { text: t("contentExtractions.newExtraction"), cls: "feuillets-content-extraction-add" });
     add.addEventListener("click", () => this.openExtractionModal(null));
+  }
+
+  private async renderCollectionsSubpage(body: HTMLElement): Promise<void> {
+    body.createDiv({ cls: "feuillets-content-collections-hint", text: t("contentCollections.optionalHint") });
+    let store: ContentCollectionsStore;
+    try {
+      store = await loadContentCollections(this.app, this.plugin.settings);
+    } catch (error) {
+      if (!(error instanceof ContentCollectionsFileCorruptedError)) throw error;
+      body.createDiv({ cls: "feuillets-content-collections-error", text: t("contentCollections.invalidFile") });
+      return;
+    }
+    if (store.collections.length === 0) {
+      body.createDiv({ cls: "feuillets-content-collections-empty", text: t("contentCollections.empty") });
+    }
+    for (const collection of store.collections) this.renderCollectionRow(body, collection);
+    const add = body.createEl("button", { text: t("contentCollections.newCollection"), cls: "feuillets-content-collection-add" });
+    add.addEventListener("click", () => this.openCollectionModal(null));
+  }
+
+  private renderCollectionRow(parent: HTMLElement, collection: ContentCollection): void {
+    const row = parent.createDiv({ cls: "feuillets-project-row feuillets-edition-action-row" });
+    row.createSpan({ cls: "feuillets-project-row-label", text: collection.name });
+    const actions = row.createDiv({ cls: "feuillets-project-row-actions" });
+    const edit = actions.createEl("button", { text: t("contentCollections.edit") });
+    edit.addEventListener("click", (event) => { event.stopPropagation(); this.openCollectionModal(collection); });
+    const remove = actions.createEl("button", { text: t("contentCollections.delete") });
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      new ConfirmModal(this.app, t("contentCollections.deleteTitle"), t("contentCollections.deleteMessage", { name: collection.name }), t("contentCollections.delete"),
+        () => this.removeCollection(collection.id)).open();
+    });
+  }
+
+  private openCollectionModal(collection: ContentCollection | null): void {
+    new ContentCollectionModal(this.app, collection, async (draft) => {
+      if (collection) await updateContentCollection(this.app, this.plugin.settings, collection.id, draft);
+      else await createContentCollection(this.app, this.plugin.settings, draft.name, draft.roles);
+      await this.refreshCurrentSection();
+      await this.onChangeOpt?.();
+    }).open();
+  }
+
+  private async removeCollection(id: string): Promise<void> {
+    try {
+      await deleteContentCollection(this.app, this.plugin.settings, id);
+      await this.refreshCurrentSection();
+      await this.onChangeOpt?.();
+    } catch (error) {
+      new Notice(t(contentCollectionErrorNoticeKey(error)));
+    }
   }
 
   private renderExtractionRow(parent: HTMLElement, extraction: ContentExtraction): void {

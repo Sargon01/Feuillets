@@ -5,6 +5,7 @@ import { Setting, TFolder } from "obsidian";
 import { EditionCompositionContent } from "../src/ui/edition-composition-content.js";
 import { contentVariantsFilePath, createContentVariant, selectedContentVariant } from "../src/services/content-variants.js";
 import { createContentExtraction, deleteContentExtraction, updateContentExtraction } from "../src/services/content-extractions.js";
+import { createContentCollection, deleteContentCollection, updateContentCollection } from "../src/services/content-collections.js";
 import { setLocale, t } from "../src/i18n/index.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 
@@ -242,7 +243,7 @@ test("EditionCompositionContent : plus de nav permanente Contenu/Structure/Notes
   }
 });
 
-test("EditionCompositionContent : Le manuscrit expose Contenu, Variantes, Extractions puis Structure", async () => {
+test("EditionCompositionContent : Le manuscrit expose Contenu, Variantes, Extractions, Collections puis Structure", async () => {
   const restoreDom = installDom();
   try {
     const { app, plugin } = buildPlugin();
@@ -253,11 +254,44 @@ test("EditionCompositionContent : Le manuscrit expose Contenu, Variantes, Extrac
     manuscript.click();
     await view.renderPromise;
     const labels = contentEl.querySelectorAll(".feuillets-project-row").map((row) => row.querySelector(".feuillets-project-row-label")?.textContent);
-    assert.deepEqual(labels, ["Contenu du manuscrit", "Variantes de contenu", "Extractions de contenu", "Structure du manuscrit"]);
+    assert.deepEqual(labels, ["Contenu du manuscrit", "Variantes de contenu", "Extractions de contenu", "Collections de contenu", "Structure du manuscrit"]);
     const variantsRow = contentEl.querySelectorAll(".feuillets-project-row")[1];
     assert.equal(variantsRow.textContent.includes("Complète"), false);
     assert.equal(variantsRow.textContent.includes("Aucune"), false);
     assert.equal(variantsRow.textContent.includes("Sans variante"), false);
+  } finally {
+    restoreDom();
+  }
+});
+
+test("EditionCompositionContent : sous-page Collections vide, création, modification, suppression et retour", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    contentEl.querySelectorAll(".feuillets-project-row")[1].click();
+    await view.renderPromise;
+    contentEl.querySelectorAll(".feuillets-project-row")[3].click();
+    await view.renderPromise;
+    assert.ok(contentEl.textContent.includes("Facultatif. Regroupe certains rôles avec leur contexte de titres."));
+    assert.ok(contentEl.textContent.includes("Aucune collection créée."));
+    assert.ok(contentEl.textContent.includes("Nouvelle collection…"));
+    const collection = await createContentCollection(app, plugin.settings, "Dossier", ["source", "preuve"]);
+    await view.render();
+    assert.ok(contentEl.textContent.includes("Dossier"));
+    await updateContentCollection(app, plugin.settings, collection.id, { name: "Glossaire", roles: ["definition"] });
+    await view.render();
+    assert.ok(contentEl.textContent.includes("Glossaire"));
+    await deleteContentCollection(app, plugin.settings, collection.id);
+    await view.render();
+    assert.ok(contentEl.textContent.includes("Aucune collection créée."));
+    const back = contentEl.querySelector(".feuillets-composition-back");
+    back.click();
+    await view.renderPromise;
+    assert.ok(contentEl.textContent.includes("Collections de contenu"));
+    assert.equal(contentEl.textContent.includes("collection active"), false);
   } finally {
     restoreDom();
   }
