@@ -928,7 +928,8 @@ export async function exportWithScope(
   scope: CompileScope,
   format: ExportFormat,
   baseName: string,
-  contentExtraction: ContentExtraction | null = null
+  contentExtraction: ContentExtraction | null = null,
+  contentCollection: ContentCollection | null = null
 ): Promise<string | undefined> {
   if (format === "md") {
     /* Format Markdown : compile() écrit déjà le .md dans _Sortie et renvoie
@@ -939,7 +940,7 @@ export async function exportWithScope(
   /* Formats binaires : on passe par exportViaNative en fournissant la portée
      et le baseName directement — l'extension est ajoutée par exportViaNative
      selon le format. */
-  return exportViaNative(app, settings, format, null, undefined, baseName, false, scope, contentExtraction);
+  return exportViaNative(app, settings, format, null, undefined, baseName, false, scope, contentExtraction, contentCollection);
 }
 
 /** Export DOCX de soumission : même compilation et même moteur que
@@ -1021,7 +1022,8 @@ async function exportViaNative(
   baseNameOverride?: string,
   nonDestructive = false,
   scope?: CompileScope,
-  contentExtraction?: ContentExtraction | null
+  contentExtraction?: ContentExtraction | null,
+  contentCollection?: ContentCollection | null
 ): Promise<string | undefined> {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
@@ -1043,7 +1045,7 @@ async function exportViaNative(
       scopePath,
       scope ?? null,
       undefined,
-      contentExtraction ? { contentExtraction } : undefined,
+      contentExtraction || contentCollection ? { contentExtraction, contentCollection } : undefined,
     );
     if (!result) return undefined;
 

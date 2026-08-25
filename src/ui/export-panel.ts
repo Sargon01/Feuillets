@@ -5,11 +5,13 @@ import {
   exportBaseName,
   rememberExportScope,
   runExportWorkflow,
-  currentExportExtractionId,
-  rememberExportExtraction,
+  currentExportDerivation,
+  rememberExportDerivation,
+  type ContentDerivationSelection,
   type ExportWorkflowPlugin,
 } from "../services/export-workflow.js";
-import { loadContentExtractions } from "../services/content-extractions.js";
+import { loadContentExtractions, type ContentExtraction } from "../services/content-extractions.js";
+import { loadContentCollections, type ContentCollection } from "../services/content-collections.js";
 import { type CompileScope } from "../services/compile-scope.js";
 import { createFileScope, createFolderScope, createProjectScope } from "../services/compile-scope.js";
 
@@ -21,6 +23,21 @@ type ExportPanelSettings = FeuilletsSettings & {
   compilePresets?: unknown[];
   manuscriptTitle?: string;
   manuscriptAuthor?: string;
+};
+
+type DerivationData = {
+  extractions: ContentExtraction[];
+  collections: ContentCollection[];
+  extractionsCorrupted: boolean;
+  collectionsCorrupted: boolean;
+  selection: ContentDerivationSelection;
+};
+
+type DerivationDropdown = {
+  addOption(value: string, label: string): DerivationDropdown;
+  setValue(value: string): DerivationDropdown;
+  onChange(callback: (value: string) => void): DerivationDropdown;
+  selectEl?: HTMLSelectElement;
 };
 
 /** Sous-ensemble de PreviewViewPlugin réellement utilisé par le panneau
@@ -160,16 +177,11 @@ export class ExportPanel {
     scopeLabel.textContent = this.scopeLabel();
     this.scopeLabelEl = scopeLabel;
 
-    const extractionStore = await loadContentExtractions(this.app, this.plugin.settings).catch(() => null);
-    if (extractionStore && extractionStore.extractions.length > 0) {
+    const derivationData = await this.loadDerivationData();
+    if (this.hasDerivationOptions(derivationData)) {
       new Setting(main)
-        .setName(t("contentExtractions.select"))
-        .addDropdown((dropdown) => {
-          dropdown.addOption("", t("contentExtractions.allDocument"));
-          for (const extraction of extractionStore.extractions) dropdown.addOption(extraction.id, extraction.name);
-          dropdown.setValue(currentExportExtractionId(this.plugin) ?? "");
-          dropdown.onChange((value) => rememberExportExtraction(this.plugin, value || null));
-        });
+        .setName(t("contentDerivation.select"))
+        .addDropdown((dropdown) => this.configureDerivationDropdown(dropdown, derivationData));
     }
 
     new Setting(main)
@@ -264,20 +276,103 @@ export class ExportPanel {
     });
     launch.setAttribute("aria-label", t("preview.export.launch"));
     launch.addEventListener("click", () => void this.launchExport());
-    void this.addQuickExtractionSelector(bar, format);
+    void this.addQuickDerivationSelector(bar, format);
   }
 
-  private async addQuickExtractionSelector(bar: HTMLElement, format: HTMLSelectElement): Promise<void> {
-    const store = await loadContentExtractions(this.app, this.plugin.settings).catch(() => null);
-    if (!store || store.extractions.length === 0) return;
-    const extraction = bar.createEl("select", { cls: "feuillets-edition-quickexport-extraction" });
-    extraction.createEl("option", { value: "", text: t("contentExtractions.allDocument") });
-    for (const item of store.extractions) extraction.createEl("option", { value: item.id, text: item.name });
-    extraction.value = currentExportExtractionId(this.plugin) ?? "";
-    extraction.setAttribute("aria-label", t("contentExtractions.select"));
-    extraction.addEventListener("change", () => rememberExportExtraction(this.plugin, extraction.value || null));
-    if (typeof bar.insertBefore === "function") bar.insertBefore(extraction, format);
-    else bar.appendChild(extraction);
+  private async addQuickDerivationSelector(bar: HTMLElement, format: HTMLSelectElement): Promise<void> {
+    const derivationData = await this.loadDerivationData();
+    if (!this.hasDerivationOptions(derivationData)) return;
+    const derivation = bar.createEl("select", { cls: "feuillets-edition-quickexport-derivation" });
+    this.configureNativeDerivationSelect(derivation, derivationData);
+    derivation.setAttribute("aria-label", t("contentDerivation.select"));
+    if (typeof bar.insertBefore === "function") bar.insertBefore(derivation, format);
+    else bar.appendChild(derivation);
+  }
+
+  private async loadDerivationData(): Promise<DerivationData> {
+    const extractionResult = await loadContentExtractions(this.app, this.plugin.settings)
+      .then((store) => ({ store, corrupted: false }))
+      .catch(() => ({ store: null, corrupted: true }));
+    const collectionResult = await loadContentCollections(this.app, this.plugin.settings)
+      .then((store) => ({ store, corrupted: false }))
+      .catch(() => ({ store: null, corrupted: true }));
+    let selection = currentExportDerivation(this.plugin);
+    if (selection.kind === "extraction") {
+      const extractionId = selection.id;
+      if (!extractionResult.corrupted && !extractionResult.store?.extractions.some((item) => item.id === extractionId)) {
+        rememberExportDerivation(this.plugin, { kind: "full" });
+        selection = { kind: "full" };
+      }
+    } else if (selection.kind === "collection") {
+      const collectionId = selection.id;
+      if (!collectionResult.corrupted && !collectionResult.store?.collections.some((item) => item.id === collectionId)) {
+        rememberExportDerivation(this.plugin, { kind: "full" });
+        selection = { kind: "full" };
+      }
+    }
+    return {
+      extractions: extractionResult.store?.extractions || [],
+      collections: collectionResult.store?.collections || [],
+      extractionsCorrupted: extractionResult.corrupted,
+      collectionsCorrupted: collectionResult.corrupted,
+      selection,
+    };
+  }
+
+  private hasDerivationOptions(data: DerivationData): boolean {
+    return data.extractions.length > 0 || data.collections.length > 0
+      || (data.selection.kind === "extraction" && data.extractionsCorrupted)
+      || (data.selection.kind === "collection" && data.collectionsCorrupted);
+  }
+
+  private derivationValue(selection: ContentDerivationSelection): string {
+    return selection.kind === "full" ? "full" : `${selection.kind}:${selection.id}`;
+  }
+
+  private selectionFromValue(value: string): ContentDerivationSelection {
+    if (value === "full") return { kind: "full" };
+    const separator = value.indexOf(":");
+    if (separator > 0) {
+      const kind = value.slice(0, separator);
+      const id = value.slice(separator + 1);
+      if (kind === "extraction" || kind === "collection") return { kind, id };
+    }
+    return { kind: "full" };
+  }
+
+  private configureDerivationDropdown(dropdown: DerivationDropdown, data: DerivationData): void {
+    dropdown.addOption("full", t("contentExtractions.allDocument"));
+    const addGroup = (label: string, items: { id: string; name: string }[]): void => {
+      if (items.length === 0) return;
+      if (dropdown.selectEl && typeof dropdown.selectEl.createEl === "function") {
+        const group = dropdown.selectEl.createEl("optgroup", { attr: { label } });
+        for (const item of items) group.createEl("option", { value: `${label === t("contentDerivation.extractions") ? "extraction" : "collection"}:${item.id}`, text: item.name });
+      } else {
+        const kind = label === t("contentDerivation.extractions") ? "extraction" : "collection";
+        for (const item of items) dropdown.addOption(`${kind}:${item.id}`, item.name);
+      }
+    };
+    addGroup(t("contentDerivation.extractions"), data.extractions);
+    addGroup(t("contentDerivation.collections"), data.collections);
+    if (data.selection.kind === "extraction" && data.extractionsCorrupted) dropdown.addOption(this.derivationValue(data.selection), t("contentDerivation.unavailableExtraction"));
+    if (data.selection.kind === "collection" && data.collectionsCorrupted) dropdown.addOption(this.derivationValue(data.selection), t("contentDerivation.unavailableCollection"));
+    dropdown.setValue(this.derivationValue(data.selection));
+    dropdown.onChange((value) => rememberExportDerivation(this.plugin, this.selectionFromValue(value)));
+  }
+
+  private configureNativeDerivationSelect(select: HTMLSelectElement, data: DerivationData): void {
+    select.createEl("option", { value: "full", text: t("contentExtractions.allDocument") });
+    const addGroup = (label: string, items: { id: string; name: string }[], kind: "extraction" | "collection"): void => {
+      if (items.length === 0) return;
+      const group = select.createEl("optgroup", { attr: { label } });
+      for (const item of items) group.createEl("option", { value: `${kind}:${item.id}`, text: item.name });
+    };
+    addGroup(t("contentDerivation.extractions"), data.extractions, "extraction");
+    addGroup(t("contentDerivation.collections"), data.collections, "collection");
+    if (data.selection.kind === "extraction" && data.extractionsCorrupted) select.createEl("option", { value: this.derivationValue(data.selection), text: t("contentDerivation.unavailableExtraction") });
+    if (data.selection.kind === "collection" && data.collectionsCorrupted) select.createEl("option", { value: this.derivationValue(data.selection), text: t("contentDerivation.unavailableCollection") });
+    select.value = this.derivationValue(data.selection);
+    select.addEventListener("change", () => rememberExportDerivation(this.plugin, this.selectionFromValue(select.value)));
   }
 
 
@@ -298,7 +393,6 @@ export class ExportPanel {
     else if (value === "folder" && active?.parent) scope = createFolderScope(root.path, active.parent.path);
     else scope = createProjectScope(root.path);
     rememberExportScope(this.plugin, scope);
-    this.syncExtractionSelection();
     this.scopeLabelEl = null;
   }
 
@@ -317,12 +411,6 @@ export class ExportPanel {
    * par ce panneau. Aucun appel à PreviewView.doExport(). */
   private async launchExport(): Promise<void> {
     await runExportWorkflow(this.app, this.plugin, this.resolveScope());
-    this.syncExtractionSelection();
-  }
-
-  private syncExtractionSelection(): void {
-    const select = this.container.querySelector(".feuillets-edition-quickexport-extraction");
-    if (select && "value" in select) (select as HTMLSelectElement).value = currentExportExtractionId(this.plugin) ?? "";
   }
 
   /** Reconstruit le panneau ENTIER (les valeurs affichées viennent des

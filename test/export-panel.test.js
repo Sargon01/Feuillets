@@ -4,6 +4,9 @@ import { TFile, TFolder } from "obsidian";
 import { ExportPanel } from "../src/ui/export-panel.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { t } from "../src/i18n/index.js";
+import { contentExtractionsFilePath } from "../src/services/content-extractions.js";
+import { contentCollectionsFilePath } from "../src/services/content-collections.js";
+import { currentExportDerivation, rememberExportDerivation } from "../src/services/export-workflow.js";
 
 /* Même petit DOM factice que test/preview-view.test.js (convention du
  * dépôt : dupliqué, pas partagé), réduit à ce qu'ExportPanel utilise
@@ -147,6 +150,152 @@ test("ExportPanel : sans getScope, la portée vient de currentExportScope(plugin
     const label = container.querySelector('[aria-label="Portée de l’export"]');
     assert.equal(label.textContent, "Projet");
     assert.deepEqual(plugin.activeExportScope, { type: "project", projectRoot: manuscript.path });
+  } finally {
+    restore();
+  }
+});
+
+async function writeDerivationStores(app, settings, extractions = [], collections = []) {
+  await app.vault.create(contentExtractionsFilePath(app, settings), JSON.stringify({ version: 1, extractions }));
+  await app.vault.create(contentCollectionsFilePath(app, settings), JSON.stringify({ version: 1, collections }));
+}
+
+test("ExportPanel : un seul sélecteur de dérivation regroupe extractions et collections", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, settings } = buildFixture();
+    await writeDerivationStores(app, settings,
+      [{ id: "same", name: "Glossaire", triggerRoles: ["definition"] }],
+      [{ id: "other", name: "Glossaire", roles: ["source"] }]);
+    const container = new FakeElement("div");
+    await new ExportPanel(app, plugin, container).render();
+    const derivation = container.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "extraction:same"));
+    assert.ok(derivation);
+    assert.equal(container.querySelectorAll("select").length, 2, "dérivation + format, jamais deux sélecteurs de dérivation");
+    const values = derivation.querySelectorAll("option").map((option) => option.value);
+    assert.deepEqual(values, ["full", "extraction:same", "collection:other"]);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel : quickbar et panneau complet partagent la sélection discriminée", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, settings } = buildFixture();
+    await writeDerivationStores(app, settings, [], [{ id: "collection-b", name: "B", roles: ["source"] }]);
+    const panelContainer = new FakeElement("div");
+    await new ExportPanel(app, plugin, panelContainer).render();
+    const panelSelect = panelContainer.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:collection-b"));
+    panelSelect.value = "collection:collection-b";
+    panelSelect.dispatch("change");
+    assert.deepEqual(currentExportDerivation(plugin), { kind: "collection", id: "collection-b" });
+    const quickbar = new FakeElement("div");
+    new ExportPanel(app, plugin, quickbar).renderQuickBar(quickbar);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const quickSelect = quickbar.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:collection-b"));
+    assert.equal(quickSelect.value, "collection:collection-b");
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel : store collections corrompu conserve la sélection active indisponible", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, settings } = buildFixture();
+    await app.vault.create(contentCollectionsFilePath(app, settings), "{ invalide");
+    plugin.activeExportDerivation = { projectRoot: "Projet/Manuscrit", selection: { kind: "collection", id: "gone" } };
+    const container = new FakeElement("div");
+    await new ExportPanel(app, plugin, container).render();
+    const derivation = container.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:gone"));
+    assert.ok(derivation);
+    assert.equal(derivation.value, "collection:gone");
+    assert.equal(derivation.querySelectorAll("option").at(-1).textContent, "Collection indisponible");
+  } finally {
+    restore();
+  }
+});
+
+async function derivationSelectFor(app, plugin, settings, extractions, collections) {
+  await writeDerivationStores(app, settings, extractions, collections);
+  const container = new FakeElement("div");
+  await new ExportPanel(app, plugin, container).render();
+  return container.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value !== "full"));
+}
+
+test("ExportPanel : aucune dérivation, extraction seule et collection seule exposent le bon sélecteur", async () => {
+  const restore = installDom();
+  try {
+    const first = buildFixture();
+    const empty = new FakeElement("div");
+    await new ExportPanel(first.app, first.plugin, empty).render();
+    assert.equal(empty.querySelectorAll("select").length, 1, "sans stores, seul le format est sélectionnable");
+
+    const extraction = buildFixture();
+    const extractionSelect = await derivationSelectFor(extraction.app, extraction.plugin, extraction.settings,
+      [{ id: "questions", name: "Questions", triggerRoles: ["questions"] }], []);
+    assert.deepEqual(extractionSelect.querySelectorAll("option").map((option) => option.value), ["full", "extraction:questions"]);
+
+    const collection = buildFixture();
+    const collectionSelect = await derivationSelectFor(collection.app, collection.plugin, collection.settings, [],
+      [{ id: "sources", name: "Sources", roles: ["source"] }]);
+    assert.deepEqual(collectionSelect.querySelectorAll("option").map((option) => option.value), ["full", "collection:sources"]);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel : renommage et suppression d'une dérivation active suivent le store valide", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const collectionPath = contentCollectionsFilePath(fixture.app, fixture.settings);
+    await fixture.app.vault.create(collectionPath, JSON.stringify({ version: 1, collections: [{ id: "sources", name: "Ancien", roles: ["source"] }] }));
+    rememberExportDerivation(fixture.plugin, { kind: "collection", id: "sources" });
+    const renamed = new FakeElement("div");
+    await new ExportPanel(fixture.app, fixture.plugin, renamed).render();
+    const renamedSelect = renamed.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:sources"));
+    assert.equal(renamedSelect.value, "collection:sources");
+    assert.equal(renamedSelect.querySelectorAll("option").find((option) => option.value === "collection:sources").textContent, "Ancien");
+
+    await fixture.app.vault.modify(fixture.app.vault.getAbstractFileByPath(collectionPath), JSON.stringify({ version: 1, collections: [{ id: "sources", name: "Nouveau", roles: ["source"] }] }));
+    const updated = new FakeElement("div");
+    await new ExportPanel(fixture.app, fixture.plugin, updated).render();
+    const updatedSelect = updated.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:sources"));
+    assert.equal(updatedSelect.value, "collection:sources");
+    assert.equal(updatedSelect.querySelectorAll("option").find((option) => option.value === "collection:sources").textContent, "Nouveau");
+
+    await fixture.app.vault.delete(fixture.app.vault.getAbstractFileByPath(collectionPath));
+    const deleted = new FakeElement("div");
+    await new ExportPanel(fixture.app, fixture.plugin, deleted).render();
+    assert.equal(currentExportDerivation(fixture.plugin).kind, "full");
+    assert.equal(deleted.querySelectorAll("select").length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel : suppressions et corruption d'un store n'effacent pas l'autre dérivation", async () => {
+  const restore = installDom();
+  try {
+    const extraction = buildFixture();
+    const extractionPath = contentExtractionsFilePath(extraction.app, extraction.settings);
+    await extraction.app.vault.create(extractionPath, JSON.stringify({ version: 1, extractions: [{ id: "questions", name: "Questions", triggerRoles: ["questions"] }] }));
+    rememberExportDerivation(extraction.plugin, { kind: "extraction", id: "questions" });
+    await extraction.app.vault.delete(extraction.app.vault.getAbstractFileByPath(extractionPath));
+    const extractionContainer = new FakeElement("div");
+    await new ExportPanel(extraction.app, extraction.plugin, extractionContainer).render();
+    assert.equal(currentExportDerivation(extraction.plugin).kind, "full");
+
+    const collection = buildFixture();
+    await collection.app.vault.create(contentCollectionsFilePath(collection.app, collection.settings), JSON.stringify({ version: 1, collections: [{ id: "sources", name: "Sources", roles: ["source"] }] }));
+    await collection.app.vault.create(contentExtractionsFilePath(collection.app, collection.settings), "{ invalide");
+    const collectionContainer = new FakeElement("div");
+    await new ExportPanel(collection.app, collection.plugin, collectionContainer).render();
+    const derivation = collectionContainer.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:sources"));
+    const values = derivation.querySelectorAll("option").map((option) => option.value);
+    assert.deepEqual(values, ["full", "collection:sources"]);
   } finally {
     restore();
   }

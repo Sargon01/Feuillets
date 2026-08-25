@@ -6,6 +6,7 @@ import { createFakeVault } from "./helpers/fake-vault.js";
 import { compile } from "../src/services/compile-export.js";
 import { exportDocx } from "../src/services/export-docx.js";
 import { exportEpub } from "../src/services/export-epub.js";
+import { exportOdt } from "../src/services/export-odt.js";
 import { renderManuscriptHtml } from "../src/services/export-render.js";
 
 /* Item 3 du chantier « Compilation professionnelle — Lot 1 » : DOCX et EPUB
@@ -240,6 +241,85 @@ function fakeRender(markdown, container) {
     container.appendChild(el("p", block));
   }
 }
+
+function fakeRenderWithCallouts(markdown, container) {
+  for (const block of markdown.split(/\n\n+/)) {
+    const callout = block.match(/^> \[!([\w-]+)\]\n(?:> ?.*\n?)+$/);
+    if (callout) {
+      const body = block.split("\n").slice(1).map((line) => line.replace(/^> ?/, "")).join("\n");
+      container.appendChild(el("div", body, { class: "callout", "data-callout": callout[1] }));
+    } else if (block.trim()) {
+      container.appendChild(el("p", block));
+    }
+  }
+}
+
+test("collection réelle : le manuscrit dérivé commun est utilisé par DOCX, ODT et EPUB", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, markdown, container) => fakeRender(markdown, container));
+  try {
+    const volume = new TFolder("Collection");
+    const manuscript = new TFolder("Collection/Manuscrit");
+    const scene = new TFile("Collection/Manuscrit/Scène.md", "Texte extérieur.\n\n> [!definition]\n> Définition.\n\n> [!preuve]\n> Preuve.\n\n> [!source]\n> Source.");
+    volume.children = [manuscript]; manuscript.parent = volume;
+    manuscript.children = [scene]; scene.parent = manuscript;
+    const { vault } = createFakeVault([volume, manuscript, scene]);
+    vault.cachedRead = vault.read;
+    const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+    const settings = {
+      projectFolder: manuscript.path, level1Role: "chapitres", orders: {}, compileFileName: "Collection.md",
+      insertFolderTitles: false, insertTitles: false, insertSceneTitles: false, separator: "\n\n",
+      activePreset: -1, compilePresets: [], exportFrenchTypography: false,
+    };
+    const result = await compile(app, settings, null, null, null, {
+      writeOutput: false,
+      contentCollection: { id: "defs-sources", name: "Définitions et sources", roles: ["definition", "source"] },
+    });
+    assert.ok(result);
+    assert.doesNotMatch(result.manuscript, /Texte extérieur|Preuve/);
+    assert.match(result.manuscript, /Définition|Source/);
+    const input = { markdown: result.manuscript, title: "Collection", author: "", sourcePath: result.outPath, segments: result.segments };
+    const docx = await exportDocx(app, settings, input);
+    const odt = await exportOdt(app, settings, input);
+    const epub = await exportEpub(app, settings, input);
+    const docxXml = await (await JSZip.loadAsync(docx)).file("word/document.xml").async("string");
+    const odtXml = await (await JSZip.loadAsync(odt)).file("content.xml").async("string");
+    const epubXml = await (await JSZip.loadAsync(epub)).file("OEBPS/chapitres.xhtml").async("string");
+    for (const output of [docxXml, odtXml, epubXml]) {
+      assert.match(output, /Définition/);
+      assert.match(output, /Source/);
+      assert.doesNotMatch(output, /Preuve|Texte extérieur/);
+    }
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
+test("collection + variante réelle : exclure source conserve seulement definition", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, markdown, container) => fakeRenderWithCallouts(markdown, container));
+  try {
+    const scene = new TFile("Variante/Manuscrit/Scène.md", "Texte ordinaire.\n\n> [!definition]\n> Définition.\n\n> [!preuve]\n> Preuve.\n\n> [!source]\n> Source.");
+    const manuscript = new TFolder("Variante/Manuscrit");
+    const volume = new TFolder("Variante");
+    volume.children = [manuscript]; manuscript.parent = volume; manuscript.children = [scene]; scene.parent = manuscript;
+    const { vault } = createFakeVault([volume, manuscript, scene]); vault.cachedRead = vault.read;
+    const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+    const settings = { projectFolder: manuscript.path, level1Role: "chapitres", orders: {}, compileFileName: "Variante.md", insertFolderTitles: false, insertTitles: false, insertSceneTitles: false, separator: "\n\n", activePreset: -1, compilePresets: [], exportFrenchTypography: false };
+    const result = await compile(app, settings, null, null, null, { writeOutput: false, contentCollection: { id: "defs-sources", name: "Définitions et sources", roles: ["definition", "source"] } });
+    assert.ok(result);
+    const variant = { id: "without-source", name: "Sans source", excludedRoles: ["source"], questionAnswerSpace: "keep" };
+    const input = { markdown: result.manuscript, title: "Variante", author: "", sourcePath: result.outPath, segments: result.segments, contentVariant: variant };
+    const epub = await exportEpub(app, settings, input);
+    const epubXml = await (await JSZip.loadAsync(epub)).file("OEBPS/chapitres.xhtml").async("string");
+    assert.match(epubXml, /Définition/);
+    assert.doesNotMatch(epubXml, /Source|Preuve|Texte ordinaire/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
 
 test("compile -> DOCX et EPUB : mêmes titres de chapitre, même texte, même nombre de notes", async () => {
   const restoreDom = installDom();

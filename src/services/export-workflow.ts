@@ -6,7 +6,19 @@ import {
   loadContentExtractions,
   type ContentExtraction,
 } from "./content-extractions.js";
+import {
+  ContentCollectionsFileCorruptedError,
+  loadContentCollections,
+  type ContentCollection,
+} from "./content-collections.js";
 import { t } from "../i18n/index.js";
+
+export type ContentDerivationSelection =
+  | { kind: "full" }
+  | { kind: "extraction"; id: string }
+  | { kind: "collection"; id: string };
+
+type ActiveContentDerivation = { projectRoot: string; selection: ContentDerivationSelection };
 
 /**
  * Service commun d'orchestration de l'export (Phase 1).
@@ -28,7 +40,7 @@ export type ExportWorkflowPlugin = {
   /** Portée de session, volontairement non persistée (voir main.ts) :
    * perdue au redémarrage, ce qui est normal. */
   activeExportScope?: CompileScope | null;
-  activeExportExtraction?: { projectRoot: string; extractionId: string } | null;
+  activeExportDerivation?: ActiveContentDerivation | null;
   /** Hook OPTIONNEL : vide les écritures Continu en attente du projet exporté
    * avant de lancer la compilation. Fourni par `FeuilletsPlugin`
    * (flushContinuWritesForProject) — un plugin qui ne l'expose pas (tests,
@@ -37,28 +49,69 @@ export type ExportWorkflowPlugin = {
   flushContinuWritesForProject?: (projectRoot: string) => Promise<boolean>;
 };
 
-export function rememberExportExtraction(plugin: ExportWorkflowPlugin, extractionId: string | null): void {
+export function rememberExportDerivation(plugin: ExportWorkflowPlugin, selection: ContentDerivationSelection): void {
   const root = plugin.getProjectFolder();
-  plugin.activeExportExtraction = root && extractionId ? { projectRoot: root.path, extractionId } : null;
+  plugin.activeExportDerivation = root ? { projectRoot: root.path, selection } : null;
+}
+
+export function currentExportDerivation(plugin: ExportWorkflowPlugin): ContentDerivationSelection {
+  const root = plugin.getProjectFolder();
+  const active = plugin.activeExportDerivation;
+  if (!root) return { kind: "full" };
+  if (!active || active.projectRoot !== root.path) {
+    plugin.activeExportDerivation = { projectRoot: root.path, selection: { kind: "full" } };
+    return { kind: "full" };
+  }
+  return active.selection;
+}
+
+/** Compatibilité d'API pour les appelants historiques : l'état réel reste la
+ * sélection discriminée unique `activeExportDerivation`. */
+export function rememberExportExtraction(plugin: ExportWorkflowPlugin, extractionId: string | null): void {
+  rememberExportDerivation(plugin, extractionId ? { kind: "extraction", id: extractionId } : { kind: "full" });
 }
 
 export function currentExportExtractionId(plugin: ExportWorkflowPlugin): string | null {
-  const root = plugin.getProjectFolder();
-  const active = plugin.activeExportExtraction;
-  if (!root || !active || active.projectRoot !== root.path) {
-    plugin.activeExportExtraction = null;
-    return null;
-  }
-  return active.extractionId;
+  const selection = currentExportDerivation(plugin);
+  return selection.kind === "extraction" ? selection.id : null;
 }
 
-async function resolveExportExtraction(app: App, plugin: ExportWorkflowPlugin): Promise<ContentExtraction | null> {
-  const extractionId = currentExportExtractionId(plugin);
-  if (!extractionId) return null;
-  const store = await loadContentExtractions(app, plugin.settings);
-  const extraction = store.extractions.find((item) => item.id === extractionId);
-  if (!extraction) plugin.activeExportExtraction = null;
-  return extraction ?? null;
+type ResolvedContentDerivation = {
+  contentExtraction: ContentExtraction | null;
+  contentCollection: ContentCollection | null;
+};
+
+async function resolveExportDerivation(app: App, plugin: ExportWorkflowPlugin): Promise<ResolvedContentDerivation | null> {
+  const selection = currentExportDerivation(plugin);
+  if (selection.kind === "full") return { contentExtraction: null, contentCollection: null };
+
+  if (selection.kind === "extraction") {
+    try {
+      const store = await loadContentExtractions(app, plugin.settings);
+      const extraction = store.extractions.find((item) => item.id === selection.id);
+      if (!extraction) rememberExportDerivation(plugin, { kind: "full" });
+      return { contentExtraction: extraction ?? null, contentCollection: null };
+    } catch (error) {
+      if (error instanceof ContentExtractionsFileCorruptedError) {
+        new Notice(t("contentExtractions.notice.exportFileCorrupted"));
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  try {
+    const store = await loadContentCollections(app, plugin.settings);
+    const collection = store.collections.find((item) => item.id === selection.id);
+    if (!collection) rememberExportDerivation(plugin, { kind: "full" });
+    return { contentExtraction: null, contentCollection: collection ?? null };
+  } catch (error) {
+    if (error instanceof ContentCollectionsFileCorruptedError) {
+      new Notice(t("contentCollections.notice.exportFileCorrupted"));
+      return null;
+    }
+    throw error;
+  }
 }
 
 /** Mémorise la portée d'export pour la durée de la session — aucune
@@ -136,17 +189,7 @@ export async function runExportWorkflow(
   const settings = plugin.settings;
   const resolvedFormat = (format || settings.exportFormat || "docx") as ExportFormat;
   const resolvedBaseName = baseName || exportBaseName(settings);
-  let contentExtraction: ContentExtraction | null = null;
-  if (currentExportExtractionId(plugin)) {
-    try {
-      contentExtraction = await resolveExportExtraction(app, plugin);
-    } catch (error) {
-      if (error instanceof ContentExtractionsFileCorruptedError) {
-        new Notice(t("contentExtractions.notice.exportFileCorrupted"));
-        return undefined;
-      }
-      throw error;
-    }
-  }
-  return exportWithScope(app, settings, resolvedScope, resolvedFormat, resolvedBaseName, contentExtraction);
+  const derivation = await resolveExportDerivation(app, plugin);
+  if (!derivation) return undefined;
+  return exportWithScope(app, settings, resolvedScope, resolvedFormat, resolvedBaseName, derivation.contentExtraction, derivation.contentCollection);
 }

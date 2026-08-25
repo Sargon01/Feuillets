@@ -9,9 +9,12 @@ import {
   runExportWorkflow,
   rememberExportExtraction,
   currentExportExtractionId,
+  rememberExportDerivation,
+  currentExportDerivation,
 } from "../src/services/export-workflow.js";
 import { createFileScope, createFolderScope, createSelectionScope, createProjectScope } from "../src/services/compile-scope.js";
 import { contentExtractionsFilePath } from "../src/services/content-extractions.js";
+import { contentCollectionsFilePath } from "../src/services/content-collections.js";
 
 /** Petit projet minimal — un feuillet, une page de titre — suffisant pour
  * que compile()/exportViaNative produisent réellement un fichier de sortie,
@@ -138,7 +141,7 @@ test("extraction d’export : état de session lié au projet et repli après ch
   assert.equal(currentExportExtractionId(plugin), "questions");
   plugin.getProjectFolder = () => scene.parent;
   assert.equal(currentExportExtractionId(plugin), null);
-  assert.equal(plugin.activeExportExtraction, null);
+  assert.deepEqual(plugin.activeExportDerivation?.selection, { kind: "full" });
 });
 
 test("runExportWorkflow : fichier d’extractions corrompu avec sélection active abandonne l’export", async () => {
@@ -151,6 +154,121 @@ test("runExportWorkflow : fichier d’extractions corrompu avec sélection activ
   const output = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Corrompu");
   assert.equal(output, undefined);
   assert.equal(app.vault.getFiles().length, before);
+});
+
+test("la sélection de dérivation est unique et se réinitialise sur Full ou changement de projet", () => {
+  const { app, settings, manuscript, scene } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  rememberExportDerivation(plugin, { kind: "collection", id: "collection-b" });
+  assert.deepEqual(currentExportDerivation(plugin), { kind: "collection", id: "collection-b" });
+  rememberExportDerivation(plugin, { kind: "full" });
+  assert.deepEqual(currentExportDerivation(plugin), { kind: "full" });
+  rememberExportDerivation(plugin, { kind: "extraction", id: "extraction-a" });
+  plugin.getProjectFolder = () => scene.parent;
+  assert.deepEqual(currentExportDerivation(plugin), { kind: "full" });
+  assert.deepEqual(plugin.activeExportDerivation.selection, { kind: "full" });
+});
+
+test("runExportWorkflow : collection active est résolue seule et Markdown reste la source", async () => {
+  const { app, settings, manuscript, scene } = buildProject();
+  scene.content = "> [!preuve]\n> Exclue\n\n> [!source]\n> Conservée";
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  const path = contentCollectionsFilePath(app, settings);
+  await app.vault.create(path, JSON.stringify({ version: 1, collections: [{ id: "sources", name: "Sources", roles: ["source"] }] }));
+  rememberExportDerivation(plugin, { kind: "collection", id: "sources" });
+  const output = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Source");
+  const compiled = await app.vault.read(app.vault.getAbstractFileByPath(output));
+  assert.match(compiled, /Exclue/);
+  assert.match(compiled, /Conservée/);
+});
+
+test("runExportWorkflow : corruption du store inactif n'empêche pas l'export actif", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  const extractionPath = contentExtractionsFilePath(app, settings);
+  const collectionPath = contentCollectionsFilePath(app, settings);
+  await app.vault.create(extractionPath, JSON.stringify({ version: 1, extractions: [{ id: "questions", name: "Questions", triggerRoles: ["questions"] }] }));
+  await app.vault.create(collectionPath, "{ invalide");
+  rememberExportDerivation(plugin, { kind: "extraction", id: "questions" });
+  const output = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Extraction");
+  assert.match(output, /Extraction\.md$/);
+});
+
+test("runExportWorkflow : corruption du store actif collection abandonne l'export", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  await app.vault.create(contentCollectionsFilePath(app, settings), "{ invalide");
+  rememberExportDerivation(plugin, { kind: "collection", id: "sources" });
+  const before = app.vault.getFiles().length;
+  const output = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "CorrompuCollection");
+  assert.equal(output, undefined);
+  assert.equal(app.vault.getFiles().length, before);
+});
+
+function assertSingleDerivation(plugin, expected) {
+  assert.deepEqual(currentExportDerivation(plugin), expected);
+  assert.equal(Boolean(plugin.activeExportDerivation?.contentExtraction), false);
+  assert.equal(Boolean(plugin.activeExportDerivation?.contentCollection), false);
+}
+
+test("runExportWorkflow : une session Extraction → Collection → Full ne laisse aucun état résiduel", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  await app.vault.create(contentExtractionsFilePath(app, settings), JSON.stringify({ version: 1, extractions: [{ id: "questions", name: "Questions", triggerRoles: ["questions"] }] }));
+  await app.vault.create(contentCollectionsFilePath(app, settings), JSON.stringify({ version: 1, collections: [{ id: "sources", name: "Sources", roles: ["source"] }] }));
+  const scope = createProjectScope(manuscript.path);
+
+  rememberExportDerivation(plugin, { kind: "extraction", id: "questions" });
+  await runExportWorkflow(app, plugin, scope, "md", "Extraction");
+  assertSingleDerivation(plugin, { kind: "extraction", id: "questions" });
+
+  rememberExportDerivation(plugin, { kind: "collection", id: "sources" });
+  await runExportWorkflow(app, plugin, scope, "md", "Collection");
+  assertSingleDerivation(plugin, { kind: "collection", id: "sources" });
+
+  rememberExportDerivation(plugin, { kind: "full" });
+  await runExportWorkflow(app, plugin, scope, "md", "Full");
+  assertSingleDerivation(plugin, { kind: "full" });
+});
+
+test("runExportWorkflow : suppression d'une sélection active rétablit Full", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  const collectionPath = contentCollectionsFilePath(app, settings);
+  await app.vault.create(collectionPath, JSON.stringify({ version: 1, collections: [{ id: "sources", name: "Sources", roles: ["source"] }] }));
+  rememberExportDerivation(plugin, { kind: "collection", id: "sources" });
+  await app.vault.delete(app.vault.getAbstractFileByPath(collectionPath));
+  await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Collection-supprimée");
+  assertSingleDerivation(plugin, { kind: "full" });
+
+  const extractionPath = contentExtractionsFilePath(app, settings);
+  await app.vault.create(extractionPath, JSON.stringify({ version: 1, extractions: [{ id: "questions", name: "Questions", triggerRoles: ["questions"] }] }));
+  rememberExportDerivation(plugin, { kind: "extraction", id: "questions" });
+  await app.vault.delete(app.vault.getAbstractFileByPath(extractionPath));
+  await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Extraction-supprimée");
+  assertSingleDerivation(plugin, { kind: "full" });
+});
+
+test("runExportWorkflow : les stores corrompus inactifs ne bloquent pas la dérivation active, Full compris", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  const extractionPath = contentExtractionsFilePath(app, settings);
+  const collectionPath = contentCollectionsFilePath(app, settings);
+  await app.vault.create(extractionPath, "{ invalide");
+  await app.vault.create(collectionPath, JSON.stringify({ version: 1, collections: [{ id: "sources", name: "Sources", roles: ["source"] }] }));
+  rememberExportDerivation(plugin, { kind: "collection", id: "sources" });
+  assert.ok(await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Collection-valide"));
+  assertSingleDerivation(plugin, { kind: "collection", id: "sources" });
+
+  await app.vault.modify(app.vault.getAbstractFileByPath(extractionPath), JSON.stringify({ version: 1, extractions: [{ id: "questions", name: "Questions", triggerRoles: ["questions"] }] }));
+  await app.vault.modify(app.vault.getAbstractFileByPath(collectionPath), "{ invalide");
+  rememberExportDerivation(plugin, { kind: "extraction", id: "questions" });
+  assert.ok(await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Extraction-valide"));
+  assertSingleDerivation(plugin, { kind: "extraction", id: "questions" });
+
+  rememberExportDerivation(plugin, { kind: "full" });
+  assert.ok(await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Full-valide"));
+  assertSingleDerivation(plugin, { kind: "full" });
 });
 
 test("runExportWorkflow : conserve scope/format/baseName explicites et mémorise la portée utilisée", async () => {
@@ -358,6 +476,32 @@ test("runExportWorkflow : accepte le format pdf (imprime via une iframe, même m
   try {
     await runExportWorkflow(app, plugin, scope, "pdf", "Export");
     assert.equal(dom.frames.length, 1, "l'export PDF doit avoir imprimé via une iframe");
+  } finally {
+    Platform.isMobile = previousMobile;
+    MarkdownRenderer.render = previousRender;
+    dom.restore();
+  }
+});
+
+test("runExportWorkflow : collection active traverse réellement le chemin PDF dérivé", async () => {
+  const { app, settings, manuscript, scene } = buildProject();
+  scene.content = "> [!definition]\n> Définition.\n\n> [!preuve]\n> Preuve.\n\n> [!source]\n> Source.";
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  await app.vault.create(contentCollectionsFilePath(app, settings), JSON.stringify({ version: 1, collections: [{ id: "defs-sources", name: "Définitions et sources", roles: ["definition", "source"] }] }));
+  rememberExportDerivation(plugin, { kind: "collection", id: "defs-sources" });
+  const previousMobile = Platform.isMobile;
+  const previousRender = MarkdownRenderer.render;
+  const dom = installMinimalPrintDom();
+  Platform.isMobile = false;
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    assert.match(markdown, /Définition/);
+    assert.match(markdown, /Source/);
+    assert.doesNotMatch(markdown, /Preuve/);
+    container.appendChild(dom.makeEl("p", "Définition Source"));
+  };
+  try {
+    await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "pdf", "Collection-PDF");
+    assert.equal(dom.frames.length, 1);
   } finally {
     Platform.isMobile = previousMobile;
     MarkdownRenderer.render = previousRender;
