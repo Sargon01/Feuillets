@@ -34,6 +34,8 @@ import { bibliographyEntries, generateBibliography } from "./bibliography-genera
 import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "./layout-store.js";
 import { injectDocumentLayoutMarkers } from "./document-layout.js";
 import { selectedContentVariant, type ContentVariant } from "./content-variants.js";
+import type { ContentExtraction } from "./content-extractions.js";
+import { extractSectionsByRoles } from "./content-section-extraction.js";
 
 /** Les deux noms reconnus pour le dossier Annexes, à la RACINE du dossier
  * Manuscrit — même convention de double reconnaissance (FR/EN) que
@@ -276,6 +278,7 @@ export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
 
 export type CompileOptions = {
   writeOutput?: boolean;
+  contentExtraction?: ContentExtraction | null;
 };
 
 /**
@@ -339,9 +342,9 @@ export async function compile(
   /**
    * @param {TFile} file
    * @param {string|null|undefined} frontType
-   * @returns {Promise<string>}
+   * @returns {Promise<{ text: string; renderText: string } | null>}
    */
-  const readBody = async (file: TFile, frontType: string | null | undefined = null): Promise<{ text: string; renderText: string }> => {
+  const readBody = async (file: TFile, frontType: string | null | undefined = null): Promise<{ text: string; renderText: string } | null> => {
     const isFrontPage = !!frontType;
     let content: string;
     try {
@@ -362,7 +365,14 @@ export async function compile(
        Il corrige au passage le frontmatter VIDE (`---` suivi de `---`), que
        l'expression locale précédente laissait fuir dans le texte compilé. */
     const relativeLayoutPath = relativeLayoutFilePath(folder.path, file.path) || file.path;
-    const renderSource = injectDocumentLayoutMarkers(content, layoutOverridesForFile(layoutStore, relativeLayoutPath));
+    let renderSource = injectDocumentLayoutMarkers(content, layoutOverridesForFile(layoutStore, relativeLayoutPath));
+    if (options?.contentExtraction) {
+      const extracted = extractSectionsByRoles(content, options.contentExtraction.triggerRoles);
+      if (extracted.length === 0) return null;
+      content = extracted.map((section) => section.markdown).join("\n\n");
+      const renderSections = extractSectionsByRoles(renderSource, options.contentExtraction.triggerRoles);
+      renderSource = renderSections.map((section) => section.markdown).join("\n\n");
+    }
     content = stripFrontmatter(content);
     let renderContent = stripFrontmatter(renderSource);
     /* Page Front : on ne rogne PAS les lignes vides de tête/queue comme pour
@@ -454,6 +464,7 @@ export async function compile(
    * @param {string|null|undefined} [frontType]
    * @param {string[]} [targetParts]
    * @param {CompileSegment[]} [targetSegments]
+   * @returns {Promise<boolean>}
    */
   const push = (
     text: string,
@@ -483,10 +494,10 @@ export async function compile(
     targetSegments: CompileSegment[] = segments
   ) => {
     const fm = fmOf(app, file);
-    if (fm.compile === false) return;
+    if (fm.compile === false) return false;
 
     // Respecter la portée: ignorer les fichiers hors de la liste résolue
-    if (!fileSet.has(file.path)) return;
+    if (!fileSet.has(file.path)) return false;
 
     /* Page Front spéciale (titre/dédicace/épigraphe) : jamais de titre de
        chapitre ni de numérotation — juste le corps, avec sa propre mise en
@@ -494,6 +505,7 @@ export async function compile(
     const normalizedFrontType = typeof fm.type === "string" ? fm.type.trim().toLowerCase() : "";
     const isFront = isFrontMatter(app, settings, file) && FRONT_PAGE_TYPES.includes(normalizedFrontType);
     const body = await readBody(file, isFront ? normalizedFrontType : undefined);
+    if (!body) return false;
     const sourceTitle = compiledTitleFor(app, file) || null;
     const sourceSubtitle = compiledSubtitleFor(app, file) || null;
 
@@ -502,7 +514,7 @@ export async function compile(
       targetSegments[targetSegments.length - 1].renderText = body.renderText;
       Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
       count++;
-      return;
+      return true;
     }
 
     const wantTitle = role === "scene" ? P.sceneTitles : P.chapterTitles;
@@ -517,6 +529,7 @@ export async function compile(
     Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
     if (title) targetSegments[targetSegments.length - 1].startsWithGeneratedTitle = true;
     count++;
+    return true;
   };
 
   /* Ensemble des dossiers autorisés à produire un titre, selon la portée.
@@ -582,7 +595,7 @@ export async function compile(
    * @param {TFolder} f
    * @param {number} depth
    */
-  const walk = async (f: TFolder, depth: number) => {
+  const walk = async (f: TFolder, depth: number, targetParts: string[] = parts, targetSegments: CompileSegment[] = segments) => {
     for (const child of getOrderedChildren(app, settings, f)) {
       if (child instanceof TFolder) {
         if (annexesFolderRef && child.path === annexesFolderRef.path) continue;
@@ -596,7 +609,28 @@ export async function compile(
            - la portée ne restreint pas les titres (allowedTitleFolders === null), OU
            - ce dossier fait explicitement partie de l'ensemble autorisé. */
         const titleAllowed = allowedTitleFolders === null || allowedTitleFolders.has(child.path);
-        if (role === "partie") {
+        if (options?.contentExtraction) {
+          const folderParts: string[] = [];
+          const folderSegments: CompileSegment[] = [];
+          if (role === "partie") {
+            await walk(child, depth + 1, folderParts, folderSegments);
+          } else {
+            for (const sc of flattenFiles(app, settings, child)) {
+              await pushFile(sc, "scene", depth + 1, folderParts, folderSegments);
+            }
+          }
+          if (folderSegments.length > 0) {
+            const showTitle = role === "partie" ? P.folderTitles : P.chapterTitles;
+            if (showTitle && !isFrontFolder && titleAllowed) {
+              push(`${level} ${child.name}`, null, null, targetParts, targetSegments);
+              const titleSegment = targetSegments[targetSegments.length - 1];
+              if (role === "partie") Object.assign(titleSegment, { startsWithGeneratedTitle: true, structuralType: "part" });
+              else titleSegment.startsWithGeneratedTitle = true;
+            }
+            targetParts.push(...folderParts);
+            targetSegments.push(...folderSegments);
+          }
+        } else if (role === "partie") {
           if (P.folderTitles && !isFrontFolder && titleAllowed) { push(`${level} ${child.name}`, null, null); Object.assign(segments[segments.length - 1], { startsWithGeneratedTitle: true, structuralType: "part" }); }
           await walk(child, depth + 1);
         } else {
@@ -606,7 +640,7 @@ export async function compile(
           }
         }
       } else {
-        await pushFile(child, roleOfFile(app, settings, child), depth);
+        await pushFile(child, roleOfFile(app, settings, child), depth, targetParts, targetSegments);
       }
     }
   };
