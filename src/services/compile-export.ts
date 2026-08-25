@@ -36,6 +36,8 @@ import { injectDocumentLayoutMarkers } from "./document-layout.js";
 import { selectedContentVariant, type ContentVariant } from "./content-variants.js";
 import type { ContentExtraction } from "./content-extractions.js";
 import { extractSectionsByRoles } from "./content-section-extraction.js";
+import type { ContentCollection } from "./content-collections.js";
+import { renderContentCollectionMarkdown } from "./content-collection-render.js";
 
 /** Les deux noms reconnus pour le dossier Annexes, à la RACINE du dossier
  * Manuscrit — même convention de double reconnaissance (FR/EN) que
@@ -279,6 +281,7 @@ export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
 export type CompileOptions = {
   writeOutput?: boolean;
   contentExtraction?: ContentExtraction | null;
+  contentCollection?: ContentCollection | null;
 };
 
 /**
@@ -300,6 +303,9 @@ export async function compile(
   outputFileName?: string | null,
   options?: CompileOptions
 ) {
+  if (options?.contentExtraction && options.contentCollection) {
+    throw new Error("contentExtraction et contentCollection sont des modes de dérivation alternatifs et ne peuvent pas être utilisés ensemble.");
+  }
   const folder = getProjectFolder(app, settings);
   if (!folder) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
@@ -372,6 +378,12 @@ export async function compile(
       content = extracted.map((section) => section.markdown).join("\n\n");
       const renderSections = extractSectionsByRoles(renderSource, options.contentExtraction.triggerRoles);
       renderSource = renderSections.map((section) => section.markdown).join("\n\n");
+    } else if (options?.contentCollection) {
+      const collected = renderContentCollectionMarkdown(content, options.contentCollection);
+      if (collected === null) return null;
+      content = collected;
+      const renderCollected = renderContentCollectionMarkdown(renderSource, options.contentCollection);
+      renderSource = renderCollected === null ? "" : renderCollected;
     }
     content = stripFrontmatter(content);
     let renderContent = stripFrontmatter(renderSource);
@@ -609,7 +621,7 @@ export async function compile(
            - la portée ne restreint pas les titres (allowedTitleFolders === null), OU
            - ce dossier fait explicitement partie de l'ensemble autorisé. */
         const titleAllowed = allowedTitleFolders === null || allowedTitleFolders.has(child.path);
-        if (options?.contentExtraction) {
+        if (options?.contentExtraction || options?.contentCollection) {
           const folderParts: string[] = [];
           const folderSegments: CompileSegment[] = [];
           if (role === "partie") {
