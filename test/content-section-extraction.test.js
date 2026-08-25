@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractSectionsByRoles } from "../src/services/content-section-extraction.js";
+import { collectSemanticRoleBlocks, extractSectionsByRoles } from "../src/services/content-section-extraction.js";
 
 const extract = (markdown, roles = ["questions"]) => extractSectionsByRoles(markdown, roles);
 
@@ -81,4 +81,82 @@ test("frontmatter absent du résultat et Markdown conservé à l'identique", () 
   const result = extract(markdown);
   assert.deepEqual(result, [{ markdown: "## Fiche  ##\r\n\r\n> [!questions]\r\n> Texte  \r\n", heading: "Fiche", level: 2 }]);
   assert.equal(markdown, "---\ntitle: Secret\n---\n## Fiche  ##\r\n\r\n> [!questions]\r\n> Texte  \r\n");
+});
+
+const collect = (markdown, roles = ["preuve"]) => collectSemanticRoleBlocks(markdown, roles);
+
+test("définition seule : collecte le bloc exact", () => {
+  const markdown = "> [!definition]\n> Un terme.\n";
+  assert.deepEqual(collect(markdown, ["definition"]), [{ role: "definition", markdown: markdown.trimEnd(), headingPath: [] }]);
+});
+
+test("plusieurs preuves : conserve l'ordre source", () => {
+  const markdown = "> [!preuve]\n> A\n\n> [!preuve]\n> B";
+  assert.deepEqual(collect(markdown).map((item) => item.markdown), ["> [!preuve]\n> A", "> [!preuve]\n> B"]);
+});
+
+test("preuve et source sont toutes deux collectées", () => {
+  const markdown = "> [!preuve]\n> A\n\n> [!source]\n> B";
+  assert.deepEqual(collect(markdown, ["preuve", "source"]).map((item) => item.role), ["preuve", "source"]);
+});
+
+test("headingPath suit la hiérarchie H1/H2/H3", () => {
+  const markdown = "# H1\n\n## H2\n\n### H3\n\n> [!preuve]\n> A";
+  assert.deepEqual(collect(markdown)[0].headingPath, [
+    { level: 1, markdown: "# H1" },
+    { level: 2, markdown: "## H2" },
+    { level: 3, markdown: "### H3" },
+  ]);
+});
+
+test("un changement de H2 retire l'ancien H3", () => {
+  const markdown = "# H1\n\n## H2\n\n### H3\n\n## Nouveau\n\n> [!preuve]\n> A";
+  assert.deepEqual(collect(markdown)[0].headingPath, [{ level: 1, markdown: "# H1" }, { level: 2, markdown: "## Nouveau" }]);
+});
+
+test("heading et callout plus bas dans un blockquote ordinaire sont ignorés", () => {
+  const markdown = "# H1\n\n> ### Faux\n> [!preuve]\n> A";
+  assert.deepEqual(collect(markdown), []);
+});
+
+test("un callout plus bas dans une citation ordinaire est ignoré", () => {
+  const markdown = "> Citation ordinaire.\n>\n> [!preuve]\n> Texte";
+  assert.deepEqual(collect(markdown), []);
+});
+
+test("callout dans une fence ignoré", () => {
+  assert.deepEqual(collect("```md\n> [!preuve]\n> Faux\n```"), []);
+});
+
+test("note, correction et lesson sont ignorés", () => {
+  assert.deepEqual(collect("> [!note]\n> A\n\n> [!correction]\n> B\n\n> [!lesson]\n> C"), []);
+});
+
+test("casse et syntaxes [!role]+ / [!role]- reconnues", () => {
+  const markdown = "> [!Preuve]+\n> A\n\n> [!PREUVE]- Titre\n> B";
+  assert.equal(collect(markdown).length, 2);
+});
+
+test("seul l'enfant sélectionné est collecté", () => {
+  const markdown = "> [!note]\n> Parent\n> > [!preuve]\n> > Enfant";
+  assert.deepEqual(collect(markdown).map((item) => item.markdown), ["> [!preuve]\n> Enfant"]);
+});
+
+test("l'imbrication interne de l'enfant est conservée", () => {
+  const markdown = "> [!note]\n> Parent\n> > [!preuve]\n> > Enfant\n> > > Citation interne";
+  assert.deepEqual(collect(markdown).map((item) => item.markdown), ["> [!preuve]\n> Enfant\n> > Citation interne"]);
+});
+
+test("parent et enfant sélectionnés : seul le parent est collecté", () => {
+  const markdown = "> [!preuve]\n> Parent\n> > [!source]\n> > Enfant";
+  assert.deepEqual(collect(markdown, ["preuve", "source"]).map((item) => item.markdown), [markdown.trimEnd()]);
+});
+
+test("Markdown retourné strictement identique au source", () => {
+  const markdown = "> [!preuve]+  Titre  \r\n> Texte  \r\n";
+  assert.equal(collect(markdown)[0].markdown, markdown.slice(0, -1));
+});
+
+test("rôle invalide passé à l'API : erreur", () => {
+  assert.throws(() => collect("", ["invalide"]), /Invalid semantic role/);
 });
