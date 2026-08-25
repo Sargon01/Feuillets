@@ -7,8 +7,11 @@ import {
   currentExportScope,
   exportBaseName,
   runExportWorkflow,
+  rememberExportExtraction,
+  currentExportExtractionId,
 } from "../src/services/export-workflow.js";
 import { createFileScope, createFolderScope, createSelectionScope, createProjectScope } from "../src/services/compile-scope.js";
+import { contentExtractionsFilePath } from "../src/services/content-extractions.js";
 
 /** Petit projet minimal — un feuillet, une page de titre — suffisant pour
  * que compile()/exportViaNative produisent réellement un fichier de sortie,
@@ -126,6 +129,28 @@ test("exportBaseName : repli sur Manuscrit sans preset ni compileFileName", () =
   settings.activePreset = -1;
   delete settings.compileFileName;
   assert.equal(exportBaseName(settings), "Manuscrit");
+});
+
+test("extraction d’export : état de session lié au projet et repli après changement", () => {
+  const { app, settings, manuscript, scene } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  rememberExportExtraction(plugin, "questions");
+  assert.equal(currentExportExtractionId(plugin), "questions");
+  plugin.getProjectFolder = () => scene.parent;
+  assert.equal(currentExportExtractionId(plugin), null);
+  assert.equal(plugin.activeExportExtraction, null);
+});
+
+test("runExportWorkflow : fichier d’extractions corrompu avec sélection active abandonne l’export", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  const path = contentExtractionsFilePath(app, settings);
+  await app.vault.create(path, "{ invalide");
+  rememberExportExtraction(plugin, "questions");
+  const before = app.vault.getFiles().length;
+  const output = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md", "Corrompu");
+  assert.equal(output, undefined);
+  assert.equal(app.vault.getFiles().length, before);
 });
 
 test("runExportWorkflow : conserve scope/format/baseName explicites et mémorise la portée utilisée", async () => {

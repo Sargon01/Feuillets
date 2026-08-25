@@ -5,8 +5,11 @@ import {
   exportBaseName,
   rememberExportScope,
   runExportWorkflow,
+  currentExportExtractionId,
+  rememberExportExtraction,
   type ExportWorkflowPlugin,
 } from "../services/export-workflow.js";
+import { loadContentExtractions } from "../services/content-extractions.js";
 import { type CompileScope } from "../services/compile-scope.js";
 import { createFileScope, createFolderScope, createProjectScope } from "../services/compile-scope.js";
 
@@ -157,6 +160,18 @@ export class ExportPanel {
     scopeLabel.textContent = this.scopeLabel();
     this.scopeLabelEl = scopeLabel;
 
+    const extractionStore = await loadContentExtractions(this.app, this.plugin.settings).catch(() => null);
+    if (extractionStore && extractionStore.extractions.length > 0) {
+      new Setting(main)
+        .setName(t("contentExtractions.select"))
+        .addDropdown((dropdown) => {
+          dropdown.addOption("", t("contentExtractions.allDocument"));
+          for (const extraction of extractionStore.extractions) dropdown.addOption(extraction.id, extraction.name);
+          dropdown.setValue(currentExportExtractionId(this.plugin) ?? "");
+          dropdown.onChange((value) => rememberExportExtraction(this.plugin, value || null));
+        });
+    }
+
     new Setting(main)
       .setName(t("preview.export.format"))
       .addDropdown((dropdown) => {
@@ -249,6 +264,20 @@ export class ExportPanel {
     });
     launch.setAttribute("aria-label", t("preview.export.launch"));
     launch.addEventListener("click", () => void this.launchExport());
+    void this.addQuickExtractionSelector(bar, format);
+  }
+
+  private async addQuickExtractionSelector(bar: HTMLElement, format: HTMLSelectElement): Promise<void> {
+    const store = await loadContentExtractions(this.app, this.plugin.settings).catch(() => null);
+    if (!store || store.extractions.length === 0) return;
+    const extraction = bar.createEl("select", { cls: "feuillets-edition-quickexport-extraction" });
+    extraction.createEl("option", { value: "", text: t("contentExtractions.allDocument") });
+    for (const item of store.extractions) extraction.createEl("option", { value: item.id, text: item.name });
+    extraction.value = currentExportExtractionId(this.plugin) ?? "";
+    extraction.setAttribute("aria-label", t("contentExtractions.select"));
+    extraction.addEventListener("change", () => rememberExportExtraction(this.plugin, extraction.value || null));
+    if (typeof bar.insertBefore === "function") bar.insertBefore(extraction, format);
+    else bar.appendChild(extraction);
   }
 
 
@@ -269,6 +298,7 @@ export class ExportPanel {
     else if (value === "folder" && active?.parent) scope = createFolderScope(root.path, active.parent.path);
     else scope = createProjectScope(root.path);
     rememberExportScope(this.plugin, scope);
+    this.syncExtractionSelection();
     this.scopeLabelEl = null;
   }
 
@@ -287,6 +317,12 @@ export class ExportPanel {
    * par ce panneau. Aucun appel à PreviewView.doExport(). */
   private async launchExport(): Promise<void> {
     await runExportWorkflow(this.app, this.plugin, this.resolveScope());
+    this.syncExtractionSelection();
+  }
+
+  private syncExtractionSelection(): void {
+    const select = this.container.querySelector(".feuillets-edition-quickexport-extraction");
+    if (select && "value" in select) (select as HTMLSelectElement).value = currentExportExtractionId(this.plugin) ?? "";
   }
 
   /** Reconstruit le panneau ENTIER (les valeurs affichées viennent des

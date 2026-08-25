@@ -915,7 +915,8 @@ export async function exportWithScope(
   settings: FeuilletsSettings,
   scope: CompileScope,
   format: ExportFormat,
-  baseName: string
+  baseName: string,
+  contentExtraction: ContentExtraction | null = null
 ): Promise<string | undefined> {
   if (format === "md") {
     /* Format Markdown : compile() écrit déjà le .md dans _Sortie et renvoie
@@ -926,7 +927,7 @@ export async function exportWithScope(
   /* Formats binaires : on passe par exportViaNative en fournissant la portée
      et le baseName directement — l'extension est ajoutée par exportViaNative
      selon le format. */
-  return exportViaNative(app, settings, format, null, undefined, baseName, false, scope);
+  return exportViaNative(app, settings, format, null, undefined, baseName, false, scope, contentExtraction);
 }
 
 /** Export DOCX de soumission : même compilation et même moteur que
@@ -1007,7 +1008,8 @@ async function exportViaNative(
   destinationFolderPath?: string,
   baseNameOverride?: string,
   nonDestructive = false,
-  scope?: CompileScope
+  scope?: CompileScope,
+  contentExtraction?: ContentExtraction | null
 ): Promise<string | undefined> {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
@@ -1023,7 +1025,14 @@ async function exportViaNative(
      tout. */
   try {
     /* Utiliser la portée explicite si fournie, sinon le chemin legacy. */
-    const result = await compile(app, settings, scopePath, scope ?? null);
+    const result = await compile(
+      app,
+      settings,
+      scopePath,
+      scope ?? null,
+      undefined,
+      contentExtraction ? { contentExtraction } : undefined,
+    );
     if (!result) return undefined;
 
     const { title, author } = resolveExportIdentity(app, settings, folder, result.segments);

@@ -1,6 +1,11 @@
 import { Notice, type App, type TFolder } from "obsidian";
 import { createProjectScope, type CompileScope } from "./compile-scope.js";
 import { activePresetConfig, exportWithScope, type ExportFormat } from "./compile-export.js";
+import {
+  ContentExtractionsFileCorruptedError,
+  loadContentExtractions,
+  type ContentExtraction,
+} from "./content-extractions.js";
 import { t } from "../i18n/index.js";
 
 /**
@@ -23,6 +28,7 @@ export type ExportWorkflowPlugin = {
   /** Portée de session, volontairement non persistée (voir main.ts) :
    * perdue au redémarrage, ce qui est normal. */
   activeExportScope?: CompileScope | null;
+  activeExportExtraction?: { projectRoot: string; extractionId: string } | null;
   /** Hook OPTIONNEL : vide les écritures Continu en attente du projet exporté
    * avant de lancer la compilation. Fourni par `FeuilletsPlugin`
    * (flushContinuWritesForProject) — un plugin qui ne l'expose pas (tests,
@@ -30,6 +36,30 @@ export type ExportWorkflowPlugin = {
    * `false` si un fichier reste dirty : l'export doit alors être abandonné. */
   flushContinuWritesForProject?: (projectRoot: string) => Promise<boolean>;
 };
+
+export function rememberExportExtraction(plugin: ExportWorkflowPlugin, extractionId: string | null): void {
+  const root = plugin.getProjectFolder();
+  plugin.activeExportExtraction = root && extractionId ? { projectRoot: root.path, extractionId } : null;
+}
+
+export function currentExportExtractionId(plugin: ExportWorkflowPlugin): string | null {
+  const root = plugin.getProjectFolder();
+  const active = plugin.activeExportExtraction;
+  if (!root || !active || active.projectRoot !== root.path) {
+    plugin.activeExportExtraction = null;
+    return null;
+  }
+  return active.extractionId;
+}
+
+async function resolveExportExtraction(app: App, plugin: ExportWorkflowPlugin): Promise<ContentExtraction | null> {
+  const extractionId = currentExportExtractionId(plugin);
+  if (!extractionId) return null;
+  const store = await loadContentExtractions(app, plugin.settings);
+  const extraction = store.extractions.find((item) => item.id === extractionId);
+  if (!extraction) plugin.activeExportExtraction = null;
+  return extraction ?? null;
+}
 
 /** Mémorise la portée d'export pour la durée de la session — aucune
  * sauvegarde settings, aucun état persistant. */
@@ -106,6 +136,17 @@ export async function runExportWorkflow(
   const settings = plugin.settings;
   const resolvedFormat = (format || settings.exportFormat || "docx") as ExportFormat;
   const resolvedBaseName = baseName || exportBaseName(settings);
-
-  return exportWithScope(app, settings, resolvedScope, resolvedFormat, resolvedBaseName);
+  let contentExtraction: ContentExtraction | null = null;
+  if (currentExportExtractionId(plugin)) {
+    try {
+      contentExtraction = await resolveExportExtraction(app, plugin);
+    } catch (error) {
+      if (error instanceof ContentExtractionsFileCorruptedError) {
+        new Notice(t("contentExtractions.notice.exportFileCorrupted"));
+        return undefined;
+      }
+      throw error;
+    }
+  }
+  return exportWithScope(app, settings, resolvedScope, resolvedFormat, resolvedBaseName, contentExtraction);
 }
